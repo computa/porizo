@@ -36,28 +36,29 @@ struct ExploreTabView: View {
                 exploreHeader
 
                 ScrollView {
-                    VStack(spacing: 0) {
-                        // Featured Card
-                        featuredCard
-                            .padding(.bottom, 24)
+                    VStack(alignment: .leading, spacing: 16) {
+                        // Hero card (peach container matching gallery)
+                        VStack(alignment: .leading, spacing: 12) {
+                            featuredCard
+                            quickCreateSection
+                        }
+                        .padding(20)
+                        .background(DesignTokens.coralBubble)
+                        .clipShape(RoundedRectangle(cornerRadius: 16))
 
-                        // Quick Create Section
-                        quickCreateSection
-                            .padding(.bottom, 24)
+                        // Occasions
+                        occasionsSection
 
                         // Recent Songs (if any)
                         if !recentTracks.isEmpty {
                             recentSongsSection
-                                .padding(.bottom, 24)
+                                .padding(.top, 8)
                         }
-
-                        // Popular Occasions
-                        occasionsSection
 
                         // Get Started card for new users
                         if recentTracks.isEmpty && !isLoadingTracks {
                             getStartedCard
-                                .padding(.top, 24)
+                                .padding(.top, 8)
                         }
                     }
                     .padding(.horizontal, 20)
@@ -91,76 +92,37 @@ struct ExploreTabView: View {
         .frame(height: 56)
     }
 
-    // MARK: - Featured Card (Variant A)
+    // MARK: - Featured Section (Warm Canvas)
 
     private var featuredCard: some View {
-        ZStack(alignment: .bottomLeading) {
-            // Gold gradient background
-            LinearGradient(
-                colors: [
-                    DesignTokens.gold.opacity(0.7),
-                    DesignTokens.goldDark.opacity(0.4)
-                ],
-                startPoint: .topTrailing,
-                endPoint: .bottomLeading
-            )
-            .frame(height: 160)
-            .clipShape(.rect(cornerRadius: 16))
-
-            // Text overlay
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Every moment")
-                    .font(DesignTokens.displayFont(size: 22))
-                Text("deserves a song.")
-                    .font(DesignTokens.displayFont(size: 22))
-                Text(recentTracks.isEmpty ? "Create something personal" : "You've created \(recentTracks.count) song\(recentTracks.count == 1 ? "" : "s")")
-                    .font(DesignTokens.bodyFont(size: 13))
-                    .opacity(0.7)
-            }
-            .foregroundStyle(.white)
-            .padding(16)
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Every moment deserves\na song")
+                .font(DesignTokens.displayFont(size: 20))
+                .foregroundStyle(DesignTokens.textPrimary)
+            Text("Create something personal")
+                .font(DesignTokens.bodyFont(size: 14))
+                .foregroundStyle(DesignTokens.textSecondary)
         }
-        .frame(height: 160)
     }
 
     // MARK: - Quick Create Section
 
     private var quickCreateSection: some View {
-        goldCTAButton(
-            icon: "sparkles",
-            label: "Create for someone special",
-            hint: "Opens creation menu to make a song or poem",
-            action: onCreate
-        )
-        .padding(.top, 8)
-    }
-
-    private func goldCTAButton(icon: String, label: String, hint: String, action: @escaping () -> Void) -> some View {
         Button {
             hapticImpactTrigger.toggle()
-            action()
+            onCreate()
         } label: {
-            HStack(spacing: 10) {
-                Image(systemName: icon)
-                    .font(.system(size: 20))
-                Text(label)
-                    .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
-            }
-            .foregroundStyle(.white)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 16)
-            .background(
-                LinearGradient(
-                    colors: [DesignTokens.gold, DesignTokens.gold.opacity(0.85)],
-                    startPoint: .leading,
-                    endPoint: .trailing
-                )
-            )
-            .clipShape(.rect(cornerRadius: 14))
+            Text("\u{2726} Create for someone special")
+                .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 16)
+                .background(DesignTokens.gold)
+                .clipShape(RoundedRectangle(cornerRadius: 14))
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(label)
-        .accessibilityHint(hint)
+        .accessibilityLabel("Create for someone special")
+        .accessibilityHint("Opens creation menu to make a song or poem")
     }
 
     // MARK: - Occasions Section (Horizontal Chips)
@@ -168,7 +130,7 @@ struct ExploreTabView: View {
     private var occasionsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Create for an Occasion")
-                .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
+                .font(DesignTokens.bodyFont(size: 18, weight: .bold))
                 .foregroundStyle(DesignTokens.textPrimary)
 
             ScrollView(.horizontal) {
@@ -193,16 +155,16 @@ struct ExploreTabView: View {
                 Text(occasion.emoji)
                     .font(.system(size: 14))
                 Text(occasion.displayName)
-                    .font(DesignTokens.bodyFont(size: 14, weight: .medium))
+                    .font(DesignTokens.bodyFont(size: 13, weight: .medium))
             }
             .foregroundStyle(DesignTokens.textPrimary)
             .padding(.horizontal, 14)
-            .padding(.vertical, 10)
+            .padding(.vertical, 6)
             .background(DesignTokens.surface)
-            .clipShape(.rect(cornerRadius: 22))
+            .clipShape(Capsule())
             .overlay(
-                RoundedRectangle(cornerRadius: 22)
-                    .stroke(DesignTokens.borderSubtle, lineWidth: 1)
+                Capsule()
+                    .stroke(DesignTokens.border, lineWidth: 1.5)
             )
         }
         .buttonStyle(.plain)
@@ -240,8 +202,8 @@ struct ExploreTabView: View {
     private var recentSongsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("Recent")
-                    .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
+                Text("Recent Songs")
+                    .font(DesignTokens.bodyFont(size: 18, weight: .bold))
                     .foregroundStyle(DesignTokens.textPrimary)
                 Spacer()
                 if let onSeeAllSongs {

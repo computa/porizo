@@ -34,6 +34,40 @@ enum SongProgress: String, Codable {
     case fullRenderReady  // Full song rendered
 }
 
+// MARK: - Warm Canvas Flow (Four Moments)
+
+/// Top-level moment in the Warm Canvas redesign flow.
+/// Tell stays mounted; Wait/Reveal/Share overlay on top.
+enum WarmCanvasMoment: Equatable {
+    case tell(TellSubPhase)
+    case wait
+    case reveal
+    case share
+}
+
+/// Sub-phases within the Tell moment.
+enum TellSubPhase: Equatable {
+    case nameEntry       // Inline name prompt before conversation starts
+    case conversing      // V2StoryEngine chat active
+    case confirmed       // Story confirmed, voice selection pending
+    case voiceSelected   // Voice chosen, track creation in progress
+    case trackCreated    // Lyrics review active
+}
+
+// MARK: - Warm Canvas Error Overlays
+
+/// Error states rendered as full-screen overlays in WarmCanvasFlowView.
+/// Each case maps to a FlowErrorViews view with recovery callbacks.
+enum WarmCanvasError: Equatable {
+    case connectionError                     // TellConnectionErrorView
+    case moderationError                     // TellModerationErrorView
+    case waitTimeout                         // WaitTimeoutErrorView
+    case waitFailure(recipientName: String)  // WaitFailureErrorView
+    case revealPartial                       // RevealPartialErrorView
+    case shareFailure                        // ShareFailureView
+    case noCredits                           // NoCreditsView
+}
+
 // MARK: - Presentation Router
 
 /// Single slot for sheets and fullScreenCovers (mutually exclusive).

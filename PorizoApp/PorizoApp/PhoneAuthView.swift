@@ -3,7 +3,7 @@
 //  PorizoApp
 //
 //  Phone number entry view for authentication.
-//  Matches v1.pen "03 - Phone Number" design.
+//  Matches Warm Canvas "Phone Entry" prototype.
 //
 
 import SwiftUI
@@ -67,20 +67,36 @@ struct PhoneAuthView: View {
             DesignTokens.background.ignoresSafeArea()
 
             VStack(spacing: 0) {
-                // Header (v1.pen: "Your Phone Number" centered)
-                VelvetHeader(
-                    title: "Your Phone Number",
-                    showBackButton: true,
-                    onBack: onBack
-                )
+                // Header — Warm Canvas nav-bar style
+                HStack {
+                    Button { onBack() } label: {
+                        ZStack {
+                            Circle()
+                                .fill(Color.black.opacity(0.05))
+                                .frame(width: 44, height: 44)
+                            Image(systemName: "arrow.left")
+                                .font(.system(size: 18))
+                                .foregroundStyle(DesignTokens.textPrimary)
+                        }
+                    }
+                    Spacer()
+                    Color.clear.frame(width: 44, height: 44)
+                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 8)
 
                 // Content
                 VStack(spacing: 32) {
-                    // Subtitle (v1.pen: shows below header)
-                    Text("We'll send you a verification code")
-                        .font(DesignTokens.bodyFont(size: 16))
-                        .foregroundStyle(DesignTokens.textSecondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    // Title + subtitle (Warm Canvas inline header)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Your Phone Number")
+                            .font(DesignTokens.bodyFont(size: 20, weight: .bold))
+                            .foregroundStyle(DesignTokens.textPrimary)
+                        Text("We'll send you a verification code")
+                            .font(DesignTokens.bodyFont(size: 14))
+                            .foregroundStyle(DesignTokens.textSecondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
                     // Error banner
                     if let error = error {
@@ -92,15 +108,20 @@ struct PhoneAuthView: View {
 
                     Spacer()
 
-                    // Continue button
-                    VelvetButton(
-                        "Continue",
-                        style: .primary,
-                        isLoading: isLoading,
-                        isDisabled: !isValidPhoneNumber
-                    ) {
+                    // Continue button (Warm Canvas coral style)
+                    Button {
                         Task { await sendVerificationCode() }
+                    } label: {
+                        Text("Continue")
+                            .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 16)
+                            .background(DesignTokens.gold)
+                            .clipShape(RoundedRectangle(cornerRadius: 14))
+                            .opacity(isValidPhoneNumber ? 1.0 : 0.5)
                     }
+                    .disabled(!isValidPhoneNumber || isLoading)
 
                     // Terms notice
                     termsNotice
@@ -137,57 +158,44 @@ struct PhoneAuthView: View {
 
     // MARK: - Components
 
-    /// Phone number input with country code picker
+    /// Phone number input with country code picker (Warm Canvas style)
     private var phoneInputSection: some View {
-        VStack(alignment: .leading, spacing: DesignTokens.spacing8) {
-            Text("Phone Number")
-                .font(DesignTokens.bodyFont(size: 14, weight: .medium))
-                .foregroundStyle(DesignTokens.textSecondary)
-
-            HStack(spacing: 12) {
-                // Country picker button
-                Button {
-                    showCountryPicker = true
-                } label: {
-                    HStack(spacing: 8) {
-                        Text(selectedCountry.flag)
-                            .font(.system(size: 24))
-                        Text(selectedCountry.dialCode)
-                            .font(DesignTokens.bodyFont(size: 16, weight: .medium))
-                            .foregroundStyle(DesignTokens.textPrimary)
-                        Image(systemName: "chevron.down")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(DesignTokens.textSecondary)
-                    }
-                    .padding(.horizontal, DesignTokens.spacing12)
-                    .padding(.vertical, DesignTokens.spacing12)
-                    .background(DesignTokens.inputBackground)
-                    .clipShape(.rect(cornerRadius: DesignTokens.radiusMedium))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: DesignTokens.radiusMedium)
-                            .stroke(DesignTokens.borderSubtle, lineWidth: 1)
-                    )
-                }
-
-                // Phone number text field
-                TextField("(555) 123-4567", text: $phoneNumber)
+        HStack(spacing: 8) {
+            // Country picker button
+            Button {
+                showCountryPicker = true
+            } label: {
+                Text("\(selectedCountry.flag) \(selectedCountry.dialCode)")
                     .font(DesignTokens.bodyFont(size: 16))
                     .foregroundStyle(DesignTokens.textPrimary)
-                    .keyboardType(.phonePad)
-                    .textContentType(.telephoneNumber)
-                    .focused($isPhoneFieldFocused)
-                    .padding(.horizontal, DesignTokens.spacing16)
-                    .padding(.vertical, DesignTokens.spacing12)
-                    .background(DesignTokens.inputBackground)
-                    .clipShape(.rect(cornerRadius: DesignTokens.radiusMedium))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 14)
+                    .background(DesignTokens.surface)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
                     .overlay(
-                        RoundedRectangle(cornerRadius: DesignTokens.radiusMedium)
-                            .stroke(DesignTokens.borderSubtle, lineWidth: 1)
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(DesignTokens.border, lineWidth: 1.5)
                     )
-                    .onChange(of: phoneNumber) { _, newValue in
-                        phoneNumber = formatPhoneNumber(newValue)
-                    }
             }
+
+            // Phone number text field
+            TextField("(555) 123-4567", text: $phoneNumber)
+                .font(DesignTokens.bodyFont(size: 16))
+                .foregroundStyle(DesignTokens.textPrimary)
+                .keyboardType(.phonePad)
+                .textContentType(.telephoneNumber)
+                .focused($isPhoneFieldFocused)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+                .background(DesignTokens.surface)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(DesignTokens.border, lineWidth: 1.5)
+                )
+                .onChange(of: phoneNumber) { _, newValue in
+                    phoneNumber = formatPhoneNumber(newValue)
+                }
         }
     }
 

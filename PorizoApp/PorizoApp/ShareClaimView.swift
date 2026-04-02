@@ -89,80 +89,97 @@ struct ShareClaimView: View {
     }
 
     private var pinEntryView: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 0) {
+            Spacer()
+
             shareHeader
 
-            // Primary CTA — Listen Now
-            Button {
-                claimShare()
-            } label: {
-                HStack(spacing: 8) {
-                    if isClaiming && pin.isEmpty {
-                        ProgressView()
-                            .tint(.white)
-                    } else {
-                        Image(systemName: "play.fill")
-                    }
-                    Text(isClaiming && pin.isEmpty ? "Loading..." : "Listen Now")
-                }
-                .font(.headline)
-                .foregroundStyle(.white)
-                .frame(maxWidth: .infinity)
-                .padding()
-                .background(DesignTokens.gold)
-                .clipShape(.rect(cornerRadius: 14))
-            }
-            .disabled(isClaiming)
+            Spacer()
 
-            // Divider label
-            Text("or enter the sender's PIN")
-                .font(.subheadline)
-                .foregroundStyle(DesignTokens.textTertiary)
-
-            // Secondary PIN section — reduced visual weight until focused
             VStack(spacing: 12) {
-                TextField("000000", text: $pin)
-                    .keyboardType(.numberPad)
-                    .textContentType(.oneTimeCode)
-                    .multilineTextAlignment(.center)
-                    .font(.system(size: 28, weight: .bold, design: .monospaced))
-                    .padding()
-                    .background(DesignTokens.surface)
-                    .clipShape(.rect(cornerRadius: 12))
-                    .focused($pinFocused)
-                    .onChange(of: pin) { _, newValue in
-                        pin = String(newValue.filter { $0.isNumber }.prefix(6))
-                        pinError = nil
-                    }
-
-                if let pinError {
-                    Text(pinError)
-                        .font(.caption)
-                        .foregroundStyle(DesignTokens.error)
-                }
-
+                // Primary CTA — Listen Now (coral)
                 Button {
                     claimShare()
                 } label: {
                     HStack(spacing: 8) {
-                        if isClaiming && !pin.isEmpty {
+                        if isClaiming && pin.isEmpty {
                             ProgressView()
                                 .tint(.white)
+                        } else {
+                            Text("\u{25B6}")
                         }
-                        Text(isClaiming && !pin.isEmpty ? "Claiming..." : "Claim & Play")
+                        Text(isClaiming && pin.isEmpty ? "Loading..." : "Listen Now")
                     }
-                    .font(.headline)
+                    .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(pin.count == 6 && !isClaiming ? DesignTokens.gold : DesignTokens.gold.opacity(0.15))
-                    .clipShape(.rect(cornerRadius: 12))
+                    .padding(.vertical, 16)
+                    .background(DesignTokens.gold)
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
                 }
-                .disabled(pin.count != 6 || isClaiming)
+                .disabled(isClaiming)
+
+                // Divider label
+                Text("or enter the sender's PIN")
+                    .font(DesignTokens.bodyFont(size: 13))
+                    .foregroundStyle(DesignTokens.textSecondary)
+
+                // Secondary PIN section — reduced visual weight until focused
+                VStack(spacing: 12) {
+                    TextField("000000", text: $pin)
+                        .keyboardType(.numberPad)
+                        .textContentType(.oneTimeCode)
+                        .multilineTextAlignment(.center)
+                        .font(.system(size: 28, weight: .bold, design: .monospaced))
+                        .padding()
+                        .background(DesignTokens.surface)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .focused($pinFocused)
+                        .onChange(of: pin) { _, newValue in
+                            pin = String(newValue.filter { $0.isNumber }.prefix(6))
+                            pinError = nil
+                        }
+
+                    if let pinError {
+                        Text(pinError)
+                            .font(.caption)
+                            .foregroundStyle(DesignTokens.error)
+                    }
+
+                    Button {
+                        claimShare()
+                    } label: {
+                        HStack(spacing: 8) {
+                            if isClaiming && !pin.isEmpty {
+                                ProgressView()
+                                    .tint(.white)
+                            }
+                            Text(isClaiming && !pin.isEmpty ? "Claiming..." : "Claim & Play")
+                        }
+                        .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
+                        .background(pin.count == 6 && !isClaiming ? DesignTokens.gold : DesignTokens.gold.opacity(0.15))
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                    }
+                    .disabled(pin.count != 6 || isClaiming)
+                }
+                .opacity(pinFocused ? 1.0 : 0.6)
+                .scaleEffect(pinFocused ? 1.0 : 0.9)
+                .animation(.easeOut(duration: 0.2), value: pinFocused)
+
+                // Bottom links
+                Text("Don't have the app? Download Porizo")
+                    .font(DesignTokens.bodyFont(size: 13))
+                    .foregroundStyle(DesignTokens.textSecondary)
+
+                Text("Make one for someone you love \u{2192}")
+                    .font(DesignTokens.bodyFont(size: 13))
+                    .foregroundStyle(DesignTokens.gold)
             }
-            .opacity(pinFocused ? 1.0 : 0.6)
-            .scaleEffect(pinFocused ? 1.0 : 0.9)
-            .animation(.easeOut(duration: 0.2), value: pinFocused)
+            .padding(.horizontal, 20)
+            .padding(.bottom, 40)
         }
     }
 
@@ -216,18 +233,64 @@ struct ShareClaimView: View {
     }
 
     private var shareHeader: some View {
-        VStack(spacing: 8) {
-            Text(trackInfo?.title ?? "Your Song")
-                .font(.title2.bold())
+        VStack(spacing: 16) {
+            // Gold mic circle
+            Circle()
+                .fill(DesignTokens.gold)
+                .frame(width: 48, height: 48)
+                .overlay(
+                    Image(systemName: "mic.fill")
+                        .font(.system(size: 24))
+                        .foregroundStyle(.white)
+                )
+
+            // Sender text
+            Text(senderHeadline)
+                .font(DesignTokens.displayFont(size: 22))
                 .foregroundStyle(DesignTokens.textPrimary)
                 .multilineTextAlignment(.center)
 
-            if let recipient = trackInfo?.recipientName, !recipient.isEmpty {
-                Text("Made for \(recipient)")
-                    .font(.subheadline)
-                    .foregroundStyle(DesignTokens.textSecondary)
-            }
+            Text(senderSubline)
+                .font(DesignTokens.bodyFont(size: 15))
+                .foregroundStyle(DesignTokens.textSecondary)
+                .multilineTextAlignment(.center)
+
+            // Mini postcard card
+            miniPostcard
         }
+    }
+
+    private var senderHeadline: String {
+        if let recipient = trackInfo?.recipientName, !recipient.isEmpty {
+            return "\(recipient) sent you a song"
+        }
+        return "Someone sent you a song"
+    }
+
+    private var senderSubline: String {
+        "A song, made just for you"
+    }
+
+    private var miniPostcard: some View {
+        VStack(spacing: 8) {
+            Text("For You")
+                .font(DesignTokens.displayFont(size: 20))
+                .foregroundStyle(.white)
+            StaticWaveformBars(heights: [6, 10, 16, 20, 16, 10, 6], barWidth: 3, spacing: 4)
+            Text(trackInfo?.title ?? "Your Song")
+                .font(DesignTokens.bodyFont(size: 14))
+                .foregroundStyle(.white.opacity(0.8))
+        }
+        .padding(24)
+        .frame(maxWidth: 300)
+        .background(
+            LinearGradient(
+                colors: [DesignTokens.gold, Color(hex: "#e8966e")],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 16))
     }
 
     private func statusView(message: String) -> some View {

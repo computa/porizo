@@ -219,7 +219,7 @@ struct SharePostcardView: View {
                                 .foregroundStyle(Color(hex: "#1A1A1A"))
                                 .lineLimit(2)
 
-                            Text("Someone special created a personalized \(occasionWord) song for \(recipientName)")
+                            Text("Someone special created a personalized \(occasion.flatMap { Occasion(rawValue: $0)?.displayName.lowercased() } ?? "personal") song for \(recipientName)")
                                 .font(.system(size: 11))
                                 .foregroundStyle(Color(hex: "#666666"))
                                 .lineLimit(2)

@@ -52,16 +52,23 @@ struct VoiceSelectionChips: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
             PromptBubble(text: "How should your song sound?")
 
             // Voice option chips
-            HStack(spacing: 8) {
+            HStack(spacing: 10) {
                 ForEach(options) { option in
                     chipButton(option: option)
                 }
             }
         }
+        .padding(16)
+        .background(DesignTokens.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(DesignTokens.gold.opacity(0.2), lineWidth: 1)
+        )
     }
 
     private func chipButton(option: VoiceChipKind) -> some View {

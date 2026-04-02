@@ -46,14 +46,13 @@ struct InputBarView: View {
     private var canSendInput: Bool {
         !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && !engine.isLoading
-            && !engine.isComplete
             && inputCharacterCount <= StoryPromptBudget.storyAnswerHardLimit
     }
 
     private var inputPlaceholder: String {
         engine.isEditingFromReview
             ? "Tell me what to change or add..."
-            : "Share your thoughts..."
+            : "Tell me more..."
     }
 
     var body: some View {
@@ -64,7 +63,20 @@ struct InputBarView: View {
                     .transition(.opacity.combined(with: .move(edge: .top)))
             }
 
-            // Floating container
+            // Done chip — above container when story is ready
+            if engine.currentTurn >= 2 || engine.isComplete {
+                HStack {
+                    DoneChipView(
+                        isReviewMode: engine.isEditingFromReview,
+                        isLoading: engine.isLoading,
+                        action: handleDoneAction
+                    )
+                    Spacer()
+                }
+                .padding(.horizontal, 16)
+            }
+
+            // Floating two-part container (matching UnifiedCreateFlowView design)
             FloatingInputContainer {
                 TextField(inputPlaceholder, text: $inputText, axis: .vertical)
                     .textFieldStyle(.plain)
@@ -75,17 +87,12 @@ struct InputBarView: View {
                     .lineLimit(1...6)
             } actionRow: {
                 HStack(spacing: 8) {
-                    BudgetChipView(
-                        count: inputCharacterCount,
-                        limit: StoryPromptBudget.storyAnswerHardLimit,
-                        state: inputBudgetState
-                    )
-
-                    if engine.currentTurn >= 2 {
-                        DoneChipView(
-                            isReviewMode: engine.isEditingFromReview,
-                            isLoading: engine.isLoading,
-                            action: handleDoneAction
+                    // Show character count only when approaching the limit (5200+)
+                    if inputCharacterCount >= 5200 {
+                        BudgetChipView(
+                            count: inputCharacterCount,
+                            limit: StoryPromptBudget.storyAnswerHardLimit,
+                            state: inputBudgetState
                         )
                     }
 
@@ -102,7 +109,11 @@ struct InputBarView: View {
                 }
             }
         }
-        .background(DesignTokens.background)
+        .padding(.top, 8)
+        .background(DesignTokens.surfaceMuted)
+        .overlay(alignment: .top) {
+            Rectangle().fill(DesignTokens.border).frame(height: 1)
+        }
         .sensoryFeedback(.impact(weight: .medium), trigger: submitHapticTrigger)
         .animation(.easeInOut(duration: 0.2), value: inputBudgetState)
         .onChange(of: isInputFocused) { _, focused in
@@ -200,24 +211,24 @@ private struct DoneChipView: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 4) {
+            HStack(spacing: 6) {
                 Image(systemName: isReviewMode
                       ? "arrow.uturn.left.circle.fill"
                       : "checkmark.circle.fill")
-                    .font(.system(size: 12, weight: .semibold))
-                Text(isReviewMode ? "Return" : "Done")
-                    .font(DesignTokens.bodyFont(size: 12, weight: .semibold))
+                    .font(.system(size: 16, weight: .semibold))
+                Text(isReviewMode ? "Return" : "Done — ready to create")
+                    .font(DesignTokens.bodyFont(size: 14, weight: .semibold))
             }
-            .foregroundStyle(DesignTokens.gold)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            .background(DesignTokens.gold.opacity(0.1))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(DesignTokens.gold)
             .clipShape(Capsule())
         }
         .buttonStyle(.plain)
         .disabled(isLoading)
         .opacity(isLoading ? 0.4 : 1.0)
-        .accessibilityLabel(isReviewMode ? "Return to review" : "Finish sharing")
+        .accessibilityLabel(isReviewMode ? "Return to review" : "Finish sharing — ready to create")
     }
 }
 

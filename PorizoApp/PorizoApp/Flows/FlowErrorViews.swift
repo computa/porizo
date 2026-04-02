@@ -377,6 +377,83 @@ struct RevealPartialErrorView: View {
     }
 }
 
+// MARK: - 6. ShareFailureView
+
+/// Shown when share link generation fails.
+struct ShareFailureView: View {
+    let onTryAgain: () -> Void    // Try Again
+    let onCopyLink: () -> Void    // Copy Song Link Manually
+
+    var body: some View {
+        FlowErrorScaffold(
+            title: "Couldn't create share link",
+            bodyLines: [
+                "Check your connection and try again."
+            ],
+            icon: { shareFailureIcon },
+            actions: {
+                VStack(spacing: DesignTokens.spacing12) {
+                    CoralCTAButton("Try Again", icon: "arrow.clockwise", action: onTryAgain)
+                    TextLinkButton(label: "Copy Song Link Manually", action: onCopyLink)
+                }
+            }
+        )
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Share link failed. Check connection and try again.")
+    }
+
+    private var shareFailureIcon: some View {
+        flowErrorIcon(symbol: "link.badge.plus", color: DesignTokens.gold)
+    }
+}
+
+// MARK: - 7. NoCreditsView
+
+/// Shown when the user has exhausted all credits and cannot create a song.
+struct NoCreditsView: View {
+    let onUpgrade: () -> Void     // Upgrade to Pro
+    let onRestore: () -> Void     // Restore Purchases
+    let onDismiss: () -> Void     // Maybe Later
+
+    var body: some View {
+        FlowErrorScaffold(
+            title: "You've used all your credits",
+            bodyLines: [
+                "Upgrade to Pro for 20 songs per month"
+            ],
+            icon: { EmptyView() },
+            extra: {
+                // Inline credits badge
+                HStack(spacing: 8) {
+                    Text("Free")
+                        .font(DesignTokens.bodyFont(size: 13, weight: .semibold))
+                        .foregroundStyle(DesignTokens.textPrimary)
+                    Text("— 0 credits remaining")
+                        .font(DesignTokens.bodyFont(size: 13))
+                        .foregroundStyle(DesignTokens.textTertiary)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(DesignTokens.surface)
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .stroke(DesignTokens.border, lineWidth: 1)
+                )
+            },
+            actions: {
+                VStack(spacing: DesignTokens.spacing12) {
+                    CoralCTAButton("Upgrade to Pro", action: onUpgrade)
+                    TextLinkButton(label: "Restore Purchases", action: onRestore)
+                    TextLinkButton(label: "Maybe Later", action: onDismiss)
+                }
+            }
+        )
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("No credits remaining. Upgrade to Pro for more songs.")
+    }
+}
+
 // MARK: - Previews
 
 #Preview("Connection Error") {
@@ -413,5 +490,20 @@ struct RevealPartialErrorView: View {
         onListenToPreview: {},
         onTryFullSong: {},
         onContactSupport: {}
+    )
+}
+
+#Preview("Share Failure") {
+    ShareFailureView(
+        onTryAgain: {},
+        onCopyLink: {}
+    )
+}
+
+#Preview("No Credits") {
+    NoCreditsView(
+        onUpgrade: {},
+        onRestore: {},
+        onDismiss: {}
     )
 }

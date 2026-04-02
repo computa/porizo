@@ -23,10 +23,10 @@ struct SplashView: View {
                 ZStack {
                     Circle()
                         .fill(DesignTokens.gold)
-                        .frame(width: 120, height: 120)
+                        .frame(width: 96, height: 96)
 
                     Image(systemName: "mic.fill")
-                        .font(.system(size: 48))
+                        .font(.system(size: 40))
                         .foregroundStyle(.white)
                 }
                 .scaleEffect(reduceMotion ? 1 : (showLogo ? 1 : 0.8))
@@ -34,9 +34,9 @@ struct SplashView: View {
 
                 // Brand name in Playfair Display
                 Text("porizo")
-                    .font(DesignTokens.displayFont(size: 36))
-                    .tracking(2) // letter-spacing: 2pt
-                    .foregroundStyle(DesignTokens.textPrimary)
+                    .font(DesignTokens.displayFont(size: 24))
+                    .italic()
+                    .foregroundStyle(DesignTokens.gold)
                     .opacity(showLogo ? 1 : 0)
                     .offset(y: reduceMotion ? 0 : (showLogo ? 0 : 10))
             }

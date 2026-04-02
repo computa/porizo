@@ -30,6 +30,7 @@ struct SettingsTabView: View {
     @State private var showDesignVariants = false
     @State private var showLyricsRedesign = false
     @State private var showCreationFlowRedesign = false
+    @State private var showWarmCanvasScreens = false
     #if DEBUG
     @AppStorage("useUnifiedCreateFlow") private var useUnifiedFlow = AppConfig.useUnifiedCreateFlow
     #endif
@@ -196,6 +197,9 @@ struct SettingsTabView: View {
         .sheet(isPresented: $showCreationFlowRedesign) {
             CreationFlowPickerView()
         }
+        .sheet(isPresented: $showWarmCanvasScreens) {
+            WarmCanvasScreenGallery()
+        }
         .sheet(isPresented: $showLyricsRedesign) {
             NavigationStack {
                 List {
@@ -252,8 +256,8 @@ struct SettingsTabView: View {
 
     private var settingsHeader: some View {
         HStack {
-            Text("Profile")
-                .font(DesignTokens.displayFont(size: 28, weight: .semibold))
+            Text("Settings")
+                .font(DesignTokens.displayFont(size: 28))
                 .foregroundStyle(DesignTokens.textPrimary)
 
             Spacer()
@@ -282,8 +286,11 @@ struct SettingsTabView: View {
             // Preferences Section
             preferencesSection
 
-            // More Section
-            moreSection
+            // Support Section
+            supportSection
+
+            // Legal Section
+            legalSection
 
             // Danger Section (only when logged in)
             if authManager.isAuthenticated {
@@ -300,15 +307,18 @@ struct SettingsTabView: View {
         VStack(alignment: .leading, spacing: 8) {
             // Section header
             Text("ACCOUNT")
-                .font(DesignTokens.bodyFont(size: 11, weight: .medium))
+                .font(DesignTokens.bodyFont(size: 11, weight: .semibold))
                 .foregroundStyle(DesignTokens.textTertiary)
-                .tracking(1)
+                .tracking(1.5)
 
             // Account row
             if authManager.isAuthenticated, let user = authManager.currentUser {
+                let name = user.displayName ?? "User"
+                let userInitials = name.split(separator: " ").prefix(2).compactMap({ $0.first }).map(String.init).joined()
                 accountRow(
-                    title: user.displayName ?? "User",
+                    title: name,
                     subtitle: user.email ?? "",
+                    initials: userInitials.isEmpty ? nil : userInitials,
                     action: { /* Future: navigate to account details */ }
                 )
             } else {
@@ -323,31 +333,43 @@ struct SettingsTabView: View {
         .padding(.top, 16)
     }
 
-    private func accountRow(title: String, subtitle: String, action: @escaping () -> Void) -> some View {
+    private func accountRow(title: String, subtitle: String, initials: String? = nil, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 12) {
-                ZStack {
-                    Circle()
-                        .fill(DesignTokens.borderSubtle)
-                        .frame(width: 40, height: 40)
-                    Image(systemName: "person.fill")
-                        .font(.system(size: 16))
-                        .foregroundStyle(DesignTokens.textSecondary)
+                if let initials {
+                    ZStack {
+                        Circle()
+                            .fill(DesignTokens.gold.opacity(0.15))
+                            .frame(width: 40, height: 40)
+                        Text(initials)
+                            .font(DesignTokens.bodyFont(size: 14, weight: .semibold))
+                            .foregroundStyle(DesignTokens.gold)
+                    }
+                } else {
+                    ZStack {
+                        Circle()
+                            .fill(DesignTokens.borderSubtle)
+                            .frame(width: 40, height: 40)
+                        Image(systemName: "person.fill")
+                            .font(.system(size: 16))
+                            .foregroundStyle(DesignTokens.textSecondary)
+                    }
                 }
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
-                        .font(DesignTokens.bodyFont(size: 16, weight: .medium))
+                        .font(DesignTokens.bodyFont(size: 15))
                         .foregroundStyle(DesignTokens.textPrimary)
-                    Text(subtitle)
-                        .font(DesignTokens.bodyFont(size: 13))
-                        .foregroundStyle(DesignTokens.textSecondary)
+                    if !subtitle.isEmpty {
+                        Text(subtitle)
+                            .font(DesignTokens.bodyFont(size: 13))
+                            .foregroundStyle(DesignTokens.textSecondary)
+                    }
                 }
 
                 Spacer()
 
-                Text("\u{203A}")
-                    .font(.system(size: 24))
+                Text("›")
                     .foregroundStyle(DesignTokens.textTertiary)
             }
             .padding(.vertical, 12)
@@ -362,13 +384,12 @@ struct SettingsTabView: View {
             showSubscription = true
         } label: {
             HStack(spacing: 12) {
-                // Crown icon
-                Image(systemName: "crown.fill")
-                    .font(.system(size: 18))
-                    .foregroundStyle(DesignTokens.textSecondary)
+                // Crown emoji
+                Text("👑")
+                    .frame(width: 28)
 
                 Text("My Subscription")
-                    .font(DesignTokens.bodyFont(size: 16))
+                    .font(DesignTokens.bodyFont(size: 15))
                     .foregroundStyle(DesignTokens.textPrimary)
 
                 Spacer()
@@ -386,11 +407,10 @@ struct SettingsTabView: View {
                         )
                 } else {
                     Text("›")
-                        .font(.system(size: 20))
                         .foregroundStyle(DesignTokens.textTertiary)
                 }
             }
-            .frame(height: 44)
+            .frame(height: 48)
             .padding(.horizontal, 16)
         }
         .buttonStyle(.plain)
@@ -408,12 +428,11 @@ struct SettingsTabView: View {
             activeGiftSheet = .bag
         } label: {
             HStack(spacing: 12) {
-                Image(systemName: "gift.fill")
-                    .font(.system(size: 18))
-                    .foregroundStyle(DesignTokens.textSecondary)
+                Text("🎁")
+                    .frame(width: 28)
 
                 Text("Gift Bag")
-                    .font(DesignTokens.bodyFont(size: 16))
+                    .font(DesignTokens.bodyFont(size: 15))
                     .foregroundStyle(DesignTokens.textPrimary)
 
                 Spacer()
@@ -438,7 +457,7 @@ struct SettingsTabView: View {
                         )
                 }
             }
-            .frame(height: 44)
+            .frame(height: 48)
             .padding(.horizontal, 16)
         }
         .buttonStyle(.plain)
@@ -455,9 +474,9 @@ struct SettingsTabView: View {
         VStack(alignment: .leading, spacing: 0) {
             // Section header
             Text("PREFERENCES")
-                .font(DesignTokens.bodyFont(size: 11, weight: .medium))
+                .font(DesignTokens.bodyFont(size: 11, weight: .semibold))
                 .foregroundStyle(DesignTokens.textTertiary)
-                .tracking(1)
+                .tracking(1.5)
                 .padding(.bottom, 8)
 
             // Appearance removed — Warm Canvas is light-only
@@ -477,11 +496,11 @@ struct SettingsTabView: View {
                     }
                 }
             } label: {
-                settingsRowLabel(icon: "music.note.list", title: "Lyrics Style", value: lyricsStyle.rawValue, showChevron: true)
+                settingsRowLabel(emoji: "🎤", title: "Lyrics Style", value: lyricsStyle.rawValue, showChevron: true)
             }
 
             // Language row
-            settingsRowLabel(icon: "globe", title: "Language", value: "English", showChevron: true)
+            settingsRowLabel(emoji: "🌐", title: "Language", value: "English", showChevron: true)
         }
         .padding(.horizontal, 16)
         .padding(.top, 16)
@@ -494,45 +513,31 @@ struct SettingsTabView: View {
 
     // MARK: - More Section
 
-    private var moreSection: some View {
+    // MARK: - Support Section
+
+    private var supportSection: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Section header
-            Text("MORE")
-                .font(DesignTokens.bodyFont(size: 11, weight: .medium))
+            Text("SUPPORT")
+                .font(DesignTokens.bodyFont(size: 11, weight: .semibold))
                 .foregroundStyle(DesignTokens.textTertiary)
-                .tracking(1)
+                .tracking(1.5)
                 .padding(.bottom, 8)
 
+            // Get Support
+            settingsEmojiLinkRow(
+                emoji: "💬",
+                title: "Get Support",
+                url: URL(string: "mailto:support@porizo.co")!
+            )
+
             // Invite a Friend
-            settingsRow(
-                icon: "person.badge.plus.fill",
+            settingsEmojiRow(
+                emoji: "👥",
                 title: "Invite a Friend",
                 showChevron: true
             ) {
                 shareApp()
-            }
-
-            // Terms of Use (external link)
-            settingsLinkRow(
-                icon: "doc.text.fill",
-                title: "Terms of Use",
-                url: AppConfig.termsURL
-            )
-
-            // Privacy Policy (external link)
-            settingsLinkRow(
-                icon: "shield.fill",
-                title: "Privacy Policy",
-                url: AppConfig.privacyURL
-            )
-
-            // Restore Purchases
-            settingsRow(
-                icon: "arrow.counterclockwise",
-                title: "Restore Purchases",
-                showChevron: true
-            ) {
-                Task { await storeKit.restore() }
             }
 
             if isDevBuild && showDesignScreensFlag {
@@ -570,27 +575,72 @@ struct SettingsTabView: View {
                 showCreationFlowRedesign = true
             }
 
+            settingsRow(
+                icon: "sun.and.horizon",
+                title: "Warm Canvas Screens",
+                showChevron: true
+            ) {
+                showWarmCanvasScreens = true
+            }
+
             Toggle(isOn: $useUnifiedFlow) {
                 HStack(spacing: 12) {
                     Image(systemName: "arrow.triangle.swap")
                         .font(.system(size: 17))
                         .foregroundStyle(DesignTokens.textSecondary)
-                        .frame(width: 20)
+                        .frame(width: 28)
                     Text("Unified Create Flow")
                         .font(DesignTokens.bodyFont(size: 15))
                         .foregroundStyle(DesignTokens.textPrimary)
                 }
             }
             .tint(DesignTokens.gold)
-            .frame(height: 44)
-            #endif
+            .frame(height: 48)
 
-            // Get Support (external link)
-            settingsLinkRow(
-                icon: "bubble.left.fill",
-                title: "Get Support",
-                url: URL(string: "mailto:support@porizo.co")!
+            #endif
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 16)
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(DesignTokens.borderSubtle)
+                .frame(height: 1)
+        }
+    }
+
+    // MARK: - Legal Section
+
+    private var legalSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Section header
+            Text("LEGAL")
+                .font(DesignTokens.bodyFont(size: 11, weight: .semibold))
+                .foregroundStyle(DesignTokens.textTertiary)
+                .tracking(1.5)
+                .padding(.bottom, 8)
+
+            // Terms of Use
+            settingsEmojiLinkRow(
+                emoji: "📄",
+                title: "Terms of Use",
+                url: AppConfig.termsURL
             )
+
+            // Privacy Policy
+            settingsEmojiLinkRow(
+                emoji: "🔒",
+                title: "Privacy Policy",
+                url: AppConfig.privacyURL
+            )
+
+            // Restore Purchases
+            settingsEmojiRow(
+                emoji: "🔄",
+                title: "Restore Purchases",
+                showChevron: true
+            ) {
+                Task { await storeKit.restore() }
+            }
         }
         .padding(.horizontal, 16)
         .padding(.top, 16)
@@ -672,7 +722,7 @@ struct SettingsTabView: View {
                 Image(systemName: icon)
                     .font(.system(size: 17))
                     .foregroundStyle(DesignTokens.textSecondary)
-                    .frame(width: 20)
+                    .frame(width: 28)
 
                 Text(title)
                     .font(DesignTokens.bodyFont(size: 15))
@@ -682,45 +732,71 @@ struct SettingsTabView: View {
 
                 if let value {
                     Text(value)
-                        .font(DesignTokens.bodyFont(size: 13))
-                        .foregroundStyle(DesignTokens.textSecondary)
+                        .font(DesignTokens.bodyFont(size: 14))
+                        .foregroundStyle(DesignTokens.textTertiary)
                 }
 
                 if showChevron {
                     Text("›")
-                        .font(.system(size: 18))
                         .foregroundStyle(DesignTokens.textTertiary)
                 }
             }
-            .frame(height: 44)
+            .frame(height: 48)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
+    }
+
+    /// Emoji-based settings row (gallery style)
+    private func settingsEmojiRow(
+        emoji: String,
+        title: String,
+        value: String? = nil,
+        showChevron: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack {
+                Text(emoji).frame(width: 28)
+                Text(title)
+                    .font(DesignTokens.bodyFont(size: 15))
+                    .foregroundStyle(DesignTokens.textPrimary)
+                Spacer()
+                if let value {
+                    Text(value)
+                        .font(DesignTokens.bodyFont(size: 14))
+                        .foregroundStyle(DesignTokens.textTertiary)
+                }
+                if showChevron {
+                    Text("›")
+                        .foregroundStyle(DesignTokens.textTertiary)
+                }
+            }
+            .frame(height: 48)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(title)
     }
 
     @ViewBuilder
-    private func settingsRowLabel(icon: String, title: String, value: String? = nil, showChevron: Bool = false) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: icon)
-                .font(.system(size: 17))
-                .foregroundStyle(DesignTokens.textSecondary)
-                .frame(width: 20)
+    private func settingsRowLabel(emoji: String, title: String, value: String? = nil, showChevron: Bool = false) -> some View {
+        HStack {
+            Text(emoji).frame(width: 28)
             Text(title)
                 .font(DesignTokens.bodyFont(size: 15))
                 .foregroundStyle(DesignTokens.textPrimary)
             Spacer()
             if let value {
                 Text(value)
-                    .font(DesignTokens.bodyFont(size: 13))
-                    .foregroundStyle(DesignTokens.textSecondary)
+                    .font(DesignTokens.bodyFont(size: 14))
+                    .foregroundStyle(DesignTokens.textTertiary)
             }
             if showChevron {
                 Text("›")
-                    .font(.system(size: 18))
                     .foregroundStyle(DesignTokens.textTertiary)
             }
         }
-        .frame(height: 44)
+        .frame(height: 48)
     }
 
     private func settingsLinkRow(
@@ -733,7 +809,7 @@ struct SettingsTabView: View {
                 Image(systemName: icon)
                     .font(.system(size: 17))
                     .foregroundStyle(DesignTokens.textSecondary)
-                    .frame(width: 20)
+                    .frame(width: 28)
 
                 Text(title)
                     .font(DesignTokens.bodyFont(size: 15))
@@ -741,12 +817,31 @@ struct SettingsTabView: View {
 
                 Spacer()
 
-                // External link indicator
-                Image(systemName: "arrow.up.right")
-                    .font(.system(size: 13))
+                Text("›")
                     .foregroundStyle(DesignTokens.textTertiary)
             }
-            .frame(height: 44)
+            .frame(height: 48)
+        }
+        .accessibilityLabel("\(title), opens in browser")
+    }
+
+    /// Emoji-based link row (gallery style)
+    private func settingsEmojiLinkRow(
+        emoji: String,
+        title: String,
+        url: URL
+    ) -> some View {
+        Link(destination: url) {
+            HStack {
+                Text(emoji).frame(width: 28)
+                Text(title)
+                    .font(DesignTokens.bodyFont(size: 15))
+                    .foregroundStyle(DesignTokens.textPrimary)
+                Spacer()
+                Text("›")
+                    .foregroundStyle(DesignTokens.textTertiary)
+            }
+            .frame(height: 48)
         }
         .accessibilityLabel("\(title), opens in browser")
     }

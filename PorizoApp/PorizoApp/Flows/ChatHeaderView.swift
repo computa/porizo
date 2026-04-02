@@ -2,10 +2,8 @@
 //  ChatHeaderView.swift
 //  PorizoApp
 //
-//  Extracted from UnifiedCreateFlowView — chat header bar with
-//  recipient name, completion badge, and cancel button.
-//  Conforms to Equatable so SwiftUI can skip re-renders when
-//  the 6 value-type params haven't changed.
+//  Chat header bar — "For {name}" with occasion/genre chips and close button.
+//  Warm Canvas design: display font title, chip badges, no completion score.
 //
 
 import SwiftUI
@@ -17,6 +15,7 @@ struct ChatHeaderView: View, Equatable {
     let completionScore: Int
     let occasion: Occasion?
     let isComplete: Bool
+    var styleName: String?
     let onCancel: () -> Void
 
     static func == (lhs: ChatHeaderView, rhs: ChatHeaderView) -> Bool {
@@ -25,37 +24,26 @@ struct ChatHeaderView: View, Equatable {
         lhs.storyId == rhs.storyId &&
         lhs.completionScore == rhs.completionScore &&
         lhs.occasion == rhs.occasion &&
-        lhs.isComplete == rhs.isComplete
+        lhs.isComplete == rhs.isComplete &&
+        lhs.styleName == rhs.styleName
     }
 
     var body: some View {
         HStack {
-            VStack(alignment: .leading, spacing: 1) {
-                Text(headerTitle)
-                    .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
-                    .foregroundStyle(DesignTokens.textPrimary)
-                if storyId != nil {
-                    Text("\((occasion ?? .custom).displayName)  ·  \(isComplete ? "Ready" : "\(completionScore)%")")
-                        .font(DesignTokens.bodyFont(size: 12))
-                        .foregroundStyle(DesignTokens.gold)
-                }
-            }
+            Text("For \(recipientName)")
+                .font(DesignTokens.displayFont(size: 20))
+                .foregroundStyle(DesignTokens.textPrimary)
 
             Spacer()
 
-            // Completion badge (only when session active)
-            if storyId != nil {
-                HStack(spacing: 4) {
-                    Image(systemName: "sparkle")
-                        .font(.system(size: 9))
-                    Text("\(completionScore)%")
-                        .font(DesignTokens.bodyFont(size: 12, weight: .semibold))
+            // Occasion + genre chips
+            HStack(spacing: 6) {
+                if let occasion {
+                    chipBadge(occasion.displayName, style: .coral)
                 }
-                .foregroundStyle(DesignTokens.gold)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 4)
-                .background(DesignTokens.gold.opacity(0.12))
-                .clipShape(Capsule())
+                if let styleName {
+                    chipBadge(styleName, style: .sage)
+                }
             }
 
             Button { onCancel() } label: {
@@ -63,21 +51,30 @@ struct ChatHeaderView: View, Equatable {
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(DesignTokens.textSecondary)
                     .frame(width: 30, height: 30)
-                    .background(DesignTokens.surface)
+                    .background(Color.black.opacity(0.05))
                     .clipShape(Circle())
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
+        .padding(.horizontal, 20)
+        .padding(.top, 16)
+        .padding(.bottom, 8)
     }
 
-    // MARK: - Private
+    // MARK: - Chip Badge
 
-    private var headerTitle: String {
-        switch selectedType {
-        case .song: return "Song for \(recipientName)"
-        case .poem: return "Poem for \(recipientName)"
-        case nil: return "Create for \(recipientName)"
-        }
+    private enum ChipStyle { case coral, sage }
+
+    private func chipBadge(_ text: String, style: ChipStyle) -> some View {
+        Text(text)
+            .font(DesignTokens.bodyFont(size: 12, weight: .medium))
+            .foregroundStyle(style == .coral ? DesignTokens.gold : DesignTokens.sage)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .background(style == .coral ? DesignTokens.gold.opacity(0.1) : DesignTokens.sage.opacity(0.1))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(style == .coral ? DesignTokens.gold.opacity(0.2) : DesignTokens.sage.opacity(0.2), lineWidth: 1)
+            )
     }
 }

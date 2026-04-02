@@ -2,7 +2,7 @@
 //  ProfileCompletionView.swift
 //  PorizoApp
 //
-//  Post-auth profile completion sheet for users with relay emails or missing contact info.
+//  Post-auth profile completion — email-only form matching Warm Canvas gallery design.
 //
 
 import SwiftUI
@@ -13,7 +13,6 @@ struct ProfileCompletionView: View {
     let apiClient: APIClient
 
     @State private var email = ""
-    @State private var phone = ""
     @State private var isSaving = false
     @State private var errorMessage: String?
 
@@ -21,12 +20,9 @@ struct ProfileCompletionView: View {
         email.trimmingCharacters(in: .whitespaces).hasSuffix("@privaterelay.appleid.com")
     }
 
-    private var hasValidInput: Bool {
+    private var hasValidEmail: Bool {
         let trimmedEmail = email.trimmingCharacters(in: .whitespaces)
-        let hasEmail = !trimmedEmail.isEmpty && trimmedEmail.contains("@") && trimmedEmail.contains(".") && !isRelayEmail
-        let trimmedPhone = phone.trimmingCharacters(in: .whitespaces)
-        let hasPhone = trimmedPhone.hasPrefix("+") && trimmedPhone.count >= 10
-        return hasEmail || hasPhone
+        return !trimmedEmail.isEmpty && trimmedEmail.contains("@") && trimmedEmail.contains(".") && !isRelayEmail
     }
 
     var body: some View {
@@ -34,159 +30,89 @@ struct ProfileCompletionView: View {
             ZStack {
                 DesignTokens.background.ignoresSafeArea()
 
-                ScrollView {
-                    VStack(spacing: DesignTokens.spacing24) {
-                        // Header icon
-                        ZStack {
-                            Circle()
-                                .fill(DesignTokens.gold.opacity(0.15))
-                                .frame(width: 80, height: 80)
-                            Image(systemName: "person.crop.circle.badge.plus")
-                                .font(.system(size: 36))
-                                .foregroundStyle(DesignTokens.gold)
-                        }
-                        .padding(.top, DesignTokens.spacing24)
-
+                ScrollView(showsIndicators: false) {
+                    VStack(spacing: 20) {
                         // Title + subtitle
-                        VStack(spacing: DesignTokens.spacing8) {
-                            Text("Complete Your Profile")
-                                .font(DesignTokens.displayFont(size: 24))
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Complete your profile")
+                                .font(DesignTokens.bodyFont(size: 20, weight: .bold))
                                 .foregroundStyle(DesignTokens.textPrimary)
-
-                            Text("Add a contact email or phone so we can reach you about your songs.")
-                                .font(DesignTokens.bodyFont(size: 15))
+                            Text("Add your email to sync across devices")
+                                .font(DesignTokens.bodyFont(size: 14))
                                 .foregroundStyle(DesignTokens.textSecondary)
-                                .multilineTextAlignment(.center)
-                                .lineSpacing(2)
                         }
-                        .padding(.horizontal, DesignTokens.spacing20)
+                        .frame(maxWidth: .infinity, alignment: .leading)
 
                         // Email field
                         VStack(alignment: .leading, spacing: DesignTokens.spacing8) {
-                            Text("Email")
-                                .font(DesignTokens.bodyFont(size: 13, weight: .medium))
-                                .foregroundStyle(DesignTokens.textSecondary)
-
-                            TextField("", text: $email, prompt: Text("Enter your email address")
-                                .font(DesignTokens.bodyFont(size: 17, weight: .medium))
-                                .foregroundStyle(DesignTokens.textSecondary))
+                            TextField("your@email.com", text: $email)
                                 .keyboardType(.emailAddress)
                                 .textContentType(.emailAddress)
                                 .autocapitalization(.none)
                                 .disableAutocorrection(true)
-                                .font(DesignTokens.bodyFont(size: 17, weight: .medium))
+                                .font(DesignTokens.bodyFont(size: 16))
                                 .foregroundStyle(DesignTokens.textPrimary)
-                                .padding(DesignTokens.spacing12)
-                                .background(DesignTokens.surfaceMuted)
-                                .clipShape(.rect(cornerRadius: DesignTokens.radiusMedium))
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 14)
+                                .background(DesignTokens.surface)
+                                .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusMedium))
                                 .overlay(
                                     RoundedRectangle(cornerRadius: DesignTokens.radiusMedium)
-                                        .stroke(DesignTokens.borderSubtle, lineWidth: 1)
+                                        .stroke(DesignTokens.border, lineWidth: 1.5)
                                 )
+
                             if isRelayEmail {
                                 Text("This is a private relay address. Please enter your real email.")
                                     .font(DesignTokens.bodyFont(size: 12))
                                     .foregroundStyle(DesignTokens.gold)
                             }
                         }
-                        .padding(.horizontal, DesignTokens.spacing20)
-
-                        // "or" divider
-                        HStack(spacing: DesignTokens.spacing12) {
-                            Rectangle()
-                                .fill(DesignTokens.border)
-                                .frame(height: 0.5)
-                            Text("or")
-                                .font(DesignTokens.bodyFont(size: 13))
-                                .foregroundStyle(DesignTokens.gold)
-                            Rectangle()
-                                .fill(DesignTokens.border)
-                                .frame(height: 0.5)
-                        }
-                        .padding(.horizontal, DesignTokens.spacing20)
-
-                        // Phone field
-                        VStack(alignment: .leading, spacing: DesignTokens.spacing8) {
-                            Text("Phone")
-                                .font(DesignTokens.bodyFont(size: 13, weight: .medium))
-                                .foregroundStyle(DesignTokens.textSecondary)
-
-                            TextField("", text: $phone, prompt: Text("+1 (555) 123-4567")
-                                .font(DesignTokens.bodyFont(size: 17, weight: .medium))
-                                .foregroundStyle(DesignTokens.textSecondary))
-                                .keyboardType(.phonePad)
-                                .textContentType(.telephoneNumber)
-                                .font(DesignTokens.bodyFont(size: 17, weight: .medium))
-                                .foregroundStyle(DesignTokens.textPrimary)
-                                .padding(DesignTokens.spacing12)
-                                .background(DesignTokens.surfaceMuted)
-                                .clipShape(.rect(cornerRadius: DesignTokens.radiusMedium))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: DesignTokens.radiusMedium)
-                                        .stroke(DesignTokens.borderSubtle, lineWidth: 1)
-                                )
-                        }
-                        .padding(.horizontal, DesignTokens.spacing20)
 
                         // Error message
                         if let errorMessage {
                             Text(errorMessage)
                                 .font(DesignTokens.bodyFont(size: 13))
                                 .foregroundStyle(DesignTokens.error)
-                                .padding(.horizontal, DesignTokens.spacing20)
                         }
 
-                        // Save button
+                        // Continue button
                         Button {
                             Task { await save() }
                         } label: {
-                            HStack(spacing: 10) {
+                            HStack(spacing: 8) {
                                 if isSaving {
                                     ProgressView()
-                                        .tint(.black)
-                                } else {
-                                    Image(systemName: "checkmark")
-                                        .font(.system(size: 18))
+                                        .tint(.white)
                                 }
-                                Text("Save")
+                                Text("Continue")
                                     .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
                             }
-                            .foregroundStyle(hasValidInput && !isSaving ? .black : DesignTokens.textSecondary)
+                            .foregroundStyle(.white)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 16)
-                            .background(hasValidInput && !isSaving ? DesignTokens.gold : DesignTokens.surfaceElevated)
-                            .clipShape(.rect(cornerRadius: DesignTokens.radiusCTA))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: DesignTokens.radiusCTA)
-                                    .stroke(hasValidInput && !isSaving ? Color.clear : DesignTokens.borderSubtle, lineWidth: 1)
-                            )
+                            .background(DesignTokens.gold)
+                            .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusCTA))
                         }
-                        .disabled(!hasValidInput || isSaving)
+                        .disabled(!hasValidEmail || isSaving)
+                        .opacity(!hasValidEmail ? 0.5 : 1.0)
                         .buttonStyle(.plain)
-                        .padding(.horizontal, DesignTokens.spacing20)
 
-                        // Privacy note
-                        Text("Your info is only used to contact you about your account. We never share it.")
-                            .font(DesignTokens.bodyFont(size: 12))
-                            .foregroundStyle(DesignTokens.textTertiary)
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal, DesignTokens.spacing20)
+                        // Skip for now link
+                        Button {
+                            skip()
+                        } label: {
+                            Text("Skip for now")
+                                .font(DesignTokens.bodyFont(size: 14, weight: .medium))
+                                .foregroundStyle(DesignTokens.gold)
+                        }
                     }
-                    .padding(.bottom, DesignTokens.spacing24)
+                    .padding(.horizontal, DesignTokens.spacing20)
+                    .padding(.bottom, DesignTokens.spacing32)
                 }
                 .scrollDismissesKeyboard(.interactively)
             }
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Skip") {
-                        skip()
-                    }
-                    .font(DesignTokens.bodyFont(size: 15))
-                    .foregroundStyle(DesignTokens.textSecondary)
-                }
-            }
         }
         .onAppear {
             // If user has a real email, pre-fill it for editing
@@ -204,12 +130,11 @@ struct ProfileCompletionView: View {
         defer { isSaving = false }
 
         let trimmedEmail = email.trimmingCharacters(in: .whitespaces)
-        let trimmedPhone = phone.trimmingCharacters(in: .whitespaces)
 
         do {
             let updated = try await apiClient.updateProfile(
                 contactEmail: trimmedEmail.isEmpty ? nil : trimmedEmail,
-                phoneNumber: trimmedPhone.isEmpty ? nil : trimmedPhone
+                phoneNumber: nil
             )
             authManager.updateCurrentUser(updated)
             dismiss()

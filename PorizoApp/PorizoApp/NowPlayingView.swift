@@ -16,8 +16,8 @@ struct NowPlayingView: View {
 
     var body: some View {
         ZStack {
-            // Pure black background -- editorial design
-            Color.black.ignoresSafeArea()
+            // Warm canvas background
+            DesignTokens.background.ignoresSafeArea()
 
             VStack(spacing: 0) {
                 // Drag handle
@@ -26,6 +26,11 @@ struct NowPlayingView: View {
                     .frame(width: 36, height: 4)
                     .padding(.top, 12)
                     .padding(.bottom, 8)
+
+                // Album art -- gold gradient with occasion emoji
+                albumArtSection
+                    .padding(.horizontal, 24)
+                    .padding(.bottom, 4)
 
                 // Top: small caps title + thin progress
                 trackInfoSection
@@ -90,10 +95,10 @@ struct NowPlayingView: View {
                 Spacer()
                 Image(systemName: "text.quote")
                     .font(.system(size: 32))
-                    .foregroundStyle(.white.opacity(0.4))
+                    .foregroundStyle(DesignTokens.textTertiary)
                 Text("Lyrics not available")
                     .font(DesignTokens.bodyFont(size: 14))
-                    .foregroundStyle(.white.opacity(0.5))
+                    .foregroundStyle(DesignTokens.textTertiary)
                 Spacer()
             }
         }
@@ -176,10 +181,10 @@ struct NowPlayingView: View {
                     Spacer()
                     Image(systemName: "text.quote")
                         .font(.system(size: 32))
-                        .foregroundStyle(.white.opacity(0.4))
+                        .foregroundStyle(DesignTokens.textTertiary)
                     Text("Lyrics not available")
                         .font(DesignTokens.bodyFont(size: 14))
-                        .foregroundStyle(.white.opacity(0.5))
+                        .foregroundStyle(DesignTokens.textTertiary)
                     Spacer()
                 }
             }
@@ -206,6 +211,58 @@ struct NowPlayingView: View {
         }
     }
 
+    // MARK: - Album Art
+
+    private var albumArtSection: some View {
+        VStack(spacing: 4) {
+            let occasionEmoji: String = {
+                if let occasion = playerState.currentTrack?.occasion,
+                   let occ = Occasion(rawValue: occasion) {
+                    return occ.emoji
+                }
+                return "🎵"
+            }()
+
+            RoundedRectangle(cornerRadius: 20)
+                .fill(LinearGradient(
+                    colors: [DesignTokens.gold, Color(hex: "#e8966e")],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                ))
+                .frame(height: 280)
+                .overlay(Text(occasionEmoji).font(.system(size: 48)))
+
+            VStack(spacing: 4) {
+                Text("For \(playerState.currentTrack?.recipientName ?? "You")")
+                    .font(DesignTokens.displayFont(size: 24))
+                    .foregroundStyle(DesignTokens.textPrimary)
+
+                Text(albumArtSubtitle)
+                    .font(DesignTokens.bodyFont(size: 14))
+                    .foregroundStyle(DesignTokens.textSecondary)
+            }
+        }
+    }
+
+    private var albumArtSubtitle: String {
+        guard let track = playerState.currentTrack else { return "" }
+        var parts: [String] = []
+
+        if let occasion = track.occasion, let occ = Occasion(rawValue: occasion) {
+            parts.append("\(occ.displayName) Song")
+        }
+
+        if let style = track.style {
+            parts.append(styleStore.displayName(for: style))
+        }
+
+        if playerState.duration > 0 {
+            parts.append(playerState.formattedDuration)
+        }
+
+        return parts.joined(separator: " \u{2022} ")
+    }
+
     // MARK: - Track Info
 
     private var trackInfoSection: some View {
@@ -229,22 +286,21 @@ struct NowPlayingView: View {
 
     private var progressSection: some View {
         VStack(spacing: 4) {
+            let currentProgress = isDraggingProgress ? dragProgress : playerState.progress
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
-                    Rectangle()
-                        .fill(Color.white.opacity(0.08))
-                        .frame(height: 1.5)
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(DesignTokens.border)
+                        .frame(height: 4)
 
-                    Rectangle()
+                    RoundedRectangle(cornerRadius: 2)
                         .fill(DesignTokens.gold)
-                        .frame(width: geo.size.width * (isDraggingProgress ? dragProgress : playerState.progress), height: 1.5)
+                        .frame(width: geo.size.width * currentProgress, height: 4)
 
-                    if isDraggingProgress {
-                        Circle()
-                            .fill(DesignTokens.gold)
-                            .frame(width: 8, height: 8)
-                            .offset(x: geo.size.width * dragProgress - 4)
-                    }
+                    Circle()
+                        .fill(DesignTokens.gold)
+                        .frame(width: 12, height: 12)
+                        .offset(x: geo.size.width * currentProgress - 6)
                 }
                 .contentShape(Rectangle().inset(by: -8))
                 .gesture(
@@ -260,7 +316,7 @@ struct NowPlayingView: View {
                         }
                 )
             }
-            .frame(height: 1.5)
+            .frame(height: 12)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Playback progress")
             .accessibilityValue("\(playerState.formattedCurrentTime) of \(playerState.formattedDuration)")
@@ -278,14 +334,14 @@ struct NowPlayingView: View {
 
             HStack {
                 Text(isDraggingProgress ? formatTime(dragProgress * playerState.duration) : playerState.formattedCurrentTime)
-                    .font(DesignTokens.bodyFont(size: 10).monospacedDigit())
+                    .font(DesignTokens.bodyFont(size: 11).monospacedDigit())
                     .foregroundStyle(DesignTokens.textTertiary)
                     .accessibilityHidden(true)
 
                 Spacer()
 
                 Text(playerState.formattedDuration)
-                    .font(DesignTokens.bodyFont(size: 10).monospacedDigit())
+                    .font(DesignTokens.bodyFont(size: 11).monospacedDigit())
                     .foregroundStyle(DesignTokens.textTertiary)
                     .accessibilityHidden(true)
             }
@@ -295,12 +351,12 @@ struct NowPlayingView: View {
     // MARK: - Transport Controls
 
     private var controlsSection: some View {
-        HStack(spacing: 36) {
+        HStack(spacing: 32) {
             Button {
                 onSeek(max(0, playerState.currentTime - 15))
             } label: {
-                Image(systemName: "gobackward.15")
-                    .font(.system(size: 18, weight: .medium))
+                Image(systemName: "backward.fill")
+                    .font(.system(size: 24))
                     .foregroundStyle(DesignTokens.textSecondary)
             }
             .accessibilityLabel("Rewind 15 seconds")
@@ -312,15 +368,15 @@ struct NowPlayingView: View {
                 ZStack {
                     Circle()
                         .fill(DesignTokens.gold)
-                        .frame(width: 44, height: 44)
+                        .frame(width: 56, height: 56)
 
                     if playerState.isLoading {
                         ProgressView()
-                            .tint(.black)
+                            .tint(.white)
                     } else {
                         Image(systemName: playerState.isPlaying ? "pause.fill" : "play.fill")
-                            .font(.system(size: 18))
-                            .foregroundStyle(.black)
+                            .font(.system(size: 22))
+                            .foregroundStyle(.white)
                             .offset(x: playerState.isPlaying ? 0 : 1)
                     }
                 }
@@ -331,8 +387,8 @@ struct NowPlayingView: View {
             Button {
                 onSeek(min(playerState.duration, playerState.currentTime + 15))
             } label: {
-                Image(systemName: "goforward.15")
-                    .font(.system(size: 18, weight: .medium))
+                Image(systemName: "forward.fill")
+                    .font(.system(size: 24))
                     .foregroundStyle(DesignTokens.textSecondary)
             }
             .accessibilityLabel("Forward 15 seconds")

@@ -60,13 +60,18 @@ struct SendButtonView: View {
     let action: () -> Void
 
     var body: some View {
-        Button("Send", systemImage: "arrow.up.circle.fill", action: action)
-            .labelStyle(.iconOnly)
-            .font(.system(size: 28))
-            .foregroundStyle(canSend ? DesignTokens.gold : DesignTokens.border)
-            .disabled(!canSend)
-            .frame(minWidth: 44, minHeight: 44)
-            .contentShape(Circle())
-            .buttonStyle(.plain)
+        Button(action: action) {
+            Circle()
+                .fill(canSend ? DesignTokens.sage : DesignTokens.border)
+                .frame(width: 36, height: 36)
+                .overlay(
+                    Image(systemName: "arrow.up")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(.white)
+                )
+        }
+        .disabled(!canSend)
+        .buttonStyle(.plain)
+        .accessibilityLabel("Send")
     }
 }

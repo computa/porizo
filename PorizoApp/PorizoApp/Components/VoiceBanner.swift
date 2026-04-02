@@ -8,7 +8,7 @@ struct VoiceBanner: View {
 
     var body: some View {
         Button(action: onTap) {
-            HStack(spacing: DesignTokens.spacing16) {
+            HStack(spacing: 14) {
                 ZStack {
                     Circle()
                         .fill(Color.white.opacity(0.2))
@@ -30,22 +30,22 @@ struct VoiceBanner: View {
                             Image(systemName: "checkmark.circle.fill")
                                 .font(.caption)
                             Text("Voice Profile Active")
-                                .font(.headline)
+                                .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
                         }
                         .foregroundStyle(.white)
 
                         if let score = qualityScore {
                             Text("Quality: \(Int(score))%")
-                                .font(.caption)
+                                .font(DesignTokens.bodyFont(size: 13))
                                 .foregroundStyle(.white.opacity(0.8))
                         }
                     } else {
                         Text("Your Voice")
-                            .font(.headline)
+                            .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
                             .foregroundStyle(.white)
 
-                        Text("Add your voice to songs")
-                            .font(.subheadline)
+                        Text("Set up your voice")
+                            .font(DesignTokens.bodyFont(size: 13))
                             .foregroundStyle(.white.opacity(0.8))
                     }
                 }
@@ -54,28 +54,27 @@ struct VoiceBanner: View {
 
                 if !hasProfile && !isLoading {
                     Text("Set Up")
-                        .font(.subheadline.bold())
+                        .font(DesignTokens.bodyFont(size: 13, weight: .semibold))
                         .foregroundStyle(DesignTokens.gold)
-                        .padding(.horizontal, DesignTokens.spacing12)
-                        .padding(.vertical, DesignTokens.spacing8)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
                         .background(Color.white)
-                        .clipShape(Capsule())
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
                 } else if hasProfile {
                     Image(systemName: "chevron.right")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(.white.opacity(0.6))
                 }
             }
-            .padding(DesignTokens.spacing16)
+            .padding(16)
             .background(
                 LinearGradient(
-                    colors: [DesignTokens.gold, DesignTokens.gold],
+                    colors: [DesignTokens.gold, Color(hex: "#e8966e")],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
                 )
             )
-            .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusLarge))
-            .elevation(.level2)
+            .clipShape(RoundedRectangle(cornerRadius: 14))
         }
         .buttonStyle(.plain)
     }

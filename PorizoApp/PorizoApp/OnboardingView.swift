@@ -2,8 +2,8 @@
 //  OnboardingView.swift
 //  PorizoApp
 //
-//  Three-page onboarding wizard introducing Porizo's value proposition.
-//  Light mode design with the shared gradient background.
+//  Single-page onboarding — gold mic hero, sample audio player mock,
+//  and two CTAs (Create a Song / Sign in). Matches the Warm Canvas gallery.
 //
 
 import SwiftUI
@@ -12,151 +12,99 @@ struct OnboardingView: View {
     let onComplete: () -> Void
     let onSkip: () -> Void
 
-    @State private var currentPage = 0
-
-    private let pages: [OnboardingPage] = [
-        OnboardingPage(
-            icon: "waveform",
-            iconSize: 48,
-            headline: "Every moment\ndeserves a song",
-            subtext: "Create personalized songs that sound like you singing, for the people you love."
-        ),
-        OnboardingPage(
-            icon: "sparkles",
-            iconSize: 44,
-            headline: "Create in\nseconds",
-            subtext: "Pick an occasion, write a message, and we'll craft a unique song in under 90 seconds."
-        ),
-        OnboardingPage(
-            icon: "gift",
-            iconSize: 44,
-            headline: "Share the\nfeeling",
-            subtext: "Send your song as a gift link. They'll hear your voice singing just for them."
-        )
-    ]
-
     var body: some View {
         ZStack {
             DesignTokens.background.ignoresSafeArea()
 
-            VStack(spacing: 0) {
-                // Skip button
-                HStack {
-                    Spacer()
-                    Button("Skip") {
-                        onSkip()
-                    }
-                    .font(DesignTokens.bodyFont(size: 16, weight: .medium))
-                    .foregroundStyle(DesignTokens.textSecondary)
-                    .padding(.horizontal, 20)
-                    .padding(.top, 16)
-                }
+            VStack(spacing: 24) {
+                Spacer()
 
-                // Page content
-                TabView(selection: $currentPage) {
-                    ForEach(0..<pages.count, id: \.self) { index in
-                        OnboardingPageView(page: pages[index])
-                            .tag(index)
+                // Gold mic circle
+                Circle()
+                    .fill(DesignTokens.gold)
+                    .frame(width: 56, height: 56)
+                    .overlay(
+                        Image(systemName: "mic.fill")
+                            .font(.system(size: 28))
+                            .foregroundStyle(.white)
+                    )
+                    .accessibilityHidden(true)
+
+                // Headline
+                Text("Hear what a birthday\nsounds like")
+                    .font(DesignTokens.displayFont(size: 22))
+                    .foregroundStyle(DesignTokens.textPrimary)
+                    .multilineTextAlignment(.center)
+
+                // Audio player mock widget
+                HStack(spacing: 12) {
+                    Circle()
+                        .fill(DesignTokens.gold)
+                        .frame(width: 44, height: 44)
+                        .overlay(
+                            Image(systemName: "play.fill")
+                                .font(.system(size: 16))
+                                .foregroundStyle(.white)
+                        )
+                        .accessibilityLabel("Play sample")
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        GeometryReader { geo in
+                            ZStack(alignment: .leading) {
+                                RoundedRectangle(cornerRadius: 2)
+                                    .fill(DesignTokens.border)
+                                    .frame(height: 4)
+                                RoundedRectangle(cornerRadius: 2)
+                                    .fill(DesignTokens.gold)
+                                    .frame(width: geo.size.width * 0.53, height: 4)
+                            }
+                        }
+                        .frame(height: 4)
+
+                        Text("0:08 / 0:15")
+                            .font(DesignTokens.bodyFont(size: 12))
+                            .foregroundStyle(DesignTokens.textTertiary)
                     }
                 }
-                .tabViewStyle(.page(indexDisplayMode: .never))
+                .padding(16)
+                .background(DesignTokens.surface)
+                .clipShape(RoundedRectangle(cornerRadius: 14))
+                .padding(.horizontal, 40)
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("Sample song preview, 8 of 15 seconds")
 
-                // Bottom section
-                VStack(spacing: 20) {
-                    pageIndicator
+                // Tagline
+                Text("Make one in 90 seconds")
+                    .font(DesignTokens.bodyFont(size: 14, weight: .semibold))
+                    .foregroundStyle(DesignTokens.gold)
+
+                Spacer()
+
+                // Bottom CTAs
+                VStack(spacing: 12) {
+                    Button {
+                        onComplete()
+                    } label: {
+                        Text("Create a Song")
+                            .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 16)
+                            .background(DesignTokens.gold)
+                            .clipShape(RoundedRectangle(cornerRadius: 14))
+                    }
 
                     Button {
-                        if currentPage < pages.count - 1 {
-                            withAnimation(.easeInOut(duration: 0.25)) {
-                                currentPage += 1
-                            }
-                        } else {
-                            onComplete()
-                        }
+                        onSkip()
                     } label: {
-                        HStack(spacing: 8) {
-                            Text(currentPage < pages.count - 1 ? "Continue" : "Get Started")
-                                .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
-                            if currentPage == pages.count - 1 {
-                                Image(systemName: "arrow.right")
-                                    .font(.system(size: 14, weight: .semibold))
-                            }
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 16)
-                        .background(DesignTokens.gold)
-                        .foregroundStyle(DesignTokens.background)
-                        .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusCTA))
+                        Text("Sign in")
+                            .font(DesignTokens.bodyFont(size: 14, weight: .medium))
+                            .foregroundStyle(DesignTokens.gold)
                     }
-                    .padding(.horizontal, 20)
                 }
-                .padding(.bottom, 44)
+                .padding(.horizontal, 20)
+                .padding(.bottom, 40)
             }
-        }
-    }
-
-    private var pageIndicator: some View {
-        HStack(spacing: 8) {
-            ForEach(0..<pages.count, id: \.self) { index in
-                Circle()
-                    .fill(index == currentPage ? DesignTokens.gold : DesignTokens.textTertiary.opacity(0.4))
-                    .frame(width: 8, height: 8)
-                    .animation(.easeInOut(duration: 0.2), value: currentPage)
-            }
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Page \(currentPage + 1) of \(pages.count)")
-        .accessibilityValue(pages[currentPage].headline)
-    }
-}
-
-// MARK: - Onboarding Page Model
-
-struct OnboardingPage {
-    let icon: String
-    let iconSize: CGFloat
-    let headline: String
-    let subtext: String
-}
-
-// MARK: - Onboarding Page View
-
-struct OnboardingPageView: View {
-    let page: OnboardingPage
-
-    var body: some View {
-        VStack(spacing: 20) {
-            Spacer()
-
-            // Icon circle
-            ZStack {
-                Circle()
-                    .fill(DesignTokens.gold.opacity(0.12))
-                    .frame(width: 96, height: 96)
-                Image(systemName: page.icon)
-                    .font(.system(size: page.iconSize))
-                    .foregroundStyle(DesignTokens.gold)
-            }
-            .accessibilityHidden(true)
-
-            // Title
-            Text(page.headline)
-                .font(DesignTokens.displayFont(size: 28))
-                .foregroundStyle(DesignTokens.textPrimary)
-                .multilineTextAlignment(.center)
-                .lineSpacing(4)
-                .padding(.horizontal, 32)
-
-            // Subtitle
-            Text(page.subtext)
-                .font(DesignTokens.bodyFont(size: 15))
-                .foregroundStyle(DesignTokens.textSecondary)
-                .multilineTextAlignment(.center)
-                .lineSpacing(4)
-                .padding(.horizontal, 32)
-
-            Spacer()
-            Spacer()
         }
     }
 }

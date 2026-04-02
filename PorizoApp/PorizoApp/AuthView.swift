@@ -2,8 +2,8 @@
 //  AuthView.swift
 //  PorizoApp
 //
-//  Create Account view matching v1.pen "02 - Create Account" design.
-//  Phone auth primary with social auth alternatives.
+//  Sign-in view matching Warm Canvas gallery design.
+//  Apple Sign In primary with phone auth alternative.
 //
 
 import SwiftUI
@@ -13,7 +13,7 @@ import Security
 
 // MARK: - AuthView
 
-/// Create account / sign-in view with phone auth primary and social alternatives.
+/// Sign-in view with Apple Sign In primary and phone auth alternative.
 struct AuthView: View {
     /// Optional context message shown below the subtitle (e.g., deep link context)
     var contextMessage: String?
@@ -36,32 +36,34 @@ struct AuthView: View {
             VStack(spacing: 0) {
                 Spacer()
 
-                // Brand element: gold waveform above welcome text
-                WaveformVisualizer(barCount: 7, maxHeight: 32, animated: true)
-                    .frame(height: 32)
-                    .padding(.bottom, 24)
+                // Brand element: gold mic circle
+                Circle()
+                    .fill(DesignTokens.gold)
+                    .frame(width: 48, height: 48)
+                    .overlay(
+                        Image(systemName: "mic.fill")
+                            .font(.system(size: 24))
+                            .foregroundStyle(.white)
+                    )
 
-                // Header: Welcome + subtitle
-                VStack(spacing: 12) {
-                    Text("Welcome")
-                        .font(DesignTokens.displayFont(size: 32))
+                // Header: Sign in prompt + subtitle
+                VStack(spacing: 20) {
+                    Text("Sign in to create\nyour song")
+                        .font(DesignTokens.displayFont(size: 22))
                         .foregroundStyle(DesignTokens.textPrimary)
-
-                    Text("Create personalized songs for birthdays,\nanniversaries, and every moment that matters.")
-                        .font(DesignTokens.bodyFont(size: 15))
-                        .foregroundStyle(DesignTokens.textSecondary)
                         .multilineTextAlignment(.center)
-                        .lineSpacing(4)
+
+                    Text("It takes about 90 seconds")
+                        .font(DesignTokens.bodyFont(size: 14))
+                        .foregroundStyle(DesignTokens.textSecondary)
 
                     if let contextMessage {
                         Text(contextMessage)
                             .font(DesignTokens.bodyFont(size: 14, weight: .medium))
                             .foregroundStyle(DesignTokens.gold)
                             .multilineTextAlignment(.center)
-                            .padding(.top, 8)
                     }
                 }
-                .padding(.horizontal, 20)
 
                 Spacer()
 
@@ -73,40 +75,29 @@ struct AuthView: View {
                 }
 
                 // Auth buttons
-                VStack(spacing: 14) {
-                    // Sign in with Apple (primary)
+                VStack(spacing: 12) {
+                    // Sign in with Apple (primary — black bg, white text)
                     appleSignInButton
 
                     // Phone number (gold outline)
                     Button {
                         authManager.startPhoneAuth()
                     } label: {
-                        HStack(spacing: 10) {
-                            Image(systemName: "phone")
-                                .font(.system(size: 18))
+                        HStack(spacing: 8) {
+                            Text("\u{1F4F1}")
                             Text("Continue with Phone")
-                                .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
                         }
+                        .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
                         .foregroundStyle(DesignTokens.gold)
                         .frame(maxWidth: .infinity)
-                        .frame(height: 50)
+                        .padding(.vertical, 16)
                         .background(.clear)
-                        .clipShape(.rect(cornerRadius: DesignTokens.radiusCTA))
-                        .overlay(RoundedRectangle(cornerRadius: DesignTokens.radiusCTA).stroke(DesignTokens.gold, lineWidth: 1))
+                        .clipShape(RoundedRectangle(cornerRadius: 14))
+                        .overlay(RoundedRectangle(cornerRadius: 14).stroke(DesignTokens.gold, lineWidth: 1.5))
                     }
                     .buttonStyle(.plain)
-
-                    if googleAuthAvailable {
-                        VelvetButton("Continue with Google", icon: "g.circle.fill", style: .secondary) {
-                            startGoogleSignIn()
-                        }
-                    }
-
-                    if facebookAuthAvailable {
-                        VelvetButton("Continue with Facebook", icon: "f.circle.fill", style: .secondary) {
-                            startFacebookSignIn()
-                        }
-                    }
+                    .disabled(isLoading)
+                    .opacity(isLoading ? 0.7 : 1.0)
                 }
                 .padding(.horizontal, 20)
                 .padding(.bottom, 24)
@@ -156,11 +147,11 @@ struct AuthView: View {
         .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusMedium))
     }
 
-    /// Legal footer with Terms of Service and Privacy Policy (v1.pen design)
+    /// Legal footer with Terms of Service and Privacy Policy
     private var legalFooter: some View {
         VStack(spacing: 4) {
-            Text("By creating an account, you agree to the")
-                .font(DesignTokens.bodyFont(size: 12))
+            Text("By continuing, you agree to Porizo's")
+                .font(DesignTokens.bodyFont(size: 11))
                 .foregroundStyle(DesignTokens.textTertiary)
                 .multilineTextAlignment(.center)
 
@@ -169,31 +160,26 @@ struct AuthView: View {
                     showTerms = true
                 } label: {
                     Text("Terms of Service")
-                        .font(DesignTokens.bodyFont(size: 12, weight: .medium))
+                        .font(DesignTokens.bodyFont(size: 11, weight: .medium))
                         .foregroundStyle(DesignTokens.gold)
                         .underline()
                 }
 
-                Text("and acknowledge that you")
-                    .font(DesignTokens.bodyFont(size: 12))
-                    .foregroundStyle(DesignTokens.textTertiary)
-            }
-
-            HStack(spacing: 4) {
-                Text("have read and understood the")
-                    .font(DesignTokens.bodyFont(size: 12))
+                Text("and")
+                    .font(DesignTokens.bodyFont(size: 11))
                     .foregroundStyle(DesignTokens.textTertiary)
 
                 Button {
                     showPrivacy = true
                 } label: {
                     Text("Privacy Policy")
-                        .font(DesignTokens.bodyFont(size: 12, weight: .medium))
+                        .font(DesignTokens.bodyFont(size: 11, weight: .medium))
                         .foregroundStyle(DesignTokens.gold)
                         .underline()
                 }
             }
         }
+        .padding(.top, 8)
         .sheet(isPresented: $showTerms) {
             if let url = termsUrl {
                 SafariView(url: url)
@@ -223,14 +209,10 @@ struct AuthView: View {
         } onCompletion: { result in
             handleAppleSignIn(result)
         }
-        .signInWithAppleButtonStyle(.white)
-        .frame(maxWidth: .infinity, minHeight: 50)
-        .frame(height: 50)
-        .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusCTA))
-        .overlay(
-            RoundedRectangle(cornerRadius: DesignTokens.radiusCTA)
-                .stroke(Color.white.opacity(0.2), lineWidth: 1)
-        )
+        .signInWithAppleButtonStyle(.black)
+        .frame(maxWidth: .infinity)
+        .frame(height: 52)
+        .clipShape(RoundedRectangle(cornerRadius: 14))
         .disabled(isLoading)
         .opacity(isLoading ? 0.7 : 1.0)
     }
@@ -254,14 +236,6 @@ struct AuthView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(DesignTokens.background.ignoresSafeArea())
-    }
-
-    private var googleAuthAvailable: Bool {
-        AppConfig.googleOAuthConfig != nil
-    }
-
-    private var facebookAuthAvailable: Bool {
-        AppConfig.facebookOAuthConfig != nil
     }
 
     private var phoneAuthPresented: Binding<Bool> {
@@ -310,160 +284,6 @@ struct AuthView: View {
 
             isLoading = false
         }
-    }
-
-    // MARK: - Google/Facebook Sign-In
-
-    private func startGoogleSignIn() {
-        guard let config = AppConfig.googleOAuthConfig else {
-            errorMessage = "Google sign-in is not configured."
-            return
-        }
-
-        Task { @MainActor in
-            do {
-                isLoading = true
-                errorMessage = nil
-
-                let pkce = PKCE.generate()
-                let state = UUID().uuidString
-
-                let url = buildOAuthURL(
-                    config: config,
-                    state: state,
-                    codeChallenge: pkce.challenge
-                )
-
-                let callbackUrl = try await OAuthWebAuthService.shared.authenticate(
-                    url: url,
-                    callbackScheme: config.callbackScheme
-                )
-
-                try await handleOAuthCallback(
-                    provider: "google",
-                    callbackUrl: callbackUrl,
-                    redirectUri: config.redirectUri,
-                    codeVerifier: pkce.verifier,
-                    expectedState: state
-                )
-            } catch let error as OAuthWebAuthError {
-                if case .cancelled = error {
-                    // User cancelled; no error banner.
-                } else {
-                    errorMessage = error.localizedDescription
-                }
-            } catch {
-                errorMessage = "Google sign-in failed. Please try again."
-            }
-
-            isLoading = false
-        }
-    }
-
-    private func startFacebookSignIn() {
-        guard let config = AppConfig.facebookOAuthConfig else {
-            errorMessage = "Facebook sign-in is not configured."
-            return
-        }
-
-        Task { @MainActor in
-            do {
-                isLoading = true
-                errorMessage = nil
-
-                let state = UUID().uuidString
-
-                let url = buildOAuthURL(
-                    config: config,
-                    state: state,
-                    codeChallenge: nil
-                )
-
-                let callbackUrl = try await OAuthWebAuthService.shared.authenticate(
-                    url: url,
-                    callbackScheme: config.callbackScheme
-                )
-
-                try await handleOAuthCallback(
-                    provider: "facebook",
-                    callbackUrl: callbackUrl,
-                    redirectUri: config.redirectUri,
-                    codeVerifier: nil,
-                    expectedState: state
-                )
-            } catch let error as OAuthWebAuthError {
-                if case .cancelled = error {
-                    // User cancelled; no error banner.
-                } else {
-                    errorMessage = error.localizedDescription
-                }
-            } catch {
-                errorMessage = "Facebook sign-in failed. Please try again."
-            }
-
-            isLoading = false
-        }
-    }
-
-    private func buildOAuthURL(
-        config: OAuthProviderConfig,
-        state: String,
-        codeChallenge: String?
-    ) -> URL {
-        var components = URLComponents(url: config.authorizationEndpoint, resolvingAgainstBaseURL: false)!
-        var queryItems = [
-            URLQueryItem(name: "client_id", value: config.clientId),
-            URLQueryItem(name: "redirect_uri", value: config.redirectUri),
-            URLQueryItem(name: "response_type", value: "code"),
-            URLQueryItem(name: "scope", value: config.scopes.joined(separator: " ")),
-            URLQueryItem(name: "state", value: state)
-        ]
-
-        if config.provider == .google {
-            queryItems.append(URLQueryItem(name: "prompt", value: "select_account"))
-        }
-
-        if let codeChallenge {
-            queryItems.append(URLQueryItem(name: "code_challenge", value: codeChallenge))
-            queryItems.append(URLQueryItem(name: "code_challenge_method", value: "S256"))
-        }
-
-        components.queryItems = queryItems
-        return components.url!
-    }
-
-    private func handleOAuthCallback(
-        provider: String,
-        callbackUrl: URL,
-        redirectUri: String,
-        codeVerifier: String?,
-        expectedState: String
-    ) async throws {
-        guard let components = URLComponents(url: callbackUrl, resolvingAgainstBaseURL: false) else {
-            throw OAuthWebAuthError.invalidCallback
-        }
-
-        if let error = components.queryItems?.first(where: { $0.name == "error" })?.value {
-            throw AuthError.serverError("\(provider.capitalized) sign-in failed: \(error)")
-        }
-
-        let code = components.queryItems?.first(where: { $0.name == "code" })?.value
-        let returnedState = components.queryItems?.first(where: { $0.name == "state" })?.value
-
-        guard let code, !code.isEmpty else {
-            throw OAuthWebAuthError.invalidCallback
-        }
-
-        if returnedState != expectedState {
-            throw AuthError.serverError("Sign-in state mismatch. Please try again.")
-        }
-
-        try await authManager.handleOAuthAuthorization(
-            provider: provider,
-            authorizationCode: code,
-            codeVerifier: codeVerifier,
-            redirectUri: redirectUri
-        )
     }
 
     // MARK: - Nonce Helpers

@@ -27,7 +27,7 @@ struct ChatMessageBubble: View {
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
             if message.role == .user {
-                Spacer(minLength: 48)
+                Spacer(minLength: 60)
             }
 
             VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 6) {
@@ -45,10 +45,10 @@ struct ChatMessageBubble: View {
             }
 
             if message.role == .ai {
-                Spacer(minLength: 48)
+                Spacer(minLength: 60)
             }
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, 20)
     }
 
     private var shouldShowSlotGuidance: Bool {
@@ -86,7 +86,7 @@ struct ChatMessageBubble: View {
                     text: message.content,
                     speed: 0.02
                 )
-                .font(DesignTokens.bodyFont(size: 16))
+                .font(DesignTokens.bodyFont(size: 14))
                 .foregroundStyle(DesignTokens.textPrimary)
             } else if shouldCollapseLongUserBubble {
                 CollapsibleBubbleText(
@@ -97,13 +97,13 @@ struct ChatMessageBubble: View {
             } else {
                 SelectableText(
                     text: message.content,
-                    font: .systemFont(ofSize: 16),
+                    font: .systemFont(ofSize: 14),
                     textColor: UIColor(DesignTokens.textPrimary)
                 )
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
         .background(bubbleBackground.clipShape(bubbleShape))
         .contentShape(bubbleShape)
     }
@@ -135,7 +135,7 @@ struct ChatMessageBubble: View {
                 .foregroundStyle(DesignTokens.sage)
 
             // Story anchor quote — the exact text being improved
-            if let anchor = guidance.storyAnchor, !anchor.isEmpty {
+            if let anchor = guidance.storyAnchor, !anchor.isEmpty, anchor != "null" {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("FROM YOUR STORY")
                         .font(DesignTokens.bodyFont(size: 10, weight: .semibold))
@@ -248,27 +248,56 @@ struct BubbleShape: Shape {
     let isFromUser: Bool
 
     func path(in rect: CGRect) -> Path {
-        let cornerRadius: CGFloat = 16
-        let tailSize: CGFloat = 6
-
-        var path = Path()
-
+        // Asymmetric corners matching gallery prototype:
+        // AI: large top-left, small bottom-left (tail), large others
+        // User: large top-right, small bottom-right (tail), large others
         if isFromUser {
-            // User bubble: rounded corners, slight tail on right
-            path.addRoundedRect(
-                in: CGRect(x: 0, y: 0, width: rect.width - tailSize, height: rect.height),
-                cornerSize: CGSize(width: cornerRadius, height: cornerRadius)
+            return Path(
+                UnsafeRoundedRect(
+                    rect,
+                    topLeading: 18, bottomLeading: 18,
+                    bottomTrailing: 6, topTrailing: 18
+                )
             )
         } else {
-            // AI bubble: rounded corners, slight tail on left
-            path.addRoundedRect(
-                in: CGRect(x: tailSize, y: 0, width: rect.width - tailSize, height: rect.height),
-                cornerSize: CGSize(width: cornerRadius, height: cornerRadius)
+            return Path(
+                UnsafeRoundedRect(
+                    rect,
+                    topLeading: 18, bottomLeading: 6,
+                    bottomTrailing: 18, topTrailing: 18
+                )
             )
         }
-
-        return path
     }
+}
+
+/// Helper to build a path with per-corner radii (iOS 16+).
+private func UnsafeRoundedRect(
+    _ rect: CGRect,
+    topLeading: CGFloat, bottomLeading: CGFloat,
+    bottomTrailing: CGFloat, topTrailing: CGFloat
+) -> CGPath {
+    let path = UIBezierPath()
+    // Start at top-left after the top-leading radius
+    path.move(to: CGPoint(x: rect.minX + topLeading, y: rect.minY))
+    // Top edge → top-right corner
+    path.addLine(to: CGPoint(x: rect.maxX - topTrailing, y: rect.minY))
+    path.addArc(withCenter: CGPoint(x: rect.maxX - topTrailing, y: rect.minY + topTrailing),
+                radius: topTrailing, startAngle: -.pi / 2, endAngle: 0, clockwise: true)
+    // Right edge → bottom-right corner
+    path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - bottomTrailing))
+    path.addArc(withCenter: CGPoint(x: rect.maxX - bottomTrailing, y: rect.maxY - bottomTrailing),
+                radius: bottomTrailing, startAngle: 0, endAngle: .pi / 2, clockwise: true)
+    // Bottom edge → bottom-left corner
+    path.addLine(to: CGPoint(x: rect.minX + bottomLeading, y: rect.maxY))
+    path.addArc(withCenter: CGPoint(x: rect.minX + bottomLeading, y: rect.maxY - bottomLeading),
+                radius: bottomLeading, startAngle: .pi / 2, endAngle: .pi, clockwise: true)
+    // Left edge → top-left corner
+    path.addLine(to: CGPoint(x: rect.minX, y: rect.minY + topLeading))
+    path.addArc(withCenter: CGPoint(x: rect.minX + topLeading, y: rect.minY + topLeading),
+                radius: topLeading, startAngle: .pi, endAngle: -.pi / 2, clockwise: true)
+    path.close()
+    return path.cgPath
 }
 
 // MARK: - Typewriter Text
@@ -322,10 +351,10 @@ private struct CollapsibleBubbleText: View {
         VStack(alignment: .leading, spacing: 8) {
             SelectableText(
                 text: text,
-                font: .systemFont(ofSize: 16),
+                font: .systemFont(ofSize: 14),
                 textColor: textColor
             )
-            .frame(maxHeight: isExpanded ? .infinity : CGFloat(collapsedLineLimit) * 20, alignment: .top)
+            .frame(maxHeight: isExpanded ? .infinity : CGFloat(collapsedLineLimit) * 18, alignment: .top)
             .clipped()
 
             Button(isExpanded ? "Show less" : "Show more") {

@@ -2,9 +2,8 @@
 //  InlineNamePromptView.swift
 //  PorizoApp
 //
-//  Extracted from UnifiedCreateFlowView — inline name prompt shown
-//  before the conversation starts. Owns the text field @State so
-//  keystrokes don't re-evaluate the entire parent body.
+//  Name entry screen matching Warm Canvas prototype:
+//  Occasion chips, Song/Poem toggle, name field, "Next →" CTA.
 //
 
 import SwiftUI
@@ -14,18 +13,37 @@ struct InlineNamePromptView: View {
     var preselectedOccasion: String?
     @Binding var hasOwnLyrics: Bool
     @Binding var isInstrumental: Bool
-    let onStart: (String) -> Void
+    let onStart: (String, Occasion?) -> Void
     let onCancel: () -> Void
 
     @State private var nameInput: String = ""
+    @State private var selectedOccasion: String?
+    @State private var activeType: CreateFlowKind = .song
+
+    private let occasions: [(emoji: String, label: String)] = [
+        ("🎂", "Birthday"),
+        ("🎉", "Anniversary"),
+        ("🙏", "Thank You"),
+        ("💍", "Wedding"),
+        ("🎓", "Graduation"),
+        ("❤️", "I Love You"),
+    ]
 
     private var trimmedName: String {
         nameInput.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    private var heading: String {
+        let typeLabel = activeType == .poem ? "poem" : "song"
+        if let occ = selectedOccasion {
+            return "Create a \(occ) \(typeLabel)"
+        }
+        return "Create a \(typeLabel)"
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            // Header with close button
+            // Close button
             HStack {
                 Spacer()
                 Button { onCancel() } label: {
@@ -33,139 +51,143 @@ struct InlineNamePromptView: View {
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(DesignTokens.textSecondary)
                         .frame(width: 30, height: 30)
-                        .background(DesignTokens.surface)
+                        .background(Color.black.opacity(0.05))
                         .clipShape(Circle())
                 }
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, 20)
             .padding(.top, 10)
 
             Spacer()
 
             VStack(spacing: 20) {
-                Image(systemName: "sparkles")
-                    .font(.system(size: 40))
+                // Sparkle icon
+                Image(systemName: "sparkle")
+                    .font(.system(size: 36))
                     .foregroundStyle(DesignTokens.gold)
 
-                if let occasion = preselectedOccasion {
-                    // Occasion chip confirming the preselection
-                    Text(occasion)
-                        .font(DesignTokens.bodyFont(size: 13, weight: .semibold))
-                        .foregroundStyle(DesignTokens.gold)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 6)
-                        .background(DesignTokens.gold.opacity(0.12))
-                        .clipShape(Capsule())
-                }
-
-                Text(occasionHeading)
+                // Title
+                Text(heading)
                     .font(DesignTokens.displayFont(size: 24))
                     .foregroundStyle(DesignTokens.textPrimary)
                     .multilineTextAlignment(.center)
 
-                Text("Enter their name to get started")
-                    .font(DesignTokens.bodyFont(size: 14))
-                    .foregroundStyle(DesignTokens.textSecondary)
-
-                TextField("Their name...", text: $nameInput)
+                // Name field
+                TextField("Their Name", text: $nameInput)
                     .font(DesignTokens.bodyFont(size: 16))
                     .foregroundStyle(DesignTokens.textPrimary)
                     .textInputAutocapitalization(.words)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 14)
                     .background(DesignTokens.surface)
-                    .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusMedium))
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
                     .overlay(
-                        RoundedRectangle(cornerRadius: DesignTokens.radiusMedium)
-                            .stroke(DesignTokens.border, lineWidth: 0.5)
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(DesignTokens.border, lineWidth: 1.5)
                     )
-                    .padding(.horizontal, 32)
+                    .padding(.horizontal, 20)
                     .onSubmit { submit() }
 
-                // Optional mode toggles
-                if selectedType == .song {
-                    HStack(spacing: 10) {
-                        setupToggleChip(
-                            "I'll write my own lyrics",
-                            icon: "text.quote",
-                            isOn: hasOwnLyrics
-                        ) {
-                            hasOwnLyrics.toggle()
-                            if hasOwnLyrics { isInstrumental = false }
-                        }
-                        setupToggleChip(
-                            "Instrumental",
-                            icon: "waveform",
-                            isOn: isInstrumental
-                        ) {
-                            isInstrumental.toggle()
-                            if isInstrumental { hasOwnLyrics = false }
+                // Occasion chips
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(occasions, id: \.label) { item in
+                            let isSelected = selectedOccasion == item.label
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.15)) {
+                                    selectedOccasion = isSelected ? nil : item.label
+                                }
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Text(item.emoji)
+                                        .font(.system(size: 14))
+                                    Text(item.label)
+                                        .font(DesignTokens.bodyFont(size: 14, weight: .medium))
+                                }
+                                .foregroundStyle(isSelected ? DesignTokens.gold : DesignTokens.textPrimary)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 8)
+                                .background(DesignTokens.surface)
+                                .clipShape(Capsule())
+                                .overlay(
+                                    Capsule().stroke(
+                                        isSelected ? DesignTokens.gold : DesignTokens.border,
+                                        lineWidth: isSelected ? 1.5 : 1
+                                    )
+                                )
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
-                    .padding(.horizontal, 32)
+                    .padding(.horizontal, 20)
                 }
 
-                Button {
-                    submit()
-                } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: "arrow.right")
-                        Text("Start")
-                    }
-                    .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
-                    .foregroundStyle(.black)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(DesignTokens.gold)
-                    .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusCTA))
+                // Song / Poem toggle
+                HStack(spacing: 0) {
+                    typeToggleButton("♪ A Song", type: .song)
+                    typeToggleButton("📝 A Poem", type: .poem)
+                }
+                .padding(4)
+                .background(DesignTokens.surface)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(DesignTokens.border, lineWidth: 1)
+                )
+                .padding(.horizontal, 20)
+
+                // Next button
+                Button { submit() } label: {
+                    Text("Next →")
+                        .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
+                        .background(DesignTokens.gold)
+                        .clipShape(RoundedRectangle(cornerRadius: 14))
                 }
                 .disabled(trimmedName.isEmpty)
                 .opacity(trimmedName.isEmpty ? 0.5 : 1.0)
-                .padding(.horizontal, 32)
+                .padding(.horizontal, 20)
             }
 
             Spacer()
+        }
+        .onAppear {
+            selectedOccasion = preselectedOccasion
+            activeType = selectedType ?? .song
         }
         .onTapGesture {
             UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
         }
     }
 
-    // MARK: - Private
+    // MARK: - Helpers
 
-    private var occasionHeading: String {
-        let typeLabel = selectedType == .poem ? "poem" : "song"
-        if let occasion = preselectedOccasion {
-            return "Create a \(occasion) \(typeLabel)"
-        } else if selectedType != nil {
-            return "Who is this \(typeLabel) for?"
-        } else {
-            return "Who is this for?"
+    private func typeToggleButton(_ label: String, type: CreateFlowKind) -> some View {
+        let isSelected = activeType == type
+        return Button {
+            withAnimation(.easeInOut(duration: 0.15)) {
+                activeType = type
+            }
+        } label: {
+            Text(label)
+                .font(DesignTokens.bodyFont(size: 14, weight: .medium))
+                .foregroundStyle(isSelected ? DesignTokens.textPrimary : DesignTokens.textSecondary)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
+                .background(isSelected ? DesignTokens.background : .clear)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
         }
+        .buttonStyle(.plain)
     }
 
     private func submit() {
         guard !trimmedName.isEmpty else { return }
-        onStart(trimmedName)
-    }
-
-    private func setupToggleChip(_ label: String, icon: String, isOn: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: 5) {
-                Image(systemName: icon)
-                    .font(.system(size: 11))
-                Text(label)
-                    .font(DesignTokens.bodyFont(size: 12, weight: .medium))
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 7)
-            .background(isOn ? DesignTokens.gold.opacity(0.15) : DesignTokens.surface)
-            .foregroundStyle(isOn ? DesignTokens.gold : DesignTokens.textTertiary)
-            .clipShape(Capsule())
-            .overlay(
-                Capsule().stroke(isOn ? DesignTokens.gold.opacity(0.3) : DesignTokens.border, lineWidth: 0.5)
-            )
+        // Convert selected occasion label to Occasion enum
+        let occasion: Occasion? = selectedOccasion.flatMap { label in
+            Occasion.allCases.first { $0.displayName == label }
         }
-        .buttonStyle(.plain)
+        onStart(trimmedName, occasion)
     }
 }

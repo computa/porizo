@@ -2,7 +2,7 @@
 //  PhoneVerificationView.swift
 //  PorizoApp
 //
-//  Phone verification code entry matching v1.pen "04 - Confirmation Code" design.
+//  Phone verification code entry matching Warm Canvas gallery design.
 //  Handles 6-digit OTP input with auto-submit and resend countdown.
 //
 
@@ -35,73 +35,82 @@ struct PhoneVerificationView: View {
 
     @FocusState private var isCodeFieldFocused: Bool
 
-    /// Task handles for resend countdown and cursor blink
+    /// Task handle for resend countdown
     @State private var countdownTask: Task<Void, Never>?
-    @State private var blinkTask: Task<Void, Never>?
 
     // MARK: - Body
 
     var body: some View {
         ZStack {
-            // Background: Deep velvet black
             DesignTokens.background.ignoresSafeArea()
 
             VStack(spacing: 0) {
-                // Header with back button and title
-                VelvetHeader(
-                    title: "Enter confirmation code",
-                    showBackButton: true,
-                    onBack: onBack
-                )
-
-                // Subheader: "Sent to +1 *** *** 4567"
+                // Navigation bar with back button
                 HStack {
-                    Text("Sent to \(maskedPhoneNumber)")
-                        .font(DesignTokens.bodyFont(size: 14))
-                        .foregroundStyle(DesignTokens.textTertiary)
+                    Button { onBack() } label: {
+                        ZStack {
+                            Circle()
+                                .fill(Color.black.opacity(0.05))
+                                .frame(width: 44, height: 44)
+                            Image(systemName: "arrow.left")
+                                .font(.system(size: 18))
+                                .foregroundStyle(DesignTokens.textPrimary)
+                        }
+                    }
+                    Spacer()
+                    Color.clear.frame(width: 44, height: 44)
                 }
-                .frame(maxWidth: .infinity)
-                .padding(.horizontal, DesignTokens.spacing24)
+                .padding(.horizontal, DesignTokens.spacing20)
                 .padding(.bottom, DesignTokens.spacing8)
 
-                // Content
-                VStack(spacing: DesignTokens.spacing24) {
-                    Spacer()
-                        .frame(height: DesignTokens.spacing24)
+                ScrollView(showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 20) {
+                        // Title + subtitle
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Enter verification code")
+                                .font(DesignTokens.bodyFont(size: 20, weight: .bold))
+                                .foregroundStyle(DesignTokens.textPrimary)
+                            Text("Sent to \(maskedPhoneNumber)")
+                                .font(DesignTokens.bodyFont(size: 14))
+                                .foregroundStyle(DesignTokens.textSecondary)
+                        }
 
-                    // OTP Input Display
-                    codeInputDisplay
+                        // 6 digit boxes
+                        codeInputDisplay
 
-                    // Error message
-                    if let error = error {
-                        errorMessage(error)
+                        // Error message
+                        if let error = error {
+                            errorMessage(error)
+                        }
+
+                        // Verify button
+                        Button {
+                            Task { await verifyCode() }
+                        } label: {
+                            HStack(spacing: 8) {
+                                if isVerifying {
+                                    ProgressView()
+                                        .tint(.white)
+                                }
+                                Text("Verify")
+                                    .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
+                            }
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 16)
+                            .background(DesignTokens.gold)
+                            .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusCTA))
+                        }
+                        .disabled(code.count < 6 || isVerifying)
+                        .opacity(code.count < 6 ? 0.5 : 1.0)
+                        .buttonStyle(.plain)
+
+                        // Resend code + Wrong number? links
+                        resendSection
                     }
-
-                    Spacer()
-
-                    // Resend button / countdown
-                    resendSection
+                    .padding(.horizontal, DesignTokens.spacing20)
+                    .padding(.bottom, DesignTokens.spacing32)
                 }
-                .padding(.horizontal, DesignTokens.spacing24)
-                .padding(.bottom, DesignTokens.spacing24)
-            }
-
-            // Loading overlay
-            if isVerifying {
-                Color.black.opacity(0.4)
-                    .ignoresSafeArea()
-
-                VStack(spacing: DesignTokens.spacing16) {
-                    ProgressView()
-                        .scaleEffect(1.3)
-                        .tint(DesignTokens.gold)
-                    Text("Verifying...")
-                        .font(DesignTokens.bodyFont(size: 16, weight: .medium))
-                        .foregroundStyle(DesignTokens.textPrimary)
-                }
-                .padding(DesignTokens.spacing24)
-                .background(DesignTokens.surface)
-                .clipShape(.rect(cornerRadius: DesignTokens.radiusMedium))
             }
         }
         .onAppear {
@@ -113,7 +122,6 @@ struct PhoneVerificationView: View {
         }
         .onDisappear {
             countdownTask?.cancel()
-            blinkTask?.cancel()
         }
         .onChange(of: code) { _, newValue in
             // Auto-submit when 6 digits entered
@@ -127,7 +135,7 @@ struct PhoneVerificationView: View {
 
     // MARK: - Code Input Display
 
-    /// Visual display of 6 code digits with hidden TextField for input
+    /// Visual display of 6 code digits as individual boxes with hidden TextField for input
     private var codeInputDisplay: some View {
         ZStack {
             // Hidden TextField for actual input (captures keyboard and auto-fill)
@@ -145,51 +153,22 @@ struct PhoneVerificationView: View {
                     }
                 }
 
-            // Visual digit display (matching v1.pen design)
-            HStack(spacing: DesignTokens.spacing4) {
-                // Cursor indicator when empty or focused at start
-                if code.isEmpty && isCodeFieldFocused {
-                    Rectangle()
-                        .fill(DesignTokens.gold)
-                        .frame(width: 2, height: 40)
-                        .opacity(cursorOpacity)
-                }
-
-                // Display digits with XXX-XXX format
+            // 6 individual digit boxes (Warm Canvas gallery style)
+            HStack(spacing: 8) {
                 ForEach(0..<6, id: \.self) { index in
-                    if index == 3 {
-                        // Separator dash
-                        Text("-")
-                            .font(DesignTokens.bodyFont(size: 36, weight: .light))
-                            .foregroundStyle(DesignTokens.textTertiary)
-                    }
-
-                    ZStack {
-                        // Placeholder X
-                        Text("X")
-                            .font(DesignTokens.bodyFont(size: 36, weight: .light))
-                            .foregroundStyle(DesignTokens.textTertiary)
-                            .opacity(index >= code.count ? 1 : 0)
-
-                        // Entered digit
-                        if index < code.count {
-                            Text(String(code[code.index(code.startIndex, offsetBy: index)]))
-                                .font(DesignTokens.bodyFont(size: 36, weight: .regular))
-                                .foregroundStyle(DesignTokens.textPrimary)
-                        }
-
-                        // Cursor after last entered digit
-                        if index == code.count && isCodeFieldFocused && !code.isEmpty {
-                            HStack(spacing: 0) {
-                                Spacer()
-                                Rectangle()
-                                    .fill(DesignTokens.gold)
-                                    .frame(width: 2, height: 40)
-                                    .opacity(cursorOpacity)
-                            }
-                        }
-                    }
-                    .frame(width: 24)
+                    Text(index < code.count ? String(code[code.index(code.startIndex, offsetBy: index)]) : "")
+                        .font(.system(size: 24, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(DesignTokens.textPrimary)
+                        .frame(width: 44, height: 56)
+                        .background(DesignTokens.surface)
+                        .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusMedium))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: DesignTokens.radiusMedium)
+                                .stroke(index == code.count && isCodeFieldFocused
+                                        ? DesignTokens.gold
+                                        : DesignTokens.border,
+                                        lineWidth: 1.5)
+                        )
                 }
             }
             .contentShape(Rectangle())
@@ -197,12 +176,6 @@ struct PhoneVerificationView: View {
                 isCodeFieldFocused = true
             }
         }
-    }
-
-    /// Blinking cursor animation
-    @State private var cursorVisible = true
-    private var cursorOpacity: Double {
-        cursorVisible ? 1.0 : 0.0
     }
 
     // MARK: - Error Message
@@ -233,27 +206,30 @@ struct PhoneVerificationView: View {
     // MARK: - Resend Section
 
     private var resendSection: some View {
-        VStack(spacing: DesignTokens.spacing12) {
+        HStack(spacing: 16) {
             if canResend {
                 Button {
-                    Task {
-                        await resendCode()
-                    }
+                    Task { await resendCode() }
                 } label: {
-                    Text("RESEND CODE")
-                        .font(DesignTokens.bodyFont(size: 12, weight: .semibold))
-                        .tracking(2)
+                    Text("Resend code")
+                        .font(DesignTokens.bodyFont(size: 14, weight: .medium))
                         .foregroundStyle(DesignTokens.gold)
                 }
                 .disabled(isVerifying)
             } else {
-                Text("RESEND IN \(resendCountdown)S")
-                    .font(DesignTokens.bodyFont(size: 12, weight: .semibold))
-                    .tracking(2)
-                    .foregroundStyle(DesignTokens.textTertiary)
+                Text("Resend in \(resendCountdown)s")
+                    .font(DesignTokens.bodyFont(size: 14, weight: .medium))
+                    .foregroundStyle(DesignTokens.textSecondary)
+            }
+
+            Button {
+                onBack()
+            } label: {
+                Text("Wrong number?")
+                    .font(DesignTokens.bodyFont(size: 14, weight: .medium))
+                    .foregroundStyle(DesignTokens.textSecondary)
             }
         }
-        .padding(.bottom, DesignTokens.spacing20)
     }
 
     // MARK: - Masked Phone Number
@@ -387,7 +363,6 @@ struct PhoneVerificationView: View {
 
     private func startCountdown() {
         countdownTask?.cancel()
-        blinkTask?.cancel()
         canResend = false
         resendCountdown = 60
 
@@ -402,16 +377,6 @@ struct PhoneVerificationView: View {
                     if resendCountdown == 0 {
                         canResend = true
                     }
-                }
-            }
-        }
-
-        blinkTask = Task {
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .milliseconds(500))
-                guard !Task.isCancelled else { return }
-                await MainActor.run {
-                    cursorVisible.toggle()
                 }
             }
         }
