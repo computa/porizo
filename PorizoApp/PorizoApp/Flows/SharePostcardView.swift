@@ -31,6 +31,7 @@ struct SharePostcardView: View {
                 ScrollView(showsIndicators: false) {
                     VStack(spacing: DesignTokens.spacing20) {
                         postcardCard
+                        howItWorksSection
                         sectionHeader
                         iMessagePreview
                         whatsAppPreview
@@ -365,6 +366,43 @@ struct SharePostcardView: View {
             .accessibilityLabel("Skip sharing and go home")
         }
         .padding(.top, DesignTokens.spacing4)
+    }
+
+    // MARK: - How It Works
+
+    private var howItWorksSection: some View {
+        VStack(alignment: .leading, spacing: DesignTokens.spacing12) {
+            Text("How it works")
+                .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
+                .foregroundStyle(DesignTokens.textPrimary)
+
+            howItWorksItem(number: "1", text: "We\u{2019}ll create a private link and secret PIN")
+            howItWorksItem(number: "2", text: "Share the link with your recipient")
+            howItWorksItem(number: "3", text: "Tell them the PIN separately (for security)")
+            howItWorksItem(number: "4", text: "They can listen on any device for 30 days")
+        }
+        .padding(DesignTokens.spacing16)
+        .background(DesignTokens.surface)
+        .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusMedium, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: DesignTokens.radiusMedium, style: .continuous)
+                .stroke(DesignTokens.border, lineWidth: 1)
+        )
+    }
+
+    private func howItWorksItem(number: String, text: String) -> some View {
+        HStack(alignment: .top, spacing: DesignTokens.spacing12) {
+            Text(number)
+                .font(DesignTokens.bodyFont(size: 11, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: 20, height: 20)
+                .background(DesignTokens.gold)
+                .clipShape(Circle())
+
+            Text(text)
+                .font(DesignTokens.bodyFont(size: 14))
+                .foregroundStyle(DesignTokens.textSecondary)
+        }
     }
 
     // MARK: - Reusable Components
