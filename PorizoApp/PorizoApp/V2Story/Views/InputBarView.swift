@@ -153,10 +153,9 @@ struct InputBarView: View {
             return
         }
 
-        let answer = trimmedInput
         inputText = ""
         isInputFocused = false
-        callbacks.onSubmit(answer)
+        callbacks.onSubmit(trimmedInput)
     }
 }
 

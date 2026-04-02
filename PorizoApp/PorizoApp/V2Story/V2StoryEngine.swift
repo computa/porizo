@@ -207,9 +207,6 @@ class V2StoryEngine {
 
         defer { isLoading = false }
 
-        print("[V2StoryEngine] Starting session with prompt: \(initialPrompt.prefix(50))...")
-        print("[V2StoryEngine] Recipient: \(recipientName), Occasion: \(occasion)")
-
         do {
             let response = try await syncService.startStory(
                 initialPrompt: initialPrompt,
@@ -254,12 +251,9 @@ class V2StoryEngine {
                 suggestions: response.suggestions,
                 slotGuidance: engineResponse.slotGuidance
             )
-            print("[V2StoryEngine] Session started successfully. StoryId: \(response.storyId)")
-
             schedulePersistence()
 
         } catch {
-            print("[V2StoryEngine] ERROR: \(error)")
             self.error = error.localizedDescription
             throw error
         }
@@ -475,11 +469,7 @@ class V2StoryEngine {
         // Sync server state in background so refreshSessionFromServer()
         // won't flip isComplete back to false
         Task { [syncService] in
-            do {
-                _ = try await syncService.prepareStoryReview(storyId: storyId)
-            } catch {
-                print("[V2StoryEngine] Background prepareStoryReview failed: \(error)")
-            }
+            _ = try? await syncService.prepareStoryReview(storyId: storyId)
         }
     }
 

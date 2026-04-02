@@ -190,7 +190,8 @@ struct WarmCanvasFlowView: View {
                   let versionNum = songFlow.currentVersionNum else { return }
             if moment == .wait {
                 wireRenderCallbacks()
-                renderController.recoverAfterForeground(trackId: trackId, versionNum: versionNum, mode: .fullRender)
+                let mode: RenderController.RecoveryMode = renderController.isFullRendering ? .fullRender : .preview
+                renderController.recoverAfterForeground(trackId: trackId, versionNum: versionNum, mode: mode)
             }
         }
         .onChange(of: activeSheet?.id) { oldValue, _ in
@@ -461,10 +462,7 @@ struct WarmCanvasFlowView: View {
             recipientName: setup.recipientName,
             occasion: setup.occasion?.rawValue,
             onSend: {
-                // Ensure shareController exists
-                if shareController == nil { shareController = ShareController(apiClient: apiClient) }
-                guard let trackId = songFlow.currentTrackId,
-                      let versionNum = songFlow.currentVersionNum else { return }
+                guard let (trackId, versionNum) = ensureShareControllerAndTrackIds() else { return }
                 shareController?.generateShareLink(trackId: trackId, versionNum: versionNum)
                 onComplete(trackId, versionNum)
             },
@@ -472,9 +470,7 @@ struct WarmCanvasFlowView: View {
                 ToastService.shared.show("Save to Photos coming soon", type: .info)
             },
             onCopyLink: {
-                if shareController == nil { shareController = ShareController(apiClient: apiClient) }
-                guard let trackId = songFlow.currentTrackId,
-                      let versionNum = songFlow.currentVersionNum else { return }
+                guard let (trackId, versionNum) = ensureShareControllerAndTrackIds() else { return }
                 shareController?.generateShareLink(trackId: trackId, versionNum: versionNum)
                 if let url = shareController?.shareURLString {
                     UIPasteboard.general.string = url
@@ -483,6 +479,14 @@ struct WarmCanvasFlowView: View {
             },
             onSkip: { withAnimation { moment = .reveal } }
         )
+    }
+
+    /// Lazily create the share controller and return current track IDs, or nil if unavailable.
+    private func ensureShareControllerAndTrackIds() -> (trackId: String, versionNum: Int)? {
+        if shareController == nil { shareController = ShareController(apiClient: apiClient) }
+        guard let trackId = songFlow.currentTrackId,
+              let versionNum = songFlow.currentVersionNum else { return nil }
+        return (trackId, versionNum)
     }
 
     // MARK: - Error Overlays
@@ -699,11 +703,7 @@ struct WarmCanvasFlowView: View {
 
         renderController.onPreviewComplete = { [self] result in
             renderTimeoutTask?.cancel()
-            // Guard: ignore if user already cancelled/reset the flow
-            guard moment == .wait else {
-                print("[WC-DEBUG] onPreviewComplete ignored — moment is \(momentKey), not wait")
-                return
-            }
+            guard moment == .wait else { return }
             applyTrackMetadata(title: result.trackTitle, coverUrl: result.coverImageUrl)
             if !result.recipientName.isEmpty { setup.recipientName = result.recipientName }
             playbackController.trackTitle = result.trackTitle
@@ -729,11 +729,8 @@ struct WarmCanvasFlowView: View {
         }
     }
 
-    private func wireLyricsControllerCallbacks() {
-        // Note: InlineLyricsCard.onApproved already calls startFullRender().
-        // Do NOT wire lyricsController.onApproved to startFullRender as well —
-        // that would cause a double-call and 409 conflict on the server.
-    }
+    // Note: InlineLyricsCard.onApproved calls startFullRender() directly.
+    // Do NOT wire lyricsController.onApproved — that would double-call and 409.
 
     // MARK: - Render
 
@@ -814,12 +811,7 @@ struct WarmCanvasFlowView: View {
                         applyStoryGuidanceAndReturnToConversation(guidance)
                     }
                 case .created(let result):
-                    // Guard: ignore if user cancelled/reset during creation
-                    guard case .tell = moment else {
-                        print("[WC-DEBUG] Track created but moment is \(momentKey) — ignoring")
-                        return
-                    }
-                    print("[WC-DEBUG] Track created: id=\(result.trackId), v=\(result.versionNum), sections=\(result.lyrics.sections.count)")
+                    guard case .tell = moment else { return }
                     createdLyrics = result.lyrics
                     songFlow.currentTrackId = result.trackId
                     songFlow.currentVersionNum = result.versionNum
@@ -829,7 +821,6 @@ struct WarmCanvasFlowView: View {
                         initialLyrics: result.lyrics,
                         highlightTerms: songFlow.renderPolicyTerms
                     )
-                    print("[WC-DEBUG] Lyrics controller wired, transitioning to .trackCreated")
 
                     resumeCoordinator.persistResumeState(
                         flowState: .lyricsReview,
@@ -840,7 +831,6 @@ struct WarmCanvasFlowView: View {
                     )
 
                     withAnimation { moment = .tell(.trackCreated) }
-                    print("[WC-DEBUG] moment → .trackCreated OK")
                 }
             } catch is CancellationError {
                 // User cancelled
@@ -871,7 +861,10 @@ struct WarmCanvasFlowView: View {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         setup.recipientName = trimmed
-        setup.applyPreselectedOccasion(preselectedOccasion)
+        // Only apply preselected occasion if user didn't pick one from the chips
+        if setup.occasion == nil {
+            setup.applyPreselectedOccasion(preselectedOccasion)
+        }
         didStartConversation = true
         handleTypeSelected()
     }
@@ -925,27 +918,17 @@ struct WarmCanvasFlowView: View {
     }
 
     private func finishConversation() {
-        print("[WC-DEBUG] finishConversation() called — isLoading=\(storyEngine.isLoading), isComplete=\(storyEngine.isComplete), style=\(setup.style ?? "nil"), storyId=\(storyEngine.storyId ?? "nil")")
-
-        // Block if track creation is already in progress
-        guard creationTask == nil else {
-            print("[WC-DEBUG] BLOCKED — creationTask active")
-            return
-        }
-        // Block if engine is mid-request to prevent race with concurrent submitAnswer
+        guard creationTask == nil else { return }
         guard !storyEngine.isLoading else {
-            print("[WC-DEBUG] BLOCKED — engine is loading")
             ToastService.shared.show("Still processing — please wait a moment", type: .info)
             return
         }
 
         if setup.style == nil {
-            print("[WC-DEBUG] BLOCKED — no style selected")
             activeAlert = .genreRequired
             return
         }
 
-        print("[WC-DEBUG] calling completeFlow...")
         let result = storyFlowCoordinator.completeFlow(
             selectedType: .song,
             setup: setup,
@@ -954,16 +937,12 @@ struct WarmCanvasFlowView: View {
             engine: storyEngine
         )
         songFlow = result.songFlow
-        print("[WC-DEBUG] completeFlow returned — error=\(result.errorMessage ?? "none")")
 
         if let message = result.errorMessage {
-            print("[WC-DEBUG] completeFlow error: \(message)")
-            // Show error with option to retry or return to conversation
             activeAlert = .error(message)
             return
         }
 
-        print("[WC-DEBUG] checking entitlements...")
         Task { @MainActor in await checkEntitlementsForSong() }
     }
 
@@ -1021,32 +1000,25 @@ struct WarmCanvasFlowView: View {
     // MARK: - Entitlements
 
     private func checkEntitlementsForSong() async {
-        print("[WC-DEBUG] checkEntitlementsForSong() started")
         do {
             let entitlements = try await apiClient.getBillingEntitlements()
-            print("[WC-DEBUG] entitlements OK — songsRemaining=\(entitlements.songsRemaining)")
             if entitlements.songsRemaining > 0 {
                 advanceAfterEntitlementCheck()
             } else {
-                print("[WC-DEBUG] NO CREDITS")
                 activeError = .noCredits
             }
         } catch {
-            print("[WC-DEBUG] entitlements ERROR: \(error)")
             presentFlowMessage("Unable to verify your account. Please check your connection and try again.")
         }
     }
 
     private func advanceAfterEntitlementCheck() {
-        print("[WC-DEBUG] advanceAfterEntitlementCheck — hasCompletedFirstSong=\(hasCompletedFirstSong), moment=\(momentKey)")
         if !hasCompletedFirstSong {
             songFlow.voiceMode = .aiVoice
             songFlow.voiceGender = .female
-            print("[WC-DEBUG] → first song path: auto-selecting AI voice, moment → .voiceSelected")
             withAnimation { moment = .tell(.voiceSelected) }
             Task { @MainActor in await applyVoiceAndCreateTrack() }
         } else {
-            print("[WC-DEBUG] → returning user path: moment → .confirmed (show VoiceSelectionChips)")
             withAnimation { moment = .tell(.confirmed) }
         }
     }
@@ -1110,7 +1082,7 @@ struct WarmCanvasFlowView: View {
             versionNum: versionNum,
             storyId: storyId ?? storyEngine.storyId
         )
-        wireLyricsControllerCallbacks()
+        // Note: InlineLyricsCard.onApproved calls startFullRender() directly — no callback wiring needed.
     }
 
     private func applyTrackMetadata(title: String, coverUrl: String?) {
