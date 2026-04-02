@@ -144,14 +144,17 @@ struct WarmCanvasFlowView: View {
             if moment == .wait {
                 WaitPulseView(recipientName: setup.recipientName, occasion: setup.occasion?.rawValue)
                     .transition(.opacity)
+                    .accessibilityLabel("Creating your song for \(setup.recipientName). Please wait.")
             }
             if moment == .reveal {
                 revealPhase()
                     .transition(.opacity)
+                    .accessibilityLabel("Your song for \(setup.recipientName) is ready")
             }
             if moment == .share {
                 sharePhase()
                     .transition(.opacity)
+                    .accessibilityLabel("Share your song for \(setup.recipientName)")
             }
 
             // Layer 2: Error overlays (highest z-order)

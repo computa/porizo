@@ -252,52 +252,17 @@ struct BubbleShape: Shape {
         // AI: large top-left, small bottom-left (tail), large others
         // User: large top-right, small bottom-right (tail), large others
         if isFromUser {
-            return Path(
-                AsymmetricRoundedRect(
-                    rect,
-                    topLeading: 18, bottomLeading: 18,
-                    bottomTrailing: 6, topTrailing: 18
-                )
-            )
+            return Path(roundedRect: rect, cornerRadii: .init(
+                topLeading: 18, bottomLeading: 18,
+                bottomTrailing: 6, topTrailing: 18
+            ))
         } else {
-            return Path(
-                AsymmetricRoundedRect(
-                    rect,
-                    topLeading: 18, bottomLeading: 6,
-                    bottomTrailing: 18, topTrailing: 18
-                )
-            )
+            return Path(roundedRect: rect, cornerRadii: .init(
+                topLeading: 18, bottomLeading: 6,
+                bottomTrailing: 18, topTrailing: 18
+            ))
         }
     }
-}
-
-/// Helper to build a path with per-corner radii (iOS 16+).
-private func AsymmetricRoundedRect(
-    _ rect: CGRect,
-    topLeading: CGFloat, bottomLeading: CGFloat,
-    bottomTrailing: CGFloat, topTrailing: CGFloat
-) -> CGPath {
-    let path = UIBezierPath()
-    // Start at top-left after the top-leading radius
-    path.move(to: CGPoint(x: rect.minX + topLeading, y: rect.minY))
-    // Top edge → top-right corner
-    path.addLine(to: CGPoint(x: rect.maxX - topTrailing, y: rect.minY))
-    path.addArc(withCenter: CGPoint(x: rect.maxX - topTrailing, y: rect.minY + topTrailing),
-                radius: topTrailing, startAngle: -.pi / 2, endAngle: 0, clockwise: true)
-    // Right edge → bottom-right corner
-    path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - bottomTrailing))
-    path.addArc(withCenter: CGPoint(x: rect.maxX - bottomTrailing, y: rect.maxY - bottomTrailing),
-                radius: bottomTrailing, startAngle: 0, endAngle: .pi / 2, clockwise: true)
-    // Bottom edge → bottom-left corner
-    path.addLine(to: CGPoint(x: rect.minX + bottomLeading, y: rect.maxY))
-    path.addArc(withCenter: CGPoint(x: rect.minX + bottomLeading, y: rect.maxY - bottomLeading),
-                radius: bottomLeading, startAngle: .pi / 2, endAngle: .pi, clockwise: true)
-    // Left edge → top-left corner
-    path.addLine(to: CGPoint(x: rect.minX, y: rect.minY + topLeading))
-    path.addArc(withCenter: CGPoint(x: rect.minX + topLeading, y: rect.minY + topLeading),
-                radius: topLeading, startAngle: .pi, endAngle: -.pi / 2, clockwise: true)
-    path.close()
-    return path.cgPath
 }
 
 // MARK: - Typewriter Text

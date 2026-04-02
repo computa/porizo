@@ -8,6 +8,7 @@
 
 import SwiftUI
 
+#if DEBUG
 struct WarmCanvasScreenGallery: View {
     @Environment(\.dismiss) private var dismiss
     @State private var activeScreen: ScreenPreview?
@@ -1230,3 +1231,4 @@ struct WarmCanvasScreenGallery: View {
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(DesignTokens.border, lineWidth: 0.5))
     }
 }
+#endif
