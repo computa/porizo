@@ -335,21 +335,26 @@ struct WarmCanvasFlowView: View {
                             tellInlineCards
                                 .id("inline-cards")
 
-                            // Bottom spacer so inline cards aren't cut off
-                            Spacer().frame(height: 40)
+                            // Bottom padding so content isn't obscured by
+                            // the Style picker + InputBar pinned below the scroll area.
+                            Spacer().frame(height: 140)
                         }
                     }
                     .onChange(of: momentKey) { _, _ in
                         // Auto-scroll to inline cards when moment changes (voice selection, lyrics, etc.)
-                        withAnimation(.easeInOut(duration: 0.3)) {
-                            proxy.scrollTo("inline-cards", anchor: .bottom)
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                            withAnimation(.easeInOut(duration: 0.3)) {
+                                proxy.scrollTo("inline-cards", anchor: .bottom)
+                            }
                         }
                     }
                     .onChange(of: storyEngine.messages.count) { _, _ in
-                        // Auto-scroll to latest message
-                        if let lastId = storyEngine.messages.last?.id {
-                            withAnimation(.easeInOut(duration: 0.3)) {
-                                proxy.scrollTo(lastId, anchor: .bottom)
+                        // Auto-scroll to latest message after layout settles
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                            if let lastId = storyEngine.messages.last?.id {
+                                withAnimation(.easeInOut(duration: 0.3)) {
+                                    proxy.scrollTo(lastId, anchor: .bottom)
+                                }
                             }
                         }
                     }
@@ -474,8 +479,15 @@ struct WarmCanvasFlowView: View {
             occasion: setup.occasion?.rawValue,
             onSend: {
                 guard let (trackId, versionNum) = ensureShareControllerAndTrackIds() else { return }
+                // Fire share link generation, then complete.
+                // The server persists the share token even if the app dismisses,
+                // so fire-and-forget is safe here. We give it a brief head start.
                 shareController?.generateShareLink(trackId: trackId, versionNum: versionNum)
-                onComplete(trackId, versionNum)
+                flowTask?.cancel()
+                flowTask = Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(500))
+                    onComplete(trackId, versionNum)
+                }
             },
             onSaveToPhotos: {
                 ToastService.shared.show("Save to Photos coming soon", type: .info)
@@ -490,10 +502,12 @@ struct WarmCanvasFlowView: View {
                     // Generate then copy once ready
                     ToastService.shared.show("Generating link...", type: .info)
                     shareController?.generateShareLink(trackId: trackId, versionNum: versionNum)
-                    // Poll briefly for the async result
-                    Task { @MainActor in
+                    // Poll briefly for the async result (tracked for cancellation on dismiss)
+                    flowTask?.cancel()
+                    flowTask = Task { @MainActor in
                         for _ in 0..<20 {
                             try? await Task.sleep(for: .milliseconds(250))
+                            if Task.isCancelled { return }
                             if let url = shareController?.shareURLString {
                                 UIPasteboard.general.string = url
                                 ToastService.shared.success("Link copied!")
@@ -754,6 +768,12 @@ struct WarmCanvasFlowView: View {
             playbackController.artistName = setup.recipientName
             playbackController.switchAudio(url: result.audioURL)
         }
+
+        renderController.onFullRenderFailed = { [self] _ in
+            renderTimeoutTask?.cancel()
+            guard moment == .wait else { return }
+            activeError = .waitFailure(recipientName: setup.recipientName)
+        }
     }
 
     // Note: InlineLyricsCard.onApproved calls startFullRender() directly.
@@ -779,6 +799,11 @@ struct WarmCanvasFlowView: View {
                     isStartingFullRender = false
                     return
                 }
+
+                // Approve lyrics on the server before rendering.
+                // The backend requires lyrics_status = 'approved' for both
+                // render_preview and render_full endpoints (409 otherwise).
+                _ = try await apiClient.approveLyrics(trackId: trackId, versionNum: versionNum)
 
                 isStartingFullRender = false
                 wireRenderCallbacks()
@@ -1054,13 +1079,6 @@ struct WarmCanvasFlowView: View {
     // MARK: - Voice
 
     private func applyVoiceAndCreateTrack() async {
-        if songFlow.currentTrackId != nil {
-            let result = await songFlow.applyVoiceSelection(using: asyncService)
-            if let error = result.error {
-                presentFlowMessage(error)
-            }
-        }
-
         trackCreationController.onLyricsGenerated = { [self] lyrics in
             createdLyrics = lyrics
         }

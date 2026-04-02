@@ -605,7 +605,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     if (!existing) {
       console.log(`[ensureUser] Creating new user: ${userId}`);
       await db.prepare(
-        "INSERT INTO users (id, created_at, risk_level) VALUES (?, ?, 'low')"
+        "INSERT INTO users (id, created_at, risk_level) VALUES (?, ?, 'low') ON CONFLICT (id) DO NOTHING"
       ).run(userId, nowIso());
     }
     const entitlements = await db

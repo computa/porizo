@@ -154,6 +154,9 @@ final class RenderController {
     /// Called when a full render completes with a playable URL.
     var onFullRenderComplete: ((RenderResult) -> Void)?
 
+    /// Called when a full render fails with a user-facing message.
+    var onFullRenderFailed: ((String) -> Void)?
+
     // MARK: - Initialization
 
     init(apiClient: APIClient) {
@@ -607,7 +610,9 @@ final class RenderController {
                 pollingFailureCount += 1
 
                 if pollingFailureCount >= maxPollingFailures {
-                    fullRenderPhase = .failed("Connection error. Check your network and try again.")
+                    let msg = "Connection error. Check your network and try again."
+                    fullRenderPhase = .failed(msg)
+                    onFullRenderFailed?(msg)
                     return
                 }
 
@@ -620,7 +625,9 @@ final class RenderController {
         if await checkFullRenderStatus(trackId: trackId, versionNum: versionNum, setFailureOnMissing: false) {
             return
         }
-        fullRenderPhase = .failed("Full render timed out. Please try again.")
+        let msg = "Full render timed out. Please try again."
+        fullRenderPhase = .failed(msg)
+        onFullRenderFailed?(msg)
     }
 
     private func checkFullRenderStatus(trackId: String, versionNum: Int, setFailureOnMissing: Bool = true) async -> Bool {
@@ -682,6 +689,7 @@ final class RenderController {
             provider: nil
         )
         fullRenderPhase = .failed(friendlyMessage)
+        onFullRenderFailed?(friendlyMessage)
     }
 
     // MARK: - Shared Failure Helpers
@@ -704,7 +712,9 @@ final class RenderController {
 
         switch phase {
         case .preview: renderPhase = .failed(friendlyMessage)
-        case .full:    fullRenderPhase = .failed(friendlyMessage)
+        case .full:
+            fullRenderPhase = .failed(friendlyMessage)
+            onFullRenderFailed?(friendlyMessage)
         }
     }
 
@@ -730,6 +740,7 @@ final class RenderController {
 
         if isFull {
             fullRenderPhase = .failed(friendlyMessage)
+            onFullRenderFailed?(friendlyMessage)
         } else {
             renderPhase = .failed(friendlyMessage)
         }
