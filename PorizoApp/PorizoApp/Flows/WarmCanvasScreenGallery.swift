@@ -601,7 +601,7 @@ struct WarmCanvasScreenGallery: View {
                             .background(.white).clipShape(RoundedRectangle(cornerRadius: 10))
                     }
                     .padding(16)
-                    .background(LinearGradient(colors: [DesignTokens.gold, Color(hex: "#e8966e")], startPoint: .topLeading, endPoint: .bottomTrailing))
+                    .background(LinearGradient(colors: [DesignTokens.gold, DesignTokens.goldGradientEnd], startPoint: .topLeading, endPoint: .bottomTrailing))
                     .clipShape(RoundedRectangle(cornerRadius: 14))
                     .padding(.horizontal, 20).padding(.bottom, 12)
                     // Sections
@@ -769,7 +769,7 @@ struct WarmCanvasScreenGallery: View {
                 VStack(spacing: 16) {
                     // Album art
                     RoundedRectangle(cornerRadius: 20)
-                        .fill(LinearGradient(colors: [DesignTokens.gold, Color(hex: "#e8966e")], startPoint: .topLeading, endPoint: .bottomTrailing))
+                        .fill(LinearGradient(colors: [DesignTokens.gold, DesignTokens.goldGradientEnd], startPoint: .topLeading, endPoint: .bottomTrailing))
                         .frame(height: 280)
                         .overlay(Text("🎂").font(.system(size: 48)))
                     VStack(spacing: 4) {
@@ -873,7 +873,7 @@ struct WarmCanvasScreenGallery: View {
                 }
                 .padding(24)
                 .frame(maxWidth: 300)
-                .background(LinearGradient(colors: [DesignTokens.gold, Color(hex: "#e8966e")], startPoint: .topLeading, endPoint: .bottomTrailing))
+                .background(LinearGradient(colors: [DesignTokens.gold, DesignTokens.goldGradientEnd], startPoint: .topLeading, endPoint: .bottomTrailing))
                 .clipShape(RoundedRectangle(cornerRadius: 16))
                 Spacer()
                 VStack(spacing: 12) {
@@ -1090,7 +1090,7 @@ struct WarmCanvasScreenGallery: View {
 
     private func songCard(name: String, meta: String) -> some View {
         HStack(spacing: 12) {
-            RoundedRectangle(cornerRadius: 10).fill(LinearGradient(colors: [DesignTokens.gold, Color(hex: "#e8966e")], startPoint: .topLeading, endPoint: .bottomTrailing))
+            RoundedRectangle(cornerRadius: 10).fill(LinearGradient(colors: [DesignTokens.gold, DesignTokens.goldGradientEnd], startPoint: .topLeading, endPoint: .bottomTrailing))
                 .frame(width: 56, height: 56).overlay(Text("🎵").font(.system(size: 20)))
             VStack(alignment: .leading, spacing: 2) {
                 Text(name).font(DesignTokens.bodyFont(size: 15, weight: .semibold)).foregroundStyle(DesignTokens.textPrimary)

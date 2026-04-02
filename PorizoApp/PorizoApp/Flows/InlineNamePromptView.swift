@@ -122,19 +122,21 @@ struct InlineNamePromptView: View {
                     .padding(.horizontal, 20)
                 }
 
-                // Song / Poem toggle
-                HStack(spacing: 0) {
-                    typeToggleButton("♪ A Song", type: .song)
-                    typeToggleButton("📝 A Poem", type: .poem)
+                // Song / Poem toggle (only when type is not pre-determined)
+                if selectedType == nil {
+                    HStack(spacing: 0) {
+                        typeToggleButton("♪ A Song", type: .song)
+                        typeToggleButton("📝 A Poem", type: .poem)
+                    }
+                    .padding(4)
+                    .background(DesignTokens.surface)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(DesignTokens.border, lineWidth: 1)
+                    )
+                    .padding(.horizontal, 20)
                 }
-                .padding(4)
-                .background(DesignTokens.surface)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(DesignTokens.border, lineWidth: 1)
-                )
-                .padding(.horizontal, 20)
 
                 // Next button
                 Button { submit() } label: {

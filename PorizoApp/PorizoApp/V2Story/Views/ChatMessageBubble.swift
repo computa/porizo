@@ -253,7 +253,7 @@ struct BubbleShape: Shape {
         // User: large top-right, small bottom-right (tail), large others
         if isFromUser {
             return Path(
-                UnsafeRoundedRect(
+                AsymmetricRoundedRect(
                     rect,
                     topLeading: 18, bottomLeading: 18,
                     bottomTrailing: 6, topTrailing: 18
@@ -261,7 +261,7 @@ struct BubbleShape: Shape {
             )
         } else {
             return Path(
-                UnsafeRoundedRect(
+                AsymmetricRoundedRect(
                     rect,
                     topLeading: 18, bottomLeading: 6,
                     bottomTrailing: 18, topTrailing: 18
@@ -272,7 +272,7 @@ struct BubbleShape: Shape {
 }
 
 /// Helper to build a path with per-corner radii (iOS 16+).
-private func UnsafeRoundedRect(
+private func AsymmetricRoundedRect(
     _ rect: CGRect,
     topLeading: CGFloat, bottomLeading: CGFloat,
     bottomTrailing: CGFloat, topTrailing: CGFloat

@@ -69,6 +69,7 @@ struct WarmCanvasFlowView: View {
     @State private var creationTask: Task<Void, Never>?
     @State private var styleSyncTask: Task<Void, Never>?
     @State private var renderTimeoutTask: Task<Void, Never>?
+    @State private var flowTask: Task<Void, Never>?  // Tracks unstructured Tasks (entitlements, voice, conversation)
 
     // MARK: - Presentation Router
 
@@ -161,6 +162,13 @@ struct WarmCanvasFlowView: View {
             }
         }
         .animation(.easeInOut(duration: 0.35), value: momentKey)
+        .onDisappear {
+            creationTask?.cancel()
+            styleSyncTask?.cancel()
+            renderTimeoutTask?.cancel()
+            flowTask?.cancel()
+            playbackController.cleanup()
+        }
         // Sheet router
         .sheet(item: $activeSheet) { sheet in
             sheetContent(for: sheet)
@@ -471,10 +479,26 @@ struct WarmCanvasFlowView: View {
             },
             onCopyLink: {
                 guard let (trackId, versionNum) = ensureShareControllerAndTrackIds() else { return }
-                shareController?.generateShareLink(trackId: trackId, versionNum: versionNum)
+                // Check if URL already exists from a previous generation
                 if let url = shareController?.shareURLString {
                     UIPasteboard.general.string = url
                     ToastService.shared.success("Link copied!")
+                } else {
+                    // Generate then copy once ready
+                    ToastService.shared.show("Generating link...", type: .info)
+                    shareController?.generateShareLink(trackId: trackId, versionNum: versionNum)
+                    // Poll briefly for the async result
+                    Task { @MainActor in
+                        for _ in 0..<20 {
+                            try? await Task.sleep(for: .milliseconds(250))
+                            if let url = shareController?.shareURLString {
+                                UIPasteboard.general.string = url
+                                ToastService.shared.success("Link copied!")
+                                return
+                            }
+                        }
+                        ToastService.shared.show("Couldn't generate link. Try again.", type: .warning)
+                    }
                 }
             },
             onSkip: { withAnimation { moment = .reveal } }
@@ -943,7 +967,8 @@ struct WarmCanvasFlowView: View {
             return
         }
 
-        Task { @MainActor in await checkEntitlementsForSong() }
+        flowTask?.cancel()
+        flowTask = Task { @MainActor in await checkEntitlementsForSong() }
     }
 
     private func submitPreSessionAnswer(_ answer: String) {
@@ -1106,6 +1131,8 @@ struct WarmCanvasFlowView: View {
         styleSyncTask = nil
         renderTimeoutTask?.cancel()
         renderTimeoutTask = nil
+        flowTask?.cancel()
+        flowTask = nil
 
         // Clear persisted state
         CreateFlowStore.shared.clear()

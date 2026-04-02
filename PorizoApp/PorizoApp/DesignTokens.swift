@@ -47,6 +47,9 @@ struct DesignTokens {
     /// Primary coral accent — CTAs, buttons, fills
     static let gold = Color(hex: "#E07850")
 
+    /// Warm salmon gradient end — used with gold for coral→salmon gradients
+    static let goldGradientEnd = Color(hex: "#e8966e")
+
     /// Contrast-safe coral for small text (WCAG AA 4.5:1 on #FBF7F2)
     static let goldDark = Color(hex: "#C06030")
 

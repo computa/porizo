@@ -225,7 +225,7 @@ struct NowPlayingView: View {
 
             RoundedRectangle(cornerRadius: 20)
                 .fill(LinearGradient(
-                    colors: [DesignTokens.gold, Color(hex: "#e8966e")],
+                    colors: [DesignTokens.gold, DesignTokens.goldGradientEnd],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
                 ))

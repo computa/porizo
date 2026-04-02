@@ -69,7 +69,7 @@ struct VoiceBanner: View {
             .padding(16)
             .background(
                 LinearGradient(
-                    colors: [DesignTokens.gold, Color(hex: "#e8966e")],
+                    colors: [DesignTokens.gold, DesignTokens.goldGradientEnd],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
                 )

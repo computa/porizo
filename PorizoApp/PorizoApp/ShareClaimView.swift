@@ -285,7 +285,7 @@ struct ShareClaimView: View {
         .frame(maxWidth: 300)
         .background(
             LinearGradient(
-                colors: [DesignTokens.gold, Color(hex: "#e8966e")],
+                colors: [DesignTokens.gold, DesignTokens.goldGradientEnd],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
