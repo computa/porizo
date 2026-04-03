@@ -56,6 +56,7 @@ struct SettingsTabView: View {
 
     // Theme: Warm Canvas is light-only, no picker needed
     @AppStorage("lyricsStyle") private var lyricsStyle: LyricsDesignStyle = .karaokeSweep
+    @AppStorage("appearanceMode") private var appearanceMode: String = "System"
 
     // (loadTask removed — .task auto-cancels on disappear)
 
@@ -480,7 +481,24 @@ struct SettingsTabView: View {
                 .tracking(1.5)
                 .padding(.bottom, 8)
 
-            // Appearance removed — Warm Canvas is light-only
+            // Appearance row
+            Menu {
+                ForEach(["System", "Light", "Dark"], id: \.self) { option in
+                    Button {
+                        appearanceMode = option
+                    } label: {
+                        HStack {
+                            Text(option)
+                            if option == appearanceMode {
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+                }
+            } label: {
+                settingsRowLabel(emoji: "🎨", title: "Appearance", value: appearanceMode, showChevron: true)
+            }
+            .accessibilityHint("Tap to choose")
 
             // Lyrics style row
             Menu {

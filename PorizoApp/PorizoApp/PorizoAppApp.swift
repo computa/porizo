@@ -111,6 +111,17 @@ struct PorizoAppApp: App {
     // Track app lifecycle for proactive token refresh
     @Environment(\.scenePhase) private var scenePhase
 
+    // Appearance preference (System / Light / Dark)
+    @AppStorage("appearanceMode") private var appearanceMode: String = "System"
+
+    private var resolvedColorScheme: ColorScheme? {
+        switch appearanceMode {
+        case "Light": return .light
+        case "Dark": return .dark
+        default: return nil  // System — follow device setting
+        }
+    }
+
     init() {
         // Initialize Firebase core services (Crashlytics + Analytics enabled)
         FirebaseApp.configure()
@@ -133,6 +144,7 @@ struct PorizoAppApp: App {
             RootView()
                 .environment(authManager)
                 .environment(styleStore)
+                .preferredColorScheme(resolvedColorScheme)
 
                 .withToasts()
                 .task {
