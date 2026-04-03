@@ -29,6 +29,7 @@
 		K1L2M3N4O5P67Q8R9S0T1U2V /* AuthManagerRaceConditionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = L2M3N4O5P6Q78R9S0T1U2V3W /* AuthManagerRaceConditionTests.swift */; };
 		M3N4O5P6Q7R89S0T1U2V3W4X /* PlaybackControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = N4O5P6Q7R8S90T1U2V3W4X5Y /* PlaybackControllerTests.swift */; };
 		O5P6Q7R8S9T01U2V3W4X5Y6Z /* TrackCreationControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = P6Q7R8S9T0U12V3W4X5Y6Z7A /* TrackCreationControllerTests.swift */; };
+		Q7R8S9T0U1V23W4X5Y6Z7A8B /* LyricsReviewControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = R8S9T0U1V2W34X5Y6Z7A8B9C /* LyricsReviewControllerTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -73,6 +74,7 @@
 		L2M3N4O5P6Q78R9S0T1U2V3W /* AuthManagerRaceConditionTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = AuthManagerRaceConditionTests.swift; path = PorizoAppTests/AuthManagerRaceConditionTests.swift; sourceTree = "<group>"; };
 		N4O5P6Q7R8S90T1U2V3W4X5Y /* PlaybackControllerTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = PlaybackControllerTests.swift; path = PorizoAppTests/PlaybackControllerTests.swift; sourceTree = "<group>"; };
 		P6Q7R8S9T0U12V3W4X5Y6Z7A /* TrackCreationControllerTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = TrackCreationControllerTests.swift; path = PorizoAppTests/TrackCreationControllerTests.swift; sourceTree = "<group>"; };
+		R8S9T0U1V2W34X5Y6Z7A8B9C /* LyricsReviewControllerTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = LyricsReviewControllerTests.swift; path = PorizoAppTests/LyricsReviewControllerTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -213,6 +215,7 @@
 				N4O5P6Q7R8S90T1U2V3W4X5Y /* PlaybackControllerTests.swift */,
 				P6Q7R8S9T0U12V3W4X5Y6Z7A /* TrackCreationControllerTests.swift */,
 				EE0CD6A49851A32FDCBA08D8 /* WarmCanvasFlowRobustnessTests.swift */,
+				R8S9T0U1V2W34X5Y6Z7A8B9C /* LyricsReviewControllerTests.swift */,
 			);
 			name = PorizoAppTests;
 			sourceTree = "<group>";
@@ -425,6 +428,7 @@
 				M3N4O5P6Q7R89S0T1U2V3W4X /* PlaybackControllerTests.swift in Sources */,
 				O5P6Q7R8S9T01U2V3W4X5Y6Z /* TrackCreationControllerTests.swift in Sources */,
 				47A444B550C8A4E76FB4B8B8 /* WarmCanvasFlowRobustnessTests.swift in Sources */,
+				Q7R8S9T0U1V23W4X5Y6Z7A8B /* LyricsReviewControllerTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

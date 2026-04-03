@@ -13,100 +13,100 @@ import SwiftUI
 struct DesignTokens {
     // MARK: - Background Colors
 
-    /// Warm parchment background
-    static let background = Color(hex: "#FBF7F2")
+    /// Warm parchment background — adapts to dark mode
+    static let background = Color("Colors/Background")
 
-    /// White card/surface background
-    static let surface = Color(hex: "#FFFFFF")
+    /// Card/surface background — adapts to dark mode
+    static let surface = Color("Colors/Surface")
 
     /// Slightly warm muted surface for banners, separators
-    static let surfaceMuted = Color(hex: "#F5F0EB")
+    static let surfaceMuted = Color("Colors/SurfaceMuted")
 
-    /// Elevated surface (same as surface for light theme)
-    static let surfaceElevated = Color(hex: "#FFFFFF")
+    /// Elevated surface — adapts to dark mode
+    static let surfaceElevated = Color("Colors/SurfaceElevated")
 
-    /// Input field backgrounds (white with border)
-    static let inputBackground = Color(hex: "#FFFFFF")
+    /// Input field backgrounds
+    static let inputBackground = Color("Colors/InputBackground")
 
     // MARK: - Text Colors
 
-    /// Dark brown - primary text on light background
-    static let textPrimary = Color(hex: "#2C2420")
+    /// Primary text — adapts to dark mode
+    static let textPrimary = Color("Colors/TextPrimary")
 
-    /// Medium warm gray - secondary text, labels
-    static let textSecondary = Color(hex: "#6B6560")
+    /// Secondary text, labels — adapts to dark mode
+    static let textSecondary = Color("Colors/TextSecondary")
 
-    /// Lighter warm gray - tertiary text, hints, placeholders
-    static let textTertiary = Color(hex: "#716B65")
+    /// Tertiary text, hints, placeholders — adapts to dark mode
+    static let textTertiary = Color("Colors/TextTertiary")
 
-    /// Muted text for disabled states
-    static let textMuted = Color(hex: "#9E9890")
+    /// Muted text for disabled states — adapts to dark mode
+    static let textMuted = Color("Colors/TextMuted")
 
     // MARK: - Accent Colors (Coral)
 
-    /// Primary coral accent — CTAs, buttons, fills
-    static let gold = Color(hex: "#E07850")
+    /// Primary coral accent — CTAs, buttons, fills — adapts to dark mode
+    static let gold = Color("Colors/Gold")
 
-    /// Warm salmon gradient end — used with gold for coral→salmon gradients
-    static let goldGradientEnd = Color(hex: "#e8966e")
+    /// Warm salmon gradient end — adapts to dark mode
+    static let goldGradientEnd = Color("Colors/GoldGradientEnd")
 
-    /// Contrast-safe coral for small text (WCAG AA 4.5:1 on #FBF7F2)
-    static let goldDark = Color(hex: "#C06030")
+    /// Contrast-safe coral for small text — adapts to dark mode
+    static let goldDark = Color("Colors/GoldDark")
 
     /// Coral glow effect (25% opacity)
-    static let goldGlow = Color(hex: "#E07850").opacity(0.25)
+    static let goldGlow = gold.opacity(0.25)
 
     /// Coral soft for backgrounds (20% opacity)
-    static let goldSoft = Color(hex: "#E07850").opacity(0.2)
+    static let goldSoft = gold.opacity(0.2)
 
     /// Focus ring color (50% opacity)
-    static let focusRing = Color(hex: "#E07850").opacity(0.5)
+    static let focusRing = gold.opacity(0.5)
 
-    /// Warm amber — secondary accent
-    static let roseGold = Color(hex: "#D4894A")
+    /// Warm amber — secondary accent — adapts to dark mode
+    static let roseGold = Color("Colors/RoseGold")
 
-    /// Sage green — AI accent, nature tones
-    static let sage = Color(hex: "#7B8F6B")
+    /// Sage green — AI accent, nature tones — adapts to dark mode
+    static let sage = Color("Colors/Sage")
 
-    /// AI chat bubble background — soft sage
-    static let sageBubble = Color(hex: "#E8F0E5")
+    /// AI chat bubble background — soft sage — adapts to dark mode
+    static let sageBubble = Color("Colors/SageBubble")
 
-    /// User chat bubble background — soft coral
-    static let coralBubble = Color(hex: "#FDE8E0")
+    /// User chat bubble background — soft coral — adapts to dark mode
+    static let coralBubble = Color("Colors/CoralBubble")
 
     // MARK: - Border Colors
 
-    /// Warm light border
-    static let border = Color(hex: "#E8E2DC")
+    /// Warm light border — adapts to dark mode
+    static let border = Color("Colors/Border")
 
-    /// Subtle border for inputs (same for light theme)
-    static let borderSubtle = Color(hex: "#E8E2DC")
+    /// Subtle border for inputs — adapts to dark mode
+    static let borderSubtle = Color("Colors/BorderSubtle")
 
     // MARK: - Status Colors
 
-    /// Success green
-    static let success = Color(hex: "#7DD3A6")
+    /// Success green — adapts to dark mode
+    static let success = Color("Colors/SuccessColor")
 
-    /// Success green darker variant
-    static let successDark = Color(hex: "#059669")
+    /// Success green darker variant — adapts to dark mode
+    static let successDark = Color("Colors/SuccessDark")
 
-    /// Warning orange
-    static let warning = Color(hex: "#FF8400")
+    /// Warning orange — adapts to dark mode
+    static let warning = Color("Colors/WarningColor")
 
-    /// Error red
-    static let error = Color(hex: "#EF4444")
+    /// Error red — adapts to dark mode
+    static let error = Color("Colors/ErrorColor")
 
-    /// Bright green for status badges
-    static let statusSuccess = Color(hex: "#4ADE80")
+    /// Bright green for status badges — adapts to dark mode
+    static let statusSuccess = Color("Colors/StatusSuccess")
 
-    /// Light green background for success badges
-    static let statusSuccessBg = Color(hex: "#E8F5E8")
+    /// Light green background for success badges — adapts to dark mode
+    static let statusSuccessBg = Color("Colors/StatusSuccessBg")
 
-    /// Blue for informational status badges
-    static let statusInfo = Color(hex: "#60A5FA")
+    /// Blue for informational status badges — adapts to dark mode
+    static let statusInfo = Color("Colors/StatusInfo")
 
-    /// Light blue background for info badges
-    static let statusInfoBg = Color(hex: "#E8EFF8")
+    /// Light blue background for info badges — adapts to dark mode
+    static let statusInfoBg = Color("Colors/StatusInfoBg")
 
     /// Spotify green (for music connection)
     static let spotifyGreen = Color(hex: "#1DB954")
@@ -195,14 +195,20 @@ struct DesignTokens {
         .custom(displayFontFamily, size: size, relativeTo: style).weight(weight)
     }
 
-    /// Body font - SF Pro Text (system default)
+    /// Body font - SF Pro Text (system default) with Dynamic Type scaling
     static func bodyFont(size: CGFloat, weight: Font.Weight = .regular) -> Font {
-        .system(size: size, weight: weight)
+        let uiWeight = weight.uiFontWeight
+        let baseFont = UIFont.systemFont(ofSize: size, weight: uiWeight)
+        let scaledFont = UIFontMetrics(forTextStyle: .body).scaledFont(for: baseFont)
+        return Font(scaledFont)
     }
 
-    /// System font (SF Pro) for UI text
+    /// System font (SF Pro) for UI text with Dynamic Type scaling
     static func systemFont(size: CGFloat, weight: Font.Weight = .regular) -> Font {
-        .system(size: size, weight: weight, design: .default)
+        let uiWeight = weight.uiFontWeight
+        let baseFont = UIFont.systemFont(ofSize: size, weight: uiWeight)
+        let scaledFont = UIFontMetrics(forTextStyle: .body).scaledFont(for: baseFont)
+        return Font(scaledFont)
     }
 
     // MARK: - Component Sizes
@@ -227,6 +233,25 @@ struct DesignTokens {
 
     /// Header height
     static let headerHeight: CGFloat = 56
+}
+
+// MARK: - Font Weight Conversion
+
+private extension Font.Weight {
+    var uiFontWeight: UIFont.Weight {
+        switch self {
+        case .ultraLight: return .ultraLight
+        case .thin: return .thin
+        case .light: return .light
+        case .regular: return .regular
+        case .medium: return .medium
+        case .semibold: return .semibold
+        case .bold: return .bold
+        case .heavy: return .heavy
+        case .black: return .black
+        default: return .regular
+        }
+    }
 }
 
 // MARK: - Chip Style Modifier
@@ -358,7 +383,7 @@ enum Elevation: CaseIterable {
     case level4
 
     var shadowColor: Color {
-        Color(hex: "#2C2420")
+        Color("Colors/TextPrimary")
     }
 
     var shadowOpacity: Double {
