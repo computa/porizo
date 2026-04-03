@@ -43,6 +43,11 @@ struct ExploreTabView: View {
                         // Create CTA
                         quickCreateSection
 
+                        // Gift send entry
+                        if showsGiftSendEntry {
+                            giftSendButton
+                        }
+
                         // Occasions
                         occasionsSection
 
@@ -173,6 +178,29 @@ struct ExploreTabView: View {
         .buttonStyle(.plain)
         .accessibilityLabel("Create for someone special, ready in about 90 seconds")
         .accessibilityHint("Opens creation menu to make a song or poem")
+    }
+
+    // MARK: - Gift Send Button
+
+    private var giftSendButton: some View {
+        Button {
+            hapticLightTrigger.toggle()
+            onSendGift()
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "gift.fill")
+                    .font(.system(size: 16))
+                Text("Schedule and send, for them")
+                    .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
+            }
+            .foregroundStyle(DesignTokens.textPrimary)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 16)
+            .background(DesignTokens.gold.opacity(0.7))
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Schedule and send a gift song for someone")
     }
 
     // MARK: - Occasions Section (Horizontal Chips)
