@@ -60,7 +60,7 @@ struct SongInlineCardsView: View {
     let shareController: ShareController?
     let currentTrackId: String?
     let currentVersionNum: Int?
-    let styleName: String
+    let styleName: String?
     let renderPolicyTerms: [String]
     let myVoiceEnabled: Bool
     let didStartConversation: Bool
@@ -187,7 +187,7 @@ struct SongInlineCardsView: View {
                                 lyrics: lyrics,
                                 controller: lyricsController,
                                 isInteractive: songProgress == .trackCreated,
-                                style: styleName,
+                                style: styleName ?? "",
                                 highlightTerms: renderPolicyTerms,
                                 onApproved: { callbacks.onLyricsApproved() },
                                 onRegenerateLyrics: { callbacks.onRegenerateLyrics() },

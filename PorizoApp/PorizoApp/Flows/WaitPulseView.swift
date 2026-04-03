@@ -3,10 +3,9 @@
 //  PorizoApp
 //
 //  Breathing coral radial gradient shown during song generation.
-//  The pulse breathes slowly (1.0 → 1.08) and adapts to elapsed time:
-//    0-30s  "Composing the melody..."
-//    30-90s "Creating for Xs..."
-//    90s+   "Taking longer than usual..." with slower pulse
+//  The pulse breathes slowly (1.0 → 1.08) and adapts to elapsed time
+//  with 6 emotional timing buckets that use the recipient's name.
+//  At 90s+ the pulse slows to signal patience.
 //
 //  Respects accessibilityReduceMotion — disables the breathing animation.
 //
@@ -29,12 +28,19 @@ struct WaitPulseView: View {
     // MARK: - Derived State
 
     private var statusText: String {
-        if elapsedSeconds < 30 {
-            return "Composing the melody..."
-        } else if elapsedSeconds < 90 {
-            return "Creating for \(elapsedSeconds)s..."
-        } else {
-            return "Taking longer than usual..."
+        switch elapsedSeconds {
+        case 0..<15:
+            return "Gathering your story..."
+        case 15..<30:
+            return "Writing the melody for \(recipientName)..."
+        case 30..<60:
+            return "Bringing the lyrics to life..."
+        case 60..<90:
+            return "Adding the finishing touches..."
+        case 90..<120:
+            return "Almost there..."
+        default:
+            return "Taking a bit longer than usual..."
         }
     }
 
@@ -69,7 +75,7 @@ struct WaitPulseView: View {
                         .contentTransition(.interpolate)
                         .animation(.easeInOut(duration: 0.4), value: elapsedSeconds)
 
-                    Text("This usually takes 2\u{2013}3 minutes")
+                    Text("Usually under 2 minutes")
                         .font(DesignTokens.bodyFont(size: 13))
                         .foregroundStyle(DesignTokens.textTertiary)
                 }

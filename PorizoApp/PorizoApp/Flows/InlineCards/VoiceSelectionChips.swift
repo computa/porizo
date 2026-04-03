@@ -27,14 +27,16 @@ struct VoiceSelectionChips: View {
 
         var label: String {
             switch self {
-            case .ai(let g): "AI \(g.displayName)"
+            case .ai(.female): "Warm Voice"
+            case .ai(.male): "Clear Voice"
             case .myVoice: "My Voice"
             }
         }
 
         var icon: String {
             switch self {
-            case .ai: "person.fill"
+            case .ai(.female): "waveform.circle"
+            case .ai(.male): "waveform.circle.fill"
             case .myVoice: "mic.fill"
             }
         }
@@ -53,7 +55,7 @@ struct VoiceSelectionChips: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            PromptBubble(text: "How should your song sound?")
+            PromptBubble(text: "Choose a voice for your song")
 
             // Voice option chips
             HStack(spacing: 10) {

@@ -2226,6 +2226,158 @@ class AdminService {
     return { diagnostics };
   }
 
+  // ============ ONBOARDING SAMPLES ============
+
+  /**
+   * List all onboarding audio samples
+   */
+  async getOnboardingSamples() {
+    return await this.db.prepare(
+      'SELECT * FROM onboarding_samples ORDER BY created_at ASC'
+    ).all();
+  }
+
+  /**
+   * Get the currently active onboarding sample (for app config)
+   * Returns null if none active
+   */
+  async getActiveOnboardingSample() {
+    try {
+      const row = await this.db.prepare(
+        'SELECT label, audio_url FROM onboarding_samples WHERE is_active = 1 LIMIT 1'
+      ).get();
+      return row || null;
+    } catch {
+      // Table may not exist yet if migration hasn't run
+      return null;
+    }
+  }
+
+  /**
+   * Create a new onboarding audio sample
+   */
+  async createOnboardingSample({ label, audio_url }, adminId) {
+    if (!label || typeof label !== 'string' || label.trim().length === 0) {
+      throw new Error('label is required');
+    }
+    if (!audio_url || typeof audio_url !== 'string') {
+      throw new Error('audio_url is required');
+    }
+    if (!audio_url.startsWith('/audio/') && !audio_url.startsWith('https://')) {
+      throw new Error('audio_url must start with /audio/ or be an HTTPS URL');
+    }
+    if (label.length > 200) {
+      throw new Error('label must be 200 characters or fewer');
+    }
+    if (audio_url.length > 500) {
+      throw new Error('audio_url must be 500 characters or fewer');
+    }
+
+    const id = 'os_' + require('crypto').randomBytes(6).toString('hex');
+    const now = new Date().toISOString();
+
+    await this.db.prepare(
+      'INSERT INTO onboarding_samples (id, label, audio_url, is_active, created_at, updated_at, updated_by) VALUES (?, ?, ?, 0, ?, ?, ?)'
+    ).run(id, label.trim(), audio_url.trim(), now, now, adminId);
+
+    await this._audit(adminId, 'admin_create_onboarding_sample', 'onboarding_sample', id, { label, audio_url });
+
+    return await this.db.prepare('SELECT * FROM onboarding_samples WHERE id = ?').get(id);
+  }
+
+  /**
+   * Update an onboarding sample (allowlisted fields only)
+   */
+  async updateOnboardingSample(id, fields, adminId) {
+    const allowedFields = ['label', 'audio_url'];
+    const filteredUpdates = {};
+    for (const field of allowedFields) {
+      if (fields[field] !== undefined) {
+        filteredUpdates[field] = fields[field];
+      }
+    }
+
+    if (Object.keys(filteredUpdates).length === 0) {
+      throw new Error('No valid fields to update');
+    }
+
+    if (filteredUpdates.audio_url) {
+      if (!filteredUpdates.audio_url.startsWith('/audio/') && !filteredUpdates.audio_url.startsWith('https://')) {
+        throw new Error('audio_url must start with /audio/ or be an HTTPS URL');
+      }
+    }
+    if (filteredUpdates.label && filteredUpdates.label.length > 200) {
+      throw new Error('label must be 200 characters or fewer');
+    }
+
+    const previous = await this.db.prepare('SELECT * FROM onboarding_samples WHERE id = ?').get(id);
+    if (!previous) {
+      throw new Error('Onboarding sample not found');
+    }
+
+    const ALLOWED_COLUMNS = ['label', 'audio_url'];
+    const setClauses = [];
+    const params = [];
+    for (const [key, value] of Object.entries(filteredUpdates)) {
+      if (!ALLOWED_COLUMNS.includes(key)) throw new Error(`Unsafe column name: ${key}`);
+      setClauses.push(`${key} = ?`);
+      params.push(value);
+    }
+    setClauses.push('updated_at = ?');
+    params.push(new Date().toISOString());
+    setClauses.push('updated_by = ?');
+    params.push(adminId);
+    params.push(id);
+
+    await this.db.prepare(`UPDATE onboarding_samples SET ${setClauses.join(', ')} WHERE id = ?`).run(...params);
+
+    await this._audit(adminId, 'admin_update_onboarding_sample', 'onboarding_sample', id, {
+      previous: { label: previous.label, audio_url: previous.audio_url },
+      updated: filteredUpdates,
+    });
+
+    return await this.db.prepare('SELECT * FROM onboarding_samples WHERE id = ?').get(id);
+  }
+
+  /**
+   * Delete an onboarding sample
+   */
+  async deleteOnboardingSample(id, adminId) {
+    const existing = await this.db.prepare('SELECT * FROM onboarding_samples WHERE id = ?').get(id);
+    if (!existing) {
+      throw new Error('Onboarding sample not found');
+    }
+
+    await this.db.prepare('DELETE FROM onboarding_samples WHERE id = ?').run(id);
+    await this._audit(adminId, 'admin_delete_onboarding_sample', 'onboarding_sample', id, {
+      label: existing.label, audio_url: existing.audio_url,
+    });
+
+    return { success: true };
+  }
+
+  /**
+   * Activate a single onboarding sample (transactional: deactivate all, then activate one)
+   */
+  async activateOnboardingSample(id, adminId) {
+    const existing = await this.db.prepare('SELECT * FROM onboarding_samples WHERE id = ?').get(id);
+    if (!existing) {
+      throw new Error('Onboarding sample not found');
+    }
+
+    // Deactivate all, then activate the target
+    await this.db.prepare('UPDATE onboarding_samples SET is_active = 0, updated_at = ?, updated_by = ?')
+      .run(new Date().toISOString(), adminId);
+    await this.db.prepare('UPDATE onboarding_samples SET is_active = 1, updated_at = ?, updated_by = ? WHERE id = ?')
+      .run(new Date().toISOString(), adminId, id);
+
+    await this._audit(adminId, 'admin_activate_onboarding_sample', 'onboarding_sample', id, {
+      label: existing.label,
+    });
+
+    return await this.db.prepare('SELECT * FROM onboarding_samples WHERE id = ?').get(id);
+  }
+
   /**
    * Get app config for public consumption (mobile apps)
    * Returns a curated subset of configuration safe for clients
@@ -2250,6 +2402,12 @@ class AdminService {
       // Table may not exist yet if migration hasn't run — return empty array
     }
 
+    // Active onboarding sample for pre-auth audio playback
+    const activeSample = await this.getActiveOnboardingSample();
+    const onboarding = activeSample
+      ? { sample_audio_url: activeSample.audio_url, sample_label: activeSample.label }
+      : null;
+
     return {
       stt: sttConfig,
       music: {
@@ -2264,6 +2422,7 @@ class AdminService {
         gift_prepay_enforced: giftPrepayEnforced,
       },
       gift_bundles,
+      onboarding,
       app_update: appUpdatePolicy,
     };
   }

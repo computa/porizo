@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Settings, Music, Mic, AudioWaveform, UserCheck, Code2, RefreshCw, Save, RotateCcw, AlertTriangle } from 'lucide-react';
+import { Settings, Music, Mic, AudioWaveform, UserCheck, Code2, PlayCircle, RefreshCw, Save, RotateCcw, AlertTriangle } from 'lucide-react';
 import { useApi } from '../../hooks/useApi';
 import type { FlagMetadata } from '../../components/settings/FlagRenderer';
 import { LoadingState } from '../../components/LoadingState';
@@ -11,6 +11,7 @@ import { STTConfigTab } from './tabs/STTConfigTab';
 import { VoiceConversionTab } from './tabs/VoiceConversionTab';
 import { VoiceEnrollmentTab } from './tabs/VoiceEnrollmentTab';
 import { DeveloperTab } from './tabs/DeveloperTab';
+import { OnboardingTab } from './tabs/OnboardingTab';
 
 interface FeatureFlagsResponse {
   flags: Record<string, FlagMetadata[]>;
@@ -28,6 +29,7 @@ const TABS = [
   { id: 'voice-conversion', label: 'Voice Conversion', icon: AudioWaveform },
   { id: 'voice-enrollment', label: 'Voice Enrollment', icon: UserCheck },
   { id: 'developer', label: 'Developer', icon: Code2 },
+  { id: 'onboarding', label: 'Onboarding', icon: PlayCircle },
 ] as const;
 
 type TabId = typeof TABS[number]['id'];
@@ -263,6 +265,9 @@ export function FeatureSettings() {
             isModified={isModified}
           />
         </FlagTabContent>
+      </div>
+      <div className={activeTab === 'onboarding' ? '' : 'hidden'}>
+        <OnboardingTab />
       </div>
     </div>
   );

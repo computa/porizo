@@ -122,6 +122,9 @@ enum AppConfig {
     static let termsURL = URL(string: "https://porizo.co/legal/terms")!
     static let privacyURL = URL(string: "https://porizo.co/legal/privacy")!
 
+    /// Help center page.
+    static let helpCenterURL = URL(string: "https://porizo.co/help")!
+
     static var googleOAuthConfig: OAuthProviderConfig? {
         guard let clientId = googleClientId,
               let redirectUri = googleRedirectUri,

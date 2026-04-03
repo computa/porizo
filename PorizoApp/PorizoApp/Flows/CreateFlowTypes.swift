@@ -78,6 +78,7 @@ enum ActiveSheet: Identifiable {
     case share(ShareSheetPayload)
     case editLyrics(EditingLyricsSection)
     case speechInput(SpeechInputContext)
+    case lyricsReview
 
     var id: String {
         switch self {
@@ -87,6 +88,7 @@ enum ActiveSheet: Identifiable {
         case .share:            return "share"
         case .editLyrics:       return "editLyrics"
         case .speechInput:      return "speechInput"
+        case .lyricsReview:     return "lyricsReview"
         }
     }
 }

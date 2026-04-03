@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Council Verdict: Persistent Onboarding Screen</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #fafafa; color: #1a1a1a; line-height: 1.6; max-width: 800px; margin: 0 auto; padding: 24px; }
+  h1 { font-size: 28px; font-weight: 700; margin-bottom: 8px; }
+  h2 { font-size: 20px; font-weight: 600; margin: 32px 0 12px; color: #333; }
+  h3 { font-size: 16px; font-weight: 600; margin: 16px 0 8px; }
+  p, li { font-size: 15px; margin-bottom: 8px; }
+  ul { padding-left: 20px; }
+  .question { background: #f0f0f0; border-left: 4px solid #E07850; padding: 16px 20px; border-radius: 4px; margin: 20px 0; font-size: 16px; font-weight: 500; }
+  .verdict-box { background: #fff; border: 2px solid #E07850; border-radius: 12px; padding: 24px; margin: 24px 0; }
+  .verdict-box h2 { color: #E07850; margin-top: 0; font-size: 22px; }
+  .verdict-box .recommendation { font-size: 18px; font-weight: 600; color: #c0502e; margin-bottom: 12px; }
+  .verdict-box .first-step { background: #FFF5EE; padding: 16px; border-radius: 8px; margin-top: 16px; }
+  .verdict-box .first-step h3 { color: #E07850; margin-top: 0; }
+  .section { background: #fff; border: 1px solid #e0e0e0; border-radius: 8px; padding: 20px; margin: 16px 0; }
+  .agreement-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 16px 0; }
+  .agree-item { background: #e8f5e9; padding: 12px; border-radius: 6px; font-size: 14px; }
+  .clash-item { background: #fff3e0; padding: 12px; border-radius: 6px; font-size: 14px; }
+  .blind-item { background: #fce4ec; padding: 12px; border-radius: 6px; font-size: 14px; }
+  details { margin: 8px 0; }
+  summary { cursor: pointer; font-weight: 600; color: #555; padding: 10px 0; font-size: 15px; }
+  summary:hover { color: #E07850; }
+  .advisor-response { background: #f9f9f9; padding: 16px; border-radius: 6px; margin: 8px 0; font-size: 14px; border-left: 3px solid #ddd; }
+  .advisor-contrarian .advisor-response { border-left-color: #e53935; }
+  .advisor-principles .advisor-response { border-left-color: #1565c0; }
+  .advisor-expansionist .advisor-response { border-left-color: #2e7d32; }
+  .advisor-outsider .advisor-response { border-left-color: #f9a825; }
+  .advisor-executor .advisor-response { border-left-color: #6a1b9a; }
+  .advisor-tag { display: inline-block; font-size: 11px; font-weight: 700; text-transform: uppercase; padding: 2px 8px; border-radius: 3px; margin-right: 8px; }
+  .tag-against { background: #ffebee; color: #c62828; }
+  .tag-for { background: #e8f5e9; color: #2e7d32; }
+  .tag-pragmatic { background: #f3e5f5; color: #6a1b9a; }
+  .position-bar { display: flex; align-items: center; gap: 8px; margin: 8px 0; font-size: 13px; }
+  .dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
+  .dot-red { background: #e53935; }
+  .dot-green { background: #2e7d32; }
+  .dot-blue { background: #1565c0; }
+  .dot-yellow { background: #f9a825; }
+  .dot-purple { background: #6a1b9a; }
+  footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid #e0e0e0; font-size: 12px; color: #999; }
+</style>
+</head>
+<body>
+
+<h1>LLM Council Verdict</h1>
+<div class="question">Should Porizo show the onboarding audio sample screen <strong>every time a user opens the app</strong> until they have successfully generated their first song?</div>
+
+<!-- VERDICT -->
+<div class="verdict-box">
+  <h2>The Verdict: Do Not Implement</h2>
+  <p class="recommendation">The council recommends AGAINST the persistent onboarding screen.</p>
+  <p>It solves the wrong problem. Users who haven't generated a song are not unconvinced &mdash; they are <strong>blocked</strong>. Blocked by enrollment friction (6-10 voice recordings), by not having a recipient in mind, by life. Repeating the sales pitch does not remove these blockers.</p>
+  <p><strong>Instead:</strong></p>
+  <ul>
+    <li>Show onboarding <strong>twice</strong> (first open + one reminder), then never again</li>
+    <li>Put a sample audio card on the home screen &mdash; non-blocking, always available</li>
+    <li>Instrument the enrollment funnel to find the real drop-off point</li>
+  </ul>
+  <div class="first-step">
+    <h3>The One Thing to Do First</h3>
+    <p>Add analytics events to every step of the voice enrollment flow &mdash; started, each phrase recorded, each phrase failed, abandoned, completed. One afternoon of instrumentation tells you more than this entire debate.</p>
+  </div>
+</div>
+
+<!-- ADVISOR POSITIONS -->
+<div class="section">
+  <h2>Advisor Positions</h2>
+  <div class="position-bar"><span class="dot dot-red"></span> <strong>Contrarian</strong> <span class="advisor-tag tag-against">Against</span> Will backfire. Punishes returning users. Put sample in main app instead.</div>
+  <div class="position-bar"><span class="dot dot-blue"></span> <strong>First Principles</strong> <span class="advisor-tag tag-against">Against</span> Wrong problem. Personalize the sample, don't repeat it.</div>
+  <div class="position-bar"><span class="dot dot-green"></span> <strong>Expansionist</strong> <span class="advisor-tag tag-for">For (with caveats)</span> Ship it with skip button, instrument it, make it progressively richer.</div>
+  <div class="position-bar"><span class="dot dot-yellow"></span> <strong>Outsider</strong> <span class="advisor-tag tag-against">Against</span> Confuses "hasn't converted" with "hasn't been convinced." Friction problem, not awareness.</div>
+  <div class="position-bar"><span class="dot dot-purple"></span> <strong>Executor</strong> <span class="advisor-tag tag-pragmatic">Pragmatic</span> Easy to ship (one-line change). Add "don't show again" after 3rd view.</div>
+</div>
+
+<!-- AGREEMENT -->
+<div class="section">
+  <h2>Where the Council Agrees</h2>
+  <div class="agreement-grid">
+    <div class="agree-item"><strong>Sample audio is not the bottleneck.</strong> Users who downloaded already know the concept.</div>
+    <div class="agree-item"><strong>The real problem is downstream friction.</strong> Voice enrollment (6-10 phrases) is the likely wall.</div>
+    <div class="agree-item"><strong>Blocking interstitials erode goodwill.</strong> Especially for time-sensitive occasions (birthday tomorrow).</div>
+    <div class="agree-item"><strong>Value exposure should be non-blocking.</strong> A card, not a gate.</div>
+  </div>
+</div>
+
+<!-- CLASHES -->
+<div class="section">
+  <h2>Where the Council Clashes</h2>
+  <div class="agreement-grid">
+    <div class="clash-item"><strong>Passive card vs. active interstitial.</strong> A: card on home screen (risk: banner blindness). C: rotating demo (risk: interstitial fatigue).</div>
+    <div class="clash-item"><strong>Personalize before auth?</strong> B: type name, hear snippet pre-auth (brilliant but $0.07/visitor, needs infrastructure). Best as V2.</div>
+    <div class="clash-item"><strong>"Show twice" middle ground.</strong> Reviewer 5 caught the binary trap. Twice captures compound aha without fatigue.</div>
+    <div class="clash-item"><strong>Measurement before shipping.</strong> C wants to ship and measure. D wants to diagnose first. Both are valid &mdash; but you can't A/B test without funnel data.</div>
+  </div>
+</div>
+
+<!-- BLIND SPOTS -->
+<div class="section">
+  <h2>Blind Spots the Council Caught</h2>
+  <div class="agreement-grid">
+    <div class="blind-item"><strong>Voice enrollment is the real cliff.</strong> 6-10 recording phrases before any payoff. Nobody asked where users actually drop.</div>
+    <div class="blind-item"><strong>No retention data exists.</strong> If day-1 retention is 20%, this debate affects very few people.</div>
+    <div class="blind-item"><strong>Time-sensitive urgency.</strong> A user needing a birthday song TODAY who hits onboarding will feel the app is fighting them.</div>
+    <div class="blind-item"><strong>Side effects.</strong> The <code>hasCompletedOnboarding</code> flag may gate other features. "One-line change" could break things.</div>
+  </div>
+</div>
+
+<!-- ADVISOR RESPONSES -->
+<details>
+  <summary>Full Advisor Responses (click to expand)</summary>
+
+  <div class="advisor-contrarian">
+    <h3><span class="dot dot-red"></span> The Contrarian</h3>
+    <div class="advisor-response">
+      <p>This will backfire. You're punishing your most patient users. Someone who authenticated, entered a recipient name, started the flow, but got interrupted before the song finished rendering &mdash; they come back and get slapped with onboarding again? That's not "hooking" them. That's telling them you don't remember they were here.</p>
+      <p>After the second or third time, that audio sample isn't compelling &mdash; it's the thing standing between them and the app they already decided to use. You'll train users to reflexively dismiss it, which is the opposite of engagement.</p>
+      <p>The real problem you're avoiding: Why haven't they generated their first song yet? If the answer is friction in the creation flow, no amount of onboarding repetition fixes that. If the answer is they don't understand the value, the onboarding screen already failed once &mdash; showing it again won't magically work the second time.</p>
+      <p><strong>Alternative:</strong> Make the audio sample available inside the main app &mdash; a persistent "hear what Porizo sounds like" card on the home screen or explore tab. Same value exposure, zero friction, no blocking.</p>
+    </div>
+  </div>
+
+  <div class="advisor-principles">
+    <h3><span class="dot dot-blue"></span> The First Principles Thinker</h3>
+    <div class="advisor-response">
+      <p>You're solving the wrong problem. The question isn't "should we show onboarding repeatedly?" &mdash; it's "why is there a gap between hearing the sample and generating a song?"</p>
+      <p>The real problem is time-to-personal-value is too long. Showing a generic sample repeatedly doesn't fix that &mdash; it's a band-aid on a broken funnel.</p>
+      <p><strong>The move:</strong> Can a user hear a song with THEIR recipient's name in it before they authenticate? Type "Mom" into a single field, hear a 10-second snippet. NOW they're hooked &mdash; because the value is personal, not generic.</p>
+      <p>A generic sample shown ten times is weaker than a personalized one shown once. Collapse the funnel instead of repeating the pitch.</p>
+    </div>
+  </div>
+
+  <div class="advisor-expansionist">
+    <h3><span class="dot dot-green"></span> The Expansionist</h3>
+    <div class="advisor-response">
+      <p>Massively undervalued. Every app open where a user hears their potential output is a micro-conversion event. You're not "showing onboarding again" &mdash; you're running a product demo on every launch.</p>
+      <p>Rotating samples become a content strategy. Track which sample was playing when someone finally converts. A/B test samples. This is a growth engine disguised as onboarding.</p>
+      <p><strong>The expansion:</strong> Make it progressively richer. First open: sample song. Third open: enrolled voice preview. Fifth open: social proof. Add a non-aggressive "Skip" affordance &mdash; the choice to stay and listen is itself a signal you can measure.</p>
+    </div>
+  </div>
+
+  <div class="advisor-outsider">
+    <h3><span class="dot dot-yellow"></span> The Outsider</h3>
+    <div class="advisor-response">
+      <p>If someone downloaded your app, created an account, and still hasn't made a song, the "try it" screen isn't what's broken. Something between "I'm interested" and "I'll invest 90 seconds waiting" is broken.</p>
+      <p>The second time I see that screen, my thought isn't "oh right, I should try this." It's "why is this app wasting my time?"</p>
+      <p>The builders are confusing "hasn't converted yet" with "hasn't been convinced yet." Those are completely different problems. One needs friction removal. The other needs a sales pitch. You're applying the sales pitch solution to a friction problem.</p>
+    </div>
+  </div>
+
+  <div class="advisor-executor">
+    <h3><span class="dot dot-purple"></span> The Executor</h3>
+    <div class="advisor-response">
+      <p>The change is one line in RootView.swift &mdash; swap <code>hasCompletedOnboarding</code> to <code>!hasCompletedFirstSong</code>. Keep the old flag for rollback.</p>
+      <p>Guard: if user is authenticated AND hasn't completed first song, show onboarding. If not authenticated, show auth first.</p>
+      <p>Edge cases: song render failed should NOT flip the flag. After 3rd viewing, add "Don't show again." Don't gate behind feature flag &mdash; client-side decision. Half a day of work, ship as single commit.</p>
+    </div>
+  </div>
+</details>
+
+<details>
+  <summary>Peer Review Highlights (click to expand)</summary>
+  <div class="advisor-response">
+    <p><strong>Reviewer 1 (Product Strategy):</strong> D strongest. ALL MISSED: Voice enrollment requires 6-10 recording phrases &mdash; the actual dropout point nobody asked about.</p>
+    <p><strong>Reviewer 2 (Growth):</strong> C strongest. ALL MISSED: No retention data. If day-1 retention is 20%, this debate affects very few people.</p>
+    <p><strong>Reviewer 3 (UX):</strong> A strongest. ALL MISSED: Time-sensitive occasions. User returning for birthday tomorrow who hits onboarding wall = hostile.</p>
+    <p><strong>Reviewer 4 (Engineering):</strong> E strongest. ALL MISSED: <code>hasCompletedOnboarding</code> flag may gate other features. Side effects.</p>
+    <p><strong>Reviewer 5 (Contrarian):</strong> D strongest. ALL MISSED: The obvious middle ground &mdash; show exactly twice. Binary "always vs never" was a trap all five walked into.</p>
+  </div>
+</details>
+
+<footer>
+  LLM Council &mdash; 5 advisors, 5 peer reviews, 1 chairman synthesis<br>
+  Counciled: April 3, 2026 &mdash; Persistent onboarding screen for Porizo
+</footer>
+
+</body>
+</html>

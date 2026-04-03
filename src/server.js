@@ -278,6 +278,12 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     prefix: "/assets/",
     decorateReply: false,
   });
+  app.register(require("@fastify/static"), {
+    root: path.join(process.cwd(), "public/audio"),
+    prefix: "/audio/",
+    decorateReply: false,
+    maxAge: "7d",
+  });
 
   // Apple App Site Association for universal links (explicit route for correct MIME type)
   const aasaJson = JSON.stringify({

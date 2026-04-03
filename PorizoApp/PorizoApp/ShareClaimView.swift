@@ -21,6 +21,7 @@ struct ShareClaimView: View {
     @State private var pinError: String?
     @State private var trackInfo: ShareTrackInfo?
     @State private var appDownloadUrl: String?
+    @State private var webStreamUrl: String?
 
     // Task cancellation (separate tasks to avoid race conditions)
     @State private var loadTask: Task<Void, Never>?
@@ -30,8 +31,9 @@ struct ShareClaimView: View {
 
     enum ShareClaimState: Equatable {
         case loading
-        case requiresPin
-        case playing
+        case preview        // Listen-first: song playing via web stream, PIN optional
+        case requiresPin    // Fallback when no web stream available
+        case playing        // Fully claimed — device-bound stream
         case blocked(String)
         case error(String)
     }
@@ -73,6 +75,9 @@ struct ShareClaimView: View {
         case .loading:
             ProgressView("Loading share...")
                 .foregroundStyle(DesignTokens.textSecondary)
+
+        case .preview:
+            previewView
 
         case .requiresPin:
             pinEntryView
@@ -261,14 +266,17 @@ struct ShareClaimView: View {
     }
 
     private var senderHeadline: String {
-        if let recipient = trackInfo?.recipientName, !recipient.isEmpty {
-            return "\(recipient) sent you a song"
+        if let sender = trackInfo?.senderName, !sender.isEmpty {
+            return "\(sender) sent you a song"
         }
         return "Someone sent you a song"
     }
 
     private var senderSubline: String {
-        "A song, made just for you"
+        if let recipient = trackInfo?.recipientName, !recipient.isEmpty {
+            return "A song made just for \(recipient)"
+        }
+        return "A song, made just for you"
     }
 
     private var miniPostcard: some View {
@@ -328,6 +336,7 @@ struct ShareClaimView: View {
                 await MainActor.run {
                     trackInfo = info.track ?? info.trackPreview
                     appDownloadUrl = info.appDownloadUrl
+                    webStreamUrl = info.webStreamUrl
                 }
 
                 switch info.status {
@@ -340,8 +349,13 @@ struct ShareClaimView: View {
                         }
                     }
                 case "unbound":
-                    await MainActor.run {
-                        state = .requiresPin
+                    // Listen-first: if web stream is available, start preview playback
+                    if let streamUrl = info.webStreamUrl, !streamUrl.isEmpty {
+                        await startWebPreview(streamUrl: streamUrl)
+                    } else {
+                        await MainActor.run {
+                            state = .requiresPin
+                        }
                     }
                 default:
                     await MainActor.run {
@@ -420,6 +434,93 @@ struct ShareClaimView: View {
             await MainActor.run {
                 state = .error(error.localizedDescription)
             }
+        }
+    }
+
+    private func startWebPreview(streamUrl: String) async {
+        await MainActor.run {
+            let metadata = NowPlayingMetadata(
+                title: trackInfo?.title ?? "Shared Song",
+                artist: trackInfo?.recipientName
+            )
+            audioPlayer.play(url: streamUrl, headers: nil, metadata: metadata)
+            state = .preview
+        }
+    }
+
+    // MARK: - Preview View (Listen-first)
+
+    private var previewView: some View {
+        VStack(spacing: 0) {
+            Spacer()
+
+            shareHeader
+
+            Spacer()
+
+            // Playback controls
+            VStack(spacing: 16) {
+                if audioPlayer.isLoading {
+                    ProgressView("Preparing playback...")
+                        .foregroundStyle(DesignTokens.textSecondary)
+                }
+
+                Slider(
+                    value: Binding(
+                        get: { audioPlayer.currentTime },
+                        set: { audioPlayer.seek(to: $0) }
+                    ),
+                    in: 0...max(audioPlayer.duration, 1)
+                )
+                .tint(DesignTokens.gold)
+                .disabled(audioPlayer.duration <= 0)
+
+                HStack {
+                    Text(formatTime(audioPlayer.currentTime))
+                    Spacer()
+                    Text(formatTime(audioPlayer.duration))
+                }
+                .font(.caption)
+                .foregroundStyle(DesignTokens.textSecondary)
+
+                Button {
+                    audioPlayer.togglePlayback()
+                } label: {
+                    Image(systemName: audioPlayer.isPlaying ? "pause.fill" : "play.fill")
+                        .font(.system(size: 28))
+                        .foregroundStyle(.white)
+                        .frame(width: 72, height: 72)
+                        .background(DesignTokens.gold)
+                        .clipShape(Circle())
+                }
+            }
+            .padding(.horizontal, 20)
+
+            // Save to library (requires PIN claim)
+            VStack(spacing: 12) {
+                Text("Want to save this song?")
+                    .font(DesignTokens.bodyFont(size: 14))
+                    .foregroundStyle(DesignTokens.textSecondary)
+                    .padding(.top, 24)
+
+                Button {
+                    state = .requiresPin
+                } label: {
+                    Text("Save to Library")
+                        .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
+                        .foregroundStyle(DesignTokens.gold)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(DesignTokens.surface)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(DesignTokens.gold.opacity(0.5), lineWidth: 1)
+                        )
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 40)
         }
     }
 

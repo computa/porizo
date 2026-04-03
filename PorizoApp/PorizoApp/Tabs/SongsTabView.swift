@@ -2,8 +2,7 @@
 //  SongsTabView.swift
 //  PorizoApp
 //
-//  Songs tab matching v1.pen "10 - Songs Library" design.
-//  Velvet & Gold design system with custom header.
+//  Songs tab — Warm Canvas design system with custom header.
 //
 
 import SwiftUI
@@ -20,7 +19,7 @@ struct SongsTabView: View {
 
     var body: some View {
         ZStack {
-            // Background: Deep velvet black
+            // Background: Warm parchment
             DesignTokens.background.ignoresSafeArea()
 
             VStack(spacing: 0) {

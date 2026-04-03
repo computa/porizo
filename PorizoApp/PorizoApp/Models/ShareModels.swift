@@ -193,12 +193,14 @@ struct ShareInfoResponse: Codable, Sendable {
 struct ShareTrackInfo: Codable, Sendable {
     let title: String?
     let recipientName: String?
+    let senderName: String?
     let durationSec: Int?
     let coverImageUrl: String?
 
     enum CodingKeys: String, CodingKey {
         case title
         case recipientName = "recipient_name"
+        case senderName = "sender_name"
         case durationSec = "duration_sec"
         case coverImageUrl = "cover_image_url"
     }

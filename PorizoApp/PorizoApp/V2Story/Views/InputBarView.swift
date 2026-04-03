@@ -5,9 +5,9 @@
 //  Isolated input bar for chat screen. Owns all typing-related state
 //  (inputText, focus, budget) so keystrokes don't trigger parent reevaluation.
 //
-//  Perplexity-style floating container: full-width text area on top (#1E1E1E),
-//  compact action row below (#161616), all inside a 24pt rounded card that
-//  floats above the #0A0A0A background.
+//  Perplexity-style floating container: full-width text area on top,
+//  compact action row below, all inside a 24pt rounded card that
+//  floats above the background using Warm Canvas design tokens.
 //
 
 import SwiftUI

@@ -4,7 +4,7 @@
 //
 //  Displays generated lyrics for review and approval.
 //  Supports section-by-section editing with inline line modifications.
-//  Velvet & Gold design system.
+//  Warm Canvas design system.
 //
 //  Business logic delegated to LyricsReviewController.
 //
@@ -128,12 +128,12 @@ struct LyricsReviewView: View {
                 .accessibilityLabel(controller.isGenerating ? "Crafting your lyrics" : "Loading")
 
             Text(controller.isGenerating ? "Crafting Your Lyrics..." : "Loading...")
-                .font(.headline)
+                .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
                 .foregroundStyle(DesignTokens.textPrimary)
 
             if controller.isGenerating {
                 Text("Our AI songwriter is creating personalized lyrics based on your story")
-                    .font(.subheadline)
+                    .font(DesignTokens.bodyFont(size: 15))
                     .foregroundStyle(DesignTokens.textSecondary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 32)
@@ -159,7 +159,7 @@ struct LyricsReviewView: View {
             }
 
             Text("No Lyrics Yet")
-                .font(.headline)
+                .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
                 .foregroundStyle(DesignTokens.textPrimary)
 
             Button {
@@ -170,7 +170,7 @@ struct LyricsReviewView: View {
                         .accessibilityHidden(true)
                     Text("Generate Lyrics")
                 }
-                .font(.headline)
+                .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
                 .foregroundStyle(.white)
                 .padding(.horizontal, 24)
                 .padding(.vertical, 14)
@@ -198,11 +198,11 @@ struct LyricsReviewView: View {
             }
 
             Text("AI Temporarily Unavailable")
-                .font(.headline)
+                .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
                 .foregroundStyle(DesignTokens.textPrimary)
 
             Text(controller.aiUnavailableMessage)
-                .font(.subheadline)
+                .font(DesignTokens.bodyFont(size: 15))
                 .foregroundStyle(DesignTokens.textSecondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 32)
@@ -215,7 +215,7 @@ struct LyricsReviewView: View {
                         .accessibilityHidden(true)
                     Text("Try Again")
                 }
-                .font(.headline)
+                .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
                 .foregroundStyle(.white)
                 .padding(.horizontal, 24)
                 .padding(.vertical, 14)
@@ -246,20 +246,20 @@ struct LyricsReviewView: View {
             Text(controller.moderationAttempts >= controller.maxModerationAttempts
                  ? "We Need Your Help"
                  : "Content Review Required")
-                .font(.headline)
+                .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
                 .foregroundStyle(DesignTokens.textPrimary)
 
             VStack(spacing: 8) {
                 Text(controller.moderationAttempts >= controller.maxModerationAttempts
                      ? "We're having trouble creating lyrics that meet our guidelines."
                      : "We couldn't generate lyrics for this song.")
-                    .font(.subheadline)
+                    .font(DesignTokens.bodyFont(size: 15))
                     .foregroundStyle(DesignTokens.textSecondary)
                     .multilineTextAlignment(.center)
 
                 if let reason = controller.moderationReason {
                     Text(reason)
-                        .font(.caption)
+                        .font(DesignTokens.bodyFont(size: 12))
                         .foregroundStyle(DesignTokens.warning)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 8)
@@ -272,7 +272,7 @@ struct LyricsReviewView: View {
             VStack(spacing: 12) {
                 // Standard options
                 Text("Try adjusting your message or story details")
-                    .font(.caption)
+                    .font(DesignTokens.bodyFont(size: 12))
                     .foregroundStyle(DesignTokens.textTertiary)
 
                 Button {
@@ -283,7 +283,7 @@ struct LyricsReviewView: View {
                             .accessibilityHidden(true)
                         Text("Edit Story Details")
                     }
-                    .font(.headline)
+                    .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
                     .foregroundStyle(.white)
                     .padding(.horizontal, 24)
                     .padding(.vertical, 14)
@@ -301,7 +301,7 @@ struct LyricsReviewView: View {
                                 .accessibilityHidden(true)
                             Text("Try Again")
                         }
-                        .font(.subheadline)
+                        .font(DesignTokens.bodyFont(size: 15))
                         .foregroundStyle(DesignTokens.textSecondary)
                     }
                 } else {
@@ -310,7 +310,7 @@ struct LyricsReviewView: View {
                         .padding(.vertical, 8)
 
                     Text("Need more help?")
-                        .font(.caption)
+                        .font(DesignTokens.bodyFont(size: 12))
                         .foregroundStyle(DesignTokens.textTertiary)
 
                     // Contact Support button
@@ -322,7 +322,7 @@ struct LyricsReviewView: View {
                                 .accessibilityHidden(true)
                             Text("Contact Support")
                         }
-                        .font(.subheadline)
+                        .font(DesignTokens.bodyFont(size: 15))
                         .foregroundStyle(DesignTokens.gold)
                         .padding(.horizontal, 20)
                         .padding(.vertical, 10)
@@ -339,7 +339,7 @@ struct LyricsReviewView: View {
                                 .accessibilityHidden(true)
                             Text("View Content Guidelines")
                         }
-                        .font(.caption)
+                        .font(DesignTokens.bodyFont(size: 12))
                         .foregroundStyle(DesignTokens.textSecondary)
                     }
                 }
@@ -355,8 +355,7 @@ struct LyricsReviewView: View {
                 // Title with edit button
                 HStack(alignment: .top, spacing: 12) {
                     Text(controller.highlightedLine(controller.displayTitle(for: lyrics), baseColor: DesignTokens.textPrimary))
-                        .font(.title2)
-                        .fontWeight(.bold)
+                        .font(DesignTokens.displayFont(size: 22, weight: .bold))
                         .frame(maxWidth: .infinity, alignment: .leading)
 
                     Button {
@@ -367,7 +366,7 @@ struct LyricsReviewView: View {
                                 .accessibilityHidden(true)
                             Text("Edit")
                         }
-                        .font(.caption)
+                        .font(DesignTokens.bodyFont(size: 12))
                         .foregroundStyle(DesignTokens.gold)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 6)
@@ -380,31 +379,30 @@ struct LyricsReviewView: View {
 
                 // Instructions
                 Text("Tap Edit on the title or any section to make changes")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(DesignTokens.bodyFont(size: 12))
+                    .foregroundStyle(DesignTokens.textSecondary)
                     .padding(.horizontal)
 
                 if !controller.providerPolicyTerms.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("The music provider rejected parts of these lyrics. We highlighted matching terms below so you can edit and continue.")
-                            .font(.caption)
+                            .font(DesignTokens.bodyFont(size: 12))
                             .foregroundStyle(DesignTokens.textSecondary)
 
                         Text(controller.providerPolicyTerms.joined(separator: ", "))
-                            .font(.caption)
+                            .font(DesignTokens.bodyFont(size: 12))
                             .foregroundStyle(DesignTokens.warning)
 
                         if !controller.providerPolicySuggestions.isEmpty {
                             Divider()
                             VStack(alignment: .leading, spacing: 6) {
                                 Text("Gentle suggestions")
-                                    .font(.caption)
-                                    .fontWeight(.semibold)
+                                    .font(DesignTokens.bodyFont(size: 12, weight: .semibold))
                                     .foregroundStyle(DesignTokens.textSecondary)
 
                                 ForEach(Array(controller.providerPolicySuggestions.enumerated()), id: \.offset) { _, suggestion in
                                     Text("• \(suggestion)")
-                                        .font(.caption)
+                                        .font(DesignTokens.bodyFont(size: 12))
                                         .foregroundStyle(DesignTokens.textSecondary)
                                 }
                             }
@@ -425,12 +423,12 @@ struct LyricsReviewView: View {
                 if let anchor = lyrics.anchorLine {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Key Line")
-                            .font(.caption)
+                            .font(DesignTokens.bodyFont(size: 12))
                             .foregroundStyle(DesignTokens.gold)
                             .textCase(.uppercase)
 
                         Text(controller.highlightedLine("\"\(anchor)\"", baseColor: DesignTokens.background))
-                            .font(.body)
+                            .font(DesignTokens.bodyFont(size: 15))
                             .italic()
                             .padding()
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -444,10 +442,10 @@ struct LyricsReviewView: View {
                 if controller.hasUnsavedChanges {
                     HStack {
                         Image(systemName: "exclamationmark.circle")
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(DesignTokens.warning)
                         Text("You have unsaved changes")
-                            .font(.caption)
-                            .foregroundStyle(.orange)
+                            .font(DesignTokens.bodyFont(size: 12))
+                            .foregroundStyle(DesignTokens.warning)
                     }
                     .padding(.horizontal)
                 }
@@ -472,7 +470,7 @@ struct LyricsReviewView: View {
                                 }
                                 Spacer()
                             }
-                            .font(.headline)
+                            .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
                             .foregroundStyle(DesignTokens.gold)
                             .padding()
                             .background(DesignTokens.gold.opacity(0.15))
@@ -499,7 +497,7 @@ struct LyricsReviewView: View {
                             }
                             Spacer()
                         }
-                        .font(.headline)
+                        .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
                         .foregroundStyle(.white)
                         .padding()
                         .background(controller.isApproving || controller.hasUnsavedChanges ? DesignTokens.textTertiary : DesignTokens.gold)
@@ -511,7 +509,7 @@ struct LyricsReviewView: View {
 
                     if controller.hasUnsavedChanges {
                         Text("Save your changes before approving")
-                            .font(.caption)
+                            .font(DesignTokens.bodyFont(size: 12))
                             .foregroundStyle(DesignTokens.textSecondary)
                     }
 
@@ -523,7 +521,7 @@ struct LyricsReviewView: View {
                                 .accessibilityHidden(true)
                             Text("Try Different Lyrics")
                         }
-                        .font(.subheadline)
+                        .font(DesignTokens.bodyFont(size: 15))
                         .foregroundStyle(controller.isGenerating || controller.isApproving ? DesignTokens.textTertiary : DesignTokens.textSecondary)
                     }
                     .disabled(controller.isGenerating || controller.isApproving)
@@ -541,8 +539,7 @@ struct LyricsReviewView: View {
             // Section header with edit button
             HStack {
                 Text(formatSectionName(section.name))
-                    .font(.caption)
-                    .fontWeight(.semibold)
+                    .font(DesignTokens.bodyFont(size: 12, weight: .semibold))
                     .foregroundStyle(DesignTokens.gold)
                     .textCase(.uppercase)
 
@@ -556,7 +553,7 @@ struct LyricsReviewView: View {
                             .accessibilityHidden(true)
                         Text("Edit")
                     }
-                    .font(.caption)
+                    .font(DesignTokens.bodyFont(size: 12))
                     .foregroundStyle(DesignTokens.gold)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 6)
@@ -569,7 +566,7 @@ struct LyricsReviewView: View {
             VStack(alignment: .leading, spacing: 4) {
                 ForEach(Array(section.lineTexts.enumerated()), id: \.offset) { _, line in
                     Text(controller.highlightedLine(line, baseColor: DesignTokens.textPrimary))
-                        .font(.body)
+                        .font(DesignTokens.bodyFont(size: 15))
                 }
             }
         }
@@ -596,7 +593,7 @@ struct SectionEditSheet: View {
                 VStack(alignment: .leading, spacing: 16) {
                     // Instructions
                     Text("Edit each line of the \(formatSectionName(sectionName).lowercased())")
-                        .font(.subheadline)
+                        .font(DesignTokens.bodyFont(size: 15))
                         .foregroundStyle(DesignTokens.textSecondary)
                         .padding(.horizontal)
 
@@ -605,8 +602,7 @@ struct SectionEditSheet: View {
                         VStack(alignment: .leading, spacing: 8) {
                             HStack {
                                 Text("Line \(index + 1)")
-                                    .font(.caption)
-                                    .fontWeight(.medium)
+                                    .font(DesignTokens.bodyFont(size: 12, weight: .medium))
                                     .foregroundStyle(DesignTokens.textSecondary)
 
                                 Spacer()
@@ -615,7 +611,7 @@ struct SectionEditSheet: View {
                                     lines.remove(at: index)
                                 } label: {
                                     Image(systemName: "trash")
-                                        .font(.caption)
+                                        .font(DesignTokens.bodyFont(size: 12))
                                         .foregroundStyle(DesignTokens.error)
                                         .accessibilityHidden(true)
                                 }
@@ -623,7 +619,7 @@ struct SectionEditSheet: View {
                             }
 
                             TextEditor(text: $lines[index])
-                                .font(.body)
+                                .font(DesignTokens.bodyFont(size: 15))
                                 .foregroundStyle(DesignTokens.textPrimary)
                                 .frame(minHeight: 60)
                                 .padding(8)
@@ -647,7 +643,7 @@ struct SectionEditSheet: View {
                                 .accessibilityHidden(true)
                             Text("Add Line")
                         }
-                        .font(.body)
+                        .font(DesignTokens.bodyFont(size: 15))
                         .foregroundStyle(DesignTokens.gold)
                     }
                     .padding(.horizontal)
@@ -693,12 +689,12 @@ struct TitleEditSheet: View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 16) {
                 Text("Update the song title")
-                    .font(.subheadline)
+                    .font(DesignTokens.bodyFont(size: 15))
                     .foregroundStyle(DesignTokens.textSecondary)
                     .padding(.horizontal)
 
                 TextField("Song title", text: $title)
-                    .font(.body)
+                    .font(DesignTokens.bodyFont(size: 15))
                     .foregroundStyle(DesignTokens.textPrimary)
                     .padding()
                     .background(DesignTokens.surface)

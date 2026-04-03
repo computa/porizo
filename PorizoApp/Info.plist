@@ -65,7 +65,7 @@
 	<key>PORIZO_ENABLE_GIFT_PURCHASE_UI</key>
 	<true/>
 	<key>FIREBASE_ANALYTICS_COLLECTION_DEACTIVATED</key>
-	<true/>
+	<false/>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>

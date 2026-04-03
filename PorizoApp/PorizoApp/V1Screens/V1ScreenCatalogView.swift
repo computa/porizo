@@ -86,9 +86,6 @@ struct V1ScreenCatalogView: View {
                             SettingsTabView(apiClient: apiClient, storeKit: StoreKitManager(apiClient: apiClient))
                                 .environment(authManager)
                         }
-                        screenLink("13 - Settings Sheet (Theme)") {
-                            ThemePickerSheet(selectedTheme: .constant(.system), onDismiss: {})
-                        }
                     }
 
                     Section("Create Flow") {
@@ -189,6 +186,9 @@ struct V1ScreenCatalogView: View {
                     Section("Subscriptions") {
                         screenLink("14 - Subscription Plans") {
                             SubscriptionView(apiClient: apiClient, storeKit: StoreKitManager(apiClient: apiClient))
+                        }
+                        screenLink("14b - Subscription v2") {
+                            SubscriptionViewV2(apiClient: apiClient, storeKit: StoreKitManager(apiClient: apiClient))
                         }
                     }
 

@@ -15,6 +15,8 @@
 		A1B2C3D4E5F6A7B8C9D0E1F2 /* OneSignalFramework in Frameworks */ = {isa = PBXBuildFile; productRef = B2C3D4E5F6A7B8C9D0E1F2A3 /* OneSignalFramework */; };
 		B1C2D3E4F5061829A3B4C5D6 /* RenderPollingServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2F3A4B5C6071829D4E5F6A7 /* RenderPollingServiceTests.swift */; };
 		C173AAB02F24754C00DAC87A /* FirebaseCrashlytics in Frameworks */ = {isa = PBXBuildFile; productRef = C173AAAF2F24754C00DAC87A /* FirebaseCrashlytics */; };
+		C173AAB22F24754C00DAC87B /* FirebaseAnalytics in Frameworks */ = {isa = PBXBuildFile; productRef = C173AAB12F24754C00DAC87B /* FirebaseAnalytics */; };
+		F1A2B3C4D5E6F7089A1B2C3D /* AmplitudeSwift in Frameworks */ = {isa = PBXBuildFile; productRef = F1A2B3C4D5E6F7089A1B2C3E /* AmplitudeSwift */; };
 		C2D3E4F5A6172839B4C5D6E7 /* LocalNotificationServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3A4B5C6D7182939E5F6A7B8 /* LocalNotificationServiceTests.swift */; };
 		C3D4E5F6A7B8C9D0E1F2A3B4 /* OneSignalExtension in Frameworks */ = {isa = PBXBuildFile; productRef = D4E5F6A7B8C9D0E1F2A3B4C5 /* OneSignalExtension */; };
 		D4E5F6A7B8C9182939F1A2B3 /* BackgroundURLSessionManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5B6C7D8E9F01A2B3C4D5E6F /* BackgroundURLSessionManagerTests.swift */; };
@@ -97,6 +99,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				C173AAB02F24754C00DAC87A /* FirebaseCrashlytics in Frameworks */,
+				C173AAB22F24754C00DAC87B /* FirebaseAnalytics in Frameworks */,
+				F1A2B3C4D5E6F7089A1B2C3D /* AmplitudeSwift in Frameworks */,
 				E9F14A2F5D7E8B9012345678 /* TikTokOpenSDKCore in Frameworks */,
 				E9F14A305D7E8B9012345678 /* TikTokOpenShareSDK in Frameworks */,
 				A1B2C3D4E5F6A7B8C9D0E1F2 /* OneSignalFramework in Frameworks */,
@@ -312,6 +316,7 @@
 				C173AAAC2F24754C00DAC87A /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
 				E9F14A2C5D7E8B9012345678 /* XCRemoteSwiftPackageReference "tiktok-opensdk-ios" */,
 				D6E7F8A9B0C1D2E3F4A5B6C7 /* XCRemoteSwiftPackageReference "OneSignal-XCFramework" */,
+				F1A2B3C4D5E6F7089A1B2C30 /* XCRemoteSwiftPackageReference "Amplitude-Swift" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = C125A4882F05F57600120F9A /* Products */;
@@ -802,6 +807,14 @@
 				minimumVersion = 2.5.0;
 			};
 		};
+		F1A2B3C4D5E6F7089A1B2C30 /* XCRemoteSwiftPackageReference "Amplitude-Swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/amplitude/Amplitude-Swift";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.0.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -814,6 +827,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = C173AAAC2F24754C00DAC87A /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
 			productName = FirebaseCrashlytics;
+		};
+		C173AAB12F24754C00DAC87B /* FirebaseAnalytics */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C173AAAC2F24754C00DAC87A /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseAnalytics;
+		};
+		F1A2B3C4D5E6F7089A1B2C3E /* AmplitudeSwift */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F1A2B3C4D5E6F7089A1B2C30 /* XCRemoteSwiftPackageReference "Amplitude-Swift" */;
+			productName = AmplitudeSwift;
 		};
 		D4E5F6A7B8C9D0E1F2A3B4C5 /* OneSignalExtension */ = {
 			isa = XCSwiftPackageProductDependency;

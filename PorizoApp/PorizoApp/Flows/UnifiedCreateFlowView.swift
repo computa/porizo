@@ -221,6 +221,9 @@ struct UnifiedCreateFlowView: View {
                     }
                 )
                 .environment(sttRouter)
+
+            case .lyricsReview:
+                EmptyView()
             }
         }
         .onChange(of: activeSheet?.id) { oldValue, _ in
@@ -380,7 +383,8 @@ struct UnifiedCreateFlowView: View {
                     preselectedOccasion: preselectedOccasion?.displayName,
                     hasOwnLyrics: $songFlow.hasOwnLyrics,
                     isInstrumental: $songFlow.isInstrumental,
-                    onStart: { name, _ in
+                    onStart: { name, occasion in
+                        if let occasion { setup.occasion = occasion }
                         startChatWithName(name)
                     },
                     onCancel: onCancel
@@ -513,11 +517,8 @@ struct UnifiedCreateFlowView: View {
         preSessionPrompt = nil
         showSongOptionsCard = false
 
-        guard setup.occasion != nil else {
-            showOccasionPicker = true
-            return
-        }
-
+        // User already saw occasion chips in InlineNamePromptView.
+        // If they skipped, don't double-prompt (P2-14).
         continueAfterOccasionSelection(for: type)
     }
 
@@ -798,6 +799,9 @@ struct UnifiedCreateFlowView: View {
                         poemFlow: PoemFlowCoordinator(),
                         storyId: storyEngine.storyId
                     )
+
+                    // Set early so future flows skip voice selection (P1-6)
+                    if !hasCompletedFirstSong { hasCompletedFirstSong = true }
 
                     // Advance to interactive lyrics review
                     withAnimation { songProgress = .trackCreated }
