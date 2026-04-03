@@ -473,29 +473,6 @@ struct SharePostcardView: View {
             color: .white.opacity(0.5)
         )
     }
-
-
-
-    /// Lowercase occasion type for natural sentence construction (e.g., "birthday", "anniversary").
-    private var occasionWord: String {
-        guard let occasion = occasion?.lowercased() else { return "personal" }
-        switch occasion {
-        case "birthday": return "birthday"
-        case "anniversary": return "anniversary"
-        case "thank_you": return "thank you"
-        case "i_love_you": return "love"
-        case "wedding": return "wedding"
-        case "graduation": return "graduation"
-        case "friendship": return "friendship"
-        case "encouragement": return "encouragement"
-        case "advice": return "advice"
-        case "bereavement": return "memorial"
-        case "apology": return "apology"
-        case "get_well": return "get well"
-        case "celebration": return "celebration"
-        default: return "personal"
-        }
-    }
 }
 
 // MARK: - Preview

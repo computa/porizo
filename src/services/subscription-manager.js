@@ -1536,7 +1536,8 @@ function createSubscriptionManager(db, services = {}) {
     await db.prepare(
       `INSERT INTO entitlements (user_id, tier, credits_balance, songs_remaining, poems_remaining,
        credits_used_total, preview_count_today, preview_count_reset_at, updated_at)
-       VALUES (?, 'free', ?, ?, ?, 0, ?, ?, ?)`
+       VALUES (?, 'free', ?, ?, ?, 0, ?, ?, ?)
+       ON CONFLICT (user_id) DO NOTHING`
     ).run(userId, songsGrant, songsGrant, poemsGrant, previewCountToday, previewCountResetAt, now);
   }
 

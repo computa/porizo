@@ -171,6 +171,11 @@ struct WarmCanvasFlowView: View {
             renderTimeoutTask?.cancel()
             flowTask?.cancel()
             playbackController.cleanup()
+            // Release callback closures to break retain cycles with @Observable controllers
+            renderController.onPreviewComplete = nil
+            renderController.onFullRenderComplete = nil
+            renderController.onFullRenderFailed = nil
+            trackCreationController.onLyricsGenerated = nil
         }
         // Sheet router
         .sheet(item: $activeSheet) { sheet in
@@ -745,38 +750,18 @@ struct WarmCanvasFlowView: View {
         renderController.onPreviewComplete = { [self] result in
             renderTimeoutTask?.cancel()
             guard moment == .wait else { return }
-            applyTrackMetadata(title: result.trackTitle, coverUrl: result.coverImageUrl)
-            if !result.recipientName.isEmpty { setup.recipientName = result.recipientName }
-            playbackController.trackTitle = result.trackTitle
-            playbackController.artistName = setup.recipientName
-            playbackController.setupPlayer(url: result.audioURL)
-            playbackController.play()
-
-            if shareController == nil {
-                shareController = ShareController(apiClient: apiClient)
-            }
-            if !hasCompletedFirstSong { hasCompletedFirstSong = true }
-
-            withAnimation { moment = .reveal }
+            applyRenderResult(result)
+            transitionToReveal(audioURL: result.audioURL)
         }
 
         renderController.onFullRenderComplete = { [self] result in
             renderTimeoutTask?.cancel()
-            applyTrackMetadata(title: result.trackTitle, coverUrl: result.coverImageUrl)
-            if !result.recipientName.isEmpty { setup.recipientName = result.recipientName }
-            playbackController.trackTitle = result.trackTitle
-            playbackController.artistName = setup.recipientName
+            activeError = nil  // Clear any timeout overlay that raced with completion
+            applyRenderResult(result)
 
             if moment == .wait {
                 // Warm Canvas goes straight to full render (no preview).
-                // Transition to reveal the same way onPreviewComplete does.
-                playbackController.setupPlayer(url: result.audioURL)
-                playbackController.play()
-                if shareController == nil {
-                    shareController = ShareController(apiClient: apiClient)
-                }
-                if !hasCompletedFirstSong { hasCompletedFirstSong = true }
-                withAnimation { moment = .reveal }
+                transitionToReveal(audioURL: result.audioURL)
             } else {
                 // Already on reveal/share — just swap to the higher-quality audio.
                 playbackController.switchAudio(url: result.audioURL)
@@ -790,6 +775,25 @@ struct WarmCanvasFlowView: View {
         }
     }
 
+    /// Apply track metadata and playback info from a render result.
+    private func applyRenderResult(_ result: RenderResult) {
+        applyTrackMetadata(title: result.trackTitle, coverUrl: result.coverImageUrl)
+        if !result.recipientName.isEmpty { setup.recipientName = result.recipientName }
+        playbackController.trackTitle = result.trackTitle
+        playbackController.artistName = setup.recipientName
+    }
+
+    /// Set up the player with the given audio and transition to the reveal moment.
+    private func transitionToReveal(audioURL: String) {
+        playbackController.setupPlayer(url: audioURL)
+        playbackController.play()
+        if shareController == nil {
+            shareController = ShareController(apiClient: apiClient)
+        }
+        if !hasCompletedFirstSong { hasCompletedFirstSong = true }
+        withAnimation { moment = .reveal }
+    }
+
     // Note: InlineLyricsCard.onApproved calls startFullRender() directly.
     // Do NOT wire lyricsController.onApproved — that would double-call and 409.
 
@@ -798,7 +802,8 @@ struct WarmCanvasFlowView: View {
     private func startFullRender() {
         guard !isStartingFullRender else { return }
         isStartingFullRender = true
-        Task { @MainActor in
+        flowTask?.cancel()
+        flowTask = Task { @MainActor in
             do {
                 let entitlements = try await apiClient.getBillingEntitlements()
                 guard entitlements.songsRemaining > 0 else {
@@ -1101,7 +1106,8 @@ struct WarmCanvasFlowView: View {
     }
 
     private func handleMyVoiceRequested() {
-        Task { @MainActor in
+        flowTask?.cancel()
+        flowTask = Task { @MainActor in
             let profile = try? await apiClient.getVoiceProfile()
             if profile?.hasProfile == true {
                 songFlow.voiceMode = .myVoice
@@ -1117,7 +1123,8 @@ struct WarmCanvasFlowView: View {
         guard enrollmentCompletedProfile != nil else { return }
         enrollmentCompletedProfile = nil
 
-        Task { @MainActor in
+        flowTask?.cancel()
+        flowTask = Task { @MainActor in
             do {
                 let profile = try await apiClient.getVoiceProfile()
                 guard profile.hasProfile else {
@@ -1178,6 +1185,7 @@ struct WarmCanvasFlowView: View {
         createdLyrics = nil
         shareController = nil
         trackCreationController = TrackCreationController(apiClient: apiClient)
+        renderController.cancelAll()
         renderController = RenderController(apiClient: apiClient)
         playbackController.cleanup()
         storyEngine.reset()
@@ -1322,6 +1330,7 @@ struct WarmCanvasFlowView: View {
                 } else if version.status == "failed" {
                     if version.fullJobId != nil {
                         moment = .wait
+                        startRenderTimeoutWatch()
                         renderController.startFullRender(trackId: trackId, versionNum: versionNum)
                     } else {
                         moment = .tell(.trackCreated)
@@ -1348,8 +1357,8 @@ struct WarmCanvasFlowView: View {
     private func resumeLyricsState() async {
         guard let controller = lyricsController else { return }
         controller.loadExistingLyricsOrGenerate()
-        // Poll for async lyrics load — propagate cancellation
-        for _ in 0..<20 {
+        // Poll for async lyrics load — 30s window (server may regenerate on resume)
+        for _ in 0..<60 {
             if let lyrics = controller.lyrics {
                 createdLyrics = lyrics
                 return

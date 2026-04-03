@@ -377,15 +377,9 @@ final class RenderController {
                     let transformedUrl = transformAudioUrl(url, baseURL: apiClient.baseURL)
                     self.progress = 100
                     self.renderPhase = .completed
-                    onPreviewComplete?(RenderResult(
-                        audioURL: transformedUrl,
-                        trackTitle: result.title,
-                        recipientName: result.recipientName,
-                        occasion: result.occasion,
-                        lyrics: lyrics,
-                        coverImageUrl: version.coverImageUrl ?? response.track.coverImageUrl,
-                        coverImageSmallUrl: version.coverImageSmallUrl ?? response.track.coverImageSmallUrl,
-                        coverImageLargeUrl: version.coverImageLargeUrl ?? response.track.coverImageLargeUrl
+                    onPreviewComplete?(buildRenderResult(
+                        audioURL: transformedUrl, response: response, version: version,
+                        metadata: result, lyrics: lyrics
                     ))
                     return true
                 }
@@ -481,15 +475,9 @@ final class RenderController {
                     let transformedUrl = transformAudioUrl(url, baseURL: apiClient.baseURL)
                     self.progress = 100
                     self.renderPhase = .completed
-                    onPreviewComplete?(RenderResult(
-                        audioURL: transformedUrl,
-                        trackTitle: result.title,
-                        recipientName: result.recipientName,
-                        occasion: result.occasion,
-                        lyrics: lyrics,
-                        coverImageUrl: version.coverImageUrl ?? response.track.coverImageUrl,
-                        coverImageSmallUrl: version.coverImageSmallUrl ?? response.track.coverImageSmallUrl,
-                        coverImageLargeUrl: version.coverImageLargeUrl ?? response.track.coverImageLargeUrl
+                    onPreviewComplete?(buildRenderResult(
+                        audioURL: transformedUrl, response: response, version: version,
+                        metadata: result, lyrics: lyrics
                     ))
                     return true
                 } else {
@@ -547,15 +535,9 @@ final class RenderController {
                     let result = Self.extractTrackMetadata(from: response)
                     let lyrics = Self.parseLyrics(from: version.lyricsJson)
                     fullRenderPhase = .completed
-                    onFullRenderComplete?(RenderResult(
-                        audioURL: transformedUrl,
-                        trackTitle: result.title,
-                        recipientName: result.recipientName,
-                        occasion: result.occasion,
-                        lyrics: lyrics,
-                        coverImageUrl: version.coverImageUrl ?? response.track.coverImageUrl,
-                        coverImageSmallUrl: version.coverImageSmallUrl ?? response.track.coverImageSmallUrl,
-                        coverImageLargeUrl: version.coverImageLargeUrl ?? response.track.coverImageLargeUrl
+                    onFullRenderComplete?(buildRenderResult(
+                        audioURL: transformedUrl, response: response, version: version,
+                        metadata: result, lyrics: lyrics
                     ))
                     return true
                 }
@@ -647,15 +629,9 @@ final class RenderController {
                 if !Task.isCancelled {
                     ReviewManager.shared.recordFullRenderComplete()
                 }
-                onFullRenderComplete?(RenderResult(
-                    audioURL: transformedUrl,
-                    trackTitle: result.title,
-                    recipientName: result.recipientName,
-                    occasion: result.occasion,
-                    lyrics: lyrics,
-                    coverImageUrl: version.coverImageUrl ?? response.track.coverImageUrl,
-                    coverImageSmallUrl: version.coverImageSmallUrl ?? response.track.coverImageSmallUrl,
-                    coverImageLargeUrl: version.coverImageLargeUrl ?? response.track.coverImageLargeUrl
+                onFullRenderComplete?(buildRenderResult(
+                    audioURL: transformedUrl, response: response, version: version,
+                    metadata: result, lyrics: lyrics
                 ))
                 return true
             } else if let version = response.versions.first(where: { $0.versionNum == versionNum }),
@@ -664,7 +640,9 @@ final class RenderController {
                 return true
             } else {
                 if setFailureOnMissing {
-                    fullRenderPhase = .failed("Full render not ready")
+                    let msg = "Full render not ready"
+                    fullRenderPhase = .failed(msg)
+                    onFullRenderFailed?(msg)
                 }
                 return false
             }
@@ -759,6 +737,27 @@ final class RenderController {
             title: response.track.title,
             recipientName: response.track.recipientName ?? "",
             occasion: response.track.occasion ?? ""
+        )
+    }
+
+    /// Build a `RenderResult` from a track response, version, and resolved audio URL.
+    /// Centralizes the cover-image fallback logic that was duplicated across four call sites.
+    private func buildRenderResult(
+        audioURL: String,
+        response: GetTrackResponse,
+        version: TrackVersion,
+        metadata: TrackMetadata,
+        lyrics: [LyricLine]
+    ) -> RenderResult {
+        RenderResult(
+            audioURL: audioURL,
+            trackTitle: metadata.title,
+            recipientName: metadata.recipientName,
+            occasion: metadata.occasion,
+            lyrics: lyrics,
+            coverImageUrl: version.coverImageUrl ?? response.track.coverImageUrl,
+            coverImageSmallUrl: version.coverImageSmallUrl ?? response.track.coverImageSmallUrl,
+            coverImageLargeUrl: version.coverImageLargeUrl ?? response.track.coverImageLargeUrl
         )
     }
 

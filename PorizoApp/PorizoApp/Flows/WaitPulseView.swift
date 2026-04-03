@@ -69,7 +69,7 @@ struct WaitPulseView: View {
                         .contentTransition(.interpolate)
                         .animation(.easeInOut(duration: 0.4), value: elapsedSeconds)
 
-                    Text("This usually takes about 150 seconds")
+                    Text("This usually takes 2\u{2013}3 minutes")
                         .font(DesignTokens.bodyFont(size: 13))
                         .foregroundStyle(DesignTokens.textTertiary)
                 }
