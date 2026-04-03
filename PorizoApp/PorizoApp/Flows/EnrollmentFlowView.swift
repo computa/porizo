@@ -20,7 +20,7 @@ struct EnrollmentFlowView: View {
         self.onComplete = onComplete
     }
 
-    @StateObject private var recorder = AudioRecorder()
+    @State private var recorder = AudioRecorder()
 
     @State private var currentStep: EnrollmentStep = .welcome
     @State private var sessionId: String?
@@ -51,6 +51,11 @@ struct EnrollmentFlowView: View {
     @State private var isCountingDown: Bool = false
     private let recordingDuration: Int = 5  // seconds per recording
 
+    // Processing status cycling
+    @State private var processingStatusIndex: Int = 0
+    @State private var processingStatusTask: Task<Void, Never>?
+
+
     enum EnrollmentStep {
         case welcome
         case recording
@@ -58,218 +63,216 @@ struct EnrollmentFlowView: View {
         case completed
     }
 
+    @Environment(\.dismiss) private var dismiss
+
     var body: some View {
-        NavigationStack {
-            ZStack {
-                DesignTokens.background.ignoresSafeArea()
+        ZStack {
+            DesignTokens.background.ignoresSafeArea()
 
-                VStack {
-                    switch currentStep {
-                    case .welcome:
-                        welcomeView
+            VStack(spacing: 0) {
+                switch currentStep {
+                case .welcome:
+                    welcomeView
 
-                    case .recording:
-                        recordingView
+                case .recording:
+                    recordingView
 
-                    case .processing:
-                        processingView
+                case .processing:
+                    processingView
 
-                    case .completed:
-                        completedView
-                    }
-                }
-            }
-            .navigationTitle(navigationTitle)
-            .navigationBarTitleDisplayMode(.inline)
-            .alert("Error", isPresented: $showingError) {
-                Button("OK", role: .cancel) { }
-            } message: {
-                Text(errorMessage)
-            }
-            .onDisappear {
-                // Cancel any running tasks to prevent resource leaks
-                enrollmentTask?.cancel()
-                pollingTask?.cancel()
-                countdownTask?.cancel()
-                if recorder.isRecording {
-                    _ = recorder.stopRecording()
+                case .completed:
+                    completedView
                 }
             }
         }
-    }
-
-    private var navigationTitle: String {
-        switch currentStep {
-        case .welcome: return "Voice Enrollment"
-        case .recording: return "Record Your Voice"
-        case .processing: return "Processing"
-        case .completed: return "Complete"
+        .alert("Error", isPresented: $showingError) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(errorMessage)
+        }
+        .onDisappear {
+            enrollmentTask?.cancel()
+            pollingTask?.cancel()
+            countdownTask?.cancel()
+            processingStatusTask?.cancel()
+            if recorder.isRecording {
+                _ = recorder.stopRecording()
+            }
         }
     }
 
     // MARK: - Welcome View
 
     private var welcomeView: some View {
-        VStack(spacing: DesignTokens.spacing28) {
+        VStack(spacing: 0) {
+            // Back button
+            HStack {
+                Button { dismiss() } label: {
+                    Image(systemName: "arrow.left")
+                        .font(.system(size: 18))
+                        .foregroundStyle(DesignTokens.textPrimary)
+                        .frame(width: 44, height: 44)
+                        .background(Color.black.opacity(0.05))
+                        .clipShape(Circle())
+                }
+                Spacer()
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 8)
+
             Spacer()
 
             // Icon
-            ZStack {
-                Circle()
-                    .fill(DesignTokens.gold.opacity(0.15))
-                    .frame(width: 120, height: 120)
-                Image(systemName: "waveform.circle.fill")
-                    .font(.system(size: 56))
-                    .foregroundStyle(DesignTokens.gold)
-            }
+            Circle()
+                .fill(DesignTokens.gold)
+                .frame(width: 64, height: 64)
+                .overlay(
+                    Image(systemName: "mic.fill")
+                        .font(.system(size: 32))
+                        .foregroundStyle(.white)
+                )
 
             // Title + Subtitle
             VStack(spacing: DesignTokens.spacing12) {
-                Text("Let's Set Up Your Voice")
-                    .font(.title.bold())
+                Text("Make it sound\nlike you")
+                    .font(DesignTokens.displayFont(size: 24))
                     .foregroundStyle(DesignTokens.textPrimary)
+                    .multilineTextAlignment(.center)
 
-                Text("Record a few phrases so your songs can sound like you singing. This takes about 2 minutes.")
-                    .font(.body)
+                Text("Record a few phrases and your songs will sing in your voice")
+                    .font(DesignTokens.bodyFont(size: 15))
                     .foregroundStyle(DesignTokens.textSecondary)
                     .multilineTextAlignment(.center)
-                    .lineSpacing(4)
             }
-            .padding(.horizontal, DesignTokens.spacing16)
+            .padding(.horizontal, 32)
+            .padding(.top, DesignTokens.spacing16)
+
+            // 3-step progress indicator
+            HStack(spacing: 0) {
+                ForEach([(1, "Record\nphrases"), (2, "We\nprocess"), (3, "Songs in\nyour voice")], id: \.0) { step, label in
+                    if step > 1 {
+                        // Connector line
+                        Rectangle()
+                            .fill(DesignTokens.textTertiary.opacity(0.3))
+                            .frame(height: 2)
+                            .frame(maxWidth: 32)
+                    }
+                    VStack(spacing: 6) {
+                        Circle()
+                            .fill(DesignTokens.gold.opacity(0.1))
+                            .frame(width: 44, height: 44)
+                            .overlay(
+                                Text("\(step)")
+                                    .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
+                                    .foregroundStyle(DesignTokens.gold)
+                            )
+                        Text(label)
+                            .font(DesignTokens.bodyFont(size: 12))
+                            .foregroundStyle(DesignTokens.textSecondary)
+                            .multilineTextAlignment(.center)
+                    }
+                }
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Three steps: Record phrases, We process, Songs in your voice")
+            .padding(.top, 32)
 
             Spacer()
 
-            // Requirements Card
-            VStack(alignment: .leading, spacing: DesignTokens.spacing8) {
-                Text("BEFORE YOU BEGIN")
-                    .font(.caption)
-                    .fontWeight(.medium)
-                    .foregroundStyle(DesignTokens.textTertiary)
-                    .padding(.horizontal, DesignTokens.spacing4)
-
-                VStack(spacing: 0) {
-                    // Info row (always checked)
-                    HStack(spacing: DesignTokens.spacing12) {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 20))
-                            .foregroundStyle(DesignTokens.success)
-                        Text("Find a quiet environment")
-                            .font(.body)
-                            .foregroundStyle(DesignTokens.textPrimary)
-                        Spacer()
-                    }
-                    .padding(DesignTokens.spacing16)
-
-                    Divider().padding(.leading, 48)
-
-                    // Consent toggle row (entire row tappable)
-                    Button {
-                        consentGranted.toggle()
-                    } label: {
-                        HStack(spacing: DesignTokens.spacing12) {
-                            Image(systemName: consentGranted ? "checkmark.circle.fill" : "circle")
-                                .font(.system(size: 20))
-                                .foregroundStyle(consentGranted ? DesignTokens.success : DesignTokens.textTertiary)
-                            Text("Consent to voice use")
-                                .font(.body)
-                                .foregroundStyle(DesignTokens.textPrimary)
-                            Spacer()
-                            Toggle("", isOn: $consentGranted)
-                                .labelsHidden()
-                                .tint(DesignTokens.gold)
-                        }
-                        .padding(DesignTokens.spacing16)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
+            // CTA
+            VStack(spacing: DesignTokens.spacing16) {
+                Button {
+                    consentGranted = true
+                    startEnrollment()
+                } label: {
+                    Text("Start Recording")
+                        .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
+                        .background(DesignTokens.gold)
+                        .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusCTA))
                 }
-                .background(DesignTokens.surface)
-                .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusLarge))
-                .elevation(.level1)
-            }
-            .padding(.horizontal, DesignTokens.spacing16)
+                .disabled(isLoading)
 
-            // CTA Button (gradient when enabled)
-            Button {
-                startEnrollment()
-            } label: {
-                Text("Get Started")
-                    .font(.headline)
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 56)
-                    .background(
-                        Group {
-                            if consentGranted && !isLoading {
-                                LinearGradient(
-                                    colors: [DesignTokens.gold, DesignTokens.gold],
-                                    startPoint: .leading,
-                                    endPoint: .trailing
-                                )
-                            } else {
-                                Color(DesignTokens.textTertiary)
-                            }
-                        }
-                    )
-                    .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusMedium))
+                Button { dismiss() } label: {
+                    Text("Maybe later")
+                        .font(DesignTokens.bodyFont(size: 14, weight: .medium))
+                        .foregroundStyle(DesignTokens.textSecondary)
+                }
             }
-            .disabled(!consentGranted || isLoading)
-            .padding(.horizontal, DesignTokens.spacing16)
-            // Apply accent shadow only when enabled
-            .shadow(
-                color: (consentGranted && !isLoading) ? DesignTokens.gold.opacity(0.3) : .clear,
-                radius: 8,
-                y: 4
-            )
-
-            // Privacy reassurance
-            Text("Your voice data is encrypted and never shared")
-                .font(.caption)
-                .foregroundStyle(DesignTokens.textTertiary)
-                .padding(.bottom, DesignTokens.spacing28)
+            .padding(.horizontal, 20)
+            .padding(.bottom, 40)
         }
     }
 
     // MARK: - Recording View
 
     private var recordingView: some View {
-        VStack(spacing: 24) {
-            // Progress
-            HStack {
-                Text("Prompt \(currentPromptIndex + 1) of \(prompts.count)")
-                    .font(.subheadline)
-                    .foregroundStyle(DesignTokens.textSecondary)
+        ZStack {
+            DesignTokens.background.ignoresSafeArea()
+
+            VStack(spacing: 20) {
+                // Header: "Phrase N of M" + close button
+                HStack {
+                    Text("Phrase \(currentPromptIndex + 1) of \(max(prompts.count, 6))")
+                        .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
+                        .foregroundStyle(DesignTokens.textPrimary)
+                    Spacer()
+                    Button { dismiss() } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(DesignTokens.textSecondary)
+                            .frame(width: 30, height: 30)
+                            .background(Color.black.opacity(0.05))
+                            .clipShape(Circle())
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 16)
+
+                // Progress dots
+                HStack(spacing: 6) {
+                    let totalDots = max(prompts.count, 6)
+                    ForEach(0..<totalDots, id: \.self) { i in
+                        Circle()
+                            .fill(i <= currentPromptIndex ? DesignTokens.gold : DesignTokens.border)
+                            .frame(width: 8, height: 8)
+                    }
+                }
+
                 Spacer()
-            }
-            .padding(.horizontal)
 
-            ProgressView(value: Double(currentPromptIndex), total: Double(prompts.count))
-                .tint(DesignTokens.gold)
-                .padding(.horizontal)
-
-            Spacer()
-
-            // Current prompt
-            if currentPromptIndex < prompts.count {
-                let prompt = prompts[currentPromptIndex]
-
-                VStack(spacing: 16) {
-                    Text(prompt.type == "spoken" ? "Say this:" : "Sing this:")
-                        .font(.subheadline)
-                        .foregroundStyle(DesignTokens.textSecondary)
-
-                    Text(prompt.text)
-                        .font(.title2)
+                // Prompt card
+                if currentPromptIndex < prompts.count {
+                    Text(prompts[currentPromptIndex].text)
+                        .font(DesignTokens.displayFont(size: 20))
                         .foregroundStyle(DesignTokens.textPrimary)
                         .multilineTextAlignment(.center)
-                        .padding(.horizontal, 32)
+                        .padding(24)
+                        .frame(maxWidth: .infinity)
+                        .background(DesignTokens.surface)
+                        .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusLarge))
+                        .padding(.horizontal, 20)
                 }
-            }
 
-            Spacer()
+                // Level meter bars
+                HStack(spacing: 4) {
+                    ForEach([15, 25, 35, 25, 15], id: \.self) { h in
+                        RoundedRectangle(cornerRadius: 2)
+                            .fill(DesignTokens.gold.opacity(recorder.isRecording ? 1.0 : 0.3))
+                            .frame(width: 4, height: CGFloat(h))
+                    }
+                }
+                .frame(height: 40)
+                .animation(
+                    recorder.isRecording
+                        ? .easeInOut(duration: 0.3).repeatForever(autoreverses: true)
+                        : .easeOut(duration: 0.3),
+                    value: recorder.isRecording
+                )
 
-            // Recording button with countdown
-            ZStack {
+                // Record button
                 Button {
                     if recorder.isRecording {
                         cancelCountdownAndStopRecording()
@@ -277,184 +280,246 @@ struct EnrollmentFlowView: View {
                         startRecordingWithCountdown()
                     }
                 } label: {
-                    ZStack {
-                        Circle()
-                            .fill(recorder.isRecording ? DesignTokens.error : DesignTokens.gold)
-                            .frame(width: 80, height: 80)
-                            .accentShadow(color: recorder.isRecording ? DesignTokens.error : DesignTokens.gold)
-
-                        if recorder.isRecording {
-                            // Show countdown number
-                            Text("\(countdownSeconds)")
-                                .font(.system(size: 32, weight: .bold))
-                                .foregroundStyle(.white)
-                        } else {
-                            Circle()
-                                .fill(.white)
-                                .frame(width: 24, height: 24)
-                        }
-                    }
+                    Circle()
+                        .fill(recorder.isRecording ? DesignTokens.error : DesignTokens.gold)
+                        .frame(width: 72, height: 72)
+                        .overlay(
+                            Group {
+                                if recorder.isRecording {
+                                    RoundedRectangle(cornerRadius: 4)
+                                        .fill(.white)
+                                        .frame(width: 24, height: 24)
+                                } else {
+                                    Image(systemName: "mic.fill")
+                                        .font(.system(size: 28))
+                                        .foregroundStyle(.white)
+                                }
+                            }
+                        )
                 }
                 .disabled(isLoading)
+                .accessibilityLabel(recorder.isRecording ? "Stop recording" : "Start recording")
+                .accessibilityValue(recorder.isRecording ? "\(countdownSeconds) seconds remaining" : "Ready to record")
+
+                Text(recorder.isRecording ? "Recording... \(countdownSeconds)s" : "Tap to record")
+                    .font(DesignTokens.bodyFont(size: 13))
+                    .foregroundStyle(DesignTokens.textTertiary)
+
+                Spacer()
+
+                // Upload progress / Next indicator
+                Group {
+                    if isLoading {
+                        HStack(spacing: 8) {
+                            ProgressView().tint(.white)
+                            Text("Uploading...")
+                                .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
+                        }
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
+                        .background(DesignTokens.gold.opacity(0.6))
+                        .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusCTA))
+                    } else {
+                        Text("Next →")
+                            .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 16)
+                            .background(DesignTokens.gold)
+                            .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusCTA))
+                            .opacity(0.4)
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 32)
             }
-
-            Text(recorder.isRecording ? "Recording... \(countdownSeconds)s" : "Tap to record")
-                .font(.subheadline)
-                .foregroundStyle(DesignTokens.textSecondary)
-
-            Spacer()
         }
-        .padding(.top)
     }
 
     // MARK: - Processing View
 
+    private let processingStatuses = [
+        "Analyzing quality...",
+        "Checking clarity...",
+        "Building voice model...",
+        "Almost done..."
+    ]
+
     private var processingView: some View {
-        VStack(spacing: 24) {
+        VStack(spacing: 20) {
             Spacer()
 
             ProgressView()
                 .scaleEffect(1.5)
                 .tint(DesignTokens.gold)
 
-            Text("Creating your voice profile...")
-                .font(.headline)
+            Text("Processing your voice...")
+                .font(DesignTokens.displayFont(size: 20))
                 .foregroundStyle(DesignTokens.textPrimary)
 
-            Text("This may take a minute")
+            Text("This takes about 30 seconds")
+                .font(DesignTokens.bodyFont(size: 13))
+                .foregroundStyle(DesignTokens.textTertiary)
+
+            Text(processingStatuses[processingStatusIndex % processingStatuses.count])
+                .font(DesignTokens.bodyFont(size: 14))
                 .foregroundStyle(DesignTokens.textSecondary)
+                .animation(.easeInOut(duration: 0.4), value: processingStatusIndex)
 
             Spacer()
+        }
+        .onAppear {
+            processingStatusIndex = 0
+            processingStatusTask = Task { @MainActor in
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(2.5))
+                    guard !Task.isCancelled else { return }
+                    processingStatusIndex += 1
+                }
+            }
+        }
+        .onDisappear {
+            processingStatusTask?.cancel()
         }
     }
 
     // MARK: - Completed View
 
     private var completedView: some View {
-        VStack(spacing: 24) {
+        VStack(spacing: 16) {
             Spacer()
 
-            // Outcome-specific icon
-            ZStack {
-                Circle()
-                    .fill(outcomeIconColor.opacity(0.1))
-                    .frame(width: 120, height: 120)
+            // Sage checkmark circle
+            Circle()
+                .fill(DesignTokens.sage)
+                .frame(width: 64, height: 64)
+                .overlay(
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 28, weight: .semibold))
+                        .foregroundStyle(.white)
+                )
 
-                Image(systemName: outcomeIcon)
-                    .font(.system(size: 64))
-                    .foregroundStyle(outcomeIconColor)
-            }
+            // Title
+            Text(outcomeTitle)
+                .font(DesignTokens.displayFont(size: 24))
+                .foregroundStyle(DesignTokens.textPrimary)
 
-            VStack(spacing: 12) {
-                // Outcome-specific title
-                Text(outcomeTitle)
-                    .font(.title.bold())
-                    .foregroundStyle(DesignTokens.textPrimary)
-
-                // Score display (with comparison for re-enrollment)
+            // Score display
+            VStack(spacing: 8) {
                 if let outcome = enrollmentOutcome,
                    outcome == .keptExisting,
                    let newScoreVal = newScore,
                    let existingScoreVal = existingScore {
-                    // Show comparison when existing profile was kept
-                    VStack(spacing: 4) {
-                        Text("New attempt: \(Int(newScoreVal))%")
-                            .foregroundStyle(DesignTokens.textTertiary)
-                        Text("Your \(Int(existingScoreVal))% profile is better")
-                            .foregroundStyle(DesignTokens.textSecondary)
-                            .fontWeight(.medium)
-                    }
+                    Text("New attempt: \(Int(newScoreVal))/100")
+                        .font(DesignTokens.bodyFont(size: 14))
+                        .foregroundStyle(DesignTokens.textTertiary)
+                    Text("Your \(Int(existingScoreVal))/100 profile is better")
+                        .font(DesignTokens.bodyFont(size: 14, weight: .medium))
+                        .foregroundStyle(DesignTokens.textSecondary)
                 } else if let outcome = enrollmentOutcome,
                           outcome == .upgraded,
                           let existingScoreVal = existingScore,
                           let newScoreVal = qualityScore {
-                    // Show improvement for upgraded profile
                     HStack(spacing: 8) {
-                        Text("\(Int(existingScoreVal))%")
+                        Text("\(Int(existingScoreVal))/100")
+                            .font(DesignTokens.bodyFont(size: 14))
                             .foregroundStyle(DesignTokens.textTertiary)
                             .strikethrough()
                         Image(systemName: "arrow.right")
-                            .foregroundStyle(DesignTokens.success)
-                        Text("\(newScoreVal)%")
-                            .foregroundStyle(DesignTokens.success)
-                            .fontWeight(.semibold)
+                            .font(.system(size: 12))
+                            .foregroundStyle(DesignTokens.sage)
+                        Text("\(newScoreVal)/100")
+                            .font(DesignTokens.bodyFont(size: 14, weight: .semibold))
+                            .foregroundStyle(DesignTokens.sage)
                     }
                 } else if let score = qualityScore {
-                    Text("Quality score: \(score)%")
+                    Text("Quality: \(score)/100")
+                        .font(DesignTokens.bodyFont(size: 14))
                         .foregroundStyle(DesignTokens.textSecondary)
-                }
 
-                // Outcome-specific message
-                Text(outcomeMessage)
-                    .multilineTextAlignment(.center)
-                    .foregroundStyle(DesignTokens.textSecondary)
-                    .padding(.horizontal, 32)
+                    // Quality bar
+                    GeometryReader { geo in
+                        ZStack(alignment: .leading) {
+                            RoundedRectangle(cornerRadius: 4)
+                                .fill(DesignTokens.border)
+                                .frame(height: 8)
+                            RoundedRectangle(cornerRadius: 4)
+                                .fill(DesignTokens.sage)
+                                .frame(width: geo.size.width * CGFloat(score) / 100.0, height: 8)
+                        }
+                    }
+                    .frame(height: 8)
+                }
             }
+            .frame(width: 260)
+
+            // Outcome message
+            Text(outcomeMessage)
+                .font(DesignTokens.bodyFont(size: 15))
+                .foregroundStyle(DesignTokens.sage)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 40)
 
             Spacer()
 
+            // CTA
             Button {
                 onComplete()
             } label: {
                 Text(outcomeButtonText)
-                    .font(.headline)
-                    .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(DesignTokens.gold)
+                    .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
                     .foregroundStyle(.white)
-                    .clipShape(.rect(cornerRadius: 12))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 16)
+                    .background(DesignTokens.gold)
+                    .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusCTA))
             }
-            .padding(.horizontal, 24)
-            .padding(.bottom, 32)
+            .padding(.horizontal, 20)
+            .padding(.bottom, 40)
         }
     }
 
     // MARK: - Outcome Helpers
 
-    private var outcomeIcon: String {
-        guard let outcome = enrollmentOutcome else {
-            return "checkmark.circle.fill"
-        }
-        return outcome.icon
-    }
-
-    private var outcomeIconColor: Color {
-        guard let outcome = enrollmentOutcome else {
-            return DesignTokens.success
-        }
-        return outcome.iconColor
-    }
-
     private var outcomeTitle: String {
         guard let outcome = enrollmentOutcome else {
-            return "Voice Profile Ready!"
+            return "Voice enrolled!"
         }
-        return outcome.title
+        switch outcome {
+        case .new: return "Voice enrolled!"
+        case .upgraded: return "Voice upgraded!"
+        case .keptExisting: return "Enrollment complete"
+        }
     }
 
     private var outcomeMessage: String {
         guard let outcome = enrollmentOutcome else {
-            return "You can now create personalized songs that sound like you."
+            if let score = qualityScore, score >= 70 {
+                return "Excellent — your songs will sound great"
+            }
+            return "Your songs will now sing in your voice"
         }
         switch outcome {
         case .new:
-            return "You can now create personalized songs that sound like you."
+            if let score = qualityScore, score >= 70 {
+                return "Excellent — your songs will sound great"
+            }
+            return "Your songs will now sing in your voice"
         case .upgraded:
-            return "Nice improvement! Your songs will sound even better now."
+            return "Nice improvement! Your songs will sound even better"
         case .keptExisting:
-            return "Your existing profile was kept because it has better quality."
+            return "Your existing profile was kept because it has better quality"
         }
     }
 
     private var outcomeButtonText: String {
         guard let outcome = enrollmentOutcome else {
-            return "Start Creating"
+            return "Done"
         }
         switch outcome {
-        case .new, .upgraded:
-            return "Start Creating"
-        case .keptExisting:
-            return "Done"
+        case .new, .upgraded: return "Done"
+        case .keptExisting: return "Done"
         }
     }
 
@@ -609,7 +674,15 @@ struct EnrollmentFlowView: View {
                     }
                 }
 
-                // Poll for completion (check cancellation inside polling loop)
+                // Server creates profile synchronously — if we have a score, skip polling
+                if qualityScore != nil {
+                    await MainActor.run {
+                        withAnimation { currentStep = .completed }
+                    }
+                    return
+                }
+
+                // Fallback: poll for profile if score wasn't in the response
                 await pollForVoiceProfile()
             } catch {
                 guard !Task.isCancelled else { return }

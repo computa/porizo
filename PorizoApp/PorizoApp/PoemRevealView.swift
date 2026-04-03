@@ -18,6 +18,8 @@ struct PoemRevealView: View {
     @State private var cardOpacity: Double = 0
     @State private var glowAmount: CGFloat = 0
     @State private var tapPromptTask: Task<Void, Never>?
+    @State private var revealHapticTrigger: Bool = false
+    @State private var impactHapticTrigger: Bool = false
 
     var body: some View {
         ZStack {
@@ -118,6 +120,8 @@ struct PoemRevealView: View {
                 onClaim()
             }
         }
+        .sensoryFeedback(.success, trigger: revealHapticTrigger)
+        .sensoryFeedback(.impact(weight: .heavy, intensity: 0.8), trigger: impactHapticTrigger)
         .onAppear {
             startAnimations()
         }
@@ -130,6 +134,11 @@ struct PoemRevealView: View {
 
     private var waxSeal: some View {
         ZStack {
+            // Coral accent ring (sibling to RevealBloomView bloom ring)
+            Circle()
+                .stroke(DesignTokens.gold.opacity(0.3), lineWidth: 2)
+                .frame(width: 96, height: 96)
+
             Circle()
                 .fill(
                     RadialGradient(
@@ -177,6 +186,12 @@ struct PoemRevealView: View {
     }
 
     private func startAnimations() {
+        // Shared haptic pattern (sibling to RevealBloomView)
+        revealHapticTrigger.toggle()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [self] in
+            impactHapticTrigger.toggle()
+        }
+
         // Seal animation
         withAnimation(.spring(response: 0.6, dampingFraction: 0.6).delay(0.2)) {
             sealScale = 1.0

@@ -626,29 +626,58 @@ struct WarmCanvasScreenGallery: View {
     // MARK: - Voice Demo Views
 
     private var voiceIntroDemoView: some View {
-        navScreen(title: "", subtitle: "") {
-            VStack(spacing: 24) {
+        ZStack {
+            DesignTokens.background.ignoresSafeArea()
+            VStack(spacing: 0) {
+                // Back button
+                HStack {
+                    Button { activeScreen = nil } label: {
+                        Image(systemName: "arrow.left").font(.system(size: 18)).foregroundStyle(DesignTokens.textPrimary)
+                            .frame(width: 44, height: 44).background(Color.black.opacity(0.05)).clipShape(Circle())
+                    }
+                    Spacer()
+                }
+                .padding(.horizontal, 20).padding(.top, 56)
+
+                Spacer()
+
                 Circle().fill(DesignTokens.gold).frame(width: 64, height: 64)
                     .overlay(Image(systemName: "mic.fill").font(.system(size: 32)).foregroundStyle(.white))
-                Text("Make it sound\nlike you")
-                    .font(DesignTokens.displayFont(size: 24))
-                    .foregroundStyle(DesignTokens.textPrimary)
-                    .multilineTextAlignment(.center)
-                Text("Record a few phrases and your songs will sing in your voice")
-                    .font(DesignTokens.bodyFont(size: 15))
-                    .foregroundStyle(DesignTokens.textSecondary)
-                    .multilineTextAlignment(.center)
-                HStack(spacing: 16) {
+
+                VStack(spacing: DesignTokens.spacing12) {
+                    Text("Make it sound\nlike you")
+                        .font(DesignTokens.displayFont(size: 24))
+                        .foregroundStyle(DesignTokens.textPrimary)
+                        .multilineTextAlignment(.center)
+                    Text("Record a few phrases and your songs will sing in your voice")
+                        .font(DesignTokens.bodyFont(size: 15))
+                        .foregroundStyle(DesignTokens.textSecondary)
+                        .multilineTextAlignment(.center)
+                }
+                .padding(.horizontal, 32).padding(.top, DesignTokens.spacing16)
+
+                // 3-step indicator with connectors
+                HStack(spacing: 0) {
                     ForEach([(1,"Record\nphrases"),(2,"We\nprocess"),(3,"Songs in\nyour voice")], id: \.0) { step, label in
+                        if step > 1 {
+                            Rectangle().fill(DesignTokens.textTertiary.opacity(0.3)).frame(height: 2).frame(maxWidth: 32)
+                        }
                         VStack(spacing: 6) {
-                            Circle().fill(DesignTokens.gold.opacity(0.1)).frame(width: 40, height: 40)
+                            Circle().fill(DesignTokens.gold.opacity(0.1)).frame(width: 44, height: 44)
                                 .overlay(Text("\(step)").font(DesignTokens.bodyFont(size: 16, weight: .semibold)).foregroundStyle(DesignTokens.gold))
                             Text(label).font(DesignTokens.bodyFont(size: 12)).foregroundStyle(DesignTokens.textSecondary).multilineTextAlignment(.center)
                         }
                     }
                 }
-                coralButton("Start Recording")
-                textLink("Maybe later", secondary: true)
+                .padding(.top, 32)
+
+                Spacer()
+
+                VStack(spacing: DesignTokens.spacing16) {
+                    coralButton("Start Recording")
+                    textLink("Maybe later", secondary: true)
+                }
+                .padding(.horizontal, 20).padding(.bottom, 40)
             }
         }
     }
@@ -699,8 +728,11 @@ struct WarmCanvasScreenGallery: View {
         }
     }
 
+    @State private var galleryProcessingStatusIndex = 0
+
     private var voiceProcessingDemoView: some View {
-        ZStack {
+        let statuses = ["Analyzing quality...", "Checking clarity...", "Building voice model...", "Almost done..."]
+        return ZStack {
             DesignTokens.background.ignoresSafeArea()
             VStack(spacing: 20) {
                 ProgressView().tint(DesignTokens.gold).scaleEffect(1.5)
@@ -710,9 +742,19 @@ struct WarmCanvasScreenGallery: View {
                 Text("This takes about 30 seconds")
                     .font(DesignTokens.bodyFont(size: 13))
                     .foregroundStyle(DesignTokens.textTertiary)
-                Text("Analyzing quality...")
+                Text(statuses[galleryProcessingStatusIndex % statuses.count])
                     .font(DesignTokens.bodyFont(size: 14))
                     .foregroundStyle(DesignTokens.textSecondary)
+                    .animation(.easeInOut(duration: 0.4), value: galleryProcessingStatusIndex)
+            }
+        }
+        .onAppear {
+            galleryProcessingStatusIndex = 0
+            Task { @MainActor in
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(2.5))
+                    galleryProcessingStatusIndex += 1
+                }
             }
         }
     }
@@ -721,6 +763,7 @@ struct WarmCanvasScreenGallery: View {
         ZStack {
             DesignTokens.background.ignoresSafeArea()
             VStack(spacing: 16) {
+                Spacer()
                 Circle().fill(DesignTokens.sage).frame(width: 64, height: 64)
                     .overlay(Image(systemName: "checkmark").font(.system(size: 28, weight: .semibold)).foregroundStyle(.white))
                 Text("Voice enrolled!")
@@ -740,9 +783,10 @@ struct WarmCanvasScreenGallery: View {
                 Text("Excellent — your songs will sound great")
                     .font(DesignTokens.bodyFont(size: 15))
                     .foregroundStyle(DesignTokens.sage)
-                coralButton("Done").frame(maxWidth: 320).padding(.top, 12)
+                    .multilineTextAlignment(.center)
+                Spacer()
+                coralButton("Done").padding(.horizontal, 20).padding(.bottom, 40)
             }
-            .padding(.horizontal, 40)
         }
     }
 

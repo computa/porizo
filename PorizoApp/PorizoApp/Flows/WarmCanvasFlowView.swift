@@ -45,10 +45,10 @@ struct WarmCanvasFlowView: View {
     @State private var setup = StorySetup()
     @State private var songFlow = SongFlowCoordinator()
     @State private var selectedType: CreateFlowKind? = .song
-    private let poemFlow = PoemFlowCoordinator()
-    private let asyncService: CreateFlowAsyncService
-    private let storyFlowCoordinator: StoryFlowCoordinator
-    private let resumeCoordinator: CreateFlowResumeCoordinator
+    @State private var poemFlow = PoemFlowCoordinator()
+    @State private var asyncService: CreateFlowAsyncService
+    @State private var storyFlowCoordinator: StoryFlowCoordinator
+    @State private var resumeCoordinator: CreateFlowResumeCoordinator
 
     // MARK: - Controllers
 
@@ -119,9 +119,9 @@ struct WarmCanvasFlowView: View {
         self.onPoemComplete = onPoemComplete
         self.onComplete = onComplete
         self.onCancel = onCancel
-        self.asyncService = CreateFlowAsyncService(apiClient: apiClient)
-        self.storyFlowCoordinator = StoryFlowCoordinator()
-        self.resumeCoordinator = CreateFlowResumeCoordinator()
+        _asyncService = State(initialValue: CreateFlowAsyncService(apiClient: apiClient))
+        _storyFlowCoordinator = State(initialValue: StoryFlowCoordinator())
+        _resumeCoordinator = State(initialValue: CreateFlowResumeCoordinator())
         _storyEngine = State(initialValue: V2StoryEngine(apiClient: apiClient))
         _apiWrapper = State(initialValue: APIClientWrapper(client: apiClient))
         _selectedType = State(initialValue: .song)
@@ -140,31 +140,43 @@ struct WarmCanvasFlowView: View {
                 tellPhase()
             }
 
-            // Layer 1: Full-screen overlays
+            // Layer 1: Full-screen overlays (animation scoped per-view, not on ZStack)
             if moment == .wait {
                 WaitPulseView(recipientName: setup.recipientName, occasion: setup.occasion?.rawValue)
                     .transition(.opacity)
+                    .animation(.easeInOut(duration: 0.35), value: momentKey)
                     .accessibilityLabel("Creating your song for \(setup.recipientName). Please wait.")
             }
             if moment == .reveal {
                 revealPhase()
                     .transition(.opacity)
+                    .animation(.easeInOut(duration: 0.35), value: momentKey)
                     .accessibilityLabel("Your song for \(setup.recipientName) is ready")
             }
             if moment == .share {
                 sharePhase()
                     .transition(.opacity)
+                    .animation(.easeInOut(duration: 0.35), value: momentKey)
                     .accessibilityLabel("Share your song for \(setup.recipientName)")
             }
 
-            // Layer 2: Error overlays (highest z-order)
+            // Layer 2: Error overlays — partial overlay so conversation context stays visible
             if let error = activeError {
-                errorOverlay(for: error)
-                    .transition(.opacity)
-                    .zIndex(100)
+                Color.black.opacity(0.3)
+                    .ignoresSafeArea()
+                    .onTapGesture { } // absorb taps on backdrop
+                    .zIndex(99)
+
+                VStack {
+                    Spacer()
+                    errorOverlay(for: error)
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 20)
+                }
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .zIndex(100)
             }
         }
-        .animation(.easeInOut(duration: 0.35), value: momentKey)
         .onDisappear {
             creationTask?.cancel()
             styleSyncTask?.cancel()
@@ -184,10 +196,7 @@ struct WarmCanvasFlowView: View {
         // Alert router
         .alert(
             alertTitle,
-            isPresented: Binding(
-                get: { activeAlert != nil },
-                set: { if !$0 { activeAlert = nil } }
-            )
+            isPresented: isAlertPresented
         ) {
             alertActions
         } message: {
@@ -282,6 +291,14 @@ struct WarmCanvasFlowView: View {
         }
     }
 
+    /// Extracted binding for the alert presentation state.
+    private var isAlertPresented: Binding<Bool> {
+        Binding(
+            get: { activeAlert != nil },
+            set: { if !$0 { activeAlert = nil } }
+        )
+    }
+
     // MARK: - Tell Phase
 
     @ViewBuilder
@@ -347,7 +364,8 @@ struct WarmCanvasFlowView: View {
                     }
                     .onChange(of: momentKey) { _, _ in
                         // Auto-scroll to inline cards when moment changes (voice selection, lyrics, etc.)
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        Task { @MainActor in
+                            try? await Task.sleep(for: .milliseconds(100))
                             withAnimation(.easeInOut(duration: 0.3)) {
                                 proxy.scrollTo("inline-cards", anchor: .bottom)
                             }
@@ -355,7 +373,8 @@ struct WarmCanvasFlowView: View {
                     }
                     .onChange(of: storyEngine.messages.count) { _, _ in
                         // Auto-scroll to latest message after layout settles
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        Task { @MainActor in
+                            try? await Task.sleep(for: .milliseconds(100))
                             if let lastId = storyEngine.messages.last?.id {
                                 withAnimation(.easeInOut(duration: 0.3)) {
                                     proxy.scrollTo(lastId, anchor: .bottom)
@@ -383,22 +402,6 @@ struct WarmCanvasFlowView: View {
                     )
                 }
 
-                // Voice selection — pinned below scroll, NOT inside it
-                if case .tell(.confirmed) = moment {
-                    VoiceSelectionChips(
-                        onSelect: { mode, gender in
-                            songFlow.voiceMode = mode
-                            songFlow.voiceGender = gender
-                            withAnimation { moment = .tell(.voiceSelected) }
-                            Task { @MainActor in await applyVoiceAndCreateTrack() }
-                        },
-                        onMyVoice: { handleMyVoiceRequested() },
-                        showMyVoice: myVoiceEnabled
-                    )
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                }
-
                 // Input bar
                 if let callbacks = currentInputCallbacks {
                     InputBarView(
@@ -417,8 +420,16 @@ struct WarmCanvasFlowView: View {
     private var tellInlineCards: some View {
         switch moment {
         case .tell(.confirmed):
-            // VoiceSelectionChips moved outside ScrollView — pinned below it
-            EmptyView()
+            VoiceSelectionChips(
+                onSelect: { mode, gender in
+                    songFlow.voiceMode = mode
+                    songFlow.voiceGender = gender
+                    withAnimation { moment = .tell(.voiceSelected) }
+                    Task { @MainActor in await applyVoiceAndCreateTrack() }
+                },
+                onMyVoice: { handleMyVoiceRequested() },
+                showMyVoice: myVoiceEnabled
+            )
 
         case .tell(.voiceSelected):
             InlineCreatingCard(
@@ -462,12 +473,20 @@ struct WarmCanvasFlowView: View {
         RevealBloomView(
             recipientName: setup.recipientName,
             occasion: setup.occasion?.rawValue,
+            isPlaying: playbackController.isPlaying,
             onPlay: { playbackController.togglePlayPause() },
             onShare: { withAnimation { moment = .share } },
             onEditLyrics: {
-                withAnimation { moment = .tell(.trackCreated) }
+                activeSheet = .lyricsReview
             },
             onSaveToLibrary: {
+                guard let trackId = songFlow.currentTrackId,
+                      let versionNum = songFlow.currentVersionNum else { return }
+                onComplete(trackId, versionNum)
+            },
+            onListenFully: {
+                // Save to library and transition to main tabs where NowPlayingView
+                // is accessible via MiniPlayer tap
                 guard let trackId = songFlow.currentTrackId,
                       let versionNum = songFlow.currentVersionNum else { return }
                 onComplete(trackId, versionNum)
@@ -739,6 +758,47 @@ struct WarmCanvasFlowView: View {
             )
             .environment(sttRouter)
 
+        case .lyricsReview:
+            if let lyrics = createdLyrics {
+                NavigationStack {
+                    ScrollView {
+                        InlineLyricsCard(
+                            lyrics: lyrics,
+                            controller: lyricsController,
+                            isInteractive: true,
+                            style: setup.style.map(styleStore.displayName(for:)) ?? "Custom",
+                            highlightTerms: songFlow.renderPolicyTerms,
+                            onApproved: {
+                                activeSheet = nil
+                                startFullRender()
+                            },
+                            onRegenerateLyrics: {
+                                if lyricsController?.hasUnsavedChanges == true {
+                                    activeAlert = .discardLyricsEdits
+                                } else {
+                                    lyricsController?.regenerateLyrics()
+                                }
+                            },
+                            onEditSection: { index in
+                                guard let ctrl = lyricsController else { return }
+                                ctrl.startEditing(section: index)
+                                activeSheet = .editLyrics(EditingLyricsSection(id: index))
+                            }
+                        )
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 20)
+                    }
+                    .background(DesignTokens.background)
+                    .navigationTitle("Edit Lyrics")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Done") { activeSheet = nil }
+                        }
+                    }
+                }
+            }
+
         case .customLyrics, .share:
             EmptyView()
         }
@@ -798,6 +858,11 @@ struct WarmCanvasFlowView: View {
         playbackController.play()
         if shareController == nil {
             shareController = ShareController(apiClient: apiClient)
+        }
+        // Pre-generate share link so it's ready before the user taps Send (P0-3)
+        if let trackId = songFlow.currentTrackId,
+           let versionNum = songFlow.currentVersionNum {
+            shareController?.generateShareLink(trackId: trackId, versionNum: versionNum)
         }
         if !hasCompletedFirstSong { hasCompletedFirstSong = true }
         withAnimation { moment = .reveal }
@@ -925,6 +990,9 @@ struct WarmCanvasFlowView: View {
                         storyId: storyEngine.storyId
                     )
 
+                    // Set early so future flows skip voice selection (P1-6)
+                    if !hasCompletedFirstSong { hasCompletedFirstSong = true }
+
                     withAnimation { moment = .tell(.trackCreated) }
                 }
             } catch is CancellationError {
@@ -968,11 +1036,8 @@ struct WarmCanvasFlowView: View {
         selectedType = .song
         preSessionPrompt = nil
 
-        guard setup.occasion != nil else {
-            showOccasionPicker = true
-            return
-        }
-
+        // User already saw occasion chips in InlineNamePromptView.
+        // If they skipped, don't double-prompt (P2-14).
         continueAfterOccasionSelection()
     }
 

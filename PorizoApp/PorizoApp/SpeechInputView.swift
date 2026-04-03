@@ -42,7 +42,7 @@ struct SpeechInputView: View {
     let onCancel: () -> Void
 
     @Environment(STTRouter.self) var sttRouter
-    @StateObject private var recorder = AudioRecorder()
+    @State private var recorder = AudioRecorder()
 
     @State private var state: SpeechInputState = .idle
     @State private var recordingDuration: TimeInterval = 0

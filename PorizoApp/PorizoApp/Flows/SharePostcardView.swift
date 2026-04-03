@@ -8,6 +8,7 @@
 //
 
 import SwiftUI
+import UIKit
 
 struct SharePostcardView: View {
     let recipientName: String
@@ -16,6 +17,12 @@ struct SharePostcardView: View {
     let onSaveToPhotos: () -> Void
     let onCopyLink: () -> Void
     let onSkip: () -> Void
+
+    @State private var saveToPhotosStatus: SaveStatus = .idle
+
+    private enum SaveStatus: Equatable {
+        case idle, saving, saved, failed(String)
+    }
 
     var body: some View {
         ZStack {
@@ -33,9 +40,13 @@ struct SharePostcardView: View {
                         postcardCard
                         howItWorksSection
                         sectionHeader
+                            .accessibilityHidden(true)
                         iMessagePreview
+                            .accessibilityHidden(true)
                         whatsAppPreview
+                            .accessibilityHidden(true)
                         instagramDMPreview
+                            .accessibilityHidden(true)
                         ctaSection
                     }
                     .padding(.horizontal, DesignTokens.spacing20)
@@ -338,11 +349,29 @@ struct SharePostcardView: View {
 
             // Secondary row: "Save to Photos" | "Copy Link"
             HStack(spacing: DesignTokens.spacing12) {
-                Button(action: onSaveToPhotos) {
-                    Text("Save to Photos")
-                        .font(DesignTokens.bodyFont(size: 14, weight: .medium))
-                        .foregroundStyle(DesignTokens.goldDark)
+                Button {
+                    savePostcardToPhotos()
+                } label: {
+                    HStack(spacing: 4) {
+                        switch saveToPhotosStatus {
+                        case .idle:
+                            Text("Save to Photos")
+                        case .saving:
+                            ProgressView()
+                                .controlSize(.mini)
+                            Text("Saving...")
+                        case .saved:
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 12, weight: .bold))
+                            Text("Saved!")
+                        case .failed:
+                            Text("Save to Photos")
+                        }
+                    }
+                    .font(DesignTokens.bodyFont(size: 14, weight: .medium))
+                    .foregroundStyle(saveToPhotosStatus == .saved ? DesignTokens.successDark : DesignTokens.goldDark)
                 }
+                .disabled(saveToPhotosStatus == .saving || saveToPhotosStatus == .saved)
                 .accessibilityLabel("Save postcard to Photos")
 
                 Text("\u{2022}")
@@ -368,20 +397,45 @@ struct SharePostcardView: View {
         .padding(.top, DesignTokens.spacing4)
     }
 
-    // MARK: - How It Works
+    // MARK: - How It Works (Collapsed Disclosure)
+
+    @State private var showHowItWorks = false
 
     private var howItWorksSection: some View {
-        VStack(alignment: .leading, spacing: DesignTokens.spacing12) {
-            Text("How it works")
-                .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
-                .foregroundStyle(DesignTokens.textPrimary)
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    showHowItWorks.toggle()
+                }
+            } label: {
+                HStack(spacing: DesignTokens.spacing8) {
+                    Image(systemName: "lock.shield")
+                        .font(.system(size: 13))
+                        .foregroundStyle(DesignTokens.gold)
+                    Text("Shared via private link & PIN")
+                        .font(DesignTokens.bodyFont(size: 13))
+                        .foregroundStyle(DesignTokens.textSecondary)
+                    Spacer()
+                    Image(systemName: showHowItWorks ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(DesignTokens.textTertiary)
+                }
+                .padding(.vertical, DesignTokens.spacing12)
+                .padding(.horizontal, DesignTokens.spacing16)
+            }
+            .buttonStyle(.plain)
 
-            howItWorksItem(number: "1", text: "We\u{2019}ll create a private link and secret PIN")
-            howItWorksItem(number: "2", text: "Share the link with your recipient")
-            howItWorksItem(number: "3", text: "Tell them the PIN separately (for security)")
-            howItWorksItem(number: "4", text: "They can listen on any device for 30 days")
+            if showHowItWorks {
+                VStack(alignment: .leading, spacing: DesignTokens.spacing8) {
+                    Text("They\u{2019}ll get a link to listen and a PIN for security. Works on any device for 30 days.")
+                        .font(DesignTokens.bodyFont(size: 13))
+                        .foregroundStyle(DesignTokens.textTertiary)
+                }
+                .padding(.horizontal, DesignTokens.spacing16)
+                .padding(.bottom, DesignTokens.spacing12)
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
         }
-        .padding(DesignTokens.spacing16)
         .background(DesignTokens.surface)
         .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusMedium, style: .continuous))
         .overlay(
@@ -390,18 +444,28 @@ struct SharePostcardView: View {
         )
     }
 
-    private func howItWorksItem(number: String, text: String) -> some View {
-        HStack(alignment: .top, spacing: DesignTokens.spacing12) {
-            Text(number)
-                .font(DesignTokens.bodyFont(size: 11, weight: .bold))
-                .foregroundStyle(.white)
-                .frame(width: 20, height: 20)
-                .background(DesignTokens.gold)
-                .clipShape(Circle())
+    // MARK: - Save to Photos
 
-            Text(text)
-                .font(DesignTokens.bodyFont(size: 14))
-                .foregroundStyle(DesignTokens.textSecondary)
+    private func savePostcardToPhotos() {
+        saveToPhotosStatus = .saving
+
+        Task { @MainActor in
+            let renderer = ImageRenderer(content:
+                postcardCard
+                    .frame(width: 360)
+                    .padding(16)
+                    .background(DesignTokens.background)
+            )
+            renderer.scale = UIScreen.main.scale
+
+            guard let image = renderer.uiImage else {
+                saveToPhotosStatus = .failed("Could not render postcard")
+                return
+            }
+
+            UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
+            saveToPhotosStatus = .saved
+            onSaveToPhotos()
         }
     }
 

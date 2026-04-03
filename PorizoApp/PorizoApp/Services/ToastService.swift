@@ -70,23 +70,7 @@ final class ToastService {
         // Cancel any existing dismiss task
         dismissTask?.cancel()
 
-        // Haptic feedback
-        switch type {
-        case .success:
-            let generator = UINotificationFeedbackGenerator()
-            generator.notificationOccurred(.success)
-        case .warning:
-            let generator = UINotificationFeedbackGenerator()
-            generator.notificationOccurred(.warning)
-        case .error:
-            let generator = UINotificationFeedbackGenerator()
-            generator.notificationOccurred(.error)
-        case .info:
-            let generator = UIImpactFeedbackGenerator(style: .light)
-            generator.impactOccurred()
-        }
-
-        // Show toast
+        // Show toast (haptic feedback handled by ToastModifier via .sensoryFeedback)
         withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
             currentToast = Toast(message: message, type: type, duration: duration)
         }
@@ -182,6 +166,18 @@ struct ToastModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
+            .sensoryFeedback(.success, trigger: toastService.currentToast?.id) { _, newValue in
+                newValue != nil && toastService.currentToast?.type == .success
+            }
+            .sensoryFeedback(.warning, trigger: toastService.currentToast?.id) { _, newValue in
+                newValue != nil && toastService.currentToast?.type == .warning
+            }
+            .sensoryFeedback(.error, trigger: toastService.currentToast?.id) { _, newValue in
+                newValue != nil && toastService.currentToast?.type == .error
+            }
+            .sensoryFeedback(.impact(weight: .light), trigger: toastService.currentToast?.id) { _, newValue in
+                newValue != nil && toastService.currentToast?.type == .info
+            }
             .overlay(alignment: .top) {
                 if let toast = toastService.currentToast {
                     ToastView(toast: toast) {

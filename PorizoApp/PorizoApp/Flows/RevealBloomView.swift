@@ -12,10 +12,12 @@ import SwiftUI
 struct RevealBloomView: View {
     let recipientName: String
     let occasion: String?
+    var isPlaying: Bool = false
     let onPlay: () -> Void
     let onShare: () -> Void
     let onEditLyrics: () -> Void
     let onSaveToLibrary: () -> Void
+    var onListenFully: (() -> Void)?
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -24,6 +26,9 @@ struct RevealBloomView: View {
     @State private var checkmarkOpacity: Double = 0
     @State private var contentOpacity: Double = 0
     @State private var playButtonScale: CGFloat = 0.5
+    @State private var revealHapticTrigger: Bool = false
+    @State private var impactHapticTrigger: Bool = false
+    @State private var cachedBloomSize: CGSize = .zero
 
     var body: some View {
         ZStack {
@@ -68,6 +73,20 @@ struct RevealBloomView: View {
                         .font(DesignTokens.bodyFont(size: 13))
                         .foregroundStyle(.white.opacity(0.6))
 
+                    // Full player link
+                    if let onListenFully {
+                        Button(action: onListenFully) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "text.quote")
+                                    .font(.system(size: 12))
+                                Text("Listen with lyrics")
+                            }
+                            .font(DesignTokens.bodyFont(size: 14, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.8))
+                        }
+                        .accessibilityLabel("Open full player with lyrics")
+                    }
+
                     // Share secondary button
                     shareButton
                         .padding(.top, DesignTokens.spacing8)
@@ -84,6 +103,8 @@ struct RevealBloomView: View {
             .opacity(contentOpacity)
         }
         .ignoresSafeArea()
+        .sensoryFeedback(.success, trigger: revealHapticTrigger)
+        .sensoryFeedback(.impact(weight: .heavy, intensity: 0.8), trigger: impactHapticTrigger)
         .task {
             await startAnimations()
         }
@@ -101,10 +122,12 @@ struct RevealBloomView: View {
                 ],
                 center: .center,
                 startRadius: 0,
-                endRadius: geometry.size.height * 0.6
+                endRadius: cachedBloomSize.height * 0.6
             )
             .scaleEffect(bloomScale)
             .ignoresSafeArea()
+            .onAppear { cachedBloomSize = geometry.size }
+            .onChange(of: geometry.size) { _, newSize in cachedBloomSize = newSize }
         }
     }
 
@@ -121,6 +144,7 @@ struct RevealBloomView: View {
                 .foregroundStyle(.white)
         }
         .opacity(checkmarkOpacity)
+        .accessibilityHidden(true)
     }
 
     // MARK: - Waveform Bars
@@ -132,8 +156,14 @@ struct RevealBloomView: View {
                     .fill(.white)
                     .frame(width: 4, height: 24)
                     .scaleEffect(
-                        y: wavePhases[index] ? 1.0 : 0.5,
+                        y: (wavePhases[index] && isPlaying) ? 1.0 : 0.5,
                         anchor: .center
+                    )
+                    .animation(
+                        isPlaying
+                            ? .easeInOut(duration: 1.2).repeatForever(autoreverses: true)
+                            : .easeOut(duration: 0.3),
+                        value: isPlaying
                     )
             }
         }
@@ -190,6 +220,14 @@ struct RevealBloomView: View {
     // MARK: - Animation Choreography
 
     private func startAnimations() async {
+        // Haptic feedback: the reveal should feel physical
+        revealHapticTrigger.toggle()
+
+        try? await Task.sleep(for: .milliseconds(200))
+        guard !Task.isCancelled else { return }
+
+        impactHapticTrigger.toggle()
+
         guard !reduceMotion else {
             // Static state: no animations, everything visible immediately
             checkmarkOpacity = 1

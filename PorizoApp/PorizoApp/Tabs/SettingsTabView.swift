@@ -2,8 +2,7 @@
 //  SettingsTabView.swift
 //  PorizoApp
 //
-//  Settings tab matching v1.pen "12 - Settings" design.
-//  Velvet & Gold design system with custom header and flat card layout.
+//  Settings tab — Warm Canvas design system with custom header and flat card layout.
 //
 
 import SwiftUI
@@ -14,12 +13,9 @@ struct SettingsTabView: View {
     let apiClient: APIClient
     var storeKit: StoreKitManager
     @Environment(AuthManager.self) var authManager
-    @State private var apiWrapper: APIClientWrapper
 
-    init(apiClient: APIClient, storeKit: StoreKitManager) {
-        self.apiClient = apiClient
-        self.storeKit = storeKit
-        self._apiWrapper = State(initialValue: APIClientWrapper(client: apiClient))
+    private var apiWrapper: APIClientWrapper {
+        APIClientWrapper(client: apiClient)
     }
 
     @State private var activeVoiceEnrollment: VoiceEnrollmentDestination?
@@ -86,7 +82,7 @@ struct SettingsTabView: View {
 
     var body: some View {
         ZStack {
-            // Background: Deep velvet black
+            // Background: Warm parchment
             DesignTokens.background.ignoresSafeArea()
 
             VStack(spacing: 0) {
@@ -107,11 +103,7 @@ struct SettingsTabView: View {
                         settingsCard
 
                         // Footer
-                        Text({
-                            let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
-                            let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0"
-                            return "PORIZO • 2026 • v\(version) (\(build))"
-                        }())
+                        Text(Self.versionString)
                             .font(DesignTokens.bodyFont(size: 12, weight: .medium))
                             .foregroundStyle(DesignTokens.textTertiary)
                             .tracking(1)
@@ -154,7 +146,7 @@ struct SettingsTabView: View {
             }
         }
         .sheet(isPresented: $showSubscription) {
-            SubscriptionView(apiClient: apiClient, storeKit: storeKit)
+            SubscriptionViewV2(apiClient: apiClient, storeKit: storeKit)
         }
         .sheet(item: $activeGiftSheet, onDismiss: {
             if let queuedGiftSheet {
@@ -242,7 +234,10 @@ struct SettingsTabView: View {
         } message: {
             Text("Are you absolutely sure? All your data will be permanently deleted and cannot be recovered.")
         }
-        .alert("Error", isPresented: .constant(deleteAccountError != nil)) {
+        .alert("Error", isPresented: Binding(
+            get: { deleteAccountError != nil },
+            set: { if !$0 { deleteAccountError = nil } }
+        )) {
             Button("OK") { deleteAccountError = nil }
         } message: {
             Text(deleteAccountError ?? "An error occurred")
@@ -369,8 +364,10 @@ struct SettingsTabView: View {
 
                 Spacer()
 
-                Text("›")
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(DesignTokens.textTertiary)
+                    .accessibilityHidden(true)
             }
             .padding(.vertical, 12)
         }
@@ -387,6 +384,7 @@ struct SettingsTabView: View {
                 // Crown emoji
                 Text("👑")
                     .frame(width: 28)
+                    .accessibilityHidden(true)
 
                 Text("My Subscription")
                     .font(DesignTokens.bodyFont(size: 15))
@@ -406,8 +404,10 @@ struct SettingsTabView: View {
                                 .stroke(DesignTokens.gold, lineWidth: 1)
                         )
                 } else {
-                    Text("›")
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(DesignTokens.textTertiary)
+                        .accessibilityHidden(true)
                 }
             }
             .frame(height: 48)
@@ -430,6 +430,7 @@ struct SettingsTabView: View {
             HStack(spacing: 12) {
                 Text("🎁")
                     .frame(width: 28)
+                    .accessibilityHidden(true)
 
                 Text("Gift Bag")
                     .font(DesignTokens.bodyFont(size: 15))
@@ -498,9 +499,22 @@ struct SettingsTabView: View {
             } label: {
                 settingsRowLabel(emoji: "🎤", title: "Lyrics Style", value: lyricsStyle.rawValue, showChevron: true)
             }
+            .accessibilityHint("Tap to choose")
 
-            // Language row
-            settingsRowLabel(emoji: "🌐", title: "Language", value: "English", showChevron: true)
+            // Language row (interactive — currently English-only)
+            Menu {
+                Button {
+                    // English is the only option for now
+                } label: {
+                    HStack {
+                        Text("English")
+                        Image(systemName: "checkmark")
+                    }
+                }
+            } label: {
+                settingsRowLabel(emoji: "🌐", title: "Language", value: "English", showChevron: true)
+            }
+            .accessibilityHint("Tap to choose")
         }
         .padding(.horizontal, 16)
         .padding(.top, 16)
@@ -523,6 +537,13 @@ struct SettingsTabView: View {
                 .foregroundStyle(DesignTokens.textTertiary)
                 .tracking(1.5)
                 .padding(.bottom, 8)
+
+            // Help Center
+            settingsEmojiLinkRow(
+                emoji: "❓",
+                title: "Help Center",
+                url: AppConfig.helpCenterURL
+            )
 
             // Get Support
             settingsEmojiLinkRow(
@@ -691,9 +712,10 @@ struct SettingsTabView: View {
 
                     Spacer()
 
-                    Text("›")
-                        .font(.system(size: 18))
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(DesignTokens.error)
+                        .accessibilityHidden(true)
                 }
                 .frame(height: 44)
             }
@@ -737,8 +759,10 @@ struct SettingsTabView: View {
                 }
 
                 if showChevron {
-                    Text("›")
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(DesignTokens.textTertiary)
+                        .accessibilityHidden(true)
                 }
             }
             .frame(height: 48)
@@ -768,8 +792,10 @@ struct SettingsTabView: View {
                         .foregroundStyle(DesignTokens.textTertiary)
                 }
                 if showChevron {
-                    Text("›")
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(DesignTokens.textTertiary)
+                        .accessibilityHidden(true)
                 }
             }
             .frame(height: 48)
@@ -792,8 +818,10 @@ struct SettingsTabView: View {
                     .foregroundStyle(DesignTokens.textTertiary)
             }
             if showChevron {
-                Text("›")
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(DesignTokens.textTertiary)
+                    .accessibilityHidden(true)
             }
         }
         .frame(height: 48)
@@ -817,8 +845,10 @@ struct SettingsTabView: View {
 
                 Spacer()
 
-                Text("›")
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(DesignTokens.textTertiary)
+                    .accessibilityHidden(true)
             }
             .frame(height: 48)
         }
@@ -838,8 +868,10 @@ struct SettingsTabView: View {
                     .font(DesignTokens.bodyFont(size: 15))
                     .foregroundStyle(DesignTokens.textPrimary)
                 Spacer()
-                Text("›")
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(DesignTokens.textTertiary)
+                    .accessibilityHidden(true)
             }
             .frame(height: 48)
         }
@@ -847,6 +879,13 @@ struct SettingsTabView: View {
     }
 
     // MARK: - Helper Functions
+
+    private static let versionString: String = {
+        let info = Bundle.main.infoDictionary
+        let version = info?["CFBundleShortVersionString"] as? String ?? "1.0"
+        let build = info?["CFBundleVersion"] as? String ?? "0"
+        return "PORIZO \u{2022} 2026 \u{2022} v\(version) (\(build))"
+    }()
 
     /// True for Debug (Xcode) and TestFlight builds, false for App Store.
     private var isDevBuild: Bool {
@@ -932,7 +971,7 @@ struct SettingsTabView: View {
         let activityVC = UIActivityViewController(activityItems: [url], applicationActivities: nil)
 
         guard let scene = UIApplication.shared.connectedScenes.first(where: { $0.activationState == .foregroundActive }) as? UIWindowScene,
-              let rootVC = scene.windows.first?.rootViewController else { return }
+              let rootVC = scene.keyWindow?.rootViewController else { return }
 
         rootVC.present(activityVC, animated: true)
     }

@@ -18,13 +18,21 @@ struct RootView: View {
     @State private var shareContext: ShareContext?
     @State private var pendingShareId: String?
     @State private var pendingShareIsPoem: Bool = false
+    @State private var apiClientReady: Bool = false
     @State private var authContextMessage: String?
     @Environment(StyleStore.self) private var styleStore
     @State private var appUpdatePrompt: AppUpdatePrompt?
     @State private var dismissedRecommendedUpdateVersion: String?
     @State private var profileCompletionContext: ProfileCompletionContext?
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
+    @AppStorage("onboardingViewCount") private var onboardingViewCount = 0
+    @AppStorage("hasCompletedFirstSong") private var hasCompletedFirstSong = false
+    @AppStorage("pendingRecipientName") private var pendingRecipientName = ""
+    @AppStorage("pendingOccasion") private var pendingOccasion = ""
     @State private var hasSkippedProfileCompletionInSession = false
+    @State private var nameEntryHasOwnLyrics = false
+    @State private var nameEntryIsInstrumental = false
+    @State private var onboardingSampleURL: String?
 
     // Configuration
     // Auth is required in all builds to avoid showing main tabs when logged out.
@@ -43,6 +51,7 @@ struct RootView: View {
     enum RootState {
         case splash
         case onboarding
+        case nameEntry
         case auth
         case main
         #if DEBUG
@@ -78,6 +87,7 @@ struct RootView: View {
                         let deviceId = getOrCreateDeviceId()
                         let client = makeAPIClient(deviceId: deviceId)
                         apiClient = client
+                        apiClientReady = true
                         apiWrapper = APIClientWrapper(client: client)
                         syncProfileCompletionContext()
 
@@ -104,7 +114,9 @@ struct RootView: View {
                                     return
                                 }
                                 #endif
-                                if hasCompletedOnboarding {
+                                // Show onboarding up to 2 times until first song is generated
+                                let shouldShowOnboarding = onboardingViewCount < 2 && !hasCompletedFirstSong
+                                if hasCompletedOnboarding && !shouldShowOnboarding {
                                     appState = (skipAuth || authManager.isAuthenticated) ? .main : .auth
                                 } else {
                                     appState = .onboarding
@@ -115,8 +127,29 @@ struct RootView: View {
 
             case .onboarding:
                 OnboardingView(
+                    sampleAudioURL: onboardingSampleURL,
                     onComplete: completeOnboarding,
                     onSkip: completeOnboarding
+                )
+
+            case .nameEntry:
+                InlineNamePromptView(
+                    selectedType: nil,
+                    hasOwnLyrics: $nameEntryHasOwnLyrics,
+                    isInstrumental: $nameEntryIsInstrumental,
+                    onStart: { name, occasion in
+                        pendingRecipientName = name
+                        pendingOccasion = occasion?.displayName ?? ""
+                        withAnimation(.easeInOut(duration: 0.5)) {
+                            appState = (skipAuth || authManager.isAuthenticated) ? .main : .auth
+                        }
+                        syncProfileCompletionContext()
+                    },
+                    onCancel: {
+                        withAnimation(.easeInOut(duration: 0.3)) {
+                            appState = .onboarding
+                        }
+                    }
                 )
 
             #if DEBUG
@@ -152,18 +185,16 @@ struct RootView: View {
             handleIncomingURL(url)
         }
         .sheet(item: $shareContext) { context in
-            let deviceId = getOrCreateDeviceId()
-            let client = apiClient ?? makeAPIClient(deviceId: deviceId)
             if context.isPoem {
                 PoemClaimView(
-                    apiClient: client,
+                    apiClient: shareClient,
                     shareId: context.shareId
                 )
             } else {
                 ShareClaimView(
-                    apiClient: client,
+                    apiClient: shareClient,
                     shareId: context.shareId,
-                    deviceId: deviceId
+                    deviceId: getOrCreateDeviceId()
                 )
             }
         }
@@ -208,7 +239,7 @@ struct RootView: View {
         .onChange(of: authManager.needsProfileCompletion) { _, _ in
             syncProfileCompletionContext()
         }
-        .onChange(of: apiClient != nil) { _, _ in
+        .onChange(of: apiClientReady) { _, _ in
             syncProfileCompletionContext()
         }
         .onChange(of: authManager.hasValidatedSession) { _, hasValidated in
@@ -230,12 +261,7 @@ struct RootView: View {
                 await refreshAppConfig(using: client, router: nil)
             }
         }
-        .fullScreenCover(
-            item: Binding(
-                get: { appUpdatePrompt?.kind == .required ? appUpdatePrompt : nil },
-                set: { _ in }
-            )
-        ) { prompt in
+        .fullScreenCover(item: requiredUpdateBinding) { prompt in
             AppUpdatePromptView(
                 prompt: prompt,
                 onUpdate: { openAppStore(for: prompt) },
@@ -243,17 +269,7 @@ struct RootView: View {
             )
             .interactiveDismissDisabled(true)
         }
-        .sheet(
-            item: Binding(
-                get: { appUpdatePrompt?.kind == .recommended ? appUpdatePrompt : nil },
-                set: { newValue in
-                    if newValue == nil, let prompt = appUpdatePrompt, prompt.kind == .recommended {
-                        dismissedRecommendedUpdateVersion = prompt.targetVersion
-                        appUpdatePrompt = nil
-                    }
-                }
-            )
-        ) { prompt in
+        .sheet(item: recommendedUpdateBinding) { prompt in
             AppUpdatePromptView(
                 prompt: prompt,
                 onUpdate: { openAppStore(for: prompt) },
@@ -266,12 +282,38 @@ struct RootView: View {
         }
     }
 
+    // MARK: - Computed Bindings (extracted from presentation modifiers)
+
+    /// APIClient for share sheets — uses existing @State client, avoids creating objects in ViewBuilder.
+    private var shareClient: APIClient {
+        apiClient ?? makeAPIClient(deviceId: getOrCreateDeviceId())
+    }
+
+    private var requiredUpdateBinding: Binding<AppUpdatePrompt?> {
+        Binding(
+            get: { appUpdatePrompt?.kind == .required ? appUpdatePrompt : nil },
+            set: { _ in }
+        )
+    }
+
+    private var recommendedUpdateBinding: Binding<AppUpdatePrompt?> {
+        Binding(
+            get: { appUpdatePrompt?.kind == .recommended ? appUpdatePrompt : nil },
+            set: { newValue in
+                if newValue == nil, let prompt = appUpdatePrompt, prompt.kind == .recommended {
+                    dismissedRecommendedUpdateVersion = prompt.targetVersion
+                    appUpdatePrompt = nil
+                }
+            }
+        )
+    }
+
     private func completeOnboarding() {
         hasCompletedOnboarding = true
+        onboardingViewCount += 1
         withAnimation(.easeInOut(duration: 0.5)) {
-            appState = (skipAuth || authManager.isAuthenticated) ? .main : .auth
+            appState = .nameEntry
         }
-        syncProfileCompletionContext()
     }
 
     private func syncProfileCompletionContext() {
@@ -297,6 +339,7 @@ struct RootView: View {
         let deviceId = getOrCreateDeviceId()
         if apiClient == nil {
             apiClient = makeAPIClient(deviceId: deviceId)
+            apiClientReady = true
         }
         if authManager.isAuthenticated {
             shareContext = ShareContext(shareId: parsed.shareId, isPoem: parsed.isPoem)
@@ -354,6 +397,9 @@ struct RootView: View {
         return nil
     }
 
+    /// Creates an APIClient and asynchronously wires auth providers on the next MainActor tick.
+    /// The client handles missing providers gracefully (returns nil token) so the brief race
+    /// window before providers are set is acceptable — no requests fire before the splash completes.
     private func makeAPIClient(deviceId: String) -> APIClient {
         let client = APIClient(baseURL: serverURL, userId: deviceId)
         Task { @MainActor in
@@ -402,6 +448,17 @@ struct RootView: View {
         do {
             let response = try await client.getAppConfig()
             router?.applyAppConfig(response)
+
+            // Extract onboarding sample URL, constructing full URL from relative path
+            if let relativePath = response.onboarding?.sampleAudioUrl {
+                if relativePath.hasPrefix("http") {
+                    onboardingSampleURL = relativePath
+                } else {
+                    onboardingSampleURL = AppConfig.apiBaseURL + relativePath
+                }
+            } else {
+                onboardingSampleURL = nil
+            }
 
             let nextPrompt = AppUpdatePolicy.evaluate(config: response.appUpdate)
             if let nextPrompt,

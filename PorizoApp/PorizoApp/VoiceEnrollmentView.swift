@@ -15,7 +15,7 @@ struct VoiceEnrollmentView: View {
     @Binding var completedProfile: VoiceProfile?
     @Environment(\.dismiss) private var dismiss
     @Environment(APIClientWrapper.self) private var apiClient
-    @StateObject private var recorder = AudioRecorder()
+    @State private var recorder = AudioRecorder()
     @State private var audioAnalyzer = LiveAudioAnalyzer()
     @State private var coachingManager = CoachingTipManager()
 

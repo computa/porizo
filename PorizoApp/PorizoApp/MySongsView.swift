@@ -3,7 +3,7 @@
 //  PorizoApp
 //
 //  Displays list of user's songs with playback for completed ones.
-//  Velvet & Gold design system matching v1.pen "10 - Songs Library".
+//  Warm Canvas design system.
 //
 
 import SwiftUI
@@ -23,6 +23,17 @@ struct MySongsView: View {
     var onDraftSelected: ((String, Int) -> Void)? = nil  // trackId, versionNum
     var onResumeSelected: ((String, Int, CreateFlowResumeTarget) -> Void)? = nil
 
+    init(apiClient: APIClient, playerState: PlayerState, refreshTrigger: Int = 0, onCreateNew: @escaping () -> Void, onBack: @escaping () -> Void, onDraftSelected: ((String, Int) -> Void)? = nil, onResumeSelected: ((String, Int, CreateFlowResumeTarget) -> Void)? = nil) {
+        self.apiClient = apiClient
+        self.playerState = playerState
+        self.refreshTrigger = refreshTrigger
+        self.onCreateNew = onCreateNew
+        self.onBack = onBack
+        self.onDraftSelected = onDraftSelected
+        self.onResumeSelected = onResumeSelected
+        _shareController = State(initialValue: ShareController(apiClient: apiClient))
+    }
+
     // Polling service for automatic refresh when tracks are rendering
     @State private var pollingService = RenderPollingService()
 
@@ -41,7 +52,9 @@ struct MySongsView: View {
     @State private var hapticTrigger = false
 
     // Share sheet state - uses sheet(item:) pattern for reliable presentation
+    // ShareController persisted in @State to avoid recreation on every sheet re-evaluation
     @State private var trackToShare: Track?
+    @State private var shareController: ShareController
 
     // Cache control - prevent unnecessary refetches on tab switch
     @State private var lastFetchTime: Date?
@@ -67,7 +80,7 @@ struct MySongsView: View {
 
     var body: some View {
         ZStack {
-            // Background: Deep velvet black (header provided by SongsTabView)
+            // Background: Warm parchment (header provided by SongsTabView)
             DesignTokens.background.ignoresSafeArea()
 
             Group {
@@ -119,7 +132,7 @@ struct MySongsView: View {
         }
         .sheet(item: $trackToShare) { track in
             ShareSheetView(
-                shareController: ShareController(apiClient: apiClient),
+                shareController: shareController,
                 trackId: track.id,
                 versionNum: track.latestVersion,
                 trackTitle: track.title,
@@ -409,7 +422,7 @@ struct MySongsView: View {
 
     private func canResume(track: Track) -> Bool {
         guard !track.isReceived, track.canEdit ?? true else { return false }
-        return ["draft", "lyrics_approved", "rendering", "processing"].contains(track.status)
+        return ["draft", "lyrics_approved", "rendering", "processing", "failed", "error"].contains(track.status)
     }
 
     private func resumeAction(for track: Track) -> (() -> Void)? {
@@ -744,7 +757,7 @@ struct MySongsView: View {
     ]
 }
 
-// MARK: - Song Card (v1.pen "10 - Songs Library" design)
+// MARK: - Song Card
 
 struct SongCard: View {
     let track: Track
@@ -773,6 +786,7 @@ struct SongCard: View {
         case "rendering", "processing": return "Creating"
         case "preview_ready": return "Preview ready"
         case "ready", "full_ready": return "Complete"
+        case "failed", "error": return "Failed"
         default: return track.status
         }
     }
@@ -785,110 +799,114 @@ struct SongCard: View {
                 onPlay()
             }
         } label: {
-            HStack(spacing: 12) {
-                // Compact artwork (56pt) - uses remote cover or gradient fallback
-                SongCoverView(track: track, size: 56)
-                    .accessibilityHidden(true)
+            VStack(spacing: 0) {
+                HStack(spacing: 14) {
+                    // Larger artwork (80pt) with occasion gradient
+                    SongCoverView(track: track, size: 80)
+                        .accessibilityHidden(true)
 
-                // Two-line content with inline badge
-                VStack(alignment: .leading, spacing: 2) {
-                    // Line 1: Title + Badge
-                    HStack(spacing: 6) {
+                    // Content column
+                    VStack(alignment: .leading, spacing: 4) {
+                        // Title
                         Text(track.title)
-                            .font(DesignTokens.bodyFont(size: 15, weight: .semibold))
+                            .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
                             .foregroundStyle(DesignTokens.textPrimary)
                             .lineLimit(1)
 
-                        statusBadge
-                    }
+                        // Subtitle
+                        Text(subtitleText)
+                            .font(DesignTokens.bodyFont(size: 13))
+                            .foregroundStyle(DesignTokens.textSecondary)
+                            .lineLimit(1)
 
-                    // Line 2: Subtitle
-                    Text(subtitleText)
-                        .font(DesignTokens.bodyFont(size: 13))
-                        .foregroundStyle(DesignTokens.textSecondary)
-                        .lineLimit(1)
+                        // Status badge row
+                        HStack(spacing: 8) {
+                            statusBadge
+
+                            Spacer()
+
+                            // Play button for playable tracks
+                            if isPlayable {
+                                Button {
+                                    onPlay()
+                                } label: {
+                                    if isLoadingAudio {
+                                        ProgressView()
+                                            .scaleEffect(0.8)
+                                            .tint(DesignTokens.gold)
+                                            .frame(width: 36, height: 36)
+                                    } else {
+                                        Image(systemName: isPlaying ? "pause.circle.fill" : "play.circle.fill")
+                                            .font(.system(size: 36))
+                                            .foregroundStyle(DesignTokens.gold)
+                                    }
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel(isPlaying ? "Pause" : "Play")
+                            }
+
+                            // Vertical ellipsis menu
+                            Menu {
+                                if let resume = onResume {
+                                    Button {
+                                        resume()
+                                    } label: {
+                                        Label(resumeActionTitle, systemImage: "arrow.clockwise")
+                                    }
+                                }
+
+                                if isPlayable {
+                                    Button {
+                                        onPlay()
+                                    } label: {
+                                        Label(isPlaying ? "Pause" : "Play", systemImage: isPlaying ? "pause.fill" : "play.fill")
+                                    }
+                                }
+
+                                if let share = onShare {
+                                    if onResume != nil || isPlayable {
+                                        Divider()
+                                    }
+                                    Button {
+                                        share()
+                                    } label: {
+                                        Label("Share", systemImage: "square.and.arrow.up")
+                                    }
+                                }
+
+                                if let delete = onDelete {
+                                    Divider()
+                                    Button(role: .destructive) {
+                                        delete()
+                                    } label: {
+                                        Label("Delete", systemImage: "trash")
+                                    }
+                                }
+                            } label: {
+                                Image(systemName: "ellipsis")
+                                    .rotationEffect(.degrees(90))
+                                    .font(.system(size: 18))
+                                    .foregroundStyle(DesignTokens.textTertiary)
+                                    .frame(width: 28, height: 28)
+                                    .contentShape(Rectangle())
+                            }
+                            .accessibilityLabel("Song options")
+                            .accessibilityHint("Opens menu to play, share, or delete")
+                        }
+                    }
                 }
-
-                Spacer()
-
-                // Play button for playable tracks
-                if isPlayable {
-                    Button {
-                        onPlay()
-                    } label: {
-                        if isLoadingAudio {
-                            ProgressView()
-                                .scaleEffect(0.8)
-                                .tint(DesignTokens.gold)
-                                .frame(width: 36, height: 36)
-                        } else {
-                            Image(systemName: isPlaying ? "pause.circle.fill" : "play.circle.fill")
-                                .font(.system(size: 36))
-                                .foregroundStyle(DesignTokens.gold)
-                        }
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(isPlaying ? "Pause" : "Play")
-                }
-
-                // Vertical ellipsis menu (compact: 28x28)
-                Menu {
-                    if let resume = onResume {
-                        Button {
-                            resume()
-                        } label: {
-                            Label(resumeActionTitle, systemImage: "arrow.clockwise")
-                        }
-                    }
-
-                    if isPlayable {
-                        Button {
-                            onPlay()
-                        } label: {
-                            Label(isPlaying ? "Pause" : "Play", systemImage: isPlaying ? "pause.fill" : "play.fill")
-                        }
-                    }
-
-                    if let share = onShare {
-                        if onResume != nil || isPlayable {
-                            Divider()
-                        }
-                        Button {
-                            share()
-                        } label: {
-                            Label("Share", systemImage: "square.and.arrow.up")
-                        }
-                    }
-
-                    if let delete = onDelete {
-                        Divider()
-                        Button(role: .destructive) {
-                            delete()
-                        } label: {
-                            Label("Delete", systemImage: "trash")
-                        }
-                    }
-                } label: {
-                    Image(systemName: "ellipsis")
-                        .rotationEffect(.degrees(90))
-                        .font(.system(size: 18))
-                        .foregroundStyle(DesignTokens.textTertiary)
-                        .frame(width: 28, height: 28)
-                        .contentShape(Rectangle())
-                }
-                .accessibilityLabel("Song options")
-                .accessibilityHint("Opens menu to play, share, or delete")
+                .padding(14)
             }
-            .padding(12)
             .background(DesignTokens.surface)
-            .clipShape(.rect(cornerRadius: 12))
+            .clipShape(.rect(cornerRadius: DesignTokens.radiusLarge))
             .overlay(
-                RoundedRectangle(cornerRadius: 12)
+                RoundedRectangle(cornerRadius: DesignTokens.radiusLarge)
                     .stroke(DesignTokens.border, lineWidth: 0.5)
             )
+            .elevation(.level1)
         }
         .buttonStyle(.plain)
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .contain)
         .accessibilityLabel("\(track.title). \(subtitleText). \(accessibilityStatusText)")
         .accessibilityHint(isTappable ? "Double tap to continue editing" : (isPlayable ? "Double tap to play" : ""))
         .accessibilityValue(isPlaying ? "Now playing" : "")
@@ -898,6 +916,8 @@ struct SongCard: View {
         switch track.status {
         case "lyrics_approved", "rendering", "processing":
             return "Try Again"
+        case "failed", "error":
+            return "Retry"
         default:
             return "Continue"
         }
@@ -952,6 +972,20 @@ struct SongCard: View {
                 .padding(.vertical, 4)
                 .background(DesignTokens.statusInfoBg)
                 .clipShape(.rect(cornerRadius: 10))
+
+        case "failed", "error":
+            // Red "Failed" badge with retry
+            HStack(spacing: 4) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 10))
+                Text("Failed")
+                    .font(DesignTokens.bodyFont(size: 11, weight: .medium))
+            }
+            .foregroundStyle(DesignTokens.error)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .background(DesignTokens.error.opacity(0.12))
+            .clipShape(.rect(cornerRadius: 10))
 
         default:
             EmptyView()

@@ -2,8 +2,7 @@
 //  PoemsTabView.swift
 //  PorizoApp
 //
-//  Poems tab matching v1.pen "11 - Poems Library" design.
-//  Velvet & Gold design system with custom header.
+//  Poems tab — Warm Canvas design system with custom header.
 //
 
 import SwiftUI
@@ -20,15 +19,6 @@ struct PoemsTabView: View {
     var onCreatePoem: (() -> Void)?
     var onCreateVariation: ((Poem) -> Void)?
     var playerState: PlayerState
-    @State private var apiWrapper: APIClientWrapper
-
-    init(apiClient: APIClient, onCreatePoem: (() -> Void)? = nil, onCreateVariation: ((Poem) -> Void)? = nil, playerState: PlayerState) {
-        self.apiClient = apiClient
-        self.onCreatePoem = onCreatePoem
-        self.onCreateVariation = onCreateVariation
-        self.playerState = playerState
-        self._apiWrapper = State(initialValue: APIClientWrapper(client: apiClient))
-    }
 
     @State private var poems: [Poem] = []
     @State private var selectedFilter: PoemLibraryFilter = .created
@@ -62,7 +52,7 @@ struct PoemsTabView: View {
 
     var body: some View {
         ZStack {
-            // Background: Deep velvet black
+            // Background: Warm parchment
             DesignTokens.background.ignoresSafeArea()
 
             VStack(spacing: 0) {
@@ -335,7 +325,7 @@ struct PoemsTabView: View {
         if !cacheLoaded {
             await loadCachedPoems()
         }
-        isLoading = true
+        if poems.isEmpty { isLoading = true }
         loadError = nil
 
         do {
@@ -397,7 +387,7 @@ struct PoemsTabView: View {
     }
 }
 
-// MARK: - Poem Card (v1.pen "11 - Poems Library" design)
+// MARK: - Poem Card
 
 struct PoemCard: View {
     let poem: Poem
@@ -452,7 +442,7 @@ struct PoemCard: View {
         .buttonStyle(.plain)
         .sensoryFeedback(.impact(weight: .light), trigger: hapticTrigger)
         .accessibilityLabel("\(poem.title), for \(poem.recipientName)")
-        .accessibilityHint("Double tap to view full poem")
+        .accessibilityHint("Double tap to view, long press for options")
         .contextMenu {
             if let onDelete = onDelete {
                 Button(role: .destructive) {
@@ -492,21 +482,16 @@ struct PoemCard: View {
     }
 }
 
-// MARK: - Poem Detail View (Velvet design)
+// MARK: - Poem Detail View
 
 struct PoemDetailView: View {
     let poem: Poem
     let apiClient: APIClient
     var onDelete: ((Poem) -> Void)?
     var onCreateVariation: ((Poem) -> Void)?
-    @State private var apiWrapper: APIClientWrapper
 
-    init(poem: Poem, apiClient: APIClient, onDelete: ((Poem) -> Void)? = nil, onCreateVariation: ((Poem) -> Void)? = nil) {
-        self.poem = poem
-        self.apiClient = apiClient
-        self.onDelete = onDelete
-        self.onCreateVariation = onCreateVariation
-        self._apiWrapper = State(initialValue: APIClientWrapper(client: apiClient))
+    private var apiWrapper: APIClientWrapper {
+        APIClientWrapper(client: apiClient)
     }
 
     @Environment(\.dismiss) private var dismiss

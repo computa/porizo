@@ -112,7 +112,7 @@ struct PorizoAppApp: App {
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
-        // Initialize Firebase core services (Crashlytics enabled, Analytics disabled in Info.plist)
+        // Initialize Firebase core services (Crashlytics + Analytics enabled)
         FirebaseApp.configure()
 
         // Initialize OneSignal for marketing/engagement push notifications.
@@ -133,7 +133,7 @@ struct PorizoAppApp: App {
             RootView()
                 .environment(authManager)
                 .environment(styleStore)
-                .preferredColorScheme(.light)
+
                 .withToasts()
                 .task {
                     // Request notification permission on launch
@@ -142,13 +142,14 @@ struct PorizoAppApp: App {
                     } catch {
                         print("[App] Notification permission error: \(error)")
                     }
-
+                }
+                .task {
                     // Check for renders that completed while the app was suspended
                     await JobRecoveryService.checkPendingRenders()
                 }
-                .onChange(of: scenePhase) { oldPhase, newPhase in
+                .task(id: scenePhase) {
                     // When app enters background, schedule background tasks
-                    if newPhase == .background {
+                    if scenePhase == .background {
                         BackgroundTaskRegistrar.scheduleAppRefresh()
                         // TODO: Only schedule render check if there are rendering tracks
                         // This will be enhanced once we have state access
@@ -156,10 +157,10 @@ struct PorizoAppApp: App {
 
                     // When app returns to foreground from background, refresh tokens proactively
                     // This ensures users don't encounter expired tokens after backgrounding the app
-                    if newPhase == .active && oldPhase == .background {
-                        Task {
-                            await authManager.refreshTokensIfNeeded()
-                        }
+                    // Note: .task(id:) fires on initial appearance too, but refreshTokensIfNeeded()
+                    // is safe to call anytime — it's a no-op when tokens are fresh.
+                    if scenePhase == .active {
+                        await authManager.refreshTokensIfNeeded()
                         // Notify views to refresh their data (e.g., check for completed renders)
                         NotificationCenter.default.post(name: .appReturnedToForeground, object: nil)
                     }

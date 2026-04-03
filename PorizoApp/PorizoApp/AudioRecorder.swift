@@ -8,21 +8,22 @@
 
 import Foundation
 import AVFoundation
-import Combine
+import Observation
 
 /// Handles microphone recording with WAV output format
+@Observable
 @MainActor
-class AudioRecorder: NSObject, ObservableObject {
+class AudioRecorder: NSObject {
 
-    // MARK: - Published State
+    // MARK: - Observable State
 
-    @Published var isRecording = false
-    @Published var duration: TimeInterval = 0
-    @Published var audioLevel: Float = 0
-    @Published var hasRecording = false
-    @Published var permissionGranted = false
-    @Published var permissionDenied = false
-    @Published var wasInterrupted = false
+    var isRecording = false
+    var duration: TimeInterval = 0
+    var audioLevel: Float = 0
+    var hasRecording = false
+    var permissionGranted = false
+    var permissionDenied = false
+    var wasInterrupted = false
 
     // MARK: - Private Properties
 
@@ -31,7 +32,7 @@ class AudioRecorder: NSObject, ObservableObject {
     private(set) var recordingURL: URL?
     private var levelTimer: Timer?
     private var durationTimer: Timer?
-    private var interruptionObserver: NSObjectProtocol?
+    @ObservationIgnored nonisolated(unsafe) private var interruptionObserver: NSObjectProtocol?
 
     // MARK: - Audio Settings (matching backend expectations)
 

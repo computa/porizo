@@ -37,14 +37,11 @@ struct ExploreTabView: View {
 
                 ScrollView {
                     VStack(alignment: .leading, spacing: 16) {
-                        // Hero card (peach container matching gallery)
-                        VStack(alignment: .leading, spacing: 12) {
-                            featuredCard
-                            quickCreateSection
-                        }
-                        .padding(20)
-                        .background(DesignTokens.coralBubble)
-                        .clipShape(RoundedRectangle(cornerRadius: 16))
+                        // Featured card with gradient
+                        featuredCard
+
+                        // Create CTA
+                        quickCreateSection
 
                         // Occasions
                         occasionsSection
@@ -70,7 +67,7 @@ struct ExploreTabView: View {
                 }
             }
         }
-        .onAppear {
+        .task {
             if recentTracks.isEmpty {
                 loadRecentTracks()
             }
@@ -87,6 +84,28 @@ struct ExploreTabView: View {
                 .foregroundStyle(DesignTokens.textPrimary)
 
             Spacer()
+
+            Button {
+                // TODO: Wire search action
+            } label: {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 20))
+                    .foregroundStyle(DesignTokens.textSecondary)
+                    .frame(width: 36, height: 36)
+            }
+            .accessibilityLabel("Search")
+            .accessibilityHint("Coming soon")
+
+            Button {
+                // TODO: Wire notifications
+            } label: {
+                Image(systemName: "bell")
+                    .font(.system(size: 20))
+                    .foregroundStyle(DesignTokens.textSecondary)
+                    .frame(width: 36, height: 36)
+            }
+            .accessibilityLabel("Notifications")
+            .accessibilityHint("Coming soon")
         }
         .padding(.horizontal, 20)
         .frame(height: 56)
@@ -95,14 +114,40 @@ struct ExploreTabView: View {
     // MARK: - Featured Section (Warm Canvas)
 
     private var featuredCard: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("Every moment deserves\na song")
-                .font(DesignTokens.displayFont(size: 20))
-                .foregroundStyle(DesignTokens.textPrimary)
-            Text("Create something personal")
-                .font(DesignTokens.bodyFont(size: 14))
-                .foregroundStyle(DesignTokens.textSecondary)
+        ZStack(alignment: .bottomLeading) {
+            // Gradient background
+            LinearGradient(
+                colors: [DesignTokens.gold, DesignTokens.goldGradientEnd],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            .frame(height: 140)
+            .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusLarge))
+
+            // Waveform decoration (right side)
+            HStack {
+                Spacer()
+                StaticWaveformBars(
+                    heights: [12, 20, 28, 36, 28, 20, 12, 8, 16, 24],
+                    barWidth: 4,
+                    spacing: 3,
+                    color: .white.opacity(0.2)
+                )
+                .padding(.trailing, 20)
+            }
+
+            // Text content
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Every moment deserves\na song")
+                    .font(DesignTokens.displayFont(size: 20, weight: .semibold))
+                    .foregroundStyle(.white)
+                Text("Create something personal")
+                    .font(DesignTokens.bodyFont(size: 14))
+                    .foregroundStyle(.white.opacity(0.85))
+            }
+            .padding(20)
         }
+        .frame(height: 140)
     }
 
     // MARK: - Quick Create Section
@@ -112,16 +157,21 @@ struct ExploreTabView: View {
             hapticImpactTrigger.toggle()
             onCreate()
         } label: {
-            Text("\u{2726} Create for someone special")
-                .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
-                .foregroundStyle(.white)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 16)
-                .background(DesignTokens.gold)
-                .clipShape(RoundedRectangle(cornerRadius: 14))
+            VStack(spacing: 4) {
+                Text("\u{2726} Create for someone special")
+                    .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
+                    .foregroundStyle(.white)
+                Text("Ready in about 90 seconds")
+                    .font(DesignTokens.bodyFont(size: 12))
+                    .foregroundStyle(.white.opacity(0.8))
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 16)
+            .background(DesignTokens.gold)
+            .clipShape(RoundedRectangle(cornerRadius: 14))
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Create for someone special")
+        .accessibilityLabel("Create for someone special, ready in about 90 seconds")
         .accessibilityHint("Opens creation menu to make a song or poem")
     }
 

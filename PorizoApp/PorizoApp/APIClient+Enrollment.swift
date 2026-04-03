@@ -101,21 +101,20 @@ extension APIClient {
     func completeEnrollment(sessionId: String) async throws -> VoiceProfile {
         let url = URL(string: "\(baseURL)/voice/enrollment/complete")!
 
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        try await applyAuthHeaders(&request)
+        var request = try await makeRequest(url: url, method: "POST")
 
         let body: [String: Any] = ["session_id": sessionId]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
-        let (data, _) = try await executeWithAuthRetry(request: request)
+        return try await withRetry {
+            let (data, _) = try await self.executeWithAuthRetry(request: request)
 
-        do {
-            return try Self.jsonDecoder.decode(VoiceProfile.self, from: data)
-        } catch {
-            let responseText = String(data: data, encoding: .utf8) ?? "No response"
-            throw APIClientError.decodingError("VoiceProfile: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+            do {
+                return try Self.jsonDecoder.decode(VoiceProfile.self, from: data)
+            } catch {
+                let responseText = String(data: data, encoding: .utf8) ?? "No response"
+                throw APIClientError.decodingError("VoiceProfile: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+            }
         }
     }
 
