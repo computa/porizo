@@ -15,6 +15,8 @@ struct GiftSendFlowView: View {
     let onCancel: () -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(StyleStore.self) private var styleStore
+    @Environment(STTRouter.self) private var sttRouter
 
     @State private var step: Step = .content
     @State private var contentType: GiftContentType = .song
@@ -24,8 +26,6 @@ struct GiftSendFlowView: View {
     @State private var selectedPoem: Poem?
 
     @State private var createLaunch: GiftCreateLaunch?
-    @State private var songRetryCount = 0
-
     @State private var sendViaSMS = true
     @State private var sendViaEmail = false
     @State private var recipientPhone = ""
@@ -51,6 +51,7 @@ struct GiftSendFlowView: View {
     @State private var showBundlePicker = false
     @State private var bundlePickerState: BundlePickerState = .selecting
     @State private var pendingCreateType: CreateFlowKind?
+    @State private var isCreatingContent = false
     @Environment(\.scenePhase) private var scenePhase
 
     enum BundlePickerState: Equatable {
@@ -129,33 +130,60 @@ struct GiftSendFlowView: View {
                         walletBalance = wallet.balance
                         walletTransactions = wallet.transactions
                     }
+                    // Refresh reservation status — may have expired while backgrounded
+                    if reservation != nil {
+                        let active = try? await apiClient.getActiveGiftReservation()
+                        if active?.reservation == nil {
+                            reservation = nil
+                        }
+                    }
                 }
             }
         }
         .sheet(isPresented: $showBundlePicker) {
             bundlePickerSheet
         }
-        .fullScreenCover(item: $createLaunch) { launch in
-            WarmCanvasFlowView(
-                apiClient: apiClient,
-                storeKit: storeKit,
-                preselectedType: launch.type,
-                onPoemComplete: { poem in
-                    createLaunch = nil
-                    Task {
-                        await applyCreatedPoem(poem)
+        .fullScreenCover(item: $createLaunch, onDismiss: { isCreatingContent = false }) { launch in
+            if launch.type == .poem {
+                UnifiedCreateFlowView(
+                    apiClient: apiClient,
+                    storeKit: storeKit,
+                    preselectedType: .poem,
+                    onPoemComplete: { poem in
+                        createLaunch = nil
+                        Task {
+                            await applyCreatedPoem(poem)
+                        }
+                    },
+                    onComplete: { _, _ in createLaunch = nil },
+                    onCancel: { createLaunch = nil }
+                )
+                .environment(styleStore)
+                .environment(sttRouter)
+            } else {
+                WarmCanvasFlowView(
+                    apiClient: apiClient,
+                    storeKit: storeKit,
+                    preselectedType: launch.type,
+                    onPoemComplete: { poem in
+                        createLaunch = nil
+                        Task {
+                            await applyCreatedPoem(poem)
+                        }
+                    },
+                    onComplete: { trackId, versionNum in
+                        createLaunch = nil
+                        Task {
+                            await applyCreatedSong(trackId: trackId, versionNum: versionNum)
+                        }
+                    },
+                    onCancel: {
+                        createLaunch = nil
                     }
-                },
-                onComplete: { trackId, versionNum in
-                    createLaunch = nil
-                    Task {
-                        await applyCreatedSong(trackId: trackId, versionNum: versionNum)
-                    }
-                },
-                onCancel: {
-                    createLaunch = nil
-                }
-            )
+                )
+                .environment(styleStore)
+                .environment(sttRouter)
+            }
         }
     }
 
@@ -252,11 +280,6 @@ struct GiftSendFlowView: View {
                                 .font(DesignTokens.bodyFont(size: 17, weight: .semibold))
                                 .foregroundStyle(DesignTokens.textPrimary)
 
-                            if contentType == .song {
-                                Text("Lyrics retries used: \(songRetryCount)/3")
-                                    .font(DesignTokens.bodyFont(size: 13))
-                                    .foregroundStyle(DesignTokens.textSecondary)
-                            }
                         }
                         .padding(16)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -268,14 +291,14 @@ struct GiftSendFlowView: View {
                         createActionButton(
                             title: isReserving ? "Reserving Token..." : "Create Song Gift",
                             icon: "music.note",
-                            disabled: isReserving || isPurchasing || isSubmitting,
+                            disabled: isReserving || isPurchasing || isSubmitting || isCreatingContent,
                             action: { startCreateFlow(type: .song) }
                         )
 
                         createActionButton(
                             title: isReserving ? "Reserving Token..." : "Create Poem Gift",
                             icon: "text.book.closed",
-                            disabled: isReserving || isPurchasing || isSubmitting,
+                            disabled: isReserving || isPurchasing || isSubmitting || isCreatingContent,
                             action: { startCreateFlow(type: .poem) }
                         )
                     }
@@ -519,12 +542,6 @@ struct GiftSendFlowView: View {
                 .font(DesignTokens.bodyFont(size: 17, weight: .semibold))
                 .foregroundStyle(DesignTokens.textPrimary)
 
-            if contentType == .song {
-                Text("Lyrics retries used: \(songRetryCount)/3")
-                    .font(DesignTokens.bodyFont(size: 13))
-                    .foregroundStyle(DesignTokens.textSecondary)
-            }
-
             Divider().background(DesignTokens.border)
 
             Text("Channels: \(selectedChannels.map { $0.uppercased() }.joined(separator: ", "))")
@@ -672,6 +689,8 @@ struct GiftSendFlowView: View {
     }
 
     private func openCreateFlow(type: CreateFlowKind) {
+        CreateFlowStore.shared.clear()
+        isCreatingContent = true
         createLaunch = GiftCreateLaunch(type: type)
     }
 
@@ -743,6 +762,13 @@ struct GiftSendFlowView: View {
             // Keep fallback title if fetch fails.
         }
 
+        guard hasActiveReservation else {
+            errorMessage = "Your reservation has expired. Please reserve a new token."
+            reservation = nil
+            step = .content
+            return
+        }
+
         guard let reservationId = reservation?.id else {
             errorMessage = "Gift reservation was lost. Please reserve again."
             step = .content
@@ -772,6 +798,13 @@ struct GiftSendFlowView: View {
         selectedTrackId = nil
         selectedTrackVersionNum = nil
         selectedTrackTitle = nil
+
+        guard hasActiveReservation else {
+            errorMessage = "Your reservation has expired. Please reserve a new token."
+            reservation = nil
+            step = .content
+            return
+        }
 
         guard let reservationId = reservation?.id else {
             errorMessage = "Gift reservation was lost. Please reserve again."
