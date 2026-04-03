@@ -52,6 +52,7 @@ struct GiftSendFlowView: View {
     @State private var bundlePickerState: BundlePickerState = .selecting
     @State private var pendingCreateType: CreateFlowKind?
     @State private var isCreatingContent = false
+    @State private var showCloseConfirmation = false
     @Environment(\.scenePhase) private var scenePhase
 
     enum BundlePickerState: Equatable {
@@ -121,6 +122,14 @@ struct GiftSendFlowView: View {
         } message: {
             Text(errorMessage ?? "")
         }
+        .alert("Discard gift?", isPresented: $showCloseConfirmation) {
+            Button("Discard", role: .destructive) {
+                Task { await closeFlow() }
+            }
+            Button("Keep editing", role: .cancel) {}
+        } message: {
+            Text("Your song has been created. Closing will cancel the reservation and return your token.")
+        }
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .active {
                 Task {
@@ -149,14 +158,14 @@ struct GiftSendFlowView: View {
                     apiClient: apiClient,
                     storeKit: storeKit,
                     preselectedType: .poem,
-                    onPoemComplete: { poem in
+                    onPoemComplete: { @MainActor poem in
                         createLaunch = nil
-                        Task {
+                        Task { @MainActor in
                             await applyCreatedPoem(poem)
                         }
                     },
-                    onComplete: { _, _ in createLaunch = nil },
-                    onCancel: { createLaunch = nil }
+                    onComplete: { @MainActor _, _ in createLaunch = nil },
+                    onCancel: { @MainActor in createLaunch = nil }
                 )
                 .environment(styleStore)
                 .environment(sttRouter)
@@ -165,19 +174,21 @@ struct GiftSendFlowView: View {
                     apiClient: apiClient,
                     storeKit: storeKit,
                     preselectedType: launch.type,
-                    onPoemComplete: { poem in
+                    alwaysShowVoiceSelection: true,
+                    isGiftContext: true,
+                    onPoemComplete: { @MainActor poem in
                         createLaunch = nil
-                        Task {
+                        Task { @MainActor in
                             await applyCreatedPoem(poem)
                         }
                     },
-                    onComplete: { trackId, versionNum in
+                    onComplete: { @MainActor trackId, versionNum in
                         createLaunch = nil
-                        Task {
+                        Task { @MainActor in
                             await applyCreatedSong(trackId: trackId, versionNum: versionNum)
                         }
                     },
-                    onCancel: {
+                    onCancel: { @MainActor in
                         createLaunch = nil
                     }
                 )
@@ -214,8 +225,10 @@ struct GiftSendFlowView: View {
             Spacer()
 
             Button {
-                Task {
-                    await closeFlow()
+                if hasAttachedReservationContent && step != .content && step != .success {
+                    showCloseConfirmation = true
+                } else {
+                    Task { await closeFlow() }
                 }
             } label: {
                 Image(systemName: "xmark")

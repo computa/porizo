@@ -225,6 +225,8 @@ struct TellModerationErrorView: View {
 /// Shown when song generation takes longer than expected.
 /// Features a slower-breathing pulse animation on the icon.
 struct WaitTimeoutErrorView: View {
+    var title: String = "This is taking longer than usual"
+    var bodyLine: String = "We'll notify you when it's ready."
     let onPrimaryAction: () -> Void   // Notify Me
     let onSecondaryAction: () -> Void  // Keep Waiting
 
@@ -233,9 +235,9 @@ struct WaitTimeoutErrorView: View {
 
     var body: some View {
         FlowErrorScaffold(
-            title: "This is taking longer than usual",
+            title: title,
             bodyLines: [
-                "We'll notify you when it's ready."
+                bodyLine
             ],
             icon: { timeoutIcon },
             actions: {

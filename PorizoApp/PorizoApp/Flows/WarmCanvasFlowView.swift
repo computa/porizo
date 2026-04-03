@@ -23,6 +23,8 @@ struct WarmCanvasFlowView: View {
     var resumeVersionNum: Int?
     var resumeTarget: CreateFlowResumeTarget?
     var variationSourcePoem: Poem?
+    var alwaysShowVoiceSelection: Bool = false
+    var isGiftContext: Bool = false
     var onPoemComplete: ((Poem) -> Void)? = nil
     let onComplete: (String, Int) -> Void
     let onCancel: () -> Void
@@ -104,6 +106,8 @@ struct WarmCanvasFlowView: View {
         resumeVersionNum: Int? = nil,
         resumeTarget: CreateFlowResumeTarget? = nil,
         variationSourcePoem: Poem? = nil,
+        alwaysShowVoiceSelection: Bool = false,
+        isGiftContext: Bool = false,
         onPoemComplete: ((Poem) -> Void)? = nil,
         onComplete: @escaping (String, Int) -> Void,
         onCancel: @escaping () -> Void
@@ -116,6 +120,8 @@ struct WarmCanvasFlowView: View {
         self.resumeVersionNum = resumeVersionNum
         self.resumeTarget = resumeTarget
         self.variationSourcePoem = variationSourcePoem
+        self.alwaysShowVoiceSelection = alwaysShowVoiceSelection
+        self.isGiftContext = isGiftContext
         self.onPoemComplete = onPoemComplete
         self.onComplete = onComplete
         self.onCancel = onCancel
@@ -542,7 +548,14 @@ struct WarmCanvasFlowView: View {
                     }
                 }
             },
-            onSkip: { withAnimation { moment = .reveal } }
+            onSkip: {
+                if let trackId = songFlow.currentTrackId,
+                   let versionNum = songFlow.currentVersionNum {
+                    onComplete(trackId, versionNum)
+                } else {
+                    withAnimation { moment = .reveal }
+                }
+            }
         )
     }
 
@@ -571,6 +584,12 @@ struct WarmCanvasFlowView: View {
             )
         case .waitTimeout:
             WaitTimeoutErrorView(
+                title: isGiftContext
+                    ? "Your gift is taking longer than usual"
+                    : "This is taking longer than usual",
+                bodyLine: isGiftContext
+                    ? "We'll notify you when your gift song is ready."
+                    : "We'll notify you when it's ready.",
                 onPrimaryAction: {
                     // Notify me → exit to home
                     activeError = nil
@@ -1176,7 +1195,7 @@ struct WarmCanvasFlowView: View {
     }
 
     private func advanceAfterEntitlementCheck() {
-        if !hasCompletedFirstSong {
+        if !hasCompletedFirstSong && !alwaysShowVoiceSelection {
             songFlow.voiceMode = .aiVoice
             songFlow.voiceGender = .female
             withAnimation { moment = .tell(.voiceSelected) }
