@@ -365,11 +365,11 @@ struct GenerateLyricsResponse: Codable, Sendable {
 /// Response from POST /tracks/:id/versions/:version/lyrics/approve
 struct ApproveLyricsResponse: Codable, Sendable {
     let approved: Bool
-    let lyricsStatus: String?
+    let hasAnchor: Bool?
 
     enum CodingKeys: String, CodingKey {
         case approved
-        case lyricsStatus = "lyrics_status"
+        case hasAnchor = "has_anchor"
     }
 }
 

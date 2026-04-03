@@ -557,7 +557,11 @@ struct WarmCanvasFlowView: View {
                     activeError = nil
                     onCancel()
                 },
-                onSecondaryAction: { activeError = nil }
+                onSecondaryAction: {
+                    activeError = nil
+                    // Restart timeout so user isn't stuck forever if render also fails
+                    startRenderTimeoutWatch()
+                }
             )
         case .waitFailure(let name):
             WaitFailureErrorView(
@@ -757,14 +761,19 @@ struct WarmCanvasFlowView: View {
         renderController.onFullRenderComplete = { [self] result in
             renderTimeoutTask?.cancel()
             activeError = nil  // Clear any timeout overlay that raced with completion
-            applyRenderResult(result)
 
-            if moment == .wait {
+            switch moment {
+            case .wait:
                 // Warm Canvas goes straight to full render (no preview).
+                applyRenderResult(result)
                 transitionToReveal(audioURL: result.audioURL)
-            } else {
+            case .reveal, .share:
                 // Already on reveal/share — just swap to the higher-quality audio.
+                applyRenderResult(result)
                 playbackController.switchAudio(url: result.audioURL)
+            case .tell:
+                // View reset or user left — ignore late callback
+                break
             }
         }
 
@@ -804,18 +813,17 @@ struct WarmCanvasFlowView: View {
         isStartingFullRender = true
         flowTask?.cancel()
         flowTask = Task { @MainActor in
+            defer { isStartingFullRender = false }
             do {
                 let entitlements = try await apiClient.getBillingEntitlements()
                 guard entitlements.songsRemaining > 0 else {
                     activeError = .noCredits
-                    isStartingFullRender = false
                     return
                 }
 
                 guard let trackId = songFlow.currentTrackId,
                       let versionNum = songFlow.currentVersionNum else {
                     presentFlowMessage("Track data not available. Please try again.")
-                    isStartingFullRender = false
                     return
                 }
 
@@ -824,16 +832,32 @@ struct WarmCanvasFlowView: View {
                 // render_preview and render_full endpoints (409 otherwise).
                 _ = try await apiClient.approveLyrics(trackId: trackId, versionNum: versionNum)
 
-                isStartingFullRender = false
                 wireRenderCallbacks()
                 withAnimation { moment = .wait }
                 startRenderTimeoutWatch()
                 renderController.startFullRender(trackId: trackId, versionNum: versionNum)
             } catch {
-                presentFlowError(error, context: "Starting render")
-                isStartingFullRender = false
+                // Route moderation blocks to the dedicated error overlay
+                if isModerationError(error) {
+                    activeError = .moderationError
+                } else {
+                    presentFlowError(error, context: "Starting render")
+                }
             }
         }
+    }
+
+    /// Check if an API error is a moderation block (403 MODERATION_BLOCKED).
+    private func isModerationError(_ error: Error) -> Bool {
+        if case APIClientError.httpError(statusCode: 403, let body) = error,
+           body.contains("MODERATION_BLOCKED") {
+            return true
+        }
+        if case APIClientError.serverError(_, let code, _) = error,
+           code == "MODERATION_BLOCKED" {
+            return true
+        }
+        return false
     }
 
     private func startRenderTimeoutWatch() {
@@ -1023,11 +1047,13 @@ struct WarmCanvasFlowView: View {
         guard !trimmed.isEmpty else { return }
         preSessionPrompt = nil
         storyEngine.addLocalUserMessage(trimmed)
-        Task { @MainActor in await beginConversation(initialPromptOverride: trimmed) }
+        flowTask?.cancel()
+        flowTask = Task { @MainActor in await beginConversation(initialPromptOverride: trimmed) }
     }
 
     private func submitAndScroll(_ answer: String) {
-        Task { @MainActor in
+        flowTask?.cancel()
+        flowTask = Task { @MainActor in
             do {
                 try await storyEngine.submitAnswer(answer)
             } catch {
