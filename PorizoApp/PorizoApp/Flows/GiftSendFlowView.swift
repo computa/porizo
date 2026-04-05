@@ -452,7 +452,7 @@ struct GiftSendFlowView: View {
                             displayedComponents: [.date, .hourAndMinute]
                         )
                         .datePickerStyle(.graphical)
-                        .accentColor(DesignTokens.gold)
+                        .tint(DesignTokens.gold)
                         .padding(12)
                         .background(DesignTokens.cardBackground)
                         .clipShape(.rect(cornerRadius: 12))

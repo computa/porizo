@@ -10,6 +10,7 @@ import SwiftUI
 
 /// State container for OG variant picker, shared across song and poem share views.
 @Observable
+@MainActor
 class OGVariantPickerState {
     var previews: [OgVariantPreview] = []
     var selectedVariant: String?

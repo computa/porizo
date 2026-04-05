@@ -49,7 +49,7 @@ struct ProfileCompletionView: View {
                                 .keyboardType(.emailAddress)
                                 .textContentType(.emailAddress)
                                 .autocapitalization(.none)
-                                .disableAutocorrection(true)
+                                .autocorrectionDisabled()
                                 .font(DesignTokens.bodyFont(size: 16))
                                 .foregroundStyle(DesignTokens.textPrimary)
                                 .padding(.horizontal, 16)

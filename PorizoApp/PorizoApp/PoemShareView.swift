@@ -543,12 +543,15 @@ struct PoemShareView: View {
         }
     }
 
+    private static let expiryDateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "MMM d, yyyy"
+        return f
+    }()
+
     private func formatExpiryDate(_ isoString: String) -> String {
         guard let date = try? Date(isoString, strategy: .iso8601) else { return isoString }
-
-        let displayFormatter = DateFormatter()
-        displayFormatter.dateFormat = "MMM d, yyyy"
-        return displayFormatter.string(from: date)
+        return Self.expiryDateFormatter.string(from: date)
     }
 
     private func loadPoemOgPreviews() async {
