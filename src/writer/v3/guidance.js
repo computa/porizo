@@ -101,7 +101,13 @@ async function callGuidanceLLM(state, elementDef, elementState, generateTextFn) 
     return null;
   }
 
-  return parseGuidanceResponse(response.text);
+  const result = parseGuidanceResponse(response.text);
+  if (result) {
+    // Post-process: replace LLM-generated story_anchor with verbatim fact quote
+    // to prevent broken grammar ("Sarah dance in the park")
+    result.story_anchor = findBestVerbatimQuote(result.story_anchor, state.facts);
+  }
+  return result;
 }
 
 /**
@@ -133,7 +139,7 @@ function buildGuidancePrompt(state, elementDef, elementState) {
     ? narrative.slice(0, 600) + "..."
     : narrative;
 
-  return `You are a story coach helping someone write a personal ${occasion} story for ${recipientName}.
+  return `You are a warm, encouraging friend helping someone create a beautiful ${occasion} song as a gift for ${recipientName}.
 
 STORY SO FAR:
 ${narrativeExcerpt || "(No narrative yet)"}
@@ -145,21 +151,75 @@ ELEMENT TO STRENGTHEN: "${elementDef.displayName}"
 PURPOSE: ${elementDef.purpose}
 STATE: ${elementState}
 
-Your job: Help the user strengthen "${elementDef.displayName}" with a response grounded in their specific story.
+Your job: Help the user enrich "${elementDef.displayName}" with a response grounded in their specific story.
+
+Your tone is warm and encouraging. You are helping someone create a beautiful gift.
+- Never say the story "lacks" or is "missing" anything
+- Frame guidance as enrichment: "To make this even more vivid..." not "This needs more detail"
+- Reference specific details from THEIR story in your diagnosis
+- Keep diagnosis to 1-2 sentences
+- Keep suggestion to 1 specific question
+- Examples should be SHORT (5-10 words each), grounded in THEIR story context
 
 Return JSON:
 {
-  "diagnosis": "1-2 sentences explaining what's ${elementState} about this element, referencing their specific story content",
+  "diagnosis": "1-2 warm sentences about how this element could be enriched, referencing their specific story content",
   "story_anchor": "exact short quote from the narrative that this element relates to, or null if no narrative exists",
-  "suggestion": "a direct question asking for the specific detail needed, using the recipient's name",
+  "suggestion": "a warm, curious question asking for the specific detail needed, using ${recipientName}'s name",
   "examples": ["2 concrete examples based on THEIR story context, not generic examples"]
 }
 
 Rules:
 - diagnosis must reference specific content from the story, not be generic
 - story_anchor must be a verbatim quote from the narrative (5-15 words), or null
-- suggestion must be phrased as a question
-- examples must feel like they could belong in THIS story (use the recipient's name, the occasion, the setting)`;
+- suggestion must be phrased as a warm, curious question (e.g. "Help me picture..." / "I'm curious...")
+- examples must feel like they could belong in THIS story (use ${recipientName}'s name, the occasion, the setting)
+- NEVER use: "lacks", "missing", "insufficient", "needs more", "doesn't explain"`;
+}
+
+/**
+ * Find the best matching verbatim quote from the user's facts.
+ *
+ * The LLM tends to paraphrase story content, producing broken grammar
+ * ("Sarah dance in the park") when it rewrites third-person references.
+ * Instead of trusting the LLM quote, we find the closest verbatim match
+ * from `state.facts` by word overlap.
+ *
+ * @param {string|null|undefined} llmAnchor - The LLM-generated story_anchor
+ * @param {Array<{content?: string, text?: string}>} facts - The user's collected facts
+ * @returns {string|null|undefined} A verbatim quote from facts, or the original anchor as fallback
+ */
+function findBestVerbatimQuote(llmAnchor, facts) {
+  if (!llmAnchor || !facts?.length) return llmAnchor;
+
+  const anchorWords = llmAnchor.toLowerCase().split(/\s+/);
+  let bestMatch = null;
+  let bestOverlap = 0;
+
+  for (const fact of facts) {
+    const content = fact.content || fact.text || "";
+    if (!content) continue;
+
+    const factWords = content.toLowerCase().split(/\s+/);
+    const overlap = anchorWords.filter((w) => factWords.includes(w)).length;
+
+    if (overlap > bestOverlap) {
+      bestOverlap = overlap;
+      bestMatch = content;
+    }
+  }
+
+  // Only use verbatim if reasonable overlap (>50% of anchor words found)
+  if (bestMatch && bestOverlap >= anchorWords.length * 0.5) {
+    // Trim to ~15 words for display
+    const words = bestMatch.split(/\s+/);
+    if (words.length > 15) {
+      return words.slice(0, 15).join(" ") + "...";
+    }
+    return bestMatch;
+  }
+
+  return llmAnchor; // fallback to LLM version if no good match
 }
 
 /**
@@ -257,4 +317,5 @@ module.exports = {
   parseGuidanceResponse,
   buildTemplateFallback,
   findElementDefinition,
+  findBestVerbatimQuote,
 };

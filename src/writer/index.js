@@ -90,6 +90,7 @@ function mapAnalysisFields(result) {
     weak_slots: result.weakSlots || [],
     readiness_score: typeof result.readinessScore === "number" ? result.readinessScore : 0,
     is_story_ready: Boolean(result.isStoryReady),
+    can_proceed_anyway: Boolean(result.canProceedAnyway),
     narrative_version: typeof result.narrativeVersion === "number" ? result.narrativeVersion : 0,
     integration_delta: result.integrationDelta || null,
     story_elements: result.storyElements || [],

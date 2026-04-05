@@ -30,6 +30,11 @@ function createInitialState({ recipientName, occasion, initialPrompt }) {
   const now = new Date().toISOString();
 
   return {
+    // Feature flags
+    flags: {
+      labov_scoring: true,
+    },
+
     // Event understanding (populated after first LLM call)
     event: {
       title: "",

@@ -42,6 +42,7 @@ const {
   getCompletionFromLLM,
   getCompletionScore,
   computeStoryGapAnalysis,
+  computeLabovGapAnalysis,
   pickDeterministicGapQuestion,
   getCriticalConfirmSlotCoverage,
   computeStoryElements,
@@ -49,6 +50,24 @@ const {
   getElementForSlot,
   STORY_ELEMENT_DEFINITIONS,
   REFLECTIVE_STORY_ELEMENT_DEFINITIONS,
+  RELATIONSHIP_HINT_REGEX,
+  TURN_REGEX,
+  TURN_CRISIS_REGEX,
+  TURN_TRANSFORMATION_REGEX,
+  ENDING_FEEL_REGEX,
+  APPRECIATION_REGEX,
+  WANT_REGEX,
+  BLOCKER_REGEX,
+  STAKES_REGEX,
+  EVALUATION_REGEX,
+  SENSORY_REGEX,
+  PAST_ACTION_REGEX,
+  DEDICATION_REGEX,
+  computeQuestionPriority,
+  generateTargetedFallbackQuestion,
+  validateQuestionRelevance,
+  generateStorySpecificSuggestions,
+  getSlotLabovElement,
 } = require("./quality");
 const { condenseForReasoning } = require("./condense");
 const { generateElementGuidance } = require("./guidance");
@@ -483,6 +502,148 @@ function buildFactInventory(state) {
   }));
 }
 
+/**
+ * Derive a structured summary from state.facts and state.conversation.
+ *
+ * This is a read-only derivation — state.facts remains the source of truth.
+ * The returned object powers {{already_known}} and {{already_asked}} prompt
+ * injections so the LLM stops re-asking about answered topics.
+ *
+ * @param {Object} state - Current V3 state
+ * @returns {Object} Derived story state with labov, sensoryDetails, questionsAsked
+ */
+function extractStoryState(state) {
+  const facts = Array.isArray(state?.facts)
+    ? state.facts.filter((f) => (f?.status || "active") === "active")
+    : [];
+  const conversation = Array.isArray(state?.conversation) ? state.conversation : [];
+
+  // --- Recipient ---
+  const recipientName = state?.atoms?.who || null;
+  let relationship = null;
+  const factsCorpus = facts.map((f) => f.text || "").join(" ");
+  const relMatch = factsCorpus.match(RELATIONSHIP_HINT_REGEX);
+  if (relMatch) {
+    relationship = relMatch[1].toLowerCase();
+  }
+
+  // --- Labov element classification ---
+  // Orientation: who/where/when — setting and context
+  const ORIENTATION_REGEX = /\b(met|lived|grew up|moved to|born|raised|since|college|school|park|kitchen|airport|home|house|summer|winter|year|day|night|morning|childhood)\b/i;
+  // Complicating action: events, change, disruption
+  const COMPLICATING_REGEX = /\b(changed|suddenly|then|happened|showed up|found out|realized|broke|left|lost|arrived|called|ran|fell|crashed|woke|fought|discovered|everything changed)\b/i;
+  // NOTE: EVALUATION_REGEX is imported from quality.js to ensure scoring and fact tracking agree
+  // Resolution: outcome, present-tense shift, dedication
+  const RESOLUTION_REGEX = /\b(now|today|since then|from that day|looking back|still|always will|never forgot|became|forgave|healed|stronger|better)\b/i;
+
+  const labov = {
+    orientation: { strength: 0, key_facts: [] },
+    complicating_action: { strength: 0, key_facts: [] },
+    evaluation: { strength: 0, key_facts: [] },
+    resolution: { strength: 0, key_facts: [] },
+  };
+
+  for (const fact of facts) {
+    const text = fact.text || "";
+    if (!text.trim()) continue;
+
+    // A fact can contribute to multiple Labov elements
+    if (ORIENTATION_REGEX.test(text) || RELATIONSHIP_HINT_REGEX.test(text)) {
+      labov.orientation.key_facts.push(text);
+    }
+    if (COMPLICATING_REGEX.test(text) || TURN_REGEX.test(text) || TURN_CRISIS_REGEX.test(text)) {
+      labov.complicating_action.key_facts.push(text);
+    }
+    if (EVALUATION_REGEX.test(text) || ENDING_FEEL_REGEX.test(text) || APPRECIATION_REGEX.test(text)) {
+      labov.evaluation.key_facts.push(text);
+    }
+    if (RESOLUTION_REGEX.test(text) || TURN_TRANSFORMATION_REGEX.test(text)) {
+      labov.resolution.key_facts.push(text);
+    }
+  }
+
+  // Atoms boost orientation
+  if (state?.atoms?.who) labov.orientation.strength += 0.3;
+  if (state?.atoms?.where) labov.orientation.strength += 0.2;
+  if (state?.atoms?.when) labov.orientation.strength += 0.2;
+  labov.orientation.strength += Math.min(0.3, labov.orientation.key_facts.length * 0.15);
+  labov.orientation.strength = Math.min(1, labov.orientation.strength);
+
+  labov.complicating_action.strength = Math.min(1, labov.complicating_action.key_facts.length * 0.25);
+  labov.evaluation.strength = Math.min(1, labov.evaluation.key_facts.length * 0.2);
+  labov.resolution.strength = Math.min(1, labov.resolution.key_facts.length * 0.3);
+
+  // --- Sensory details ---
+  // Extract concrete nouns, proper nouns, specific objects from facts
+  const PROPER_NOUN_REGEX = /\b[A-Z][a-z]+(?:\s[A-Z][a-z]+)*\b/g;
+  // /g for .match() (all occurrences), separate /i-only for .test() to avoid lastIndex bug
+  const SPECIFIC_DETAIL_MATCH_REGEX = /\b(mint chocolate chip|dancing queen|vanilla|strawberry|chocolate|roses|guitar|piano|sunset|beach|rain|snow|coffee|wine|candle|photograph|letter|ring|necklace|bracelet|song|melody|lullaby)\b/gi;
+  const SPECIFIC_DETAIL_TEST_REGEX = /\b(mint chocolate chip|dancing queen|vanilla|strawberry|chocolate|roses|guitar|piano|sunset|beach|rain|snow|coffee|wine|candle|photograph|letter|ring|necklace|bracelet|song|melody|lullaby)\b/i;
+  const sensorySet = new Set();
+  const recipientLower = (recipientName || "").toLowerCase();
+  for (const fact of facts) {
+    const text = fact.text || "";
+    const specificMatches = text.match(SPECIFIC_DETAIL_MATCH_REGEX) || [];
+    for (const m of specificMatches) {
+      sensorySet.add(m.toLowerCase());
+    }
+    // Also grab proper nouns that aren't the recipient name
+    const properMatches = text.match(PROPER_NOUN_REGEX) || [];
+    for (const m of properMatches) {
+      const lower = m.toLowerCase();
+      if (lower !== recipientLower && lower.length > 2 && !["the", "and", "but", "she", "her", "his", "they"].includes(lower)) {
+        // Only include multi-word proper nouns or known-specific single words
+        if (m.includes(" ") || SPECIFIC_DETAIL_TEST_REGEX.test(m)) {
+          sensorySet.add(m);
+        }
+      }
+    }
+  }
+  const sensoryDetails = [...sensorySet];
+
+  // --- Questions asked by the assistant ---
+  const questionsAsked = [];
+  for (let i = 0; i < conversation.length; i++) {
+    const turn = conversation[i];
+    if (turn.role !== "assistant") continue;
+    const content = turn.content || "";
+    // Extract questions (sentences ending with ?)
+    const questionMatches = content.match(/[^.!?]*\?/g);
+    if (!questionMatches) continue;
+
+    // Determine which round this is (count user turns before this assistant turn)
+    const round = conversation.slice(0, i).filter((t) => t.role === "user").length;
+
+    // Check if there's a user response after this assistant turn
+    const nextUserTurn = conversation.slice(i + 1).find((t) => t.role === "user");
+    const answered = Boolean(nextUserTurn);
+    const answerSummary = answered
+      ? (nextUserTurn.content || "").slice(0, 100)
+      : null;
+
+    for (const q of questionMatches) {
+      const trimmedQ = q.trim();
+      if (trimmedQ.length < 10) continue; // Skip very short fragments
+      questionsAsked.push({
+        round,
+        question: trimmedQ,
+        answered,
+        answerSummary,
+      });
+    }
+  }
+
+  const occasion = state?.occasion || state?.event?.occasion || undefined;
+
+  return {
+    recipient: { name: recipientName, relationship },
+    labov,
+    sensoryDetails,
+    questionsAsked,
+    occasion,
+  };
+}
+
 function buildConflictInventory(state) {
   const conflicts = Array.isArray(state?.open_conflicts) ? state.open_conflicts : [];
   return conflicts.map((conflict) => ({
@@ -884,7 +1045,10 @@ function getTurnProgressScore(state, gapAnalysis, action, elements) {
 }
 
 function computeDecisionContext(response, state, options = {}) {
-  const gapAnalysis = computeStoryGapAnalysis(state);
+  const useLabovScoring = state?.flags?.labov_scoring === true;
+  const gapAnalysis = useLabovScoring
+    ? computeLabovGapAnalysis(state, { occasion: state?.event?.occasion || state?.occasion, turnCount: state?.turn_count })
+    : computeStoryGapAnalysis(state);
   const gapQuestion = pickDeterministicGapQuestion(gapAnalysis);
   const criticalCoverage = getCriticalConfirmSlotCoverage(gapAnalysis);
   const elements = computeStoryElements(gapAnalysis);
@@ -906,6 +1070,7 @@ function computeDecisionContext(response, state, options = {}) {
     elementBlock, hardElementBlock, llmReadySignal,
     hardSafetyBlock, hardGroundingBlock, hardCriticalBlock,
     hardSemanticBlock, hardBlockConfirm, hybridReady, isRevision,
+    useLabovScoring,
   };
 }
 
@@ -913,7 +1078,9 @@ function resolveTurnDecision(response, state, options = {}) {
   const ctx = computeDecisionContext(response, state, options);
   let { gapQuestion, hardBlockConfirm } = ctx;
   const { gapAnalysis, elements, elementBlock, hardElementBlock, hybridReady,
-    llmReadySignal, hardSafetyBlock, hardCriticalBlock, criticalCoverage, hardSemanticBlock } = ctx;
+    llmReadySignal, hardSafetyBlock, hardCriticalBlock, criticalCoverage, hardSemanticBlock,
+    useLabovScoring } = ctx;
+  const userMessage = options.userMessage || null;
   let adjustedResponse = { ...response };
   let forcedGapQuestion = false;
   let forcedConfirm = false;
@@ -1004,7 +1171,8 @@ function resolveTurnDecision(response, state, options = {}) {
       && response.question.length > 0;
     const llmTargetedExactGap = llmProvidedQuestion
       && response.targetSlot
-      && response.targetSlot === gapQuestion?.targetSlot;
+      && (response.targetSlot === gapQuestion?.targetSlot
+        || (useLabovScoring && getSlotLabovElement(response.targetSlot) === getSlotLabovElement(gapQuestion?.targetSlot)));
     const weakName = elementBlock.weakestElement?.display_name || "a story element";
     const elementFallback = `Before I finalize, ${weakName} still needs more detail. Could you share something specific?`;
     const semanticPrompt = hardSemanticBlock
@@ -1049,7 +1217,8 @@ function resolveTurnDecision(response, state, options = {}) {
       && response.question.length > 0;
     const llmTargetedExactGap = llmAskedQuestion
       && response.targetSlot
-      && response.targetSlot === gapQuestion.targetSlot;
+      && (response.targetSlot === gapQuestion.targetSlot
+        || (useLabovScoring && getSlotLabovElement(response.targetSlot) === getSlotLabovElement(gapQuestion.targetSlot)));
 
     if (llmTargetedExactGap) {
       adjustedResponse = {
@@ -1060,17 +1229,57 @@ function resolveTurnDecision(response, state, options = {}) {
       };
       forcedGapQuestion = false;
       decisionSource = "llm_slot_targeted";
+    } else if (llmAskedQuestion && gapQuestion) {
+      // LLM asked a question but may have targeted the wrong element.
+      // Validate relevance against the target element, and if off-target,
+      // generate a story-specific fallback instead of a generic template.
+      const labovTarget = computeQuestionPriority(gapAnalysis?.labov ? gapAnalysis : state?.labov_analysis);
+      const targetElement = labovTarget?.element || null;
+      const isRelevant = targetElement && validateQuestionRelevance(response.question, targetElement);
+
+      if (isRelevant) {
+        // LLM's question is relevant to the target element even if slot key didn't match
+        adjustedResponse = {
+          ...adjustedResponse,
+          action: "ASK",
+          question: response.question,
+          confirmation: undefined,
+        };
+        forcedGapQuestion = false;
+        decisionSource = "llm_element_relevant";
+      } else {
+        // LLM's question is off-target — try story-specific targeted fallback
+        const targetedFallback = targetElement
+          ? generateTargetedFallbackQuestion(targetElement, state, userMessage)
+          : null;
+        const finalQuestion = targetedFallback || gapQuestion.prompt;
+        adjustedResponse = {
+          ...adjustedResponse,
+          action: "ASK",
+          question: finalQuestion,
+          confirmation: undefined,
+        };
+        llmSuggestions = [];  // Question replaced — LLM suggestions don't match
+        forcedGapQuestion = response.action !== "ASK" || response.question !== finalQuestion;
+        decisionSource = targetedFallback ? "targeted_fallback" : "deterministic_gap";
+      }
     } else {
-      // LLM didn't ask, or targeted a different slot — fall back to deterministic template
+      // LLM didn't ask at all — use targeted fallback or static template
+      const labovTarget = computeQuestionPriority(gapAnalysis?.labov ? gapAnalysis : state?.labov_analysis);
+      const targetElement = labovTarget?.element || null;
+      const targetedFallback = targetElement
+        ? generateTargetedFallbackQuestion(targetElement, state, userMessage)
+        : null;
+      const finalQuestion = targetedFallback || gapQuestion.prompt;
       adjustedResponse = {
         ...adjustedResponse,
         action: "ASK",
-        question: gapQuestion.prompt,
+        question: finalQuestion,
         confirmation: undefined,
       };
       llmSuggestions = [];  // Question replaced — LLM suggestions don't match
-      forcedGapQuestion = response.action !== "ASK" || response.question !== gapQuestion.prompt;
-      decisionSource = "deterministic_gap";
+      forcedGapQuestion = response.action !== "ASK" || response.question !== finalQuestion;
+      decisionSource = targetedFallback ? "targeted_fallback" : "deterministic_gap";
     }
   }
 
@@ -1136,6 +1345,8 @@ function attachGapTelemetry(state, gapAnalysis, gapQuestion, responseAction, dec
     current_gap: gapQuestion?.targetSlot || null,
     gap_history: nextGapHistory,
     semantic_history: nextSemanticHistory,
+    // Persist Labov analysis for prompt builder to consume on next turn
+    labov_analysis: gapAnalysis.labov ? { labov: gapAnalysis.labov } : state.labov_analysis || null,
     readiness: {
       score: gapAnalysis.readinessScore,
       is_story_ready: gapAnalysis.isStoryReady,
@@ -1159,13 +1370,22 @@ function attachGapTelemetry(state, gapAnalysis, gapQuestion, responseAction, dec
   };
 }
 
-function buildResponseSuggestions({ action, occasion, targetSlot, storyMode, llmSuggestions }) {
+function buildResponseSuggestions({ action, occasion, targetSlot, storyMode, llmSuggestions, state, userMessage }) {
   // No suggestions for terminal actions
   if (action === "STOP" || action === "CONFIRM") {
     return [];
   }
 
-  // 1. Aligned LLM suggestions (contextual, story-aware — only when question was kept)
+  // 1. Story-specific suggestions extracted from the user's actual content
+  // These are always preferred over LLM-generated or template suggestions
+  if (state && userMessage) {
+    const storySpecific = generateStorySpecificSuggestions(state, userMessage);
+    if (storySpecific.length >= 3) {
+      return storySpecific;
+    }
+  }
+
+  // 2. Aligned LLM suggestions (fallback when story-specific extraction didn't yield enough)
   if (Array.isArray(llmSuggestions) && llmSuggestions.length > 0) {
     return llmSuggestions.slice(0, 3);
   }
@@ -1419,7 +1639,7 @@ async function startStoryV3(options) {
     usedFallback = true;
   }
 
-  const gapResolution = resolveTurnDecision(response, finalState);
+  const gapResolution = resolveTurnDecision(response, finalState, { userMessage: initialPrompt });
   response = gapResolution.response;
   finalState = attachGapTelemetry(
     finalState,
@@ -1448,6 +1668,9 @@ async function startStoryV3(options) {
     finalState = addTurnToState(finalState, "assistant", assistantMessage);
   }
 
+  // Derive anti-repetition state (powers {{already_known}} and {{already_asked}} prompt injections)
+  finalState = { ...finalState, story_state: extractStoryState(finalState) };
+
   await storyRepo.updateSession(session.id, {
     v2State: finalState,
     status: finalState.status || "active",
@@ -1465,6 +1688,8 @@ async function startStoryV3(options) {
     targetSlot,
     storyMode: gapResolution.gapAnalysis.storyMode,
     llmSuggestions: gapResolution.llmSuggestions,
+    state: finalState,
+    userMessage: initialPrompt,
   });
 
   return {
@@ -1483,6 +1708,7 @@ async function startStoryV3(options) {
     weakSlots: gapResolution.gapAnalysis.weakSlots || [],
     readinessScore: gapResolution.gapAnalysis.readinessScore,
     isStoryReady: gapResolution.gapAnalysis.isStoryReady,
+    canProceedAnyway: Boolean(gapResolution.gapAnalysis.canProceedAnyway),
     storyElements: gapResolution.elements,
     readiness: buildCanonicalReadiness({
       state: finalState,
@@ -1742,7 +1968,7 @@ async function continueStoryV3(options) {
     usedFallback = true;
   }
 
-  const gapResolution = resolveTurnDecision(response, v2State, { inputMode });
+  const gapResolution = resolveTurnDecision(response, v2State, { inputMode, userMessage: answer });
   response = gapResolution.response;
   v2State = attachGapTelemetry(
     v2State,
@@ -1828,6 +2054,9 @@ async function continueStoryV3(options) {
     };
   }
 
+  // Derive anti-repetition state (powers {{already_known}} and {{already_asked}} prompt injections)
+  v2State = { ...v2State, story_state: extractStoryState(v2State) };
+
   // 5. Save updated state
   await storyRepo.updateSession(sessionId, {
     v2State,
@@ -1860,6 +2089,8 @@ async function continueStoryV3(options) {
     targetSlot: continueTargetSlot,
     storyMode: gapResolution.gapAnalysis.storyMode,
     llmSuggestions: gapResolution.llmSuggestions,
+    state: v2State,
+    userMessage: answer,
   });
 
   return {
@@ -1879,6 +2110,7 @@ async function continueStoryV3(options) {
     weakSlots: gapResolution.gapAnalysis.weakSlots || [],
     readinessScore: gapResolution.gapAnalysis.readinessScore,
     isStoryReady: gapResolution.gapAnalysis.isStoryReady,
+    canProceedAnyway: Boolean(gapResolution.gapAnalysis.canProceedAnyway),
     storyElements: gapResolution.elements,
     readiness: buildCanonicalReadiness({
       state: v2State,
@@ -2611,6 +2843,9 @@ module.exports = {
   updateStoryStyleV3,
   prepareStoryReviewV3,
   confirmStoryV3,
+
+  // Story state derivation (anti-repetition)
+  extractStoryState,
 
   // Internal modules (for testing/debugging)
   __internal: {

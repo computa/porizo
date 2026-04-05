@@ -15,6 +15,9 @@ const {
   findHighestPriorityGap,
   getSlotGuidance,
   getElementForSlot,
+  computeQuestionPriority,
+  getQuestionStage,
+  detectEmotionalIntensity,
 } = require("../quality");
 
 function loadTemplate(name) {
@@ -27,12 +30,38 @@ function loadTemplate(name) {
   }
 }
 
-// Load prompt templates at module level (cached)
-const TEMPLATE = loadTemplate("reason-v3.md");
-const TEMPLATE_SELECTION = loadTemplate("reason-v3-selection.md");
-const TEMPLATE_OUTLINE = loadTemplate("reason-v3-outline.md");
-const TEMPLATE_EDITOR = loadTemplate("reason-v3-editor.md");
-const TEMPLATE_POV = loadTemplate("reason-v3-pov.md");
+// In development, hot-reload templates from disk on every call
+// so autoresearch prompt mutations take effect without server restart.
+// In production, cache at module level for performance.
+const HOT_RELOAD = process.env.NODE_ENV === "development" || process.env.NODE_ENV === "test";
+
+const _TEMPLATE = loadTemplate("reason-v3.md");
+const _TEMPLATE_SELECTION = loadTemplate("reason-v3-selection.md");
+const _TEMPLATE_OUTLINE = loadTemplate("reason-v3-outline.md");
+const _TEMPLATE_EDITOR = loadTemplate("reason-v3-editor.md");
+const _TEMPLATE_POV = loadTemplate("reason-v3-pov.md");
+
+// Accessors that hot-reload in dev, return cached in production
+function getTemplate(name, cached) {
+  return HOT_RELOAD ? loadTemplate(name) || cached : cached;
+}
+
+Object.defineProperties(module, {
+  _templateGetters: { value: true },
+});
+
+// Use these getters everywhere instead of the constants directly
+const TEMPLATE = HOT_RELOAD ? null : _TEMPLATE;
+const TEMPLATE_SELECTION = HOT_RELOAD ? null : _TEMPLATE_SELECTION;
+const TEMPLATE_OUTLINE = HOT_RELOAD ? null : _TEMPLATE_OUTLINE;
+const TEMPLATE_EDITOR = HOT_RELOAD ? null : _TEMPLATE_EDITOR;
+const TEMPLATE_POV = HOT_RELOAD ? null : _TEMPLATE_POV;
+
+function getMainTemplate() { return HOT_RELOAD ? loadTemplate("reason-v3.md") || _TEMPLATE : _TEMPLATE; }
+function getSelectionTemplate() { return HOT_RELOAD ? loadTemplate("reason-v3-selection.md") || _TEMPLATE_SELECTION : _TEMPLATE_SELECTION; }
+function getOutlineTemplate() { return HOT_RELOAD ? loadTemplate("reason-v3-outline.md") || _TEMPLATE_OUTLINE : _TEMPLATE_OUTLINE; }
+function getEditorTemplate() { return HOT_RELOAD ? loadTemplate("reason-v3-editor.md") || _TEMPLATE_EDITOR : _TEMPLATE_EDITOR; }
+function getPovTemplate() { return HOT_RELOAD ? loadTemplate("reason-v3-pov.md") || _TEMPLATE_POV : _TEMPLATE_POV; }
 
 const DEFAULT_PROMPT_LIMITS = {
   maxNarrativeChars: 4000,
@@ -304,12 +333,13 @@ function buildRetainedDetailsSection(details, limits) {
  * @returns {string} Formatted prompt
  */
 function buildContextPrompt(state, userInput, options = {}) {
-  if (!TEMPLATE) {
+  const tmpl = getMainTemplate();
+  if (!tmpl) {
     return buildFallbackPrompt(state, userInput);
   }
 
   const limits = resolvePromptLimits(options);
-  let prompt = TEMPLATE;
+  let prompt = tmpl;
 
   // Basic context replacements
   prompt = prompt.replace(/\{\{recipient_name\}\}/g, state.recipient_name || "the recipient");
@@ -354,16 +384,27 @@ function buildContextPrompt(state, userInput, options = {}) {
   const conversationHistory = buildConversationHistory(state.conversation, limits);
   prompt = prompt.replace(/\{\{conversation_history\}\}/g, conversationHistory);
 
+  // Anti-repetition: already known facts and already asked questions
+  const alreadyKnown = buildAlreadyKnown(state.story_state || null);
+  prompt = prompt.replace(/\{\{already_known\}\}/g, alreadyKnown);
+  const alreadyAsked = buildAlreadyAsked(state.story_state || null);
+  prompt = prompt.replace(/\{\{already_asked\}\}/g, alreadyAsked);
+
+  // Question targeting: Labov-aware information-gain + funnel staging
+  const questionTargeting = buildQuestionTargeting(state, state.labov_analysis || null, userInput);
+  prompt = prompt.replace(/\{\{question_targeting\}\}/g, questionTargeting);
+
   return prompt;
 }
 
 function buildSelectionPrompt(state, userInput, options = {}) {
-  if (!TEMPLATE_SELECTION) {
+  const tmplSel = getSelectionTemplate();
+  if (!tmplSel) {
     return buildContextPrompt(state, userInput, options);
   }
 
   const limits = resolvePromptLimits(options);
-  let prompt = TEMPLATE_SELECTION;
+  let prompt = tmplSel;
 
   prompt = prompt.replace(/\{\{recipient_name\}\}/g, state.recipient_name || "the recipient");
   prompt = prompt.replace(/\{\{occasion\}\}/g, state.event?.occasion || "celebration");
@@ -388,16 +429,21 @@ function buildSelectionPrompt(state, userInput, options = {}) {
   const conversationHistory = buildConversationHistory(state.conversation, limits);
   prompt = prompt.replace(/\{\{conversation_history\}\}/g, conversationHistory);
 
+  // Anti-repetition: already known facts
+  const alreadyKnown = buildAlreadyKnown(state.story_state || null);
+  prompt = prompt.replace(/\{\{already_known\}\}/g, alreadyKnown);
+
   return prompt;
 }
 
 function buildOutlinePrompt(state, userInput, selectionJson, options = {}) {
-  if (!TEMPLATE_OUTLINE) {
+  const tmplOut = getOutlineTemplate();
+  if (!tmplOut) {
     return buildContextPrompt(state, userInput, options);
   }
 
   const limits = resolvePromptLimits(options);
-  let prompt = TEMPLATE_OUTLINE;
+  let prompt = tmplOut;
 
   prompt = prompt.replace(/\{\{recipient_name\}\}/g, state.recipient_name || "the recipient");
   prompt = prompt.replace(/\{\{occasion\}\}/g, state.event?.occasion || "celebration");
@@ -418,12 +464,13 @@ function buildOutlinePrompt(state, userInput, selectionJson, options = {}) {
 }
 
 function buildEditorPrompt(state, userInput, writerJson, selectionJson, outlineJson, options = {}) {
-  if (!TEMPLATE_EDITOR) {
+  const tmplEd = getEditorTemplate();
+  if (!tmplEd) {
     return buildContextPrompt(state, userInput, options);
   }
 
   const limits = resolvePromptLimits(options);
-  let prompt = TEMPLATE_EDITOR;
+  let prompt = tmplEd;
 
   prompt = prompt.replace(/\{\{recipient_name\}\}/g, state.recipient_name || "the recipient");
   prompt = prompt.replace(/\{\{occasion\}\}/g, state.event?.occasion || "celebration");
@@ -440,12 +487,13 @@ function buildEditorPrompt(state, userInput, writerJson, selectionJson, outlineJ
 }
 
 function buildPovPrompt(state, userInput, narrative, songMapJson, options = {}) {
-  if (!TEMPLATE_POV) {
+  const tmplPov = getPovTemplate();
+  if (!tmplPov) {
     return buildContextPrompt(state, userInput, options);
   }
 
   const limits = resolvePromptLimits(options);
-  let prompt = TEMPLATE_POV;
+  let prompt = tmplPov;
 
   prompt = prompt.replace(/\{\{recipient_name\}\}/g, state.recipient_name || "the recipient");
   prompt = prompt.replace(/\{\{occasion\}\}/g, state.event?.occasion || "celebration");
@@ -726,6 +774,151 @@ function buildConversationHistory(conversation, options = {}) {
 }
 
 /**
+ * Build the ALREADY KNOWN section for anti-repetition injection.
+ *
+ * Reads from state.story_state (derived by extractStoryState).
+ * Returns empty string when story_state is null/undefined (graceful degradation).
+ * Capped at 10 bullet items to stay within prompt budget.
+ *
+ * @param {Object|null} storyState - Derived story state from extractStoryState
+ * @returns {string} Formatted section or empty string
+ */
+function buildAlreadyKnown(storyState) {
+  if (!storyState || typeof storyState !== "object") return "";
+
+  const items = [];
+
+  // Recipient line
+  if (storyState.recipient?.name) {
+    const rel = storyState.recipient.relationship
+      ? `, ${storyState.recipient.relationship}`
+      : "";
+    items.push(`Recipient: ${storyState.recipient.name}${rel}`);
+  }
+
+  // Labov key facts
+  const labov = storyState.labov;
+  if (labov && typeof labov === "object") {
+    for (const element of ["orientation", "complicating_action", "evaluation", "resolution"]) {
+      const el = labov[element];
+      if (el && Array.isArray(el.key_facts)) {
+        for (const fact of el.key_facts) {
+          if (typeof fact === "string" && fact.trim()) {
+            items.push(fact.trim());
+          }
+        }
+      }
+    }
+  }
+
+  // Sensory details
+  if (Array.isArray(storyState.sensoryDetails)) {
+    for (const detail of storyState.sensoryDetails) {
+      if (typeof detail === "string" && detail.trim()) {
+        items.push(detail.trim());
+      }
+    }
+  }
+
+  if (items.length === 0) return "";
+
+  // Deduplicate (case-insensitive) and cap at 10
+  const seen = new Set();
+  const deduped = [];
+  for (const item of items) {
+    const key = item.toLowerCase();
+    if (!seen.has(key)) {
+      seen.add(key);
+      deduped.push(item);
+    }
+  }
+  const capped = deduped.slice(0, 10);
+
+  return "ALREADY KNOWN (do NOT ask about these):\n"
+    + capped.map((item) => `- ${item}`).join("\n");
+}
+
+/**
+ * Build the ALREADY ASKED section for anti-repetition injection.
+ *
+ * Reads from state.story_state.questionsAsked (derived by extractStoryState).
+ * Returns empty string when story_state is null/undefined (graceful degradation).
+ * Capped at 5 items to stay within prompt budget.
+ *
+ * @param {Object|null} storyState - Derived story state from extractStoryState
+ * @returns {string} Formatted section or empty string
+ */
+function buildAlreadyAsked(storyState) {
+  if (!storyState || typeof storyState !== "object") return "";
+
+  const questions = Array.isArray(storyState.questionsAsked)
+    ? storyState.questionsAsked
+    : [];
+
+  if (questions.length === 0) return "";
+
+  const capped = questions.slice(-5); // Most recent 5
+
+  const lines = capped.map((q) => {
+    const roundLabel = `Round ${q.round || "?"}`;
+    const questionText = (q.question || "").slice(0, 120);
+    if (q.answered && q.answerSummary) {
+      const answer = q.answerSummary.slice(0, 80);
+      return `- ${roundLabel}: "${questionText}" -> Answered: "${answer}"`;
+    }
+    return `- ${roundLabel}: "${questionText}" -> Pending/Unanswered`;
+  });
+
+  return "ALREADY ASKED (do NOT repeat these questions):\n" + lines.join("\n");
+}
+
+/**
+ * Build the QUESTION TARGETING section for Labov-aware sessions.
+ *
+ * Combines information-gain priority, funnel stage, and emotional intensity
+ * into a single prompt injection block. Returns empty string for legacy
+ * sessions (no Labov data), ensuring backward compatibility.
+ *
+ * @param {Object} state - Current V3 state (needs turn_count)
+ * @param {Object|null} labovAnalysis - Return value of computeLabovGapAnalysis, or null
+ * @param {string} userMessage - The user's latest message
+ * @returns {string} Targeting block or empty string
+ */
+function buildQuestionTargeting(state, labovAnalysis, userMessage) {
+  if (!labovAnalysis?.labov) return "";
+
+  const priority = computeQuestionPriority(labovAnalysis);
+  const stage = getQuestionStage(state?.turn_count);
+  const emotion = detectEmotionalIntensity(userMessage);
+
+  let targeting = "";
+
+  if (priority) {
+    targeting += `QUESTION TARGET: ${priority.element} \u2014 ${priority.reason}\n`;
+  } else {
+    targeting += `QUESTION TARGET: None \u2014 all elements sufficiently covered. Story is ready.\n`;
+  }
+
+  targeting += `QUESTION STAGE: ${stage.stage} (${stage.description})\n`;
+  targeting += `EMOTIONAL INTENSITY: ${emotion.intensity}`;
+  if (emotion.intensity === "high") {
+    targeting += " \u2192 Deepen this emotional thread instead of jumping to next element.\n";
+    if (priority && priority.element !== "evaluation") {
+      targeting += `EMOTION OVERRIDE: User shared something vulnerable. Target "evaluation" (emotional meaning) instead of "${priority.element}".\n`;
+    }
+  } else {
+    targeting += "\n";
+  }
+
+  if (userMessage) {
+    const preview = userMessage.length > 200 ? userMessage.slice(0, 200) + "..." : userMessage;
+    targeting += `\nThe user just said: "${preview}"\nBuild your question on something THEY said. Use the "Yes, And" technique.\n`;
+  }
+
+  return targeting;
+}
+
+/**
  * Fallback prompt when template fails to load
  *
  * @param {Object} state - Current state
@@ -749,6 +942,7 @@ module.exports = {
   buildEditorPrompt,
   buildPovPrompt,
   buildGapTargeting,
+  buildQuestionTargeting,
   buildFactsList,
   buildBeatsTable,
   buildConversationHistory,
@@ -758,4 +952,6 @@ module.exports = {
   buildDialsSummary,
   serializeStructuredContext,
   buildRetainedDetailsSection,
+  buildAlreadyKnown,
+  buildAlreadyAsked,
 };

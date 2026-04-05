@@ -42,6 +42,7 @@ function spreadStoryAnalysisFields(result) {
     weak_slots: result.weak_slots || [],
     readiness_score: typeof result.readiness_score === "number" ? result.readiness_score : 0,
     is_story_ready: Boolean(result.is_story_ready),
+    can_proceed_anyway: Boolean(result.can_proceed_anyway),
     narrative_version: typeof result.narrative_version === "number" ? result.narrative_version : 0,
     integration_delta: result.integration_delta || null,
     draft_lifecycle: result.draft_lifecycle || null,
@@ -2891,6 +2892,304 @@ function registerStoryRoutes(app, {
       sendError(reply, 500, "STORY_TO_TRACK_FAILED", "Something went wrong creating your song. Your story is saved — please try again.");
     }
   });
+
+  // ═══════════════════════════════════════════════════════════════════
+  // DEBUG ENDPOINTS — dev-mode only, for story algorithm tuning
+  // Remove these when autoresearch optimization is complete.
+  // ═══════════════════════════════════════════════════════════════════
+
+  if (process.env.NODE_ENV === "development" || process.env.NODE_ENV === "test") {
+    const {
+      computeLabovGapAnalysis,
+      computeStoryGapAnalysis,
+      computeStoryElements,
+      computeQuestionPriority,
+      getQuestionStage,
+      detectEmotionalIntensity,
+    } = require("../writer/v3/quality");
+    const { extractStoryState } = require("../writer/v3");
+
+    // GET /debug/story/:id/state — Full Labov analysis for a story session
+    app.get("/debug/story/:id/state", async (request, reply) => {
+      const { id } = request.params;
+      try {
+        const state = await writer.getStoryState(id);
+        if (!state) {
+          sendError(reply, 404, "NOT_FOUND", "Story session not found.");
+          return;
+        }
+
+        const occasion = state.event?.occasion || state.occasion || "celebration";
+        const turnCount = state.turn_count || 0;
+
+        const labovAnalysis = computeLabovGapAnalysis(state, { occasion, turnCount });
+        const legacyAnalysis = computeStoryGapAnalysis(state);
+        const storyState = extractStoryState(state);
+        const elements = computeStoryElements(labovAnalysis);
+        const questionPriority = computeQuestionPriority(labovAnalysis);
+        const questionStage = getQuestionStage(turnCount);
+
+        reply.send({
+          session_id: id,
+          turn_count: turnCount,
+          occasion,
+          labov: {
+            elements: labovAnalysis.labov?.elements || [],
+            weighted_score: labovAnalysis.labov?.weightedScore || 0,
+            is_ready: labovAnalysis.isStoryReady,
+            can_proceed_anyway: labovAnalysis.canProceedAnyway || false,
+            readiness_score: labovAnalysis.readinessScore,
+          },
+          legacy: {
+            readiness_score: legacyAnalysis.readinessScore,
+            is_ready: legacyAnalysis.isStoryReady,
+            profile: legacyAnalysis.readinessProfile,
+          },
+          display_elements: elements,
+          question_targeting: {
+            priority: questionPriority,
+            stage: questionStage,
+          },
+          fact_tracking: {
+            known_facts: storyState?.labov || {},
+            sensory_details: storyState?.sensoryDetails || [],
+            questions_asked: storyState?.questionsAsked || [],
+          },
+          recipient: storyState?.recipient || {},
+        });
+      } catch (err) {
+        console.error("[Debug] Story state failed:", err.message);
+        sendError(reply, 500, "DEBUG_ERROR", err.message);
+      }
+    });
+
+    // POST /debug/story/simulate — Run one round through the algorithm without DB write
+    app.post("/debug/story/simulate", async (request, reply) => {
+      const { message, occasion, recipient_name, prior_state } = request.body || {};
+
+      if (!message) {
+        sendError(reply, 400, "MISSING_INPUT", "message is required.");
+        return;
+      }
+
+      try {
+        // Build a minimal state for simulation
+        const state = prior_state || {
+          facts: [],
+          conversation: [],
+          atoms: { who: recipient_name || null },
+          primitives: {},
+          dials: {},
+          motifs: [],
+          narrative: "",
+          turn_count: 0,
+          event: { occasion: occasion || "birthday" },
+          recipient_name: recipient_name || "someone",
+          occasion: occasion || "birthday",
+          flags: { labov_scoring: true },
+        };
+
+        // Add user message to conversation
+        const updatedConversation = [
+          ...(state.conversation || []),
+          { role: "user", content: message },
+        ];
+        state.conversation = updatedConversation;
+        state.turn_count = (state.turn_count || 0) + 1;
+
+        // Run Labov analysis
+        const labovAnalysis = computeLabovGapAnalysis(state, {
+          occasion: state.occasion || "birthday",
+          turnCount: state.turn_count,
+        });
+
+        // Extract story state for anti-repetition
+        const storyState = extractStoryState(state);
+        state.story_state = storyState;
+
+        // Compute question targeting
+        const questionPriority = computeQuestionPriority(labovAnalysis);
+        const questionStage = getQuestionStage(state.turn_count);
+        const emotionalIntensity = detectEmotionalIntensity(message);
+
+        // Compute display elements
+        const elements = computeStoryElements(labovAnalysis);
+
+        reply.send({
+          turn_count: state.turn_count,
+          labov: {
+            elements: labovAnalysis.labov?.elements || [],
+            weighted_score: labovAnalysis.labov?.weightedScore || 0,
+            is_ready: labovAnalysis.isStoryReady,
+            can_proceed_anyway: labovAnalysis.canProceedAnyway || false,
+          },
+          display_elements: elements,
+          question_targeting: {
+            priority: questionPriority,
+            stage: questionStage,
+            emotional_intensity: emotionalIntensity,
+          },
+          fact_tracking: {
+            known_facts: storyState?.labov || {},
+            sensory_details: storyState?.sensoryDetails || [],
+            questions_asked: storyState?.questionsAsked || [],
+          },
+          // Return state for multi-round simulation
+          prior_state: state,
+        });
+      } catch (err) {
+        console.error("[Debug] Simulate failed:", err.message);
+        sendError(reply, 500, "DEBUG_ERROR", err.message);
+      }
+    });
+
+    // GET /debug/story/:id/transcript — Full conversation with per-round analysis
+    app.get("/debug/story/:id/transcript", async (request, reply) => {
+      const { id } = request.params;
+      try {
+        const state = await writer.getStoryState(id);
+        if (!state) {
+          sendError(reply, 404, "NOT_FOUND", "Story session not found.");
+          return;
+        }
+
+        const conversation = state.conversation || [];
+        const turns = [];
+        let turnNum = 0;
+
+        for (const msg of conversation) {
+          if (msg.role === "user") {
+            turnNum++;
+            const emotionalIntensity = detectEmotionalIntensity(msg.content);
+            turns.push({
+              turn: turnNum,
+              role: "user",
+              content: msg.content,
+              emotional_intensity: emotionalIntensity,
+            });
+          } else if (msg.role === "assistant") {
+            turns.push({
+              turn: turnNum,
+              role: "assistant",
+              content: msg.content?.slice(0, 500) || "",
+              action: msg.action || null,
+              suggestions: msg.suggestions || [],
+            });
+          }
+        }
+
+        const labovAnalysis = computeLabovGapAnalysis(state, {
+          occasion: state.event?.occasion || state.occasion,
+          turnCount: state.turn_count || 0,
+        });
+
+        reply.send({
+          session_id: id,
+          total_turns: turnNum,
+          current_readiness: {
+            labov_score: labovAnalysis.labov?.weightedScore || 0,
+            is_ready: labovAnalysis.isStoryReady,
+            can_proceed: labovAnalysis.canProceedAnyway || false,
+          },
+          conversation: turns,
+        });
+      } catch (err) {
+        console.error("[Debug] Transcript failed:", err.message);
+        sendError(reply, 500, "DEBUG_ERROR", err.message);
+      }
+    });
+
+    // POST /debug/story/full-round — Run the REAL writer pipeline (LLM calls)
+    // Tests the complete algorithm: scoring + fact extraction + anti-repetition + tone + question targeting
+    // This creates a real DB session. Use for testing the full guidance experience.
+    app.post("/debug/story/full-round", async (request, reply) => {
+      const { message, occasion, recipient_name, session_id } = request.body || {};
+
+      if (!message) {
+        sendError(reply, 400, "MISSING_INPUT", "message is required.");
+        return;
+      }
+
+      // Get userId through the auth system (same as other endpoints)
+      const userId = await requireUserId(request, reply);
+      if (!userId) return;
+
+      try {
+        let result;
+        let storyId = session_id;
+
+        if (!storyId) {
+          // First round — start a new story session
+          result = await writer.startStory({
+            user_id: userId,
+            recipient_name: recipient_name || "someone",
+            occasion: occasion || "birthday",
+            initial_prompt: message,
+          });
+          storyId = result.story_id || result.session_id || result.id;
+        } else {
+          // Continue an existing session
+          result = await writer.continueStory({
+            story_id: storyId,
+            answer: message,
+          });
+        }
+
+        // Now fetch the full state to get Labov analysis
+        const state = await writer.getStoryState(storyId);
+        const labovAnalysis = state
+          ? computeLabovGapAnalysis(state, {
+              occasion: state.event?.occasion || occasion || "birthday",
+              turnCount: state.turn_count || 1,
+            })
+          : null;
+        const storyState = state ? extractStoryState(state) : null;
+        const elements = labovAnalysis ? computeStoryElements(labovAnalysis) : [];
+        const questionPriority = labovAnalysis ? computeQuestionPriority(labovAnalysis) : null;
+        const questionStage = getQuestionStage(state?.turn_count || 1);
+
+        reply.send({
+          session_id: storyId,
+          turn_count: state?.turn_count || 1,
+          // The AI's actual response (the guidance the user sees)
+          ai_response: {
+            question: result.next_question || result.question || result.first_question || null,
+            narrative: result.narrative || null,
+            action: result.action || null,
+            complete: result.complete || false,
+            ready_for_confirmation: result.ready_for_confirmation || false,
+            can_proceed_anyway: result.can_proceed_anyway || false,
+            suggestions: result.suggestions || [],
+          },
+          // Labov scoring
+          labov: labovAnalysis ? {
+            elements: labovAnalysis.labov?.elements || [],
+            weighted_score: labovAnalysis.labov?.weightedScore || 0,
+            is_ready: labovAnalysis.isStoryReady,
+            can_proceed_anyway: labovAnalysis.canProceedAnyway || false,
+          } : null,
+          display_elements: elements,
+          // Question targeting (what the algo decided to ask about)
+          question_targeting: {
+            priority: questionPriority,
+            stage: questionStage,
+            emotional_intensity: detectEmotionalIntensity(message),
+          },
+          // Fact tracking (anti-repetition state)
+          fact_tracking: {
+            known_facts: storyState?.labov || {},
+            sensory_details: storyState?.sensoryDetails || [],
+            questions_asked: storyState?.questionsAsked || [],
+          },
+        });
+      } catch (err) {
+        console.error("[Debug] Full-round failed:", err.message);
+        sendError(reply, 500, "DEBUG_ERROR", err.message);
+      }
+    });
+
+    console.log("[Debug] Story debug endpoints registered: /debug/story/:id/state, /debug/story/simulate, /debug/story/full-round, /debug/story/:id/transcript");
+  }
 }
 
 module.exports = { registerStoryRoutes };

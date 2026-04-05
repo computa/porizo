@@ -27,7 +27,8 @@ function spawnProcess(label, command, args, env = process.env) {
 
 // Use inline job runner (INLINE_JOB_RUNNER defaults to true in config.js)
 // This ensures the server and job runner share the same in-memory database
-const api = spawnProcess("api", "node", ["src/server.js"]);
+const devEnv = { ...process.env, NODE_ENV: process.env.NODE_ENV || "development" };
+const api = spawnProcess("api", "node", ["src/server.js"], devEnv);
 
 const shutdown = () => {
   api.kill("SIGINT");

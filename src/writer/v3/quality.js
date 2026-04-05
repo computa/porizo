@@ -83,6 +83,31 @@ const CRITICAL_CONFIRM_SLOT_IDS = [
   "ending_feel",
 ];
 
+/**
+ * Reverse mapping: slot name → Labov element.
+ * Used for element-level comparison when Labov scoring is active,
+ * since the LLM returns slot names but the gap analysis targets Labov elements.
+ * Matches the spec mapping in docs/story-guidance-algo-plan.md line 26-33.
+ */
+const SLOT_TO_LABOV_ELEMENT = {
+  moment_destination: "orientation",
+  who: "orientation",
+  setting: "orientation",
+  blocker: "complicating_action",
+  stakes: "complicating_action",
+  moment: "complicating_action",
+  want: "evaluation",
+  ending_feel: "evaluation",
+  bond: "evaluation",
+  feeling: "evaluation",
+  turn: "resolution",
+  tone: "specificity",
+};
+
+function getSlotLabovElement(slot) {
+  return SLOT_TO_LABOV_ELEMENT[slot] || null;
+}
+
 const SLOT_GUIDANCE_TEMPLATES = {
   moment_destination: {
     weak: {
@@ -285,6 +310,14 @@ const REFLECTIVE_OCCASIONS = new Set([
   "father's-day",
 ]);
 
+// --- Labov-specific regex patterns ---
+const EVALUATION_REGEX = /\b(felt|feel|feeling|meant|means|made me|changed|realize[d]?|understood|grateful|loved|special|important|connected)\b/i;
+const SENSORY_REGEX = /\b(smell[s]?|taste[d]?|sound[s]?|hear[d]?|saw|see|touch|warm|cold|bright|dark|loud|quiet|sweet|bitter)\b/i;
+const PAST_ACTION_REGEX = /\b(went|came|ran|walked|drove|called|said|told|gave|took|brought|showed|made|played|danced|laughed|cried|sang|cooked)\b/i;
+const DEDICATION_REGEX = /\b(happy birthday|for you|on your|this is for|here'?s to|celebrating|wishing|this mother'?s? day|this father'?s? day|this anniversary|i want you to know|i see you|i appreciate you|thank you for|you deserve|you mean)\b/i;
+
+const TRIBUTE_OCCASION_REGEX = /\b(memorial|bereavement|tribute|thank[_\s-]?you|in[_\s-]?memory)\b/i;
+
 const { normalizeOccasion, normalizeText, trimText } = require("./utils");
 
 function hasText(value) {
@@ -321,6 +354,11 @@ function buildCorpus(state) {
   for (const fact of state?.facts || []) {
     if ((fact?.status || "active") !== "active") continue;
     if (hasText(fact?.text)) corpus.push(fact.text);
+  }
+  // Include raw user conversation messages so regex evaluators can detect
+  // Labov elements even before the LLM pipeline extracts atoms/primitives
+  for (const msg of state?.conversation || []) {
+    if (msg?.role === "user" && hasText(msg?.content)) corpus.push(msg.content);
   }
   return corpus.join(" ").toLowerCase();
 }
@@ -895,6 +933,44 @@ function blendStrength(primaryStrength, bonusStrength, bonusWeight = 0.25) {
 }
 
 function computeStoryElements(gapAnalysis) {
+  // Labov branch: map Labov elements directly to the 5 display element IDs
+  if (gapAnalysis?.readinessProfile === "labov" && gapAnalysis?.labov?.elements) {
+    const labovByName = Object.fromEntries(
+      gapAnalysis.labov.elements.map((e) => [e.element, e])
+    );
+    const orientation = labovByName.orientation || { strength: 0 };
+    const complicating = labovByName.complicating_action || { strength: 0 };
+    const evaluation = labovByName.evaluation || { strength: 0 };
+    const resolution = labovByName.resolution || { strength: 0 };
+    const specificity = labovByName.specificity_bonus || { strength: 0 };
+
+    const definitions = getStoryElementDefinitions(gapAnalysis.storyMode || "default");
+    return definitions.map((def) => {
+      let strength = 0;
+      if (def.id === "setting") {
+        strength = orientation.strength;
+      } else if (def.id === "feeling") {
+        strength = evaluation.strength;
+      } else if (def.id === "bond") {
+        // Blend of orientation + complicating_action (relationship context)
+        strength = blendStrength(orientation.strength, complicating.strength, 0.30);
+      } else if (def.id === "moment") {
+        // Blend complicating action with resolution (outcome enriches the moment)
+        strength = blendStrength(complicating.strength, resolution.strength, 0.25);
+      } else if (def.id === "details") {
+        strength = specificity.strength;
+      }
+      return {
+        id: def.id,
+        display_name: def.displayName,
+        purpose: def.purpose,
+        strength: Number(clamp(strength).toFixed(2)),
+        is_required: def.isRequired,
+      };
+    });
+  }
+
+  // Legacy branch: slot-based mapping
   const slotById = new Map((gapAnalysis.slots || []).map(s => [s.slot, s]));
   const storyMode = gapAnalysis?.storyMode || "default";
   const elementSignals = gapAnalysis?.elementSignals || {};
@@ -998,6 +1074,16 @@ function pickDeterministicGapQuestion(gapAnalysis) {
 function getCriticalConfirmSlotCoverage(gapAnalysis) {
   if (!gapAnalysis || typeof gapAnalysis !== "object") {
     return { hasBlockingGap: false, blockingSlots: [] };
+  }
+
+  // Labov-aware: check core trio element strength directly
+  if (gapAnalysis.labov) {
+    const { orientation, complicating_action, evaluation } = gapAnalysis.labov;
+    const blocking = [];
+    if ((orientation?.strength || 0) < 0.5) blocking.push("orientation");
+    if ((complicating_action?.strength || 0) < 0.5) blocking.push("complicating_action");
+    if ((evaluation?.strength || 0) < 0.5) blocking.push("evaluation");
+    return { hasBlockingGap: blocking.length > 0, blockingSlots: blocking };
   }
 
   const slots = Array.isArray(gapAnalysis.slots) ? gapAnalysis.slots : [];
@@ -1361,12 +1447,755 @@ function getNextBeatToAsk(state) {
   return missing[0];
 }
 
+// ---------------------------------------------------------------------------
+// Labov 6-Element Gap Analysis
+// ---------------------------------------------------------------------------
+
+/**
+ * Default Labov element weights.
+ * These sum to 1.0 and express relative importance of each narrative element.
+ */
+const LABOV_DEFAULT_WEIGHTS = {
+  orientation: 0.20,
+  complicating_action: 0.25,
+  evaluation: 0.35,
+  resolution: 0.10,
+  coda: 0.05,
+  specificity_bonus: 0.05,
+};
+
+/**
+ * Occasion patterns that trigger tribute/memorial weight adjustment:
+ * de-weight resolution (0.10 -> 0.05), add to evaluation (0.35 -> 0.40).
+ */
+function isTributeOccasion(occasion) {
+  if (!occasion) return false;
+  const normalized = normalizeOccasion(occasion);
+  return TRIBUTE_OCCASION_REGEX.test(normalized)
+    || normalized === "thank-you"
+    || normalized === "thank_you";
+}
+
+/**
+ * Classify a Labov element strength into status.
+ * Follows the same thresholds as the legacy system for consistency.
+ */
+function labovStatus(strength) {
+  if (strength >= STRENGTH_THRESHOLDS.covered) return "covered";
+  if (strength >= STRENGTH_THRESHOLDS.weak) return "weak";
+  return "missing";
+}
+
+// --- Individual Labov element evaluators ---
+
+function evaluateLabovOrientation(state, corpus) {
+  const atoms = state?.atoms || {};
+  const hasWho = hasText(atoms.who);
+  const hasWhere = hasText(atoms.where);
+  const hasWhen = hasText(atoms.when);
+  const hasRelationship = RELATIONSHIP_HINT_REGEX.test(corpus);
+  const hasSettingPrimitive = hasText(state?.primitives?.setting?.place) || hasText(state?.primitives?.setting?.time);
+  const evidence = [];
+
+  let strength = 0;
+  if (hasWho) { strength += 0.35; evidence.push(atoms.who); }
+  if (hasWhere || hasSettingPrimitive) { strength += 0.25; evidence.push(atoms.where || state?.primitives?.setting?.place || ""); }
+  if (hasWhen) { strength += 0.15; evidence.push(atoms.when); }
+  if (hasRelationship) { strength += 0.25; evidence.push("relationship hint in corpus"); }
+
+  strength = clamp(strength);
+  return { element: "orientation", strength, status: labovStatus(strength), evidence: evidence.filter(hasText) };
+}
+
+function evaluateLabovComplicatingAction(state, corpus) {
+  const primitives = state?.primitives || {};
+  const atoms = state?.atoms || {};
+  const hasConflict = hasText(primitives.conflict?.internal) || hasText(primitives.conflict?.external);
+  const hasPastAction = PAST_ACTION_REGEX.test(corpus);
+  const hasBlockerSignal = BLOCKER_REGEX.test(corpus);
+  const hasCrisisSignal = TURN_CRISIS_REGEX.test(corpus);
+  const hasStakesSignal = STAKES_REGEX.test(corpus) || STAKES_WEAK_REGEX.test(corpus);
+  const hasAction = hasText(atoms.action);
+  const hasIncitingIncident = hasText(primitives.inciting_incident);
+  const evidence = [];
+
+  let strength = 0;
+  if (hasConflict) { strength += 0.35; evidence.push(primitives.conflict?.internal || primitives.conflict?.external || ""); }
+  if (hasPastAction) { strength += 0.20; evidence.push("past-tense action verbs in corpus"); }
+  if (hasBlockerSignal) { strength += 0.15; evidence.push("blocker language in corpus"); }
+  if (hasCrisisSignal) { strength += 0.15; evidence.push("crisis/high-stakes language in corpus"); }
+  if (hasStakesSignal) { strength += 0.10; evidence.push("stakes language in corpus"); }
+  if (hasAction) { strength += 0.15; evidence.push(atoms.action); }
+  if (hasIncitingIncident) { strength += 0.10; evidence.push(primitives.inciting_incident); }
+
+  strength = clamp(strength);
+  return { element: "complicating_action", strength, status: labovStatus(strength), evidence: evidence.filter(hasText) };
+}
+
+function evaluateLabovEvaluation(state, corpus) {
+  const atoms = state?.atoms || {};
+  const primitives = state?.primitives || {};
+  const hasAfter = hasText(atoms.after);
+  const hasResolution = hasText(primitives.resolution);
+  const hasEmotionalLanguage = EVALUATION_REGEX.test(corpus);
+  const hasEndingFeel = ENDING_FEEL_REGEX.test(corpus);
+  const hasAppreciation = APPRECIATION_REGEX.test(corpus);
+  const evidence = [];
+
+  // Count intensifiers (multiple emotional markers = stronger evaluation)
+  const emotionalMatches = (corpus.match(EVALUATION_REGEX) || []).length;
+  const intensifierBonus = clamp(emotionalMatches * 0.05, 0, 0.15);
+
+  let strength = 0;
+  if (hasEmotionalLanguage) { strength += 0.30; evidence.push("emotional/subjective language in corpus"); }
+  if (hasAfter) { strength += 0.20; evidence.push(atoms.after); }
+  if (hasResolution) { strength += 0.15; evidence.push(primitives.resolution); }
+  if (hasEndingFeel) { strength += 0.15; evidence.push("ending feel language in corpus"); }
+  if (hasAppreciation) { strength += 0.10; evidence.push("appreciation language"); }
+  strength += intensifierBonus;
+
+  strength = clamp(strength);
+  return { element: "evaluation", strength, status: labovStatus(strength), evidence: evidence.filter(hasText) };
+}
+
+function evaluateLabovResolution(state, corpus) {
+  const atoms = state?.atoms || {};
+  const primitives = state?.primitives || {};
+  const hasTurnText = hasText(firstText(atoms.turn, primitives.turning_point));
+  const hasTurnRegex = TURN_REGEX.test(corpus);
+  const hasTransformation = TURN_TRANSFORMATION_REGEX.test(corpus);
+  const hasChangeResult = /\b(after that|from then on|since then|changed|became|grew|learned)\b/i.test(corpus);
+  const evidence = [];
+
+  let strength = 0;
+  if (hasTurnText) { strength += 0.40; evidence.push(atoms.turn || primitives.turning_point || ""); }
+  if (hasTurnRegex) { strength += 0.25; evidence.push("turning point language in corpus"); }
+  if (hasTransformation) { strength += 0.20; evidence.push("transformation language in corpus"); }
+  if (hasChangeResult) { strength += 0.15; evidence.push("change/result language in corpus"); }
+
+  strength = clamp(strength);
+  return { element: "resolution", strength, status: labovStatus(strength), evidence: evidence.filter(hasText) };
+}
+
+function evaluateLabovCoda(state, corpus) {
+  const hasDedication = DEDICATION_REGEX.test(corpus);
+  const hasPresentShift = /\b(today|now|still|always will|every time|whenever I)\b/i.test(corpus);
+  const hasOccasionConnection = /\b(on this day|this birthday|this anniversary|this occasion|on your special)\b/i.test(corpus);
+  const evidence = [];
+
+  let strength = 0;
+  if (hasDedication) { strength += 0.45; evidence.push("dedication language in corpus"); }
+  if (hasPresentShift) { strength += 0.35; evidence.push("present-tense shift in corpus"); }
+  if (hasOccasionConnection) { strength += 0.20; evidence.push("occasion-connection in corpus"); }
+
+  strength = clamp(strength);
+  return { element: "coda", strength, status: labovStatus(strength), evidence: evidence.filter(hasText) };
+}
+
+function evaluateLabovSpecificityBonus(state, corpus) {
+  const atoms = state?.atoms || {};
+  const facts = Array.isArray(state?.facts) ? state.facts.filter((f) => (f?.status || "active") === "active") : [];
+  const evidence = [];
+
+  // Proper nouns: capitalized words that aren't sentence starters (heuristic)
+  const words = corpus.split(/\s+/);
+  const properNounCount = words.filter((w, i) => i > 0 && /^[A-Z][a-z]/.test(w)).length;
+  // Also count from facts (more reliable than corpus which is lowercased)
+  const factCorpus = facts.map((f) => f.text || "").join(" ");
+  const factProperNouns = factCorpus.split(/\s+/).filter((w, i) => i > 0 && /^[A-Z][a-z]/.test(w)).length;
+  const totalProperNouns = Math.max(properNounCount, factProperNouns);
+
+  const hasSensory = SENSORY_REGEX.test(corpus) || SENSORY_REGEX.test(factCorpus.toLowerCase());
+  const hasDialogue = hasText(atoms.dialogue) || /["'].+["']/.test(corpus) || /["'].+["']/.test(factCorpus);
+  const hasConcreteDetail = hasText(atoms.object) || hasText(atoms.sound) || hasText(atoms.smell) || hasText(atoms.physical);
+
+  let strength = 0;
+  if (totalProperNouns >= 2) { strength += 0.30; evidence.push(`${totalProperNouns} proper nouns`); }
+  else if (totalProperNouns >= 1) { strength += 0.15; evidence.push(`${totalProperNouns} proper noun`); }
+  if (hasSensory) { strength += 0.25; evidence.push("sensory words"); }
+  if (hasDialogue) { strength += 0.25; evidence.push("quoted dialogue"); }
+  if (hasConcreteDetail) { strength += 0.20; evidence.push("concrete detail atoms"); }
+
+  strength = clamp(strength);
+  return { element: "specificity_bonus", strength, status: labovStatus(strength), evidence: evidence.filter(hasText) };
+}
+
+/**
+ * Map Labov element evaluations to the 8 backward-compatible slot IDs.
+ * This ensures the rest of the system (prompt builder, guidance, etc.) can consume
+ * Labov results without changes.
+ */
+function mapLabovToSlots(labovElements) {
+  const byElement = Object.fromEntries(labovElements.map((e) => [e.element, e]));
+
+  const orientation = byElement.orientation || { strength: 0, status: "missing", evidence: [] };
+  const complicating = byElement.complicating_action || { strength: 0, status: "missing", evidence: [] };
+  const evaluation = byElement.evaluation || { strength: 0, status: "missing", evidence: [] };
+  const resolution = byElement.resolution || { strength: 0, status: "missing", evidence: [] };
+  const coda = byElement.coda || { strength: 0, status: "missing", evidence: [] };
+  const specificity = byElement.specificity_bonus || { strength: 0, status: "missing", evidence: [] };
+
+  return [
+    normalizeSlot("moment_destination", orientation.status, "Labov orientation -> moment_destination", orientation.evidence),
+    normalizeSlot("who", orientation.status, "Labov orientation -> who", orientation.evidence),
+    normalizeSlot("want", evaluation.status, "Labov evaluation -> want", evaluation.evidence),
+    normalizeSlot("blocker", complicating.status, "Labov complicating_action -> blocker", complicating.evidence),
+    normalizeSlot("stakes", complicating.status, "Labov complicating_action -> stakes", complicating.evidence),
+    normalizeSlot("turn", resolution.status, "Labov resolution -> turn", resolution.evidence),
+    normalizeSlot("ending_feel", evaluation.status, "Labov evaluation -> ending_feel", evaluation.evidence),
+    normalizeSlot("tone", specificity.status, "Labov specificity_bonus -> tone", specificity.evidence),
+  ];
+}
+
+/**
+ * Compute Labov 6-element gap analysis for story questioning.
+ *
+ * Evaluates story completeness using Labov's narrative elements:
+ * orientation, complicating action, evaluation, resolution, coda, specificity bonus.
+ *
+ * All detection is deterministic (regex + state field checks). No LLM calls.
+ *
+ * @param {Object} state - V3 story state
+ * @param {Object} [options={}] - Options
+ * @param {string} [options.occasion] - Occasion (birthday, memorial, etc.)
+ * @param {number} [options.turnCount] - Current turn count
+ * @returns {Object} Gap analysis compatible with legacy computeStoryGapAnalysis return shape
+ */
+function computeLabovGapAnalysis(state, options = {}) {
+  const corpus = buildCorpus(state);
+  const storyMode = isReflectiveTributeStory(state, corpus) ? "reflective_tribute" : "default";
+
+  // Determine weights (occasion-aware adjustment)
+  const occasionRaw = options.occasion || state?.event?.occasion || state?.occasion || "";
+  const isTribute = isTributeOccasion(occasionRaw);
+  const weights = { ...LABOV_DEFAULT_WEIGHTS };
+  let occasionAdjustment = null;
+  if (isTribute) {
+    weights.resolution = 0.05;
+    weights.evaluation = 0.40;
+    occasionAdjustment = `tribute: resolution 0.10->0.05, evaluation 0.35->0.40`;
+  }
+
+  // Evaluate each Labov element
+  const rawElements = [
+    evaluateLabovOrientation(state, corpus),
+    evaluateLabovComplicatingAction(state, corpus),
+    evaluateLabovEvaluation(state, corpus),
+    evaluateLabovResolution(state, corpus),
+    evaluateLabovCoda(state, corpus),
+    evaluateLabovSpecificityBonus(state, corpus),
+  ];
+
+  // Attach weights to each element
+  const elements = rawElements.map((el) => ({
+    ...el,
+    weight: weights[el.element],
+  }));
+
+  // Compute weighted score
+  const weightedScore = Number(
+    elements.reduce((sum, el) => sum + el.strength * el.weight, 0).toFixed(2)
+  );
+
+  // Map to backward-compatible 8 slots
+  const labovSlots = mapLabovToSlots(rawElements);
+  const missingSlots = labovSlots.filter((s) => s.status === "missing").map((s) => s.slot);
+  const weakSlots = labovSlots.filter((s) => s.status === "weak").map((s) => s.slot);
+
+  // Readiness — two paths to ready:
+  // 1. Weighted score >= 0.60 (all elements contribute)
+  // 2. Core trio covered: orientation + complicating_action + evaluation all >= 0.60
+  //    These three carry 80% of the weight and are sufficient for a song
+  const readinessScore = weightedScore;
+  const coreTrio = rawElements.filter(
+    (e) => ["orientation", "complicating_action", "evaluation"].includes(e.element)
+  );
+  const coreTrioCovered = coreTrio.every((e) => e.strength >= STRENGTH_THRESHOLDS.covered);
+  const isStoryReady = readinessScore >= 0.60 || coreTrioCovered;
+
+  // "Good enough" escape
+  const turnCount = options.turnCount ?? null;
+  const canProceedAnyway = typeof turnCount === "number" && turnCount >= 2;
+
+  // Safety block check (same as legacy)
+  const noSafetyBlock = !(
+    state?.last_reasoning?.safety?.blocked === true ||
+    state?.last_reasoning?.safety?.requires_refusal === true ||
+    state?.last_reasoning?.safety_violation === true
+  );
+
+  // Backward-compatible gates
+  const slotById = new Map(labovSlots.map((s) => [s.slot, s]));
+  const coveredCount = labovSlots.filter((s) => s.status === "covered").length;
+  const coveredOrWeakCount = labovSlots.filter((s) => s.status === "covered" || s.status === "weak").length;
+  const gates = {
+    blockerCovered: slotById.get("blocker")?.status === "covered",
+    stakesCovered: slotById.get("stakes")?.status === "covered",
+    enoughCoveredSlots: coveredCount >= 5,
+    enoughCoveredOrWeakSlots: coveredOrWeakCount >= 6,
+    momentCovered: slotById.get("moment_destination")?.status === "covered",
+    whoCovered: slotById.get("who")?.status === "covered",
+    turnAtLeastWeak: ["covered", "weak"].includes(slotById.get("turn")?.status || "missing"),
+    endingAtLeastWeak: ["covered", "weak"].includes(slotById.get("ending_feel")?.status || "missing"),
+    criticalConfirmSlotsCovered: CRITICAL_CONFIRM_SLOT_IDS.every(
+      (slotId) => slotById.get(slotId)?.status === "covered"
+    ),
+    noSafetyBlock,
+  };
+
+  return {
+    slots: labovSlots,
+    missingSlots,
+    weakSlots,
+    readinessScore,
+    isStoryReady,
+    readinessProfile: "labov",
+    storyMode,
+    elementSignals: computeElementSignals(state, corpus),
+    gates,
+    ...(canProceedAnyway ? { canProceedAnyway: true } : {}),
+    labov: {
+      elements,
+      weightedScore,
+      occasionAdjustment,
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Question Priority (information-gain targeting)
+// ---------------------------------------------------------------------------
+
+/**
+ * Compute the highest-value next question target from Labov gap analysis.
+ *
+ * Priority = element.weight * (1 - element.strength)
+ * Skips elements already sufficiently covered (strength >= 0.6).
+ * Skips optional elements (weight <= 0.05) that have any coverage.
+ *
+ * @param {Object|null} labovAnalysis - Return value of computeLabovGapAnalysis()
+ * @returns {Object|null} Target with { element, priority, weight, currentStrength, reason }, or null if all covered
+ */
+function computeQuestionPriority(labovAnalysis) {
+  if (!labovAnalysis?.labov?.elements) return null;
+
+  const elements = labovAnalysis.labov.elements;
+  let bestTarget = null;
+  let bestPriority = -1;
+
+  for (const el of elements) {
+    // Skip elements already sufficiently covered
+    if (el.strength >= STRENGTH_THRESHOLDS.covered) continue;
+    // Skip optional elements with very low weight that have some coverage
+    if (el.weight <= 0.05 && el.strength > 0) continue;
+
+    const priority = el.weight * (1 - el.strength);
+    if (priority > bestPriority) {
+      bestPriority = priority;
+      bestTarget = el;
+    }
+  }
+
+  return bestTarget ? {
+    element: bestTarget.element,
+    priority: Number(bestPriority.toFixed(3)),
+    weight: bestTarget.weight,
+    currentStrength: bestTarget.strength,
+    reason: `${bestTarget.element} has highest information gain (weight ${bestTarget.weight} \u00d7 gap ${(1 - bestTarget.strength).toFixed(2)} = ${bestPriority.toFixed(3)})`,
+  } : null;
+}
+
+// ---------------------------------------------------------------------------
+// Question Funnel Staging
+// ---------------------------------------------------------------------------
+
+/**
+ * Determine the question funnel stage based on conversation turn count.
+ *
+ * - Turn 0-1: OPEN (broad, inviting questions)
+ * - Turn 2: PROBING (build on specifics they mentioned)
+ * - Turn 3+: CLOSED (specific detail extraction)
+ *
+ * @param {number|null|undefined} turnCount - Current turn count
+ * @returns {{ stage: string, description: string }}
+ */
+function getQuestionStage(turnCount) {
+  if (!turnCount || turnCount <= 1) return { stage: "OPEN", description: "Broad, inviting questions. Let them share freely." };
+  if (turnCount === 2) return { stage: "PROBING", description: "Build on specifics they mentioned. Deepen their details." };
+  return { stage: "CLOSED", description: "Specific detail extraction. Fill in vivid details." };
+}
+
+// ---------------------------------------------------------------------------
+// Emotional Intensity Detection
+// ---------------------------------------------------------------------------
+
+const VULNERABILITY_REGEX = /\b(breakup|divorce|loss|death|died|funeral|cancer|sick|hospital|depression|anxiety|lonely|scared|crying|tears|grief|heartbreak|betrayal)\b/i;
+const INTENSIFIER_REGEX = /\b(never forget|always remember|changed everything|meant the world|most important|deeply|truly|absolutely|completely|forever)\b/i;
+const FIRST_PERSON_EMOTION_REGEX = /\b(i felt|i feel|made me feel|i couldn't|i was so|i cried|i laughed|broke my heart|fills my heart|i knew then)\b/i;
+
+/**
+ * Detect emotional intensity from the user's latest message.
+ *
+ * Counts signal categories (vulnerability, intensifier, first-person emotion).
+ * - 0 signals: low
+ * - 1 signal: medium
+ * - 2+ signals: high
+ *
+ * @param {string|null} userMessage - The user's latest message
+ * @returns {{ intensity: string, signals: string[] }}
+ */
+function detectEmotionalIntensity(userMessage) {
+  if (!userMessage) return { intensity: "low", signals: [] };
+  const text = userMessage.toLowerCase();
+  const signals = [];
+
+  if (VULNERABILITY_REGEX.test(text)) signals.push("vulnerability");
+  if (INTENSIFIER_REGEX.test(text)) signals.push("intensifier");
+  if (FIRST_PERSON_EMOTION_REGEX.test(text)) signals.push("first_person_emotion");
+
+  const intensity = signals.length >= 2 ? "high" : signals.length === 1 ? "medium" : "low";
+  return { intensity, signals };
+}
+
+// ---------------------------------------------------------------------------
+// Question Enforcement — Targeted Fallback + Relevance Validation
+// ---------------------------------------------------------------------------
+
+/**
+ * Relevance keyword sets per Labov element.
+ * Used by validateQuestionRelevance to check whether a question addresses the target.
+ */
+const RELEVANCE_KEYWORDS = {
+  orientation: /\b(where|when|who|setting|place|time of|day|night|morning|evening|season|year|city|town|house|room|with you|together|at the|around|scene)\b/i,
+  complicating_action: /\b(what happened|moment|happened|event|then what|what did|how did|turning point|came next|first time|remember when|did .+ (say|do|react)|one time|was there a time|specific time|stands? out|what.s the story|keep coming back)\b/i,
+  evaluation: /\b(feel\w*|felt|mean\w*|meant|matter\w*|emotion\w*|why .+ (important|special|significant)|what .+ (mean|matter)|heart|soul|cherish|value|love|miss|grateful|proud|bittersweet)\b/i,
+  resolution: /\b(change\w*|after\b|different|now\b|end\w*|outcome|result|became|turn out|since then|looking back|today|ultimately|in the end|what.s different|how .+ (turn|work) out)\b/i,
+};
+
+/**
+ * Check if the LLM's generated question actually targets the intended Labov element.
+ * Returns true if the question addresses the target, false if it's off-target or generic.
+ *
+ * @param {string} question - The LLM-generated question
+ * @param {string} targetElement - The intended Labov element
+ * @returns {boolean}
+ */
+function validateQuestionRelevance(question, targetElement) {
+  if (!question || !targetElement) return false;
+  const pattern = RELEVANCE_KEYWORDS[targetElement];
+  if (!pattern) return false;
+  return pattern.test(question);
+}
+
+/**
+ * Extract the most salient anchor phrase from the user's message.
+ * Prefers proper nouns, named events, and sensory details.
+ * Falls back to the first noun phrase of 2+ words.
+ *
+ * @param {string} text - Raw user message
+ * @returns {string|null} The best anchor phrase, or null
+ */
+function extractAnchor(text) {
+  if (!text || typeof text !== "string") return null;
+  const trimmed = text.trim();
+  if (trimmed.length < 3) return null;
+
+  // 1. Proper nouns: capitalized words (skip common sentence starters)
+  //    Match "Marcus", "Lagos", "Christmas Eve", "Lake Okonkwo", "Sarah"
+  const COMMON_STARTERS = new Set(["I", "It", "My", "We", "He", "She", "The", "They", "Our", "His", "Her", "There", "This", "That", "When", "After", "Before", "One", "So", "But", "And", "Then", "Yeah", "Yes", "No"]);
+  const properNouns = [];
+  const sentences = trimmed.split(/[.!?]+/).filter(Boolean);
+  for (const sentence of sentences) {
+    const words = sentence.trim().split(/\s+/);
+    for (let i = 0; i < words.length; i++) {
+      const clean = words[i].replace(/[^a-zA-Z'-]/g, "");
+      if (clean.length >= 2 && /^[A-Z]/.test(clean)) {
+        // Skip common sentence-initial words (pronouns, articles, etc.)
+        if (i === 0 && COMMON_STARTERS.has(clean)) continue;
+        // Collect consecutive capitalized words as a phrase
+        let phrase = clean;
+        for (let j = i + 1; j < words.length; j++) {
+          const next = words[j].replace(/[^a-zA-Z'-]/g, "");
+          if (next.length >= 2 && /^[A-Z]/.test(next)) {
+            phrase += " " + next;
+            i = j;
+          } else break;
+        }
+        properNouns.push(phrase);
+      }
+    }
+  }
+  if (properNouns.length > 0) return properNouns[0];
+
+  // 2. Named events or specific details (multi-word descriptive phrases)
+  const specificPatterns = [
+    /(?:that|the|my|his|her|our|their)\s+(?:\w+\s+){0,2}(?:morning|evening|night|day|summer|winter|birthday|wedding|ceremony|graduation|funeral|holiday|trip|vacation|Christmas|anniversary)/i,
+    /(?:red|blue|green|yellow|white|black|old|little|small|big)\s+\w+/i,
+    /(?:at|in|on|by|near)\s+(?:the|a|my|our|his|her)\s+\w+/i,
+  ];
+  for (const pattern of specificPatterns) {
+    const match = trimmed.match(pattern);
+    if (match) return match[0].trim();
+  }
+
+  // 3. Action-laden phrases (past tense verbs with objects)
+  const actionMatch = trimmed.match(
+    /(?:taught me|showed me|gave me|took me|brought me|made me|told me|called me|carried me|showed up|flew in|stayed up|woke up|drove to|walked to|ran to)\s*(?:\w+(?:\s+\w+)?)?/i
+  );
+  if (actionMatch) return actionMatch[0].trim();
+
+  // 4. Last resort: the longest noun-like phrase (3+ chars, no stop words)
+  const STOP_WORDS = new Set(["the", "and", "but", "for", "with", "that", "this", "was", "were", "been", "have", "has", "had", "are", "not", "its", "also", "than", "just", "very", "really", "yeah", "yes"]);
+  const contentWords = trimmed.split(/\s+/).filter(w => {
+    const clean = w.replace(/[^a-zA-Z]/g, "").toLowerCase();
+    return clean.length >= 3 && !STOP_WORDS.has(clean);
+  });
+  if (contentWords.length > 0) {
+    // Return the first two content words joined
+    return contentWords.slice(0, Math.min(2, contentWords.length)).join(" ").replace(/[^a-zA-Z0-9' -]/g, "");
+  }
+
+  return null;
+}
+
+/**
+ * Template arrays per element + funnel stage for targeted fallback questions.
+ * Each template has a `{anchor}` placeholder for the extracted detail.
+ * Multiple options per cell to avoid repetition across turns.
+ */
+const TARGETED_QUESTION_TEMPLATES = {
+  orientation: {
+    OPEN: [
+      "Tell me more about {anchor} -- where were you, and who was there?",
+      "{anchor} -- can you paint the scene for me? Where and when was this?",
+    ],
+    PROBING: [
+      "{anchor} -- what was the setting like? What time of day, what was happening around you?",
+      "When you think about {anchor}, what do you see around you?",
+    ],
+    CLOSED: [
+      "Was {anchor} during the day or at night?",
+      "Were you alone for {anchor}, or was someone with you?",
+    ],
+  },
+  complicating_action: {
+    OPEN: [
+      "Was there a moment that really stands out with {anchor}?",
+      "Tell me about a specific time with {anchor} that you keep coming back to.",
+    ],
+    PROBING: [
+      "{anchor} -- what happened right after that?",
+      "The part about {anchor} -- what did they do or say next?",
+    ],
+    CLOSED: [
+      "Did something specific happen with {anchor} that changed the direction of things?",
+      "Was there one moment with {anchor} where everything shifted?",
+    ],
+  },
+  evaluation: {
+    OPEN: [
+      "{anchor} -- what does that mean to you now, looking back?",
+      "When you think about {anchor}, what feelings come up?",
+    ],
+    PROBING: [
+      "{anchor} -- why does that matter so much to you?",
+      "What is it about {anchor} that stays with you?",
+    ],
+    CLOSED: [
+      "Does {anchor} still feel the same way it did back then?",
+      "Is {anchor} something you feel grateful for, or is it more bittersweet?",
+    ],
+  },
+  resolution: {
+    OPEN: [
+      "After {anchor}, how did things change?",
+      "What's different now because of {anchor}?",
+    ],
+    PROBING: [
+      "{anchor} -- what happened in the end? How did it turn out?",
+      "Looking back at {anchor}, what changed after that?",
+    ],
+    CLOSED: [
+      "Did {anchor} end the way you expected?",
+      "After {anchor}, were things better or just different?",
+    ],
+  },
+};
+
+/**
+ * Generate a fallback question that specifically targets the given Labov element,
+ * grounded in the user's actual story content. Used when the LLM ignores the
+ * question_targeting injection.
+ *
+ * DETERMINISTIC: no LLM calls. Uses template selection + anchor extraction.
+ *
+ * @param {string} targetElement - The Labov element to target (orientation, complicating_action, evaluation, resolution)
+ * @param {Object} state - Story state with facts, conversation, atoms, turn_count
+ * @param {string} userMessage - The user's latest message
+ * @returns {string|null} A targeted, story-specific question, or null if inputs are invalid
+ */
+function generateTargetedFallbackQuestion(targetElement, state, userMessage) {
+  if (!targetElement || !TARGETED_QUESTION_TEMPLATES[targetElement]) return null;
+  if (!userMessage || typeof userMessage !== "string" || userMessage.trim().length === 0) return null;
+
+  // 1. Determine funnel stage from turn count
+  const turnCount = state?.turn_count ?? 0;
+  const { stage } = getQuestionStage(turnCount);
+
+  // 2. Extract anchor from user message
+  // For sparse inputs (<5 words), sentence-starter capitals (e.g., "Happy") produce
+  // nonsensical anchors. Use the recipient name instead — more meaningful.
+  const wordCount = (userMessage || "").split(/\s+/).filter(Boolean).length;
+  let anchor;
+  if (wordCount < 5) {
+    anchor = (state?.atoms?.who || state?.recipient_name || "").split(/\s/)[0] || null;
+  }
+  if (!anchor) {
+    anchor = extractAnchor(userMessage);
+  }
+
+  // 3. If user message is thin (very short / no good anchor), try state facts
+  if (!anchor && state?.facts) {
+    const activeFacts = (state.facts || []).filter(f => (f?.status || "active") === "active" && f?.text);
+    for (const fact of activeFacts) {
+      anchor = extractAnchor(fact.text);
+      if (anchor) break;
+    }
+  }
+
+  // 4. Ultimate fallback anchor: use a content word from the message itself
+  if (!anchor) {
+    const words = userMessage.trim().split(/\s+/).filter(w => w.length >= 3);
+    anchor = words.length > 0 ? words.slice(0, 2).join(" ") : "that";
+  }
+
+  // 5. Select template (use turn_count modulo to vary across turns)
+  const templates = TARGETED_QUESTION_TEMPLATES[targetElement][stage];
+  if (!templates || templates.length === 0) return null;
+  const templateIndex = turnCount % templates.length;
+  const template = templates[templateIndex];
+
+  // 6. Fill template
+  return template.replace(/\{anchor\}/g, anchor);
+}
+
+// ─── Story-Specific Suggestions ───────────────────────────────────
+// Extracts key phrases from the user's story and builds tappable
+// suggestion chips. Replaces LLM-generated generic suggestions.
+
+const ACTIVITY_REGEX = /\b(fishing|dancing|cooking|singing|playing|running|swimming|hiking|traveling|camping|gardening|painting|reading|driving|walking|baking|shopping|working|studying|celebrating|laughing|crying)\b/gi;
+const NAMED_ITEM_REGEX = /(?:["']([^"']{3,30})["']|(?:called|named|song|movie|book|place)\s+(\w[\w\s]{2,25}))/gi;
+
+/**
+ * Generate 3 suggestion chips specific to THIS user's story.
+ * Deterministic — no LLM calls. Extracts details from conversation
+ * and builds short, tappable prompts from them.
+ *
+ * @param {Object} state - Story state with facts, conversation, atoms
+ * @param {string} userMessage - The user's latest message
+ * @returns {string[]} 3 story-specific suggestion chips (max 8 words each)
+ */
+function generateStorySpecificSuggestions(state, userMessage) {
+  const suggestions = [];
+  const text = userMessage || "";
+  const recipient = state?.atoms?.who || state?.recipient_name || "them";
+  const firstName = recipient.split(/\s/)[0];
+
+  // 1. Extract proper nouns (capitalized words, not sentence starters)
+  const words = text.split(/\s+/);
+  const properNouns = [];
+  for (let i = 1; i < words.length; i++) {
+    const w = words[i].replace(/[^a-zA-Z']/g, "");
+    if (w.length >= 2 && /^[A-Z]/.test(w) && !/^(The|And|But|For|With|This|That|She|Her|His|He|They|Our|My|We|It|In|On|At|Is|Was|Are|Were|Did|Has|Had|Do|Every|Yet|You|When|After|Before|Because|From|Into)$/.test(w)) {
+      properNouns.push(w);
+    }
+  }
+
+  // 2. Extract activities/events
+  const activities = [];
+  let m;
+  const actCopy = new RegExp(ACTIVITY_REGEX.source, "gi");
+  while ((m = actCopy.exec(text)) !== null) activities.push(m[1].toLowerCase());
+
+  // 3. Extract named items (quoted phrases, named things)
+  const namedItems = [];
+  const namedCopy = new RegExp(NAMED_ITEM_REGEX.source, "gi");
+  while ((m = namedCopy.exec(text)) !== null) namedItems.push((m[1] || m[2]).trim());
+
+  // 4. Extract time/place references
+  const timePlace = [];
+  const tpMatch = text.match(/\b(every\s+\w+|Saturday|Sunday|summer|winter|morning|evening|night|college|school|hospital|park|kitchen|home|church|beach)\b/gi);
+  if (tpMatch) timePlace.push(...tpMatch.map(s => s.toLowerCase()));
+
+  // 5. Build suggestions from extracted details
+  // Priority: specific moments > activities > time/place > fallback
+
+  // Suggestion type A: "What [recipient] said/did during [activity]"
+  if (activities.length > 0) {
+    suggestions.push("What " + firstName + " said while " + activities[0]);
+  }
+
+  // Suggestion type B: "The [time/place] that stands out most"
+  if (timePlace.length > 0) {
+    suggestions.push("The " + timePlace[0] + " that stands out most");
+  }
+
+  // Suggestion type C: "How [specific detail] made you feel"
+  if (properNouns.length > 1) {
+    suggestions.push("How " + properNouns[properNouns.length - 1] + " changed things");
+  } else if (namedItems.length > 0) {
+    suggestions.push("The story behind " + namedItems[0]);
+  }
+
+  // Suggestion type D: "A moment only you two share"
+  if (suggestions.length < 3) {
+    suggestions.push("A moment only you and " + firstName + " share");
+  }
+
+  // Suggestion type E: Activity-based
+  if (suggestions.length < 3 && activities.length > 1) {
+    suggestions.push("The best " + activities[activities.length - 1] + " memory");
+  }
+
+  // Suggestion type F: Emotional prompt
+  if (suggestions.length < 3) {
+    suggestions.push("What you wish " + firstName + " knew");
+  }
+
+  // 6. Trim to exactly 3, max 8 words each
+  const result = suggestions.slice(0, 3).map(s => {
+    const words = s.split(/\s+/);
+    return words.length > 8 ? words.slice(0, 8).join(" ") : s;
+  });
+
+  // 7. If still < 3, fill with occasion-aware fallbacks
+  const occasion = state?.event?.occasion || state?.occasion || "birthday";
+  const OCCASION_FALLBACKS = {
+    birthday: ["A birthday tradition you share", "Their funniest birthday moment", "What makes " + firstName + " special"],
+    anniversary: ["Your first date memory", "A challenge you overcame together", "What keeps your love strong"],
+    memorial: ["A lesson they taught you", "Their favorite saying", "A sound that reminds you of them"],
+    bereavement: ["What you miss most", "Their kindest moment", "How they showed love"],
+    thank_you: ["The moment you knew", "What they sacrificed", "How they changed your path"],
+    mothers_day: ["A sacrifice she made", "Her signature meal or habit", "What she said that stuck"],
+    fathers_day: ["A lesson he repeated", "His proudest moment of you", "What he'd never say aloud"],
+    friendship: ["An inside joke between you", "When they had your back", "What makes them irreplaceable"],
+  };
+  const fallbacks = OCCASION_FALLBACKS[occasion] || OCCASION_FALLBACKS.birthday;
+  while (result.length < 3) {
+    result.push(fallbacks[result.length] || "A detail only you know");
+  }
+
+  return result;
+}
+
 module.exports = {
   SAFETY_BOUNDS,
   STRENGTH_THRESHOLDS,
   STORY_SLOT_PRIORITY,
   STORY_SLOT_WEIGHTS,
   CRITICAL_CONFIRM_SLOT_IDS,
+  SLOT_TO_LABOV_ELEMENT,
+  getSlotLabovElement,
   SLOT_TO_ELEMENT_FALLBACK,
   SLOT_GUIDANCE_TEMPLATES,
   BEAT_FALLBACK_PRIORITY,
@@ -1392,4 +2221,26 @@ module.exports = {
   getElementForSlot,
   computeStoryElements,
   getElementConfirmBlock,
+  computeLabovGapAnalysis,
+  computeQuestionPriority,
+  getQuestionStage,
+  detectEmotionalIntensity,
+  generateTargetedFallbackQuestion,
+  validateQuestionRelevance,
+  generateStorySpecificSuggestions,
+  // Regex constants (used by extractStoryState for Labov classification)
+  RELATIONSHIP_HINT_REGEX,
+  TURN_REGEX,
+  TURN_CRISIS_REGEX,
+  TURN_TRANSFORMATION_REGEX,
+  ENDING_FEEL_REGEX,
+  APPRECIATION_REGEX,
+  WANT_REGEX,
+  BLOCKER_REGEX,
+  STAKES_REGEX,
+  // Labov-specific regex (used by extractStoryState for classification)
+  EVALUATION_REGEX,
+  SENSORY_REGEX,
+  PAST_ACTION_REGEX,
+  DEDICATION_REGEX,
 };
