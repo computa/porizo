@@ -2132,8 +2132,32 @@ Return ONLY valid JSON:
     }
   }
 
+  // Hard cap: if still over budget after all targeted truncations,
+  // find the SONG BRIEF section and truncate it to fit.
+  // Keep the persona header and task instructions, cut context.
   if (tokens > tokenBudget) {
-    console.warn(`[Songwriter] Prompt still over budget after truncation: ~${tokens} tokens (max: ${tokenBudget}). Proceeding anyway.`);
+    const briefIdx = finalPrompt.indexOf("## SONG BRIEF");
+    const taskIdx = finalPrompt.indexOf("## YOUR TASK");
+    if (briefIdx !== -1 && taskIdx !== -1 && taskIdx > briefIdx) {
+      const header = finalPrompt.slice(0, briefIdx);
+      const brief = finalPrompt.slice(briefIdx, taskIdx);
+      const tail = finalPrompt.slice(taskIdx);
+      const headerTokens = roughTokens(header);
+      const tailTokens = roughTokens(tail);
+      const briefBudget = (tokenBudget - headerTokens - tailTokens) * 4; // chars
+      if (briefBudget > 200) {
+        const truncatedBrief = brief.slice(0, briefBudget);
+        const lastNewline = truncatedBrief.lastIndexOf("\n");
+        const cleanBrief = lastNewline > 100 ? truncatedBrief.slice(0, lastNewline + 1) : truncatedBrief;
+        finalPrompt = header + cleanBrief + "\n\n" + tail;
+        tokens = roughTokens(finalPrompt);
+        console.warn(`[Songwriter] Hard-capped SONG BRIEF to fit budget: ~${tokens} tokens`);
+      }
+    }
+  }
+
+  if (tokens > tokenBudget) {
+    console.warn(`[Songwriter] Prompt still over budget after all truncation: ~${tokens} tokens (max: ${tokenBudget}). Proceeding with best effort.`);
   }
 
   return finalPrompt;
