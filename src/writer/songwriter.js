@@ -2019,7 +2019,7 @@ function buildSongwriterPrompt(context, options = {}) {
     ? `\n## PREVIOUS DRAFT TO REWRITE\nThis draft has musical material worth preserving, but it failed story certification. Keep any grounded lines that already work. Rewrite the weak or unsupported parts until the full song tells the story faithfully.\n${previousDraft}\n`
     : "";
 
-  return `${SONGWRITER_PERSONA}
+  const prompt = `${SONGWRITER_PERSONA}
 
 ## SONG BRIEF
 ${contextSections.join("\n")}
@@ -2081,7 +2081,62 @@ Return ONLY valid JSON:
   ],
   "anchor_line": "The most powerful line from the chorus",
   "story_elements_used": ["list of story details woven into lyrics"]
-}`.trim();
+}`;
+
+  // Token budget enforcement: progressively truncate if prompt exceeds limit.
+  // Inline token estimation to avoid dependency on llm-provider (test mocks replace it).
+  const roughTokens = (text) => Math.ceil((text || "").length / 4);
+  const tokenBudget = 5500; // 6000 max minus 500 headroom
+  let finalPrompt = prompt.trim();
+  let tokens = roughTokens(finalPrompt);
+
+  if (tokens > tokenBudget) {
+    // Truncate narrative (the largest section) to fit budget
+    const overBy = tokens - tokenBudget;
+    const charsToRemove = overBy * 4; // ~4 chars per token
+    if (narrativeText && narrativeText.length > charsToRemove + 100) {
+      const truncatedNarrative = narrativeText.slice(0, narrativeText.length - charsToRemove - 50);
+      // Cut at last sentence boundary
+      const lastPeriod = truncatedNarrative.lastIndexOf(".");
+      const cleanNarrative = lastPeriod > 50 ? truncatedNarrative.slice(0, lastPeriod + 1) : truncatedNarrative;
+      finalPrompt = finalPrompt.replace(narrativeText, cleanNarrative);
+      tokens = roughTokens(finalPrompt);
+    }
+  }
+
+  if (tokens > tokenBudget) {
+    // Still over — remove supporting story lines (atoms/primitives)
+    const supportIdx = finalPrompt.indexOf("SUPPORTING STORY CONTEXT:");
+    const altIdx = finalPrompt.indexOf("STORY-GROUNDED DETAILS:");
+    const removeIdx = supportIdx !== -1 ? supportIdx : altIdx;
+    if (removeIdx !== -1) {
+      const nextSection = finalPrompt.indexOf("\n## ", removeIdx + 1);
+      if (nextSection !== -1) {
+        finalPrompt = finalPrompt.slice(0, removeIdx) + finalPrompt.slice(nextSection);
+        tokens = roughTokens(finalPrompt);
+      }
+    }
+  }
+
+  if (tokens > tokenBudget) {
+    // Still over — truncate key details to top 5
+    const detailsIdx = finalPrompt.indexOf("KEY DETAILS:");
+    if (detailsIdx !== -1) {
+      const detailsEnd = finalPrompt.indexOf("\n", detailsIdx + 200);
+      const detailsSection = finalPrompt.slice(detailsIdx, detailsEnd !== -1 ? detailsEnd : undefined);
+      const lines = detailsSection.split("\n").filter(l => l.startsWith("- "));
+      if (lines.length > 5) {
+        const truncated = "KEY DETAILS:\n" + lines.slice(0, 5).join("\n");
+        finalPrompt = finalPrompt.replace(detailsSection, truncated);
+      }
+    }
+  }
+
+  if (tokens > tokenBudget) {
+    console.warn(`[Songwriter] Prompt still over budget after truncation: ~${tokens} tokens (max: ${tokenBudget}). Proceeding anyway.`);
+  }
+
+  return finalPrompt;
 }
 
 function buildFidelityRepairNote(fidelity) {

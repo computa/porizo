@@ -1055,9 +1055,13 @@ struct WarmCanvasFlowView: View {
         selectedType = .song
         preSessionPrompt = nil
 
-        // User already saw occasion chips in InlineNamePromptView.
-        // If they skipped, don't double-prompt (P2-14).
-        continueAfterOccasionSelection()
+        // Occasion is required — it drives beats, questions, and song structure.
+        // If user skipped the chips in InlineNamePromptView, show the picker.
+        if setup.occasion == nil {
+            showOccasionPicker = true
+        } else {
+            continueAfterOccasionSelection()
+        }
     }
 
     private func continueAfterOccasionSelection() {

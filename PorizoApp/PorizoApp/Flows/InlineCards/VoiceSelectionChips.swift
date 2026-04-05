@@ -27,8 +27,8 @@ struct VoiceSelectionChips: View {
 
         var label: String {
             switch self {
-            case .ai(.female): "Warm Voice"
-            case .ai(.male): "Clear Voice"
+            case .ai(.female): "Female Voice"
+            case .ai(.male): "Male Voice"
             case .myVoice: "My Voice"
             }
         }
