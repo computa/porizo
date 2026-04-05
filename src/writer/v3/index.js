@@ -1174,7 +1174,8 @@ function resolveTurnDecision(response, state, options = {}) {
       && (response.targetSlot === gapQuestion?.targetSlot
         || (useLabovScoring && getSlotLabovElement(response.targetSlot) === getSlotLabovElement(gapQuestion?.targetSlot)));
     const weakName = elementBlock.weakestElement?.display_name || "a story element";
-    const elementFallback = `Before I finalize, ${weakName} still needs more detail. Could you share something specific?`;
+    const recipientFirst = (state?.recipient_name || "them").split(/\s/)[0];
+    const elementFallback = `I'd love to hear more about how ${recipientFirst} makes you feel. Can you share a specific moment that comes to mind?`;
     const semanticPrompt = hardSemanticBlock
       ? buildSemanticClarificationPrompt(state)
       : null;
