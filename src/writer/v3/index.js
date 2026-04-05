@@ -1062,8 +1062,13 @@ function computeDecisionContext(response, state, options = {}) {
   const hardElementBlock = elementBlock.hasElementBlock;
   const hardSemanticBlock = state?.semantic_story?.can_confirm === false;
   const isRevision = options.inputMode === "revision";
-  const hardBlockConfirm = hardSafetyBlock || hardGroundingBlock || (!isRevision && (hardCriticalBlock || hardElementBlock || hardSemanticBlock));
-  const hybridReady = !hardBlockConfirm && (gapAnalysis.isStoryReady || llmReadySignal);
+  // After turn 3, stop blocking — the user has shared enough. Let them proceed.
+  // The element/semantic blocks are useful early but become an infinite loop
+  // when the regex-based scoring can't recognize emotional content.
+  const turnCount = state?.turn_count ?? 0;
+  const pastEscapeThreshold = turnCount >= 3;
+  const hardBlockConfirm = hardSafetyBlock || hardGroundingBlock || (!isRevision && !pastEscapeThreshold && (hardCriticalBlock || hardElementBlock || hardSemanticBlock));
+  const hybridReady = !hardBlockConfirm && (gapAnalysis.isStoryReady || llmReadySignal || pastEscapeThreshold);
 
   return {
     gapAnalysis, gapQuestion, criticalCoverage, elements,
