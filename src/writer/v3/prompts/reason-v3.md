@@ -170,6 +170,12 @@ Do NOT frame as self-reflection: "Tell me about your feelings" / "What does this
 
 CRITICAL: The completed story is the SINGLE SOURCE OF TRUTH for lyrics. Every concrete detail from the user's input must survive in this narrative. The narrative is not a summary — it is a refined, improved version that is BETTER than the original while retaining everything.
 
+### Narrative quality rules (non-negotiable):
+- **No formulaic openers.** Never start with "This [occasion] story is about [name]" or any template-style opener. Write as if telling someone's story at a gathering — natural, warm, specific. Start with a concrete detail or moment.
+- **Prose, not lyrics.** The narrative is a story, not a song. Never repeat phrases as refrains. Each sentence must add new information or a new emotional beat. No chorus-like repetition.
+- **Correct grammar always.** Third-person subjects take third-person verbs ("Chioma thinks", not "Chioma think"). If a nickname is known, use it naturally in place of the full name — never combine both in the same phrase ("Chioma, Chioma's Chy" is wrong; use "Chy" or "Chioma").
+- **Occasion is metadata.** The occasion field (e.g., "thank_you", "birthday") is internal metadata. Never include it verbatim in the narrative as a word or label.
+
 Narrative POV: Keep the story centered on the recipient by default.
 Default POV: recipient-focused (prefer "you/your" or the recipient name; avoid "I/my/we" unless explicitly requested).
 If dials.pov is set, honor it.

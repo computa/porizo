@@ -1062,13 +1062,12 @@ function computeDecisionContext(response, state, options = {}) {
   const hardElementBlock = elementBlock.hasElementBlock;
   const hardSemanticBlock = state?.semantic_story?.can_confirm === false;
   const isRevision = options.inputMode === "revision";
-  // After turn 3, stop blocking — the user has shared enough. Let them proceed.
-  // The element/semantic blocks are useful early but become an infinite loop
-  // when the regex-based scoring can't recognize emotional content.
+  // Option C (Hybrid): LLM drives the conversation; code guards safety only.
+  // Element/critical/semantic blocks are computed for analytics (progress bar,
+  // story elements UI) but no longer override the LLM's question or action.
   const turnCount = state?.turn_count ?? 0;
-  const pastEscapeThreshold = turnCount >= 3;
-  const hardBlockConfirm = hardSafetyBlock || hardGroundingBlock || (!isRevision && !pastEscapeThreshold && (hardCriticalBlock || hardElementBlock || hardSemanticBlock));
-  const hybridReady = !hardBlockConfirm && (gapAnalysis.isStoryReady || llmReadySignal || pastEscapeThreshold);
+  const hardBlockConfirm = hardSafetyBlock || hardGroundingBlock;
+  const hybridReady = !hardBlockConfirm && (gapAnalysis.isStoryReady || llmReadySignal);
 
   return {
     gapAnalysis, gapQuestion, criticalCoverage, elements,
@@ -1081,221 +1080,119 @@ function computeDecisionContext(response, state, options = {}) {
 
 function resolveTurnDecision(response, state, options = {}) {
   const ctx = computeDecisionContext(response, state, options);
-  let { gapQuestion, hardBlockConfirm } = ctx;
-  const { gapAnalysis, elements, elementBlock, hardElementBlock, hybridReady,
-    llmReadySignal, hardSafetyBlock, hardCriticalBlock, criticalCoverage, hardSemanticBlock,
-    useLabovScoring } = ctx;
+  const { gapAnalysis, gapQuestion, elements, elementBlock, hardElementBlock,
+    hybridReady, llmReadySignal, hardSafetyBlock, hardBlockConfirm,
+    hardCriticalBlock, criticalCoverage, hardSemanticBlock } = ctx;
   const userMessage = options.userMessage || null;
   let adjustedResponse = { ...response };
   let forcedGapQuestion = false;
   let forcedConfirm = false;
-  let repeatEscapeApplied = false;
   let decisionSource = "llm";
   let llmSuggestions = Array.isArray(response.suggestions) ? response.suggestions : [];
-  const semanticBlockSignature = buildSemanticBlockSignature(state?.semantic_story);
-  const semanticRepeatCount = countConsecutiveSemanticAsks(state?.semantic_history || [], semanticBlockSignature);
 
-  if (gapQuestion) {
-    const repeatedCount = countConsecutiveSlotAsks(state?.gap_history || [], gapQuestion.targetSlot);
-    if (repeatedCount >= MAX_REPEAT_SLOT_ASKS) {
-      const prunedAnalysis = {
-        ...gapAnalysis,
-        missingSlots: (gapAnalysis.missingSlots || []).filter(slot => slot !== gapQuestion.targetSlot),
-        weakSlots: (gapAnalysis.weakSlots || []).filter(slot => slot !== gapQuestion.targetSlot),
-      };
-      const alternateQuestion = pickDeterministicGapQuestion(prunedAnalysis);
-      if (alternateQuestion) {
-        gapQuestion = {
-          ...alternateQuestion,
-          reason: `${alternateQuestion.reason} (repeat-slot escape from ${gapQuestion.targetSlot})`,
-        };
-        repeatEscapeApplied = true;
-      }
-    }
-  }
+  const llmHasQuestion = typeof response.question === "string" && response.question.trim().length > 0;
+  // Compute semantic block signature for analytics tracking (attachGapTelemetry uses it)
+  ctx._semanticBlockSignature = buildSemanticBlockSignature(state?.semantic_story);
+  const turnCount = state?.turn_count ?? 0;
+  const stateNarrative = state?.narrative_current || state?.narrative || "";
+  const narrativeLen = Math.max(stateNarrative.length, (adjustedResponse.narrative || "").length);
+  const factCount = Array.isArray(state?.facts) ? state.facts.filter(f => (f?.status || "active") === "active").length : 0;
 
-  if (
-    hardSemanticBlock
-    && !hardSafetyBlock
-    && !hardCriticalBlock
-    && !hardElementBlock
-    && semanticRepeatCount >= MAX_REPEAT_SEMANTIC_ASKS
-  ) {
-    hardBlockConfirm = false;
-    decisionSource = "semantic_exhaustion_escape";
-  }
-
-  // STOP means user intent to stop collecting; don't force additional asks.
+  // --- STOP is always pass-through ---
   if (adjustedResponse.action === "STOP") {
-    return {
-      response: adjustedResponse,
-      gapAnalysis,
-      gapQuestion: null,
-      forcedGapQuestion,
-      forcedConfirm,
-      repeatEscapeApplied,
-      decisionSource,
-      llmReadySignal,
-      hybridReady,
-      criticalSlotBlock: hardCriticalBlock,
-      criticalBlockingSlots: criticalCoverage.blockingSlots,
-      elements,
-      elementBlock: hardElementBlock,
-      blockedElements: elementBlock.blockedElements,
-      semanticBlock: hardSemanticBlock,
-    };
+    return buildDecisionResult({ adjustedResponse, ctx, decisionSource: "user_stop", llmSuggestions });
   }
 
-  // Exhaustion escape: if blocking slot has been asked MAX times
-  // with no alternate found, yield to avoid infinite loops.
-  // Does NOT fire for safety blocks.
-  if (hardBlockConfirm && !hardSafetyBlock && gapQuestion) {
-    const repeatedCount = countConsecutiveSlotAsks(
-      state?.gap_history || [], gapQuestion.targetSlot
-    );
-    if (repeatedCount >= MAX_REPEAT_SLOT_ASKS && !repeatEscapeApplied) {
-      // Yield: exhaustion override — allow CONFIRM despite blocking gap
-      hardBlockConfirm = false;
-      gapQuestion = null;
-      llmSuggestions = [];
-      decisionSource = "exhaustion_escape";
-      adjustedResponse = {
-        ...adjustedResponse,
-        action: "CONFIRM",
-        confirmation: adjustedResponse.confirmation || buildReadyConfirmation(state, gapAnalysis),
-        question: undefined,
-      };
-      forcedConfirm = true;
-    }
-  }
-
-  // --- LLM slot targeting (critical priority) ---
-  // Exhaustion escape above clears gapQuestion and hardBlockConfirm, so this is safe.
-  if (hardBlockConfirm && (adjustedResponse.action === "CONFIRM" || hybridReady)) {
-    const llmProvidedQuestion = typeof response.question === "string"
-      && response.question.length > 0;
-    const llmTargetedExactGap = llmProvidedQuestion
-      && response.targetSlot
-      && (response.targetSlot === gapQuestion?.targetSlot
-        || (useLabovScoring && getSlotLabovElement(response.targetSlot) === getSlotLabovElement(gapQuestion?.targetSlot)));
-    const weakName = elementBlock.weakestElement?.display_name || "a story element";
+  // --- Safety block: absolute override (profanity, impersonation) ---
+  if (hardSafetyBlock) {
     const recipientFirst = (state?.recipient_name || "them").split(/\s/)[0];
-    const elementFallback = `I'd love to hear more about how ${recipientFirst} makes you feel. Can you share a specific moment that comes to mind?`;
-    const semanticPrompt = hardSemanticBlock
-      ? buildSemanticClarificationPrompt(state)
-      : null;
-    const semanticFallback = semanticPrompt?.question || null;
-    const useQuestion = llmTargetedExactGap
-      ? response.question
-      : (semanticFallback || gapQuestion?.prompt || elementFallback);
-
     adjustedResponse = {
       action: "CLARIFY",
-      question: useQuestion,
+      question: `I want to help create something beautiful for ${recipientFirst}. Could you share a bit more about what they mean to you?`,
+      narrative: adjustedResponse.narrative,
+    };
+    llmSuggestions = [];
+    forcedGapQuestion = true;
+    return buildDecisionResult({ adjustedResponse, ctx, decisionSource: "safety_block", llmSuggestions, forcedGapQuestion });
+  }
+
+  // --- Grounding block: no facts at all (hallucination guard) ---
+  // Force fallback question — LLM's question may reference hallucinated details
+  if (hardBlockConfirm) {
+    adjustedResponse = {
+      action: "CLARIFY",
+      question: "I want to make sure I capture your story right. Could you tell me more?",
       narrative: adjustedResponse.narrative,
     };
     forcedGapQuestion = true;
-    if (llmTargetedExactGap) {
-      decisionSource = "llm_slot_targeted_critical";
-    } else {
-      llmSuggestions = [];  // Question replaced — LLM suggestions don't match
-      if (hardCriticalBlock) {
-        decisionSource = "critical_slot_gate";
-      } else if (hardSemanticBlock) {
-        decisionSource = "semantic_integrity_gate";
-      } else {
-        decisionSource = "hard_block";
-      }
-    }
-  } else if (hybridReady) {
-    adjustedResponse = {
-      ...adjustedResponse,
-      action: "CONFIRM",
-      confirmation: adjustedResponse.confirmation || buildReadyConfirmation(state, gapAnalysis),
-      question: undefined,
-    };
-    forcedConfirm = adjustedResponse.action !== response.action;
-    decisionSource = llmReadySignal ? "llm_or_hybrid_ready" : "deterministic_ready";
-  // --- LLM slot targeting (normal priority) ---
-  } else if (gapQuestion) {
-    const llmAskedQuestion = response.action === "ASK"
-      && typeof response.question === "string"
-      && response.question.length > 0;
-    const llmTargetedExactGap = llmAskedQuestion
-      && response.targetSlot
-      && (response.targetSlot === gapQuestion.targetSlot
-        || (useLabovScoring && getSlotLabovElement(response.targetSlot) === getSlotLabovElement(gapQuestion.targetSlot)));
-
-    if (llmTargetedExactGap) {
-      adjustedResponse = {
-        ...adjustedResponse,
-        action: "ASK",
-        question: response.question,
-        confirmation: undefined,
-      };
-      forcedGapQuestion = false;
-      decisionSource = "llm_slot_targeted";
-    } else if (llmAskedQuestion && gapQuestion) {
-      // LLM asked a question but may have targeted the wrong element.
-      // Validate relevance against the target element, and if off-target,
-      // generate a story-specific fallback instead of a generic template.
-      const labovTarget = computeQuestionPriority(gapAnalysis?.labov ? gapAnalysis : state?.labov_analysis);
-      const targetElement = labovTarget?.element || null;
-      const isRelevant = targetElement && validateQuestionRelevance(response.question, targetElement);
-
-      if (isRelevant) {
-        // LLM's question is relevant to the target element even if slot key didn't match
-        adjustedResponse = {
-          ...adjustedResponse,
-          action: "ASK",
-          question: response.question,
-          confirmation: undefined,
-        };
-        forcedGapQuestion = false;
-        decisionSource = "llm_element_relevant";
-      } else {
-        // LLM's question is off-target — try story-specific targeted fallback
-        const targetedFallback = targetElement
-          ? generateTargetedFallbackQuestion(targetElement, state, userMessage)
-          : null;
-        const finalQuestion = targetedFallback || gapQuestion.prompt;
-        adjustedResponse = {
-          ...adjustedResponse,
-          action: "ASK",
-          question: finalQuestion,
-          confirmation: undefined,
-        };
-        llmSuggestions = [];  // Question replaced — LLM suggestions don't match
-        forcedGapQuestion = response.action !== "ASK" || response.question !== finalQuestion;
-        decisionSource = targetedFallback ? "targeted_fallback" : "deterministic_gap";
-      }
-    } else {
-      // LLM didn't ask at all — use targeted fallback or static template
-      const labovTarget = computeQuestionPriority(gapAnalysis?.labov ? gapAnalysis : state?.labov_analysis);
-      const targetElement = labovTarget?.element || null;
-      const targetedFallback = targetElement
-        ? generateTargetedFallbackQuestion(targetElement, state, userMessage)
-        : null;
-      const finalQuestion = targetedFallback || gapQuestion.prompt;
-      adjustedResponse = {
-        ...adjustedResponse,
-        action: "ASK",
-        question: finalQuestion,
-        confirmation: undefined,
-      };
-      llmSuggestions = [];  // Question replaced — LLM suggestions don't match
-      forcedGapQuestion = response.action !== "ASK" || response.question !== finalQuestion;
-      decisionSource = targetedFallback ? "targeted_fallback" : "deterministic_gap";
-    }
+    return buildDecisionResult({ adjustedResponse, ctx, decisionSource: "grounding_block", llmSuggestions, forcedGapQuestion });
   }
 
+  // --- LLM says ASK or CLARIFY: trust the LLM's question ---
+  if (adjustedResponse.action === "ASK" || adjustedResponse.action === "CLARIFY") {
+    if (llmHasQuestion) {
+      // LLM generated a question — use it as-is
+      decisionSource = "llm";
+    } else {
+      // LLM decided to ask but didn't produce a question — fallback
+      const fallback = gapQuestion?.prompt || buildGenericGapFallback(state);
+      adjustedResponse = { ...adjustedResponse, question: fallback };
+      llmSuggestions = [];
+      forcedGapQuestion = true;
+      decisionSource = "llm_missing_question_fallback";
+    }
+    return buildDecisionResult({ adjustedResponse, ctx, decisionSource, llmSuggestions, forcedGapQuestion });
+  }
+
+  // --- LLM says CONFIRM: apply lightweight quality gates ---
+  if (adjustedResponse.action === "CONFIRM") {
+    // Gate: too early (less than 2 turns), too thin narrative, too few facts
+    const tooEarly = turnCount < 2;
+    const tooThin = narrativeLen < 100;
+    const tooFewFacts = factCount < 2;
+
+    if (tooEarly || tooThin || tooFewFacts) {
+      // Downgrade to ASK — use LLM's own question if it has one, else fallback
+      if (llmHasQuestion) {
+        adjustedResponse = { ...adjustedResponse, action: "ASK", confirmation: undefined };
+        decisionSource = "min_quality_gate_with_llm_question";
+      } else {
+        const fallback = gapQuestion?.prompt || buildGenericGapFallback(state);
+        adjustedResponse = { ...adjustedResponse, action: "ASK", question: fallback, confirmation: undefined };
+        llmSuggestions = [];
+        forcedGapQuestion = true;
+        decisionSource = "min_quality_gate_fallback";
+      }
+    } else {
+      // LLM says CONFIRM and quality gates pass — trust it
+      adjustedResponse = {
+        ...adjustedResponse,
+        confirmation: adjustedResponse.confirmation || buildReadyConfirmation(state, gapAnalysis),
+        question: undefined,
+      };
+      forcedConfirm = adjustedResponse.action !== response.action;
+      decisionSource = llmReadySignal ? "llm_ready" : "llm_confirm";
+    }
+    return buildDecisionResult({ adjustedResponse, ctx, decisionSource, llmSuggestions, forcedGapQuestion, forcedConfirm });
+  }
+
+  // Fallback: unknown action — pass through
+  return buildDecisionResult({ adjustedResponse, ctx, decisionSource: "llm_passthrough", llmSuggestions });
+}
+
+// Assemble the canonical return shape for resolveTurnDecision.
+// Keeps all analytics fields present for downstream consumers (telemetry, iOS, tests).
+function buildDecisionResult({ adjustedResponse, ctx, decisionSource, llmSuggestions = [], forcedGapQuestion = false, forcedConfirm = false }) {
+  const { gapAnalysis, gapQuestion, elements, elementBlock, hardElementBlock,
+    llmReadySignal, hybridReady, hardCriticalBlock, criticalCoverage,
+    hardSemanticBlock } = ctx;
   return {
     response: adjustedResponse,
     gapAnalysis,
     gapQuestion,
     forcedGapQuestion,
     forcedConfirm,
-    repeatEscapeApplied,
+    repeatEscapeApplied: false,
     decisionSource,
     llmSuggestions,
     llmReadySignal,
@@ -1306,8 +1203,13 @@ function resolveTurnDecision(response, state, options = {}) {
     elementBlock: hardElementBlock,
     blockedElements: elementBlock.blockedElements,
     semanticBlock: hardSemanticBlock,
-    semanticBlockSignature,
+    semanticBlockSignature: ctx._semanticBlockSignature || null,
   };
+}
+
+function buildGenericGapFallback(state) {
+  const recipientFirst = (state?.recipient_name || "them").split(/\s/)[0];
+  return `What's something about ${recipientFirst} that always stays with you?`;
 }
 
 function attachGapTelemetry(state, gapAnalysis, gapQuestion, responseAction, decisionMeta = {}) {

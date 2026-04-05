@@ -13,6 +13,7 @@ function buildReadyReflectiveState() {
   });
   state.narrative = "My sister Ada and I met in Lagos last December. I wanted us to reconnect. Then she called from the hospital parking lot and everything changed. We ended feeling hopeful and grateful.";
   state.narrative_current = state.narrative;
+  state.turn_count = 3;
   state.atoms = {
     ...state.atoms,
     who: "my sister Ada",
@@ -55,6 +56,8 @@ function buildReadyReflectiveState() {
   return state;
 }
 
+// --- Option C: LLM-Trusting Decision Tests ---
+
 test("resolveTurnDecision keeps CONFIRM when LLM is ready", () => {
   const state = buildReadyReflectiveState();
   state.last_reasoning = {
@@ -72,31 +75,14 @@ test("resolveTurnDecision keeps CONFIRM when LLM is ready", () => {
   );
 
   assert.equal(resolution.response.action, "CONFIRM");
-  assert.equal(Boolean(resolution.llmReadySignal), true);
 });
 
-test("resolveTurnDecision blocks CONFIRM when critical moment slot is weak", () => {
-  const state = createInitialState({
-    recipientName: "Ada",
-    occasion: "birthday",
-    initialPrompt: "seed",
-  });
-  state.narrative = "We met in Lagos and something changed.";
-  state.narrative_current = state.narrative;
-  state.atoms = {
-    ...state.atoms,
-    where: "Lagos",
-    action: "we met and talked",
-    // intentionally no time to keep moment_destination weak
-  };
-  state.last_reasoning = {
-    story_readiness: {
-      has_emotional_depth: true,
-      strong_elements: ["moment", "theme"],
-      weak_elements: [],
-    },
-    user_state: { seems_done: true },
-  };
+test("resolveTurnDecision trusts LLM CONFIRM even with weak slots (Option C)", () => {
+  const state = buildReadyReflectiveState();
+  // Remove some atoms to create gaps — Option C trusts LLM anyway
+  delete state.atoms.where;
+  delete state.atoms.when;
+  state.primitives.setting = { place: "", time: "", atmosphere: "", sensory_tags: [] };
 
   const resolution = v3.__internal.resolveTurnDecision(
     {
@@ -107,69 +93,98 @@ test("resolveTurnDecision blocks CONFIRM when critical moment slot is weak", () 
     state
   );
 
-  assert.equal(resolution.response.action, "CLARIFY");
-  assert.equal(resolution.criticalSlotBlock, true);
-  assert.ok(Array.isArray(resolution.criticalBlockingSlots));
-  assert.ok(resolution.criticalBlockingSlots.includes("moment_destination"));
-});
-
-test("resolveTurnDecision promotes ASK to CONFIRM when deterministic readiness is met", () => {
-  const state = buildReadyReflectiveState();
-
-  const resolution = v3.__internal.resolveTurnDecision(
-    {
-      action: "ASK",
-      question: "Tell me more.",
-      narrative: state.narrative,
-    },
-    state
-  );
-
+  // Option C: LLM says CONFIRM, quality gates pass (turn >= 2, narrative long, facts >= 2)
   assert.equal(resolution.response.action, "CONFIRM");
-  assert.ok(typeof resolution.response.confirmation === "string" && resolution.response.confirmation.length > 0);
-  assert.equal(resolution.gapAnalysis.isStoryReady, true);
+  // Analytics still computed — critical slot IS weak, but doesn't block
+  assert.equal(resolution.criticalSlotBlock, true);
 });
 
-test("resolveTurnDecision allows CONFIRM for revisions even with critical gap", () => {
+test("resolveTurnDecision downgrades CONFIRM to ASK when story too thin", () => {
   const state = createInitialState({
     recipientName: "Ada",
     occasion: "birthday",
     initialPrompt: "seed",
   });
-  state.narrative = "We met in Lagos and something changed.";
+  state.narrative = "Short.";
   state.narrative_current = state.narrative;
-  state.atoms = {
-    ...state.atoms,
-    where: "Lagos",
-    action: "we met and talked",
-    // intentionally no time to keep moment_destination weak
-  };
+  state.turn_count = 0;
   state.last_reasoning = {
-    story_readiness: {
-      has_emotional_depth: true,
-      strong_elements: ["moment", "theme"],
-      weak_elements: [],
-    },
+    story_readiness: { has_emotional_depth: false, strong_elements: [], weak_elements: [] },
     user_state: { seems_done: true },
   };
 
-  // Without revision flag: should block
-  const blocked = v3.__internal.resolveTurnDecision(
-    { action: "CONFIRM", confirmation: "Ready.", narrative: state.narrative },
+  const resolution = v3.__internal.resolveTurnDecision(
+    {
+      action: "CONFIRM",
+      confirmation: "Ready.",
+      narrative: state.narrative,
+      question: "Tell me more about Ada.",
+    },
     state
   );
-  assert.equal(blocked.response.action, "CLARIFY");
-  assert.equal(blocked.criticalSlotBlock, true);
 
-  // With revision flag: should allow CONFIRM
-  const allowed = v3.__internal.resolveTurnDecision(
-    { action: "CONFIRM", confirmation: "Ready.", narrative: state.narrative },
-    state,
-    { inputMode: "revision" }
+  // Quality gate: too early (turn 0), too thin (< 100 chars), too few facts
+  // Downgrade to ASK — uses LLM's question since it has one
+  assert.equal(resolution.response.action, "ASK");
+  assert.equal(resolution.response.question, "Tell me more about Ada.");
+});
+
+test("resolveTurnDecision trusts LLM ASK question regardless of slot targeting", () => {
+  const state = buildReadyReflectiveState();
+  state.turn_count = 1;
+
+  const resolution = v3.__internal.resolveTurnDecision(
+    {
+      action: "ASK",
+      question: "What tone should the story have?",
+      narrative: state.narrative,
+      targetSlot: "tone", // Different from gap analysis target
+    },
+    state
   );
-  assert.equal(allowed.response.action, "CONFIRM");
-  // Critical slot is still detected but not blocking
-  assert.equal(allowed.criticalSlotBlock, true);
+
+  // Option C: LLM's question is trusted regardless of slot match
+  assert.equal(resolution.response.action, "ASK");
+  assert.equal(resolution.response.question, "What tone should the story have?");
+  assert.equal(resolution.decisionSource, "llm");
+});
+
+test("resolveTurnDecision trusts LLM question even without targetSlot", () => {
+  const state = buildReadyReflectiveState();
+  state.turn_count = 1;
+
+  const resolution = v3.__internal.resolveTurnDecision(
+    {
+      action: "ASK",
+      question: "Tell me more about Osita.",
+      narrative: state.narrative,
+      // No targetSlot at all
+    },
+    state
+  );
+
+  assert.equal(resolution.response.action, "ASK");
+  assert.equal(resolution.response.question, "Tell me more about Osita.");
+  assert.equal(resolution.decisionSource, "llm");
+});
+
+test("resolveTurnDecision uses gap fallback when LLM ASK has no question", () => {
+  const state = buildReadyReflectiveState();
+  state.turn_count = 1;
+
+  const resolution = v3.__internal.resolveTurnDecision(
+    {
+      action: "ASK",
+      narrative: state.narrative,
+      // No question provided
+    },
+    state
+  );
+
+  assert.equal(resolution.response.action, "ASK");
+  assert.ok(resolution.response.question.length > 0);
+  assert.equal(resolution.forcedGapQuestion, true);
+  assert.equal(resolution.decisionSource, "llm_missing_question_fallback");
 });
 
 test("resolveTurnDecision still blocks revisions for safety violations", () => {
@@ -190,62 +205,7 @@ test("resolveTurnDecision still blocks revisions for safety violations", () => {
     { inputMode: "revision" }
   );
   assert.equal(resolution.response.action, "CLARIFY");
-});
-
-test("resolveTurnDecision forces CONFIRM via exhaustion escape after MAX asks", () => {
-  // Build a state where ALL slots are covered EXCEPT moment_destination.
-  // This ensures no alternate gap question when the repeat-escape prunes it.
-  const state = buildReadyReflectiveState();
-  // Remove place/time to make moment_destination "weak"
-  delete state.atoms.where;
-  delete state.atoms.when;
-  state.primitives.setting = { place: "", time: "", atmosphere: "", sensory_tags: [] };
-  // Cover blocker, stakes, ending_feel so no alternates exist
-  state.primitives.conflict = { internal: "years of silence between us" };
-  state.atoms.stakes = "we might never speak again";
-  state.narrative += " I felt grateful and relieved we finally reconnected.";
-  state.narrative_current = state.narrative;
-  // Simulate asking the blocking slot MAX times with no alternate
-  state.gap_history = [
-    { slot: "moment_destination", turn: 1, timestamp: new Date().toISOString() },
-    { slot: "moment_destination", turn: 2, timestamp: new Date().toISOString() },
-  ];
-
-  const resolution = v3.__internal.resolveTurnDecision(
-    { action: "CONFIRM", confirmation: "Ready.", narrative: state.narrative },
-    state
-  );
-
-  assert.equal(resolution.response.action, "CONFIRM");
-  assert.equal(resolution.decisionSource, "exhaustion_escape");
-  assert.equal(resolution.forcedConfirm, true);
-});
-
-test("resolveTurnDecision exhaustion escape does NOT fire for safety blocks", () => {
-  const state = buildReadyReflectiveState();
-  delete state.atoms.where;
-  delete state.atoms.when;
-  state.primitives.setting = { place: "", time: "", atmosphere: "", sensory_tags: [] };
-  state.primitives.conflict = { internal: "years of silence between us" };
-  state.atoms.stakes = "we might never speak again";
-  state.narrative += " I felt grateful and relieved we finally reconnected.";
-  state.narrative_current = state.narrative;
-  state.last_reasoning = {
-    safety: { blocked: true },
-  };
-  state.gap_history = [
-    { slot: "moment_destination", turn: 1, timestamp: new Date().toISOString() },
-    { slot: "moment_destination", turn: 2, timestamp: new Date().toISOString() },
-  ];
-
-  const resolution = v3.__internal.resolveTurnDecision(
-    { action: "CONFIRM", confirmation: "Ready.", narrative: state.narrative },
-    state
-  );
-
-  // Safety block should NOT be escaped
-  assert.equal(resolution.response.action, "CLARIFY");
-  assert.notEqual(resolution.decisionSource, "exhaustion_escape");
+  assert.equal(resolution.decisionSource, "safety_block");
 });
 
 test("resolveTurnDecision blocks confirm when grounding has no facts", () => {
@@ -268,130 +228,56 @@ test("resolveTurnDecision blocks confirm when grounding has no facts", () => {
 
   assert.equal(resolution.response.action, "CLARIFY");
   assert.ok(resolution.response.question?.length > 0);
+  assert.equal(resolution.decisionSource, "grounding_block");
 });
 
-// --- Hybrid Slot Targeting Tests ---
+test("resolveTurnDecision passes through STOP action", () => {
+  const state = buildReadyReflectiveState();
 
-function buildStateWithMomentGap() {
-  const state = createInitialState({
-    recipientName: "Ada",
-    occasion: "birthday",
-    initialPrompt: "seed",
-  });
-  state.narrative = "My older brother Osita always stepped up for the family.";
-  state.narrative_current = state.narrative;
-  state.atoms = {
-    ...state.atoms,
-    who: "my older brother Osita",
-    action: "stepped up for the family",
-  };
-  state.primitives = {
-    ...state.primitives,
-    characters: [{ name: "Osita", role: "older brother", desire: "to provide" }],
-  };
-  state.facts = [
-    { id: "f1", text: "My older brother Osita always stepped up.", status: "active" },
-  ];
-  return state;
-}
+  const resolution = v3.__internal.resolveTurnDecision(
+    { action: "STOP", narrative: state.narrative },
+    state
+  );
 
-test("resolveTurnDecision prefers LLM question when targetSlot matches gap", () => {
-  const state = buildStateWithMomentGap();
-  const llmQuestion = "You mentioned Osita stepped up — was there one specific moment and place where that really hit you?";
+  assert.equal(resolution.response.action, "STOP");
+  assert.equal(resolution.decisionSource, "user_stop");
+});
+
+test("resolveTurnDecision preserves LLM suggestions when question not overridden", () => {
+  const state = buildReadyReflectiveState();
+  state.turn_count = 1;
+  const suggestions = ["She was always there", "The way she smiles", "When she called"];
 
   const resolution = v3.__internal.resolveTurnDecision(
     {
       action: "ASK",
-      question: llmQuestion,
+      question: "What's a moment with Ada that you'll never forget?",
       narrative: state.narrative,
-      targetSlot: "moment_destination",
+      suggestions,
     },
     state
   );
 
   assert.equal(resolution.response.action, "ASK");
-  assert.equal(resolution.response.question, llmQuestion);
-  assert.equal(resolution.decisionSource, "llm_slot_targeted");
+  assert.deepEqual(resolution.llmSuggestions, suggestions);
 });
 
-test("resolveTurnDecision rejects an alternate valid gap question from the LLM", () => {
-  const state = buildStateWithMomentGap();
+test("safety block overrides even in revision mode", () => {
+  const state = buildReadyReflectiveState();
+  state.last_reasoning = { safety: { requires_refusal: true } };
 
   const resolution = v3.__internal.resolveTurnDecision(
-    {
-      action: "ASK",
-      question: "What tone should the story have?",
-      narrative: state.narrative,
-      targetSlot: "tone",
-    },
-    state
-  );
-
-  assert.equal(resolution.response.action, "ASK");
-  assert.notEqual(resolution.response.question, "What tone should the story have?");
-  assert.equal(resolution.gapQuestion?.targetSlot, "moment_destination");
-  assert.equal(resolution.decisionSource, "deterministic_gap");
-});
-
-test("resolveTurnDecision falls back to template when no targetSlot", () => {
-  const state = buildStateWithMomentGap();
-
-  const resolution = v3.__internal.resolveTurnDecision(
-    {
-      action: "ASK",
-      question: "Tell me more about Osita.",
-      narrative: state.narrative,
-    },
-    state
-  );
-
-  assert.equal(resolution.response.action, "ASK");
-  assert.notEqual(resolution.response.question, "Tell me more about Osita.");
-  assert.equal(resolution.decisionSource, "deterministic_gap");
-});
-
-test("resolveTurnDecision uses LLM question in critical block when slot matches", () => {
-  const state = buildStateWithMomentGap();
-  // Force LLM to want CONFIRM but critical slot blocks it
-  const llmQuestion = "Before we finalize, where exactly did this moment happen?";
-
-  const resolution = v3.__internal.resolveTurnDecision(
-    {
-      action: "CONFIRM",
-      confirmation: "Your story is ready.",
-      question: llmQuestion,
-      narrative: state.narrative,
-      targetSlot: "moment_destination",
-    },
-    state
+    { action: "ASK", question: "Bad question", narrative: state.narrative },
+    state,
+    { inputMode: "revision" }
   );
 
   assert.equal(resolution.response.action, "CLARIFY");
-  assert.equal(resolution.response.question, llmQuestion);
-  assert.equal(resolution.decisionSource, "llm_slot_targeted_critical");
+  assert.equal(resolution.decisionSource, "safety_block");
+  assert.deepEqual(resolution.llmSuggestions, []);
 });
 
-test("resolveTurnDecision rejects alternate slots during critical block", () => {
-  const state = buildStateWithMomentGap();
-
-  const resolution = v3.__internal.resolveTurnDecision(
-    {
-      action: "CONFIRM",
-      confirmation: "Your story is ready.",
-      question: "What tone should the story have?",
-      narrative: state.narrative,
-      targetSlot: "tone",
-    },
-    state
-  );
-
-  assert.equal(resolution.response.action, "CLARIFY");
-  assert.notEqual(resolution.response.question, "What tone should the story have?");
-  assert.equal(resolution.gapQuestion?.targetSlot, "moment_destination");
-  assert.equal(resolution.decisionSource, "critical_slot_gate");
-});
-
-// --- Builder Gap Targeting Tests ---
+// --- Builder Gap Targeting Tests (unchanged — analytics still work) ---
 
 test("buildGapTargeting formats coverage table from state.story_slots", () => {
   const state = {
@@ -450,7 +336,7 @@ test("buildGapTargeting returns no-analysis message when story_slots empty", () 
   assert.equal(buildGapTargeting(null), "(No gap analysis yet — first turn)");
 });
 
-// --- Story Element Threshold Tests ---
+// --- Story Element Analytics Tests (unchanged — computation still works) ---
 
 const {
   STORY_ELEMENT_DEFINITIONS,
@@ -477,28 +363,19 @@ test("computeStoryElements maps 8 slots to 5 elements with correct ids", () => {
 
   assert.equal(elements.length, 5);
   assert.deepEqual(elements.map(el => el.id), ["setting", "feeling", "bond", "moment", "details"]);
-
-  // Setting: primarySlot=moment_destination (0.85), no bonus
   assert.equal(elements[0].strength, 0.85);
   assert.equal(elements[0].is_required, true);
   assert.equal(elements[0].display_name, "The Setting");
-
-  // Bond: primarySlot=who (0.90), bonusSlot=want (0.45)
-  // max(0.90, 0.75*0.90 + 0.25*0.45) = max(0.90, 0.7875) = 0.90
   assert.equal(elements[2].strength, 0.90);
-
-  // Details: primarySlot=stakes (0.35), no bonus
   assert.equal(elements[4].strength, 0.35);
   assert.equal(elements[4].is_required, false);
 });
 
 test("bonus slot only helps, never hurts element score", () => {
-  // Covered primary + missing bonus should = primary confidence
   const gapAnalysis = {
     slots: [
       { slot: "who", status: "covered", confidence: 0.80 },
       { slot: "want", status: "missing", confidence: 0.0 },
-      // Provide other slots to avoid undefined
       { slot: "moment_destination", status: "covered", confidence: 0.75 },
       { slot: "ending_feel", status: "covered", confidence: 0.75 },
       { slot: "turn", status: "covered", confidence: 0.75 },
@@ -508,10 +385,7 @@ test("bonus slot only helps, never hurts element score", () => {
 
   const elements = computeStoryElements(gapAnalysis);
   const bond = elements.find(el => el.id === "bond");
-
-  // max(0.80, 0.75*0.80 + 0.25*0.0) = max(0.80, 0.60) = 0.80
   assert.equal(bond.strength, 0.80);
-  // Primary alone (0.80) passes threshold (0.70) — bonus missing doesn't hurt
   assert.ok(bond.strength >= ELEMENT_CONFIRM_THRESHOLD);
 });
 
@@ -545,26 +419,30 @@ test("getElementConfirmBlock passes when all required >= 70%", () => {
   assert.equal(result.weakestElement, null);
 });
 
-test("resolveTurnDecision blocks CONFIRM on element threshold", () => {
+test("element analytics still computed even though they don't block (Option C)", () => {
   const state = createInitialState({
     recipientName: "Ada",
     occasion: "birthday",
     initialPrompt: "seed",
   });
-  state.narrative = "We met in Lagos last December and it changed everything.";
+  state.narrative = "We met in Lagos last December and it changed everything. My sister Ada was always the one who held the family together through thick and thin.";
   state.narrative_current = state.narrative;
+  state.turn_count = 3;
   state.atoms = {
     ...state.atoms,
     who: "my sister Ada",
     where: "Lagos",
     when: "last December",
-    // No ending_feel/tone → feeling element will be weak
   };
   state.primitives = {
     ...state.primitives,
     characters: [{ name: "Ada", role: "sister", desire: "to reconnect" }],
     setting: { place: "Lagos", time: "last December", atmosphere: "", sensory_tags: [] },
   };
+  state.facts = [
+    { id: "f1", text: "We met in Lagos last December.", status: "active" },
+    { id: "f2", text: "It changed everything.", status: "active" },
+  ];
   state.last_reasoning = {
     story_readiness: { has_emotional_depth: true, strong_elements: ["moment"], weak_elements: [] },
     user_state: { seems_done: true },
@@ -575,41 +453,14 @@ test("resolveTurnDecision blocks CONFIRM on element threshold", () => {
     state
   );
 
-  // Should block because feeling element is below 70%
-  assert.equal(resolution.response.action, "CLARIFY");
+  // Option C: CONFIRM is allowed (quality gates pass)
+  assert.equal(resolution.response.action, "CONFIRM");
+  // But analytics still show element block would have fired
   assert.equal(resolution.elementBlock, true);
   assert.ok(resolution.blockedElements.length > 0);
-});
-
-test("resolveTurnDecision allows CONFIRM when all required elements pass", () => {
-  const state = buildReadyReflectiveState();
-
-  const resolution = v3.__internal.resolveTurnDecision(
-    { action: "CONFIRM", confirmation: "Ready.", narrative: state.narrative },
-    state
-  );
-
-  assert.equal(resolution.response.action, "CONFIRM");
-  assert.equal(resolution.elementBlock, false);
-  assert.deepEqual(resolution.blockedElements, []);
-});
-
-test("optional stakes gap does not block CONFIRM when required elements pass", () => {
-  const state = buildReadyReflectiveState();
-  delete state.atoms.stakes;
-
-  const resolution = v3.__internal.resolveTurnDecision(
-    { action: "CONFIRM", confirmation: "Ready.", narrative: state.narrative },
-    state
-  );
-
-  const stakesSlot = resolution.gapAnalysis.slots.find(slot => slot.slot === "stakes");
-  const detailsEl = resolution.elements.find(el => el.id === "details");
-
-  assert.equal(stakesSlot?.status, "missing");
-  assert.equal(detailsEl?.is_required, false);
-  assert.equal(resolution.response.action, "CONFIRM");
-  assert.equal(resolution.elementBlock, false);
+  // Elements and gap analysis are still present for progress UI
+  assert.ok(Array.isArray(resolution.elements));
+  assert.ok(resolution.elements.length === 5);
 });
 
 test("getTurnProgressScore uses weighted average from elements", () => {
@@ -628,105 +479,97 @@ test("getTurnProgressScore uses weighted average from elements", () => {
 
   const elements = computeStoryElements(gapAnalysis);
   const score = v3.__internal.getTurnProgressScore({}, gapAnalysis, "ASK", elements);
-
-  // Required: setting=0.80, feeling=max(0.80, 0.75*0.80+0.25*0.80)=0.80, bond=max(0.80, 0.75*0.80+0.25*0.80)=0.80
-  // Optional: moment=max(0.05, 0.75*0.05+0.25*0.05)=0.05, details=0.05
-  // Weighted: (0.80*2 + 0.80*2 + 0.80*2 + 0.05*1 + 0.05*1) / (2+2+2+1+1) = 4.90/8 = 0.6125
   assert.equal(score, 61);
 
-  // CONFIRM/STOP actions floor at 90
   const confirmScore = v3.__internal.getTurnProgressScore({}, gapAnalysis, "CONFIRM", elements);
   assert.ok(confirmScore >= 90);
 });
 
-test("exhaustion escape overrides element block", () => {
+test("CONFIRM downgrade without LLM question uses gap fallback", () => {
   const state = createInitialState({
     recipientName: "Ada",
     occasion: "birthday",
     initialPrompt: "seed",
   });
-  state.narrative = "We met in Lagos last December and it changed everything. My sister Ada always stepped up.";
+  state.narrative = "Short.";
   state.narrative_current = state.narrative;
-  state.atoms = {
-    ...state.atoms,
-    who: "my sister Ada",
-    where: "Lagos",
-    when: "last December",
-    turn: "she called from the hospital parking lot",
-    stakes: "we might never speak again",
-    // No ending_feel/after → feeling element weak, but moment_destination covered
-  };
-  state.primitives = {
-    ...state.primitives,
-    characters: [{ name: "Ada", role: "sister", desire: "to reconnect" }],
-    setting: { place: "Lagos", time: "last December", atmosphere: "", sensory_tags: [] },
-    turning_point: "she called from the hospital parking lot",
-    conflict: { internal: "years of silence between us" },
-  };
-  state.dials = { ...state.dials, tone: "gentle" };
-  state.last_reasoning = {
-    story_readiness: { has_emotional_depth: true, strong_elements: ["moment"], weak_elements: [] },
-    user_state: { seems_done: true },
-  };
-  // Simulate MAX asks on the gap question's target slot (ending_feel is top priority
-  // since moment_destination is covered, so gap question targets ending_feel).
-  // tone is covered via dials so no alternate exists after repeat-escape prunes ending_feel.
-  state.gap_history = [
-    { slot: "ending_feel", turn: 1, timestamp: new Date().toISOString() },
-    { slot: "ending_feel", turn: 2, timestamp: new Date().toISOString() },
-  ];
+  state.turn_count = 0;
 
   const resolution = v3.__internal.resolveTurnDecision(
     { action: "CONFIRM", confirmation: "Ready.", narrative: state.narrative },
     state
   );
 
-  assert.equal(resolution.response.action, "CONFIRM");
-  assert.equal(resolution.decisionSource, "exhaustion_escape");
-  assert.equal(resolution.forcedConfirm, true);
+  // Quality gate fails (too early, too thin, too few facts) — no LLM question available
+  assert.equal(resolution.response.action, "ASK");
+  assert.ok(resolution.response.question.length > 0);
+  assert.equal(resolution.forcedGapQuestion, true);
+  assert.ok(resolution.decisionSource.includes("fallback"));
 });
 
-test("element block fallback prompt names weakest element", () => {
-  const state = createInitialState({
-    recipientName: "Ada",
-    occasion: "birthday",
-    initialPrompt: "seed",
-  });
-  state.narrative = "We met in Lagos last December. She is my sister.";
-  state.narrative_current = state.narrative;
-  state.atoms = {
-    ...state.atoms,
-    who: "my sister Ada",
-    where: "Lagos",
-    when: "last December",
-  };
-  state.primitives = {
-    ...state.primitives,
-    characters: [{ name: "Ada", role: "sister", desire: "to reconnect" }],
-    setting: { place: "Lagos", time: "last December", atmosphere: "", sensory_tags: [] },
-  };
-  state.last_reasoning = {
-    story_readiness: { has_emotional_depth: true, strong_elements: [], weak_elements: [] },
-    user_state: { seems_done: true },
-  };
+test("quality gate boundary: turn_count=2 passes, turn_count=1 fails", () => {
+  const state = buildReadyReflectiveState();
+  state.turn_count = 2;
 
-  const resolution = v3.__internal.resolveTurnDecision(
+  const passes = v3.__internal.resolveTurnDecision(
     { action: "CONFIRM", confirmation: "Ready.", narrative: state.narrative },
     state
   );
+  assert.equal(passes.response.action, "CONFIRM");
 
-  // When gap question template is available, it's used instead of element fallback.
-  // But the element block is still active.
-  assert.equal(resolution.response.action, "CLARIFY");
-  assert.equal(resolution.elementBlock, true);
-  assert.ok(resolution.blockedElements.length > 0);
+  state.turn_count = 1;
+  const fails = v3.__internal.resolveTurnDecision(
+    { action: "CONFIRM", confirmation: "Ready.", narrative: state.narrative, question: "More?" },
+    state
+  );
+  assert.equal(fails.response.action, "ASK");
+});
+
+test("quality gate boundary: narrative 100 chars passes, 99 fails", () => {
+  const state = buildReadyReflectiveState();
+  state.turn_count = 3;
+  state.facts = [
+    { id: "f1", text: "Fact one.", status: "active" },
+    { id: "f2", text: "Fact two.", status: "active" },
+  ];
+
+  // 100 chars passes
+  state.narrative = "x".repeat(100);
+  state.narrative_current = state.narrative;
+  const passes = v3.__internal.resolveTurnDecision(
+    { action: "CONFIRM", confirmation: "Ready.", narrative: state.narrative },
+    state
+  );
+  assert.equal(passes.response.action, "CONFIRM");
+
+  // 99 chars fails
+  state.narrative = "x".repeat(99);
+  state.narrative_current = state.narrative;
+  const fails = v3.__internal.resolveTurnDecision(
+    { action: "CONFIRM", confirmation: "Ready.", narrative: state.narrative, question: "More?" },
+    state
+  );
+  assert.equal(fails.response.action, "ASK");
+});
+
+test("whitespace-only question treated as no question", () => {
+  const state = buildReadyReflectiveState();
+  state.turn_count = 1;
+
+  const resolution = v3.__internal.resolveTurnDecision(
+    { action: "ASK", question: "   ", narrative: state.narrative },
+    state
+  );
+
+  // Whitespace trimmed → treated as missing question → fallback
+  assert.equal(resolution.response.action, "ASK");
+  assert.notEqual(resolution.response.question.trim(), "");
+  assert.equal(resolution.forcedGapQuestion, true);
 });
 
 test("toConfidence range: covered starts at 0.75, weak at 0.35, missing at 0.05", () => {
-  // Test indirectly through computeStoryGapAnalysis
   const { computeStoryGapAnalysis } = v3.__internal.quality;
 
-  // Build a minimal state with clear slot statuses
   const state = createInitialState({
     recipientName: "Ada",
     occasion: "birthday",
@@ -737,7 +580,6 @@ test("toConfidence range: covered starts at 0.75, weak at 0.35, missing at 0.05"
 
   const gapAnalysis = computeStoryGapAnalysis(state);
 
-  // All slots should have confidence values in expected ranges
   for (const slot of gapAnalysis.slots || []) {
     if (slot.status === "covered") {
       assert.ok(slot.confidence >= 0.75, `Covered slot ${slot.slot} has confidence ${slot.confidence} < 0.75`);

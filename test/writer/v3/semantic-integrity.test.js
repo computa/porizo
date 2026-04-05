@@ -103,9 +103,13 @@ test("resolveTurnDecision uses the semantic clarification prompt instead of a ge
     missing_narrative_blocks: ["meaning"],
   };
 
+  // Option C: semantic blocks no longer override the LLM's decision.
+  // The LLM says CONFIRM — quality gates check turn count, narrative length, facts.
+  // This state has turn_count=3, narrative > 100 chars, 2 facts → quality gates pass.
   const result = v3Engine.__internal.resolveTurnDecision({ action: "CONFIRM" }, repaired);
-  assert.equal(result.response.action, "CLARIFY");
-  assert.match(result.response.question, /what does this story ultimately mean to you/i);
+  assert.equal(result.response.action, "CONFIRM");
+  // Semantic block is still tracked for analytics
+  assert.equal(result.semanticBlock, true);
 });
 
 test("getStoryContextV3 persists semantic repairs so lyrics see the stored repaired contract", async () => {
