@@ -26,6 +26,7 @@ const { isDeepStrictEqual } = require("node:util");
 // Internal modules
 const { createInitialState, validateState, addFact, ensureStateDefaults } = require("./state");
 const { composeNarrativeFromFacts, getActiveFacts } = require("./narrative");
+const { stripFormulaicOpener } = require("./utils");
 const { reasonWithFallback } = require("./reasoner");
 const {
   applyReasoningResult,
@@ -1605,7 +1606,7 @@ async function startStoryV3(options) {
     engineVersion: effectiveEngineVersion,
     action: response.action,
     question: response.question || response.confirmation,
-    narrative: response.narrative || getCanonicalNarrative(finalState) || "",
+    narrative: stripFormulaicOpener(response.narrative || getCanonicalNarrative(finalState) || ""),
     completionScore: getTurnProgressScore(finalState, gapResolution.gapAnalysis, response.action, gapResolution.elements),
     fallback: response.fallback || usedFallback,
     suggestions,
@@ -1973,7 +1974,7 @@ async function continueStoryV3(options) {
   });
 
   // 6. Ensure narrative is populated (always, with stronger guarantee on completion)
-  let finalNarrative = response.narrative || getCanonicalNarrative(v2State);
+  let finalNarrative = stripFormulaicOpener(response.narrative || getCanonicalNarrative(v2State) || "");
   if (!finalNarrative && getActiveFacts(v2State.facts || []).length > 0) {
     finalNarrative = composeNarrativeFromFacts(v2State) || "";
     const reason = response.action === "STOP" || response.action === "CONFIRM"

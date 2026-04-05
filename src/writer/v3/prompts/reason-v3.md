@@ -300,7 +300,7 @@ Respond with ONLY JSON (no markdown, no explanation):
       "focus": ""
     },
     "narrative_mode": "rewritten",
-    "narrative": "refined, authoritative version of the complete story — reorganized and improved for clarity and flow, but retaining ALL specific details, events, emotions, and meaning from the source. Sentence count follows content richness (may be 5-15 sentences for rich stories). Never drop transformation, meaning, gratitude, or emotional climax details. Follow-up answers supplement the existing story, they do not replace the original emotional thesis.",
+    "narrative": "CRITICAL RULES: (1) NEVER start with 'This [occasion] story is about [name]' — start with a concrete detail or moment instead. (2) Write warm prose, NOT song lyrics — no repeated refrains or choruses. (3) Correct grammar always ('she thinks' not 'she think'). (4) Never write raw occasion labels ('thank_you', 'birthday') as words. CONTENT: refined, authoritative version of the complete story — reorganized for clarity and flow, retaining ALL specific details, events, emotions, meaning. 5-15 sentences for rich stories. Follow-up answers supplement, not replace.",
     "integration": {
       "added_facts": ["fact_id"],
       "updated_facts": ["fact_id"],

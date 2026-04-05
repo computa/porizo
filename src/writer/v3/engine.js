@@ -21,7 +21,7 @@ const {
   narrativeCoversAnchors,
 } = require("./narrative");
 const { assessStateGrounding, createFactId } = require("./state");
-const { normalizeOccasion, normalizeText } = require("./utils");
+const { normalizeOccasion, normalizeText, stripFormulaicOpener } = require("./utils");
 
 /**
  * Occasion-based suggestion chips for story questions.
@@ -1572,7 +1572,8 @@ function applyReasoningResult(state, reasoningResult, userInput) {
     };
   }
 
-  const finalNarrative = normalizeText(newState.narrative || newState.narrative_current || "");
+  const rawNarrative = normalizeText(newState.narrative || newState.narrative_current || "");
+  const finalNarrative = stripFormulaicOpener(rawNarrative);
   const previousNarrative = normalizeText(state.narrative_current || state.narrative || "");
   let nextNarrativeVersion = Number(state.narrative_version || 0);
   let narrativeRevisions = Array.isArray(state.narrative_revisions)
