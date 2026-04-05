@@ -30,7 +30,7 @@ struct ProfileCompletionView: View {
             ZStack {
                 DesignTokens.background.ignoresSafeArea()
 
-                ScrollView(showsIndicators: false) {
+                ScrollView {
                     VStack(spacing: 20) {
                         // Title + subtitle
                         VStack(alignment: .leading, spacing: 4) {
@@ -109,6 +109,7 @@ struct ProfileCompletionView: View {
                     .padding(.horizontal, DesignTokens.spacing20)
                     .padding(.bottom, DesignTokens.spacing32)
                 }
+                .scrollIndicators(.hidden)
                 .scrollDismissesKeyboard(.interactively)
             }
             .navigationTitle("")

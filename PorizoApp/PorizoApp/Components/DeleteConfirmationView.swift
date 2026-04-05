@@ -37,6 +37,7 @@ struct DeleteConfirmationView: View {
                     onCancel()
                 }
                 .accessibilityAddTraits(.isButton)
+                .accessibilityAddTraits(.isButton)
                 .accessibilityLabel("Dismiss")
 
             // Modal

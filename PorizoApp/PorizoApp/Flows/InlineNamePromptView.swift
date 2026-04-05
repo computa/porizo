@@ -89,7 +89,7 @@ struct InlineNamePromptView: View {
                     .onSubmit { submit() }
 
                 // Occasion chips
-                ScrollView(.horizontal, showsIndicators: false) {
+                ScrollView(.horizontal) {
                     HStack(spacing: 8) {
                         ForEach(occasions, id: \.label) { item in
                             let isSelected = selectedOccasion == item.label
@@ -121,6 +121,7 @@ struct InlineNamePromptView: View {
                     }
                     .padding(.horizontal, 20)
                 }
+                .scrollIndicators(.hidden)
 
                 // Song / Poem toggle (only when type is not pre-determined)
                 if selectedType == nil {
@@ -162,6 +163,7 @@ struct InlineNamePromptView: View {
         .onTapGesture {
             UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
         }
+        .accessibilityAddTraits(.isButton)
     }
 
     // MARK: - Helpers

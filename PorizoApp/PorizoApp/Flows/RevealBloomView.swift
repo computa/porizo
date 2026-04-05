@@ -38,7 +38,7 @@ struct RevealBloomView: View {
 
             // MARK: - Content
 
-            ScrollView(showsIndicators: false) {
+            ScrollView {
                 VStack(spacing: DesignTokens.spacing24) {
                     Spacer()
                         .frame(height: 60)
@@ -100,6 +100,7 @@ struct RevealBloomView: View {
                 .padding(.horizontal, DesignTokens.spacing20)
                 .frame(maxWidth: .infinity)
             }
+            .scrollIndicators(.hidden)
             .opacity(contentOpacity)
         }
         .ignoresSafeArea()

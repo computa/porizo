@@ -313,6 +313,7 @@ struct PostCreateTransformView: View {
                 selectedSection = selectedSection == index ? nil : index
             }
         }
+        .accessibilityAddTraits(.isButton)
     }
 
     private func miniAction(icon: String, label: String) -> some View {

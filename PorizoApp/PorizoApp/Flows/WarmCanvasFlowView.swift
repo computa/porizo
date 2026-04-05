@@ -335,7 +335,7 @@ struct WarmCanvasFlowView: View {
                 )
 
                 ScrollViewReader { proxy in
-                    ScrollView(showsIndicators: false) {
+                    ScrollView {
                         LazyVStack(spacing: 12) {
                             // Occasion picker (shown when needed)
                             if showOccasionPicker {
@@ -368,6 +368,7 @@ struct WarmCanvasFlowView: View {
                             Spacer().frame(height: 140)
                         }
                     }
+                    .scrollIndicators(.hidden)
                     .onChange(of: momentKey) { _, _ in
                         // Auto-scroll to inline cards when moment changes (voice selection, lyrics, etc.)
                         Task { @MainActor in

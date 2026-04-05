@@ -26,6 +26,7 @@ struct SongActionMenu: View {
                     onDismiss()
                 }
                 .accessibilityAddTraits(.isButton)
+                .accessibilityAddTraits(.isButton)
                 .accessibilityLabel("Dismiss")
 
             // Bottom sheet

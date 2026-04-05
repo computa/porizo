@@ -35,7 +35,7 @@ struct SharePostcardView: View {
 
                 // MARK: - Scrollable Content
 
-                ScrollView(showsIndicators: false) {
+                ScrollView {
                     VStack(spacing: DesignTokens.spacing20) {
                         postcardCard
                         howItWorksSection
@@ -52,6 +52,7 @@ struct SharePostcardView: View {
                     .padding(.horizontal, DesignTokens.spacing20)
                     .padding(.bottom, 32)
                 }
+                .scrollIndicators(.hidden)
             }
         }
     }

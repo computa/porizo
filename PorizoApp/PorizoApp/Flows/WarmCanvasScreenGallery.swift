@@ -163,7 +163,7 @@ struct WarmCanvasScreenGallery: View {
     // MARK: - Gallery List
 
     private var galleryList: some View {
-        ScrollView(showsIndicators: false) {
+        ScrollView {
             VStack(spacing: 24) {
                 ForEach(ScreenSection.allCases, id: \.rawValue) { section in
                     VStack(spacing: 8) {
@@ -178,6 +178,7 @@ struct WarmCanvasScreenGallery: View {
             .padding(.horizontal, 20)
             .padding(.top, 16)
         }
+        .scrollIndicators(.hidden)
     }
 
     private func sectionHeader(_ title: String, count: Int) -> some View {
@@ -495,7 +496,7 @@ struct WarmCanvasScreenGallery: View {
 
     private var homeDemoView: some View {
         VStack(spacing: 0) {
-            ScrollView(showsIndicators: false) {
+            ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     Text("Explore")
                         .font(DesignTokens.displayFont(size: 28))
@@ -514,13 +515,14 @@ struct WarmCanvasScreenGallery: View {
                     Text("Create for an Occasion")
                         .font(DesignTokens.bodyFont(size: 18, weight: .bold))
                         .foregroundStyle(DesignTokens.textPrimary)
-                    ScrollView(.horizontal, showsIndicators: false) {
+                    ScrollView(.horizontal) {
                         HStack(spacing: 8) {
                             ForEach(["🎂 Birthday","💝 Anniversary","🙏 Thank You","💍 Wedding","🎓 Graduation","❤️ I Love You"], id: \.self) { label in
                                 occasionChip(label)
                             }
                         }
                     }
+                    .scrollIndicators(.hidden)
                     Text("Recent Songs")
                         .font(DesignTokens.bodyFont(size: 18, weight: .bold))
                         .foregroundStyle(DesignTokens.textPrimary)
@@ -530,6 +532,7 @@ struct WarmCanvasScreenGallery: View {
                 .padding(.horizontal, 20)
                 .padding(.bottom, 100)
             }
+            .scrollIndicators(.hidden)
             tabBar(selected: "Home")
         }
         .background(DesignTokens.background)
@@ -537,7 +540,7 @@ struct WarmCanvasScreenGallery: View {
 
     private var songsDemoView: some View {
         VStack(spacing: 0) {
-            ScrollView(showsIndicators: false) {
+            ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     Text("My Songs")
                         .font(DesignTokens.displayFont(size: 28))
@@ -551,6 +554,7 @@ struct WarmCanvasScreenGallery: View {
                 .padding(.horizontal, 20)
                 .padding(.bottom, 100)
             }
+            .scrollIndicators(.hidden)
             tabBar(selected: "Songs")
         }
         .background(DesignTokens.background)
@@ -558,7 +562,7 @@ struct WarmCanvasScreenGallery: View {
 
     private var poemsDemoView: some View {
         VStack(spacing: 0) {
-            ScrollView(showsIndicators: false) {
+            ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     Text("My Poems")
                         .font(DesignTokens.displayFont(size: 28))
@@ -573,6 +577,7 @@ struct WarmCanvasScreenGallery: View {
                 .padding(.horizontal, 20)
                 .padding(.bottom, 100)
             }
+            .scrollIndicators(.hidden)
             tabBar(selected: "Poems")
         }
         .background(DesignTokens.background)
@@ -580,7 +585,7 @@ struct WarmCanvasScreenGallery: View {
 
     private var settingsDemoView: some View {
         VStack(spacing: 0) {
-            ScrollView(showsIndicators: false) {
+            ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     Text("Settings")
                         .font(DesignTokens.displayFont(size: 28))
@@ -618,6 +623,7 @@ struct WarmCanvasScreenGallery: View {
                 }
                 .padding(.bottom, 100)
             }
+            .scrollIndicators(.hidden)
             tabBar(selected: "Settings")
         }
         .background(DesignTokens.background)
@@ -810,7 +816,7 @@ struct WarmCanvasScreenGallery: View {
     private var nowPlayingDemoView: some View {
         VStack(spacing: 0) {
             navBar(title: "Now Playing")
-            ScrollView(showsIndicators: false) {
+            ScrollView {
                 VStack(spacing: 16) {
                     // Album art
                     RoundedRectangle(cornerRadius: 20)
@@ -850,6 +856,7 @@ struct WarmCanvasScreenGallery: View {
                 .padding(.horizontal, 20)
                 .padding(.bottom, 32)
             }
+            .scrollIndicators(.hidden)
         }
         .background(DesignTokens.background)
     }
@@ -857,7 +864,7 @@ struct WarmCanvasScreenGallery: View {
     private var poemDetailDemoView: some View {
         VStack(spacing: 0) {
             Spacer().frame(height: 20)
-            ScrollView(showsIndicators: false) {
+            ScrollView {
                 VStack(spacing: 20) {
                     // Poem card
                     VStack(spacing: 16) {
@@ -893,6 +900,7 @@ struct WarmCanvasScreenGallery: View {
                 }
                 .padding(.bottom, 32)
             }
+            .scrollIndicators(.hidden)
         }
         .background(DesignTokens.background)
     }
@@ -944,7 +952,7 @@ struct WarmCanvasScreenGallery: View {
     private var tellDemoView: some View {
         VStack(spacing: 0) {
             chatHeader
-            ScrollView(showsIndicators: false) {
+            ScrollView {
                 VStack(spacing: 12) {
                     aiBubble("What's a memory with \(demoRecipient) that always makes you smile? 😊")
                     userBubble("She always makes everyone laugh at dinner parties with her terrible jokes")
@@ -956,6 +964,7 @@ struct WarmCanvasScreenGallery: View {
                 .padding(.horizontal, 20)
                 .padding(.bottom, 140)
             }
+            .scrollIndicators(.hidden)
             stylePickerBar
             inputBar
         }
@@ -965,7 +974,7 @@ struct WarmCanvasScreenGallery: View {
     private var tellLyricsDemoView: some View {
         VStack(spacing: 0) {
             chatHeader
-            ScrollView(showsIndicators: false) {
+            ScrollView {
                 VStack(spacing: 12) {
                     aiBubble("What's a memory with \(demoRecipient) that always makes you smile? 😊")
                     userBubble("She always makes everyone laugh at dinner parties with her terrible jokes")
@@ -977,6 +986,7 @@ struct WarmCanvasScreenGallery: View {
                 .padding(.horizontal, 20)
                 .padding(.bottom, 32)
             }
+            .scrollIndicators(.hidden)
         }
         .background(DesignTokens.background)
     }
@@ -984,7 +994,7 @@ struct WarmCanvasScreenGallery: View {
     private var lyricsReviewDemoView: some View {
         VStack(spacing: 0) {
             navBar(title: "Review Lyrics")
-            ScrollView(showsIndicators: false) {
+            ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     HStack(spacing: 6) { chipBadge("For \(demoRecipient)", style: .coral); chipBadge(demoOccasion, style: .coral); chipBadge("Pop", style: .sage) }
                     lyricsReviewSection("VERSE 1", lines: demoVerse1, showEdit: true)
@@ -996,6 +1006,7 @@ struct WarmCanvasScreenGallery: View {
                 .padding(.horizontal, 20)
                 .padding(.bottom, 32)
             }
+            .scrollIndicators(.hidden)
         }
         .background(DesignTokens.background)
     }
@@ -1070,7 +1081,7 @@ struct WarmCanvasScreenGallery: View {
     private func navScreen(title: String, subtitle: String, @ViewBuilder content: () -> some View) -> some View {
         VStack(spacing: 0) {
             if !title.isEmpty { navBar(title: "") }
-            ScrollView(showsIndicators: false) {
+            ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     if !title.isEmpty {
                         VStack(alignment: .leading, spacing: 4) {
@@ -1083,6 +1094,7 @@ struct WarmCanvasScreenGallery: View {
                 .padding(.horizontal, 20)
                 .padding(.bottom, 32)
             }
+            .scrollIndicators(.hidden)
         }
         .background(DesignTokens.background)
     }

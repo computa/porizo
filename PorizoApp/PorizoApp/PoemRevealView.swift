@@ -119,6 +119,7 @@ struct PoemRevealView: View {
             .onTapGesture {
                 onClaim()
             }
+            .accessibilityAddTraits(.isButton)
         }
         .sensoryFeedback(.success, trigger: revealHapticTrigger)
         .sensoryFeedback(.impact(weight: .heavy, intensity: 0.8), trigger: impactHapticTrigger)

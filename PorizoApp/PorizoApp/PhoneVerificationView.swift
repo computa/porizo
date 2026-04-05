@@ -63,7 +63,7 @@ struct PhoneVerificationView: View {
                 .padding(.horizontal, DesignTokens.spacing20)
                 .padding(.bottom, DesignTokens.spacing8)
 
-                ScrollView(showsIndicators: false) {
+                ScrollView {
                     VStack(alignment: .leading, spacing: 20) {
                         // Title + subtitle
                         VStack(alignment: .leading, spacing: 4) {
@@ -111,6 +111,7 @@ struct PhoneVerificationView: View {
                     .padding(.horizontal, DesignTokens.spacing20)
                     .padding(.bottom, DesignTokens.spacing32)
                 }
+                .scrollIndicators(.hidden)
             }
         }
         .onAppear {
@@ -175,6 +176,7 @@ struct PhoneVerificationView: View {
             .onTapGesture {
                 isCodeFieldFocused = true
             }
+            .accessibilityAddTraits(.isButton)
         }
     }
 
