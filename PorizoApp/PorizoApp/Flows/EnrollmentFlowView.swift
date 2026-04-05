@@ -369,18 +369,13 @@ struct EnrollmentFlowView: View {
 
             Spacer()
         }
-        .onAppear {
+        .task {
             processingStatusIndex = 0
-            processingStatusTask = Task { @MainActor in
-                while !Task.isCancelled {
-                    try? await Task.sleep(for: .seconds(2.5))
-                    guard !Task.isCancelled else { return }
-                    processingStatusIndex += 1
-                }
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(2.5))
+                guard !Task.isCancelled else { return }
+                processingStatusIndex += 1
             }
-        }
-        .onDisappear {
-            processingStatusTask?.cancel()
         }
     }
 

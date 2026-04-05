@@ -112,15 +112,10 @@ struct PoemsTabView: View {
                 Text("Remove \"\(poem.title)\" from your library?")
             }
         }
-        .onAppear {
+        .task {
             if poems.isEmpty && loadError == nil {
-                loadTask = Task {
-                    await loadPoems()
-                }
+                await loadPoems()
             }
-        }
-        .onDisappear {
-            loadTask?.cancel()
         }
         .onReceive(NotificationCenter.default.publisher(for: .poemLibraryDidChange)) { _ in
             loadTask = Task { await loadPoems() }

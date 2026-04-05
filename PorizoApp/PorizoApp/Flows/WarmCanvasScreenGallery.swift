@@ -754,13 +754,11 @@ struct WarmCanvasScreenGallery: View {
                     .animation(.easeInOut(duration: 0.4), value: galleryProcessingStatusIndex)
             }
         }
-        .onAppear {
+        .task {
             galleryProcessingStatusIndex = 0
-            Task { @MainActor in
-                while !Task.isCancelled {
-                    try? await Task.sleep(for: .seconds(2.5))
-                    galleryProcessingStatusIndex += 1
-                }
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(2.5))
+                galleryProcessingStatusIndex += 1
             }
         }
     }
