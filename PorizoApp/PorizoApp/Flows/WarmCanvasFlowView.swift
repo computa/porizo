@@ -396,6 +396,10 @@ struct WarmCanvasFlowView: View {
                         selectedStyle: $setup.style,
                         styleStore: styleStore,
                         onCreate: storyEngine.isComplete ? {
+                            guard setup.occasion != nil else {
+                                showOccasionPicker = true
+                                return
+                            }
                             guard setup.style != nil else {
                                 activeAlert = .genreRequired
                                 return
@@ -1104,6 +1108,11 @@ struct WarmCanvasFlowView: View {
         guard creationTask == nil else { return }
         guard !storyEngine.isLoading else {
             ToastService.shared.show("Still processing — please wait a moment", type: .info)
+            return
+        }
+
+        if setup.occasion == nil {
+            showOccasionPicker = true
             return
         }
 
