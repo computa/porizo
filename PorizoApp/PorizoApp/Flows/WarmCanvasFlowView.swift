@@ -513,14 +513,35 @@ struct WarmCanvasFlowView: View {
             occasion: setup.occasion?.rawValue,
             onSend: {
                 guard let (trackId, versionNum) = ensureShareControllerAndTrackIds() else { return }
-                // Fire share link generation, then complete.
-                // The server persists the share token even if the app dismisses,
-                // so fire-and-forget is safe here. We give it a brief head start.
                 shareController?.generateShareLink(trackId: trackId, versionNum: versionNum)
+                // Wait for URL then present system share sheet
                 flowTask?.cancel()
                 flowTask = Task { @MainActor in
-                    try? await Task.sleep(for: .milliseconds(500))
-                    onComplete(trackId, versionNum)
+                    // Poll for the share URL (generated async)
+                    var shareURL: String?
+                    for _ in 0..<40 {
+                        try? await Task.sleep(for: .milliseconds(250))
+                        if Task.isCancelled { return }
+                        if let url = shareController?.shareURLString {
+                            shareURL = url
+                            break
+                        }
+                    }
+                    guard let urlString = shareURL, let url = URL(string: urlString) else {
+                        ToastService.shared.show("Could not generate share link", type: .error)
+                        return
+                    }
+                    // Present native share sheet
+                    let message = "I made a song for \(setup.recipientName) — listen here!"
+                    let activityVC = UIActivityViewController(activityItems: [message, url], applicationActivities: nil)
+                    if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+                       let root = windowScene.windows.first?.rootViewController {
+                        // Find topmost presented VC
+                        var topVC = root
+                        while let presented = topVC.presentedViewController { topVC = presented }
+                        activityVC.popoverPresentationController?.sourceView = topVC.view
+                        topVC.present(activityVC, animated: true)
+                    }
                 }
             },
             onSaveToPhotos: {
