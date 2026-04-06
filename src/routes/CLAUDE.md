@@ -9,4 +9,10 @@
 |----|------|---|-------|------|
 | #10183 | 8:57 PM | 🔴 | Fixed share link deep linking and received poem visibility | ~343 |
 | #10177 | 8:48 PM | 🔴 | Fixed poem share claim authentication | ~245 |
+
+### Apr 4, 2026
+
+| ID | Time | T | Title | Read |
+|----|------|---|-------|------|
+| #12325 | 10:16 AM | ⚖️ | Story Guidance Algorithm Redesign Plan: Labov-Based Evaluation with Feature Flag | ~1212 |
 </claude-mem-context>

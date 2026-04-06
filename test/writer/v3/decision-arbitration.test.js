@@ -6,7 +6,7 @@ const { createInitialState } = require("../../../src/writer/v3/state");
 const { buildGapTargeting } = require("../../../src/writer/v3/prompts/builder");
 
 function buildReadyReflectiveState() {
-  const state = createInitialState({
+  let state = createInitialState({
     recipientName: "Ada",
     occasion: "custom",
     initialPrompt: "Story seed",
@@ -53,6 +53,7 @@ function buildReadyReflectiveState() {
       seems_done: true,
     },
   };
+  state = v3.__internal.hydrateStoryState(state);
   return state;
 }
 
@@ -132,13 +133,17 @@ test("resolveTurnDecision downgrades CONFIRM to ASK when story too thin", () => 
 test("resolveTurnDecision replaces off-target LLM ASK question with targeted fallback", () => {
   const state = buildReadyReflectiveState();
   state.turn_count = 1;
+  state.narrative = "My sister Ada and I met in Lagos last December. I wanted us to reconnect. Then she called from the hospital parking lot and everything changed.";
+  state.narrative_current = state.narrative;
+  state.atoms.after = "";
+  state.primitives.resolution = "";
 
   const resolution = v3.__internal.resolveTurnDecision(
     {
       action: "ASK",
       question: "What tone should the story have?",
       narrative: state.narrative,
-      targetSlot: "tone", // Different from gap analysis target
+      targetSlot: "ending_feel",
     },
     state
   );
@@ -152,11 +157,15 @@ test("resolveTurnDecision replaces off-target LLM ASK question with targeted fal
 test("resolveTurnDecision soft-passes grounded LLM question without targetSlot", () => {
   const state = buildReadyReflectiveState();
   state.turn_count = 1;
+  state.narrative = "My sister Ada and I met in Lagos last December. I wanted us to reconnect. Then she called from the hospital parking lot and everything changed.";
+  state.narrative_current = state.narrative;
+  state.atoms.after = "";
+  state.primitives.resolution = "";
 
   const resolution = v3.__internal.resolveTurnDecision(
     {
       action: "ASK",
-      question: "When you think about the hospital parking lot call, what still hits you the hardest?",
+      question: "When you think about the hospital parking lot call, what part of it still stays with you?",
       narrative: state.narrative,
       // No targetSlot at all
     },
@@ -164,7 +173,7 @@ test("resolveTurnDecision soft-passes grounded LLM question without targetSlot",
   );
 
   assert.equal(resolution.response.action, "ASK");
-  assert.equal(resolution.response.question, "When you think about the hospital parking lot call, what still hits you the hardest?");
+  assert.equal(resolution.response.question, "When you think about the hospital parking lot call, what part of it still stays with you?");
   assert.equal(resolution.decisionSource, "llm_soft_pass");
 });
 
@@ -190,6 +199,11 @@ test("resolveTurnDecision uses gap fallback when LLM ASK has no question", () =>
 test("resolveTurnDecision avoids re-asking an already answered element when another target exists", () => {
   const state = buildReadyReflectiveState();
   state.turn_count = 2;
+  delete state.atoms.where;
+  delete state.atoms.when;
+  delete state.atoms.who;
+  state.primitives.setting = { place: "", time: "", atmosphere: "", sensory_tags: [] };
+  state.primitives.characters = [];
   state.story_state = {
     questionsAsked: [
       {

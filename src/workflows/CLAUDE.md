@@ -10,4 +10,10 @@
 | #2446 | 11:15 PM | 🟣 | Implemented server-side APNs push notification support for render completion alerts | ~642 |
 | #2442 | 11:14 PM | 🟣 | Implemented server-side push notification service with APNs integration and workflow runner hooks | ~513 |
 | #2433 | 11:13 PM | 🔵 | Job runner emits render_ready events for completed song renders | ~513 |
+
+### Apr 6, 2026
+
+| ID | Time | T | Title | Read |
+|----|------|---|-------|------|
+| #12691 | 4:10 PM | 🔴 | Job Runner File Dependency Recovery After Container Restarts | ~599 |
 </claude-mem-context>
