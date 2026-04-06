@@ -137,15 +137,28 @@ struct MySongsView: View {
                 shareURL: track.shareUrl,
                 claimPIN: track.claimPin,
                 onSend: {
-                    guard let urlString = track.shareUrl, let url = URL(string: urlString) else { return }
-                    let message = "I made a song for \(track.recipientName ?? "you") — listen here!"
-                    let activityVC = UIActivityViewController(activityItems: [message, url], applicationActivities: nil)
-                    if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-                       let root = windowScene.windows.first?.rootViewController {
-                        var topVC = root
-                        while let presented = topVC.presentedViewController { topVC = presented }
-                        activityVC.popoverPresentationController?.sourceView = topVC.view
-                        topVC.present(activityVC, animated: true)
+                    // Fast path: pre-generated URL available
+                    if let urlString = track.shareUrl, let url = URL(string: urlString) {
+                        presentShareSheetFromMySongs(url: url, recipientName: track.recipientName)
+                        return
+                    }
+                    // Slow path: generate on-demand
+                    ToastService.shared.show("Creating share link...", type: .info)
+                    shareController.generateShareLink(trackId: track.id, versionNum: track.latestVersion)
+                    Task { @MainActor in
+                        var shareURL: String?
+                        for _ in 0..<40 {
+                            try? await Task.sleep(for: .milliseconds(250))
+                            if let url = shareController.shareURLString {
+                                shareURL = url
+                                break
+                            }
+                        }
+                        guard let urlString = shareURL, let url = URL(string: urlString) else {
+                            ToastService.shared.show("Could not create share link. Try again.", type: .error)
+                            return
+                        }
+                        presentShareSheetFromMySongs(url: url, recipientName: track.recipientName)
                     }
                 },
                 onSaveToPhotos: {},
@@ -153,6 +166,8 @@ struct MySongsView: View {
                     if let url = track.shareUrl {
                         UIPasteboard.general.string = url
                         ToastService.shared.show("Link copied!", type: .success)
+                    } else {
+                        ToastService.shared.show("Link not ready yet. Tap Send first.", type: .warning)
                     }
                 },
                 onSkip: { trackToShare = nil }
@@ -234,6 +249,18 @@ struct MySongsView: View {
             } else if !hasRenderingTrack && pollingService.isPolling {
                 pollingService.stopPolling()
             }
+        }
+    }
+
+    private func presentShareSheetFromMySongs(url: URL, recipientName: String?) {
+        let message = "I made a song for \(recipientName ?? "you") — listen here!"
+        let activityVC = UIActivityViewController(activityItems: [message, url], applicationActivities: nil)
+        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+           let root = windowScene.windows.first?.rootViewController {
+            var topVC = root
+            while let presented = topVC.presentedViewController { topVC = presented }
+            activityVC.popoverPresentationController?.sourceView = topVC.view
+            topVC.present(activityVC, animated: true)
         }
     }
 
