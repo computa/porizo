@@ -108,6 +108,8 @@ const SEMANTIC_REPEAT_STOP_WORDS = new Set([
 ]);
 const GENERIC_LLM_QUESTION_REGEX = /\b(tell me more|can you tell me more|share more|say more|what else|anything else|more about|what's something|could you tell me a bit more)\b/i;
 const TURN_LOG_PREVIEW_LIMIT = 220;
+const SUBSTANTIVE_ANSWER_MIN_CHARS = 24;
+const SUFFICIENT_ANSWER_MIN_CHARS = 56;
 
 // Repository instance (set by initialize)
 let storyRepo = null;
@@ -241,6 +243,13 @@ function previewTurnText(text, maxLength = TURN_LOG_PREVIEW_LIMIT) {
   return `${normalized.slice(0, maxLength - 1)}…`;
 }
 
+function summarizeTargetAlternatives(targetDecision) {
+  if (!targetDecision?.alternatives?.length) return null;
+  return targetDecision.alternatives
+    .map((candidate) => `${candidate.element}:${candidate.score}[${candidate.reason}]`)
+    .join(" | ");
+}
+
 function logStoryTurnEvent(label, fields = {}) {
   const payload = Object.entries(fields)
     .filter(([, value]) => value !== undefined)
@@ -307,25 +316,158 @@ function getRankedQuestionTargets(gapAnalysis) {
     .sort((a, b) => b.priority - a.priority);
 }
 
-function getAnsweredQuestionElements(storyState) {
-  const asked = new Set();
-  for (const element of getAnsweredQuestionElementCounts(storyState).keys()) {
-    asked.add(element);
-  }
-  return asked;
-}
-
-function getAnsweredQuestionElementCounts(storyState) {
-  const counts = new Map();
-  const questions = Array.isArray(storyState?.questionsAsked) ? storyState.questionsAsked : [];
-  for (const entry of questions) {
-    if (!entry?.answered) continue;
-    const inferred = entry.targetElement || inferAskedQuestionElement(entry.question || "");
-    if (inferred) {
-      counts.set(inferred, (counts.get(inferred) || 0) + 1);
+function getLabovElementStrengthMap(gapAnalysis, storyState) {
+  const map = new Map();
+  const fromGap = Array.isArray(gapAnalysis?.labov?.elements) ? gapAnalysis.labov.elements : [];
+  for (const entry of fromGap) {
+    if (LABOV_QUESTION_ELEMENTS.includes(entry?.element)) {
+      map.set(entry.element, Number(entry.strength || 0));
     }
   }
-  return counts;
+  for (const element of LABOV_QUESTION_ELEMENTS) {
+    if (map.has(element)) continue;
+    const fallbackStrength = Number(storyState?.labov?.[element]?.strength || 0);
+    map.set(element, fallbackStrength);
+  }
+  return map;
+}
+
+function isSubstantiveAnswerSummary(text) {
+  return typeof text === "string" && text.trim().length >= SUBSTANTIVE_ANSWER_MIN_CHARS;
+}
+
+function isSufficientAnswerSummary(text) {
+  if (typeof text !== "string") return false;
+  const trimmed = text.trim();
+  if (trimmed.length >= SUFFICIENT_ANSWER_MIN_CHARS) return true;
+  return tokenizeSemanticRepeatText(trimmed).length >= 10;
+}
+
+function getElementTargetLedger(gapAnalysis, storyState) {
+  const ledger = new Map();
+  const ranked = getRankedQuestionTargets(gapAnalysis);
+  const strengthMap = getLabovElementStrengthMap(gapAnalysis, storyState);
+  const storyMode = gapAnalysis?.storyMode || "default";
+
+  for (const element of LABOV_QUESTION_ELEMENTS) {
+    const candidate = ranked.find((entry) => entry.element === element);
+    ledger.set(element, {
+      element,
+      weight: candidate?.weight || 0,
+      currentStrength: candidate?.currentStrength ?? strengthMap.get(element) ?? 0,
+      missingSlotCount: 0,
+      weakSlotCount: 0,
+      answeredCount: 0,
+      substantiveAnswerCount: 0,
+      sufficientAnswerCount: 0,
+      lastAnsweredRound: 0,
+      bestSlot: null,
+      bestSlotState: null,
+    });
+  }
+
+  for (const slot of Array.isArray(gapAnalysis?.slots) ? gapAnalysis.slots : []) {
+    const targetElement = getSlotLabovElement(slot?.slot) || getElementForSlot(storyMode, slot?.slot)?.id || null;
+    if (!targetElement || !ledger.has(targetElement)) continue;
+    const entry = ledger.get(targetElement);
+    if (slot.status === "missing") {
+      entry.missingSlotCount += 1;
+    } else if (slot.status === "weak") {
+      entry.weakSlotCount += 1;
+    }
+    const entryBestState = entry.bestSlotState === "missing" ? 2 : entry.bestSlotState === "weak" ? 1 : 0;
+    const slotStateRank = slot.status === "missing" ? 2 : slot.status === "weak" ? 1 : 0;
+    if (!entry.bestSlot || slotStateRank > entryBestState) {
+      entry.bestSlot = slot.slot || null;
+      entry.bestSlotState = slot.status || null;
+    }
+  }
+
+  const questions = Array.isArray(storyState?.questionsAsked) ? storyState.questionsAsked : [];
+  for (const asked of questions) {
+    if (!asked?.answered) continue;
+    const targetElement = asked.targetElement || inferAskedQuestionElement(asked.question || "");
+    if (!targetElement || !ledger.has(targetElement)) continue;
+    const entry = ledger.get(targetElement);
+    entry.answeredCount += 1;
+    if (isSubstantiveAnswerSummary(asked.answerSummary)) {
+      entry.substantiveAnswerCount += 1;
+    }
+    if (isSufficientAnswerSummary(asked.answerSummary)) {
+      entry.sufficientAnswerCount += 1;
+    }
+    if (Number.isFinite(Number(asked.round))) {
+      entry.lastAnsweredRound = Math.max(entry.lastAnsweredRound, Number(asked.round));
+    }
+  }
+
+  return ledger;
+}
+
+function scoreQuestionTargetCandidate(candidate, ledgerEntry, directTarget = null) {
+  const missingSlotCount = ledgerEntry?.missingSlotCount || 0;
+  const weakSlotCount = ledgerEntry?.weakSlotCount || 0;
+  const answeredCount = ledgerEntry?.answeredCount || 0;
+  const substantiveAnswerCount = ledgerEntry?.substantiveAnswerCount || 0;
+  const sufficientAnswerCount = ledgerEntry?.sufficientAnswerCount || 0;
+  const strengthGap = Math.max(0, 1 - Number(candidate?.currentStrength || 0));
+  const unresolvedBonus = (missingSlotCount * 120) + (weakSlotCount * 45);
+  const strengthBonus = Math.round(strengthGap * 24);
+  const directTargetBonus = directTarget && candidate.element === directTarget ? 18 : 0;
+  const priorityBonus = Math.round(Number(candidate?.priority || 0) * 100);
+  const answerPenalty = (answeredCount * 6) + (substantiveAnswerCount * 14) + (sufficientAnswerCount * 26);
+  const sufficientPenalty = sufficientAnswerCount >= 2 ? 48 : 0;
+  const score = priorityBonus + unresolvedBonus + strengthBonus + directTargetBonus - answerPenalty - sufficientPenalty;
+
+  const reasons = [];
+  if (missingSlotCount > 0) reasons.push(`missingSlots=${missingSlotCount}`);
+  if (weakSlotCount > 0) reasons.push(`weakSlots=${weakSlotCount}`);
+  reasons.push(`strength=${Number(candidate?.currentStrength || 0).toFixed(2)}`);
+  if (directTargetBonus) reasons.push("directTargetBonus");
+  if (answeredCount > 0) reasons.push(`answered=${answeredCount}`);
+  if (substantiveAnswerCount > 0) reasons.push(`substantiveAnswers=${substantiveAnswerCount}`);
+  if (sufficientAnswerCount > 0) reasons.push(`sufficientAnswers=${sufficientAnswerCount}`);
+  if (sufficientPenalty) reasons.push("repeatPenalty");
+
+  return {
+    element: candidate.element,
+    score,
+    reasons,
+    weight: candidate.weight,
+    currentStrength: candidate.currentStrength,
+    missingSlotCount,
+    weakSlotCount,
+    answeredCount,
+    substantiveAnswerCount,
+    sufficientAnswerCount,
+    bestSlot: ledgerEntry?.bestSlot || null,
+    bestSlotState: ledgerEntry?.bestSlotState || null,
+    lastAnsweredRound: ledgerEntry?.lastAnsweredRound || 0,
+  };
+}
+
+function rankQuestionTargetCandidates(gapAnalysis, storyState, options = {}) {
+  const ranked = getRankedQuestionTargets(gapAnalysis);
+  const directTarget = options.directTarget || null;
+  const ledger = getElementTargetLedger(gapAnalysis, storyState);
+  const candidates = LABOV_QUESTION_ELEMENTS.map((element) => {
+    const rankedCandidate = ranked.find((candidate) => candidate.element === element);
+    const ledgerEntry = ledger.get(element);
+    return scoreQuestionTargetCandidate(
+      rankedCandidate || {
+        element,
+        weight: ledgerEntry?.weight || 0,
+        currentStrength: ledgerEntry?.currentStrength || 0,
+        priority: (ledgerEntry?.missingSlotCount || ledgerEntry?.weakSlotCount)
+          ? (1 - (ledgerEntry?.currentStrength || 0))
+          : 0,
+      },
+      ledgerEntry,
+      directTarget
+    );
+  });
+  return candidates
+    .sort((a, b) => b.score - a.score);
 }
 
 function getRecentAnsweredQuestions(storyState, limit = 4) {
@@ -348,7 +490,7 @@ function detectRepeatedQuestionTheme(question, targetElement, storyState) {
     const sharedQuestionTokens = countSharedTokens(currentTokens, entryQuestionTokens);
     const sharedAnswerTokens = countSharedTokens(currentTokens, entryAnswerTokens);
     const sameElement = Boolean(targetElement) && entryElement === targetElement;
-    const substantiveAnswer = typeof entry.answerSummary === "string" && entry.answerSummary.trim().length >= 24;
+    const substantiveAnswer = isSubstantiveAnswerSummary(entry.answerSummary);
 
     if (
       sameElement &&
@@ -388,12 +530,14 @@ function detectRepeatedQuestionTheme(question, targetElement, storyState) {
 }
 
 function selectAlternativeQuestionTarget(gapAnalysis, storyState, excludedElements = new Set()) {
-  const ranked = getRankedQuestionTargets(gapAnalysis);
-  const answeredCounts = getAnsweredQuestionElementCounts(storyState);
-  const preferred = ranked.find((candidate) =>
-    !excludedElements.has(candidate.element) && (answeredCounts.get(candidate.element) || 0) === 0
+  const candidates = rankQuestionTargetCandidates(gapAnalysis, storyState);
+  const unresolvedPreferred = candidates.find((candidate) =>
+    !excludedElements.has(candidate.element)
+      && candidate.sufficientAnswerCount < 2
+      && (candidate.missingSlotCount > 0 || candidate.weakSlotCount > 0)
   );
-  return preferred?.element || null;
+  if (unresolvedPreferred) return unresolvedPreferred.element;
+  return candidates.find((candidate) => !excludedElements.has(candidate.element))?.element || null;
 }
 
 function shouldForceForwardProgressConfirm(ctx, state, repeatedElementCount = 0) {
@@ -436,24 +580,46 @@ function shouldForceForwardProgressConfirm(ctx, state, repeatedElementCount = 0)
   return false;
 }
 
+function buildTargetDecisionMeta(gapAnalysis, storyState, response, targetElement) {
+  const directTargetCandidate = getSlotLabovElement(response?.targetSlot);
+  const directTarget = LABOV_QUESTION_ELEMENTS.includes(directTargetCandidate)
+    ? directTargetCandidate
+    : null;
+  const candidates = rankQuestionTargetCandidates(gapAnalysis, storyState, { directTarget });
+  const winner = candidates.find((candidate) => candidate.element === targetElement) || null;
+  return {
+    directTarget,
+    winner: winner
+      ? {
+          ...winner,
+          reason: winner.reasons.join(", "),
+        }
+      : null,
+    alternatives: candidates
+      .filter((candidate) => candidate.element !== targetElement)
+      .slice(0, 3)
+      .map((candidate) => ({
+        ...candidate,
+        reason: candidate.reasons.join(", "),
+      })),
+  };
+}
+
 function selectRuntimeQuestionTarget(response, gapAnalysis, storyState, options = {}) {
-  const ranked = getRankedQuestionTargets(gapAnalysis);
-  const answered = getAnsweredQuestionElements(storyState);
   const excludedElements = options.excludedElements instanceof Set ? options.excludedElements : new Set();
   const directTargetCandidate = getSlotLabovElement(response?.targetSlot);
   const directTarget = LABOV_QUESTION_ELEMENTS.includes(directTargetCandidate)
     ? directTargetCandidate
     : null;
-
-  if (directTarget && !answered.has(directTarget) && !excludedElements.has(directTarget)) {
-    return directTarget;
-  }
-
-  const preferred = ranked.find((candidate) => !answered.has(candidate.element) && !excludedElements.has(candidate.element));
+  const candidates = rankQuestionTargetCandidates(gapAnalysis, storyState, { directTarget });
+  const preferred = candidates.find((candidate) =>
+    !excludedElements.has(candidate.element)
+      && candidate.sufficientAnswerCount < 2
+      && (candidate.missingSlotCount > 0 || candidate.weakSlotCount > 0)
+  );
   if (preferred) return preferred.element;
-
   if (directTarget && !excludedElements.has(directTarget)) return directTarget;
-  return ranked.find((candidate) => !excludedElements.has(candidate.element))?.element || null;
+  return candidates.find((candidate) => !excludedElements.has(candidate.element))?.element || null;
 }
 
 function getQuestionDetailSignal(question, state, userMessage) {
@@ -1386,6 +1552,7 @@ function resolveTurnDecision(response, state, options = {}) {
   let llmSuggestions = Array.isArray(response.suggestions) ? response.suggestions : [];
   let targetElement = null;
   let repeatEscapeApplied = false;
+  let targetDecision = null;
 
   const llmHasQuestion = typeof response.question === "string" && response.question.trim().length > 0;
   // Compute semantic block signature for analytics tracking (attachGapTelemetry uses it)
@@ -1428,44 +1595,36 @@ function resolveTurnDecision(response, state, options = {}) {
   // --- LLM says ASK or CLARIFY: trust the LLM's question ---
   if (adjustedResponse.action === "ASK" || adjustedResponse.action === "CLARIFY") {
     targetElement = selectRuntimeQuestionTarget(adjustedResponse, gapAnalysis, state?.story_state);
+    targetDecision = buildTargetDecisionMeta(gapAnalysis, state?.story_state, adjustedResponse, targetElement);
     if (llmHasQuestion) {
       const trimmedQuestion = adjustedResponse.question.trim();
-      const answeredElementCounts = getAnsweredQuestionElementCounts(state?.story_state);
-      const repeatedElementCount = targetElement ? (answeredElementCounts.get(targetElement) || 0) : 0;
+      const targetLedger = targetDecision?.winner || null;
+      const directTarget = targetDecision?.directTarget || null;
+      const directTargetLedger = directTarget
+        ? [targetDecision?.winner, ...(targetDecision?.alternatives || [])]
+          .find((candidate) => candidate?.element === directTarget) || null
+        : null;
+      const repeatedElementCount = targetLedger?.substantiveAnswerCount || 0;
+      const sufficientAnswerCount = targetLedger?.sufficientAnswerCount || 0;
+      const directTargetSufficientCount = directTargetLedger?.sufficientAnswerCount || 0;
       const repeatedTheme = detectRepeatedQuestionTheme(trimmedQuestion, targetElement, state?.story_state);
       const repeatedCurrentElement = Boolean(repeatedTheme)
         && (!targetElement || repeatedTheme.priorElement === targetElement);
-      const shouldForceForwardProgress = repeatedCurrentElement || repeatedElementCount >= 2;
+      const shouldPromoteWinner = Boolean(
+        directTarget
+          && targetElement
+          && directTarget !== targetElement
+          && directTargetSufficientCount >= 2
+          && ((targetDecision?.winner?.missingSlotCount || 0) > 0 || (targetDecision?.winner?.weakSlotCount || 0) > 0)
+      );
+      const shouldForceForwardProgress =
+        repeatedCurrentElement
+        || repeatedElementCount >= 2
+        || sufficientAnswerCount >= 2
+        || shouldPromoteWinner;
 
       if (shouldForceForwardProgress) {
-        const alternateTarget = selectAlternativeQuestionTarget(
-          gapAnalysis,
-          state?.story_state,
-          new Set(targetElement ? [targetElement] : [])
-        );
-
-        if (alternateTarget && alternateTarget !== targetElement) {
-          adjustedResponse = {
-            ...adjustedResponse,
-            question: chooseRuntimeFallbackQuestion(alternateTarget, state, userMessage, gapQuestion),
-          };
-          llmSuggestions = [];
-          forcedGapQuestion = true;
-          decisionSource = "forward_progress_retarget";
-          targetElement = alternateTarget;
-          repeatEscapeApplied = true;
-          return buildDecisionResult({
-            adjustedResponse,
-            ctx,
-            decisionSource,
-            llmSuggestions,
-            forcedGapQuestion,
-            targetElement,
-            repeatEscapeApplied,
-          });
-        }
-
-        if (shouldForceForwardProgressConfirm(ctx, state, repeatedElementCount)) {
+        if (shouldForceForwardProgressConfirm(ctx, state, Math.max(repeatedElementCount, sufficientAnswerCount, directTargetSufficientCount))) {
           adjustedResponse = {
             ...adjustedResponse,
             action: "CONFIRM",
@@ -1484,6 +1643,57 @@ function resolveTurnDecision(response, state, options = {}) {
             forcedGapQuestion,
             forcedConfirm,
             targetElement,
+            targetDecision,
+            repeatEscapeApplied,
+          });
+        }
+
+        if (shouldPromoteWinner) {
+          adjustedResponse = {
+            ...adjustedResponse,
+            question: chooseRuntimeFallbackQuestion(targetElement, state, userMessage, gapQuestion),
+          };
+          llmSuggestions = [];
+          forcedGapQuestion = true;
+          decisionSource = "forward_progress_retarget";
+          repeatEscapeApplied = true;
+          return buildDecisionResult({
+            adjustedResponse,
+            ctx,
+            decisionSource,
+            llmSuggestions,
+            forcedGapQuestion,
+            targetElement,
+            targetDecision,
+            repeatEscapeApplied,
+          });
+        }
+
+        const alternateTarget = selectAlternativeQuestionTarget(
+          gapAnalysis,
+          state?.story_state,
+          new Set(targetElement ? [targetElement] : [])
+        );
+
+        if (alternateTarget && alternateTarget !== targetElement) {
+          adjustedResponse = {
+            ...adjustedResponse,
+            question: chooseRuntimeFallbackQuestion(alternateTarget, state, userMessage, gapQuestion),
+          };
+          llmSuggestions = [];
+          forcedGapQuestion = true;
+          decisionSource = "forward_progress_retarget";
+          targetElement = alternateTarget;
+          targetDecision = buildTargetDecisionMeta(gapAnalysis, state?.story_state, adjustedResponse, targetElement);
+          repeatEscapeApplied = true;
+          return buildDecisionResult({
+            adjustedResponse,
+            ctx,
+            decisionSource,
+            llmSuggestions,
+            forcedGapQuestion,
+            targetElement,
+            targetDecision,
             repeatEscapeApplied,
           });
         }
@@ -1492,8 +1702,14 @@ function resolveTurnDecision(response, state, options = {}) {
       const isRelevant = targetElement
         ? validateQuestionRelevance(trimmedQuestion, targetElement)
         : true;
+      const strongerUnresolvedTargetExists = Boolean(
+        directTarget &&
+        targetDecision?.winner
+          && targetDecision.winner.element !== directTarget
+          && (targetDecision.winner.missingSlotCount > 0 || targetDecision.winner.weakSlotCount > 0)
+      );
 
-      if (!isRelevant && shouldSoftPassQuestion(trimmedQuestion, state, userMessage)) {
+      if (!isRelevant && shouldSoftPassQuestion(trimmedQuestion, state, userMessage) && !strongerUnresolvedTargetExists) {
         adjustedResponse = { ...adjustedResponse, question: trimmedQuestion };
         decisionSource = "llm_soft_pass";
       } else if (!isRelevant) {
@@ -1516,7 +1732,7 @@ function resolveTurnDecision(response, state, options = {}) {
       forcedGapQuestion = true;
       decisionSource = "llm_missing_question_fallback";
     }
-    return buildDecisionResult({ adjustedResponse, ctx, decisionSource, llmSuggestions, forcedGapQuestion, targetElement, repeatEscapeApplied });
+    return buildDecisionResult({ adjustedResponse, ctx, decisionSource, llmSuggestions, forcedGapQuestion, targetElement, targetDecision, repeatEscapeApplied });
   }
 
   // --- LLM says CONFIRM: apply lightweight quality gates ---
@@ -1548,7 +1764,7 @@ function resolveTurnDecision(response, state, options = {}) {
       forcedConfirm = adjustedResponse.action !== response.action;
       decisionSource = llmReadySignal ? "llm_ready" : "llm_confirm";
     }
-    return buildDecisionResult({ adjustedResponse, ctx, decisionSource, llmSuggestions, forcedGapQuestion, forcedConfirm, repeatEscapeApplied });
+    return buildDecisionResult({ adjustedResponse, ctx, decisionSource, llmSuggestions, forcedGapQuestion, forcedConfirm, targetDecision, repeatEscapeApplied });
   }
 
   // Fallback: unknown action — pass through
@@ -1557,7 +1773,7 @@ function resolveTurnDecision(response, state, options = {}) {
 
 // Assemble the canonical return shape for resolveTurnDecision.
 // Keeps all analytics fields present for downstream consumers (telemetry, iOS, tests).
-function buildDecisionResult({ adjustedResponse, ctx, decisionSource, llmSuggestions = [], forcedGapQuestion = false, forcedConfirm = false, targetElement = null, repeatEscapeApplied = false }) {
+function buildDecisionResult({ adjustedResponse, ctx, decisionSource, llmSuggestions = [], forcedGapQuestion = false, forcedConfirm = false, targetElement = null, targetDecision = null, repeatEscapeApplied = false }) {
   const { gapAnalysis, gapQuestion, elements, elementBlock, hardElementBlock,
     llmReadySignal, hybridReady, hardCriticalBlock, criticalCoverage,
     hardSemanticBlock } = ctx;
@@ -1570,6 +1786,7 @@ function buildDecisionResult({ adjustedResponse, ctx, decisionSource, llmSuggest
     repeatEscapeApplied,
     decisionSource,
     targetElement,
+    targetDecision,
     llmSuggestions,
     llmReadySignal,
     hybridReady,
@@ -1992,6 +2209,8 @@ async function startStoryV3(options) {
     decisionSource: gapResolution.decisionSource,
     targetSlot: targetSlot || null,
     targetElement: gapResolution.targetElement || null,
+    targetReason: gapResolution.targetDecision?.winner?.reason || null,
+    targetAlternatives: summarizeTargetAlternatives(gapResolution.targetDecision),
     gapReason: gapResolution.gapQuestion?.reason || null,
     questionPreview: previewTurnText(response.question || response.confirmation || null),
     narrativePreview: previewTurnText(response.narrative || getCanonicalNarrative(finalState) || null),
@@ -2433,6 +2652,8 @@ async function continueStoryV3(options) {
     decisionSource: gapResolution.decisionSource,
     targetSlot: continueTargetSlot || null,
     targetElement: gapResolution.targetElement || null,
+    targetReason: gapResolution.targetDecision?.winner?.reason || null,
+    targetAlternatives: summarizeTargetAlternatives(gapResolution.targetDecision),
     gapReason: gapResolution.gapQuestion?.reason || null,
     forcedGapQuestion: gapResolution.forcedGapQuestion,
     forcedConfirm: gapResolution.forcedConfirm,

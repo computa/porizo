@@ -279,6 +279,56 @@ test("resolveTurnDecision confirms instead of circling the same answered element
   assert.match(resolution.response.confirmation, /ready/i);
 });
 
+test("resolveTurnDecision penalizes sufficiently answered elements and exposes target selection reasons", () => {
+  const state = buildReadyReflectiveState();
+  state.turn_count = 4;
+  state.flags = { labov_scoring: true };
+  delete state.atoms.where;
+  delete state.atoms.when;
+  delete state.atoms.who;
+  state.primitives.setting = { place: "", time: "", atmosphere: "", sensory_tags: [] };
+  state.primitives.characters = [];
+  state.story_state = {
+    questionsAsked: [
+      {
+        round: 1,
+        question: "How did that make you feel at the time?",
+        targetElement: "evaluation",
+        answered: true,
+        answerSummary: "It made me feel grateful and seen in a way I had not felt for years, and I still carry that relief with me.",
+      },
+      {
+        round: 2,
+        question: "What does that moment mean to you now?",
+        targetElement: "evaluation",
+        answered: true,
+        answerSummary: "It means we found our way back to each other, and that healing changed how I think about our relationship.",
+      },
+    ],
+  };
+
+  const resolution = v3.__internal.resolveTurnDecision(
+    {
+      action: "ASK",
+      question: "What does that hospital parking lot call still mean to you now?",
+      narrative: state.narrative,
+      targetSlot: "ending_feel",
+    },
+    state,
+    { userMessage: "It still feels like the moment our relationship came back to life." }
+  );
+
+  assert.match(resolution.decisionSource, /^forward_progress_/);
+  assert.equal(resolution.targetElement, "orientation");
+  assert.equal(resolution.targetDecision?.winner?.element, "orientation");
+  assert.match(resolution.targetDecision?.winner?.reason || "", /missingSlots=\d+/);
+  assert.ok(
+    resolution.targetDecision?.alternatives?.some((candidate) =>
+      candidate.element === "evaluation" && /sufficientAnswers=2/.test(candidate.reason)
+    )
+  );
+});
+
 test("resolveTurnDecision still blocks revisions for safety violations", () => {
   const state = createInitialState({
     recipientName: "Ada",
