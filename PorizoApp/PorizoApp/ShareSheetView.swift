@@ -433,7 +433,7 @@ struct ShareSheetView: View {
     // MARK: - Share Actions
 
     private func shareViaMessages(_ url: String, pin: String) {
-        let text = "I made you a personalized song! Listen here: \(url)\n\nUse PIN: \(pin)"
+        let text = ShareMessageContent.activityMessage(shareURL: url, claimPin: pin)
         if let encoded = text.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
            let smsUrl = URL(string: "sms:&body=\(encoded)") {
             UIApplication.shared.open(smsUrl)
@@ -441,7 +441,7 @@ struct ShareSheetView: View {
     }
 
     private func shareViaWhatsApp(_ url: String, pin: String) {
-        let text = "I made you a personalized song! Listen here: \(url)\n\nUse PIN: \(pin)"
+        let text = ShareMessageContent.activityMessage(shareURL: url, claimPin: pin)
         if let encoded = text.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
            let waUrl = URL(string: "whatsapp://send?text=\(encoded)") {
             UIApplication.shared.open(waUrl)
@@ -560,7 +560,7 @@ struct ShareSheetView: View {
     }
 
     private func shareViaSystemSheet(_ url: String, pin: String) {
-        let text = "I made you a personalized song! Listen here: \(url)\n\nUse PIN: \(pin)"
+        let text = ShareMessageContent.activityMessage(shareURL: url, claimPin: pin)
         let items: [Any] = [text]
         presentActivityVC(items: items)
     }

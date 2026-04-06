@@ -702,8 +702,10 @@ struct WarmCanvasFlowView: View {
                         return
                     }
 
-                    if let existingUrl = shareController?.shareURLString, let url = URL(string: existingUrl) {
-                        presentShareSheet(url: url)
+                    if let existingUrl = shareController?.shareURLString,
+                       let existingPin = shareController?.claimPin,
+                       let url = URL(string: existingUrl) {
+                        presentShareSheet(url: url, claimPin: existingPin)
                         return
                     }
 
@@ -720,11 +722,13 @@ struct WarmCanvasFlowView: View {
                                 break
                             }
                         }
-                        guard let urlString = shareURL, let url = URL(string: urlString) else {
+                        guard let urlString = shareURL,
+                              let claimPin = shareController?.claimPin,
+                              let url = URL(string: urlString) else {
                             ToastService.shared.show("Could not generate share link. Try again.", type: .error)
                             return
                         }
-                        presentShareSheet(url: url)
+                        presentShareSheet(url: url, claimPin: claimPin)
                     }
                 },
                 onSaveToPhotos: {
@@ -765,9 +769,12 @@ struct WarmCanvasFlowView: View {
         }
     }
 
-    private func presentShareSheet(url: URL) {
-        let message = "I made a song for \(setup.recipientName) — listen here!"
-        let activityVC = UIActivityViewController(activityItems: [message, url], applicationActivities: nil)
+    private func presentShareSheet(url: URL, claimPin: String) {
+        let message = ShareMessageContent.activityMessage(
+            shareURL: url.absoluteString,
+            claimPin: claimPin
+        )
+        let activityVC = UIActivityViewController(activityItems: [message], applicationActivities: nil)
         if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
            let root = windowScene.windows.first?.rootViewController {
             var topVC = root

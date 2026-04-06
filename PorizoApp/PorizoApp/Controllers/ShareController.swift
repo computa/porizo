@@ -363,9 +363,13 @@ struct ShareMessageContent: Sendable {
     let trackTitle: String
     let recipientName: String
 
+    static func activityMessage(shareURL: String, claimPin: String) -> String {
+        "I made you a personalized song! Listen here: \(shareURL)\n\nUse PIN: \(claimPin)"
+    }
+
     /// Default message body for Messages, WhatsApp, system share sheet.
     var defaultMessage: String {
-        "I made you a personalized song! Listen here: \(shareURL)\n\nUse PIN: \(claimPin)"
+        Self.activityMessage(shareURL: shareURL, claimPin: claimPin)
     }
 
     /// Formatted email subject line.

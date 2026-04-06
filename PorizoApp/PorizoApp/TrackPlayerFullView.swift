@@ -106,9 +106,14 @@ struct TrackPlayerFullView: View {
                 shareURL: shareUrl,
                 claimPIN: claimPin,
                 onSend: {
-                    guard let urlString = shareUrl, let url = URL(string: urlString) else { return }
-                    let message = "I made a song for \(recipientName.isEmpty ? "you" : recipientName) — listen here!"
-                    let activityVC = UIActivityViewController(activityItems: [message, url], applicationActivities: nil)
+                    guard let urlString = shareUrl,
+                          let claimPin,
+                          !claimPin.isEmpty else { return }
+                    let message = ShareMessageContent.activityMessage(
+                        shareURL: urlString,
+                        claimPin: claimPin
+                    )
+                    let activityVC = UIActivityViewController(activityItems: [message], applicationActivities: nil)
                     if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
                        let root = windowScene.windows.first?.rootViewController {
                         var topVC = root

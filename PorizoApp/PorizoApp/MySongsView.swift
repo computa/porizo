@@ -138,8 +138,10 @@ struct MySongsView: View {
                 claimPIN: track.claimPin,
                 onSend: {
                     // Fast path: pre-generated URL available
-                    if let urlString = track.shareUrl, let url = URL(string: urlString) {
-                        presentShareSheetFromMySongs(url: url, recipientName: track.recipientName)
+                    if let urlString = track.shareUrl,
+                       let claimPin = track.claimPin,
+                       let url = URL(string: urlString) {
+                        presentShareSheetFromMySongs(url: url, claimPin: claimPin)
                         return
                     }
                     // Slow path: generate on-demand
@@ -154,11 +156,13 @@ struct MySongsView: View {
                                 break
                             }
                         }
-                        guard let urlString = shareURL, let url = URL(string: urlString) else {
+                        guard let urlString = shareURL,
+                              let claimPin = shareController.claimPin,
+                              let url = URL(string: urlString) else {
                             ToastService.shared.show("Could not create share link. Try again.", type: .error)
                             return
                         }
-                        presentShareSheetFromMySongs(url: url, recipientName: track.recipientName)
+                        presentShareSheetFromMySongs(url: url, claimPin: claimPin)
                     }
                 },
                 onSaveToPhotos: {},
@@ -252,9 +256,12 @@ struct MySongsView: View {
         }
     }
 
-    private func presentShareSheetFromMySongs(url: URL, recipientName: String?) {
-        let message = "I made a song for \(recipientName ?? "you") — listen here!"
-        let activityVC = UIActivityViewController(activityItems: [message, url], applicationActivities: nil)
+    private func presentShareSheetFromMySongs(url: URL, claimPin: String) {
+        let message = ShareMessageContent.activityMessage(
+            shareURL: url.absoluteString,
+            claimPin: claimPin
+        )
+        let activityVC = UIActivityViewController(activityItems: [message], applicationActivities: nil)
         if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
            let root = windowScene.windows.first?.rootViewController {
             var topVC = root
