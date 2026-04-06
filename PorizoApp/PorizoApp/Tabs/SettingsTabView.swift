@@ -14,8 +14,12 @@ struct SettingsTabView: View {
     var storeKit: StoreKitManager
     @Environment(AuthManager.self) var authManager
 
-    private var apiWrapper: APIClientWrapper {
-        APIClientWrapper(client: apiClient)
+    @State private var apiWrapper: APIClientWrapper
+
+    init(apiClient: APIClient, storeKit: StoreKitManager) {
+        self.apiClient = apiClient
+        self.storeKit = storeKit
+        _apiWrapper = State(wrappedValue: APIClientWrapper(client: apiClient))
     }
 
     @State private var activeVoiceEnrollment: VoiceEnrollmentDestination?

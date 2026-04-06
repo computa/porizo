@@ -206,10 +206,14 @@ struct VoiceProfileView: View {
         return ""
     }
 
+    private static let relativeDateFormatter: RelativeDateTimeFormatter = {
+        let f = RelativeDateTimeFormatter()
+        f.unitsStyle = .full
+        return f
+    }()
+
     private func formatRelativeDate(_ date: Date) -> String {
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .full
-        return formatter.localizedString(for: date, relativeTo: Date.now)
+        Self.relativeDateFormatter.localizedString(for: date, relativeTo: Date.now)
     }
 }
 

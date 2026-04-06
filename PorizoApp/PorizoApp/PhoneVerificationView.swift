@@ -258,14 +258,12 @@ struct PhoneVerificationView: View {
     // MARK: - Actions
 
     /// Verify the entered code
-    private func verifyCode() async {
+    @MainActor private func verifyCode() async {
         guard code.count == 6 else { return }
         guard !isVerifying else { return }
 
-        await MainActor.run {
-            isVerifying = true
-            error = nil
-        }
+        isVerifying = true
+        error = nil
 
         do {
             let response = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "verifyPhoneCode") {
@@ -275,89 +273,77 @@ struct PhoneVerificationView: View {
                 )
             }
 
-            await MainActor.run {
-                isVerifying = false
+            isVerifying = false
 
-                if response.verified {
-                    onVerified(response)
+            if response.verified {
+                onVerified(response)
+            } else {
+                // Verification failed
+                remainingAttempts = response.remainingAttempts
+                if let remaining = response.remainingAttempts, remaining == 0 {
+                    error = "Too many attempts. Please request a new code."
+                    canResend = true
+                    resendCountdown = 0
                 } else {
-                    // Verification failed
-                    remainingAttempts = response.remainingAttempts
-                    if let remaining = response.remainingAttempts, remaining == 0 {
-                        error = "Too many attempts. Please request a new code."
+                    error = "Invalid code. Please try again."
+                }
+                // Clear the code for retry
+                code = ""
+            }
+        } catch let apiError as APIClientError {
+            isVerifying = false
+            code = ""
+
+            switch apiError {
+            case .httpError(let statusCode, let body):
+                if statusCode == 429 {
+                    error = "Too many requests. Please wait before trying again."
+                } else if statusCode == 400 {
+                    // Try to parse error details
+                    if body.contains("expired") {
+                        error = "Code expired. Please request a new one."
                         canResend = true
                         resendCountdown = 0
+                    } else if body.contains("invalid") || body.contains("incorrect") {
+                        error = "Invalid code. Please check and try again."
                     } else {
                         error = "Invalid code. Please try again."
                     }
-                    // Clear the code for retry
-                    code = ""
+                } else {
+                    error = "Verification failed. Please try again."
                 }
-            }
-        } catch let apiError as APIClientError {
-            await MainActor.run {
-                isVerifying = false
-                code = ""
-
-                switch apiError {
-                case .httpError(let statusCode, let body):
-                    if statusCode == 429 {
-                        error = "Too many requests. Please wait before trying again."
-                    } else if statusCode == 400 {
-                        // Try to parse error details
-                        if body.contains("expired") {
-                            error = "Code expired. Please request a new one."
-                            canResend = true
-                            resendCountdown = 0
-                        } else if body.contains("invalid") || body.contains("incorrect") {
-                            error = "Invalid code. Please check and try again."
-                        } else {
-                            error = "Invalid code. Please try again."
-                        }
-                    } else {
-                        error = "Verification failed. Please try again."
-                    }
-                case .rateLimited:
-                    error = "Too many requests. Please wait a moment."
-                default:
-                    error = "Connection error. Please check your network."
-                }
+            case .rateLimited:
+                error = "Too many requests. Please wait a moment."
+            default:
+                error = "Connection error. Please check your network."
             }
         } catch {
-            await MainActor.run {
-                isVerifying = false
-                code = ""
-                self.error = "Something went wrong. Please try again."
-            }
+            isVerifying = false
+            code = ""
+            self.error = "Something went wrong. Please try again."
         }
     }
 
     /// Resend verification code
-    private func resendCode() async {
+    @MainActor private func resendCode() async {
         guard canResend else { return }
 
-        await MainActor.run {
-            isVerifying = true
-            error = nil
-        }
+        isVerifying = true
+        error = nil
 
         do {
             _ = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "resendPhoneCode") {
                 try await apiClient.client.sendPhoneVerificationCode(phoneNumber: phoneNumber)
             }
 
-            await MainActor.run {
-                isVerifying = false
-                canResend = false
-                resendCountdown = 60
-                startCountdown()
-                code = ""
-            }
+            isVerifying = false
+            canResend = false
+            resendCountdown = 60
+            startCountdown()
+            code = ""
         } catch {
-            await MainActor.run {
-                isVerifying = false
-                self.error = "Failed to resend code. Please try again."
-            }
+            isVerifying = false
+            self.error = "Failed to resend code. Please try again."
         }
     }
 

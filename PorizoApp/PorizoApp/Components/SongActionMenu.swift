@@ -20,14 +20,12 @@ struct SongActionMenu: View {
     var body: some View {
         ZStack(alignment: .bottom) {
             // Dimmed overlay
-            Color.black.opacity(0.7)
-                .ignoresSafeArea()
-                .onTapGesture {
-                    onDismiss()
-                }
-                .accessibilityAddTraits(.isButton)
-                .accessibilityAddTraits(.isButton)
-                .accessibilityLabel("Dismiss")
+            Button(action: onDismiss) {
+                Color.black.opacity(0.7)
+                    .ignoresSafeArea()
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Dismiss")
 
             // Bottom sheet
             VStack(spacing: 16) {

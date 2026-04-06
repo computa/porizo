@@ -387,28 +387,24 @@ struct ExploreTabView: View {
                 let response = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "exploreRecentTracks") {
                     try await apiClient.getTracks()
                 }
-                await MainActor.run {
-                    let sortedTracks = response.tracks.sorted {
-                        ($0.libraryAddedAt ?? $0.createdAt) > ($1.libraryAddedAt ?? $1.createdAt)
-                    }
-                    let receivedTracks = sortedTracks.filter { $0.isReceived }
-                    if receivedTracks.isEmpty {
-                        recentTracks = sortedTracks.filter { !$0.isReceived }
-                    } else {
-                        recentTracks = receivedTracks
-                    }
-                    isLoadingTracks = false
+                let sortedTracks = response.tracks.sorted {
+                    ($0.libraryAddedAt ?? $0.createdAt) > ($1.libraryAddedAt ?? $1.createdAt)
+                }
+                let receivedTracks = sortedTracks.filter { $0.isReceived }
+                if receivedTracks.isEmpty {
+                    recentTracks = sortedTracks.filter { !$0.isReceived }
+                } else {
+                    recentTracks = receivedTracks
+                }
+                isLoadingTracks = false
 
-                    // Existing-user migration: if user has created tracks (not just received),
-                    // mark as having completed first song so voice selection shows next time
-                    if !hasCompletedFirstSong && response.tracks.contains(where: { !$0.isReceived }) {
-                        hasCompletedFirstSong = true
-                    }
+                // Existing-user migration: if user has created tracks (not just received),
+                // mark as having completed first song so voice selection shows next time
+                if !hasCompletedFirstSong && response.tracks.contains(where: { !$0.isReceived }) {
+                    hasCompletedFirstSong = true
                 }
             } catch {
-                await MainActor.run {
-                    isLoadingTracks = false
-                }
+                isLoadingTracks = false
             }
         }
     }

@@ -360,23 +360,19 @@ struct PoemsTabView: View {
                 try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "deletePoem") {
                     try await apiClient.deletePoem(poemId: poem.id)
                 }
-                await MainActor.run {
-                    withAnimation(.easeOut(duration: 0.25)) {
-                        poems.removeAll { $0.id == poem.id }
-                    }
-                    poemToDelete = nil
-                    isDeleting = false
-                    hapticSuccessTrigger.toggle()
+                withAnimation(.easeOut(duration: 0.25)) {
+                    poems.removeAll { $0.id == poem.id }
                 }
+                poemToDelete = nil
+                isDeleting = false
+                hapticSuccessTrigger.toggle()
             } catch {
                 #if DEBUG
                 print("[PoemsTab] Failed to delete poem: \(error)")
                 #endif
-                await MainActor.run {
-                    poemToDelete = nil
-                    isDeleting = false
-                    ToastService.shared.error("Failed to delete poem")
-                }
+                poemToDelete = nil
+                isDeleting = false
+                ToastService.shared.error("Failed to delete poem")
             }
         }
     }
@@ -485,8 +481,14 @@ struct PoemDetailView: View {
     var onDelete: ((Poem) -> Void)?
     var onCreateVariation: ((Poem) -> Void)?
 
-    private var apiWrapper: APIClientWrapper {
-        APIClientWrapper(client: apiClient)
+    @State private var apiWrapper: APIClientWrapper
+
+    init(poem: Poem, apiClient: APIClient, onDelete: ((Poem) -> Void)? = nil, onCreateVariation: ((Poem) -> Void)? = nil) {
+        self.poem = poem
+        self.apiClient = apiClient
+        self.onDelete = onDelete
+        self.onCreateVariation = onCreateVariation
+        _apiWrapper = State(wrappedValue: APIClientWrapper(client: apiClient))
     }
 
     @Environment(\.dismiss) private var dismiss

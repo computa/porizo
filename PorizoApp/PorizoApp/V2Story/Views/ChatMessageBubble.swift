@@ -272,36 +272,19 @@ struct TypewriterText: View {
     let speed: Double
 
     @State private var displayedText: String = ""
-    @State private var typingTask: Task<Void, Never>?
 
     var body: some View {
         Text(displayedText)
             .textSelection(.enabled)
-            .onAppear {
-                startTyping()
+            .task(id: text) {
+                displayedText = ""
+                guard !text.isEmpty else { return }
+                for character in text {
+                    if Task.isCancelled { return }
+                    displayedText.append(character)
+                    try? await Task.sleep(for: .milliseconds(Int(max(speed, 0.001) * 1000)))
+                }
             }
-            .onChange(of: text) { _, _ in
-                startTyping()
-            }
-            .onDisappear {
-                typingTask?.cancel()
-                typingTask = nil
-            }
-    }
-
-    private func startTyping() {
-        typingTask?.cancel()
-        displayedText = ""
-        guard !text.isEmpty else { return }
-
-        let intervalNanos = UInt64(max(speed, 0.001) * 1_000_000_000)
-        typingTask = Task { @MainActor in
-            for character in text {
-                if Task.isCancelled { return }
-                displayedText.append(character)
-                try? await Task.sleep(for: .nanoseconds(intervalNanos))
-            }
-        }
     }
 }
 

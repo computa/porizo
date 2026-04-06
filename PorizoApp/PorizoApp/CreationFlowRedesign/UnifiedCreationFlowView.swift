@@ -135,7 +135,7 @@ struct UnifiedCreationFlowView: View {
             }
         }
         .goldBorderOverlay()
-        .navigationBarHidden(true)
+        .toolbar(.hidden, for: .navigationBar)
     }
 
     // MARK: - Name Entry Screen

@@ -96,7 +96,7 @@ struct OptionCCanvasView: View {
                 bottomSection
             }
         }
-        .navigationBarHidden(true)
+        .toolbar(.hidden, for: .navigationBar)
     }
 
     // MARK: - Header

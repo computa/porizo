@@ -103,7 +103,7 @@ struct OptionALetterView: View {
                 inputBar
             }
         }
-        .navigationBarHidden(true)
+        .toolbar(.hidden, for: .navigationBar)
     }
 
     // MARK: - Header

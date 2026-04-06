@@ -377,7 +377,10 @@ struct SubscriptionViewV2: View {
     private func handlePurchaseStateChange(_ state: PurchaseState) {
         switch state {
         case .success:
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { dismiss() }
+            Task {
+                try? await Task.sleep(for: .seconds(1))
+                dismiss()
+            }
         case .syncFailed:
             errorMessage = "Payment received, but server verification failed. Please reopen the app or use Restore Purchases."
             showError = true

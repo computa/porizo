@@ -89,7 +89,6 @@ struct MiniPlayerBar: View {
         .onTapGesture {
             onTap()
         }
-        .accessibilityAddTraits(.isButton)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
         .accessibilityLabel("\(playerState.currentTrack?.title ?? "Song"), \(playerState.isPlaying ? "playing" : "paused")")

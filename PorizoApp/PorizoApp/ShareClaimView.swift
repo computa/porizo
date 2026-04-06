@@ -14,7 +14,7 @@ struct ShareClaimView: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
-    @State private var audioPlayer = AudioPlayerService.shared
+    let audioPlayer = AudioPlayerService.shared
 
     @State private var state: ShareClaimState = .loading
     @State private var pin = ""

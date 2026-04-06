@@ -104,7 +104,7 @@ struct OptionBConversationView: View {
                 bottomBar
             }
         }
-        .navigationBarHidden(true)
+        .toolbar(.hidden, for: .navigationBar)
     }
 
     // MARK: - Header

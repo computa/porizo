@@ -75,10 +75,14 @@ struct StoryInputBarView: View {
         .background(DesignTokens.background)
     }
 
+    private static let decimalFormatter: NumberFormatter = {
+        let f = NumberFormatter()
+        f.numberStyle = .decimal
+        return f
+    }()
+
     private func formatNumber(_ n: Int) -> String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        return formatter.string(from: NSNumber(value: n)) ?? "\(n)"
+        Self.decimalFormatter.string(from: NSNumber(value: n)) ?? "\(n)"
     }
 }
 

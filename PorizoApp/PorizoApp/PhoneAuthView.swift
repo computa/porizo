@@ -144,7 +144,6 @@ struct PhoneAuthView: View {
         .onTapGesture {
             UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
         }
-        .accessibilityAddTraits(.isButton)
         .sheet(isPresented: $showCountryPicker) {
             CountryPickerSheet(
                 selectedCountry: $selectedCountry,

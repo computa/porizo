@@ -31,14 +31,12 @@ struct DeleteConfirmationView: View {
     var body: some View {
         ZStack {
             // Dimmed overlay
-            Color.black.opacity(0.6)
-                .ignoresSafeArea()
-                .onTapGesture {
-                    onCancel()
-                }
-                .accessibilityAddTraits(.isButton)
-                .accessibilityAddTraits(.isButton)
-                .accessibilityLabel("Dismiss")
+            Button(action: onCancel) {
+                Color.black.opacity(0.6)
+                    .ignoresSafeArea()
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Dismiss")
 
             // Modal
             VStack(spacing: 16) {
