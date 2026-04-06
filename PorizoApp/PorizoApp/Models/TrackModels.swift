@@ -109,6 +109,10 @@ struct Track: Codable, Sendable, Identifiable, Equatable {
     let coverImageUrl: String?
     let coverImageSmallUrl: String?
     let coverImageLargeUrl: String?
+    // Pre-generated share data (populated when share token exists)
+    var shareUrl: String? = nil
+    var claimPin: String? = nil
+    var shareExpiresAt: String? = nil
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -129,6 +133,9 @@ struct Track: Codable, Sendable, Identifiable, Equatable {
         case coverImageUrl = "cover_image_url"
         case coverImageSmallUrl = "cover_image_small_url"
         case coverImageLargeUrl = "cover_image_large_url"
+        case shareUrl = "share_url"
+        case claimPin = "claim_pin"
+        case shareExpiresAt = "share_expires_at"
     }
 
     var isReceived: Bool {

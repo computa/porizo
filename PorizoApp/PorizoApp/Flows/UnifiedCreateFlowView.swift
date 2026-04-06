@@ -178,12 +178,35 @@ struct UnifiedCreateFlowView: View {
                     .environment(apiWrapper)
 
             case .share(let payload):
-                ShareSheetView(
-                    shareController: payload.controller,
-                    trackId: payload.trackId,
-                    versionNum: payload.versionNum,
-                    trackTitle: payload.trackTitle,
-                    recipientName: payload.recipientName
+                SharePostcardView(
+                    recipientName: payload.recipientName,
+                    occasion: setup.occasion?.rawValue,
+                    shareURL: payload.shareUrl,
+                    claimPIN: payload.claimPin,
+                    onSend: {
+                        guard let urlString = payload.shareUrl, let url = URL(string: urlString) else {
+                            // Fallback: generate on-demand via controller
+                            payload.controller.generateShareLink(trackId: payload.trackId, versionNum: payload.versionNum)
+                            return
+                        }
+                        let message = "I made a song for \(payload.recipientName) — listen here!"
+                        let activityVC = UIActivityViewController(activityItems: [message, url], applicationActivities: nil)
+                        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+                           let root = windowScene.windows.first?.rootViewController {
+                            var topVC = root
+                            while let presented = topVC.presentedViewController { topVC = presented }
+                            activityVC.popoverPresentationController?.sourceView = topVC.view
+                            topVC.present(activityVC, animated: true)
+                        }
+                    },
+                    onSaveToPhotos: {},
+                    onCopyLink: {
+                        if let url = payload.shareUrl {
+                            UIPasteboard.general.string = url
+                            ToastService.shared.show("Link copied!", type: .success)
+                        }
+                    },
+                    onSkip: { activeSheet = nil }
                 )
 
             case .editLyrics(let section):

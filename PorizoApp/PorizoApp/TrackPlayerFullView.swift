@@ -31,6 +31,8 @@ struct TrackPlayerFullView: View {
     @State private var trackTitle: String = "Your Song"
     @State private var recipientName: String = ""
     @State private var occasion: String = ""
+    @State private var shareUrl: String? = nil
+    @State private var claimPin: String? = nil
 
     // Cover image URLs (loaded from track/version via render callbacks)
     @State private var coverImageUrl: String?
@@ -98,13 +100,42 @@ struct TrackPlayerFullView: View {
             Text(errorMessage)
         }
         .sheet(isPresented: $showingShareSheet) {
-            ShareSheetView(
-                shareController: shareController ?? ShareController(apiClient: apiClient),
-                trackId: trackId,
-                versionNum: versionNum,
-                trackTitle: trackTitle,
-                recipientName: recipientName
+            SharePostcardView(
+                recipientName: recipientName.isEmpty ? "Recipient" : recipientName,
+                occasion: occasion.isEmpty ? nil : occasion,
+                shareURL: shareUrl,
+                claimPIN: claimPin,
+                onSend: {
+                    guard let urlString = shareUrl, let url = URL(string: urlString) else { return }
+                    let message = "I made a song for \(recipientName.isEmpty ? "you" : recipientName) — listen here!"
+                    let activityVC = UIActivityViewController(activityItems: [message, url], applicationActivities: nil)
+                    if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+                       let root = windowScene.windows.first?.rootViewController {
+                        var topVC = root
+                        while let presented = topVC.presentedViewController { topVC = presented }
+                        activityVC.popoverPresentationController?.sourceView = topVC.view
+                        topVC.present(activityVC, animated: true)
+                    }
+                },
+                onSaveToPhotos: {},
+                onCopyLink: {
+                    if let url = shareUrl {
+                        UIPasteboard.general.string = url
+                        ToastService.shared.show("Link copied!", type: .success)
+                    }
+                },
+                onSkip: { showingShareSheet = false }
             )
+            .task {
+                // Fetch share data if not already loaded
+                if shareUrl == nil {
+                    if let resp = try? await apiClient.getTrack(trackId: trackId) {
+                    let track = resp.track
+                        shareUrl = track.shareUrl
+                        claimPin = track.claimPin
+                    }
+                }
+            }
         }
         .onAppear {
             print("[TrackPlayerFullView] onAppear - starting render for trackId=\(trackId), versionNum=\(versionNum)")

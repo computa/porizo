@@ -132,6 +132,8 @@ struct ShareSheetPayload: Identifiable {
     let versionNum: Int
     let trackTitle: String
     let recipientName: String
+    var shareUrl: String? = nil
+    var claimPin: String? = nil
 }
 
 // MARK: - Card Tab

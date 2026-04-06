@@ -131,12 +131,31 @@ struct MySongsView: View {
             }
         }
         .sheet(item: $trackToShare) { track in
-            ShareSheetView(
-                shareController: shareController,
-                trackId: track.id,
-                versionNum: track.latestVersion,
-                trackTitle: track.title,
-                recipientName: track.recipientName ?? "Recipient"
+            SharePostcardView(
+                recipientName: track.recipientName ?? "Recipient",
+                occasion: track.occasion,
+                shareURL: track.shareUrl,
+                claimPIN: track.claimPin,
+                onSend: {
+                    guard let urlString = track.shareUrl, let url = URL(string: urlString) else { return }
+                    let message = "I made a song for \(track.recipientName ?? "you") — listen here!"
+                    let activityVC = UIActivityViewController(activityItems: [message, url], applicationActivities: nil)
+                    if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+                       let root = windowScene.windows.first?.rootViewController {
+                        var topVC = root
+                        while let presented = topVC.presentedViewController { topVC = presented }
+                        activityVC.popoverPresentationController?.sourceView = topVC.view
+                        topVC.present(activityVC, animated: true)
+                    }
+                },
+                onSaveToPhotos: {},
+                onCopyLink: {
+                    if let url = track.shareUrl {
+                        UIPasteboard.general.string = url
+                        ToastService.shared.show("Link copied!", type: .success)
+                    }
+                },
+                onSkip: { trackToShare = nil }
             )
         }
         .onAppear {

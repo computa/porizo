@@ -2492,6 +2492,9 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
               tle.origin AS library_origin,
               tle.added_at AS library_added_at,
               tle.share_token_id AS library_share_token_id,
+              st.claim_pin AS share_claim_pin,
+              st.expires_at AS share_expires_at,
+              st.status AS share_status,
               CASE WHEN t.user_id = ? THEN 1 ELSE 0 END AS can_edit,
               CASE WHEN t.user_id = ? THEN 1 ELSE 0 END AS can_share,
               1 AS can_delete
@@ -2500,6 +2503,9 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
          ON tle.track_id = t.id
         AND tle.user_id = ?
         AND tle.removed_at IS NULL
+       LEFT JOIN share_tokens st
+         ON st.id = t.share_token_id
+        AND st.status NOT IN ('revoked', 'expired')
        WHERE t.id = ?
          AND t.deleted_at IS NULL`
     ).get(userId, userId, userId, trackId);
@@ -2567,12 +2573,22 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     }
     const rest = { ...trackRow };
     delete rest.story_context_json;
-    return {
+
+    // Construct share_url from share_token_id if a valid share exists
+    const hasShare = rest.share_token_id && rest.share_status && rest.share_status !== "revoked" && rest.share_status !== "expired";
+    const result = {
       ...rest,
       can_edit: asBool(trackRow.can_edit),
       can_share: asBool(trackRow.can_share),
       can_delete: asBool(trackRow.can_delete),
+      share_url: hasShare ? buildPlayShareUrl(rest.share_token_id) : null,
+      claim_pin: hasShare && asBool(trackRow.can_edit) ? rest.share_claim_pin : null,
+      share_expires_at: hasShare ? rest.share_expires_at : null,
     };
+    // Clean up internal join fields
+    delete result.share_claim_pin;
+    delete result.share_status;
+    return result;
   }
 
   function withPoemLibraryFlags(poemRow) {

@@ -2,6 +2,7 @@
 
 const crypto = require("crypto");
 const { newUuid, newShareId } = require("../utils/ids");
+const { createOrGetShareToken } = require("../services/share-service");
 const { nowIso, toJson, parseJson } = require("../utils/common");
 const { moderationCheck, validateGeneratedLyrics } = require("../providers/moderation");
 const { generateLyrics } = require("../providers/lyrics");
@@ -1103,25 +1104,7 @@ function registerTrackRoutes(app, {
         .run(normalizedVariant, nowIso(), track.id);
     }
 
-    if (track.share_token_id) {
-      const existingShare = await db.prepare("SELECT * FROM share_tokens WHERE id = ?").get(track.share_token_id);
-      if (existingShare) {
-        if (existingShare.status !== "revoked" && (existingShare.share_type === "demo" || new Date(existingShare.expires_at) > new Date())) {
-          reply.send({
-            share_id: existingShare.id,
-            share_url: buildPlayShareUrl(existingShare.id),
-            qr_code_url: `https://cdn.porizo.local/qr/${existingShare.id}.png`,
-            expires_at: existingShare.expires_at,
-            claim_pin: existingShare.claim_pin,
-            existing: true,
-          });
-          return;
-        }
-        if (existingShare.share_type !== "demo" && new Date(existingShare.expires_at) <= new Date() && existingShare.status !== "expired") {
-          await db.prepare("UPDATE share_tokens SET status = ? WHERE id = ?").run("expired", existingShare.id);
-        }
-      }
-    }
+    // Idempotency check is handled inside createOrGetShareToken
     const versionNum = body.version_num || track.latest_version;
     const trackVersion = await findTrackVersion(track.id, versionNum);
     if (!trackVersion) {
@@ -1132,98 +1115,53 @@ function registerTrackRoutes(app, {
       sendError(reply, 409, "TRACK_NOT_READY", "Track version is not ready to share.");
       return;
     }
-    const shareId = newShareId();
-    const expiresAt = new Date(
-      Date.now() + (body.expires_in_days || 30) * 24 * 60 * 60 * 1000
-    ).toISOString();
 
-    // Extract UTM parameters for attribution tracking
-    const utmSource = request.query.utm_source || body.utm_source || null;
-    const utmMedium = request.query.utm_medium || body.utm_medium || null;
-    const utmCampaign = request.query.utm_campaign || body.utm_campaign || null;
-    const referrer = request.headers.referer || request.headers.referrer || null;
-    const createdIp = request.ip || null;
-    const createdUserAgent = request.headers["user-agent"] || null;
-
-    const streamKeyId = newUuid();
-    const streamKey = crypto.randomBytes(16).toString("base64");
-    // Generate 6-digit PIN for claim verification (prevents unauthorized claim)
-    const claimPin = String(crypto.randomInt(100000, 1000000));
-    await db.prepare(
-      "INSERT INTO share_tokens (id, track_id, track_version_id, creator_id, status, bound_device_id, bound_device_platform, bound_app_version, bound_at, web_stream_allowed, app_save_allowed, expires_at, created_at, last_accessed_at, access_count, stream_key_id, stream_key, claim_pin, claim_attempts, utm_source, utm_medium, utm_campaign, referrer, created_ip, created_user_agent) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-    ).run(
-      shareId,
-      track.id,
-      trackVersion.id,
+    const result = await createOrGetShareToken({
+      db,
+      trackId: track.id,
+      trackVersionId: trackVersion.id,
       userId,
-      "unbound",
-      null,
-      null,
-      null,
-      null,
-      1,
-      1,
-      expiresAt,
-      nowIso(),
-      null,
-      0,
-      streamKeyId,
-      streamKey,
-      claimPin,
-      0,
-      utmSource,
-      utmMedium,
-      utmCampaign,
-      referrer,
-      createdIp,
-      createdUserAgent
-    );
-    await db.prepare("UPDATE tracks SET share_token_id = ?, updated_at = ? WHERE id = ?").run(
-      shareId,
-      nowIso(),
-      track.id
-    );
-
-    await addAuditEntry({
-      userId,
-      action: "share_created",
-      resourceType: "share_token",
-      resourceId: shareId,
-    });
-
-    // Emit share_create event for analytics
-    eventsService.emit("share_create", {
-      userId,
-      resourceType: "share",
-      resourceId: shareId,
-      metadata: {
-        track_id: track.id,
-        occasion: track.occasion,
-        utm_source: utmSource,
-        utm_medium: utmMedium,
-        utm_campaign: utmCampaign,
+      expiresInDays: body.expires_in_days || 30,
+      buildShareUrl: buildPlayShareUrl,
+      ensureShareMp4: () => ensureShareMp4({ track, trackVersion }),
+      attribution: {
+        utmSource: request.query.utm_source || body.utm_source || null,
+        utmMedium: request.query.utm_medium || body.utm_medium || null,
+        utmCampaign: request.query.utm_campaign || body.utm_campaign || null,
+        referrer: request.headers.referer || request.headers.referrer || null,
+        ip: request.ip || null,
+        userAgent: request.headers["user-agent"] || null,
       },
-      ip: request.ip,
-      userAgent: request.headers["user-agent"],
     });
 
-    // Pre-generate share.mp4 so social crawlers can fetch video immediately after link creation.
-    // This reduces gray/empty cards on Facebook/X when they scrape the URL right away.
-    try {
-      await ensureShareMp4({ track, trackVersion });
-    } catch (err) {
-      request.log.warn(
-        { shareId, trackId: track.id, err: err?.message || String(err) },
-        "Share video pre-generation failed; continuing with share creation"
-      );
+    if (!result.existing) {
+      await addAuditEntry({
+        userId,
+        action: "share_created",
+        resourceType: "share_token",
+        resourceId: result.shareId,
+      });
+      eventsService.emit("share_create", {
+        userId,
+        resourceType: "share",
+        resourceId: result.shareId,
+        metadata: {
+          track_id: track.id,
+          occasion: track.occasion,
+          utm_source: result.attribution?.utmSource,
+        },
+        ip: request.ip,
+        userAgent: request.headers["user-agent"],
+      });
     }
 
     reply.send({
-      share_id: shareId,
-      share_url: buildPlayShareUrl(shareId),
-      qr_code_url: `https://cdn.porizo.local/qr/${shareId}.png`,
-      expires_at: expiresAt,
-      claim_pin: claimPin, // Creator must share this PIN with recipient out-of-band
+      share_id: result.shareId,
+      share_url: result.shareUrl,
+      qr_code_url: `https://cdn.porizo.local/qr/${result.shareId}.png`,
+      expires_at: result.expiresAt,
+      claim_pin: result.claimPin,
+      existing: result.existing || false,
     });
   });
 }

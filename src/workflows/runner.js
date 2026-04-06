@@ -55,6 +55,7 @@ const {
   shouldSkipStep,
 } = require("./render-contract");
 const { classifyError, PROVIDER_STEPS } = require("../utils/step-classification");
+const { createOrGetShareToken } = require("../services/share-service");
 
 // Provider identifiers for circuit breaker tracking
 const PROVIDERS = {
@@ -3868,6 +3869,20 @@ async function startJobRunner({
           kind: isFull ? "full" : "preview",
           devMode,
         });
+
+        // Pre-generate share link so it's ready when user opens share screen (non-fatal)
+        try {
+          await createOrGetShareToken({
+            db: asyncDbAdapter,
+            trackId: trackReady.id,
+            trackVersionId: trackVersionReady.id,
+            userId: trackReady.user_id,
+            expiresInDays: 90,
+            buildShareUrl: (shareId) => `${streamBaseUrl}/play/${shareId}`,
+          });
+        } catch (shareErr) {
+          console.warn(`[JobRunner] Share pre-generation failed (non-fatal):`, shareErr.message);
+        }
 
         // Clean up intermediate files only after fully successful render (including S3)
         // In dev mode with S3 failure, keep temp files for debugging

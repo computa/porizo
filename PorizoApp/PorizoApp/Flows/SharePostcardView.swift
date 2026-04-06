@@ -13,6 +13,8 @@ import UIKit
 struct SharePostcardView: View {
     let recipientName: String
     let occasion: String?
+    var shareURL: String? = nil
+    var claimPIN: String? = nil
     let onSend: () -> Void
     let onSaveToPhotos: () -> Void
     let onCopyLink: () -> Void
@@ -428,9 +430,24 @@ struct SharePostcardView: View {
 
             if showHowItWorks {
                 VStack(alignment: .leading, spacing: DesignTokens.spacing8) {
-                    Text("They\u{2019}ll get a link to listen and a PIN for security. Works on any device for 30 days.")
-                        .font(DesignTokens.bodyFont(size: 13))
-                        .foregroundStyle(DesignTokens.textTertiary)
+                    if let pin = claimPIN {
+                        HStack(spacing: DesignTokens.spacing8) {
+                            Text("Your PIN:")
+                                .font(DesignTokens.bodyFont(size: 13))
+                                .foregroundStyle(DesignTokens.textTertiary)
+                            Text(pin)
+                                .font(.system(size: 20, weight: .bold, design: .monospaced))
+                                .foregroundStyle(DesignTokens.gold)
+                                .accessibilityLabel("PIN: \(pin)")
+                        }
+                        Text("Share this PIN separately with your recipient for security.")
+                            .font(DesignTokens.bodyFont(size: 12))
+                            .foregroundStyle(DesignTokens.textTertiary)
+                    } else {
+                        Text("They\u{2019}ll get a link to listen and a PIN for security. Works on any device for 30 days.")
+                            .font(DesignTokens.bodyFont(size: 13))
+                            .foregroundStyle(DesignTokens.textTertiary)
+                    }
                 }
                 .padding(.horizontal, DesignTokens.spacing16)
                 .padding(.bottom, DesignTokens.spacing12)
