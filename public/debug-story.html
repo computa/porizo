@@ -1,0 +1,758 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Porizo Story Algo Debug</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f8f8f6; color: #1a1a1a; max-width: 960px; margin: 0 auto; padding: 16px; }
+  h1 { font-size: 20px; font-weight: 600; }
+  h2 { font-size: 13px; font-weight: 600; color: #888; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
+  .header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+  .badge { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: 600; }
+  .badge.ready { background: #e8f5e9; color: #2e7d32; }
+  .badge.not-ready { background: #fff3e0; color: #e65100; }
+  .badge.proceed { background: #e3f2fd; color: #1565c0; }
+  .config { display: flex; gap: 8px; margin-bottom: 16px; align-items: center; flex-wrap: wrap; }
+  .config input, .config select { padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 13px; }
+  .config input { width: 140px; }
+  .config select { width: 160px; }
+  .config label { font-size: 12px; display: flex; align-items: center; gap: 4px; cursor: pointer; }
+  .btn { padding: 8px 16px; border: none; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; }
+  .btn-primary { background: #c47d4e; color: #fff; }
+  .btn-primary:hover { background: #a86a3e; }
+  .btn-primary:disabled { background: #ccc; cursor: not-allowed; }
+  .btn-secondary { background: #eee; border: 1px solid #ddd; color: #333; }
+  .btn-secondary:hover { background: #ddd; }
+
+  /* Tab navigation */
+  .tab-bar { display: flex; gap: 0; margin-bottom: 16px; border-bottom: 2px solid #e5e5e5; }
+  .tab-btn { padding: 10px 20px; border: none; background: none; font-size: 14px; font-weight: 600; color: #888; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -2px; transition: color 0.2s, border-color 0.2s; }
+  .tab-btn:hover { color: #555; }
+  .tab-btn.active { color: #c47d4e; border-bottom-color: #c47d4e; }
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+
+  /* Main layout: 3 columns */
+  .main { display: grid; grid-template-columns: 1fr 1fr 300px; gap: 16px; }
+  .panel { background: #fff; border: 1px solid #e5e5e5; border-radius: 8px; padding: 14px; }
+
+  /* Chat column */
+  .chat-area { max-height: 600px; overflow-y: auto; margin-bottom: 10px; }
+  .turn { margin-bottom: 16px; border-bottom: 1px solid #f0f0f0; padding-bottom: 12px; }
+  .turn:last-child { border-bottom: none; }
+  .turn-label { font-size: 11px; color: #999; margin-bottom: 6px; }
+  .user-msg { background: #2a2a2a; color: #fff; padding: 10px 14px; border-radius: 12px; font-size: 14px; line-height: 1.5; margin-bottom: 8px; }
+  .ai-summary { background: #f5f0e8; padding: 10px 14px; border-radius: 10px; font-size: 13px; line-height: 1.5; color: #444; margin-bottom: 8px; border-left: 3px solid #c47d4e; }
+  .ai-summary .label { font-size: 11px; font-weight: 600; color: #c47d4e; text-transform: uppercase; margin-bottom: 4px; }
+  .ai-question { background: #fff; border: 2px solid #c47d4e; padding: 10px 14px; border-radius: 10px; font-size: 14px; line-height: 1.5; color: #1a1a1a; margin-bottom: 8px; }
+  .ai-question .label { font-size: 11px; font-weight: 600; color: #c47d4e; text-transform: uppercase; margin-bottom: 4px; }
+  .suggestions { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+  .suggestion-chip { background: #f0ebe3; color: #6b4c2e; padding: 5px 12px; border-radius: 16px; font-size: 12px; border: 1px solid #e0d5c5; }
+  .status-line { background: #e8f4e8; color: #2d5a2d; font-size: 11px; text-align: center; padding: 4px 8px; border-radius: 6px; }
+  .status-line.not-ready { background: #fff3e0; color: #e65100; }
+
+  /* Guidance column */
+  .guidance-section { margin-bottom: 14px; }
+  .guidance-card { background: #faf7f2; border: 1px solid #e8e0d4; border-radius: 8px; padding: 10px; margin-bottom: 8px; }
+  .guidance-card .g-label { font-size: 11px; font-weight: 600; color: #888; text-transform: uppercase; margin-bottom: 3px; }
+  .guidance-card .g-value { font-size: 13px; color: #333; line-height: 1.4; }
+  .targeting-row { display: flex; justify-content: space-between; font-size: 12px; padding: 4px 0; }
+  .targeting-row .t-label { color: #888; }
+  .targeting-row .t-value { font-weight: 500; }
+
+  /* Progress column */
+  .bar-row { margin-bottom: 6px; }
+  .bar-header { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 2px; }
+  .bar-header .name { font-weight: 500; }
+  .bar-header .pct { color: #888; }
+  .bar-track { height: 5px; background: #eee; border-radius: 3px; overflow: hidden; }
+  .bar-fill { height: 100%; border-radius: 3px; transition: width 0.3s; }
+  .bar-fill.low { background: #e57373; }
+  .bar-fill.med { background: #ffb74d; }
+  .bar-fill.high { background: #66bb6a; }
+
+  .input-area { display: flex; gap: 8px; }
+  .input-area input { flex: 1; padding: 10px 14px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; }
+  .meta { font-size: 11px; color: #999; margin-top: 8px; }
+
+  /* --- Autoresearch Dashboard --- */
+  .ar-status-banner { padding: 12px 16px; border-radius: 8px; font-size: 14px; font-weight: 600; margin-bottom: 16px; }
+  .ar-status-banner.running { background: #e3f2fd; color: #1565c0; }
+  .ar-status-banner.complete { background: #e8f5e9; color: #2e7d32; }
+  .ar-status-banner.no-data { background: #f5f5f5; color: #888; }
+
+  .ar-scores { display: flex; gap: 16px; margin-bottom: 16px; }
+  .ar-score-card { flex: 1; background: #fff; border: 1px solid #e5e5e5; border-radius: 8px; padding: 14px; text-align: center; }
+  .ar-score-card .ar-score-label { font-size: 11px; font-weight: 600; color: #888; text-transform: uppercase; letter-spacing: 0.5px; }
+  .ar-score-card .ar-score-value { font-size: 28px; font-weight: 700; margin-top: 4px; }
+  .ar-score-card .ar-score-value.baseline { color: #888; }
+  .ar-score-card .ar-score-value.best { color: #2e7d32; }
+  .ar-score-card .ar-score-value.current { color: #c47d4e; }
+
+  .ar-chart { margin-bottom: 16px; }
+  .ar-chart-title { font-size: 13px; font-weight: 600; color: #888; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
+  .ar-chart-bars { display: flex; align-items: flex-end; gap: 4px; height: 120px; padding: 0 4px; }
+  .ar-chart-bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; height: 100%; justify-content: flex-end; }
+  .ar-chart-bar { width: 100%; min-width: 20px; max-width: 60px; border-radius: 4px 4px 0 0; transition: height 0.3s; position: relative; }
+  .ar-chart-bar.baseline { background: #bbb; }
+  .ar-chart-bar.keep { background: #66bb6a; }
+  .ar-chart-bar.discard { background: #e57373; }
+  .ar-chart-bar.skip { background: #ffb74d; }
+  .ar-chart-bar-label { font-size: 10px; color: #888; margin-top: 4px; }
+  .ar-chart-bar-pct { font-size: 10px; font-weight: 600; color: #555; margin-bottom: 2px; }
+
+  .ar-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 16px; }
+  .ar-table th { text-align: left; padding: 8px 10px; border-bottom: 2px solid #e5e5e5; font-size: 11px; font-weight: 600; color: #888; text-transform: uppercase; letter-spacing: 0.5px; }
+  .ar-table td { padding: 8px 10px; border-bottom: 1px solid #f0f0f0; }
+  .ar-table tr:last-child td { border-bottom: none; }
+  .ar-status-chip { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+  .ar-status-chip.baseline { background: #f0f0f0; color: #666; }
+  .ar-status-chip.keep { background: #e8f5e9; color: #2e7d32; }
+  .ar-status-chip.discard { background: #fce4ec; color: #c62828; }
+  .ar-status-chip.skip { background: #fff3e0; color: #e65100; }
+
+  .ar-eval-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 16px; }
+  .ar-eval-card { background: #fff; border: 1px solid #e5e5e5; border-radius: 8px; padding: 10px; }
+  .ar-eval-name { font-size: 11px; font-weight: 600; color: #555; margin-bottom: 6px; line-height: 1.3; }
+  .ar-eval-bar-track { height: 6px; background: #eee; border-radius: 3px; overflow: hidden; }
+  .ar-eval-bar-fill { height: 100%; border-radius: 3px; }
+  .ar-eval-stat { font-size: 11px; color: #888; margin-top: 4px; }
+
+  .ar-changelog { margin-bottom: 16px; }
+  .ar-changelog-entry { padding: 8px 12px; margin-bottom: 4px; border-radius: 6px; font-size: 13px; border-left: 3px solid #ddd; background: #fafafa; }
+  .ar-changelog-entry.keep { border-left-color: #66bb6a; background: #f6fbf6; }
+  .ar-changelog-entry.discard { border-left-color: #e57373; background: #fef6f6; }
+  .ar-changelog-entry.skip { border-left-color: #ffb74d; background: #fffcf6; }
+  .ar-changelog-meta { font-size: 11px; color: #888; }
+
+  .ar-empty { text-align: center; padding: 40px 20px; color: #888; }
+  .ar-empty-cmd { background: #f5f5f5; padding: 8px 14px; border-radius: 6px; font-family: 'SF Mono', SFMono-Regular, Consolas, monospace; font-size: 13px; color: #555; display: inline-block; margin-top: 12px; }
+
+  @media (max-width: 900px) {
+    .main { grid-template-columns: 1fr; }
+    .ar-eval-grid { grid-template-columns: 1fr; }
+    .ar-scores { flex-direction: column; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Story Algo Debug</h1>
+  <span class="badge not-ready" id="readyBadge">Not Ready</span>
+  <span id="scoreBadge" style="font-size:13px;color:#888;">Score: 0.00</span>
+  <span id="turnBadge" style="font-size:13px;color:#888;">Turn 0</span>
+  <button class="btn btn-secondary" onclick="resetSession()">Reset</button>
+</div>
+
+<!-- Tab bar -->
+<div class="tab-bar">
+  <button class="tab-btn active" id="tabStoryTest" onclick="switchTab('story-test')">Story Test</button>
+  <button class="tab-btn" id="tabAutoresearch" onclick="switchTab('autoresearch')">Autoresearch</button>
+</div>
+
+<!-- Tab 1: Story Test (existing content) -->
+<div class="tab-content active" id="tab-story-test">
+
+<div class="config">
+  <input id="recipientName" placeholder="Recipient" value="Sarah">
+  <select id="occasion">
+    <option value="birthday">Birthday</option>
+    <option value="anniversary">Anniversary</option>
+    <option value="thank_you">Thank You</option>
+    <option value="wedding">Wedding</option>
+    <option value="memorial">Memorial</option>
+    <option value="bereavement">Bereavement</option>
+    <option value="friendship">Friendship</option>
+    <option value="mothers_day">Mother's Day</option>
+    <option value="fathers_day">Father's Day</option>
+    <option value="custom">Custom</option>
+  </select>
+  <label><input type="checkbox" id="fullRound" checked> Full Round (LLM)</label>
+</div>
+
+<div class="main">
+  <!-- Col 1: Conversation with structured output -->
+  <div class="panel" style="grid-column: span 2;">
+    <h2>Conversation</h2>
+    <div class="chat-area" id="chatArea"></div>
+    <div class="input-area">
+      <input id="msgInput" placeholder="Tell your story..." onkeydown="if(event.key==='Enter')send()">
+      <button class="btn btn-primary" id="sendBtn" onclick="send()">Send</button>
+    </div>
+  </div>
+
+  <!-- Col 2: Progress + Targeting -->
+  <div>
+    <div class="panel" style="margin-bottom:12px;">
+      <h2>Story Progress</h2>
+      <div id="progressBars"></div>
+    </div>
+    <div class="panel" style="margin-bottom:12px;">
+      <h2>Algo Decisions</h2>
+      <div id="algoDecisions">
+        <p style="color:#999;font-size:12px;">Send a message to see algo decisions</p>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>Anti-Repetition</h2>
+      <div id="antiRepetition">
+        <p style="color:#999;font-size:12px;">Questions asked will appear here</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="meta" id="metaLine"></div>
+
+</div><!-- end tab-story-test -->
+
+<!-- Tab 2: Autoresearch Dashboard -->
+<div class="tab-content" id="tab-autoresearch">
+  <div id="arDashboard"></div>
+</div>
+
+<script>
+/* -----------------------------------------------------------------------
+ * TAB SWITCHING
+ * ----------------------------------------------------------------------- */
+var arPollTimer = null;
+
+function switchTab(tab) {
+  // Toggle active class on buttons
+  var storyBtn = document.getElementById('tabStoryTest');
+  var arBtn = document.getElementById('tabAutoresearch');
+  var storyTab = document.getElementById('tab-story-test');
+  var arTab = document.getElementById('tab-autoresearch');
+
+  if (tab === 'story-test') {
+    storyBtn.className = 'tab-btn active';
+    arBtn.className = 'tab-btn';
+    storyTab.className = 'tab-content active';
+    arTab.className = 'tab-content';
+    // Stop polling
+    if (arPollTimer) { clearInterval(arPollTimer); arPollTimer = null; }
+  } else {
+    storyBtn.className = 'tab-btn';
+    arBtn.className = 'tab-btn active';
+    storyTab.className = 'tab-content';
+    arTab.className = 'tab-content active';
+    // Start polling
+    fetchAutoresearchResults();
+    if (!arPollTimer) {
+      arPollTimer = setInterval(fetchAutoresearchResults, 5000);
+    }
+  }
+}
+
+/* -----------------------------------------------------------------------
+ * STORY TEST TAB (existing logic, unchanged)
+ * ----------------------------------------------------------------------- */
+var priorState = null;
+var sessionId = null;
+var turnCount = 0;
+
+function $(id) { return document.getElementById(id); }
+
+function resetSession() {
+  priorState = null; sessionId = null; turnCount = 0;
+  $('chatArea').textContent = '';
+  $('progressBars').textContent = '';
+  $('algoDecisions').textContent = 'Send a message to see algo decisions';
+  $('antiRepetition').textContent = 'Questions asked will appear here';
+  $('readyBadge').className = 'badge not-ready'; $('readyBadge').textContent = 'Not Ready';
+  $('scoreBadge').textContent = 'Score: 0.00';
+  $('turnBadge').textContent = 'Turn 0';
+  $('metaLine').textContent = '';
+}
+
+async function send() {
+  var msg = $('msgInput').value.trim();
+  if (!msg) return;
+  $('msgInput').value = '';
+  $('sendBtn').disabled = true;
+  $('sendBtn').textContent = 'Processing...';
+
+  var isLLM = $('fullRound').checked;
+
+  // Add user message to chat
+  var turn = document.createElement('div');
+  turn.className = 'turn';
+  var label = document.createElement('div');
+  label.className = 'turn-label';
+  label.textContent = 'Turn ' + (turnCount + 1) + ' \u2014 User Input';
+  turn.appendChild(label);
+  var userDiv = document.createElement('div');
+  userDiv.className = 'user-msg';
+  userDiv.textContent = msg;
+  turn.appendChild(userDiv);
+  $('chatArea').appendChild(turn);
+
+  try {
+    var body = { message: msg, occasion: $('occasion').value, recipient_name: $('recipientName').value };
+    var endpoint, headers = { 'Content-Type': 'application/json' };
+
+    if (isLLM) {
+      endpoint = '/debug/story/full-round';
+      headers['x-user-id'] = 'debug_user';
+      if (sessionId) body.session_id = sessionId;
+    } else {
+      endpoint = '/debug/story/simulate';
+      if (priorState) body.prior_state = priorState;
+    }
+
+    var res = await fetch(endpoint, { method: 'POST', headers: headers, body: JSON.stringify(body) });
+    var data = await res.json();
+
+    if (data.error) {
+      addError(turn, data.message || data.error);
+      return;
+    }
+
+    turnCount = data.turn_count || turnCount + 1;
+    if (isLLM) sessionId = data.session_id || sessionId;
+    else priorState = data.prior_state || null;
+
+    var labov = data.labov || {};
+
+    // 1. Show AI Summary (narrative)
+    if (data.ai_response && data.ai_response.narrative) {
+      var summaryDiv = document.createElement('div');
+      summaryDiv.className = 'ai-summary';
+      var sLabel = document.createElement('div');
+      sLabel.className = 'label';
+      sLabel.textContent = 'Story Summary';
+      summaryDiv.appendChild(sLabel);
+      var sText = document.createElement('div');
+      sText.textContent = data.ai_response.narrative;
+      summaryDiv.appendChild(sText);
+      turn.appendChild(summaryDiv);
+    }
+
+    // 2. Show Extracting Question
+    var question = data.ai_response ? (data.ai_response.question || null) : null;
+    if (question) {
+      var qDiv = document.createElement('div');
+      qDiv.className = 'ai-question';
+      var qLabel = document.createElement('div');
+      qLabel.className = 'label';
+      qLabel.textContent = 'AI Question (to extract more detail)';
+      qDiv.appendChild(qLabel);
+      var qText = document.createElement('div');
+      qText.textContent = question;
+      qDiv.appendChild(qText);
+      turn.appendChild(qDiv);
+    }
+
+    // 3. Show Suggestions (user guidance)
+    var suggestions = data.ai_response ? (data.ai_response.suggestions || []) : [];
+    if (suggestions.length > 0) {
+      var sugDiv = document.createElement('div');
+      sugDiv.className = 'suggestions';
+      var sugLabel = document.createElement('div');
+      sugLabel.style.cssText = 'font-size:11px;font-weight:600;color:#888;text-transform:uppercase;width:100%;margin-bottom:2px;';
+      sugLabel.textContent = 'User Guidance Suggestions';
+      sugDiv.appendChild(sugLabel);
+      suggestions.forEach(function(s) {
+        var chip = document.createElement('span');
+        chip.className = 'suggestion-chip';
+        chip.textContent = s;
+        sugDiv.appendChild(chip);
+      });
+      turn.appendChild(sugDiv);
+    }
+
+    // 4. Status line
+    var statusDiv = document.createElement('div');
+    statusDiv.className = 'status-line' + (labov.is_ready ? '' : ' not-ready');
+    var ei = data.question_targeting ? data.question_targeting.emotional_intensity : null;
+    statusDiv.textContent = 'Score: ' + (labov.weighted_score || 0).toFixed(2)
+      + ' | ' + (labov.is_ready ? 'READY' : 'Not ready')
+      + (data.ai_response ? ' | Action: ' + (data.ai_response.action || '?') : '')
+      + (ei ? ' | Emotion: ' + ei.intensity : '')
+      + (isLLM ? ' [LLM]' : ' [Quick]');
+    turn.appendChild(statusDiv);
+
+    // Update header badges
+    var badge = $('readyBadge');
+    if (labov.is_ready) { badge.className = 'badge ready'; badge.textContent = 'Ready'; }
+    else if (labov.can_proceed_anyway) { badge.className = 'badge proceed'; badge.textContent = 'Can Proceed'; }
+    else { badge.className = 'badge not-ready'; badge.textContent = 'Not Ready'; }
+    $('scoreBadge').textContent = 'Score: ' + (labov.weighted_score || 0).toFixed(2);
+    $('turnBadge').textContent = 'Turn ' + turnCount;
+
+    // Update progress bars
+    renderProgress(labov.elements || data.display_elements || []);
+
+    // Update algo decisions
+    renderAlgoDecisions(data.question_targeting || {});
+
+    // Update anti-repetition
+    renderAntiRepetition(data.fact_tracking || {});
+
+    $('metaLine').textContent = 'Turn ' + turnCount + ' | ' + (isLLM ? 'Full Round' : 'Quick') + ' | ' + new Date().toLocaleTimeString();
+
+  } catch (err) {
+    addError(turn, err.message);
+  }
+
+  $('sendBtn').disabled = false;
+  $('sendBtn').textContent = 'Send';
+  $('chatArea').scrollTop = $('chatArea').scrollHeight;
+}
+
+function addError(turn, msg) {
+  var d = document.createElement('div');
+  d.style.cssText = 'background:#fce4ec;color:#c62828;padding:8px;border-radius:6px;font-size:13px;';
+  d.textContent = 'Error: ' + msg;
+  turn.appendChild(d);
+  $('sendBtn').disabled = false;
+  $('sendBtn').textContent = 'Send';
+}
+
+function renderProgress(elements) {
+  var c = $('progressBars'); c.textContent = '';
+  if (!elements || !elements.length) { c.textContent = 'No data yet'; return; }
+  elements.forEach(function(el) {
+    var pct = Math.round((el.strength || 0) * 100);
+    var cls = pct >= 60 ? 'high' : pct >= 30 ? 'med' : 'low';
+    var name = el.display_name || el.element || el.id || '';
+
+    var row = document.createElement('div'); row.className = 'bar-row';
+    var hdr = document.createElement('div'); hdr.className = 'bar-header';
+    var nm = document.createElement('span'); nm.className = 'name'; nm.textContent = name;
+    var pc = document.createElement('span'); pc.className = 'pct'; pc.textContent = pct + '%';
+    hdr.appendChild(nm); hdr.appendChild(pc); row.appendChild(hdr);
+    var track = document.createElement('div'); track.className = 'bar-track';
+    var fill = document.createElement('div'); fill.className = 'bar-fill ' + cls;
+    fill.style.width = pct + '%'; track.appendChild(fill); row.appendChild(track);
+    c.appendChild(row);
+  });
+}
+
+function renderAlgoDecisions(targeting) {
+  var c = $('algoDecisions'); c.textContent = '';
+  if (!targeting.priority && !targeting.stage) { c.textContent = 'No targeting data'; return; }
+
+  function addRow(label, value) {
+    var r = document.createElement('div'); r.className = 'targeting-row';
+    var l = document.createElement('span'); l.className = 't-label'; l.textContent = label;
+    var v = document.createElement('span'); v.className = 't-value'; v.textContent = value;
+    r.appendChild(l); r.appendChild(v); c.appendChild(r);
+  }
+
+  if (targeting.priority) {
+    addRow('Target Element', targeting.priority.element);
+    addRow('Priority Score', String(targeting.priority.priority));
+    addRow('Reason', targeting.priority.reason);
+  } else {
+    addRow('Target', 'All elements covered');
+  }
+  if (targeting.stage) {
+    addRow('Funnel Stage', targeting.stage.stage);
+  }
+  if (targeting.emotional_intensity) {
+    addRow('Emotion', targeting.emotional_intensity.intensity +
+      (targeting.emotional_intensity.signals ? ' (' + targeting.emotional_intensity.signals.join(', ') + ')' : ''));
+  }
+}
+
+function renderAntiRepetition(tracking) {
+  var c = $('antiRepetition'); c.textContent = '';
+  var asked = (tracking.questions_asked || []);
+  if (!asked.length) { c.textContent = 'No questions asked yet'; return; }
+  var ul = document.createElement('ul');
+  ul.style.cssText = 'font-size:12px;padding-left:16px;color:#555;';
+  asked.forEach(function(q) {
+    var li = document.createElement('li');
+    li.style.marginBottom = '4px';
+    li.textContent = 'R' + q.round + ': ' + q.question + (q.answered ? ' (answered)' : '');
+    ul.appendChild(li);
+  });
+  c.appendChild(ul);
+}
+
+/* -----------------------------------------------------------------------
+ * AUTORESEARCH DASHBOARD
+ * ----------------------------------------------------------------------- */
+
+function fetchAutoresearchResults() {
+  fetch('/autoresearch-results.json', { cache: 'no-store' })
+    .then(function(res) {
+      if (!res.ok) throw new Error('not found');
+      return res.json();
+    })
+    .then(function(data) {
+      renderAutoresearchDashboard(data);
+    })
+    .catch(function() {
+      renderAutoresearchEmpty();
+    });
+}
+
+function renderAutoresearchEmpty() {
+  var container = document.getElementById('arDashboard');
+  container.textContent = '';
+  var empty = document.createElement('div');
+  empty.className = 'ar-empty';
+  var msg = document.createElement('p');
+  msg.textContent = 'No autoresearch data yet. Start a run with:';
+  empty.appendChild(msg);
+  var cmd = document.createElement('code');
+  cmd.className = 'ar-empty-cmd';
+  cmd.textContent = 'node scripts/autoresearch-story.js';
+  empty.appendChild(cmd);
+  container.appendChild(empty);
+}
+
+function renderAutoresearchDashboard(data) {
+  var container = document.getElementById('arDashboard');
+  container.textContent = '';
+
+  // 1. Status banner
+  var banner = document.createElement('div');
+  banner.className = 'ar-status-banner ' + (data.status === 'running' ? 'running' : 'complete');
+  if (data.status === 'running') {
+    banner.textContent = 'Running experiment ' + data.current_experiment + '...';
+  } else {
+    banner.textContent = 'Complete -- ' + data.experiments.length + ' experiments run';
+  }
+  container.appendChild(banner);
+
+  // 2. Score cards
+  var scores = document.createElement('div');
+  scores.className = 'ar-scores';
+  scores.appendChild(createScoreCard('Baseline', data.baseline_score, 'baseline'));
+  scores.appendChild(createScoreCard('Best', data.best_score, 'best'));
+  var delta = data.best_score - data.baseline_score;
+  scores.appendChild(createScoreCard('Improvement', (delta >= 0 ? '+' : '') + delta + '%', 'current'));
+  container.appendChild(scores);
+
+  // 3. Score progression chart
+  if (data.experiments && data.experiments.length > 0) {
+    container.appendChild(createScoreChart(data.experiments));
+  }
+
+  // 4. Experiment table
+  if (data.experiments && data.experiments.length > 0) {
+    container.appendChild(createExperimentTable(data.experiments));
+  }
+
+  // 5. Per-eval breakdown (from latest experiment)
+  var latestExp = data.experiments[data.experiments.length - 1];
+  if (latestExp && latestExp.per_eval) {
+    container.appendChild(createEvalGrid(latestExp.per_eval, data.experiments));
+  }
+
+  // 6. Changelog
+  if (data.changelog && data.changelog.length > 0) {
+    container.appendChild(createChangelog(data.changelog));
+  }
+}
+
+function createScoreCard(label, value, cls) {
+  var card = document.createElement('div');
+  card.className = 'ar-score-card';
+  var lbl = document.createElement('div');
+  lbl.className = 'ar-score-label';
+  lbl.textContent = label;
+  card.appendChild(lbl);
+  var val = document.createElement('div');
+  val.className = 'ar-score-value ' + cls;
+  val.textContent = typeof value === 'number' ? value + '%' : value;
+  card.appendChild(val);
+  return card;
+}
+
+function createScoreChart(experiments) {
+  var wrapper = document.createElement('div');
+  wrapper.className = 'ar-chart panel';
+  var title = document.createElement('div');
+  title.className = 'ar-chart-title';
+  title.textContent = 'Score Progression';
+  wrapper.appendChild(title);
+
+  var bars = document.createElement('div');
+  bars.className = 'ar-chart-bars';
+
+  var maxRate = 100; // pass_rate is 0-100
+
+  experiments.forEach(function(exp) {
+    var col = document.createElement('div');
+    col.className = 'ar-chart-bar-col';
+
+    var pctLabel = document.createElement('div');
+    pctLabel.className = 'ar-chart-bar-pct';
+    pctLabel.textContent = exp.pass_rate + '%';
+    col.appendChild(pctLabel);
+
+    var bar = document.createElement('div');
+    bar.className = 'ar-chart-bar ' + (exp.status || 'baseline');
+    var heightPct = Math.max(2, (exp.pass_rate / maxRate) * 100);
+    bar.style.height = heightPct + '%';
+    col.appendChild(bar);
+
+    var lbl = document.createElement('div');
+    lbl.className = 'ar-chart-bar-label';
+    lbl.textContent = '#' + exp.id;
+    col.appendChild(lbl);
+
+    bars.appendChild(col);
+  });
+
+  wrapper.appendChild(bars);
+  return wrapper;
+}
+
+function createExperimentTable(experiments) {
+  var wrapper = document.createElement('div');
+  wrapper.className = 'panel';
+  var title = document.createElement('h2');
+  title.textContent = 'Experiments';
+  wrapper.appendChild(title);
+
+  var table = document.createElement('table');
+  table.className = 'ar-table';
+
+  // Header
+  var thead = document.createElement('thead');
+  var headerRow = document.createElement('tr');
+  ['#', 'Score', 'Pass Rate', 'Status', 'Mutation'].forEach(function(text) {
+    var th = document.createElement('th');
+    th.textContent = text;
+    headerRow.appendChild(th);
+  });
+  thead.appendChild(headerRow);
+  table.appendChild(thead);
+
+  // Body
+  var tbody = document.createElement('tbody');
+  experiments.forEach(function(exp) {
+    var row = document.createElement('tr');
+
+    var tdId = document.createElement('td');
+    tdId.textContent = exp.id;
+    row.appendChild(tdId);
+
+    var tdScore = document.createElement('td');
+    tdScore.textContent = exp.score + '/' + exp.max_score;
+    row.appendChild(tdScore);
+
+    var tdRate = document.createElement('td');
+    tdRate.style.fontWeight = '600';
+    tdRate.textContent = exp.pass_rate + '%';
+    row.appendChild(tdRate);
+
+    var tdStatus = document.createElement('td');
+    var chip = document.createElement('span');
+    chip.className = 'ar-status-chip ' + (exp.status || 'baseline');
+    chip.textContent = exp.status || 'baseline';
+    tdStatus.appendChild(chip);
+    row.appendChild(tdStatus);
+
+    var tdMutation = document.createElement('td');
+    tdMutation.style.maxWidth = '300px';
+    tdMutation.style.fontSize = '12px';
+    tdMutation.style.color = '#555';
+    tdMutation.textContent = exp.mutation || exp.description || '--';
+    row.appendChild(tdMutation);
+
+    tbody.appendChild(row);
+  });
+  table.appendChild(tbody);
+  wrapper.appendChild(table);
+  return wrapper;
+}
+
+function createEvalGrid(perEval, allExperiments) {
+  var wrapper = document.createElement('div');
+  var title = document.createElement('h2');
+  title.style.marginBottom = '12px';
+  title.textContent = 'Per-Eval Breakdown (Latest)';
+  wrapper.appendChild(title);
+
+  var grid = document.createElement('div');
+  grid.className = 'ar-eval-grid';
+
+  // Compute aggregated per-eval across all experiments
+  var aggregated = [];
+  for (var i = 0; i < 6; i++) {
+    var totalPass = 0;
+    var totalCount = 0;
+    allExperiments.forEach(function(exp) {
+      if (exp.per_eval && exp.per_eval[i]) {
+        totalPass += exp.per_eval[i].pass;
+        totalCount += exp.per_eval[i].total;
+      }
+    });
+    aggregated.push({ totalPass: totalPass, totalCount: totalCount });
+  }
+
+  perEval.forEach(function(ev, idx) {
+    var card = document.createElement('div');
+    card.className = 'ar-eval-card';
+
+    var name = document.createElement('div');
+    name.className = 'ar-eval-name';
+    name.textContent = ev.eval;
+    card.appendChild(name);
+
+    var track = document.createElement('div');
+    track.className = 'ar-eval-bar-track';
+    var fill = document.createElement('div');
+    fill.className = 'ar-eval-bar-fill';
+    var pct = ev.total > 0 ? Math.round((ev.pass / ev.total) * 100) : 0;
+    fill.style.width = pct + '%';
+    fill.style.background = pct >= 80 ? '#66bb6a' : pct >= 50 ? '#ffb74d' : '#e57373';
+    track.appendChild(fill);
+    card.appendChild(track);
+
+    var stat = document.createElement('div');
+    stat.className = 'ar-eval-stat';
+    stat.textContent = ev.pass + '/' + ev.total + ' (' + pct + '%)';
+    if (aggregated[idx] && aggregated[idx].totalCount > 0) {
+      var aggPct = Math.round((aggregated[idx].totalPass / aggregated[idx].totalCount) * 100);
+      stat.textContent += ' -- All runs: ' + aggPct + '%';
+    }
+    card.appendChild(stat);
+
+    grid.appendChild(card);
+  });
+
+  wrapper.appendChild(grid);
+  return wrapper;
+}
+
+function createChangelog(changelog) {
+  var wrapper = document.createElement('div');
+  wrapper.className = 'ar-changelog';
+  var title = document.createElement('h2');
+  title.style.marginBottom = '12px';
+  title.textContent = 'Changelog';
+  wrapper.appendChild(title);
+
+  changelog.forEach(function(entry) {
+    var div = document.createElement('div');
+    div.className = 'ar-changelog-entry ' + (entry.status || '');
+
+    var meta = document.createElement('div');
+    meta.className = 'ar-changelog-meta';
+    meta.textContent = 'Experiment #' + entry.experiment + ' -- ' + (entry.status || '').toUpperCase() + ' (' + entry.score_delta + ')';
+    div.appendChild(meta);
+
+    var desc = document.createElement('div');
+    desc.textContent = entry.change;
+    div.appendChild(desc);
+
+    wrapper.appendChild(div);
+  });
+
+  return wrapper;
+}
+
+$('msgInput').focus();
+</script>
+</body>
+</html>

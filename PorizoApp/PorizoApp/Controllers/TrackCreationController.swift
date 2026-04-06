@@ -93,7 +93,8 @@ final class TrackCreationController {
             self.progress = 10
             let confirmResult = try await self.apiClient.confirmStoryV2(
                 storyId: storyId,
-                additionalNotes: storyContext.finalNotes
+                additionalNotes: storyContext.finalNotes,
+                forceConfirm: true
             )
             switch confirmResult {
             case .needsInput(let guidance):

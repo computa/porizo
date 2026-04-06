@@ -15,10 +15,4 @@
 |----|------|---|-------|------|
 | #2446 | 11:15 PM | 🟣 | Implemented server-side APNs push notification support for render completion alerts | ~642 |
 | #2442 | 11:14 PM | 🟣 | Implemented server-side push notification service with APNs integration and workflow runner hooks | ~513 |
-
-### Feb 7, 2026
-
-| ID | Time | T | Title | Read |
-|----|------|---|-------|------|
-| #4905 | 5:43 PM | 🟣 | Per-User Library Membership System | ~701 |
 </claude-mem-context>

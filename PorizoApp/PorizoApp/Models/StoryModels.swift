@@ -68,9 +68,11 @@ struct ContinueStoryRequest: Encodable, Sendable {
 /// Request body for POST /story/:id/confirm
 struct ConfirmStoryRequest: Encodable, Sendable {
     let additionalNotes: String?
+    let forceConfirm: Bool?
 
     enum CodingKeys: String, CodingKey {
         case additionalNotes = "additional_notes"
+        case forceConfirm = "force_confirm"
     }
 }
 

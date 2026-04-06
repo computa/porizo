@@ -94,6 +94,27 @@ struct WarmCanvasFlowView: View {
     @State private var showOccasionPicker = false
     @State private var preSessionPrompt: String?
 
+    private func logConversationEvent(_ event: String) {
+        let action = storyEngine.currentAction?.rawValue ?? "nil"
+        let lastRole: String
+        switch storyEngine.messages.last?.role {
+        case .user: lastRole = "user"
+        case .ai: lastRole = "ai"
+        case nil: lastRole = "none"
+        }
+        print(
+            "[WarmCanvas][Conversation] \(event) " +
+            "moment=\(momentKey) " +
+            "type=\(resolvedSelectedType.rawValue) " +
+            "storyId=\(storyEngine.storyId ?? "nil") " +
+            "action=\(action) " +
+            "isLoading=\(storyEngine.isLoading) " +
+            "isComplete=\(storyEngine.isComplete) " +
+            "messages=\(storyEngine.messages.count) " +
+            "lastRole=\(lastRole)"
+        )
+    }
+
     // MARK: - Init
 
     init(
@@ -250,6 +271,7 @@ struct WarmCanvasFlowView: View {
             await loadMyVoiceFlag()
         }
         .onChange(of: scenePhase) { oldPhase, newPhase in
+            print("[WarmCanvas] scenePhase \(oldPhase) -> \(newPhase) moment=\(momentKey)")
             guard newPhase == .active, oldPhase == .background else { return }
             guard let trackId = songFlow.currentTrackId,
                   let versionNum = songFlow.currentVersionNum else { return }
@@ -260,6 +282,7 @@ struct WarmCanvasFlowView: View {
             }
         }
         .onChange(of: activeSheet?.id) { oldValue, _ in
+            print("[WarmCanvas] activeSheet \(oldValue ?? "nil") -> \(activeSheet?.id ?? "nil") moment=\(momentKey)")
             // Voice enrollment dismissal
             if oldValue == "voiceEnrollment" && activeSheet?.id != "voiceEnrollment" {
                 handleVoiceEnrollmentDismissal()
@@ -319,6 +342,14 @@ struct WarmCanvasFlowView: View {
             } else {
                 flowState = nil
             }
+            print(
+                "[WarmCanvas] moment -> \(newKey) " +
+                "type=\(resolvedSelectedType.rawValue) " +
+                "storyId=\(storyEngine.storyId ?? "nil") " +
+                "isComplete=\(storyEngine.isComplete) " +
+                "isLoading=\(storyEngine.isLoading) " +
+                "messages=\(storyEngine.messages.count)"
+            )
             let canPersist = resolvedSelectedType == .poem
                 ? (poemFlow.storyId ?? storyEngine.storyId) != nil
                 : (songFlow.currentTrackId != nil || storyEngine.storyId != nil)
@@ -331,6 +362,24 @@ struct WarmCanvasFlowView: View {
                     storyId: storyEngine.storyId
                 )
             }
+        }
+        .onChange(of: storyEngine.isLoading) { _, newValue in
+            logConversationEvent("engine.isLoading -> \(newValue)")
+        }
+        .onChange(of: storyEngine.isComplete) { _, newValue in
+            logConversationEvent("engine.isComplete -> \(newValue)")
+        }
+        .onChange(of: storyEngine.currentAction?.rawValue) { _, newValue in
+            logConversationEvent("engine.action -> \(newValue ?? "nil")")
+        }
+        .onChange(of: storyEngine.storyId) { _, newValue in
+            logConversationEvent("engine.storyId -> \(newValue ?? "nil")")
+        }
+        .onChange(of: isInputActive) { _, newValue in
+            logConversationEvent("input.active -> \(newValue)")
+        }
+        .onChange(of: activeAlert?.id) { oldValue, newValue in
+            print("[WarmCanvas] activeAlert \(oldValue ?? "nil") -> \(newValue ?? "nil") moment=\(momentKey)")
         }
     }
 
@@ -453,6 +502,21 @@ struct WarmCanvasFlowView: View {
                         }
                     }
                     .onChange(of: storyEngine.messages.count) { _, _ in
+                        let last = storyEngine.messages.last
+                        let lastRole: String
+                        switch last?.role {
+                        case .user: lastRole = "user"
+                        case .ai: lastRole = "ai"
+                        case nil: lastRole = "none"
+                        }
+                        let lastAction = last?.action?.rawValue ?? "nil"
+                        print(
+                            "[WarmCanvas][Conversation] messages.count -> \(storyEngine.messages.count) " +
+                            "storyId=\(storyEngine.storyId ?? "nil") " +
+                            "lastRole=\(lastRole) " +
+                            "lastAction=\(lastAction) " +
+                            "lastChars=\(last?.content.count ?? 0)"
+                        )
                         // Auto-scroll to latest message after layout settles
                         Task { @MainActor in
                             try? await Task.sleep(for: .milliseconds(100))
@@ -467,8 +531,7 @@ struct WarmCanvasFlowView: View {
 
                 // Genre picker (during active conversation)
                 if case .tell(.conversing) = moment, storyEngine.storyId != nil {
-                    let canCreate = storyEngine.isComplete
-                        || (storyEngine.readiness?.isUserOverridable == true && !storyEngine.isLoading)
+                    let canCreate = storyEngine.canOfferUserFinish
                     if resolvedSelectedType == .song {
                         CollapsibleStylePicker(
                             selectedStyle: $setup.style,
@@ -516,6 +579,12 @@ struct WarmCanvasFlowView: View {
                     .id(storyEngine.storyId ?? "pre-session")
                 }
             }
+        }
+        .onAppear {
+            logConversationEvent("tell.appear")
+        }
+        .onDisappear {
+            logConversationEvent("tell.disappear")
         }
     }
 
@@ -1168,6 +1237,11 @@ struct WarmCanvasFlowView: View {
     }
 
     private func applyStoryGuidanceAndReturnToConversation(_ guidance: StoryGuidanceResponse) {
+        print(
+            "[WarmCanvas][Conversation] applyStoryGuidanceAndReturnToConversation " +
+            "sessionVersion=\(guidance.recovery.sessionVersion.map(String.init) ?? "nil") " +
+            "questionChars=\(guidance.recovery.question.count)"
+        )
         storyEngine.applyConfirmGuidance(guidance)
         createdLyrics = nil
         creationTask = nil
@@ -1175,6 +1249,7 @@ struct WarmCanvasFlowView: View {
     }
 
     private func cancelCreation() {
+        logConversationEvent("cancelCreation")
         creationTask?.cancel()
         creationTask = nil
         withAnimation { moment = .tell(.confirmed) }
@@ -1185,6 +1260,12 @@ struct WarmCanvasFlowView: View {
     private func startChatWithName(_ name: String, type: CreateFlowKind) {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
+        print(
+            "[WarmCanvas][Conversation] startChatWithName " +
+            "nameChars=\(trimmed.count) " +
+            "type=\(type.rawValue) " +
+            "occasion=\(setup.occasion?.displayName ?? preselectedOccasion?.displayName ?? "nil")"
+        )
         setup.recipientName = trimmed
         // Only apply preselected occasion if user didn't pick one from the chips
         if setup.occasion == nil {
@@ -1211,14 +1292,17 @@ struct WarmCanvasFlowView: View {
     private func continueAfterOccasionSelection() {
         showOccasionPicker = false
         moment = .tell(.conversing)
+        logConversationEvent("continueAfterOccasionSelection")
         showPreSessionQuestion(for: resolvedSelectedType)
     }
 
     private func showPreSessionQuestion(for type: CreateFlowKind) {
         preSessionPrompt = "Tell me about the story with \(setup.recipientName) that you want to turn into a \(type.rawValue). What's a moment or memory that stands out?"
+        print("[WarmCanvas][Conversation] showPreSessionQuestion type=\(type.rawValue) recipient=\(setup.recipientName)")
     }
 
     private func beginConversation(initialPromptOverride: String? = nil) async {
+        logConversationEvent("beginConversation start overrideChars=\(initialPromptOverride?.count ?? 0)")
         let result = await storyFlowCoordinator.startConversation(
             setup: setup,
             songFlow: songFlow,
@@ -1234,6 +1318,7 @@ struct WarmCanvasFlowView: View {
                 storyEngine.removeLastLocalUserMessage()
             }
         }
+        logConversationEvent("beginConversation finished error=\(result.errorMessage ?? "nil")")
 
         resumeCoordinator.persistResumeState(
             flowState: .storyConversation,
@@ -1250,6 +1335,7 @@ struct WarmCanvasFlowView: View {
             ToastService.shared.show("Still processing — please wait a moment", type: .info)
             return
         }
+        logConversationEvent("finishConversation tappedCreate")
 
         if setup.occasion == nil {
             showOccasionPicker = true
@@ -1289,6 +1375,7 @@ struct WarmCanvasFlowView: View {
     private func submitPreSessionAnswer(_ answer: String) {
         let trimmed = answer.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
+        print("[WarmCanvas][Conversation] submitPreSessionAnswer chars=\(trimmed.count)")
         preSessionPrompt = nil
         storyEngine.addLocalUserMessage(trimmed)
         flowTask?.cancel()
@@ -1296,6 +1383,12 @@ struct WarmCanvasFlowView: View {
     }
 
     private func submitAndScroll(_ answer: String) {
+        print(
+            "[WarmCanvas][Conversation] submitAndScroll " +
+            "chars=\(answer.count) " +
+            "storyId=\(storyEngine.storyId ?? "nil") " +
+            "pendingGuidance=\(storyEngine.pendingGuidanceSessionVersion.map(String.init) ?? "nil")"
+        )
         flowTask?.cancel()
         flowTask = Task { @MainActor in
             do {
@@ -1309,6 +1402,7 @@ struct WarmCanvasFlowView: View {
     private func submitPoemGapDetail(_ answer: String) {
         let trimmed = answer.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
+        print("[WarmCanvas][Conversation] submitPoemGapDetail chars=\(trimmed.count) storyId=\(storyEngine.storyId ?? "nil")")
         flowTask?.cancel()
         flowTask = Task { @MainActor in
             let result = await poemFlow.submitGapDetail(detail: trimmed, using: asyncService)

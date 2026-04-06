@@ -124,7 +124,8 @@ struct PoemCreatingView: View {
                 let confirmResult = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "confirmStoryV2") {
                     try await apiClient.confirmStoryV2(
                         storyId: storyId,
-                        additionalNotes: finalNotes
+                        additionalNotes: finalNotes,
+                        forceConfirm: true
                     )
                 }
                 switch confirmResult {

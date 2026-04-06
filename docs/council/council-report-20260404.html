@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LLM Council Report — Story Guidance Algorithm</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #fafafa; color: #1a1a1a; line-height: 1.6; max-width: 800px; margin: 0 auto; padding: 24px; }
+  h1 { font-size: 24px; font-weight: 700; margin-bottom: 8px; }
+  h2 { font-size: 18px; font-weight: 600; margin: 32px 0 12px; padding-bottom: 8px; border-bottom: 2px solid #e5e5e5; }
+  h3 { font-size: 15px; font-weight: 600; margin: 16px 0 8px; }
+  p, li { font-size: 15px; margin-bottom: 8px; }
+  ul { padding-left: 20px; }
+  .meta { color: #666; font-size: 13px; margin-bottom: 24px; }
+  .question-box { background: #f0f0f0; border-left: 4px solid #333; padding: 16px; margin: 16px 0; border-radius: 4px; }
+  .verdict-box { background: #f8f6f0; border: 1px solid #d4c9a8; padding: 20px; border-radius: 8px; margin: 16px 0; }
+  .agree { border-left: 4px solid #22c55e; padding-left: 16px; margin: 12px 0; }
+  .clash { border-left: 4px solid #f59e0b; padding-left: 16px; margin: 12px 0; }
+  .blind { border-left: 4px solid #8b5cf6; padding-left: 16px; margin: 12px 0; }
+  .rec { border-left: 4px solid #3b82f6; padding-left: 16px; margin: 12px 0; }
+  .first-step { background: #1a1a1a; color: #fff; padding: 20px; border-radius: 8px; margin: 24px 0; }
+  .first-step h2 { color: #fff; border-bottom-color: #444; }
+  .advisor-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 16px 0; }
+  .advisor-card { background: #fff; border: 1px solid #e5e5e5; border-radius: 8px; padding: 16px; }
+  .advisor-card h4 { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
+  .advisor-card .position { font-size: 13px; color: #666; }
+  .advisor-card .stance { font-size: 13px; font-weight: 500; margin-top: 8px; }
+  .stance.radical { color: #dc2626; }
+  .stance.moderate { color: #f59e0b; }
+  details { margin: 8px 0; }
+  summary { cursor: pointer; font-weight: 600; font-size: 14px; padding: 8px 0; color: #444; }
+  summary:hover { color: #1a1a1a; }
+  .detail-content { padding: 12px; background: #fff; border: 1px solid #e5e5e5; border-radius: 4px; margin-top: 4px; font-size: 14px; }
+  .algo-box { background: #fff; border: 1px solid #e5e5e5; border-radius: 8px; padding: 16px; margin: 12px 0; }
+  .algo-step { display: flex; gap: 12px; margin: 12px 0; align-items: flex-start; }
+  .algo-step .num { background: #1a1a1a; color: #fff; width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; flex-shrink: 0; }
+  .algo-step .desc { flex: 1; }
+  .algo-step .desc strong { display: block; margin-bottom: 2px; }
+  code { background: #f0f0f0; padding: 2px 6px; border-radius: 3px; font-size: 13px; }
+  .footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid #e5e5e5; color: #999; font-size: 12px; }
+</style>
+</head>
+<body>
+
+<h1>LLM Council Verdict</h1>
+<p class="meta">Story Guidance Algorithm — April 4, 2026 | 5 advisors, 5 peer reviews, 1 chairman</p>
+
+<div class="question-box">
+<strong>The Question:</strong> What is the optimal algorithm for Porizo's story guidance that knows when "enough is enough," never repeats questions, feels warm, caps at 2-3 rounds, and still produces great lyrics? The current 8-slot + 5-block + 5-stage pipeline is completely broken.
+</div>
+
+<h2>Advisor Positions</h2>
+<div class="advisor-grid">
+  <div class="advisor-card">
+    <h4>The Contrarian</h4>
+    <p class="position">Max rounds: 1 optional</p>
+    <p class="stance radical">Kill the entire system. No slots, no blocks, no pipeline. Default ready after round 1.</p>
+  </div>
+  <div class="advisor-card">
+    <h4>First Principles</h4>
+    <p class="position">Max rounds: 1</p>
+    <p class="stance radical">Wrong problem. Fix lyrics generation, not guidance. One prompt is enough.</p>
+  </div>
+  <div class="advisor-card">
+    <h4>The Expansionist</h4>
+    <p class="position">Max rounds: 3</p>
+    <p class="stance moderate">Ready after R1, great after R3. Story data is the moat. Store for fine-tuning.</p>
+  </div>
+  <div class="advisor-card">
+    <h4>The Outsider</h4>
+    <p class="position">Max rounds: 1 optional</p>
+    <p class="stance radical">You're overengineering a greeting card. Generate after first message.</p>
+  </div>
+  <div class="advisor-card" style="grid-column: 1 / -1;">
+    <h4>The Executor</h4>
+    <p class="position">Max rounds: 2 hard cap</p>
+    <p class="stance moderate">Kill pipeline. One LLM call per round. Structured JSON. Replace 500 lines with 50. Ship Monday.</p>
+  </div>
+</div>
+
+<div class="verdict-box">
+
+<h2 style="margin-top: 0;">Where the Council Agrees</h2>
+<div class="agree">
+<ul>
+<li><strong>The current system is catastrophically overengineered.</strong> 8 slots, 5 blocks, 5-stage pipeline — unanimous: burn it down.</li>
+<li><strong>One LLM call per round, not five.</strong> The 5-call pipeline is indefensible on cost, latency, and complexity.</li>
+<li><strong>Ready after round 1, hard cap at 2-3.</strong> Never block creation after name + occasion + one specific detail.</li>
+<li><strong>Lyrics generation is where the real work happens.</strong> Spend prompt budget on generation, not interrogation.</li>
+<li><strong>Warm framing, not clinical extraction.</strong> "Tell me more" not "please provide additional narrative context."</li>
+</ul>
+</div>
+
+<h2>Where the Council Clashes</h2>
+<div class="clash">
+<p><strong>Zero follow-ups vs. one round of guided deepening.</strong></p>
+<p>The Contrarian, First Principles, and Outsider argue: take whatever the user gives, generate immediately. The Executor and Expansionist argue: one optional round transforms output quality dramatically.</p>
+<p>Peer reviews broke the tie: hallucinated personal details in a birthday song are catastrophic (can't invent memories), and occasion-specific complexity matters (funeral tribute needs more than "happy birthday bro").</p>
+<p><strong>Verdict:</strong> One optional round wins. Pure zero-guidance is too risky for emotional accuracy.</p>
+</div>
+
+<h2>Blind Spots the Council Caught</h2>
+<div class="blind">
+<ol>
+<li><strong>Gift-giver framing</strong> — The user describes someone else, for someone else. Prompt should be "Tell me about [recipient]" not "Tell me your story."</li>
+<li><strong>Post-creation enrichment is the unlock</strong> — After hearing the preview, users have energy to add detail. Pre-creation = homework. Post-creation = excitement.</li>
+<li><strong>Cold-start paralysis</strong> — Many users freeze at a blank prompt. A warm opener with scaffolding helps.</li>
+<li><strong>Occasion-specific readiness</strong> — Birthday needs less context than a memorial tribute. Flat threshold is wrong.</li>
+<li><strong>Existing codebase migration</strong> — Replacing 500 lines of pipeline without breaking the rest of the app.</li>
+</ol>
+</div>
+
+</div>
+
+<h2>The Recommended Algorithm</h2>
+<p><strong>Two-round guidance with immediate creation access and post-preview enrichment.</strong></p>
+
+<div class="algo-box">
+<div class="algo-step">
+  <div class="num">0</div>
+  <div class="desc"><strong>User's first message</strong>Single LLM call extracts: <code>{name, occasion, memories[], tone, ready}</code>. Ready = name + occasion + 1 specific detail. If ready: show "Create Song" prominently. If not: proceed to Round 1.</div>
+</div>
+<div class="algo-step">
+  <div class="num">1</div>
+  <div class="desc"><strong>One warm follow-up (optional)</strong>Same LLM generates one "Yes, And" question framed as excitement. Occasion-aware. "Create Song" stays visible and tappable regardless. If user answers: one more extraction. Now unconditionally ready.</div>
+</div>
+<div class="algo-step">
+  <div class="num">2</div>
+  <div class="desc"><strong>Hard cap</strong>Mark ready. Gently suggest creating. No round 3 ever exists pre-creation.</div>
+</div>
+<div class="algo-step" style="background: #f8f6f0; padding: 12px; border-radius: 8px;">
+  <div class="num" style="background: #22c55e;">+</div>
+  <div class="desc"><strong>Post-preview enrichment (the real depth)</strong>After hearing the preview: "Want to add anything? A nickname, a memory, something only they'd get?" This is where guided storytelling value actually lives. Feed additions into reroll/refined render.</div>
+</div>
+</div>
+
+<h3>Implementation Specifics</h3>
+<ul>
+<li>One LLM call per round. Structured JSON output. No pipeline stages.</li>
+<li>Occasion-aware readiness (tribute occasions = more cautious with invented details)</li>
+<li>Lyrics generation prompt gets the real engineering investment</li>
+<li>Kill Labov profiles, gap analysis, semantic blocks, readiness thresholds</li>
+<li>~50-80 lines replacing ~500 lines of pipeline</li>
+</ul>
+
+<div class="first-step">
+<h2 style="margin-top: 0;">The One Thing to Do First</h2>
+<p>Write the single LLM prompt that replaces the entire 5-stage pipeline. One prompt. Structured JSON output: <code>{recipient_name, occasion, memories[], tone, ready, follow_up_question}</code>. Test against 10 real/synthetic user messages spanning casual birthday to memorial tribute. Validate: marks ready when it should, asks one warm question when not, never re-asks what user already said. <strong>That prompt IS the algorithm. Everything else is plumbing.</strong></p>
+</div>
+
+<h2>Full Advisor Responses</h2>
+
+<details>
+<summary>The Contrarian — "Stop building gatekeepers, build accelerators"</summary>
+<div class="detail-content">
+<p>The fatal flaw isn't the algorithm — it's building an algorithm at all. Optimizing for narrative completeness when you should optimize for time-to-song. Any mandatory multi-round flow is wrong. Competitors ship from one prompt. Every additional round is where users close the app.</p>
+<p>The 5-stage pipeline per turn (5 LLM calls just for a follow-up question) is insane. That's your latency, cost, and brittleness.</p>
+<p><strong>Fix:</strong> Default to ready after round 1. Offer one optional deepening question. Track what was said in a simple key-value map. No slots, no blocks, no profiles. Let the lyrics model handle narrative gaps. Stop building gatekeepers, build accelerators.</p>
+</div>
+</details>
+
+<details>
+<summary>First Principles — "You're solving the wrong problem"</summary>
+<div class="detail-content">
+<p>Why interrogate users at all? Your competitors proved one prompt is enough. Strip to first principles: a great song needs a name, an occasion, and one emotionally specific detail.</p>
+<p>The answer isn't a better guidance algorithm — it's a better lyrics generation prompt. Take whatever the user gives and have the LLM infer gaps. If you must ask: one round max, framed as excitement not extraction.</p>
+<p>Kill gap analysis, kill readiness threshold. Ship songs faster. Max rounds: 1.</p>
+</div>
+</details>
+
+<details>
+<summary>The Expansionist — "Story data is the moat"</summary>
+<div class="detail-content">
+<p>The broken algorithm is hiding Porizo's biggest strategic asset. Every completed story produces structured emotional memory data no competitor has. The algorithm should accumulate this asset.</p>
+<p><strong>4 moves:</strong> (1) Single-pass LLM with fact memory, (2) Ready after R1/great after R3 — show Create immediately, (3) "Yes, And" tone baked in, (4) Store stories for fine-tuning.</p>
+<p>Max rounds: 3, pipeline stages: 1, readiness slots: 3. The upside of story extraction done right is enormous.</p>
+</div>
+</details>
+
+<details>
+<summary>The Outsider — "You're overengineering a greeting card"</summary>
+<div class="detail-content">
+<p>8 slots, 5 stages, 2 profiles — architecture to impress engineers, not serve users. Why gatekeep the user's own story? Competitors ship with zero follow-ups.</p>
+<p>Generate after first message. One optional follow-up. Never block. If you have a name, you have enough.</p>
+<p>The guided storytelling value comes from output quality, not interrogation length. Make the first song so good they want to add detail for version two.</p>
+</div>
+</details>
+
+<details>
+<summary>The Executor — "Replace 500 lines with 50. Ship Monday."</summary>
+<div class="detail-content">
+<p>Kill the 8-slot gap analysis, 5-stage pipeline, and dual readiness profiles. All of it.</p>
+<p><strong>Round 0:</strong> User types. <strong>Round 1:</strong> Single LLM call extracting name/occasion/memories/tone. Ready if name+occasion+1 detail. Else ONE "Yes, And" follow-up. <strong>Round 2:</strong> Hard cap.</p>
+<p>One call per round. Structured JSON output. Drop Labov. Lyrics generation is where prompt budget goes. Replace ~500 lines with ~50.</p>
+</div>
+</details>
+
+<details>
+<summary>Peer Review Highlights</summary>
+<div class="detail-content">
+<p><strong>Strongest response:</strong> The Executor (4/5 reviewers). Concrete, shippable spec with exact structure.</p>
+<p><strong>Biggest blind spot:</strong> First Principles — ignores cold-start paralysis (users freeze at blank prompt) and that lyrics LLM can't safely invent personal memories.</p>
+<p><strong>What ALL missed:</strong> (1) Gift-giver framing changes prompts fundamentally. (2) Post-creation enrichment is higher-conversion than pre-creation interrogation. (3) Occasion-specific readiness thresholds. (4) Migration within existing codebase.</p>
+</div>
+</details>
+
+<div class="footer">
+<p>LLM Council Report | Generated April 4, 2026 | Porizo Story Guidance Algorithm</p>
+<p>5 advisors (Contrarian, First Principles, Expansionist, Outsider, Executor) | 5 peer reviews | Chairman synthesis</p>
+</div>
+
+</body>
+</html>

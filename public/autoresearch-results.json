@@ -1,0 +1,1203 @@
+{
+  "status": "complete",
+  "current_experiment": 10,
+  "baseline_score": 93,
+  "best_score": 93,
+  "experiments": [
+    {
+      "id": 0,
+      "score": 28,
+      "max_score": 30,
+      "pass_rate": 93,
+      "status": "baseline",
+      "description": "original prompts -- no changes",
+      "mutation": null,
+      "per_input": [
+        {
+          "input_id": 1,
+          "name": "Rich birthday",
+          "evals": {
+            "eval1": true,
+            "eval2": true,
+            "eval3": true,
+            "eval4": true,
+            "eval5": true,
+            "eval6": true
+          }
+        },
+        {
+          "input_id": 2,
+          "name": "Moderate birthday",
+          "evals": {
+            "eval1": true,
+            "eval2": true,
+            "eval3": true,
+            "eval4": true,
+            "eval5": true,
+            "eval6": true
+          }
+        },
+        {
+          "input_id": 3,
+          "name": "Sparse birthday",
+          "evals": {
+            "eval1": false,
+            "eval2": true,
+            "eval3": true,
+            "eval4": false,
+            "eval5": true,
+            "eval6": true
+          }
+        },
+        {
+          "input_id": 4,
+          "name": "Emotional tribute",
+          "evals": {
+            "eval1": true,
+            "eval2": true,
+            "eval3": true,
+            "eval4": true,
+            "eval5": true,
+            "eval6": true
+          }
+        },
+        {
+          "input_id": 5,
+          "name": "Friendship humor",
+          "evals": {
+            "eval1": true,
+            "eval2": true,
+            "eval3": true,
+            "eval4": true,
+            "eval5": true,
+            "eval6": true
+          }
+        }
+      ],
+      "per_eval": [
+        {
+          "eval": "Narrative emotional core",
+          "pass": 4,
+          "total": 5
+        },
+        {
+          "eval": "Narrative mentions recipient name",
+          "pass": 5,
+          "total": 5
+        },
+        {
+          "eval": "Question targets weakest element",
+          "pass": 5,
+          "total": 5
+        },
+        {
+          "eval": "Question builds on input (Yes-And)",
+          "pass": 4,
+          "total": 5
+        },
+        {
+          "eval": "Question is answerable (not abstract)",
+          "pass": 5,
+          "total": 5
+        },
+        {
+          "eval": "Suggestions are story-specific",
+          "pass": 5,
+          "total": 5
+        }
+      ]
+    },
+    {
+      "id": 1,
+      "score": 26,
+      "max_score": 30,
+      "pass_rate": 87,
+      "status": "discard",
+      "description": "Adds emphasis on emotional impact and recipient's feelings to guide question generation.",
+      "mutation": "Adds emphasis on emotional impact and recipient's feelings to guide question generation.",
+      "per_input": [
+        {
+          "input_id": 1,
+          "name": "Rich birthday",
+          "evals": {
+            "eval1": true,
+            "eval2": true,
+            "eval3": true,
+            "eval4": true,
+            "eval5": true,
+            "eval6": true
+          }
+        },
+        {
+          "input_id": 2,
+          "name": "Moderate birthday",
+          "evals": {
+            "eval1": true,
+            "eval2": false,
+            "eval3": true,
+            "eval4": true,
+            "eval5": true,
+            "eval6": true
+          }
+        },
+        {
+          "input_id": 3,
+          "name": "Sparse birthday",
+          "evals": {
+            "eval1": false,
+            "eval2": true,
+            "eval3": true,
+            "eval4": false,
+            "eval5": true,
+            "eval6": true
+          }
+        },
+        {
+          "input_id": 4,
+          "name": "Emotional tribute",
+          "evals": {
+            "eval1": true,
+            "eval2": true,
+            "eval3": true,
+            "eval4": true,
+            "eval5": true,
+            "eval6": true
+          }
+        },
+        {
+          "input_id": 5,
+          "name": "Friendship humor",
+          "evals": {
+            "eval1": true,
+            "eval2": true,
+            "eval3": false,
+            "eval4": true,
+            "eval5": true,
+            "eval6": true
+          }
+        }
+      ],
+      "per_eval": [
+        {
+          "eval": "Narrative emotional core",
+          "pass": 4,
+          "total": 5
+        },
+        {
+          "eval": "Narrative mentions recipient name",
+          "pass": 4,
+          "total": 5
+        },
+        {
+          "eval": "Question targets weakest element",
+          "pass": 4,
+          "total": 5
+        },
+        {
+          "eval": "Question builds on input (Yes-And)",
+          "pass": 4,
+          "total": 5
+        },
+        {
+          "eval": "Question is answerable (not abstract)",
+          "pass": 5,
+          "total": 5
+        },
+        {
+          "eval": "Suggestions are story-specific",
+          "pass": 5,
+          "total": 5
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "score": 28,
+      "max_score": 30,
+      "pass_rate": 93,
+      "status": "discard",
+      "description": "Emphasize eliciting emotional details related to the recipient to improve the narrative's emotional core and recipient name mentions.",
+      "mutation": "Emphasize eliciting emotional details related to the recipient to improve the narrative's emotional core and recipient name mentions.",
+      "per_input": [
+        {
+          "input_id": 1,
+          "name": "Rich birthday",
+          "evals": {
+            "eval1": true,
+            "eval2": true,
+            "eval3": true,
+            "eval4": true,
+            "eval5": true,
+            "eval6": true
+          }
+        },
+        {
+          "input_id": 2,
+          "name": "Moderate birthday",
+          "evals": {
+            "eval1": true,
+            "eval2": true,
+            "eval3": true,
+            "eval4": true,
+            "eval5": true,
+            "eval6": true
+          }
+        },
+        {
+          "input_id": 3,
+          "name": "Sparse birthday",
+          "evals": {
+            "eval1": false,
+            "eval2": true,
+            "eval3": true,
+            "eval4": false,
+            "eval5": true,
+            "eval6": true
+          }
+        },
+        {
+          "input_id": 4,
+          "name": "Emotional tribute",
+          "evals": {
+            "eval1": true,
+            "eval2": true,
+            "eval3": true,
+            "eval4": true,
+            "eval5": true,
+            "eval6": true
+          }
+        },
+        {
+          "input_id": 5,
+          "name": "Friendship humor",
+          "evals": {
+            "eval1": true,
+            "eval2": true,
+            "eval3": true,
+            "eval4": true,
+            "eval5": true,
+            "eval6": true
+          }
+        }
+      ],
+      "per_eval": [
+        {
+          "eval": "Narrative emotional core",
+          "pass": 4,
+          "total": 5
+        },
+        {
+          "eval": "Narrative mentions recipient name",
+          "pass": 5,
+          "total": 5
+        },
+        {
+          "eval": "Question targets weakest element",
+          "pass": 5,
+          "total": 5
+        },
+        {
+          "eval": "Question builds on input (Yes-And)",
+          "pass": 4,
+          "total": 5
+        },
+        {
+          "eval": "Question is answerable (not abstract)",
+          "pass": 5,
+          "total": 5
+        },
+        {
+          "eval": "Suggestions are story-specific",
+          "pass": 5,
+          "total": 5
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "score": 25,
+      "max_score": 30,
+      "pass_rate": 83,
+      "status": "discard",
+      "description": "Adds emphasis on using the recipient's name in a way that feels personal and relevant to the emotional core of the story.",
+      "mutation": "Adds emphasis on using the recipient's name in a way that feels personal and relevant to the emotional core of the story.",
+      "per_input": [
+        {
+          "input_id": 1,
+          "name": "Rich birthday",
+          "evals": {
+            "eval1": true,
+            "eval2": true,
+            "eval3": true,
+            "eval4": true,
+            "eval5": true,
+            "eval6": true
+          }
+        },
+        {
+          "input_id": 2,
+          "name": "Moderate birthday",
+          "evals": {
+            "eval1": true,
+            "eval2": false,
+            "eval3": true,
+            "eval4": true,
+            "eval5": true,
+            "eval6": true
+          }
+        },
+        {
+          "input_id": 3,
+          "name": "Sparse birthday",
+          "evals": {
+            "eval1": false,
+            "eval2": true,
+            "eval3": true,
+            "eval4": false,
+            "eval5": true,
+            "eval6": false
+          }
+        },
+        {
+          "input_id": 4,
+          "name": "Emotional tribute",
+          "evals": {
+            "eval1": true,
+            "eval2": true,
+            "eval3": true,
+            "eval4": true,
+            "eval5": true,
+            "eval6": true
+          }
+        },
+        {
+          "input_id": 5,
+          "name": "Friendship humor",
+          "evals": {
+            "eval1": true,
+            "eval2": true,
+            "eval3": false,
+            "eval4": true,
+            "eval5": true,
+            "eval6": true
+          }
+        }
+      ],
+      "per_eval": [
+        {
+          "eval": "Narrative emotional core",
+          "pass": 4,
+          "total": 5
+        },
+        {
+          "eval": "Narrative mentions recipient name",
+          "pass": 4,
+          "total": 5
+        },
+        {
+          "eval": "Question targets weakest element",
+          "pass": 4,
+          "total": 5
+        },
+        {
+          "eval": "Question builds on input (Yes-And)",
+          "pass": 4,
+          "total": 5
+        },
+        {
+          "eval": "Question is answerable (not abstract)",
+          "pass": 5,
+          "total": 5
+        },
+        {
+          "eval": "Suggestions are story-specific",
+          "pass": 4,
+          "total": 5
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "score": 28,
+      "max_score": 30,
+      "pass_rate": 93,
+      "status": "discard",
+      "description": "Emphasize the importance of eliciting emotional responses and personal connections by directly asking about feelings and motivations related to the recipient.",
+      "mutation": "Emphasize the importance of eliciting emotional responses and personal connections by directly asking about feelings and motivations related to the recipient.",
+      "per_input": [
+        {
+          "input_id": 1,
+          "name": "Rich birthday",
+          "evals": {
+            "eval1": true,
+            "eval2": true,
+            "eval3": true,
+            "eval4": true,
+            "eval5": true,
+            "eval6": true
+          }
+        },
+        {
+          "input_id": 2,
+          "name": "Moderate birthday",
+          "evals": {
+            "eval1": true,
+            "eval2": true,
+            "eval3": true,
+            "eval4": true,
+            "eval5": true,
+            "eval6": true
+          }
+        },
+        {
+          "input_id": 3,
+          "name": "Sparse birthday",
+          "evals": {
+            "eval1": false,
+            "eval2": true,
+            "eval3": true,
+            "eval4": false,
+            "eval5": true,
+            "eval6": true
+          }
+        },
+        {
+          "input_id": 4,
+          "name": "Emotional tribute",
+          "evals": {
+            "eval1": true,
+            "eval2": true,
+            "eval3": true,
+            "eval4": true,
+            "eval5": true,
+            "eval6": true
+          }
+        },
+        {
+          "input_id": 5,
+          "name": "Friendship humor",
+          "evals": {
+            "eval1": true,
+            "eval2": true,
+            "eval3": true,
+            "eval4": true,
+            "eval5": true,
+            "eval6": true
+          }
+        }
+      ],
+      "per_eval": [
+        {
+          "eval": "Narrative emotional core",
+          "pass": 4,
+          "total": 5
+        },
+        {
+          "eval": "Narrative mentions recipient name",
+          "pass": 5,
+          "total": 5
+        },
+        {
+          "eval": "Question targets weakest element",
+          "pass": 5,
+          "total": 5
+        },
+        {
+          "eval": "Question builds on input (Yes-And)",
+          "pass": 4,
+          "total": 5
+        },
+        {
+          "eval": "Question is answerable (not abstract)",
+          "pass": 5,
+          "total": 5
+        },
+        {
+          "eval": "Suggestions are story-specific",
+          "pass": 5,
+          "total": 5
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "score": 27,
+      "max_score": 30,
+      "pass_rate": 90,
+      "status": "discard",
+      "description": "Adds emphasis on emotional impact and personal significance when generating questions, aiming to strengthen the narrative's emotional core.",
+      "mutation": "Adds emphasis on emotional impact and personal significance when generating questions, aiming to strengthen the narrative's emotional core.",
+      "per_input": [
+        {
+          "input_id": 1,
+          "name": "Rich birthday",
+          "evals": {
+            "eval1": true,
+            "eval2": true,
+            "eval3": true,
+            "eval4": true,
+            "eval5": true,
+            "eval6": true
+          }
+        },
+        {
+          "input_id": 2,
+          "name": "Moderate birthday",
+          "evals": {
+            "eval1": true,
+            "eval2": true,
+            "eval3": true,
+            "eval4": true,
+            "eval5": true,
+            "eval6": true
+          }
+        },
+        {
+          "input_id": 3,
+          "name": "Sparse birthday",
+          "evals": {
+            "eval1": false,
+            "eval2": true,
+            "eval3": true,
+            "eval4": false,
+            "eval5": true,
+            "eval6": false
+          }
+        },
+        {
+          "input_id": 4,
+          "name": "Emotional tribute",
+          "evals": {
+            "eval1": true,
+            "eval2": true,
+            "eval3": true,
+            "eval4": true,
+            "eval5": true,
+            "eval6": true
+          }
+        },
+        {
+          "input_id": 5,
+          "name": "Friendship humor",
+          "evals": {
+            "eval1": true,
+            "eval2": true,
+            "eval3": true,
+            "eval4": true,
+            "eval5": true,
+            "eval6": true
+          }
+        }
+      ],
+      "per_eval": [
+        {
+          "eval": "Narrative emotional core",
+          "pass": 4,
+          "total": 5
+        },
+        {
+          "eval": "Narrative mentions recipient name",
+          "pass": 5,
+          "total": 5
+        },
+        {
+          "eval": "Question targets weakest element",
+          "pass": 5,
+          "total": 5
+        },
+        {
+          "eval": "Question builds on input (Yes-And)",
+          "pass": 4,
+          "total": 5
+        },
+        {
+          "eval": "Question is answerable (not abstract)",
+          "pass": 5,
+          "total": 5
+        },
+        {
+          "eval": "Suggestions are story-specific",
+          "pass": 4,
+          "total": 5
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "score": 27,
+      "max_score": 30,
+      "pass_rate": 90,
+      "status": "discard",
+      "description": "Adds a constraint to explicitly focus on eliciting the user's feelings about the recipient, to strengthen the emotional core of the narrative.",
+      "mutation": "Adds a constraint to explicitly focus on eliciting the user's feelings about the recipient, to strengthen the emotional core of the narrative.",
+      "per_input": [
+        {
+          "input_id": 1,
+          "name": "Rich birthday",
+          "evals": {
+            "eval1": true,
+            "eval2": true,
+            "eval3": false,
+            "eval4": true,
+            "eval5": true,
+            "eval6": true
+          }
+        },
+        {
+          "input_id": 2,
+          "name": "Moderate birthday",
+          "evals": {
+            "eval1": true,
+            "eval2": true,
+            "eval3": true,
+            "eval4": true,
+            "eval5": true,
+            "eval6": true
+          }
+        },
+        {
+          "input_id": 3,
+          "name": "Sparse birthday",
+          "evals": {
+            "eval1": false,
+            "eval2": true,
+            "eval3": true,
+            "eval4": false,
+            "eval5": true,
+            "eval6": true
+          }
+        },
+        {
+          "input_id": 4,
+          "name": "Emotional tribute",
+          "evals": {
+            "eval1": true,
+            "eval2": true,
+            "eval3": true,
+            "eval4": true,
+            "eval5": true,
+            "eval6": true
+          }
+        },
+        {
+          "input_id": 5,
+          "name": "Friendship humor",
+          "evals": {
+            "eval1": true,
+            "eval2": true,
+            "eval3": true,
+            "eval4": true,
+            "eval5": true,
+            "eval6": true
+          }
+        }
+      ],
+      "per_eval": [
+        {
+          "eval": "Narrative emotional core",
+          "pass": 4,
+          "total": 5
+        },
+        {
+          "eval": "Narrative mentions recipient name",
+          "pass": 5,
+          "total": 5
+        },
+        {
+          "eval": "Question targets weakest element",
+          "pass": 4,
+          "total": 5
+        },
+        {
+          "eval": "Question builds on input (Yes-And)",
+          "pass": 4,
+          "total": 5
+        },
+        {
+          "eval": "Question is answerable (not abstract)",
+          "pass": 5,
+          "total": 5
+        },
+        {
+          "eval": "Suggestions are story-specific",
+          "pass": 5,
+          "total": 5
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "score": 26,
+      "max_score": 30,
+      "pass_rate": 87,
+      "status": "discard",
+      "description": "Adds emphasis on emotional impact and recipient connection to improve the narrative emotional core and question targeting.",
+      "mutation": "Adds emphasis on emotional impact and recipient connection to improve the narrative emotional core and question targeting.",
+      "per_input": [
+        {
+          "input_id": 1,
+          "name": "Rich birthday",
+          "evals": {
+            "eval1": true,
+            "eval2": true,
+            "eval3": false,
+            "eval4": true,
+            "eval5": true,
+            "eval6": true
+          }
+        },
+        {
+          "input_id": 2,
+          "name": "Moderate birthday",
+          "evals": {
+            "eval1": true,
+            "eval2": true,
+            "eval3": true,
+            "eval4": true,
+            "eval5": true,
+            "eval6": true
+          }
+        },
+        {
+          "input_id": 3,
+          "name": "Sparse birthday",
+          "evals": {
+            "eval1": false,
+            "eval2": true,
+            "eval3": true,
+            "eval4": false,
+            "eval5": true,
+            "eval6": true
+          }
+        },
+        {
+          "input_id": 4,
+          "name": "Emotional tribute",
+          "evals": {
+            "eval1": true,
+            "eval2": true,
+            "eval3": true,
+            "eval4": true,
+            "eval5": true,
+            "eval6": true
+          }
+        },
+        {
+          "input_id": 5,
+          "name": "Friendship humor",
+          "evals": {
+            "eval1": true,
+            "eval2": true,
+            "eval3": false,
+            "eval4": true,
+            "eval5": true,
+            "eval6": true
+          }
+        }
+      ],
+      "per_eval": [
+        {
+          "eval": "Narrative emotional core",
+          "pass": 4,
+          "total": 5
+        },
+        {
+          "eval": "Narrative mentions recipient name",
+          "pass": 5,
+          "total": 5
+        },
+        {
+          "eval": "Question targets weakest element",
+          "pass": 3,
+          "total": 5
+        },
+        {
+          "eval": "Question builds on input (Yes-And)",
+          "pass": 4,
+          "total": 5
+        },
+        {
+          "eval": "Question is answerable (not abstract)",
+          "pass": 5,
+          "total": 5
+        },
+        {
+          "eval": "Suggestions are story-specific",
+          "pass": 5,
+          "total": 5
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "score": 27,
+      "max_score": 30,
+      "pass_rate": 90,
+      "status": "discard",
+      "description": "Emphasize the importance of eliciting the user's feelings and emotional responses related to the recipient.",
+      "mutation": "Emphasize the importance of eliciting the user's feelings and emotional responses related to the recipient.",
+      "per_input": [
+        {
+          "input_id": 1,
+          "name": "Rich birthday",
+          "evals": {
+            "eval1": true,
+            "eval2": true,
+            "eval3": false,
+            "eval4": true,
+            "eval5": true,
+            "eval6": true
+          }
+        },
+        {
+          "input_id": 2,
+          "name": "Moderate birthday",
+          "evals": {
+            "eval1": true,
+            "eval2": true,
+            "eval3": true,
+            "eval4": true,
+            "eval5": true,
+            "eval6": true
+          }
+        },
+        {
+          "input_id": 3,
+          "name": "Sparse birthday",
+          "evals": {
+            "eval1": false,
+            "eval2": true,
+            "eval3": true,
+            "eval4": false,
+            "eval5": true,
+            "eval6": true
+          }
+        },
+        {
+          "input_id": 4,
+          "name": "Emotional tribute",
+          "evals": {
+            "eval1": true,
+            "eval2": true,
+            "eval3": true,
+            "eval4": true,
+            "eval5": true,
+            "eval6": true
+          }
+        },
+        {
+          "input_id": 5,
+          "name": "Friendship humor",
+          "evals": {
+            "eval1": true,
+            "eval2": true,
+            "eval3": true,
+            "eval4": true,
+            "eval5": true,
+            "eval6": true
+          }
+        }
+      ],
+      "per_eval": [
+        {
+          "eval": "Narrative emotional core",
+          "pass": 4,
+          "total": 5
+        },
+        {
+          "eval": "Narrative mentions recipient name",
+          "pass": 5,
+          "total": 5
+        },
+        {
+          "eval": "Question targets weakest element",
+          "pass": 4,
+          "total": 5
+        },
+        {
+          "eval": "Question builds on input (Yes-And)",
+          "pass": 4,
+          "total": 5
+        },
+        {
+          "eval": "Question is answerable (not abstract)",
+          "pass": 5,
+          "total": 5
+        },
+        {
+          "eval": "Suggestions are story-specific",
+          "pass": 5,
+          "total": 5
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "score": 28,
+      "max_score": 30,
+      "pass_rate": 93,
+      "status": "discard",
+      "description": "Emphasize the importance of identifying and exploring the emotional impact of turning points in the narrative.",
+      "mutation": "Emphasize the importance of identifying and exploring the emotional impact of turning points in the narrative.",
+      "per_input": [
+        {
+          "input_id": 1,
+          "name": "Rich birthday",
+          "evals": {
+            "eval1": true,
+            "eval2": true,
+            "eval3": true,
+            "eval4": true,
+            "eval5": true,
+            "eval6": true
+          }
+        },
+        {
+          "input_id": 2,
+          "name": "Moderate birthday",
+          "evals": {
+            "eval1": true,
+            "eval2": true,
+            "eval3": true,
+            "eval4": true,
+            "eval5": true,
+            "eval6": true
+          }
+        },
+        {
+          "input_id": 3,
+          "name": "Sparse birthday",
+          "evals": {
+            "eval1": false,
+            "eval2": true,
+            "eval3": true,
+            "eval4": false,
+            "eval5": true,
+            "eval6": true
+          }
+        },
+        {
+          "input_id": 4,
+          "name": "Emotional tribute",
+          "evals": {
+            "eval1": true,
+            "eval2": true,
+            "eval3": true,
+            "eval4": true,
+            "eval5": true,
+            "eval6": true
+          }
+        },
+        {
+          "input_id": 5,
+          "name": "Friendship humor",
+          "evals": {
+            "eval1": true,
+            "eval2": true,
+            "eval3": true,
+            "eval4": true,
+            "eval5": true,
+            "eval6": true
+          }
+        }
+      ],
+      "per_eval": [
+        {
+          "eval": "Narrative emotional core",
+          "pass": 4,
+          "total": 5
+        },
+        {
+          "eval": "Narrative mentions recipient name",
+          "pass": 5,
+          "total": 5
+        },
+        {
+          "eval": "Question targets weakest element",
+          "pass": 5,
+          "total": 5
+        },
+        {
+          "eval": "Question builds on input (Yes-And)",
+          "pass": 4,
+          "total": 5
+        },
+        {
+          "eval": "Question is answerable (not abstract)",
+          "pass": 5,
+          "total": 5
+        },
+        {
+          "eval": "Suggestions are story-specific",
+          "pass": 5,
+          "total": 5
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "score": 24,
+      "max_score": 30,
+      "pass_rate": 80,
+      "status": "discard",
+      "description": "Adds emphasis on emotional impact and recipient connection to improve emotional core and relevance.",
+      "mutation": "Adds emphasis on emotional impact and recipient connection to improve emotional core and relevance.",
+      "per_input": [
+        {
+          "input_id": 1,
+          "name": "Rich birthday",
+          "evals": {
+            "eval1": true,
+            "eval2": true,
+            "eval3": true,
+            "eval4": true,
+            "eval5": true,
+            "eval6": true
+          }
+        },
+        {
+          "input_id": 2,
+          "name": "Moderate birthday",
+          "evals": {
+            "eval1": true,
+            "eval2": false,
+            "eval3": true,
+            "eval4": true,
+            "eval5": true,
+            "eval6": true
+          }
+        },
+        {
+          "input_id": 3,
+          "name": "Sparse birthday",
+          "evals": {
+            "eval1": false,
+            "eval2": true,
+            "eval3": true,
+            "eval4": false,
+            "eval5": true,
+            "eval6": false
+          }
+        },
+        {
+          "input_id": 4,
+          "name": "Emotional tribute",
+          "evals": {
+            "eval1": true,
+            "eval2": true,
+            "eval3": true,
+            "eval4": true,
+            "eval5": true,
+            "eval6": true
+          }
+        },
+        {
+          "input_id": 5,
+          "name": "Friendship humor",
+          "evals": {
+            "eval1": true,
+            "eval2": true,
+            "eval3": false,
+            "eval4": true,
+            "eval5": true,
+            "eval6": false
+          }
+        }
+      ],
+      "per_eval": [
+        {
+          "eval": "Narrative emotional core",
+          "pass": 4,
+          "total": 5
+        },
+        {
+          "eval": "Narrative mentions recipient name",
+          "pass": 4,
+          "total": 5
+        },
+        {
+          "eval": "Question targets weakest element",
+          "pass": 4,
+          "total": 5
+        },
+        {
+          "eval": "Question builds on input (Yes-And)",
+          "pass": 4,
+          "total": 5
+        },
+        {
+          "eval": "Question is answerable (not abstract)",
+          "pass": 5,
+          "total": 5
+        },
+        {
+          "eval": "Suggestions are story-specific",
+          "pass": 3,
+          "total": 5
+        }
+      ]
+    }
+  ],
+  "changelog": [
+    {
+      "experiment": 1,
+      "status": "discard",
+      "change": "Adds emphasis on emotional impact and recipient's feelings to guide question generation.",
+      "score_delta": "-6"
+    },
+    {
+      "experiment": 2,
+      "status": "discard",
+      "change": "Emphasize eliciting emotional details related to the recipient to improve the narrative's emotional core and recipient name mentions.",
+      "score_delta": "+0"
+    },
+    {
+      "experiment": 3,
+      "status": "discard",
+      "change": "Adds emphasis on using the recipient's name in a way that feels personal and relevant to the emotional core of the story.",
+      "score_delta": "-10"
+    },
+    {
+      "experiment": 4,
+      "status": "discard",
+      "change": "Emphasize the importance of eliciting emotional responses and personal connections by directly asking about feelings and motivations related to the recipient.",
+      "score_delta": "+0"
+    },
+    {
+      "experiment": 5,
+      "status": "discard",
+      "change": "Adds emphasis on emotional impact and personal significance when generating questions, aiming to strengthen the narrative's emotional core.",
+      "score_delta": "-3"
+    },
+    {
+      "experiment": 6,
+      "status": "discard",
+      "change": "Adds a constraint to explicitly focus on eliciting the user's feelings about the recipient, to strengthen the emotional core of the narrative.",
+      "score_delta": "-3"
+    },
+    {
+      "experiment": 7,
+      "status": "discard",
+      "change": "Adds emphasis on emotional impact and recipient connection to improve the narrative emotional core and question targeting.",
+      "score_delta": "-6"
+    },
+    {
+      "experiment": 8,
+      "status": "discard",
+      "change": "Emphasize the importance of eliciting the user's feelings and emotional responses related to the recipient.",
+      "score_delta": "-3"
+    },
+    {
+      "experiment": 9,
+      "status": "discard",
+      "change": "Emphasize the importance of identifying and exploring the emotional impact of turning points in the narrative.",
+      "score_delta": "+0"
+    },
+    {
+      "experiment": 10,
+      "status": "discard",
+      "change": "Adds emphasis on emotional impact and recipient connection to improve emotional core and relevance.",
+      "score_delta": "-13"
+    }
+  ]
+}

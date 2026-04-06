@@ -278,6 +278,11 @@ class V2StoryEngine {
         error = nil
 
         conversationStore.appendUserMessage(answer)
+        print(
+            "[V2StoryEngine] submitAnswer start storyId=\(storyId) " +
+            "chars=\(answer.count) turn=\(currentTurn) " +
+            "isComplete=\(isComplete) pendingGuidanceVersion=\(pendingGuidanceSessionVersion.map(String.init) ?? "nil")"
+        )
 
         defer { isLoading = false }
 
@@ -314,6 +319,12 @@ class V2StoryEngine {
             let engineResponse = convertContinueResponse(response, storyId: storyId)
             currentResponse = engineResponse
             currentTurn = response.turnCount ?? (currentTurn + 1)
+            print(
+                "[V2StoryEngine] submitAnswer success storyId=\(storyId) " +
+                "action=\(engineResponse.action.rawValue) turn=\(currentTurn) " +
+                "readyForConfirmation=\(response.readyForConfirmation == true) complete=\(response.complete) " +
+                "questionChars=\((response.nextQuestion ?? "").count)"
+            )
 
             draftStore.applyNarrative(
                 summary: response.storySummary,
@@ -349,6 +360,7 @@ class V2StoryEngine {
 
         } catch {
             self.error = error.localizedDescription
+            print("[V2StoryEngine] submitAnswer failed storyId=\(storyId): \(error.localizedDescription)")
             throw error
         }
     }
@@ -363,6 +375,15 @@ class V2StoryEngine {
         isEditingFromReview = false
         error = nil
         pendingGuidanceSessionVersion = guidance.recovery.sessionVersion
+
+        let contextualQuestion = "Almost there! Your story needs one more detail to feel complete.\n\n\(question)"
+        let lastAssistantContent = messages.last?.role == .ai ? messages.last?.content : nil
+        let isRepeatedPrompt = lastAssistantContent == question || lastAssistantContent == contextualQuestion
+        print(
+            "[V2StoryEngine] applyConfirmGuidance storyId=\(storyId) " +
+            "sessionVersion=\(guidance.recovery.sessionVersion.map(String.init) ?? "nil") " +
+            "question=\(question) repeated=\(isRepeatedPrompt)"
+        )
 
         currentResponse = V2EngineResponse(
             sessionId: storyId,
@@ -382,9 +403,8 @@ class V2StoryEngine {
             storyElements: currentResponse?.storyElements ?? currentBeats
         )
 
-        let shouldAppendPrompt = messages.last?.role != .ai || messages.last?.content != question
+        let shouldAppendPrompt = !isRepeatedPrompt
         if shouldAppendPrompt {
-            let contextualQuestion = "Almost there! Your story needs one more detail to feel complete.\n\n\(question)"
             conversationStore.appendAssistantMessage(
                 content: contextualQuestion,
                 action: .ask,
@@ -923,6 +943,33 @@ extension V2StoryEngine {
 
     var currentAction: V2Action? {
         currentResponse?.action
+    }
+
+    var canOfferUserFinish: Bool {
+        guard !isLoading, !isEditingFromReview else { return false }
+        guard storyId != nil else { return false }
+
+        if isComplete || currentAction == .confirm || currentAction == .stop {
+            return true
+        }
+
+        if let readiness {
+            if readiness.isReady || readiness.isUserOverridable || readiness.recommendedNextAction == "review" {
+                return true
+            }
+        }
+
+        let snapshot = draft
+        guard snapshot.hasReviewableDraft else { return false }
+
+        let narrativeLength = snapshot.currentNarrative
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .count
+
+        return snapshot.currentTurn >= 3
+            || snapshot.completionScore >= 45
+            || snapshot.factInventory.count >= 6
+            || narrativeLength >= 220
     }
 
     func buildStoryContext(styleKey: String) -> StoryContext? {

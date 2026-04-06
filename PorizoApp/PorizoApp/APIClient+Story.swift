@@ -287,12 +287,19 @@ extension APIClient {
     ///   - storyId: The story session ID
     ///   - additionalNotes: Optional additional notes from user
     /// - Returns: ConfirmStoryV2Response with confirmation and final state
-    func confirmStoryV2(storyId: String, additionalNotes: String? = nil) async throws -> StoryConfirmResult {
+    func confirmStoryV2(
+        storyId: String,
+        additionalNotes: String? = nil,
+        forceConfirm: Bool = false
+    ) async throws -> StoryConfirmResult {
         let url = URL(string: "\(baseURL)/story/\(storyId)/confirm")!
 
         var request = try await makeRequest(url: url, method: "POST")
 
-        let requestBody = ConfirmStoryRequest(additionalNotes: additionalNotes)
+        let requestBody = ConfirmStoryRequest(
+            additionalNotes: additionalNotes,
+            forceConfirm: forceConfirm ? true : nil
+        )
         request.httpBody = try JSONEncoder().encode(requestBody)
 
         let (data, response) = try await executeWithAuthRetry(

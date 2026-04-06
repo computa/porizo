@@ -33,6 +33,17 @@ struct InputBarView: View {
     @State private var submitHapticTrigger = false
     @FocusState private var isInputFocused: Bool
 
+    private func logInputEvent(_ event: String) {
+        print(
+            "[InputBar] \(event) " +
+            "storyId=\(engine.storyId ?? "nil") " +
+            "isLoading=\(engine.isLoading) " +
+            "isComplete=\(engine.isComplete) " +
+            "isReviewing=\(engine.isEditingFromReview) " +
+            "chars=\(inputText.count)"
+        )
+    }
+
     private var inputCharacterCount: Int { inputText.count }
 
     private var inputBudgetState: BudgetState {
@@ -63,8 +74,8 @@ struct InputBarView: View {
                     .transition(.opacity.combined(with: .move(edge: .top)))
             }
 
-            // Done chip — only when the backend confirms the story is complete
-            if engine.isComplete {
+            // Done chip — available when the draft is complete or materially reviewable.
+            if engine.canOfferUserFinish {
                 HStack {
                     DoneChipView(
                         isReviewMode: engine.isEditingFromReview,
@@ -118,23 +129,32 @@ struct InputBarView: View {
         .animation(.easeInOut(duration: 0.2), value: inputBudgetState)
         .onChange(of: isInputFocused) { _, focused in
             isInputActive = focused
+            logInputEvent("focus -> \(focused)")
         }
         .onChange(of: pendingSpeechText) { _, newValue in
             guard let text = newValue else { return }
             pendingSpeechText = nil
             inputText = text
             isInputFocused = true
+            logInputEvent("pendingSpeechText consumed chars=\(text.count)")
             if text.count > StoryPromptBudget.storyAnswerHardLimit {
                 ToastService.shared.warning("Voice response is very long. Please trim before sending.")
             } else if text.count >= StoryPromptBudget.storyAnswerWarningThreshold {
                 ToastService.shared.info("Voice response is long. We condense for reasoning while preserving key details.")
             }
         }
+        .onAppear {
+            logInputEvent("appear")
+        }
+        .onDisappear {
+            logInputEvent("disappear")
+        }
     }
 
     // MARK: - Actions
 
     private func handleDoneAction() {
+        logInputEvent("doneTapped")
         if engine.isEditingFromReview {
             callbacks.onExitReviewEdit()
         } else {
@@ -145,6 +165,7 @@ struct InputBarView: View {
     private func submitAnswer() {
         let trimmedInput = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedInput.isEmpty, !engine.isLoading else { return }
+        logInputEvent("submitTapped trimmedChars=\(trimmedInput.count)")
 
         submitHapticTrigger.toggle()
 
