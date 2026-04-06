@@ -63,8 +63,8 @@ struct InputBarView: View {
                     .transition(.opacity.combined(with: .move(edge: .top)))
             }
 
-            // Done chip — above container when story is ready
-            if engine.currentTurn >= 2 || engine.isComplete {
+            // Done chip — only when the backend confirms the story is complete
+            if engine.isComplete {
                 HStack {
                     DoneChipView(
                         isReviewMode: engine.isEditingFromReview,

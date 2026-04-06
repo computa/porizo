@@ -195,20 +195,12 @@ struct DesignTokens {
         .custom(displayFontFamily, size: size, relativeTo: style).weight(weight)
     }
 
+    private static let bodyMetrics = UIFontMetrics(forTextStyle: .body)
+
     /// Body font - SF Pro Text (system default) with Dynamic Type scaling
     static func bodyFont(size: CGFloat, weight: Font.Weight = .regular) -> Font {
-        let uiWeight = weight.uiFontWeight
-        let baseFont = UIFont.systemFont(ofSize: size, weight: uiWeight)
-        let scaledFont = UIFontMetrics(forTextStyle: .body).scaledFont(for: baseFont)
-        return Font(scaledFont)
-    }
-
-    /// System font (SF Pro) for UI text with Dynamic Type scaling
-    static func systemFont(size: CGFloat, weight: Font.Weight = .regular) -> Font {
-        let uiWeight = weight.uiFontWeight
-        let baseFont = UIFont.systemFont(ofSize: size, weight: uiWeight)
-        let scaledFont = UIFontMetrics(forTextStyle: .body).scaledFont(for: baseFont)
-        return Font(scaledFont)
+        let baseFont = UIFont.systemFont(ofSize: size, weight: weight.uiFontWeight)
+        return Font(bodyMetrics.scaledFont(for: baseFont))
     }
 
     // MARK: - Component Sizes
@@ -383,7 +375,7 @@ enum Elevation: CaseIterable {
     case level4
 
     var shadowColor: Color {
-        Color("Colors/TextPrimary")
+        DesignTokens.textPrimary
     }
 
     var shadowOpacity: Double {

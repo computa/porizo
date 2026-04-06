@@ -19,6 +19,7 @@ const {
   getQuestionStage,
   detectEmotionalIntensity,
 } = require("../quality");
+const { displayOccasion } = require("../utils");
 
 function loadTemplate(name) {
   const templatePath = path.join(__dirname, name);
@@ -40,22 +41,6 @@ const _TEMPLATE_SELECTION = loadTemplate("reason-v3-selection.md");
 const _TEMPLATE_OUTLINE = loadTemplate("reason-v3-outline.md");
 const _TEMPLATE_EDITOR = loadTemplate("reason-v3-editor.md");
 const _TEMPLATE_POV = loadTemplate("reason-v3-pov.md");
-
-// Accessors that hot-reload in dev, return cached in production
-function getTemplate(name, cached) {
-  return HOT_RELOAD ? loadTemplate(name) || cached : cached;
-}
-
-Object.defineProperties(module, {
-  _templateGetters: { value: true },
-});
-
-// Use these getters everywhere instead of the constants directly
-const TEMPLATE = HOT_RELOAD ? null : _TEMPLATE;
-const TEMPLATE_SELECTION = HOT_RELOAD ? null : _TEMPLATE_SELECTION;
-const TEMPLATE_OUTLINE = HOT_RELOAD ? null : _TEMPLATE_OUTLINE;
-const TEMPLATE_EDITOR = HOT_RELOAD ? null : _TEMPLATE_EDITOR;
-const TEMPLATE_POV = HOT_RELOAD ? null : _TEMPLATE_POV;
 
 function getMainTemplate() { return HOT_RELOAD ? loadTemplate("reason-v3.md") || _TEMPLATE : _TEMPLATE; }
 function getSelectionTemplate() { return HOT_RELOAD ? loadTemplate("reason-v3-selection.md") || _TEMPLATE_SELECTION : _TEMPLATE_SELECTION; }
@@ -343,7 +328,7 @@ function buildContextPrompt(state, userInput, options = {}) {
 
   // Basic context replacements
   prompt = prompt.replace(/\{\{recipient_name\}\}/g, state.recipient_name || "the recipient");
-  prompt = prompt.replace(/\{\{occasion\}\}/g, (state.event?.occasion || "celebration").replace(/_/g, " "));
+  prompt = prompt.replace(/\{\{occasion\}\}/g, displayOccasion(state.event?.occasion));
   prompt = prompt.replace(/\{\{narrative\}\}/g, truncateText(getCurrentNarrative(state), limits.maxNarrativeChars) || "(No story yet)");
   prompt = prompt.replace(/\{\{user_input\}\}/g, truncateText(userInput || "", limits.maxUserInputChars));
 
@@ -407,7 +392,7 @@ function buildSelectionPrompt(state, userInput, options = {}) {
   let prompt = tmplSel;
 
   prompt = prompt.replace(/\{\{recipient_name\}\}/g, state.recipient_name || "the recipient");
-  prompt = prompt.replace(/\{\{occasion\}\}/g, (state.event?.occasion || "celebration").replace(/_/g, " "));
+  prompt = prompt.replace(/\{\{occasion\}\}/g, displayOccasion(state.event?.occasion));
   prompt = prompt.replace(/\{\{narrative\}\}/g, truncateText(getCurrentNarrative(state), limits.maxNarrativeChars) || "(No story yet)");
   prompt = prompt.replace(/\{\{user_input\}\}/g, truncateText(userInput || "", limits.maxUserInputChars));
 
@@ -446,7 +431,7 @@ function buildOutlinePrompt(state, userInput, selectionJson, options = {}) {
   let prompt = tmplOut;
 
   prompt = prompt.replace(/\{\{recipient_name\}\}/g, state.recipient_name || "the recipient");
-  prompt = prompt.replace(/\{\{occasion\}\}/g, (state.event?.occasion || "celebration").replace(/_/g, " "));
+  prompt = prompt.replace(/\{\{occasion\}\}/g, displayOccasion(state.event?.occasion));
   prompt = prompt.replace(/\{\{narrative\}\}/g, truncateText(getCurrentNarrative(state), limits.maxNarrativeChars) || "(No story yet)");
   prompt = prompt.replace(/\{\{user_input\}\}/g, truncateText(userInput || "", limits.maxUserInputChars));
   prompt = prompt.replace(/\{\{selection_json\}\}/g, serializeStructuredContext(selectionJson, limits));
@@ -473,7 +458,7 @@ function buildEditorPrompt(state, userInput, writerJson, selectionJson, outlineJ
   let prompt = tmplEd;
 
   prompt = prompt.replace(/\{\{recipient_name\}\}/g, state.recipient_name || "the recipient");
-  prompt = prompt.replace(/\{\{occasion\}\}/g, (state.event?.occasion || "celebration").replace(/_/g, " "));
+  prompt = prompt.replace(/\{\{occasion\}\}/g, displayOccasion(state.event?.occasion));
   prompt = prompt.replace(/\{\{narrative\}\}/g, truncateText(getCurrentNarrative(state), limits.maxNarrativeChars) || "(No story yet)");
   prompt = prompt.replace(/\{\{user_input\}\}/g, truncateText(userInput || "", limits.maxUserInputChars));
   prompt = prompt.replace(/\{\{selection_json\}\}/g, serializeStructuredContext(selectionJson, limits));
@@ -496,7 +481,7 @@ function buildPovPrompt(state, userInput, narrative, songMapJson, options = {}) 
   let prompt = tmplPov;
 
   prompt = prompt.replace(/\{\{recipient_name\}\}/g, state.recipient_name || "the recipient");
-  prompt = prompt.replace(/\{\{occasion\}\}/g, (state.event?.occasion || "celebration").replace(/_/g, " "));
+  prompt = prompt.replace(/\{\{occasion\}\}/g, displayOccasion(state.event?.occasion));
   prompt = prompt.replace(/\{\{narrative\}\}/g, truncateText(narrative || getCurrentNarrative(state), limits.maxNarrativeChars) || "(No story yet)");
   prompt = prompt.replace(/\{\{user_input\}\}/g, truncateText(userInput || "", limits.maxUserInputChars));
   prompt = prompt.replace(/\{\{song_map_json\}\}/g, serializeStructuredContext(songMapJson, limits));

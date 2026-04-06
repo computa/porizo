@@ -64,6 +64,9 @@ const {
   SENSORY_REGEX,
   PAST_ACTION_REGEX,
   DEDICATION_REGEX,
+  ORIENTATION_REGEX,
+  COMPLICATING_REGEX,
+  RESOLUTION_REGEX,
   computeQuestionPriority,
   generateTargetedFallbackQuestion,
   validateQuestionRelevance,
@@ -529,13 +532,8 @@ function extractStoryState(state) {
   }
 
   // --- Labov element classification ---
-  // Orientation: who/where/when — setting and context
-  const ORIENTATION_REGEX = /\b(met|lived|grew up|moved to|born|raised|since|college|school|park|kitchen|airport|home|house|summer|winter|year|day|night|morning|childhood)\b/i;
-  // Complicating action: events, change, disruption
-  const COMPLICATING_REGEX = /\b(changed|suddenly|then|happened|showed up|found out|realized|broke|left|lost|arrived|called|ran|fell|crashed|woke|fought|discovered|everything changed)\b/i;
-  // NOTE: EVALUATION_REGEX is imported from quality.js to ensure scoring and fact tracking agree
-  // Resolution: outcome, present-tense shift, dedication
-  const RESOLUTION_REGEX = /\b(now|today|since then|from that day|looking back|still|always will|never forgot|became|forgave|healed|stronger|better)\b/i;
+  // ORIENTATION_REGEX, COMPLICATING_REGEX, RESOLUTION_REGEX, EVALUATION_REGEX
+  // all imported from quality.js to ensure scoring and fact tracking agree
 
   const labov = {
     orientation: { strength: 0, key_facts: [] },

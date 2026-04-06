@@ -110,6 +110,7 @@ struct PorizoAppApp: App {
 
     // Track app lifecycle for proactive token refresh
     @Environment(\.scenePhase) private var scenePhase
+    @State private var hasBeenBackgrounded = false
 
     // Appearance preference (System / Light / Dark)
     @AppStorage("appearanceMode") private var appearanceMode: String = "System"
@@ -162,19 +163,16 @@ struct PorizoAppApp: App {
                 .task(id: scenePhase) {
                     // When app enters background, schedule background tasks
                     if scenePhase == .background {
+                        hasBeenBackgrounded = true
                         BackgroundTaskRegistrar.scheduleAppRefresh()
-                        // TODO: Only schedule render check if there are rendering tracks
-                        // This will be enhanced once we have state access
                     }
 
-                    // When app returns to foreground from background, refresh tokens proactively
-                    // This ensures users don't encounter expired tokens after backgrounding the app
-                    // Note: .task(id:) fires on initial appearance too, but refreshTokensIfNeeded()
-                    // is safe to call anytime — it's a no-op when tokens are fresh.
                     if scenePhase == .active {
                         await authManager.refreshTokensIfNeeded()
-                        // Notify views to refresh their data (e.g., check for completed renders)
-                        NotificationCenter.default.post(name: .appReturnedToForeground, object: nil)
+                        // Only notify views on actual foreground return, not cold start
+                        if hasBeenBackgrounded {
+                            NotificationCenter.default.post(name: .appReturnedToForeground, object: nil)
+                        }
                     }
                 }
         }

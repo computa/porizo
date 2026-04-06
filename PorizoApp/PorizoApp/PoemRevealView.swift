@@ -189,7 +189,8 @@ struct PoemRevealView: View {
     private func startAnimations() {
         // Shared haptic pattern (sibling to RevealBloomView)
         revealHapticTrigger.toggle()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [self] in
+        Task {
+            try? await Task.sleep(for: .milliseconds(200))
             impactHapticTrigger.toggle()
         }
 

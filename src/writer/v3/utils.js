@@ -19,6 +19,11 @@ function normalizeOccasion(value) {
   return trimText(value).toLowerCase().replace(/[\s_]+/g, "-");
 }
 
+/** Human-readable occasion display text (e.g., "happy_birthday" → "happy birthday"). */
+function displayOccasion(value) {
+  return trimText(value || "celebration").replace(/[_-]+/g, " ");
+}
+
 /**
  * Strip formulaic openers that the LLM persistently generates despite prompt rules.
  * E.g., "This birthday story is about Sarah. It happened..." → "It happened..."
@@ -28,4 +33,4 @@ function stripFormulaicOpener(text) {
   return text.replace(/^This\s+\w+\s+story\s+is\s+about\s+\w+[\w\s]*\.\s*/i, "").trim();
 }
 
-module.exports = { normalizeText, trimText, normalizeOccasion, stripFormulaicOpener };
+module.exports = { normalizeText, trimText, normalizeOccasion, displayOccasion, stripFormulaicOpener };

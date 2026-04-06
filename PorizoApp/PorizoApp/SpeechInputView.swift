@@ -60,7 +60,6 @@ struct SpeechInputView: View {
                     }
                 }
                 .accessibilityAddTraits(.isButton)
-                .accessibilityAddTraits(.isButton)
                 .accessibilityLabel("Dismiss")
 
             VStack(spacing: 0) {

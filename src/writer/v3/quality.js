@@ -318,6 +318,11 @@ const DEDICATION_REGEX = /\b(happy birthday|for you|on your|this is for|here'?s 
 
 const TRIBUTE_OCCASION_REGEX = /\b(memorial|bereavement|tribute|thank[_\s-]?you|in[_\s-]?memory)\b/i;
 
+// Labov element classification regexes (shared with extractStoryState in index.js)
+const ORIENTATION_REGEX = /\b(met|lived|grew up|moved to|born|raised|since|college|school|park|kitchen|airport|home|house|summer|winter|year|day|night|morning|childhood)\b/i;
+const COMPLICATING_REGEX = /\b(changed|suddenly|then|happened|showed up|found out|realized|broke|left|lost|arrived|called|ran|fell|crashed|woke|fought|discovered|everything changed)\b/i;
+const RESOLUTION_REGEX = /\b(now|today|since then|from that day|looking back|still|always will|never forgot|became|forgave|healed|stronger|better)\b/i;
+
 const { normalizeOccasion, normalizeText, trimText } = require("./utils");
 
 function hasText(value) {
@@ -1597,13 +1602,9 @@ function evaluateLabovSpecificityBonus(state, corpus) {
   const facts = Array.isArray(state?.facts) ? state.facts.filter((f) => (f?.status || "active") === "active") : [];
   const evidence = [];
 
-  // Proper nouns: capitalized words that aren't sentence starters (heuristic)
-  const words = corpus.split(/\s+/);
-  const properNounCount = words.filter((w, i) => i > 0 && /^[A-Z][a-z]/.test(w)).length;
-  // Also count from facts (more reliable than corpus which is lowercased)
+  // Proper nouns from facts (corpus is lowercased so can't detect capitalization there)
   const factCorpus = facts.map((f) => f.text || "").join(" ");
-  const factProperNouns = factCorpus.split(/\s+/).filter((w, i) => i > 0 && /^[A-Z][a-z]/.test(w)).length;
-  const totalProperNouns = Math.max(properNounCount, factProperNouns);
+  const totalProperNouns = factCorpus.split(/\s+/).filter((w, i) => i > 0 && /^[A-Z][a-z]/.test(w)).length;
 
   const hasSensory = SENSORY_REGEX.test(corpus) || SENSORY_REGEX.test(factCorpus.toLowerCase());
   const hasDialogue = hasText(atoms.dialogue) || /["'].+["']/.test(corpus) || /["'].+["']/.test(factCorpus);
@@ -2083,8 +2084,8 @@ function generateTargetedFallbackQuestion(targetElement, state, userMessage) {
 // Extracts key phrases from the user's story and builds tappable
 // suggestion chips. Replaces LLM-generated generic suggestions.
 
-const ACTIVITY_REGEX = /\b(fishing|dancing|cooking|singing|playing|running|swimming|hiking|traveling|camping|gardening|painting|reading|driving|walking|baking|shopping|working|studying|celebrating|laughing|crying)\b/gi;
-const NAMED_ITEM_REGEX = /(?:["']([^"']{3,30})["']|(?:called|named|song|movie|book|place)\s+(\w[\w\s]{2,25}))/gi;
+const ACTIVITY_REGEX = /\b(fishing|dancing|cooking|singing|playing|running|swimming|hiking|traveling|camping|gardening|painting|reading|driving|walking|baking|shopping|working|studying|celebrating|laughing|crying)\b/i;
+const NAMED_ITEM_REGEX = /(?:["']([^"']{3,30})["']|(?:called|named|song|movie|book|place)\s+(\w[\w\s]{2,25}))/i;
 
 /**
  * Generate 3 suggestion chips specific to THIS user's story.
@@ -2112,15 +2113,10 @@ function generateStorySpecificSuggestions(state, userMessage) {
   }
 
   // 2. Extract activities/events
-  const activities = [];
-  let m;
-  const actCopy = new RegExp(ACTIVITY_REGEX.source, "gi");
-  while ((m = actCopy.exec(text)) !== null) activities.push(m[1].toLowerCase());
+  const activities = [...text.matchAll(new RegExp(ACTIVITY_REGEX.source, "gi"))].map(m => m[1].toLowerCase());
 
   // 3. Extract named items (quoted phrases, named things)
-  const namedItems = [];
-  const namedCopy = new RegExp(NAMED_ITEM_REGEX.source, "gi");
-  while ((m = namedCopy.exec(text)) !== null) namedItems.push((m[1] || m[2]).trim());
+  const namedItems = [...text.matchAll(new RegExp(NAMED_ITEM_REGEX.source, "gi"))].map(m => (m[1] || m[2]).trim());
 
   // 4. Extract time/place references
   const timePlace = [];
@@ -2243,4 +2239,7 @@ module.exports = {
   SENSORY_REGEX,
   PAST_ACTION_REGEX,
   DEDICATION_REGEX,
+  ORIENTATION_REGEX,
+  COMPLICATING_REGEX,
+  RESOLUTION_REGEX,
 };

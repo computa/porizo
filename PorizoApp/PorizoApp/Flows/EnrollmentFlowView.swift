@@ -53,7 +53,6 @@ struct EnrollmentFlowView: View {
 
     // Processing status cycling
     @State private var processingStatusIndex: Int = 0
-    @State private var processingStatusTask: Task<Void, Never>?
 
 
     enum EnrollmentStep {
@@ -94,7 +93,6 @@ struct EnrollmentFlowView: View {
             enrollmentTask?.cancel()
             pollingTask?.cancel()
             countdownTask?.cancel()
-            processingStatusTask?.cancel()
             if recorder.isRecording {
                 _ = recorder.stopRecording()
             }
