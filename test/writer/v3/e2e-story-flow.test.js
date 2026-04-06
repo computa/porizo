@@ -54,6 +54,7 @@ async function generateLyrics(storyId) {
   const res = await fetch(`${BASE_URL}/story/${storyId}/lyrics`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "x-user-id": TEST_USER },
+    body: JSON.stringify({}),
   });
   return { status: res.status, body: await res.json() };
 }

@@ -90,6 +90,7 @@ struct WarmCanvasFlowView: View {
     @State private var pendingEntitlementFlowType: CreateFlowKind?
     @State private var myVoiceEnabled = true
     @State private var pendingSpeechText: String?
+    @State private var isChatCollapsed = false
     @State private var isInputActive: Bool = false
     @State private var showOccasionPicker = false
     @State private var preSessionPrompt: String?
@@ -464,23 +465,8 @@ struct WarmCanvasFlowView: View {
                                 .id("occasion-picker")
                             }
 
-                            // Pre-session prompt (before storyId exists)
-                            if let prompt = preSessionPrompt, storyEngine.storyId == nil {
-                                ChatMessageBubble(message: V2Message(role: .ai, content: prompt))
-                                    .id("pre-session-prompt")
-                            }
-
-                            // Chat messages
-                            ForEach(storyEngine.messages) { msg in
-                                ChatMessageBubble(message: msg)
-                                    .id(msg.id)
-                            }
-
-                            if case .tell(.poemGapQuestion) = moment,
-                               let question = poemFlow.gapQuestion {
-                                ChatMessageBubble(message: V2Message(role: .ai, content: question))
-                                    .id("poem-gap-question")
-                            }
+                            // Chat messages (collapsible after story confirmation)
+                            chatMessageSection
 
                             // Sub-phase inline cards
                             tellInlineCards
@@ -493,9 +479,21 @@ struct WarmCanvasFlowView: View {
                     }
                     .scrollIndicators(.hidden)
                     .onChange(of: momentKey) { _, _ in
-                        // Auto-scroll to inline cards when moment changes (voice selection, lyrics, etc.)
+                        // Auto-collapse chat when story moves past conversation
+                        var didCollapse = false
+                        switch moment {
+                        case .tell(.confirmed), .tell(.voiceSelected), .tell(.trackCreated):
+                            if !isChatCollapsed {
+                                withAnimation(.easeInOut(duration: 0.4)) { isChatCollapsed = true }
+                                didCollapse = true
+                            }
+                        default: break
+                        }
+
+                        // Auto-scroll to inline cards — longer delay when collapsing to let animation finish
+                        let scrollDelay = (didCollapse || isChatCollapsed) ? 500 : 100
                         Task { @MainActor in
-                            try? await Task.sleep(for: .milliseconds(100))
+                            try? await Task.sleep(for: .milliseconds(scrollDelay))
                             withAnimation(.easeInOut(duration: 0.3)) {
                                 proxy.scrollTo("inline-cards", anchor: .bottom)
                             }
@@ -519,7 +517,19 @@ struct WarmCanvasFlowView: View {
                         )
                         // Auto-scroll to latest message after layout settles
                         Task { @MainActor in
-                            try? await Task.sleep(for: .milliseconds(100))
+                            try? await Task.sleep(for: .milliseconds(300))
+                            if let lastId = storyEngine.messages.last?.id {
+                                withAnimation(.easeInOut(duration: 0.3)) {
+                                    proxy.scrollTo(lastId, anchor: .bottom)
+                                }
+                            }
+                        }
+                    }
+                    .onChange(of: storyEngine.isLoading) { oldValue, newValue in
+                        // AI response just landed — ensure it's visible even when style picker is expanded
+                        guard oldValue && !newValue else { return }
+                        Task { @MainActor in
+                            try? await Task.sleep(for: .milliseconds(300))
                             if let lastId = storyEngine.messages.last?.id {
                                 withAnimation(.easeInOut(duration: 0.3)) {
                                     proxy.scrollTo(lastId, anchor: .bottom)
@@ -585,6 +595,50 @@ struct WarmCanvasFlowView: View {
         }
         .onDisappear {
             logConversationEvent("tell.disappear")
+        }
+    }
+
+    // MARK: - Chat Message Section (collapsible)
+
+    @ViewBuilder
+    private var chatMessageSection: some View {
+        if isChatCollapsed {
+            CollapsedCardSummary(
+                icon: "bubble.left.and.bubble.right",
+                label: "Your story",
+                detail: "\(storyEngine.messages.filter { $0.role == .user }.count) messages with \(setup.recipientName)",
+                isExpanded: false,
+                onToggle: {
+                    withAnimation { isChatCollapsed = false }
+                }
+            )
+            .id("collapsed-chat")
+        } else {
+            if let prompt = preSessionPrompt, storyEngine.storyId == nil {
+                ChatMessageBubble(message: V2Message(role: .ai, content: prompt))
+                    .id("pre-session-prompt")
+            }
+
+            ForEach(storyEngine.messages) { msg in
+                ChatMessageBubble(message: msg)
+                    .id(msg.id)
+            }
+
+            if case .tell(.poemGapQuestion) = moment,
+               let question = poemFlow.gapQuestion {
+                ChatMessageBubble(message: V2Message(role: .ai, content: question))
+                    .id("poem-gap-question")
+            }
+
+            if storyEngine.isLoading {
+                HStack {
+                    TypingIndicator()
+                    Spacer()
+                }
+                .padding(.horizontal, 16)
+                .id("thinking-indicator")
+                .transition(.opacity)
+            }
         }
     }
 
@@ -1618,6 +1672,7 @@ struct WarmCanvasFlowView: View {
         selectedType = preselectedType
         poemFlow = PoemFlowCoordinator()
         trackTitle = Self.defaultTrackTitle(for: preselectedType ?? .song)
+        isChatCollapsed = false
 
         withAnimation { moment = .tell(.nameEntry) }
     }

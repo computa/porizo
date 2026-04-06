@@ -29,14 +29,9 @@ struct InlineNamePromptView: View {
         )
     }
 
-    private let occasions: [(emoji: String, label: String)] = [
-        ("🎂", "Birthday"),
-        ("🎉", "Anniversary"),
-        ("🙏", "Thank You"),
-        ("💍", "Wedding"),
-        ("🎓", "Graduation"),
-        ("❤️", "I Love You"),
-    ]
+    private static let occasions: [(emoji: String, label: String)] = Occasion.allCases
+        .filter { $0 != .custom }
+        .map { ($0.emoji, $0.displayName) }
 
     private var trimmedName: String {
         nameInput.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -100,7 +95,7 @@ struct InlineNamePromptView: View {
                 // Occasion chips
                 ScrollView(.horizontal) {
                     HStack(spacing: 8) {
-                        ForEach(occasions, id: \.label) { item in
+                        ForEach(Self.occasions, id: \.label) { item in
                             let isSelected = selectedOccasion == item.label
                             Button {
                                 withAnimation(.easeInOut(duration: 0.15)) {
