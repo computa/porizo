@@ -5,9 +5,9 @@
 //  Warm Canvas create flow — Four User Moments: Tell → Wait → Reveal → Share.
 //
 //  Layered ZStack architecture: Tell stays mounted; Wait/Reveal/Share overlay on top.
-//  Song-only — poems route to UnifiedCreateFlowView via MainTabView (line 159).
+//  WarmCanvas is the canonical creation shell for both songs and poems.
 //
-//  Controllers and coordinators are reused identically from UnifiedCreateFlowView.
+//  Controllers and coordinators are reused from UnifiedCreateFlowView.
 //  The difference is the visual topology (overlays vs inline cards) and the state machine
 //  (WarmCanvasMoment vs UnifiedPhase + SongProgress).
 //
@@ -46,7 +46,7 @@ struct WarmCanvasFlowView: View {
     @State private var apiWrapper: APIClientWrapper
     @State private var setup = StorySetup()
     @State private var songFlow = SongFlowCoordinator()
-    @State private var selectedType: CreateFlowKind? = .song
+    @State private var selectedType: CreateFlowKind?
     @State private var poemFlow = PoemFlowCoordinator()
     @State private var asyncService: CreateFlowAsyncService
     @State private var storyFlowCoordinator: StoryFlowCoordinator
@@ -63,7 +63,7 @@ struct WarmCanvasFlowView: View {
 
     // MARK: - Track Metadata
 
-    @State private var trackTitle: String = "Your Song"
+    @State private var trackTitle: String
     @State private var coverImageUrl: String?
 
     // MARK: - Task Handles
@@ -130,7 +130,8 @@ struct WarmCanvasFlowView: View {
         _resumeCoordinator = State(initialValue: CreateFlowResumeCoordinator())
         _storyEngine = State(initialValue: V2StoryEngine(apiClient: apiClient))
         _apiWrapper = State(initialValue: APIClientWrapper(client: apiClient))
-        _selectedType = State(initialValue: .song)
+        _selectedType = State(initialValue: preselectedType)
+        _trackTitle = State(initialValue: Self.defaultTrackTitle(for: preselectedType ?? .song))
         _trackCreationController = State(initialValue: TrackCreationController(apiClient: apiClient))
         _renderController = State(initialValue: RenderController(apiClient: apiClient))
     }
@@ -148,22 +149,56 @@ struct WarmCanvasFlowView: View {
 
             // Layer 1: Full-screen overlays (animation scoped per-view, not on ZStack)
             if moment == .wait {
-                WaitPulseView(recipientName: setup.recipientName, occasion: setup.occasion?.rawValue)
+                if resolvedSelectedType == .poem {
+                    PoemCreatingContentView(
+                        apiClient: apiClient,
+                        storyId: poemFlow.storyId ?? storyEngine.storyId,
+                        storyDraftVersion: storyEngine.narrativeVersion,
+                        finalNotes: trimmedFinalNotes,
+                        onPoemReady: { poem in
+                            poemFlow.currentPoem = poem
+                            withAnimation { moment = .reveal }
+                        },
+                        onNeedsInput: { guidance in
+                            applyStoryGuidanceAndReturnToConversation(guidance)
+                        },
+                        onNeedsDetails: { gaps, question in
+                            _ = poemFlow.storeGap(gaps: gaps, question: question)
+                            withAnimation { moment = .tell(.poemGapQuestion) }
+                        },
+                        onError: { message in
+                            presentFlowMessage(message)
+                            withAnimation { moment = .tell(.conversing) }
+                        },
+                        onCancel: {
+                            withAnimation { moment = .tell(.conversing) }
+                        }
+                    )
                     .transition(.opacity)
                     .animation(.easeInOut(duration: 0.35), value: momentKey)
-                    .accessibilityLabel("Creating your song for \(setup.recipientName). Please wait.")
+                    .accessibilityLabel("Creating your poem for \(setup.recipientName). Please wait.")
+                } else {
+                    WaitPulseView(
+                        recipientName: setup.recipientName,
+                        occasion: setup.occasion?.rawValue,
+                        creationNoun: creationNoun
+                    )
+                    .transition(.opacity)
+                    .animation(.easeInOut(duration: 0.35), value: momentKey)
+                    .accessibilityLabel("Creating your \(creationNoun) for \(setup.recipientName). Please wait.")
+                }
             }
             if moment == .reveal {
                 revealPhase()
                     .transition(.opacity)
                     .animation(.easeInOut(duration: 0.35), value: momentKey)
-                    .accessibilityLabel("Your song for \(setup.recipientName) is ready")
+                    .accessibilityLabel("Your \(creationNoun) for \(setup.recipientName) is ready")
             }
             if moment == .share {
                 sharePhase()
                     .transition(.opacity)
                     .animation(.easeInOut(duration: 0.35), value: momentKey)
-                    .accessibilityLabel("Share your song for \(setup.recipientName)")
+                    .accessibilityLabel("Share your \(creationNoun) for \(setup.recipientName)")
             }
 
             // Layer 2: Error overlays — partial overlay so conversation context stays visible
@@ -234,8 +269,17 @@ struct WarmCanvasFlowView: View {
             if oldValue == "upgrade" && activeSheet?.id != "upgrade" {
                 let flowType = pendingEntitlementFlowType
                 pendingEntitlementFlowType = nil
-                guard flowType == .song else { return }
-                Task { @MainActor in await checkEntitlementsForSong() }
+                guard let flowType else { return }
+                let state = storeKit.subscriptionState
+                if flowType == .poem {
+                    if state.hasActiveSubscription {
+                        withAnimation { moment = .wait }
+                    } else {
+                        Task { @MainActor in await checkEntitlementsForPoem() }
+                    }
+                } else {
+                    Task { @MainActor in await checkEntitlementsForSong() }
+                }
             }
         }
         .onChange(of: setup.style) { _, newStyle in
@@ -262,25 +306,29 @@ struct WarmCanvasFlowView: View {
             }
         }
         .onChange(of: momentKey) { _, newKey in
-            guard songFlow.currentTrackId != nil else { return }
             let flowState: CreateFlowState?
-            if newKey.hasPrefix("tell-trackCreated") {
+            if newKey.hasPrefix("tell-poemGapQuestion") {
+                flowState = .poemGap
+            } else if newKey.hasPrefix("tell-trackCreated") {
                 flowState = .lyricsReview
             } else if newKey == "wait" {
-                flowState = .waitPulse
+                flowState = resolvedSelectedType == .poem ? .poemCreating : .waitPulse
             } else if newKey == "reveal" {
-                flowState = .revealBloom
+                flowState = resolvedSelectedType == .poem ? .poemPreview : .revealBloom
             } else if newKey == "share" {
-                flowState = .sharePostcard
+                flowState = resolvedSelectedType == .poem ? .poemPreview : .sharePostcard
             } else {
                 flowState = nil
             }
-            if let flowState {
+            let canPersist = resolvedSelectedType == .poem
+                ? (poemFlow.storyId ?? storyEngine.storyId) != nil
+                : (songFlow.currentTrackId != nil || storyEngine.storyId != nil)
+            if let flowState, canPersist {
                 resumeCoordinator.persistResumeState(
                     flowState: flowState,
-                    selectedType: .song,
+                    selectedType: selectedType,
                     songFlow: songFlow,
-                    poemFlow: PoemFlowCoordinator(),
+                    poemFlow: poemFlow,
                     storyId: storyEngine.storyId
                 )
             }
@@ -295,6 +343,27 @@ struct WarmCanvasFlowView: View {
         case .reveal: "reveal"
         case .share: "share"
         }
+    }
+
+    private var resolvedSelectedType: CreateFlowKind {
+        selectedType ?? preselectedType ?? .song
+    }
+
+    private var creationNoun: String {
+        resolvedSelectedType == .poem ? "poem" : "song"
+    }
+
+    private var capitalizedCreationNoun: String {
+        resolvedSelectedType == .poem ? "Poem" : "Song"
+    }
+
+    private var trimmedFinalNotes: String? {
+        let trimmed = storyEngine.finalNotesDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func defaultTrackTitle(for type: CreateFlowKind) -> String {
+        type == .poem ? "Your Poem" : "Your Song"
     }
 
     /// Extracted binding for the alert presentation state.
@@ -312,20 +381,20 @@ struct WarmCanvasFlowView: View {
         VStack(spacing: 0) {
             if !didStartConversation {
                 InlineNamePromptView(
-                    selectedType: .song,
+                    selectedType: selectedType,
                     preselectedOccasion: preselectedOccasion?.displayName,
                     hasOwnLyrics: .constant(false),
                     isInstrumental: .constant(false),
-                    onStart: { name, occasion in
+                    onStart: { name, occasion, type in
                         if let occasion { setup.occasion = occasion }
-                        startChatWithName(name)
+                        startChatWithName(name, type: type)
                     },
                     onCancel: onCancel
                 )
             } else {
                 ChatHeaderView(
                     recipientName: setup.recipientName,
-                    selectedType: .song,
+                    selectedType: selectedType,
                     storyId: storyEngine.storyId,
                     completionScore: storyEngine.completionScore,
                     occasion: setup.occasion,
@@ -357,6 +426,12 @@ struct WarmCanvasFlowView: View {
                             ForEach(storyEngine.messages) { msg in
                                 ChatMessageBubble(message: msg)
                                     .id(msg.id)
+                            }
+
+                            if case .tell(.poemGapQuestion) = moment,
+                               let question = poemFlow.gapQuestion {
+                                ChatMessageBubble(message: V2Message(role: .ai, content: question))
+                                    .id("poem-gap-question")
                             }
 
                             // Sub-phase inline cards
@@ -395,24 +470,40 @@ struct WarmCanvasFlowView: View {
                 if case .tell(.conversing) = moment, storyEngine.storyId != nil {
                     let canCreate = storyEngine.isComplete
                         || (storyEngine.readiness?.isUserOverridable == true && !storyEngine.isLoading)
-                    CollapsibleStylePicker(
-                        selectedStyle: $setup.style,
-                        styleStore: styleStore,
-                        onCreate: canCreate ? {
-                            guard setup.occasion != nil else {
-                                showOccasionPicker = true
-                                return
-                            }
-                            guard setup.style != nil else {
-                                activeAlert = .genreRequired
-                                return
-                            }
-                            finishConversation()
-                        } : nil,
-                        createEnabled: canCreate && !storyEngine.isLoading
-                            && storyEngine.draft.pendingRevision == nil,
-                        autoExpand: canCreate && setup.style == nil
-                    )
+                    if resolvedSelectedType == .song {
+                        CollapsibleStylePicker(
+                            selectedStyle: $setup.style,
+                            styleStore: styleStore,
+                            onCreate: canCreate ? {
+                                guard setup.occasion != nil else {
+                                    showOccasionPicker = true
+                                    return
+                                }
+                                guard setup.style != nil else {
+                                    activeAlert = .genreRequired
+                                    return
+                                }
+                                finishConversation()
+                            } : nil,
+                            createEnabled: canCreate && !storyEngine.isLoading
+                                && storyEngine.draft.pendingRevision == nil,
+                            autoExpand: canCreate && setup.style == nil
+                        )
+                    } else if canCreate {
+                        Button(action: finishConversation) {
+                            Text("Create poem")
+                                .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: DesignTokens.buttonHeightLarge)
+                                .background(DesignTokens.gold)
+                                .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusCTA))
+                        }
+                        .disabled(storyEngine.isLoading || storyEngine.draft.pendingRevision != nil)
+                        .opacity((storyEngine.isLoading || storyEngine.draft.pendingRevision != nil) ? 0.5 : 1)
+                        .padding(.horizontal, DesignTokens.spacing20)
+                        .padding(.vertical, DesignTokens.spacing12)
+                    }
                 }
 
                 // Input bar
@@ -483,108 +574,127 @@ struct WarmCanvasFlowView: View {
 
     @ViewBuilder
     private func revealPhase() -> some View {
-        RevealBloomView(
-            recipientName: setup.recipientName,
-            occasion: setup.occasion?.rawValue,
-            isPlaying: playbackController.isPlaying,
-            onPlay: { playbackController.togglePlayPause() },
-            onShare: { withAnimation { moment = .share } },
-            onEditLyrics: {
-                activeSheet = .lyricsReview
-            },
-            onSaveToLibrary: {
-                guard let trackId = songFlow.currentTrackId,
-                      let versionNum = songFlow.currentVersionNum else { return }
-                onComplete(trackId, versionNum)
-            },
-            onListenFully: {
-                // Save to library and transition to main tabs where NowPlayingView
-                // is accessible via MiniPlayer tap
-                guard let trackId = songFlow.currentTrackId,
-                      let versionNum = songFlow.currentVersionNum else { return }
-                onComplete(trackId, versionNum)
-            }
-        )
+        if resolvedSelectedType == .poem, let poem = poemFlow.currentPoem {
+            PoemPreviewView(
+                poem: poem,
+                apiClient: apiClient,
+                onRegenerate: {
+                    mapPoemState(poemFlow.regenerateState())
+                },
+                onDone: {
+                    completePoem(poem)
+                },
+                onShareAction: {
+                    withAnimation { moment = .share }
+                }
+            )
+        } else {
+            RevealBloomView(
+                recipientName: setup.recipientName,
+                occasion: setup.occasion?.rawValue,
+                isPlaying: playbackController.isPlaying,
+                onPlay: { playbackController.togglePlayPause() },
+                onShare: { withAnimation { moment = .share } },
+                onEditLyrics: {
+                    activeSheet = .lyricsReview
+                },
+                onSaveToLibrary: {
+                    guard let trackId = songFlow.currentTrackId,
+                          let versionNum = songFlow.currentVersionNum else { return }
+                    onComplete(trackId, versionNum)
+                },
+                onListenFully: {
+                    guard let trackId = songFlow.currentTrackId,
+                          let versionNum = songFlow.currentVersionNum else { return }
+                    onComplete(trackId, versionNum)
+                }
+            )
+        }
     }
 
     // MARK: - Share Phase
 
     @ViewBuilder
     private func sharePhase() -> some View {
-        SharePostcardView(
-            recipientName: setup.recipientName,
-            occasion: setup.occasion?.rawValue,
-            onSend: {
-                guard let (trackId, versionNum) = ensureShareControllerAndTrackIds() else {
-                    ToastService.shared.show("Song not ready to share yet", type: .warning)
-                    return
+        if resolvedSelectedType == .poem, let poem = poemFlow.currentPoem {
+            PoemShareView(
+                poem: poem,
+                onClose: {
+                    withAnimation { moment = .reveal }
                 }
-
-                // If share URL already exists (pre-generated), present immediately
-                if let existingUrl = shareController?.shareURLString, let url = URL(string: existingUrl) {
-                    presentShareSheet(url: url)
-                    return
-                }
-
-                // Generate then poll
-                ToastService.shared.show("Creating share link...", type: .info)
-                shareController?.generateShareLink(trackId: trackId, versionNum: versionNum)
-                flowTask?.cancel()
-                flowTask = Task { @MainActor in
-                    var shareURL: String?
-                    for _ in 0..<40 {
-                        try? await Task.sleep(for: .milliseconds(250))
-                        if Task.isCancelled { return }
-                        if let url = shareController?.shareURLString {
-                            shareURL = url
-                            break
-                        }
-                    }
-                    guard let urlString = shareURL, let url = URL(string: urlString) else {
-                        ToastService.shared.show("Could not generate share link. Try again.", type: .error)
+            )
+            .environment(APIClientWrapper(client: apiClient))
+        } else {
+            SharePostcardView(
+                recipientName: setup.recipientName,
+                occasion: setup.occasion?.rawValue,
+                onSend: {
+                    guard let (trackId, versionNum) = ensureShareControllerAndTrackIds() else {
+                        ToastService.shared.show("Song not ready to share yet", type: .warning)
                         return
                     }
-                    presentShareSheet(url: url)
-                }
-            },
-            onSaveToPhotos: {
-                ToastService.shared.show("Save to Photos coming soon", type: .info)
-            },
-            onCopyLink: {
-                guard let (trackId, versionNum) = ensureShareControllerAndTrackIds() else { return }
-                // Check if URL already exists from a previous generation
-                if let url = shareController?.shareURLString {
-                    UIPasteboard.general.string = url
-                    ToastService.shared.success("Link copied!")
-                } else {
-                    // Generate then copy once ready
-                    ToastService.shared.show("Generating link...", type: .info)
+
+                    if let existingUrl = shareController?.shareURLString, let url = URL(string: existingUrl) {
+                        presentShareSheet(url: url)
+                        return
+                    }
+
+                    ToastService.shared.show("Creating share link...", type: .info)
                     shareController?.generateShareLink(trackId: trackId, versionNum: versionNum)
-                    // Poll briefly for the async result (tracked for cancellation on dismiss)
                     flowTask?.cancel()
                     flowTask = Task { @MainActor in
-                        for _ in 0..<20 {
+                        var shareURL: String?
+                        for _ in 0..<40 {
                             try? await Task.sleep(for: .milliseconds(250))
                             if Task.isCancelled { return }
                             if let url = shareController?.shareURLString {
-                                UIPasteboard.general.string = url
-                                ToastService.shared.success("Link copied!")
-                                return
+                                shareURL = url
+                                break
                             }
                         }
-                        ToastService.shared.show("Couldn't generate link. Try again.", type: .warning)
+                        guard let urlString = shareURL, let url = URL(string: urlString) else {
+                            ToastService.shared.show("Could not generate share link. Try again.", type: .error)
+                            return
+                        }
+                        presentShareSheet(url: url)
+                    }
+                },
+                onSaveToPhotos: {
+                    ToastService.shared.show("Save to Photos coming soon", type: .info)
+                },
+                onCopyLink: {
+                    guard let (trackId, versionNum) = ensureShareControllerAndTrackIds() else { return }
+                    if let url = shareController?.shareURLString {
+                        UIPasteboard.general.string = url
+                        ToastService.shared.success("Link copied!")
+                    } else {
+                        ToastService.shared.show("Generating link...", type: .info)
+                        shareController?.generateShareLink(trackId: trackId, versionNum: versionNum)
+                        flowTask?.cancel()
+                        flowTask = Task { @MainActor in
+                            for _ in 0..<20 {
+                                try? await Task.sleep(for: .milliseconds(250))
+                                if Task.isCancelled { return }
+                                if let url = shareController?.shareURLString {
+                                    UIPasteboard.general.string = url
+                                    ToastService.shared.success("Link copied!")
+                                    return
+                                }
+                            }
+                            ToastService.shared.show("Couldn't generate link. Try again.", type: .warning)
+                        }
+                    }
+                },
+                onSkip: {
+                    if let trackId = songFlow.currentTrackId,
+                       let versionNum = songFlow.currentVersionNum {
+                        onComplete(trackId, versionNum)
+                    } else {
+                        withAnimation { moment = .reveal }
                     }
                 }
-            },
-            onSkip: {
-                if let trackId = songFlow.currentTrackId,
-                   let versionNum = songFlow.currentVersionNum {
-                    onComplete(trackId, versionNum)
-                } else {
-                    withAnimation { moment = .reveal }
-                }
-            }
-        )
+            )
+        }
     }
 
     private func presentShareSheet(url: URL) {
@@ -682,9 +792,10 @@ struct WarmCanvasFlowView: View {
             )
         case .noCredits:
             NoCreditsView(
+                creationNoun: creationNoun,
                 onUpgrade: {
                     activeError = nil
-                    pendingEntitlementFlowType = .song
+                    pendingEntitlementFlowType = resolvedSelectedType
                     activeSheet = .upgrade
                 },
                 onRestore: {
@@ -915,14 +1026,6 @@ struct WarmCanvasFlowView: View {
     private func transitionToReveal(audioURL: String) {
         playbackController.setupPlayer(url: audioURL)
         playbackController.play()
-        if shareController == nil {
-            shareController = ShareController(apiClient: apiClient)
-        }
-        // Pre-generate share link so it's ready before the user taps Send (P0-3)
-        if let trackId = songFlow.currentTrackId,
-           let versionNum = songFlow.currentVersionNum {
-            shareController?.generateShareLink(trackId: trackId, versionNum: versionNum)
-        }
         if !hasCompletedFirstSong { hasCompletedFirstSong = true }
         withAnimation { moment = .reveal }
     }
@@ -941,6 +1044,7 @@ struct WarmCanvasFlowView: View {
             do {
                 let entitlements = try await apiClient.getBillingEntitlements()
                 guard entitlements.songsRemaining > 0 else {
+                    pendingEntitlementFlowType = .song
                     activeError = .noCredits
                     return
                 }
@@ -1043,9 +1147,9 @@ struct WarmCanvasFlowView: View {
 
                     resumeCoordinator.persistResumeState(
                         flowState: .lyricsReview,
-                        selectedType: .song,
+                        selectedType: selectedType,
                         songFlow: songFlow,
-                        poemFlow: PoemFlowCoordinator(),
+                        poemFlow: poemFlow,
                         storyId: storyEngine.storyId
                     )
 
@@ -1079,7 +1183,7 @@ struct WarmCanvasFlowView: View {
 
     // MARK: - Conversation Actions
 
-    private func startChatWithName(_ name: String) {
+    private func startChatWithName(_ name: String, type: CreateFlowKind) {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         setup.recipientName = trimmed
@@ -1088,11 +1192,12 @@ struct WarmCanvasFlowView: View {
             setup.applyPreselectedOccasion(preselectedOccasion)
         }
         didStartConversation = true
-        handleTypeSelected()
+        handleTypeSelected(type)
     }
 
-    private func handleTypeSelected() {
-        selectedType = .song
+    private func handleTypeSelected(_ type: CreateFlowKind) {
+        selectedType = type
+        trackTitle = Self.defaultTrackTitle(for: type)
         preSessionPrompt = nil
 
         // Occasion is required — it drives beats, questions, and song structure.
@@ -1107,11 +1212,11 @@ struct WarmCanvasFlowView: View {
     private func continueAfterOccasionSelection() {
         showOccasionPicker = false
         moment = .tell(.conversing)
-        showPreSessionQuestion()
+        showPreSessionQuestion(for: resolvedSelectedType)
     }
 
-    private func showPreSessionQuestion() {
-        preSessionPrompt = "Tell me about the story with \(setup.recipientName) that you want to turn into a song. What's a moment or memory that stands out?"
+    private func showPreSessionQuestion(for type: CreateFlowKind) {
+        preSessionPrompt = "Tell me about the story with \(setup.recipientName) that you want to turn into a \(type.rawValue). What's a moment or memory that stands out?"
     }
 
     private func beginConversation(initialPromptOverride: String? = nil) async {
@@ -1126,16 +1231,16 @@ struct WarmCanvasFlowView: View {
         if let message = result.errorMessage {
             presentFlowMessage(message)
             if storyEngine.storyId == nil {
-                showPreSessionQuestion()
+                showPreSessionQuestion(for: resolvedSelectedType)
                 storyEngine.removeLastLocalUserMessage()
             }
         }
 
         resumeCoordinator.persistResumeState(
             flowState: .storyConversation,
-            selectedType: .song,
+            selectedType: selectedType,
             songFlow: songFlow,
-            poemFlow: PoemFlowCoordinator(),
+            poemFlow: poemFlow,
             storyId: storyEngine.storyId
         )
     }
@@ -1152,19 +1257,20 @@ struct WarmCanvasFlowView: View {
             return
         }
 
-        if setup.style == nil {
+        if resolvedSelectedType == .song, setup.style == nil {
             activeAlert = .genreRequired
             return
         }
 
         let result = storyFlowCoordinator.completeFlow(
-            selectedType: .song,
+            selectedType: selectedType,
             setup: setup,
             songFlow: songFlow,
             poemFlow: poemFlow,
             engine: storyEngine
         )
         songFlow = result.songFlow
+        poemFlow = result.poemFlow
 
         if let message = result.errorMessage {
             activeAlert = .error(message)
@@ -1172,7 +1278,13 @@ struct WarmCanvasFlowView: View {
         }
 
         flowTask?.cancel()
-        flowTask = Task { @MainActor in await checkEntitlementsForSong() }
+        flowTask = Task { @MainActor in
+            if resolvedSelectedType == .poem {
+                await checkEntitlementsForPoem()
+            } else {
+                await checkEntitlementsForSong()
+            }
+        }
     }
 
     private func submitPreSessionAnswer(_ answer: String) {
@@ -1195,11 +1307,25 @@ struct WarmCanvasFlowView: View {
         }
     }
 
+    private func submitPoemGapDetail(_ answer: String) {
+        let trimmed = answer.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        flowTask?.cancel()
+        flowTask = Task { @MainActor in
+            let result = await poemFlow.submitGapDetail(detail: trimmed, using: asyncService)
+            if let nextState = result.nextState {
+                mapPoemState(nextState)
+            } else if let message = result.errorMessage {
+                presentFlowMessage(message)
+            }
+        }
+    }
+
     private var currentInputCallbacks: InputBarCallbacks? {
         // Only show input bar during name entry and active conversation — NOT during
         // voice selection (.confirmed), track creation (.voiceSelected), or lyrics review (.trackCreated)
         switch moment {
-        case .tell(.nameEntry), .tell(.conversing): break
+        case .tell(.nameEntry), .tell(.conversing), .tell(.poemGapQuestion): break
         default: return nil
         }
 
@@ -1208,6 +1334,18 @@ struct WarmCanvasFlowView: View {
             return InputBarCallbacks(
                 onSubmit: { submitPreSessionAnswer($0) },
                 onSpeechInput: { activeSheet = .speechInput(SpeechInputContext(storyId: nil)) },
+                onFinishEarly: { },
+                onExitReviewEdit: { }
+            )
+        }
+
+        if case .tell(.poemGapQuestion) = moment {
+            return InputBarCallbacks(
+                onSubmit: { submitPoemGapDetail($0) },
+                onSpeechInput: {
+                    guard let sid = storyEngine.storyId else { return }
+                    activeSheet = .speechInput(SpeechInputContext(storyId: sid))
+                },
                 onFinishEarly: { },
                 onExitReviewEdit: { }
             )
@@ -1236,6 +1374,21 @@ struct WarmCanvasFlowView: View {
             if entitlements.songsRemaining > 0 {
                 advanceAfterEntitlementCheck()
             } else {
+                pendingEntitlementFlowType = .song
+                activeError = .noCredits
+            }
+        } catch {
+            presentFlowMessage("Unable to verify your account. Please check your connection and try again.")
+        }
+    }
+
+    private func checkEntitlementsForPoem() async {
+        do {
+            let entitlements = try await apiClient.getBillingEntitlements()
+            if entitlements.poemsRemaining > 0 {
+                withAnimation { moment = .wait }
+            } else {
+                pendingEntitlementFlowType = .poem
                 activeError = .noCredits
             }
         } catch {
@@ -1244,6 +1397,10 @@ struct WarmCanvasFlowView: View {
     }
 
     private func advanceAfterEntitlementCheck() {
+        guard resolvedSelectedType == .song else {
+            withAnimation { moment = .wait }
+            return
+        }
         if !hasCompletedFirstSong && !alwaysShowVoiceSelection {
             songFlow.voiceMode = .aiVoice
             songFlow.voiceGender = .female
@@ -1358,6 +1515,9 @@ struct WarmCanvasFlowView: View {
         activeSheet = nil
         activeAlert = nil
         isStartingFullRender = false
+        selectedType = preselectedType
+        poemFlow = PoemFlowCoordinator()
+        trackTitle = Self.defaultTrackTitle(for: preselectedType ?? .song)
 
         withAnimation { moment = .tell(.nameEntry) }
     }
@@ -1378,11 +1538,11 @@ struct WarmCanvasFlowView: View {
         let persistedSession = storyEngine.loadPersistedSession()
         let bootstrap = CreateFlowBootstrapAction.resolve(
             preselectedOccasion: preselectedOccasion,
-            preselectedType: .song,
+            preselectedType: preselectedType,
             resumeTrackId: resumeTrackId,
             resumeVersionNum: resumeVersionNum,
             resumeTarget: resumeTarget,
-            variationSourcePoem: nil,
+            variationSourcePoem: variationSourcePoem,
             persisted: persisted,
             persistedSession: persistedSession
         )
@@ -1391,6 +1551,7 @@ struct WarmCanvasFlowView: View {
         case let .resumeTrack(trackId, versionNum, storyId, target):
             _ = songFlow.resume(trackId: trackId, versionNum: versionNum, storyId: storyId, target: target)
             selectedType = .song
+            trackTitle = Self.defaultTrackTitle(for: .song)
 
             var restoredChat = false
             if let persistedSession = storyEngine.loadPersistedSession(),
@@ -1410,18 +1571,33 @@ struct WarmCanvasFlowView: View {
 
         case let .restoredStory(kind, session):
             let restored = resumeCoordinator.restoreStorySession(kind: kind, session: session, engine: storyEngine)
-            selectedType = .song
+            selectedType = restored.kind
+            trackTitle = Self.defaultTrackTitle(for: restored.kind)
             setup = restored.setup
             songFlow = restored.songFlow
             didStartConversation = true
             moment = .tell(.conversing)
             Task { @MainActor in await refreshRestoredStorySession() }
 
-        case let .freshStart(initialSetup, _):
-            setup = initialSetup
-            moment = .tell(.nameEntry)
+        case let .variationSourcePoem(variationSetup):
+            selectedType = .poem
+            trackTitle = Self.defaultTrackTitle(for: .poem)
+            setup = variationSetup
+            didStartConversation = true
+            moment = .tell(.conversing)
+            showPreSessionQuestion(for: .poem)
 
-        default:
+        case let .restoredPoem(storyId, step):
+            selectedType = .poem
+            trackTitle = Self.defaultTrackTitle(for: .poem)
+            _ = poemFlow.restoreResume(storyId: storyId)
+            didStartConversation = true
+            restorePoemState(from: step)
+
+        case let .freshStart(initialSetup, forcedType):
+            setup = initialSetup
+            selectedType = forcedType ?? preselectedType
+            trackTitle = Self.defaultTrackTitle(for: forcedType ?? preselectedType ?? .song)
             moment = .tell(.nameEntry)
         }
     }
@@ -1453,6 +1629,40 @@ struct WarmCanvasFlowView: View {
             moment = .tell(.trackCreated)
             Task { @MainActor in await resumeLyricsState() }
         }
+    }
+
+    private func restorePoemState(from step: CreateFlowState) {
+        switch step {
+        case .poemGap:
+            withAnimation { moment = .tell(.poemGapQuestion) }
+        case .poemCreating, .poemPreview, .waitPulse, .revealBloom, .sharePostcard:
+            withAnimation { moment = .wait }
+        default:
+            withAnimation { moment = .tell(.conversing) }
+        }
+    }
+
+    private func mapPoemState(_ state: CreateFlowState) {
+        switch state {
+        case .poemCreating:
+            withAnimation { moment = .wait }
+        case .poemGap:
+            withAnimation { moment = .tell(.poemGapQuestion) }
+        case .poemPreview:
+            withAnimation { moment = .reveal }
+        default:
+            withAnimation { moment = .tell(.conversing) }
+        }
+    }
+
+    private func completePoem(_ poem: Poem) {
+        if let onPoemComplete {
+            onPoemComplete(poem)
+        } else {
+            ToastService.shared.success("\(capitalizedCreationNoun) saved to your library!")
+            LocalCache.shared.invalidatePoems()
+        }
+        onCancel()
     }
 
     private func resumePlayerStateFromServer(trackId: String, versionNum: Int) async {

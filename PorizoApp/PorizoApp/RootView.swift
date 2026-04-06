@@ -137,7 +137,7 @@ struct RootView: View {
                     selectedType: nil,
                     hasOwnLyrics: $nameEntryHasOwnLyrics,
                     isInstrumental: $nameEntryIsInstrumental,
-                    onStart: { name, occasion in
+                    onStart: { name, occasion, _ in
                         pendingRecipientName = name
                         pendingOccasion = occasion?.displayName ?? ""
                         withAnimation(.easeInOut(duration: 0.5)) {

@@ -12,6 +12,7 @@ struct PoemShareView: View {
     let poem: Poem
     @Environment(\.dismiss) private var dismiss
     @Environment(APIClientWrapper.self) private var apiClient
+    var onClose: (() -> Void)? = nil
 
     @State private var isCreatingShare: Bool = false
     @State private var shareResponse: CreatePoemShareResponse?
@@ -108,7 +109,11 @@ struct PoemShareView: View {
         HStack {
             // Close Button
             Button {
-                dismiss()
+                if let onClose {
+                    onClose()
+                } else {
+                    dismiss()
+                }
             } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 20, weight: .medium))

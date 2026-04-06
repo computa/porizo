@@ -406,8 +406,9 @@ struct UnifiedCreateFlowView: View {
                     preselectedOccasion: preselectedOccasion?.displayName,
                     hasOwnLyrics: $songFlow.hasOwnLyrics,
                     isInstrumental: $songFlow.isInstrumental,
-                    onStart: { name, occasion in
+                    onStart: { name, occasion, type in
                         if let occasion { setup.occasion = occasion }
+                        selectedType = type
                         startChatWithName(name)
                     },
                     onCancel: onCancel
@@ -937,7 +938,7 @@ struct UnifiedCreateFlowView: View {
                 await refreshRestoredStorySession()
             }
 
-        case let .restoredPoem(storyId):
+        case let .restoredPoem(storyId, _):
             selectedType = .poem
             _ = poemFlow.restoreResume(storyId: storyId)
             phase = .poemCreating

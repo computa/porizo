@@ -234,7 +234,7 @@ struct WarmCanvasScreenGallery: View {
                 preselectedOccasion: demoOccasion,
                 hasOwnLyrics: .constant(false),
                 isInstrumental: .constant(false),
-                onStart: { _, _ in activeScreen = nil },
+                onStart: { _, _, _ in activeScreen = nil },
                 onCancel: { activeScreen = nil }
             )
         case .auth: authDemo
@@ -245,7 +245,7 @@ struct WarmCanvasScreenGallery: View {
         // Create flow
         case .tell: tellDemoView
         case .tellLyrics: tellLyricsDemoView
-        case .wait: WaitPulseView(recipientName: demoRecipient, occasion: demoOccasion)
+        case .wait: WaitPulseView(recipientName: demoRecipient, occasion: demoOccasion, creationNoun: "song")
         case .reveal:
             RevealBloomView(
                 recipientName: demoRecipient,

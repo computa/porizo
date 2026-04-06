@@ -49,6 +49,7 @@ enum WarmCanvasMoment: Equatable {
 enum TellSubPhase: Equatable {
     case nameEntry       // Inline name prompt before conversation starts
     case conversing      // V2StoryEngine chat active
+    case poemGapQuestion // Poem generation requested one more detail
     case confirmed       // Story confirmed, voice selection pending
     case voiceSelected   // Voice chosen, track creation in progress
     case trackCreated    // Lyrics review active

@@ -14,6 +14,11 @@ import Foundation
 @MainActor
 final class TrackCreationController {
 
+    private static let lyricsSyncRetryDelaysNanoseconds: [UInt64] = [
+        600_000_000,
+        1_200_000_000,
+    ]
+
     // MARK: - Published State
 
     /// Progress percentage (0-100) through the creation pipeline.
@@ -124,7 +129,7 @@ final class TrackCreationController {
 
             // Step 4: Sync lyrics to the new track
             self.statusMessage = "Syncing lyrics..."
-            try await self.apiClient.updateLyrics(
+            try await self.syncLyricsWithRetry(
                 trackId: trackResponse.trackId,
                 versionNum: trackResponse.versionNum,
                 lyrics: storyLyrics.lyrics
@@ -138,6 +143,46 @@ final class TrackCreationController {
                     lyrics: storyLyrics.lyrics
                 )
             )
+        }
+    }
+
+    // MARK: - Private
+
+    private func syncLyricsWithRetry(
+        trackId: String,
+        versionNum: Int,
+        lyrics: Lyrics
+    ) async throws {
+        do {
+            try await apiClient.updateLyrics(
+                trackId: trackId,
+                versionNum: versionNum,
+                lyrics: lyrics
+            )
+            return
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            var lastError = error
+            for (index, delay) in Self.lyricsSyncRetryDelaysNanoseconds.enumerated() {
+                self.statusMessage = index == 0
+                    ? "Retrying lyrics sync..."
+                    : "Retrying lyrics sync one last time..."
+                try await Task.sleep(nanoseconds: delay)
+                do {
+                    try await apiClient.updateLyrics(
+                        trackId: trackId,
+                        versionNum: versionNum,
+                        lyrics: lyrics
+                    )
+                    return
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch {
+                    lastError = error
+                }
+            }
+            throw lastError
         }
     }
 

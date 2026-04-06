@@ -122,7 +122,10 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   }
   const storageProvider = storage;
   const allowAnonUserId =
-    appConfig.ALLOW_ANON_USER_ID ?? config.ALLOW_ANON_USER_ID ?? false;
+    appConfig.ALLOW_ANON_USER_ID
+      ?? (process.env.ALLOW_ANON_USER_ID === "true"
+        ? true
+        : (config.ALLOW_ANON_USER_ID ?? false));
   const enableDebugRoutes =
     appConfig.ENABLE_DEBUG_ROUTES ?? config.ENABLE_DEBUG_ROUTES ?? false;
   const enableV3OrchestrationRoutes =
@@ -657,7 +660,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       }
     }
 
-    if (allowAnonUserId && (process.env.NODE_ENV === 'test' || process.env.NODE_ENV === 'development')) {
+    if (allowAnonUserId && process.env.NODE_ENV !== "production") {
       const userId = request.headers["x-user-id"];
       if (!userId || typeof userId !== "string") {
         sendError(reply, 401, "AUTH_REQUIRED", "Missing x-user-id header.");

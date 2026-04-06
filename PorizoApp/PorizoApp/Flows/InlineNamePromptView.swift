@@ -13,7 +13,7 @@ struct InlineNamePromptView: View {
     var preselectedOccasion: String?
     @Binding var hasOwnLyrics: Bool
     @Binding var isInstrumental: Bool
-    let onStart: (String, Occasion?) -> Void
+    let onStart: (String, Occasion?, CreateFlowKind) -> Void
     let onCancel: () -> Void
 
     @State private var nameInput: String = ""
@@ -191,6 +191,6 @@ struct InlineNamePromptView: View {
         let occasion: Occasion? = selectedOccasion.flatMap { label in
             Occasion.allCases.first { $0.displayName == label }
         }
-        onStart(trimmedName, occasion)
+        onStart(trimmedName, occasion, activeType)
     }
 }

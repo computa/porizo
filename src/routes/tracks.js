@@ -71,6 +71,46 @@ function registerTrackRoutes(app, {
     return { consumed: true, consumedAt: now };
   }
 
+  async function findActiveTrackShare(track, creatorId) {
+    let existingShare = null;
+    if (track?.share_token_id) {
+      existingShare = await db.prepare("SELECT * FROM share_tokens WHERE id = ?").get(track.share_token_id);
+    }
+    if (!existingShare) {
+      existingShare = await db
+        .prepare(
+          `SELECT *
+             FROM share_tokens
+            WHERE track_id = ?
+              AND creator_id = ?
+              AND status != 'revoked'
+            ORDER BY created_at DESC
+            LIMIT 1`
+        )
+        .get(track.id, creatorId);
+    }
+    if (!existingShare) {
+      return null;
+    }
+
+    const isDemo = existingShare.share_type === "demo";
+    const isValid = isDemo || new Date(existingShare.expires_at) > new Date();
+    if (!isValid) {
+      if (!isDemo && existingShare.status !== "expired") {
+        await db.prepare("UPDATE share_tokens SET status = ? WHERE id = ?").run("expired", existingShare.id);
+      }
+      return null;
+    }
+
+    if (!track.share_token_id || track.share_token_id !== existingShare.id) {
+      await db.prepare("UPDATE tracks SET share_token_id = ?, updated_at = ? WHERE id = ?")
+        .run(existingShare.id, nowIso(), track.id);
+      track.share_token_id = existingShare.id;
+    }
+
+    return existingShare;
+  }
+
   app.post("/tracks", { schema: schemas.createTrack }, async (request, reply) => {
     const userId = await requireUserId(request, reply);
     if (!userId) {
@@ -1101,6 +1141,19 @@ function registerTrackRoutes(app, {
       }
       await db.prepare("UPDATE tracks SET og_variant = ?, updated_at = ? WHERE id = ?")
         .run(normalizedVariant, nowIso(), track.id);
+    }
+
+    const existingShare = await findActiveTrackShare(track, userId);
+    if (existingShare) {
+      reply.send({
+        share_id: existingShare.id,
+        share_url: buildPlayShareUrl(existingShare.id),
+        qr_code_url: `https://cdn.porizo.local/qr/${existingShare.id}.png`,
+        expires_at: existingShare.expires_at,
+        claim_pin: existingShare.claim_pin,
+        existing: true,
+      });
+      return;
     }
 
     // Idempotency check is handled inside createOrGetShareToken

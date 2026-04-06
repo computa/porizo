@@ -154,8 +154,8 @@ struct MainTabView: View {
         .background(DesignTokens.background)
         .ignoresSafeArea(edges: .bottom)
         .fullScreenCover(item: $createFlowLaunch) { launch in
-            // Poem flow stays on UnifiedCreateFlowView (WarmCanvas is song-only)
-            if launch.preselectedType == .poem || launch.variationSourcePoem != nil {
+            let needsPoemFlow = launch.preselectedType == .poem || launch.variationSourcePoem != nil
+            if needsPoemFlow && !AppConfig.useWarmCanvasForPoems {
                 UnifiedCreateFlowView(
                     apiClient: apiClient,
                     storeKit: storeKitManager,
@@ -165,6 +165,9 @@ struct MainTabView: View {
                     resumeVersionNum: launch.resumeVersionNum,
                     resumeTarget: launch.resumeTarget,
                     variationSourcePoem: launch.variationSourcePoem,
+                    onPoemComplete: { poem in
+                        handlePoemFlowCompletion(poem: poem)
+                    },
                     onComplete: { trackId, versionNum in
                         handleSongFlowCompletion(trackId: trackId, versionNum: versionNum)
                     },
@@ -182,6 +185,9 @@ struct MainTabView: View {
                     resumeVersionNum: launch.resumeVersionNum,
                     resumeTarget: launch.resumeTarget,
                     variationSourcePoem: launch.variationSourcePoem,
+                    onPoemComplete: { poem in
+                        handlePoemFlowCompletion(poem: poem)
+                    },
                     onComplete: { trackId, versionNum in
                         handleSongFlowCompletion(trackId: trackId, versionNum: versionNum)
                     },
@@ -316,6 +322,19 @@ struct MainTabView: View {
             ]
         )
         selectedTab = .songs
+    }
+
+    private func handlePoemFlowCompletion(poem: Poem) {
+        createFlowLaunch = nil
+        LocalCache.shared.invalidatePoems()
+        NotificationCenter.default.post(
+            name: .poemLibraryDidChange,
+            object: nil,
+            userInfo: [
+                "poemId": poem.id,
+            ]
+        )
+        selectedTab = .poems
     }
 
 }

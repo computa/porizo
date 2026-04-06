@@ -15,6 +15,7 @@ import SwiftUI
 struct WaitPulseView: View {
     let recipientName: String
     let occasion: String?
+    let creationNoun: String
 
     // MARK: - Environment
 
@@ -91,7 +92,7 @@ struct WaitPulseView: View {
             await trackElapsedTime()
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Creating song for \(recipientName). \(statusText)")
+        .accessibilityLabel("Creating \(creationNoun) for \(recipientName). \(statusText)")
     }
 
     // MARK: - Pulse Circle
@@ -158,9 +159,9 @@ struct WaitPulseView: View {
 // MARK: - Preview
 
 #Preview("Default") {
-    WaitPulseView(recipientName: "Sarah", occasion: "birthday")
+    WaitPulseView(recipientName: "Sarah", occasion: "birthday", creationNoun: "song")
 }
 
 #Preview("No Occasion") {
-    WaitPulseView(recipientName: "Mom", occasion: nil)
+    WaitPulseView(recipientName: "Mom", occasion: nil, creationNoun: "song")
 }

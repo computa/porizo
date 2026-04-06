@@ -93,7 +93,7 @@ enum CreateFlowBootstrapAction {
     case resumeTrack(trackId: String, versionNum: Int, storyId: String?, target: CreateFlowResumeTarget?)
     case variationSourcePoem(StorySetup)
     case restoredStory(kind: CreateFlowKind, session: V2Session)
-    case restoredPoem(storyId: String)
+    case restoredPoem(storyId: String, step: CreateFlowState)
     case freshStart(initialSetup: StorySetup, forcedType: CreateFlowKind?)
 
     static func resolve(
@@ -127,7 +127,7 @@ enum CreateFlowBootstrapAction {
         }
 
         if let persisted, persisted.kind == .poem, let storyId = persisted.storyId {
-            return .restoredPoem(storyId: storyId)
+            return .restoredPoem(storyId: storyId, step: persisted.step)
         }
 
         var setup = StorySetup()

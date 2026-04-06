@@ -153,7 +153,7 @@ struct GiftSendFlowView: View {
             bundlePickerSheet
         }
         .fullScreenCover(item: $createLaunch, onDismiss: { isCreatingContent = false }) { launch in
-            if launch.type == .poem {
+            if launch.type == .poem && !AppConfig.useWarmCanvasForPoems {
                 UnifiedCreateFlowView(
                     apiClient: apiClient,
                     storeKit: storeKit,

@@ -413,6 +413,7 @@ struct ShareFailureView: View {
 
 /// Shown when the user has exhausted all credits and cannot create a song.
 struct NoCreditsView: View {
+    var creationNoun: String = "song"
     let onUpgrade: () -> Void     // Upgrade to Pro
     let onRestore: () -> Void     // Restore Purchases
     let onDismiss: () -> Void     // Maybe Later
@@ -421,7 +422,7 @@ struct NoCreditsView: View {
         FlowErrorScaffold(
             title: "You've used all your credits",
             bodyLines: [
-                "Upgrade to Pro for 20 songs per month"
+                "Upgrade to Pro for more \(creationNoun)s each month"
             ],
             icon: { EmptyView() },
             extra: {
@@ -452,7 +453,7 @@ struct NoCreditsView: View {
             }
         )
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("No credits remaining. Upgrade to Pro for more songs.")
+        .accessibilityLabel("No credits remaining. Upgrade to Pro for more \(creationNoun)s.")
     }
 }
 

@@ -355,7 +355,7 @@ struct CreateFlowView: View {
             )
 
         case .waitPulse:
-            WaitPulseView(recipientName: setup.recipientName, occasion: setup.occasion?.rawValue)
+            WaitPulseView(recipientName: setup.recipientName, occasion: setup.occasion?.rawValue, creationNoun: "song")
 
         case .revealBloom:
             RevealBloomView(
@@ -610,7 +610,7 @@ struct CreateFlowView: View {
                 await refreshRestoredStorySession()
             }
 
-        case let .restoredPoem(storyId):
+        case let .restoredPoem(storyId, _):
             selectedType = .poem
             flowState = poemFlow.restoreResume(storyId: storyId)
 

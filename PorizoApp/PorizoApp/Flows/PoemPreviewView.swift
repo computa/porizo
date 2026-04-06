@@ -12,6 +12,7 @@ struct PoemPreviewView: View {
     let apiClient: APIClient
     let onRegenerate: () -> Void
     let onDone: () -> Void
+    var onShareAction: (() -> Void)? = nil
 
     @State private var showOptions = false
     @State private var isGeneratingAudio = false
@@ -28,7 +29,13 @@ struct PoemPreviewView: View {
             onBack: onDone,
             onMenu: { showOptions = true },
             onListen: { listenToPoem() },
-            onShare: { activeSheet = .sharePoem }
+            onShare: {
+                if let onShareAction {
+                    onShareAction()
+                } else {
+                    activeSheet = .sharePoem
+                }
+            }
         )
         .confirmationDialog("Poem Options", isPresented: $showOptions) {
             Button("Try Different Version") {

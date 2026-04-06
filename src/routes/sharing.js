@@ -144,6 +144,18 @@ function validateDownloadToken(shareId, token) {
   return crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected));
 }
 
+function isTrackVersionSharePlayable(trackVersion) {
+  if (!trackVersion) return false;
+  if (trackVersion.full_url || trackVersion.preview_url) return true;
+  return [
+    "preview_ready",
+    "full_ready",
+    "ready",
+    // Legacy rows/tests may still use "completed" as the terminal status.
+    "completed",
+  ].includes(trackVersion.status);
+}
+
 function requirePinToken(request, share) {
   if (!share.claim_pin) return true;
   const webToken = request.headers["x-web-stream-token"] || request.query?.wst;
@@ -438,7 +450,7 @@ app.get("/play/:shareId", async (request, reply) => {
   const isCrawler = isSocialCrawlerUserAgent(userAgent);
   const isFacebookCrawler = isFacebookCrawlerUserAgent(userAgent);
   const isWhatsApp = isWhatsAppCrawlerUserAgent(userAgent);
-  const isTrackReady = trackVersion && trackVersion.status === "ready";
+  const isTrackReady = isTrackVersionSharePlayable(trackVersion);
 
   // Only include video/embed OG tags when the track is fully rendered
   let includeVideoMeta = isTrackReady;
@@ -498,7 +510,7 @@ app.get("/play/:shareId", async (request, reply) => {
   // Serve the web player HTML with OG tags injected
   const playerHtml = injectOgTags(webPlayerTemplate, {
     ogTitle, ogDescription, ogImage, ogImageWidth, ogImageHeight, ogUrl,
-    ogType: includeVideoMeta ? "video.other" : "music.song",
+    ogType: includeVideoMeta ? "video.other" : "website",
     ogVideo, embedUrl, oembedUrl,
     fbAppId: facebookAppId,
     shareId,
