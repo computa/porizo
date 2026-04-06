@@ -568,27 +568,32 @@ async function uploadTrackOutputsToS3({ storageProvider, storageDir, track, trac
     }
   }
 
-  // Upload HLS files if they exist
+  // Upload HLS files if they exist (non-fatal — master .m4a is the critical asset)
   const hlsDir = path.join(versionDir, "hls");
   if (fs.existsSync(hlsDir)) {
     const hlsFiles = fs.readdirSync(hlsDir);
     const hlsBaseKey = trackHLSKey({ userId: track.user_id, trackId: track.id, versionNum: trackVersion.version_num });
     uploadedKeys.hlsKeys = [];
 
-    for (const file of hlsFiles) {
-      const localPath = path.join(hlsDir, file);
-      if (fs.statSync(localPath).isFile()) {
-        const s3Key = hlsBaseKey + file;
-        const contentType = file.endsWith(".m3u8") ? "application/x-mpegURL" : "video/MP2T";
-        await storageProvider.putFile({
-          key: s3Key,
-          filePath: localPath,
-          contentType,
-        });
-        uploadedKeys.hlsKeys.push(s3Key);
+    try {
+      for (const file of hlsFiles) {
+        const localPath = path.join(hlsDir, file);
+        if (fs.statSync(localPath).isFile()) {
+          const s3Key = hlsBaseKey + file;
+          const contentType = file.endsWith(".m3u8") ? "application/x-mpegURL" : "video/MP2T";
+          await storageProvider.putFile({
+            key: s3Key,
+            filePath: localPath,
+            contentType,
+          });
+          uploadedKeys.hlsKeys.push(s3Key);
+        }
       }
+      console.log(`[JobRunner] Uploaded ${uploadedKeys.hlsKeys.length} HLS files to S3`);
+    } catch (hlsErr) {
+      console.error(`[JobRunner] HLS upload failed (non-fatal): ${hlsErr.message}. ${uploadedKeys.hlsKeys.length}/${hlsFiles.length} segments uploaded. Streaming may be unavailable but download will work.`);
+      uploadedKeys.hlsPartial = true;
     }
-    console.log(`[JobRunner] Uploaded ${uploadedKeys.hlsKeys.length} HLS files to S3`);
   }
 
   return uploadedKeys;
@@ -3750,22 +3755,42 @@ async function startJobRunner({
             });
           } catch (s3Error) {
             s3UploadSucceeded = false;
-            const isProduction = process.env.NODE_ENV === "production";
             console.error(`[JobRunner] S3 upload failed for track ${trackReady.id}:`, {
               error: s3Error.message,
-              willRetry: isProduction,
               trackId: trackReady.id,
               versionNum: trackVersionReady.version_num,
             });
 
-            if (isProduction) {
-              // Status was not advanced yet, so the failure remains invisible to clients
-              // as a false ready-state. Fail the job and let retry logic handle recovery.
-              const updateJobFailureS3 = await db.prepare(`
-                UPDATE jobs SET status = ?, step = ?, step_index = ?, error_code = ?, error_message = ?, updated_at = ?
-                WHERE id = ? AND locked_by = ?
-              `);
-              await updateJobFailureS3.run("failed", "ready", PREVIEW_STEPS.indexOf("ready"), "S3_UPLOAD_FAILED", s3Error.message, now, job.id, runnerId);
+            if (process.env.NODE_ENV === "production") {
+              // Use the standard failure path: update job, track_version, track, DLQ, and billing hold
+              const readyStepIndex = steps.indexOf("ready");
+              await updateJobFailure.run(
+                "failed", "ready", readyStepIndex,
+                "S3_UPLOAD_FAILED", s3Error.message,
+                100, now, now, job.id, runnerId
+              );
+              await updateTrackVersion.run(
+                "failed", now,
+                null, null, null, null, null, null, null, null, null, null, null, null, null, null,
+                trackVersionReady.id
+              );
+              await updateTrack.run("failed", now, trackReady.id);
+              try {
+                const dlq = getDLQService();
+                await dlq.moveToDeadLetter({
+                  jobId: job.id,
+                  reason: `S3 upload failed: ${s3Error.message}`,
+                });
+                console.log(`[JobRunner] Moved job ${job.id} to DLQ after S3 failure`);
+              } catch (dlqErr) {
+                console.error(`[JobRunner] DLQ move failed for job ${job.id}:`, dlqErr.message);
+              }
+              releaseHoldIfNeeded({
+                track: trackReady,
+                trackVersion: trackVersionReady,
+                now,
+                reason: "job_failed",
+              });
               return;
             }
             // In dev mode, warn loudly that this would fail in production

@@ -174,25 +174,75 @@ function createS3Storage(config = {}) {
     };
   }
 
-  async function objectExists({ key }) {
-    const presigned = presign({ method: "HEAD", key, expiresInSec: 60 });
-    const response = await fetch(presigned.url, { method: "HEAD" });
-    return response.ok;
-  }
-
-  async function downloadToFile({ key, filePath }) {
-    const presigned = presign({ method: "GET", key, expiresInSec: 300 });
-    const response = await fetch(presigned.url);
-    if (!response.ok) {
-      throw new Error(`S3 download failed (${response.status}) for ${key}`);
+  async function objectExists({ key, maxRetries = 2 }) {
+    let lastError;
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      const presigned = presign({ method: "HEAD", key, expiresInSec: 60 });
+      try {
+        const response = await fetch(presigned.url, {
+          method: "HEAD",
+          signal: AbortSignal.timeout(10_000),
+        });
+        if (response.ok) return true;
+        if (response.status === 404) return false;
+        // 5xx is transient — retry rather than returning false
+        if (response.status >= 500 && attempt < maxRetries) {
+          lastError = new Error(`S3 HEAD failed (${response.status}) for ${key}`);
+        } else {
+          throw new Error(`S3 HEAD failed (${response.status}) for ${key}`);
+        }
+      } catch (err) {
+        if (err.name === "TimeoutError" || err.cause?.code === "ECONNRESET") {
+          if (attempt >= maxRetries) throw err;
+          lastError = err;
+        } else if (err.message?.startsWith("S3 HEAD failed")) {
+          if (attempt >= maxRetries) throw err;
+          lastError = err;
+        } else {
+          throw err;
+        }
+      }
+      const delayMs = 1000 * Math.pow(2, attempt);
+      await new Promise(resolve => setTimeout(resolve, delayMs));
     }
-    const buffer = Buffer.from(await response.arrayBuffer());
-    ensureDir(path.dirname(filePath));
-    fs.writeFileSync(filePath, buffer);
+    throw lastError;
   }
 
-  async function putFile({ key, filePath, contentType }) {
-    const presigned = presign({ method: "PUT", key, expiresInSec: 300 });
+  async function downloadToFile({ key, filePath, maxRetries = 3 }) {
+    let lastError;
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      const presigned = presign({ method: "GET", key, expiresInSec: 300 });
+      try {
+        const response = await fetch(presigned.url, {
+          signal: AbortSignal.timeout(60_000),
+        });
+        if (response.ok) {
+          const buffer = Buffer.from(await response.arrayBuffer());
+          ensureDir(path.dirname(filePath));
+          fs.writeFileSync(filePath, buffer);
+          return;
+        }
+        const isTransient = response.status >= 500;
+        if (!isTransient || attempt >= maxRetries) {
+          throw new Error(`S3 download failed (${response.status}) for ${key}`);
+        }
+        lastError = new Error(`S3 download failed (${response.status}) for ${key}`);
+      } catch (err) {
+        const isNetworkError = err.name === "TimeoutError" || err.cause?.code === "ECONNRESET" || err.cause?.code === "ETIMEDOUT";
+        if (!isNetworkError && !err.message?.startsWith("S3 download failed (5")) {
+          throw err;
+        }
+        if (attempt >= maxRetries) throw err;
+        lastError = err;
+      }
+      const delayMs = 1000 * Math.pow(2, attempt);
+      console.warn(`[S3] Download attempt ${attempt + 1}/${maxRetries + 1} failed for ${key}, retrying in ${delayMs}ms...`);
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+    }
+    throw lastError;
+  }
+
+  async function putFile({ key, filePath, contentType, maxRetries = 3 }) {
     const buffer = fs.readFileSync(filePath);
     const headers = contentType ? { "Content-Type": contentType } : {};
 
@@ -203,14 +253,38 @@ function createS3Storage(config = {}) {
       Object.assign(headers, encryptionHeaders);
     }
 
-    const response = await fetch(presigned.url, {
-      method: "PUT",
-      headers,
-      body: buffer,
-    });
-    if (!response.ok) {
-      throw new Error(`S3 upload failed (${response.status}) for ${key}`);
+    let lastError;
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      // Fresh presigned URL per attempt (avoids expiry on retries)
+      const presigned = presign({ method: "PUT", key, expiresInSec: 300 });
+      try {
+        const response = await fetch(presigned.url, {
+          method: "PUT",
+          headers,
+          body: buffer,
+          signal: AbortSignal.timeout(30_000),
+        });
+        if (response.ok) return;
+
+        const isTransient = response.status >= 500;
+        if (!isTransient || attempt >= maxRetries) {
+          throw new Error(`S3 upload failed (${response.status}) for ${key}`);
+        }
+        lastError = new Error(`S3 upload failed (${response.status}) for ${key}`);
+      } catch (err) {
+        // Network errors (ECONNRESET, timeout) are transient
+        const isNetworkError = err.cause?.code === "ECONNRESET" || err.cause?.code === "ETIMEDOUT" || err.message?.includes("fetch failed");
+        if (!isNetworkError && !err.message?.startsWith("S3 upload failed (5")) {
+          throw err; // Non-transient error, don't retry
+        }
+        if (attempt >= maxRetries) throw err;
+        lastError = err;
+      }
+      const delayMs = 1000 * Math.pow(2, attempt); // 1s, 2s, 4s
+      console.warn(`[S3] Upload attempt ${attempt + 1}/${maxRetries + 1} failed for ${key}, retrying in ${delayMs}ms...`);
+      await new Promise(resolve => setTimeout(resolve, delayMs));
     }
+    throw lastError;
   }
 
   async function deleteObject({ key }) {
@@ -288,6 +362,7 @@ function createS3Storage(config = {}) {
         "x-amz-content-sha256": "UNSIGNED-PAYLOAD",
         "Authorization": authorization,
       },
+      signal: AbortSignal.timeout(15_000),
     });
 
     if (!response.ok) {

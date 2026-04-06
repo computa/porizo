@@ -156,6 +156,12 @@ function classifyError(message, code, step) {
     return { category: "entitlement_limit", retryable: false, suggestedAction: "wait_for_reset", canAutoRewrite: false, provider: null };
   }
 
+  // --- S3 upload errors (transient — S3/R2 5xx are retryable) ---
+
+  if (normalizedCode === "S3_UPLOAD_FAILED" || msg.startsWith("s3 upload failed")) {
+    return { category: "infrastructure_transient", retryable: true, suggestedAction: "wait_and_retry", canAutoRewrite: false, provider: null };
+  }
+
   // --- Download errors (always transient — the download itself failed) ---
 
   if (msg.startsWith("download_error:")) {
