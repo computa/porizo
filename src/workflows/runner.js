@@ -3430,9 +3430,10 @@ async function startJobRunner({
       // after container restarts. Steps like watermark/ready depend on files produced
       // by prior steps (mix.wav, full.m4a). If those files are gone (deploy wiped
       // ephemeral storage), reset to the earliest step that can regenerate them.
+      const isFullRender = job.workflow_type === "full_render";
       const FILE_DEPS = {
         watermark: ["mix.wav"],
-        ready: [isFull ? "full.m4a" : "preview.m4a"],
+        ready: [isFullRender ? "full.m4a" : "preview.m4a"],
       };
       const requiredFiles = FILE_DEPS[stepName];
       if (requiredFiles && track && trackVersion) {
