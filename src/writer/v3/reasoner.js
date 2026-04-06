@@ -1,11 +1,12 @@
 /**
  * V3 Reasoner
  *
- * Unified reasoning module that handles perception, reasoning, and action
- * selection in a single LLM call.
+ * Legacy broad-context reasoning module retained as a fallback safety rail
+ * and for story-drafting stages that have not been moved onto the kernel path.
  *
- * V3 Update: Uses context-only prompts without embedded decision rules.
- * The LLM makes all qualitative decisions; the harness only validates structure.
+ * The kernel-driven turn loop now owns ingestion, planning, and composition for
+ * normal multi-turn story collection. This module remains responsible for the
+ * older broad reasoning path and shared prompt-stage helpers.
  *
  * @module writer/v3/reasoner
  */
@@ -373,8 +374,7 @@ function getBackoffDelay(attempt) {
 /**
  * Build the reasoning prompt with current state
  *
- * V3: Uses context-only prompt without embedded decision rules.
- * The LLM makes all qualitative decisions holistically.
+ * This is the legacy broad-context reasoning prompt used by the fallback path.
  *
  * @param {Object} state - Current V3 state
  * @param {string} userInput - User's new input
@@ -1335,6 +1335,7 @@ module.exports = {
   buildOutlineStagePrompt,
   buildWriterStagePrompt,
   parseReasoningResponse,
+  parseJsonResponse,
   reason,
   reasonWithFallback,
   // Exported for testing

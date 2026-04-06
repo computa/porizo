@@ -2,6 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 const v3Engine = require("../../../src/writer/v3");
+const engine = require("../../../src/writer/v3/engine");
 const { createInitialState, ensureStateDefaults } = require("../../../src/writer/v3/state");
 
 test("ensureStateDefaults backfills explicit revision fields for legacy state", () => {
@@ -25,7 +26,7 @@ test("addTurnToState preserves explicit revision metadata on conversation turns"
     initialPrompt: "Tell his story.",
   });
 
-  const next = v3Engine.__internal.engine.addTurnToState(
+  const next = engine.addTurnToState(
     base,
     "user",
     "Change the ending so it focuses on resilience.",

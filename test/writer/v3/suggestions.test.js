@@ -2,6 +2,8 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 const v3 = require("../../../src/writer/v3");
+const reasoner = require("../../../src/writer/v3/reasoner");
+const engine = require("../../../src/writer/v3/engine");
 
 test("parseReasoningResponse sanitizes output suggestions", () => {
   const response = JSON.stringify({
@@ -19,7 +21,7 @@ test("parseReasoningResponse sanitizes output suggestions", () => {
     },
   });
 
-  const parsed = v3.__internal.reasoner.parseReasoningResponse(response);
+  const parsed = reasoner.parseReasoningResponse(response);
 
   assert.equal(parsed.success, true);
   assert.deepEqual(parsed.data.suggestions, [
@@ -61,7 +63,7 @@ test("buildResponseSuggestions uses exact slot fallback for moment_destination",
 });
 
 test("getSlotSuggestions returns shared tone fallback when occasion lacks tone entries", () => {
-  const suggestions = v3.__internal.engine.getSlotSuggestions("apology", "tone");
+  const suggestions = engine.getSlotSuggestions("apology", "tone");
 
   assert.deepEqual(suggestions, [
     "Warm and heartfelt",
@@ -71,7 +73,7 @@ test("getSlotSuggestions returns shared tone fallback when occasion lacks tone e
 });
 
 test("getSlotSuggestions normalizes underscore occasion variants", () => {
-  const suggestions = v3.__internal.engine.getSlotSuggestions("i_love_you", "want");
+  const suggestions = engine.getSlotSuggestions("i_love_you", "want");
 
   assert.deepEqual(suggestions, [
     "I just wanted to be near them",
@@ -81,7 +83,7 @@ test("getSlotSuggestions normalizes underscore occasion variants", () => {
 });
 
 test("getSlotSuggestions normalizes spaced and apostrophe occasion variants", () => {
-  const suggestions = v3.__internal.engine.getSlotSuggestions("Mother's Day", "moment");
+  const suggestions = engine.getSlotSuggestions("Mother's Day", "moment");
 
   assert.deepEqual(suggestions, [
     "When she comforted me",
@@ -91,7 +93,7 @@ test("getSlotSuggestions normalizes spaced and apostrophe occasion variants", ()
 });
 
 test("getElementSuggestions returns element fallback starters", () => {
-  const suggestions = v3.__internal.engine.getElementSuggestions("birthday", "feeling");
+  const suggestions = engine.getElementSuggestions("birthday", "feeling");
 
   assert.deepEqual(suggestions, [
     "Grateful beyond words",

@@ -30,6 +30,8 @@ Do NOT flag elements as "missing" if the user provided ANY content for them — 
 **Story dials (inferred):**
 {{dials_summary}}
 
+{{already_known}}
+
 **Conversation:**
 {{conversation_history}}
 

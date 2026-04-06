@@ -1,19 +1,20 @@
 /**
  * Story Reasoning Engine V3
  *
- * An intelligent, thinking story collection system that reasons holistically
- * about each user input. Uses a single unified LLM call per turn instead of
- * a pipeline of specialized extractors.
+ * A kernel-driven story collection system with narrow LLM stages.
  *
  * Key differences from V1:
  * - Dynamic beat schemas (not hardcoded arcs)
  * - Single evolving narrative (not element fragments)
- * - Unified reasoning (not extract → integrate → evaluate → select)
+ * - Kernel-owned turn control (not prompt-owned control flow)
  * - User model detection (brief/verbose, emotional/analytical)
  * - Fatigue detection (know when to stop)
  *
  * Architecture:
- * - One LLM call per turn (reason.js)
+ * - Narrow ingestion stage for structured deltas
+ * - Deterministic planning and completion policy
+ * - Thin composition stage for phrasing only
+ * - Legacy broad reasoner retained as fallback safety rail
  * - State management with grounding validation (state.js)
  * - Dynamic beat generation per event type (beats.js)
  * - Quality checks for story completeness (quality.js)
@@ -43,11 +44,7 @@ const {
   getCompletionFromLLM,
   getCompletionScore,
   computeStoryGapAnalysis,
-  computeLabovGapAnalysis,
-  pickDeterministicGapQuestion,
-  getCriticalConfirmSlotCoverage,
   computeStoryElements,
-  getElementConfirmBlock,
   getElementForSlot,
   STORY_ELEMENT_DEFINITIONS,
   REFLECTIVE_STORY_ELEMENT_DEFINITIONS,
@@ -64,11 +61,25 @@ const {
   generateTargetedFallbackQuestion,
   validateQuestionRelevance,
   generateStorySpecificSuggestions,
-  getSlotLabovElement,
 } = require("./quality");
 const { condenseForReasoning } = require("./condense");
 const { generateElementGuidance } = require("./guidance");
 const { normalizeStyle } = require("../../providers/style-registry");
+const {
+  detectRepeatedQuestionTheme,
+  shouldForceForwardProgressConfirm,
+  buildTargetDecisionMeta,
+  selectRuntimeQuestionTarget,
+  selectAlternativeQuestionTarget,
+  summarizeTargetAlternatives,
+  buildPlanningContext,
+  planTurn,
+} = require("./kernel/planner");
+const { createTurnDecision } = require("./kernel/types");
+const { ingestTurn } = require("./kernel/ingestor");
+const { composeTurn } = require("./kernel/composer");
+const { buildBudgetTelemetry, buildPlannerTelemetry } = require("./kernel/telemetry");
+const { ensureNarrativeAfterStateUpdate, applyTurnStateUpdate } = require("./kernel/state-update");
 const {
   deriveStoryBlockProfile,
   evaluateNarrativeBlockCoverage,
@@ -97,19 +108,8 @@ const QUESTION_DETAIL_STOP_WORDS = new Set([
   "there", "they", "this", "what", "when", "where", "which", "while", "with",
   "would", "your", "you", "were", "then", "than", "like", "felt", "feel",
 ]);
-const SEMANTIC_REPEAT_STOP_WORDS = new Set([
-  "a", "an", "and", "are", "around", "as", "at", "be", "because", "but", "by",
-  "can", "could", "did", "do", "does", "for", "from", "had", "has", "have",
-  "how", "i", "if", "in", "into", "is", "it", "its", "just", "me", "more",
-  "my", "of", "on", "or", "our", "so", "than", "that", "the", "their", "them",
-  "then", "there", "these", "they", "this", "those", "through", "to", "too",
-  "up", "us", "was", "we", "were", "what", "when", "where", "which", "who",
-  "why", "with", "would", "you", "your",
-]);
 const GENERIC_LLM_QUESTION_REGEX = /\b(tell me more|can you tell me more|share more|say more|what else|anything else|more about|what's something|could you tell me a bit more)\b/i;
 const TURN_LOG_PREVIEW_LIMIT = 220;
-const SUBSTANTIVE_ANSWER_MIN_CHARS = 24;
-const SUFFICIENT_ANSWER_MIN_CHARS = 56;
 
 // Repository instance (set by initialize)
 let storyRepo = null;
@@ -118,6 +118,14 @@ let storyRepo = null;
 const LLM_REWRITE_TIMEOUT_MS = 8000;
 // Only attempt LLM rewrite when missing ratio is below this threshold
 const LLM_REWRITE_MAX_MISSING_RATIO = 0.4;
+
+function createEmptyKernelStageTelemetry() {
+  return {
+    ingest: null,
+    compose: null,
+    planner: null,
+  };
+}
 
 /**
  * LLM-powered narrative rewrite that weaves missing details into the prose.
@@ -243,13 +251,6 @@ function previewTurnText(text, maxLength = TURN_LOG_PREVIEW_LIMIT) {
   return `${normalized.slice(0, maxLength - 1)}…`;
 }
 
-function summarizeTargetAlternatives(targetDecision) {
-  if (!targetDecision?.alternatives?.length) return null;
-  return targetDecision.alternatives
-    .map((candidate) => `${candidate.element}:${candidate.score}[${candidate.reason}]`)
-    .join(" | ");
-}
-
 function logStoryTurnEvent(label, fields = {}) {
   const payload = Object.entries(fields)
     .filter(([, value]) => value !== undefined)
@@ -268,358 +269,6 @@ function inferAskedQuestionElement(question) {
     if (validateQuestionRelevance(question, element)) return element;
   }
   return null;
-}
-
-function tokenizeSemanticRepeatText(text) {
-  return String(text || "")
-    .toLowerCase()
-    .replace(/[^a-z0-9'\s-]/g, " ")
-    .split(/\s+/)
-    .map((token) => token.trim())
-    .filter((token) => token.length >= 3 && !SEMANTIC_REPEAT_STOP_WORDS.has(token));
-}
-
-function scoreTokenOverlap(tokensA, tokensB) {
-  if (!tokensA?.length || !tokensB?.length) return 0;
-  const setA = new Set(tokensA);
-  const setB = new Set(tokensB);
-  let overlap = 0;
-  for (const token of setA) {
-    if (setB.has(token)) overlap += 1;
-  }
-  return overlap / Math.max(1, Math.min(setA.size, setB.size));
-}
-
-function countSharedTokens(tokensA, tokensB) {
-  if (!tokensA?.length || !tokensB?.length) return 0;
-  const setA = new Set(tokensA);
-  const setB = new Set(tokensB);
-  let overlap = 0;
-  for (const token of setA) {
-    if (setB.has(token)) overlap += 1;
-  }
-  return overlap;
-}
-
-function getRankedQuestionTargets(gapAnalysis) {
-  if (!gapAnalysis?.labov?.elements) return [];
-  return gapAnalysis.labov.elements
-    .filter((element) => element && typeof element.weight === "number" && typeof element.strength === "number")
-    .filter((element) => LABOV_QUESTION_ELEMENTS.includes(element.element))
-    .filter((element) => element.strength < 0.6)
-    .map((element) => ({
-      element: element.element,
-      weight: element.weight,
-      currentStrength: element.strength,
-      priority: Number((element.weight * (1 - element.strength)).toFixed(3)),
-    }))
-    .sort((a, b) => b.priority - a.priority);
-}
-
-function getLabovElementStrengthMap(gapAnalysis, storyState) {
-  const map = new Map();
-  const fromGap = Array.isArray(gapAnalysis?.labov?.elements) ? gapAnalysis.labov.elements : [];
-  for (const entry of fromGap) {
-    if (LABOV_QUESTION_ELEMENTS.includes(entry?.element)) {
-      map.set(entry.element, Number(entry.strength || 0));
-    }
-  }
-  for (const element of LABOV_QUESTION_ELEMENTS) {
-    if (map.has(element)) continue;
-    const fallbackStrength = Number(storyState?.labov?.[element]?.strength || 0);
-    map.set(element, fallbackStrength);
-  }
-  return map;
-}
-
-function isSubstantiveAnswerSummary(text) {
-  return typeof text === "string" && text.trim().length >= SUBSTANTIVE_ANSWER_MIN_CHARS;
-}
-
-function isSufficientAnswerSummary(text) {
-  if (typeof text !== "string") return false;
-  const trimmed = text.trim();
-  if (trimmed.length >= SUFFICIENT_ANSWER_MIN_CHARS) return true;
-  return tokenizeSemanticRepeatText(trimmed).length >= 10;
-}
-
-function getElementTargetLedger(gapAnalysis, storyState) {
-  const ledger = new Map();
-  const ranked = getRankedQuestionTargets(gapAnalysis);
-  const strengthMap = getLabovElementStrengthMap(gapAnalysis, storyState);
-  const storyMode = gapAnalysis?.storyMode || "default";
-
-  for (const element of LABOV_QUESTION_ELEMENTS) {
-    const candidate = ranked.find((entry) => entry.element === element);
-    ledger.set(element, {
-      element,
-      weight: candidate?.weight || 0,
-      currentStrength: candidate?.currentStrength ?? strengthMap.get(element) ?? 0,
-      missingSlotCount: 0,
-      weakSlotCount: 0,
-      answeredCount: 0,
-      substantiveAnswerCount: 0,
-      sufficientAnswerCount: 0,
-      lastAnsweredRound: 0,
-      bestSlot: null,
-      bestSlotState: null,
-    });
-  }
-
-  for (const slot of Array.isArray(gapAnalysis?.slots) ? gapAnalysis.slots : []) {
-    const targetElement = getSlotLabovElement(slot?.slot) || getElementForSlot(storyMode, slot?.slot)?.id || null;
-    if (!targetElement || !ledger.has(targetElement)) continue;
-    const entry = ledger.get(targetElement);
-    if (slot.status === "missing") {
-      entry.missingSlotCount += 1;
-    } else if (slot.status === "weak") {
-      entry.weakSlotCount += 1;
-    }
-    const entryBestState = entry.bestSlotState === "missing" ? 2 : entry.bestSlotState === "weak" ? 1 : 0;
-    const slotStateRank = slot.status === "missing" ? 2 : slot.status === "weak" ? 1 : 0;
-    if (!entry.bestSlot || slotStateRank > entryBestState) {
-      entry.bestSlot = slot.slot || null;
-      entry.bestSlotState = slot.status || null;
-    }
-  }
-
-  const questions = Array.isArray(storyState?.questionsAsked) ? storyState.questionsAsked : [];
-  for (const asked of questions) {
-    if (!asked?.answered) continue;
-    const targetElement = asked.targetElement || inferAskedQuestionElement(asked.question || "");
-    if (!targetElement || !ledger.has(targetElement)) continue;
-    const entry = ledger.get(targetElement);
-    entry.answeredCount += 1;
-    if (isSubstantiveAnswerSummary(asked.answerSummary)) {
-      entry.substantiveAnswerCount += 1;
-    }
-    if (isSufficientAnswerSummary(asked.answerSummary)) {
-      entry.sufficientAnswerCount += 1;
-    }
-    if (Number.isFinite(Number(asked.round))) {
-      entry.lastAnsweredRound = Math.max(entry.lastAnsweredRound, Number(asked.round));
-    }
-  }
-
-  return ledger;
-}
-
-function scoreQuestionTargetCandidate(candidate, ledgerEntry, directTarget = null) {
-  const missingSlotCount = ledgerEntry?.missingSlotCount || 0;
-  const weakSlotCount = ledgerEntry?.weakSlotCount || 0;
-  const answeredCount = ledgerEntry?.answeredCount || 0;
-  const substantiveAnswerCount = ledgerEntry?.substantiveAnswerCount || 0;
-  const sufficientAnswerCount = ledgerEntry?.sufficientAnswerCount || 0;
-  const strengthGap = Math.max(0, 1 - Number(candidate?.currentStrength || 0));
-  const unresolvedBonus = (missingSlotCount * 120) + (weakSlotCount * 45);
-  const strengthBonus = Math.round(strengthGap * 24);
-  const directTargetBonus = directTarget && candidate.element === directTarget ? 18 : 0;
-  const priorityBonus = Math.round(Number(candidate?.priority || 0) * 100);
-  const answerPenalty = (answeredCount * 6) + (substantiveAnswerCount * 14) + (sufficientAnswerCount * 26);
-  const sufficientPenalty = sufficientAnswerCount >= 2 ? 48 : 0;
-  const score = priorityBonus + unresolvedBonus + strengthBonus + directTargetBonus - answerPenalty - sufficientPenalty;
-
-  const reasons = [];
-  if (missingSlotCount > 0) reasons.push(`missingSlots=${missingSlotCount}`);
-  if (weakSlotCount > 0) reasons.push(`weakSlots=${weakSlotCount}`);
-  reasons.push(`strength=${Number(candidate?.currentStrength || 0).toFixed(2)}`);
-  if (directTargetBonus) reasons.push("directTargetBonus");
-  if (answeredCount > 0) reasons.push(`answered=${answeredCount}`);
-  if (substantiveAnswerCount > 0) reasons.push(`substantiveAnswers=${substantiveAnswerCount}`);
-  if (sufficientAnswerCount > 0) reasons.push(`sufficientAnswers=${sufficientAnswerCount}`);
-  if (sufficientPenalty) reasons.push("repeatPenalty");
-
-  return {
-    element: candidate.element,
-    score,
-    reasons,
-    weight: candidate.weight,
-    currentStrength: candidate.currentStrength,
-    missingSlotCount,
-    weakSlotCount,
-    answeredCount,
-    substantiveAnswerCount,
-    sufficientAnswerCount,
-    bestSlot: ledgerEntry?.bestSlot || null,
-    bestSlotState: ledgerEntry?.bestSlotState || null,
-    lastAnsweredRound: ledgerEntry?.lastAnsweredRound || 0,
-  };
-}
-
-function rankQuestionTargetCandidates(gapAnalysis, storyState, options = {}) {
-  const ranked = getRankedQuestionTargets(gapAnalysis);
-  const directTarget = options.directTarget || null;
-  const ledger = getElementTargetLedger(gapAnalysis, storyState);
-  const candidates = LABOV_QUESTION_ELEMENTS.map((element) => {
-    const rankedCandidate = ranked.find((candidate) => candidate.element === element);
-    const ledgerEntry = ledger.get(element);
-    return scoreQuestionTargetCandidate(
-      rankedCandidate || {
-        element,
-        weight: ledgerEntry?.weight || 0,
-        currentStrength: ledgerEntry?.currentStrength || 0,
-        priority: (ledgerEntry?.missingSlotCount || ledgerEntry?.weakSlotCount)
-          ? (1 - (ledgerEntry?.currentStrength || 0))
-          : 0,
-      },
-      ledgerEntry,
-      directTarget
-    );
-  });
-  return candidates
-    .sort((a, b) => b.score - a.score);
-}
-
-function getRecentAnsweredQuestions(storyState, limit = 4) {
-  const questions = Array.isArray(storyState?.questionsAsked) ? storyState.questionsAsked : [];
-  return questions.filter((entry) => entry?.answered).slice(-limit);
-}
-
-function detectRepeatedQuestionTheme(question, targetElement, storyState) {
-  const currentTokens = tokenizeSemanticRepeatText(question);
-  const recentAnswered = getRecentAnsweredQuestions(storyState);
-  if (recentAnswered.length === 0) return null;
-
-  for (let index = recentAnswered.length - 1; index >= 0; index -= 1) {
-    const entry = recentAnswered[index];
-    const entryElement = entry.targetElement || inferAskedQuestionElement(entry.question || "");
-    const entryQuestionTokens = tokenizeSemanticRepeatText(entry.question || "");
-    const entryAnswerTokens = tokenizeSemanticRepeatText(entry.answerSummary || "");
-    const questionOverlap = scoreTokenOverlap(currentTokens, entryQuestionTokens);
-    const answerOverlap = scoreTokenOverlap(currentTokens, entryAnswerTokens);
-    const sharedQuestionTokens = countSharedTokens(currentTokens, entryQuestionTokens);
-    const sharedAnswerTokens = countSharedTokens(currentTokens, entryAnswerTokens);
-    const sameElement = Boolean(targetElement) && entryElement === targetElement;
-    const substantiveAnswer = isSubstantiveAnswerSummary(entry.answerSummary);
-
-    if (
-      sameElement &&
-      substantiveAnswer &&
-      (
-        currentTokens.length === 0 ||
-        sharedQuestionTokens >= 1 ||
-        sharedAnswerTokens >= 1 ||
-        questionOverlap >= 0.34 ||
-        answerOverlap >= 0.26
-      )
-    ) {
-      return {
-        priorQuestion: entry.question || null,
-        priorAnswerSummary: entry.answerSummary || null,
-        priorElement: entryElement || null,
-        questionOverlap,
-        answerOverlap,
-      };
-    }
-
-    if (
-      (sharedQuestionTokens >= 2 && questionOverlap >= 0.45) ||
-      (sharedAnswerTokens >= 2 && answerOverlap >= 0.45)
-    ) {
-      return {
-        priorQuestion: entry.question || null,
-        priorAnswerSummary: entry.answerSummary || null,
-        priorElement: entryElement || null,
-        questionOverlap,
-        answerOverlap,
-      };
-    }
-  }
-
-  return null;
-}
-
-function selectAlternativeQuestionTarget(gapAnalysis, storyState, excludedElements = new Set()) {
-  const candidates = rankQuestionTargetCandidates(gapAnalysis, storyState);
-  const unresolvedPreferred = candidates.find((candidate) =>
-    !excludedElements.has(candidate.element)
-      && candidate.sufficientAnswerCount < 2
-      && (candidate.missingSlotCount > 0 || candidate.weakSlotCount > 0)
-  );
-  if (unresolvedPreferred) return unresolvedPreferred.element;
-  return candidates.find((candidate) => !excludedElements.has(candidate.element))?.element || null;
-}
-
-function shouldForceForwardProgressConfirm(ctx, state, repeatedElementCount = 0) {
-  if (ctx?.gapAnalysis?.isStoryReady) return true;
-
-  const readinessScore = typeof ctx?.gapAnalysis?.readinessScore === "number"
-    ? ctx.gapAnalysis.readinessScore
-    : 0;
-  const coveredSlots = Array.isArray(ctx?.gapAnalysis?.slots)
-    ? ctx.gapAnalysis.slots.filter((slot) => slot.status === "covered").length
-    : 0;
-  const turnCount = Number(state?.turn_count || 0);
-  const factCount = Array.isArray(state?.facts)
-    ? state.facts.filter((fact) => (fact?.status || "active") === "active").length
-    : 0;
-  const narrativeLength = getCanonicalNarrative(state).length;
-
-  if (
-    repeatedElementCount >= 2 &&
-    turnCount >= 4 &&
-    factCount >= 4 &&
-    coveredSlots >= 4 &&
-    readinessScore >= 0.58 &&
-    narrativeLength >= 180
-  ) {
-    return true;
-  }
-
-  if (
-    repeatedElementCount >= 3 &&
-    turnCount >= 5 &&
-    factCount >= 5 &&
-    coveredSlots >= 4 &&
-    readinessScore >= 0.5 &&
-    narrativeLength >= 220
-  ) {
-    return true;
-  }
-
-  return false;
-}
-
-function buildTargetDecisionMeta(gapAnalysis, storyState, response, targetElement) {
-  const directTargetCandidate = getSlotLabovElement(response?.targetSlot);
-  const directTarget = LABOV_QUESTION_ELEMENTS.includes(directTargetCandidate)
-    ? directTargetCandidate
-    : null;
-  const candidates = rankQuestionTargetCandidates(gapAnalysis, storyState, { directTarget });
-  const winner = candidates.find((candidate) => candidate.element === targetElement) || null;
-  return {
-    directTarget,
-    winner: winner
-      ? {
-          ...winner,
-          reason: winner.reasons.join(", "),
-        }
-      : null,
-    alternatives: candidates
-      .filter((candidate) => candidate.element !== targetElement)
-      .slice(0, 3)
-      .map((candidate) => ({
-        ...candidate,
-        reason: candidate.reasons.join(", "),
-      })),
-  };
-}
-
-function selectRuntimeQuestionTarget(response, gapAnalysis, storyState, options = {}) {
-  const excludedElements = options.excludedElements instanceof Set ? options.excludedElements : new Set();
-  const directTargetCandidate = getSlotLabovElement(response?.targetSlot);
-  const directTarget = LABOV_QUESTION_ELEMENTS.includes(directTargetCandidate)
-    ? directTargetCandidate
-    : null;
-  const candidates = rankQuestionTargetCandidates(gapAnalysis, storyState, { directTarget });
-  const preferred = candidates.find((candidate) =>
-    !excludedElements.has(candidate.element)
-      && candidate.sufficientAnswerCount < 2
-      && (candidate.missingSlotCount > 0 || candidate.weakSlotCount > 0)
-  );
-  if (preferred) return preferred.element;
-  if (directTarget && !excludedElements.has(directTarget)) return directTarget;
-  return candidates.find((candidate) => !excludedElements.has(candidate.element))?.element || null;
 }
 
 function getQuestionDetailSignal(question, state, userMessage) {
@@ -674,9 +323,14 @@ function shouldSoftPassQuestion(question, state, userMessage) {
 }
 
 function chooseRuntimeFallbackQuestion(targetElement, state, userMessage, gapQuestion) {
+  const recipientFirst = (state?.recipient_name || "them").split(/\s/)[0];
   return generateTargetedFallbackQuestion(targetElement, state, userMessage)
     || gapQuestion?.prompt
-    || buildGenericGapFallback(state);
+    || `What's something about ${recipientFirst} that always stays with you?`;
+}
+
+function getResponsePromptText(response) {
+  return response?.question || response?.confirmation || null;
 }
 
 function hydrateStoryState(state) {
@@ -1508,51 +1162,26 @@ function getTurnProgressScore(state, gapAnalysis, action, elements) {
   return score;
 }
 
-function computeDecisionContext(response, state, options = {}) {
-  const useLabovScoring = state?.flags?.labov_scoring === true;
-  const gapAnalysis = useLabovScoring
-    ? computeLabovGapAnalysis(state, { occasion: state?.event?.occasion || state?.occasion, turnCount: state?.turn_count })
-    : computeStoryGapAnalysis(state);
-  const gapQuestion = pickDeterministicGapQuestion(gapAnalysis);
-  const criticalCoverage = getCriticalConfirmSlotCoverage(gapAnalysis);
-  const elements = computeStoryElements(gapAnalysis);
-  const elementBlock = getElementConfirmBlock(elements);
-  const llmReadySignal = deriveLlmReadySignal(response, state);
-  const hardSafetyBlock = state?.last_reasoning?.safety?.blocked === true ||
-    state?.last_reasoning?.safety?.requires_refusal === true ||
-    state?.last_reasoning?.safety_violation === true;
-  const hardGroundingBlock = state?.grounding_enforced && state?.grounding_issue === "no_facts";
-  const hardCriticalBlock = criticalCoverage.hasBlockingGap;
-  const hardElementBlock = elementBlock.hasElementBlock;
-  const hardSemanticBlock = state?.semantic_story?.can_confirm === false;
-  const isRevision = options.inputMode === "revision";
-  // Option C (Hybrid): LLM drives the conversation; code guards safety only.
-  // Element/critical/semantic blocks are computed for analytics (progress bar,
-  // story elements UI) but no longer override the LLM's question or action.
-  const hardBlockConfirm = hardSafetyBlock || hardGroundingBlock;
-  const hybridReady = !hardBlockConfirm && (gapAnalysis.isStoryReady || llmReadySignal);
-
-  return {
-    gapAnalysis, gapQuestion, criticalCoverage, elements,
-    elementBlock, hardElementBlock, llmReadySignal,
-    hardSafetyBlock, hardGroundingBlock, hardCriticalBlock,
-    hardSemanticBlock, hardBlockConfirm, hybridReady, isRevision,
-    useLabovScoring,
-  };
-}
-
 function resolveTurnDecision(response, state, options = {}) {
-  const ctx = computeDecisionContext(response, state, options);
+  const ctx = buildPlanningContext({
+    state,
+    response,
+    inputMode: options.inputMode,
+    llmReadySignal: deriveLlmReadySignal(response, state),
+  });
   const { gapAnalysis, gapQuestion, llmReadySignal, hardSafetyBlock, hardBlockConfirm } = ctx;
   const userMessage = options.userMessage || null;
+  const kernelDecision = options.turnDecision || null;
+  const kernelTargetDecision = options.targetDecision || null;
+  const isKernelDecision = Boolean(kernelDecision?.source);
   let adjustedResponse = { ...response };
   let forcedGapQuestion = false;
   let forcedConfirm = false;
-  let decisionSource = "llm";
+  let decisionSource = isKernelDecision ? kernelDecision.source : "llm";
   let llmSuggestions = Array.isArray(response.suggestions) ? response.suggestions : [];
-  let targetElement = null;
+  let targetElement = kernelDecision?.targetElement || null;
   let repeatEscapeApplied = false;
-  let targetDecision = null;
+  let targetDecision = kernelTargetDecision || null;
 
   const llmHasQuestion = typeof response.question === "string" && response.question.trim().length > 0;
   // Compute semantic block signature for analytics tracking (attachGapTelemetry uses it)
@@ -1594,8 +1223,8 @@ function resolveTurnDecision(response, state, options = {}) {
 
   // --- LLM says ASK or CLARIFY: trust the LLM's question ---
   if (adjustedResponse.action === "ASK" || adjustedResponse.action === "CLARIFY") {
-    targetElement = selectRuntimeQuestionTarget(adjustedResponse, gapAnalysis, state?.story_state);
-    targetDecision = buildTargetDecisionMeta(gapAnalysis, state?.story_state, adjustedResponse, targetElement);
+    targetElement = targetElement || selectRuntimeQuestionTarget(adjustedResponse, gapAnalysis, state?.story_state);
+    targetDecision = targetDecision || buildTargetDecisionMeta(gapAnalysis, state?.story_state, adjustedResponse, targetElement);
     if (llmHasQuestion) {
       const trimmedQuestion = adjustedResponse.question.trim();
       const targetLedger = targetDecision?.winner || null;
@@ -1633,7 +1262,7 @@ function resolveTurnDecision(response, state, options = {}) {
           };
           llmSuggestions = [];
           forcedConfirm = true;
-          decisionSource = "forward_progress_confirm";
+          decisionSource = isKernelDecision ? "kernel_forward_progress_confirm" : "forward_progress_confirm";
           repeatEscapeApplied = true;
           return buildDecisionResult({
             adjustedResponse,
@@ -1655,7 +1284,7 @@ function resolveTurnDecision(response, state, options = {}) {
           };
           llmSuggestions = [];
           forcedGapQuestion = true;
-          decisionSource = "forward_progress_retarget";
+          decisionSource = isKernelDecision ? "kernel_forward_progress_retarget" : "forward_progress_retarget";
           repeatEscapeApplied = true;
           return buildDecisionResult({
             adjustedResponse,
@@ -1682,7 +1311,7 @@ function resolveTurnDecision(response, state, options = {}) {
           };
           llmSuggestions = [];
           forcedGapQuestion = true;
-          decisionSource = "forward_progress_retarget";
+          decisionSource = isKernelDecision ? "kernel_forward_progress_retarget" : "forward_progress_retarget";
           targetElement = alternateTarget;
           targetDecision = buildTargetDecisionMeta(gapAnalysis, state?.story_state, adjustedResponse, targetElement);
           repeatEscapeApplied = true;
@@ -1711,7 +1340,7 @@ function resolveTurnDecision(response, state, options = {}) {
 
       if (!isRelevant && shouldSoftPassQuestion(trimmedQuestion, state, userMessage) && !strongerUnresolvedTargetExists) {
         adjustedResponse = { ...adjustedResponse, question: trimmedQuestion };
-        decisionSource = "llm_soft_pass";
+        decisionSource = isKernelDecision ? "kernel_soft_pass" : "llm_soft_pass";
       } else if (!isRelevant) {
         adjustedResponse = {
           ...adjustedResponse,
@@ -1719,10 +1348,10 @@ function resolveTurnDecision(response, state, options = {}) {
         };
         llmSuggestions = [];
         forcedGapQuestion = true;
-        decisionSource = "llm_off_target_fallback";
+        decisionSource = isKernelDecision ? "kernel_off_target_fallback" : "llm_off_target_fallback";
       } else {
         adjustedResponse = { ...adjustedResponse, question: trimmedQuestion };
-        decisionSource = "llm_validated";
+        decisionSource = isKernelDecision ? "kernel_validated" : "llm_validated";
       }
     } else {
       // LLM decided to ask but didn't produce a question — fallback
@@ -1730,7 +1359,7 @@ function resolveTurnDecision(response, state, options = {}) {
       adjustedResponse = { ...adjustedResponse, question: fallback };
       llmSuggestions = [];
       forcedGapQuestion = true;
-      decisionSource = "llm_missing_question_fallback";
+      decisionSource = isKernelDecision ? "kernel_missing_question_fallback" : "llm_missing_question_fallback";
     }
     return buildDecisionResult({ adjustedResponse, ctx, decisionSource, llmSuggestions, forcedGapQuestion, targetElement, targetDecision, repeatEscapeApplied });
   }
@@ -1748,7 +1377,7 @@ function resolveTurnDecision(response, state, options = {}) {
         adjustedResponse = { ...adjustedResponse, action: "ASK", confirmation: undefined };
         decisionSource = "min_quality_gate_with_llm_question";
       } else {
-        const fallback = gapQuestion?.prompt || buildGenericGapFallback(state);
+        const fallback = chooseRuntimeFallbackQuestion(null, state, userMessage, gapQuestion);
         adjustedResponse = { ...adjustedResponse, action: "ASK", question: fallback, confirmation: undefined };
         llmSuggestions = [];
         forcedGapQuestion = true;
@@ -1762,9 +1391,21 @@ function resolveTurnDecision(response, state, options = {}) {
         question: undefined,
       };
       forcedConfirm = adjustedResponse.action !== response.action;
-      decisionSource = llmReadySignal ? "llm_ready" : "llm_confirm";
+      decisionSource = isKernelDecision
+        ? (kernelDecision.source || "kernel_confirm")
+        : (llmReadySignal ? "llm_ready" : "llm_confirm");
     }
-    return buildDecisionResult({ adjustedResponse, ctx, decisionSource, llmSuggestions, forcedGapQuestion, forcedConfirm, targetDecision, repeatEscapeApplied });
+    return buildDecisionResult({
+      adjustedResponse,
+      ctx,
+      decisionSource,
+      llmSuggestions,
+      forcedGapQuestion,
+      forcedConfirm,
+      targetElement: targetElement || kernelDecision?.targetElement || null,
+      targetDecision,
+      repeatEscapeApplied,
+    });
   }
 
   // Fallback: unknown action — pass through
@@ -1777,8 +1418,18 @@ function buildDecisionResult({ adjustedResponse, ctx, decisionSource, llmSuggest
   const { gapAnalysis, gapQuestion, elements, elementBlock, hardElementBlock,
     llmReadySignal, hybridReady, hardCriticalBlock, criticalCoverage,
     hardSemanticBlock } = ctx;
+  const turnDecision = createTurnDecision({
+    action: adjustedResponse?.action,
+    targetElement,
+    targetSlot: adjustedResponse?.targetSlot || gapQuestion?.targetSlot || null,
+    reason: targetDecision?.winner?.reason || decisionSource,
+    alternatives: targetDecision?.alternatives || [],
+    confidence: adjustedResponse?.action === "CONFIRM" ? 0.85 : 0.7,
+    source: decisionSource,
+  });
   return {
     response: adjustedResponse,
+    turnDecision,
     gapAnalysis,
     gapQuestion,
     forcedGapQuestion,
@@ -1800,9 +1451,226 @@ function buildDecisionResult({ adjustedResponse, ctx, decisionSource, llmSuggest
   };
 }
 
-function buildGenericGapFallback(state) {
-  const recipientFirst = (state?.recipient_name || "them").split(/\s/)[0];
-  return `What's something about ${recipientFirst} that always stays with you?`;
+async function runKernelTurnFlow({ state, normalizedAnswer, condensedAnswer, inputMode, userMessage, priorAssistantMessage }) {
+  const ingested = await ingestTurn({
+    state,
+    answer: condensedAnswer,
+    previousQuestion: priorAssistantMessage?.content || null,
+  });
+  const stageTelemetry = createEmptyKernelStageTelemetry();
+  stageTelemetry.ingest = buildBudgetTelemetry(ingested.stageTelemetry);
+
+  if (!ingested.success) {
+    throw new Error(`kernel_ingest_failed: ${ingested.error}`);
+  }
+
+  let nextState = applyTurnStateUpdate(state, ingested.data, normalizedAnswer);
+  const planningContext = buildPlanningContext({
+    state: nextState,
+    response: { action: "ASK" },
+    inputMode,
+    llmReadySignal: false,
+  });
+  const planned = planTurn({
+    state: nextState,
+    gapAnalysis: planningContext.gapAnalysis,
+    response: { action: "ASK", targetSlot: planningContext.gapQuestion?.targetSlot || null },
+    source: "kernel_planner",
+  });
+  stageTelemetry.planner = buildPlannerTelemetry(planned.decision, planned.targetDecision);
+
+  const fallbackQuestion = chooseRuntimeFallbackQuestion(
+    planned.decision.targetElement,
+    nextState,
+    userMessage,
+    planningContext.gapQuestion,
+  );
+  const fallbackConfirmation = buildReadyConfirmation(nextState, planningContext.gapAnalysis);
+  const composed = await composeTurn({
+    state: nextState,
+    decision: planned.decision,
+    gapAnalysis: planningContext.gapAnalysis,
+    gapQuestion: planningContext.gapQuestion,
+    previousQuestion: priorAssistantMessage?.content || null,
+    fallbackQuestion,
+    fallbackConfirmation,
+  });
+  stageTelemetry.compose = buildBudgetTelemetry(composed.stageTelemetry);
+
+  return {
+    state: nextState,
+    response: {
+      action: planned.decision.action,
+      question: planned.decision.action === "CONFIRM" ? undefined : (composed.data?.question || fallbackQuestion),
+      confirmation: planned.decision.action === "CONFIRM" ? (composed.data?.confirmation || fallbackConfirmation) : undefined,
+      narrative: getCanonicalNarrative(nextState),
+      targetSlot: planned.decision.targetSlot || planningContext.gapQuestion?.targetSlot || null,
+    },
+    usedFallback: !composed.success,
+    stageTelemetry,
+    turnDecision: planned.decision,
+    targetDecision: planned.targetDecision,
+  };
+}
+
+async function runLegacyReasoningTurn({ state, normalizedAnswer, condensedAnswer }) {
+  const turnRetainedDetails = extractRetainedDetails({
+    initial_prompt: state.initial_prompt,
+    conversation: state.conversation,
+    facts: state.facts,
+  });
+  console.log(`[V3] Detail inventory injected: ${turnRetainedDetails.length} total, ${turnRetainedDetails.filter(d => d.required).length} required`);
+
+  const result = await reasonWithFallback(state, condensedAnswer, { retainedDetails: turnRetainedDetails });
+  if (result.success) {
+    const nextState = applyTurnStateUpdate(state, result.data, normalizedAnswer);
+    return {
+      state: nextState,
+      response: {
+        action: result.data.action,
+        question: result.data.question,
+        confirmation: result.data.confirmation,
+        narrative: result.data.narrative || getCanonicalNarrative(nextState),
+        targetSlot: result.data.targetSlot || null,
+      },
+      usedFallback: true,
+    };
+  }
+
+  if (result.errorCode === "NARRATIVE_REWRITE_REQUIRED") {
+    let nextState = addFact(state, {
+      text: normalizedAnswer,
+      beat: "context",
+      sourceTurn: state.turn_count || 1,
+    });
+    nextState = ensureNarrativeAfterStateUpdate(nextState);
+    return {
+      state: nextState,
+      response: {
+        action: "CLARIFY",
+        question: "I want to make sure I'm capturing this correctly. Can you share one concrete moment or detail from this story?",
+        narrative: getCanonicalNarrative(nextState),
+      },
+      usedFallback: true,
+    };
+  }
+
+  return {
+    state,
+    response: generateFallbackResponse(state),
+    usedFallback: true,
+  };
+}
+
+async function executeTurnFlowWithFallback({
+  state,
+  normalizedAnswer,
+  condensedAnswer,
+  inputMode,
+  userMessage,
+  priorAssistantMessage,
+}) {
+  try {
+    const kernelResult = await runKernelTurnFlow({
+      state,
+      normalizedAnswer,
+      condensedAnswer,
+      inputMode,
+      userMessage,
+      priorAssistantMessage,
+    });
+    return {
+      state: kernelResult.state,
+      response: kernelResult.response,
+      usedFallback: kernelResult.usedFallback,
+      stageTelemetry: kernelResult.stageTelemetry,
+      turnDecision: kernelResult.turnDecision,
+      targetDecision: kernelResult.targetDecision,
+    };
+  } catch (err) {
+    console.warn("[V3 Engine] kernel turn flow failed, falling back to legacy reasoner:", err.message);
+  }
+
+  try {
+    const legacyResult = await runLegacyReasoningTurn({
+      state,
+      normalizedAnswer,
+      condensedAnswer,
+    });
+    return {
+      state: legacyResult.state,
+      response: legacyResult.response,
+      usedFallback: legacyResult.usedFallback,
+      stageTelemetry: createEmptyKernelStageTelemetry(),
+      turnDecision: null,
+      targetDecision: null,
+    };
+  } catch (legacyErr) {
+    console.error("[V3 Engine] continueStoryV3 reasoning error:", legacyErr.message);
+    return {
+      state,
+      response: generateFallbackResponse(state),
+      usedFallback: true,
+      stageTelemetry: createEmptyKernelStageTelemetry(),
+      turnDecision: null,
+      targetDecision: null,
+    };
+  }
+}
+
+function stabilizeTurnStateAfterFlow({ state, normalizedAnswer, condensationMetadata }) {
+  let nextState = applyDeterministicFallbackExtraction(state, normalizedAnswer);
+  nextState = ensureSemanticStoryIntegrity(nextState);
+
+  let packageResult;
+  try {
+    const storyPackageContext = {
+      initial_prompt: nextState.initial_prompt,
+      conversation: nextState.conversation,
+      facts: nextState.facts,
+    };
+    packageResult = ensureCompletedStoryPackage(nextState, storyPackageContext);
+    nextState = packageResult.state;
+  } catch (pkgErr) {
+    console.warn("[V3] ensureCompletedStoryPackage failed, continuing without:", pkgErr.message);
+    packageResult = { state: nextState, repaired: false, coverage: null };
+  }
+
+  if (packageResult.repaired) {
+    nextState = ensureSemanticStoryIntegrity(nextState);
+    nextState.completed_story_package.prose = nextState.narrative;
+    nextState.completed_story_package.semantic_block_profile =
+      nextState.semantic_story?.semantic_block_profile || nextState.completed_story_package.semantic_block_profile;
+  }
+
+  const REQUIRED_MISSING_TOLERANCE = 2;
+  const hardDetailCoverageBlock = packageResult.coverage
+    && packageResult.coverage.stats.requiredMissing > REQUIRED_MISSING_TOLERANCE;
+  if (hardDetailCoverageBlock) {
+    const currentSemantic = nextState.semantic_story || {};
+    if (currentSemantic.can_confirm !== false) {
+      nextState = {
+        ...nextState,
+        semantic_story: {
+          ...currentSemantic,
+          can_confirm: false,
+          detail_coverage_block: true,
+          missing_required_details: packageResult.coverage.missingRequired,
+          updated_at: new Date().toISOString(),
+        },
+      };
+    }
+  }
+
+  nextState = {
+    ...nextState,
+    last_condensation: {
+      stage: "continue",
+      ...condensationMetadata,
+    },
+  };
+
+  return hydrateStoryState(nextState);
 }
 
 function attachGapTelemetry(state, gapAnalysis, gapQuestion, responseAction, decisionMeta = {}) {
@@ -1915,26 +1783,7 @@ function hasReviewableDraft(state, narrative = "") {
   return trimmedNarrative.length >= 160 || trimmedPrompt.length >= 160 || turnCount >= 2;
 }
 
-function buildReadinessWhy({ gapAnalysis, responseAction, decisionSource, isUserOverridable, hardBlockConfirm, gapQuestion }) {
-  if (gapAnalysis.isStoryReady || responseAction === "CONFIRM" || responseAction === "STOP") {
-    return "The draft covers the core story beats well enough to move into review.";
-  }
-  if (hardBlockConfirm && gapQuestion?.targetSlot) {
-    return `The draft still has a blocking gap around ${gapQuestion.targetSlot.replace(/_/g, " ")}.`;
-  }
-  if (gapQuestion?.targetSlot) {
-    return `The strongest next improvement is around ${gapQuestion.targetSlot.replace(/_/g, " ")}.`;
-  }
-  if (isUserOverridable) {
-    return "The draft is substantial enough to review even though the engine can still ask for more detail.";
-  }
-  if (typeof decisionSource === "string" && decisionSource.startsWith("llm")) {
-    return "The model wants one more round of detail before review.";
-  }
-  return "The story still needs more detail before review.";
-}
-
-function buildCanonicalReadiness({
+function buildReadinessPayload({
   state,
   gapAnalysis,
   elements,
@@ -1955,14 +1804,30 @@ function buildCanonicalReadiness({
   const recommendedNextAction = isReady
     ? "confirm"
     : (isUserOverridable ? "review" : "clarify");
+  const targetElement = gapQuestion?.targetSlot
+    ? getElementForSlot(gapAnalysis?.storyMode || "default", gapQuestion.targetSlot)
+    : null;
   const primaryGap = gapQuestion ? {
     slot: gapQuestion.targetSlot || null,
     state: (gapAnalysis?.missingSlots || []).includes(gapQuestion.targetSlot) ? "missing" : "weak",
     reason: gapQuestion.reason || null,
     guidance: gapQuestion.slotGuidance || null,
-    element_id: getElementForSlot(gapAnalysis?.storyMode || "default", gapQuestion.targetSlot)?.id || null,
-    element_display_name: getElementForSlot(gapAnalysis?.storyMode || "default", gapQuestion.targetSlot)?.displayName || null,
+    element_id: targetElement?.id || null,
+    element_display_name: targetElement?.displayName || null,
   } : null;
+
+  let why = "The story still needs more detail before review.";
+  if (gapAnalysis.isStoryReady || responseAction === "CONFIRM" || responseAction === "STOP") {
+    why = "The draft covers the core story beats well enough to move into review.";
+  } else if (hardBlockConfirm && gapQuestion?.targetSlot) {
+    why = `The draft still has a blocking gap around ${gapQuestion.targetSlot.replace(/_/g, " ")}.`;
+  } else if (gapQuestion?.targetSlot) {
+    why = `The strongest next improvement is around ${gapQuestion.targetSlot.replace(/_/g, " ")}.`;
+  } else if (isUserOverridable) {
+    why = "The draft is substantial enough to review even though the engine can still ask for more detail.";
+  } else if (typeof decisionSource === "string" && decisionSource.startsWith("llm")) {
+    why = "The model wants one more round of detail before review.";
+  }
 
   return {
     score: typeof gapAnalysis?.readinessScore === "number" ? gapAnalysis.readinessScore : 0,
@@ -1979,14 +1844,238 @@ function buildCanonicalReadiness({
     blocked_slots: criticalBlockingSlots || [],
     blocked_elements: blockedElements || [],
     element_scores: elements || [],
-    why: buildReadinessWhy({
+    why,
+  };
+}
+
+function buildDraftStatusPayload({
+  state,
+  sessionId,
+  engineVersion,
+  gapAnalysis,
+  elements,
+  responseAction,
+  decisionSource,
+  gapQuestion = null,
+  hardBlockConfirm = false,
+  criticalBlockingSlots = [],
+  blockedElements = [],
+  completionScore = null,
+  includeIntegrationDelta = true,
+  draftScoreWindow = undefined,
+}) {
+  const resolvedCompletionScore = typeof completionScore === "number"
+    ? completionScore
+    : (gapAnalysis && elements
+      ? getTurnProgressScore(state, gapAnalysis, responseAction, elements)
+      : getCompletionScoreForState(state));
+
+  const payload = {
+    completionScore: resolvedCompletionScore,
+    storyElements: elements || [],
+    readiness: buildReadinessPayload({
+      state,
       gapAnalysis,
+      elements,
+      gapQuestion,
       responseAction,
       decisionSource,
-      isUserOverridable,
       hardBlockConfirm,
-      gapQuestion,
+      criticalBlockingSlots,
+      blockedElements,
     }),
+    narrativeVersion: state.narrative_version || 0,
+    ...buildDraftMetadataBundle(state, sessionId, engineVersion, draftScoreWindow),
+  };
+
+  if (includeIntegrationDelta) {
+    payload.integrationDelta = state.last_integration_delta || null;
+  }
+
+  return payload;
+}
+
+function applyRevisionTurnState({
+  state,
+  inputMode,
+  revisionSource,
+  revisionOperation,
+  answer,
+  response,
+  priorDraftLifecycle,
+  priorNarrativeVersion,
+  priorNarrative,
+}) {
+  if (inputMode === "revision") {
+    const needsClarification = response.action === "ASK" || response.action === "CLARIFY";
+    const revisionRecord = {
+      id: `rev_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+      source: revisionSource,
+      request: answer,
+      operation: revisionOperation,
+      requested_at: new Date().toISOString(),
+      status: needsClarification ? "clarification_needed" : "applied",
+      resulting_action: response.action,
+      narrative_version: state.narrative_version || 0,
+      before_version: priorNarrativeVersion,
+      after_version: Number(state.narrative_version || 0),
+      before_narrative: priorNarrative,
+      after_narrative: getCanonicalNarrative(state),
+      integration_delta: state.last_integration_delta || null,
+    };
+
+    return {
+      ...state,
+      revision_requests: [...(Array.isArray(state.revision_requests) ? state.revision_requests : []), revisionRecord].slice(-40),
+      last_revision_request: revisionRecord,
+      draft_lifecycle: needsClarification
+        ? (priorDraftLifecycle === "confirmed" ? "reopened" : "drafting")
+        : "review_ready",
+      pending_revision: needsClarification
+        ? {
+          id: revisionRecord.id,
+          request: revisionRecord.request,
+          source: revisionRecord.source,
+          operation: revisionRecord.operation,
+          waiting_for: "clarification",
+          follow_up_question: getResponsePromptText(response),
+          requested_at: revisionRecord.requested_at,
+          before_version: priorNarrativeVersion,
+        }
+        : null,
+    };
+  }
+
+  let nextState = state.pending_revision
+    ? {
+      ...state,
+      pending_revision: null,
+    }
+    : state;
+
+  if (priorDraftLifecycle === "reopened") {
+    nextState = {
+      ...nextState,
+      draft_lifecycle: response.action === "CONFIRM" || response.action === "STOP"
+        ? "review_ready"
+        : "reopened",
+    };
+  }
+
+  return nextState;
+}
+
+function ensureTurnNarrative(state, response) {
+  let finalNarrative = stripFormulaicOpener(response.narrative || getCanonicalNarrative(state) || "");
+  if (!finalNarrative && getActiveFacts(state.facts || []).length > 0) {
+    finalNarrative = composeNarrativeFromFacts(state) || "";
+    const reason = response.action === "STOP" || response.action === "CONFIRM"
+      ? "completion action"
+      : "missing narrative";
+    console.warn(`[V3 Engine] Composed narrative from facts for ${reason}`);
+  }
+  return finalNarrative;
+}
+
+async function buildContinueTurnPayload({
+  sessionId,
+  sessionEngineVersion,
+  state,
+  session,
+  inputMode,
+  answer,
+  response,
+  usedFallback,
+  gapResolution,
+  priorAssistantMessage,
+  priorCompletionScore,
+  kernelStageTelemetry,
+}) {
+  const finalNarrative = ensureTurnNarrative(state, response);
+  const occasion = state.event?.occasion || session.occasion;
+  const targetSlot = gapResolution.gapQuestion?.targetSlot || null;
+  const slotGuidance = targetSlot
+    ? await enrichSlotGuidance(gapResolution.gapQuestion?.slotGuidance || null, targetSlot, state)
+    : null;
+  const completionScore = getTurnProgressScore(state, gapResolution.gapAnalysis, response.action, gapResolution.elements);
+  const suggestions = buildResponseSuggestions({
+    action: response.action,
+    occasion,
+    targetSlot,
+    storyMode: gapResolution.gapAnalysis.storyMode,
+    llmSuggestions: gapResolution.llmSuggestions,
+    state,
+    userMessage: answer,
+  });
+  const nextQuestion = getResponsePromptText(response);
+  const repeatedQuestion = typeof nextQuestion === "string"
+    && typeof priorAssistantMessage?.content === "string"
+    && nextQuestion.trim() === priorAssistantMessage.content.trim();
+
+  logStoryTurnEvent("continue.response", {
+    sessionId,
+    turnCount: state.turn_count,
+    action: response.action,
+    decisionSource: gapResolution.decisionSource,
+    targetSlot: targetSlot || null,
+    targetElement: gapResolution.targetElement || null,
+    targetReason: gapResolution.targetDecision?.winner?.reason || null,
+    targetAlternatives: summarizeTargetAlternatives(gapResolution.targetDecision),
+    ingestBudget: kernelStageTelemetry.ingest?.totalEstimatedTokens || null,
+    ingestDroppedBlocks: kernelStageTelemetry.ingest?.droppedBlocks || [],
+    composeBudget: kernelStageTelemetry.compose?.totalEstimatedTokens || null,
+    composeDroppedBlocks: kernelStageTelemetry.compose?.droppedBlocks || [],
+    plannerSource: kernelStageTelemetry.planner?.source || null,
+    gapReason: gapResolution.gapQuestion?.reason || null,
+    forcedGapQuestion: gapResolution.forcedGapQuestion,
+    forcedConfirm: gapResolution.forcedConfirm,
+    repeatEscapeApplied: gapResolution.repeatEscapeApplied,
+    repeatedQuestion,
+    questionPreview: previewTurnText(nextQuestion),
+    narrativePreview: previewTurnText(finalNarrative),
+    readinessScore: gapResolution.gapAnalysis.readinessScore,
+    missingSlots: (gapResolution.gapAnalysis.missingSlots || []).slice(0, 4),
+    weakSlots: (gapResolution.gapAnalysis.weakSlots || []).slice(0, 4),
+    factCount: Array.isArray(state.facts) ? state.facts.filter((fact) => (fact?.status || "active") === "active").length : 0,
+  });
+
+  return {
+    sessionId,
+    engineVersion: sessionEngineVersion,
+    action: response.action,
+    question: nextQuestion,
+    narrative: finalNarrative,
+    turnCount: state.turn_count,
+    fallback: response.fallback || usedFallback,
+    suggestions,
+    targetSlot,
+    gapReason: gapResolution.gapQuestion?.reason || null,
+    slotGuidance,
+    missingSlots: gapResolution.gapAnalysis.missingSlots || [],
+    weakSlots: gapResolution.gapAnalysis.weakSlots || [],
+    readinessScore: gapResolution.gapAnalysis.readinessScore,
+    isStoryReady: gapResolution.gapAnalysis.isStoryReady,
+    canProceedAnyway: Boolean(gapResolution.gapAnalysis.canProceedAnyway),
+    ...buildDraftStatusPayload({
+      state,
+      sessionId,
+      engineVersion: sessionEngineVersion,
+      gapAnalysis: gapResolution.gapAnalysis,
+      elements: gapResolution.elements,
+      gapQuestion: gapResolution.gapQuestion,
+      responseAction: response.action,
+      decisionSource: gapResolution.decisionSource,
+      hardBlockConfirm: gapResolution.criticalSlotBlock || gapResolution.elementBlock || gapResolution.semanticBlock,
+      criticalBlockingSlots: gapResolution.criticalBlockingSlots,
+      blockedElements: gapResolution.blockedElements,
+      completionScore,
+      includeIntegrationDelta: true,
+      draftScoreWindow: {
+        beforeScore: priorCompletionScore,
+        afterScore: completionScore,
+      },
+    }),
+    revisionRequest: inputMode === "revision" ? state.last_revision_request || null : null,
   };
 }
 
@@ -2174,7 +2263,7 @@ async function startStoryV3(options) {
   }
 
   // Add assistant's response to conversation history
-  const assistantMessage = response.question || response.confirmation || response.narrative;
+  const assistantMessage = getResponsePromptText(response) || response.narrative;
   if (assistantMessage) {
     finalState = addTurnToState(finalState, "assistant", assistantMessage);
   }
@@ -2212,7 +2301,7 @@ async function startStoryV3(options) {
     targetReason: gapResolution.targetDecision?.winner?.reason || null,
     targetAlternatives: summarizeTargetAlternatives(gapResolution.targetDecision),
     gapReason: gapResolution.gapQuestion?.reason || null,
-    questionPreview: previewTurnText(response.question || response.confirmation || null),
+    questionPreview: previewTurnText(getResponsePromptText(response)),
     narrativePreview: previewTurnText(response.narrative || getCanonicalNarrative(finalState) || null),
     readinessScore: gapResolution.gapAnalysis.readinessScore,
     missingSlots: (gapResolution.gapAnalysis.missingSlots || []).slice(0, 4),
@@ -2224,9 +2313,8 @@ async function startStoryV3(options) {
     sessionId: session.id,
     engineVersion: effectiveEngineVersion,
     action: response.action,
-    question: response.question || response.confirmation,
+    question: getResponsePromptText(response),
     narrative: stripFormulaicOpener(response.narrative || getCanonicalNarrative(finalState) || ""),
-    completionScore: getTurnProgressScore(finalState, gapResolution.gapAnalysis, response.action, gapResolution.elements),
     fallback: response.fallback || usedFallback,
     suggestions,
     targetSlot,
@@ -2237,9 +2325,10 @@ async function startStoryV3(options) {
     readinessScore: gapResolution.gapAnalysis.readinessScore,
     isStoryReady: gapResolution.gapAnalysis.isStoryReady,
     canProceedAnyway: Boolean(gapResolution.gapAnalysis.canProceedAnyway),
-    storyElements: gapResolution.elements,
-    readiness: buildCanonicalReadiness({
+    ...buildDraftStatusPayload({
       state: finalState,
+      sessionId: session.id,
+      engineVersion: effectiveEngineVersion,
       gapAnalysis: gapResolution.gapAnalysis,
       elements: gapResolution.elements,
       gapQuestion: gapResolution.gapQuestion,
@@ -2249,16 +2338,13 @@ async function startStoryV3(options) {
       criticalBlockingSlots: gapResolution.criticalBlockingSlots,
       blockedElements: gapResolution.blockedElements,
     }),
-    narrativeVersion: finalState.narrative_version || 0,
-    integrationDelta: finalState.last_integration_delta || null,
-    ...buildDraftMetadataBundle(finalState, session.id, effectiveEngineVersion),
   };
 }
 
 /**
  * Continue a V3 story session with user's answer
  *
- * Processes answer through reasoner, updates state, returns next question.
+ * Processes answer through the kernel turn pipeline, updates state, returns the next question or confirmation.
  *
  * @param {Object} options - Continue options
  * @param {string} options.sessionId - Session ID
@@ -2367,136 +2453,35 @@ async function continueStoryV3(options) {
     maxChars: getReasoningCondenseLimit(normalizedAnswer),
   });
 
-  // 4. Run reasoning — with eager detail inventory for constraint-first coverage
-  const turnRetainedDetails = extractRetainedDetails({
-    initial_prompt: v2State.initial_prompt,
-    conversation: v2State.conversation,
-    facts: v2State.facts,
-  });
-  console.log(`[V3] Detail inventory injected: ${turnRetainedDetails.length} total, ${turnRetainedDetails.filter(d => d.required).length} required`);
-
+  // 4. Kernel-driven turn flow: ingest -> merge -> plan -> compose.
+  // Keep the broad legacy reasoner as a production safety fallback.
   let response;
   let usedFallback = false;
-  try {
-    const result = await reasonWithFallback(v2State, condensedAnswerInput.text || normalizedAnswer, { retainedDetails: turnRetainedDetails });
-    if (result.success) {
-      // Apply reasoning result to state
-      v2State = applyReasoningResult(v2State, result.data, normalizedAnswer);
+  let kernelStageTelemetry = createEmptyKernelStageTelemetry();
+  let kernelTurnDecision = null;
+  let kernelTargetDecision = null;
 
-      // Enforce grounding - narrative must be supported by facts
-      v2State = enforceGrounding(v2State);
+  ({
+    state: v2State,
+    response,
+    usedFallback,
+    stageTelemetry: kernelStageTelemetry,
+    turnDecision: kernelTurnDecision,
+    targetDecision: kernelTargetDecision,
+  } = await executeTurnFlowWithFallback({
+    state: v2State,
+    normalizedAnswer,
+    condensedAnswer: condensedAnswerInput.text || normalizedAnswer,
+    inputMode,
+    userMessage: answer,
+    priorAssistantMessage,
+  }));
 
-      // Ensure narrative exists when we have facts
-      if (!getCanonicalNarrative(v2State) && getActiveFacts(v2State.facts || []).length > 0) {
-        const recomposed = composeNarrativeFromFacts(v2State);
-        if (recomposed) {
-          v2State = {
-            ...v2State,
-            narrative: recomposed,
-            narrative_current: recomposed,
-          };
-        }
-      }
-
-      response = {
-        action: result.data.action,
-        question: result.data.question,
-        confirmation: result.data.confirmation,
-        narrative: result.data.narrative || getCanonicalNarrative(v2State),
-        targetSlot: result.data.targetSlot || null,
-      };
-      usedFallback = result.fallback || false;
-
-    } else if (result.errorCode === "NARRATIVE_REWRITE_REQUIRED") {
-      v2State = addFact(v2State, {
-        text: normalizedAnswer,
-        beat: "context",
-        sourceTurn: v2State.turn_count || 1,
-      });
-      const recomposed = composeNarrativeFromFacts(v2State);
-      if (recomposed) {
-        v2State = {
-          ...v2State,
-          narrative: recomposed,
-          narrative_current: recomposed,
-        };
-      }
-      response = {
-        action: "CLARIFY",
-        question: "I want to make sure I'm capturing this correctly. Can you share one concrete moment or detail from this story?",
-        narrative: getCanonicalNarrative(v2State),
-      };
-      usedFallback = true;
-    } else {
-      // LLM failed - use fallback
-      response = generateFallbackResponse(v2State);
-      usedFallback = true;
-    }
-  } catch (err) {
-    console.error("[V3 Engine] continueStoryV3 reasoning error:", err.message);
-    response = generateFallbackResponse(v2State);
-    usedFallback = true;
-  }
-
-  v2State = applyDeterministicFallbackExtraction(v2State, normalizedAnswer);
-  v2State = ensureSemanticStoryIntegrity(v2State);
-
-  // Build/update completed story package — coverage enforcement
-  let packageResult;
-  try {
-    const storyPackageContext = {
-      initial_prompt: v2State.initial_prompt,
-      conversation: v2State.conversation,
-      facts: v2State.facts,
-    };
-    packageResult = ensureCompletedStoryPackage(v2State, storyPackageContext);
-    v2State = packageResult.state;
-  } catch (pkgErr) {
-    console.warn("[V3] ensureCompletedStoryPackage failed, continuing without:", pkgErr.message);
-    packageResult = { state: v2State, repaired: false, coverage: null };
-  }
-
-  // F5: Pass-2 semantic integrity — if repair appended missing sentences,
-  // re-derive semantic_story and song_map from the repaired prose
-  if (packageResult.repaired) {
-    v2State = ensureSemanticStoryIntegrity(v2State);
-    // Sync repaired prose back into package (R5)
-    v2State.completed_story_package.prose = v2State.narrative;
-    // Update semantic_block_profile from fresh semantic analysis (CR-2)
-    v2State.completed_story_package.semantic_block_profile =
-      v2State.semantic_story?.semantic_block_profile || v2State.completed_story_package.semantic_block_profile;
-  }
-
-  // If required details are still missing after repair, block confirmation
-  // Tolerance of 2 accounts for lexical false negatives in coverage detection
-  const REQUIRED_MISSING_TOLERANCE = 2;
-  const hardDetailCoverageBlock = packageResult.coverage
-    && packageResult.coverage.stats.requiredMissing > REQUIRED_MISSING_TOLERANCE;
-  if (hardDetailCoverageBlock) {
-    // Feed into semantic_story so the existing hardSemanticBlock gate picks it up
-    const currentSemantic = v2State.semantic_story || {};
-    if (currentSemantic.can_confirm !== false) {
-      v2State = {
-        ...v2State,
-        semantic_story: {
-          ...currentSemantic,
-          can_confirm: false,
-          detail_coverage_block: true,
-          missing_required_details: packageResult.coverage.missingRequired,
-          updated_at: new Date().toISOString(),
-        },
-      };
-    }
-  }
-
-  v2State = {
-    ...v2State,
-    last_condensation: {
-      stage: "continue",
-      ...condensedAnswerInput.metadata,
-    },
-  };
-  v2State = hydrateStoryState(v2State);
+  v2State = stabilizeTurnStateAfterFlow({
+    state: v2State,
+    normalizedAnswer,
+    condensationMetadata: condensedAnswerInput.metadata,
+  });
 
   // Validate state and force clarification if invalid
   const validation = validateState(v2State);
@@ -2515,7 +2500,12 @@ async function continueStoryV3(options) {
     usedFallback = true;
   }
 
-  const gapResolution = resolveTurnDecision(response, v2State, { inputMode, userMessage: answer });
+  const gapResolution = resolveTurnDecision(response, v2State, {
+    inputMode,
+    userMessage: answer,
+    turnDecision: kernelTurnDecision,
+    targetDecision: kernelTargetDecision,
+  });
   response = gapResolution.response;
   v2State = attachGapTelemetry(
     v2State,
@@ -2542,64 +2532,22 @@ async function continueStoryV3(options) {
     usedFallback = true;
   }
 
-  const assistantMessage = response.question || response.confirmation;
+  const assistantMessage = getResponsePromptText(response);
   if (assistantMessage) {
     v2State = addTurnToState(v2State, "assistant", assistantMessage);
   }
 
-  if (inputMode === "revision") {
-    const needsClarification = response.action === "ASK" || response.action === "CLARIFY";
-    const revisionRecord = {
-      id: `rev_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
-      source: revisionSource,
-      request: answer,
-      operation: revisionOperation,
-      requested_at: new Date().toISOString(),
-      status: needsClarification ? "clarification_needed" : "applied",
-      resulting_action: response.action,
-      narrative_version: v2State.narrative_version || 0,
-      before_version: priorNarrativeVersion,
-      after_version: Number(v2State.narrative_version || 0),
-      before_narrative: priorNarrative,
-      after_narrative: getCanonicalNarrative(v2State),
-      integration_delta: v2State.last_integration_delta || null,
-    };
-
-    v2State = {
-      ...v2State,
-      revision_requests: [...(Array.isArray(v2State.revision_requests) ? v2State.revision_requests : []), revisionRecord].slice(-40),
-      last_revision_request: revisionRecord,
-      draft_lifecycle: needsClarification
-        ? (priorDraftLifecycle === "confirmed" ? "reopened" : "drafting")
-        : "review_ready",
-      pending_revision: needsClarification
-        ? {
-          id: revisionRecord.id,
-          request: revisionRecord.request,
-          source: revisionRecord.source,
-          operation: revisionRecord.operation,
-          waiting_for: "clarification",
-          follow_up_question: response.question || response.confirmation || null,
-          requested_at: revisionRecord.requested_at,
-          before_version: priorNarrativeVersion,
-        }
-        : null,
-    };
-  } else if (v2State.pending_revision) {
-    v2State = {
-      ...v2State,
-      pending_revision: null,
-    };
-  }
-
-  if (inputMode !== "revision" && priorDraftLifecycle === "reopened") {
-    v2State = {
-      ...v2State,
-      draft_lifecycle: response.action === "CONFIRM" || response.action === "STOP"
-        ? "review_ready"
-        : "reopened",
-    };
-  }
+  v2State = applyRevisionTurnState({
+    state: v2State,
+    inputMode,
+    revisionSource,
+    revisionOperation,
+    answer,
+    response,
+    priorDraftLifecycle,
+    priorNarrativeVersion,
+    priorNarrative,
+  });
 
   // Derive anti-repetition state (powers {{already_known}} and {{already_asked}} prompt injections)
   v2State = { ...v2State, story_state: extractStoryState(v2State) };
@@ -2611,100 +2559,20 @@ async function continueStoryV3(options) {
     expectedVersion: session.version,
   });
 
-  // 6. Ensure narrative is populated (always, with stronger guarantee on completion)
-  let finalNarrative = stripFormulaicOpener(response.narrative || getCanonicalNarrative(v2State) || "");
-  if (!finalNarrative && getActiveFacts(v2State.facts || []).length > 0) {
-    finalNarrative = composeNarrativeFromFacts(v2State) || "";
-    const reason = response.action === "STOP" || response.action === "CONFIRM"
-      ? "completion action"
-      : "missing narrative";
-    console.warn(`[V3 Engine] Composed narrative from facts for ${reason}`);
-  }
-
-  // Generate contextual suggestions for the next question (only if not complete)
-  const occasion = v2State.event?.occasion || session.occasion;
-
-  const continueTargetSlot = gapResolution.gapQuestion?.targetSlot || null;
-  const continueEnrichedGuidance = continueTargetSlot
-    ? await enrichSlotGuidance(gapResolution.gapQuestion?.slotGuidance || null, continueTargetSlot, v2State)
-    : null;
-  const afterCompletionScore = getTurnProgressScore(v2State, gapResolution.gapAnalysis, response.action, gapResolution.elements);
-
-  const suggestions = buildResponseSuggestions({
-    action: response.action,
-    occasion,
-    targetSlot: continueTargetSlot,
-    storyMode: gapResolution.gapAnalysis.storyMode,
-    llmSuggestions: gapResolution.llmSuggestions,
+  return buildContinueTurnPayload({
+    sessionId,
+    sessionEngineVersion,
     state: v2State,
-    userMessage: answer,
+    session,
+    inputMode,
+    answer,
+    response,
+    usedFallback,
+    gapResolution,
+    priorAssistantMessage,
+    priorCompletionScore,
+    kernelStageTelemetry,
   });
-
-  const nextQuestion = response.question || response.confirmation || null;
-  const repeatedQuestion = typeof nextQuestion === "string"
-    && typeof priorAssistantMessage?.content === "string"
-    && nextQuestion.trim() === priorAssistantMessage.content.trim();
-
-  logStoryTurnEvent("continue.response", {
-    sessionId,
-    turnCount: v2State.turn_count,
-    action: response.action,
-    decisionSource: gapResolution.decisionSource,
-    targetSlot: continueTargetSlot || null,
-    targetElement: gapResolution.targetElement || null,
-    targetReason: gapResolution.targetDecision?.winner?.reason || null,
-    targetAlternatives: summarizeTargetAlternatives(gapResolution.targetDecision),
-    gapReason: gapResolution.gapQuestion?.reason || null,
-    forcedGapQuestion: gapResolution.forcedGapQuestion,
-    forcedConfirm: gapResolution.forcedConfirm,
-    repeatEscapeApplied: gapResolution.repeatEscapeApplied,
-    repeatedQuestion,
-    questionPreview: previewTurnText(nextQuestion),
-    narrativePreview: previewTurnText(finalNarrative),
-    readinessScore: gapResolution.gapAnalysis.readinessScore,
-    missingSlots: (gapResolution.gapAnalysis.missingSlots || []).slice(0, 4),
-    weakSlots: (gapResolution.gapAnalysis.weakSlots || []).slice(0, 4),
-    factCount: Array.isArray(v2State.facts) ? v2State.facts.filter((fact) => (fact?.status || "active") === "active").length : 0,
-  });
-
-  return {
-    sessionId,
-    engineVersion: sessionEngineVersion,
-    action: response.action,
-    question: response.question || response.confirmation,
-    narrative: finalNarrative,
-    completionScore: afterCompletionScore,
-    turnCount: v2State.turn_count,
-    fallback: response.fallback || usedFallback,
-    suggestions,
-    targetSlot: continueTargetSlot,
-    gapReason: gapResolution.gapQuestion?.reason || null,
-    slotGuidance: continueEnrichedGuidance,
-    missingSlots: gapResolution.gapAnalysis.missingSlots || [],
-    weakSlots: gapResolution.gapAnalysis.weakSlots || [],
-    readinessScore: gapResolution.gapAnalysis.readinessScore,
-    isStoryReady: gapResolution.gapAnalysis.isStoryReady,
-    canProceedAnyway: Boolean(gapResolution.gapAnalysis.canProceedAnyway),
-    storyElements: gapResolution.elements,
-    readiness: buildCanonicalReadiness({
-      state: v2State,
-      gapAnalysis: gapResolution.gapAnalysis,
-      elements: gapResolution.elements,
-      gapQuestion: gapResolution.gapQuestion,
-      responseAction: response.action,
-      decisionSource: gapResolution.decisionSource,
-      hardBlockConfirm: gapResolution.criticalSlotBlock || gapResolution.elementBlock || gapResolution.semanticBlock,
-      criticalBlockingSlots: gapResolution.criticalBlockingSlots,
-      blockedElements: gapResolution.blockedElements,
-    }),
-    narrativeVersion: v2State.narrative_version || 0,
-    integrationDelta: v2State.last_integration_delta || null,
-    revisionRequest: inputMode === "revision" ? v2State.last_revision_request || null : null,
-    ...buildDraftMetadataBundle(v2State, sessionId, sessionEngineVersion, {
-      beforeScore: priorCompletionScore,
-      afterScore: afterCompletionScore,
-    }),
-  };
 }
 
 async function reviseStoryV3(sessionId, revisionRequest, options = {}) {
@@ -2796,18 +2664,9 @@ async function getStoryContextV3(sessionId, { includeReadiness = true, includeMe
 
   let contextGapAnalysis = null;
   let contextElements = null;
-  let readinessData = null;
   if (includeReadiness) {
     contextGapAnalysis = computeStoryGapAnalysis(v2State);
     contextElements = computeStoryElements(contextGapAnalysis);
-    readinessData = buildCanonicalReadiness({
-      state: v2State,
-      gapAnalysis: contextGapAnalysis,
-      elements: contextElements,
-      gapQuestion: null,
-      responseAction: "CONFIRM",
-      decisionSource: "session_snapshot",
-    });
   }
 
   return {
@@ -2830,11 +2689,24 @@ async function getStoryContextV3(sessionId, { includeReadiness = true, includeMe
     userModel: v2State.user_model,
     status: v2State.status,
     turnCount: v2State.turn_count,
-    completionScore: getCompletionScoreForState(v2State),
-    narrativeVersion: v2State.narrative_version || 0,
-    readiness: readinessData,
     completed_story_package: completedPackage || null,
     ...metadataBundle,
+    ...(includeReadiness ? {
+      ...buildDraftStatusPayload({
+        state: v2State,
+        sessionId,
+        engineVersion: sessionEngineVersion,
+        gapAnalysis: contextGapAnalysis,
+        elements: contextElements,
+        responseAction: "CONFIRM",
+        decisionSource: "session_snapshot",
+        includeIntegrationDelta: false,
+      }),
+    } : {
+      completionScore: getCompletionScoreForState(v2State),
+      narrativeVersion: v2State.narrative_version || 0,
+      readiness: null,
+    }),
     // For lyrics generation, provide a summary
     summary: {
       text: canonicalNarrative,
@@ -2904,20 +2776,17 @@ async function getStorySessionV3(sessionId) {
     userModel: v2State.user_model,
     status: v2State.status,
     turnCount: v2State.turn_count,
-    completionScore: getCompletionScoreForState(v2State),
-    narrativeVersion: v2State.narrative_version || 0,
-    integrationDelta: v2State.last_integration_delta || null,
     lastRevisionRequest: v2State.last_revision_request || null,
-    storyElements: sessionElements,
-    readiness: buildCanonicalReadiness({
+    ...buildDraftStatusPayload({
       state: v2State,
+      sessionId,
+      engineVersion: sessionEngineVersion,
       gapAnalysis: sessionGapAnalysis,
       elements: sessionElements,
-      gapQuestion: null,
       responseAction: v2State.status === "confirmed" ? "CONFIRM" : "ASK",
       decisionSource: "session_snapshot",
+      includeIntegrationDelta: true,
     }),
-    ...buildDraftMetadataBundle(v2State, sessionId, sessionEngineVersion),
     conversation,
     currentQuestion: lastAssistant?.content || null,
     updatedAt: session.updatedAt,
@@ -3102,7 +2971,6 @@ async function prepareStoryReviewV3(sessionId) {
       action: "ASK",
       question,
       narrative: getCanonicalNarrative(nextState),
-      completionScore: getCompletionScoreForState(nextState),
       turnCount: nextState.turn_count,
       fallback: false,
       suggestions: [],
@@ -3113,19 +2981,18 @@ async function prepareStoryReviewV3(sessionId) {
       weakSlots: [],
       readinessScore: 0,
       isStoryReady: false,
-      storyElements: [],
-      readiness: buildCanonicalReadiness({
+      ...buildDraftStatusPayload({
         state: nextState,
+        sessionId,
+        engineVersion: sessionEngineVersion,
         gapAnalysis: computeStoryGapAnalysis(nextState),
         elements: computeStoryElements(computeStoryGapAnalysis(nextState)),
-        gapQuestion: null,
         responseAction: "ASK",
         decisionSource: "semantic_integrity",
         hardBlockConfirm: true,
+        completionScore: getCompletionScoreForState(nextState),
+        includeIntegrationDelta: true,
       }),
-      narrativeVersion: nextState.narrative_version || 0,
-      integrationDelta: nextState.last_integration_delta || null,
-      ...buildDraftMetadataBundle(nextState, sessionId, sessionEngineVersion),
     };
   }
 
@@ -3150,7 +3017,6 @@ async function prepareStoryReviewV3(sessionId) {
     action: "CONFIRM",
     question: reviewPrompt,
     narrative: finalNarrative,
-    completionScore: 100,
     turnCount: reviewState.turn_count,
     fallback: false,
     suggestions: [],
@@ -3161,18 +3027,17 @@ async function prepareStoryReviewV3(sessionId) {
     weakSlots: gapAnalysis.weakSlots || [],
     readinessScore: gapAnalysis.readinessScore,
     isStoryReady: gapAnalysis.isStoryReady,
-    storyElements: reviewElements,
-    readiness: buildCanonicalReadiness({
+    ...buildDraftStatusPayload({
       state: reviewState,
+      sessionId,
+      engineVersion: sessionEngineVersion,
       gapAnalysis,
       elements: reviewElements,
-      gapQuestion: null,
       responseAction: "CONFIRM",
       decisionSource: "review_ready",
+      completionScore: 100,
+      includeIntegrationDelta: true,
     }),
-    narrativeVersion: reviewState.narrative_version || 0,
-    integrationDelta: reviewState.last_integration_delta || null,
-    ...buildDraftMetadataBundle(reviewState, sessionId, sessionEngineVersion),
   };
 }
 
@@ -3393,19 +3258,18 @@ async function confirmStoryV3(sessionId, options = {}) {
     engineVersion: sessionEngineVersion,
     status: "confirmed",
     narrative: finalNarrative,
-    completionScore: getCompletionScoreForState(v2State),
     confirmedAt: v2State.confirmed_at,
-    narrativeVersion: v2State.narrative_version || 0,
-    storyElements: confirmElements,
-    readiness: buildCanonicalReadiness({
+    ...buildDraftStatusPayload({
       state: v2State,
+      sessionId,
+      engineVersion: sessionEngineVersion,
       gapAnalysis: confirmGapAnalysis,
       elements: confirmElements,
-      gapQuestion: null,
       responseAction: "CONFIRM",
       decisionSource: "confirmed",
+      completionScore: getCompletionScoreForState(v2State),
+      includeIntegrationDelta: false,
     }),
-    ...buildDraftMetadataBundle(v2State, sessionId, sessionEngineVersion),
   };
 }
 
@@ -3438,12 +3302,6 @@ module.exports = {
 
   // Internal modules (for testing/debugging)
   __internal: {
-    state: require("./state"),
-    beats: require("./beats"),
-    reasoner: require("./reasoner"),
-    engine: require("./engine"),
-    quality: require("./quality"),
-    semantics: require("../story-semantics"),
     resolveTurnDecision,
     hydrateStoryState,
     buildResponseSuggestions,

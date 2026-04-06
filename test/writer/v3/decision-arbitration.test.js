@@ -2,6 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 const v3 = require("../../../src/writer/v3");
+const quality = require("../../../src/writer/v3/quality");
 const { createInitialState } = require("../../../src/writer/v3/state");
 const { buildGapTargeting } = require("../../../src/writer/v3/prompts/builder");
 
@@ -465,7 +466,7 @@ test("buildGapTargeting returns table without targeting when all slots covered",
 });
 
 test("every STORY_SLOT_PRIORITY slot has a SLOT_GUIDANCE_TEMPLATES entry", () => {
-  const { STORY_SLOT_PRIORITY, SLOT_GUIDANCE_TEMPLATES } = v3.__internal.quality;
+  const { STORY_SLOT_PRIORITY, SLOT_GUIDANCE_TEMPLATES } = quality;
   for (const slotId of STORY_SLOT_PRIORITY) {
     assert.ok(SLOT_GUIDANCE_TEMPLATES[slotId], `Missing SLOT_GUIDANCE_TEMPLATES entry for "${slotId}"`);
     assert.ok(SLOT_GUIDANCE_TEMPLATES[slotId].weak, `Missing weak variant for "${slotId}"`);
@@ -486,7 +487,7 @@ const {
   ELEMENT_CONFIRM_THRESHOLD,
   computeStoryElements,
   getElementConfirmBlock,
-} = v3.__internal.quality;
+} = quality;
 
 test("computeStoryElements maps 8 slots to 5 elements with correct ids", () => {
   const gapAnalysis = {
@@ -711,7 +712,7 @@ test("whitespace-only question treated as no question", () => {
 });
 
 test("toConfidence range: covered starts at 0.75, weak at 0.35, missing at 0.05", () => {
-  const { computeStoryGapAnalysis } = v3.__internal.quality;
+  const { computeStoryGapAnalysis } = quality;
 
   const state = createInitialState({
     recipientName: "Ada",

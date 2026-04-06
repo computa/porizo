@@ -1,8 +1,8 @@
 /**
  * V3 Prompt Builder
  *
- * Builds context-only prompts without embedded decision rules.
- * The LLM makes all qualitative decisions; the harness only validates structure.
+ * Builds the legacy broad-context prompts still used by fallback reasoning and
+ * by the story-drafting stages that have not yet moved onto the kernel path.
  *
  * @module writer/v3/prompts/builder
  */
@@ -386,6 +386,10 @@ function buildContextPrompt(state, userInput, options = {}) {
   prompt = prompt.replace(/\{\{already_known\}\}/g, alreadyKnown);
   const alreadyAsked = buildAlreadyAsked(state.story_state || null);
   prompt = prompt.replace(/\{\{already_asked\}\}/g, alreadyAsked);
+  const antiRepetitionRule = alreadyKnown || alreadyAsked
+    ? "ANTI-REPETITION RULE: If a fact appears in ALREADY KNOWN, you must NOT ask about it again. If a question appears in ALREADY ASKED, you must NOT ask a similar question. Build on what is known, don't re-discover it."
+    : "";
+  prompt = prompt.replace(/ANTI-REPETITION RULE:[^\n]*(?:\n|$)/g, antiRepetitionRule ? `${antiRepetitionRule}\n` : "");
 
   // Question targeting: Labov-aware information-gain + funnel staging
   const questionTargeting = buildQuestionTargeting(state, state.labov_analysis || null, userInput);
