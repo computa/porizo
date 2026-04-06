@@ -515,12 +515,22 @@ struct WarmCanvasFlowView: View {
             recipientName: setup.recipientName,
             occasion: setup.occasion?.rawValue,
             onSend: {
-                guard let (trackId, versionNum) = ensureShareControllerAndTrackIds() else { return }
+                guard let (trackId, versionNum) = ensureShareControllerAndTrackIds() else {
+                    ToastService.shared.show("Song not ready to share yet", type: .warning)
+                    return
+                }
+
+                // If share URL already exists (pre-generated), present immediately
+                if let existingUrl = shareController?.shareURLString, let url = URL(string: existingUrl) {
+                    presentShareSheet(url: url)
+                    return
+                }
+
+                // Generate then poll
+                ToastService.shared.show("Creating share link...", type: .info)
                 shareController?.generateShareLink(trackId: trackId, versionNum: versionNum)
-                // Wait for URL then present system share sheet
                 flowTask?.cancel()
                 flowTask = Task { @MainActor in
-                    // Poll for the share URL (generated async)
                     var shareURL: String?
                     for _ in 0..<40 {
                         try? await Task.sleep(for: .milliseconds(250))
@@ -531,20 +541,10 @@ struct WarmCanvasFlowView: View {
                         }
                     }
                     guard let urlString = shareURL, let url = URL(string: urlString) else {
-                        ToastService.shared.show("Could not generate share link", type: .error)
+                        ToastService.shared.show("Could not generate share link. Try again.", type: .error)
                         return
                     }
-                    // Present native share sheet
-                    let message = "I made a song for \(setup.recipientName) — listen here!"
-                    let activityVC = UIActivityViewController(activityItems: [message, url], applicationActivities: nil)
-                    if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-                       let root = windowScene.windows.first?.rootViewController {
-                        // Find topmost presented VC
-                        var topVC = root
-                        while let presented = topVC.presentedViewController { topVC = presented }
-                        activityVC.popoverPresentationController?.sourceView = topVC.view
-                        topVC.present(activityVC, animated: true)
-                    }
+                    presentShareSheet(url: url)
                 }
             },
             onSaveToPhotos: {
@@ -585,6 +585,18 @@ struct WarmCanvasFlowView: View {
                 }
             }
         )
+    }
+
+    private func presentShareSheet(url: URL) {
+        let message = "I made a song for \(setup.recipientName) — listen here!"
+        let activityVC = UIActivityViewController(activityItems: [message, url], applicationActivities: nil)
+        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+           let root = windowScene.windows.first?.rootViewController {
+            var topVC = root
+            while let presented = topVC.presentedViewController { topVC = presented }
+            activityVC.popoverPresentationController?.sourceView = topVC.view
+            topVC.present(activityVC, animated: true)
+        }
     }
 
     /// Lazily create the share controller and return current track IDs, or nil if unavailable.
