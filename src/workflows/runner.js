@@ -3426,6 +3426,33 @@ async function startJobRunner({
         }
       }
 
+      // Phase 2: File-dependency safety check — detect missing intermediate files
+      // after container restarts. Steps like watermark/ready depend on files produced
+      // by prior steps (mix.wav, full.m4a). If those files are gone (deploy wiped
+      // ephemeral storage), reset to the earliest step that can regenerate them.
+      const FILE_DEPS = {
+        watermark: ["mix.wav"],
+        ready: [isFull ? "full.m4a" : "preview.m4a"],
+      };
+      const requiredFiles = FILE_DEPS[stepName];
+      if (requiredFiles && track && trackVersion) {
+        const versionDir = getVersionDir(storageDir, track, trackVersion);
+        const missing = requiredFiles.filter((f) => !fs.existsSync(path.join(versionDir, f)));
+        if (missing.length > 0) {
+          // Find the earliest non-memoizable step that produces the missing file
+          const resetStep = stepName === "ready" ? "watermark" : "mix";
+          const resetIndex = steps.indexOf(resetStep);
+          if (resetIndex >= 0 && resetIndex < stepIndex) {
+            console.warn(
+              `[JobRunner] Missing intermediate files for step "${stepName}": [${missing.join(", ")}]. ` +
+              `Resetting job ${job.id} to step "${resetStep}" (container restart recovery).`
+            );
+            await updateJobPending.run("queued", resetStep, resetIndex, null, progressPct, now, null, now, job.id, runnerId);
+            return;
+          }
+        }
+      }
+
       let stepData = null;
       let isPending = false;
       if (track && trackVersion) {
