@@ -213,6 +213,7 @@ const schemas = {
       type: "object",
       properties: {
         additional_notes: { type: "string", maxLength: 500 },
+        force_confirm: { type: "boolean" },
       },
       additionalProperties: false,
     },
@@ -640,6 +641,7 @@ function normalizeStoryInitialPrompt(initialPrompt, occasion, recipientName) {
   const basePrompt = trimmedPrompt || fallback;
   return {
     prompt: basePrompt,
+    truncated: false,
     originalLength: basePrompt.length,
     usedLength: basePrompt.length,
   };
@@ -1753,6 +1755,7 @@ function registerStoryRoutes(app, {
         metadata: {
           occasion: body.occasion,
           arc: result.arc,
+          initial_prompt_truncated: normalizedPromptInfo.truncated,
           initial_prompt_original_length: normalizedPromptInfo.originalLength,
           initial_prompt_used_length: normalizedPromptInfo.usedLength,
           engine_version: result.engine_version || requestedEngineVersion,
@@ -1769,6 +1772,7 @@ function registerStoryRoutes(app, {
             occasion: body.occasion,
             arc: result.arc,
             style: body.style || null,
+            initial_prompt_truncated: normalizedPromptInfo.truncated,
             initial_prompt_original_length: normalizedPromptInfo.originalLength,
             initial_prompt_used_length: normalizedPromptInfo.usedLength,
             engine_version: result.engine_version || requestedEngineVersion,
@@ -1793,6 +1797,7 @@ function registerStoryRoutes(app, {
         engine_version: result.engine_version,
         suggestions: result.suggestions || [],
         ...spreadStoryAnalysisFields(result),
+        initial_prompt_truncated: normalizedPromptInfo.truncated,
         initial_prompt_original_length: normalizedPromptInfo.originalLength,
         initial_prompt_used_length: normalizedPromptInfo.usedLength,
       });
@@ -1976,7 +1981,7 @@ function registerStoryRoutes(app, {
     if (!userId) return;
 
     const { story_id } = request.params;
-    const { additional_notes } = request.body || {};
+    const { additional_notes, force_confirm } = request.body || {};
 
     // Rate limit confirm attempts (prevents guidance loop abuse)
     const confirmLimit = await consumeRateLimit(userId, "story_confirm", 20, 60 * 60);
@@ -2010,7 +2015,10 @@ function registerStoryRoutes(app, {
     }
 
     try {
-      const result = await writer.confirmStory(story_id, additional_notes);
+      const result = await writer.confirmStory(story_id, {
+        additionalNotes: additional_notes,
+        forceConfirm: force_confirm === true,
+      });
 
       addAuditEntry({
         userId,
@@ -2025,7 +2033,10 @@ function registerStoryRoutes(app, {
           userId,
           resourceType: "story",
           resourceId: story_id,
-          metadata: { has_additional_notes: Boolean(additional_notes) },
+          metadata: {
+            has_additional_notes: Boolean(additional_notes),
+            force_confirm: force_confirm === true,
+          },
           ip: request.ip,
           userAgent: request.headers["user-agent"],
         });
@@ -2061,7 +2072,7 @@ function registerStoryRoutes(app, {
         });
         return;
       }
-      const retryable = !additional_notes;
+      const retryable = !additional_notes && force_confirm !== true;
       sendError(
         reply,
         500,

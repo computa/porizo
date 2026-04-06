@@ -241,10 +241,14 @@ async function getStorySummary(storyId) {
  * @param {string} storyId - Session ID
  * @returns {Promise<Object>} Confirmation result
  */
-async function confirmStory(storyId, additionalNotes) {
+async function confirmStory(storyId, additionalNotesOrOptions) {
   const sessionEngineVersion = await getSessionEngineVersion(storyId, DEFAULT_STORY_ENGINE_VERSION);
   const { handler: engineHandler } = getStoryEngineHandler(sessionEngineVersion);
-  const normalizedNotes = typeof additionalNotes === "string" ? additionalNotes.trim() : "";
+  const options = additionalNotesOrOptions && typeof additionalNotesOrOptions === "object"
+    ? additionalNotesOrOptions
+    : { additionalNotes: additionalNotesOrOptions };
+  const normalizedNotes = typeof options.additionalNotes === "string" ? options.additionalNotes.trim() : "";
+  const forceConfirm = options.forceConfirm === true;
 
   if (normalizedNotes) {
     const revisionResult = await engineHandler.reviseStory(storyId, normalizedNotes, {
@@ -264,6 +268,7 @@ async function confirmStory(storyId, additionalNotes) {
 
   const result = await engineHandler.confirmStory(storyId, {
     additionalNotes: normalizedNotes || undefined,
+    forceConfirm,
   });
   return {
     story_id: storyId,

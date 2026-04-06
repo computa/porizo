@@ -105,6 +105,34 @@ describe("POST /story/:story_id/confirm contract", () => {
     assert.equal(body.follow_up_question, "Which part of the ending should change?");
   });
 
+  test("passes force_confirm through to writer when the user explicitly proceeds anyway", async () => {
+    writer.getStoryState = async () => ({ id: "story_confirm_force", userId: TEST_USER_ID });
+    let receivedArgs = null;
+    writer.confirmStory = async (_storyId, options) => {
+      receivedArgs = options;
+      return {
+        confirmed: true,
+        narrative: "Locked anyway",
+        completionScore: 82,
+        narrativeVersion: 3,
+      };
+    };
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/story/story_confirm_force/confirm",
+      payload: {
+        force_confirm: true,
+      },
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.deepEqual(receivedArgs, {
+      additionalNotes: undefined,
+      forceConfirm: true,
+    });
+  });
+
   test("returns 500 with retryable true for unexpected confirm failures without notes", async () => {
     writer.getStoryState = async () => ({ id: "story_confirm_2", userId: TEST_USER_ID });
     writer.confirmStory = async () => {

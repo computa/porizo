@@ -97,7 +97,17 @@ const QUESTION_DETAIL_STOP_WORDS = new Set([
   "there", "they", "this", "what", "when", "where", "which", "while", "with",
   "would", "your", "you", "were", "then", "than", "like", "felt", "feel",
 ]);
+const SEMANTIC_REPEAT_STOP_WORDS = new Set([
+  "a", "an", "and", "are", "around", "as", "at", "be", "because", "but", "by",
+  "can", "could", "did", "do", "does", "for", "from", "had", "has", "have",
+  "how", "i", "if", "in", "into", "is", "it", "its", "just", "me", "more",
+  "my", "of", "on", "or", "our", "so", "than", "that", "the", "their", "them",
+  "then", "there", "these", "they", "this", "those", "through", "to", "too",
+  "up", "us", "was", "we", "were", "what", "when", "where", "which", "who",
+  "why", "with", "would", "you", "your",
+]);
 const GENERIC_LLM_QUESTION_REGEX = /\b(tell me more|can you tell me more|share more|say more|what else|anything else|more about|what's something|could you tell me a bit more)\b/i;
+const TURN_LOG_PREVIEW_LIMIT = 220;
 
 // Repository instance (set by initialize)
 let storyRepo = null;
@@ -223,11 +233,63 @@ function tokenizeQuestionKeywords(text) {
     .filter((token) => token.length >= 4 && !QUESTION_DETAIL_STOP_WORDS.has(token));
 }
 
+function previewTurnText(text, maxLength = TURN_LOG_PREVIEW_LIMIT) {
+  if (typeof text !== "string") return null;
+  const normalized = text.replace(/\s+/g, " ").trim();
+  if (!normalized) return null;
+  if (normalized.length <= maxLength) return normalized;
+  return `${normalized.slice(0, maxLength - 1)}…`;
+}
+
+function logStoryTurnEvent(label, fields = {}) {
+  const payload = Object.entries(fields)
+    .filter(([, value]) => value !== undefined)
+    .map(([key, value]) => {
+      if (value === null) return `${key}=null`;
+      if (Array.isArray(value)) return `${key}=${JSON.stringify(value)}`;
+      if (typeof value === "object") return `${key}=${JSON.stringify(value)}`;
+      return `${key}=${String(value)}`;
+    })
+    .join(" ");
+  console.log(`[V3 Turn] ${label}${payload ? ` ${payload}` : ""}`);
+}
+
 function inferAskedQuestionElement(question) {
   for (const element of LABOV_QUESTION_ELEMENTS) {
     if (validateQuestionRelevance(question, element)) return element;
   }
   return null;
+}
+
+function tokenizeSemanticRepeatText(text) {
+  return String(text || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9'\s-]/g, " ")
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 3 && !SEMANTIC_REPEAT_STOP_WORDS.has(token));
+}
+
+function scoreTokenOverlap(tokensA, tokensB) {
+  if (!tokensA?.length || !tokensB?.length) return 0;
+  const setA = new Set(tokensA);
+  const setB = new Set(tokensB);
+  let overlap = 0;
+  for (const token of setA) {
+    if (setB.has(token)) overlap += 1;
+  }
+  return overlap / Math.max(1, Math.min(setA.size, setB.size));
+}
+
+function countSharedTokens(tokensA, tokensB) {
+  if (!tokensA?.length || !tokensB?.length) return 0;
+  const setA = new Set(tokensA);
+  const setB = new Set(tokensB);
+  let overlap = 0;
+  for (const token of setA) {
+    if (setB.has(token)) overlap += 1;
+  }
+  return overlap;
 }
 
 function getRankedQuestionTargets(gapAnalysis) {
@@ -247,32 +309,151 @@ function getRankedQuestionTargets(gapAnalysis) {
 
 function getAnsweredQuestionElements(storyState) {
   const asked = new Set();
-  const questions = Array.isArray(storyState?.questionsAsked) ? storyState.questionsAsked : [];
-  for (const entry of questions) {
-    if (!entry?.answered) continue;
-    const inferred = entry.targetElement || inferAskedQuestionElement(entry.question || "");
-    if (inferred) asked.add(inferred);
+  for (const element of getAnsweredQuestionElementCounts(storyState).keys()) {
+    asked.add(element);
   }
   return asked;
 }
 
-function selectRuntimeQuestionTarget(response, gapAnalysis, storyState) {
+function getAnsweredQuestionElementCounts(storyState) {
+  const counts = new Map();
+  const questions = Array.isArray(storyState?.questionsAsked) ? storyState.questionsAsked : [];
+  for (const entry of questions) {
+    if (!entry?.answered) continue;
+    const inferred = entry.targetElement || inferAskedQuestionElement(entry.question || "");
+    if (inferred) {
+      counts.set(inferred, (counts.get(inferred) || 0) + 1);
+    }
+  }
+  return counts;
+}
+
+function getRecentAnsweredQuestions(storyState, limit = 4) {
+  const questions = Array.isArray(storyState?.questionsAsked) ? storyState.questionsAsked : [];
+  return questions.filter((entry) => entry?.answered).slice(-limit);
+}
+
+function detectRepeatedQuestionTheme(question, targetElement, storyState) {
+  const currentTokens = tokenizeSemanticRepeatText(question);
+  const recentAnswered = getRecentAnsweredQuestions(storyState);
+  if (recentAnswered.length === 0) return null;
+
+  for (let index = recentAnswered.length - 1; index >= 0; index -= 1) {
+    const entry = recentAnswered[index];
+    const entryElement = entry.targetElement || inferAskedQuestionElement(entry.question || "");
+    const entryQuestionTokens = tokenizeSemanticRepeatText(entry.question || "");
+    const entryAnswerTokens = tokenizeSemanticRepeatText(entry.answerSummary || "");
+    const questionOverlap = scoreTokenOverlap(currentTokens, entryQuestionTokens);
+    const answerOverlap = scoreTokenOverlap(currentTokens, entryAnswerTokens);
+    const sharedQuestionTokens = countSharedTokens(currentTokens, entryQuestionTokens);
+    const sharedAnswerTokens = countSharedTokens(currentTokens, entryAnswerTokens);
+    const sameElement = Boolean(targetElement) && entryElement === targetElement;
+    const substantiveAnswer = typeof entry.answerSummary === "string" && entry.answerSummary.trim().length >= 24;
+
+    if (
+      sameElement &&
+      substantiveAnswer &&
+      (
+        currentTokens.length === 0 ||
+        sharedQuestionTokens >= 1 ||
+        sharedAnswerTokens >= 1 ||
+        questionOverlap >= 0.34 ||
+        answerOverlap >= 0.26
+      )
+    ) {
+      return {
+        priorQuestion: entry.question || null,
+        priorAnswerSummary: entry.answerSummary || null,
+        priorElement: entryElement || null,
+        questionOverlap,
+        answerOverlap,
+      };
+    }
+
+    if (
+      (sharedQuestionTokens >= 2 && questionOverlap >= 0.45) ||
+      (sharedAnswerTokens >= 2 && answerOverlap >= 0.45)
+    ) {
+      return {
+        priorQuestion: entry.question || null,
+        priorAnswerSummary: entry.answerSummary || null,
+        priorElement: entryElement || null,
+        questionOverlap,
+        answerOverlap,
+      };
+    }
+  }
+
+  return null;
+}
+
+function selectAlternativeQuestionTarget(gapAnalysis, storyState, excludedElements = new Set()) {
+  const ranked = getRankedQuestionTargets(gapAnalysis);
+  const answeredCounts = getAnsweredQuestionElementCounts(storyState);
+  const preferred = ranked.find((candidate) =>
+    !excludedElements.has(candidate.element) && (answeredCounts.get(candidate.element) || 0) === 0
+  );
+  return preferred?.element || null;
+}
+
+function shouldForceForwardProgressConfirm(ctx, state, repeatedElementCount = 0) {
+  if (ctx?.gapAnalysis?.isStoryReady) return true;
+
+  const readinessScore = typeof ctx?.gapAnalysis?.readinessScore === "number"
+    ? ctx.gapAnalysis.readinessScore
+    : 0;
+  const coveredSlots = Array.isArray(ctx?.gapAnalysis?.slots)
+    ? ctx.gapAnalysis.slots.filter((slot) => slot.status === "covered").length
+    : 0;
+  const turnCount = Number(state?.turn_count || 0);
+  const factCount = Array.isArray(state?.facts)
+    ? state.facts.filter((fact) => (fact?.status || "active") === "active").length
+    : 0;
+  const narrativeLength = getCanonicalNarrative(state).length;
+
+  if (
+    repeatedElementCount >= 2 &&
+    turnCount >= 4 &&
+    factCount >= 4 &&
+    coveredSlots >= 4 &&
+    readinessScore >= 0.58 &&
+    narrativeLength >= 180
+  ) {
+    return true;
+  }
+
+  if (
+    repeatedElementCount >= 3 &&
+    turnCount >= 5 &&
+    factCount >= 5 &&
+    coveredSlots >= 4 &&
+    readinessScore >= 0.5 &&
+    narrativeLength >= 220
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+function selectRuntimeQuestionTarget(response, gapAnalysis, storyState, options = {}) {
   const ranked = getRankedQuestionTargets(gapAnalysis);
   const answered = getAnsweredQuestionElements(storyState);
+  const excludedElements = options.excludedElements instanceof Set ? options.excludedElements : new Set();
   const directTargetCandidate = getSlotLabovElement(response?.targetSlot);
   const directTarget = LABOV_QUESTION_ELEMENTS.includes(directTargetCandidate)
     ? directTargetCandidate
     : null;
 
-  if (directTarget && !answered.has(directTarget)) {
+  if (directTarget && !answered.has(directTarget) && !excludedElements.has(directTarget)) {
     return directTarget;
   }
 
-  const preferred = ranked.find((candidate) => !answered.has(candidate.element));
+  const preferred = ranked.find((candidate) => !answered.has(candidate.element) && !excludedElements.has(candidate.element));
   if (preferred) return preferred.element;
 
-  if (directTarget) return directTarget;
-  return ranked[0]?.element || null;
+  if (directTarget && !excludedElements.has(directTarget)) return directTarget;
+  return ranked.find((candidate) => !excludedElements.has(candidate.element))?.element || null;
 }
 
 function getQuestionDetailSignal(question, state, userMessage) {
@@ -1203,6 +1384,8 @@ function resolveTurnDecision(response, state, options = {}) {
   let forcedConfirm = false;
   let decisionSource = "llm";
   let llmSuggestions = Array.isArray(response.suggestions) ? response.suggestions : [];
+  let targetElement = null;
+  let repeatEscapeApplied = false;
 
   const llmHasQuestion = typeof response.question === "string" && response.question.trim().length > 0;
   // Compute semantic block signature for analytics tracking (attachGapTelemetry uses it)
@@ -1244,9 +1427,68 @@ function resolveTurnDecision(response, state, options = {}) {
 
   // --- LLM says ASK or CLARIFY: trust the LLM's question ---
   if (adjustedResponse.action === "ASK" || adjustedResponse.action === "CLARIFY") {
-    const targetElement = selectRuntimeQuestionTarget(adjustedResponse, gapAnalysis, state?.story_state);
+    targetElement = selectRuntimeQuestionTarget(adjustedResponse, gapAnalysis, state?.story_state);
     if (llmHasQuestion) {
       const trimmedQuestion = adjustedResponse.question.trim();
+      const answeredElementCounts = getAnsweredQuestionElementCounts(state?.story_state);
+      const repeatedElementCount = targetElement ? (answeredElementCounts.get(targetElement) || 0) : 0;
+      const repeatedTheme = detectRepeatedQuestionTheme(trimmedQuestion, targetElement, state?.story_state);
+      const repeatedCurrentElement = Boolean(repeatedTheme)
+        && (!targetElement || repeatedTheme.priorElement === targetElement);
+      const shouldForceForwardProgress = repeatedCurrentElement || repeatedElementCount >= 2;
+
+      if (shouldForceForwardProgress) {
+        const alternateTarget = selectAlternativeQuestionTarget(
+          gapAnalysis,
+          state?.story_state,
+          new Set(targetElement ? [targetElement] : [])
+        );
+
+        if (alternateTarget && alternateTarget !== targetElement) {
+          adjustedResponse = {
+            ...adjustedResponse,
+            question: chooseRuntimeFallbackQuestion(alternateTarget, state, userMessage, gapQuestion),
+          };
+          llmSuggestions = [];
+          forcedGapQuestion = true;
+          decisionSource = "forward_progress_retarget";
+          targetElement = alternateTarget;
+          repeatEscapeApplied = true;
+          return buildDecisionResult({
+            adjustedResponse,
+            ctx,
+            decisionSource,
+            llmSuggestions,
+            forcedGapQuestion,
+            targetElement,
+            repeatEscapeApplied,
+          });
+        }
+
+        if (shouldForceForwardProgressConfirm(ctx, state, repeatedElementCount)) {
+          adjustedResponse = {
+            ...adjustedResponse,
+            action: "CONFIRM",
+            confirmation: adjustedResponse.confirmation || buildReadyConfirmation(state, gapAnalysis),
+            question: undefined,
+          };
+          llmSuggestions = [];
+          forcedConfirm = true;
+          decisionSource = "forward_progress_confirm";
+          repeatEscapeApplied = true;
+          return buildDecisionResult({
+            adjustedResponse,
+            ctx,
+            decisionSource,
+            llmSuggestions,
+            forcedGapQuestion,
+            forcedConfirm,
+            targetElement,
+            repeatEscapeApplied,
+          });
+        }
+      }
+
       const isRelevant = targetElement
         ? validateQuestionRelevance(trimmedQuestion, targetElement)
         : true;
@@ -1274,7 +1516,7 @@ function resolveTurnDecision(response, state, options = {}) {
       forcedGapQuestion = true;
       decisionSource = "llm_missing_question_fallback";
     }
-    return buildDecisionResult({ adjustedResponse, ctx, decisionSource, llmSuggestions, forcedGapQuestion });
+    return buildDecisionResult({ adjustedResponse, ctx, decisionSource, llmSuggestions, forcedGapQuestion, targetElement, repeatEscapeApplied });
   }
 
   // --- LLM says CONFIRM: apply lightweight quality gates ---
@@ -1306,7 +1548,7 @@ function resolveTurnDecision(response, state, options = {}) {
       forcedConfirm = adjustedResponse.action !== response.action;
       decisionSource = llmReadySignal ? "llm_ready" : "llm_confirm";
     }
-    return buildDecisionResult({ adjustedResponse, ctx, decisionSource, llmSuggestions, forcedGapQuestion, forcedConfirm });
+    return buildDecisionResult({ adjustedResponse, ctx, decisionSource, llmSuggestions, forcedGapQuestion, forcedConfirm, repeatEscapeApplied });
   }
 
   // Fallback: unknown action — pass through
@@ -1315,7 +1557,7 @@ function resolveTurnDecision(response, state, options = {}) {
 
 // Assemble the canonical return shape for resolveTurnDecision.
 // Keeps all analytics fields present for downstream consumers (telemetry, iOS, tests).
-function buildDecisionResult({ adjustedResponse, ctx, decisionSource, llmSuggestions = [], forcedGapQuestion = false, forcedConfirm = false }) {
+function buildDecisionResult({ adjustedResponse, ctx, decisionSource, llmSuggestions = [], forcedGapQuestion = false, forcedConfirm = false, targetElement = null, repeatEscapeApplied = false }) {
   const { gapAnalysis, gapQuestion, elements, elementBlock, hardElementBlock,
     llmReadySignal, hybridReady, hardCriticalBlock, criticalCoverage,
     hardSemanticBlock } = ctx;
@@ -1325,8 +1567,9 @@ function buildDecisionResult({ adjustedResponse, ctx, decisionSource, llmSuggest
     gapQuestion,
     forcedGapQuestion,
     forcedConfirm,
-    repeatEscapeApplied: false,
+    repeatEscapeApplied,
     decisionSource,
+    targetElement,
     llmSuggestions,
     llmReadySignal,
     hybridReady,
@@ -1561,6 +1804,14 @@ async function startStoryV3(options) {
   if (!userId) throw new Error("startStoryV3: userId is required");
   if (!recipientName) throw new Error("startStoryV3: recipientName is required");
 
+  logStoryTurnEvent("start.request", {
+    recipientName: previewTurnText(recipientName, 80),
+    occasion: occasion || null,
+    style: style || null,
+    initialPromptPreview: previewTurnText(initialPrompt),
+    initialPromptChars: typeof initialPrompt === "string" ? initialPrompt.length : 0,
+  });
+
   const normalizedStyle =
     typeof style === "string" && style.trim()
       ? style.trim().toLowerCase()
@@ -1735,6 +1986,21 @@ async function startStoryV3(options) {
     userMessage: initialPrompt,
   });
 
+  logStoryTurnEvent("start.response", {
+    sessionId: session.id,
+    action: response.action,
+    decisionSource: gapResolution.decisionSource,
+    targetSlot: targetSlot || null,
+    targetElement: gapResolution.targetElement || null,
+    gapReason: gapResolution.gapQuestion?.reason || null,
+    questionPreview: previewTurnText(response.question || response.confirmation || null),
+    narrativePreview: previewTurnText(response.narrative || getCanonicalNarrative(finalState) || null),
+    readinessScore: gapResolution.gapAnalysis.readinessScore,
+    missingSlots: (gapResolution.gapAnalysis.missingSlots || []).slice(0, 4),
+    weakSlots: (gapResolution.gapAnalysis.weakSlots || []).slice(0, 4),
+    factCount: Array.isArray(finalState.facts) ? finalState.facts.filter((fact) => (fact?.status || "active") === "active").length : 0,
+  });
+
   return {
     sessionId: session.id,
     engineVersion: effectiveEngineVersion,
@@ -1841,6 +2107,23 @@ async function continueStoryV3(options) {
   const priorDraftLifecycle = deriveDraftLifecycle(v2State);
   const priorGapAnalysis = computeStoryGapAnalysis(v2State);
   const priorCompletionScore = getTurnProgressScore(v2State, priorGapAnalysis, null, null);
+  const priorAssistantMessage = Array.isArray(v2State.conversation)
+    ? [...v2State.conversation].reverse().find((entry) => entry?.role === "assistant" && typeof entry.content === "string")
+    : null;
+
+  logStoryTurnEvent("continue.request", {
+    sessionId,
+    turnCount: Number(v2State.turn_count || 0),
+    inputMode,
+    revisionSource: inputMode === "revision" ? revisionSource : null,
+    answerPreview: previewTurnText(answer),
+    answerChars: typeof answer === "string" ? answer.length : 0,
+    previousQuestionPreview: previewTurnText(priorAssistantMessage?.content || null),
+    priorCompletionScore,
+    priorReadinessScore: typeof priorGapAnalysis?.readinessScore === "number" ? priorGapAnalysis.readinessScore : null,
+    priorMissingSlots: (priorGapAnalysis?.missingSlots || []).slice(0, 4),
+    priorWeakSlots: (priorGapAnalysis?.weakSlots || []).slice(0, 4),
+  });
 
   // 3. Add user turn to conversation history
   const normalizedAnswer = inputMode === "revision"
@@ -2136,6 +2419,31 @@ async function continueStoryV3(options) {
     llmSuggestions: gapResolution.llmSuggestions,
     state: v2State,
     userMessage: answer,
+  });
+
+  const nextQuestion = response.question || response.confirmation || null;
+  const repeatedQuestion = typeof nextQuestion === "string"
+    && typeof priorAssistantMessage?.content === "string"
+    && nextQuestion.trim() === priorAssistantMessage.content.trim();
+
+  logStoryTurnEvent("continue.response", {
+    sessionId,
+    turnCount: v2State.turn_count,
+    action: response.action,
+    decisionSource: gapResolution.decisionSource,
+    targetSlot: continueTargetSlot || null,
+    targetElement: gapResolution.targetElement || null,
+    gapReason: gapResolution.gapQuestion?.reason || null,
+    forcedGapQuestion: gapResolution.forcedGapQuestion,
+    forcedConfirm: gapResolution.forcedConfirm,
+    repeatEscapeApplied: gapResolution.repeatEscapeApplied,
+    repeatedQuestion,
+    questionPreview: previewTurnText(nextQuestion),
+    narrativePreview: previewTurnText(finalNarrative),
+    readinessScore: gapResolution.gapAnalysis.readinessScore,
+    missingSlots: (gapResolution.gapAnalysis.missingSlots || []).slice(0, 4),
+    weakSlots: (gapResolution.gapAnalysis.weakSlots || []).slice(0, 4),
+    factCount: Array.isArray(v2State.facts) ? v2State.facts.filter((fact) => (fact?.status || "active") === "active").length : 0,
   });
 
   return {
@@ -2677,8 +2985,15 @@ async function confirmStoryV3(sessionId, options = {}) {
   v2State = ensureSemanticStoryIntegrity(v2State);
   const totalConfirmSemanticAsks = (v2State.semantic_history || []).length;
   const turnCount = Number(v2State.turn_count || 0);
+  const forceConfirm = options.forceConfirm === true;
+  const reviewableDraft = hasReviewableDraft(v2State, getCanonicalNarrative(v2State) || "");
   // After 3+ turns or 2+ semantic asks, respect the user's choice to proceed
-  if (v2State.semantic_story?.can_confirm === false && totalConfirmSemanticAsks < 2 && turnCount < 3) {
+  if (
+    v2State.semantic_story?.can_confirm === false &&
+    !(forceConfirm && reviewableDraft) &&
+    totalConfirmSemanticAsks < 2 &&
+    turnCount < 3
+  ) {
     let guidanceError;
     try {
       const clarification = buildSemanticClarificationPrompt(v2State);
@@ -2722,6 +3037,9 @@ async function confirmStoryV3(sessionId, options = {}) {
       });
     }
     throw guidanceError;
+  }
+  if (forceConfirm && reviewableDraft && v2State.semantic_story?.can_confirm === false) {
+    console.warn("[V3] Honoring explicit force_confirm on reviewable draft:", { sessionId });
   }
 
   // Build/finalize completed story package before confirmation

@@ -204,6 +204,7 @@ test("resolveTurnDecision avoids re-asking an already answered element when anot
   delete state.atoms.who;
   state.primitives.setting = { place: "", time: "", atmosphere: "", sensory_tags: [] };
   state.primitives.characters = [];
+  state.flags = { labov_scoring: true };
   state.story_state = {
     questionsAsked: [
       {
@@ -231,6 +232,51 @@ test("resolveTurnDecision avoids re-asking an already answered element when anot
   assert.notEqual(resolution.response.question, "How did that make you feel now?");
   assert.equal(resolution.forcedGapQuestion, true);
   assert.equal(resolution.decisionSource, "llm_off_target_fallback");
+});
+
+test("resolveTurnDecision confirms instead of circling the same answered element when story is already materially complete", () => {
+  const state = buildReadyReflectiveState();
+  state.turn_count = 5;
+  state.facts = [
+    ...state.facts,
+    { id: "f3", text: "We had not spoken honestly in years.", status: "active" },
+    { id: "f4", text: "That call made me feel hopeful and deeply grateful.", status: "active" },
+    { id: "f5", text: "It changed how I saw our relationship.", status: "active" },
+  ];
+  state.story_state = {
+    questionsAsked: [
+      {
+        round: 1,
+        question: "How did that make you feel at the time?",
+        targetElement: "evaluation",
+        answered: true,
+        answerSummary: "It made me feel grateful and seen in a way I had not felt for years.",
+      },
+      {
+        round: 2,
+        question: "What does that moment mean to you now?",
+        targetElement: "evaluation",
+        answered: true,
+        answerSummary: "It means we finally found our way back to each other and I still carry that relief.",
+      },
+    ],
+  };
+
+  const resolution = v3.__internal.resolveTurnDecision(
+    {
+      action: "ASK",
+      question: "What does that hospital parking lot call still mean to you now?",
+      narrative: state.narrative,
+      targetSlot: "ending_feel",
+    },
+    state,
+    { userMessage: "It still feels like the moment our relationship came back to life." }
+  );
+
+  assert.equal(resolution.response.action, "CONFIRM");
+  assert.equal(resolution.decisionSource, "forward_progress_confirm");
+  assert.equal(resolution.repeatEscapeApplied, true);
+  assert.match(resolution.response.confirmation, /ready/i);
 });
 
 test("resolveTurnDecision still blocks revisions for safety violations", () => {

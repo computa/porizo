@@ -406,6 +406,7 @@ function getPromptVariantForStage(stage, state) {
 
 function getConversationModeForStage(stage, state) {
   if (stage === "rewrite") return shouldCompactConversation(state) ? "none" : "full";
+  if (stage === "selection") return shouldCompactConversation(state) ? "none" : "full";
   if (stage === "outline") return shouldCompactConversation(state) ? "none" : "full";
   if (stage === "writer") return "none";
   if (stage === "editor" || stage === "pov") return "none";

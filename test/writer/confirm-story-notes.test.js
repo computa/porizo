@@ -50,11 +50,51 @@ test("writer.confirmStory integrates additional notes before locking the draft",
         storyId: "story_notes_1",
         options: {
           additionalNotes: "Add the Awka training years to the ending.",
+          forceConfirm: false,
         },
       },
     ]);
   } finally {
     v3Engine.reviseStoryV3 = originalReviseStoryV3;
+    v3Engine.confirmStoryV3 = originalConfirmStoryV3;
+  }
+});
+
+test("writer.confirmStory forwards explicit forceConfirm intent", async () => {
+  const originalConfirmStoryV3 = v3Engine.confirmStoryV3;
+
+  const calls = [];
+  writer.initWithRepository({
+    async getSession(sessionId) {
+      return { id: sessionId, engineVersion: "v3" };
+    },
+  });
+
+  v3Engine.confirmStoryV3 = async (storyId, options) => {
+    calls.push({ storyId, options });
+    return {
+      narrative: "Updated narrative",
+      completionScore: 82,
+      engineVersion: "v3",
+    };
+  };
+
+  try {
+    const result = await writer.confirmStory("story_force_confirm_1", {
+      forceConfirm: true,
+    });
+
+    assert.equal(result.confirmed, true);
+    assert.deepEqual(calls, [
+      {
+        storyId: "story_force_confirm_1",
+        options: {
+          additionalNotes: undefined,
+          forceConfirm: true,
+        },
+      },
+    ]);
+  } finally {
     v3Engine.confirmStoryV3 = originalConfirmStoryV3;
   }
 });
