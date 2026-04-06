@@ -1633,7 +1633,6 @@ function mapLabovToSlots(labovElements) {
   const complicating = byElement.complicating_action || { strength: 0, status: "missing", evidence: [] };
   const evaluation = byElement.evaluation || { strength: 0, status: "missing", evidence: [] };
   const resolution = byElement.resolution || { strength: 0, status: "missing", evidence: [] };
-  const coda = byElement.coda || { strength: 0, status: "missing", evidence: [] };
   const specificity = byElement.specificity_bonus || { strength: 0, status: "missing", evidence: [] };
 
   return [

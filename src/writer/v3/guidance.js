@@ -115,7 +115,7 @@ async function callGuidanceLLM(state, elementDef, elementState, generateTextFn) 
  *
  * Kept concise (~600-800 tokens) for fast inference on lightweight models.
  */
-function buildGuidancePrompt(state, elementDef, elementState) {
+function buildGuidancePrompt(state, elementDef, _elementState) {
   const narrative = (state.narrative || "").trim();
   const recipientName = state.recipient_name || "the recipient";
   const occasion = state.occasion || "a special occasion";

@@ -57,17 +57,10 @@ const {
   TURN_TRANSFORMATION_REGEX,
   ENDING_FEEL_REGEX,
   APPRECIATION_REGEX,
-  WANT_REGEX,
-  BLOCKER_REGEX,
-  STAKES_REGEX,
   EVALUATION_REGEX,
-  SENSORY_REGEX,
-  PAST_ACTION_REGEX,
-  DEDICATION_REGEX,
   ORIENTATION_REGEX,
   COMPLICATING_REGEX,
   RESOLUTION_REGEX,
-  computeQuestionPriority,
   generateTargetedFallbackQuestion,
   validateQuestionRelevance,
   generateStorySpecificSuggestions,
@@ -91,12 +84,20 @@ const { StoryVersionConflictError } = require("../../database/story-repository")
 
 // Engine version identifier
 const ENGINE_VERSION = "v3";
-const MAX_REPEAT_SLOT_ASKS = 1;
 const MAX_REPEAT_SEMANTIC_ASKS = 1;
 const SUPPORTED_RUNTIME_ENGINE_VERSIONS = new Set(["v2", "v3"]);
 const REVISION_SOURCES = new Set(["review_edit", "confirm_notes", "reopen_edit"]);
 const REVISION_OPERATION_TYPES = new Set(["append", "replace", "remove", "resolve_conflict", "final_notes"]);
 const REVISION_TARGET_TYPES = new Set(["narrative", "fact", "beat", "section", "conflict"]);
+const LABOV_QUESTION_ELEMENTS = ["orientation", "complicating_action", "evaluation", "resolution"];
+const QUESTION_DETAIL_STOP_WORDS = new Set([
+  "about", "after", "again", "always", "because", "before", "being", "between",
+  "could", "every", "first", "from", "have", "into", "just", "made", "make",
+  "more", "really", "should", "something", "still", "that", "their", "them",
+  "there", "they", "this", "what", "when", "where", "which", "while", "with",
+  "would", "your", "you", "were", "then", "than", "like", "felt", "feel",
+]);
+const GENERIC_LLM_QUESTION_REGEX = /\b(tell me more|can you tell me more|share more|say more|what else|anything else|more about|what's something|could you tell me a bit more)\b/i;
 
 // Repository instance (set by initialize)
 let storyRepo = null;
@@ -212,6 +213,125 @@ function initialize(repo) {
   storyRepo = repo;
 }
 
+function tokenizeQuestionKeywords(text) {
+  if (typeof text !== "string") return [];
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9'\s-]/g, " ")
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 4 && !QUESTION_DETAIL_STOP_WORDS.has(token));
+}
+
+function inferAskedQuestionElement(question) {
+  for (const element of LABOV_QUESTION_ELEMENTS) {
+    if (validateQuestionRelevance(question, element)) return element;
+  }
+  return null;
+}
+
+function getRankedQuestionTargets(gapAnalysis) {
+  if (!gapAnalysis?.labov?.elements) return [];
+  return gapAnalysis.labov.elements
+    .filter((element) => element && typeof element.weight === "number" && typeof element.strength === "number")
+    .filter((element) => LABOV_QUESTION_ELEMENTS.includes(element.element))
+    .filter((element) => element.strength < 0.6)
+    .map((element) => ({
+      element: element.element,
+      weight: element.weight,
+      currentStrength: element.strength,
+      priority: Number((element.weight * (1 - element.strength)).toFixed(3)),
+    }))
+    .sort((a, b) => b.priority - a.priority);
+}
+
+function getAnsweredQuestionElements(storyState) {
+  const asked = new Set();
+  const questions = Array.isArray(storyState?.questionsAsked) ? storyState.questionsAsked : [];
+  for (const entry of questions) {
+    if (!entry?.answered) continue;
+    const inferred = entry.targetElement || inferAskedQuestionElement(entry.question || "");
+    if (inferred) asked.add(inferred);
+  }
+  return asked;
+}
+
+function selectRuntimeQuestionTarget(response, gapAnalysis, storyState) {
+  const ranked = getRankedQuestionTargets(gapAnalysis);
+  const answered = getAnsweredQuestionElements(storyState);
+  const directTargetCandidate = getSlotLabovElement(response?.targetSlot);
+  const directTarget = LABOV_QUESTION_ELEMENTS.includes(directTargetCandidate)
+    ? directTargetCandidate
+    : null;
+
+  if (directTarget && !answered.has(directTarget)) {
+    return directTarget;
+  }
+
+  const preferred = ranked.find((candidate) => !answered.has(candidate.element));
+  if (preferred) return preferred.element;
+
+  if (directTarget) return directTarget;
+  return ranked[0]?.element || null;
+}
+
+function getQuestionDetailSignal(question, state, userMessage) {
+  const questionKeywords = new Set(tokenizeQuestionKeywords(question));
+  if (questionKeywords.size === 0) {
+    return { hasRecipientMatch: false, hasStoryDetailMatch: false };
+  }
+
+  const recipientKeywords = new Set(
+    String(state?.recipient_name || state?.atoms?.who || "")
+      .split(/\s+/)
+      .map((token) => token.toLowerCase().replace(/[^a-z0-9']/g, ""))
+      .filter((token) => token.length >= 3)
+  );
+
+  const detailKeywords = new Set();
+  for (const token of tokenizeQuestionKeywords(userMessage || "")) detailKeywords.add(token);
+  const activeFacts = Array.isArray(state?.facts)
+    ? state.facts.filter((fact) => (fact?.status || "active") === "active").slice(-6)
+    : [];
+  for (const fact of activeFacts) {
+    for (const token of tokenizeQuestionKeywords(fact?.text || "")) {
+      detailKeywords.add(token);
+    }
+  }
+  for (const detail of Array.isArray(state?.story_state?.sensoryDetails) ? state.story_state.sensoryDetails : []) {
+    for (const token of tokenizeQuestionKeywords(detail)) {
+      detailKeywords.add(token);
+    }
+  }
+
+  let hasRecipientMatch = false;
+  let hasStoryDetailMatch = false;
+  for (const token of questionKeywords) {
+    if (recipientKeywords.has(token)) hasRecipientMatch = true;
+    if (detailKeywords.has(token)) hasStoryDetailMatch = true;
+  }
+
+  return { hasRecipientMatch, hasStoryDetailMatch };
+}
+
+function isSubstantiveQuestion(question) {
+  const words = String(question || "").trim().split(/\s+/).filter(Boolean);
+  return words.length >= 6 || String(question || "").trim().length >= 32;
+}
+
+function shouldSoftPassQuestion(question, state, userMessage) {
+  const detailSignal = getQuestionDetailSignal(question, state, userMessage);
+  return isSubstantiveQuestion(question)
+    && !GENERIC_LLM_QUESTION_REGEX.test(question)
+    && (detailSignal.hasStoryDetailMatch || detailSignal.hasRecipientMatch);
+}
+
+function chooseRuntimeFallbackQuestion(targetElement, state, userMessage, gapQuestion) {
+  return generateTargetedFallbackQuestion(targetElement, state, userMessage)
+    || gapQuestion?.prompt
+    || buildGenericGapFallback(state);
+}
+
 function normalizeRuntimeEngineVersion(value, fallback = ENGINE_VERSION) {
   const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
   if (SUPPORTED_RUNTIME_ENGINE_VERSIONS.has(normalized)) {
@@ -255,17 +375,6 @@ function getReasoningCondenseLimit(text, { initial = false } = {}) {
     return 1700;
   }
   return initial ? 3200 : 2400;
-}
-
-function countConsecutiveSlotAsks(gapHistory, slot) {
-  if (!Array.isArray(gapHistory) || !slot) return 0;
-  let count = 0;
-  for (let i = gapHistory.length - 1; i >= 0; i -= 1) {
-    const entry = gapHistory[i];
-    if (!entry || entry.slot !== slot) break;
-    count += 1;
-  }
-  return count;
 }
 
 function buildSemanticBlockSignature(semanticStory = {}) {
@@ -626,6 +735,7 @@ function extractStoryState(state) {
       questionsAsked.push({
         round,
         question: trimmedQ,
+        targetElement: inferAskedQuestionElement(trimmedQ),
         answered,
         answerSummary,
       });
@@ -1064,7 +1174,6 @@ function computeDecisionContext(response, state, options = {}) {
   // Option C (Hybrid): LLM drives the conversation; code guards safety only.
   // Element/critical/semantic blocks are computed for analytics (progress bar,
   // story elements UI) but no longer override the LLM's question or action.
-  const turnCount = state?.turn_count ?? 0;
   const hardBlockConfirm = hardSafetyBlock || hardGroundingBlock;
   const hybridReady = !hardBlockConfirm && (gapAnalysis.isStoryReady || llmReadySignal);
 
@@ -1079,9 +1188,7 @@ function computeDecisionContext(response, state, options = {}) {
 
 function resolveTurnDecision(response, state, options = {}) {
   const ctx = computeDecisionContext(response, state, options);
-  const { gapAnalysis, gapQuestion, elements, elementBlock, hardElementBlock,
-    hybridReady, llmReadySignal, hardSafetyBlock, hardBlockConfirm,
-    hardCriticalBlock, criticalCoverage, hardSemanticBlock } = ctx;
+  const { gapAnalysis, gapQuestion, llmReadySignal, hardSafetyBlock, hardBlockConfirm } = ctx;
   const userMessage = options.userMessage || null;
   let adjustedResponse = { ...response };
   let forcedGapQuestion = false;
@@ -1129,12 +1236,31 @@ function resolveTurnDecision(response, state, options = {}) {
 
   // --- LLM says ASK or CLARIFY: trust the LLM's question ---
   if (adjustedResponse.action === "ASK" || adjustedResponse.action === "CLARIFY") {
+    const targetElement = selectRuntimeQuestionTarget(adjustedResponse, gapAnalysis, state?.story_state);
     if (llmHasQuestion) {
-      // LLM generated a question — use it as-is
-      decisionSource = "llm";
+      const trimmedQuestion = adjustedResponse.question.trim();
+      const isRelevant = targetElement
+        ? validateQuestionRelevance(trimmedQuestion, targetElement)
+        : true;
+
+      if (!isRelevant && shouldSoftPassQuestion(trimmedQuestion, state, userMessage)) {
+        adjustedResponse = { ...adjustedResponse, question: trimmedQuestion };
+        decisionSource = "llm_soft_pass";
+      } else if (!isRelevant) {
+        adjustedResponse = {
+          ...adjustedResponse,
+          question: chooseRuntimeFallbackQuestion(targetElement, state, userMessage, gapQuestion),
+        };
+        llmSuggestions = [];
+        forcedGapQuestion = true;
+        decisionSource = "llm_off_target_fallback";
+      } else {
+        adjustedResponse = { ...adjustedResponse, question: trimmedQuestion };
+        decisionSource = "llm_validated";
+      }
     } else {
       // LLM decided to ask but didn't produce a question — fallback
-      const fallback = gapQuestion?.prompt || buildGenericGapFallback(state);
+      const fallback = chooseRuntimeFallbackQuestion(targetElement, state, userMessage, gapQuestion);
       adjustedResponse = { ...adjustedResponse, question: fallback };
       llmSuggestions = [];
       forcedGapQuestion = true;
@@ -1334,7 +1460,7 @@ function buildReadinessWhy({ gapAnalysis, responseAction, decisionSource, isUser
   if (isUserOverridable) {
     return "The draft is substantial enough to review even though the engine can still ask for more detail.";
   }
-  if (decisionSource === "llm") {
+  if (typeof decisionSource === "string" && decisionSource.startsWith("llm")) {
     return "The model wants one more round of detail before review.";
   }
   return "The story still needs more detail before review.";

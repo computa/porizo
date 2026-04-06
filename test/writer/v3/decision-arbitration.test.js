@@ -129,7 +129,7 @@ test("resolveTurnDecision downgrades CONFIRM to ASK when story too thin", () => 
   assert.equal(resolution.response.question, "Tell me more about Ada.");
 });
 
-test("resolveTurnDecision trusts LLM ASK question regardless of slot targeting", () => {
+test("resolveTurnDecision replaces off-target LLM ASK question with targeted fallback", () => {
   const state = buildReadyReflectiveState();
   state.turn_count = 1;
 
@@ -143,20 +143,20 @@ test("resolveTurnDecision trusts LLM ASK question regardless of slot targeting",
     state
   );
 
-  // Option C: LLM's question is trusted regardless of slot match
   assert.equal(resolution.response.action, "ASK");
-  assert.equal(resolution.response.question, "What tone should the story have?");
-  assert.equal(resolution.decisionSource, "llm");
+  assert.notEqual(resolution.response.question, "What tone should the story have?");
+  assert.equal(resolution.forcedGapQuestion, true);
+  assert.equal(resolution.decisionSource, "llm_off_target_fallback");
 });
 
-test("resolveTurnDecision trusts LLM question even without targetSlot", () => {
+test("resolveTurnDecision soft-passes grounded LLM question without targetSlot", () => {
   const state = buildReadyReflectiveState();
   state.turn_count = 1;
 
   const resolution = v3.__internal.resolveTurnDecision(
     {
       action: "ASK",
-      question: "Tell me more about Osita.",
+      question: "When you think about the hospital parking lot call, what still hits you the hardest?",
       narrative: state.narrative,
       // No targetSlot at all
     },
@@ -164,8 +164,8 @@ test("resolveTurnDecision trusts LLM question even without targetSlot", () => {
   );
 
   assert.equal(resolution.response.action, "ASK");
-  assert.equal(resolution.response.question, "Tell me more about Osita.");
-  assert.equal(resolution.decisionSource, "llm");
+  assert.equal(resolution.response.question, "When you think about the hospital parking lot call, what still hits you the hardest?");
+  assert.equal(resolution.decisionSource, "llm_soft_pass");
 });
 
 test("resolveTurnDecision uses gap fallback when LLM ASK has no question", () => {
@@ -185,6 +185,38 @@ test("resolveTurnDecision uses gap fallback when LLM ASK has no question", () =>
   assert.ok(resolution.response.question.length > 0);
   assert.equal(resolution.forcedGapQuestion, true);
   assert.equal(resolution.decisionSource, "llm_missing_question_fallback");
+});
+
+test("resolveTurnDecision avoids re-asking an already answered element when another target exists", () => {
+  const state = buildReadyReflectiveState();
+  state.turn_count = 2;
+  state.story_state = {
+    questionsAsked: [
+      {
+        round: 1,
+        question: "How did that make you feel at the time?",
+        targetElement: "evaluation",
+        answered: true,
+        answerSummary: "It made me feel grateful and seen.",
+      },
+    ],
+  };
+
+  const resolution = v3.__internal.resolveTurnDecision(
+    {
+      action: "ASK",
+      question: "How did that make you feel now?",
+      narrative: state.narrative,
+      targetSlot: "ending_feel",
+    },
+    state,
+    { userMessage: "She called from the hospital parking lot and everything changed." }
+  );
+
+  assert.equal(resolution.response.action, "ASK");
+  assert.notEqual(resolution.response.question, "How did that make you feel now?");
+  assert.equal(resolution.forcedGapQuestion, true);
+  assert.equal(resolution.decisionSource, "llm_off_target_fallback");
 });
 
 test("resolveTurnDecision still blocks revisions for safety violations", () => {
@@ -251,8 +283,9 @@ test("resolveTurnDecision preserves LLM suggestions when question not overridden
   const resolution = v3.__internal.resolveTurnDecision(
     {
       action: "ASK",
-      question: "What's a moment with Ada that you'll never forget?",
+      question: "How did Ada's hospital parking lot call make you feel?",
       narrative: state.narrative,
+      targetSlot: "ending_feel",
       suggestions,
     },
     state

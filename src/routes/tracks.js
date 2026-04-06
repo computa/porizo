@@ -1,7 +1,6 @@
 "use strict";
 
-const crypto = require("crypto");
-const { newUuid, newShareId } = require("../utils/ids");
+const { newUuid } = require("../utils/ids");
 const { createOrGetShareToken } = require("../services/share-service");
 const { nowIso, toJson, parseJson } = require("../utils/common");
 const { moderationCheck, validateGeneratedLyrics } = require("../providers/moderation");

@@ -10,6 +10,8 @@
     "worker": "node -r dotenv/config src/worker.js",
     "lint": "eslint .",
     "test": "NODE_ENV=test ALLOW_ANON_USER_ID=true ALLOW_DEVICE_TOKEN_FALLBACK=true node --test --test-concurrency=1 test/**/*.test.js",
+    "eval:story": "node -r dotenv/config scripts/autoresearch-story.js --baseline-only --threshold-score=27",
+    "eval:story:optimize": "node -r dotenv/config scripts/autoresearch-story.js",
     "replicate:test": "node -r dotenv/config tools/replicate-voice-test.js --input tools/replicate-input.json",
     "elevenlabs:test": "node -r dotenv/config tools/elevenlabs-music-test.js --input tools/elevenlabs-input.json",
     "preflight:subscriptions": "node tools/preflight-subscriptions-runtime.js",
