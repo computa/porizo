@@ -103,18 +103,14 @@ struct ShareClaimView: View {
             Spacer()
 
             VStack(spacing: 12) {
-                // Primary CTA — Listen Now (coral)
+                // No preview is available in this state, so pin entry is the first action.
                 Button {
-                    claimShare()
+                    pinError = "Enter the 6-digit PIN from the sender."
+                    pinFocused = true
                 } label: {
                     HStack(spacing: 8) {
-                        if isClaiming && pin.isEmpty {
-                            ProgressView()
-                                .tint(.white)
-                        } else {
-                            Text("\u{25B6}")
-                        }
-                        Text(isClaiming && pin.isEmpty ? "Loading..." : "Listen Now")
+                        Image(systemName: "key.fill")
+                        Text("Enter PIN to Listen")
                     }
                     .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
                     .foregroundStyle(.white)
@@ -328,6 +324,8 @@ struct ShareClaimView: View {
 
     private func loadShareInfo() {
         state = .loading
+        pin = ""
+        pinError = nil
 
         loadTask = Task {
             do {
@@ -376,6 +374,15 @@ struct ShareClaimView: View {
     }
 
     private func claimShare() {
+        let trimmedPin = pin.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmedPin.count == 6 else {
+            pinError = "Enter the 6-digit PIN from the sender."
+            pinFocused = true
+            state = .requiresPin
+            return
+        }
+
+        pin = trimmedPin
         pinError = nil
         isClaiming = true
         claimTask?.cancel()
@@ -384,7 +391,7 @@ struct ShareClaimView: View {
                 _ = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "claimShare") {
                     try await apiClient.claimShare(
                         shareId: shareId,
-                        pin: pin,
+                        pin: trimmedPin,
                         appVersion: appVersion
                     )
                 }
@@ -528,7 +535,16 @@ struct ShareClaimView: View {
     private func mapShareError(_ error: APIClientError) -> String {
         switch error {
         case .notAuthenticated:
-            return "Please sign in to claim this song."
+            return "This share couldn't be verified on this device. Open the link again and try once more."
+        case .serverError(let message, let code, _):
+            switch code {
+            case "INVALID_PIN":
+                return "That PIN doesn't look right. Check it with the sender and try again."
+            case "DEVICE_TOKEN_REQUIRED":
+                return "Open this share from the app on the device that will play it."
+            default:
+                return message
+            }
         case .httpError(let statusCode, _):
             switch statusCode {
             case 404:
@@ -536,7 +552,7 @@ struct ShareClaimView: View {
             case 410:
                 return "This share link has expired."
             case 401:
-                return "Please verify your PIN and sign in."
+                return "That PIN doesn't look right. Check it with the sender and try again."
             case 403:
                 return "Access denied for this share."
             case 429:

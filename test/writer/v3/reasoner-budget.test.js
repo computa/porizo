@@ -4,6 +4,7 @@ const assert = require("node:assert/strict");
 const { createInitialState } = require("../../../src/writer/v3/state");
 const {
   buildReasoningPrompt,
+  buildOutlineStagePrompt,
   buildWriterStagePrompt,
   buildPromptWithinBudget,
   estimatePromptTokens,
@@ -141,4 +142,19 @@ test("buildWriterStagePrompt drops raw transcript and keeps artifact context", (
   assert.ok(!prompt.includes("Turn 1 with extra detail"));
   assert.match(prompt, /Selection output \(JSON\):/i);
   assert.match(prompt, /Outline output \(JSON\):/i);
+});
+
+test("buildOutlineStagePrompt drops transcript when compact story memory is active", () => {
+  const state = buildLargeState();
+  const prompt = buildOutlineStagePrompt(
+    state,
+    "He squeezed my hand again and said we could survive this night.",
+    { selection: { best_details: ["hospital corridor", "squeezed my hand"] } },
+    {}
+  );
+
+  assert.match(prompt, /Conversation compressed into story\/facts/i);
+  assert.ok(!prompt.includes("Turn 49 with extra detail"));
+  assert.ok(!prompt.includes("Turn 50 with extra detail"));
+  assert.match(prompt, /Selection pass output \(JSON\):/i);
 });

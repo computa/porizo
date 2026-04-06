@@ -341,7 +341,12 @@ struct RootView: View {
             apiClient = makeAPIClient(deviceId: deviceId)
             apiClientReady = true
         }
-        if authManager.isAuthenticated {
+        if !parsed.isPoem {
+            pendingShareId = nil
+            pendingShareIsPoem = false
+            authContextMessage = nil
+            shareContext = ShareContext(shareId: parsed.shareId, isPoem: false)
+        } else if authManager.isAuthenticated {
             shareContext = ShareContext(shareId: parsed.shareId, isPoem: parsed.isPoem)
         } else {
             pendingShareId = parsed.shareId

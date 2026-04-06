@@ -175,10 +175,13 @@ extension APIClient {
         }
         request.setValue(deviceToken, forHTTPHeaderField: "x-device-token")
 
-        let body: [String: String] = [
+        var body: [String: String] = [
             "app_version": appVersion,
-            "pin": pin
         ]
+        let trimmedPin = pin.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedPin.isEmpty {
+            body["pin"] = trimmedPin
+        }
         request.httpBody = try JSONEncoder().encode(body)
 
         var (data, response) = try await Self.session.data(for: request)

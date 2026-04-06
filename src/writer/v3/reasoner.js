@@ -197,15 +197,15 @@ const COMPACT_STORY_MEMORY_LIMITS = {
     maxFactChars: 140,
     maxRetainedDetails: 10,
     maxRetainedDetailChars: 96,
-    maxRecentConversationTurns: 3,
-    maxRecentConversationCharsPerTurn: 120,
+    maxRecentConversationTurns: 2,
+    maxRecentConversationCharsPerTurn: 96,
   },
   selection: {
     maxNarrativeChars: 1600,
     maxFacts: 12,
     maxFactChars: 136,
-    maxRecentConversationTurns: 3,
-    maxRecentConversationCharsPerTurn: 120,
+    maxRecentConversationTurns: 2,
+    maxRecentConversationCharsPerTurn: 96,
   },
   outline: {
     maxNarrativeChars: 1400,
@@ -405,6 +405,8 @@ function getPromptVariantForStage(stage, state) {
 }
 
 function getConversationModeForStage(stage, state) {
+  if (stage === "rewrite") return shouldCompactConversation(state) ? "none" : "full";
+  if (stage === "outline") return shouldCompactConversation(state) ? "none" : "full";
   if (stage === "writer") return "none";
   if (stage === "editor" || stage === "pov") return "none";
   return shouldCompactConversation(state) ? "recent" : "full";
@@ -733,7 +735,7 @@ function buildPovStagePrompt(state, userInput, narrative, songMapData, options =
 
 function buildWriterStagePrompt(state, userInput, selectionData, outlineData, options = {}) {
   const basePrompt = buildReasoningPrompt(state, userInput, getStagePromptOptions("writer", state, userInput, options));
-  const maxChars = options.maxStructuredJsonChars ?? 1800;
+  const maxChars = options.maxStructuredJsonChars ?? 1400;
   const selectionJson = serializeCompactPayload(selectionData || {}, maxChars);
   const outlineJson = serializeCompactPayload(outlineData || {}, maxChars);
   return `${basePrompt}
