@@ -37,12 +37,14 @@ function loadTemplate(name) {
 const HOT_RELOAD = process.env.NODE_ENV === "development" || process.env.NODE_ENV === "test";
 
 const _TEMPLATE = loadTemplate("reason-v3.md");
+const _TEMPLATE_COMPACT = loadTemplate("reason-v3-compact.md");
 const _TEMPLATE_SELECTION = loadTemplate("reason-v3-selection.md");
 const _TEMPLATE_OUTLINE = loadTemplate("reason-v3-outline.md");
 const _TEMPLATE_EDITOR = loadTemplate("reason-v3-editor.md");
 const _TEMPLATE_POV = loadTemplate("reason-v3-pov.md");
 
 function getMainTemplate() { return HOT_RELOAD ? loadTemplate("reason-v3.md") || _TEMPLATE : _TEMPLATE; }
+function getCompactMainTemplate() { return HOT_RELOAD ? loadTemplate("reason-v3-compact.md") || _TEMPLATE_COMPACT : _TEMPLATE_COMPACT; }
 function getSelectionTemplate() { return HOT_RELOAD ? loadTemplate("reason-v3-selection.md") || _TEMPLATE_SELECTION : _TEMPLATE_SELECTION; }
 function getOutlineTemplate() { return HOT_RELOAD ? loadTemplate("reason-v3-outline.md") || _TEMPLATE_OUTLINE : _TEMPLATE_OUTLINE; }
 function getEditorTemplate() { return HOT_RELOAD ? loadTemplate("reason-v3-editor.md") || _TEMPLATE_EDITOR : _TEMPLATE_EDITOR; }
@@ -62,6 +64,8 @@ const DEFAULT_PROMPT_LIMITS = {
   maxBeatPurposeChars: 120,
   maxConversationTurns: 10,
   maxConversationCharsPerTurn: 320,
+  maxRecentConversationTurns: 3,
+  maxRecentConversationCharsPerTurn: 160,
   maxStructuredJsonChars: 4200,
   maxRetainedDetails: 15,
   maxRetainedDetailChars: 120,
@@ -81,6 +85,10 @@ function truncateText(value, maxChars) {
     return text;
   }
   return `${text.slice(0, Math.max(0, maxChars - 1)).trim()}…`;
+}
+
+function normalizeComparableText(value) {
+  return typeof value === "string" ? value.replace(/\s+/g, " ").trim().toLowerCase() : "";
 }
 
 function prioritizeStructuredKeys(value) {
@@ -318,7 +326,7 @@ function buildRetainedDetailsSection(details, limits) {
  * @returns {string} Formatted prompt
  */
 function buildContextPrompt(state, userInput, options = {}) {
-  const tmpl = getMainTemplate();
+  const tmpl = options.promptVariant === "compact" ? getCompactMainTemplate() : getMainTemplate();
   if (!tmpl) {
     return buildFallbackPrompt(state, userInput);
   }
@@ -366,7 +374,11 @@ function buildContextPrompt(state, userInput, options = {}) {
   prompt = prompt.replace(/\{\{gap_targeting\}\}/g, gapTargeting);
 
   // Build conversation history
-  const conversationHistory = buildConversationHistory(state.conversation, limits);
+  const conversationHistory = buildConversationHistory(state.conversation, {
+    ...limits,
+    conversationMode: options.conversationMode,
+    currentUserInput: userInput,
+  });
   prompt = prompt.replace(/\{\{conversation_history\}\}/g, conversationHistory);
 
   // Anti-repetition: already known facts and already asked questions
@@ -411,7 +423,11 @@ function buildSelectionPrompt(state, userInput, options = {}) {
   const dialsSummary = buildDialsSummary(state.dials, limits);
   prompt = prompt.replace(/\{\{dials_summary\}\}/g, dialsSummary);
 
-  const conversationHistory = buildConversationHistory(state.conversation, limits);
+  const conversationHistory = buildConversationHistory(state.conversation, {
+    ...limits,
+    conversationMode: options.conversationMode,
+    currentUserInput: userInput,
+  });
   prompt = prompt.replace(/\{\{conversation_history\}\}/g, conversationHistory);
 
   // Anti-repetition: already known facts
@@ -442,7 +458,11 @@ function buildOutlinePrompt(state, userInput, selectionJson, options = {}) {
   const beatsTable = buildBeatsTable(state.beats, limits);
   prompt = prompt.replace(/\{\{beats_table\}\}/g, beatsTable);
 
-  const conversationHistory = buildConversationHistory(state.conversation, limits);
+  const conversationHistory = buildConversationHistory(state.conversation, {
+    ...limits,
+    conversationMode: options.conversationMode,
+    currentUserInput: userInput,
+  });
   prompt = prompt.replace(/\{\{conversation_history\}\}/g, conversationHistory);
 
   return prompt;
@@ -736,22 +756,50 @@ function statusToStrength(status) {
  */
 function buildConversationHistory(conversation, options = {}) {
   const limits = resolvePromptLimits(options);
+  const conversationMode = options.conversationMode || "full";
   if (!conversation || conversation.length === 0) {
     return "(New conversation)";
   }
 
-  const maxTurns = Math.max(1, Number(limits.maxConversationTurns || DEFAULT_PROMPT_LIMITS.maxConversationTurns));
-  const selected = conversation.slice(-maxTurns);
+  if (conversationMode === "none") {
+    return "(Conversation compressed into story/facts; rely on Story so far, known details, and the user's new input.)";
+  }
+
+  const maxTurns = conversationMode === "recent"
+    ? Math.max(1, Number(limits.maxRecentConversationTurns || DEFAULT_PROMPT_LIMITS.maxRecentConversationTurns))
+    : Math.max(1, Number(limits.maxConversationTurns || DEFAULT_PROMPT_LIMITS.maxConversationTurns));
+  const maxCharsPerTurn = conversationMode === "recent"
+    ? Math.max(24, Number(limits.maxRecentConversationCharsPerTurn || DEFAULT_PROMPT_LIMITS.maxRecentConversationCharsPerTurn))
+    : Math.max(24, Number(limits.maxConversationCharsPerTurn || DEFAULT_PROMPT_LIMITS.maxConversationCharsPerTurn));
+
+  let selected = conversation.slice(-maxTurns);
+  const currentUserInput = normalizeComparableText(options.currentUserInput);
+  if (conversationMode === "recent" && currentUserInput) {
+    selected = selected.filter((turn, index) => {
+      const isLastTurn = index === selected.length - 1;
+      if (!isLastTurn) return true;
+      if ((turn?.role || "user") !== "user") return true;
+      return normalizeComparableText(turn?.content) !== currentUserInput;
+    });
+  }
+  if (selected.length === 0) {
+    return "(Conversation compressed; latest user input is shown separately below.)";
+  }
+
   const omitted = conversation.length - selected.length;
   const lines = [];
 
   if (omitted > 0) {
-    lines.push(`(Conversation trimmed: ${omitted} earlier turn(s) omitted)`);
+    if (conversationMode === "recent") {
+      lines.push(`(Conversation compressed: ${omitted} earlier turn(s) folded into story/facts.)`);
+    } else {
+      lines.push(`(Conversation trimmed: ${omitted} earlier turn(s) omitted)`);
+    }
   }
 
   for (const turn of selected) {
     const role = typeof turn?.role === "string" ? turn.role : "user";
-    const content = truncateText(turn?.content || "", limits.maxConversationCharsPerTurn);
+    const content = truncateText(turn?.content || "", maxCharsPerTurn);
     lines.push(`**${role}:** ${content}`);
   }
 

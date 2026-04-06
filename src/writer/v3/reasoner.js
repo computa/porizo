@@ -174,6 +174,55 @@ const PROMPT_LIMIT_STEPS = [
   },
 ];
 
+const COMPACT_STORY_MEMORY_LIMITS = {
+  single: {
+    maxNarrativeChars: 1800,
+    maxFacts: 12,
+    maxFactChars: 140,
+    maxAtoms: 10,
+    maxAtomValueChars: 120,
+    maxPrimitiveValueChars: 180,
+    maxMotifs: 6,
+    maxMotifChars: 60,
+    maxBeats: 6,
+    maxBeatPurposeChars: 96,
+    maxRetainedDetails: 10,
+    maxRetainedDetailChars: 96,
+    maxRecentConversationTurns: 3,
+    maxRecentConversationCharsPerTurn: 120,
+  },
+  rewrite: {
+    maxNarrativeChars: 1800,
+    maxFacts: 12,
+    maxFactChars: 140,
+    maxRetainedDetails: 10,
+    maxRetainedDetailChars: 96,
+    maxRecentConversationTurns: 3,
+    maxRecentConversationCharsPerTurn: 120,
+  },
+  selection: {
+    maxNarrativeChars: 1600,
+    maxFacts: 12,
+    maxFactChars: 136,
+    maxRecentConversationTurns: 3,
+    maxRecentConversationCharsPerTurn: 120,
+  },
+  outline: {
+    maxNarrativeChars: 1400,
+    maxFacts: 10,
+    maxFactChars: 120,
+    maxRecentConversationTurns: 2,
+    maxRecentConversationCharsPerTurn: 96,
+  },
+  writer: {
+    maxNarrativeChars: 1400,
+    maxFacts: 10,
+    maxFactChars: 120,
+    maxRetainedDetails: 8,
+    maxRetainedDetailChars: 88,
+  },
+};
+
 function estimatePromptTokens(text) {
   if (!text) return 0;
   return Math.ceil(String(text).length / 4);
@@ -334,6 +383,41 @@ function getBackoffDelay(attempt) {
 function buildReasoningPrompt(state, userInput, options = {}) {
   // Use v3 context-only prompt builder
   return buildContextPrompt(state, userInput, options);
+}
+
+function shouldCompactConversation(state) {
+  const turnCount = Number(state?.turn_count || 0);
+  const conversationCount = Array.isArray(state?.conversation) ? state.conversation.length : 0;
+  const factCount = Array.isArray(state?.facts) ? state.facts.length : 0;
+  return turnCount >= 2 || conversationCount > 4 || factCount > 4 || Boolean(state?.completed_story_package?.prose);
+}
+
+function getCompactMemoryLimitsForStage(stage, state) {
+  return shouldCompactConversation(state) ? (COMPACT_STORY_MEMORY_LIMITS[stage] || {}) : {};
+}
+
+function getPromptVariantForStage(stage, state) {
+  if (!shouldCompactConversation(state)) return undefined;
+  if (stage === "single" || stage === "rewrite" || stage === "writer") {
+    return "compact";
+  }
+  return undefined;
+}
+
+function getConversationModeForStage(stage, state) {
+  if (stage === "writer") return "none";
+  if (stage === "editor" || stage === "pov") return "none";
+  return shouldCompactConversation(state) ? "recent" : "full";
+}
+
+function getStagePromptOptions(stage, state, userInput, options = {}) {
+  return {
+    ...getCompactMemoryLimitsForStage(stage, state),
+    ...options,
+    promptVariant: options.promptVariant || getPromptVariantForStage(stage, state),
+    conversationMode: options.conversationMode || getConversationModeForStage(stage, state),
+    currentUserInput: userInput,
+  };
 }
 
 /**
@@ -619,17 +703,18 @@ function needsNarrativeRewrite(state, data) {
  * @returns {string}
  */
 function buildRewritePrompt(state, userInput, options = {}) {
-  return `${buildReasoningPrompt(state, userInput, options)}\n\nIMPORTANT: Rewrite the full narrative by integrating the new info into earlier sentences. Do not append or simply add a new line at the end. Keep the narrative centered on the recipient by default (avoid writer-centered I/my/we unless explicitly requested). Include updates.integration with added/superseded/conflict notes. Respond with JSON only.`;
+  const promptOptions = getStagePromptOptions("rewrite", state, userInput, options);
+  return `${buildReasoningPrompt(state, userInput, promptOptions)}\n\nIMPORTANT: Rewrite the full narrative by integrating the new info into earlier sentences. Do not append or simply add a new line at the end. Keep the narrative centered on the recipient by default (avoid writer-centered I/my/we unless explicitly requested). Include updates.integration with added/superseded/conflict notes. Respond with JSON only.`;
 }
 
 function buildSelectionStagePrompt(state, userInput, options = {}) {
-  return buildSelectionPrompt(state, userInput, options);
+  return buildSelectionPrompt(state, userInput, getStagePromptOptions("selection", state, userInput, options));
 }
 
 function buildOutlineStagePrompt(state, userInput, selectionData, options = {}) {
   const maxChars = options.maxStructuredJsonChars ?? 1600;
   const compactSelectionJson = serializeCompactPayload(selectionData || {}, maxChars);
-  return buildOutlinePrompt(state, userInput, compactSelectionJson, options);
+  return buildOutlinePrompt(state, userInput, compactSelectionJson, getStagePromptOptions("outline", state, userInput, options));
 }
 
 function buildEditorStagePrompt(state, userInput, writerData, selectionData, outlineData, options = {}) {
@@ -647,7 +732,7 @@ function buildPovStagePrompt(state, userInput, narrative, songMapData, options =
 }
 
 function buildWriterStagePrompt(state, userInput, selectionData, outlineData, options = {}) {
-  const basePrompt = buildReasoningPrompt(state, userInput, options);
+  const basePrompt = buildReasoningPrompt(state, userInput, getStagePromptOptions("writer", state, userInput, options));
   const maxChars = options.maxStructuredJsonChars ?? 1800;
   const selectionJson = serializeCompactPayload(selectionData || {}, maxChars);
   const outlineJson = serializeCompactPayload(outlineData || {}, maxChars);
@@ -851,7 +936,10 @@ async function reasonSingle(state, userInput, options = {}) {
   }
 
   const prompt = buildPromptWithinBudget("single", (limits) =>
-    buildReasoningPrompt(state, userInput, { ...limits, retainedDetails: options.retainedDetails })
+    buildReasoningPrompt(state, userInput, getStagePromptOptions("single", state, userInput, {
+      ...limits,
+      retainedDetails: options.retainedDetails,
+    }))
   );
   const maxRetries = options.maxRetries ?? RETRY_CONFIG.maxRetries;
   const sleepFn = options._sleepFn ?? sleep;
@@ -1240,6 +1328,9 @@ async function reasonWithFallback(state, userInput, options = {}) {
 
 module.exports = {
   buildReasoningPrompt,
+  buildSelectionStagePrompt,
+  buildOutlineStagePrompt,
+  buildWriterStagePrompt,
   parseReasoningResponse,
   reason,
   reasonWithFallback,
