@@ -1668,9 +1668,20 @@ function computeLabovGapAnalysis(state, options = {}) {
   // Determine weights (occasion-aware adjustment)
   const occasionRaw = options.occasion || state?.event?.occasion || state?.occasion || "";
   const isTribute = isTributeOccasion(occasionRaw);
+  const CELEBRATION_SIMPLE_OCCASIONS = new Set([
+    "celebration", "birthday", "graduation", "get-well", "get_well", "friendship",
+  ]);
+  const normalizedOccasion = normalizeOccasion(occasionRaw);
+  const isCelebration = CELEBRATION_SIMPLE_OCCASIONS.has(normalizedOccasion);
   const weights = { ...LABOV_DEFAULT_WEIGHTS };
   let occasionAdjustment = null;
-  if (isTribute) {
+  if (isCelebration) {
+    weights.orientation = 0.30;
+    weights.complicating_action = 0.10;
+    weights.evaluation = 0.45;
+    weights.resolution = 0.05;
+    occasionAdjustment = `celebration: orientation 0.20->0.30, complicating_action 0.25->0.10, evaluation 0.35->0.45, resolution 0.10->0.05`;
+  } else if (isTribute) {
     weights.resolution = 0.05;
     weights.evaluation = 0.40;
     occasionAdjustment = `tribute: resolution 0.10->0.05, evaluation 0.35->0.40`;

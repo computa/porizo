@@ -332,6 +332,14 @@ function chooseRuntimeFallbackQuestion(targetElement, state, userMessage, gapQue
     || buildGenericGapFallback(state);
 }
 
+function hydrateStoryState(state) {
+  if (!state || typeof state !== "object") return state;
+  return {
+    ...state,
+    story_state: extractStoryState(state),
+  };
+}
+
 function normalizeRuntimeEngineVersion(value, fallback = ENGINE_VERSION) {
   const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
   if (SUPPORTED_RUNTIME_ENGINE_VERSIONS.has(normalized)) {
@@ -1577,6 +1585,7 @@ async function startStoryV3(options) {
       },
     };
   }
+  stateWithPrompt = hydrateStoryState(stateWithPrompt);
 
   // 4. Create database session
   const session = await storyRepo.createSession(userId, {
@@ -1654,6 +1663,7 @@ async function startStoryV3(options) {
       ...condensedInitialInput.metadata,
     },
   };
+  finalState = hydrateStoryState(finalState);
 
   // Validate state and force clarification if invalid
   const validation = validateState(finalState);
@@ -1850,6 +1860,7 @@ async function continueStoryV3(options) {
         : Number(v2State.reopen_count || 0),
     };
   }
+  v2State = hydrateStoryState(v2State);
   const condensedAnswerInput = condenseForReasoning(normalizedAnswer, {
     maxChars: getReasoningCondenseLimit(normalizedAnswer),
   });
@@ -1983,6 +1994,7 @@ async function continueStoryV3(options) {
       ...condensedAnswerInput.metadata,
     },
   };
+  v2State = hydrateStoryState(v2State);
 
   // Validate state and force clarification if invalid
   const validation = validateState(v2State);
@@ -2516,15 +2528,17 @@ async function prepareStoryReviewV3(sessionId) {
     updated_at: reviewTimestamp,
   };
   reviewState = ensureSemanticStoryIntegrity(reviewState);
+  const reviewTurnCount = Number(reviewState.turn_count || 0);
   if (reviewState.semantic_story?.can_confirm === false) {
     const semanticSignature = buildSemanticBlockSignature(reviewState.semantic_story);
     const repeatedCount = countConsecutiveSemanticAsks(reviewState.semantic_history || [], semanticSignature);
-    if (repeatedCount >= MAX_REPEAT_SEMANTIC_ASKS) {
+    const totalSemanticAsks = (reviewState.semantic_history || []).length;
+    if (reviewTurnCount >= 3 || totalSemanticAsks >= 2 || repeatedCount >= MAX_REPEAT_SEMANTIC_ASKS) {
       reviewState = ensureSemanticStoryIntegrity({
         ...reviewState,
         semantic_override: {
           signature: semanticSignature,
-          count: repeatedCount,
+          count: Math.max(repeatedCount, MAX_REPEAT_SEMANTIC_ASKS),
           overridden_at: new Date().toISOString(),
         },
       });
@@ -2661,7 +2675,10 @@ async function confirmStoryV3(sessionId, options = {}) {
     }
   }
   v2State = ensureSemanticStoryIntegrity(v2State);
-  if (v2State.semantic_story?.can_confirm === false) {
+  const totalConfirmSemanticAsks = (v2State.semantic_history || []).length;
+  const turnCount = Number(v2State.turn_count || 0);
+  // After 3+ turns or 2+ semantic asks, respect the user's choice to proceed
+  if (v2State.semantic_story?.can_confirm === false && totalConfirmSemanticAsks < 2 && turnCount < 3) {
     let guidanceError;
     try {
       const clarification = buildSemanticClarificationPrompt(v2State);
@@ -2889,6 +2906,7 @@ module.exports = {
     quality: require("./quality"),
     semantics: require("../story-semantics"),
     resolveTurnDecision,
+    hydrateStoryState,
     buildResponseSuggestions,
     buildSemanticClarificationPrompt,
     buildSemanticBlockSignature,

@@ -393,10 +393,12 @@ struct WarmCanvasFlowView: View {
 
                 // Genre picker (during active conversation)
                 if case .tell(.conversing) = moment, storyEngine.storyId != nil {
+                    let canCreate = storyEngine.isComplete
+                        || (storyEngine.readiness?.isUserOverridable == true && !storyEngine.isLoading)
                     CollapsibleStylePicker(
                         selectedStyle: $setup.style,
                         styleStore: styleStore,
-                        onCreate: storyEngine.isComplete ? {
+                        onCreate: canCreate ? {
                             guard setup.occasion != nil else {
                                 showOccasionPicker = true
                                 return
@@ -407,9 +409,9 @@ struct WarmCanvasFlowView: View {
                             }
                             finishConversation()
                         } : nil,
-                        createEnabled: storyEngine.isComplete && !storyEngine.isLoading
+                        createEnabled: canCreate && !storyEngine.isLoading
                             && storyEngine.draft.pendingRevision == nil,
-                        autoExpand: storyEngine.isComplete && setup.style == nil
+                        autoExpand: canCreate && setup.style == nil
                     )
                 }
 

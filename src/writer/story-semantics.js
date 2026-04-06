@@ -2,6 +2,10 @@ const { isDeepStrictEqual } = require("node:util");
 const crypto = require("node:crypto");
 
 const STORY_BLOCKS = Object.freeze(["setup", "conflict", "turn", "transformation", "meaning"]);
+const CELEBRATION_BLOCKS = Object.freeze(["setup", "meaning"]);
+const CELEBRATION_SIMPLE_OCCASIONS = new Set([
+  "celebration", "birthday", "graduation", "get_well", "get-well", "friendship",
+]);
 
 const BLOCK_ORDER = Object.freeze({
   setup: 0,
@@ -342,11 +346,21 @@ function deriveStoryBlockProfile(context = {}) {
   }
 
   const requiredBlocks = STORY_BLOCKS.filter((block) => blocks[block].present);
-  const enforcedNarrativeBlocks = requiredBlocks.length >= 4
-    ? requiredBlocks
-    : requiredBlocks.filter((block) => ["turn", "transformation", "meaning"].includes(block));
+  const rawOccasion = context?.occasion || context?.event?.occasion || "";
+  const occasion = typeof rawOccasion === "string" ? rawOccasion.toLowerCase().replace(/[\s-]/g, "_") : "";
+  const isCelebration = CELEBRATION_SIMPLE_OCCASIONS.has(occasion);
+
+  let enforcedNarrativeBlocks;
+  if (isCelebration) {
+    // Celebrations only need setup (who/where/when) + meaning (why it matters)
+    enforcedNarrativeBlocks = requiredBlocks.filter((block) => CELEBRATION_BLOCKS.includes(block));
+  } else if (requiredBlocks.length >= 4) {
+    enforcedNarrativeBlocks = requiredBlocks;
+  } else {
+    enforcedNarrativeBlocks = requiredBlocks.filter((block) => ["turn", "transformation", "meaning"].includes(block));
+  }
   return {
-    richStory: requiredBlocks.length >= 4,
+    richStory: !isCelebration && requiredBlocks.length >= 4,
     requiredBlocks,
     enforcedNarrativeBlocks,
     blocks,
