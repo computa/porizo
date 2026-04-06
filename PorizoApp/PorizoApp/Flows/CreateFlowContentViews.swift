@@ -110,7 +110,7 @@ struct TrackPlayerContentView: View {
     var body: some View {
         if let trackId, let versionNum {
             #if DEBUG
-            let _ = print("[CreateFlowView] Rendering TrackPlayerFullView with trackId=\(trackId), versionNum=\(versionNum)")
+            let _ = print("[CreateFlowContentViews] Rendering TrackPlayerFullView with trackId=\(trackId), versionNum=\(versionNum)")
             #endif
             TrackPlayerFullView(
                 apiClient: apiClient,

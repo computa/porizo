@@ -3,7 +3,7 @@
 //  PorizoApp
 //
 //  Contextual prompts for story input, organized by occasion.
-//  Used by SimpleCreateView to guide users in telling their story.
+//  Used by create-flow surfaces to guide users in telling their story.
 //
 
 import Foundation

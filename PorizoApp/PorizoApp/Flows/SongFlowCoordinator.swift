@@ -140,11 +140,11 @@ struct SongFlowCoordinator {
             do {
                 try await asyncService.updateVoiceMode(trackId: trackId, mode: voiceMode)
                 #if DEBUG
-                print("[CreateFlowView] Updated track voice_mode to \(voiceMode.rawValue)")
+                print("[SongFlowCoordinator] Updated track voice_mode to \(voiceMode.rawValue)")
                 #endif
             } catch {
                 #if DEBUG
-                print("[CreateFlowView] Failed to update voice_mode: \(error.localizedDescription)")
+                print("[SongFlowCoordinator] Failed to update voice_mode: \(error.localizedDescription)")
                 #endif
                 return (
                     voiceSelectionCompleteState(),

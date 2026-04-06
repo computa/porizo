@@ -153,48 +153,30 @@ struct GiftSendFlowView: View {
             bundlePickerSheet
         }
         .fullScreenCover(item: $createLaunch, onDismiss: { isCreatingContent = false }) { launch in
-            if launch.type == .poem && !AppConfig.useWarmCanvasForPoems {
-                UnifiedCreateFlowView(
-                    apiClient: apiClient,
-                    storeKit: storeKit,
-                    preselectedType: .poem,
-                    onPoemComplete: { @MainActor poem in
-                        createLaunch = nil
-                        Task { @MainActor in
-                            await applyCreatedPoem(poem)
-                        }
-                    },
-                    onComplete: { @MainActor _, _ in createLaunch = nil },
-                    onCancel: { @MainActor in createLaunch = nil }
-                )
-                .environment(styleStore)
-                .environment(sttRouter)
-            } else {
-                WarmCanvasFlowView(
-                    apiClient: apiClient,
-                    storeKit: storeKit,
-                    preselectedType: launch.type,
-                    alwaysShowVoiceSelection: true,
-                    isGiftContext: true,
-                    onPoemComplete: { @MainActor poem in
-                        createLaunch = nil
-                        Task { @MainActor in
-                            await applyCreatedPoem(poem)
-                        }
-                    },
-                    onComplete: { @MainActor trackId, versionNum in
-                        createLaunch = nil
-                        Task { @MainActor in
-                            await applyCreatedSong(trackId: trackId, versionNum: versionNum)
-                        }
-                    },
-                    onCancel: { @MainActor in
-                        createLaunch = nil
+            WarmCanvasFlowView(
+                apiClient: apiClient,
+                storeKit: storeKit,
+                preselectedType: launch.type,
+                alwaysShowVoiceSelection: true,
+                isGiftContext: true,
+                onPoemComplete: { @MainActor poem in
+                    createLaunch = nil
+                    Task { @MainActor in
+                        await applyCreatedPoem(poem)
                     }
-                )
-                .environment(styleStore)
-                .environment(sttRouter)
-            }
+                },
+                onComplete: { @MainActor trackId, versionNum in
+                    createLaunch = nil
+                    Task { @MainActor in
+                        await applyCreatedSong(trackId: trackId, versionNum: versionNum)
+                    }
+                },
+                onCancel: { @MainActor in
+                    createLaunch = nil
+                }
+            )
+            .environment(styleStore)
+            .environment(sttRouter)
         }
     }
 

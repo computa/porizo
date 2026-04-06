@@ -2,37 +2,11 @@
 //  CreateFlowTypes.swift
 //  PorizoApp
 //
-//  Shared types for the unified creation flow, extracted to module scope
-//  so they can be referenced by inline cards, tests, and other views
-//  without qualifying through UnifiedCreateFlowView.
+//  Shared types for the Warm Canvas creation flow and create-flow
+//  coordination helpers.
 //
 
 import SwiftUI
-
-// MARK: - Phase Model
-
-/// Coarse phase for top-level routing (persisted for resume)
-enum UnifiedPhase {
-    case typeSelection // Song vs Poem picker
-    case setup         // Resume/variation bootstrap only
-    case chat          // Main phase -- inline cards accumulate here
-    // Poem phases (unchanged, still full-screen)
-    case poemCreating
-    case poemGap
-    case poemPreview
-}
-
-/// Song lifecycle within .chat phase (drives inline card visibility + resume)
-enum SongProgress: String, Codable {
-    case conversing       // Story chat active
-    case confirmed        // Story confirmed, voice selection pending
-    case voiceSelected    // Voice chosen, track creation pending/active
-    case trackCreated     // Track + lyrics exist, lyrics review active
-    case lyricsApproved   // Legacy preview render active
-    case previewReady     // Legacy-only preview rendered, player showing
-    case fullRenderActive // Full render in progress
-    case fullRenderReady  // Full song rendered
-}
 
 // MARK: - Warm Canvas Flow (Four Moments)
 

@@ -2,7 +2,7 @@
 //  CreateFlowAsyncService.swift
 //  PorizoApp
 //
-//  Owns create-flow async calls so CreateFlowView does not directly orchestrate background task wrappers.
+//  Owns shared create-flow async calls so the UI layer stays out of background-task orchestration.
 //
 
 import Foundation

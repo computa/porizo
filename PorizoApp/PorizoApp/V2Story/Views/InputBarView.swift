@@ -76,7 +76,7 @@ struct InputBarView: View {
                 .padding(.horizontal, 16)
             }
 
-            // Floating two-part container (matching UnifiedCreateFlowView design)
+            // Floating two-part container (matching the current Warm Canvas chat treatment)
             FloatingInputContainer {
                 TextField(inputPlaceholder, text: $inputText, axis: .vertical)
                     .textFieldStyle(.plain)
@@ -230,4 +230,3 @@ private struct DoneChipView: View {
         .accessibilityLabel(isReviewMode ? "Return to review" : "Finish sharing — ready to create")
     }
 }
-

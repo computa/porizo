@@ -11,7 +11,7 @@
 //  - Tabs/PoemsTabView.swift
 //  - Tabs/ExploreTabView.swift (Home content)
 //  - Tabs/SettingsTabView.swift (Profile)
-//  - Flows/CreateFlowView.swift
+//  - Flows/WarmCanvasFlowView.swift
 //
 
 import SwiftUI
@@ -33,7 +33,7 @@ struct MainTabView: View {
     }()
     @State private var createFlowLaunch: CreateFlowLaunch?
     @State private var showGiftFlow = false
-    // showUpgradePrompt / pendingCreateFlowLaunch removed — single entitlement gate in UnifiedCreateFlowView
+    // Upgrade gating lives inside WarmCanvasFlowView
 
     // Global player state (shared across all tabs)
     @State private var playerState = PlayerState()
@@ -154,48 +154,25 @@ struct MainTabView: View {
         .background(DesignTokens.background)
         .ignoresSafeArea(edges: .bottom)
         .fullScreenCover(item: $createFlowLaunch) { launch in
-            let needsPoemFlow = launch.preselectedType == .poem || launch.variationSourcePoem != nil
-            if needsPoemFlow && !AppConfig.useWarmCanvasForPoems {
-                UnifiedCreateFlowView(
-                    apiClient: apiClient,
-                    storeKit: storeKitManager,
-                    preselectedOccasion: launch.preselectedOccasion,
-                    preselectedType: launch.preselectedType,
-                    resumeTrackId: launch.resumeTrackId,
-                    resumeVersionNum: launch.resumeVersionNum,
-                    resumeTarget: launch.resumeTarget,
-                    variationSourcePoem: launch.variationSourcePoem,
-                    onPoemComplete: { poem in
-                        handlePoemFlowCompletion(poem: poem)
-                    },
-                    onComplete: { trackId, versionNum in
-                        handleSongFlowCompletion(trackId: trackId, versionNum: versionNum)
-                    },
-                    onCancel: {
-                        createFlowLaunch = nil
-                    }
-                )
-            } else {
-                WarmCanvasFlowView(
-                    apiClient: apiClient,
-                    storeKit: storeKitManager,
-                    preselectedOccasion: launch.preselectedOccasion,
-                    preselectedType: launch.preselectedType,
-                    resumeTrackId: launch.resumeTrackId,
-                    resumeVersionNum: launch.resumeVersionNum,
-                    resumeTarget: launch.resumeTarget,
-                    variationSourcePoem: launch.variationSourcePoem,
-                    onPoemComplete: { poem in
-                        handlePoemFlowCompletion(poem: poem)
-                    },
-                    onComplete: { trackId, versionNum in
-                        handleSongFlowCompletion(trackId: trackId, versionNum: versionNum)
-                    },
-                    onCancel: {
-                        createFlowLaunch = nil
-                    }
-                )
-            }
+            WarmCanvasFlowView(
+                apiClient: apiClient,
+                storeKit: storeKitManager,
+                preselectedOccasion: launch.preselectedOccasion,
+                preselectedType: launch.preselectedType,
+                resumeTrackId: launch.resumeTrackId,
+                resumeVersionNum: launch.resumeVersionNum,
+                resumeTarget: launch.resumeTarget,
+                variationSourcePoem: launch.variationSourcePoem,
+                onPoemComplete: { poem in
+                    handlePoemFlowCompletion(poem: poem)
+                },
+                onComplete: { trackId, versionNum in
+                    handleSongFlowCompletion(trackId: trackId, versionNum: versionNum)
+                },
+                onCancel: {
+                    createFlowLaunch = nil
+                }
+            )
         }
         .fullScreenCover(
             isPresented: Binding(
@@ -226,7 +203,7 @@ struct MainTabView: View {
                 }
             )
         }
-        // Paywall sheet removed — entitlement check is inside UnifiedCreateFlowView (server-side)
+        // Paywall sheet removed — entitlement check is inside WarmCanvasFlowView
         .task {
             playerState.setupInterruptionHandling()
             await storeKitManager.initializeAsync()
@@ -304,7 +281,7 @@ struct MainTabView: View {
             variationSourcePoem: poem
         )
 
-        // Entitlement check happens inside UnifiedCreateFlowView (server-side, authoritative).
+        // Entitlement check happens inside WarmCanvasFlowView (server-side, authoritative).
         // No client-side gate here — avoids race condition when StoreKit and server are out of sync.
         createFlowLaunch = launch
     }

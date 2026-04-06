@@ -7,9 +7,8 @@
 //  Layered ZStack architecture: Tell stays mounted; Wait/Reveal/Share overlay on top.
 //  WarmCanvas is the canonical creation shell for both songs and poems.
 //
-//  Controllers and coordinators are reused from UnifiedCreateFlowView.
-//  The difference is the visual topology (overlays vs inline cards) and the state machine
-//  (WarmCanvasMoment vs UnifiedPhase + SongProgress).
+//  Controllers and coordinators are reused from the shared create-flow layer.
+//  The difference is the visual topology and the Warm Canvas moment model.
 //
 
 import SwiftUI

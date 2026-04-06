@@ -89,19 +89,6 @@ enum AppConfig {
         defaultValue: true
     )
 
-    /// Feature flag: use the unified single-thread creation flow instead of the multi-screen flow.
-    static let useUnifiedCreateFlow = configBool(
-        envKey: "PORIZO_UNIFIED_CREATE_FLOW",
-        defaultValue: true
-    )
-
-    /// WarmCanvas consolidation guard: route poem creation through WarmCanvas
-    /// once the poem path is fully wired and verified.
-    static let useWarmCanvasForPoems = configBool(
-        envKey: "PORIZO_WARM_CANVAS_POEMS",
-        defaultValue: true
-    )
-
     /// Server-defined gift bundle tiers, populated from /app/config response.
     @MainActor static var giftBundles: [GiftBundleConfig] = []
 
