@@ -40,6 +40,7 @@ const navItems = [
   { to: '/growth', icon: TrendingUp, label: 'Growth' },
   { to: '/shares', icon: Share2, label: 'Shares' },
   { to: '/marketing', icon: Megaphone, label: 'Marketing' },
+  { to: '/blog', icon: FileText, label: 'Blog' },
 ];
 
 const securityItems = [

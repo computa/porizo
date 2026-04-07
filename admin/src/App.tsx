@@ -12,6 +12,7 @@ import { Billing } from './pages/Billing';
 import { Growth } from './pages/Growth';
 import { Shares } from './pages/Shares';
 import { Marketing } from './pages/Marketing';
+import { Blog } from './pages/Blog';
 import { Story } from './pages/Story';
 import { SystemHealth } from './pages/security/SystemHealth';
 import { SecurityLogs } from './pages/security/SecurityLogs';
@@ -39,6 +40,7 @@ function App() {
           <Route path="/growth" element={<Growth />} />
           <Route path="/shares" element={<Shares />} />
           <Route path="/marketing" element={<Marketing />} />
+          <Route path="/blog" element={<Blog />} />
           {/* Security Section */}
           <Route path="/security/health" element={<SystemHealth />} />
           <Route path="/security/auth-logs" element={<SecurityLogs />} />

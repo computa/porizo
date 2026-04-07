@@ -43,6 +43,10 @@ interface ImportResult {
   total: number;
 }
 
+function getErrorMessage(error: unknown, fallback: string) {
+  return error instanceof Error ? error.message : fallback;
+}
+
 const TYPES = ['email', 'push', 'social', 'partnership'] as const;
 const STATUSES = ['draft', 'scheduled', 'sent', 'completed'] as const;
 
@@ -143,8 +147,8 @@ export function CampaignTrackerTab() {
         setImportResult(data);
         fetchCampaigns(); // Refresh stats
       }
-    } catch (err: any) {
-      setImportError(err.message);
+    } catch (err: unknown) {
+      setImportError(getErrorMessage(err, 'Import failed'));
     } finally {
       setImportingId(null);
       e.target.value = '';

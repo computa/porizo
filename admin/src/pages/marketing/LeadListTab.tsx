@@ -5,7 +5,6 @@ import {
   getCoreRowModel,
   flexRender,
   createColumnHelper,
-  type ColumnDef,
 } from '@tanstack/react-table';
 import { useApi } from '../../hooks/useApi';
 import { LoadingState } from '../../components/LoadingState';
@@ -38,7 +37,11 @@ const statusColors: Record<string, string> = {
 
 const columnHelper = createColumnHelper<Contact>();
 
-const columns: ColumnDef<Contact, any>[] = [
+function getErrorMessage(error: unknown, fallback: string) {
+  return error instanceof Error ? error.message : fallback;
+}
+
+const columns = [
   columnHelper.accessor((row) => `${row.first_name || ''} ${row.last_name || ''}`.trim() || row.contact_name || '—', {
     id: 'name',
     header: 'Name',
@@ -152,8 +155,8 @@ export function LeadListTab() {
         setUploadResult({ inserted: data.inserted, skipped: data.skipped });
         fetchContacts();
       }
-    } catch (err: any) {
-      setUploadError(err.message);
+    } catch (err: unknown) {
+      setUploadError(getErrorMessage(err, 'Upload failed'));
     } finally {
       setUploading(false);
       e.target.value = '';
@@ -183,8 +186,8 @@ export function LeadListTab() {
       a.click();
       URL.revokeObjectURL(url);
       setShowExport(false);
-    } catch (err: any) {
-      setExportError(err.message);
+    } catch (err: unknown) {
+      setExportError(getErrorMessage(err, 'Export failed'));
     } finally {
       setExporting(false);
     }

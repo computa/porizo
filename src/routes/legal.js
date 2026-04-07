@@ -19,7 +19,6 @@ const publicPages = {
   support: loadPublicPage("support.html"),
   about: loadPublicPage("about.html"),
   pricing: loadPublicPage("pricing.html"),
-  blog: loadPublicPage("blog/index.html"),
   terms: loadPublicPage("legal/terms.html"),
   privacy: loadPublicPage("legal/privacy.html"),
 };
@@ -129,6 +128,40 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll("\"", "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+async function withDynamicBlogEntries(sitemap, db) {
+  if (!db || !sitemap || !sitemap.includes("</urlset>")) {
+    return sitemap;
+  }
+
+  try {
+    const posts = await db.prepare(`
+      SELECT slug, published_at, updated_at
+      FROM blog_posts
+      WHERE status = 'published' AND published_at IS NOT NULL
+      ORDER BY published_at DESC
+    `).all();
+
+    if (!Array.isArray(posts) || posts.length === 0) {
+      return sitemap;
+    }
+
+    const entries = posts.map((post) => {
+      const lastmod = post.updated_at || post.published_at;
+      return [
+        "  <url>",
+        `    <loc>https://porizo.co/blog/${escapeHtml(post.slug)}</loc>`,
+        lastmod ? `    <lastmod>${escapeHtml(String(lastmod).slice(0, 10))}</lastmod>` : null,
+        "    <priority>0.6</priority>",
+        "  </url>",
+      ].filter(Boolean).join("\n");
+    }).join("\n");
+
+    return sitemap.replace("</urlset>", `${entries}\n</urlset>`);
+  } catch (_error) {
+    return sitemap;
+  }
 }
 
 function buildDownloadBridgePage({ deepLink, fallbackUrl }) {
@@ -306,10 +339,11 @@ function registerLegalRoutes(app, { db } = {}) {
 
   app.get("/sitemap.xml", async (_request, reply) => {
     if (sitemapXml) {
+      const dynamicSitemap = await withDynamicBlogEntries(sitemapXml, db);
       reply
         .type("application/xml")
         .header("Cache-Control", "public, max-age=86400")
-        .send(sitemapXml);
+        .send(dynamicSitemap);
     } else {
       reply.code(404).send();
     }
@@ -379,14 +413,6 @@ function registerLegalRoutes(app, { db } = {}) {
       .type("text/html; charset=utf-8")
       .header("Cache-Control", "public, max-age=300")
       .send(publicPages.pricing || fallbackPage);
-  });
-
-  // Blog page
-  app.get("/blog", async (_request, reply) => {
-    reply
-      .type("text/html; charset=utf-8")
-      .header("Cache-Control", "public, max-age=300")
-      .send(publicPages.blog || fallbackPage);
   });
 
   // App download redirect helper for share flows

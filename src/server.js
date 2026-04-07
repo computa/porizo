@@ -32,6 +32,7 @@ const authService = require("./services/auth-service");
 const { issueDeviceToken, verifyDeviceToken } = require("./services/device-token");
 const { registerAuthRoutes } = require("./routes/auth");
 const { registerLegalRoutes } = require("./routes/legal");
+const { registerBlogRoutes } = require("./routes/blog");
 const { registerStoryRoutes } = require("./routes/story");
 const { registerEnrollmentRoutes } = require("./routes/enrollment");
 const { registerPoemRoutes } = require("./routes/poems");
@@ -331,6 +332,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
 
   // ============ Authentication Routes ============
   registerLegalRoutes(app, { db });
+  registerBlogRoutes(app, { db, config: appConfig });
   registerAuthRoutes(app, { db, subscriptionManager });
 
   // ============ Input Validation Schemas ============

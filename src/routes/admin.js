@@ -3,6 +3,9 @@
 const fs = require("fs");
 const path = require("path");
 const { AdminService, escapeLikePattern } = require("../services/admin-service");
+const { BlogService, normalizePostInput } = require("../services/blog-service");
+const { reviewBlogDraft } = require("../services/blog-review-service");
+const { renderBlogPostPage } = require("../services/blog-render-service");
 const { analyzeBlend, formatAnalysisReport } = require("../utils/blend-analyzer");
 const { newUuid } = require("../utils/ids");
 const { nowIso } = require("../utils/common");
@@ -18,6 +21,7 @@ function registerAdminRoutes(app, {
 // ============ ADMIN DASHBOARD API ============
 
 const adminService = new AdminService(db);
+const blogService = new BlogService(db);
 adminAuthService.initialize(db);
 
 /**
@@ -85,6 +89,51 @@ function validateReason(reason, reply) {
 
 function isValidVersionString(value) {
   return /^\d+(?:\.\d+){0,3}$/.test(value);
+}
+
+function validateBlogPayload(payload, reply, { requireBody = false } = {}) {
+  const normalized = normalizePostInput(payload || {});
+  if (!normalized.title) {
+    sendError(reply, 400, "MISSING_TITLE", "Title is required");
+    return null;
+  }
+  if (!normalized.slug) {
+    sendError(reply, 400, "MISSING_SLUG", "Slug is required");
+    return null;
+  }
+  if (normalized.title.length > 160) {
+    sendError(reply, 400, "TITLE_TOO_LONG", "Title must not exceed 160 characters");
+    return null;
+  }
+  if (normalized.slug.length > 160) {
+    sendError(reply, 400, "SLUG_TOO_LONG", "Slug must not exceed 160 characters");
+    return null;
+  }
+  if (normalized.excerpt.length > 300) {
+    sendError(reply, 400, "EXCERPT_TOO_LONG", "Excerpt must not exceed 300 characters");
+    return null;
+  }
+  if (normalized.answer_summary.length > 600) {
+    sendError(reply, 400, "SUMMARY_TOO_LONG", "Answer summary must not exceed 600 characters");
+    return null;
+  }
+  if (normalized.target_query.length > 240) {
+    sendError(reply, 400, "TARGET_QUERY_TOO_LONG", "Target query must not exceed 240 characters");
+    return null;
+  }
+  if (normalized.primary_keyword.length > 120) {
+    sendError(reply, 400, "PRIMARY_KEYWORD_TOO_LONG", "Primary keyword must not exceed 120 characters");
+    return null;
+  }
+  if (normalized.author_name.length > 120) {
+    sendError(reply, 400, "AUTHOR_NAME_TOO_LONG", "Author name must not exceed 120 characters");
+    return null;
+  }
+  if (requireBody && normalized.body_markdown.trim().length === 0) {
+    sendError(reply, 400, "MISSING_BODY", "Body markdown is required");
+    return null;
+  }
+  return normalized;
 }
 
 // --- Admin Authentication ---
@@ -166,6 +215,159 @@ app.post("/admin/auth/change-password", async (request, reply) => {
   // Change password (this also invalidates all sessions)
   await adminAuthService.changePassword(admin.adminId, newPassword);
   reply.send({ success: true, message: "Password changed. Please log in again." });
+});
+
+// --- Blog Publishing CMS ---
+
+app.get("/admin/dashboard/blog/posts", async (request, reply) => {
+  const admin = await requireAdminSession(request, reply);
+  if (!admin) return;
+  const { status, search } = request.query || {};
+  const { limit, offset } = parsePagination(request.query, 25);
+  const posts = await blogService.listPosts({ status, search, limit, offset });
+  reply.send({ posts, limit, offset });
+});
+
+app.get("/admin/dashboard/blog/posts/:id", async (request, reply) => {
+  const admin = await requireAdminSession(request, reply);
+  if (!admin) return;
+  const post = await blogService.getPostById(request.params.id);
+  if (!post) {
+    return sendError(reply, 404, "NOT_FOUND", "Blog post not found");
+  }
+  reply.send({ post });
+});
+
+app.post("/admin/dashboard/blog/posts", async (request, reply) => {
+  const admin = await requireAdminSession(request, reply);
+  if (!admin) return;
+  const normalized = validateBlogPayload(
+    {
+      ...request.body,
+      author_name: request.body?.author_name || admin.displayName || admin.email,
+    },
+    reply,
+    { requireBody: true }
+  );
+  if (!normalized) return;
+
+  try {
+    const post = await blogService.createPost(normalized, admin.adminId);
+    await adminService._audit(admin.adminId, "blog_post_create", "blog_post", post.id, {
+      slug: post.slug,
+      title: post.title,
+    });
+    reply.send({ post });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to create blog post";
+    const code = /slug already exists/i.test(message) ? "SLUG_CONFLICT" : "BAD_REQUEST";
+    sendError(reply, code === "SLUG_CONFLICT" ? 409 : 400, code, message);
+  }
+});
+
+app.put("/admin/dashboard/blog/posts/:id", async (request, reply) => {
+  const admin = await requireAdminSession(request, reply);
+  if (!admin) return;
+  const normalized = validateBlogPayload(
+    {
+      ...request.body,
+      author_name: request.body?.author_name || admin.displayName || admin.email,
+    },
+    reply,
+    { requireBody: true }
+  );
+  if (!normalized) return;
+
+  try {
+    const post = await blogService.updatePost(request.params.id, normalized, admin.adminId);
+    if (!post) {
+      return sendError(reply, 404, "NOT_FOUND", "Blog post not found");
+    }
+    await adminService._audit(admin.adminId, "blog_post_update", "blog_post", post.id, {
+      slug: post.slug,
+      title: post.title,
+    });
+    reply.send({ post });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to update blog post";
+    const code = /slug already exists/i.test(message) ? "SLUG_CONFLICT" : "BAD_REQUEST";
+    sendError(reply, code === "SLUG_CONFLICT" ? 409 : 400, code, message);
+  }
+});
+
+app.post("/admin/dashboard/blog/posts/preview", async (request, reply) => {
+  const admin = await requireAdminSession(request, reply);
+  if (!admin) return;
+  const normalized = validateBlogPayload(
+    {
+      ...request.body,
+      slug: request.body?.slug || "preview-post",
+      author_name: request.body?.author_name || admin.displayName || admin.email,
+    },
+    reply
+  );
+  if (!normalized) return;
+
+  const previewPost = {
+    ...normalized,
+    id: "preview",
+    tags: normalized.tags,
+    published_at: nowIso(),
+    updated_at: nowIso(),
+  };
+  const siteOrigin =
+    appConfig.PUBLIC_BASE_URL ||
+    appConfig.STREAM_BASE_URL ||
+    "https://porizo.co";
+  reply.send({ html: renderBlogPostPage(previewPost, { siteOrigin }) });
+});
+
+app.post("/admin/dashboard/blog/posts/:id/review", async (request, reply) => {
+  const admin = await requireAdminSession(request, reply);
+  if (!admin) return;
+  const post = await blogService.getPostById(request.params.id);
+  if (!post) {
+    return sendError(reply, 404, "NOT_FOUND", "Blog post not found");
+  }
+  const report = reviewBlogDraft(post);
+  const updated = await blogService.saveReviewResult(post.id, report, admin.adminId);
+  await adminService._audit(admin.adminId, "blog_post_review", "blog_post", post.id, {
+    decision: report.decision,
+    overall_score: report.overallScore,
+  });
+  reply.send({ post: updated, report });
+});
+
+app.post("/admin/dashboard/blog/posts/:id/publish", async (request, reply) => {
+  const admin = await requireAdminSession(request, reply);
+  if (!admin) return;
+  try {
+    const post = await blogService.publishPost(request.params.id, admin.adminId);
+    if (!post) {
+      return sendError(reply, 404, "NOT_FOUND", "Blog post not found");
+    }
+    await adminService._audit(admin.adminId, "blog_post_publish", "blog_post", post.id, {
+      slug: post.slug,
+      published_at: post.published_at,
+    });
+    reply.send({ post });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to publish blog post";
+    sendError(reply, 400, "PUBLISH_BLOCKED", message);
+  }
+});
+
+app.post("/admin/dashboard/blog/posts/:id/unpublish", async (request, reply) => {
+  const admin = await requireAdminSession(request, reply);
+  if (!admin) return;
+  const post = await blogService.unpublishPost(request.params.id, admin.adminId);
+  if (!post) {
+    return sendError(reply, 404, "NOT_FOUND", "Blog post not found");
+  }
+  await adminService._audit(admin.adminId, "blog_post_unpublish", "blog_post", post.id, {
+    slug: post.slug,
+  });
+  reply.send({ post });
 });
 
 // --- User Management ---

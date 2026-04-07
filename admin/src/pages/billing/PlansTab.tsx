@@ -66,9 +66,10 @@ export function PlansTab() {
   const [freeTierGrant, setFreeTierGrant] = useState<FreeTierGrant | null>(null);
   const [showCreate, setShowCreate] = useState(false);
 
-  const fetchPlans = useCallback(async () => {
+  const fetchPlans = useCallback(async (isMounted: () => boolean = () => true) => {
     try {
       const data = await get<PlansResponse>('/plans');
+      if (!isMounted()) return;
       setPlans(data.plans);
       setTrialConfig(data.trialConfig);
       setFreeTierGrant(data.freeTierGrant ?? null);
@@ -78,7 +79,14 @@ export function PlansTab() {
   }, [get]);
 
   useEffect(() => {
-    fetchPlans();
+    let active = true;
+    const isMounted = () => active;
+    queueMicrotask(() => {
+      void fetchPlans(isMounted);
+    });
+    return () => {
+      active = false;
+    };
   }, [fetchPlans]);
 
   if (loading && plans.length === 0) {
@@ -352,9 +360,10 @@ function ProductMappings({ planId }: { planId: string }) {
   const [newMapping, setNewMapping] = useState({ platform: 'apple', product_id: '', billing_period: 'monthly' });
   const [msg, setMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  const fetchMappings = useCallback(async () => {
+  const fetchMappings = useCallback(async (isMounted: () => boolean = () => true) => {
     try {
       const data = await get<{ products: typeof mappings }>(`/plans/${planId}/products`);
+      if (!isMounted()) return;
       setMappings(data.products);
     } catch {
       // handled by useApi
@@ -362,7 +371,14 @@ function ProductMappings({ planId }: { planId: string }) {
   }, [get, planId]);
 
   useEffect(() => {
-    fetchMappings();
+    let active = true;
+    const isMounted = () => active;
+    queueMicrotask(() => {
+      void fetchMappings(isMounted);
+    });
+    return () => {
+      active = false;
+    };
   }, [fetchMappings]);
 
   const handleAdd = async () => {
