@@ -154,26 +154,36 @@ async function servePublicSharePreviewAudio(request, reply, {
     return true;
   }
 
-  const previewKey = trackPreviewKey({
-    userId: track.user_id,
-    trackId: track.id,
-    versionNum: trackVersion.version_num,
-  });
   const versionDir = getVersionDir(track, trackVersion);
-  const localPreview = path.join(versionDir, "preview.m4a");
-  await ensureLocalFileFromStorage({ key: previewKey, localPath: localPreview });
 
-  if (!fs.existsSync(localPreview)) {
-    sendError(reply, 404, "TEASER_NOT_AVAILABLE", "Preview not available.");
+  // Try full render first (full.m4a), fall back to preview.m4a
+  const localFull = path.join(versionDir, "full.m4a");
+  const localPreview = path.join(versionDir, "preview.m4a");
+  let audioPath = null;
+
+  if (trackVersion.full_url) {
+    const fullKey = trackMasterKey({ userId: track.user_id, trackId: track.id, versionNum: trackVersion.version_num, format: "m4a" });
+    await ensureLocalFileFromStorage({ key: fullKey, localPath: localFull });
+    if (fs.existsSync(localFull)) audioPath = localFull;
+  }
+
+  if (!audioPath) {
+    const previewKey = trackPreviewKey({ userId: track.user_id, trackId: track.id, versionNum: trackVersion.version_num });
+    await ensureLocalFileFromStorage({ key: previewKey, localPath: localPreview });
+    if (fs.existsSync(localPreview)) audioPath = localPreview;
+  }
+
+  if (!audioPath) {
+    sendError(reply, 404, "AUDIO_NOT_AVAILABLE", "Audio not available.");
     return true;
   }
 
   await addShareAccessLog({
     shareTokenId: share.id,
-    eventType: "teaser_served",
-    metadata: { user_agent: request.headers["user-agent"] || null, ip: clientIp },
+    eventType: "audio_served",
+    metadata: { user_agent: request.headers["user-agent"] || null, ip: clientIp, type: audioPath === localFull ? "full" : "preview" },
   });
-  sendMediaFile(request, reply, localPreview, "audio/mp4", {
+  sendMediaFile(request, reply, audioPath, "audio/mp4", {
     cacheControl: "public, max-age=300",
   });
   return true;
