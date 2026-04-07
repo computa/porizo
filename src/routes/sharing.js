@@ -168,7 +168,7 @@ async function servePublicSharePreviewAudio(request, reply, {
   await addShareAccessLog({
     shareTokenId: share.id,
     eventType: "audio_served",
-    metadata: { user_agent: request.headers["user-agent"] || null, ip: clientIp, type: audioPath === localFull ? "full" : "preview" },
+    metadata: { user_agent: request.headers["user-agent"] || null, ip: request.ip || null, type: audioPath === localFull ? "full" : "preview" },
   });
   sendMediaFile(request, reply, audioPath, "audio/mp4", {
     cacheControl: "public, max-age=300",
