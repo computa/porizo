@@ -715,9 +715,7 @@ struct WarmCanvasFlowView: View {
                         presentShareSheet(url: url, claimPin: claimPin)
                     }
                 },
-                onSaveToPhotos: {
-                    ToastService.shared.show("Save to Photos coming soon", type: .info)
-                },
+                onSaveToPhotos: {},
                 onCopyLink: {
                     guard let (trackId, versionNum) = ensureShareControllerAndTrackIds() else { return }
                     if let url = shareController?.shareURLString {

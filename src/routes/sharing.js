@@ -72,10 +72,8 @@ function registerSharingRoutes(app, {
   getUserRiskLevel: _getUserRiskLevel,
   consumeRateLimit,
 }) {
-// ============ Web Verify Token Store (in-memory, ephemeral) ============
-const webVerifyTokens = new Map(); // shareId -> { token, expiresAt }
+// ============ Web Verify Attempt Tracking (brute force protection) ============
 const webVerifyAttempts = new Map(); // shareId -> { count, firstAttemptAt }
-const WEB_VERIFY_TTL_MS = 30 * 60 * 1000; // 30 minutes
 
 // Shared guard: lookup share token + reject revoked/expired. Returns share or null (error already sent).
 async function resolveValidShare(request, reply) {
@@ -94,12 +92,7 @@ async function resolveValidShare(request, reply) {
 const WEB_VERIFY_MAX_ATTEMPTS = 5;
 const WEB_VERIFY_ATTEMPT_WINDOW_MS = 15 * 60 * 1000; // 15-minute sliding window
 
-function createWebVerifyToken(shareId) {
-  const token = crypto.randomBytes(24).toString("hex");
-  const expiresAt = Date.now() + WEB_VERIFY_TTL_MS;
-  webVerifyTokens.set(shareId, { token, expiresAt });
-  return { token, expiresAt };
-}
+
 
 function isShareExpired(share) {
   return share.share_type !== "demo" && new Date(share.expires_at) < new Date();
@@ -164,13 +157,10 @@ function incrementWebVerifyAttempts(shareId) {
   entry.count += 1;
 }
 
-// Periodic cleanup of expired tokens and stale attempt counters (every 10 minutes)
+// Periodic cleanup of stale attempt counters (every 10 minutes)
 const WEB_VERIFY_CLEANUP_INTERVAL_MS = 10 * 60 * 1000;
 const _webVerifyCleanupTimer = setInterval(() => {
   const now = Date.now();
-  for (const [id, entry] of webVerifyTokens) {
-    if (now > entry.expiresAt) webVerifyTokens.delete(id);
-  }
   for (const [id, entry] of webVerifyAttempts) {
     if (now - entry.firstAttemptAt > WEB_VERIFY_ATTEMPT_WINDOW_MS) webVerifyAttempts.delete(id);
   }
@@ -865,9 +855,7 @@ app.post("/share/:shareId/web-verify", { schema: schemas.shareWebVerify }, async
     return;
   }
 
-  // PIN correct — create web verify token
-  const { token, expiresAt } = createWebVerifyToken(share.id);
-
+  // PIN correct — web playback is now pinless, so just confirm and return the stream URL.
   await addShareAccessLog({
     shareTokenId: share.id,
     eventType: "web_verify_success",
@@ -884,9 +872,7 @@ app.post("/share/:shareId/web-verify", { schema: schemas.shareWebVerify }, async
 
   reply.send({
     verified: true,
-    web_stream_token: token,
     stream_url: `${getBaseUrl(request)}/share/${share.id}/audio`,
-    expires_at: new Date(expiresAt).toISOString(),
   });
 });
 

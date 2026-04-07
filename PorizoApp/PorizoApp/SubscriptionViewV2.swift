@@ -48,6 +48,7 @@ struct SubscriptionViewV2: View {
                         billingToggle
                         planCards
                         restoreButton
+                        subscriptionDisclosure
                     }
                     .padding(.horizontal, 20)
                     .padding(.top, 16)
@@ -394,6 +395,49 @@ struct SubscriptionViewV2: View {
         default:
             break
         }
+    }
+
+    // MARK: - Subscription Disclosure (Apple Guideline 3.1.2)
+
+    private var subscriptionDisclosure: some View {
+        VStack(spacing: 10) {
+            Text(subscriptionDisclosureText)
+                .font(DesignTokens.bodyFont(size: 12))
+                .foregroundStyle(DesignTokens.textSecondary)
+                .multilineTextAlignment(.center)
+
+            HStack(spacing: 20) {
+                Button {
+                    Task { await storeKit.restore() }
+                } label: {
+                    Text("Restore Purchases")
+                        .font(DesignTokens.bodyFont(size: 12))
+                        .foregroundStyle(DesignTokens.textSecondary)
+                }
+
+                Link("Terms", destination: AppConfig.termsURL)
+                    .font(DesignTokens.bodyFont(size: 12))
+                    .foregroundStyle(DesignTokens.textSecondary)
+
+                Link("Privacy", destination: AppConfig.privacyURL)
+                    .font(DesignTokens.bodyFont(size: 12))
+                    .foregroundStyle(DesignTokens.textSecondary)
+
+                Button {
+                    if let url = URL(string: "https://apps.apple.com/account/subscriptions") {
+                        UIApplication.shared.open(url)
+                    }
+                } label: {
+                    Text("Manage Subscription")
+                        .font(DesignTokens.bodyFont(size: 12))
+                        .foregroundStyle(DesignTokens.textSecondary)
+                }
+            }
+        }
+    }
+
+    private var subscriptionDisclosureText: String {
+        "Subscription auto-renews unless canceled at least 24 hours before the end of the current period. Payment will be charged to your Apple ID account. Manage subscriptions in Settings > Apple ID > Subscriptions."
     }
 
     // MARK: - Product Identifier Resolution
