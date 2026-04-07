@@ -535,6 +535,8 @@
             href: appDownloadUrl
           }
         );
+      } else if (error.message === 'RATE_LIMITED') {
+        showError('Too many plays right now. Please try again in a few minutes.');
       } else {
         showError('Unable to load the song. Please try again.');
       }

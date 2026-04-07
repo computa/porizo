@@ -138,21 +138,8 @@ async function servePublicSharePreviewAudio(request, reply, {
   trackPreviewKey,
   addShareAccessLog,
 }) {
-  const clientIp = request.ip || "unknown";
-  const rateLimitResult = await consumeRateLimit(
-    `ip:${clientIp}`,
-    "teaser_play",
-    10,
-    3600
-  );
-  if (rateLimitResult && !rateLimitResult.allowed) {
-    if (rateLimitResult.reset_at) {
-      const retryMs = Math.max(0, new Date(rateLimitResult.reset_at).getTime() - Date.now());
-      reply.header("Retry-After", String(Math.ceil(retryMs / 1000)));
-    }
-    sendError(reply, 429, "RATE_LIMITED", "Too many plays. Please try again later.");
-    return true;
-  }
+  // No rate limit on playback — serving a cached audio file costs nothing.
+  // The share link URL itself is the access control.
 
   const versionDir = getVersionDir(track, trackVersion);
 
