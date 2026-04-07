@@ -26,6 +26,12 @@ const blogService = new BlogService(db);
 adminAuthService.initialize(db);
 const BLOG_TARGET_INTENTS = ["informational", "commercial", "comparison", "navigational"];
 const MARKETING_CONTACT_STATUSES = ["active", "bounced", "unsubscribed"];
+const ADMIN_STATIC_MIME_TYPES = {
+  ".js": "application/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".html": "text/html; charset=utf-8",
+};
 
 /**
  * Admin session auth helper - validates Bearer token from Authorization header
@@ -149,6 +155,26 @@ function validateBlogPayload(payload, reply, { requireBody = false } = {}) {
     return null;
   }
   return normalized;
+}
+
+function getAdminStaticContentType(filePath) {
+  return ADMIN_STATIC_MIME_TYPES[path.extname(filePath).toLowerCase()] || "application/octet-stream";
+}
+
+async function sendAdminStaticFile(reply, rootDir, relativePath) {
+  const resolvedPath = path.resolve(rootDir, relativePath);
+  const relativeToRoot = path.relative(rootDir, resolvedPath);
+  if (relativeToRoot.startsWith("..") || path.isAbsolute(relativeToRoot)) {
+    return reply.code(403).type("text/plain").send("Forbidden");
+  }
+  if (!fs.existsSync(resolvedPath) || !fs.statSync(resolvedPath).isFile()) {
+    return reply.code(404).type("text/plain").send("Not Found");
+  }
+  const content = await fs.promises.readFile(resolvedPath);
+  return reply
+    .type(getAdminStaticContentType(resolvedPath))
+    .header("Cache-Control", "public, max-age=14400")
+    .send(content);
 }
 
 // --- Admin Authentication ---
@@ -2594,6 +2620,12 @@ app.post("/admin/dashboard/tracks/:trackId/transfer", async (request, reply) => 
 // Must come AFTER all /admin/* API routes so they take precedence
 // Using fs.readFile instead of reply.sendFile because decorateReply: false on static registrations
 const adminIndexPath = path.join(process.cwd(), "public/admin/index.html");
+const adminStaticRoot = path.join(process.cwd(), "public/admin");
+
+app.get("/admin/assets/*", async (request, reply) => {
+  const assetPath = request.params["*"];
+  return sendAdminStaticFile(reply, path.join(adminStaticRoot, "assets"), assetPath);
+});
 
 app.get("/admin", async (request, reply) => {
   const fs = require("fs").promises;

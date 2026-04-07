@@ -131,7 +131,6 @@ async function servePublicSharePreviewAudio(request, reply, {
   share,
   track,
   trackVersion,
-  consumeRateLimit,
   ensureLocalFileFromStorage,
   getVersionDir,
   sendMediaFile,
@@ -143,22 +142,14 @@ async function servePublicSharePreviewAudio(request, reply, {
 
   const versionDir = getVersionDir(track, trackVersion);
 
-  // Try full render first (full.m4a), fall back to preview.m4a
-  const localFull = path.join(versionDir, "full.m4a");
   const localPreview = path.join(versionDir, "preview.m4a");
-  let audioPath = null;
-
-  if (trackVersion.full_url) {
-    const fullKey = trackMasterKey({ userId: track.user_id, trackId: track.id, versionNum: trackVersion.version_num, format: "m4a" });
-    await ensureLocalFileFromStorage({ key: fullKey, localPath: localFull });
-    if (fs.existsSync(localFull)) audioPath = localFull;
-  }
-
-  if (!audioPath) {
-    const previewKey = trackPreviewKey({ userId: track.user_id, trackId: track.id, versionNum: trackVersion.version_num });
-    await ensureLocalFileFromStorage({ key: previewKey, localPath: localPreview });
-    if (fs.existsSync(localPreview)) audioPath = localPreview;
-  }
+  const previewKey = trackPreviewKey({
+    userId: track.user_id,
+    trackId: track.id,
+    versionNum: trackVersion.version_num,
+  });
+  await ensureLocalFileFromStorage({ key: previewKey, localPath: localPreview });
+  const audioPath = fs.existsSync(localPreview) ? localPreview : null;
 
   if (!audioPath) {
     sendError(reply, 404, "AUDIO_NOT_AVAILABLE", "Audio not available.");
@@ -168,7 +159,7 @@ async function servePublicSharePreviewAudio(request, reply, {
   await addShareAccessLog({
     shareTokenId: share.id,
     eventType: "audio_served",
-    metadata: { user_agent: request.headers["user-agent"] || null, ip: request.ip || null, type: audioPath === localFull ? "full" : "preview" },
+    metadata: { user_agent: request.headers["user-agent"] || null, ip: request.ip || null, type: "preview" },
   });
   sendMediaFile(request, reply, audioPath, "audio/mp4", {
     cacheControl: "public, max-age=300",

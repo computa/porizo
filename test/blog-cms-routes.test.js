@@ -137,6 +137,13 @@ describe("blog CMS routes", () => {
     assert.match(sitemapResponse.body, new RegExp(`/blog/${published.slug}`));
   });
 
+  test("serves admin JS assets as javascript instead of falling through to the SPA HTML shell", async () => {
+    const response = await app.inject({ method: "GET", url: "/admin/assets/admin.js" });
+    assert.equal(response.statusCode, 200);
+    assert.match(response.headers["content-type"] || "", /application\/javascript/);
+    assert.doesNotMatch(response.body, /<!doctype html>/i);
+  });
+
   test("editing a published post returns it to draft and removes it from public routes until re-reviewed", async () => {
     const createResponse = await app.inject({
       method: "POST",
