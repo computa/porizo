@@ -511,14 +511,11 @@ struct PhoneAuthFlowView: View {
                     authManager.phoneAuthGoBack()
                 }
             )
-        case .accountCheck(_, let phoneNumber):
-            AccountCheckView(
+        case .profileEntry(_, let phoneNumber):
+            PhoneProfileEntryView(
                 phoneNumber: phoneNumber,
-                onCreateNew: {
-                    try await authManager.confirmNewPhoneAccount()
-                },
-                onLinkExisting: {
-                    authManager.linkPhoneToExistingAccount()
+                onSubmit: { name, email in
+                    try await authManager.completePhoneRegistration(displayName: name, email: email)
                 },
                 onBack: {
                     authManager.phoneAuthGoBack()

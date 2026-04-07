@@ -4,7 +4,7 @@
 //
 //  Shown when phone registration discovers an existing account via cross-identifier lookup.
 //  Prompts user to sign in with their existing method (Apple, email) to link the phone.
-//  Matches Warm Canvas gallery design (same pattern as AccountCheckView).
+//  Matches Warm Canvas gallery design.
 //
 
 import SwiftUI

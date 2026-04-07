@@ -37,9 +37,25 @@ class AuthManager {
     /// Registration token for new users after phone verification
     private(set) var registrationToken: String?
 
-    /// Phone number pending auto-link after cross-identifier sign-in
-    /// Set when accountExists flow dismisses to let user sign in via existing method
-    private(set) var pendingPhoneLink: String?
+    /// Phone number pending auto-link after cross-identifier sign-in.
+    /// Persisted to Keychain so it survives app kills during sign-in flow.
+    private(set) var pendingPhoneLink: String? {
+        didSet {
+            guard !isRestoringFromKeychain else { return }
+            if let phone = pendingPhoneLink {
+                _ = KeychainHelper.saveString(key: Self.pendingPhoneLinkKey, value: phone)
+                // Store expiry: 15 minutes from now (matches server-side verification window)
+                let expiry = String(Date().addingTimeInterval(15 * 60).timeIntervalSince1970)
+                _ = KeychainHelper.saveString(key: Self.pendingPhoneLinkExpiryKey, value: expiry)
+            } else {
+                KeychainHelper.delete(key: Self.pendingPhoneLinkKey)
+                KeychainHelper.delete(key: Self.pendingPhoneLinkExpiryKey)
+            }
+        }
+    }
+
+    /// Suppresses didSet Keychain writes during restoration to avoid resetting TTL
+    @ObservationIgnored private var isRestoringFromKeychain = false
 
     /// User ID from authentication (for AuthTokenProvider conformance)
     var authenticatedUserId: String? {
@@ -67,6 +83,8 @@ class AuthManager {
     private static let deviceTokenExpiryKey = "porizo_device_token_expiry"
     private static let appleUserIdKey = "porizo_apple_user_id"
     private static let authProviderKey = "porizo_auth_provider"
+    private static let pendingPhoneLinkKey = "porizo_pending_phone_link"
+    private static let pendingPhoneLinkExpiryKey = "porizo_pending_phone_link_expiry"
 
     // Token refresh threshold (refresh if less than 2 minutes remaining)
     @ObservationIgnored private let refreshThreshold: TimeInterval = 120
@@ -233,6 +251,22 @@ class AuthManager {
             cachedRefreshToken = refreshToken
             cachedTokenExpiryEpoch = tokenExpiry
             cachedUserId = userId
+        }
+
+        // Restore pendingPhoneLink from Keychain (survives app kills during sign-in flow)
+        // Use isRestoringFromKeychain flag to suppress didSet (avoids resetting TTL on restore)
+        if let savedPhone = KeychainHelper.loadString(key: Self.pendingPhoneLinkKey),
+           let expiryStr = KeychainHelper.loadString(key: Self.pendingPhoneLinkExpiryKey),
+           let expiryEpoch = Double(expiryStr),
+           Date().timeIntervalSince1970 < expiryEpoch {
+            isRestoringFromKeychain = true
+            pendingPhoneLink = savedPhone
+            isRestoringFromKeychain = false
+            print("[Auth] Restored pendingPhoneLink from Keychain")
+        } else {
+            // Expired or missing — clean up
+            KeychainHelper.delete(key: Self.pendingPhoneLinkKey)
+            KeychainHelper.delete(key: Self.pendingPhoneLinkExpiryKey)
         }
 
         print("[Auth] loadAuthState: access=\(accessToken != nil), refresh=\(refreshToken != nil), userId=\(userId != nil), appleUserId=\(appleUserId != nil), provider=\(authProvider ?? "none"))")
@@ -693,8 +727,25 @@ class AuthManager {
 
         switch httpResponse.statusCode {
         case 200, 201:
-            let authResponse = try JSONDecoder().decode(AuthResponse.self, from: data)
-            try saveTokens(authResponse)
+            // Check if this is a link confirmation prompt (not a login response)
+            if let linkResponse = try? JSONDecoder().decode(LinkConfirmationResponse.self, from: data),
+               linkResponse.requiresLinkConfirmation == true {
+                // Server found an existing account matching this email — needs confirmation
+                // For now, ignore and proceed as new account (confirm_link not yet wired for Apple)
+                print("[Auth] Social auth requires link confirmation — retrying with confirm_link")
+                // Retry with confirm_link: true to auto-link
+                body["confirm_link"] = true
+                request.httpBody = try JSONSerialization.data(withJSONObject: body)
+                let (retryData, retryResponse) = try await session.data(for: request)
+                guard let retryHttp = retryResponse as? HTTPURLResponse, (200...201).contains(retryHttp.statusCode) else {
+                    throw AuthError.serverError("Apple sign-in link confirmation failed")
+                }
+                let authResponse = try JSONDecoder().decode(AuthResponse.self, from: retryData)
+                try saveTokens(authResponse)
+            } else {
+                let authResponse = try JSONDecoder().decode(AuthResponse.self, from: data)
+                try saveTokens(authResponse)
+            }
 
             // Store Apple userIdentifier for credential validation on launch (Apple's WWDC20 requirement)
             // This is the key to persistent sessions - we use this to call getCredentialState() on each launch
@@ -744,6 +795,11 @@ class AuthManager {
             body["redirect_uri"] = redirectUri
         }
 
+        // Auto-link pending phone from cross-identifier flow
+        if let phone = pendingPhoneLink {
+            body["pending_phone_link"] = phone
+        }
+
         if let name, !name.isEmpty {
             body["name"] = name
         }
@@ -758,8 +814,22 @@ class AuthManager {
 
         switch httpResponse.statusCode {
         case 200, 201:
-            let authResponse = try JSONDecoder().decode(AuthResponse.self, from: data)
-            try saveTokens(authResponse)
+            // Check if this is a link confirmation prompt (not a login response)
+            if let linkResponse = try? JSONDecoder().decode(LinkConfirmationResponse.self, from: data),
+               linkResponse.requiresLinkConfirmation == true {
+                print("[Auth] OAuth requires link confirmation — retrying with confirm_link")
+                body["confirm_link"] = true
+                request.httpBody = try JSONSerialization.data(withJSONObject: body)
+                let (retryData, retryResponse) = try await session.data(for: request)
+                guard let retryHttp = retryResponse as? HTTPURLResponse, (200...201).contains(retryHttp.statusCode) else {
+                    throw AuthError.serverError("\(provider.capitalized) sign-in link confirmation failed")
+                }
+                let authResponse = try JSONDecoder().decode(AuthResponse.self, from: retryData)
+                try saveTokens(authResponse)
+            } else {
+                let authResponse = try JSONDecoder().decode(AuthResponse.self, from: data)
+                try saveTokens(authResponse)
+            }
             setAuthProvider(provider)
             isAuthenticated = true
             try await fetchCurrentUser()
@@ -841,25 +911,27 @@ class AuthManager {
         if let regToken = response.registrationToken {
             print("[Auth] Phone verification: new phone, prompting account check")
             registrationToken = regToken
-            phoneAuthState = .accountCheck(registrationToken: regToken, phoneNumber: phoneNumber)
+            phoneAuthState = .profileEntry(registrationToken: regToken, phoneNumber: phoneNumber)
             return
         }
 
         throw AuthError.phoneVerificationFailed("Invalid verification response")
     }
 
-    /// Create phone account directly without username
-    private func completePhoneRegistrationDirect(registrationToken: String) async throws {
+    /// Create phone account with name and optional email
+    private func completePhoneRegistrationDirect(registrationToken: String, displayName: String? = nil, email: String? = nil) async throws {
         let url = URL(string: "\(baseURL)/auth/phone/register")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0", forHTTPHeaderField: "User-Agent")
 
-        let body: [String: String] = [
+        var body: [String: String] = [
             "registration_token": registrationToken,
             "phone_number": phoneNumber,
         ]
+        if let name = displayName, !name.isEmpty { body["name"] = name }
+        if let email = email, !email.isEmpty { body["email"] = email }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (data, httpResponse) = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "phoneRegistration") {
@@ -909,20 +981,12 @@ class AuthManager {
         print("[Auth] Phone registration completed successfully (no username)")
     }
 
-    /// User confirmed they want a new account (from account check screen)
-    func confirmNewPhoneAccount() async throws {
+    /// Complete phone registration with profile info from PhoneProfileEntryView
+    func completePhoneRegistration(displayName: String?, email: String?) async throws {
         guard let regToken = registrationToken else {
             throw AuthError.registrationFailed("No registration token available")
         }
-        try await completePhoneRegistrationDirect(registrationToken: regToken)
-    }
-
-    /// User wants to link phone to existing account — dismiss phone flow so they can sign in with Apple
-    func linkPhoneToExistingAccount() {
-        // Keep the phone number so ProfileCompletionView can use it after Apple sign-in
-        phoneAuthState = .idle
-        registrationToken = nil
-        print("[Auth] User chose to link phone to existing account — dismissing phone flow for Apple sign-in")
+        try await completePhoneRegistrationDirect(registrationToken: regToken, displayName: displayName, email: email)
     }
 
     /// Store a verified phone number for auto-linking after cross-identifier sign-in
@@ -940,11 +1004,12 @@ class AuthManager {
             phoneAuthState = .idle
         case .phoneVerification:
             phoneAuthState = .phoneEntry
-        case .accountCheck:
+        case .profileEntry:
             phoneAuthState = .phoneEntry
             registrationToken = nil
-        case .accountExists:
-            // Go back to phone entry — user can try a different number
+        case .accountExists(_, _, _, let phone):
+            // Preserve phone for auto-link in case user signs in via another method
+            setPendingPhoneLink(phone)
             phoneAuthState = .phoneEntry
             registrationToken = nil
         }

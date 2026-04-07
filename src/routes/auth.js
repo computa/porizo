@@ -184,10 +184,10 @@ async function findUserByPhone(db, phoneNumber, { autoRepairProvider = false } =
 async function findExistingAccountByIdentifiers(db, { email, phone, providerType, providerUserId } = {}) {
   let matchedUserId = null;
 
-  // Check email → users table
+  // Check email → users table (only match verified emails to prevent unverified email claims)
   if (email) {
     const row = await db.prepare(
-      "SELECT id FROM users WHERE email = ? AND deleted_at IS NULL"
+      "SELECT id FROM users WHERE email = ? AND email_verified = 1 AND deleted_at IS NULL"
     ).get(email.toLowerCase());
     if (row) matchedUserId = row.id;
   }
@@ -435,16 +435,21 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
    */
   async function tryAutoLinkPhone(userId, phoneNumber, clientIp) {
     try {
-      // Verify the phone was recently verified (within 15 minutes)
+      // Verify the phone was recently verified from this same IP (within 15 minutes).
+      // Uses phone_registration_tokens (IP-bound) as proof that THIS client completed OTP.
+      // This prevents cross-user phone hijacking: user A verifying a phone doesn't let
+      // user B claim it via pending_phone_link from a different IP.
       const cutoff = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+      const phoneHash = hashPhoneNumber(phoneNumber);
       const recentVerification = await db.prepare(
-        `SELECT id FROM phone_verifications
-         WHERE phone_number = ? AND verified_at IS NOT NULL AND verified_at > ?
+        `SELECT token_hash FROM phone_registration_tokens
+         WHERE phone_number_hash = ? AND verified_at > ?
+           AND (ip_address = ? OR ip_address IS NULL)
          ORDER BY verified_at DESC LIMIT 1`
-      ).get(phoneNumber, cutoff);
+      ).get(phoneHash, cutoff, clientIp);
 
       if (!recentVerification) {
-        return; // Phone not recently verified — skip
+        return; // No recent verification from this IP — skip
       }
 
       // Check if phone is already linked to another account
@@ -626,6 +631,7 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
         registration_token: { type: "string", minLength: 64, maxLength: 64 },
         phone_number: { type: "string", pattern: "^\\+[1-9]\\d{1,14}$" },
         name: { type: "string", maxLength: 100 },
+        email: { type: "string", format: "email", maxLength: 255 },
       },
     },
   };
@@ -663,8 +669,9 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
     }
 
     try {
-      // Check if email already exists (exclude soft-deleted accounts)
-      const existing = await db.prepare("SELECT id FROM users WHERE email = ? AND deleted_at IS NULL").get(email.toLowerCase());
+      // Check if email already exists with a verified account (exclude soft-deleted and unverified claims)
+      // Unverified emails from phone registration don't block legitimate email/password signup
+      const existing = await db.prepare("SELECT id FROM users WHERE email = ? AND email_verified = 1 AND deleted_at IS NULL").get(email.toLowerCase());
       if (existing) {
         return sendError(reply, 409, "EMAIL_EXISTS", "An account with this email already exists.");
       }
@@ -1362,6 +1369,10 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
       return reply.send({ message: "Email verified successfully." });
     } catch (error) {
       console.error("Email verification error:", error.message);
+      // Unique constraint violation: another account already verified this email
+      if (error.code === "23505" || error.message?.includes("UNIQUE constraint") || error.message?.includes("idx_users_verified_email")) {
+        return sendError(reply, 409, "EMAIL_ALREADY_VERIFIED", "This email is already verified by another account. Please use a different email or sign in to the existing account.");
+      }
       return sendError(reply, 400, "INVALID_TOKEN", "Invalid or expired verification token.");
     }
   });
@@ -1435,7 +1446,7 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
       // Check uniqueness only if email actually changed
       if (!currentUser || currentUser.email !== emailStr) {
         const existing = await db.prepare(
-          "SELECT id FROM users WHERE email = ? AND id != ? AND deleted_at IS NULL"
+          "SELECT id FROM users WHERE email = ? AND email_verified = 1 AND id != ? AND deleted_at IS NULL"
         ).get(emailStr, request.userId);
         if (existing) {
           return sendError(reply, 409, "EMAIL_EXISTS", "This email is already associated with another account.");
@@ -1731,8 +1742,9 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
   // ==================== PHONE AUTH: REGISTER ====================
 
   app.post("/auth/phone/register", { schema: phoneRegisterSchema }, async (request, reply) => {
-    const { registration_token, phone_number, name } = request.body;
+    const { registration_token, phone_number, name, email } = request.body;
     const clientIp = getClientIp(request);
+    const normalizedEmail = email ? String(email).trim().toLowerCase() : null;
 
     // Rate limit: 5/hour per IP (same as signup)
     if (await consumeAuthRateLimit(`phone-register:${clientIp}`, 5, 60 * 60 * 1000)) {
@@ -1748,9 +1760,12 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
 
       const phoneNumber = tokenResult.phone_number;
 
-      // Cross-identifier dedup: check if this phone is already linked to ANY account
-      // (via phone, email, or social provider) before creating a new one
-      const existingAccount = await findExistingAccountByIdentifiers(db, { phone: phoneNumber });
+      // Cross-identifier dedup: check phone AND email (if provided) against existing accounts
+      // Email cross-check only matches verified emails (prevents unverified email claims)
+      const existingAccount = await findExistingAccountByIdentifiers(db, {
+        phone: phoneNumber,
+        ...(normalizedEmail ? { email: normalizedEmail } : {}),
+      });
 
       if (existingAccount.exists) {
         // Return account_exists so the client can prompt sign-in + link
@@ -1769,9 +1784,9 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
 
       await db.transaction(async () => {
         await db.prepare(
-          `INSERT INTO users (id, display_name, phone_number, phone_verified_at, risk_level, created_at)
-           VALUES (?, ?, ?, ?, 'low', ?)`
-        ).run(userId, name || null, phoneNumber, now, now);
+          `INSERT INTO users (id, display_name, email, phone_number, phone_verified_at, risk_level, created_at)
+           VALUES (?, ?, ?, ?, ?, 'low', ?)`
+        ).run(userId, name || null, normalizedEmail, phoneNumber, now, now);
 
         // Create phone auth provider entry (first-class provider)
         const providerId = `ap_${crypto.randomBytes(8).toString("hex")}`;
@@ -1786,6 +1801,15 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
       // Create session and tokens
       const { accessToken, refreshToken } = await createSessionAndTokens(userId, request, clientIp);
 
+      // Send verification email for self-asserted email (fire-and-forget)
+      if (normalizedEmail && emailService.isConfigured()) {
+        authService.createEmailVerificationToken(userId).then(({ token }) => {
+          emailService.sendVerificationEmail(normalizedEmail, token).catch((err) => {
+            console.error("Failed to send verification email:", err.message);
+          });
+        });
+      }
+
       // Attribution matching (non-blocking)
       matchDownloadAttribution(userId, clientIp).catch(() => {});
 
@@ -1795,7 +1819,7 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
         eventType: "login_success",
         ipAddress: clientIp,
         userAgent: request.headers["user-agent"],
-        metadata: { method: "phone_signup" },
+        metadata: { method: "phone_signup", has_email: Boolean(normalizedEmail) },
       });
 
       return reply.status(201).send({

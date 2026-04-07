@@ -77,6 +77,19 @@ struct VerifyPhoneCodeResponse: Codable, Sendable {
     }
 }
 
+/// Response from POST /auth/social when email auto-link requires confirmation
+struct LinkConfirmationResponse: Codable, Sendable {
+    let requiresLinkConfirmation: Bool?
+    let existingAccountEmail: String?
+    let provider: String?
+
+    enum CodingKeys: String, CodingKey {
+        case requiresLinkConfirmation = "requires_link_confirmation"
+        case existingAccountEmail = "existing_account_email"
+        case provider
+    }
+}
+
 /// Response from POST /auth/phone/register when a cross-identifier match is found
 struct AccountExistsResponse: Codable, Sendable {
     let accountExists: Bool
