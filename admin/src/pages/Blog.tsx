@@ -21,6 +21,27 @@ interface ReviewReport {
   blockers: ReviewItem[];
   recommendations: ReviewItem[];
   summary: string;
+  editorial_review?: {
+    status: 'available' | 'unavailable' | 'error';
+    summary: string;
+    provider: string | null;
+    model: string | null;
+    verdict: string;
+    confidence: string;
+    citationPotential: number;
+    aeoStrength: number;
+    frameworkAlignment: number;
+    pageType: string;
+    retrievalGoal: string;
+    blockers: Array<{ title: string; detail: string }>;
+    improvements: Array<{ title: string; recommendation: string }>;
+    priorityRewrites: {
+      title?: string;
+      answerBlock?: string;
+      faq?: string;
+    };
+    error?: string;
+  };
 }
 
 interface BlogPost {
@@ -492,13 +513,117 @@ export function Blog() {
                   <div>
                     <p className="text-sm font-medium text-white mb-2">Recommendations</p>
                     <div className="space-y-2">
-                      {selectedPost.review_report.recommendations.map((item) => (
-                        <div key={item.code} className="rounded-lg border border-slate-700 bg-slate-900/50 p-3">
-                          <p className="text-sm text-slate-200 font-medium">{item.message}</p>
-                          <p className="text-xs text-slate-400 mt-1">{item.recommendation}</p>
-                        </div>
-                      ))}
+                      {selectedPost.review_report.recommendations.length === 0 ? (
+                        <p className="text-sm text-slate-500">No deterministic recommendations.</p>
+                      ) : (
+                        selectedPost.review_report.recommendations.map((item) => (
+                          <div key={item.code} className="rounded-lg border border-slate-700 bg-slate-900/50 p-3">
+                            <p className="text-sm text-slate-200 font-medium">{item.message}</p>
+                            <p className="text-xs text-slate-400 mt-1">{item.recommendation}</p>
+                          </div>
+                        ))
+                      )}
                     </div>
+                  </div>
+
+                  <div className="pt-2 border-t border-slate-700/60 space-y-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-sm font-medium text-white">LLM Editorial Review</p>
+                      <span className="text-xs text-slate-500">
+                        {selectedPost.review_report.editorial_review?.provider
+                          ? `${selectedPost.review_report.editorial_review.provider} · ${selectedPost.review_report.editorial_review.model}`
+                          : selectedPost.review_report.editorial_review?.status || 'unavailable'}
+                      </span>
+                    </div>
+                    {selectedPost.review_report.editorial_review ? (
+                      <div className="space-y-3">
+                        <p className="text-sm text-slate-300">{selectedPost.review_report.editorial_review.summary}</p>
+                        {selectedPost.review_report.editorial_review.status === 'available' ? (
+                          <>
+                            <div className="grid grid-cols-3 gap-3">
+                              <div className="rounded-lg bg-slate-900/50 p-3">
+                                <p className="text-xs uppercase tracking-wide text-slate-500">Citation</p>
+                                <p className="mt-1 text-sm font-semibold text-white">{selectedPost.review_report.editorial_review.citationPotential}/10</p>
+                              </div>
+                              <div className="rounded-lg bg-slate-900/50 p-3">
+                                <p className="text-xs uppercase tracking-wide text-slate-500">AEO</p>
+                                <p className="mt-1 text-sm font-semibold text-white">{selectedPost.review_report.editorial_review.aeoStrength}/10</p>
+                              </div>
+                              <div className="rounded-lg bg-slate-900/50 p-3">
+                                <p className="text-xs uppercase tracking-wide text-slate-500">Framework</p>
+                                <p className="mt-1 text-sm font-semibold text-white">{selectedPost.review_report.editorial_review.frameworkAlignment}/10</p>
+                              </div>
+                            </div>
+
+                            <div className="rounded-lg border border-slate-700 bg-slate-900/50 p-3">
+                              <p className="text-xs uppercase tracking-wide text-slate-500">Editorial Verdict</p>
+                              <p className="mt-1 text-sm font-medium text-white">{selectedPost.review_report.editorial_review.verdict}</p>
+                              <p className="mt-1 text-xs text-slate-400">
+                                {selectedPost.review_report.editorial_review.pageType} · {selectedPost.review_report.editorial_review.retrievalGoal} · confidence {selectedPost.review_report.editorial_review.confidence}
+                              </p>
+                            </div>
+
+                            <div>
+                              <p className="text-sm font-medium text-white mb-2">Editorial Blockers</p>
+                              {selectedPost.review_report.editorial_review.blockers.length === 0 ? (
+                                <p className="text-sm text-slate-500">No editorial blockers called out.</p>
+                              ) : (
+                                <div className="space-y-2">
+                                  {selectedPost.review_report.editorial_review.blockers.map((item, index) => (
+                                    <div key={`${item.title}-${index}`} className="rounded-lg border border-slate-700 bg-slate-900/50 p-3">
+                                      <p className="text-sm text-slate-200 font-medium">{item.title}</p>
+                                      <p className="text-xs text-slate-400 mt-1">{item.detail}</p>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+
+                            <div>
+                              <p className="text-sm font-medium text-white mb-2">Editorial Improvements</p>
+                              <div className="space-y-2">
+                                {selectedPost.review_report.editorial_review.improvements.map((item, index) => (
+                                  <div key={`${item.title}-${index}`} className="rounded-lg border border-slate-700 bg-slate-900/50 p-3">
+                                    <p className="text-sm text-slate-200 font-medium">{item.title}</p>
+                                    <p className="text-xs text-slate-400 mt-1">{item.recommendation}</p>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+
+                            <div>
+                              <p className="text-sm font-medium text-white mb-2">Priority Rewrites</p>
+                              <div className="space-y-2">
+                                {selectedPost.review_report.editorial_review.priorityRewrites.title ? (
+                                  <div className="rounded-lg border border-slate-700 bg-slate-900/50 p-3">
+                                    <p className="text-xs uppercase tracking-wide text-slate-500">Title</p>
+                                    <p className="text-sm text-slate-200 mt-1">{selectedPost.review_report.editorial_review.priorityRewrites.title}</p>
+                                  </div>
+                                ) : null}
+                                {selectedPost.review_report.editorial_review.priorityRewrites.answerBlock ? (
+                                  <div className="rounded-lg border border-slate-700 bg-slate-900/50 p-3">
+                                    <p className="text-xs uppercase tracking-wide text-slate-500">Answer Block</p>
+                                    <p className="text-sm text-slate-200 mt-1 whitespace-pre-wrap">{selectedPost.review_report.editorial_review.priorityRewrites.answerBlock}</p>
+                                  </div>
+                                ) : null}
+                                {selectedPost.review_report.editorial_review.priorityRewrites.faq ? (
+                                  <div className="rounded-lg border border-slate-700 bg-slate-900/50 p-3">
+                                    <p className="text-xs uppercase tracking-wide text-slate-500">FAQ</p>
+                                    <p className="text-sm text-slate-200 mt-1 whitespace-pre-wrap">{selectedPost.review_report.editorial_review.priorityRewrites.faq}</p>
+                                  </div>
+                                ) : null}
+                              </div>
+                            </div>
+                          </>
+                        ) : (
+                          <p className="text-xs text-slate-500">
+                            {selectedPost.review_report.editorial_review.error || 'Editorial review did not run.'}
+                          </p>
+                        )}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-slate-500">No editorial review yet.</p>
+                    )}
                   </div>
                 </>
               ) : (

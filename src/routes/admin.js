@@ -5,6 +5,7 @@ const path = require("path");
 const { AdminService, escapeLikePattern } = require("../services/admin-service");
 const { BlogService, normalizePostInput } = require("../services/blog-service");
 const { reviewBlogDraft } = require("../services/blog-review-service");
+const { generateEditorialReview } = require("../services/blog-editorial-review-service");
 const { renderBlogPostPage } = require("../services/blog-render-service");
 const { analyzeBlend, formatAnalysisReport } = require("../utils/blend-analyzer");
 const { newUuid } = require("../utils/ids");
@@ -330,10 +331,12 @@ app.post("/admin/dashboard/blog/posts/:id/review", async (request, reply) => {
     return sendError(reply, 404, "NOT_FOUND", "Blog post not found");
   }
   const report = reviewBlogDraft(post);
+  report.editorial_review = await generateEditorialReview(post, report);
   const updated = await blogService.saveReviewResult(post.id, report, admin.adminId);
   await adminService._audit(admin.adminId, "blog_post_review", "blog_post", post.id, {
     decision: report.decision,
     overall_score: report.overallScore,
+    editorial_status: report.editorial_review?.status || null,
   });
   reply.send({ post: updated, report });
 });

@@ -1,4 +1,5 @@
 require("dotenv/config");
+process.env.NODE_ENV = "test";
 
 const assert = require("node:assert/strict");
 const path = require("node:path");
@@ -105,6 +106,8 @@ describe("blog CMS routes", () => {
     const reviewed = reviewResponse.json();
     assert.equal(reviewed.report.decision, "approved");
     assert.equal(reviewed.post.review_status, "approved");
+    assert.ok(reviewed.report.editorial_review);
+    assert.ok(["available", "unavailable", "error"].includes(reviewed.report.editorial_review.status));
 
     const publishResponse = await app.inject({
       method: "POST",
