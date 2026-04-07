@@ -30,7 +30,6 @@ struct PhoneVerificationView: View {
     @State private var isVerifying: Bool = false
     @State private var error: String?
     @State private var resendCountdown: Int = 60
-    @State private var canResend: Bool = false
     @State private var remainingAttempts: Int?
 
     @FocusState private var isCodeFieldFocused: Bool
@@ -209,7 +208,7 @@ struct PhoneVerificationView: View {
 
     private var resendSection: some View {
         HStack(spacing: 16) {
-            if canResend {
+            if resendCountdown == 0 {
                 Button {
                     Task { await resendCode() }
                 } label: {
@@ -234,25 +233,8 @@ struct PhoneVerificationView: View {
         }
     }
 
-    // MARK: - Masked Phone Number
-
-    /// Masks phone number for display: "+1 *** *** 4567"
     private var maskedPhoneNumber: String {
-        // Handle E.164 format: +15551234567
-        guard phoneNumber.count >= 4 else { return phoneNumber }
-
-        let lastFour = String(phoneNumber.suffix(4))
-
-        // Try to extract country code (assume +1 for US/Canada if starts with +1)
-        if phoneNumber.hasPrefix("+1") && phoneNumber.count >= 11 {
-            return "+1 *** *** \(lastFour)"
-        } else if phoneNumber.hasPrefix("+") {
-            // Generic masking for other country codes
-            let countryCode = String(phoneNumber.prefix(while: { $0 == "+" || $0.isNumber }).prefix(3))
-            return "\(countryCode) *** *** \(lastFour)"
-        }
-
-        return "*** *** \(lastFour)"
+        maskedPhoneDisplay(phoneNumber)
     }
 
     // MARK: - Actions
@@ -282,7 +264,6 @@ struct PhoneVerificationView: View {
                 remainingAttempts = response.remainingAttempts
                 if let remaining = response.remainingAttempts, remaining == 0 {
                     error = "Too many attempts. Please request a new code."
-                    canResend = true
                     resendCountdown = 0
                 } else {
                     error = "Invalid code. Please try again."
@@ -302,7 +283,6 @@ struct PhoneVerificationView: View {
                     // Try to parse error details
                     if body.contains("expired") {
                         error = "Code expired. Please request a new one."
-                        canResend = true
                         resendCountdown = 0
                     } else if body.contains("invalid") || body.contains("incorrect") {
                         error = "Invalid code. Please check and try again."
@@ -326,7 +306,7 @@ struct PhoneVerificationView: View {
 
     /// Resend verification code
     @MainActor private func resendCode() async {
-        guard canResend else { return }
+        guard resendCountdown == 0 else { return }
 
         isVerifying = true
         error = nil
@@ -337,8 +317,6 @@ struct PhoneVerificationView: View {
             }
 
             isVerifying = false
-            canResend = false
-            resendCountdown = 60
             startCountdown()
             code = ""
         } catch {
@@ -351,7 +329,6 @@ struct PhoneVerificationView: View {
 
     private func startCountdown() {
         countdownTask?.cancel()
-        canResend = false
         resendCountdown = 60
 
         countdownTask = Task {
@@ -361,9 +338,6 @@ struct PhoneVerificationView: View {
                 await MainActor.run {
                     if resendCountdown > 0 {
                         resendCountdown -= 1
-                    }
-                    if resendCountdown == 0 {
-                        canResend = true
                     }
                 }
             }

@@ -478,14 +478,56 @@ struct WarmCanvasScreenGallery: View {
     }
 
     private var profileCompleteDemo: some View {
-        navScreen(title: "Complete your profile", subtitle: "Add your email to sync across devices") {
-            VStack(spacing: 20) {
-                TextField("your@email.com", text: .constant(""))
-                    .font(DesignTokens.bodyFont(size: 16))
-                    .padding(.horizontal, 16).padding(.vertical, 14)
-                    .background(DesignTokens.surface)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(DesignTokens.border, lineWidth: 1.5))
+        navScreen(title: "Complete your profile", subtitle: "Add your details to secure your account") {
+            VStack(spacing: 16) {
+                // Display Name
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Display Name")
+                        .font(DesignTokens.bodyFont(size: 13))
+                        .foregroundStyle(DesignTokens.textSecondary)
+                    TextField("How you want to be called", text: .constant(""))
+                        .font(DesignTokens.bodyFont(size: 16))
+                        .padding(.horizontal, 16).padding(.vertical, 14)
+                        .background(DesignTokens.surface)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(DesignTokens.border, lineWidth: 1.5))
+                }
+
+                // Email
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Email")
+                        .font(DesignTokens.bodyFont(size: 13))
+                        .foregroundStyle(DesignTokens.textSecondary)
+                    TextField("your@email.com", text: .constant(""))
+                        .font(DesignTokens.bodyFont(size: 16))
+                        .padding(.horizontal, 16).padding(.vertical, 14)
+                        .background(DesignTokens.surface)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(DesignTokens.border, lineWidth: 1.5))
+                }
+
+                // Phone
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Phone")
+                        .font(DesignTokens.bodyFont(size: 13))
+                        .foregroundStyle(DesignTokens.textSecondary)
+                    HStack(spacing: 8) {
+                        Text("\u{1f1fa}\u{1f1f8} +1")
+                            .font(DesignTokens.bodyFont(size: 16))
+                            .foregroundStyle(DesignTokens.textPrimary)
+                            .padding(.horizontal, 12).padding(.vertical, 14)
+                            .background(DesignTokens.surface)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                            .overlay(RoundedRectangle(cornerRadius: 12).stroke(DesignTokens.border, lineWidth: 1.5))
+                        TextField("Phone number", text: .constant(""))
+                            .font(DesignTokens.bodyFont(size: 16))
+                            .padding(.horizontal, 16).padding(.vertical, 14)
+                            .background(DesignTokens.surface)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                            .overlay(RoundedRectangle(cornerRadius: 12).stroke(DesignTokens.border, lineWidth: 1.5))
+                    }
+                }
+
                 coralButton("Continue")
                 textLink("Skip for now")
             }

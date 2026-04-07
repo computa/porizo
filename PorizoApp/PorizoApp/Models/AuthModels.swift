@@ -77,27 +77,19 @@ struct VerifyPhoneCodeResponse: Codable, Sendable {
     }
 }
 
-/// Response from POST /auth/phone/register
-struct PhoneRegisterResponse: Codable, Sendable {
-    let success: Bool
-    let userId: String
-    let accessToken: String
-    let refreshToken: String
+/// Response from POST /auth/phone/register when a cross-identifier match is found
+struct AccountExistsResponse: Codable, Sendable {
+    let accountExists: Bool
+    let authMethods: [String]
+    let maskedEmail: String?
+    let maskedPhone: String?
 
     enum CodingKeys: String, CodingKey {
-        case success
-        case userId = "user_id"
-        case accessToken = "access_token"
-        case refreshToken = "refresh_token"
+        case accountExists = "account_exists"
+        case authMethods = "auth_methods"
+        case maskedEmail = "masked_email"
+        case maskedPhone = "masked_phone"
     }
-}
-
-// MARK: - Username
-
-/// Response from GET /users/username/available
-struct UsernameAvailabilityResponse: Codable, Sendable {
-    let available: Bool
-    let suggestions: [String]?
 }
 
 // MARK: - Device Registration

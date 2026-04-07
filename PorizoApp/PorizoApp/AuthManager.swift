@@ -32,10 +32,14 @@ class AuthManager {
     private(set) var phoneAuthState: PhoneAuthState = .idle
 
     /// Phone number being authenticated (E.164 format)
-    var phoneNumber: String = ""
+    private(set) var phoneNumber: String = ""
 
     /// Registration token for new users after phone verification
     private(set) var registrationToken: String?
+
+    /// Phone number pending auto-link after cross-identifier sign-in
+    /// Set when accountExists flow dismisses to let user sign in via existing method
+    private(set) var pendingPhoneLink: String?
 
     /// User ID from authentication (for AuthTokenProvider conformance)
     var authenticatedUserId: String? {
@@ -589,10 +593,14 @@ class AuthManager {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        let body: [String: Any] = [
+        var body: [String: Any] = [
             "email": email.lowercased().trimmingCharacters(in: .whitespaces),
             "password": password
         ]
+        // Auto-link pending phone from cross-identifier flow
+        if let phone = pendingPhoneLink {
+            body["pending_phone_link"] = phone
+        }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (data, response) = try await session.data(for: request)
@@ -653,6 +661,11 @@ class AuthManager {
            let authCodeString = String(data: authorizationCode, encoding: .utf8),
            !authCodeString.isEmpty {
             body["authorization_code"] = authCodeString
+        }
+
+        // Auto-link pending phone from cross-identifier flow
+        if let phone = pendingPhoneLink {
+            body["pending_phone_link"] = phone
         }
 
         // Apple only provides name on first sign-in
@@ -792,11 +805,9 @@ class AuthManager {
     }
 
     /// Handle phone verification response
-    /// Routes to either:
-    /// - Authenticated state (existing user with tokens)
-    /// - Username selection (new user with registration token)
-    /// - Parameters:
-    ///   - response: The verification response from the API
+    /// Handle phone verification result.
+    /// Existing user → login with tokens.
+    /// New user → create account directly (no username step).
     func handlePhoneVerification(_ response: VerifyPhoneCodeResponse) async throws {
         guard response.verified else {
             throw AuthError.phoneVerificationFailed("Verification failed")
@@ -808,123 +819,132 @@ class AuthManager {
            let userId = response.userId {
             print("[Auth] Phone verification: existing user, logging in")
 
-            // Create AuthResponse-compatible structure for token saving
-            let expiresIn = 3600 // Default 1 hour, backend should return this
             let authResponse = AuthResponse(
                 userId: userId,
                 accessToken: accessToken,
                 refreshToken: refreshToken,
-                expiresIn: expiresIn,
+                expiresIn: 3600,
                 isNewUser: response.isNewUser
             )
 
             try saveTokens(authResponse)
             setAuthProvider("phone")
-
-            // Clear phone auth state
             phoneAuthState = .idle
             registrationToken = nil
-
             isAuthenticated = true
             try await fetchCurrentUser()
             print("[Auth] Phone login successful for existing user")
             return
         }
 
-        // Case 2: New user - response contains registration token
+        // Case 2: New user - ask if they have an existing account first
         if let regToken = response.registrationToken {
-            print("[Auth] Phone verification: new user, proceeding to username selection")
+            print("[Auth] Phone verification: new phone, prompting account check")
             registrationToken = regToken
-            phoneAuthState = .usernameSelection(registrationToken: regToken, phoneNumber: phoneNumber)
+            phoneAuthState = .accountCheck(registrationToken: regToken, phoneNumber: phoneNumber)
             return
         }
 
-        // Neither case matched - unexpected response
         throw AuthError.phoneVerificationFailed("Invalid verification response")
     }
 
-    /// Complete phone registration for new users
-    /// Called after user selects username in UsernameView
-    /// - Parameters:
-    ///   - username: The chosen username
-    ///   - name: Optional display name
-    ///   - apiClient: The APIClient to use for registration
-    func completePhoneRegistration(username: String, name: String?, apiClient: APIClient) async throws {
+    /// Create phone account directly without username
+    private func completePhoneRegistrationDirect(registrationToken: String) async throws {
+        let url = URL(string: "\(baseURL)/auth/phone/register")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0", forHTTPHeaderField: "User-Agent")
+
+        let body: [String: String] = [
+            "registration_token": registrationToken,
+            "phone_number": phoneNumber,
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, httpResponse) = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "phoneRegistration") {
+            try await self.session.data(for: request)
+        }
+        guard let response = httpResponse as? HTTPURLResponse else {
+            throw AuthError.networkError("Invalid response")
+        }
+
+        // Cross-identifier match: server found existing account linked to this phone
+        if response.statusCode == 200 {
+            if let accountExists = try? JSONDecoder().decode(AccountExistsResponse.self, from: data),
+               accountExists.accountExists {
+                phoneAuthState = .accountExists(
+                    authMethods: accountExists.authMethods,
+                    maskedEmail: accountExists.maskedEmail,
+                    maskedPhone: accountExists.maskedPhone,
+                    phoneNumber: phoneNumber
+                )
+                print("[Auth] Cross-identifier match found — prompting user to sign in via existing method")
+                return
+            }
+        }
+
+        if response.statusCode == 409 {
+            // Phone already taken (race condition) — parse error
+            let errorBody = String(data: data, encoding: .utf8) ?? ""
+            if errorBody.contains("E117_PHONE_EXISTS") {
+                throw AuthError.registrationFailed("An account with this phone number already exists. Please sign in instead.")
+            }
+            throw AuthError.registrationFailed("Account conflict. Please try again.")
+        }
+
+        guard response.statusCode == 201 else {
+            throw AuthError.serverError("Phone registration failed (HTTP \(response.statusCode))")
+        }
+
+        let authResponse = try JSONDecoder().decode(AuthResponse.self, from: data)
+        try saveTokens(authResponse)
+        setAuthProvider("phone")
+
+        phoneAuthState = .idle
+        phoneNumber = ""
+        self.registrationToken = nil
+        isAuthenticated = true
+        try await fetchCurrentUser()
+        print("[Auth] Phone registration completed successfully (no username)")
+    }
+
+    /// User confirmed they want a new account (from account check screen)
+    func confirmNewPhoneAccount() async throws {
         guard let regToken = registrationToken else {
             throw AuthError.registrationFailed("No registration token available")
         }
-
-        isLoading = true
-        defer { isLoading = false }
-
-        print("[Auth] Completing phone registration for username: \(username)")
-
-        let response = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "completePhoneRegistration") {
-            try await apiClient.registerWithPhone(
-                registrationToken: regToken,
-                username: username,
-                name: name
-            )
-        }
-
-        // Save tokens from registration response
-        // PhoneRegisterResponse doesn't have expiresIn, so we use a reasonable default
-        let expiresIn = 3600 // 1 hour default
-        let authResponse = AuthResponse(
-            userId: response.userId,
-            accessToken: response.accessToken,
-            refreshToken: response.refreshToken,
-            expiresIn: expiresIn,
-            isNewUser: true
-        )
-
-        try saveTokens(authResponse)
-        setAuthProvider("phone")
-
-        // Clear phone auth state
-        phoneAuthState = .idle
-        phoneNumber = ""
-        registrationToken = nil
-
-        isAuthenticated = true
-        try await fetchCurrentUser()
-        print("[Auth] Phone registration completed successfully")
+        try await completePhoneRegistrationDirect(registrationToken: regToken)
     }
 
-    /// Save phone registration response from UsernameView
-    func handlePhoneRegistrationResponse(_ response: PhoneRegisterResponse) async throws {
-        let expiresIn = 3600 // 1 hour default
-        let authResponse = AuthResponse(
-            userId: response.userId,
-            accessToken: response.accessToken,
-            refreshToken: response.refreshToken,
-            expiresIn: expiresIn,
-            isNewUser: true
-        )
-
-        try saveTokens(authResponse)
-        setAuthProvider("phone")
+    /// User wants to link phone to existing account — dismiss phone flow so they can sign in with Apple
+    func linkPhoneToExistingAccount() {
+        // Keep the phone number so ProfileCompletionView can use it after Apple sign-in
         phoneAuthState = .idle
-        phoneNumber = ""
         registrationToken = nil
+        print("[Auth] User chose to link phone to existing account — dismissing phone flow for Apple sign-in")
+    }
 
-        isAuthenticated = true
-        try await fetchCurrentUser()
-        print("[Auth] Phone registration completed successfully")
+    /// Store a verified phone number for auto-linking after cross-identifier sign-in
+    func setPendingPhoneLink(_ phone: String) {
+        pendingPhoneLink = phone
+        print("[Auth] Pending phone link set: \(phone.prefix(4))****")
     }
 
     /// Go back one step in phone auth flow
     func phoneAuthGoBack() {
         switch phoneAuthState {
         case .idle:
-            break // Already idle
+            break
         case .phoneEntry:
             phoneAuthState = .idle
         case .phoneVerification:
             phoneAuthState = .phoneEntry
-        case .usernameSelection:
-            // Can't go back from username selection to verification
-            // (verification code would be expired)
+        case .accountCheck:
+            phoneAuthState = .phoneEntry
+            registrationToken = nil
+        case .accountExists:
+            // Go back to phone entry — user can try a different number
             phoneAuthState = .phoneEntry
             registrationToken = nil
         }
@@ -1242,6 +1262,8 @@ class AuthManager {
             currentUser = user
             needsProfileCompletion = user.needsProfileCompletion
             hasValidatedSession = true
+            // Clear pending phone link after successful auth (it was sent in the request)
+            pendingPhoneLink = nil
             // Link OneSignal external ID so marketing pushes target this user
             OneSignal.login(user.id)
             print("[Auth] fetchCurrentUser success: user=\(user.id)")

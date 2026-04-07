@@ -19,76 +19,99 @@ const {
 const { exchangeAppleAuthorizationCode } = require("../services/apple-signin");
 const crypto = require("crypto");
 
-// NOTE: In-memory rate limiter — resets on restart, not shared across processes.
-// For production multi-instance deployments, migrate to Redis-backed rate limiting.
+// In-memory rate limit cache — first-pass check to avoid DB round-trip on every request.
+// The authoritative rate limit state is in the DB (rate_limits table), which survives
+// restarts and is shared across instances. The in-memory Map is a performance optimization only.
 const rateLimits = new Map();
 
-// Phone registration tokens (in-memory, 15-min expiry)
-// Key: token, Value: { phone_number, verified_at, expires_at }
-const registrationTokens = new Map();
-
-// Clean up expired registration tokens every 5 minutes to prevent unbounded growth.
-setInterval(() => {
-  const now = Date.now();
-  for (const [token, data] of registrationTokens) {
-    if (new Date(data.expires_at).getTime() < now) registrationTokens.delete(token);
-  }
-}, 5 * 60 * 1000).unref();
+// HMAC key for hashing phone numbers in registration tokens (derived from JWT_SECRET)
+const PHONE_HMAC_KEY = process.env.JWT_SECRET || (process.env.NODE_ENV === "test" ? "test-secret-key-32chars-minimum!!" : (() => { throw new Error("JWT_SECRET required for phone HMAC"); })());
 
 /**
  * Clear all rate limits (for testing only)
+ * Clears both in-memory cache and DB entries for auth-keyed rate limits.
  */
-function clearRateLimits() {
+async function clearRateLimits(db) {
   rateLimits.clear();
+  if (db) {
+    try {
+      await db.prepare("DELETE FROM rate_limits WHERE action_type LIKE 'auth:%'").run();
+    } catch { /* DB may not have the table in some test setups */ }
+  }
 }
 
 /**
  * Clear all registration tokens (for testing only)
  */
-function clearRegistrationTokens() {
-  registrationTokens.clear();
+async function clearRegistrationTokens(db) {
+  if (db) {
+    await db.prepare("DELETE FROM phone_registration_tokens").run();
+  }
 }
 
 /**
- * Generate a registration token for phone auth
- * @param {string} phoneNumber - Verified phone number
- * @returns {string} Registration token
+ * Hash a phone number for storage (HMAC-SHA256, not reversible)
  */
-function createRegistrationToken(phoneNumber) {
-  const token = crypto.randomBytes(32).toString("hex");
-  const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
+function hashPhoneNumber(phoneNumber) {
+  return crypto.createHmac("sha256", PHONE_HMAC_KEY).update(phoneNumber).digest("hex");
+}
 
-  registrationTokens.set(token, {
-    phone_number: phoneNumber,
-    verified_at: new Date().toISOString(),
-    expires_at: expiresAt.toISOString(),
-  });
+/**
+ * Generate a DB-backed registration token for phone auth
+ * @param {object} db - Database instance
+ * @param {string} phoneNumber - Verified phone number
+ * @param {string} ipAddress - Client IP address
+ * @returns {Promise<string>} Registration token
+ */
+async function createRegistrationToken(db, phoneNumber, ipAddress) {
+  const token = crypto.randomBytes(32).toString("hex");
+  const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+  const phoneHash = hashPhoneNumber(phoneNumber);
+  // Use space-separated format for SQLite compatibility (CURRENT_TIMESTAMP comparison)
+  const toDbTimestamp = (d) => d.toISOString().replace("T", " ").replace("Z", "");
+  const now = toDbTimestamp(new Date());
+  const expiresAt = toDbTimestamp(new Date(Date.now() + 15 * 60 * 1000));
+
+  await db.prepare(
+    `INSERT INTO phone_registration_tokens (token_hash, phone_number_hash, ip_address, verified_at, expires_at)
+     VALUES (?, ?, ?, ?, ?)`
+  ).run(tokenHash, phoneHash, ipAddress || null, now, expiresAt);
 
   return token;
 }
 
 /**
- * Verify and consume a registration token
+ * Verify and consume a DB-backed registration token
+ * @param {object} db - Database instance
  * @param {string} token - Registration token
- * @returns {{ valid: boolean, phone_number?: string }}
+ * @param {string} phoneNumber - Phone number to verify against
+ * @returns {Promise<{ valid: boolean, phone_number?: string }>}
  */
-function consumeRegistrationToken(token) {
-  const data = registrationTokens.get(token);
+async function consumeRegistrationToken(db, token, phoneNumber, ipAddress) {
+  const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+  const expectedHash = hashPhoneNumber(phoneNumber);
 
-  if (!data) {
+  // Atomic consume: UPDATE only if unconsumed, unexpired, phone matches, and IP matches.
+  // The ip_address IS NULL fallback handles tokens created before IP-binding was added.
+  // Returns the updated row count — if 0, token was already consumed or invalid.
+  const result = await db.prepare(
+    `UPDATE phone_registration_tokens
+     SET consumed_at = CURRENT_TIMESTAMP
+     WHERE token_hash = ?
+       AND consumed_at IS NULL
+       AND expires_at > CURRENT_TIMESTAMP
+       AND phone_number_hash = ?
+       AND (ip_address = ? OR ip_address IS NULL)`
+  ).run(tokenHash, expectedHash, ipAddress || null);
+
+  // result.changes (PG adapter) or result (SQLite) indicates rows affected
+  const rowsAffected = result?.changes ?? result?.rowCount ?? 0;
+
+  if (rowsAffected === 0) {
     return { valid: false };
   }
 
-  // Check expiration
-  if (new Date(data.expires_at) < new Date()) {
-    registrationTokens.delete(token);
-    return { valid: false };
-  }
-
-  // Consume token (one-time use)
-  registrationTokens.delete(token);
-
-  return { valid: true, phone_number: data.phone_number };
+  return { valid: true, phone_number: phoneNumber };
 }
 
 /**
@@ -112,11 +135,117 @@ function isValidUsername(username) {
 }
 
 /**
- * Check rate limit
- * @param {string} key - Rate limit key (e.g., "login:192.168.1.1")
+ * Find a user by phone number, checking both user_auth_providers and legacy users.phone_number.
+ * Optionally auto-creates a missing provider entry for legacy users.
+ * @param {object} db - Database instance
+ * @param {string} phoneNumber - E.164 phone number
+ * @param {{ autoRepairProvider?: boolean }} options
+ * @returns {Promise<{ id: string } | undefined>}
+ */
+// SECURITY TODO: Phone numbers are stored and queried in plaintext in users.phone_number
+// and user_auth_providers.provider_user_id. Encrypt at rest in a future sprint.
+// See CSO audit 2026-04-07 Finding #3.
+async function findUserByPhone(db, phoneNumber, { autoRepairProvider = false } = {}) {
+  // Primary: user_auth_providers (source of truth)
+  let user = await db.prepare(
+    `SELECT u.id FROM user_auth_providers uap
+     JOIN users u ON u.id = uap.user_id AND u.deleted_at IS NULL
+     WHERE uap.provider = 'phone' AND uap.provider_user_id = ?`
+  ).get(phoneNumber);
+
+  if (user) return user;
+
+  // Fallback: legacy users.phone_number
+  user = await db.prepare(
+    "SELECT id FROM users WHERE phone_number = ? AND deleted_at IS NULL"
+  ).get(phoneNumber);
+
+  if (user && autoRepairProvider) {
+    const providerId = `ap_${crypto.randomBytes(8).toString("hex")}`;
+    await db.prepare(
+      `INSERT INTO user_auth_providers (id, user_id, provider, provider_user_id)
+       VALUES (?, ?, 'phone', ?) ON CONFLICT DO NOTHING`
+    ).run(providerId, user.id, phoneNumber);
+  }
+
+  return user;
+}
+
+/**
+ * Cross-identifier account lookup.
+ * Checks email, phone, and social provider to find if any identifier
+ * is already associated with an existing account.
+ * Used by all registration paths to prevent duplicate accounts.
+ *
+ * @param {object} db - Database instance
+ * @param {{ email?: string, phone?: string, providerType?: string, providerUserId?: string }} identifiers
+ * @returns {Promise<{ exists: boolean, userId?: string, authMethods?: string[], maskedEmail?: string, maskedPhone?: string }>}
+ */
+async function findExistingAccountByIdentifiers(db, { email, phone, providerType, providerUserId } = {}) {
+  let matchedUserId = null;
+
+  // Check email → users table
+  if (email) {
+    const row = await db.prepare(
+      "SELECT id FROM users WHERE email = ? AND deleted_at IS NULL"
+    ).get(email.toLowerCase());
+    if (row) matchedUserId = row.id;
+  }
+
+  // Check phone → user_auth_providers + legacy users.phone_number
+  if (!matchedUserId && phone) {
+    const row = await findUserByPhone(db, phone);
+    if (row) matchedUserId = row.id;
+  }
+
+  // Check social provider → user_auth_providers
+  if (!matchedUserId && providerType && providerUserId) {
+    const row = await db.prepare(
+      `SELECT uap.user_id FROM user_auth_providers uap
+       JOIN users u ON u.id = uap.user_id AND u.deleted_at IS NULL
+       WHERE uap.provider = ? AND uap.provider_user_id = ?`
+    ).get(providerType, providerUserId);
+    if (row) matchedUserId = row.user_id;
+  }
+
+  if (!matchedUserId) {
+    return { exists: false };
+  }
+
+  // Fetch auth methods and profile info for the matched account
+  const providerRows = await db.prepare(
+    "SELECT provider FROM user_auth_providers WHERE user_id = ?"
+  ).all(matchedUserId);
+  const authMethods = providerRows.map((p) => p.provider);
+
+  const user = await db.prepare(
+    "SELECT email, phone_number FROM users WHERE id = ?"
+  ).get(matchedUserId);
+
+  // Mask identifiers for privacy-safe display
+  let maskedEmail = null;
+  if (user?.email) {
+    const parts = user.email.split("@");
+    maskedEmail = parts[0].slice(0, 2) + "***@" + parts[1];
+  }
+
+  let maskedPhone = null;
+  if (user?.phone_number && user.phone_number.length >= 8) {
+    const code = user.phone_number.slice(0, 2);
+    const last4 = user.phone_number.slice(-4);
+    maskedPhone = `${code}***${last4}`;
+  }
+
+  return { exists: true, userId: matchedUserId, authMethods, maskedEmail, maskedPhone };
+}
+
+/**
+ * In-memory rate limit check (fast-path cache only).
+ * Used as a quick pre-check before the authoritative DB query.
+ * @param {string} key - Rate limit key
  * @param {number} maxAttempts - Maximum attempts in window
  * @param {number} windowMs - Time window in milliseconds
- * @returns {boolean} - true if rate limited
+ * @returns {boolean} - true if rate limited (may be stale after restart)
  */
 function isRateLimited(key, maxAttempts, windowMs) {
   const now = Date.now();
@@ -128,7 +257,6 @@ function isRateLimited(key, maxAttempts, windowMs) {
   }
 
   if (now - record.windowStart > windowMs) {
-    // Window expired, reset
     rateLimits.set(key, { count: 1, windowStart: now });
     return false;
   }
@@ -213,6 +341,148 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
   gdprAuditService.initialize(db);
   smsService.initialize(db);
 
+  // Clean up expired registration tokens periodically (every 6 hours)
+  const tokenCleanupInterval = setInterval(async () => {
+    try {
+      await db.prepare("DELETE FROM phone_registration_tokens WHERE expires_at < CURRENT_TIMESTAMP").run();
+    } catch { /* non-critical cleanup */ }
+  }, 6 * 60 * 60 * 1000);
+  tokenCleanupInterval.unref();
+
+  // Clean up expired rate limit entries periodically (every 30 minutes)
+  // Cleans both in-memory cache and stale DB rows for auth-keyed entries
+  const rateLimitCleanupInterval = setInterval(async () => {
+    const cutoff = Date.now() - 60 * 60 * 1000;
+    for (const [key, entry] of rateLimits) {
+      if (entry.windowStart < cutoff) rateLimits.delete(key);
+    }
+    try {
+      await db.prepare(
+        "DELETE FROM rate_limits WHERE action_type LIKE 'auth:%' AND window_start_ms < ?"
+      ).run(cutoff);
+    } catch { /* non-critical cleanup */ }
+  }, 30 * 60 * 1000);
+  rateLimitCleanupInterval.unref();
+
+  /**
+   * DB-backed rate limiting for auth endpoints.
+   * Uses the existing rate_limits table with sliding window, same algorithm as server.js consumeRateLimit.
+   * In-memory Map serves as fast-path cache; DB is authoritative and survives restarts.
+   * @param {string} key - Rate limit key (e.g., "signup:192.168.1.1")
+   * @param {number} limit - Maximum requests in window
+   * @param {number} windowMs - Time window in milliseconds
+   * @returns {Promise<boolean>} - true if rate limited
+   */
+  async function consumeAuthRateLimit(key, limit, windowMs) {
+    // Fast-path: in-memory check catches most cases without DB round-trip
+    if (isRateLimited(key, limit, windowMs)) {
+      return true;
+    }
+
+    // Authoritative check: DB-backed sliding window (survives restarts)
+    try {
+      const windowSeconds = Math.ceil(windowMs / 1000);
+      const now = Date.now();
+      const currentWindowStart = Math.floor(now / windowMs) * windowMs;
+      const actionKey = `auth:${key}`;
+
+      // Atomic increment current window
+      await db.prepare(
+        `INSERT INTO rate_limits (user_id, action_type, window_start_ms, window_seconds, count, limit_count)
+         VALUES (?, ?, ?, ?, 1, ?)
+         ON CONFLICT(user_id, action_type, window_start_ms)
+         DO UPDATE SET count = rate_limits.count + 1`
+      ).run(key, actionKey, currentWindowStart, windowSeconds, limit);
+
+      // Read current + previous window for sliding window approximation
+      const currentWindow = await db.prepare(
+        "SELECT count FROM rate_limits WHERE user_id = ? AND action_type = ? AND window_start_ms = ?"
+      ).get(key, actionKey, currentWindowStart);
+
+      const previousWindowStart = currentWindowStart - windowMs;
+      const previousWindow = await db.prepare(
+        "SELECT count FROM rate_limits WHERE user_id = ? AND action_type = ? AND window_start_ms = ?"
+      ).get(key, actionKey, previousWindowStart);
+
+      const currentCount = currentWindow?.count || 0;
+      const previousCount = previousWindow?.count || 0;
+      const elapsedInWindow = now - currentWindowStart;
+      const windowProgress = elapsedInWindow / windowMs;
+      const weightedCount = currentCount + previousCount * (1 - windowProgress);
+
+      if (weightedCount > limit) {
+        // Roll back increment and deny
+        await db.prepare(
+          `UPDATE rate_limits SET count = MAX(count - 1, 0)
+           WHERE user_id = ? AND action_type = ? AND window_start_ms = ?`
+        ).run(key, actionKey, currentWindowStart);
+        return true;
+      }
+
+      return false;
+    } catch (err) {
+      // DB failure: fall back to in-memory result (already checked above and passed)
+      console.error("[AuthRateLimit] DB error, falling back to in-memory:", err.message);
+      return false;
+    }
+  }
+
+  /**
+   * Auto-link a recently-verified phone to a user after cross-identifier sign-in.
+   * Only links if the phone was verified via OTP within the last 15 minutes
+   * and is not already linked to another account.
+   * Non-blocking — failures are logged but do not affect the auth response.
+   */
+  async function tryAutoLinkPhone(userId, phoneNumber, clientIp) {
+    try {
+      // Verify the phone was recently verified (within 15 minutes)
+      const cutoff = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+      const recentVerification = await db.prepare(
+        `SELECT id FROM phone_verifications
+         WHERE phone_number = ? AND verified_at IS NOT NULL AND verified_at > ?
+         ORDER BY verified_at DESC LIMIT 1`
+      ).get(phoneNumber, cutoff);
+
+      if (!recentVerification) {
+        return; // Phone not recently verified — skip
+      }
+
+      // Check if phone is already linked to another account
+      const existingLink = await db.prepare(
+        "SELECT user_id FROM user_auth_providers WHERE provider = 'phone' AND provider_user_id = ?"
+      ).get(phoneNumber);
+
+      if (existingLink) {
+        return; // Already linked (to this or another user) — skip
+      }
+
+      // Link phone to this user
+      const providerId = `ap_${crypto.randomBytes(8).toString("hex")}`;
+      await db.transaction(async () => {
+        await db.prepare(
+          `INSERT INTO user_auth_providers (id, user_id, provider, provider_user_id)
+           VALUES (?, ?, 'phone', ?)`
+        ).run(providerId, userId, phoneNumber);
+
+        await db.prepare(
+          "UPDATE users SET phone_number = ?, phone_verified_at = CURRENT_TIMESTAMP WHERE id = ?"
+        ).run(phoneNumber, userId);
+      });
+
+      await authService.logAuthEvent({
+        userId,
+        eventType: "provider_linked",
+        ipAddress: clientIp,
+        metadata: { provider: "phone", linked_via: "pending_phone_link", phone_masked: phoneNumber.slice(0, 4) + "****" + phoneNumber.slice(-2) },
+      });
+    } catch (err) {
+      // UNIQUE constraint = phone was linked concurrently. Non-critical.
+      if (err.code !== "23505" && !err.message?.includes("UNIQUE constraint")) {
+        console.error("[AutoLinkPhone] Failed:", err.message);
+      }
+    }
+  }
+
   // Attribution matching — links a new user to a recent /download event by IP
   async function matchDownloadAttribution(userId, clientIp) {
     try {
@@ -261,6 +531,7 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
       properties: {
         email: { type: "string", format: "email" },
         password: { type: "string" },
+        pending_phone_link: { type: "string", pattern: "^\\+[1-9]\\d{1,14}$" },
       },
     },
   };
@@ -279,6 +550,8 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
         authorization_code: { type: "string", maxLength: 2048 },
         code_verifier: { type: "string", maxLength: 256 },
         redirect_uri: { type: "string", maxLength: 512 },
+        confirm_link: { type: "boolean" },
+        pending_phone_link: { type: "string", pattern: "^\\+[1-9]\\d{1,14}$" },
       },
     },
   };
@@ -348,10 +621,10 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
   const phoneRegisterSchema = {
     body: {
       type: "object",
-      required: ["registration_token", "username"],
+      required: ["registration_token", "phone_number"],
       properties: {
         registration_token: { type: "string", minLength: 64, maxLength: 64 },
-        username: { type: "string", minLength: 3, maxLength: 20 },
+        phone_number: { type: "string", pattern: "^\\+[1-9]\\d{1,14}$" },
         name: { type: "string", maxLength: 100 },
       },
     },
@@ -367,6 +640,17 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
     },
   };
 
+  const profileUpdateSchema = {
+    body: {
+      type: "object",
+      properties: {
+        contact_email: { type: "string", format: "email", maxLength: 255 },
+        display_name: { type: "string", maxLength: 100 },
+      },
+      additionalProperties: false,
+    },
+  };
+
   // ==================== SIGNUP ====================
 
   app.post("/auth/signup", { schema: signupSchema }, async (request, reply) => {
@@ -374,7 +658,7 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
     const clientIp = getClientIp(request);
 
     // Rate limit: 5/hour per IP
-    if (isRateLimited(`signup:${clientIp}`, 5, 60 * 60 * 1000)) {
+    if (await consumeAuthRateLimit(`signup:${clientIp}`, 5, 60 * 60 * 1000)) {
       return sendError(reply, 429, "RATE_LIMITED", "Too many signup attempts. Please try again later.");
     }
 
@@ -460,7 +744,7 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
     const normalizedEmail = email.toLowerCase();
 
     // Rate limit: 10/hour per ip:email combination (prevents credential stuffing across accounts)
-    if (isRateLimited(`login:${clientIp}:${normalizedEmail}`, 10, 60 * 60 * 1000)) {
+    if (await consumeAuthRateLimit(`login:${clientIp}:${normalizedEmail}`, 10, 60 * 60 * 1000)) {
       return sendError(reply, 429, "RATE_LIMITED", "Too many login attempts. Please try again later.");
     }
 
@@ -514,6 +798,11 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
       // Create session and tokens
       const { accessToken, refreshToken } = await createSessionAndTokens(user.id, request, clientIp);
 
+      // Auto-link pending phone if present (from cross-identifier flow)
+      if (request.body.pending_phone_link) {
+        tryAutoLinkPhone(user.id, request.body.pending_phone_link, clientIp).catch(() => {});
+      }
+
       // Log success
       await authService.logAuthEvent({
         userId: user.id,
@@ -551,7 +840,7 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
     const clientIp = getClientIp(request);
 
     // Rate limit: 20/hour per IP
-    if (isRateLimited(`social:${clientIp}`, 20, 60 * 60 * 1000)) {
+    if (await consumeAuthRateLimit(`social:${clientIp}`, 20, 60 * 60 * 1000)) {
       return sendError(reply, 429, "RATE_LIMITED", "Too many authentication attempts. Please try again later.");
     }
 
@@ -676,6 +965,7 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
 
       let userId;
       let isNewUser = false;
+      let autoLinked = false;
 
       if (existingProvider) {
         // Existing user, login
@@ -722,38 +1012,59 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
         }
       } else {
         // New user, create account
+        // Cross-identifier note: Social providers (Apple/Google/Facebook) do not return
+        // phone numbers, so phone cross-check is not possible here. Email cross-check
+        // is handled below via the confirm_link auto-link flow. Provider ID is checked
+        // above via existingProvider. This covers all available identifiers.
         isNewUser = true;
         userId = generateUserId();
         const now = new Date().toISOString();
 
         // Check if email already exists (link accounts, exclude soft-deleted)
+        // Only auto-link if the existing account's email is verified AND user confirms
         if (userEmail) {
-          const existingUser = await db.prepare("SELECT id FROM users WHERE email = ? AND deleted_at IS NULL").get(userEmail.toLowerCase());
+          const existingUser = await db.prepare(
+            "SELECT id FROM users WHERE email = ? AND email_verified = 1 AND deleted_at IS NULL"
+          ).get(userEmail.toLowerCase());
           if (existingUser) {
+            if (!request.body.confirm_link) {
+              // Require explicit confirmation before linking to existing account
+              const emailParts = userEmail.toLowerCase().split("@");
+              const maskedEmail = emailParts[0].slice(0, 2) + "***@" + emailParts[1];
+              return reply.status(200).send({
+                requires_link_confirmation: true,
+                existing_account_email: maskedEmail,
+                provider,
+              });
+            }
             userId = existingUser.id;
             isNewUser = false;
+            autoLinked = true;
           }
         }
 
-        if (isNewUser) {
-          await db.prepare(
-            `INSERT INTO users (id, email, display_name, email_verified, risk_level, created_at)
-             VALUES (?, ?, ?, 1, 'low', ?)`
-          ).run(userId, userEmail?.toLowerCase() || null, userName, now);
-
-          await subscriptionManager.createFreeEntitlements(userId, { now });
-        }
-
-        // Link provider
+        // Link provider (and create user if new) — atomic transaction
         const providerId = `ap_${crypto.randomBytes(8).toString("hex")}`;
         const providerData = {
           email: userEmail,
           ...(appleRefreshToken ? { apple_refresh_token: appleRefreshToken, apple_refresh_obtained_at: now } : {}),
         };
-        await db.prepare(
-          `INSERT INTO user_auth_providers (id, user_id, provider, provider_user_id, provider_data)
-           VALUES (?, ?, ?, ?, ?)`
-        ).run(providerId, userId, provider, providerUserId, JSON.stringify(providerData));
+
+        await db.transaction(async () => {
+          if (isNewUser) {
+            await db.prepare(
+              `INSERT INTO users (id, email, display_name, email_verified, risk_level, created_at)
+               VALUES (?, ?, ?, 1, 'low', ?)`
+            ).run(userId, userEmail?.toLowerCase() || null, userName, now);
+
+            await subscriptionManager.createFreeEntitlements(userId, { now });
+          }
+
+          await db.prepare(
+            `INSERT INTO user_auth_providers (id, user_id, provider, provider_user_id, provider_data)
+             VALUES (?, ?, ?, ?, ?)`
+          ).run(providerId, userId, provider, providerUserId, JSON.stringify(providerData));
+        });
       }
 
       // If provider already linked and we have a new Apple refresh token, update provider_data
@@ -779,6 +1090,11 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
       // Create session and tokens
       const { accessToken, refreshToken } = await createSessionAndTokens(userId, request, clientIp);
 
+      // Auto-link pending phone if present (from cross-identifier flow)
+      if (request.body.pending_phone_link) {
+        tryAutoLinkPhone(userId, request.body.pending_phone_link, clientIp).catch(() => {});
+      }
+
       // Attribution matching for new social signups (non-blocking)
       if (isNewUser) {
         matchDownloadAttribution(userId, clientIp).catch(() => {});
@@ -787,13 +1103,22 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
       // Log event
       await authService.logAuthEvent({
         userId,
-        // The auth_events constraint does not include signup_success; capture the
-        // distinction in metadata while using an allowed event type.
         eventType: "login_success",
         ipAddress: clientIp,
         userAgent: request.headers["user-agent"],
         metadata: { method: provider, is_new_user: isNewUser },
       });
+
+      // Log provider_linked when auto-linking social to existing account
+      if (autoLinked) {
+        await authService.logAuthEvent({
+          userId,
+          eventType: "provider_linked",
+          ipAddress: clientIp,
+          userAgent: request.headers["user-agent"],
+          metadata: { provider, provider_user_id: providerUserId, linked_via: "email_match" },
+        });
+      }
 
       return reply.status(isNewUser ? 201 : 200).send({
         user_id: userId,
@@ -920,7 +1245,7 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
     const normalizedEmail = email.toLowerCase();
 
     // Rate limit: 3/hour per email
-    if (isRateLimited(`forgot:${normalizedEmail}`, 3, 60 * 60 * 1000)) {
+    if (await consumeAuthRateLimit(`forgot:${normalizedEmail}`, 3, 60 * 60 * 1000)) {
       // Still return 200 to prevent enumeration
       return reply.send({ message: "If an account exists, a reset email has been sent." });
     }
@@ -1046,7 +1371,7 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
   async function buildUserProfileResponse(userId) {
     const user = await db.prepare(
       `SELECT u.id, u.email, u.display_name, u.avatar_url, u.email_verified,
-                u.phone_number, u.username, u.created_at
+                u.phone_number, u.username, u.created_at, u.profile_completion_skipped_at
          FROM users u
          WHERE u.id = ?
            AND u.deleted_at IS NULL`
@@ -1060,7 +1385,10 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
     const providers = providerRows.map((p) => p.provider);
 
     const isRelayEmail = user.email && user.email.endsWith("@privaterelay.appleid.com");
-    const needsProfileCompletion = (!user.email || isRelayEmail) && !user.phone_number;
+    const hasVerifiedEmail = user.email && !isRelayEmail && user.email_verified;
+    const skippedRecently = user.profile_completion_skipped_at &&
+      (Date.now() - new Date(user.profile_completion_skipped_at).getTime() < 7 * 24 * 60 * 60 * 1000);
+    const needsProfileCompletion = (!hasVerifiedEmail || !user.phone_number) && !skippedRecently;
 
     return {
       user_id: user.id,
@@ -1088,12 +1416,15 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
 
   // ==================== UPDATE PROFILE ====================
 
-  app.patch("/auth/profile", { preHandler: requireAuth }, async (request, reply) => {
-    const { contact_email, phone_number, display_name } = request.body || {};
+  app.patch("/auth/profile", { schema: profileUpdateSchema, preHandler: requireAuth }, async (request, reply) => {
+    const { contact_email, display_name } = request.body || {};
 
-    if (!contact_email && !phone_number && !display_name) {
-      return sendError(reply, 400, "MISSING_FIELDS", "At least one field (contact_email, phone_number, display_name) is required.");
+    if (!contact_email && !display_name) {
+      return sendError(reply, 400, "MISSING_FIELDS", "At least one field (contact_email, display_name) is required.");
     }
+
+    // Fetch current user once for change detection (avoids redundant queries)
+    const currentUser = await db.prepare("SELECT email FROM users WHERE id = ?").get(request.userId);
 
     // Validate email format if provided
     if (contact_email != null) {
@@ -1101,26 +1432,14 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailStr)) {
         return sendError(reply, 400, "INVALID_EMAIL", "Please provide a valid email address.");
       }
-      // Check uniqueness
-      const existing = await db.prepare(
-        "SELECT id FROM users WHERE email = ? AND id != ? AND deleted_at IS NULL"
-      ).get(emailStr, request.userId);
-      if (existing) {
-        return sendError(reply, 409, "EMAIL_EXISTS", "This email is already associated with another account.");
-      }
-    }
-
-    // Validate E.164 phone format if provided
-    if (phone_number != null) {
-      if (!/^\+[1-9]\d{1,14}$/.test(String(phone_number))) {
-        return sendError(reply, 400, "INVALID_PHONE", "Phone number must be in E.164 format (e.g., +14155551234).");
-      }
-      // Check uniqueness
-      const existingPhone = await db.prepare(
-        "SELECT id FROM users WHERE phone_number = ? AND id != ? AND deleted_at IS NULL"
-      ).get(String(phone_number), request.userId);
-      if (existingPhone) {
-        return sendError(reply, 409, "PHONE_EXISTS", "This phone number is already associated with another account.");
+      // Check uniqueness only if email actually changed
+      if (!currentUser || currentUser.email !== emailStr) {
+        const existing = await db.prepare(
+          "SELECT id FROM users WHERE email = ? AND id != ? AND deleted_at IS NULL"
+        ).get(emailStr, request.userId);
+        if (existing) {
+          return sendError(reply, 409, "EMAIL_EXISTS", "This email is already associated with another account.");
+        }
       }
     }
 
@@ -1129,12 +1448,13 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
     const values = [];
 
     if (contact_email != null) {
+      const newEmail = String(contact_email).trim().toLowerCase();
       setClauses.push("email = ?");
-      values.push(String(contact_email).trim().toLowerCase());
-    }
-    if (phone_number != null) {
-      setClauses.push("phone_number = ?");
-      values.push(String(phone_number));
+      values.push(newEmail);
+      // Only reset verification if email actually changed
+      if (!currentUser || currentUser.email !== newEmail) {
+        setClauses.push("email_verified = 0");
+      }
     }
     if (display_name != null) {
       const trimmedName = String(display_name).trim();
@@ -1153,6 +1473,106 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
 
     const profile = await buildUserProfileResponse(request.userId);
     return reply.send(profile);
+  });
+
+  // ==================== SKIP PROFILE COMPLETION ====================
+
+  app.post("/auth/profile/skip-completion", { preHandler: requireAuth }, async (request, reply) => {
+    await db.prepare(
+      "UPDATE users SET profile_completion_skipped_at = CURRENT_TIMESTAMP WHERE id = ?"
+    ).run(request.userId);
+
+    return reply.send({ success: true });
+  });
+
+  // ==================== PHONE LINKING (AUTHENTICATED) ====================
+
+  const phoneLinkSchema = {
+    body: {
+      type: "object",
+      required: ["phone_number", "code"],
+      properties: {
+        phone_number: { type: "string", pattern: "^\\+[1-9]\\d{1,14}$" },
+        code: { type: "string", minLength: 6, maxLength: 6 },
+      },
+    },
+  };
+
+  app.post("/auth/phone/link", { schema: phoneLinkSchema, preHandler: requireAuth }, async (request, reply) => {
+    const { phone_number, code } = request.body;
+    const clientIp = getClientIp(request);
+
+    // Rate limit: 3 attempts per hour per user
+    if (await consumeAuthRateLimit(`phone-link:${request.userId}`, 3, 60 * 60 * 1000)) {
+      return sendError(reply, 429, "E110_RATE_LIMITED", "Too many linking attempts. Please try again later.");
+    }
+
+    try {
+      // Verify OTP code
+      const result = await smsService.verifyCode(phone_number, code);
+      if (!result.verified) {
+        return reply.status(400).send({
+          success: false,
+          verified: false,
+          remaining_attempts: result.remainingAttempts,
+          error: result.error || "Invalid verification code.",
+        });
+      }
+
+      // Check if phone is already linked to THIS user (idempotent)
+      const existingSelf = await db.prepare(
+        `SELECT id FROM user_auth_providers
+         WHERE user_id = ? AND provider = 'phone' AND provider_user_id = ?`
+      ).get(request.userId, phone_number);
+
+      if (existingSelf) {
+        const profile = await buildUserProfileResponse(request.userId);
+        return reply.send({ success: true, already_linked: true, ...profile });
+      }
+
+      // Check if phone is linked to ANOTHER user
+      const existingOther = await db.prepare(
+        `SELECT user_id FROM user_auth_providers
+         WHERE provider = 'phone' AND provider_user_id = ?`
+      ).get(phone_number);
+
+      if (existingOther) {
+        return sendError(reply, 409, "E117_PHONE_EXISTS", "This phone number is already associated with another account.");
+      }
+
+      // Link phone to this user
+      // SECURITY TODO: Phone stored in plaintext (CSO audit 2026-04-07 #3)
+      const providerId = `ap_${crypto.randomBytes(8).toString("hex")}`;
+      await db.transaction(async () => {
+        await db.prepare(
+          `INSERT INTO user_auth_providers (id, user_id, provider, provider_user_id)
+           VALUES (?, ?, 'phone', ?)`
+        ).run(providerId, request.userId, phone_number);
+
+        await db.prepare(
+          "UPDATE users SET phone_number = ?, phone_verified_at = CURRENT_TIMESTAMP WHERE id = ?"
+        ).run(phone_number, request.userId);
+      });
+
+      // Log auth event
+      await authService.logAuthEvent({
+        userId: request.userId,
+        eventType: "provider_linked",
+        ipAddress: clientIp,
+        userAgent: request.headers["user-agent"],
+        metadata: { provider: "phone", phone_masked: phone_number.slice(0, 4) + "****" + phone_number.slice(-2) },
+      });
+
+      const profile = await buildUserProfileResponse(request.userId);
+      return reply.send({ success: true, ...profile });
+    } catch (error) {
+      // Catch UNIQUE constraint violation (race condition: phone linked to another user concurrently)
+      if (error.code === "23505" || error.message?.includes("UNIQUE constraint")) {
+        return sendError(reply, 409, "E117_PHONE_EXISTS", "This phone number is already associated with another account.");
+      }
+      console.error("Phone link error:", error);
+      return sendError(reply, 500, "E119_PHONE_ERROR", "Failed to link phone number. Please try again.");
+    }
   });
 
   // ==================== LIST SESSIONS ====================
@@ -1194,7 +1614,7 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
     const clientIp = getClientIp(request);
 
     // Rate limit: 5/hour per IP
-    if (isRateLimited(`phone-send:${clientIp}`, 5, 60 * 60 * 1000)) {
+    if (await consumeAuthRateLimit(`phone-send:${clientIp}`, 5, 60 * 60 * 1000)) {
       return sendError(reply, 429, "E110_RATE_LIMITED", "Too many verification requests. Please try again later.");
     }
 
@@ -1204,7 +1624,7 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
     }
 
     // Rate limit: 5/hour per phone number — prevents SMS bombing a single number from multiple IPs
-    if (isRateLimited(`sms:phone:${phone_number}`, 5, 60 * 60 * 1000)) {
+    if (await consumeAuthRateLimit(`sms:phone:${phone_number}`, 5, 60 * 60 * 1000)) {
       return sendError(reply, 429, "E110_RATE_LIMITED", "Too many verification requests for this number.");
     }
 
@@ -1244,7 +1664,7 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
     const clientIp = getClientIp(request);
 
     // Rate limit: 10/hour per IP
-    if (isRateLimited(`phone-verify:${clientIp}`, 10, 60 * 60 * 1000)) {
+    if (await consumeAuthRateLimit(`phone-verify:${clientIp}`, 10, 60 * 60 * 1000)) {
       return sendError(reply, 429, "E110_RATE_LIMITED", "Too many verification attempts. Please try again later.");
     }
 
@@ -1258,10 +1678,8 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
       const result = await smsService.verifyCode(phone_number, code);
 
       if (result.verified) {
-        // Check if phone is already registered
-        const existingUser = await db
-          .prepare("SELECT id FROM users WHERE phone_number = ? AND deleted_at IS NULL")
-          .get(phone_number);
+        // Check if phone is already registered (auto-repairs missing provider entries)
+        const existingUser = await findUserByPhone(db, phone_number, { autoRepairProvider: true });
 
         if (existingUser) {
           // Phone already registered - login instead
@@ -1287,7 +1705,7 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
         }
 
         // New phone - create registration token for signup
-        const registrationToken = createRegistrationToken(phone_number);
+        const registrationToken = await createRegistrationToken(db, phone_number, clientIp);
 
         return reply.send({
           success: true,
@@ -1313,56 +1731,54 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
   // ==================== PHONE AUTH: REGISTER ====================
 
   app.post("/auth/phone/register", { schema: phoneRegisterSchema }, async (request, reply) => {
-    const { registration_token, username, name } = request.body;
+    const { registration_token, phone_number, name } = request.body;
     const clientIp = getClientIp(request);
 
     // Rate limit: 5/hour per IP (same as signup)
-    if (isRateLimited(`phone-register:${clientIp}`, 5, 60 * 60 * 1000)) {
+    if (await consumeAuthRateLimit(`phone-register:${clientIp}`, 5, 60 * 60 * 1000)) {
       return sendError(reply, 429, "E110_RATE_LIMITED", "Too many registration attempts. Please try again later.");
     }
 
     try {
-      // Validate registration token
-      const tokenResult = consumeRegistrationToken(registration_token);
+      // Validate registration token against provided phone number
+      const tokenResult = await consumeRegistrationToken(db, registration_token, phone_number, clientIp);
       if (!tokenResult.valid) {
         return sendError(reply, 400, "E114_INVALID_TOKEN", "Invalid or expired registration token. Please verify your phone again.");
       }
 
       const phoneNumber = tokenResult.phone_number;
 
-      // Validate username format
-      if (!isValidUsername(username)) {
-        return sendError(reply, 400, "E115_INVALID_USERNAME", "Username must be 3-20 characters, start with a letter, and contain only letters, numbers, and underscores.");
-      }
+      // Cross-identifier dedup: check if this phone is already linked to ANY account
+      // (via phone, email, or social provider) before creating a new one
+      const existingAccount = await findExistingAccountByIdentifiers(db, { phone: phoneNumber });
 
-      // Check username availability
-      const existingUsername = await db
-        .prepare("SELECT id FROM users WHERE username = ? AND deleted_at IS NULL")
-        .get(username.toLowerCase());
-
-      if (existingUsername) {
-        return sendError(reply, 409, "E116_USERNAME_TAKEN", "This username is already taken.");
-      }
-
-      // Check if phone was taken in the meantime (race condition protection)
-      const existingPhone = await db
-        .prepare("SELECT id FROM users WHERE phone_number = ? AND deleted_at IS NULL")
-        .get(phoneNumber);
-
-      if (existingPhone) {
-        return sendError(reply, 409, "E117_PHONE_EXISTS", "An account with this phone number already exists.");
+      if (existingAccount.exists) {
+        // Return account_exists so the client can prompt sign-in + link
+        return reply.status(200).send({
+          account_exists: true,
+          auth_methods: existingAccount.authMethods,
+          masked_email: existingAccount.maskedEmail,
+          masked_phone: existingAccount.maskedPhone,
+        });
       }
 
       // Create user
+      // SECURITY TODO: Phone stored in plaintext (CSO audit 2026-04-07 #3)
       const userId = generateUserId();
       const now = new Date().toISOString();
 
       await db.transaction(async () => {
-        // Create user with phone (phone_number serves as the auth identifier)
         await db.prepare(
-          `INSERT INTO users (id, username, display_name, phone_number, phone_verified_at, risk_level, created_at)
-           VALUES (?, ?, ?, ?, ?, 'low', ?)`
-        ).run(userId, username.toLowerCase(), name || null, phoneNumber, now, now);
+          `INSERT INTO users (id, display_name, phone_number, phone_verified_at, risk_level, created_at)
+           VALUES (?, ?, ?, ?, 'low', ?)`
+        ).run(userId, name || null, phoneNumber, now, now);
+
+        // Create phone auth provider entry (first-class provider)
+        const providerId = `ap_${crypto.randomBytes(8).toString("hex")}`;
+        await db.prepare(
+          `INSERT INTO user_auth_providers (id, user_id, provider, provider_user_id)
+           VALUES (?, ?, 'phone', ?)`
+        ).run(providerId, userId, phoneNumber);
 
         await subscriptionManager.createFreeEntitlements(userId, { now });
       });
@@ -1398,6 +1814,12 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
 
   app.get("/users/username/available", { schema: usernameAvailableSchema }, async (request, reply) => {
     const { username } = request.query;
+    const clientIp = getClientIp(request);
+
+    // Rate limit: 30/minute per IP to prevent bulk username enumeration
+    if (await consumeAuthRateLimit(`username-check:${clientIp}`, 30, 60 * 1000)) {
+      return sendError(reply, 429, "RATE_LIMITED", "Too many requests. Please try again later.");
+    }
 
     // Validate username format first
     if (!isValidUsername(username)) {
@@ -1454,7 +1876,7 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
     const clientIp = getClientIp(request);
 
     // Rate limit: 1 per hour per user (prevent abuse)
-    if (isRateLimited(`delete-account:${request.userId}`, 1, 60 * 60 * 1000)) {
+    if (await consumeAuthRateLimit(`delete-account:${request.userId}`, 1, 60 * 60 * 1000)) {
       return sendError(reply, 429, "RATE_LIMITED", "Please wait before retrying account deletion.");
     }
 

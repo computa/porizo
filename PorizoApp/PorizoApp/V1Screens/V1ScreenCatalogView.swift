@@ -43,14 +43,13 @@ struct V1ScreenCatalogView: View {
                             PhoneVerificationView(phoneNumber: "+15551234567", onVerified: { _ in }, onBack: {})
                                 .environment(apiWrapper)
                         }
-                        screenLink("05 - Username") {
-                            UsernameView(
-                                registrationToken: "reg_mock",
+                        screenLink("05 - Account Check") {
+                            AccountCheckView(
                                 phoneNumber: "+15551234567",
-                                onComplete: { _ in },
+                                onCreateNew: {},
+                                onLinkExisting: {},
                                 onBack: {}
                             )
-                            .environment(apiWrapper)
                         }
                     }
 

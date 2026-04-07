@@ -2,28 +2,92 @@
 //  ProfileCompletionView.swift
 //  PorizoApp
 //
-//  Post-auth profile completion — email-only form matching Warm Canvas gallery design.
+//  Post-auth profile completion — adaptive form matching Warm Canvas gallery design.
+//  Shows different fields based on auth provider:
+//  - Apple users: name (pre-filled), email (pre-filled), phone (with inline OTP)
+//  - Phone users: name, email, phone (verified badge)
 //
 
 import SwiftUI
 
 struct ProfileCompletionView: View {
+    private static let appleRelayDomain = "@privaterelay.appleid.com"
+
     @Environment(AuthManager.self) var authManager
     @Environment(\.dismiss) var dismiss
     let apiClient: APIClient
 
+    // MARK: - State
+
+    @State private var displayName = ""
     @State private var email = ""
+    @State private var phoneNumber = ""
+    @State private var selectedCountry: Country = .defaultCountry
+    @State private var showCountryPicker = false
     @State private var isSaving = false
     @State private var errorMessage: String?
 
+    // Phone verification state
+    @State private var showOTPEntry = false
+    @State private var otpCode = ""
+    @State private var isSendingCode = false
+    @State private var isVerifyingCode = false
+    @State private var phoneVerified = false
+    @State private var phoneError: String?
+    @State private var resendCountdown = 0
+    @State private var countdownTask: Task<Void, Never>?
+
+    @FocusState private var focusedField: Field?
+
+    enum Field: Hashable {
+        case name, email, phone, otp
+    }
+
+    // MARK: - Computed
+
+    private var hasPhone: Bool {
+        authManager.currentUser?.phoneNumber != nil
+    }
+
+    private static let iso8601Formatter = ISO8601DateFormatter()
+
+    /// Skip is only available after user's first session (not during initial signup).
+    /// Detected by checking if the account is older than 5 minutes.
+    private var hasCompletedFirstSession: Bool {
+        guard let createdStr = authManager.currentUser?.createdAt, !createdStr.isEmpty,
+              let createdDate = Self.iso8601Formatter.date(from: createdStr) else {
+            return false
+        }
+        return Date().timeIntervalSince(createdDate) > 300
+    }
+
+    private var hasRealEmail: Bool {
+        guard let email = authManager.currentUser?.email else { return false }
+        return !email.hasSuffix(Self.appleRelayDomain)
+    }
+
     private var isRelayEmail: Bool {
-        email.trimmingCharacters(in: .whitespaces).hasSuffix("@privaterelay.appleid.com")
+        email.trimmingCharacters(in: .whitespaces).hasSuffix(Self.appleRelayDomain)
     }
 
     private var hasValidEmail: Bool {
-        let trimmedEmail = email.trimmingCharacters(in: .whitespaces)
-        return !trimmedEmail.isEmpty && trimmedEmail.contains("@") && trimmedEmail.contains(".") && !isRelayEmail
+        let trimmed = email.trimmingCharacters(in: .whitespaces)
+        return !trimmed.isEmpty && trimmed.contains("@") && trimmed.contains(".") && !isRelayEmail
     }
+
+    private var e164PhoneNumber: String {
+        let digits = phoneNumber.filter { $0.isNumber }
+        return selectedCountry.dialCode + digits
+    }
+
+    private var canContinue: Bool {
+        // Require both a valid email and phone verification
+        let emailReady = hasRealEmail || hasValidEmail
+        let phoneReady = hasPhone || phoneVerified
+        return emailReady && phoneReady
+    }
+
+    // MARK: - Body
 
     var body: some View {
         NavigationStack {
@@ -37,35 +101,23 @@ struct ProfileCompletionView: View {
                             Text("Complete your profile")
                                 .font(DesignTokens.bodyFont(size: 20, weight: .bold))
                                 .foregroundStyle(DesignTokens.textPrimary)
-                            Text("Add your email to sync across devices")
+                            Text("Add your details to secure your account")
                                 .font(DesignTokens.bodyFont(size: 14))
                                 .foregroundStyle(DesignTokens.textSecondary)
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
 
-                        // Email field
-                        VStack(alignment: .leading, spacing: DesignTokens.spacing8) {
-                            TextField("your@email.com", text: $email)
-                                .keyboardType(.emailAddress)
-                                .textContentType(.emailAddress)
-                                .autocapitalization(.none)
-                                .autocorrectionDisabled()
-                                .font(DesignTokens.bodyFont(size: 16))
-                                .foregroundStyle(DesignTokens.textPrimary)
-                                .padding(.horizontal, 16)
-                                .padding(.vertical, 14)
-                                .background(DesignTokens.surface)
-                                .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusMedium))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: DesignTokens.radiusMedium)
-                                        .stroke(DesignTokens.border, lineWidth: 1.5)
-                                )
+                        // Display Name
+                        nameField
 
-                            if isRelayEmail {
-                                Text("This is a private relay address. Please enter your real email.")
-                                    .font(DesignTokens.bodyFont(size: 12))
-                                    .foregroundStyle(DesignTokens.gold)
-                            }
+                        // Email
+                        emailField
+
+                        // Phone — either input with OTP or verified badge
+                        if hasPhone {
+                            phoneVerifiedBadge
+                        } else {
+                            phoneInputSection
                         }
 
                         // Error message
@@ -93,17 +145,19 @@ struct ProfileCompletionView: View {
                             .background(DesignTokens.gold)
                             .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusCTA))
                         }
-                        .disabled(!hasValidEmail || isSaving)
-                        .opacity(!hasValidEmail ? 0.5 : 1.0)
+                        .disabled(!canContinue || isSaving)
+                        .opacity(!canContinue ? 0.5 : 1.0)
                         .buttonStyle(.plain)
 
-                        // Skip for now link
-                        Button {
-                            skip()
-                        } label: {
-                            Text("Skip for now")
-                                .font(DesignTokens.bodyFont(size: 14, weight: .medium))
-                                .foregroundStyle(DesignTokens.gold)
+                        // Skip only available after first session (not on initial signup)
+                        if hasCompletedFirstSession {
+                            Button {
+                                Task { await skip() }
+                            } label: {
+                                Text("Skip for now")
+                                    .font(DesignTokens.bodyFont(size: 14, weight: .medium))
+                                    .foregroundStyle(DesignTokens.gold)
+                            }
                         }
                     }
                     .padding(.horizontal, DesignTokens.spacing20)
@@ -115,15 +169,233 @@ struct ProfileCompletionView: View {
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
         }
-        .onAppear {
-            // If user has a real email, pre-fill it for editing
-            // If relay email, leave field empty with placeholder CTA
-            if let existing = authManager.currentUser?.email,
-               !existing.hasSuffix("@privaterelay.appleid.com") {
-                email = existing
+        .onAppear { prefillFields() }
+        .onDisappear { countdownTask?.cancel() }
+        .sheet(isPresented: $showCountryPicker) {
+            CountryPickerSheet(
+                selectedCountry: $selectedCountry,
+                isPresented: $showCountryPicker
+            )
+        }
+    }
+
+    // MARK: - Name Field
+
+    private var nameField: some View {
+        VStack(alignment: .leading, spacing: DesignTokens.spacing8) {
+            Text("Display Name")
+                .font(DesignTokens.bodyFont(size: 13))
+                .foregroundStyle(DesignTokens.textSecondary)
+
+            TextField("How you want to be called", text: $displayName)
+                .textContentType(.name)
+                .autocorrectionDisabled()
+                .font(DesignTokens.bodyFont(size: 16))
+                .foregroundStyle(DesignTokens.textPrimary)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+                .background(DesignTokens.surface)
+                .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusMedium))
+                .overlay(
+                    RoundedRectangle(cornerRadius: DesignTokens.radiusMedium)
+                        .stroke(DesignTokens.border, lineWidth: 1.5)
+                )
+                .focused($focusedField, equals: .name)
+        }
+    }
+
+    // MARK: - Email Field
+
+    private var emailField: some View {
+        VStack(alignment: .leading, spacing: DesignTokens.spacing8) {
+            Text("Email")
+                .font(DesignTokens.bodyFont(size: 13))
+                .foregroundStyle(DesignTokens.textSecondary)
+
+            TextField("your@email.com", text: $email)
+                .keyboardType(.emailAddress)
+                .textContentType(.emailAddress)
+                .autocapitalization(.none)
+                .autocorrectionDisabled()
+                .font(DesignTokens.bodyFont(size: 16))
+                .foregroundStyle(DesignTokens.textPrimary)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+                .background(DesignTokens.surface)
+                .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusMedium))
+                .overlay(
+                    RoundedRectangle(cornerRadius: DesignTokens.radiusMedium)
+                        .stroke(DesignTokens.border, lineWidth: 1.5)
+                )
+                .focused($focusedField, equals: .email)
+
+            if isRelayEmail {
+                Text("This is a private relay address. Please enter your real email.")
+                    .font(DesignTokens.bodyFont(size: 12))
+                    .foregroundStyle(DesignTokens.gold)
             }
         }
     }
+
+    // MARK: - Phone Verified Badge
+
+    private var phoneVerifiedBadge: some View {
+        VStack(alignment: .leading, spacing: DesignTokens.spacing8) {
+            Text("Phone")
+                .font(DesignTokens.bodyFont(size: 13))
+                .foregroundStyle(DesignTokens.textSecondary)
+
+            verifiedPhoneRow(authManager.currentUser?.phoneNumber ?? "Verified")
+        }
+    }
+
+    // MARK: - Phone Input Section
+
+    private var phoneInputSection: some View {
+        VStack(alignment: .leading, spacing: DesignTokens.spacing8) {
+            Text("Phone")
+                .font(DesignTokens.bodyFont(size: 13))
+                .foregroundStyle(DesignTokens.textSecondary)
+
+            if phoneVerified {
+                verifiedPhoneRow(e164PhoneNumber)
+            } else {
+                // Phone number input
+                HStack(spacing: 8) {
+                    // Country picker button
+                    Button {
+                        showCountryPicker = true
+                    } label: {
+                        Text("\(selectedCountry.flag) \(selectedCountry.dialCode)")
+                            .font(DesignTokens.bodyFont(size: 16))
+                            .foregroundStyle(DesignTokens.textPrimary)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 14)
+                            .background(DesignTokens.surface)
+                            .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusMedium))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: DesignTokens.radiusMedium)
+                                    .stroke(DesignTokens.border, lineWidth: 1.5)
+                            )
+                    }
+
+                    TextField("Phone number", text: $phoneNumber)
+                        .keyboardType(.phonePad)
+                        .textContentType(.telephoneNumber)
+                        .font(DesignTokens.bodyFont(size: 16))
+                        .foregroundStyle(DesignTokens.textPrimary)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 14)
+                        .background(DesignTokens.surface)
+                        .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusMedium))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: DesignTokens.radiusMedium)
+                                .stroke(DesignTokens.border, lineWidth: 1.5)
+                        )
+                        .focused($focusedField, equals: .phone)
+                }
+
+                if showOTPEntry {
+                    // Inline OTP entry
+                    inlineOTPSection
+                } else if phoneNumber.filter({ $0.isNumber }).count >= 6 {
+                    // Send code button
+                    Button {
+                        Task { await sendPhoneCode() }
+                    } label: {
+                        HStack(spacing: 8) {
+                            if isSendingCode {
+                                ProgressView()
+                                    .tint(DesignTokens.gold)
+                            }
+                            Text("Send verification code")
+                                .font(DesignTokens.bodyFont(size: 14, weight: .medium))
+                        }
+                        .foregroundStyle(DesignTokens.gold)
+                    }
+                    .disabled(isSendingCode)
+                }
+
+                if let phoneError {
+                    Text(phoneError)
+                        .font(DesignTokens.bodyFont(size: 12))
+                        .foregroundStyle(DesignTokens.error)
+                }
+            }
+        }
+    }
+
+    // MARK: - Inline OTP Section
+
+    private var inlineOTPSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Enter the code sent to \(e164PhoneNumber)")
+                .font(DesignTokens.bodyFont(size: 13))
+                .foregroundStyle(DesignTokens.textSecondary)
+
+            HStack(spacing: 8) {
+                TextField("6-digit code", text: $otpCode)
+                    .keyboardType(.numberPad)
+                    .textContentType(.oneTimeCode)
+                    .font(DesignTokens.bodyFont(size: 16))
+                    .foregroundStyle(DesignTokens.textPrimary)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
+                    .background(DesignTokens.surface)
+                    .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusMedium))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: DesignTokens.radiusMedium)
+                            .stroke(DesignTokens.border, lineWidth: 1.5)
+                    )
+                    .focused($focusedField, equals: .otp)
+                    .onChange(of: otpCode) { _, newValue in
+                        let filtered = newValue.filter { $0.isNumber }
+                        if filtered != newValue || filtered.count > 6 {
+                            otpCode = String(filtered.prefix(6))
+                        }
+                        if otpCode.count == 6 {
+                            Task { await verifyPhoneCode() }
+                        }
+                    }
+
+                if isVerifyingCode {
+                    ProgressView()
+                        .tint(DesignTokens.gold)
+                }
+            }
+
+            HStack(spacing: 16) {
+                if resendCountdown > 0 {
+                    Text("Resend in \(resendCountdown)s")
+                        .font(DesignTokens.bodyFont(size: 13))
+                        .foregroundStyle(DesignTokens.textSecondary)
+                } else {
+                    Button {
+                        Task { await sendPhoneCode() }
+                    } label: {
+                        Text("Resend code")
+                            .font(DesignTokens.bodyFont(size: 13, weight: .medium))
+                            .foregroundStyle(DesignTokens.gold)
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Prefill
+
+    private func prefillFields() {
+        if let user = authManager.currentUser {
+            displayName = user.displayName ?? ""
+
+            if let existingEmail = user.email,
+               !existingEmail.hasSuffix(Self.appleRelayDomain) {
+                email = existingEmail
+            }
+        }
+    }
+
+    // MARK: - Actions
 
     private func save() async {
         isSaving = true
@@ -131,21 +403,132 @@ struct ProfileCompletionView: View {
         defer { isSaving = false }
 
         let trimmedEmail = email.trimmingCharacters(in: .whitespaces)
+        let trimmedName = displayName.trimmingCharacters(in: .whitespaces)
 
         do {
             let updated = try await apiClient.updateProfile(
                 contactEmail: trimmedEmail.isEmpty ? nil : trimmedEmail,
-                phoneNumber: nil
+                displayName: trimmedName.isEmpty ? nil : trimmedName
             )
             authManager.updateCurrentUser(updated)
             dismiss()
+        } catch let error as APIClientError {
+            switch error {
+            case .httpError(let status, let body):
+                if status == 409 && body.contains("EMAIL_EXISTS") {
+                    errorMessage = "This email is already linked to another account. Please sign in with that account instead."
+                } else {
+                    errorMessage = "Failed to save profile. Please try again."
+                }
+            default:
+                errorMessage = "Connection error. Please try again."
+            }
         } catch {
             errorMessage = error.localizedDescription
         }
     }
 
-    private func skip() {
+    private func skip() async {
+        do {
+            try await apiClient.skipProfileCompletion()
+        } catch {
+            // Non-critical — dismiss anyway
+        }
         authManager.dismissProfileCompletion()
         dismiss()
+    }
+
+    private func sendPhoneCode() async {
+        isSendingCode = true
+        phoneError = nil
+
+        do {
+            let response = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "profileSendPhoneCode") {
+                try await apiClient.sendPhoneVerificationCode(phoneNumber: e164PhoneNumber)
+            }
+            if response.success {
+                showOTPEntry = true
+                startResendCountdown()
+                focusedField = .otp
+            } else {
+                phoneError = "Failed to send code. Try again."
+            }
+        } catch {
+            phoneError = "Unable to send code. Check your connection."
+        }
+
+        isSendingCode = false
+    }
+
+    private func verifyPhoneCode() async {
+        guard otpCode.count == 6 else { return }
+        isVerifyingCode = true
+        phoneError = nil
+
+        do {
+            let updated = try await apiClient.linkPhone(
+                phoneNumber: e164PhoneNumber,
+                code: otpCode
+            )
+            authManager.updateCurrentUser(updated)
+            phoneVerified = true
+            countdownTask?.cancel()
+        } catch let error as APIClientError {
+            switch error {
+            case .httpError(let status, let body):
+                if status == 409 && body.contains("PHONE_EXISTS") {
+                    phoneError = "This phone number is already linked to another account. Please sign in with that account instead."
+                } else if status == 400 {
+                    phoneError = "Invalid code. Please try again."
+                } else {
+                    phoneError = "Verification failed. Please try again."
+                }
+            default:
+                phoneError = "Connection error. Please try again."
+            }
+            otpCode = ""
+        } catch {
+            phoneError = "Something went wrong. Please try again."
+            otpCode = ""
+        }
+
+        isVerifyingCode = false
+    }
+
+    // MARK: - Shared Components
+
+    private func verifiedPhoneRow(_ display: String) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundStyle(DesignTokens.success)
+                .font(.system(size: 20))
+
+            Text(display)
+                .font(DesignTokens.bodyFont(size: 16))
+                .foregroundStyle(DesignTokens.textPrimary)
+
+            Spacer()
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .background(DesignTokens.surface)
+        .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusMedium))
+        .overlay(
+            RoundedRectangle(cornerRadius: DesignTokens.radiusMedium)
+                .stroke(DesignTokens.success.opacity(0.3), lineWidth: 1.5)
+        )
+    }
+
+    private func startResendCountdown() {
+        countdownTask?.cancel()
+        resendCountdown = 60
+
+        countdownTask = Task {
+            while !Task.isCancelled && resendCountdown > 0 {
+                try? await Task.sleep(for: .seconds(1))
+                guard !Task.isCancelled else { return }
+                await MainActor.run { resendCountdown -= 1 }
+            }
+        }
     }
 }

@@ -11,18 +11,17 @@ extension APIClient {
 
     struct UpdateProfileRequest: Encodable {
         let contactEmail: String?
-        let phoneNumber: String?
         let displayName: String?
 
         enum CodingKeys: String, CodingKey {
             case contactEmail = "contact_email"
-            case phoneNumber = "phone_number"
             case displayName = "display_name"
         }
     }
 
-    /// Update the current user's profile (email, phone, display name)
-    func updateProfile(contactEmail: String? = nil, phoneNumber: String? = nil, displayName: String? = nil) async throws -> AuthUser {
+    /// Update the current user's profile (email, display name)
+    /// Phone number changes must go through /auth/phone/link (verified flow)
+    func updateProfile(contactEmail: String? = nil, displayName: String? = nil) async throws -> AuthUser {
         let url = URL(string: "\(baseURL)/auth/profile")!
         var request = URLRequest(url: url)
         request.httpMethod = "PATCH"
@@ -31,7 +30,6 @@ extension APIClient {
 
         let body = UpdateProfileRequest(
             contactEmail: contactEmail,
-            phoneNumber: phoneNumber,
             displayName: displayName
         )
         request.httpBody = try JSONEncoder().encode(body)

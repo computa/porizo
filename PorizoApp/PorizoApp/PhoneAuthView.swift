@@ -37,6 +37,22 @@ struct Country: Identifiable, Hashable {
     ]
 }
 
+// MARK: - Phone Number Masking
+
+/// Masks a phone number for display, showing only the last 4 digits.
+/// Examples: "+15551234567" -> "+1 *** *** 4567", "+4412345678" -> "+44 *** 5678"
+func maskedPhoneDisplay(_ phoneNumber: String) -> String {
+    guard phoneNumber.count >= 4 else { return phoneNumber }
+    let lastFour = String(phoneNumber.suffix(4))
+    if phoneNumber.hasPrefix("+1") && phoneNumber.count >= 11 {
+        return "+1 *** *** \(lastFour)"
+    } else if phoneNumber.hasPrefix("+") {
+        let code = String(phoneNumber.prefix(3))
+        return "\(code) *** \(lastFour)"
+    }
+    return "*** \(lastFour)"
+}
+
 // MARK: - PhoneAuthView
 
 /// Phone number entry view for authentication.
@@ -495,18 +511,34 @@ struct PhoneAuthFlowView: View {
                     authManager.phoneAuthGoBack()
                 }
             )
-        case .usernameSelection(let registrationToken, let phoneNumber):
-            UsernameView(
-                registrationToken: registrationToken,
+        case .accountCheck(_, let phoneNumber):
+            AccountCheckView(
                 phoneNumber: phoneNumber,
-                onComplete: { response in
-                    Task {
-                        do {
-                            try await authManager.handlePhoneRegistrationResponse(response)
-                        } catch {
-                            // UsernameView handles UI errors; keep flow state.
-                        }
-                    }
+                onCreateNew: {
+                    try await authManager.confirmNewPhoneAccount()
+                },
+                onLinkExisting: {
+                    authManager.linkPhoneToExistingAccount()
+                },
+                onBack: {
+                    authManager.phoneAuthGoBack()
+                }
+            )
+        case .accountExists(let authMethods, let maskedEmail, let maskedPhone, let phoneNumber):
+            AccountExistsView(
+                authMethods: authMethods,
+                maskedEmail: maskedEmail,
+                maskedPhone: maskedPhone,
+                phoneNumber: phoneNumber,
+                onSignInWithApple: {
+                    // Dismiss phone flow, store pending phone for auto-link after Apple sign-in
+                    authManager.setPendingPhoneLink(phoneNumber)
+                    authManager.cancelPhoneAuth()
+                },
+                onSignInWithEmail: {
+                    // Dismiss phone flow, store pending phone for auto-link after email login
+                    authManager.setPendingPhoneLink(phoneNumber)
+                    authManager.cancelPhoneAuth()
                 },
                 onBack: {
                     authManager.phoneAuthGoBack()

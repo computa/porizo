@@ -68,65 +68,68 @@ extension APIClient {
         }
     }
 
-    /// Complete registration with phone (for new users after verification)
+    /// Register a new phone account (no username required)
     /// - Parameters:
     ///   - registrationToken: Token from verifyPhoneCode for new users
-    ///   - username: Chosen username
-    ///   - name: Optional display name
-    /// - Returns: PhoneRegisterResponse with auth tokens and user ID
-    func registerWithPhone(registrationToken: String, username: String, name: String?) async throws -> PhoneRegisterResponse {
+    ///   - phoneNumber: Phone number in E.164 format
+    /// - Returns: AuthResponse with tokens and user ID
+    func registerPhoneAccount(registrationToken: String, phoneNumber: String) async throws -> AuthResponse {
         let url = URL(string: "\(baseURL)/auth/phone/register")!
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(Self.appVersion, forHTTPHeaderField: "User-Agent")
-        // No auth required - registration token provides authentication
 
-        var body: [String: String] = [
+        let body: [String: String] = [
             "registration_token": registrationToken,
-            "username": username
+            "phone_number": phoneNumber,
         ]
-        if let name = name {
-            body["name"] = name
-        }
+        request.httpBody = try JSONEncoder().encode(body)
+
+        let (data, response) = try await Self.session.data(for: request)
+        try validateResponse(response, data: data)
+        return try Self.jsonDecoder.decode(AuthResponse.self, from: data)
+    }
+
+
+    // MARK: - Phone Linking (Authenticated)
+
+    /// Link a verified phone number to the current authenticated account
+    /// - Parameters:
+    ///   - phoneNumber: Phone number in E.164 format
+    ///   - code: 6-digit verification code
+    /// - Returns: Updated user profile
+    func linkPhone(phoneNumber: String, code: String) async throws -> AuthUser {
+        var request = try await makeRequest(
+            url: URL(string: "\(baseURL)/auth/phone/link")!,
+            method: "POST",
+            requiresAuth: true
+        )
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let body: [String: String] = [
+            "phone_number": phoneNumber,
+            "code": code,
+        ]
         request.httpBody = try JSONEncoder().encode(body)
 
         let (data, response) = try await Self.session.data(for: request)
         try validateResponse(response, data: data)
 
-        do {
-            return try Self.jsonDecoder.decode(PhoneRegisterResponse.self, from: data)
-        } catch {
-            let responseText = String(data: data, encoding: .utf8) ?? "No response"
-            throw APIClientError.decodingError("PhoneRegisterResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
-        }
+        return try Self.jsonDecoder.decode(AuthUser.self, from: data)
     }
 
-    /// Check if username is available
-    /// - Parameter username: Username to check
-    /// - Returns: UsernameAvailabilityResponse with availability and suggestions
-    func checkUsernameAvailability(username: String) async throws -> UsernameAvailabilityResponse {
-        var components = URLComponents(string: "\(baseURL)/users/username/available")!
-        components.queryItems = [URLQueryItem(name: "username", value: username)]
+    /// Skip profile completion for now
+    func skipProfileCompletion() async throws {
+        var request = try await makeRequest(
+            url: URL(string: "\(baseURL)/auth/profile/skip-completion")!,
+            method: "POST",
+            requiresAuth: true
+        )
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        guard let url = components.url else {
-            throw APIClientError.invalidResponse
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.setValue(Self.appVersion, forHTTPHeaderField: "User-Agent")
-        // No auth required - public endpoint
-
-        let (data, response) = try await Self.session.data(for: request)
-        try validateResponse(response, data: data)
-
-        do {
-            return try Self.jsonDecoder.decode(UsernameAvailabilityResponse.self, from: data)
-        } catch {
-            let responseText = String(data: data, encoding: .utf8) ?? "No response"
-            throw APIClientError.decodingError("UsernameAvailabilityResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
-        }
+        let (_, response) = try await Self.session.data(for: request)
+        try validateResponse(response, data: Data())
     }
 }

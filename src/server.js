@@ -305,10 +305,10 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
 
   // DB-07: CORS — allow same-origin + configured origins
   if (!process.env.CORS_ORIGIN && process.env.NODE_ENV === "production") {
-    console.warn("[SecurityGuard:CORS] CORS_ORIGIN is not set in production — all origins are allowed. Set CORS_ORIGIN to restrict access.");
+    throw new Error("[SecurityGuard:CORS] CORS_ORIGIN must be set in production. Server cannot start with unrestricted CORS. Set CORS_ORIGIN to a comma-separated list of allowed origins.");
   }
   app.register(require("@fastify/cors"), {
-    origin: process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(",") : true,
+    origin: process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(",") : false,
     credentials: true,
   });
 
