@@ -1,7 +1,7 @@
 const assert = require("node:assert/strict");
 const { describe, test } = require("node:test");
 
-const { reviewBlogDraft, extractMarkdownMetrics } = require("../src/services/blog-review-service");
+const { reviewBlogDraft, extractMarkdownMetrics, extractFormatQualityMetrics } = require("../src/services/blog-review-service");
 
 function buildRichBody() {
   const filler = Array.from({ length: 12 }, (_, index) =>
@@ -60,6 +60,7 @@ describe("blog review service", () => {
     assert.equal(report.decision, "approved");
     assert.equal(report.blockers.length, 0);
     assert.ok(report.overallScore >= 70);
+    assert.ok(report.formatScore >= 70);
   });
 
   test("extracts useful markdown structure metrics for review", () => {
@@ -70,5 +71,49 @@ describe("blog review service", () => {
     assert.ok(metrics.internalLinkCount >= 1);
     assert.ok(metrics.externalLinkCount >= 1);
     assert.ok(metrics.faqCount >= 1 || metrics.questionHeadingCount >= 1);
+  });
+
+  test("rejects articles that still read as unstructured after formatting", () => {
+    const denseSentence = "This section keeps running without meaningful visual breaks and it keeps stacking clause after clause with commas instead of real sectioning so the formatter cannot create a comfortable reading rhythm for the published article because there are no headings, no lists, no FAQs, and no clear stopping points for a reader trying to scan the page quickly for the answer they need right now";
+    const body = [
+      "## Intro",
+      "",
+      `${denseSentence} ${denseSentence} ${denseSentence} ${denseSentence}.`,
+      "",
+      "## More detail",
+      "",
+      `${denseSentence} ${denseSentence} ${denseSentence} ${denseSentence}.`,
+    ].join("\n");
+
+    const report = reviewBlogDraft({
+      title: "How a personalized song gift can become easier to read online",
+      slug: "how-a-personalized-song-gift-can-become-easier-to-read-online",
+      excerpt: "A well-formatted article answers quickly, uses clear sections, and avoids dense walls of text that readers abandon.",
+      answer_summary: "A readable personalized song gift article needs short paragraphs, clear sections, and scan points that make the answer easy to find.",
+      target_query: "how to format a personalized song gift article",
+      primary_keyword: "personalized song gift",
+      hero_image_url: "https://cdn.porizo.co/blog/formatting.jpg",
+      body_markdown: `${body}\n\nThis personalized song gift example stays intentionally dense to prove the formatter can still reject weak article structure.`,
+    });
+
+    assert.equal(report.decision, "rejected");
+    assert.ok(report.blockers.some((item) => item.code === "format_long_paragraphs"));
+  });
+
+  test("extracts format quality metrics from formatted article output", () => {
+    const metrics = extractFormatQualityMetrics([
+      "## Why this matters",
+      "",
+      "A readable article answers quickly and then expands the topic without forcing the reader through huge blocks.",
+      "",
+      "## FAQ",
+      "",
+      "- Question one",
+      "- Question two",
+    ].join("\n"));
+
+    assert.ok(metrics.paragraphCount >= 1);
+    assert.equal(metrics.h2Count, 2);
+    assert.equal(metrics.longParagraphCount, 0);
   });
 });

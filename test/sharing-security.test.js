@@ -213,9 +213,10 @@ describe("Sharing Security", () => {
   });
 
   // =========================================================================
-  // PIN-protected share GET does not leak dl_token or stream URL
+  // PIN-protected share GET: web_stream_url provided (pinless web playback),
+  // but dl_token stays gated (download requires PIN verification)
   // =========================================================================
-  it("GET /share/:id for PIN-protected share does not return dl_token or web_stream_url", async () => {
+  it("GET /share/:id for PIN-protected share returns web_stream_url but not dl_token", async () => {
     const { shareId } = await createShareWithPin();
 
     const res = await app.inject({
@@ -225,9 +226,10 @@ describe("Sharing Security", () => {
 
     assert.strictEqual(res.statusCode, 200);
     const body = JSON.parse(res.body);
-    assert.strictEqual(body.requires_pin, true, "Should indicate PIN required");
-    assert.strictEqual(body.dl_token, undefined, "dl_token must not be present before PIN verification");
-    assert.strictEqual(body.web_stream_url, null, "web_stream_url must be null for PIN-protected shares");
+    assert.strictEqual(body.requires_pin, undefined, "requires_pin should not be in response — web playback is pinless");
+    assert.strictEqual(body.dl_token, undefined, "dl_token must not be present — downloads still require PIN");
+    assert.ok(body.web_stream_url, "web_stream_url must be present for pinless web playback");
+    assert.ok(body.web_stream_url.includes("/audio"), "web_stream_url should point to audio endpoint");
   });
 
   // =========================================================================

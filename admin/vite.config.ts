@@ -9,6 +9,18 @@ export default defineConfig({
   build: {
     outDir: '../public/admin',
     emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        entryFileNames: 'assets/admin.js',
+        chunkFileNames: 'assets/chunk-[name].js',
+        assetFileNames: (assetInfo) => {
+          if (assetInfo.name?.endsWith('.css')) {
+            return 'assets/admin.css';
+          }
+          return 'assets/[name][extname]';
+        },
+      },
+    },
   },
   server: {
     proxy: {

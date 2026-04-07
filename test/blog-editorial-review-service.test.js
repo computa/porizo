@@ -2,6 +2,7 @@ const assert = require("node:assert/strict");
 const { describe, test } = require("node:test");
 
 const {
+  buildEditorialPrompt,
   buildUnavailableEditorialReview,
   generateEditorialReview,
 } = require("../src/services/blog-editorial-review-service");
@@ -83,5 +84,20 @@ describe("blog editorial review service", () => {
     assert.equal(review.citationPotential, 8.4);
     assert.equal(review.improvements[0].title, "Tighten intro");
     assert.match(review.priorityRewrites.answerBlock, /answers the target query immediately/i);
+  });
+
+  test("bounds large article bodies before sending them to the editorial reviewer", () => {
+    const prompt = buildEditorialPrompt(
+      {
+        ...samplePost,
+        body_markdown: `${"## Section\n\nLong body paragraph. ".repeat(2000)}\n\n## FAQ\n\nMore detail.`,
+      },
+      deterministicReport
+    );
+
+    assert.match(prompt, /body_markdown_excerpt/);
+    assert.match(prompt, /body_markdown_truncated/);
+    assert.match(prompt, /body_text_preview/);
+    assert.ok(prompt.length < 20000, "editorial prompt should remain bounded for large drafts");
   });
 });

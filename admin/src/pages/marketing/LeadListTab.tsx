@@ -88,7 +88,7 @@ const columns = [
 ];
 
 export function LeadListTab() {
-  const { get, loading, error } = useApi();
+  const { get, postForm, getBlob, loading, error, setError } = useApi();
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [total, setTotal] = useState(0);
   const [search, setSearch] = useState('');
@@ -106,6 +106,7 @@ export function LeadListTab() {
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const [campaignsLoaded, setCampaignsLoaded] = useState(false);
+  const [notice, setNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const fetchContacts = useCallback(async () => {
     const params = new URLSearchParams();
@@ -113,22 +114,63 @@ export function LeadListTab() {
     if (statusFilter) params.set('status', statusFilter);
     params.set('limit', '100');
     const qs = params.toString();
-    const data = await get<{ contacts: Contact[]; total: number }>(`/marketing/contacts?${qs}`);
-    setContacts(data.contacts);
-    setTotal(data.total);
+    try {
+      const data = await get<{ contacts: Contact[]; total: number }>(`/marketing/contacts?${qs}`);
+      setContacts(data.contacts);
+      setTotal(data.total);
+    } catch (err) {
+      setContacts([]);
+      setTotal(0);
+      throw err;
+    }
   }, [get, search, statusFilter]);
 
   useEffect(() => {
-    fetchContacts().catch(console.error);
-  }, [fetchContacts]);
+    let cancelled = false;
+    (async () => {
+      try {
+        const params = new URLSearchParams();
+        if (search) params.set('search', search);
+        if (statusFilter) params.set('status', statusFilter);
+        params.set('limit', '100');
+        const qs = params.toString();
+        const data = await get<{ contacts: Contact[]; total: number }>(`/marketing/contacts?${qs}`);
+        if (cancelled) return;
+        setContacts(data.contacts);
+        setTotal(data.total);
+      } catch (err) {
+        if (!cancelled) {
+          setContacts([]);
+          setTotal(0);
+          setNotice({ type: 'error', text: getErrorMessage(err, 'Failed to load contacts') });
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [get, search, statusFilter]);
 
   // Fetch campaigns for export filter
   useEffect(() => {
-    if (showExport && !campaignsLoaded) {
-      get<{ campaigns: Campaign[] }>('/marketing/campaigns')
-        .then((d) => { setCampaigns(d.campaigns); setCampaignsLoaded(true); })
-        .catch(console.error);
-    }
+    if (!showExport || campaignsLoaded) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await get<{ campaigns: Campaign[] }>('/marketing/campaigns');
+        if (cancelled) return;
+        setCampaigns(data.campaigns);
+        setCampaignsLoaded(true);
+      } catch (err) {
+        if (!cancelled) {
+          setCampaigns([]);
+          setExportError(getErrorMessage(err, 'Failed to load campaigns for export'));
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [showExport, campaignsLoaded, get]);
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -142,21 +184,14 @@ export function LeadListTab() {
     formData.append('file', file);
 
     try {
-      const token = localStorage.getItem('adminToken') || '';
-      const res = await fetch('/admin/dashboard/marketing/contacts/upload', {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` },
-        body: formData,
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setUploadError(data.error?.message || 'Upload failed');
-      } else {
-        setUploadResult({ inserted: data.inserted, skipped: data.skipped });
-        fetchContacts();
-      }
+      setError(null);
+      const data = await postForm<{ inserted: number; skipped: number }>('/marketing/contacts/upload', formData);
+      setUploadResult({ inserted: data.inserted, skipped: data.skipped });
+      await fetchContacts();
+      setNotice({ type: 'success', text: `Imported ${data.inserted} contacts. ${data.skipped} duplicates were skipped.` });
     } catch (err: unknown) {
       setUploadError(getErrorMessage(err, 'Upload failed'));
+      setNotice({ type: 'error', text: getErrorMessage(err, 'Upload failed') });
     } finally {
       setUploading(false);
       e.target.value = '';
@@ -165,20 +200,15 @@ export function LeadListTab() {
 
   const handleExport = async () => {
     setExporting(true);
+    setExportError(null);
     try {
       const params = new URLSearchParams();
-      params.set('status', statusFilter || 'active');
+      if (statusFilter) params.set('status', statusFilter);
       if (exportCampaign) params.set('campaign_id', exportCampaign);
       if (exportCampaign && exportOpened) params.set('opened', exportOpened);
       if (exportCampaign && exportClicked) params.set('clicked', exportClicked);
 
-      const token = localStorage.getItem('adminToken') || '';
-      const res = await fetch(`/admin/dashboard/marketing/contacts/export?${params}`, {
-        headers: { 'Authorization': `Bearer ${token}` },
-      });
-      if (!res.ok) throw new Error('Export failed');
-
-      const blob = await res.blob();
+      const blob = await getBlob(`/marketing/contacts/export?${params.toString()}`);
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -186,8 +216,10 @@ export function LeadListTab() {
       a.click();
       URL.revokeObjectURL(url);
       setShowExport(false);
+      setNotice({ type: 'success', text: 'Contacts export downloaded.' });
     } catch (err: unknown) {
       setExportError(getErrorMessage(err, 'Export failed'));
+      setNotice({ type: 'error', text: getErrorMessage(err, 'Export failed') });
     } finally {
       setExporting(false);
     }
@@ -201,6 +233,11 @@ export function LeadListTab() {
 
   return (
     <div className="space-y-4">
+      {notice && (
+        <div className={`rounded-lg px-4 py-2 text-sm border ${notice.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' : 'bg-rose-500/10 border-rose-500/30 text-rose-300'}`}>
+          {notice.text}
+        </div>
+      )}
       {/* Controls */}
       <div className="flex items-center gap-4 flex-wrap">
         <div className="relative flex-1 min-w-[200px] max-w-md">

@@ -61,7 +61,7 @@ interface CampaignForm { name: string; type: string; status: string; recipient_c
 const emptyForm: CampaignForm = { name: '', type: 'email', status: 'draft', recipient_count: 0, notes: '' };
 
 export function CampaignTrackerTab() {
-  const { get, post, put, loading, error } = useApi();
+  const { get, post, put, postForm, loading, error, setError } = useApi();
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(emptyForm);
@@ -76,51 +76,87 @@ export function CampaignTrackerTab() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [engagements, setEngagements] = useState<Engagement[]>([]);
   const [engagementsLoading, setEngagementsLoading] = useState(false);
+  const [notice, setNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const fetchCampaigns = useCallback(async () => {
-    const data = await get<{ campaigns: Campaign[] }>('/marketing/campaigns');
-    setCampaigns(data.campaigns);
+    try {
+      const data = await get<{ campaigns: Campaign[] }>('/marketing/campaigns');
+      setCampaigns(data.campaigns);
+    } catch (err) {
+      setCampaigns([]);
+      throw err;
+    }
   }, [get]);
 
   useEffect(() => {
-    fetchCampaigns().catch(console.error);
-  }, [fetchCampaigns]);
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await get<{ campaigns: Campaign[] }>('/marketing/campaigns');
+        if (cancelled) return;
+        setCampaigns(data.campaigns);
+      } catch (err) {
+        if (!cancelled) {
+          setCampaigns([]);
+          setNotice({ type: 'error', text: getErrorMessage(err, 'Failed to load campaigns') });
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [get]);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.name.trim()) return;
-    await post('/marketing/campaigns', {
-      name: form.name,
-      type: form.type,
-      status: form.status,
-      recipient_count: form.recipient_count,
-      notes: form.notes || null,
-    });
-    setForm(emptyForm);
-    setShowForm(false);
-    fetchCampaigns();
+    try {
+      await post('/marketing/campaigns', {
+        name: form.name,
+        type: form.type,
+        status: form.status,
+        recipient_count: form.recipient_count,
+        notes: form.notes || null,
+      });
+      setForm(emptyForm);
+      setShowForm(false);
+      await fetchCampaigns();
+      setNotice({ type: 'success', text: 'Campaign created.' });
+    } catch (err) {
+      setNotice({ type: 'error', text: getErrorMessage(err, 'Failed to create campaign') });
+    }
   };
 
   const handleUpdateStats = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!statsForm) return;
-    await put(`/marketing/campaigns/${statsForm.id}`, {
-      opens: statsForm.opens,
-      clicks: statsForm.clicks,
-      replies: statsForm.replies,
-      bounces: statsForm.bounces,
-      unsubscribes: statsForm.unsubscribes,
-    });
-    setStatsForm(null);
-    fetchCampaigns();
+    try {
+      await put(`/marketing/campaigns/${statsForm.id}`, {
+        opens: statsForm.opens,
+        clicks: statsForm.clicks,
+        replies: statsForm.replies,
+        bounces: statsForm.bounces,
+        unsubscribes: statsForm.unsubscribes,
+      });
+      setStatsForm(null);
+      await fetchCampaigns();
+      setNotice({ type: 'success', text: 'Campaign stats updated.' });
+    } catch (err) {
+      setNotice({ type: 'error', text: getErrorMessage(err, 'Failed to update campaign stats') });
+    }
   };
 
   const handleStatusChange = async (id: string, status: string) => {
-    await put(`/marketing/campaigns/${id}`, {
-      status,
-      ...(status === 'sent' ? { sent_at: new Date().toISOString() } : {}),
-    });
-    fetchCampaigns();
+    try {
+      await put(`/marketing/campaigns/${id}`, {
+        status,
+        ...(status === 'sent' ? { sent_at: new Date().toISOString() } : {}),
+      });
+      await fetchCampaigns();
+      setNotice({ type: 'success', text: 'Campaign status updated.' });
+    } catch (err) {
+      setNotice({ type: 'error', text: getErrorMessage(err, 'Failed to update campaign status') });
+    }
   };
 
   const handleImport = async (campaignId: string, e: React.ChangeEvent<HTMLInputElement>) => {
@@ -134,21 +170,14 @@ export function CampaignTrackerTab() {
     formData.append('file', file);
 
     try {
-      const token = localStorage.getItem('adminToken') || '';
-      const res = await fetch(`/admin/dashboard/marketing/campaigns/${campaignId}/import-results`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` },
-        body: formData,
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setImportError(data.error?.message || 'Import failed');
-      } else {
-        setImportResult(data);
-        fetchCampaigns(); // Refresh stats
-      }
+      setError(null);
+      const data = await postForm<ImportResult>(`/marketing/campaigns/${campaignId}/import-results`, formData);
+      setImportResult(data);
+      await fetchCampaigns();
+      setNotice({ type: 'success', text: `Imported campaign results for ${data.matched} contacts.` });
     } catch (err: unknown) {
       setImportError(getErrorMessage(err, 'Import failed'));
+      setNotice({ type: 'error', text: getErrorMessage(err, 'Import failed') });
     } finally {
       setImportingId(null);
       e.target.value = '';
@@ -166,8 +195,9 @@ export function CampaignTrackerTab() {
     try {
       const data = await get<{ engagements: Engagement[] }>(`/marketing/campaigns/${campaignId}/engagements?limit=100`);
       setEngagements(data.engagements);
-    } catch {
+    } catch (err) {
       setEngagements([]);
+      setNotice({ type: 'error', text: getErrorMessage(err, 'Failed to load campaign engagements') });
     } finally {
       setEngagementsLoading(false);
     }
@@ -189,6 +219,11 @@ export function CampaignTrackerTab() {
 
   return (
     <div className="space-y-6">
+      {notice && (
+        <div className={`rounded-lg px-4 py-2 text-sm border ${notice.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' : 'bg-rose-500/10 border-rose-500/30 text-rose-300'}`}>
+          {notice.text}
+        </div>
+      )}
       {/* Chart */}
       {chartData.length > 0 && (
         <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-5">

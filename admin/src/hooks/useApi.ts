@@ -1,6 +1,12 @@
 import { useState, useCallback } from 'react';
 
 const API_BASE = '/admin/dashboard';
+type ResponseType = 'json' | 'blob' | 'text';
+
+interface RequestConfig {
+  responseType?: ResponseType;
+  includeJsonContentType?: boolean;
+}
 
 export function useApi(basePath?: string) {
   const [loading, setLoading] = useState(false);
@@ -10,20 +16,27 @@ export function useApi(basePath?: string) {
 
   const request = useCallback(async <T>(
     endpoint: string,
-    options: RequestInit = {}
+    options: RequestInit = {},
+    config: RequestConfig = {}
   ): Promise<T> => {
     setLoading(true);
     setError(null);
 
     try {
       const base = basePath ?? API_BASE;
+      const { responseType = 'json', includeJsonContentType = true } = config;
+      const headers = new Headers(options.headers);
+
+      if (includeJsonContentType && !headers.has('Content-Type')) {
+        headers.set('Content-Type', 'application/json');
+      }
+      if (!headers.has('Authorization')) {
+        headers.set('Authorization', `Bearer ${getToken()}`);
+      }
+
       const res = await fetch(`${base}${endpoint}`, {
         ...options,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${getToken()}`,
-          ...options.headers,
-        },
+        headers,
       });
 
       if (res.status === 401 || res.status === 403) {
@@ -48,6 +61,13 @@ export function useApi(basePath?: string) {
           // Response wasn't JSON - use status-based message
         }
         throw new Error(errorMessage);
+      }
+
+      if (responseType === 'blob') {
+        return res.blob() as T;
+      }
+      if (responseType === 'text') {
+        return res.text() as T;
       }
 
       return res.json() as Promise<T>;
@@ -75,5 +95,19 @@ export function useApi(basePath?: string) {
       ...(body ? { body: JSON.stringify(body) } : {}),
     }), [request]);
 
-  return { get, post, put, del, loading, error, setError };
+  const postForm = useCallback(<T>(endpoint: string, formData: FormData) =>
+    request<T>(
+      endpoint,
+      { method: 'POST', body: formData },
+      { includeJsonContentType: false }
+    ), [request]);
+
+  const getBlob = useCallback((endpoint: string) =>
+    request<Blob>(
+      endpoint,
+      { method: 'GET' },
+      { responseType: 'blob', includeJsonContentType: false }
+    ), [request]);
+
+  return { get, post, put, del, postForm, getBlob, loading, error, setError };
 }

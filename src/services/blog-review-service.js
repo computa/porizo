@@ -1,5 +1,7 @@
 "use strict";
 
+const { autoFormatArticleMarkdown, stripMarkdown } = require("./blog-format-service");
+
 function escapeHtml(value) {
   return String(value || "")
     .replaceAll("&", "&amp;")
@@ -7,19 +9,6 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll("\"", "&quot;")
     .replaceAll("'", "&#39;");
-}
-
-function stripMarkdown(markdown) {
-  return String(markdown || "")
-    .replace(/```[\s\S]*?```/g, " ")
-    .replace(/`[^`]+`/g, " ")
-    .replace(/!\[[^\]]*\]\([^)]+\)/g, " ")
-    .replace(/\[[^\]]+\]\([^)]+\)/g, " ")
-    .replace(/^#{1,6}\s+/gm, "")
-    .replace(/^>\s?/gm, "")
-    .replace(/[*_~]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
 }
 
 function normalizeText(value) {
@@ -41,6 +30,11 @@ function extractMarkdownMetrics(markdown) {
     level: match[1].length,
     text: match[2].trim(),
   }));
+  const embeds = Array.from(source.matchAll(/^@\[(youtube|audio)(?:\s+([^\]]+))?\]\(([^)]+)\)$/gim)).map((match) => ({
+    type: match[1].toLowerCase(),
+    label: String(match[2] || "").trim(),
+    url: match[3].trim(),
+  }));
   const links = Array.from(source.matchAll(/\[[^\]]+\]\(([^)]+)\)/g)).map((match) => match[1].trim());
   const bulletListCount = (source.match(/^(?:- |\* |\d+\. )/gm) || []).length;
   const faqHeadingCount = headings.filter((heading) => /faq|questions?|common questions?/i.test(heading.text)).length;
@@ -61,7 +55,39 @@ function extractMarkdownMetrics(markdown) {
     questionHeadingCount,
     internalLinkCount,
     externalLinkCount,
+    embedCount: embeds.length,
+    youtubeEmbedCount: embeds.filter((embed) => embed.type === "youtube").length,
+    audioEmbedCount: embeds.filter((embed) => embed.type === "audio").length,
     firstParagraph: paragraphs[0] || "",
+  };
+}
+
+function extractFormatQualityMetrics(markdown) {
+  const formattedMarkdown = autoFormatArticleMarkdown(markdown);
+  const paragraphs = formattedMarkdown
+    .split(/\n\s*\n/)
+    .map((part) => stripMarkdown(part))
+    .map((part) => part.trim())
+    .filter(Boolean);
+  const paragraphWordCounts = paragraphs.map((paragraph) => countWords(paragraph));
+  const longParagraphThreshold = 85;
+  const longParagraphCount = paragraphWordCounts.filter((count) => count > longParagraphThreshold).length;
+  const longestParagraphWords = paragraphWordCounts.length ? Math.max(...paragraphWordCounts) : 0;
+  const formattedMetrics = extractMarkdownMetrics(formattedMarkdown);
+
+  return {
+    formattedMarkdown,
+    paragraphCount: paragraphs.length,
+    paragraphWordCounts,
+    longParagraphThreshold,
+    longParagraphCount,
+    longestParagraphWords,
+    headingCount: formattedMetrics.headingCount,
+    h2Count: formattedMetrics.h2Count,
+    bulletListCount: formattedMetrics.bulletListCount,
+    faqCount: formattedMetrics.faqCount,
+    questionHeadingCount: formattedMetrics.questionHeadingCount,
+    firstParagraphWords: paragraphWordCounts[0] || 0,
   };
 }
 
@@ -90,6 +116,7 @@ function reviewBlogDraft(input) {
   const bodyMarkdown = String(input?.body_markdown || "");
   const heroImageUrl = String(input?.hero_image_url || "").trim();
   const metrics = extractMarkdownMetrics(bodyMarkdown);
+  const formatMetrics = extractFormatQualityMetrics(bodyMarkdown);
   const blockers = [];
   const recommendations = [];
 
@@ -123,6 +150,40 @@ function reviewBlogDraft(input) {
 
   if (metrics.h2Count < 1) {
     addItem(blockers, "missing_structure", "The article needs section headings.", "Add at least one `##` section heading to make the article scannable.");
+  }
+
+  if (formatMetrics.longParagraphCount > 0) {
+    addItem(
+      blockers,
+      "format_long_paragraphs",
+      `The formatter still leaves ${formatMetrics.longParagraphCount} paragraph${formatMetrics.longParagraphCount === 1 ? "" : "s"} too long to scan easily.`,
+      "Break dense sections into shorter paragraphs, add subheadings, or convert dense prose into bullets where appropriate.",
+      {
+        category: "format",
+        severity: "high",
+        longestParagraphWords: formatMetrics.longestParagraphWords,
+      }
+    );
+  }
+
+  if (metrics.wordCount >= 700 && formatMetrics.h2Count < 2) {
+    addItem(
+      blockers,
+      "format_insufficient_sections",
+      "Longer articles need more section breaks to stay readable after formatting.",
+      "For articles over 700 words, use at least two `##` sections with descriptive headings.",
+      { category: "format", severity: "high" }
+    );
+  }
+
+  if (metrics.wordCount >= 900 && formatMetrics.bulletListCount < 1 && formatMetrics.faqCount < 1 && formatMetrics.questionHeadingCount < 1) {
+    addItem(
+      blockers,
+      "format_missing_scan_points",
+      "This draft still reads like a long document instead of a skimmable article.",
+      "Add at least one list, checklist, FAQ, or question-led section so readers can scan key takeaways quickly.",
+      { category: "format", severity: "medium" }
+    );
   }
 
   if (primaryKeyword) {
@@ -202,9 +263,17 @@ function reviewBlogDraft(input) {
     });
   }
 
+  if (formatMetrics.firstParagraphWords > 65) {
+    addItem(recommendations, "format_opening_density", "The formatter still leaves a dense opening block.", "Shorten the opening, split the first section earlier, or move setup detail below the answer summary.", {
+      category: "format",
+      severity: "medium",
+    });
+  }
+
   let seoScore = 100;
   let geoScore = 100;
   let aeoScore = 100;
+  let formatScore = 100;
 
   seoScore -= blockers.filter((item) => /title|slug|excerpt|keyword|thin_content/.test(item.code)).length * 12;
   seoScore -= recommendations.filter((item) => item.category === "seo").length * 6;
@@ -212,8 +281,10 @@ function reviewBlogDraft(input) {
   geoScore -= recommendations.filter((item) => item.category === "geo").length * 8;
   aeoScore -= blockers.filter((item) => /answer_summary|thin_content/.test(item.code)).length * 15;
   aeoScore -= recommendations.filter((item) => item.category === "aeo").length * 8;
+  formatScore -= blockers.filter((item) => item.category === "format").length * 18;
+  formatScore -= recommendations.filter((item) => item.category === "format").length * 6;
 
-  const overallScore = clampScore((clampScore(seoScore) + clampScore(geoScore) + clampScore(aeoScore)) / 3);
+  const overallScore = clampScore((clampScore(seoScore) + clampScore(geoScore) + clampScore(aeoScore) + clampScore(formatScore)) / 4);
   const decision = blockers.length === 0 ? "approved" : "rejected";
 
   return {
@@ -222,9 +293,11 @@ function reviewBlogDraft(input) {
     seoScore: clampScore(seoScore),
     geoScore: clampScore(geoScore),
     aeoScore: clampScore(aeoScore),
+    formatScore: clampScore(formatScore),
     blockers,
     recommendations,
     metrics,
+    formatMetrics,
     summary: escapeHtml(
       decision === "approved"
         ? "This draft clears the hard review gate and can be published."
@@ -235,6 +308,7 @@ function reviewBlogDraft(input) {
 
 module.exports = {
   reviewBlogDraft,
+  extractFormatQualityMetrics,
   extractMarkdownMetrics,
   stripMarkdown,
 };

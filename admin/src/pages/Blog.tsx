@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { BookOpen, Eye, FileText, RefreshCw, Rocket, Save, Search } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { BookOpen, Eye, FileText, RefreshCw, Rocket, Save, Search, Upload } from 'lucide-react';
 import { useApi } from '../hooks/useApi';
 import { LoadingState } from '../components/LoadingState';
 import { ErrorState } from '../components/ErrorState';
+import { extractMarkdownFromImport } from '../utils/richTextToMarkdown';
 
 interface ReviewItem {
   code: string;
@@ -18,6 +19,7 @@ interface ReviewReport {
   seoScore: number;
   geoScore: number;
   aeoScore: number;
+  formatScore?: number;
   blockers: ReviewItem[];
   recommendations: ReviewItem[];
   summary: string;
@@ -127,6 +129,47 @@ function formFromPost(post: BlogPost): BlogFormState {
   };
 }
 
+function createPayload(form: BlogFormState) {
+  return {
+    ...form,
+    tags: form.tags
+      .split(',')
+      .map((tag) => tag.trim())
+      .filter(Boolean),
+  };
+}
+
+function normalizeComparablePost(post: BlogPost | null) {
+  if (!post) return null;
+  return {
+    title: post.title,
+    slug: post.slug,
+    excerpt: post.excerpt,
+    answer_summary: post.answer_summary,
+    target_query: post.target_query,
+    target_intent: post.target_intent,
+    primary_keyword: post.primary_keyword,
+    hero_image_url: post.hero_image_url || '',
+    body_markdown: post.body_markdown,
+    author_name: post.author_name,
+    tags: [...post.tags],
+  };
+}
+
+function inferTitleFromMarkdown(markdown: string) {
+  const heading = markdown.match(/^#\s+(.+)$/m);
+  return heading ? heading[1].trim() : '';
+}
+
+function inferExcerptFromMarkdown(markdown: string) {
+  const lines = markdown
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => !line.startsWith('#') && !line.startsWith('!['));
+  return lines[0] || '';
+}
+
 export function Blog() {
   const { get, post, put, loading, error, setError } = useApi();
   const [posts, setPosts] = useState<BlogPost[]>([]);
@@ -137,6 +180,7 @@ export function Blog() {
   const [notice, setNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [search, setSearch] = useState('');
   const [slugTouched, setSlugTouched] = useState(false);
+  const markdownFileInputRef = useRef<HTMLInputElement | null>(null);
 
   const selectedPost = useMemo(
     () => posts.find((postItem) => postItem.id === selectedId) || null,
@@ -152,8 +196,25 @@ export function Blog() {
   }, [get, search]);
 
   useEffect(() => {
-    fetchPosts().catch(() => {});
-  }, [fetchPosts]);
+    let cancelled = false;
+    (async () => {
+      try {
+        const params = new URLSearchParams();
+        if (search.trim()) params.set('search', search.trim());
+        const query = params.toString();
+        const data = await get<{ posts: BlogPost[] }>(`/blog/posts${query ? `?${query}` : ''}`);
+        if (cancelled) return;
+        setPosts(data.posts);
+      } catch {
+        if (!cancelled) {
+          setPosts([]);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [get, search]);
 
   useEffect(() => {
     if (!selectedId) {
@@ -163,13 +224,23 @@ export function Blog() {
       return;
     }
 
-    get<{ post: BlogPost }>(`/blog/posts/${selectedId}`)
-      .then((data) => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await get<{ post: BlogPost }>(`/blog/posts/${selectedId}`);
+        if (cancelled) return;
         setForm(formFromPost(data.post));
         setPreviewHtml('');
         setSlugTouched(true);
-      })
-      .catch(() => {});
+      } catch {
+        if (!cancelled) {
+          setPreviewHtml('');
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [get, selectedId]);
 
   const setField = <K extends keyof BlogFormState>(field: K, value: BlogFormState[K]) => {
@@ -182,13 +253,87 @@ export function Blog() {
     });
   };
 
-  const payload = {
-    ...form,
-    tags: form.tags
-      .split(',')
-      .map((tag) => tag.trim())
-      .filter(Boolean),
+  const applyImportedMarkdown = useCallback((markdown: string, sourceLabel: string) => {
+    const normalized = markdown.trim();
+    if (!normalized) {
+      setNotice({ type: 'error', text: `No usable markdown found in ${sourceLabel}.` });
+      return;
+    }
+
+    setForm((current) => {
+      const next = { ...current, body_markdown: normalized };
+      if (!current.title.trim()) {
+        const inferredTitle = inferTitleFromMarkdown(normalized);
+        if (inferredTitle) {
+          next.title = inferredTitle;
+          if (!slugTouched) {
+            next.slug = slugify(inferredTitle);
+          }
+        }
+      }
+      if (!current.excerpt.trim()) {
+        const inferredExcerpt = inferExcerptFromMarkdown(normalized);
+        if (inferredExcerpt) {
+          next.excerpt = inferredExcerpt.slice(0, 300);
+        }
+      }
+      return next;
+    });
+    setNotice({ type: 'success', text: `${sourceLabel} imported into markdown.` });
+  }, [slugTouched]);
+
+  const handleMarkdownFileImport = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const raw = await file.text();
+      const markdown = extractMarkdownFromImport(raw, file.type);
+      applyImportedMarkdown(markdown, file.name);
+    } catch (importError) {
+      setNotice({
+        type: 'error',
+        text: importError instanceof Error ? importError.message : 'Failed to import file.',
+      });
+    } finally {
+      event.target.value = '';
+    }
   };
+
+  const handleBodyPaste = (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const html = event.clipboardData.getData('text/html');
+    if (!html.trim()) {
+      return;
+    }
+
+    const markdown = extractMarkdownFromImport(html, 'text/html');
+    if (!markdown) {
+      return;
+    }
+
+    event.preventDefault();
+    const target = event.currentTarget;
+    const start = target.selectionStart ?? form.body_markdown.length;
+    const end = target.selectionEnd ?? form.body_markdown.length;
+    const prefix = form.body_markdown.slice(0, start);
+    const suffix = form.body_markdown.slice(end);
+    const needsLeadingNewline = prefix.length > 0 && !prefix.endsWith('\n');
+    const needsTrailingNewline = suffix.length > 0 && !suffix.startsWith('\n');
+    const insertion = `${needsLeadingNewline ? '\n\n' : ''}${markdown}${needsTrailingNewline ? '\n\n' : ''}`;
+
+    setField('body_markdown', `${prefix}${insertion}${suffix}`);
+    setNotice({ type: 'success', text: 'Converted rich-text paste into markdown.' });
+  };
+
+  const payload = useMemo(() => createPayload(form), [form]);
+  const hasUnsavedChanges = useMemo(() => {
+    const comparablePost = normalizeComparablePost(selectedPost);
+    if (!selectedId) {
+      return Object.values(payload).some((value) => Array.isArray(value) ? value.length > 0 : String(value).trim().length > 0);
+    }
+    if (!comparablePost) return false;
+    return JSON.stringify(payload) !== JSON.stringify(comparablePost);
+  }, [payload, selectedId, selectedPost]);
 
   const saveCurrent = async () => {
     setBusyAction('save');
@@ -213,7 +358,7 @@ export function Blog() {
 
   const handleReview = async () => {
     try {
-      const postRecord = selectedId ? selectedPost : await saveCurrent();
+      const postRecord = !selectedId || hasUnsavedChanges ? await saveCurrent() : selectedPost;
       if (!postRecord) return;
       setBusyAction('review');
       setNotice(null);
@@ -247,6 +392,16 @@ export function Blog() {
 
   const handlePublishToggle = async (nextAction: 'publish' | 'unpublish') => {
     if (!selectedId) return;
+    if (nextAction === 'publish' && hasUnsavedChanges) {
+      try {
+        const saved = await saveCurrent();
+        if (!saved) return;
+        setNotice({ type: 'error', text: 'Draft changed. Review the saved version again before publishing.' });
+        return;
+      } catch {
+        return;
+      }
+    }
     setBusyAction(nextAction);
     setNotice(null);
     try {
@@ -278,6 +433,9 @@ export function Blog() {
           Blog Publishing
         </h1>
         <p className="text-slate-400 text-sm mt-1">Create markdown posts, run SEO/GEO/AEO review, and publish approved articles.</p>
+        {selectedId && hasUnsavedChanges ? (
+          <p className="text-amber-300 text-sm mt-2">You have unsaved edits. Review will save them first. Publish will stop until the saved draft passes review again.</p>
+        ) : null}
       </div>
 
       {notice && (
@@ -457,8 +615,39 @@ export function Blog() {
                 <input value={form.tags} onChange={(event) => setField('tags', event.target.value)} placeholder="seo, gifting, personalized songs" className="w-full px-3 py-2 bg-slate-900/50 border border-slate-700 rounded-lg text-slate-100" />
               </label>
               <label className="space-y-1 md:col-span-2">
-                <span className="text-xs uppercase tracking-wide text-slate-500">Body Markdown</span>
-                <textarea value={form.body_markdown} onChange={(event) => setField('body_markdown', event.target.value)} rows={20} className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-slate-100 font-mono text-sm" />
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <span className="text-xs uppercase tracking-wide text-slate-500">Body Markdown</span>
+                  <div className="flex items-center gap-2">
+                    <input
+                      ref={markdownFileInputRef}
+                      type="file"
+                      accept=".md,.markdown,.txt,.html,.htm,text/markdown,text/plain,text/html"
+                      onChange={handleMarkdownFileImport}
+                      className="hidden"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => markdownFileInputRef.current?.click()}
+                      className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900/50 px-3 py-2 text-xs font-medium text-slate-200 hover:bg-slate-800"
+                    >
+                      <Upload className="h-3.5 w-3.5" />
+                      Import Markdown File
+                    </button>
+                  </div>
+                </div>
+                <p className="text-xs text-slate-500">
+                  Paste directly from Microsoft Word, Google Docs, HTML, or markdown. Rich text pasted here is converted into markdown automatically.
+                </p>
+                <p className="text-xs text-slate-500">
+                  Embed media with <code>@[youtube Video title](https://www.youtube.com/watch?v=...)</code> or <code>@[audio Clip title](https://cdn.example.com/file.mp3)</code>.
+                </p>
+                <textarea
+                  value={form.body_markdown}
+                  onChange={(event) => setField('body_markdown', event.target.value)}
+                  onPaste={handleBodyPaste}
+                  rows={20}
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-slate-100 font-mono text-sm"
+                />
               </label>
             </div>
           </div>
@@ -491,6 +680,10 @@ export function Blog() {
                       <p className="mt-1 text-sm font-semibold text-white">
                         {Math.round((selectedPost.review_report.geoScore + selectedPost.review_report.aeoScore) / 2)}
                       </p>
+                    </div>
+                    <div className="rounded-lg bg-slate-900/50 p-3">
+                      <p className="text-xs uppercase tracking-wide text-slate-500">Format</p>
+                      <p className="mt-1 text-sm font-semibold text-white">{selectedPost.review_report.formatScore ?? '—'}</p>
                     </div>
                   </div>
 

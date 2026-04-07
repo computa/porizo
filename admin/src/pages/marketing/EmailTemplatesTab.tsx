@@ -15,16 +15,29 @@ interface EmailTemplate {
 }
 
 export function EmailTemplatesTab() {
-  const { get, loading, error } = useApi();
+  const { get, loading, error, setError } = useApi();
   const [templates, setTemplates] = useState<EmailTemplate[]>([]);
   const [expanded, setExpanded] = useState<string | null>(null);
 
   useEffect(() => {
-    get<{ templates: EmailTemplate[] }>('/marketing/email-templates').then((data) => {
-      setTemplates(data.templates);
-      if (data.templates.length > 0) setExpanded(data.templates[0].id);
-    }).catch(console.error);
-  }, [get]);
+    let cancelled = false;
+    setError(null);
+    (async () => {
+      try {
+        const data = await get<{ templates: EmailTemplate[] }>('/marketing/email-templates');
+        if (cancelled) return;
+        setTemplates(data.templates);
+        if (data.templates.length > 0) setExpanded(data.templates[0].id);
+      } catch {
+        if (!cancelled) {
+          setTemplates([]);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [get, setError]);
 
   if (loading && templates.length === 0) return <LoadingState message="Loading templates..." />;
   if (error) return <ErrorState message={`Error: ${error}`} />;

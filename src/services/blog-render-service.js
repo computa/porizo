@@ -1,5 +1,7 @@
 "use strict";
 
+const { buildFormattedArticle, slugifyFragment } = require("./blog-format-service");
+
 function escapeHtml(value) {
   return String(value || "")
     .replaceAll("&", "&amp;")
@@ -18,6 +20,77 @@ function safeUrl(rawUrl) {
   return "";
 }
 
+function parseEmbedDirective(line) {
+  const match = String(line || "").trim().match(/^@\[(youtube|audio)(?:\s+([^\]]+))?\]\(([^)]+)\)$/i);
+  if (!match) return null;
+  return {
+    type: match[1].toLowerCase(),
+    label: String(match[2] || "").trim(),
+    url: match[3].trim(),
+  };
+}
+
+function resolveYouTubeEmbedUrl(rawUrl) {
+  const value = String(rawUrl || "").trim();
+  if (!value) return "";
+  try {
+    const parsed = new URL(value);
+    const host = parsed.hostname.toLowerCase();
+    let videoId = "";
+
+    if (host === "youtu.be") {
+      videoId = parsed.pathname.replace(/^\/+/, "").split("/")[0] || "";
+    } else if (host.endsWith("youtube.com") || host.endsWith("youtube-nocookie.com")) {
+      if (parsed.pathname === "/watch") {
+        videoId = parsed.searchParams.get("v") || "";
+      } else if (parsed.pathname.startsWith("/embed/") || parsed.pathname.startsWith("/shorts/")) {
+        videoId = parsed.pathname.split("/")[2] || "";
+      }
+    }
+
+    if (!/^[A-Za-z0-9_-]{6,}$/.test(videoId)) {
+      return "";
+    }
+
+    return `https://www.youtube-nocookie.com/embed/${videoId}`;
+  } catch {
+    return "";
+  }
+}
+
+function renderEmbedDirective(embed) {
+  if (!embed) return "";
+
+  if (embed.type === "youtube") {
+    const src = resolveYouTubeEmbedUrl(embed.url);
+    if (!src) return "";
+    return `<figure class="embed embed--video">
+      <div class="embed__frame">
+        <iframe
+          src="${escapeHtml(src)}"
+          title="${escapeHtml(embed.label || "Embedded YouTube video")}"
+          loading="lazy"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+          allowfullscreen
+          referrerpolicy="strict-origin-when-cross-origin"
+        ></iframe>
+      </div>
+      ${embed.label ? `<figcaption>${escapeHtml(embed.label)}</figcaption>` : ""}
+    </figure>`;
+  }
+
+  if (embed.type === "audio") {
+    const src = safeUrl(embed.url);
+    if (!src) return "";
+    return `<figure class="embed embed--audio">
+      ${embed.label ? `<figcaption>${escapeHtml(embed.label)}</figcaption>` : ""}
+      <audio controls preload="metadata" src="${escapeHtml(src)}"></audio>
+    </figure>`;
+  }
+
+  return "";
+}
+
 function renderInlineMarkdown(text) {
   let html = escapeHtml(text);
   html = html.replace(/`([^`]+)`/g, "<code>$1</code>");
@@ -32,13 +105,25 @@ function renderInlineMarkdown(text) {
   return html;
 }
 
-function renderMarkdownToHtml(markdown) {
+function createHeadingIdResolver() {
+  const seen = new Map();
+  return (text) => {
+    const base = slugifyFragment(text);
+    if (!base) return "";
+    const current = seen.get(base) || 0;
+    seen.set(base, current + 1);
+    return current === 0 ? base : `${base}-${current + 1}`;
+  };
+}
+
+function renderMarkdownToHtml(markdown, { includeHeadingIds = false } = {}) {
   const lines = String(markdown || "").replace(/\r\n/g, "\n").split("\n");
   const output = [];
   let paragraph = [];
   let listType = null;
   let codeFence = false;
   let codeLines = [];
+  const resolveHeadingId = includeHeadingIds ? createHeadingIdResolver() : () => "";
 
   function flushParagraph() {
     if (!paragraph.length) return;
@@ -91,7 +176,8 @@ function renderMarkdownToHtml(markdown) {
       flushParagraph();
       closeList();
       const level = Math.min(6, headingMatch[1].length);
-      output.push(`<h${level}>${renderInlineMarkdown(headingMatch[2])}</h${level}>`);
+      const headingId = resolveHeadingId(headingMatch[2]);
+      output.push(`<h${level}${headingId ? ` id="${escapeHtml(headingId)}"` : ""}>${renderInlineMarkdown(headingMatch[2])}</h${level}>`);
       continue;
     }
 
@@ -110,6 +196,17 @@ function renderMarkdownToHtml(markdown) {
       const src = safeUrl(imageMatch[2]);
       if (src) {
         output.push(`<img src="${escapeHtml(src)}" alt="${escapeHtml(imageMatch[1])}" />`);
+      }
+      continue;
+    }
+
+    const embed = parseEmbedDirective(trimmed);
+    if (embed) {
+      flushParagraph();
+      closeList();
+      const embedHtml = renderEmbedDirective(embed);
+      if (embedHtml) {
+        output.push(embedHtml);
       }
       continue;
     }
@@ -146,6 +243,21 @@ function renderMarkdownToHtml(markdown) {
   flushCodeFence();
 
   return output.join("\n");
+}
+
+function renderArticleToc(headings) {
+  if (!Array.isArray(headings) || headings.length < 3) {
+    return "";
+  }
+
+  const items = headings
+    .map((heading) => `<li class="toc__item toc__item--h${heading.level}"><a href="#${escapeHtml(heading.id)}">${escapeHtml(heading.text)}</a></li>`)
+    .join("");
+
+  return `<nav class="toc" aria-label="Table of contents">
+    <div class="toc__title">In this article</div>
+    <ol class="toc__list">${items}</ol>
+  </nav>`;
 }
 
 function formatDate(value) {
@@ -210,10 +322,12 @@ function renderBlogIndexPage(posts, { siteOrigin = "https://porizo.co" } = {}) {
 }
 
 function renderBlogPostPage(post, { siteOrigin = "https://porizo.co" } = {}) {
-  const bodyHtml = renderMarkdownToHtml(post.body_markdown || "");
+  const { formattedMarkdown, headings, readingTimeMinutes } = buildFormattedArticle(post);
+  const bodyHtml = renderMarkdownToHtml(formattedMarkdown, { includeHeadingIds: true });
   const canonicalUrl = `${siteOrigin}/blog/${post.slug}`;
   const heroImage = safeUrl(post.hero_image_url || "");
   const publishedDate = formatDate(post.published_at);
+  const articleToc = renderArticleToc(headings);
   const articleJsonLd = {
     "@context": "https://schema.org",
     "@type": "Article",
@@ -248,38 +362,58 @@ function renderBlogPostPage(post, { siteOrigin = "https://porizo.co" } = {}) {
   <script type="application/ld+json">${JSON.stringify(articleJsonLd)}</script>
   <style>
     body{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#fffaf5;color:#18181b}
-    .shell{max-width:840px;margin:0 auto;padding:48px 20px 96px}
+    .shell{max-width:1120px;margin:0 auto;padding:48px 20px 96px}
     .back{display:inline-block;margin-bottom:24px;color:#b45309;text-decoration:none;font-weight:600}
     .back:hover{text-decoration:underline}
     .meta{color:#78716c;font-size:14px;margin-bottom:16px}
+    .meta span+span::before{content:"·";margin:0 8px;color:#d6d3d1}
     h1{font-size:44px;line-height:1.05;margin:0 0 16px}
-    .excerpt{font-size:20px;line-height:1.6;color:#44403c;margin-bottom:24px}
+    .excerpt{font-size:20px;line-height:1.6;color:#44403c;margin-bottom:24px;max-width:38em}
     .answer-box{background:#fff7ed;border:1px solid #fdba74;border-radius:16px;padding:18px 20px;margin:24px 0}
     .answer-box strong{display:block;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#9a3412;margin-bottom:8px}
-    .hero{width:100%;border-radius:20px;margin:24px 0}
-    article{font-size:18px;line-height:1.75;color:#292524}
-    article h2,article h3,article h4{line-height:1.25;color:#111827;margin-top:32px}
+    .hero{width:100%;max-width:72ch;border-radius:20px;margin:24px 0}
+    .article-layout{display:grid;grid-template-columns:minmax(0,72ch) minmax(240px,280px);gap:32px;align-items:start}
+    .article-main{min-width:0}
+    .toc{position:sticky;top:24px;background:#fff;border:1px solid #fed7aa;border-radius:18px;padding:18px 18px 14px}
+    .toc__title{font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#9a3412;margin-bottom:10px}
+    .toc__list{list-style:none;padding:0;margin:0;display:grid;gap:8px}
+    .toc__item a{color:#44403c;text-decoration:none;line-height:1.45}
+    .toc__item a:hover{color:#b45309}
+    .toc__item--h3{padding-left:14px}
+    article{font-size:18px;line-height:1.8;color:#292524}
+    article h2,article h3,article h4{line-height:1.25;color:#111827;margin:40px 0 14px;scroll-margin-top:24px}
     article h2{font-size:30px}
     article h3{font-size:24px}
-    article p{margin:0 0 18px}
+    article p{margin:0 0 18px;max-width:68ch}
     article ul,article ol{padding-left:24px;margin:0 0 18px}
     article blockquote{margin:24px 0;padding:0 0 0 18px;border-left:4px solid #fdba74;color:#57534e}
     article pre{background:#111827;color:#f8fafc;padding:16px;border-radius:14px;overflow:auto}
     article code{background:#f5f5f4;padding:2px 6px;border-radius:6px}
     article img{max-width:100%;border-radius:16px}
+    .embed{margin:28px 0;display:grid;gap:10px}
+    .embed figcaption{font-size:14px;line-height:1.5;color:#57534e}
+    .embed__frame{position:relative;padding-top:56.25%;border-radius:18px;overflow:hidden;background:#111827}
+    .embed__frame iframe{position:absolute;inset:0;width:100%;height:100%;border:0}
+    .embed audio{width:100%}
     .tags{display:flex;gap:8px;flex-wrap:wrap;margin-top:24px}
     .tags span{font-size:12px;background:#f5f5f4;color:#44403c;padding:4px 8px;border-radius:999px}
+    @media (max-width: 980px){.article-layout{grid-template-columns:1fr}.toc{position:static;order:-1}}
   </style>
 </head>
 <body>
   <main class="shell">
     <a class="back" href="/blog">← Back to Blog</a>
-    <div class="meta">${escapeHtml(publishedDate)}${post.author_name ? ` · ${escapeHtml(post.author_name)}` : ""}</div>
+    <div class="meta"><span>${escapeHtml(publishedDate)}</span>${post.author_name ? `<span>${escapeHtml(post.author_name)}</span>` : ""}<span>${escapeHtml(`${readingTimeMinutes} min read`)}</span></div>
     <h1>${escapeHtml(post.title)}</h1>
     <p class="excerpt">${escapeHtml(post.excerpt)}</p>
     ${post.answer_summary ? `<section class="answer-box"><strong>Quick Answer</strong><div>${escapeHtml(post.answer_summary)}</div></section>` : ""}
     ${heroImage ? `<img class="hero" src="${escapeHtml(heroImage)}" alt="${escapeHtml(post.title)}">` : ""}
-    <article>${bodyHtml}</article>
+    <div class="article-layout">
+      <div class="article-main">
+        <article>${bodyHtml}</article>
+      </div>
+      ${articleToc}
+    </div>
     <div class="tags">${(Array.isArray(post.tags) ? post.tags : []).map((tag) => `<span>${escapeHtml(tag)}</span>`).join("")}</div>
   </main>
 </body>

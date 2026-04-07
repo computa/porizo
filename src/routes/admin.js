@@ -24,6 +24,8 @@ function registerAdminRoutes(app, {
 const adminService = new AdminService(db);
 const blogService = new BlogService(db);
 adminAuthService.initialize(db);
+const BLOG_TARGET_INTENTS = ["informational", "commercial", "comparison", "navigational"];
+const MARKETING_CONTACT_STATUSES = ["active", "bounced", "unsubscribed"];
 
 /**
  * Admin session auth helper - validates Bearer token from Authorization header
@@ -92,6 +94,14 @@ function isValidVersionString(value) {
   return /^\d+(?:\.\d+){0,3}$/.test(value);
 }
 
+function parseBooleanFilter(value, fieldName, reply) {
+  if (value === undefined || value === null || value === "") return undefined;
+  if (value === "true") return 1;
+  if (value === "false") return 0;
+  sendError(reply, 400, "INVALID_FILTER", `${fieldName} must be true or false`);
+  return null;
+}
+
 function validateBlogPayload(payload, reply, { requireBody = false } = {}) {
   const normalized = normalizePostInput(payload || {});
   if (!normalized.title) {
@@ -128,6 +138,10 @@ function validateBlogPayload(payload, reply, { requireBody = false } = {}) {
   }
   if (normalized.author_name.length > 120) {
     sendError(reply, 400, "AUTHOR_NAME_TOO_LONG", "Author name must not exceed 120 characters");
+    return null;
+  }
+  if (!BLOG_TARGET_INTENTS.includes(normalized.target_intent)) {
+    sendError(reply, 400, "INVALID_TARGET_INTENT", `Target intent must be one of: ${BLOG_TARGET_INTENTS.join(", ")}`);
     return null;
   }
   if (requireBody && normalized.body_markdown.trim().length === 0) {
@@ -1965,6 +1979,9 @@ app.get("/admin/dashboard/marketing/contacts", async (request, reply) => {
 
   const { limit, offset } = parsePagination(request.query);
   const { search, category, status } = request.query;
+  if (status && !MARKETING_CONTACT_STATUSES.includes(status)) {
+    return sendError(reply, 400, "INVALID_STATUS", `Status must be one of: ${MARKETING_CONTACT_STATUSES.join(", ")}`);
+  }
 
   let sql = "SELECT * FROM marketing_contacts";
   const conditions = [];
@@ -2338,6 +2355,14 @@ app.get("/admin/dashboard/marketing/campaigns/:id/engagements", async (request, 
 
   const { limit, offset } = parsePagination(request.query);
   const { opened, clicked, replied, bounced } = request.query;
+  const openedFilter = parseBooleanFilter(opened, "opened", reply);
+  if (openedFilter === null) return;
+  const clickedFilter = parseBooleanFilter(clicked, "clicked", reply);
+  if (clickedFilter === null) return;
+  const repliedFilter = parseBooleanFilter(replied, "replied", reply);
+  if (repliedFilter === null) return;
+  const bouncedFilter = parseBooleanFilter(bounced, "bounced", reply);
+  if (bouncedFilter === null) return;
 
   let sql = `
     SELECT mc.id, mc.first_name, mc.last_name, mc.email, mc.status as contact_status,
@@ -2349,10 +2374,10 @@ app.get("/admin/dashboard/marketing/campaigns/:id/engagements", async (request, 
   const params = [request.params.id];
 
   let whereExtra = "";
-  if (opened !== undefined) { whereExtra += " AND me.opened = ?"; params.push(opened === "true" ? 1 : 0); }
-  if (clicked !== undefined) { whereExtra += " AND me.clicked = ?"; params.push(clicked === "true" ? 1 : 0); }
-  if (replied !== undefined) { whereExtra += " AND me.replied = ?"; params.push(replied === "true" ? 1 : 0); }
-  if (bounced !== undefined) { whereExtra += " AND me.bounced = ?"; params.push(bounced === "true" ? 1 : 0); }
+  if (openedFilter !== undefined) { whereExtra += " AND me.opened = ?"; params.push(openedFilter); }
+  if (clickedFilter !== undefined) { whereExtra += " AND me.clicked = ?"; params.push(clickedFilter); }
+  if (repliedFilter !== undefined) { whereExtra += " AND me.replied = ?"; params.push(repliedFilter); }
+  if (bouncedFilter !== undefined) { whereExtra += " AND me.bounced = ?"; params.push(bouncedFilter); }
   sql += whereExtra;
 
   // Count before pagination
@@ -2372,25 +2397,48 @@ app.get("/admin/dashboard/marketing/contacts/export", async (request, reply) => 
   if (!admin) return;
 
   const { status, campaign_id, opened, clicked } = request.query;
+  if (status && !MARKETING_CONTACT_STATUSES.includes(status)) {
+    return sendError(reply, 400, "INVALID_STATUS", `Status must be one of: ${MARKETING_CONTACT_STATUSES.join(", ")}`);
+  }
+  const openedFilter = parseBooleanFilter(opened, "opened", reply);
+  if (openedFilter === null) return;
+  const clickedFilter = parseBooleanFilter(clicked, "clicked", reply);
+  if (clickedFilter === null) return;
 
-  let sql, params;
+  let sql;
+  let params;
 
   if (campaign_id) {
+    const campaign = await db.prepare("SELECT id FROM marketing_campaigns WHERE id = ?").get(campaign_id);
+    if (!campaign) {
+      return sendError(reply, 404, "NOT_FOUND", "Campaign not found");
+    }
+
     // Export contacts filtered by engagement with a specific campaign
     sql = `
       SELECT mc.first_name, mc.last_name, mc.email
       FROM marketing_contacts mc
       JOIN marketing_engagements me ON me.contact_id = mc.id AND me.campaign_id = ?
-      WHERE mc.status = ?
+      WHERE 1=1
     `;
-    params = [campaign_id, status || "active"];
+    params = [campaign_id];
 
-    if (opened !== undefined) { sql += " AND me.opened = ?"; params.push(opened === "true" ? 1 : 0); }
-    if (clicked !== undefined) { sql += " AND me.clicked = ?"; params.push(clicked === "true" ? 1 : 0); }
+    if (status) {
+      sql += " AND mc.status = ?";
+      params.push(status);
+    }
+
+    if (openedFilter !== undefined) { sql += " AND me.opened = ?"; params.push(openedFilter); }
+    if (clickedFilter !== undefined) { sql += " AND me.clicked = ?"; params.push(clickedFilter); }
   } else {
     // Export all contacts with status filter
-    sql = "SELECT first_name, last_name, email FROM marketing_contacts WHERE status = ?";
-    params = [status || "active"];
+    sql = "SELECT first_name, last_name, email FROM marketing_contacts";
+    params = [];
+
+    if (status) {
+      sql += " WHERE status = ?";
+      params.push(status);
+    }
   }
 
   sql += " ORDER BY email ASC";

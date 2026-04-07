@@ -128,6 +128,9 @@ describe("blog CMS routes", () => {
     assert.equal(postResponse.statusCode, 200);
     assert.match(postResponse.body, /Article/);
     assert.match(postResponse.body, /A personalized song gift performs best/);
+    assert.match(postResponse.body, /In this article/);
+    assert.match(postResponse.body, /min read/);
+    assert.match(postResponse.body, /id="why-a-personalized-song-gift-works"/);
 
     const sitemapResponse = await app.inject({ method: "GET", url: "/sitemap.xml" });
     assert.equal(sitemapResponse.statusCode, 200);
@@ -185,5 +188,17 @@ describe("blog CMS routes", () => {
     });
     assert.equal(publishBlockedResponse.statusCode, 400);
     assert.match(publishBlockedResponse.body, /pass review before publishing/i);
+  });
+
+  test("rejects invalid target_intent values at the API boundary", async () => {
+    const response = await app.inject({
+      method: "POST",
+      url: "/admin/dashboard/blog/posts",
+      headers: { Authorization: `Bearer ${adminToken}` },
+      payload: buildApprovedPayload({ target_intent: "viral" }),
+    });
+
+    assert.equal(response.statusCode, 400);
+    assert.match(response.body, /target intent must be one of/i);
   });
 });

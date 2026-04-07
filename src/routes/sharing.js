@@ -101,18 +101,6 @@ function createWebVerifyToken(shareId) {
   return { token, expiresAt };
 }
 
-function validateWebVerifyToken(shareId, token) {
-  const entry = webVerifyTokens.get(shareId);
-  if (!entry) return false;
-  if (Date.now() > entry.expiresAt) {
-    webVerifyTokens.delete(shareId);
-    return false;
-  }
-  // Timing-safe comparison to prevent token enumeration via side-channel
-  if (typeof token !== "string" || token.length !== entry.token.length) return false;
-  return crypto.timingSafeEqual(Buffer.from(entry.token), Buffer.from(token));
-}
-
 function isShareExpired(share) {
   return share.share_type !== "demo" && new Date(share.expires_at) < new Date();
 }
@@ -154,12 +142,6 @@ function isTrackVersionSharePlayable(trackVersion) {
     // Legacy rows/tests may still use "completed" as the terminal status.
     "completed",
   ].includes(trackVersion.status);
-}
-
-function requirePinToken(request, share) {
-  if (!share.claim_pin) return true;
-  const webToken = request.headers["x-web-stream-token"] || request.query?.wst;
-  return webToken && validateWebVerifyToken(share.id, webToken);
 }
 
 function getWebVerifyAttempts(shareId) {
@@ -677,29 +659,18 @@ app.get("/share/:shareId", async (request, reply) => {
       null,
   };
 
-  const hasPinProtection = Boolean(share.claim_pin);
-  const shareStreamUrl = share.web_stream_allowed && !appRequired && !hasPinProtection
+  // Web playback is always allowed for unbound shares — the share link URL is the access control.
+  // PIN is only enforced on POST /share/:shareId/claim (device-binding in the app).
+  const shareStreamUrl = share.web_stream_allowed && !appRequired
     ? `${getBaseUrl(request)}/share/${share.id}/audio`
     : null;
 
   const lyricsData = parseJson(trackVersion.lyrics_json, null, "share_lyrics");
   const lyrics = lyricsData?.sections || null;
 
-  // Short-lived download token for audiogram download (web player only)
-  // Only generate dl_token when no PIN protection — PIN-protected shares
-  // must verify PIN first (via /web-verify or /claim) before getting access tokens.
+  // dl_token remains gated behind PIN — audiogram downloads require PIN verification.
+  const hasPinProtection = Boolean(share.claim_pin);
   const dlToken = hasPinProtection ? null : createDownloadToken(share.id);
-
-  // Teaser URL: only for PIN-protected, unbound, web-streamable shares
-  // where the full render exists (so preview is a true teaser, not the full content)
-  const teaserEligible = hasPinProtection
-    && share.status === "unbound" // defensive: already guaranteed by early returns above
-    && share.web_stream_allowed
-    && trackVersion.preview_url
-    && trackVersion.full_url;
-  const teaserUrl = teaserEligible
-    ? `${getBaseUrl(request)}/share/${share.id}/teaser`
-    : null;
 
   reply.send({
     status: "unbound",
@@ -707,13 +678,11 @@ app.get("/share/:shareId", async (request, reply) => {
     track: trackInfo, // Alias for web player compatibility
     can_access: canAccess,
     app_required: appRequired,
-    web_stream_url: hasPinProtection ? null : shareStreamUrl, // No stream URL until PIN verified
+    web_stream_url: shareStreamUrl,
     app_download_url: buildShareAppDownloadUrl({ shareId: share.id }),
     ...(dlToken && { dl_token: dlToken }),
-    ...(hasPinProtection && { requires_pin: true }),
     ...(share.share_type === "demo" && { is_demo: true }),
     ...(lyrics && { lyrics }),
-    ...(teaserUrl && { teaser_url: teaserUrl }),
   });
 });
 
@@ -999,10 +968,8 @@ app.get("/share/:shareId/stream", async (request, reply) => {
       return;
     }
 
-    if (!requirePinToken(request, share)) {
-      sendError(reply, 401, "PIN_REQUIRED", "PIN verification required.");
-      return;
-    }
+    // PIN is not required for web streaming — the share link URL is the access control.
+    // PIN is only enforced on POST /share/:shareId/claim (device-binding in the app).
 
     await addShareAccessLog({
       shareTokenId: share.id,
@@ -1051,10 +1018,8 @@ app.get("/share/:shareId/audio", async (request, reply) => {
     sendError(reply, 403, "WEB_STREAM_NOT_ALLOWED", "Web streaming not allowed for this share.");
     return;
   }
-  if (!requirePinToken(request, share)) {
-    sendError(reply, 401, "PIN_REQUIRED", "PIN verification required.");
-    return;
-  }
+  // PIN is not required for web audio playback — share link URL is the access control.
+  // PIN is only enforced on POST /share/:shareId/claim (device-binding in the app).
   const track = await db.prepare("SELECT * FROM tracks WHERE id = ?").get(share.track_id);
   const trackVersion = await db
     .prepare("SELECT * FROM track_versions WHERE id = ?")

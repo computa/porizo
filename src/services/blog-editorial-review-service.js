@@ -1,6 +1,10 @@
 "use strict";
 
 const { generateText, isAvailable } = require("./llm-provider");
+const { stripMarkdown } = require("./blog-review-service");
+
+const BODY_MARKDOWN_MAX_CHARS = 12000;
+const BODY_TEXT_PREVIEW_MAX_CHARS = 2200;
 
 const EDITORIAL_REVIEW_SCHEMA = {
   type: "object",
@@ -62,6 +66,17 @@ function normalizeList(items) {
     .slice(0, 6);
 }
 
+function truncateText(value, maxChars) {
+  const text = String(value || "");
+  if (text.length <= maxChars) {
+    return { text, truncated: false };
+  }
+  return {
+    text: `${text.slice(0, Math.max(0, maxChars - 1)).trimEnd()}…`,
+    truncated: true,
+  };
+}
+
 function buildUnavailableEditorialReview() {
   return {
     status: "unavailable",
@@ -111,6 +126,9 @@ function normalizeEditorialReview(data, meta = {}) {
 }
 
 function buildEditorialPrompt(post, deterministicReport) {
+  const bodyMarkdown = truncateText(post.body_markdown, BODY_MARKDOWN_MAX_CHARS);
+  const bodyTextPreview = truncateText(stripMarkdown(post.body_markdown), BODY_TEXT_PREVIEW_MAX_CHARS);
+
   return [
     "You are an editorial reviewer for articles that should perform in SEO, GEO, and AEO.",
     "You do not decide the hard publish gate. Deterministic review already does that.",
@@ -142,7 +160,10 @@ function buildEditorialPrompt(post, deterministicReport) {
       primary_keyword: post.primary_keyword,
       author_name: post.author_name,
       tags: post.tags,
-      body_markdown: post.body_markdown,
+      body_markdown_excerpt: bodyMarkdown.text,
+      body_markdown_truncated: bodyMarkdown.truncated,
+      body_text_preview: bodyTextPreview.text,
+      body_text_preview_truncated: bodyTextPreview.truncated,
     }, null, 2),
     "",
     "Rules:",
