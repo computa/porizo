@@ -2486,8 +2486,8 @@ app.post("/admin/dashboard/tracks/:trackId/transfer", async (request, reply) => 
     return;
   }
 
-  // Verify track exists
-  const track = await db.prepare("SELECT id, user_id, title FROM tracks WHERE id = ?").get(trackId);
+  // Verify track exists and is not deleted
+  const track = await db.prepare("SELECT id, user_id, title FROM tracks WHERE id = ? AND deleted_at IS NULL").get(trackId);
   if (!track) {
     sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
     return;
@@ -2505,72 +2505,88 @@ app.post("/admin/dashboard/tracks/:trackId/transfer", async (request, reply) => 
     return;
   }
 
+  // Block transfer if track has active jobs
+  const activeJob = await db.prepare(
+    "SELECT id FROM jobs WHERE track_version_id IN (SELECT id FROM track_versions WHERE track_id = ?) AND status IN ('queued', 'processing')"
+  ).get(trackId);
+  if (activeJob) {
+    sendError(reply, 409, "ACTIVE_JOB", "Track has an active render job. Wait for it to complete before transferring.");
+    return;
+  }
+
   const sourceUserId = track.user_id;
   const now = nowIso();
-
-  // Atomic transfer — all tables in one transaction
-  const transferSql = db.transaction(() => {
-    // 1. tracks.user_id
-    db.prepare("UPDATE tracks SET user_id = ?, updated_at = ? WHERE id = ?")
-      .run(target_user_id, now, trackId);
-
-    // 2. track_library_entries — move 'created' entry, remove stale 'received' entries
-    db.prepare("DELETE FROM track_library_entries WHERE track_id = ? AND user_id = ? AND origin = 'received'")
-      .run(trackId, target_user_id);
-    db.prepare("UPDATE track_library_entries SET user_id = ? WHERE track_id = ? AND user_id = ? AND origin = 'created'")
-      .run(target_user_id, trackId, sourceUserId);
-
-    // 3. share_tokens — update creator, reset binding so recipient can claim fresh
-    db.prepare("UPDATE share_tokens SET creator_id = ?, status = 'unbound', bound_device_id = NULL, bound_user_id = NULL, bound_at = NULL, claim_attempts = 0 WHERE track_id = ?")
-      .run(target_user_id, trackId);
-
-    // 4. audit_logs — reassign track-related audit entries
-    db.prepare("UPDATE audit_logs SET user_id = ? WHERE resource_id = ? AND user_id = ?")
-      .run(target_user_id, trackId, sourceUserId);
-
-    // 5. billing_holds — reassign if any exist
-    const versionIds = db.prepare("SELECT id FROM track_versions WHERE track_id = ?").all(trackId).map(v => v.id);
-    for (const versionId of versionIds) {
-      db.prepare("UPDATE billing_holds SET user_id = ? WHERE track_version_id = ? AND user_id = ?")
-        .run(target_user_id, versionId, sourceUserId);
-    }
-
-    // 6. Audit the transfer itself
-    db.prepare(
-      "INSERT INTO audit_logs (id, user_id, action, resource_type, resource_id, metadata_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
-    ).run(
-      newUuid(), target_user_id, "track_transferred", "track", trackId,
-      JSON.stringify({ from_user: sourceUserId, to_user: target_user_id, admin: admin.email }),
-      now
-    );
-  });
+  const transferId = newUuid();
 
   try {
-    transferSql();
+    await db.transaction(async (query) => {
+      // 1. tracks.user_id — optimistic lock: WHERE user_id = sourceUserId prevents TOCTOU race
+      const trackResult = await query(
+        "UPDATE tracks SET user_id = ?, updated_at = ? WHERE id = ? AND user_id = ?",
+        [target_user_id, now, trackId, sourceUserId]
+      );
+      if (!(trackResult?.changes ?? trackResult?.rowCount ?? 0)) {
+        throw new Error("CONCURRENT_TRANSFER");
+      }
+
+      // 2. track_library_entries — remove source user's entry, upsert for target user
+      await query(
+        "DELETE FROM track_library_entries WHERE track_id = ? AND user_id = ?",
+        [trackId, sourceUserId]
+      );
+      await query(
+        "INSERT INTO track_library_entries (user_id, track_id, origin, added_at, updated_at) VALUES (?, ?, 'created', ?, ?) ON CONFLICT (user_id, track_id) DO UPDATE SET origin = 'created', removed_at = NULL, updated_at = ?",
+        [target_user_id, trackId, now, now, now]
+      );
+
+      // 3. share_tokens — update creator, reset binding so recipient can claim fresh
+      await query(
+        "UPDATE share_tokens SET creator_id = ?, status = 'unbound', bound_device_id = NULL, bound_user_id = NULL, bound_at = NULL, claim_attempts = 0 WHERE track_id = ?",
+        [target_user_id, trackId]
+      );
+
+      // 4. audit_logs — do NOT rewrite historical entries (compliance requirement).
+      //    Only log the transfer itself so provenance is traceable.
+      await query(
+        "INSERT INTO audit_logs (id, user_id, action, resource_type, resource_id, metadata_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        [transferId, target_user_id, "track_transferred", "track", trackId,
+         JSON.stringify({ from_user: sourceUserId, to_user: target_user_id, admin: admin.email }), now]
+      );
+
+      // 5. billing_holds — reassign if any exist
+      await query(
+        "UPDATE billing_holds SET user_id = ? WHERE user_id = ? AND track_version_id IN (SELECT id FROM track_versions WHERE track_id = ?)",
+        [target_user_id, sourceUserId, trackId]
+      );
+    });
   } catch (err) {
+    if (err.message === "CONCURRENT_TRANSFER") {
+      sendError(reply, 409, "CONCURRENT_TRANSFER", "Track ownership changed during transfer. Please retry.");
+      return;
+    }
     console.error("[Admin] Track transfer failed:", err.message);
     sendError(reply, 500, "TRANSFER_FAILED", "Track transfer failed. No changes were made.");
     return;
   }
 
-  // Verify final state
+  // Verify final state (outside transaction — read-only)
   const updatedTrack = await db.prepare("SELECT user_id FROM tracks WHERE id = ?").get(trackId);
-  const libraryEntry = await db.prepare("SELECT user_id, origin FROM track_library_entries WHERE track_id = ? AND origin = 'created'").get(trackId);
+  const libraryEntry = await db.prepare("SELECT user_id, origin FROM track_library_entries WHERE track_id = ? AND user_id = ?").get(trackId, target_user_id);
   const shareToken = await db.prepare("SELECT creator_id, status, bound_user_id FROM share_tokens WHERE track_id = ?").get(trackId);
 
   reply.send({
     transferred: true,
     track_id: trackId,
     title: track.title,
-    from: sourceUserId,
-    to: target_user_id,
-    to_name: targetUser.display_name || targetUser.email,
+    from_user: sourceUserId,
+    to_user: target_user_id,
+    to_name: targetUser.display_name || null,
     verification: {
       track_owner: updatedTrack?.user_id,
       library_owner: libraryEntry?.user_id,
+      library_origin: libraryEntry?.origin,
       share_creator: shareToken?.creator_id,
       share_status: shareToken?.status,
-      share_bound_user: shareToken?.bound_user_id,
     },
   });
 });
