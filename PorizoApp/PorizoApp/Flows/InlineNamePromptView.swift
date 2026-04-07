@@ -20,15 +20,6 @@ struct InlineNamePromptView: View {
     @State private var selectedOccasion: String?
     @State private var activeType: CreateFlowKind = .song
 
-    private func logNamePromptEvent(_ event: String) {
-        print(
-            "[InlineNamePrompt] \(event) " +
-            "selectedType=\((selectedType ?? activeType).rawValue) " +
-            "occasion=\(selectedOccasion ?? preselectedOccasion ?? "nil") " +
-            "nameChars=\(trimmedName.count)"
-        )
-    }
-
     private static let occasions: [(emoji: String, label: String)] = Occasion.allCases
         .filter { $0 != .custom }
         .map { ($0.emoji, $0.displayName) }
@@ -163,9 +154,7 @@ struct InlineNamePromptView: View {
         .onAppear {
             selectedOccasion = preselectedOccasion
             activeType = selectedType ?? .song
-            logNamePromptEvent("appear")
         }
-        .onDisappear { logNamePromptEvent("disappear") }
         .onTapGesture {
             UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
         }
@@ -193,7 +182,6 @@ struct InlineNamePromptView: View {
 
     private func submit() {
         guard !trimmedName.isEmpty else { return }
-        logNamePromptEvent("submit")
         // Convert selected occasion label to Occasion enum
         let occasion: Occasion? = selectedOccasion.flatMap { label in
             Occasion.allCases.first { $0.displayName == label }

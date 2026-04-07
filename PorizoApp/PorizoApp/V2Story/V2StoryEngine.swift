@@ -278,11 +278,6 @@ class V2StoryEngine {
         error = nil
 
         conversationStore.appendUserMessage(answer)
-        print(
-            "[V2StoryEngine] submitAnswer start storyId=\(storyId) " +
-            "chars=\(answer.count) turn=\(currentTurn) " +
-            "isComplete=\(isComplete) pendingGuidanceVersion=\(pendingGuidanceSessionVersion.map(String.init) ?? "nil")"
-        )
 
         defer { isLoading = false }
 
@@ -319,12 +314,6 @@ class V2StoryEngine {
             let engineResponse = convertContinueResponse(response, storyId: storyId)
             currentResponse = engineResponse
             currentTurn = response.turnCount ?? (currentTurn + 1)
-            print(
-                "[V2StoryEngine] submitAnswer success storyId=\(storyId) " +
-                "action=\(engineResponse.action.rawValue) turn=\(currentTurn) " +
-                "readyForConfirmation=\(response.readyForConfirmation == true) complete=\(response.complete) " +
-                "questionChars=\((response.nextQuestion ?? "").count)"
-            )
 
             draftStore.applyNarrative(
                 summary: response.storySummary,
@@ -360,7 +349,6 @@ class V2StoryEngine {
 
         } catch {
             self.error = error.localizedDescription
-            print("[V2StoryEngine] submitAnswer failed storyId=\(storyId): \(error.localizedDescription)")
             throw error
         }
     }
@@ -379,11 +367,6 @@ class V2StoryEngine {
         let contextualQuestion = "Almost there! Your story needs one more detail to feel complete.\n\n\(question)"
         let lastAssistantContent = messages.last?.role == .ai ? messages.last?.content : nil
         let isRepeatedPrompt = lastAssistantContent == question || lastAssistantContent == contextualQuestion
-        print(
-            "[V2StoryEngine] applyConfirmGuidance storyId=\(storyId) " +
-            "sessionVersion=\(guidance.recovery.sessionVersion.map(String.init) ?? "nil") " +
-            "question=\(question) repeated=\(isRepeatedPrompt)"
-        )
 
         currentResponse = V2EngineResponse(
             sessionId: storyId,
