@@ -189,8 +189,8 @@ async function sendVerificationCode(phoneNumber) {
   await db
     .prepare(
       `UPDATE phone_verifications
-       SET used_at = CURRENT_TIMESTAMP
-       WHERE phone_number = ? AND used_at IS NULL AND expires_at > CURRENT_TIMESTAMP`
+       SET verified_at = CURRENT_TIMESTAMP
+       WHERE phone_number = ? AND verified_at IS NULL AND expires_at > CURRENT_TIMESTAMP`
     )
     .run(normalizedPhone);
 
@@ -290,7 +290,7 @@ async function verifyCode(phoneNumber, code) {
   const verification = await db
     .prepare(
       `SELECT id, code_hash, attempts FROM phone_verifications
-       WHERE phone_number = ? AND used_at IS NULL AND expires_at > CURRENT_TIMESTAMP
+       WHERE phone_number = ? AND verified_at IS NULL AND expires_at > CURRENT_TIMESTAMP
        ORDER BY created_at DESC LIMIT 1`
     )
     .get(normalizedPhone);
@@ -315,7 +315,7 @@ async function verifyCode(phoneNumber, code) {
     );
     // Mark as used to prevent further attempts
     await db
-      .prepare("UPDATE phone_verifications SET used_at = CURRENT_TIMESTAMP WHERE id = ?")
+      .prepare("UPDATE phone_verifications SET verified_at = CURRENT_TIMESTAMP WHERE id = ?")
       .run(verification.id);
 
     return {
@@ -340,7 +340,7 @@ async function verifyCode(phoneNumber, code) {
   if (isValid) {
     // Mark as used
     await db
-      .prepare("UPDATE phone_verifications SET used_at = CURRENT_TIMESTAMP WHERE id = ?")
+      .prepare("UPDATE phone_verifications SET verified_at = CURRENT_TIMESTAMP WHERE id = ?")
       .run(verification.id);
 
     smsLogger.info(
@@ -388,7 +388,7 @@ async function getRemainingAttempts(phoneNumber) {
   const verification = await db
     .prepare(
       `SELECT attempts FROM phone_verifications
-       WHERE phone_number = ? AND used_at IS NULL AND expires_at > CURRENT_TIMESTAMP
+       WHERE phone_number = ? AND verified_at IS NULL AND expires_at > CURRENT_TIMESTAMP
        ORDER BY created_at DESC LIMIT 1`
     )
     .get(normalizedPhone);
