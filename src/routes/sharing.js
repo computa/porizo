@@ -46,7 +46,6 @@ function registerSharingRoutes(app, {
   isSocialCrawlerUserAgent,
   isFacebookCrawlerUserAgent,
   isWhatsAppCrawlerUserAgent,
-  isMobileUserAgent,
   withTimeout,
   publicBaseUrl,
   facebookAppId,
@@ -68,13 +67,9 @@ function registerSharingRoutes(app, {
   trackMasterKey,
   trackPreviewKey,
   trackVersionKey,
-  serveTrackAudio,
   getUserRiskLevel: _getUserRiskLevel,
   consumeRateLimit,
 }) {
-// ============ Web Verify Attempt Tracking (brute force protection) ============
-const webVerifyAttempts = new Map(); // shareId -> { count, firstAttemptAt }
-
 // Shared guard: lookup share token + reject revoked/expired. Returns share or null (error already sent).
 async function resolveValidShare(request, reply) {
   const share = await db.prepare("SELECT * FROM share_tokens WHERE id = ?").get(request.params.shareId);
@@ -89,11 +84,6 @@ async function resolveValidShare(request, reply) {
   }
   return share;
 }
-const WEB_VERIFY_MAX_ATTEMPTS = 5;
-const WEB_VERIFY_ATTEMPT_WINDOW_MS = 15 * 60 * 1000; // 15-minute sliding window
-
-
-
 function isShareExpired(share) {
   return share.share_type !== "demo" && new Date(share.expires_at) < new Date();
 }
@@ -137,35 +127,57 @@ function isTrackVersionSharePlayable(trackVersion) {
   ].includes(trackVersion.status);
 }
 
-function getWebVerifyAttempts(shareId) {
-  const entry = webVerifyAttempts.get(shareId);
-  if (!entry) return 0;
-  // Reset counter if the attempt window has elapsed
-  if (Date.now() - entry.firstAttemptAt > WEB_VERIFY_ATTEMPT_WINDOW_MS) {
-    webVerifyAttempts.delete(shareId);
-    return 0;
+async function servePublicSharePreviewAudio(request, reply, {
+  share,
+  track,
+  trackVersion,
+  consumeRateLimit,
+  ensureLocalFileFromStorage,
+  getVersionDir,
+  sendMediaFile,
+  trackPreviewKey,
+  addShareAccessLog,
+}) {
+  const clientIp = request.ip || "unknown";
+  const rateLimitResult = await consumeRateLimit(
+    `ip:${clientIp}`,
+    "teaser_play",
+    10,
+    3600
+  );
+  if (rateLimitResult && !rateLimitResult.allowed) {
+    if (rateLimitResult.reset_at) {
+      const retryMs = Math.max(0, new Date(rateLimitResult.reset_at).getTime() - Date.now());
+      reply.header("Retry-After", String(Math.ceil(retryMs / 1000)));
+    }
+    sendError(reply, 429, "RATE_LIMITED", "Too many plays. Please try again later.");
+    return true;
   }
-  return entry.count;
-}
 
-function incrementWebVerifyAttempts(shareId) {
-  const entry = webVerifyAttempts.get(shareId);
-  if (!entry || Date.now() - entry.firstAttemptAt > WEB_VERIFY_ATTEMPT_WINDOW_MS) {
-    webVerifyAttempts.set(shareId, { count: 1, firstAttemptAt: Date.now() });
-    return;
-  }
-  entry.count += 1;
-}
+  const previewKey = trackPreviewKey({
+    userId: track.user_id,
+    trackId: track.id,
+    versionNum: trackVersion.version_num,
+  });
+  const versionDir = getVersionDir(track, trackVersion);
+  const localPreview = path.join(versionDir, "preview.m4a");
+  await ensureLocalFileFromStorage({ key: previewKey, localPath: localPreview });
 
-// Periodic cleanup of stale attempt counters (every 10 minutes)
-const WEB_VERIFY_CLEANUP_INTERVAL_MS = 10 * 60 * 1000;
-const _webVerifyCleanupTimer = setInterval(() => {
-  const now = Date.now();
-  for (const [id, entry] of webVerifyAttempts) {
-    if (now - entry.firstAttemptAt > WEB_VERIFY_ATTEMPT_WINDOW_MS) webVerifyAttempts.delete(id);
+  if (!fs.existsSync(localPreview)) {
+    sendError(reply, 404, "TEASER_NOT_AVAILABLE", "Preview not available.");
+    return true;
   }
-}, WEB_VERIFY_CLEANUP_INTERVAL_MS);
-_webVerifyCleanupTimer.unref(); // Don't block process exit
+
+  await addShareAccessLog({
+    shareTokenId: share.id,
+    eventType: "teaser_served",
+    metadata: { user_agent: request.headers["user-agent"] || null, ip: clientIp },
+  });
+  sendMediaFile(request, reply, localPreview, "audio/mp4", {
+    cacheControl: "public, max-age=300",
+  });
+  return true;
+}
 
 // ============ Song OG Preview Endpoints ============
 
@@ -314,11 +326,8 @@ app.get("/poem/:shareId", async (request, reply) => {
     return reply.status(404).type("text/html").send(shareNotFoundHtml("poem"));
   }
 
-  // Redirect iOS users to the app bridge page (skip for crawlers and ?web=1 escape hatch)
-  const poemUserAgent = request.headers["user-agent"];
-  if (!isSocialCrawlerUserAgent(poemUserAgent) && isMobileUserAgent(poemUserAgent) && request.query.web !== "1") {
-    return reply.redirect(buildShareAppDownloadUrl({ shareId: share.id, kind: "poem" }), 302);
-  }
+  // Keep poem share links on the web viewer by default.
+  // Auto-redirecting mobile traffic to the app makes shared links brittle in social apps.
 
   // Log access
   await db.prepare(
@@ -379,17 +388,8 @@ app.get("/play/:shareId", async (request, reply) => {
     return reply.status(404).type("text/html").send(shareNotFoundHtml("song"));
   }
 
-  // Redirect iOS users to the app bridge page (skip for crawlers, ?web=1 escape hatch,
-  // Telegram in-app browser, and social referrals where users should see the teaser)
-  const playUserAgent = request.headers["user-agent"];
-  const referer = request.headers["referer"] || request.headers["referrer"] || "";
-  const isTelegramInApp = /t\.me|telegram/i.test(referer);
-  const isSocialReferral = /facebook|instagram|twitter|t\.co|linkedin/i.test(referer)
-    || request.query.fbclid
-    || request.query.sp === "facebook";
-  if (!isTelegramInApp && !isSocialReferral && !isSocialCrawlerUserAgent(playUserAgent) && isMobileUserAgent(playUserAgent) && request.query.web !== "1") {
-    return reply.redirect(buildShareAppDownloadUrl({ shareId: share.id }), 302);
-  }
+  // Keep share links on the web player by default.
+  // Auto-redirecting mobile traffic based on referer heuristics breaks real social handoff paths.
 
   // Log access
   await addShareAccessLog({
@@ -649,8 +649,8 @@ app.get("/share/:shareId", async (request, reply) => {
       null,
   };
 
-  // Web playback is always allowed for unbound shares — the share link URL is the access control.
-  // PIN is only enforced on POST /share/:shareId/claim (device-binding in the app).
+  // Public web playback is preview-only for unbound shares.
+  // Claim PIN remains an app ownership/binding control, not a web playback gate.
   const shareStreamUrl = share.web_stream_allowed && !appRequired
     ? `${getBaseUrl(request)}/share/${share.id}/audio`
     : null;
@@ -658,7 +658,7 @@ app.get("/share/:shareId", async (request, reply) => {
   const lyricsData = parseJson(trackVersion.lyrics_json, null, "share_lyrics");
   const lyrics = lyricsData?.sections || null;
 
-  // dl_token remains gated behind PIN — audiogram downloads require PIN verification.
+  // dl_token remains gated behind PIN verification because downloads are meant for intentional export.
   const hasPinProtection = Boolean(share.claim_pin);
   const dlToken = hasPinProtection ? null : createDownloadToken(share.id);
 
@@ -818,64 +818,6 @@ app.post("/share/:shareId/claim", { schema: schemas.shareClaim }, async (request
   });
 });
 
-app.post("/share/:shareId/web-verify", { schema: schemas.shareWebVerify }, async (request, reply) => {
-  const share = await resolveValidShare(request, reply);
-  if (!share) return;
-  if (share.status !== "unbound") {
-    sendError(reply, 400, "SHARE_ALREADY_CLAIMED", "Share has already been claimed.");
-    return;
-  }
-  if (!share.claim_pin) {
-    sendError(reply, 400, "NO_PIN_REQUIRED", "This share does not require a PIN.");
-    return;
-  }
-  if (!share.web_stream_allowed) {
-    sendError(reply, 403, "WEB_STREAM_NOT_ALLOWED", "Web streaming not allowed. Open the app to claim.");
-    return;
-  }
-
-  // In-memory brute force check (separate from DB claim_attempts)
-  if (getWebVerifyAttempts(share.id) >= WEB_VERIFY_MAX_ATTEMPTS) {
-    sendError(reply, 429, "TOO_MANY_ATTEMPTS", "Too many incorrect PIN attempts. Please try later.");
-    return;
-  }
-
-  const { pin } = request.body;
-  // Timing-safe PIN comparison to prevent side-channel attacks
-  const pinMatch = pin.length === share.claim_pin.length &&
-    crypto.timingSafeEqual(Buffer.from(pin), Buffer.from(share.claim_pin));
-  if (!pinMatch) {
-    incrementWebVerifyAttempts(share.id);
-    await addShareAccessLog({
-      shareTokenId: share.id,
-      eventType: "web_verify_failed",
-      metadata: { attempts: getWebVerifyAttempts(share.id) },
-    });
-    sendError(reply, 401, "INVALID_PIN", "Incorrect PIN.");
-    return;
-  }
-
-  // PIN correct — web playback is now pinless, so just confirm and return the stream URL.
-  await addShareAccessLog({
-    shareTokenId: share.id,
-    eventType: "web_verify_success",
-    metadata: {},
-  });
-
-  eventsService.emit("web_verify", {
-    resourceType: "share",
-    resourceId: share.id,
-    metadata: { track_id: share.track_id },
-    ip: request.ip,
-    userAgent: request.headers["user-agent"],
-  });
-
-  reply.send({
-    verified: true,
-    stream_url: `${getBaseUrl(request)}/share/${share.id}/audio`,
-  });
-});
-
 app.get("/share/:shareId/stream", async (request, reply) => {
   const share = await resolveValidShare(request, reply);
   if (!share) return;
@@ -954,25 +896,25 @@ app.get("/share/:shareId/stream", async (request, reply) => {
       return;
     }
 
-    // PIN is not required for web streaming — the share link URL is the access control.
-    // PIN is only enforced on POST /share/:shareId/claim (device-binding in the app).
-
     await addShareAccessLog({
       shareTokenId: share.id,
       eventType: "stream_started",
-      metadata: { platform: platform || "web", claimed: false },
+      metadata: { platform: platform || "web", claimed: false, mode: "preview" },
     });
 
-    // Emit share_stream event for analytics
     eventsService.emit("share_stream", {
       resourceType: "share",
       resourceId: share.id,
-      metadata: { platform: platform || "web", claimed: false, track_id: share.track_id },
+      metadata: {
+        platform: platform || "web",
+        claimed: false,
+        track_id: share.track_id,
+        mode: "preview",
+      },
       ip: request.ip,
       userAgent: request.headers["user-agent"],
     });
 
-    // Return audio URL for unclaimed web shares
     if (trackVersion && (trackVersion.preview_url || trackVersion.full_url)) {
       reply.send({
         stream_url: `${baseUrl}/share/${share.id}/audio`,
@@ -992,7 +934,8 @@ app.get("/share/:shareId/stream", async (request, reply) => {
   sendError(reply, 500, "INVALID_SHARE_STATUS", "Share has invalid status.");
 });
 
-// Direct audio endpoint for unclaimed web playback (no auth headers required)
+// Public preview endpoint for unbound web playback (no auth headers required).
+// This intentionally serves the preview asset, not the full downloadable master.
 app.get("/share/:shareId/audio", async (request, reply) => {
   const share = await resolveValidShare(request, reply);
   if (!share) return;
@@ -1004,8 +947,6 @@ app.get("/share/:shareId/audio", async (request, reply) => {
     sendError(reply, 403, "WEB_STREAM_NOT_ALLOWED", "Web streaming not allowed for this share.");
     return;
   }
-  // PIN is not required for web audio playback — share link URL is the access control.
-  // PIN is only enforced on POST /share/:shareId/claim (device-binding in the app).
   const track = await db.prepare("SELECT * FROM tracks WHERE id = ?").get(share.track_id);
   const trackVersion = await db
     .prepare("SELECT * FROM track_versions WHERE id = ?")
@@ -1014,20 +955,21 @@ app.get("/share/:shareId/audio", async (request, reply) => {
     sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
     return;
   }
-  await addShareAccessLog({
-    shareTokenId: share.id,
-    eventType: "audio_served",
-    metadata: { user_agent: request.headers["user-agent"] || null },
+  await servePublicSharePreviewAudio(request, reply, {
+    share,
+    track,
+    trackVersion,
+    consumeRateLimit,
+    ensureLocalFileFromStorage,
+    getVersionDir,
+    sendMediaFile,
+    trackPreviewKey,
+    addShareAccessLog,
   });
-  // Prefer full render, fall back to preview
-  const fullKey = trackMasterKey({ userId: track.user_id, trackId: track.id, versionNum: trackVersion.version_num, format: "m4a" });
-  const previewKey = trackPreviewKey({ userId: track.user_id, trackId: track.id, versionNum: trackVersion.version_num });
-  await serveTrackAudio(request, reply, { track, trackVersion, s3Key: trackVersion.full_url ? fullKey : previewKey, localFileName: trackVersion.full_url ? "full.m4a" : "preview.m4a" });
 });
 
 // Teaser endpoint — serves preview.m4a without PIN for social sharing funnels.
-// Only available for unbound, web-stream-allowed shares that have a full render
-// (so the preview is a true teaser, not the entire content).
+// Kept as an alias for compatibility with older clients and cached cards.
 app.get("/share/:shareId/teaser", async (request, reply) => {
   const share = await resolveValidShare(request, reply);
   if (!share) return;
@@ -1040,20 +982,6 @@ app.get("/share/:shareId/teaser", async (request, reply) => {
     return;
   }
 
-  // Rate limit early — reject abusers before querying track data
-  const clientIp = request.ip || "unknown";
-  const rateLimitResult = await consumeRateLimit(
-    `ip:${clientIp}`, "teaser_play", 10, 3600
-  );
-  if (rateLimitResult && !rateLimitResult.allowed) {
-    if (rateLimitResult.reset_at) {
-      const retryMs = Math.max(0, new Date(rateLimitResult.reset_at).getTime() - Date.now());
-      reply.header("Retry-After", String(Math.ceil(retryMs / 1000)));
-    }
-    sendError(reply, 429, "RATE_LIMITED", "Too many plays. Please try again later.");
-    return;
-  }
-
   const track = await db.prepare("SELECT * FROM tracks WHERE id = ?").get(share.track_id);
   const trackVersion = await db
     .prepare("SELECT * FROM track_versions WHERE id = ?")
@@ -1062,30 +990,17 @@ app.get("/share/:shareId/teaser", async (request, reply) => {
     sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
     return;
   }
-
-  // Only serve teaser when full render exists — otherwise preview IS the full content
-  if (!trackVersion.full_url) {
-    sendError(reply, 403, "TEASER_NOT_AVAILABLE", "Teaser not available for this track.");
-    return;
-  }
-
-  await addShareAccessLog({
-    shareTokenId: share.id,
-    eventType: "teaser_served",
-    metadata: { user_agent: request.headers["user-agent"] || null, ip: clientIp },
+  await servePublicSharePreviewAudio(request, reply, {
+    share,
+    track,
+    trackVersion,
+    consumeRateLimit,
+    ensureLocalFileFromStorage,
+    getVersionDir,
+    sendMediaFile,
+    trackPreviewKey,
+    addShareAccessLog,
   });
-
-  // Stream preview.m4a from local disk (download from S3 if needed)
-  const previewKey = trackPreviewKey({ userId: track.user_id, trackId: track.id, versionNum: trackVersion.version_num });
-  const versionDir = getVersionDir(track, trackVersion);
-  const localPreview = path.join(versionDir, "preview.m4a");
-  await ensureLocalFileFromStorage({ key: previewKey, localPath: localPreview });
-
-  if (!fs.existsSync(localPreview)) {
-    sendError(reply, 404, "TEASER_NOT_AVAILABLE", "Preview not available.");
-    return;
-  }
-  sendMediaFile(request, reply, localPreview, "audio/mp4", { cacheControl: "public, max-age=300" });
 });
 
 // Stable cover image endpoint for social crawlers.

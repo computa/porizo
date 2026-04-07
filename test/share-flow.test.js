@@ -28,8 +28,10 @@ describe("Share Flow", () => {
   let testTrackId;
   let testVersionNum;
   const testUserId = "share_test_user";
+  const originalNodeEnv = process.env.NODE_ENV;
 
   before(async () => {
+    process.env.NODE_ENV = "test";
     storageDir = fs.mkdtempSync(path.join(os.tmpdir(), "porizo-share-test-"));
     config = {
       PREVIEW_ONLY: false,
@@ -38,6 +40,7 @@ describe("Share Flow", () => {
       STORAGE_PROVIDER: "local",
       UPLOAD_SIGNING_SECRET: "test-upload-secret",
       UPLOAD_URL_TTL_SEC: 900,
+      ALLOW_DEVICE_TOKEN_FALLBACK: true,
     };
     db = await initDb({
       dbPath: ":memory:",
@@ -87,6 +90,7 @@ describe("Share Flow", () => {
   });
 
   after(async () => {
+    process.env.NODE_ENV = originalNodeEnv;
     if (storageDir && fs.existsSync(storageDir)) {
       fs.rmSync(storageDir, { recursive: true });
     }
@@ -719,6 +723,33 @@ describe("Share Flow", () => {
       );
     });
 
+    it("keeps mobile share links on the web player instead of auto-redirecting to the app", async () => {
+      const { trackId, versionNum } = await createShareableTrack();
+
+      const createRes = await app.inject({
+        method: "POST",
+        url: `/tracks/${trackId}/share`,
+        headers: { "x-user-id": testUserId },
+        payload: { version_num: versionNum },
+      });
+      const { share_id } = JSON.parse(createRes.body);
+
+      const res = await app.inject({
+        method: "GET",
+        url: `/play/${share_id}`,
+        headers: {
+          "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1",
+        },
+      });
+
+      assert.strictEqual(res.statusCode, 200);
+      assert.ok(
+        (res.headers["content-type"] || "").includes("text/html"),
+        "Mobile share links should stay on the web player"
+      );
+      assert.strictEqual(res.headers.location, undefined);
+    });
+
     it("returns 404 for non-existent share", async () => {
       const res = await app.inject({
         method: "GET",
@@ -774,12 +805,18 @@ describe("Share Flow", () => {
   });
 
   describe("GET /tracks/:id/share/stats", () => {
+    const statsTestUserId = `share_stats_user_${Date.now()}`;
+
     // Helper function to create a shareable track
     async function createShareableTrack() {
+      db.prepare(
+        "INSERT OR IGNORE INTO users (id, created_at, risk_level) VALUES (?, ?, ?)"
+      ).run(statsTestUserId, new Date().toISOString(), "low");
+
       const createTrackRes = await app.inject({
         method: "POST",
         url: "/tracks",
-        headers: { "x-user-id": testUserId },
+        headers: { "x-user-id": statsTestUserId },
         payload: {
           title: "Stats Test Song " + Date.now(),
           recipient_name: "Test",
@@ -788,14 +825,16 @@ describe("Share Flow", () => {
           occasion: "birthday",
         },
       });
+      assert.strictEqual(createTrackRes.statusCode, 201, createTrackRes.body);
       const track = JSON.parse(createTrackRes.body);
 
       const createVersionRes = await app.inject({
         method: "POST",
         url: `/tracks/${track.track_id}/versions`,
-        headers: { "x-user-id": testUserId },
+        headers: { "x-user-id": statsTestUserId },
         payload: { style: "pop" },
       });
+      assert.strictEqual(createVersionRes.statusCode, 201, createVersionRes.body);
       const version = JSON.parse(createVersionRes.body);
 
       // Mock render completion
@@ -813,7 +852,7 @@ describe("Share Flow", () => {
       const createRes = await app.inject({
         method: "POST",
         url: `/tracks/${trackId}/share`,
-        headers: { "x-user-id": testUserId },
+        headers: { "x-user-id": statsTestUserId },
         payload: { version_num: versionNum },
       });
       const { share_id, claim_pin } = JSON.parse(createRes.body);
@@ -839,7 +878,7 @@ describe("Share Flow", () => {
       const statsRes = await app.inject({
         method: "GET",
         url: `/tracks/${trackId}/share/stats`,
-        headers: { "x-user-id": testUserId },
+        headers: { "x-user-id": statsTestUserId },
       });
 
       assert.strictEqual(statsRes.statusCode, 200);
@@ -873,7 +912,7 @@ describe("Share Flow", () => {
       const createRes = await app.inject({
         method: "POST",
         url: `/tracks/${trackId}/share`,
-        headers: { "x-user-id": testUserId },
+        headers: { "x-user-id": statsTestUserId },
         payload: { version_num: versionNum },
       });
       const { share_id, claim_pin } = JSON.parse(createRes.body);
@@ -893,7 +932,7 @@ describe("Share Flow", () => {
       const statsRes = await app.inject({
         method: "GET",
         url: `/tracks/${trackId}/share/stats`,
-        headers: { "x-user-id": testUserId },
+        headers: { "x-user-id": statsTestUserId },
       });
 
       assert.strictEqual(statsRes.statusCode, 200);
@@ -922,7 +961,7 @@ describe("Share Flow", () => {
       await app.inject({
         method: "POST",
         url: `/tracks/${trackId}/share`,
-        headers: { "x-user-id": testUserId },
+        headers: { "x-user-id": statsTestUserId },
         payload: { version_num: versionNum },
       });
 
@@ -930,7 +969,7 @@ describe("Share Flow", () => {
       const statsRes = await app.inject({
         method: "GET",
         url: `/tracks/${trackId}/share/stats`,
-        headers: { "x-user-id": testUserId },
+        headers: { "x-user-id": statsTestUserId },
       });
 
       assert.strictEqual(statsRes.statusCode, 200);
@@ -948,7 +987,7 @@ describe("Share Flow", () => {
       const res = await app.inject({
         method: "GET",
         url: `/tracks/${trackId}/share/stats`,
-        headers: { "x-user-id": testUserId },
+        headers: { "x-user-id": statsTestUserId },
       });
 
       assert.strictEqual(res.statusCode, 404);
@@ -963,7 +1002,7 @@ describe("Share Flow", () => {
       await app.inject({
         method: "POST",
         url: `/tracks/${trackId}/share`,
-        headers: { "x-user-id": testUserId },
+        headers: { "x-user-id": statsTestUserId },
         payload: { version_num: versionNum },
       });
 

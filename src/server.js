@@ -451,16 +451,6 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         additionalProperties: false,
       },
     },
-    shareWebVerify: {
-      body: {
-        type: "object",
-        required: ["pin"],
-        properties: {
-          pin: { type: "string", pattern: "^[0-9]{6}$" },
-        },
-        additionalProperties: false,
-      },
-    },
   };
 
   function sendError(reply, statusCode, error, message, details) {
