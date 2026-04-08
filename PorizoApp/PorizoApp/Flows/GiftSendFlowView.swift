@@ -40,6 +40,7 @@ struct GiftSendFlowView: View {
 
     @State private var walletBalance = 0
     @State private var walletTransactions: [GiftWalletTransaction] = []
+    @State private var scheduledGifts: [GiftOrder] = []
     @State private var createdGift: GiftOrder?
 
     @State private var isBootstrapping = true
@@ -134,18 +135,7 @@ struct GiftSendFlowView: View {
             if newPhase == .active {
                 Task {
                     await storeKit.syncPendingGiftTransactions()
-                    let wallet = try? await apiClient.getGiftWallet(limit: 10)
-                    if let wallet {
-                        walletBalance = wallet.balance
-                        walletTransactions = wallet.transactions
-                    }
-                    // Refresh reservation status — may have expired while backgrounded
-                    if reservation != nil {
-                        let active = try? await apiClient.getActiveGiftReservation()
-                        if active?.reservation == nil {
-                            reservation = nil
-                        }
-                    }
+                    await refreshGiftSurface()
                 }
             }
         }
@@ -297,6 +287,8 @@ struct GiftSendFlowView: View {
                             action: { startCreateFlow(type: .poem) }
                         )
                     }
+
+                    scheduledGiftsCard
                 }
                 .padding(.horizontal, 20)
                 .padding(.top, 12)
@@ -338,6 +330,35 @@ struct GiftSendFlowView: View {
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(DesignTokens.cardBackground)
+        .clipShape(.rect(cornerRadius: 12))
+    }
+
+    private var scheduledGiftsCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Scheduled")
+                .font(DesignTokens.bodyFont(size: 18, weight: .semibold))
+                .foregroundStyle(DesignTokens.gold)
+
+            if scheduledGifts.isEmpty {
+                Text("Your upcoming gifts will appear here until they are delivered.")
+                    .font(DesignTokens.bodyFont(size: 13))
+                    .foregroundStyle(DesignTokens.textSecondary)
+                    .frame(maxWidth: .infinity, minHeight: 96, alignment: .topLeading)
+            } else {
+                VStack(spacing: 10) {
+                    ForEach(Array(scheduledGifts.prefix(3))) { gift in
+                        scheduledGiftRow(gift)
+                    }
+                }
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(DesignTokens.cardBackground)
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(DesignTokens.gold.opacity(0.55), lineWidth: 1)
+        )
         .clipShape(.rect(cornerRadius: 12))
     }
 
@@ -581,6 +602,40 @@ struct GiftSendFlowView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(DesignTokens.cardBackground)
         .clipShape(.rect(cornerRadius: 12))
+    }
+
+    private func scheduledGiftRow(_ gift: GiftOrder) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(scheduledGiftTitle(for: gift))
+                        .font(DesignTokens.bodyFont(size: 15, weight: .semibold))
+                        .foregroundStyle(DesignTokens.textPrimary)
+
+                    Text(scheduledGiftRecipient(for: gift))
+                        .font(DesignTokens.bodyFont(size: 13))
+                        .foregroundStyle(DesignTokens.textSecondary)
+                }
+
+                Spacer(minLength: 8)
+
+                Text(scheduledGiftStatusLabel(for: gift))
+                    .font(DesignTokens.bodyFont(size: 11, weight: .semibold))
+                    .foregroundStyle(scheduledGiftStatusColor(for: gift))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 5)
+                    .background(scheduledGiftStatusColor(for: gift).opacity(0.14))
+                    .clipShape(Capsule())
+            }
+
+            Text("Delivery: \(scheduledGiftDateLabel(for: gift))")
+                .font(DesignTokens.bodyFont(size: 12))
+                .foregroundStyle(DesignTokens.textSecondary)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(DesignTokens.surfaceMuted.opacity(0.55))
+        .clipShape(.rect(cornerRadius: 10))
     }
 
     private func createActionButton(title: String, icon: String, disabled: Bool, action: @escaping () -> Void) -> some View {
@@ -912,16 +967,23 @@ struct GiftSendFlowView: View {
         isBootstrapping = true
         defer { isBootstrapping = false }
 
+        await refreshGiftSurface()
+    }
+
+    private func refreshGiftSurface() async {
         do {
             async let walletTask = apiClient.getGiftWallet(limit: 10)
             async let reservationTask = apiClient.getActiveGiftReservation()
+            async let giftsTask = apiClient.getGifts(limit: 20)
 
             let walletData = try await walletTask
             let reservationData = try await reservationTask
+            let giftsData = try await giftsTask
 
             walletBalance = walletData.balance
             walletTransactions = walletData.transactions
             reservation = reservationData.reservation
+            scheduledGifts = visibleScheduledGifts(from: giftsData.gifts)
 
             if let reservation {
                 await hydrateSelectionFromReservation(reservation)
@@ -1024,11 +1086,99 @@ struct GiftSendFlowView: View {
             createdGift = response.gift
             walletBalance = response.walletBalance
             reservationFinalized = true
+            scheduledGifts = upsertScheduledGift(response.gift, into: scheduledGifts)
             step = .success
         } catch {
             errorMessage = mapError(error)
         }
     }
+
+    private func visibleScheduledGifts(from gifts: [GiftOrder]) -> [GiftOrder] {
+        gifts
+            .filter { gift in
+                gift.deliveryMode.lowercased() == GiftDeliveryMode.scheduled.rawValue
+                    && ["scheduled", "dispatch_retry", "dispatching"].contains(gift.status.lowercased())
+            }
+            .sorted { left, right in
+                parseGiftDate(left.sendAt) < parseGiftDate(right.sendAt)
+            }
+    }
+
+    private func upsertScheduledGift(_ gift: GiftOrder, into gifts: [GiftOrder]) -> [GiftOrder] {
+        guard gift.deliveryMode.lowercased() == GiftDeliveryMode.scheduled.rawValue else {
+            return gifts
+        }
+        var next = gifts.filter { $0.id != gift.id }
+        if ["scheduled", "dispatch_retry", "dispatching"].contains(gift.status.lowercased()) {
+            next.append(gift)
+        }
+        return next.sorted { parseGiftDate($0.sendAt) < parseGiftDate($1.sendAt) }
+    }
+
+    private func scheduledGiftTitle(for gift: GiftOrder) -> String {
+        switch gift.contentType.lowercased() {
+        case GiftContentType.song.rawValue:
+            return "Song gift"
+        case GiftContentType.poem.rawValue:
+            return "Poem gift"
+        default:
+            return "Gift"
+        }
+    }
+
+    private func scheduledGiftRecipient(for gift: GiftOrder) -> String {
+        if let email = gift.recipientEmail, !email.isEmpty {
+            if let phone = gift.recipientPhone, !phone.isEmpty {
+                return "\(phone) • \(email)"
+            }
+            return email
+        }
+        return gift.recipientPhone ?? "Recipient not set"
+    }
+
+    private func scheduledGiftStatusLabel(for gift: GiftOrder) -> String {
+        switch gift.status.lowercased() {
+        case "dispatch_retry":
+            return "Retrying"
+        case "dispatching":
+            return "Sending"
+        default:
+            return "Scheduled"
+        }
+    }
+
+    private func scheduledGiftStatusColor(for gift: GiftOrder) -> Color {
+        switch gift.status.lowercased() {
+        case "dispatch_retry":
+            return DesignTokens.warning
+        case "dispatching":
+            return DesignTokens.statusSuccess
+        default:
+            return DesignTokens.gold
+        }
+    }
+
+    private func scheduledGiftDateLabel(for gift: GiftOrder) -> String {
+        DateFormatter.localizedString(from: parseGiftDate(gift.sendAt), dateStyle: .medium, timeStyle: .short)
+    }
+
+    private func parseGiftDate(_ isoString: String) -> Date {
+        Self.giftDateFormatterWithFractionalSeconds.date(from: isoString)
+            ?? Self.giftDateFormatter.date(from: isoString)
+            ?? Date.now
+    }
+
+    private static let giftDateFormatterWithFractionalSeconds: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    private static let giftDateFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter
+    }()
 
     // MARK: - Bundle Picker Sheet
 

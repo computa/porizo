@@ -37,6 +37,43 @@ function registerPoemRoutes(app, {
 
   // ============ Poems ============
 
+  async function resolveGiftPoemContent(share) {
+    const livePoem = await db.prepare("SELECT * FROM poems WHERE id = ? AND deleted_at IS NULL").get(share.poem_id);
+    if (!share?.gift_order_id) {
+      return {
+        poem: livePoem,
+        verses: parseJson(livePoem?.verses, [], `poem ${livePoem?.id || "unknown"} verses`),
+      };
+    }
+
+    const giftOrder = await db
+      .prepare("SELECT content_snapshot_json FROM gift_orders WHERE id = ?")
+      .get(share.gift_order_id);
+    const snapshot = parseJson(giftOrder?.content_snapshot_json, null, `gift ${share.gift_order_id} snapshot`);
+    if (!snapshot || typeof snapshot !== "object") {
+      return {
+        poem: livePoem,
+        verses: parseJson(livePoem?.verses, [], `poem ${livePoem?.id || "unknown"} verses`),
+      };
+    }
+
+    return {
+      poem: {
+        id: share.poem_id,
+        user_id: share.creator_id,
+        title: snapshot.title || livePoem?.title || null,
+        recipient_name: snapshot.recipient_name || livePoem?.recipient_name || null,
+        occasion: snapshot.occasion || livePoem?.occasion || null,
+        tone: snapshot.tone || livePoem?.tone || null,
+        message: snapshot.message ?? livePoem?.message ?? null,
+        status: livePoem?.status || "generated",
+        created_at: livePoem?.created_at || share.created_at,
+        updated_at: livePoem?.updated_at || share.created_at,
+      },
+      verses: Array.isArray(snapshot.verses) ? snapshot.verses : [],
+    };
+  }
+
   /**
    * POST /poems - Create a new personalized poem
    */
@@ -548,14 +585,13 @@ function registerPoemRoutes(app, {
       return;
     }
 
-    const poem = await db.prepare("SELECT * FROM poems WHERE id = ? AND deleted_at IS NULL").get(share.poem_id);
+    const { poem, verses } = await resolveGiftPoemContent(share);
     if (!poem) {
       sendError(reply, 404, "POEM_NOT_FOUND", "Poem not found.");
       return;
     }
 
     const creator = await db.prepare("SELECT id FROM users WHERE id = ?").get(share.creator_id);
-    const verses = parseJson(poem.verses, [], `poem ${poem.id} verses`);
 
     // Update access tracking
     await db.prepare(
@@ -754,7 +790,7 @@ function registerPoemRoutes(app, {
       "INSERT INTO poem_share_access_log (id, poem_share_token_id, event_type, metadata, created_at) VALUES (?, ?, ?, ?, ?)"
     ).run(newUuid(), share.id, userId ? "claim_success" : "pin_unlock", toJson({ user_id: userId }), nowIso());
 
-    const poem = await db.prepare("SELECT * FROM poems WHERE id = ?").get(share.poem_id);
+    const { poem, verses } = await resolveGiftPoemContent(share);
 
     // Response shape matches iOS PoemShareClaimResponse model
     // "unlocked" = anonymous web access via PIN; "claimed" = bound to authenticated user
@@ -764,7 +800,7 @@ function registerPoemRoutes(app, {
         id: poem.id, user_id: poem.user_id, title: poem.title,
         recipient_name: poem.recipient_name, occasion: poem.occasion,
         tone: poem.tone, status: poem.status,
-        verses: parseJson(poem.verses, [], `poem ${poem.id} verses`),
+        verses,
         created_at: poem.created_at, updated_at: poem.updated_at,
         library_origin: userId ? "received" : null,
         can_edit: false,

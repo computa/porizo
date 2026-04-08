@@ -21,6 +21,7 @@ function registerGiftRoutes(app, {
   applyGiftWalletTransaction,
   ensureTrackGiftShareToken,
   ensurePoemGiftShareToken,
+  createGiftDeliveryOutboxRows,
   dispatchGiftById,
   giftReservationTtlMinutes = 45,
 }) {
@@ -84,6 +85,107 @@ function registerGiftRoutes(app, {
     return new Date(Date.now() + reservationTtlMs).toISOString();
   }
 
+  function computeGiftShareExpiresAt(sendAtIso, expiresInDays = 30) {
+    return new Date(
+      new Date(sendAtIso).getTime() + Number(expiresInDays || 30) * 24 * 60 * 60 * 1000
+    ).toISOString();
+  }
+
+  async function emitGiftActivity({
+    userId,
+    action,
+    eventName,
+    resourceType,
+    resourceId,
+    metadata,
+  }) {
+    await addAuditEntry({
+      userId,
+      action,
+      resourceType,
+      resourceId,
+      metadata,
+    });
+
+    eventsService.emit(eventName || action, {
+      userId,
+      resourceType,
+      resourceId,
+      metadata,
+    });
+  }
+
+  function buildGiftScheduleMetadata({ contentType, deliveryMode, channels, sendAtIso }) {
+    return {
+      content_type: contentType,
+      delivery_mode: deliveryMode,
+      channels,
+      send_at: sendAtIso,
+    };
+  }
+
+  async function queryGet(query, sql, params = []) {
+    const result = await query(sql, params);
+    return result?.rows?.[0] || null;
+  }
+
+  async function readGiftWalletBalance(userId, query = null) {
+    if (query) {
+      return Number((await queryGet(query, "SELECT balance FROM gift_wallet WHERE user_id = ?", [userId]))?.balance || 0);
+    }
+    return (await ensureGiftWalletRow(userId)).balance;
+  }
+
+  function parseGiftDeliveryRequest(body, reply) {
+    const deliveryMode = body.delivery_mode === "scheduled" ? "scheduled" : "immediate";
+    const senderTimezone = typeof body.sender_timezone === "string" && body.sender_timezone.trim()
+      ? body.sender_timezone.trim()
+      : "UTC";
+    const channels = normalizeGiftChannels(body.channels);
+    const recipientPhone = normalizeGiftPhone(body.recipient_phone);
+    const recipientEmail = normalizeGiftEmail(body.recipient_email);
+    const message = typeof body.message === "string" ? body.message.trim().slice(0, 500) : "";
+    const expiresInDays = Math.max(1, Math.min(Number(body.expires_in_days || 30), 90));
+
+    if (!channels.length) {
+      sendError(reply, 400, "INVALID_CHANNELS", "At least one channel is required.");
+      return null;
+    }
+    if (channels.includes("sms") && !recipientPhone) {
+      sendError(reply, 400, "INVALID_RECIPIENT_PHONE", "Valid recipient_phone is required for SMS.");
+      return null;
+    }
+    if (channels.includes("email") && !recipientEmail) {
+      sendError(reply, 400, "INVALID_RECIPIENT_EMAIL", "Valid recipient_email is required for email.");
+      return null;
+    }
+
+    let sendAt = new Date();
+    if (deliveryMode === "scheduled") {
+      const parsed = new Date(body.send_at || "");
+      if (Number.isNaN(parsed.getTime())) {
+        sendError(reply, 400, "INVALID_SEND_AT", "send_at must be a valid ISO timestamp.");
+        return null;
+      }
+      if (parsed.getTime() <= Date.now()) {
+        sendError(reply, 400, "INVALID_SEND_AT", "send_at must be in the future.");
+        return null;
+      }
+      sendAt = parsed;
+    }
+
+    return {
+      deliveryMode,
+      senderTimezone,
+      channels,
+      recipientPhone,
+      recipientEmail,
+      message,
+      expiresInDays,
+      sendAtIso: sendAt.toISOString(),
+    };
+  }
+
   async function validateGiftContent({ userId, contentType, contentId, versionNum = null }) {
     if (contentType === "song") {
       const track = await db.prepare("SELECT id, user_id, latest_version, deleted_at FROM tracks WHERE id = ?").get(contentId);
@@ -114,12 +216,13 @@ function registerGiftRoutes(app, {
         contentType: "song",
         contentId: track.id,
         versionNum: resolvedVersionNum,
+        contentSnapshot: null,
       };
     }
 
     if (contentType === "poem") {
       const poem = await db
-        .prepare("SELECT id, user_id, verses, deleted_at FROM poems WHERE id = ?")
+        .prepare("SELECT id, user_id, title, recipient_name, occasion, tone, verses, message, deleted_at FROM poems WHERE id = ?")
         .get(contentId);
       if (!poem || poem.user_id !== userId || poem.deleted_at) {
         const err = new Error("POEM_NOT_FOUND");
@@ -137,6 +240,14 @@ function registerGiftRoutes(app, {
         contentType: "poem",
         contentId: poem.id,
         versionNum: null,
+        contentSnapshot: {
+          title: poem.title,
+          recipient_name: poem.recipient_name,
+          occasion: poem.occasion,
+          tone: poem.tone,
+          message: poem.message,
+          verses,
+        },
       };
     }
 
@@ -175,16 +286,10 @@ function registerGiftRoutes(app, {
        WHERE id = ?`
     ).run(status, refundTxId, cancelReason, nowIso(), reservation.id);
 
-    await addAuditEntry({
+    await emitGiftActivity({
       userId: reservation.user_id,
       action: auditAction,
-      resourceType: "gift_reservation",
-      resourceId: reservation.id,
-      metadata: { refund_transaction_id: refundTxId, reason: cancelReason },
-    });
-
-    eventsService.emit(eventName, {
-      userId: reservation.user_id,
+      eventName,
       resourceType: "gift_reservation",
       resourceId: reservation.id,
       metadata: { refund_transaction_id: refundTxId, reason: cancelReason },
@@ -226,118 +331,130 @@ function registerGiftRoutes(app, {
     versionNum,
     idempotencyKey,
     tokenTransactionId = null,
+    externalQuery = null,
+    skipDispatch = false,
+    skipSideEffects = false,
   }) {
-    if (idempotencyKey) {
-      const existing = await db.prepare(
-        "SELECT * FROM gift_orders WHERE sender_user_id = ? AND idempotency_key = ? LIMIT 1"
-      ).get(userId, idempotencyKey);
-      if (existing) {
-        return {
-          gift: existing,
-          idempotent: true,
-          walletBalance: (await ensureGiftWalletRow(userId)).balance,
-        };
-      }
-    }
-
-    const validated = await validateGiftContent({
-      userId,
-      contentType,
-      contentId,
-      versionNum,
-    });
-
-    const giftOrderId = `gift_${crypto.randomBytes(12).toString("hex")}`;
+    const validated = await validateGiftContent({ userId, contentType, contentId, versionNum });
     const requireAppClaim = await getFeatureFlag(db, "gift_require_app_claim");
+    const giftOrderId = `gift_${crypto.randomBytes(12).toString("hex")}`;
 
-    let resolvedTokenTxId = tokenTransactionId;
-    let autoDebited = false;
-    if (!resolvedTokenTxId) {
-      const wallet = await ensureGiftWalletRow(userId);
-      if (wallet.balance < 1) {
-        const err = new Error("INSUFFICIENT_GIFT_TOKENS");
-        err.code = "INSUFFICIENT_GIFT_TOKENS";
-        throw err;
-      }
-      const walletDebit = await applyGiftWalletTransaction({
-        userId,
-        type: "gift_spend",
-        amount: -1,
-        source: "gift_order",
-        referenceType: "gift_order",
-        referenceId: giftOrderId,
-        description: "Gift token consumed",
-        metadata: { content_type: validated.contentType, content_id: validated.contentId },
-        idempotencyKey: idempotencyKey ? `gift_spend_${idempotencyKey}` : null,
-      });
-      resolvedTokenTxId = walletDebit.transactionId;
-      autoDebited = true;
-    }
-
-    let share;
-    try {
-      if (validated.contentType === "song") {
-        share = await ensureTrackGiftShareToken({
-          trackId: validated.contentId,
-          senderUserId: userId,
-          giftOrderId,
-          versionNum: validated.versionNum,
-          sendAtIso,
-          expiresInDays,
-          requireAppClaim: Boolean(requireAppClaim),
-        });
-      } else {
-        share = await ensurePoemGiftShareToken({
-          poemId: validated.contentId,
-          senderUserId: userId,
-          giftOrderId,
-          sendAtIso,
-          expiresInDays,
-          requireAppClaim: Boolean(requireAppClaim),
-        });
+    const executeCreate = async (query) => {
+      if (idempotencyKey) {
+        const existing = await queryGet(
+          query,
+          "SELECT * FROM gift_orders WHERE sender_user_id = ? AND idempotency_key = ? LIMIT 1",
+          [userId, idempotencyKey]
+        );
+        if (existing) {
+          return { gift: existing, idempotent: true };
+        }
       }
 
-      await db.prepare(
-        `INSERT INTO gift_orders (
-          id, sender_user_id, content_type, content_id, status, dispatch_status, delivery_mode,
-          send_at, sender_timezone, channels_json, recipient_phone, recipient_email, message,
-          share_token_id, share_url, claim_pin, claim_policy, expires_in_days, dispatch_attempts,
-          last_dispatch_error, dispatched_at, cancelled_at, token_transaction_id, refund_transaction_id,
-          version_num, idempotency_key, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      ).run(
-        giftOrderId,
-        userId,
-        validated.contentType,
-        validated.contentId,
-        "scheduled",
-        "pending",
-        deliveryMode,
-        sendAtIso,
-        senderTimezone,
-        toJson(channels),
-        recipientPhone,
-        recipientEmail,
-        message || null,
-        share.shareId,
-        share.shareUrl,
-        share.claimPin,
-        requireAppClaim ? "app_only" : "default",
-        expiresInDays,
-        0,
-        null,
-        null,
-        null,
-        resolvedTokenTxId,
-        null,
-        validated.versionNum,
-        idempotencyKey,
-        nowIso(),
-        nowIso()
-      );
-    } catch (err) {
-      if (autoDebited) {
-        try {
+      let resolvedTokenTxId = tokenTransactionId;
+      let autoDebited = false;
+      if (!resolvedTokenTxId) {
+        const wallet = await ensureGiftWalletRow(userId);
+        if (wallet.balance < 1) {
+          const err = new Error("INSUFFICIENT_GIFT_TOKENS");
+          err.code = "INSUFFICIENT_GIFT_TOKENS";
+          throw err;
+        }
+        const walletDebit = await applyGiftWalletTransaction({
+          userId,
+          type: "gift_spend",
+          amount: -1,
+          source: "gift_order",
+          referenceType: "gift_order",
+          referenceId: giftOrderId,
+          description: "Gift token consumed",
+          metadata: { content_type: validated.contentType, content_id: validated.contentId },
+          idempotencyKey: idempotencyKey ? `gift_spend_${idempotencyKey}` : null,
+          externalQuery: query,
+        });
+        resolvedTokenTxId = walletDebit.transactionId;
+        autoDebited = true;
+      }
+
+      try {
+        const share = validated.contentType === "song"
+          ? await ensureTrackGiftShareToken({
+            trackId: validated.contentId,
+            senderUserId: userId,
+            giftOrderId,
+            versionNum: validated.versionNum,
+            sendAtIso,
+            expiresInDays,
+            requireAppClaim: Boolean(requireAppClaim),
+            externalQuery: query,
+          })
+          : await ensurePoemGiftShareToken({
+            poemId: validated.contentId,
+            senderUserId: userId,
+            giftOrderId,
+            sendAtIso,
+            expiresInDays,
+            requireAppClaim: Boolean(requireAppClaim),
+            externalQuery: query,
+          });
+
+        const timestamp = nowIso();
+        await query(
+          `INSERT INTO gift_orders (
+            id, sender_user_id, content_type, content_id, status, dispatch_status, delivery_mode,
+            send_at, sender_timezone, channels_json, recipient_phone, recipient_email, message,
+            share_token_id, share_url, claim_pin, claim_policy, expires_in_days, dispatch_attempts,
+            last_dispatch_error, dispatched_at, cancelled_at, token_transaction_id, refund_transaction_id,
+            version_num, content_snapshot_json, next_retry_at, dispatch_started_at, idempotency_key, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            giftOrderId,
+            userId,
+            validated.contentType,
+            validated.contentId,
+            "scheduled",
+            "pending",
+            deliveryMode,
+            sendAtIso,
+            senderTimezone,
+            toJson(channels),
+            recipientPhone,
+            recipientEmail,
+            message || null,
+            share.shareId,
+            share.shareUrl,
+            share.claimPin,
+            requireAppClaim ? "app_only" : "default",
+            expiresInDays,
+            0,
+            null,
+            null,
+            null,
+            resolvedTokenTxId,
+            null,
+            validated.versionNum,
+            validated.contentSnapshot ? toJson(validated.contentSnapshot) : null,
+            sendAtIso,
+            null,
+            idempotencyKey,
+            timestamp,
+            timestamp,
+          ]
+        );
+
+        await createGiftDeliveryOutboxRows({
+          giftOrderId,
+          channels,
+          recipientPhone,
+          recipientEmail,
+          sendAtIso,
+          externalQuery: query,
+        });
+
+        const created = await queryGet(query, "SELECT * FROM gift_orders WHERE id = ?", [giftOrderId]);
+        return { gift: created, idempotent: false };
+      } catch (err) {
+        if (autoDebited) {
           await applyGiftWalletTransaction({
             userId,
             type: "gift_refund",
@@ -348,49 +465,41 @@ function registerGiftRoutes(app, {
             description: "Gift token refunded after gift create rollback",
             metadata: { rollback: true },
             idempotencyKey: `gift_refund_create_${giftOrderId}`,
+            externalQuery: query,
           });
-        } catch (refundErr) {
-          app.log.error({ err: refundErr, giftOrderId }, "Failed to rollback gift token after create failure");
         }
+        throw err;
       }
-      throw err;
+    };
+
+    const created = externalQuery
+      ? await executeCreate(externalQuery)
+      : await db.transaction(async (query) => executeCreate(query));
+
+    if (!skipSideEffects) {
+      await emitGiftActivity({
+        userId,
+        action: "gift_scheduled",
+        resourceType: "gift_order",
+        resourceId: created.gift.id,
+        metadata: buildGiftScheduleMetadata({
+          contentType: validated.contentType,
+          deliveryMode,
+          channels,
+          sendAtIso,
+        }),
+      });
     }
 
-    await addAuditEntry({
-      userId,
-      action: "gift_scheduled",
-      resourceType: "gift_order",
-      resourceId: giftOrderId,
-      metadata: {
-        content_type: validated.contentType,
-        delivery_mode: deliveryMode,
-        channels,
-        send_at: sendAtIso,
-      },
-    });
-
-    eventsService.emit("gift_scheduled", {
-      userId,
-      resourceType: "gift_order",
-      resourceId: giftOrderId,
-      metadata: {
-        content_type: validated.contentType,
-        delivery_mode: deliveryMode,
-        channels,
-        send_at: sendAtIso,
-      },
-    });
-
-    if (deliveryMode === "immediate") {
-      await dispatchGiftById(giftOrderId);
+    if (deliveryMode === "immediate" && !skipDispatch && created.gift?.id) {
+      await dispatchGiftById(created.gift.id);
+      created.gift = await db.prepare("SELECT * FROM gift_orders WHERE id = ?").get(created.gift.id);
     }
-
-    const created = await db.prepare("SELECT * FROM gift_orders WHERE id = ?").get(giftOrderId);
 
     return {
-      gift: created,
-      idempotent: false,
-      walletBalance: (await ensureGiftWalletRow(userId)).balance,
+      gift: created.gift,
+      idempotent: created.idempotent,
+      walletBalance: await readGiftWalletBalance(userId, externalQuery),
     };
   }
 
@@ -563,16 +672,9 @@ function registerGiftRoutes(app, {
         nowIso()
       );
 
-      await addAuditEntry({
+      await emitGiftActivity({
         userId,
         action: "gift_reservation_created",
-        resourceType: "gift_reservation",
-        resourceId: reservationId,
-        metadata: { expires_in_minutes: Math.round(reservationTtlMs / 60000) },
-      });
-
-      eventsService.emit("gift_reservation_created", {
-        userId,
         resourceType: "gift_reservation",
         resourceId: reservationId,
         metadata: { expires_in_minutes: Math.round(reservationTtlMs / 60000) },
@@ -683,20 +785,9 @@ function registerGiftRoutes(app, {
          WHERE id = ?`
       ).run(validated.contentType, validated.contentId, validated.versionNum, nowIso(), refreshed.id);
 
-      await addAuditEntry({
+      await emitGiftActivity({
         userId,
         action: "gift_reservation_content_attached",
-        resourceType: "gift_reservation",
-        resourceId: refreshed.id,
-        metadata: {
-          content_type: validated.contentType,
-          content_id: validated.contentId,
-          version_num: validated.versionNum,
-        },
-      });
-
-      eventsService.emit("gift_reservation_content_attached", {
-        userId,
         resourceType: "gift_reservation",
         resourceId: refreshed.id,
         metadata: {
@@ -765,72 +856,90 @@ function registerGiftRoutes(app, {
     }
 
     const body = request.body || {};
-    const deliveryMode = body.delivery_mode === "scheduled" ? "scheduled" : "immediate";
-    const senderTimezone = typeof body.sender_timezone === "string" && body.sender_timezone.trim()
-      ? body.sender_timezone.trim()
-      : "UTC";
-    const channels = normalizeGiftChannels(body.channels);
-    const recipientPhone = normalizeGiftPhone(body.recipient_phone);
-    const recipientEmail = normalizeGiftEmail(body.recipient_email);
-    const message = typeof body.message === "string" ? body.message.trim().slice(0, 500) : "";
-    const expiresInDays = Math.max(1, Math.min(Number(body.expires_in_days || 30), 90));
     const idempotencyKey = request.headers["idempotency-key"] || body.idempotency_key || null;
-
-    if (!channels.length) {
-      sendError(reply, 400, "INVALID_CHANNELS", "At least one channel is required.");
-      return;
-    }
-    if (channels.includes("sms") && !recipientPhone) {
-      sendError(reply, 400, "INVALID_RECIPIENT_PHONE", "Valid recipient_phone is required for SMS.");
-      return;
-    }
-    if (channels.includes("email") && !recipientEmail) {
-      sendError(reply, 400, "INVALID_RECIPIENT_EMAIL", "Valid recipient_email is required for email.");
-      return;
-    }
-
-    let sendAt = new Date();
-    if (deliveryMode === "scheduled") {
-      const parsed = new Date(body.send_at || "");
-      if (Number.isNaN(parsed.getTime())) {
-        sendError(reply, 400, "INVALID_SEND_AT", "send_at must be a valid ISO timestamp.");
-        return;
-      }
-      if (parsed.getTime() <= Date.now()) {
-        sendError(reply, 400, "INVALID_SEND_AT", "send_at must be in the future.");
-        return;
-      }
-      sendAt = parsed;
-    }
-    const sendAtIso = sendAt.toISOString();
+    const deliveryRequest = parseGiftDeliveryRequest(body, reply);
+    if (!deliveryRequest) return;
+    const {
+      deliveryMode,
+      senderTimezone,
+      channels,
+      recipientPhone,
+      recipientEmail,
+      message,
+      expiresInDays,
+      sendAtIso,
+    } = deliveryRequest;
 
     try {
-      const created = await createGiftOrderFromPayload({
-        userId,
-        contentType: refreshed.content_type,
-        contentId: refreshed.content_id,
-        deliveryMode,
-        senderTimezone,
-        channels,
-        recipientPhone,
-        recipientEmail,
-        message,
-        sendAtIso,
-        expiresInDays,
-        versionNum: refreshed.version_num,
-        idempotencyKey,
-        tokenTransactionId: refreshed.token_transaction_id,
+      const created = await db.transaction(async (query) => {
+        const latestReservation = await queryGet(
+          query,
+          "SELECT * FROM gift_reservations WHERE id = ?",
+          [refreshed.id]
+        );
+        if (!latestReservation || latestReservation.user_id !== userId) {
+          const err = new Error("RESERVATION_NOT_FOUND");
+          err.code = "RESERVATION_NOT_FOUND";
+          throw err;
+        }
+        if (latestReservation.status === "finalized" && latestReservation.gift_order_id) {
+          const existingGift = await queryGet(query, "SELECT * FROM gift_orders WHERE id = ?", [latestReservation.gift_order_id]);
+          return { gift: existingGift, idempotent: true };
+        }
+        if (!isReservationActiveStatus(latestReservation.status)) {
+          const err = new Error("RESERVATION_NOT_FINALIZABLE");
+          err.code = "RESERVATION_NOT_FINALIZABLE";
+          throw err;
+        }
+
+        const createdGift = await createGiftOrderFromPayload({
+          userId,
+          contentType: latestReservation.content_type,
+          contentId: latestReservation.content_id,
+          deliveryMode,
+          senderTimezone,
+          channels,
+          recipientPhone,
+          recipientEmail,
+          message,
+          sendAtIso,
+          expiresInDays,
+          versionNum: latestReservation.version_num,
+          idempotencyKey,
+          tokenTransactionId: latestReservation.token_transaction_id,
+          externalQuery: query,
+          skipDispatch: true,
+          skipSideEffects: true,
+        });
+
+        await query(
+          `UPDATE gift_reservations
+           SET status = 'finalized',
+               gift_order_id = ?,
+               updated_at = ?
+           WHERE id = ?`,
+          [createdGift.gift.id, nowIso(), latestReservation.id]
+        );
+
+        return createdGift;
       });
 
-      await db.prepare(
-        `UPDATE gift_reservations
-         SET status = 'finalized',
-             gift_order_id = ?,
-             updated_at = ?
-         WHERE id = ?`
-      ).run(created.gift.id, nowIso(), refreshed.id);
+      if (!created.idempotent) {
+        await emitGiftActivity({
+          userId,
+          action: "gift_scheduled",
+          resourceType: "gift_order",
+          resourceId: created.gift.id,
+          metadata: buildGiftScheduleMetadata({
+            contentType: refreshed.content_type,
+            deliveryMode,
+            channels,
+            sendAtIso,
+          }),
+        });
+      }
 
-      await addAuditEntry({
+      await emitGiftActivity({
         userId,
         action: "gift_reservation_finalized",
         resourceType: "gift_reservation",
@@ -838,15 +947,14 @@ function registerGiftRoutes(app, {
         metadata: { gift_order_id: created.gift.id, idempotent: created.idempotent },
       });
 
-      eventsService.emit("gift_reservation_finalized", {
-        userId,
-        resourceType: "gift_reservation",
-        resourceId: refreshed.id,
-        metadata: { gift_order_id: created.gift.id, idempotent: created.idempotent },
-      });
+      let responseGift = created.gift;
+      if (deliveryMode === "immediate" && created.gift?.id && !created.idempotent) {
+        await dispatchGiftById(created.gift.id);
+        responseGift = await db.prepare("SELECT * FROM gift_orders WHERE id = ?").get(created.gift.id);
+      }
 
       reply.send({
-        gift: renderGiftSummary(created.gift),
+        gift: renderGiftSummary(responseGift),
         wallet_balance: created.walletBalance,
         idempotent: created.idempotent,
       });
@@ -935,19 +1043,22 @@ function registerGiftRoutes(app, {
     const body = request.body || {};
     const contentType = typeof body.content_type === "string" ? body.content_type.trim().toLowerCase() : "";
     const contentId = typeof body.content_id === "string" ? body.content_id.trim() : "";
-    const deliveryMode = body.delivery_mode === "scheduled" ? "scheduled" : "immediate";
-    const senderTimezone = typeof body.sender_timezone === "string" && body.sender_timezone.trim()
-      ? body.sender_timezone.trim()
-      : "UTC";
-    const channels = normalizeGiftChannels(body.channels);
-    const recipientPhone = normalizeGiftPhone(body.recipient_phone);
-    const recipientEmail = normalizeGiftEmail(body.recipient_email);
-    const message = typeof body.message === "string" ? body.message.trim().slice(0, 500) : "";
-    const expiresInDays = Math.max(1, Math.min(Number(body.expires_in_days || 30), 90));
     const idempotencyKey =
       request.headers["idempotency-key"] ||
       body.idempotency_key ||
       null;
+    const deliveryRequest = parseGiftDeliveryRequest(body, reply);
+    if (!deliveryRequest) return;
+    const {
+      deliveryMode,
+      senderTimezone,
+      channels,
+      recipientPhone,
+      recipientEmail,
+      message,
+      expiresInDays,
+      sendAtIso,
+    } = deliveryRequest;
 
     let versionNum;
     try {
@@ -965,34 +1076,6 @@ function registerGiftRoutes(app, {
       sendError(reply, 400, "INVALID_CONTENT_ID", "content_id is required.");
       return;
     }
-    if (!channels.length) {
-      sendError(reply, 400, "INVALID_CHANNELS", "At least one channel is required.");
-      return;
-    }
-    if (channels.includes("sms") && !recipientPhone) {
-      sendError(reply, 400, "INVALID_RECIPIENT_PHONE", "Valid recipient_phone is required for SMS.");
-      return;
-    }
-    if (channels.includes("email") && !recipientEmail) {
-      sendError(reply, 400, "INVALID_RECIPIENT_EMAIL", "Valid recipient_email is required for email.");
-      return;
-    }
-
-    let sendAt = new Date();
-    if (deliveryMode === "scheduled") {
-      const parsed = new Date(body.send_at || "");
-      if (Number.isNaN(parsed.getTime())) {
-        sendError(reply, 400, "INVALID_SEND_AT", "send_at must be a valid ISO timestamp.");
-        return;
-      }
-      if (parsed.getTime() <= Date.now()) {
-        sendError(reply, 400, "INVALID_SEND_AT", "send_at must be in the future.");
-        return;
-      }
-      sendAt = parsed;
-    }
-    const sendAtIso = sendAt.toISOString();
-
     try {
       const created = await createGiftOrderFromPayload({
         userId,
@@ -1073,6 +1156,13 @@ function registerGiftRoutes(app, {
       sendError(reply, 409, "GIFT_NOT_EDITABLE", "Gift can no longer be edited.");
       return;
     }
+    const sentDelivery = await db.prepare(
+      "SELECT id FROM gift_delivery_outbox WHERE gift_order_id = ? AND status = 'sent' LIMIT 1"
+    ).get(gift.id);
+    if (sentDelivery) {
+      sendError(reply, 409, "GIFT_ALREADY_PARTIALLY_DISPATCHED", "Gift delivery already started and can no longer be edited.");
+      return;
+    }
 
     const body = request.body || {};
     const nextTimezone = typeof body.sender_timezone === "string" && body.sender_timezone.trim()
@@ -1113,9 +1203,11 @@ function registerGiftRoutes(app, {
       return;
     }
 
+    const nextExpiresAt = computeGiftShareExpiresAt(nextSendAt, gift.expires_in_days);
+
     await db.prepare(
       `UPDATE gift_orders
-       SET send_at = ?, sender_timezone = ?, channels_json = ?, recipient_phone = ?, recipient_email = ?, message = ?, updated_at = ?
+       SET send_at = ?, sender_timezone = ?, channels_json = ?, recipient_phone = ?, recipient_email = ?, message = ?, next_retry_at = ?, updated_at = ?
        WHERE id = ?`
     ).run(
       nextSendAt,
@@ -1124,19 +1216,37 @@ function registerGiftRoutes(app, {
       nextPhone,
       nextEmail,
       nextMessage || null,
+      nextSendAt,
       nowIso(),
       gift.id
     );
 
-    await addAuditEntry({
+    await db.prepare("DELETE FROM gift_delivery_outbox WHERE gift_order_id = ? AND status IN ('pending', 'failed', 'cancelled')").run(gift.id);
+    await createGiftDeliveryOutboxRows({
+      giftOrderId: gift.id,
+      channels: nextChannels,
+      recipientPhone: nextPhone,
+      recipientEmail: nextEmail,
+      sendAtIso: nextSendAt,
+    });
+
+    if (gift.content_type === "song") {
+      await db.prepare(
+        `UPDATE share_tokens
+         SET dispatch_at = ?, expires_at = ?, dispatched_at = NULL
+         WHERE id = ? AND gift_order_id = ? AND delivery_source = 'gift'`
+      ).run(nextSendAt, nextExpiresAt, gift.share_token_id, gift.id);
+    } else if (gift.content_type === "poem") {
+      await db.prepare(
+        `UPDATE poem_share_tokens
+         SET dispatch_at = ?, expires_at = ?, dispatched_at = NULL
+         WHERE id = ? AND gift_order_id = ? AND delivery_source = 'gift'`
+      ).run(nextSendAt, nextExpiresAt, gift.share_token_id, gift.id);
+    }
+
+    await emitGiftActivity({
       userId,
       action: "gift_rescheduled",
-      resourceType: "gift_order",
-      resourceId: gift.id,
-      metadata: { send_at: nextSendAt, channels: nextChannels },
-    });
-    eventsService.emit("gift_rescheduled", {
-      userId,
       resourceType: "gift_order",
       resourceId: gift.id,
       metadata: { send_at: nextSendAt, channels: nextChannels },
@@ -1171,6 +1281,13 @@ function registerGiftRoutes(app, {
       sendError(reply, 409, "GIFT_NOT_CANCELLABLE", "Gift cannot be cancelled in its current state.");
       return;
     }
+    const sentDelivery = await db.prepare(
+      "SELECT id FROM gift_delivery_outbox WHERE gift_order_id = ? AND status = 'sent' LIMIT 1"
+    ).get(gift.id);
+    if (sentDelivery) {
+      sendError(reply, 409, "GIFT_ALREADY_PARTIALLY_DISPATCHED", "Gift delivery already started and can no longer be cancelled.");
+      return;
+    }
 
     let refundTxId = gift.refund_transaction_id || null;
     if (!refundTxId) {
@@ -1194,19 +1311,38 @@ function registerGiftRoutes(app, {
            dispatch_status = 'cancelled',
            cancelled_at = ?,
            refund_transaction_id = ?,
+           next_retry_at = NULL,
+           dispatch_started_at = NULL,
            updated_at = ?
        WHERE id = ?`
     ).run(nowIso(), refundTxId, nowIso(), gift.id);
 
-    await addAuditEntry({
+    await db.prepare(
+      `UPDATE gift_delivery_outbox
+       SET status = 'cancelled',
+           next_retry_at = NULL,
+           locked_at = NULL,
+           updated_at = ?
+       WHERE gift_order_id = ? AND status IN ('pending', 'failed', 'sending')`
+    ).run(nowIso(), gift.id);
+
+    if (gift.content_type === "song") {
+      await db.prepare(
+        `UPDATE share_tokens
+         SET status = 'revoked', web_stream_allowed = 0, expires_at = ?, dispatched_at = NULL
+         WHERE id = ? AND gift_order_id = ? AND delivery_source = 'gift'`
+      ).run(nowIso(), gift.share_token_id, gift.id);
+    } else if (gift.content_type === "poem") {
+      await db.prepare(
+        `UPDATE poem_share_tokens
+         SET status = 'revoked', expires_at = ?, dispatched_at = NULL
+         WHERE id = ? AND gift_order_id = ? AND delivery_source = 'gift'`
+      ).run(nowIso(), gift.share_token_id, gift.id);
+    }
+
+    await emitGiftActivity({
       userId,
       action: "gift_cancelled",
-      resourceType: "gift_order",
-      resourceId: gift.id,
-      metadata: { refund_transaction_id: refundTxId },
-    });
-    eventsService.emit("gift_cancelled", {
-      userId,
       resourceType: "gift_order",
       resourceId: gift.id,
       metadata: { refund_transaction_id: refundTxId },

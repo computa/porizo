@@ -83,6 +83,7 @@ function registerTrackRoutes(app, {
              FROM share_tokens
             WHERE track_id = ?
               AND creator_id = ?
+              AND COALESCE(delivery_source, 'manual') != 'gift'
               AND status != 'revoked'
             ORDER BY created_at DESC
             LIMIT 1`

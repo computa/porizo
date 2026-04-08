@@ -1554,12 +1554,6 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     };
   }
 
-  function isShareActive(shareRow) {
-    if (!shareRow) return false;
-    if (shareRow.status === "revoked" || shareRow.status === "expired") return false;
-    return new Date(shareRow.expires_at) > new Date();
-  }
-
   async function ensureTrackGiftShareToken({
     trackId,
     senderUserId,
@@ -1568,8 +1562,11 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     sendAtIso,
     expiresInDays = 30,
     requireAppClaim = true,
+    externalQuery = null,
   }) {
-    const track = await db.prepare("SELECT * FROM tracks WHERE id = ?").get(trackId);
+    const query = externalQuery || db.query.bind(db);
+    const trackResult = await query("SELECT * FROM tracks WHERE id = ?", [trackId]);
+    const track = trackResult?.rows?.[0] || null;
     if (!track || track.user_id !== senderUserId || track.deleted_at) {
       const err = new Error("TRACK_NOT_FOUND");
       err.code = "TRACK_NOT_FOUND";
@@ -1577,7 +1574,11 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     }
 
     const resolvedVersionNum = Number(versionNum || track.latest_version || 1);
-    const trackVersion = await findTrackVersion(track.id, resolvedVersionNum);
+    const trackVersionResult = await query(
+      "SELECT * FROM track_versions WHERE track_id = ? AND version_num = ?",
+      [track.id, resolvedVersionNum]
+    );
+    const trackVersion = trackVersionResult?.rows?.[0] || null;
     if (!trackVersion) {
       const err = new Error("VERSION_NOT_FOUND");
       err.code = "VERSION_NOT_FOUND";
@@ -1598,58 +1599,9 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const streamKeyId = newUuid();
     const streamKey = crypto.randomBytes(16).toString("base64");
 
-    if (track.share_token_id) {
-      const existing = await db.prepare("SELECT * FROM share_tokens WHERE id = ?").get(track.share_token_id);
-      if (existing) {
-        if (
-          isShareActive(existing) &&
-          (existing.delivery_source || "manual") !== "gift" &&
-          (existing.claim_policy || "default") !== claimPolicy
-        ) {
-          const err = new Error("ACTIVE_SHARE_CONFLICT");
-          err.code = "ACTIVE_SHARE_CONFLICT";
-          throw err;
-        }
-        if (isShareActive(existing) && existing.gift_order_id && existing.gift_order_id !== giftOrderId) {
-          const err = new Error("ACTIVE_GIFT_SHARE_CONFLICT");
-          err.code = "ACTIVE_GIFT_SHARE_CONFLICT";
-          throw err;
-        }
-        await db.prepare(
-          `UPDATE share_tokens
-           SET track_version_id = ?, creator_id = ?, status = 'unbound',
-               bound_device_id = NULL, bound_device_platform = NULL, bound_app_version = NULL, bound_at = NULL,
-               web_stream_allowed = ?, app_save_allowed = 1, expires_at = ?, last_accessed_at = NULL, access_count = 0,
-               stream_key_id = ?, stream_key = ?, claim_pin = ?, claim_attempts = 0,
-               delivery_source = ?, gift_order_id = ?, claim_policy = ?, dispatch_at = ?, dispatched_at = NULL
-           WHERE id = ?`
-        ).run(
-          trackVersion.id,
-          senderUserId,
-          requireAppClaim ? 0 : 1,
-          expiresAt,
-          streamKeyId,
-          streamKey,
-          claimPin,
-          "gift",
-          giftOrderId,
-          claimPolicy,
-          sendAtIso,
-          existing.id
-        );
-
-        return {
-          shareId: existing.id,
-          shareUrl: buildPlayShareUrl(existing.id),
-          claimPin,
-          expiresAt,
-        };
-      }
-    }
-
     const shareId = newShareId();
 
-    await db.prepare(
+    await query(
       `INSERT INTO share_tokens (
         id, track_id, track_version_id, creator_id, status,
         bound_device_id, bound_device_platform, bound_app_version, bound_at,
@@ -1657,45 +1609,40 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         stream_key_id, stream_key, claim_pin, claim_attempts,
         utm_source, utm_medium, utm_campaign, referrer, created_ip, created_user_agent,
         delivery_source, gift_order_id, claim_policy, dispatch_at, dispatched_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(
-      shareId,
-      track.id,
-      trackVersion.id,
-      senderUserId,
-      "unbound",
-      null,
-      null,
-      null,
-      null,
-      requireAppClaim ? 0 : 1,
-      1,
-      expiresAt,
-      nowIso(),
-      null,
-      0,
-      streamKeyId,
-      streamKey,
-      claimPin,
-      0,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      "gift",
-      giftOrderId,
-      claimPolicy,
-      sendAtIso,
-      null
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        shareId,
+        track.id,
+        trackVersion.id,
+        senderUserId,
+        "unbound",
+        null,
+        null,
+        null,
+        null,
+        requireAppClaim ? 0 : 1,
+        1,
+        expiresAt,
+        nowIso(),
+        null,
+        0,
+        streamKeyId,
+        streamKey,
+        claimPin,
+        0,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        "gift",
+        giftOrderId,
+        claimPolicy,
+        sendAtIso,
+        null,
+      ]
     );
-    await db.prepare("UPDATE tracks SET share_token_id = ?, updated_at = ? WHERE id = ?").run(
-      shareId,
-      nowIso(),
-      track.id
-    );
-
     return {
       shareId,
       shareUrl: buildPlayShareUrl(shareId),
@@ -1711,8 +1658,11 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     sendAtIso,
     expiresInDays = 30,
     requireAppClaim = true,
+    externalQuery = null,
   }) {
-    const poem = await db.prepare("SELECT * FROM poems WHERE id = ? AND deleted_at IS NULL").get(poemId);
+    const query = externalQuery || db.query.bind(db);
+    const poemResult = await query("SELECT * FROM poems WHERE id = ? AND deleted_at IS NULL", [poemId]);
+    const poem = poemResult?.rows?.[0] || null;
     if (!poem || poem.user_id !== senderUserId) {
       const err = new Error("POEM_NOT_FOUND");
       err.code = "POEM_NOT_FOUND";
@@ -1733,93 +1683,43 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     ).toISOString();
     const claimPin = String(crypto.randomInt(100000, 1000000));
 
-    if (poem.share_token_id) {
-      const existing = await db.prepare("SELECT * FROM poem_share_tokens WHERE id = ?").get(poem.share_token_id);
-      if (existing) {
-        if (
-          isShareActive(existing) &&
-          (existing.delivery_source || "manual") !== "gift" &&
-          (existing.claim_policy || "default") !== claimPolicy
-        ) {
-          const err = new Error("ACTIVE_SHARE_CONFLICT");
-          err.code = "ACTIVE_SHARE_CONFLICT";
-          throw err;
-        }
-        if (isShareActive(existing) && existing.gift_order_id && existing.gift_order_id !== giftOrderId) {
-          const err = new Error("ACTIVE_GIFT_SHARE_CONFLICT");
-          err.code = "ACTIVE_GIFT_SHARE_CONFLICT";
-          throw err;
-        }
-        await db.prepare(
-          `UPDATE poem_share_tokens
-           SET creator_id = ?, status = 'active',
-               bound_device_id = NULL, bound_user_id = NULL, bound_at = NULL,
-               claim_pin = ?, claim_attempts = 0, allow_save = 1, expires_at = ?,
-               last_accessed_at = NULL, access_count = 0,
-               delivery_source = ?, gift_order_id = ?, claim_policy = ?, dispatch_at = ?, dispatched_at = NULL
-           WHERE id = ?`
-        ).run(
-          senderUserId,
-          claimPin,
-          expiresAt,
-          "gift",
-          giftOrderId,
-          claimPolicy,
-          sendAtIso,
-          existing.id
-        );
-
-        return {
-          shareId: existing.id,
-          shareUrl: buildPoemShareUrl(existing.id),
-          claimPin,
-          expiresAt,
-        };
-      }
-    }
-
     const shareId = newShareId();
 
-    await db.prepare(
+    await query(
       `INSERT INTO poem_share_tokens (
         id, poem_id, creator_id, status, bound_device_id, bound_user_id, bound_at,
         claim_pin, claim_attempts, allow_save, expires_at, created_at, last_accessed_at, access_count,
         utm_source, utm_medium, utm_campaign, referrer, created_ip, created_user_agent,
         delivery_source, gift_order_id, claim_policy, dispatch_at, dispatched_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(
-      shareId,
-      poem.id,
-      senderUserId,
-      "active",
-      null,
-      null,
-      null,
-      claimPin,
-      0,
-      1,
-      expiresAt,
-      nowIso(),
-      null,
-      0,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      "gift",
-      giftOrderId,
-      claimPolicy,
-      sendAtIso,
-      null
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        shareId,
+        poem.id,
+        senderUserId,
+        "active",
+        null,
+        null,
+        null,
+        claimPin,
+        0,
+        1,
+        expiresAt,
+        nowIso(),
+        null,
+        0,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        "gift",
+        giftOrderId,
+        claimPolicy,
+        sendAtIso,
+        null,
+      ]
     );
-    await db.prepare("UPDATE poems SET share_token_id = ?, updated_at = ? WHERE id = ?").run(
-      shareId,
-      nowIso(),
-      poem.id
-    );
-
     return {
       shareId,
       shareUrl: buildPoemShareUrl(shareId),
@@ -1857,6 +1757,226 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       can_edit: giftRow.status === "scheduled" || giftRow.status === "dispatch_retry",
       can_cancel: giftRow.status === "scheduled" || giftRow.status === "dispatch_retry",
     };
+  }
+
+  async function createGiftDeliveryOutboxRows({
+    giftOrderId,
+    channels,
+    recipientPhone,
+    recipientEmail,
+    sendAtIso,
+    baselineAttemptCount = 0,
+    nextRetryAt = null,
+    externalQuery = null,
+  }) {
+    const query = externalQuery || db.query.bind(db);
+    const timestamp = nowIso();
+
+    for (const channel of channels) {
+      const recipient = channel === "sms" ? recipientPhone : recipientEmail;
+      if (!recipient) continue;
+
+      await query(
+        `INSERT INTO gift_delivery_outbox (
+          id, gift_order_id, channel, recipient, status, attempt_count,
+          provider_message_id, last_error, send_after, next_retry_at, last_attempt_at, locked_at,
+          payload_json, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          newUuid(),
+          giftOrderId,
+          channel,
+          recipient,
+          "pending",
+          Math.max(0, Number(baselineAttemptCount || 0)),
+          null,
+          null,
+          sendAtIso,
+          nextRetryAt || sendAtIso,
+          null,
+          null,
+          toJson({}),
+          timestamp,
+          timestamp,
+        ]
+      );
+    }
+  }
+
+  async function ensureGiftDeliveryOutboxRows(gift, externalQuery = null) {
+    const query = externalQuery || db.query.bind(db);
+    const existingResult = await query(
+      "SELECT id FROM gift_delivery_outbox WHERE gift_order_id = ? LIMIT 1",
+      [gift.id]
+    );
+    if ((existingResult?.rows || []).length > 0) {
+      return;
+    }
+
+    const channels = parseGiftChannelsJson(gift.channels_json);
+    if (!channels.length) {
+      const err = new Error("GIFT_DELIVERY_CONFIG_INVALID");
+      err.code = "GIFT_DELIVERY_CONFIG_INVALID";
+      throw err;
+    }
+
+    await createGiftDeliveryOutboxRows({
+      giftOrderId: gift.id,
+      channels,
+      recipientPhone: gift.recipient_phone,
+      recipientEmail: gift.recipient_email,
+      sendAtIso: gift.send_at,
+      baselineAttemptCount: Number(gift.dispatch_attempts || 0),
+      nextRetryAt: gift.next_retry_at || gift.send_at,
+      externalQuery: query,
+    });
+  }
+
+  function buildGiftSenderLabel(senderUser) {
+    return senderUser?.display_name
+      || (senderUser?.email?.split("@")[0])
+      || "Someone special";
+  }
+
+  async function recordGiftDispatchAttempt({
+    giftId,
+    channel,
+    status,
+    providerMessageId = null,
+    errorMessage = null,
+    payload = {},
+    createdAt,
+  }) {
+    await db.prepare(
+      `INSERT INTO gift_dispatch_attempts (
+        id, gift_order_id, channel, status, provider_message_id, error_message, payload_json, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      newUuid(),
+      giftId,
+      channel,
+      status,
+      providerMessageId,
+      errorMessage,
+      toJson(payload),
+      createdAt
+    );
+  }
+
+  async function markGiftDeliverySent({ deliveryId, providerMessageId, payloadMeta, sentAt }) {
+    await db.prepare(
+      `UPDATE gift_delivery_outbox
+       SET status = 'sent',
+           attempt_count = attempt_count + 1,
+           provider_message_id = ?,
+           last_error = NULL,
+           next_retry_at = NULL,
+           last_attempt_at = ?,
+           locked_at = NULL,
+           payload_json = ?,
+           updated_at = ?
+       WHERE id = ?`
+    ).run(providerMessageId, sentAt, toJson(payloadMeta), sentAt, deliveryId);
+  }
+
+  async function markGiftDeliveryFailed({
+    deliveryId,
+    attemptCount,
+    errorMessage,
+    nextRetryAt,
+    failedAt,
+  }) {
+    await db.prepare(
+      `UPDATE gift_delivery_outbox
+       SET status = 'failed',
+           attempt_count = ?,
+           last_error = ?,
+           next_retry_at = ?,
+           last_attempt_at = ?,
+           locked_at = NULL,
+           updated_at = ?
+       WHERE id = ?`
+    ).run(
+      attemptCount,
+      String(errorMessage || "").slice(0, 500),
+      nextRetryAt,
+      failedAt,
+      failedAt,
+      deliveryId
+    );
+  }
+
+  async function recoverStaleGiftDeliveryRows(giftId, now) {
+    await db.prepare(
+      `UPDATE gift_delivery_outbox
+       SET status = 'failed',
+           last_error = COALESCE(last_error, 'stale_channel_send_recovered'),
+           next_retry_at = ?,
+           locked_at = NULL,
+           updated_at = ?
+       WHERE gift_order_id = ? AND status = 'sending'`
+    ).run(now, now, giftId);
+  }
+
+  function summarizeGiftDeliveryRows({ outboxRows, fallbackChannels, dispatchAttempts, maxAttempts }) {
+    const totalChannels = outboxRows.length || fallbackChannels.length;
+    const sentRows = outboxRows.filter((row) => row.status === "sent");
+    const retryableRows = outboxRows.filter((row) =>
+      row.status === "pending" ||
+      (row.status === "failed" && Number(row.attempt_count || 0) < maxAttempts)
+    );
+    const exhaustedRows = outboxRows.filter((row) =>
+      row.status === "failed" && Number(row.attempt_count || 0) >= maxAttempts
+    );
+    const nextRetryAt = retryableRows
+      .map((row) => row.next_retry_at || row.send_after)
+      .filter(Boolean)
+      .sort()[0] || null;
+    const nextAttempts = Math.max(
+      Number(dispatchAttempts || 0),
+      ...outboxRows.map((row) => Number(row.attempt_count || 0))
+    );
+
+    return {
+      totalChannels,
+      sentRows,
+      retryableRows,
+      exhaustedRows,
+      nextRetryAt,
+      nextAttempts,
+      allDelivered: sentRows.length === totalChannels && totalChannels > 0,
+      partiallyDelivered: sentRows.length > 0,
+    };
+  }
+
+  async function syncGiftDeliveryShareDispatch(gift, dispatchedAt) {
+    if (gift.content_type === "song") {
+      await db.prepare(
+        "UPDATE share_tokens SET dispatched_at = ?, dispatch_at = COALESCE(dispatch_at, ?), gift_order_id = COALESCE(gift_order_id, ?) WHERE id = ?"
+      ).run(dispatchedAt, gift.send_at, gift.id, gift.share_token_id);
+      return;
+    }
+
+    if (gift.content_type === "poem") {
+      await db.prepare(
+        "UPDATE poem_share_tokens SET dispatched_at = ?, dispatch_at = COALESCE(dispatch_at, ?), gift_order_id = COALESCE(gift_order_id, ?) WHERE id = ?"
+      ).run(dispatchedAt, gift.send_at, gift.id, gift.share_token_id);
+    }
+  }
+
+  async function revokeGiftDeliveryShare(gift) {
+    if (gift.content_type === "song") {
+      await db.prepare(
+        "UPDATE share_tokens SET status = 'revoked', web_stream_allowed = 0, dispatched_at = NULL WHERE id = ? AND gift_order_id = ? AND delivery_source = 'gift'"
+      ).run(gift.share_token_id, gift.id);
+      return;
+    }
+
+    if (gift.content_type === "poem") {
+      await db.prepare(
+        "UPDATE poem_share_tokens SET status = 'revoked', dispatched_at = NULL WHERE id = ? AND gift_order_id = ? AND delivery_source = 'gift'"
+      ).run(gift.share_token_id, gift.id);
+    }
   }
 
   async function sendGiftSmsViaTwilio({ to, body }) {
@@ -1904,6 +2024,11 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     return `${sender} sent you a personalized ${noun} on Porizo.\n${note}Link: ${giftRow.share_url}\nPIN: ${giftRow.claim_pin}\nOpen in the Porizo app to claim.`;
   }
 
+  function computeGiftRetryAt(attemptNumber) {
+    const backoffMinutes = Math.min(60, Math.max(1, 2 ** Math.max(0, Number(attemptNumber || 1) - 1)));
+    return new Date(Date.now() + backoffMinutes * 60 * 1000).toISOString();
+  }
+
   async function dispatchGiftById(giftId) {
     const giftSchedulingEnabled = await getFeatureFlag(db, "gift_scheduling_enabled");
     if (!giftSchedulingEnabled) {
@@ -1912,9 +2037,9 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
 
     const lock = await db.prepare(
       `UPDATE gift_orders
-       SET status = 'dispatching', dispatch_status = 'pending', updated_at = ?
+       SET status = 'dispatching', dispatch_status = 'pending', dispatch_started_at = ?, updated_at = ?
        WHERE id = ? AND status IN ('scheduled', 'dispatch_retry')`
-    ).run(nowIso(), giftId);
+    ).run(nowIso(), nowIso(), giftId);
     if (!lock.changes) {
       return { skipped: true, reason: "not_dispatchable" };
     }
@@ -1925,217 +2050,261 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     }
 
     try {
-    const channels = parseGiftChannelsJson(gift.channels_json);
-    const senderUser = await db.prepare(
-      "SELECT display_name, email FROM users WHERE id = ?"
-    ).get(gift.sender_user_id);
-    const senderLabel = senderUser?.display_name
-      || (senderUser?.email?.split("@")[0])
-      || "Someone special";
-    const payloadText = buildGiftDeliveryMessage({ giftRow: gift, senderLabel });
-    const errors = [];
-    let successfulChannels = 0;
+      await ensureGiftDeliveryOutboxRows(gift);
 
-    for (const channel of channels) {
-      const existingSuccess = await db.prepare(
-        `SELECT id FROM gift_dispatch_attempts
-         WHERE gift_order_id = ? AND channel = ? AND status = 'success'
-         LIMIT 1`
-      ).get(gift.id, channel);
-      if (existingSuccess) {
-        successfulChannels += 1;
-        continue;
-      }
+      const channels = parseGiftChannelsJson(gift.channels_json);
+      const senderUser = await db.prepare(
+        "SELECT display_name, email FROM users WHERE id = ?"
+      ).get(gift.sender_user_id);
+      const senderLabel = buildGiftSenderLabel(senderUser);
+      const payloadText = buildGiftDeliveryMessage({ giftRow: gift, senderLabel });
+      const now = nowIso();
+      const errors = [];
 
-      try {
-        if (channel === "sms") {
-          const smsEnabled = await getFeatureFlag(db, "gift_sms_enabled");
-          if (!smsEnabled) {
-            throw new Error("SMS_CHANNEL_DISABLED");
-          }
-          if (!gift.recipient_phone) {
-            throw new Error("MISSING_RECIPIENT_PHONE");
-          }
-          const smsResult = await sendGiftSmsViaTwilio({
-            to: gift.recipient_phone,
-            body: payloadText,
-          });
-          await db.prepare(
-            `INSERT INTO gift_dispatch_attempts (
-              id, gift_order_id, channel, status, provider_message_id, error_message, payload_json, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-          ).run(
-            newUuid(),
-            gift.id,
-            channel,
-            "success",
-            smsResult.providerMessageId,
-            null,
-            toJson({ simulated: smsResult.simulated }),
-            nowIso()
-          );
-          successfulChannels += 1;
-        } else if (channel === "email") {
-          const emailEnabled = await getFeatureFlag(db, "gift_email_enabled");
-          if (!emailEnabled) {
-            throw new Error("EMAIL_CHANNEL_DISABLED");
-          }
-          if (!gift.recipient_email) {
-            throw new Error("MISSING_RECIPIENT_EMAIL");
-          }
+      await recoverStaleGiftDeliveryRows(gift.id, now);
 
-          let providerMessageId = "simulated_email";
-          let simulated = false;
-          if (emailService.isConfigured()) {
-            const sent = await emailService.sendGiftDeliveryEmail({
-              to: gift.recipient_email,
-              senderName: senderLabel,
-              shareUrl: gift.share_url,
-              claimPin: gift.claim_pin,
-              contentType: gift.content_type,
-              message: gift.message || "",
-            });
-            providerMessageId = sent.messageId || providerMessageId;
-          } else if (process.env.NODE_ENV === "production") {
-            throw new Error("EMAIL_NOT_CONFIGURED");
-          } else {
-            simulated = true;
-          }
+      const dueRows = await db.prepare(
+        `SELECT *
+         FROM gift_delivery_outbox
+         WHERE gift_order_id = ?
+           AND status IN ('pending', 'failed')
+           AND COALESCE(next_retry_at, send_after) <= ?
+         ORDER BY created_at ASC`
+      ).all(gift.id, now);
 
-          await db.prepare(
-            `INSERT INTO gift_dispatch_attempts (
-              id, gift_order_id, channel, status, provider_message_id, error_message, payload_json, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-          ).run(
-            newUuid(),
-            gift.id,
-            channel,
-            "success",
-            providerMessageId,
-            null,
-            toJson({ simulated }),
-            nowIso()
-          );
-          successfulChannels += 1;
+      for (const delivery of dueRows) {
+        const lockResult = await db.prepare(
+          `UPDATE gift_delivery_outbox
+           SET status = 'sending', locked_at = ?, updated_at = ?
+           WHERE id = ? AND status IN ('pending', 'failed')`
+        ).run(now, now, delivery.id);
+        if (!lockResult.changes) {
+          continue;
         }
-      } catch (err) {
-        errors.push(`${channel}:${err.message}`);
-        await db.prepare(
-          `INSERT INTO gift_dispatch_attempts (
-            id, gift_order_id, channel, status, provider_message_id, error_message, payload_json, created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-        ).run(
-          newUuid(),
-          gift.id,
-          channel,
-          "failed",
-          null,
-          err.message,
-          toJson({}),
-          nowIso()
-        );
+
+        try {
+          let providerMessageId = null;
+          let payloadMeta = {};
+
+          if (delivery.channel === "sms") {
+            const smsEnabled = await getFeatureFlag(db, "gift_sms_enabled");
+            if (!smsEnabled) {
+              throw new Error("SMS_CHANNEL_DISABLED");
+            }
+            if (!delivery.recipient) {
+              throw new Error("MISSING_RECIPIENT_PHONE");
+            }
+            const smsResult = await sendGiftSmsViaTwilio({
+              to: delivery.recipient,
+              body: payloadText,
+            });
+            providerMessageId = smsResult.providerMessageId;
+            payloadMeta = { simulated: smsResult.simulated };
+          } else if (delivery.channel === "email") {
+            const emailEnabled = await getFeatureFlag(db, "gift_email_enabled");
+            if (!emailEnabled) {
+              throw new Error("EMAIL_CHANNEL_DISABLED");
+            }
+            if (!delivery.recipient) {
+              throw new Error("MISSING_RECIPIENT_EMAIL");
+            }
+
+            let simulated = false;
+            providerMessageId = "simulated_email";
+            if (emailService.isConfigured()) {
+              const sent = await emailService.sendGiftDeliveryEmail({
+                to: delivery.recipient,
+                senderName: senderLabel,
+                shareUrl: gift.share_url,
+                claimPin: gift.claim_pin,
+                contentType: gift.content_type,
+                message: gift.message || "",
+              });
+              providerMessageId = sent.messageId || providerMessageId;
+            } else if (process.env.NODE_ENV === "production") {
+              throw new Error("EMAIL_NOT_CONFIGURED");
+            } else {
+              simulated = true;
+            }
+            payloadMeta = { simulated };
+          } else {
+            throw new Error("UNKNOWN_DELIVERY_CHANNEL");
+          }
+
+          const sentAt = nowIso();
+          await recordGiftDispatchAttempt({
+            giftId: gift.id,
+            channel: delivery.channel,
+            status: "success",
+            providerMessageId,
+            payload: payloadMeta,
+            createdAt: sentAt,
+          });
+
+          await markGiftDeliverySent({
+            deliveryId: delivery.id,
+            providerMessageId,
+            payloadMeta,
+            sentAt,
+          });
+        } catch (err) {
+          const failedAt = nowIso();
+          const nextAttemptCount = Number(delivery.attempt_count || 0) + 1;
+          const nextRetryAt = nextAttemptCount >= giftDispatchMaxAttempts
+            ? null
+            : computeGiftRetryAt(nextAttemptCount);
+
+          errors.push(`${delivery.channel}:${err.message}`);
+
+          await recordGiftDispatchAttempt({
+            giftId: gift.id,
+            channel: delivery.channel,
+            status: "failed",
+            errorMessage: err.message,
+            createdAt: failedAt,
+          });
+
+          await markGiftDeliveryFailed({
+            deliveryId: delivery.id,
+            attemptCount: nextAttemptCount,
+            errorMessage: err.message || err,
+            nextRetryAt,
+            failedAt,
+          });
+        }
       }
-    }
 
-    const allDelivered = successfulChannels >= channels.length && channels.length > 0;
-    const nextAttempts = Number(gift.dispatch_attempts || 0) + (allDelivered ? 0 : 1);
+      const outboxRows = await db.prepare(
+        `SELECT *
+         FROM gift_delivery_outbox
+         WHERE gift_order_id = ?
+         ORDER BY created_at ASC`
+      ).all(gift.id);
 
-    if (allDelivered) {
+      const {
+        sentRows,
+        retryableRows,
+        exhaustedRows,
+        nextRetryAt,
+        nextAttempts,
+        allDelivered,
+        partiallyDelivered,
+      } = summarizeGiftDeliveryRows({
+        outboxRows,
+        fallbackChannels: channels,
+        dispatchAttempts: gift.dispatch_attempts,
+        maxAttempts: giftDispatchMaxAttempts,
+      });
+
+      if (allDelivered) {
+        const dispatchedAt = nowIso();
+        await db.prepare(
+          `UPDATE gift_orders
+           SET status = 'dispatched',
+               dispatch_status = 'sent',
+               dispatch_attempts = ?,
+               last_dispatch_error = NULL,
+               next_retry_at = NULL,
+               dispatch_started_at = NULL,
+               dispatched_at = ?,
+               updated_at = ?
+           WHERE id = ?`
+        ).run(nextAttempts, dispatchedAt, dispatchedAt, gift.id);
+
+        await syncGiftDeliveryShareDispatch(gift, dispatchedAt);
+
+        await addAuditEntry({
+          userId: gift.sender_user_id,
+          action: "gift_dispatched",
+          resourceType: "gift_order",
+          resourceId: gift.id,
+          metadata: { channels },
+        });
+
+        eventsService.emit("gift_dispatched", {
+          userId: gift.sender_user_id,
+          resourceType: "gift_order",
+          resourceId: gift.id,
+          metadata: { channels, content_type: gift.content_type },
+        });
+        return { dispatched: true };
+      }
+
+      const exhausted = !partiallyDelivered && retryableRows.length === 0 && exhaustedRows.length > 0;
+      const partialComplete = partiallyDelivered && retryableRows.length === 0;
+
+      let refundTxId = null;
+      if (exhausted) {
+        try {
+          const refund = await applyGiftWalletTransaction({
+            userId: gift.sender_user_id,
+            type: "gift_refund",
+            amount: 1,
+            source: "dispatch_failure",
+            referenceType: "gift_order",
+            referenceId: gift.id,
+            description: "Auto-refund: gift delivery failed after max attempts",
+            idempotencyKey: `gift_refund_dispatch_${gift.id}`,
+          });
+          refundTxId = refund.transactionId;
+        } catch (refundErr) {
+          app.log.error({ giftId: gift.id, err: refundErr }, "Failed to auto-refund gift token");
+        }
+
+        await revokeGiftDeliveryShare(gift);
+      }
+
       await db.prepare(
         `UPDATE gift_orders
-         SET status = 'dispatched',
-             dispatch_status = 'sent',
+         SET status = ?,
+             dispatch_status = ?,
              dispatch_attempts = ?,
-             last_dispatch_error = NULL,
-             dispatched_at = ?,
+             last_dispatch_error = ?,
+             next_retry_at = ?,
+             dispatch_started_at = NULL,
+             dispatched_at = CASE WHEN ? THEN COALESCE(dispatched_at, ?) ELSE dispatched_at END,
+             refund_transaction_id = COALESCE(?, refund_transaction_id),
              updated_at = ?
          WHERE id = ?`
-      ).run(nextAttempts, nowIso(), nowIso(), gift.id);
-
-      if (gift.content_type === "song") {
-        await db.prepare(
-          "UPDATE share_tokens SET dispatched_at = ?, dispatch_at = COALESCE(dispatch_at, ?), gift_order_id = COALESCE(gift_order_id, ?) WHERE id = ?"
-        ).run(nowIso(), gift.send_at, gift.id, gift.share_token_id);
-      } else if (gift.content_type === "poem") {
-        await db.prepare(
-          "UPDATE poem_share_tokens SET dispatched_at = ?, dispatch_at = COALESCE(dispatch_at, ?), gift_order_id = COALESCE(gift_order_id, ?) WHERE id = ?"
-        ).run(nowIso(), gift.send_at, gift.id, gift.share_token_id);
-      }
+      ).run(
+        exhausted ? "failed" : (partialComplete ? "dispatched" : "dispatch_retry"),
+        exhausted ? "failed" : (partialComplete ? "partial" : (partiallyDelivered ? "partial_retry" : "retrying")),
+        nextAttempts,
+        errors.join("; ") || null,
+        exhausted || partialComplete ? null : nextRetryAt,
+        partialComplete ? 1 : 0,
+        partialComplete ? nowIso() : null,
+        refundTxId,
+        nowIso(),
+        gift.id
+      );
 
       await addAuditEntry({
         userId: gift.sender_user_id,
-        action: "gift_dispatched",
+        action: exhausted ? "gift_dispatch_failed" : (partialComplete ? "gift_partially_dispatched" : "gift_dispatch_retry"),
         resourceType: "gift_order",
         resourceId: gift.id,
-        metadata: { channels },
+        metadata: {
+          errors,
+          attempts: nextAttempts,
+          refund_tx_id: refundTxId,
+          sent_channels: sentRows.map((row) => row.channel),
+          pending_channels: retryableRows.map((row) => row.channel),
+        },
       });
-
-      eventsService.emit("gift_dispatched", {
+      eventsService.emit(exhausted ? "gift_failed" : (partialComplete ? "gift_partially_dispatched" : "gift_retry"), {
         userId: gift.sender_user_id,
         resourceType: "gift_order",
         resourceId: gift.id,
-        metadata: { channels, content_type: gift.content_type },
+        metadata: {
+          errors,
+          attempts: nextAttempts,
+          sent_channels: sentRows.map((row) => row.channel),
+          pending_channels: retryableRows.map((row) => row.channel),
+        },
       });
-      return { dispatched: true };
-    }
 
-    const exhausted = nextAttempts >= giftDispatchMaxAttempts;
-
-    // Refund BEFORE status update — if refund fails, status stays dispatch_retry
-    // and the refund will be re-attempted on next cycle
-    let refundTxId = null;
-    if (exhausted) {
-      try {
-        const refund = await applyGiftWalletTransaction({
-          userId: gift.sender_user_id,
-          type: "gift_refund",
-          amount: 1,
-          source: "dispatch_failure",
-          referenceType: "gift_order",
-          referenceId: gift.id,
-          description: "Auto-refund: gift delivery failed after max attempts",
-          idempotencyKey: `gift_refund_dispatch_${gift.id}`,
-        });
-        refundTxId = refund.transactionId;
-      } catch (refundErr) {
-        app.log.error({ giftId: gift.id, err: refundErr }, "Failed to auto-refund gift token");
-      }
-    }
-
-    await db.prepare(
-      `UPDATE gift_orders
-       SET status = ?,
-           dispatch_status = ?,
-           dispatch_attempts = ?,
-           last_dispatch_error = ?,
-           refund_transaction_id = COALESCE(?, refund_transaction_id),
-           updated_at = ?
-       WHERE id = ?`
-    ).run(
-      exhausted ? "failed" : "dispatch_retry",
-      exhausted ? "failed" : "retrying",
-      nextAttempts,
-      errors.join("; "),
-      refundTxId,
-      nowIso(),
-      gift.id
-    );
-
-    await addAuditEntry({
-      userId: gift.sender_user_id,
-      action: exhausted ? "gift_dispatch_failed" : "gift_dispatch_retry",
-      resourceType: "gift_order",
-      resourceId: gift.id,
-      metadata: { errors, attempts: nextAttempts, refund_tx_id: refundTxId },
-    });
-    eventsService.emit(exhausted ? "gift_failed" : "gift_retry", {
-      userId: gift.sender_user_id,
-      resourceType: "gift_order",
-      resourceId: gift.id,
-      metadata: { errors, attempts: nextAttempts },
-    });
-
-    return { dispatched: false, errors };
+      return { dispatched: false, partial: partialComplete, errors };
 
     } catch (dispatchErr) {
       // Recover from stuck 'dispatching' state — increment attempts to respect max limit
@@ -2144,10 +2313,13 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
          SET status = 'dispatch_retry',
              dispatch_status = 'error',
              dispatch_attempts = dispatch_attempts + 1,
+             next_retry_at = ?,
              last_dispatch_error = ?,
+             dispatch_started_at = NULL,
              updated_at = ?
          WHERE id = ? AND status = 'dispatching'`
       ).run(
+        computeGiftRetryAt(Number(gift?.dispatch_attempts || 0) + 1),
         String(dispatchErr.message || dispatchErr).slice(0, 500),
         nowIso(),
         giftId
@@ -3147,6 +3319,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     applyGiftWalletTransaction,
     ensureTrackGiftShareToken,
     ensurePoemGiftShareToken,
+    createGiftDeliveryOutboxRows,
     dispatchGiftById,
     giftReservationTtlMinutes: config.GIFT_RESERVATION_TTL_MINUTES,
   });

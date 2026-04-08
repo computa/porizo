@@ -1370,7 +1370,7 @@ describe("Share Flow", () => {
       const { share_id } = await createShareableTrackAndShare();
       const res = await app.inject({
         method: "POST", url: `/share/${share_id}/claim`,
-        headers: { "x-device-id": "test-device-v2" },
+        headers: { "x-device-id": "test-device-v2", "x-platform": "ios" },
         payload: {},
       });
       // 401 = authentication required (PIN is the credential)
@@ -1383,7 +1383,7 @@ describe("Share Flow", () => {
       const { share_id, claim_pin } = await createShareableTrackAndShare();
       const res = await app.inject({
         method: "POST", url: `/share/${share_id}/claim`,
-        headers: { "x-device-id": "test-device-v2b" },
+        headers: { "x-device-id": "test-device-v2b", "x-platform": "ios" },
         payload: { pin: claim_pin },
       });
       assert.strictEqual(res.statusCode, 200);
@@ -1434,7 +1434,7 @@ describe("Share Flow", () => {
   });
 
   describe("Poem share hardening", () => {
-    const poemUserId = "poem_share_test_user";
+    const poemUserId = "11111111-1111-4111-8111-111111111111";
 
     async function createPoemAndShare() {
       db.prepare("INSERT OR IGNORE INTO users (id, created_at, risk_level) VALUES (?, ?, ?)")
@@ -1558,7 +1558,7 @@ describe("Share Flow", () => {
       // Claim without PIN should fail (401 = auth required, PIN is the credential)
       const claimNoPin = await app.inject({
         method: "POST", url: `/share/${shareId}/claim`,
-        headers: { "x-device-id": "gift-device" },
+        headers: { "x-device-id": "gift-device", "x-platform": "ios" },
         payload: {},
       });
       assert.strictEqual(claimNoPin.statusCode, 401, "claim without PIN must fail");
@@ -1566,7 +1566,7 @@ describe("Share Flow", () => {
       // Claim with PIN should succeed
       const claimWithPin = await app.inject({
         method: "POST", url: `/share/${shareId}/claim`,
-        headers: { "x-device-id": "gift-device" },
+        headers: { "x-device-id": "gift-device", "x-platform": "ios" },
         payload: { pin },
       });
       assert.strictEqual(claimWithPin.statusCode, 200, "claim with correct PIN must succeed");

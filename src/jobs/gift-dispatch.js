@@ -7,12 +7,14 @@
 
 const DEFAULT_INTERVAL_MS = 30 * 1000;
 const DEFAULT_BATCH_SIZE = 25;
+const DEFAULT_STALE_DISPATCH_MS = 10 * 60 * 1000;
 
 function startGiftDispatchJob({
   db,
   dispatchGiftById,
   intervalMs = DEFAULT_INTERVAL_MS,
   batchSize = DEFAULT_BATCH_SIZE,
+  staleDispatchMs = DEFAULT_STALE_DISPATCH_MS,
 }) {
   if (!db) {
     throw new Error("startGiftDispatchJob requires db");
@@ -34,12 +36,38 @@ function startGiftDispatchJob({
     let failed = 0;
 
     try {
+      const staleCutoff = new Date(Date.now() - staleDispatchMs).toISOString();
+      await db.prepare(
+        `UPDATE gift_orders
+         SET status = 'dispatch_retry',
+             dispatch_status = 'error',
+             dispatch_started_at = NULL,
+             next_retry_at = ?,
+             last_dispatch_error = COALESCE(last_dispatch_error, 'stale_dispatch_recovered'),
+             updated_at = ?
+         WHERE status = 'dispatching'
+           AND dispatch_started_at IS NOT NULL
+           AND dispatch_started_at <= ?`
+      ).run(now, now, staleCutoff);
+
+      await db.prepare(
+        `UPDATE gift_delivery_outbox
+         SET status = 'failed',
+             last_error = COALESCE(last_error, 'stale_channel_send_recovered'),
+             next_retry_at = ?,
+             locked_at = NULL,
+             updated_at = ?
+         WHERE status = 'sending'
+           AND locked_at IS NOT NULL
+           AND locked_at <= ?`
+      ).run(now, now, staleCutoff);
+
       const dueGifts = await db
         .prepare(
           `SELECT id
            FROM gift_orders
            WHERE status IN ('scheduled', 'dispatch_retry')
-             AND send_at <= ?
+             AND COALESCE(next_retry_at, send_at) <= ?
            ORDER BY send_at ASC
            LIMIT ?`
         )
