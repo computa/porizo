@@ -154,6 +154,8 @@ describe("Suno Provider", () => {
       assert.equal(classifySunoStatus("TEXT_SUCCESS").phase, "provisional_success");
       assert.equal(classifySunoStatus("AUDIO_SUCCESS").phase, "audio_success");
       assert.equal(classifySunoStatus("FAILED").phase, "failed");
+      assert.equal(classifySunoStatus("CREATE_TASK_FAILED").phase, "failed");
+      assert.equal(classifySunoStatus("GENERATE_FAILED").phase, "failed");
       assert.equal(classifySunoStatus("PENDING").phase, "pending");
     });
 

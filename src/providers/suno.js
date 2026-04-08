@@ -33,7 +33,7 @@ function classifySunoStatus(status) {
   if (!normalized) {
     return { phase: "pending", status: normalized };
   }
-  if (SUNO_FAILED_STATUSES.has(normalized) || normalized.endsWith("_ERROR")) {
+  if (SUNO_FAILED_STATUSES.has(normalized) || normalized.endsWith("_ERROR") || normalized.endsWith("_FAILED")) {
     return { phase: "failed", status: normalized };
   }
   if (SUNO_AUDIO_SUCCESS_STATUSES.has(normalized)) {
