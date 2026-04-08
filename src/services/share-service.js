@@ -4,6 +4,63 @@ const crypto = require("crypto");
 const { newUuid, newShareId } = require("../utils/ids");
 const { nowIso } = require("../utils/common");
 
+const LIFETIME_SHARE_EXPIRES_AT = "9999-12-31T23:59:59.000Z";
+
+function isLifetimeShare(share) {
+  return share?.share_type === "lifetime";
+}
+
+function isDemoShare(share) {
+  return share?.share_type === "demo";
+}
+
+function isShareUsable(share) {
+  if (!share || share.status === "revoked") {
+    return false;
+  }
+  if (isLifetimeShare(share) || isDemoShare(share)) {
+    return true;
+  }
+  return new Date(share.expires_at) > new Date();
+}
+
+/**
+ * Auto-heal a lifetime share that was incorrectly stamped "expired" by old code,
+ * then check if the share is usable. Mutates `share.status` in-place if healed.
+ * @returns {boolean} true if the share is usable
+ */
+async function healAndCheckShare(db, share, table, activeStatus) {
+  if (share.status === "expired" && isLifetimeShare(share)) {
+    const isBound = share.bound_device_id || share.bound_user_id;
+    share.status = isBound ? "claimed" : activeStatus;
+    await db.prepare(`UPDATE ${table} SET status = ? WHERE id = ?`)
+      .run(share.status, share.id);
+  }
+  if (!isShareUsable(share)) {
+    if (share.status !== "expired") {
+      await db.prepare(`UPDATE ${table} SET status = ? WHERE id = ?`)
+        .run("expired", share.id);
+    }
+    return false;
+  }
+  return true;
+}
+
+async function upgradeToLifetime(db, share, table, activeStatus) {
+  if (share.status === "revoked" || isLifetimeShare(share)) return share;
+  const isBound = share.bound_device_id || share.bound_user_id;
+  const nextStatus = share.status === "expired"
+    ? (isBound ? "claimed" : activeStatus)
+    : (share.status || activeStatus);
+  await db.prepare(
+    `UPDATE ${table} SET share_type = ?, expires_at = ?, status = ? WHERE id = ?`
+  ).run("lifetime", LIFETIME_SHARE_EXPIRES_AT, nextStatus, share.id);
+  share.share_type = "lifetime";
+  share.expires_at = LIFETIME_SHARE_EXPIRES_AT;
+  share.status = nextStatus;
+  return share;
+}
+
 /**
  * Create or return an existing share token for a track.
  *
@@ -15,7 +72,6 @@ const { nowIso } = require("../utils/common");
  * @param {string} options.trackId
  * @param {string} options.trackVersionId
  * @param {string} options.userId - Creator user ID
- * @param {number} [options.expiresInDays=30]
  * @param {Function} options.buildShareUrl - (shareId) => full URL
  * @param {Function} [options.ensureShareMp4] - Optional mp4 pre-generation
  * @param {Object} [options.attribution] - UTM/referrer/IP/UA for analytics
@@ -26,7 +82,6 @@ async function createOrGetShareToken({
   trackId,
   trackVersionId,
   userId,
-  expiresInDays = 30,
   buildShareUrl,
   ensureShareMp4,
   attribution = {},
@@ -36,9 +91,10 @@ async function createOrGetShareToken({
   if (track?.share_token_id) {
     const existing = await db.prepare("SELECT * FROM share_tokens WHERE id = ?").get(track.share_token_id);
     if (existing && existing.status !== "revoked") {
-      const isDemo = existing.share_type === "demo";
-      const isValid = isDemo || new Date(existing.expires_at) > new Date();
-      if (isValid) {
+      if (!isLifetimeShare(existing) && !isDemoShare(existing)) {
+        await upgradeToLifetime(db, existing, "share_tokens", "unbound");
+      }
+      if (isShareUsable(existing)) {
         return {
           shareId: existing.id,
           shareUrl: buildShareUrl(existing.id),
@@ -47,17 +103,11 @@ async function createOrGetShareToken({
           existing: true,
         };
       }
-      // Expired — mark it
-      if (!isDemo && existing.status !== "expired") {
-        await db.prepare("UPDATE share_tokens SET status = ? WHERE id = ?").run("expired", existing.id);
-      }
     }
   }
 
   const shareId = newShareId();
-  const expiresAt = new Date(
-    Date.now() + expiresInDays * 24 * 60 * 60 * 1000
-  ).toISOString();
+  const expiresAt = LIFETIME_SHARE_EXPIRES_AT;
   const streamKeyId = newUuid();
   const streamKey = crypto.randomBytes(16).toString("base64");
   const claimPin = String(crypto.randomInt(100000, 1000000));
@@ -68,13 +118,14 @@ async function createOrGetShareToken({
   ).run(trackId);
 
   await db.prepare(
-    "INSERT INTO share_tokens (id, track_id, track_version_id, creator_id, status, bound_device_id, bound_device_platform, bound_app_version, bound_at, web_stream_allowed, app_save_allowed, expires_at, created_at, last_accessed_at, access_count, stream_key_id, stream_key, claim_pin, claim_attempts, utm_source, utm_medium, utm_campaign, referrer, created_ip, created_user_agent) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    "INSERT INTO share_tokens (id, track_id, track_version_id, creator_id, status, share_type, bound_device_id, bound_device_platform, bound_app_version, bound_at, web_stream_allowed, app_save_allowed, expires_at, created_at, last_accessed_at, access_count, stream_key_id, stream_key, claim_pin, claim_attempts, utm_source, utm_medium, utm_campaign, referrer, created_ip, created_user_agent) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
   ).run(
     shareId,
     trackId,
     trackVersionId,
     userId,
     "unbound",
+    "lifetime",
     null, null, null, null, // device binding
     1, 1, // web_stream_allowed, app_save_allowed
     expiresAt,
@@ -110,4 +161,82 @@ async function createOrGetShareToken({
   };
 }
 
-module.exports = { createOrGetShareToken };
+async function ensurePoemShareToken({
+  db,
+  poemId,
+  userId,
+  allowSave = true,
+  buildShareUrl,
+  attribution = {},
+}) {
+  const poem = await db.prepare("SELECT share_token_id FROM poems WHERE id = ?").get(poemId);
+  if (poem?.share_token_id) {
+    const existing = await db.prepare("SELECT * FROM poem_share_tokens WHERE id = ?").get(poem.share_token_id);
+    if (existing && existing.status !== "revoked") {
+      if (!isLifetimeShare(existing) && !isDemoShare(existing)) {
+        await upgradeToLifetime(db, existing, "poem_share_tokens", "active");
+      }
+      if (isShareUsable(existing)) {
+        return {
+          shareId: existing.id,
+          shareUrl: buildShareUrl(existing.id),
+          claimPin: existing.claim_pin,
+          expiresAt: existing.expires_at,
+          existing: true,
+        };
+      }
+    }
+  }
+
+  const shareId = newShareId();
+  const claimPin = String(crypto.randomInt(100000, 1000000));
+
+  await db.prepare(
+    "DELETE FROM poem_share_tokens WHERE poem_id = ? AND status IN ('expired', 'revoked')"
+  ).run(poemId);
+
+  await db.prepare(
+    `INSERT INTO poem_share_tokens (
+      id, poem_id, creator_id, status, share_type, claim_pin, claim_attempts, allow_save, expires_at,
+      created_at, access_count, utm_source, utm_medium, utm_campaign, referrer, created_ip, created_user_agent
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    shareId,
+    poemId,
+    userId,
+    "active",
+    "lifetime",
+    claimPin,
+    0,
+    allowSave ? 1 : 0,
+    LIFETIME_SHARE_EXPIRES_AT,
+    nowIso(),
+    0,
+    attribution.utmSource || null,
+    attribution.utmMedium || null,
+    attribution.utmCampaign || null,
+    attribution.referrer || null,
+    attribution.ip || null,
+    attribution.userAgent || null
+  );
+
+  await db.prepare("UPDATE poems SET share_token_id = ?, updated_at = ? WHERE id = ?")
+    .run(shareId, nowIso(), poemId);
+
+  return {
+    shareId,
+    shareUrl: buildShareUrl(shareId),
+    claimPin,
+    expiresAt: LIFETIME_SHARE_EXPIRES_AT,
+    existing: false,
+  };
+}
+
+module.exports = {
+  LIFETIME_SHARE_EXPIRES_AT,
+  isLifetimeShare,
+  isShareUsable,
+  healAndCheckShare,
+  createOrGetShareToken,
+  ensurePoemShareToken,
+};

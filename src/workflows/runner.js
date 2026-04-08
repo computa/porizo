@@ -3905,7 +3905,6 @@ async function startJobRunner({
             trackId: trackReady.id,
             trackVersionId: trackVersionReady.id,
             userId: trackReady.user_id,
-            expiresInDays: 90,
             buildShareUrl: (shareId) => `${streamBaseUrl}/play/${shareId}`,
           });
         } catch (shareErr) {

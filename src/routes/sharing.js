@@ -6,6 +6,7 @@ const path = require("path");
 const QRCode = require("qrcode");
 const { newUuid } = require("../utils/ids");
 const { nowIso, toJson, parseJson, ensureDir } = require("../utils/common");
+const { isShareUsable, healAndCheckShare } = require("../services/share-service");
 
 function registerSharingRoutes(app, {
   db,
@@ -77,15 +78,11 @@ async function resolveValidShare(request, reply) {
     sendError(reply, 404, "SHARE_NOT_FOUND", "Share token not found.");
     return null;
   }
-  if (isShareExpired(share)) {
-    await db.prepare("UPDATE share_tokens SET status = ? WHERE id = ?").run("expired", share.id);
+  if (!await healAndCheckShare(db, share, "share_tokens", "unbound")) {
     sendError(reply, 410, "SHARE_EXPIRED", "Share token expired.");
     return null;
   }
   return share;
-}
-function isShareExpired(share) {
-  return share.share_type !== "demo" && new Date(share.expires_at) < new Date();
 }
 
 // ============ Download Token (HMAC-signed, short-lived) ============
@@ -142,6 +139,7 @@ async function servePublicSharePreviewAudio(request, reply, {
 
   const versionDir = getVersionDir(track, trackVersion);
 
+  // Try preview first, fall back to full render audio
   const localPreview = path.join(versionDir, "preview.m4a");
   const previewKey = trackPreviewKey({
     userId: track.user_id,
@@ -149,7 +147,14 @@ async function servePublicSharePreviewAudio(request, reply, {
     versionNum: trackVersion.version_num,
   });
   await ensureLocalFileFromStorage({ key: previewKey, localPath: localPreview });
-  const audioPath = fs.existsSync(localPreview) ? localPreview : null;
+  let audioPath = fs.existsSync(localPreview) ? localPreview : null;
+
+  if (!audioPath) {
+    const localFull = path.join(versionDir, "full.m4a");
+    const fullKey = previewKey.replace(/preview\.m4a$/, "full.m4a");
+    await ensureLocalFileFromStorage({ key: fullKey, localPath: localFull });
+    audioPath = fs.existsSync(localFull) ? localFull : null;
+  }
 
   if (!audioPath) {
     sendError(reply, 404, "AUDIO_NOT_AVAILABLE", "Audio not available.");
@@ -947,7 +952,6 @@ app.get("/share/:shareId/audio", async (request, reply) => {
     share,
     track,
     trackVersion,
-    consumeRateLimit,
     ensureLocalFileFromStorage,
     getVersionDir,
     sendMediaFile,
@@ -982,7 +986,6 @@ app.get("/share/:shareId/teaser", async (request, reply) => {
     share,
     track,
     trackVersion,
-    consumeRateLimit,
     ensureLocalFileFromStorage,
     getVersionDir,
     sendMediaFile,
@@ -1207,7 +1210,7 @@ app.get("/share/:shareId/download.mp4", async (request, reply) => {
     sendError(reply, 404, "SHARE_NOT_FOUND", "Share token not found.");
     return;
   }
-  if (isShareExpired(share)) {
+  if (!isShareUsable(share)) {
     sendError(reply, 410, "SHARE_EXPIRED", "Share token expired.");
     return;
   }
@@ -1488,7 +1491,7 @@ app.get("/tracks/:id/share/stats", async (request, reply) => {
     status: share.status,
     created_at: share.created_at,
     expires_at: share.expires_at,
-    is_expired: isShareExpired(share),
+    is_expired: !isShareUsable(share),
     total_events: totalEvents,
     event_counts: eventCounts,
     is_claimed: !!share.bound_device_id,
@@ -1528,7 +1531,7 @@ app.get("/tracks/:id/share/qr", async (request, reply) => {
     sendError(reply, 410, "SHARE_REVOKED", "Share has been revoked.");
     return;
   }
-  if (isShareExpired(share)) {
+  if (!isShareUsable(share)) {
     sendError(reply, 410, "SHARE_EXPIRED", "Share has expired.");
     return;
   }
@@ -1594,7 +1597,7 @@ app.get("/tracks/:id/share/qr-data", async (request, reply) => {
     sendError(reply, 410, "SHARE_REVOKED", "Share has been revoked.");
     return;
   }
-  if (isShareExpired(share)) {
+  if (!isShareUsable(share)) {
     sendError(reply, 410, "SHARE_EXPIRED", "Share has expired.");
     return;
   }

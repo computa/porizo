@@ -1315,4 +1315,306 @@ describe("Share Flow", () => {
       assert.strictEqual(body.error, "SHARE_NOT_FOUND");
     });
   });
+
+  // ================================================================
+  // Share Link Hardening Validations
+  // ================================================================
+
+  describe("Lifetime share hardening", () => {
+    const hardenUserId = "harden_test_user";
+
+    async function createShareableTrackAndShare() {
+      db.prepare("INSERT OR IGNORE INTO users (id, created_at, risk_level) VALUES (?, ?, ?)")
+        .run(hardenUserId, new Date().toISOString(), "low");
+
+      const trackRes = await app.inject({
+        method: "POST", url: "/tracks",
+        headers: { "x-user-id": hardenUserId },
+        payload: { title: "Harden Song " + Date.now(), recipient_name: "Tester", message: "Test", style: "pop", occasion: "birthday" },
+      });
+      const trackId = JSON.parse(trackRes.body).track_id;
+
+      const verRes = await app.inject({
+        method: "POST", url: `/tracks/${trackId}/versions`,
+        headers: { "x-user-id": hardenUserId },
+        payload: { style: "pop" },
+      });
+      const versionNum = JSON.parse(verRes.body).version_num;
+
+      db.prepare("UPDATE track_versions SET preview_url = ? WHERE track_id = ? AND version_num = ?")
+        .run("http://stream.local/test.m3u8", trackId, versionNum);
+
+      const shareRes = await app.inject({
+        method: "POST", url: `/tracks/${trackId}/share`,
+        headers: { "x-user-id": hardenUserId },
+        payload: { version_num: versionNum },
+      });
+      assert.strictEqual(shareRes.statusCode, 200);
+      const share = JSON.parse(shareRes.body);
+      return { trackId, versionNum, ...share };
+    }
+
+    // Validation 1: Song share is lifetime with correct fields
+    it("V1: song share is created as lifetime with correct fields", async () => {
+      const { share_id } = await createShareableTrackAndShare();
+      const row = db.prepare("SELECT * FROM share_tokens WHERE id = ?").get(share_id);
+      assert.strictEqual(row.share_type, "lifetime", "share_type must be lifetime");
+      assert.strictEqual(row.expires_at, "9999-12-31T23:59:59.000Z", "expires_at must be far-future");
+      assert.strictEqual(row.status, "unbound");
+      assert.ok(row.claim_pin, "must have a claim PIN");
+      assert.strictEqual(row.claim_pin.length, 6, "PIN must be 6 digits");
+    });
+
+    // Validation 2: Song app claim requires PIN
+    it("V2: song claim without PIN is rejected", async () => {
+      const { share_id } = await createShareableTrackAndShare();
+      const res = await app.inject({
+        method: "POST", url: `/share/${share_id}/claim`,
+        headers: { "x-device-id": "test-device-v2" },
+        payload: {},
+      });
+      // 401 = authentication required (PIN is the credential)
+      assert.strictEqual(res.statusCode, 401);
+      const body = JSON.parse(res.body);
+      assert.strictEqual(body.error, "INVALID_PIN");
+    });
+
+    it("V2: song claim with correct PIN succeeds", async () => {
+      const { share_id, claim_pin } = await createShareableTrackAndShare();
+      const res = await app.inject({
+        method: "POST", url: `/share/${share_id}/claim`,
+        headers: { "x-device-id": "test-device-v2b" },
+        payload: { pin: claim_pin },
+      });
+      assert.strictEqual(res.statusCode, 200);
+      const body = JSON.parse(res.body);
+      assert.strictEqual(body.status, "claimed");
+    });
+
+    // Validation 3: Song web playback does NOT require PIN
+    it("V3: song web playback serves audio without PIN", async () => {
+      const { share_id } = await createShareableTrackAndShare();
+      // GET /share/:shareId should return web_stream_url for unbound shares
+      const infoRes = await app.inject({
+        method: "GET", url: `/share/${share_id}`,
+      });
+      assert.strictEqual(infoRes.statusCode, 200);
+      const info = JSON.parse(infoRes.body);
+      assert.strictEqual(info.status, "unbound");
+      assert.ok(info.web_stream_url, "web_stream_url must be populated for unbound share");
+      assert.ok(info.web_stream_url.includes("/audio"), "stream URL must point to audio endpoint");
+    });
+
+    // Regression: Lifetime auto-heal recovers corrupted shares
+    it("auto-heals lifetime share incorrectly marked expired", async () => {
+      const { share_id } = await createShareableTrackAndShare();
+      // Corrupt: simulate the old bug writing status='expired'
+      db.prepare("UPDATE share_tokens SET status = ? WHERE id = ?").run("expired", share_id);
+
+      const res = await app.inject({
+        method: "GET", url: `/share/${share_id}`,
+      });
+      assert.strictEqual(res.statusCode, 200, "auto-heal should recover the share");
+      // Verify DB was healed
+      const row = db.prepare("SELECT status FROM share_tokens WHERE id = ?").get(share_id);
+      assert.strictEqual(row.status, "unbound", "status should be healed back to unbound");
+    });
+
+    it("does NOT auto-heal genuinely expired normal shares", async () => {
+      const { share_id } = await createShareableTrackAndShare();
+      // Set to normal with past expiry — genuinely expired
+      db.prepare("UPDATE share_tokens SET share_type = ?, expires_at = ?, status = ? WHERE id = ?")
+        .run("normal", "2020-01-01T00:00:00.000Z", "expired", share_id);
+
+      const res = await app.inject({
+        method: "GET", url: `/share/${share_id}`,
+      });
+      assert.strictEqual(res.statusCode, 410, "genuinely expired share must stay expired");
+    });
+  });
+
+  describe("Poem share hardening", () => {
+    const poemUserId = "poem_share_test_user";
+
+    async function createPoemAndShare() {
+      db.prepare("INSERT OR IGNORE INTO users (id, created_at, risk_level) VALUES (?, ?, ?)")
+        .run(poemUserId, new Date().toISOString(), "low");
+
+      // Create poem directly in DB (poem creation route may require story context)
+      const poemId = "poem_" + Date.now();
+      const verses = JSON.stringify(["Roses are red", "Violets are blue", "This is a test", "Just for you"]);
+      db.prepare(
+        "INSERT INTO poems (id, user_id, title, recipient_name, occasion, verses, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+      ).run(poemId, poemUserId, "Test Poem", "PoemRecipient", "birthday", verses, "completed", new Date().toISOString(), new Date().toISOString());
+
+      const shareRes = await app.inject({
+        method: "POST", url: `/poems/${poemId}/share`,
+        headers: { "x-user-id": poemUserId },
+        payload: {},
+      });
+      assert.strictEqual(shareRes.statusCode, 200);
+      const share = JSON.parse(shareRes.body);
+      return { poemId, ...share };
+    }
+
+    // Validation 4: Poem app claim requires PIN
+    it("V4: poem claim without PIN is rejected", async () => {
+      const { share_id } = await createPoemAndShare();
+      const res = await app.inject({
+        method: "POST", url: `/poem-share/${share_id}/claim`,
+        headers: { "x-user-id": poemUserId },
+        payload: {},
+      });
+      assert.strictEqual(res.statusCode, 401, "Poem claim without PIN must return 401");
+    });
+
+    it("V4: poem claim with correct PIN succeeds", async () => {
+      const { share_id, claim_pin } = await createPoemAndShare();
+      const res = await app.inject({
+        method: "POST", url: `/poem-share/${share_id}/claim`,
+        headers: { "x-user-id": poemUserId },
+        payload: { pin: claim_pin },
+      });
+      assert.strictEqual(res.statusCode, 200);
+      const body = JSON.parse(res.body);
+      assert.strictEqual(body.status, "claimed");
+    });
+
+    // Validation 5: Poem social display does NOT require PIN
+    it("V5: poem share info returns preview without PIN", async () => {
+      const { share_id } = await createPoemAndShare();
+      const res = await app.inject({
+        method: "GET", url: `/poem-share/${share_id}`,
+      });
+      assert.strictEqual(res.statusCode, 200);
+      const body = JSON.parse(res.body);
+      assert.ok(body.poem, "must return poem data");
+      assert.ok(body.poem.preview_lines, "must return preview_lines");
+      assert.ok(body.poem.preview_lines.length > 0, "preview must have content");
+      // PIN is required for claiming, but content is visible
+      assert.strictEqual(body.requires_pin, true, "requires_pin should be true (gating claim, not display)");
+    });
+
+    // Poem lifetime: shares created via service should be lifetime
+    it("poem share is created as lifetime with correct fields", async () => {
+      const { share_id } = await createPoemAndShare();
+      const row = db.prepare("SELECT * FROM poem_share_tokens WHERE id = ?").get(share_id);
+      assert.strictEqual(row.share_type, "lifetime", "share_type must be lifetime");
+      assert.strictEqual(row.expires_at, "9999-12-31T23:59:59.000Z", "expires_at must be far-future");
+      assert.ok(row.claim_pin, "must have claim PIN");
+    });
+  });
+
+  describe("Gift share hardening", () => {
+    const giftUserId = "gift_share_test_user";
+
+    // Validation 6: Gift shares follow same claim/playback rules
+    it("V6: gift song share (app_only) blocks web stream and requires PIN to claim", async () => {
+      db.prepare("INSERT OR IGNORE INTO users (id, created_at, risk_level) VALUES (?, ?, ?)")
+        .run(giftUserId, new Date().toISOString(), "low");
+
+      // Create track + version
+      const trackRes = await app.inject({
+        method: "POST", url: "/tracks",
+        headers: { "x-user-id": giftUserId },
+        payload: { title: "Gift Song " + Date.now(), recipient_name: "GiftRecipient", message: "Happy Birthday", style: "pop", occasion: "birthday" },
+      });
+      const trackId = JSON.parse(trackRes.body).track_id;
+      const verRes = await app.inject({
+        method: "POST", url: `/tracks/${trackId}/versions`,
+        headers: { "x-user-id": giftUserId },
+        payload: { style: "pop" },
+      });
+      const versionNum = JSON.parse(verRes.body).version_num;
+      const versionId = db.prepare("SELECT id FROM track_versions WHERE track_id = ? AND version_num = ?").get(trackId, versionNum).id;
+      db.prepare("UPDATE track_versions SET preview_url = ? WHERE track_id = ? AND version_num = ?")
+        .run("http://stream.local/gift-preview.m3u8", trackId, versionNum);
+
+      // Simulate gift share by inserting directly (ensureTrackGiftShareToken is in server.js closure)
+      const shareId = "gift_" + Date.now();
+      const pin = "123456";
+      db.prepare(
+        `INSERT INTO share_tokens (id, track_id, track_version_id, creator_id, status, share_type, claim_policy,
+         web_stream_allowed, app_save_allowed, expires_at, created_at, access_count, claim_pin, claim_attempts,
+         stream_key_id, stream_key, delivery_source)
+         VALUES (?, ?, ?, ?, 'unbound', 'normal', 'app_only', 0, 1, ?, ?, 0, ?, 0, ?, ?, 'gift')`
+      ).run(
+        shareId, trackId, versionId, giftUserId,
+        new Date(Date.now() + 30 * 86400000).toISOString(),
+        new Date().toISOString(),
+        pin,
+        require("crypto").randomUUID(),
+        require("crypto").randomBytes(16).toString("base64")
+      );
+      db.prepare("UPDATE tracks SET share_token_id = ? WHERE id = ?").run(shareId, trackId);
+
+      // GET /share/:shareId — app_only gift should have no web_stream_url
+      const infoRes = await app.inject({ method: "GET", url: `/share/${shareId}` });
+      assert.strictEqual(infoRes.statusCode, 200);
+      const info = JSON.parse(infoRes.body);
+      assert.strictEqual(info.app_required, true, "app_only gift must require app");
+      assert.strictEqual(info.web_stream_url, null, "app_only gift must not have web stream URL");
+
+      // Claim without PIN should fail (401 = auth required, PIN is the credential)
+      const claimNoPin = await app.inject({
+        method: "POST", url: `/share/${shareId}/claim`,
+        headers: { "x-device-id": "gift-device" },
+        payload: {},
+      });
+      assert.strictEqual(claimNoPin.statusCode, 401, "claim without PIN must fail");
+
+      // Claim with PIN should succeed
+      const claimWithPin = await app.inject({
+        method: "POST", url: `/share/${shareId}/claim`,
+        headers: { "x-device-id": "gift-device" },
+        payload: { pin },
+      });
+      assert.strictEqual(claimWithPin.statusCode, 200, "claim with correct PIN must succeed");
+      assert.strictEqual(JSON.parse(claimWithPin.body).status, "claimed");
+    });
+
+    it("V6: gift song share (default policy) allows web preview playback", async () => {
+      db.prepare("INSERT OR IGNORE INTO users (id, created_at, risk_level) VALUES (?, ?, ?)")
+        .run(giftUserId, new Date().toISOString(), "low");
+
+      const trackRes = await app.inject({
+        method: "POST", url: "/tracks",
+        headers: { "x-user-id": giftUserId },
+        payload: { title: "Gift Default " + Date.now(), recipient_name: "Recipient", message: "Hi", style: "pop", occasion: "birthday" },
+      });
+      const trackId = JSON.parse(trackRes.body).track_id;
+      const verRes = await app.inject({
+        method: "POST", url: `/tracks/${trackId}/versions`,
+        headers: { "x-user-id": giftUserId },
+        payload: { style: "pop" },
+      });
+      const versionNum = JSON.parse(verRes.body).version_num;
+      const versionId = db.prepare("SELECT id FROM track_versions WHERE track_id = ? AND version_num = ?").get(trackId, versionNum).id;
+      db.prepare("UPDATE track_versions SET preview_url = ? WHERE track_id = ? AND version_num = ?")
+        .run("http://stream.local/gift-default.m3u8", trackId, versionNum);
+
+      // Gift share with default policy (web streaming allowed)
+      const shareId = "giftdef_" + Date.now();
+      db.prepare(
+        `INSERT INTO share_tokens (id, track_id, track_version_id, creator_id, status, share_type, claim_policy,
+         web_stream_allowed, app_save_allowed, expires_at, created_at, access_count, claim_pin, claim_attempts,
+         stream_key_id, stream_key, delivery_source)
+         VALUES (?, ?, ?, ?, 'unbound', 'normal', 'default', 1, 1, ?, ?, 0, ?, 0, ?, ?, 'gift')`
+      ).run(
+        shareId, trackId, versionId, giftUserId,
+        new Date(Date.now() + 30 * 86400000).toISOString(),
+        new Date().toISOString(),
+        "654321",
+        require("crypto").randomUUID(),
+        require("crypto").randomBytes(16).toString("base64")
+      );
+      db.prepare("UPDATE tracks SET share_token_id = ? WHERE id = ?").run(shareId, trackId);
+
+      const infoRes = await app.inject({ method: "GET", url: `/share/${shareId}` });
+      assert.strictEqual(infoRes.statusCode, 200);
+      const info = JSON.parse(infoRes.body);
+      assert.ok(info.web_stream_url, "default-policy gift must have web_stream_url");
+      assert.strictEqual(info.app_required, false, "default-policy gift should not require app");
+    });
+  });
 });

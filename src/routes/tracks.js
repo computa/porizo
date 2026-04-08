@@ -1173,7 +1173,6 @@ function registerTrackRoutes(app, {
       trackId: track.id,
       trackVersionId: trackVersion.id,
       userId,
-      expiresInDays: body.expires_in_days || 30,
       buildShareUrl: buildPlayShareUrl,
       ensureShareMp4: () => ensureShareMp4({ track, trackVersion }),
       attribution: {

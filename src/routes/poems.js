@@ -1,12 +1,12 @@
 "use strict";
 
-const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
-const { newUuid, newShareId } = require("../utils/ids");
+const { newUuid } = require("../utils/ids");
 const { nowIso, toJson, parseJson } = require("../utils/common");
 const { moderationCheck } = require("../providers/moderation");
 const { generatePoem, OCCASIONS, POEM_TONES } = require("../services/poem-generator");
+const { ensurePoemShareToken, healAndCheckShare } = require("../services/share-service");
 
 function registerPoemRoutes(app, {
   db,
@@ -421,93 +421,54 @@ function registerPoemRoutes(app, {
         .run(normalizedVariant, nowIso(), poem.id);
     }
 
-    // Check if already has share token
-    if (poem.share_token_id) {
-      const existingShare = await db.prepare("SELECT * FROM poem_share_tokens WHERE id = ?").get(poem.share_token_id);
-      if (existingShare && existingShare.status !== "revoked" && new Date(existingShare.expires_at) > new Date()) {
-        reply.send({
-          share_id: existingShare.id,
-          share_url: buildPoemShareUrl(existingShare.id),
-          expires_at: existingShare.expires_at,
-          claim_pin: existingShare.claim_pin,
-        });
-        return;
-      }
-    }
-
-    const allowSave = body.allow_save !== undefined ? Boolean(body.allow_save) : true;
-    const shareId = newShareId();
-    const days = Math.max(1, Math.min(365, parseInt(body.expires_in_days, 10) || 30));
-    const expiresAt = new Date(
-      Date.now() + days * 24 * 60 * 60 * 1000
-    ).toISOString();
-
-    // Extract UTM parameters
     const utmSource = request.query.utm_source || body.utm_source || null;
     const utmMedium = request.query.utm_medium || body.utm_medium || null;
     const utmCampaign = request.query.utm_campaign || body.utm_campaign || null;
-    const referrer = request.headers.referer || request.headers.referrer || null;
-    const createdIp = request.ip || null;
-    const createdUserAgent = request.headers["user-agent"] || null;
 
-    // Generate 6-digit PIN for claim verification
-    const claimPin = String(crypto.randomInt(100000, 1000000));
-
-    await db.prepare(
-      `INSERT INTO poem_share_tokens (id, poem_id, creator_id, status, claim_pin, claim_attempts, allow_save, expires_at, created_at, access_count, utm_source, utm_medium, utm_campaign, referrer, created_ip, created_user_agent)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(
-      shareId,
-      poem.id,
+    const result = await ensurePoemShareToken({
+      db,
+      poemId: poem.id,
       userId,
-      "active",
-      claimPin,
-      0,
-      allowSave ? 1 : 0,
-      expiresAt,
-      nowIso(),
-      0,
-      utmSource,
-      utmMedium,
-      utmCampaign,
-      referrer,
-      createdIp,
-      createdUserAgent
-    );
-
-    await db.prepare("UPDATE poems SET share_token_id = ?, updated_at = ? WHERE id = ?").run(
-      shareId,
-      nowIso(),
-      poem.id
-    );
-
-    await addAuditEntry({
-      userId,
-      action: "poem_share_created",
-      resourceType: "poem_share_token",
-      resourceId: shareId,
-    });
-
-    eventsService.emit("poem_share_create", {
-      userId,
-      resourceType: "poem_share",
-      resourceId: shareId,
-      metadata: {
-        poem_id: poem.id,
-        occasion: poem.occasion,
-        utm_source: utmSource,
-        utm_medium: utmMedium,
-        utm_campaign: utmCampaign,
+      allowSave: body.allow_save !== undefined ? Boolean(body.allow_save) : true,
+      buildShareUrl: buildPoemShareUrl,
+      attribution: {
+        utmSource,
+        utmMedium,
+        utmCampaign,
+        referrer: request.headers.referer || request.headers.referrer || null,
+        ip: request.ip || null,
+        userAgent: request.headers["user-agent"] || null,
       },
-      ip: request.ip,
-      userAgent: request.headers["user-agent"],
     });
+
+    if (!result.existing) {
+      await addAuditEntry({
+        userId,
+        action: "poem_share_created",
+        resourceType: "poem_share_token",
+        resourceId: result.shareId,
+      });
+      eventsService.emit("poem_share_create", {
+        userId,
+        resourceType: "poem_share",
+        resourceId: result.shareId,
+        metadata: {
+          poem_id: poem.id,
+          occasion: poem.occasion,
+          utm_source: utmSource,
+          utm_medium: utmMedium,
+          utm_campaign: utmCampaign,
+        },
+        ip: request.ip,
+        userAgent: request.headers["user-agent"],
+      });
+    }
 
     reply.send({
-      share_id: shareId,
-      share_url: buildPoemShareUrl(shareId),
-      expires_at: expiresAt,
-      claim_pin: claimPin,
+      share_id: result.shareId,
+      share_url: result.shareUrl,
+      expires_at: result.expiresAt,
+      claim_pin: result.claimPin,
     });
   });
 
@@ -582,8 +543,7 @@ function registerPoemRoutes(app, {
       return;
     }
 
-    if (new Date(share.expires_at) < new Date() && share.share_type !== "demo") {
-      await db.prepare("UPDATE poem_share_tokens SET status = ? WHERE id = ?").run("expired", share.id);
+    if (!await healAndCheckShare(db, share, "poem_share_tokens", "active")) {
       sendError(reply, 410, "SHARE_EXPIRED", "Poem share expired.");
       return;
     }
@@ -659,8 +619,7 @@ function registerPoemRoutes(app, {
       return;
     }
 
-    if (new Date(share.expires_at) < new Date() && share.share_type !== "demo") {
-      await db.prepare("UPDATE poem_share_tokens SET status = ? WHERE id = ?").run("expired", share.id);
+    if (!await healAndCheckShare(db, share, "poem_share_tokens", "active")) {
       sendError(reply, 410, "SHARE_EXPIRED", "Poem share expired.");
       return;
     }
