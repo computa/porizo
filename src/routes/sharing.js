@@ -68,6 +68,7 @@ function registerSharingRoutes(app, {
   trackMasterKey,
   trackPreviewKey,
   trackVersionKey,
+  serveTrackAudio,
   getUserRiskLevel: _getUserRiskLevel,
   consumeRateLimit,
 }) {
@@ -139,7 +140,6 @@ async function servePublicSharePreviewAudio(request, reply, {
 
   const versionDir = getVersionDir(track, trackVersion);
 
-  // Try preview first, fall back to full render audio
   const localPreview = path.join(versionDir, "preview.m4a");
   const previewKey = trackPreviewKey({
     userId: track.user_id,
@@ -147,13 +147,18 @@ async function servePublicSharePreviewAudio(request, reply, {
     versionNum: trackVersion.version_num,
   });
   await ensureLocalFileFromStorage({ key: previewKey, localPath: localPreview });
-  let audioPath = fs.existsSync(localPreview) ? localPreview : null;
+  const audioPath = fs.existsSync(localPreview) ? localPreview : null;
 
-  if (!audioPath) {
-    const localFull = path.join(versionDir, "full.m4a");
-    const fullKey = previewKey.replace(/preview\.m4a$/, "full.m4a");
-    await ensureLocalFileFromStorage({ key: fullKey, localPath: localFull });
-    audioPath = fs.existsSync(localFull) ? localFull : null;
+  if (!audioPath && trackVersion.full_url) {
+    // No preview file — proxy full render audio via the same path the app uses
+    const masterKey = trackMasterKey({ userId: track.user_id, trackId: track.id, versionNum: trackVersion.version_num, format: "m4a" });
+    await addShareAccessLog({
+      shareTokenId: share.id,
+      eventType: "audio_served",
+      metadata: { user_agent: request.headers["user-agent"] || null, ip: request.ip || null, type: "full_proxy" },
+    });
+    await serveTrackAudio(request, reply, { track, trackVersion, s3Key: masterKey, localFileName: "full.m4a" });
+    return true;
   }
 
   if (!audioPath) {
