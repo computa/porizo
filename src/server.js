@@ -1729,11 +1729,18 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   }
 
   function renderGiftSummary(giftRow) {
+    const contentSnapshot = giftRow.content_snapshot_json
+      ? parseJson(giftRow.content_snapshot_json, null, `gift_${giftRow.id}_content_snapshot`)
+      : null;
+    const contentTitle = giftRow.content_title
+      || (contentSnapshot && typeof contentSnapshot.title === "string" ? contentSnapshot.title : null);
+
     return {
       id: giftRow.id,
       sender_user_id: giftRow.sender_user_id,
       content_type: giftRow.content_type,
       content_id: giftRow.content_id,
+      content_title: contentTitle,
       status: giftRow.status,
       dispatch_status: giftRow.dispatch_status,
       delivery_mode: giftRow.delivery_mode,
@@ -2674,7 +2681,8 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
          ON st.id = t.share_token_id
         AND st.status NOT IN ('revoked', 'expired')
        WHERE t.id = ?
-         AND t.deleted_at IS NULL`
+         AND t.deleted_at IS NULL
+         AND NOT (COALESCE(t.funding_source, 'standard') = 'gift_token' AND tle.origin = 'created')`
     ).get(userId, userId, userId, trackId);
   }
 
@@ -2693,7 +2701,8 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         AND ple.user_id = ?
         AND ple.removed_at IS NULL
        WHERE p.id = ?
-         AND p.deleted_at IS NULL`
+         AND p.deleted_at IS NULL
+         AND NOT (COALESCE(p.funding_source, 'standard') = 'gift_token' AND ple.origin = 'created')`
     ).get(userId, userId, userId, poemId);
   }
 

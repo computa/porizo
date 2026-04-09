@@ -224,4 +224,42 @@ describe("Render Endpoints", async () => {
     );
     assert.equal(jobRows.rows.length, 0, "No full_render job should exist");
   });
+
+  it("POST /tracks/:id/versions/:version/render_full — gift-funded track skips subscription spend", async () => {
+    const { trackId, trackVersionId } = await createTrackAndVersion();
+
+    await db.query(
+      `UPDATE tracks
+       SET funding_source = 'gift_token',
+           gift_reservation_id = 'gres_render_gift'
+       WHERE id = ?`,
+      [trackId]
+    );
+    await db.query(
+      `UPDATE track_versions
+       SET status = 'queued',
+           lyrics_status = 'approved'
+       WHERE id = ?`,
+      [trackVersionId]
+    );
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/tracks/${trackId}/versions/1/render_full`,
+      headers: { "x-user-id": userId },
+      payload: {},
+    });
+
+    assert.equal(response.statusCode, 202, `Expected 202, got ${response.statusCode}: ${response.body}`);
+    assert.equal(spendCalls, 0, "Gift-funded render should not consume subscription entitlement");
+
+    const versionRows = await db.query(
+      "SELECT status, full_job_id, song_entitlement_consumed_at FROM track_versions WHERE id = ?",
+      [trackVersionId]
+    );
+    assert.equal(versionRows.rows.length, 1);
+    assert.equal(versionRows.rows[0].status, "processing");
+    assert.ok(versionRows.rows[0].full_job_id);
+    assert.ok(versionRows.rows[0].song_entitlement_consumed_at, "Gift-funded render should still mark version as funded");
+  });
 });

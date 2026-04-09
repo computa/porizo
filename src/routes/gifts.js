@@ -3,6 +3,10 @@
 const crypto = require("crypto");
 const { nowIso, toJson } = require("../utils/common");
 const { getFeatureFlag } = require("../services/feature-flags");
+const {
+  deleteGiftFundedReservationContent,
+  findGiftFundingContent,
+} = require("../services/gift-funding");
 
 const ACTIVE_RESERVATION_STATUSES = new Set(["reserved", "content_ready"]);
 
@@ -188,7 +192,7 @@ function registerGiftRoutes(app, {
 
   async function validateGiftContent({ userId, contentType, contentId, versionNum = null }) {
     if (contentType === "song") {
-      const track = await db.prepare("SELECT id, user_id, latest_version, deleted_at FROM tracks WHERE id = ?").get(contentId);
+      const track = await db.prepare("SELECT id, user_id, title, recipient_name, occasion, latest_version, deleted_at FROM tracks WHERE id = ?").get(contentId);
       if (!track || track.user_id !== userId || track.deleted_at) {
         const err = new Error("TRACK_NOT_FOUND");
         err.code = "TRACK_NOT_FOUND";
@@ -216,7 +220,11 @@ function registerGiftRoutes(app, {
         contentType: "song",
         contentId: track.id,
         versionNum: resolvedVersionNum,
-        contentSnapshot: null,
+        contentSnapshot: {
+          title: track.title,
+          recipient_name: track.recipient_name,
+          occasion: track.occasion,
+        },
       };
     }
 
@@ -265,6 +273,7 @@ function registerGiftRoutes(app, {
     eventName,
   }) {
     let refundTxId = reservation.refund_transaction_id || null;
+    await deleteGiftFundedReservationContent(db, reservation.id, nowIso());
     if (!refundTxId) {
       const refundTx = await applyGiftWalletTransaction({
         userId: reservation.user_id,
@@ -314,6 +323,41 @@ function registerGiftRoutes(app, {
       auditAction: "gift_reservation_expired",
       eventName: "gift_reservation_expired",
     });
+  }
+
+  async function reconcileReservationContentIfNeeded(reservation) {
+    if (!reservation || !isReservationActiveStatus(reservation.status)) {
+      return reservation;
+    }
+
+    if (reservation.content_type && reservation.content_id) {
+      return reservation;
+    }
+
+    const recovered = await findGiftFundingContent(db, {
+      reservationId: reservation.id,
+    });
+    if (!recovered) {
+      return reservation;
+    }
+
+    await db.prepare(
+      `UPDATE gift_reservations
+       SET status = 'content_ready',
+           content_type = ?,
+           content_id = ?,
+           version_num = ?,
+           updated_at = ?
+       WHERE id = ?`
+    ).run(
+      recovered.contentType,
+      recovered.contentId,
+      recovered.versionNum,
+      nowIso(),
+      reservation.id
+    );
+
+    return await db.prepare("SELECT * FROM gift_reservations WHERE id = ?").get(reservation.id);
   }
 
   async function createGiftOrderFromPayload({
@@ -719,8 +763,10 @@ function registerGiftRoutes(app, {
       return;
     }
 
+    const reconciled = await reconcileReservationContentIfNeeded(resolved);
+
     reply.send({
-      reservation: renderGiftReservation(resolved),
+      reservation: renderGiftReservation(reconciled),
       wallet_balance: (await ensureGiftWalletRow(userId)).balance,
     });
   });
@@ -850,7 +896,9 @@ function registerGiftRoutes(app, {
       return;
     }
 
-    if (!refreshed.content_type || !refreshed.content_id) {
+    const reconciled = await reconcileReservationContentIfNeeded(refreshed);
+
+    if (!reconciled.content_type || !reconciled.content_id) {
       sendError(reply, 400, "RESERVATION_CONTENT_REQUIRED", "Attach song or poem content before finalizing.");
       return;
     }
@@ -875,7 +923,7 @@ function registerGiftRoutes(app, {
         const latestReservation = await queryGet(
           query,
           "SELECT * FROM gift_reservations WHERE id = ?",
-          [refreshed.id]
+          [reconciled.id]
         );
         if (!latestReservation || latestReservation.user_id !== userId) {
           const err = new Error("RESERVATION_NOT_FOUND");

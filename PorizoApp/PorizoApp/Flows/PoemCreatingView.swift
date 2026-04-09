@@ -12,6 +12,7 @@ struct PoemCreatingView: View {
     let storyId: String
     let storyDraftVersion: Int?
     let finalNotes: String?
+    let giftReservationId: String?
     let onPoemReady: (Poem) -> Void
     let onNeedsInput: (StoryGuidanceResponse) -> Void
     let onNeedsDetails: ([StoryPoemGap], String?) -> Void
@@ -149,7 +150,10 @@ struct PoemCreatingView: View {
                 }
 
                 let result = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "createPoemFromStory") {
-                    try await apiClient.createPoemFromStory(storyId: storyId)
+                    try await apiClient.createPoemFromStory(
+                        storyId: storyId,
+                        giftReservationId: giftReservationId
+                    )
                 }
 
                 await MainActor.run {
@@ -185,6 +189,7 @@ struct PoemCreatingView: View {
         storyId: "story_123",
         storyDraftVersion: 3,
         finalNotes: nil,
+        giftReservationId: nil,
         onPoemReady: { _ in },
         onNeedsInput: { _ in },
         onNeedsDetails: { _, _ in },

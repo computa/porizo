@@ -133,6 +133,18 @@ describe("cross-provider fallback removal regression guard", () => {
       );
     }
   });
+
+  test("provider_complete_audio mix branch accepts wav fallback outputs", () => {
+    const runnerSource = fs.readFileSync(
+      path.join(__dirname, "..", "..", "src", "workflows", "runner.js"),
+      "utf-8"
+    );
+
+    assert.ok(
+      runnerSource.includes('path.join(versionDir, isFull ? "inst_full.wav" : "inst_preview.wav")'),
+      "provider_complete_audio mix branch must accept local wav outputs"
+    );
+  });
 });
 
 describe("personalized pipeline skip map integrity", () => {

@@ -74,7 +74,18 @@ actor APIClient {
 
     init(baseURL: String = AppConfig.apiBaseURL, userId: String? = nil, authTokenProvider: AuthTokenClosure? = nil) {
         self.baseURL = baseURL
-        self.deviceUserId = userId ?? Self.getOrCreateUserId()
+        #if DEBUG
+        let debugOverrideUserId = ProcessInfo.processInfo.environment["PORIZO_BYPASS_USER_ID"]?.trimmingCharacters(in: .whitespacesAndNewlines)
+        #else
+        let debugOverrideUserId: String? = nil
+        #endif
+        if let debugOverrideUserId, !debugOverrideUserId.isEmpty {
+            self.deviceUserId = debugOverrideUserId
+        } else if let userId, !userId.isEmpty {
+            self.deviceUserId = userId
+        } else {
+            self.deviceUserId = Self.getOrCreateUserId()
+        }
         self.getAuthToken = authTokenProvider
     }
 
@@ -248,6 +259,14 @@ actor APIClient {
     /// Uses proactive token refresh if available (refreshes if near expiry).
     /// Falls back to existing token, then x-user-id for development.
     func applyAuthHeaders(_ request: inout URLRequest, requiresAuth: Bool = true) async throws {
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["PORIZO_BYPASS_AUTH"] == "1" {
+            request.setValue(deviceUserId, forHTTPHeaderField: "x-user-id")
+            request.setValue(nil, forHTTPHeaderField: "Authorization")
+            return
+        }
+        #endif
+
         // STEP 1: Try proactive token validation (refreshes if near expiry)
         // This prevents 401s by ensuring token is valid BEFORE the request
         if let proactiveProvider = getProactiveToken {

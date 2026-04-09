@@ -3004,12 +3004,13 @@ async function startJobRunner({
           const { downloadToFile } = require("../providers/http");
           await downloadToFile(providerAudioUrl, providerLocalPath, 120000);
         }
-        const providerFallbackPath = path.join(versionDir, isFull ? "inst_full.mp3" : "inst_preview.mp3");
+        const providerFallbackPaths = [
+          path.join(versionDir, isFull ? "inst_full.mp3" : "inst_preview.mp3"),
+          path.join(versionDir, isFull ? "inst_full.wav" : "inst_preview.wav"),
+        ];
         const sourcePath = fs.existsSync(providerLocalPath)
           ? providerLocalPath
-          : fs.existsSync(providerFallbackPath)
-            ? providerFallbackPath
-            : null;
+          : providerFallbackPaths.find((candidatePath) => fs.existsSync(candidatePath)) || null;
         if (!sourcePath) {
           throw new Error("E301_MISSING_INPUTS: Provider-complete audio missing for AI voice mix");
         }

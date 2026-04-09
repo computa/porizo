@@ -128,7 +128,8 @@ extension APIClient {
         storyId: String,
         voiceMode: String? = nil,
         voiceGender: String? = nil,
-        style: String? = nil
+        style: String? = nil,
+        giftReservationId: String? = nil
     ) async throws -> StoryToTrackResponse {
         let url = URL(string: "\(baseURL)/story/\(storyId)/to-track")!
 
@@ -137,7 +138,8 @@ extension APIClient {
             StoryToTrackRequest(
                 voiceMode: voiceMode,
                 voiceGender: voiceGender,
-                style: style
+                style: style,
+                giftReservationId: giftReservationId
             )
         )
 
@@ -412,13 +414,20 @@ extension APIClient {
     func createPoemFromStory(
         storyId: String,
         tone: String? = nil,
-        style: String? = nil
+        style: String? = nil,
+        giftReservationId: String? = nil
     ) async throws -> StoryPoemGenerationResult {
         let url = URL(string: "\(baseURL)/story/\(storyId)/to-poem")!
 
         var request = try await makeRequest(url: url, method: "POST")
         request.timeoutInterval = 120
-        request.httpBody = try JSONEncoder().encode(StoryToPoemRequest(tone: tone, style: style))
+        request.httpBody = try JSONEncoder().encode(
+            StoryToPoemRequest(
+                tone: tone,
+                style: style,
+                giftReservationId: giftReservationId
+            )
+        )
 
         let (data, response) = try await executeWithAuthRetry(
             request: request,

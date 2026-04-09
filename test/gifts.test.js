@@ -379,6 +379,141 @@ describe("Gift scheduling and wallet", () => {
     assert.ok(cancelBody.wallet_balance >= reserveBody.wallet_balance + 1);
   });
 
+  it("deletes gift-funded content when a reservation is cancelled", async () => {
+    await creditGiftToken("gift_tx_reserve_cancel_funded_1");
+
+    const reserveRes = await app.inject({
+      method: "POST",
+      url: "/gifts/reservations",
+      headers: {
+        "x-user-id": userId,
+        "idempotency-key": `reserve_cancel_funded_${Date.now()}`,
+      },
+      payload: { flow_type: "gift" },
+    });
+    assert.strictEqual(reserveRes.statusCode, 200, reserveRes.body);
+    const reserveBody = JSON.parse(reserveRes.body);
+
+    const trackId = `track_gift_funded_${Date.now()}`;
+    const addedAt = nowIso();
+    db.prepare(
+      `INSERT INTO tracks (
+        id, user_id, status, title, occasion, recipient_name, style, voice_mode,
+        latest_version, funding_source, gift_reservation_id, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      trackId,
+      userId,
+      "draft",
+      "Gift-funded Track",
+      "birthday",
+      "Jamie",
+      "pop",
+      "ai_voice",
+      1,
+      "gift_token",
+      reserveBody.reservation.id,
+      addedAt,
+      addedAt
+    );
+    db.prepare(
+      `INSERT INTO track_library_entries (user_id, track_id, origin, share_token_id, added_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).run(
+      userId,
+      trackId,
+      "created",
+      null,
+      addedAt,
+      addedAt
+    );
+
+    const cancelRes = await app.inject({
+      method: "POST",
+      url: `/gifts/reservations/${reserveBody.reservation.id}/cancel`,
+      headers: { "x-user-id": userId },
+    });
+    assert.strictEqual(cancelRes.statusCode, 200, cancelRes.body);
+
+    const trackRow = db.prepare("SELECT deleted_at FROM tracks WHERE id = ?").get(trackId);
+    assert.ok(trackRow.deleted_at, "Gift-funded track should be soft-deleted");
+    const libraryRow = db.prepare(
+      "SELECT removed_at FROM track_library_entries WHERE track_id = ? AND user_id = ?"
+    ).get(trackId, userId);
+    assert.ok(libraryRow.removed_at, "Gift-funded track library entry should be removed");
+  });
+
+  it("deletes gift-funded content when a reservation expires", async () => {
+    await creditGiftToken("gift_tx_reserve_expire_funded_1");
+
+    const reserveRes = await app.inject({
+      method: "POST",
+      url: "/gifts/reservations",
+      headers: {
+        "x-user-id": userId,
+        "idempotency-key": `reserve_expire_funded_${Date.now()}`,
+      },
+      payload: { flow_type: "gift" },
+    });
+    assert.strictEqual(reserveRes.statusCode, 200, reserveRes.body);
+    const reserveBody = JSON.parse(reserveRes.body);
+
+    const trackId = `track_gift_expire_${Date.now()}`;
+    const addedAt = nowIso();
+    db.prepare(
+      `INSERT INTO tracks (
+        id, user_id, status, title, occasion, recipient_name, style, voice_mode,
+        latest_version, funding_source, gift_reservation_id, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      trackId,
+      userId,
+      "draft",
+      "Expiring Gift-funded Track",
+      "birthday",
+      "Jamie",
+      "pop",
+      "ai_voice",
+      1,
+      "gift_token",
+      reserveBody.reservation.id,
+      addedAt,
+      addedAt
+    );
+    db.prepare(
+      `INSERT INTO track_library_entries (user_id, track_id, origin, share_token_id, added_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).run(
+      userId,
+      trackId,
+      "created",
+      null,
+      addedAt,
+      addedAt
+    );
+
+    const expiredAt = new Date(Date.now() - 60_000).toISOString();
+    db.prepare(
+      "UPDATE gift_reservations SET expires_at = ?, updated_at = ? WHERE id = ?"
+    ).run(expiredAt, expiredAt, reserveBody.reservation.id);
+
+    const result = await app.expireGiftReservations({ limit: 10 });
+    assert.strictEqual(result.processed, 1);
+
+    const reservationRow = db.prepare(
+      "SELECT status, refund_transaction_id FROM gift_reservations WHERE id = ?"
+    ).get(reserveBody.reservation.id);
+    assert.strictEqual(reservationRow.status, "expired");
+    assert.ok(reservationRow.refund_transaction_id, "Expired reservation should refund the token");
+
+    const trackRow = db.prepare("SELECT deleted_at FROM tracks WHERE id = ?").get(trackId);
+    assert.ok(trackRow.deleted_at, "Expired reservation should soft-delete gift-funded track");
+    const libraryRow = db.prepare(
+      "SELECT removed_at FROM track_library_entries WHERE track_id = ? AND user_id = ?"
+    ).get(trackId, userId);
+    assert.ok(libraryRow.removed_at, "Expired reservation should remove gift-funded library entry");
+  });
+
   it("enforces prepay when gift_prepay_enforced flag is enabled", async () => {
     setFeatureFlag("gift_prepay_enforced", true);
     try {

@@ -22,7 +22,7 @@ struct ProfileCompletionView: View {
     @State private var displayName = ""
     @State private var email = ""
     @State private var phoneNumber = ""
-    @State private var selectedCountry: Country = .defaultCountry
+    @State private var selectedCountry: Country = .default
     @State private var showCountryPicker = false
     @State private var isSaving = false
     @State private var errorMessage: String?
@@ -76,8 +76,7 @@ struct ProfileCompletionView: View {
     }
 
     private var e164PhoneNumber: String {
-        let digits = phoneNumber.filter { $0.isNumber }
-        return selectedCountry.dialCode + digits
+        normalizedE164PhoneNumber(phoneNumber, selectedCountry: selectedCountry) ?? ""
     }
 
     private var canContinue: Bool {
@@ -293,12 +292,15 @@ struct ProfileCompletionView: View {
                                 .stroke(DesignTokens.border, lineWidth: 1.5)
                         )
                         .focused($focusedField, equals: .phone)
+                        .onChange(of: phoneNumber) { _, newValue in
+                            phoneNumber = formatPhoneInput(newValue, selectedCountry: selectedCountry)
+                        }
                 }
 
                 if showOTPEntry {
                     // Inline OTP entry
                     inlineOTPSection
-                } else if phoneNumber.filter({ $0.isNumber }).count >= 6 {
+                } else if isValidPhoneNumberInput(phoneNumber, selectedCountry: selectedCountry) {
                     // Send code button
                     Button {
                         Task { await sendPhoneCode() }

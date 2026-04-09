@@ -25,6 +25,10 @@ const { runHttpChecks } = require("../writer/v3/orchestration/http-debugger");
 const { newUuid } = require("../utils/ids");
 const { generateElementGuidance } = require("../writer/v3/guidance");
 const { normalizeStyle } = require("../providers/style-registry");
+const {
+  findGiftFundingContent,
+  validateGiftFundingReservation,
+} = require("../services/gift-funding");
 
 const STORY_INITIAL_PROMPT_WARNING_THRESHOLD = 8000;
 const STORY_INITIAL_PROMPT_MAX_LENGTH = 12000;
@@ -74,6 +78,28 @@ function extractLyricsText(lyrics) {
 const V3_ORCHESTRATION_MAX_DEBUG_CHECKS = 12;
 const V3_ORCHESTRATION_MAX_LIST_LIMIT = 100;
 const V3_ORCHESTRATION_MAX_EVENT_LIST_LIMIT = 500;
+
+function mapGiftFundingError(reply, err) {
+  if (!err?.code) {
+    return false;
+  }
+  const statusCode = Number(err.statusCode) || 409;
+  switch (err.code) {
+    case "GIFT_RESERVATION_NOT_FOUND":
+    case "GIFT_RESERVATION_EXPIRED":
+    case "GIFT_RESERVATION_FINALIZED":
+    case "GIFT_RESERVATION_NOT_ACTIVE":
+    case "GIFT_RESERVATION_CONTENT_MISMATCH":
+    case "GIFT_RESERVATION_CONTENT_ALREADY_CREATED":
+      reply.code(statusCode).send({
+        error: err.code,
+        message: err.message,
+      });
+      return true;
+    default:
+      return false;
+  }
+}
 
 /**
  * Sanitize story state for client consumption.
@@ -274,6 +300,7 @@ const schemas = {
         voice_mode: { type: "string", enum: ["ai_voice", "user_voice"] },
         voice_gender: { type: "string", enum: ["male", "female"] },
         style: { type: "string", maxLength: 50 },
+        gift_reservation_id: { type: "string", minLength: 1, maxLength: 64 },
       },
       additionalProperties: false,
     },
@@ -284,6 +311,7 @@ const schemas = {
       properties: {
         tone: { type: "string", maxLength: 50 },
         style: { type: "string", maxLength: 50 },
+        gift_reservation_id: { type: "string", minLength: 1, maxLength: 64 },
       },
       additionalProperties: false,
     },
@@ -820,6 +848,30 @@ function registerStoryRoutes(app, {
        (user_id, poem_id, origin, share_token_id, added_at, removed_at, updated_at)
        VALUES (?, ?, ?, ?, ?, NULL, ?)`
     ).run(userId, poemId, origin, shareTokenId, addedAt, now);
+  }
+
+  async function removeTrackLibraryEntry({
+    userId,
+    trackId,
+    removedAt = new Date().toISOString(),
+  }) {
+    await db.prepare(
+      `UPDATE track_library_entries
+       SET removed_at = COALESCE(removed_at, ?), updated_at = ?
+       WHERE user_id = ? AND track_id = ? AND removed_at IS NULL`
+    ).run(removedAt, removedAt, userId, trackId);
+  }
+
+  async function removePoemLibraryEntry({
+    userId,
+    poemId,
+    removedAt = new Date().toISOString(),
+  }) {
+    await db.prepare(
+      `UPDATE poem_library_entries
+       SET removed_at = COALESCE(removed_at, ?), updated_at = ?
+       WHERE user_id = ? AND poem_id = ? AND removed_at IS NULL`
+    ).run(removedAt, removedAt, userId, poemId);
   }
 
   async function requireV3OrchestrationAdmin(request, reply) {
@@ -2332,10 +2384,62 @@ function registerStoryRoutes(app, {
     }
 
     const { story_id } = request.params;
-    const { tone, style } = request.body || {};
+    const { tone, style, gift_reservation_id: giftReservationId } = request.body || {};
+    const existingGiftPoem = giftReservationId
+      ? await findGiftFundingContent(db, {
+        reservationId: giftReservationId,
+        contentType: "poem",
+      })
+      : null;
+    if (existingGiftPoem?.contentType === "poem") {
+      const existingPoem = await db.prepare(
+        `SELECT id, user_id, title, recipient_name, occasion, tone, verses, status, created_at, updated_at
+         FROM poems
+         WHERE id = ? AND deleted_at IS NULL`
+      ).get(existingGiftPoem.contentId);
+      if (existingPoem && existingPoem.user_id === userId) {
+        await removePoemLibraryEntry({
+          userId,
+          poemId: existingPoem.id,
+        });
+        reply.send({
+          poem: {
+            id: existingPoem.id,
+            user_id: existingPoem.user_id,
+            title: existingPoem.title,
+            recipient_name: existingPoem.recipient_name,
+            occasion: existingPoem.occasion,
+            tone: existingPoem.tone,
+            verses: JSON.parse(existingPoem.verses || "[]"),
+            status: existingPoem.status,
+            created_at: existingPoem.created_at,
+            updated_at: existingPoem.updated_at,
+          },
+          provider: null,
+          model: null,
+          idempotent: true,
+        });
+        return;
+      }
+    }
+    const giftFundingReservation = giftReservationId
+      ? await validateGiftFundingReservation(db, {
+        userId,
+        reservationId: giftReservationId,
+        contentType: "poem",
+      }).catch((err) => {
+        if (mapGiftFundingError(reply, err)) {
+          return "__handled__";
+        }
+        throw err;
+      })
+      : null;
+    if (giftFundingReservation === "__handled__") {
+      return;
+    }
 
     // C1: Read-only poem credit check BEFORE the LLM call
-    if (subscriptionManager) {
+    if (subscriptionManager && !giftFundingReservation) {
       try {
         const entitlements = await subscriptionManager.getEntitlements(userId);
         if (!entitlements || entitlements.poemsRemaining <= 0) {
@@ -2397,8 +2501,8 @@ function registerStoryRoutes(app, {
       };
 
       await db.prepare(
-        `INSERT INTO poems (id, user_id, title, recipient_name, occasion, tone, verses, message, status, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO poems (id, user_id, title, recipient_name, occasion, tone, verses, message, status, funding_source, gift_reservation_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(
         poemId,
         userId,
@@ -2409,19 +2513,29 @@ function registerStoryRoutes(app, {
         JSON.stringify(result.lines),
         JSON.stringify(provenance),
         "generated",
+        giftFundingReservation ? "gift_token" : "standard",
+        giftFundingReservation?.id || null,
         now,
         now
       );
-      await upsertPoemLibraryEntry({
-        userId,
-        poemId,
-        origin: "created",
-        shareTokenId: null,
-        addedAt: now,
-      });
+      if (giftFundingReservation) {
+        await removePoemLibraryEntry({
+          userId,
+          poemId,
+          removedAt: now,
+        });
+      } else {
+        await upsertPoemLibraryEntry({
+          userId,
+          poemId,
+          origin: "created",
+          shareTokenId: null,
+          addedAt: now,
+        });
+      }
 
       // Spend poem credit after successful generation (mirrors poems.js pattern)
-      if (subscriptionManager) {
+      if (subscriptionManager && !giftFundingReservation) {
         try {
           await subscriptionManager.spendPoem(userId, poemId);
         } catch (spendErr) {
@@ -2757,6 +2871,49 @@ function registerStoryRoutes(app, {
 
     const { story_id } = request.params;
     const requestedVoiceModeRaw = request.body?.voice_mode;
+    const giftReservationId = request.body?.gift_reservation_id || null;
+    const existingGiftTrack = giftReservationId
+      ? await findGiftFundingContent(db, {
+        reservationId: giftReservationId,
+        contentType: "song",
+      })
+      : null;
+    if (existingGiftTrack?.contentType === "song") {
+      const existingVersion = await db.prepare(
+        `SELECT id, version_num
+         FROM track_versions
+         WHERE track_id = ? AND version_num = ?
+         LIMIT 1`
+      ).get(existingGiftTrack.contentId, existingGiftTrack.versionNum || 1);
+      if (existingVersion) {
+        await removeTrackLibraryEntry({
+          userId,
+          trackId: existingGiftTrack.contentId,
+        });
+        reply.send({
+          track_id: existingGiftTrack.contentId,
+          version_id: existingVersion.id,
+          version_num: Number(existingVersion.version_num || 1),
+          idempotent: true,
+        });
+        return;
+      }
+    }
+    const giftFundingReservation = giftReservationId
+      ? await validateGiftFundingReservation(db, {
+        userId,
+        reservationId: giftReservationId,
+        contentType: "song",
+      }).catch((err) => {
+        if (mapGiftFundingError(reply, err)) {
+          return "__handled__";
+        }
+        throw err;
+      })
+      : null;
+    if (giftFundingReservation === "__handled__") {
+      return;
+    }
 
     // Verify ownership
     const state = await verifyStoryOwnership(story_id, userId, sendError, reply, db);
@@ -2823,8 +2980,8 @@ function registerStoryRoutes(app, {
       const paramsHash = crypto.createHash("sha256").update(paramsJson).digest("hex").slice(0, 16);
 
       await db.prepare(`
-        INSERT INTO tracks (id, user_id, status, title, occasion, recipient_name, style, message, story_context_json, voice_mode, voice_gender, latest_version, created_at, updated_at)
-        VALUES (?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+        INSERT INTO tracks (id, user_id, status, title, occasion, recipient_name, style, message, story_context_json, voice_mode, voice_gender, funding_source, gift_reservation_id, latest_version, created_at, updated_at)
+        VALUES (?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
       `).run(
         trackId,
         userId,
@@ -2866,16 +3023,26 @@ function registerStoryRoutes(app, {
         }),
         requestedVoiceMode,
         request.body?.voice_gender || null,
+        giftFundingReservation ? "gift_token" : "standard",
+        giftFundingReservation?.id || null,
         now,
         now
       );
-      await upsertTrackLibraryEntry({
-        userId,
-        trackId,
-        origin: "created",
-        shareTokenId: null,
-        addedAt: now,
-      });
+      if (giftFundingReservation) {
+        await removeTrackLibraryEntry({
+          userId,
+          trackId,
+          removedAt: now,
+        });
+      } else {
+        await upsertTrackLibraryEntry({
+          userId,
+          trackId,
+          origin: "created",
+          shareTokenId: null,
+          addedAt: now,
+        });
+      }
 
       // Create initial version with all required fields
       const versionId = newUuid();

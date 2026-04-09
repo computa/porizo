@@ -131,6 +131,7 @@ struct PoemCreatingContentView: View {
     let storyId: String?
     let storyDraftVersion: Int
     let finalNotes: String?
+    let giftReservationId: String?
     let onPoemReady: (Poem) -> Void
     let onNeedsInput: (StoryGuidanceResponse) -> Void
     let onNeedsDetails: ([StoryPoemGap], String?) -> Void
@@ -144,6 +145,7 @@ struct PoemCreatingContentView: View {
                 storyId: storyId,
                 storyDraftVersion: storyDraftVersion,
                 finalNotes: finalNotes,
+                giftReservationId: giftReservationId,
                 onPoemReady: onPoemReady,
                 onNeedsInput: onNeedsInput,
                 onNeedsDetails: onNeedsDetails,

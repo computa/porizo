@@ -1,0 +1,3 @@
+-- SQLite already introduced bound_device_id on poem_share_tokens in 036.
+-- Keep this migration as a no-op companion to the PostgreSQL fix so the
+-- migration sequence stays aligned across providers.

@@ -140,6 +140,9 @@ struct CollapsibleStylePicker: View {
             if let match = styleStore.styles.first(where: { $0.key == selectedStyle }) {
                 selectedCategory = match.category
             }
+            if autoExpand && selectedStyle == nil {
+                isExpanded = true
+            }
         }
         .onChange(of: autoExpand) { _, shouldExpand in
             if shouldExpand && selectedStyle == nil && !isExpanded {

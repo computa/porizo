@@ -50,9 +50,24 @@ function registerTrackRoutes(app, {
     return Number.isFinite(ts) ? ts : null;
   }
 
-  async function consumeSongEntitlementInTransaction(query, { userId, trackId, trackVersionId, consumedAt }) {
+  async function consumeSongEntitlementInTransaction(query, {
+    userId,
+    trackId,
+    trackVersionId,
+    consumedAt,
+    fundingSource = "standard",
+  }) {
     if (consumedAt) {
       return { consumed: false, consumedAt };
+    }
+
+    const now = nowIso();
+    if (fundingSource === "gift_token") {
+      await query(
+        "UPDATE track_versions SET song_entitlement_consumed_at = ? WHERE id = ?",
+        [now, trackVersionId]
+      );
+      return { consumed: false, consumedAt: now };
     }
 
     const spendInTransaction = typeof subscriptionManager.spendSongInTransaction === "function"
@@ -63,7 +78,6 @@ function registerTrackRoutes(app, {
     }
 
     await spendInTransaction(query, userId, trackId);
-    const now = nowIso();
     await query(
       "UPDATE track_versions SET song_entitlement_consumed_at = ? WHERE id = ?",
       [now, trackVersionId]
@@ -253,6 +267,7 @@ function registerTrackRoutes(app, {
           AND tle.user_id = ?
           AND tle.removed_at IS NULL
          WHERE t.deleted_at IS NULL
+           AND NOT (COALESCE(t.funding_source, 'standard') = 'gift_token' AND tle.origin = 'created')
          ORDER BY tle.added_at DESC`
       )
       .all(userId, userId, userId);
@@ -265,7 +280,30 @@ function registerTrackRoutes(app, {
     if (!userId) {
       return;
     }
-    const trackRow = await getTrackForLibrary(userId, request.params.id);
+    let trackRow = await getTrackForLibrary(userId, request.params.id);
+    if (!trackRow) {
+      const ownedGiftTrack = await db.prepare(
+        `SELECT t.*,
+                NULL AS library_origin,
+                NULL AS library_added_at,
+                NULL AS library_share_token_id,
+                st.claim_pin AS share_claim_pin,
+                st.expires_at AS share_expires_at,
+                st.status AS share_status,
+                1 AS can_edit,
+                1 AS can_share,
+                1 AS can_delete
+           FROM tracks t
+           LEFT JOIN share_tokens st
+             ON st.id = t.share_token_id
+            AND st.status NOT IN ('revoked', 'expired')
+          WHERE t.id = ?
+            AND t.user_id = ?
+            AND t.deleted_at IS NULL
+            AND COALESCE(t.funding_source, 'standard') = 'gift_token'`
+      ).get(request.params.id, userId);
+      trackRow = ownedGiftTrack || null;
+    }
     const [hydratedTrack] = await hydrateTrackCoverImages(trackRow ? [trackRow] : []);
     const track = withTrackLibraryFlags(hydratedTrack);
     if (!track) {
@@ -533,6 +571,7 @@ function registerTrackRoutes(app, {
           trackId: track.id,
           trackVersionId: trackVersion.id,
           consumedAt: trackVersion.song_entitlement_consumed_at,
+          fundingSource: track.funding_source,
         });
 
         const now = nowIso();
@@ -676,6 +715,7 @@ function registerTrackRoutes(app, {
           trackId: track.id,
           trackVersionId: trackVersion.id,
           consumedAt: trackVersion.song_entitlement_consumed_at,
+          fundingSource: track.funding_source,
         });
 
         const now = nowIso();

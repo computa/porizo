@@ -31,6 +31,7 @@ function consumeRateLimit(_userId, _action, _limit, _window) {
 // Track subscription manager calls
 let poemsRemaining = 5;
 let spendPoemCalls = [];
+let activeGiftReservation = null;
 const subscriptionManager = {
   getEntitlements: async (_userId) => ({
     poemsRemaining,
@@ -61,6 +62,15 @@ const dbStub = {
         return { changes: 1 };
       },
       get: async (...args) => {
+        if (sql.includes("SELECT * FROM gift_reservations WHERE id = ?")) {
+          return activeGiftReservation;
+        }
+        if (sql.includes("SELECT id FROM tracks WHERE gift_reservation_id = ?")) {
+          return null;
+        }
+        if (sql.includes("SELECT id FROM poems WHERE gift_reservation_id = ?")) {
+          return null;
+        }
         if (sql.includes("SELECT id FROM voice_profiles")) {
           return { id: "voice_profile_1" };
         }
@@ -147,6 +157,7 @@ after(async () => {
 describe("POST /story/:id/to-poem — poem credit checks (C1)", () => {
   test("returns 402 when poem credits are 0", async () => {
     poemsRemaining = 0;
+    activeGiftReservation = null;
     rateLimitBehavior = { allowed: true, reset_at: null };
 
     writer.getStoryState = async () => makeConfirmedStoryState("story_poem_1");
@@ -166,6 +177,7 @@ describe("POST /story/:id/to-poem — poem credit checks (C1)", () => {
   test("succeeds and spends credit when poems are available", async () => {
     poemsRemaining = 3;
     spendPoemCalls = [];
+    activeGiftReservation = null;
     rateLimitBehavior = { allowed: true, reset_at: null };
 
     writer.getStoryState = async () => makeConfirmedStoryState("story_poem_2");
@@ -185,6 +197,35 @@ describe("POST /story/:id/to-poem — poem credit checks (C1)", () => {
     // Verify spendPoem was called
     assert.equal(spendPoemCalls.length, 1);
     assert.equal(spendPoemCalls[0].userId, TEST_USER_ID);
+  });
+
+  test("gift-funded poem creation bypasses subscription poem spend", async () => {
+    poemsRemaining = 0;
+    spendPoemCalls = [];
+    activeGiftReservation = {
+      id: "gres_poem_funded",
+      user_id: TEST_USER_ID,
+      status: "reserved",
+      content_type: null,
+      gift_order_id: null,
+      expires_at: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+    };
+    rateLimitBehavior = { allowed: true, reset_at: null };
+
+    writer.getStoryState = async () => makeConfirmedStoryState("story_poem_gift");
+    writer.getStoryContext = async () => makeConfirmedStoryContext("story_poem_gift");
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/story/story_poem_gift/to-poem",
+      payload: { gift_reservation_id: activeGiftReservation.id },
+    });
+
+    assert.equal(response.statusCode, 200);
+    const body = response.json();
+    assert.ok(body.poem);
+    assert.equal(spendPoemCalls.length, 0);
+    activeGiftReservation = null;
   });
 });
 

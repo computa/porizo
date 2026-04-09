@@ -158,6 +158,13 @@ enum PoemTone: String, CaseIterable, Identifiable {
 struct StoryToPoemRequest: Encodable, Sendable {
     let tone: String?
     let style: String?
+    let giftReservationId: String?
+
+    enum CodingKeys: String, CodingKey {
+        case tone
+        case style
+        case giftReservationId = "gift_reservation_id"
+    }
 }
 
 /// Response from POST /story/:id/to-poem

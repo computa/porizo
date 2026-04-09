@@ -71,7 +71,8 @@ final class TrackCreationController {
     func createTrack(
         storyContext: StoryContext,
         voiceMode: VoiceMode,
-        voiceGender: VoiceGender?
+        voiceGender: VoiceGender?,
+        giftReservationId: String? = nil
     ) async throws -> Outcome {
         guard !isCreating else {
             throw APIClientError.invalidResponse
@@ -124,7 +125,8 @@ final class TrackCreationController {
                 storyId: storyId,
                 voiceMode: voiceMode.rawValue,
                 voiceGender: voiceGender?.rawValue,
-                style: storyContext.style
+                style: storyContext.style,
+                giftReservationId: giftReservationId
             )
             self.progress = 90
 

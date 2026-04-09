@@ -9,50 +9,6 @@
 import SwiftUI
 import SafariServices
 
-// MARK: - Country Model
-
-/// Represents a country for phone number entry
-struct Country: Identifiable, Hashable {
-    let id: String  // ISO 3166-1 alpha-2 code
-    let name: String
-    let dialCode: String
-    let flag: String
-
-    static let defaultCountry = Country(id: "US", name: "United States", dialCode: "+1", flag: "🇺🇸")
-
-    /// Common countries for quick selection
-    static let common: [Country] = [
-        Country(id: "US", name: "United States", dialCode: "+1", flag: "🇺🇸"),
-        Country(id: "CA", name: "Canada", dialCode: "+1", flag: "🇨🇦"),
-        Country(id: "GB", name: "United Kingdom", dialCode: "+44", flag: "🇬🇧"),
-        Country(id: "AU", name: "Australia", dialCode: "+61", flag: "🇦🇺"),
-        Country(id: "DE", name: "Germany", dialCode: "+49", flag: "🇩🇪"),
-        Country(id: "FR", name: "France", dialCode: "+33", flag: "🇫🇷"),
-        Country(id: "IN", name: "India", dialCode: "+91", flag: "🇮🇳"),
-        Country(id: "JP", name: "Japan", dialCode: "+81", flag: "🇯🇵"),
-        Country(id: "MX", name: "Mexico", dialCode: "+52", flag: "🇲🇽"),
-        Country(id: "BR", name: "Brazil", dialCode: "+55", flag: "🇧🇷"),
-        Country(id: "NG", name: "Nigeria", dialCode: "+234", flag: "🇳🇬"),
-        Country(id: "PH", name: "Philippines", dialCode: "+63", flag: "🇵🇭"),
-    ]
-}
-
-// MARK: - Phone Number Masking
-
-/// Masks a phone number for display, showing only the last 4 digits.
-/// Examples: "+15551234567" -> "+1 *** *** 4567", "+4412345678" -> "+44 *** 5678"
-func maskedPhoneDisplay(_ phoneNumber: String) -> String {
-    guard phoneNumber.count >= 4 else { return phoneNumber }
-    let lastFour = String(phoneNumber.suffix(4))
-    if phoneNumber.hasPrefix("+1") && phoneNumber.count >= 11 {
-        return "+1 *** *** \(lastFour)"
-    } else if phoneNumber.hasPrefix("+") {
-        let code = String(phoneNumber.prefix(3))
-        return "\(code) *** \(lastFour)"
-    }
-    return "*** \(lastFour)"
-}
-
 // MARK: - PhoneAuthView
 
 /// Phone number entry view for authentication.
@@ -65,7 +21,7 @@ struct PhoneAuthView: View {
     // MARK: - State
 
     @State private var phoneNumber: String = ""
-    @State private var selectedCountry: Country = .defaultCountry
+    @State private var selectedCountry: Country = .default
     @State private var isLoading: Bool = false
     @State private var error: String?
     @State private var showCountryPicker: Bool = false
@@ -316,59 +272,19 @@ struct PhoneAuthView: View {
 
     /// Check if phone number is valid (at least 10 digits for US)
     private var isValidPhoneNumber: Bool {
-        let digits = phoneNumber.filter { $0.isNumber }
-        // US/CA numbers need 10 digits, others vary
-        if selectedCountry.dialCode == "+1" {
-            return digits.count == 10
-        }
-        // For other countries, require at least 6 digits
-        return digits.count >= 6
+        isValidPhoneNumberInput(phoneNumber, selectedCountry: selectedCountry)
     }
 
     /// Convert display phone number to E.164 format
     private var e164PhoneNumber: String {
-        let digits = phoneNumber.filter { $0.isNumber }
-        return selectedCountry.dialCode + digits
+        normalizedE164PhoneNumber(phoneNumber, selectedCountry: selectedCountry) ?? ""
     }
 
     // MARK: - Phone Formatting
 
     /// Format phone number for display (US format: (555) 123-4567)
     private func formatPhoneNumber(_ input: String) -> String {
-        // Strip all non-digits
-        let digits = input.filter { $0.isNumber }
-
-        // Limit to 10 digits for US/CA
-        let maxDigits = selectedCountry.dialCode == "+1" ? 10 : 15
-        let limitedDigits = String(digits.prefix(maxDigits))
-
-        // Format for US/CA numbers
-        if selectedCountry.dialCode == "+1" {
-            return formatUSPhoneNumber(limitedDigits)
-        }
-
-        // For other countries, just return the digits
-        return limitedDigits
-    }
-
-    /// Format US phone number as (XXX) XXX-XXXX
-    private func formatUSPhoneNumber(_ digits: String) -> String {
-        var result = ""
-        let count = digits.count
-
-        for (index, char) in digits.enumerated() {
-            if index == 0 {
-                result += "("
-            }
-            result += String(char)
-            if index == 2 && count > 3 {
-                result += ") "
-            } else if index == 5 && count > 6 {
-                result += "-"
-            }
-        }
-
-        return result
+        formatPhoneInput(input, selectedCountry: selectedCountry)
     }
 
     // MARK: - API
@@ -397,80 +313,6 @@ struct PhoneAuthView: View {
         }
 
         isLoading = false
-    }
-}
-
-// MARK: - Country Picker Sheet
-
-/// Bottom sheet for selecting a country
-struct CountryPickerSheet: View {
-    @Binding var selectedCountry: Country
-    @Binding var isPresented: Bool
-
-    @State private var searchText: String = ""
-
-    private var filteredCountries: [Country] {
-        if searchText.isEmpty {
-            return Country.common
-        }
-        return Country.common.filter {
-            $0.name.localizedCaseInsensitiveContains(searchText) ||
-            $0.dialCode.contains(searchText)
-        }
-    }
-
-    var body: some View {
-        NavigationStack {
-            ZStack {
-                DesignTokens.background.ignoresSafeArea()
-
-                List(filteredCountries) { country in
-                    Button {
-                        selectedCountry = country
-                        isPresented = false
-                    } label: {
-                        HStack(spacing: 12) {
-                            Text(country.flag)
-                                .font(.system(size: 28))
-
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(country.name)
-                                    .font(DesignTokens.bodyFont(size: 16))
-                                    .foregroundStyle(DesignTokens.textPrimary)
-                                Text(country.dialCode)
-                                    .font(DesignTokens.bodyFont(size: 14))
-                                    .foregroundStyle(DesignTokens.textSecondary)
-                            }
-
-                            Spacer()
-
-                            if country.id == selectedCountry.id {
-                                Image(systemName: "checkmark")
-                                    .foregroundStyle(DesignTokens.gold)
-                                    .font(.system(size: 16, weight: .semibold))
-                            }
-                        }
-                        .padding(.vertical, 8)
-                    }
-                    .listRowBackground(DesignTokens.surface)
-                }
-                .listStyle(.plain)
-                .scrollContentBackground(.hidden)
-            }
-            .navigationTitle("Select Country")
-            .navigationBarTitleDisplayMode(.inline)
-            .searchable(text: $searchText, prompt: "Search countries")
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") {
-                        isPresented = false
-                    }
-                    .foregroundStyle(DesignTokens.gold)
-                }
-            }
-        }
-        .presentationDetents([.medium, .large])
-        .presentationDragIndicator(.visible)
     }
 }
 

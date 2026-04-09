@@ -31,8 +31,10 @@ struct GiftSendFlowView: View {
     @State private var recipientPhone = ""
     @State private var recipientEmail = ""
     @State private var message = ""
+    @State private var selectedCountry: Country = .default
 
-    @State private var deliveryMode: GiftDeliveryMode = .immediate
+    @State private var deliveryMode: GiftDeliveryMode = .scheduled
+    @State private var hasChosenDeliveryMode = false
     @State private var scheduledAt = Date.now.addingTimeInterval(60 * 60)
 
     @State private var reservation: GiftReservation?
@@ -54,6 +56,9 @@ struct GiftSendFlowView: View {
     @State private var pendingCreateType: CreateFlowKind?
     @State private var isCreatingContent = false
     @State private var showCloseConfirmation = false
+    @State private var showCountryPicker = false
+    @State private var showScheduledGiftList = false
+    @State private var managingGift: GiftOrder?
     @Environment(\.scenePhase) private var scenePhase
 
     enum BundlePickerState: Equatable {
@@ -123,13 +128,18 @@ struct GiftSendFlowView: View {
         } message: {
             Text(errorMessage ?? "")
         }
-        .alert("Discard gift?", isPresented: $showCloseConfirmation) {
-            Button("Discard", role: .destructive) {
-                Task { await closeFlow() }
+        .confirmationDialog("Leave gift flow?", isPresented: $showCloseConfirmation, titleVisibility: .visible) {
+            if hasActiveReservation {
+                Button("Save & Close") {
+                    Task { await closeFlow(shouldDiscardReservation: false) }
+                }
+                Button("Discard Gift", role: .destructive) {
+                    Task { await closeFlow(shouldDiscardReservation: true) }
+                }
             }
             Button("Keep editing", role: .cancel) {}
         } message: {
-            Text("Your song has been created. Closing will cancel the reservation and return your token.")
+            Text(closeConfirmationMessage)
         }
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .active {
@@ -139,16 +149,58 @@ struct GiftSendFlowView: View {
                 }
             }
         }
+        .onChange(of: step) { _, newStep in
+            guard newStep == .delivery else { return }
+            hasChosenDeliveryMode = false
+            deliveryMode = .scheduled
+            if scheduledAt <= Date.now.addingTimeInterval(60) {
+                scheduledAt = Date.now.addingTimeInterval(60 * 60)
+            }
+        }
         .sheet(isPresented: $showBundlePicker) {
             bundlePickerSheet
         }
-        .fullScreenCover(item: $createLaunch, onDismiss: { isCreatingContent = false }) { launch in
+        .sheet(isPresented: $showCountryPicker) {
+            CountryPickerSheet(
+                selectedCountry: $selectedCountry,
+                isPresented: $showCountryPicker
+            )
+        }
+        .sheet(isPresented: $showScheduledGiftList) {
+            ScheduledGiftListSheet(gifts: scheduledGifts) { gift in
+                managingGift = gift
+            }
+        }
+        .sheet(item: $managingGift, onDismiss: {
+            Task { await refreshGiftSurface() }
+        }) { gift in
+            GiftManagementSheet(
+                apiClient: apiClient,
+                gift: gift,
+                onGiftUpdated: { updated in
+                    scheduledGifts = upsertScheduledGift(updated, into: scheduledGifts)
+                },
+                onGiftCancelled: { cancelled, walletBalance in
+                    scheduledGifts = upsertScheduledGift(cancelled, into: scheduledGifts)
+                    if let walletBalance {
+                        self.walletBalance = walletBalance
+                    }
+                }
+            )
+        }
+        .fullScreenCover(item: $createLaunch, onDismiss: {
+            isCreatingContent = false
+            Task {
+                await refreshGiftSurface()
+            }
+        }) { launch in
             WarmCanvasFlowView(
                 apiClient: apiClient,
                 storeKit: storeKit,
                 preselectedType: launch.type,
                 alwaysShowVoiceSelection: true,
                 isGiftContext: true,
+                giftReservationId: reservation?.id,
                 onPoemComplete: { @MainActor poem in
                     createLaunch = nil
                     Task { @MainActor in
@@ -196,13 +248,13 @@ struct GiftSendFlowView: View {
 
             Spacer()
 
-            Button {
-                if hasAttachedReservationContent && step != .content && step != .success {
-                    showCloseConfirmation = true
-                } else {
-                    Task { await closeFlow() }
-                }
-            } label: {
+                Button {
+                    if hasActiveReservation && step != .success {
+                        showCloseConfirmation = true
+                    } else {
+                        Task { await closeFlow(shouldDiscardReservation: false) }
+                    }
+                } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 18, weight: .semibold))
                     .foregroundStyle(DesignTokens.textPrimary)
@@ -272,18 +324,33 @@ struct GiftSendFlowView: View {
                         .clipShape(.rect(cornerRadius: 12))
                     }
 
+                    if hasAttachedReservationContent {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Gift content already created")
+                                .font(DesignTokens.bodyFont(size: 15, weight: .semibold))
+                                .foregroundStyle(DesignTokens.textPrimary)
+                            Text("Continue this gift to add the recipient and delivery details, or discard it if you want to start over.")
+                                .font(DesignTokens.bodyFont(size: 13))
+                                .foregroundStyle(DesignTokens.textSecondary)
+                        }
+                        .padding(16)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(DesignTokens.cardBackground)
+                        .clipShape(.rect(cornerRadius: 12))
+                    }
+
                     VStack(spacing: 10) {
                         createActionButton(
-                            title: isReserving ? "Reserving Token..." : "Create Song Gift",
+                            title: primaryCreateButtonTitle(for: .song),
                             icon: "music.note",
-                            disabled: isReserving || isPurchasing || isSubmitting || isCreatingContent,
+                            disabled: isCreateButtonDisabled(for: .song),
                             action: { startCreateFlow(type: .song) }
                         )
 
                         createActionButton(
-                            title: isReserving ? "Reserving Token..." : "Create Poem Gift",
+                            title: primaryCreateButtonTitle(for: .poem),
                             icon: "text.book.closed",
-                            disabled: isReserving || isPurchasing || isSubmitting || isCreatingContent,
+                            disabled: isCreateButtonDisabled(for: .poem),
                             action: { startCreateFlow(type: .poem) }
                         )
                     }
@@ -347,7 +414,22 @@ struct GiftSendFlowView: View {
             } else {
                 VStack(spacing: 10) {
                     ForEach(Array(scheduledGifts.prefix(3))) { gift in
-                        scheduledGiftRow(gift)
+                        Button {
+                            managingGift = gift
+                        } label: {
+                            scheduledGiftRow(gift)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Manage \(scheduledGiftTitle(for: gift))")
+                    }
+
+                    if scheduledGifts.count > 3 {
+                        Button("View all scheduled gifts") {
+                            showScheduledGiftList = true
+                        }
+                        .font(DesignTokens.bodyFont(size: 13, weight: .semibold))
+                        .foregroundStyle(DesignTokens.gold)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
             }
@@ -381,15 +463,33 @@ struct GiftSendFlowView: View {
 
                     if sendViaSMS {
                         fieldLabel("Recipient phone")
-                        TextField("+1 555 123 4567", text: $recipientPhone)
-                            .keyboardType(.phonePad)
-                            .textContentType(.telephoneNumber)
-                            .autocorrectionDisabled(true)
-                            .textInputAutocapitalization(.never)
-                            .padding(12)
-                            .background(DesignTokens.cardBackground)
-                            .clipShape(.rect(cornerRadius: 10))
-                            .foregroundStyle(DesignTokens.textPrimary)
+                        HStack(spacing: 8) {
+                            Button {
+                                showCountryPicker = true
+                            } label: {
+                                Text("\(selectedCountry.flag) \(selectedCountry.dialCode)")
+                                    .font(DesignTokens.bodyFont(size: 16))
+                                    .foregroundStyle(DesignTokens.textPrimary)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 14)
+                                    .background(DesignTokens.cardBackground)
+                                    .clipShape(.rect(cornerRadius: 10))
+                            }
+                            .buttonStyle(.plain)
+
+                            TextField("Recipient phone", text: $recipientPhone)
+                                .keyboardType(.phonePad)
+                                .textContentType(.telephoneNumber)
+                                .autocorrectionDisabled(true)
+                                .textInputAutocapitalization(.never)
+                                .padding(12)
+                                .background(DesignTokens.cardBackground)
+                                .clipShape(.rect(cornerRadius: 10))
+                                .foregroundStyle(DesignTokens.textPrimary)
+                                .onChange(of: recipientPhone) { _, newValue in
+                                    recipientPhone = formatPhoneInput(newValue, selectedCountry: selectedCountry)
+                                }
+                        }
                     }
 
                     if sendViaEmail {
@@ -428,6 +528,9 @@ struct GiftSendFlowView: View {
             }
 
             flowButton("Continue", disabled: !isRecipientStepValid || isSubmitting) {
+                if scheduledAt <= Date.now.addingTimeInterval(60) {
+                    scheduledAt = Date.now.addingTimeInterval(60 * 60)
+                }
                 step = .delivery
             }
             .padding(.horizontal, 20)
@@ -441,13 +544,19 @@ struct GiftSendFlowView: View {
                 VStack(alignment: .leading, spacing: 16) {
                     sectionTitle("When should we deliver this gift?")
 
-                    Picker("Delivery Mode", selection: $deliveryMode) {
-                        Text("Now").tag(GiftDeliveryMode.immediate)
-                        Text("Schedule").tag(GiftDeliveryMode.scheduled)
-                    }
-                    .pickerStyle(.segmented)
+                    Text("Choose whether to send it now or schedule an exact delivery time.")
+                        .font(DesignTokens.bodyFont(size: 14))
+                        .foregroundStyle(DesignTokens.textSecondary)
 
-                    if deliveryMode == .scheduled {
+                    HStack(spacing: 8) {
+                        deliveryModeButton(title: "Now", mode: .immediate)
+                        deliveryModeButton(title: "Schedule", mode: .scheduled)
+                    }
+                    .padding(4)
+                    .background(DesignTokens.cardBackground)
+                    .clipShape(.rect(cornerRadius: 12))
+
+                    if hasChosenDeliveryMode && deliveryMode == .scheduled {
                         DatePicker(
                             "Send date",
                             selection: $scheduledAt,
@@ -520,15 +629,25 @@ struct GiftSendFlowView: View {
                 .font(.system(size: 64))
                 .foregroundStyle(DesignTokens.statusSuccess)
 
-            Text("Gift is ready")
+            Text(successTitle)
                 .font(DesignTokens.displayFont(size: 24, weight: .semibold))
                 .foregroundStyle(DesignTokens.textPrimary)
+
+            if let successSubtitle {
+                Text(successSubtitle)
+                    .font(DesignTokens.bodyFont(size: 14))
+                    .foregroundStyle(DesignTokens.textSecondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 24)
+            }
 
             if let gift = createdGift {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Share PIN: \(gift.claimPin ?? "—")")
                     Text("Delivery: \(gift.deliveryMode.capitalized)")
                     Text("Status: \(gift.status.capitalized)")
+                    Text("Recipient: \(scheduledGiftRecipient(for: gift))")
+                    Text("When: \(scheduledGiftDateLabel(for: gift))")
                 }
                 .font(DesignTokens.bodyFont(size: 15))
                 .foregroundStyle(DesignTokens.textPrimary)
@@ -539,11 +658,20 @@ struct GiftSendFlowView: View {
                 .padding(.horizontal, 20)
             }
 
-            flowButton("Done", disabled: false) {
-                onComplete()
-                dismiss()
+            VStack(spacing: 10) {
+                if let gift = createdGift, gift.deliveryMode.lowercased() == GiftDeliveryMode.scheduled.rawValue {
+                    flowButton("Manage scheduled gift", disabled: false) {
+                        managingGift = gift
+                    }
+                    .padding(.horizontal, 20)
+                }
+
+                flowButton("Done", disabled: false) {
+                    onComplete()
+                    dismiss()
+                }
+                .padding(.horizontal, 20)
             }
-            .padding(.horizontal, 20)
 
             Spacer()
         }
@@ -560,6 +688,9 @@ struct GiftSendFlowView: View {
 
             Divider().background(DesignTokens.border)
 
+            Text("Recipient")
+                .font(DesignTokens.bodyFont(size: 13, weight: .medium))
+                .foregroundStyle(DesignTokens.textSecondary)
             Text("Channels: \(selectedChannels.map { $0.uppercased() }.joined(separator: ", "))")
                 .font(DesignTokens.bodyFont(size: 14))
                 .foregroundStyle(DesignTokens.textPrimary)
@@ -573,6 +704,12 @@ struct GiftSendFlowView: View {
                     .font(DesignTokens.bodyFont(size: 14))
                     .foregroundStyle(DesignTokens.textSecondary)
             }
+
+            Divider().background(DesignTokens.border)
+
+            Text("Delivery")
+                .font(DesignTokens.bodyFont(size: 13, weight: .medium))
+                .foregroundStyle(DesignTokens.textSecondary)
             Text("Delivery: \(deliverySummary)")
                 .font(DesignTokens.bodyFont(size: 14))
                 .foregroundStyle(DesignTokens.textPrimary)
@@ -619,13 +756,19 @@ struct GiftSendFlowView: View {
 
                 Spacer(minLength: 8)
 
-                Text(scheduledGiftStatusLabel(for: gift))
-                    .font(DesignTokens.bodyFont(size: 11, weight: .semibold))
-                    .foregroundStyle(scheduledGiftStatusColor(for: gift))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 5)
-                    .background(scheduledGiftStatusColor(for: gift).opacity(0.14))
-                    .clipShape(Capsule())
+                HStack(spacing: 8) {
+                    Text(scheduledGiftStatusLabel(for: gift))
+                        .font(DesignTokens.bodyFont(size: 11, weight: .semibold))
+                        .foregroundStyle(scheduledGiftStatusColor(for: gift))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 5)
+                        .background(scheduledGiftStatusColor(for: gift).opacity(0.14))
+                        .clipShape(Capsule())
+
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(DesignTokens.textTertiary)
+                }
             }
 
             Text("Delivery: \(scheduledGiftDateLabel(for: gift))")
@@ -636,6 +779,7 @@ struct GiftSendFlowView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(DesignTokens.surfaceMuted.opacity(0.55))
         .clipShape(.rect(cornerRadius: 10))
+        .contentShape(Rectangle())
     }
 
     private func createActionButton(title: String, icon: String, disabled: Bool, action: @escaping () -> Void) -> some View {
@@ -697,6 +841,22 @@ struct GiftSendFlowView: View {
         .buttonStyle(.plain)
     }
 
+    private func deliveryModeButton(title: String, mode: GiftDeliveryMode) -> some View {
+        Button {
+            deliveryMode = mode
+            hasChosenDeliveryMode = true
+        } label: {
+            Text(title)
+                .font(DesignTokens.bodyFont(size: 14, weight: .semibold))
+                .foregroundStyle(isSelectedDeliveryMode(mode) ? DesignTokens.background : DesignTokens.textPrimary)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+                .background(isSelectedDeliveryMode(mode) ? DesignTokens.gold : Color.clear)
+                .clipShape(.rect(cornerRadius: 10))
+        }
+        .buttonStyle(.plain)
+    }
+
     private func sectionTitle(_ title: String) -> some View {
         Text(title)
             .font(DesignTokens.bodyFont(size: 18, weight: .semibold))
@@ -746,6 +906,12 @@ struct GiftSendFlowView: View {
 
     private func startCreateFlow(type: CreateFlowKind) {
         Task {
+            if hasAttachedReservationContent {
+                await MainActor.run {
+                    step = .recipient
+                }
+                return
+            }
             // If wallet empty and no reservation, show bundle picker
             if !hasActiveReservation && walletBalance < 1 && AppConfig.enableGiftPurchaseUI {
                 pendingCreateType = type
@@ -761,8 +927,10 @@ struct GiftSendFlowView: View {
     }
 
     @MainActor
-    private func closeFlow() async {
-        await cancelReservationIfNeeded()
+    private func closeFlow(shouldDiscardReservation: Bool) async {
+        if shouldDiscardReservation {
+            await cancelReservationIfNeeded()
+        }
         onCancel()
         dismiss()
     }
@@ -904,19 +1072,7 @@ struct GiftSendFlowView: View {
     }
 
     private var normalizedPhone: String? {
-        let raw = recipientPhone.trimmingCharacters(in: .whitespacesAndNewlines)
-        if raw.isEmpty { return nil }
-        let digits = raw.filter(\.isNumber)
-        if raw.hasPrefix("+"), (10...15).contains(digits.count) {
-            return "+\(digits)"
-        }
-        if digits.count == 10 {
-            return "+1\(digits)"
-        }
-        if digits.count == 11, digits.first == "1" {
-            return "+\(digits)"
-        }
-        return nil
+        sendViaSMS ? normalizedE164PhoneNumber(recipientPhone, selectedCountry: selectedCountry) : nil
     }
 
     private var normalizedEmail: String? {
@@ -934,6 +1090,7 @@ struct GiftSendFlowView: View {
     }
 
     private var isDeliveryStepValid: Bool {
+        guard hasChosenDeliveryMode else { return false }
         if deliveryMode == .immediate { return true }
         return scheduledAt > Date.now.addingTimeInterval(60)
     }
@@ -955,6 +1112,9 @@ struct GiftSendFlowView: View {
     }
 
     private var deliverySummary: String {
+        guard hasChosenDeliveryMode else {
+            return "Not selected"
+        }
         switch deliveryMode {
         case .immediate:
             return "Send immediately"
@@ -1116,6 +1276,10 @@ struct GiftSendFlowView: View {
     }
 
     private func scheduledGiftTitle(for gift: GiftOrder) -> String {
+        if let contentTitle = gift.contentTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !contentTitle.isEmpty {
+            return contentTitle
+        }
         switch gift.contentType.lowercased() {
         case GiftContentType.song.rawValue:
             return "Song gift"
@@ -1162,23 +1326,66 @@ struct GiftSendFlowView: View {
         DateFormatter.localizedString(from: parseGiftDate(gift.sendAt), dateStyle: .medium, timeStyle: .short)
     }
 
-    private func parseGiftDate(_ isoString: String) -> Date {
-        Self.giftDateFormatterWithFractionalSeconds.date(from: isoString)
-            ?? Self.giftDateFormatter.date(from: isoString)
-            ?? Date.now
+    private var closeConfirmationMessage: String {
+        if hasAttachedReservationContent {
+            return "Save this gift and resume later, or discard it and return the token."
+        }
+        if hasActiveReservation {
+            return "Save this reserved token for later, or discard it and return the token."
+        }
+        return "Close this flow?"
     }
 
-    private static let giftDateFormatterWithFractionalSeconds: ISO8601DateFormatter = {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter
-    }()
+    private func primaryCreateButtonTitle(for type: CreateFlowKind) -> String {
+        if isReserving {
+            return "Reserving Token..."
+        }
+        guard hasAttachedReservationContent else {
+            return type == .song ? "Create Song Gift" : "Create Poem Gift"
+        }
+        return reservation?.contentType == type.rawValue
+            ? (type == .song ? "Continue Song Gift" : "Continue Poem Gift")
+            : (type == .song ? "Create Song Gift" : "Create Poem Gift")
+    }
 
-    private static let giftDateFormatter: ISO8601DateFormatter = {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime]
-        return formatter
-    }()
+    private func isCreateButtonDisabled(for type: CreateFlowKind) -> Bool {
+        if isReserving || isPurchasing || isSubmitting || isCreatingContent {
+            return true
+        }
+        if hasAttachedReservationContent, reservation?.contentType != type.rawValue {
+            return true
+        }
+        return false
+    }
+
+    private var successTitle: String {
+        guard let gift = createdGift else {
+            return "Gift is ready"
+        }
+        return gift.deliveryMode.lowercased() == GiftDeliveryMode.scheduled.rawValue
+            ? "Gift scheduled"
+            : "Gift sent"
+    }
+
+    private var successSubtitle: String? {
+        guard let gift = createdGift else {
+            return nil
+        }
+        let recipient = scheduledGiftRecipient(for: gift)
+        let when = scheduledGiftDateLabel(for: gift)
+        if gift.deliveryMode.lowercased() == GiftDeliveryMode.scheduled.rawValue {
+            return "We’ll deliver this to \(recipient) on \(when)."
+        }
+        return "This gift is going to \(recipient) now."
+    }
+
+    private func parseGiftDate(_ isoString: String) -> Date {
+        GiftDateParsing.parse(isoString)
+    }
+
+    private func isSelectedDeliveryMode(_ mode: GiftDeliveryMode) -> Bool {
+        hasChosenDeliveryMode && deliveryMode == mode
+    }
 
     // MARK: - Bundle Picker Sheet
 

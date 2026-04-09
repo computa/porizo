@@ -50,6 +50,7 @@ struct GiftOrder: Codable, Sendable, Identifiable {
     let senderUserId: String
     let contentType: String
     let contentId: String
+    let contentTitle: String?
     let status: String
     let dispatchStatus: String
     let deliveryMode: String
@@ -70,6 +71,7 @@ struct GiftOrder: Codable, Sendable, Identifiable {
         case senderUserId = "sender_user_id"
         case contentType = "content_type"
         case contentId = "content_id"
+        case contentTitle = "content_title"
         case status
         case dispatchStatus = "dispatch_status"
         case deliveryMode = "delivery_mode"

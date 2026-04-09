@@ -24,6 +24,7 @@ struct WarmCanvasFlowView: View {
     var variationSourcePoem: Poem?
     var alwaysShowVoiceSelection: Bool = false
     var isGiftContext: Bool = false
+    var giftReservationId: String? = nil
     var onPoemComplete: ((Poem) -> Void)? = nil
     let onComplete: (String, Int) -> Void
     let onCancel: () -> Void
@@ -94,6 +95,7 @@ struct WarmCanvasFlowView: View {
     @State private var isInputActive: Bool = false
     @State private var showOccasionPicker = false
     @State private var preSessionPrompt: String?
+    @State private var didHandOffGiftContent = false
 
     // MARK: - Init
 
@@ -108,6 +110,7 @@ struct WarmCanvasFlowView: View {
         variationSourcePoem: Poem? = nil,
         alwaysShowVoiceSelection: Bool = false,
         isGiftContext: Bool = false,
+        giftReservationId: String? = nil,
         onPoemComplete: ((Poem) -> Void)? = nil,
         onComplete: @escaping (String, Int) -> Void,
         onCancel: @escaping () -> Void
@@ -122,6 +125,7 @@ struct WarmCanvasFlowView: View {
         self.variationSourcePoem = variationSourcePoem
         self.alwaysShowVoiceSelection = alwaysShowVoiceSelection
         self.isGiftContext = isGiftContext
+        self.giftReservationId = giftReservationId
         self.onPoemComplete = onPoemComplete
         self.onComplete = onComplete
         self.onCancel = onCancel
@@ -155,8 +159,12 @@ struct WarmCanvasFlowView: View {
                         storyId: poemFlow.storyId ?? storyEngine.storyId,
                         storyDraftVersion: storyEngine.narrativeVersion,
                         finalNotes: trimmedFinalNotes,
+                        giftReservationId: giftReservationId,
                         onPoemReady: { poem in
                             poemFlow.currentPoem = poem
+                            if completeGiftPoemIfNeeded(poem) {
+                                return
+                            }
                             withAnimation { moment = .reveal }
                         },
                         onNeedsInput: { guidance in
@@ -360,6 +368,10 @@ struct WarmCanvasFlowView: View {
     private var trimmedFinalNotes: String? {
         let trimmed = storyEngine.finalNotesDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private var isGiftFundedFlow: Bool {
+        isGiftContext && giftReservationId != nil
     }
 
     private static func defaultTrackTitle(for type: CreateFlowKind) -> String {
@@ -1053,6 +1065,9 @@ struct WarmCanvasFlowView: View {
             case .wait:
                 // Warm Canvas goes straight to full render (no preview).
                 applyRenderResult(result)
+                if completeGiftSongIfNeeded() {
+                    return
+                }
                 transitionToReveal(audioURL: result.audioURL)
             case .reveal, .share:
                 // Already on reveal/share — just swap to the higher-quality audio.
@@ -1069,6 +1084,16 @@ struct WarmCanvasFlowView: View {
             guard moment == .wait else { return }
             activeError = .waitFailure(recipientName: setup.recipientName)
         }
+    }
+
+    @discardableResult
+    private func completeGiftSongIfNeeded() -> Bool {
+        guard isGiftContext, !didHandOffGiftContent else { return false }
+        guard let trackId = songFlow.currentTrackId,
+              let versionNum = songFlow.currentVersionNum else { return false }
+        didHandOffGiftContent = true
+        onComplete(trackId, versionNum)
+        return true
     }
 
     /// Apply track metadata and playback info from a render result.
@@ -1099,11 +1124,13 @@ struct WarmCanvasFlowView: View {
         flowTask = Task { @MainActor in
             defer { isStartingFullRender = false }
             do {
-                let entitlements = try await apiClient.getBillingEntitlements()
-                guard entitlements.songsRemaining > 0 else {
-                    pendingEntitlementFlowType = .song
-                    activeError = .noCredits
-                    return
+                if !isGiftFundedFlow {
+                    let entitlements = try await apiClient.getBillingEntitlements()
+                    guard entitlements.songsRemaining > 0 else {
+                        pendingEntitlementFlowType = .song
+                        activeError = .noCredits
+                        return
+                    }
                 }
 
                 guard let trackId = songFlow.currentTrackId,
@@ -1181,7 +1208,8 @@ struct WarmCanvasFlowView: View {
                 let outcome = try await trackCreationController.createTrack(
                     storyContext: context,
                     voiceMode: songFlow.voiceMode,
-                    voiceGender: songFlow.voiceGender
+                    voiceGender: songFlow.voiceGender,
+                    giftReservationId: giftReservationId
                 )
                 try Task.checkCancellation()
 
@@ -1426,6 +1454,10 @@ struct WarmCanvasFlowView: View {
     // MARK: - Entitlements
 
     private func checkEntitlementsForSong() async {
+        if isGiftFundedFlow {
+            advanceAfterEntitlementCheck()
+            return
+        }
         do {
             let entitlements = try await apiClient.getBillingEntitlements()
             if entitlements.songsRemaining > 0 {
@@ -1440,6 +1472,10 @@ struct WarmCanvasFlowView: View {
     }
 
     private func checkEntitlementsForPoem() async {
+        if isGiftFundedFlow {
+            withAnimation { moment = .wait }
+            return
+        }
         do {
             let entitlements = try await apiClient.getBillingEntitlements()
             if entitlements.poemsRemaining > 0 {
@@ -1721,6 +1757,15 @@ struct WarmCanvasFlowView: View {
             LocalCache.shared.invalidatePoems()
         }
         onCancel()
+    }
+
+    @discardableResult
+    private func completeGiftPoemIfNeeded(_ poem: Poem) -> Bool {
+        guard isGiftContext, !didHandOffGiftContent else { return false }
+        guard let onPoemComplete else { return false }
+        didHandOffGiftContent = true
+        onPoemComplete(poem)
+        return true
     }
 
     private func resumePlayerStateFromServer(trackId: String, versionNum: Int) async {

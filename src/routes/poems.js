@@ -183,6 +183,7 @@ function registerPoemRoutes(app, {
           AND ple.user_id = ?
           AND ple.removed_at IS NULL
          WHERE p.deleted_at IS NULL
+           AND NOT (COALESCE(p.funding_source, 'standard') = 'gift_token' AND ple.origin = 'created')
          ORDER BY ple.added_at DESC`
       )
       .all(userId, userId, userId);
@@ -205,7 +206,26 @@ function registerPoemRoutes(app, {
       return;
     }
 
-    const poem = withPoemLibraryFlags(await getPoemForLibrary(userId, request.params.id));
+    let poemRow = await getPoemForLibrary(userId, request.params.id);
+    if (!poemRow) {
+      const ownedGiftPoem = await db.prepare(
+        `SELECT p.*,
+                NULL AS library_origin,
+                NULL AS library_added_at,
+                NULL AS library_share_token_id,
+                1 AS can_edit,
+                1 AS can_share,
+                1 AS can_delete
+           FROM poems p
+          WHERE p.id = ?
+            AND p.user_id = ?
+            AND p.deleted_at IS NULL
+            AND COALESCE(p.funding_source, 'standard') = 'gift_token'`
+      ).get(request.params.id, userId);
+      poemRow = ownedGiftPoem || null;
+    }
+
+    const poem = withPoemLibraryFlags(poemRow);
     if (!poem) {
       sendError(reply, 404, "POEM_NOT_FOUND", "Poem not found.");
       return;
