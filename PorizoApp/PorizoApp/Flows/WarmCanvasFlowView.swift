@@ -370,6 +370,14 @@ struct WarmCanvasFlowView: View {
         return trimmed.isEmpty ? nil : trimmed
     }
 
+    private var normalizedTellSubphase: TellSubPhase? {
+        guard case .tell(let subphase) = moment else { return nil }
+        if subphase == .nameEntry, storyEngine.storyId != nil {
+            return .conversing
+        }
+        return subphase
+    }
+
     private var isGiftFundedFlow: Bool {
         isGiftContext && giftReservationId != nil
     }
@@ -488,7 +496,7 @@ struct WarmCanvasFlowView: View {
                 }
 
                 // Genre picker (during active conversation)
-                if case .tell(.conversing) = moment, storyEngine.storyId != nil {
+                if normalizedTellSubphase == .conversing, storyEngine.storyId != nil {
                     let canCreate = storyEngine.canOfferUserFinish
                     if resolvedSelectedType == .song {
                         CollapsibleStylePicker(
@@ -1313,6 +1321,15 @@ struct WarmCanvasFlowView: View {
             initialPromptOverride: initialPromptOverride
         )
 
+        if result.errorMessage == nil {
+            didStartConversation = true
+            if case .tell(.poemGapQuestion) = moment {
+                // Preserve explicit poem-gap recovery state.
+            } else {
+                moment = .tell(.conversing)
+            }
+        }
+
         if let message = result.errorMessage {
             presentFlowMessage(message)
             if storyEngine.storyId == nil {
@@ -1409,9 +1426,20 @@ struct WarmCanvasFlowView: View {
     private var currentInputCallbacks: InputBarCallbacks? {
         // Only show input bar during name entry and active conversation — NOT during
         // voice selection (.confirmed), track creation (.voiceSelected), or lyrics review (.trackCreated)
-        switch moment {
-        case .tell(.nameEntry), .tell(.conversing), .tell(.poemGapQuestion): break
-        default: return nil
+        guard let tellSubphase = normalizedTellSubphase else {
+            return nil
+        }
+
+        if tellSubphase == .poemGapQuestion {
+            return InputBarCallbacks(
+                onSubmit: { submitPoemGapDetail($0) },
+                onSpeechInput: {
+                    guard let sid = storyEngine.storyId else { return }
+                    activeSheet = .speechInput(SpeechInputContext(storyId: sid))
+                },
+                onFinishEarly: { },
+                onExitReviewEdit: { }
+            )
         }
 
         // Pre-session (before storyId exists)
@@ -1424,19 +1452,8 @@ struct WarmCanvasFlowView: View {
             )
         }
 
-        if case .tell(.poemGapQuestion) = moment {
-            return InputBarCallbacks(
-                onSubmit: { submitPoemGapDetail($0) },
-                onSpeechInput: {
-                    guard let sid = storyEngine.storyId else { return }
-                    activeSheet = .speechInput(SpeechInputContext(storyId: sid))
-                },
-                onFinishEarly: { },
-                onExitReviewEdit: { }
-            )
-        }
-
-        // Active session (always show input bar — including when story is complete)
+        // Active session (always show input bar — including when story is complete).
+        // Treat a live storyId as authoritative even if the visual moment has drifted.
         return InputBarCallbacks(
             onSubmit: { submitAndScroll($0) },
             onSpeechInput: {

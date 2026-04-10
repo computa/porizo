@@ -1811,6 +1811,8 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       : null;
     const contentTitle = giftRow.content_title
       || (contentSnapshot && typeof contentSnapshot.title === "string" ? contentSnapshot.title : null);
+    const recipientName = giftRow.recipient_name
+      || (contentSnapshot && typeof contentSnapshot.recipient_name === "string" ? contentSnapshot.recipient_name : null);
 
     return {
       id: giftRow.id,
@@ -1818,6 +1820,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       content_type: giftRow.content_type,
       content_id: giftRow.content_id,
       content_title: contentTitle,
+      recipient_name: recipientName,
       status: giftRow.status,
       dispatch_status: giftRow.dispatch_status,
       delivery_mode: giftRow.delivery_mode,
@@ -2141,10 +2144,15 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const sentRows = outboxRows.filter((row) => row.status === "sent");
     const retryableRows = outboxRows.filter((row) =>
       row.status === "pending" ||
-      (row.status === "failed" && Number(row.attempt_count || 0) < maxAttempts)
+      (row.status === "failed" &&
+        Boolean(row.next_retry_at) &&
+        Number(row.attempt_count || 0) < maxAttempts)
     );
     const exhaustedRows = outboxRows.filter((row) =>
-      row.status === "failed" && Number(row.attempt_count || 0) >= maxAttempts
+      row.status === "failed" && (
+        Number(row.attempt_count || 0) >= maxAttempts ||
+        !row.next_retry_at
+      )
     );
     const nextRetryAt = retryableRows
       .map((row) => row.next_retry_at || row.send_after)
@@ -2306,6 +2314,26 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     return `${sender} sent you a personalized ${noun} on Porizo.\n${note}Link: ${giftRow.share_url}\nPIN: ${giftRow.claim_pin}\nOpen in the Porizo app to claim.`;
   }
 
+  function getGiftShareUrlDeliveryError(shareUrl) {
+    if (!shareUrl || typeof shareUrl !== "string") {
+      return "INVALID_GIFT_SHARE_URL";
+    }
+    try {
+      const parsed = new URL(shareUrl);
+      const hostname = String(parsed.hostname || "").trim().toLowerCase();
+      if (!hostname || hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1") {
+        return "GIFT_SHARE_URL_NOT_PUBLIC";
+      }
+      return null;
+    } catch {
+      return "INVALID_GIFT_SHARE_URL";
+    }
+  }
+
+  function isNonRetryableGiftDeliveryError(errorMessage) {
+    return errorMessage === "GIFT_SHARE_URL_NOT_PUBLIC" || errorMessage === "INVALID_GIFT_SHARE_URL";
+  }
+
   function computeGiftRetryAt(attemptNumber) {
     const backoffMinutes = Math.min(60, Math.max(1, 2 ** Math.max(0, Number(attemptNumber || 1) - 1)));
     return new Date(Date.now() + backoffMinutes * 60 * 1000).toISOString();
@@ -2391,6 +2419,10 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         try {
           let providerMessageId = null;
           let payloadMeta = {};
+          const shareUrlError = getGiftShareUrlDeliveryError(gift.share_url);
+          if (shareUrlError) {
+            throw new Error(shareUrlError);
+          }
 
           if (delivery.channel === "sms") {
             const smsEnabled = await getFeatureFlag(db, "gift_sms_enabled");
@@ -2470,24 +2502,27 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         } catch (err) {
           const failedAt = nowIso();
           const nextAttemptCount = Number(delivery.attempt_count || 0) + 1;
-          const nextRetryAt = nextAttemptCount >= giftDispatchMaxAttempts
+          const errorMessage = String(err.message || err);
+          const nextRetryAt = isNonRetryableGiftDeliveryError(errorMessage)
+            ? null
+            : nextAttemptCount >= giftDispatchMaxAttempts
             ? null
             : computeGiftRetryAt(nextAttemptCount);
 
-          errors.push(`${delivery.channel}:${err.message}`);
+          errors.push(`${delivery.channel}:${errorMessage}`);
 
           await recordGiftDispatchAttempt({
             giftId: gift.id,
             channel: delivery.channel,
             status: "failed",
-            errorMessage: err.message,
+            errorMessage,
             createdAt: failedAt,
           });
 
           await markGiftDeliveryFailed({
             deliveryId: delivery.id,
             attemptCount: nextAttemptCount,
-            errorMessage: err.message || err,
+            errorMessage,
             nextRetryAt,
             failedAt,
           });
@@ -2499,7 +2534,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
             giftOrderId: gift.id,
             outboxId: delivery.id,
             summary: `Gift ${delivery.channel} delivery failed`,
-            detail: String(err.message || err),
+            detail: errorMessage,
             metadata: {
               channel: delivery.channel,
               attempt_count: nextAttemptCount,
@@ -2513,7 +2548,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
             channel: delivery.channel,
             attempt_count: nextAttemptCount,
             next_retry_at: nextRetryAt,
-            error: String(err.message || err),
+            error: errorMessage,
           });
         }
       }

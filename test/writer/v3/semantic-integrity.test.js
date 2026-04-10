@@ -112,6 +112,36 @@ test("resolveTurnDecision uses the semantic clarification prompt instead of a ge
   assert.equal(result.semanticBlock, true);
 });
 
+test("semantic clarification prompt uses concrete story context instead of a vague generic turn question", () => {
+  const prompt = v3Engine.__internal.buildSemanticClarificationPrompt({
+    recipient_name: "Sarah",
+    atoms: {
+      where: "the sunset picnic",
+      when: "my birthday",
+      turn: "",
+    },
+    primitives: {
+      setting: {
+        place: "the sunset picnic",
+        time: "my birthday",
+      },
+    },
+    facts: [
+      { id: "f1", text: "Sarah planned a sunset picnic.", status: "active" },
+      { id: "f2", text: "She brought handwritten notes from our friends.", status: "active" },
+    ],
+    semantic_story: {
+      missing_narrative_blocks: ["turn"],
+    },
+  });
+
+  assert.match(prompt.question, /sunset picnic/i);
+  assert.match(prompt.question, /Sarah/i);
+  assert.doesNotMatch(prompt.question, /what was the exact moment things changed\?/i);
+  assert.ok(Array.isArray(prompt.suggestions));
+  assert.ok(prompt.suggestions.some((suggestion) => /Sarah|turning point|what made it land/i.test(suggestion)));
+});
+
 test("getStoryContextV3 persists semantic repairs so lyrics see the stored repaired contract", async () => {
   const session = {
     id: "semantic_persist_story",

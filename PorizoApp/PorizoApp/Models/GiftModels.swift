@@ -51,6 +51,7 @@ struct GiftOrder: Codable, Sendable, Identifiable {
     let contentType: String
     let contentId: String
     let contentTitle: String?
+    let recipientName: String?
     let status: String
     let dispatchStatus: String
     let deliveryMode: String
@@ -72,6 +73,7 @@ struct GiftOrder: Codable, Sendable, Identifiable {
         case contentType = "content_type"
         case contentId = "content_id"
         case contentTitle = "content_title"
+        case recipientName = "recipient_name"
         case status
         case dispatchStatus = "dispatch_status"
         case deliveryMode = "delivery_mode"
@@ -184,6 +186,7 @@ struct AttachGiftReservationContentRequest: Encodable, Sendable {
 }
 
 struct FinalizeGiftReservationRequest: Encodable, Sendable {
+    let recipientName: String?
     let deliveryMode: String
     let senderTimezone: String
     let channels: [String]
@@ -194,6 +197,7 @@ struct FinalizeGiftReservationRequest: Encodable, Sendable {
     let expiresInDays: Int
 
     enum CodingKeys: String, CodingKey {
+        case recipientName = "recipient_name"
         case deliveryMode = "delivery_mode"
         case senderTimezone = "sender_timezone"
         case channels
@@ -208,6 +212,7 @@ struct FinalizeGiftReservationRequest: Encodable, Sendable {
 struct CreateGiftRequest: Encodable, Sendable {
     let contentType: String
     let contentId: String
+    let recipientName: String?
     let deliveryMode: String
     let senderTimezone: String
     let channels: [String]
@@ -221,6 +226,7 @@ struct CreateGiftRequest: Encodable, Sendable {
     enum CodingKeys: String, CodingKey {
         case contentType = "content_type"
         case contentId = "content_id"
+        case recipientName = "recipient_name"
         case deliveryMode = "delivery_mode"
         case senderTimezone = "sender_timezone"
         case channels
@@ -246,6 +252,7 @@ struct GiftReservationResponse: Codable, Sendable {
 }
 
 struct UpdateGiftRequest: Encodable, Sendable {
+    let recipientName: String?
     let sendAt: String?
     let senderTimezone: String?
     let channels: [String]?
@@ -254,6 +261,7 @@ struct UpdateGiftRequest: Encodable, Sendable {
     let message: String?
 
     enum CodingKeys: String, CodingKey {
+        case recipientName = "recipient_name"
         case sendAt = "send_at"
         case senderTimezone = "sender_timezone"
         case channels

@@ -7,6 +7,7 @@
 
 import SwiftUI
 import StoreKit
+import Contacts
 
 struct GiftSendFlowView: View {
     let apiClient: APIClient
@@ -18,36 +19,33 @@ struct GiftSendFlowView: View {
     @Environment(StyleStore.self) private var styleStore
     @Environment(STTRouter.self) private var sttRouter
 
-    @State private var step: Step = .content
+    @State private var screen: Screen = .content
     @State private var contentType: GiftContentType = .song
     @State private var selectedTrackId: String?
-    @State private var selectedTrackVersionNum: Int?
     @State private var selectedTrackTitle: String?
     @State private var selectedPoem: Poem?
 
     @State private var createLaunch: GiftCreateLaunch?
-    @State private var sendViaSMS = true
+    @State private var recipientName = ""
+    @State private var sendViaText = true
     @State private var sendViaEmail = false
     @State private var recipientPhone = ""
     @State private var recipientEmail = ""
     @State private var message = ""
     @State private var selectedCountry: Country = .default
 
-    @State private var deliveryMode: GiftDeliveryMode = .scheduled
-    @State private var hasChosenDeliveryMode = false
+    @State private var deliveryMode: GiftDeliveryMode = .immediate
     @State private var scheduledAt = Date.now.addingTimeInterval(60 * 60)
 
     @State private var reservation: GiftReservation?
     @State private var reservationFinalized = false
+    @State private var composerResumePolicy: ComposerResumePolicy = .automatic
 
     @State private var walletBalance = 0
-    @State private var walletTransactions: [GiftWalletTransaction] = []
     @State private var scheduledGifts: [GiftOrder] = []
     @State private var createdGift: GiftOrder?
 
-    @State private var isBootstrapping = true
     @State private var isSubmitting = false
-    @State private var isPurchasing = false
     @State private var isReserving = false
     @State private var errorMessage: String?
 
@@ -57,8 +55,10 @@ struct GiftSendFlowView: View {
     @State private var isCreatingContent = false
     @State private var showCloseConfirmation = false
     @State private var showCountryPicker = false
+    @State private var showSchedulePicker = false
     @State private var showScheduledGiftList = false
     @State private var managingGift: GiftOrder?
+    @State private var contactPickerRequest: GiftContactPickerRequest?
     @Environment(\.scenePhase) private var scenePhase
 
     enum BundlePickerState: Equatable {
@@ -69,20 +69,33 @@ struct GiftSendFlowView: View {
         case cancelled
     }
 
-    enum Step: Int, CaseIterable {
+    enum Screen {
         case content
-        case recipient
-        case delivery
-        case review
+        case composer
         case success
 
         var title: String {
             switch self {
             case .content: return "Create Gift"
-            case .recipient: return "Recipient"
-            case .delivery: return "Delivery"
-            case .review: return "Review & Send"
-            case .success: return "Gift Scheduled"
+            case .composer: return "Address Your Gift"
+            case .success: return "Gift Ready"
+            }
+        }
+    }
+
+    enum ComposerResumePolicy {
+        case automatic
+        case pausedByUser
+    }
+
+    enum GiftDestinationMethod: String, CaseIterable {
+        case text
+        case email
+
+        var title: String {
+            switch self {
+            case .text: return "Text"
+            case .email: return "Email"
             }
         }
     }
@@ -93,21 +106,7 @@ struct GiftSendFlowView: View {
 
             VStack(spacing: 0) {
                 header
-
-                if step != .success {
-                    progressDots
-                        .padding(.top, 12)
-                        .padding(.bottom, 8)
-                }
-
-                if isBootstrapping {
-                    Spacer()
-                    ProgressView("Loading gift wallet...")
-                        .foregroundStyle(DesignTokens.textSecondary)
-                    Spacer()
-                } else {
-                    content
-                }
+                content
             }
         }
         .task {
@@ -149,14 +148,6 @@ struct GiftSendFlowView: View {
                 }
             }
         }
-        .onChange(of: step) { _, newStep in
-            guard newStep == .delivery else { return }
-            hasChosenDeliveryMode = false
-            deliveryMode = .scheduled
-            if scheduledAt <= Date.now.addingTimeInterval(60) {
-                scheduledAt = Date.now.addingTimeInterval(60 * 60)
-            }
-        }
         .sheet(isPresented: $showBundlePicker) {
             bundlePickerSheet
         }
@@ -165,6 +156,14 @@ struct GiftSendFlowView: View {
                 selectedCountry: $selectedCountry,
                 isPresented: $showCountryPicker
             )
+        }
+        .sheet(item: $contactPickerRequest) { request in
+            GiftContactPickerSheet(method: request.method) { selection in
+                applyGiftContactSelection(selection)
+            }
+        }
+        .sheet(isPresented: $showSchedulePicker) {
+            schedulePickerSheet
         }
         .sheet(isPresented: $showScheduledGiftList) {
             ScheduledGiftListSheet(gifts: scheduledGifts) { gift in
@@ -200,7 +199,7 @@ struct GiftSendFlowView: View {
                 preselectedType: launch.type,
                 alwaysShowVoiceSelection: true,
                 isGiftContext: true,
-                giftReservationId: reservation?.id,
+                giftReservationId: launch.reservationId,
                 onPoemComplete: { @MainActor poem in
                     createLaunch = nil
                     Task { @MainActor in
@@ -224,7 +223,7 @@ struct GiftSendFlowView: View {
 
     private var header: some View {
         HStack {
-            if step != .content && step != .success {
+            if screen == .composer {
                 Button {
                     goBack()
                 } label: {
@@ -242,14 +241,14 @@ struct GiftSendFlowView: View {
 
             Spacer()
 
-            Text(step.title)
+            Text(screen.title)
                 .font(DesignTokens.displayFont(size: 20, weight: .semibold))
                 .foregroundStyle(DesignTokens.textPrimary)
 
             Spacer()
 
                 Button {
-                    if hasActiveReservation && step != .success {
+                    if hasActiveReservation && screen != .success {
                         showCloseConfirmation = true
                     } else {
                         Task { await closeFlow(shouldDiscardReservation: false) }
@@ -269,130 +268,103 @@ struct GiftSendFlowView: View {
         .frame(height: 56)
     }
 
-    private var progressDots: some View {
-        HStack(spacing: 8) {
-            ForEach(0..<4, id: \.self) { index in
-                Circle()
-                    .fill(index <= step.rawValue ? DesignTokens.gold : DesignTokens.surfaceMuted)
-                    .frame(width: 8, height: 8)
-            }
-        }
-    }
-
     @ViewBuilder
     private var content: some View {
-        switch step {
+        switch screen {
         case .content:
-            contentStep
-        case .recipient:
-            recipientStep
-        case .delivery:
-            deliveryStep
-        case .review:
-            reviewStep
+            contentScreen
+        case .composer:
+            composerScreen
         case .success:
-            successStep
+            successScreen
         }
     }
 
-    private var contentStep: some View {
-        VStack(spacing: 0) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    sectionTitle("Create a fresh gift")
+    private var contentScreen: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                sectionTitle("Create a fresh gift")
 
-                    Text("Pick a gift type below. If you need tokens, you'll be prompted to buy a bundle.")
-                        .font(DesignTokens.bodyFont(size: 14))
-                        .foregroundStyle(DesignTokens.textSecondary)
+                Text("Pick a gift type below. If you need a gift credit, we’ll only ask when you’re ready to keep going.")
+                    .font(DesignTokens.bodyFont(size: 14))
+                    .foregroundStyle(DesignTokens.textSecondary)
 
-                    reservationStatusCard
+                reservationStatusCard
 
-                    if let selectedContentTitle {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Ready to send")
-                                .font(DesignTokens.bodyFont(size: 13, weight: .medium))
-                                .foregroundStyle(DesignTokens.textSecondary)
-
-                            Text(selectedContentTitle)
-                                .font(DesignTokens.bodyFont(size: 17, weight: .semibold))
-                                .foregroundStyle(DesignTokens.textPrimary)
-
-                        }
-                        .padding(16)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(DesignTokens.cardBackground)
-                        .clipShape(.rect(cornerRadius: 12))
-                    }
-
-                    if hasAttachedReservationContent {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Gift content already created")
-                                .font(DesignTokens.bodyFont(size: 15, weight: .semibold))
-                                .foregroundStyle(DesignTokens.textPrimary)
-                            Text("Continue this gift to add the recipient and delivery details, or discard it if you want to start over.")
-                                .font(DesignTokens.bodyFont(size: 13))
-                                .foregroundStyle(DesignTokens.textSecondary)
-                        }
-                        .padding(16)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(DesignTokens.cardBackground)
-                        .clipShape(.rect(cornerRadius: 12))
-                    }
-
-                    VStack(spacing: 10) {
-                        createActionButton(
-                            title: primaryCreateButtonTitle(for: .song),
-                            icon: "music.note",
-                            disabled: isCreateButtonDisabled(for: .song),
-                            action: { startCreateFlow(type: .song) }
-                        )
-
-                        createActionButton(
-                            title: primaryCreateButtonTitle(for: .poem),
-                            icon: "text.book.closed",
-                            disabled: isCreateButtonDisabled(for: .poem),
-                            action: { startCreateFlow(type: .poem) }
-                        )
-                    }
-
-                    scheduledGiftsCard
+                if hasAttachedReservationContent {
+                    savedDraftCard
                 }
-                .padding(.horizontal, 20)
-                .padding(.top, 12)
-                .padding(.bottom, 16)
-            }
 
-            flowButton("Continue", disabled: !hasAttachedReservationContent || isSubmitting || isReserving) {
-                step = .recipient
+                VStack(spacing: 10) {
+                    createActionButton(
+                        title: primaryCreateButtonTitle(for: .song),
+                        icon: "music.note",
+                        disabled: isCreateButtonDisabled(for: .song),
+                        action: { startCreateFlow(type: .song) }
+                    )
+
+                    createActionButton(
+                        title: primaryCreateButtonTitle(for: .poem),
+                        icon: "text.book.closed",
+                        disabled: isCreateButtonDisabled(for: .poem),
+                        action: { startCreateFlow(type: .poem) }
+                    )
+                }
+
+                scheduledGiftsCard
             }
             .padding(.horizontal, 20)
-            .padding(.bottom, 20)
+            .padding(.top, 12)
+            .padding(.bottom, 24)
         }
     }
 
     private var reservationStatusCard: some View {
         VStack(alignment: .leading, spacing: 8) {
             if hasActiveReservation {
-                Text("1 token reserved for this gift")
+                Text(hasAttachedReservationContent ? "Gift saved and ready to address" : "Gift draft in progress")
                     .font(DesignTokens.bodyFont(size: 15, weight: .semibold))
                     .foregroundStyle(DesignTokens.statusSuccess)
                 if let expiresAt = reservation?.expiresAt {
-                    Text("Reservation expires: \(expiresAt)")
+                    Text("This draft stays ready until \(expiresAt).")
                         .font(DesignTokens.bodyFont(size: 12))
                         .foregroundStyle(DesignTokens.textSecondary)
                 }
             } else {
-                Text("No active reservation")
+                Text("Nothing waiting right now")
                     .font(DesignTokens.bodyFont(size: 15, weight: .semibold))
                     .foregroundStyle(DesignTokens.warning)
-                Text("Reserve a token before creating gift content.")
+                Text("Start with the song or poem. You’ll only be asked to unlock the gift if you actually need to.")
                     .font(DesignTokens.bodyFont(size: 12))
                     .foregroundStyle(DesignTokens.textSecondary)
             }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(DesignTokens.cardBackground)
+        .clipShape(.rect(cornerRadius: 12))
+    }
 
-            Text("Wallet: \(walletBalance) token\(walletBalance == 1 ? "" : "s")")
-                .font(DesignTokens.bodyFont(size: 12))
+    private var savedDraftCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Continue your gift")
+                .font(DesignTokens.bodyFont(size: 15, weight: .semibold))
+                .foregroundStyle(DesignTokens.textPrimary)
+
+            Text(selectedContentTitle ?? "Your gift content is ready. Add who it’s for and when it should arrive.")
+                .font(DesignTokens.bodyFont(size: 13))
                 .foregroundStyle(DesignTokens.textSecondary)
+
+            Button {
+                composerResumePolicy = .automatic
+                screen = .composer
+            } label: {
+                Text("Address this gift")
+                    .font(DesignTokens.bodyFont(size: 14, weight: .semibold))
+                    .foregroundStyle(DesignTokens.gold)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(.plain)
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -444,184 +416,40 @@ struct GiftSendFlowView: View {
         .clipShape(.rect(cornerRadius: 12))
     }
 
-    private var recipientStep: some View {
-        VStack(spacing: 0) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    sectionTitle("Delivery Channels")
+    private var composerScreen: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                composerHero
+                composerRecipientSection
+                composerDestinationSection
+                composerNoteSection
+                composerTimingSection
 
-                    channelToggle(
-                        title: "SMS",
-                        subtitle: "Send as a text message with gift link + PIN",
-                        isOn: $sendViaSMS
-                    )
-                    channelToggle(
-                        title: "Email",
-                        subtitle: "Send by email with the same secure claim details",
-                        isOn: $sendViaEmail
-                    )
-
-                    if sendViaSMS {
-                        fieldLabel("Recipient phone")
-                        HStack(spacing: 8) {
-                            Button {
-                                showCountryPicker = true
-                            } label: {
-                                Text("\(selectedCountry.flag) \(selectedCountry.dialCode)")
-                                    .font(DesignTokens.bodyFont(size: 16))
-                                    .foregroundStyle(DesignTokens.textPrimary)
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 14)
-                                    .background(DesignTokens.cardBackground)
-                                    .clipShape(.rect(cornerRadius: 10))
-                            }
-                            .buttonStyle(.plain)
-
-                            TextField("Recipient phone", text: $recipientPhone)
-                                .keyboardType(.phonePad)
-                                .textContentType(.telephoneNumber)
-                                .autocorrectionDisabled(true)
-                                .textInputAutocapitalization(.never)
-                                .padding(12)
-                                .background(DesignTokens.cardBackground)
-                                .clipShape(.rect(cornerRadius: 10))
-                                .foregroundStyle(DesignTokens.textPrimary)
-                                .onChange(of: recipientPhone) { _, newValue in
-                                    recipientPhone = formatPhoneInput(newValue, selectedCountry: selectedCountry)
-                                }
-                        }
-                    }
-
-                    if sendViaEmail {
-                        fieldLabel("Recipient email")
-                        TextField("name@example.com", text: $recipientEmail)
-                            .keyboardType(.emailAddress)
-                            .textContentType(.emailAddress)
-                            .autocorrectionDisabled(true)
-                            .textInputAutocapitalization(.never)
-                            .padding(12)
-                            .background(DesignTokens.cardBackground)
-                            .clipShape(.rect(cornerRadius: 10))
-                            .foregroundStyle(DesignTokens.textPrimary)
-                    }
-
-                    fieldLabel("Your message (optional)")
-                    TextEditor(text: $message)
-                        .frame(minHeight: 120)
-                        .padding(8)
-                        .background(DesignTokens.cardBackground)
-                        .clipShape(.rect(cornerRadius: 10))
-                        .foregroundStyle(DesignTokens.textPrimary)
-                        .overlay(alignment: .topLeading) {
-                            if message.isEmpty {
-                                Text("Add a short note for them...")
-                                    .font(DesignTokens.bodyFont(size: 14))
-                                    .foregroundStyle(DesignTokens.textSecondary)
-                                    .padding(.top, 16)
-                                    .padding(.leading, 14)
-                            }
-                        }
+                if isComposerReadyForSummary {
+                    composerSummaryCard
                 }
-                .padding(.horizontal, 20)
-                .padding(.top, 12)
-                .padding(.bottom, 16)
-            }
 
-            flowButton("Continue", disabled: !isRecipientStepValid || isSubmitting) {
-                if scheduledAt <= Date.now.addingTimeInterval(60) {
-                    scheduledAt = Date.now.addingTimeInterval(60 * 60)
+                flowButton(
+                    isSubmitting ? "Sending..." : primaryComposerCTA,
+                    disabled: !canSendGift || isSubmitting
+                ) {
+                    Task { await submitGift() }
                 }
-                step = .delivery
+                .padding(.top, 4)
+
+                Text("Gift credit is only checked when you finish sending.")
+                    .font(DesignTokens.bodyFont(size: 13))
+                    .foregroundStyle(DesignTokens.textSecondary)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .multilineTextAlignment(.center)
             }
             .padding(.horizontal, 20)
-            .padding(.bottom, 20)
+            .padding(.top, 12)
+            .padding(.bottom, 24)
         }
     }
 
-    private var deliveryStep: some View {
-        VStack(spacing: 0) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    sectionTitle("When should we deliver this gift?")
-
-                    Text("Choose whether to send it now or schedule an exact delivery time.")
-                        .font(DesignTokens.bodyFont(size: 14))
-                        .foregroundStyle(DesignTokens.textSecondary)
-
-                    HStack(spacing: 8) {
-                        deliveryModeButton(title: "Now", mode: .immediate)
-                        deliveryModeButton(title: "Schedule", mode: .scheduled)
-                    }
-                    .padding(4)
-                    .background(DesignTokens.cardBackground)
-                    .clipShape(.rect(cornerRadius: 12))
-
-                    if hasChosenDeliveryMode && deliveryMode == .scheduled {
-                        DatePicker(
-                            "Send date",
-                            selection: $scheduledAt,
-                            in: Date.now.addingTimeInterval(60)...,
-                            displayedComponents: [.date, .hourAndMinute]
-                        )
-                        .datePickerStyle(.graphical)
-                        .tint(DesignTokens.gold)
-                        .padding(12)
-                        .background(DesignTokens.cardBackground)
-                        .clipShape(.rect(cornerRadius: 12))
-                    }
-
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Timezone")
-                            .font(DesignTokens.bodyFont(size: 13, weight: .medium))
-                            .foregroundStyle(DesignTokens.textSecondary)
-                        Text(TimeZone.current.identifier)
-                            .font(DesignTokens.bodyFont(size: 14))
-                            .foregroundStyle(DesignTokens.textPrimary)
-                    }
-                    .padding(12)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(DesignTokens.cardBackground)
-                    .clipShape(.rect(cornerRadius: 10))
-                }
-                .padding(.horizontal, 20)
-                .padding(.top, 12)
-                .padding(.bottom, 16)
-            }
-
-            flowButton("Continue", disabled: !isDeliveryStepValid || isSubmitting) {
-                step = .review
-            }
-            .padding(.horizontal, 20)
-            .padding(.bottom, 20)
-        }
-    }
-
-    private var reviewStep: some View {
-        VStack(spacing: 0) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    sectionTitle("Gift Summary")
-
-                    summaryCard
-                    walletCard
-                }
-                .padding(.horizontal, 20)
-                .padding(.top, 12)
-                .padding(.bottom, 16)
-            }
-
-            flowButton(
-                isSubmitting ? "Sending..." : "Send Gift",
-                disabled: !canSendGift || isSubmitting
-            ) {
-                Task { await submitGift() }
-            }
-            .padding(.horizontal, 20)
-            .padding(.bottom, 20)
-        }
-    }
-
-    private var successStep: some View {
+    private var successScreen: some View {
         VStack(spacing: 20) {
             Spacer()
 
@@ -639,23 +467,6 @@ struct GiftSendFlowView: View {
                     .foregroundStyle(DesignTokens.textSecondary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 24)
-            }
-
-            if let gift = createdGift {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Share PIN: \(gift.claimPin ?? "—")")
-                    Text("Delivery: \(gift.deliveryMode.capitalized)")
-                    Text("Status: \(gift.status.capitalized)")
-                    Text("Recipient: \(scheduledGiftRecipient(for: gift))")
-                    Text("When: \(scheduledGiftDateLabel(for: gift))")
-                }
-                .font(DesignTokens.bodyFont(size: 15))
-                .foregroundStyle(DesignTokens.textPrimary)
-                .padding(16)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(DesignTokens.cardBackground)
-                .clipShape(.rect(cornerRadius: 12))
-                .padding(.horizontal, 20)
             }
 
             VStack(spacing: 10) {
@@ -677,42 +488,39 @@ struct GiftSendFlowView: View {
         }
     }
 
-    private var summaryCard: some View {
+    private var composerHero: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Gift Item")
+            Text(contentType == .poem ? "Your poem is ready" : "Your song is ready")
                 .font(DesignTokens.bodyFont(size: 13, weight: .medium))
                 .foregroundStyle(DesignTokens.textSecondary)
-            Text(selectedContentTitle ?? "—")
-                .font(DesignTokens.bodyFont(size: 17, weight: .semibold))
-                .foregroundStyle(DesignTokens.textPrimary)
 
-            Divider().background(DesignTokens.border)
+            HStack(spacing: 12) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(
+                            LinearGradient(
+                                colors: [DesignTokens.gold.opacity(0.95), DesignTokens.gold.opacity(0.55)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .frame(width: 60, height: 60)
 
-            Text("Recipient")
-                .font(DesignTokens.bodyFont(size: 13, weight: .medium))
-                .foregroundStyle(DesignTokens.textSecondary)
-            Text("Channels: \(selectedChannels.map { $0.uppercased() }.joined(separator: ", "))")
-                .font(DesignTokens.bodyFont(size: 14))
-                .foregroundStyle(DesignTokens.textPrimary)
-            if sendViaSMS {
-                Text("Phone: \(normalizedPhone ?? recipientPhone)")
-                    .font(DesignTokens.bodyFont(size: 14))
-                    .foregroundStyle(DesignTokens.textSecondary)
+                    Image(systemName: contentType == .poem ? "text.book.closed.fill" : "music.note")
+                        .font(.system(size: 24, weight: .semibold))
+                        .foregroundStyle(DesignTokens.background)
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(selectedContentTitle ?? "Your gift")
+                        .font(DesignTokens.bodyFont(size: 18, weight: .semibold))
+                        .foregroundStyle(DesignTokens.textPrimary)
+
+                    Text(contentType == .poem ? "A note made unforgettable." : "Now wrap it with who it’s for and when it should arrive.")
+                        .font(DesignTokens.bodyFont(size: 13))
+                        .foregroundStyle(DesignTokens.textSecondary)
+                }
             }
-            if sendViaEmail {
-                Text("Email: \(recipientEmail.trimmingCharacters(in: .whitespacesAndNewlines))")
-                    .font(DesignTokens.bodyFont(size: 14))
-                    .foregroundStyle(DesignTokens.textSecondary)
-            }
-
-            Divider().background(DesignTokens.border)
-
-            Text("Delivery")
-                .font(DesignTokens.bodyFont(size: 13, weight: .medium))
-                .foregroundStyle(DesignTokens.textSecondary)
-            Text("Delivery: \(deliverySummary)")
-                .font(DesignTokens.bodyFont(size: 14))
-                .foregroundStyle(DesignTokens.textPrimary)
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -720,25 +528,213 @@ struct GiftSendFlowView: View {
         .clipShape(.rect(cornerRadius: 12))
     }
 
-    private var walletCard: some View {
+    private var composerRecipientSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            fieldLabel("Who is this for?")
+
+            TextField("Their name", text: $recipientName)
+                .textContentType(.name)
+                .autocorrectionDisabled(true)
+                .padding(.horizontal, 4)
+                .padding(.vertical, 10)
+                .overlay(alignment: .bottom) {
+                    Rectangle()
+                        .fill(DesignTokens.border)
+                        .frame(height: 1)
+                }
+                .font(DesignTokens.displayFont(size: 24, weight: .medium))
+                .foregroundStyle(DesignTokens.textPrimary)
+        }
+    }
+
+    private var composerDestinationSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Gift Token Wallet")
+            fieldLabel("How should it reach them?")
+
+            HStack(spacing: 8) {
+                deliveryMethodToggle(title: "Text", isOn: $sendViaText)
+                deliveryMethodToggle(title: "Email", isOn: $sendViaEmail)
+            }
+            .padding(4)
+            .background(DesignTokens.surfaceMuted)
+            .clipShape(.rect(cornerRadius: 12))
+
+            if sendViaText {
+                HStack(spacing: 8) {
+                    Button {
+                        showCountryPicker = true
+                    } label: {
+                        Text("\(selectedCountry.flag) \(selectedCountry.dialCode)")
+                            .font(DesignTokens.bodyFont(size: 16))
+                            .foregroundStyle(DesignTokens.textPrimary)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 14)
+                            .background(DesignTokens.cardBackground)
+                            .clipShape(.rect(cornerRadius: 10))
+                    }
+                    .buttonStyle(.plain)
+
+                    TextField("Phone number", text: $recipientPhone)
+                        .keyboardType(.phonePad)
+                        .textContentType(.telephoneNumber)
+                        .autocorrectionDisabled(true)
+                        .textInputAutocapitalization(.never)
+                        .padding(12)
+                        .background(DesignTokens.cardBackground)
+                        .clipShape(.rect(cornerRadius: 10))
+                        .foregroundStyle(DesignTokens.textPrimary)
+                        .onChange(of: recipientPhone) { _, newValue in
+                            recipientPhone = formatPhoneInput(newValue, selectedCountry: selectedCountry)
+                        }
+
+                    contactPickerButton(for: .text)
+                }
+            }
+
+            if sendViaEmail {
+                HStack(spacing: 8) {
+                    TextField("name@example.com", text: $recipientEmail)
+                        .keyboardType(.emailAddress)
+                        .textContentType(.emailAddress)
+                        .autocorrectionDisabled(true)
+                        .textInputAutocapitalization(.never)
+                        .padding(12)
+                        .background(DesignTokens.cardBackground)
+                        .clipShape(.rect(cornerRadius: 10))
+                        .foregroundStyle(DesignTokens.textPrimary)
+
+                    contactPickerButton(for: .email)
+                }
+            }
+
+            Text(destinationMethodHint)
+                .font(DesignTokens.bodyFont(size: 12))
+                .foregroundStyle(DesignTokens.textSecondary)
+        }
+    }
+
+    private var composerNoteSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            fieldLabel("Your note")
+
+            TextEditor(text: $message)
+                .frame(minHeight: 84, maxHeight: 104)
+                .padding(8)
+                .background(DesignTokens.cardBackground)
+                .clipShape(.rect(cornerRadius: 10))
+                .foregroundStyle(DesignTokens.textPrimary)
+                .overlay(alignment: .topLeading) {
+                    if message.isEmpty {
+                        Text("Add a note if you want.")
+                            .font(DesignTokens.bodyFont(size: 14))
+                            .foregroundStyle(DesignTokens.textSecondary)
+                            .padding(.top, 16)
+                            .padding(.leading, 14)
+                    }
+                }
+        }
+    }
+
+    private var composerTimingSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            fieldLabel("When should it arrive?")
+
+            HStack(spacing: 8) {
+                timingButton(title: "Send now", mode: .immediate)
+                timingButton(title: "Schedule", mode: .scheduled)
+            }
+            .padding(4)
+            .background(DesignTokens.surfaceMuted)
+            .clipShape(.rect(cornerRadius: 12))
+
+            if deliveryMode == .scheduled {
+                Button {
+                    showSchedulePicker = true
+                } label: {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(scheduleHeadline)
+                                .font(DesignTokens.bodyFont(size: 14, weight: .semibold))
+                                .foregroundStyle(DesignTokens.textPrimary)
+                            Text(DateFormatter.localizedString(from: scheduledAt, dateStyle: .medium, timeStyle: .short))
+                                .font(DesignTokens.bodyFont(size: 13))
+                                .foregroundStyle(DesignTokens.textSecondary)
+                        }
+
+                        Spacer()
+
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(DesignTokens.textTertiary)
+                    }
+                    .padding(14)
+                    .background(DesignTokens.cardBackground)
+                    .clipShape(.rect(cornerRadius: 10))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private var composerSummaryCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Delivery Summary")
                 .font(DesignTokens.bodyFont(size: 13, weight: .medium))
                 .foregroundStyle(DesignTokens.textSecondary)
-            Text("\(walletBalance) token\(walletBalance == 1 ? "" : "s") available")
-                .font(DesignTokens.bodyFont(size: 17, weight: .semibold))
-                .foregroundStyle(walletBalance > 0 ? DesignTokens.statusSuccess : DesignTokens.warning)
-
-            if let latest = walletTransactions.first {
-                Text("Latest activity: \(latest.type.replacingOccurrences(of: "_", with: " ").capitalized)")
-                    .font(DesignTokens.bodyFont(size: 13))
-                    .foregroundStyle(DesignTokens.textSecondary)
-            }
+            Text(deliverySummarySentence)
+                .font(DesignTokens.bodyFont(size: 15, weight: .semibold))
+                .foregroundStyle(DesignTokens.textPrimary)
+                .multilineTextAlignment(.leading)
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(DesignTokens.cardBackground)
         .clipShape(.rect(cornerRadius: 12))
+    }
+
+    private var schedulePickerSheet: some View {
+        NavigationStack {
+            ZStack {
+                DesignTokens.background.ignoresSafeArea()
+
+                VStack(spacing: 18) {
+                    DatePicker(
+                        "Send date",
+                        selection: $scheduledAt,
+                        in: minimumScheduledDate()...,
+                        displayedComponents: [.date, .hourAndMinute]
+                    )
+                    .datePickerStyle(.graphical)
+                    .tint(DesignTokens.gold)
+                    .padding(12)
+                    .background(DesignTokens.cardBackground)
+                    .clipShape(.rect(cornerRadius: 12))
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("They’ll get it")
+                            .font(DesignTokens.bodyFont(size: 13, weight: .medium))
+                            .foregroundStyle(DesignTokens.textSecondary)
+                        Text(DateFormatter.localizedString(from: scheduledAt, dateStyle: .full, timeStyle: .short))
+                            .font(DesignTokens.bodyFont(size: 15, weight: .semibold))
+                            .foregroundStyle(DesignTokens.textPrimary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    Spacer()
+                }
+                .padding(20)
+            }
+            .navigationTitle("Choose the moment")
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") {
+                        showSchedulePicker = false
+                    }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
     }
 
     private func scheduledGiftRow(_ gift: GiftOrder) -> some View {
@@ -816,35 +812,12 @@ struct GiftSendFlowView: View {
         .buttonStyle(.plain)
     }
 
-    private func channelToggle(title: String, subtitle: String, isOn: Binding<Bool>) -> some View {
-        Button {
-            isOn.wrappedValue.toggle()
-        } label: {
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(title)
-                        .font(DesignTokens.bodyFont(size: 15, weight: .semibold))
-                        .foregroundStyle(DesignTokens.textPrimary)
-                    Text(subtitle)
-                        .font(DesignTokens.bodyFont(size: 12))
-                        .foregroundStyle(DesignTokens.textSecondary)
-                }
-                Spacer()
-                Image(systemName: isOn.wrappedValue ? "checkmark.circle.fill" : "circle")
-                    .foregroundStyle(isOn.wrappedValue ? DesignTokens.gold : DesignTokens.textTertiary)
-                    .font(.system(size: 20))
-            }
-            .padding(12)
-            .background(DesignTokens.cardBackground)
-            .clipShape(.rect(cornerRadius: 10))
-        }
-        .buttonStyle(.plain)
-    }
-
-    private func deliveryModeButton(title: String, mode: GiftDeliveryMode) -> some View {
+    private func timingButton(title: String, mode: GiftDeliveryMode) -> some View {
         Button {
             deliveryMode = mode
-            hasChosenDeliveryMode = true
+            if mode == .scheduled, scheduledAt <= minimumScheduledDate() {
+                scheduledAt = defaultScheduledDate()
+            }
         } label: {
             Text(title)
                 .font(DesignTokens.bodyFont(size: 14, weight: .semibold))
@@ -852,6 +825,28 @@ struct GiftSendFlowView: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 12)
                 .background(isSelectedDeliveryMode(mode) ? DesignTokens.gold : Color.clear)
+                .clipShape(.rect(cornerRadius: 10))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func deliveryMethodToggle(title: String, isOn: Binding<Bool>) -> some View {
+        Button {
+            if isOn.wrappedValue {
+                let activeCount = [sendViaText, sendViaEmail].filter { $0 }.count
+                if activeCount > 1 {
+                    isOn.wrappedValue = false
+                }
+            } else {
+                isOn.wrappedValue = true
+            }
+        } label: {
+            Text(title)
+                .font(DesignTokens.bodyFont(size: 14, weight: .semibold))
+                .foregroundStyle(isOn.wrappedValue ? DesignTokens.background : DesignTokens.textPrimary)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+                .background(isOn.wrappedValue ? DesignTokens.gold : DesignTokens.cardBackground)
                 .clipShape(.rect(cornerRadius: 10))
         }
         .buttonStyle(.plain)
@@ -867,6 +862,21 @@ struct GiftSendFlowView: View {
         Text(label)
             .font(DesignTokens.bodyFont(size: 13, weight: .medium))
             .foregroundStyle(DesignTokens.textSecondary)
+    }
+
+    private func contactPickerButton(for method: GiftDestinationMethod) -> some View {
+        Button {
+            presentContactPicker(for: method)
+        } label: {
+            Image(systemName: "person.crop.circle.badge.plus")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(DesignTokens.gold)
+                .frame(width: 48, height: 48)
+                .background(DesignTokens.cardBackground)
+                .clipShape(.rect(cornerRadius: 10))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(method == .text ? "Choose phone number from contacts" : "Choose email from contacts")
     }
 
     private func flowButton(_ title: String, disabled: Bool, action: @escaping () -> Void) -> some View {
@@ -894,35 +904,83 @@ struct GiftSendFlowView: View {
     }
 
     private func goBack() {
-        guard let previous = Step(rawValue: max(step.rawValue - 1, 0)) else { return }
-        step = previous
+        switch screen {
+        case .content, .success:
+            break
+        case .composer:
+            composerResumePolicy = .pausedByUser
+            screen = .content
+        }
     }
 
     private func openCreateFlow(type: CreateFlowKind) {
+        guard let reservationId = reservation?.id else {
+            errorMessage = "We couldn’t get this gift ready yet. Please try again."
+            return
+        }
         CreateFlowStore.shared.clear()
         isCreatingContent = true
-        createLaunch = GiftCreateLaunch(type: type)
+        createLaunch = GiftCreateLaunch(type: type, reservationId: reservationId)
     }
 
     private func startCreateFlow(type: CreateFlowKind) {
         Task {
             if hasAttachedReservationContent {
                 await MainActor.run {
-                    step = .recipient
+                    composerResumePolicy = .automatic
+                    screen = .composer
                 }
                 return
             }
-            // If wallet empty and no reservation, show bundle picker
-            if !hasActiveReservation && walletBalance < 1 && AppConfig.enableGiftPurchaseUI {
-                pendingCreateType = type
-                bundlePickerState = .selecting
-                showBundlePicker = true
-                return
-            }
+            pendingCreateType = type
             let ready = await ensureReservationForCreation()
             if ready {
+                pendingCreateType = nil
                 openCreateFlow(type: type)
             }
+        }
+    }
+
+    @MainActor
+    private func presentContactPicker(for method: GiftDestinationMethod) {
+        switch CNContactStore.authorizationStatus(for: .contacts) {
+        case .restricted, .denied:
+            errorMessage = "Allow Contacts access in Settings to choose a recipient from your address book."
+        case .authorized, .limited, .notDetermined:
+            contactPickerRequest = GiftContactPickerRequest(method: method)
+        @unknown default:
+            errorMessage = "Contacts access is unavailable right now."
+        }
+    }
+
+    @MainActor
+    private func applyGiftContactSelection(_ selection: GiftContactSelection) {
+        let trimmedName = selection.fullName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedName.isEmpty {
+            recipientName = trimmedName
+        }
+
+        switch selection.method {
+        case .text:
+            guard let phoneNumber = selection.phoneNumber,
+                  let country = normalizedPhoneCountry(phoneNumber),
+                  let national = nationalPhoneNumberForInput(phoneNumber, selectedCountry: country)
+            else {
+                errorMessage = "That contact doesn’t have a phone number we can use yet."
+                return
+            }
+            sendViaText = true
+            selectedCountry = country
+            recipientPhone = formatPhoneInput(national, selectedCountry: country)
+        case .email:
+            guard let emailAddress = selection.emailAddress?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !emailAddress.isEmpty
+            else {
+                errorMessage = "That contact doesn’t have an email address we can use yet."
+                return
+            }
+            sendViaEmail = true
+            recipientEmail = emailAddress
         }
     }
 
@@ -941,11 +999,6 @@ struct GiftSendFlowView: View {
             return true
         }
 
-        if walletBalance < 1 {
-            errorMessage = "You need at least 1 gift token."
-            return false
-        }
-
         isReserving = true
         defer { isReserving = false }
 
@@ -953,13 +1006,18 @@ struct GiftSendFlowView: View {
             let idempotency = "gift_reserve_ios_\(UUID().uuidString.lowercased())"
             let response = try await apiClient.createGiftReservation(idempotencyKey: idempotency)
             guard let reservation = response.reservation else {
-                errorMessage = "Failed to reserve gift token."
+                errorMessage = "We couldn’t get this gift ready yet. Please try again."
                 return false
             }
             self.reservation = reservation
             self.walletBalance = response.walletBalance
             return true
         } catch {
+            if shouldPromptGiftUnlock(for: error), AppConfig.enableGiftPurchaseUI {
+                bundlePickerState = .selecting
+                showBundlePicker = true
+                return false
+            }
             errorMessage = mapError(error)
             return false
         }
@@ -969,27 +1027,31 @@ struct GiftSendFlowView: View {
     private func applyCreatedSong(trackId: String, versionNum: Int) async {
         contentType = .song
         selectedTrackId = trackId
-        selectedTrackVersionNum = versionNum
         selectedPoem = nil
         selectedTrackTitle = "Your Song"
 
         do {
             let response = try await apiClient.getTrack(trackId: trackId)
             selectedTrackTitle = response.track.title
+            if recipientName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+               let trackRecipient = response.track.recipientName?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !trackRecipient.isEmpty {
+                recipientName = trackRecipient
+            }
         } catch {
             // Keep fallback title if fetch fails.
         }
 
         guard hasActiveReservation else {
-            errorMessage = "Your reservation has expired. Please reserve a new token."
+            errorMessage = "This gift draft expired. Start a fresh gift and we’ll help you finish it."
             reservation = nil
-            step = .content
+            screen = .content
             return
         }
 
         guard let reservationId = reservation?.id else {
-            errorMessage = "Gift reservation was lost. Please reserve again."
-            step = .content
+            errorMessage = "We lost track of this gift draft. Start a fresh one and we’ll keep going."
+            screen = .content
             return
         }
 
@@ -1002,10 +1064,11 @@ struct GiftSendFlowView: View {
             )
             reservation = response.reservation
             walletBalance = response.walletBalance
-            step = .recipient
+            composerResumePolicy = .automatic
+            screen = .composer
         } catch {
             errorMessage = mapError(error)
-            step = .content
+            screen = .content
         }
     }
 
@@ -1014,19 +1077,24 @@ struct GiftSendFlowView: View {
         contentType = .poem
         selectedPoem = poem
         selectedTrackId = nil
-        selectedTrackVersionNum = nil
         selectedTrackTitle = nil
+        if recipientName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let poemRecipient = poem.recipientName.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !poemRecipient.isEmpty {
+                recipientName = poemRecipient
+            }
+        }
 
         guard hasActiveReservation else {
-            errorMessage = "Your reservation has expired. Please reserve a new token."
+            errorMessage = "This gift draft expired. Start a fresh gift and we’ll help you finish it."
             reservation = nil
-            step = .content
+            screen = .content
             return
         }
 
         guard let reservationId = reservation?.id else {
-            errorMessage = "Gift reservation was lost. Please reserve again."
-            step = .content
+            errorMessage = "We lost track of this gift draft. Start a fresh one and we’ll keep going."
+            screen = .content
             return
         }
 
@@ -1039,10 +1107,11 @@ struct GiftSendFlowView: View {
             )
             reservation = response.reservation
             walletBalance = response.walletBalance
-            step = .recipient
+            composerResumePolicy = .automatic
+            screen = .composer
         } catch {
             errorMessage = mapError(error)
-            step = .content
+            screen = .content
         }
     }
 
@@ -1066,13 +1135,13 @@ struct GiftSendFlowView: View {
 
     private var selectedChannels: [String] {
         var channels: [String] = []
-        if sendViaSMS { channels.append(GiftDeliveryChannel.sms.rawValue) }
+        if sendViaText { channels.append(GiftDeliveryChannel.sms.rawValue) }
         if sendViaEmail { channels.append(GiftDeliveryChannel.email.rawValue) }
         return channels
     }
 
     private var normalizedPhone: String? {
-        sendViaSMS ? normalizedE164PhoneNumber(recipientPhone, selectedCountry: selectedCountry) : nil
+        sendViaText ? normalizedE164PhoneNumber(recipientPhone, selectedCountry: selectedCountry) : nil
     }
 
     private var normalizedEmail: String? {
@@ -1082,17 +1151,12 @@ struct GiftSendFlowView: View {
         return emailPredicate.evaluate(with: raw) ? raw : nil
     }
 
-    private var isRecipientStepValid: Bool {
-        guard !selectedChannels.isEmpty else { return false }
-        if sendViaSMS, normalizedPhone == nil { return false }
-        if sendViaEmail, normalizedEmail == nil { return false }
+    private var hasValidRecipientAndDestination: Bool {
+        guard !recipientName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        guard sendViaText || sendViaEmail else { return false }
+        if sendViaText && normalizedPhone == nil { return false }
+        if sendViaEmail && normalizedEmail == nil { return false }
         return true
-    }
-
-    private var isDeliveryStepValid: Bool {
-        guard hasChosenDeliveryMode else { return false }
-        if deliveryMode == .immediate { return true }
-        return scheduledAt > Date.now.addingTimeInterval(60)
     }
 
     private var hasActiveReservation: Bool {
@@ -1108,45 +1172,104 @@ struct GiftSendFlowView: View {
     }
 
     private var canSendGift: Bool {
-        selectedContentId != nil && hasAttachedReservationContent && isRecipientStepValid && isDeliveryStepValid
+        selectedContentId != nil && hasAttachedReservationContent && hasValidRecipientAndDestination && isDeliveryValid
     }
 
-    private var deliverySummary: String {
-        guard hasChosenDeliveryMode else {
-            return "Not selected"
+    private var isDeliveryValid: Bool {
+        if deliveryMode == .immediate { return true }
+        return scheduledAt > minimumScheduledDate()
+    }
+
+    private var isComposerReadyForSummary: Bool {
+        hasAttachedReservationContent && hasValidRecipientAndDestination && isDeliveryValid
+    }
+
+    private var primaryComposerCTA: String {
+        deliveryMode == .scheduled ? "Schedule Gift" : "Send Gift"
+    }
+
+    private var scheduleHeadline: String {
+        let calendar = Calendar.current
+        if calendar.isDateInToday(scheduledAt) {
+            return "Today"
         }
-        switch deliveryMode {
-        case .immediate:
-            return "Send immediately"
-        case .scheduled:
-            return DateFormatter.localizedString(from: scheduledAt, dateStyle: .medium, timeStyle: .short)
+        if calendar.isDateInTomorrow(scheduledAt) {
+            return "Tomorrow"
         }
+        return "Choose the moment"
+    }
+
+    private var deliverySummarySentence: String {
+        let name = recipientName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let medium = deliveryMethodSummary
+        let who = name.isEmpty ? "They" : name
+        if deliveryMode == .immediate {
+            return "\(who) will get this by \(medium) today."
+        }
+        return "\(who) will get this by \(medium) on \(DateFormatter.localizedString(from: scheduledAt, dateStyle: .medium, timeStyle: .short))."
+    }
+
+    private var destinationMethodHint: String {
+        if sendViaText && sendViaEmail {
+            return "We’ll send this by text and email."
+        }
+        if sendViaText {
+            return recipientEmail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? "We’ll send this by text only."
+                : "We’ll send this by text only. Your email stays here if you want to turn it back on."
+        }
+        if sendViaEmail {
+            return recipientPhone.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? "We’ll send this by email only."
+                : "We’ll send this by email only. Your phone stays here if you want to turn it back on."
+        }
+        return "Choose at least one way to deliver this gift."
+    }
+
+    private var deliveryMethodSummary: String {
+        switch (sendViaText, sendViaEmail) {
+        case (true, true):
+            return "text and email"
+        case (true, false):
+            return "text"
+        case (false, true):
+            return "email"
+        case (false, false):
+            return "your chosen method"
+        }
+    }
+
+    private var trimmedRecipientName: String {
+        recipientName.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func minimumScheduledDate(reference: Date = .now) -> Date {
+        reference.addingTimeInterval(60)
+    }
+
+    private func defaultScheduledDate(reference: Date = .now) -> Date {
+        reference.addingTimeInterval(60 * 60)
     }
 
     private func bootstrap() async {
-        isBootstrapping = true
-        defer { isBootstrapping = false }
-
         await refreshGiftSurface()
     }
 
     private func refreshGiftSurface() async {
         do {
-            async let walletTask = apiClient.getGiftWallet(limit: 10)
             async let reservationTask = apiClient.getActiveGiftReservation()
             async let giftsTask = apiClient.getGifts(limit: 20)
 
-            let walletData = try await walletTask
             let reservationData = try await reservationTask
             let giftsData = try await giftsTask
 
-            walletBalance = walletData.balance
-            walletTransactions = walletData.transactions
             reservation = reservationData.reservation
             scheduledGifts = visibleScheduledGifts(from: giftsData.gifts)
 
             if let reservation {
                 await hydrateSelectionFromReservation(reservation)
+            } else if screen == .composer && createdGift == nil {
+                screen = .content
             }
         } catch {
             errorMessage = mapError(error)
@@ -1163,13 +1286,22 @@ struct GiftSendFlowView: View {
         if contentTypeRaw == GiftContentType.song.rawValue {
             contentType = .song
             selectedTrackId = contentId
-            selectedTrackVersionNum = reservation.versionNum
             selectedTrackTitle = "Selected Song"
             do {
                 let response = try await apiClient.getTrack(trackId: contentId)
                 selectedTrackTitle = response.track.title
+                if recipientName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                   let trackRecipient = response.track.recipientName?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !trackRecipient.isEmpty {
+                    recipientName = trackRecipient
+                }
             } catch {
                 // Keep fallback title when fetch fails.
+            }
+            if hasAttachedReservationContent && createdGift == nil {
+                if shouldAutoResumeComposer {
+                    screen = .composer
+                }
             }
             return
         }
@@ -1179,10 +1311,29 @@ struct GiftSendFlowView: View {
             do {
                 let response = try await apiClient.getPoem(poemId: contentId)
                 selectedPoem = response.poem
+                if recipientName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    let poemRecipient = response.poem.recipientName.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !poemRecipient.isEmpty {
+                        recipientName = poemRecipient
+                    }
+                }
             } catch {
                 selectedPoem = nil
             }
+            if hasAttachedReservationContent && createdGift == nil {
+                if shouldAutoResumeComposer {
+                    screen = .composer
+                }
+            }
         }
+    }
+
+    private var shouldAutoResumeComposer: Bool {
+        composerResumePolicy == .automatic
+            && !isCreatingContent
+            && createLaunch == nil
+            && createdGift == nil
+            && screen == .content
     }
 
     @MainActor
@@ -1204,15 +1355,21 @@ struct GiftSendFlowView: View {
 
     private func submitGift() async {
         guard let reservationId = reservation?.id else {
-            errorMessage = "Reserve a gift token first."
+            errorMessage = "Start a fresh gift first."
             return
         }
         guard hasAttachedReservationContent else {
             errorMessage = "Create a song or poem first."
             return
         }
-        guard isRecipientStepValid else {
+        guard hasValidRecipientAndDestination else {
             errorMessage = "Recipient details are incomplete."
+            return
+        }
+        if deliveryMode == .scheduled && !isDeliveryValid {
+            scheduledAt = max(scheduledAt, defaultScheduledDate())
+            showSchedulePicker = true
+            errorMessage = "Choose a delivery time at least a minute from now."
             return
         }
 
@@ -1224,10 +1381,11 @@ struct GiftSendFlowView: View {
             : nil
 
         let request = FinalizeGiftReservationRequest(
+            recipientName: trimmedRecipientName.isEmpty ? nil : trimmedRecipientName,
             deliveryMode: deliveryMode.rawValue,
             senderTimezone: TimeZone.current.identifier,
             channels: selectedChannels,
-            recipientPhone: sendViaSMS ? normalizedPhone : nil,
+            recipientPhone: sendViaText ? normalizedPhone : nil,
             recipientEmail: sendViaEmail ? normalizedEmail : nil,
             message: message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 ? nil
@@ -1247,7 +1405,7 @@ struct GiftSendFlowView: View {
             walletBalance = response.walletBalance
             reservationFinalized = true
             scheduledGifts = upsertScheduledGift(response.gift, into: scheduledGifts)
-            step = .success
+            screen = .success
         } catch {
             errorMessage = mapError(error)
         }
@@ -1291,6 +1449,19 @@ struct GiftSendFlowView: View {
     }
 
     private func scheduledGiftRecipient(for gift: GiftOrder) -> String {
+        let name = gift.recipientName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !name.isEmpty {
+            if let email = gift.recipientEmail, !email.isEmpty, let phone = gift.recipientPhone, !phone.isEmpty {
+                return "\(name) • \(phone) • \(email)"
+            }
+            if let phone = gift.recipientPhone, !phone.isEmpty {
+                return "\(name) • \(phone)"
+            }
+            if let email = gift.recipientEmail, !email.isEmpty {
+                return "\(name) • \(email)"
+            }
+            return name
+        }
         if let email = gift.recipientEmail, !email.isEmpty {
             if let phone = gift.recipientPhone, !phone.isEmpty {
                 return "\(phone) • \(email)"
@@ -1328,17 +1499,17 @@ struct GiftSendFlowView: View {
 
     private var closeConfirmationMessage: String {
         if hasAttachedReservationContent {
-            return "Save this gift and resume later, or discard it and return the token."
+            return "Save this gift and come back later, or discard it and release the credit."
         }
         if hasActiveReservation {
-            return "Save this reserved token for later, or discard it and return the token."
+            return "Save this gift for later, or discard it and release the credit."
         }
         return "Close this flow?"
     }
 
     private func primaryCreateButtonTitle(for type: CreateFlowKind) -> String {
         if isReserving {
-            return "Reserving Token..."
+            return "Starting Gift..."
         }
         guard hasAttachedReservationContent else {
             return type == .song ? "Create Song Gift" : "Create Poem Gift"
@@ -1349,7 +1520,7 @@ struct GiftSendFlowView: View {
     }
 
     private func isCreateButtonDisabled(for type: CreateFlowKind) -> Bool {
-        if isReserving || isPurchasing || isSubmitting || isCreatingContent {
+        if isReserving || isSubmitting || isCreatingContent {
             return true
         }
         if hasAttachedReservationContent, reservation?.contentType != type.rawValue {
@@ -1371,7 +1542,12 @@ struct GiftSendFlowView: View {
         guard let gift = createdGift else {
             return nil
         }
-        let recipient = scheduledGiftRecipient(for: gift)
+        let persistedRecipientName = gift.recipientName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let recipient = recipientName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? (!persistedRecipientName.isEmpty
+                ? persistedRecipientName
+                : scheduledGiftRecipient(for: gift))
+            : recipientName.trimmingCharacters(in: .whitespacesAndNewlines)
         let when = scheduledGiftDateLabel(for: gift)
         if gift.deliveryMode.lowercased() == GiftDeliveryMode.scheduled.rawValue {
             return "We’ll deliver this to \(recipient) on \(when)."
@@ -1384,7 +1560,7 @@ struct GiftSendFlowView: View {
     }
 
     private func isSelectedDeliveryMode(_ mode: GiftDeliveryMode) -> Bool {
-        hasChosenDeliveryMode && deliveryMode == mode
+        deliveryMode == mode
     }
 
     // MARK: - Bundle Picker Sheet
@@ -1396,11 +1572,11 @@ struct GiftSendFlowView: View {
 
                 ScrollView {
                     VStack(alignment: .leading, spacing: 16) {
-                        Text("Get Gift Tokens")
+                        Text("Unlock this gift")
                             .font(DesignTokens.displayFont(size: 22))
                             .foregroundStyle(DesignTokens.textPrimary)
-
-                        Text("Purchase tokens to create and send personalized gifts.")
+                        
+                        Text("Unlock this gift so you can send it when you're ready.")
                             .font(DesignTokens.bodyFont(size: 14))
                             .foregroundStyle(DesignTokens.textSecondary)
 
@@ -1409,7 +1585,7 @@ struct GiftSendFlowView: View {
                                 Image(systemName: "exclamationmark.triangle")
                                     .font(.system(size: 32))
                                     .foregroundStyle(DesignTokens.warning)
-                                Text("Gift bundles are not available right now.")
+                            Text("Gift credits aren't available right now.")
                                     .font(DesignTokens.bodyFont(size: 15))
                                     .foregroundStyle(DesignTokens.textSecondary)
                                     .multilineTextAlignment(.center)
@@ -1515,7 +1691,7 @@ struct GiftSendFlowView: View {
                     .font(DesignTokens.bodyFont(size: 14, weight: .medium))
                     .foregroundStyle(DesignTokens.textPrimary)
             }
-            Text("Gift tokens are purchased separately. Upgrade for higher song and poem limits.")
+            Text("Gift credits are separate from subscriptions. Upgrade for higher song and poem limits.")
                 .font(DesignTokens.bodyFont(size: 13))
                 .foregroundStyle(DesignTokens.textSecondary)
         }
@@ -1533,7 +1709,7 @@ struct GiftSendFlowView: View {
         guard purchased else {
             switch storeKit.purchaseState {
             case .syncFailed:
-                bundlePickerState = .failed("Payment received but tokens could not be loaded. They will appear when you reopen the app.")
+                bundlePickerState = .failed("Payment went through, but your gift credit hasn't shown up yet. Reopen the app in a moment and try again.")
             case .failed(let error):
                 bundlePickerState = .failed(error)
             case .cancelled:
@@ -1549,12 +1725,11 @@ struct GiftSendFlowView: View {
         do {
             let wallet = try await apiClient.getGiftWallet(limit: 10)
             walletBalance = wallet.balance
-            walletTransactions = wallet.transactions
             storeKit.resetPurchaseState()
             bundlePickerState = .success
         } catch {
             print("[GiftFlow] Wallet sync failed after purchase: \(error)")
-            bundlePickerState = .failed("Payment received. Tokens will appear shortly — please reopen the app.")
+            bundlePickerState = .failed("Payment went through. Your gift credit should appear shortly — please reopen the app.")
             return
         }
 
@@ -1579,10 +1754,10 @@ struct GiftSendFlowView: View {
     private func mapError(_ error: Error) -> String {
         if let apiError = error as? APIClientError {
             switch apiError {
-            case .serverError(let message, _, _):
-                return message
+            case .serverError(let message, let code, _):
+                return normalizeGiftErrorMessage(message, code: code)
             case .httpError(_, let body):
-                return body
+                return normalizeGiftErrorMessage(body, code: nil)
             default:
                 return apiError.localizedDescription
             }
@@ -1590,8 +1765,49 @@ struct GiftSendFlowView: View {
         return error.localizedDescription
     }
 
+    private func normalizeGiftErrorMessage(_ message: String, code: String?) -> String {
+        let normalized = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        let upperCode = code?.uppercased() ?? ""
+
+        if upperCode == "INSUFFICIENT_GIFT_TOKENS" || normalized.localizedCaseInsensitiveContains("gift token") {
+            return "Unlock this gift to keep going."
+        }
+        if upperCode == "RESERVATION_EXPIRED" || normalized.localizedCaseInsensitiveContains("reservation expired") {
+            return "This gift draft expired. Start a fresh gift and we’ll help you finish it."
+        }
+        if normalized.localizedCaseInsensitiveContains("reserve a new token") {
+            return "Start a fresh gift and we’ll help you finish it."
+        }
+        if normalized.localizedCaseInsensitiveContains("reserve a gift token first") {
+            return "Start a fresh gift first."
+        }
+        if normalized.hasPrefix("{"), let data = normalized.data(using: .utf8),
+           let apiPayload = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let nestedMessage = apiPayload["message"] as? String {
+            return normalizeGiftErrorMessage(nestedMessage, code: apiPayload["error"] as? String)
+        }
+        return normalized
+    }
+
+    private func shouldPromptGiftUnlock(for error: Error) -> Bool {
+        if let apiError = error as? APIClientError {
+            switch apiError {
+            case .serverError(_, let code, _):
+                return code?.uppercased() == "INSUFFICIENT_GIFT_TOKENS"
+            case .httpError(_, let body):
+                return body.localizedCaseInsensitiveContains("INSUFFICIENT_GIFT_TOKENS")
+                    || body.localizedCaseInsensitiveContains("gift token")
+                    || body.localizedCaseInsensitiveContains("gift credit")
+            default:
+                return false
+            }
+        }
+        return false
+    }
+
     private struct GiftCreateLaunch: Identifiable {
         let id = UUID()
         let type: CreateFlowKind
+        let reservationId: String
     }
 }

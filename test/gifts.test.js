@@ -257,6 +257,58 @@ describe("Gift scheduling and wallet", () => {
     assert.ok(cancelled.wallet_balance >= 2);
   });
 
+  it("persists recipient name through gift creation, listing, and updates", async () => {
+    await creditGiftToken("gift_tx_recipient_name");
+    const { trackId, versionNum } = await createRenderedTrack();
+    const sendAt = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
+
+    const createGiftRes = await app.inject({
+      method: "POST",
+      url: "/gifts",
+      headers: { "x-user-id": userId },
+      payload: {
+        content_type: "song",
+        content_id: trackId,
+        version_num: versionNum,
+        recipient_name: "Sarah",
+        delivery_mode: "scheduled",
+        send_at: sendAt,
+        sender_timezone: "Australia/Perth",
+        channels: ["sms"],
+        recipient_phone: "+61406371221",
+        message: "For your birthday",
+      },
+    });
+    assert.strictEqual(createGiftRes.statusCode, 200, createGiftRes.body);
+    const createdGift = JSON.parse(createGiftRes.body).gift;
+    assert.strictEqual(createdGift.recipient_name, "Sarah");
+
+    const listRes = await app.inject({
+      method: "GET",
+      url: "/gifts?limit=20&offset=0",
+      headers: { "x-user-id": userId },
+    });
+    assert.strictEqual(listRes.statusCode, 200, listRes.body);
+    const listedGift = JSON.parse(listRes.body).gifts.find((gift) => gift.id === createdGift.id);
+    assert.ok(listedGift);
+    assert.strictEqual(listedGift.recipient_name, "Sarah");
+
+    const updateRes = await app.inject({
+      method: "PATCH",
+      url: `/gifts/${createdGift.id}`,
+      headers: { "x-user-id": userId },
+      payload: {
+        recipient_name: "Sarah Jane",
+        recipient_phone: "+61406370000",
+        send_at: new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString(),
+        channels: ["sms"],
+      },
+    });
+    assert.strictEqual(updateRes.statusCode, 200, updateRes.body);
+    const updatedGift = JSON.parse(updateRes.body).gift;
+    assert.strictEqual(updatedGift.recipient_name, "Sarah Jane");
+  });
+
   it("creates immutable per-gift share tokens for the same song", async () => {
     await creditGiftToken(`gift_tx_multi_song_1_${Date.now()}`);
     await creditGiftToken(`gift_tx_multi_song_2_${Date.now()}`);
@@ -702,6 +754,50 @@ describe("Gift scheduling and wallet", () => {
     const share = db.prepare("SELECT dispatch_at, expires_at FROM share_tokens WHERE id = ?").get(gift.share_token_id);
     assert.strictEqual(share.dispatch_at, nextSendAt);
     assert.ok(new Date(share.expires_at).getTime() > new Date(nextSendAt).getTime());
+  });
+
+  it("refuses to dispatch gifts whose share URL is loopback-only", async () => {
+    await creditGiftToken(`gift_tx_loopback_${Date.now()}`);
+    const { trackId, versionNum } = await createRenderedTrack();
+    const sendAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+
+    const createRes = await app.inject({
+      method: "POST",
+      url: "/gifts",
+      headers: { "x-user-id": userId },
+      payload: {
+        content_type: "song",
+        content_id: trackId,
+        version_num: versionNum,
+        delivery_mode: "scheduled",
+        send_at: sendAt,
+        sender_timezone: "UTC",
+        channels: ["email"],
+        recipient_email: "loopback@example.com",
+      },
+    });
+    assert.strictEqual(createRes.statusCode, 200, createRes.body);
+    const gift = JSON.parse(createRes.body).gift;
+
+    const dueNow = new Date(Date.now() - 1000).toISOString();
+    db.prepare("UPDATE gift_orders SET share_url = ?, status = 'dispatch_retry', next_retry_at = ? WHERE id = ?")
+      .run("http://127.0.0.1:3003/poem/local-test", dueNow, gift.id);
+    db.prepare("UPDATE gift_delivery_outbox SET status = 'failed', attempt_count = 0, next_retry_at = ? WHERE gift_order_id = ?")
+      .run(dueNow, gift.id);
+
+    await app.dispatchGiftById(gift.id);
+
+    const updatedGift = db.prepare("SELECT status, dispatch_status, last_dispatch_error FROM gift_orders WHERE id = ?").get(gift.id);
+    assert.strictEqual(updatedGift.status, "failed");
+    assert.ok(String(updatedGift.last_dispatch_error || "").includes("GIFT_SHARE_URL_NOT_PUBLIC"));
+
+    const outbox = db.prepare(
+      "SELECT status, attempt_count, next_retry_at, last_error FROM gift_delivery_outbox WHERE gift_order_id = ? AND channel = 'email'"
+    ).get(gift.id);
+    assert.strictEqual(outbox.status, "failed");
+    assert.strictEqual(Number(outbox.attempt_count), 1);
+    assert.strictEqual(outbox.next_retry_at, null);
+    assert.ok(String(outbox.last_error || "").includes("GIFT_SHARE_URL_NOT_PUBLIC"));
   });
 
   it("cancelling a scheduled gift revokes its delivery token", async () => {

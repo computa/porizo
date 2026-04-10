@@ -590,9 +590,10 @@ class V2StoryEngine {
         currentTurn = response.turnCount ?? currentTurn
         // If we just exited review-edit mode locally, don't let a stale server
         // status flip isComplete back to false before the background sync lands.
-        let serverComplete = response.status == "confirmed" || response.status == "ready_for_confirm"
-        if !isComplete || serverComplete {
-            isComplete = serverComplete
+        let serverAction = actionForServerSession(status: response.status, readiness: response.readiness)
+        let serverReviewable = serverAction == .confirm || serverAction == .stop
+        if !isComplete || serverReviewable {
+            isComplete = serverReviewable
         }
         narrativeVersion = response.narrativeVersion ?? narrativeVersion
         lastIntegrationDelta = response.integrationDelta ?? lastIntegrationDelta
@@ -628,7 +629,7 @@ class V2StoryEngine {
 
         let beats = response.beats?.map(convertBeat) ?? currentResponse?.beats ?? []
         let userModel = response.userModel.map(convertUserModel) ?? currentResponse?.userModel ?? .initial
-        let action: V2Action = response.status == "ready_for_confirm" ? .confirm : (response.status == "confirmed" ? .stop : .ask)
+        let action = serverAction
         let elements = (response.storyElements ?? []).map(convertBeat)
 
         let refreshed = V2EngineResponse(
@@ -843,6 +844,21 @@ class V2StoryEngine {
         )
     }
 
+    private func actionForServerSession(status: String?, readiness: StoryReadinessResponse?) -> V2Action {
+        let normalizedStatus = status?.lowercased() ?? ""
+        if normalizedStatus == "confirmed" {
+            return .stop
+        }
+        if normalizedStatus == "ready_for_confirm" {
+            return .confirm
+        }
+        if let readiness,
+           readiness.isReady || readiness.isUserOverridable || readiness.recommendedNextAction == "review" {
+            return .confirm
+        }
+        return .ask
+    }
+
     private func convertBeat(_ beat: V2BeatResponse) -> V2Beat {
         V2Beat(
             id: beat.id,
@@ -940,6 +956,10 @@ extension V2StoryEngine {
             if readiness.isReady || readiness.isUserOverridable || readiness.recommendedNextAction == "review" {
                 return true
             }
+
+            // When the backend has explicit readiness guidance, trust it instead of
+            // offering an optimistic local "finish early" path that the server will reject.
+            return false
         }
 
         let snapshot = draft

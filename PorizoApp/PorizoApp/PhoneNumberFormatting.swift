@@ -121,6 +121,30 @@ func isValidPhoneNumberInput(_ rawInput: String, selectedCountry: Country) -> Bo
     normalizedE164PhoneNumber(rawInput, selectedCountry: selectedCountry) != nil
 }
 
+func normalizedPhoneCountry(_ phoneNumber: String) -> Country? {
+    let normalized = phoneNumber.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !normalized.isEmpty else { return nil }
+    return Country.country(forPhoneNumber: normalized)
+}
+
+func nationalPhoneNumberForInput(_ phoneNumber: String, selectedCountry: Country) -> String? {
+    let normalized = phoneNumber.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !normalized.isEmpty else { return nil }
+
+    if normalized.hasPrefix("+") {
+        let digits = normalized.filter(\.isNumber)
+        let dialDigits = selectedCountry.dialCode.filter(\.isNumber)
+        guard digits.hasPrefix(dialDigits) else { return nil }
+        let national = String(digits.dropFirst(dialDigits.count))
+        guard !national.isEmpty else { return nil }
+        return selectedCountry.dialCode == "+1" ? national : String(national.prefix(15))
+    }
+
+    let digits = normalized.filter(\.isNumber)
+    guard !digits.isEmpty else { return nil }
+    return selectedCountry.dialCode == "+1" ? String(digits.prefix(10)) : String(digits.prefix(15))
+}
+
 struct CountryPickerSheet: View {
     @Binding var selectedCountry: Country
     @Binding var isPresented: Bool

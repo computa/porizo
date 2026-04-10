@@ -340,4 +340,81 @@ describe("POST /story/:story_id/to-poem", () => {
     assert.equal(response.statusCode, 400, `Expected 400, got ${response.statusCode}: ${response.body}`);
     assert.equal(response.json().error, "STORY_NOT_CONFIRMED");
   });
+
+  test("poem readiness guidance uses story details instead of generic filler", () => {
+    readinessStub = null;
+    const readiness = qualityModule.evaluatePoemReadiness({
+      recipientName: "Sarah",
+      narrative:
+        "Sarah planned a sunset picnic and brought handwritten notes from our friends. " +
+        "It felt warm and thoughtful, but I haven't explained the moment that made it land.",
+      atoms: {
+        who: "Sarah",
+        where: "the sunset picnic",
+        when: "my birthday last year",
+        turn: "",
+      },
+      primitives: {
+        characters: ["Sarah"],
+        setting: {
+          place: "the sunset picnic",
+          time: "my birthday last year",
+        },
+        turning_point: "",
+      },
+      facts: [
+        { id: "f1", text: "Sarah planned a sunset picnic.", status: "active" },
+        { id: "f2", text: "She brought handwritten notes from our friends.", status: "active" },
+      ],
+    });
+
+    assert.equal(readiness.is_complete, false);
+    assert.ok(
+      readiness.suggested_question.includes("sunset picnic")
+        || readiness.suggested_question.includes("handwritten notes"),
+      `Expected contextual guidance, got: ${readiness.suggested_question}`
+    );
+    assert.notEqual(
+      readiness.suggested_question,
+      "Think of one specific scene: what did they do, say, or reveal that made this matter so much to you?"
+    );
+  });
+
+  test("poem readiness guidance does not mistake occupations for locations", () => {
+    const readiness = qualityModule.evaluatePoemReadiness({
+      recipientName: "Sarah",
+      narrative:
+        "Sarah was a school teacher who inspired everyone, but I still have not explained the exact turning point.",
+      facts: [
+        { id: "f1", text: "Sarah was a school teacher who inspired everyone.", status: "active" },
+        { id: "f2", text: "She gave me a note after graduation.", status: "active" },
+      ],
+    });
+
+    assert.equal(readiness.is_complete, false);
+    assert.ok(
+      !readiness.suggested_question.includes("At Sarah was a school teacher who inspired everyone."),
+      `Expected place extraction to avoid occupation text, got: ${readiness.suggested_question}`
+    );
+  });
+
+  test("poem readiness guidance ignores occupation text even when atoms.where is polluted", () => {
+    const readiness = qualityModule.evaluatePoemReadiness({
+      recipientName: "Sarah",
+      atoms: {
+        where: "Sarah was a school teacher who inspired everyone.",
+      },
+      narrative:
+        "Sarah was a school teacher who inspired everyone, but I still have not explained the exact turning point.",
+      facts: [
+        { id: "f1", text: "She gave me a note after graduation.", status: "active" },
+      ],
+    });
+
+    assert.equal(readiness.is_complete, false);
+    assert.ok(
+      !readiness.suggested_question.includes("school teacher"),
+      `Expected polluted where text to be ignored, got: ${readiness.suggested_question}`
+    );
+  });
 });

@@ -98,6 +98,19 @@ struct ScheduledGiftListSheet: View {
     }
 
     private func recipientText(for gift: GiftOrder) -> String {
+        let name = gift.recipientName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !name.isEmpty {
+            if let email = gift.recipientEmail, !email.isEmpty, let phone = gift.recipientPhone, !phone.isEmpty {
+                return "\(name) • \(phone) • \(email)"
+            }
+            if let phone = gift.recipientPhone, !phone.isEmpty {
+                return "\(name) • \(phone)"
+            }
+            if let email = gift.recipientEmail, !email.isEmpty {
+                return "\(name) • \(email)"
+            }
+            return name
+        }
         if let email = gift.recipientEmail, !email.isEmpty, let phone = gift.recipientPhone, !phone.isEmpty {
             return "\(phone) • \(email)"
         }
@@ -141,6 +154,7 @@ struct GiftManagementSheet: View {
 
     @State private var sendViaSMS: Bool
     @State private var sendViaEmail: Bool
+    @State private var recipientName: String
     @State private var recipientPhone: String
     @State private var recipientEmail: String
     @State private var message: String
@@ -166,6 +180,7 @@ struct GiftManagementSheet: View {
         _selectedCountry = State(initialValue: inferredCountry)
         _sendViaSMS = State(initialValue: (gift.recipientPhone?.isEmpty == false) || gift.channels.contains(GiftDeliveryChannel.sms.rawValue))
         _sendViaEmail = State(initialValue: (gift.recipientEmail?.isEmpty == false) || gift.channels.contains(GiftDeliveryChannel.email.rawValue))
+        _recipientName = State(initialValue: gift.recipientName ?? "")
         _recipientPhone = State(initialValue: Self.displayPhone(gift.recipientPhone, country: inferredCountry))
         _recipientEmail = State(initialValue: gift.recipientEmail ?? "")
         _message = State(initialValue: gift.message ?? "")
@@ -219,7 +234,7 @@ struct GiftManagementSheet: View {
             }
             Button("Keep Gift", role: .cancel) {}
         } message: {
-            Text("This refunds the gift token and removes the scheduled delivery.")
+            Text("This releases the gift credit and removes the scheduled delivery.")
         }
     }
 
@@ -258,6 +273,15 @@ struct GiftManagementSheet: View {
     private var recipientSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             sectionLabel("Recipient details")
+
+            TextField("Recipient name", text: $recipientName)
+                .textContentType(.name)
+                .autocorrectionDisabled(true)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 14)
+                .background(DesignTokens.cardBackground)
+                .clipShape(.rect(cornerRadius: 10))
+                .foregroundStyle(DesignTokens.textPrimary)
 
             if sendViaSMS {
                 HStack(spacing: 8) {
@@ -397,6 +421,7 @@ struct GiftManagementSheet: View {
     }
 
     private var canSave: Bool {
+        guard !recipientName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
         guard !channels.isEmpty else { return false }
         if sendViaSMS && normalizedPhone == nil { return false }
         if sendViaEmail && normalizedEmail == nil { return false }
@@ -476,6 +501,7 @@ struct GiftManagementSheet: View {
         defer { isSaving = false }
 
         let request = UpdateGiftRequest(
+            recipientName: recipientName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : recipientName.trimmingCharacters(in: .whitespacesAndNewlines),
             sendAt: scheduledAt.formatted(.iso8601),
             senderTimezone: gift.senderTimezone ?? TimeZone.current.identifier,
             channels: channels,

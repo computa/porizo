@@ -104,3 +104,70 @@ test("prepareStoryReviewV3 escapes repeated semantic review loops after the targ
   assert.equal(updatedPatch.status, "ready_for_confirm");
   assert.equal(updatedPatch.v2State.semantic_story.exhaustion_override, true);
 });
+
+test("prepareStoryReviewV3 keeps a substantial draft reviewable even when semantic diagnostics still want one more detail", async () => {
+  const session = {
+    id: "story_review_reviewable_gap",
+    engineVersion: "v3",
+    occasion: "birthday",
+    arc: "celebration",
+    style: "pop",
+    version: 1,
+    createdAt: "2026-04-10T00:00:00.000Z",
+    updatedAt: "2026-04-10T00:00:00.000Z",
+    v2State: {
+      ...createInitialState({
+        recipientName: "Sarah",
+        occasion: "birthday",
+        initialPrompt: "She planned a sunset picnic and brought notes from our friends.",
+      }),
+      turn_count: 2,
+      narrative:
+        "Sarah planned a sunset picnic for my birthday and brought handwritten notes from our friends. " +
+        "It felt warm and thoughtful, even though I still haven't fully named the turning point.",
+      narrative_current:
+        "Sarah planned a sunset picnic for my birthday and brought handwritten notes from our friends. " +
+        "It felt warm and thoughtful, even though I still haven't fully named the turning point.",
+      atoms: {
+        who: "Sarah",
+        where: "sunset picnic",
+        when: "my birthday",
+        turn: "",
+      },
+      primitives: {
+        characters: ["Sarah"],
+        setting: { place: "sunset picnic", time: "my birthday" },
+        turning_point: "",
+      },
+      facts: [
+        { id: "f1", text: "Sarah planned a sunset picnic.", status: "active" },
+        { id: "f2", text: "She brought handwritten notes from our friends.", status: "active" },
+      ],
+      semantic_story: {
+        can_confirm: false,
+        missing_narrative_blocks: ["turn"],
+      },
+    },
+  };
+
+  let updatedPatch = null;
+  const repo = {
+    async getSession(sessionId) {
+      return sessionId === session.id ? session : null;
+    },
+    async updateSession(sessionId, patch) {
+      assert.equal(sessionId, session.id);
+      updatedPatch = patch;
+      session.v2State = patch.v2State;
+      session.status = patch.status;
+    },
+  };
+
+  v3Engine.initialize(repo);
+  const result = await v3Engine.prepareStoryReviewV3(session.id);
+
+  assert.equal(result.action, "CONFIRM");
+  assert.equal(updatedPatch.status, "ready_for_confirm");
+  assert.equal(result.readiness.is_ready, true);
+  assert.equal(result.readiness.recommended_next_action, "confirm");
+});

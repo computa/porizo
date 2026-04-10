@@ -488,6 +488,41 @@ function buildReadyConfirmation(state, gapAnalysis) {
 }
 
 function buildSemanticClarificationPrompt(state) {
+  const atoms = state?.atoms || {};
+  const primitives = state?.primitives || {};
+  const facts = Array.isArray(state?.facts) ? state.facts : [];
+  const activeFacts = facts.filter((fact) => fact && fact.status !== "superseded");
+  const factTexts = activeFacts
+    .map((fact) => (typeof fact.text === "string" ? fact.text.trim() : ""))
+    .filter(Boolean);
+  const recipient = firstNonEmptyDetail([
+    state?.recipient_name,
+    state?.recipientName,
+  ]);
+  const place = firstNonEmptyDetail([
+    atoms.where,
+    primitives.setting?.place,
+    findFactDetail(
+      factTexts,
+      /\b(?:at|in|inside|outside|near|by|on)\s+((?:the\s+)?(?:beach|cafe|park|garden|church|hospital|airport|station|kitchen|porch|classroom|campus|school|room|table|home|house))\b/i
+    ),
+  ]);
+  const time = firstNonEmptyDetail([
+    atoms.when,
+    primitives.setting?.time,
+    factTexts.find((text) => /\b(last year|birthday|anniversary|graduation|wedding|sunset|night|morning|summer|winter)\b/i.test(text)),
+  ]);
+  const turnDetail = firstNonEmptyDetail([
+    atoms.turn,
+    primitives.turning_point,
+    factTexts.find((text) => /\b(note|letter|speech|hug|look|said|gift|surprise|toast|call|promise|decision)\b/i.test(text)),
+  ]);
+  const meaningDetail = firstNonEmptyDetail([
+    primitives.theme,
+    primitives.resolution,
+    atoms.after,
+    factTexts.find((text) => /\b(meant|showed|taught|realized|understood|became|proved)\b/i.test(text)),
+  ]);
   const missingBlocks = Array.isArray(state?.semantic_story?.missing_narrative_blocks)
     ? state.semantic_story.missing_narrative_blocks
     : [];
@@ -497,30 +532,110 @@ function buildSemanticClarificationPrompt(state) {
   const primary = missingBlocks[0];
 
   if (primary === "transformation") {
+    if (recipient && turnDetail) {
+      return {
+        question: `Before I lock this in, after ${turnDetail}, what changed in how you saw ${recipient} or your relationship with them?`,
+        suggestions: [
+          `After ${turnDetail}, I saw ${recipient} as someone who...`,
+          `That moment changed us because...`,
+          "From that point on, I understood that...",
+        ],
+      };
+    }
     return {
       question: "Before I lock this in, tell me one line about how this changed them or how you saw them grow.",
       suggestions: ["It changed everything between us", "They became a different person after that", "I saw them grow stronger"],
     };
   }
   if (primary === "meaning") {
+    if (recipient && meaningDetail) {
+      return {
+        question: `Before I lock this in, what truth about ${recipient} do you want the story to land on, beyond ${meaningDetail}?`,
+        suggestions: [
+          `${recipient} taught me that...`,
+          `What this really means to me is...`,
+          "The deeper truth under all of this is...",
+        ],
+      };
+    }
+    if (turnDetail) {
+      return {
+        question: `Before I lock this in, because ${turnDetail}, what should the story say this means to you now?`,
+        suggestions: [
+          "That moment showed me...",
+          "Since then, I understand that...",
+          "What matters most about it is...",
+        ],
+      };
+    }
     return {
       question: "Before I lock this in, what does this story ultimately mean to you, beyond what happened?",
       suggestions: ["It taught me what love really means", "This is why they matter so much to me", "It showed me who we really are"],
     };
   }
   if (primary === "turn") {
+    if (recipient && place) {
+      return {
+        question: `Before I lock this in, at ${place}, what did ${recipient} do, say, or reveal that turned this into more than an ordinary memory?`,
+        suggestions: [
+          `At ${place}, ${recipient} looked at me and...`,
+          `The moment it shifted was when ${recipient}...`,
+          "What made it land was...",
+        ],
+      };
+    }
+    if (place && time) {
+      return {
+        question: `Before I lock this in, what happened ${time} at ${place} that made this moment matter so much?`,
+        suggestions: [
+          `That ${time}, the turning point was when...`,
+          "What changed in that scene was...",
+          "The exact beat I keep coming back to is...",
+        ],
+      };
+    }
+    if (turnDetail) {
+      return {
+        question: `Before I lock this in, what about ${turnDetail} made that the moment everything shifted for you?`,
+        suggestions: [
+          `What changed when ${turnDetail} happened was...`,
+          "In that instant, I realized...",
+          "That was the turning point because...",
+        ],
+      };
+    }
     return {
       question: "Before I lock this in, what was the exact moment things changed?",
       suggestions: ["There was this one moment when everything shifted", "It all clicked when they said...", "The turning point was when"],
     };
   }
   if (weakSections.includes("chorus")) {
+    if (meaningDetail) {
+      return {
+        question: `Before I lock this in, what is the emotional truth here, beyond ${meaningDetail}?`,
+        suggestions: [
+          "The feeling underneath all of this is...",
+          "At the heart of this story is...",
+          "What I need the song to hold onto is...",
+        ],
+      };
+    }
     return {
       question: "Before I lock this in, what is the emotional truth of this story, not just the timeline?",
       suggestions: ["The real feeling underneath all of it is...", "What I keep coming back to is...", "At its core this is about"],
     };
   }
   if (weakSections.includes("bridge")) {
+    if (recipient && meaningDetail) {
+      return {
+        question: `Before I lock this in, what realization about ${recipient} or your bond should land near the end, after ${meaningDetail}?`,
+        suggestions: [
+          `By the end, I want ${recipient} to feel...`,
+          "Looking back, what I understand now is...",
+          "The realization I want to leave them with is...",
+        ],
+      };
+    }
     return {
       question: "Before I lock this in, what realization or transformation should land near the end?",
       suggestions: ["The biggest realization was...", "Looking back now I understand that...", "What I want them to feel is"],
@@ -530,6 +645,25 @@ function buildSemanticClarificationPrompt(state) {
     question: "Before I lock this in, give me one more line about what changed or what this story means to you.",
     suggestions: ["What matters most is...", "The thing I'll never forget is...", "This changed everything because"],
   };
+}
+
+function firstNonEmptyDetail(values) {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+  return "";
+}
+
+function findFactDetail(factTexts, pattern) {
+  for (const text of factTexts) {
+    const match = text.match(pattern);
+    if (!match) continue;
+    const candidate = typeof match[1] === "string" ? match[1].trim() : "";
+    if (candidate) return candidate;
+  }
+  return "";
 }
 
 function createStoryNeedsInputError({ question, suggestions, missingBlocks, sessionVersion }) {
@@ -1783,6 +1917,26 @@ function hasReviewableDraft(state, narrative = "") {
   return trimmedNarrative.length >= 160 || trimmedPrompt.length >= 160 || turnCount >= 2;
 }
 
+function deriveUserFacingReadinessState({ state, gapAnalysis, responseAction }) {
+  const narrative = getCanonicalNarrative(state) || "";
+  const draftReviewable = hasReviewableDraft(state, narrative);
+  const engineReviewable = Boolean(gapAnalysis?.isStoryReady);
+  const isReady = responseAction === "CONFIRM" || responseAction === "STOP";
+  const canProceedAnyway = !isReady && (engineReviewable || draftReviewable);
+  const recommendedNextAction = isReady
+    ? "confirm"
+    : (canProceedAnyway ? "review" : "clarify");
+
+  return {
+    narrative,
+    draftReviewable,
+    engineReviewable,
+    isReady,
+    canProceedAnyway,
+    recommendedNextAction,
+  };
+}
+
 function buildReadinessPayload({
   state,
   gapAnalysis,
@@ -1794,22 +1948,28 @@ function buildReadinessPayload({
   criticalBlockingSlots = [],
   blockedElements = [],
 }) {
-  const narrative = getCanonicalNarrative(state) || "";
-  const isReady = Boolean(
-    gapAnalysis?.isStoryReady ||
-    responseAction === "CONFIRM" ||
-    responseAction === "STOP"
-  );
-  const isUserOverridable = !isReady && hasReviewableDraft(state, narrative);
-  const recommendedNextAction = isReady
-    ? "confirm"
-    : (isUserOverridable ? "review" : "clarify");
+  const readinessState = deriveUserFacingReadinessState({
+    state,
+    gapAnalysis,
+    responseAction,
+  });
+  const isReady = readinessState.isReady;
+  const isUserOverridable = readinessState.canProceedAnyway;
+  const recommendedNextAction = readinessState.recommendedNextAction;
+  const rawMissingSlots = Array.isArray(gapAnalysis?.missingSlots) ? gapAnalysis.missingSlots : [];
+  const rawWeakSlots = Array.isArray(gapAnalysis?.weakSlots) ? gapAnalysis.weakSlots : [];
+  const advisorySlots = isReady
+    ? Array.from(new Set([...rawWeakSlots, ...rawMissingSlots]))
+    : rawWeakSlots;
+  const payloadMissingSlots = isReady ? [] : rawMissingSlots;
+  const payloadBlockedSlots = isReady ? [] : (criticalBlockingSlots || []);
+  const payloadBlockedElements = isReady ? [] : (blockedElements || []);
   const targetElement = gapQuestion?.targetSlot
     ? getElementForSlot(gapAnalysis?.storyMode || "default", gapQuestion.targetSlot)
     : null;
-  const primaryGap = gapQuestion ? {
+  const primaryGap = !isReady && gapQuestion ? {
     slot: gapQuestion.targetSlot || null,
-    state: (gapAnalysis?.missingSlots || []).includes(gapQuestion.targetSlot) ? "missing" : "weak",
+    state: rawMissingSlots.includes(gapQuestion.targetSlot) ? "missing" : "weak",
     reason: gapQuestion.reason || null,
     guidance: gapQuestion.slotGuidance || null,
     element_id: targetElement?.id || null,
@@ -1817,8 +1977,12 @@ function buildReadinessPayload({
   } : null;
 
   let why = "The story still needs more detail before review.";
-  if (gapAnalysis.isStoryReady || responseAction === "CONFIRM" || responseAction === "STOP") {
-    why = "The draft covers the core story beats well enough to move into review.";
+  if (isReady) {
+    why = advisorySlots.length > 0
+      ? "The draft is ready to review now. The remaining story gaps are optional refinements, not blockers."
+      : "The draft covers the core story beats well enough to move into review.";
+  } else if (readinessState.engineReviewable) {
+    why = "The draft is strong enough to review now, but one more detail could make it sharper.";
   } else if (hardBlockConfirm && gapQuestion?.targetSlot) {
     why = `The draft still has a blocking gap around ${gapQuestion.targetSlot.replace(/_/g, " ")}.`;
   } else if (gapQuestion?.targetSlot) {
@@ -1839,13 +2003,21 @@ function buildReadinessPayload({
     recommended_next_action: recommendedNextAction,
     decision_source: decisionSource || "unknown",
     primary_gap: primaryGap,
-    missing_slots: gapAnalysis?.missingSlots || [],
-    weak_slots: gapAnalysis?.weakSlots || [],
-    blocked_slots: criticalBlockingSlots || [],
-    blocked_elements: blockedElements || [],
+    missing_slots: payloadMissingSlots,
+    weak_slots: advisorySlots,
+    blocked_slots: payloadBlockedSlots,
+    blocked_elements: payloadBlockedElements,
     element_scores: elements || [],
     why,
   };
+}
+
+function deriveSnapshotReadinessAction(state, gapAnalysis) {
+  const status = String(state?.status || "").toLowerCase();
+  if (status === "confirmed" || status === "ready_for_confirm") {
+    return "CONFIRM";
+  }
+  return gapAnalysis?.isStoryReady ? "CONFIRM" : "ASK";
 }
 
 function buildDraftStatusPayload({
@@ -2008,6 +2180,11 @@ async function buildContinueTurnPayload({
     userMessage: answer,
   });
   const nextQuestion = getResponsePromptText(response);
+  const userFacingReadiness = deriveUserFacingReadinessState({
+    state,
+    gapAnalysis: gapResolution.gapAnalysis,
+    responseAction: response.action,
+  });
   const repeatedQuestion = typeof nextQuestion === "string"
     && typeof priorAssistantMessage?.content === "string"
     && nextQuestion.trim() === priorAssistantMessage.content.trim();
@@ -2054,8 +2231,8 @@ async function buildContinueTurnPayload({
     missingSlots: gapResolution.gapAnalysis.missingSlots || [],
     weakSlots: gapResolution.gapAnalysis.weakSlots || [],
     readinessScore: gapResolution.gapAnalysis.readinessScore,
-    isStoryReady: gapResolution.gapAnalysis.isStoryReady,
-    canProceedAnyway: Boolean(gapResolution.gapAnalysis.canProceedAnyway),
+    isStoryReady: userFacingReadiness.isReady,
+    canProceedAnyway: userFacingReadiness.canProceedAnyway,
     ...buildDraftStatusPayload({
       state,
       sessionId,
@@ -2309,6 +2486,12 @@ async function startStoryV3(options) {
     factCount: Array.isArray(finalState.facts) ? finalState.facts.filter((fact) => (fact?.status || "active") === "active").length : 0,
   });
 
+  const userFacingReadiness = deriveUserFacingReadinessState({
+    state: finalState,
+    gapAnalysis: gapResolution.gapAnalysis,
+    responseAction: response.action,
+  });
+
   return {
     sessionId: session.id,
     engineVersion: effectiveEngineVersion,
@@ -2323,8 +2506,8 @@ async function startStoryV3(options) {
     missingSlots: gapResolution.gapAnalysis.missingSlots || [],
     weakSlots: gapResolution.gapAnalysis.weakSlots || [],
     readinessScore: gapResolution.gapAnalysis.readinessScore,
-    isStoryReady: gapResolution.gapAnalysis.isStoryReady,
-    canProceedAnyway: Boolean(gapResolution.gapAnalysis.canProceedAnyway),
+    isStoryReady: userFacingReadiness.isReady,
+    canProceedAnyway: userFacingReadiness.canProceedAnyway,
     ...buildDraftStatusPayload({
       state: finalState,
       sessionId: session.id,
@@ -2698,7 +2881,7 @@ async function getStoryContextV3(sessionId, { includeReadiness = true, includeMe
         engineVersion: sessionEngineVersion,
         gapAnalysis: contextGapAnalysis,
         elements: contextElements,
-        responseAction: "CONFIRM",
+        responseAction: deriveSnapshotReadinessAction(v2State, contextGapAnalysis),
         decisionSource: "session_snapshot",
         includeIntegrationDelta: false,
       }),
@@ -2783,7 +2966,7 @@ async function getStorySessionV3(sessionId) {
       engineVersion: sessionEngineVersion,
       gapAnalysis: sessionGapAnalysis,
       elements: sessionElements,
-      responseAction: v2State.status === "confirmed" ? "CONFIRM" : "ASK",
+      responseAction: deriveSnapshotReadinessAction(v2State, sessionGapAnalysis),
       decisionSource: "session_snapshot",
       includeIntegrationDelta: true,
     }),
@@ -2927,6 +3110,7 @@ async function prepareStoryReviewV3(sessionId) {
   };
   reviewState = ensureSemanticStoryIntegrity(reviewState);
   const reviewTurnCount = Number(reviewState.turn_count || 0);
+  const reviewableDraft = hasReviewableDraft(reviewState, finalNarrative);
   if (reviewState.semantic_story?.can_confirm === false) {
     const semanticSignature = buildSemanticBlockSignature(reviewState.semantic_story);
     const repeatedCount = countConsecutiveSemanticAsks(reviewState.semantic_history || [], semanticSignature);
@@ -2942,7 +3126,7 @@ async function prepareStoryReviewV3(sessionId) {
       });
     }
   }
-  if (reviewState.semantic_story?.can_confirm === false) {
+  if (reviewState.semantic_story?.can_confirm === false && !reviewableDraft) {
     const clarification = buildSemanticClarificationPrompt(reviewState);
     const question = clarification.question;
     const nextState = addTurnToState({
@@ -3034,7 +3218,9 @@ async function prepareStoryReviewV3(sessionId) {
       gapAnalysis,
       elements: reviewElements,
       responseAction: "CONFIRM",
-      decisionSource: "review_ready",
+      decisionSource: reviewState.semantic_story?.can_confirm === false && reviewableDraft
+        ? "review_ready_override"
+        : "review_ready",
       completionScore: 100,
       includeIntegrationDelta: true,
     }),
@@ -3076,7 +3262,8 @@ async function confirmStoryV3(sessionId, options = {}) {
   // After 3+ turns or 2+ semantic asks, respect the user's choice to proceed
   if (
     v2State.semantic_story?.can_confirm === false &&
-    !(forceConfirm && reviewableDraft) &&
+    !reviewableDraft &&
+    !forceConfirm &&
     totalConfirmSemanticAsks < 2 &&
     turnCount < 3
   ) {
@@ -3124,8 +3311,11 @@ async function confirmStoryV3(sessionId, options = {}) {
     }
     throw guidanceError;
   }
-  if (forceConfirm && reviewableDraft && v2State.semantic_story?.can_confirm === false) {
-    console.warn("[V3] Honoring explicit force_confirm on reviewable draft:", { sessionId });
+  if (v2State.semantic_story?.can_confirm === false && reviewableDraft) {
+    console.warn("[V3] Honoring confirmation on reviewable draft with remaining semantic gaps:", {
+      sessionId,
+      forceConfirm,
+    });
   }
 
   // Build/finalize completed story package before confirmation
@@ -3308,6 +3498,8 @@ module.exports = {
     buildSemanticClarificationPrompt,
     buildSemanticBlockSignature,
     deriveLlmReadySignal,
+    buildReadinessPayload,
+    deriveUserFacingReadinessState,
     getTurnProgressScore,
     ensureSemanticStoryIntegrity,
     ensureCompletedStoryPackage,

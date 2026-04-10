@@ -260,6 +260,9 @@ function registerGiftRoutes(app, {
   }
 
   function parseGiftDeliveryRequest(body, reply) {
+    const recipientName = typeof body.recipient_name === "string"
+      ? body.recipient_name.trim().slice(0, 100)
+      : "";
     const deliveryMode = body.delivery_mode === "scheduled" ? "scheduled" : "immediate";
     const senderTimezone = typeof body.sender_timezone === "string" && body.sender_timezone.trim()
       ? body.sender_timezone.trim()
@@ -298,6 +301,7 @@ function registerGiftRoutes(app, {
     }
 
     return {
+      recipientName,
       deliveryMode,
       senderTimezone,
       channels,
@@ -483,6 +487,7 @@ function registerGiftRoutes(app, {
     userId,
     contentType,
     contentId,
+    recipientName,
     deliveryMode,
     senderTimezone,
     channels,
@@ -501,6 +506,9 @@ function registerGiftRoutes(app, {
     const validated = await validateGiftContent({ userId, contentType, contentId, versionNum });
     const requireAppClaim = await getFeatureFlag(db, "gift_require_app_claim");
     const giftOrderId = `gift_${crypto.randomBytes(12).toString("hex")}`;
+    const resolvedRecipientName = (typeof recipientName === "string" && recipientName.trim())
+      ? recipientName.trim().slice(0, 100)
+      : (validated.contentSnapshot?.recipient_name || null);
 
     const executeCreate = async (query) => {
       if (idempotencyKey) {
@@ -565,11 +573,11 @@ function registerGiftRoutes(app, {
         await query(
           `INSERT INTO gift_orders (
             id, sender_user_id, content_type, content_id, status, dispatch_status, delivery_mode,
-            send_at, sender_timezone, channels_json, recipient_phone, recipient_email, message,
+            send_at, sender_timezone, recipient_name, channels_json, recipient_phone, recipient_email, message,
             share_token_id, share_url, claim_pin, claim_policy, expires_in_days, dispatch_attempts,
             last_dispatch_error, dispatched_at, cancelled_at, token_transaction_id, refund_transaction_id,
             version_num, content_snapshot_json, next_retry_at, dispatch_started_at, idempotency_key, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             giftOrderId,
             userId,
@@ -580,6 +588,7 @@ function registerGiftRoutes(app, {
             deliveryMode,
             sendAtIso,
             senderTimezone,
+            resolvedRecipientName,
             toJson(channels),
             recipientPhone,
             recipientEmail,
@@ -697,7 +706,7 @@ function registerGiftRoutes(app, {
       return true;
     }
     if (err.code === "INSUFFICIENT_GIFT_TOKENS") {
-      sendError(reply, 402, "INSUFFICIENT_GIFT_TOKENS", "You need a gift token to schedule a gift.");
+      sendError(reply, 402, "INSUFFICIENT_GIFT_TOKENS", "Unlock a gift credit to keep going.");
       return true;
     }
     if (err.code === "INVALID_CONTENT_TYPE") {
@@ -983,7 +992,7 @@ function registerGiftRoutes(app, {
     try {
       const wallet = await ensureGiftWalletRow(userId);
       if (wallet.balance < 1) {
-        sendError(reply, 402, "INSUFFICIENT_GIFT_TOKENS", "You need a gift token to start gift creation.");
+        sendError(reply, 402, "INSUFFICIENT_GIFT_TOKENS", "Unlock a gift credit to keep going.");
         return;
       }
 
@@ -1038,7 +1047,7 @@ function registerGiftRoutes(app, {
       });
     } catch (err) {
       if (err.code === "INSUFFICIENT_GIFT_TOKENS") {
-        sendError(reply, 402, "INSUFFICIENT_GIFT_TOKENS", "You need a gift token to start gift creation.");
+        sendError(reply, 402, "INSUFFICIENT_GIFT_TOKENS", "Unlock a gift credit to keep going.");
         return;
       }
       request.log.error({ err }, "Failed to create gift reservation");
@@ -1095,7 +1104,7 @@ function registerGiftRoutes(app, {
 
     const refreshed = await expireReservationIfNeeded(reservation);
     if (!isReservationActiveStatus(refreshed.status)) {
-      sendError(reply, 409, "RESERVATION_EXPIRED", "Gift reservation expired. Start a new reservation.");
+      sendError(reply, 409, "RESERVATION_EXPIRED", "This gift draft expired. Start a fresh gift to keep going.");
       return;
     }
 
@@ -1199,7 +1208,7 @@ function registerGiftRoutes(app, {
 
     const refreshed = await expireReservationIfNeeded(reservation);
     if (!isReservationActiveStatus(refreshed.status)) {
-      sendError(reply, 409, "RESERVATION_EXPIRED", "Gift reservation expired. Start a new reservation.");
+      sendError(reply, 409, "RESERVATION_EXPIRED", "This gift draft expired. Start a fresh gift to keep going.");
       return;
     }
 
@@ -1215,6 +1224,7 @@ function registerGiftRoutes(app, {
     const deliveryRequest = parseGiftDeliveryRequest(body, reply);
     if (!deliveryRequest) return;
     const {
+      recipientName,
       deliveryMode,
       senderTimezone,
       channels,
@@ -1251,6 +1261,7 @@ function registerGiftRoutes(app, {
           userId,
           contentType: latestReservation.content_type,
           contentId: latestReservation.content_id,
+          recipientName,
           deliveryMode,
           senderTimezone,
           channels,
@@ -1390,7 +1401,7 @@ function registerGiftRoutes(app, {
         reply,
         409,
         "GIFT_PREPAY_REQUIRED",
-        "This app version must reserve a gift token first. Use /gifts/reservations flow."
+        "This app version needs to start a fresh gift first."
       );
       return;
     }
@@ -1405,6 +1416,7 @@ function registerGiftRoutes(app, {
     const deliveryRequest = parseGiftDeliveryRequest(body, reply);
     if (!deliveryRequest) return;
     const {
+      recipientName,
       deliveryMode,
       senderTimezone,
       channels,
@@ -1436,6 +1448,7 @@ function registerGiftRoutes(app, {
         userId,
         contentType,
         contentId,
+        recipientName,
         deliveryMode,
         senderTimezone,
         channels,
@@ -1523,6 +1536,9 @@ function registerGiftRoutes(app, {
     const nextTimezone = typeof body.sender_timezone === "string" && body.sender_timezone.trim()
       ? body.sender_timezone.trim()
       : gift.sender_timezone;
+    const nextRecipientName = body.recipient_name !== undefined
+      ? String(body.recipient_name || "").trim().slice(0, 100)
+      : (gift.recipient_name || "");
     const nextMessage = typeof body.message === "string"
       ? body.message.trim().slice(0, 500)
       : (gift.message || "");
@@ -1562,11 +1578,12 @@ function registerGiftRoutes(app, {
 
     await db.prepare(
       `UPDATE gift_orders
-       SET send_at = ?, sender_timezone = ?, channels_json = ?, recipient_phone = ?, recipient_email = ?, message = ?, next_retry_at = ?, updated_at = ?
+       SET send_at = ?, sender_timezone = ?, recipient_name = ?, channels_json = ?, recipient_phone = ?, recipient_email = ?, message = ?, next_retry_at = ?, updated_at = ?
        WHERE id = ?`
     ).run(
       nextSendAt,
       nextTimezone,
+      nextRecipientName || null,
       toJson(nextChannels),
       nextPhone,
       nextEmail,
