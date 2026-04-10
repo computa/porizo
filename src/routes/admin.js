@@ -35,7 +35,7 @@ const ADMIN_STATIC_MIME_TYPES = {
   ".svg": "image/svg+xml",
   ".html": "text/html; charset=utf-8",
 };
-const GIFT_OPS_READ_ROLES = ["viewer", "admin", "superadmin"];
+const GIFT_OPS_READ_ROLES = ["admin", "superadmin"];
 
 /**
  * Admin session auth helper - validates Bearer token from Authorization header

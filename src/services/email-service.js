@@ -482,7 +482,7 @@ async function sendGiftDeliveryEmail(payload) {
   </td></tr>
 
   <tr><td align="center" style="padding: 0 40px 16px;">
-    <a href="${shareUrl}" style="display: inline-block; background: #B0763F; color: #ffffff; text-decoration: none; padding: 16px 48px; border-radius: 12px; font-size: 17px; font-weight: 600; letter-spacing: 0.3px;">
+    <a href="${escapeHtml(shareUrl)}" style="display: inline-block; background: #B0763F; color: #ffffff; text-decoration: none; padding: 16px 48px; border-radius: 12px; font-size: 17px; font-weight: 600; letter-spacing: 0.3px;">
       ${ctaLabel}
     </a>
   </td></tr>

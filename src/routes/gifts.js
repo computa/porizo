@@ -12,6 +12,7 @@ const {
   upsertGiftIncident,
   redactGiftContacts,
 } = require("../services/gift-delivery-ops");
+const { createGiftOpsMonitor } = require("../services/gift-ops-monitoring");
 
 const ACTIVE_RESERVATION_STATUSES = new Set(["reserved", "content_ready"]);
 
@@ -134,42 +135,14 @@ function registerGiftRoutes(app, {
     };
   }
 
-  function logGiftLifecycle(level, event, metadata = {}) {
-    const safeLevel = typeof app.log?.[level] === "function" ? level : "info";
-    app.log[safeLevel]({
-      event: `gift_${event}`,
-      ...redactGiftContacts(metadata),
-    }, `gift_${event}`);
-  }
-
-  async function recordGiftIncident({
-    incidentKey,
-    incidentType,
-    severity = "warning",
-    giftOrderId = null,
-    summary,
-    detail = null,
-    metadata = {},
-  }) {
-    const incident = await upsertGiftIncident(db, {
-      incidentKey,
-      incidentType,
-      severity,
-      giftOrderId,
-      resourceType: giftOrderId ? "gift_order" : null,
-      resourceId: giftOrderId,
-      summary,
-      detail,
-      metadata,
-    });
-    logGiftLifecycle(severity === "critical" ? "error" : "warn", "incident_opened", {
-      incident_key: incidentKey,
-      incident_type: incidentType,
-      gift_id: giftOrderId,
-      summary,
-    });
-    return incident;
-  }
+  const giftOpsMonitor = createGiftOpsMonitor({
+    db,
+    logger: app.log,
+    redactGiftContacts,
+    upsertGiftIncident,
+    resolveGiftIncident: async () => {},
+  });
+  const logGiftLifecycle = giftOpsMonitor.logGiftLifecycle;
 
   async function verifyGiftFinalizeIntegrity(giftOrderId, query = null) {
     const runner = query || db.query.bind(db);
@@ -197,8 +170,12 @@ function registerGiftRoutes(app, {
     if (shareRow && (shareRow.gift_order_id !== giftOrderId || shareRow.delivery_source !== "gift")) {
       errors.push("gift_share_token_binding_invalid");
     }
-    if (shareRow && shareRow.dispatch_at !== gift.send_at) {
-      errors.push("gift_share_dispatch_at_mismatch");
+    if (shareRow && shareRow.dispatch_at && gift.send_at) {
+      const shareMs = new Date(shareRow.dispatch_at).getTime();
+      const giftMs = new Date(gift.send_at).getTime();
+      if (Math.abs(shareMs - giftMs) > 1000) {
+        errors.push("gift_share_dispatch_at_mismatch");
+      }
     }
     if (outboxRows.length !== channels.length) {
       errors.push("gift_outbox_channel_count_mismatch");
@@ -223,8 +200,8 @@ function registerGiftRoutes(app, {
     };
   }
 
-  async function assertGiftFinalizeIntegrity(giftOrderId) {
-    const integrity = await verifyGiftFinalizeIntegrity(giftOrderId);
+  async function assertGiftFinalizeIntegrity(giftOrderId, query = null) {
+    const integrity = await verifyGiftFinalizeIntegrity(giftOrderId, query);
     if (integrity.ok) {
       logGiftLifecycle("info", "finalize_integrity_verified", {
         gift_id: giftOrderId,
@@ -232,16 +209,11 @@ function registerGiftRoutes(app, {
       });
       return integrity.gift;
     }
-
-    await recordGiftIncident({
-      incidentKey: `gift_finalize_integrity:${giftOrderId}`,
-      incidentType: "finalize_integrity_failed",
-      severity: "critical",
-      giftOrderId,
-      summary: "Gift finalize integrity check failed",
-      detail: integrity.errors.join(", "),
-      metadata: { errors: integrity.errors },
-    });
+    app.log.error({
+      event: "gift_finalize_integrity_failed",
+      gift_id: giftOrderId,
+      errors: integrity.errors,
+    }, "gift_finalize_integrity_failed");
     throw Object.assign(new Error("GIFT_FINALIZE_INTEGRITY_FAILED"), {
       code: "GIFT_FINALIZE_INTEGRITY_FAILED",
       details: integrity.errors,
@@ -648,7 +620,7 @@ function registerGiftRoutes(app, {
           externalQuery: query,
         });
 
-        const created = await queryGet(query, "SELECT * FROM gift_orders WHERE id = ?", [giftOrderId]);
+        const created = await assertGiftFinalizeIntegrity(giftOrderId, query);
         return { gift: created, idempotent: false };
       } catch (err) {
         if (autoDebited) {
@@ -672,9 +644,6 @@ function registerGiftRoutes(app, {
     const created = externalQuery
       ? await executeCreate(externalQuery)
       : await db.transaction(async (query) => executeCreate(query));
-
-    const verifiedGift = await assertGiftFinalizeIntegrity(created.gift.id);
-    created.gift = verifiedGift;
 
     logGiftLifecycle("info", created.idempotent ? "finalize_idempotent" : "finalized", {
       gift_id: created.gift.id,
@@ -847,7 +816,7 @@ function registerGiftRoutes(app, {
     }
 
     const timestamp = nowIso();
-    await db.prepare(
+    const cancelResult = await db.prepare(
       `UPDATE gift_orders
        SET status = 'cancelled',
            dispatch_status = 'cancelled',
@@ -856,8 +825,15 @@ function registerGiftRoutes(app, {
            next_retry_at = NULL,
            dispatch_started_at = NULL,
            updated_at = ?
-       WHERE id = ?`
+       WHERE id = ? AND status IN ('scheduled', 'dispatch_retry', 'cancelled')`
     ).run(timestamp, refundTxId, timestamp, gift.id);
+
+    if (!cancelResult.changes) {
+      // Gift transitioned to dispatching/dispatched between SELECT and UPDATE
+      const err = new Error("GIFT_STATUS_CHANGED");
+      err.code = "GIFT_STATUS_CHANGED";
+      throw err;
+    }
 
     await db.prepare(
       `UPDATE gift_delivery_outbox
@@ -935,21 +911,27 @@ function registerGiftRoutes(app, {
        SET status = 'pending',
            next_retry_at = ?,
            locked_at = NULL,
-           last_error = CASE WHEN status = 'failed' THEN last_error ELSE last_error END,
+           last_error = CASE WHEN status = 'failed' THEN last_error ELSE NULL END,
            updated_at = ?
        WHERE gift_order_id = ?
          AND status IN ('failed', 'pending')`
     ).run(timestamp, timestamp, gift.id);
 
-    await db.prepare(
+    const retryResult = await db.prepare(
       `UPDATE gift_orders
        SET status = 'dispatch_retry',
            dispatch_status = 'retrying',
            next_retry_at = ?,
            dispatch_started_at = NULL,
            updated_at = ?
-       WHERE id = ?`
+       WHERE id = ? AND status IN ('scheduled', 'dispatch_retry', 'failed')`
     ).run(timestamp, timestamp, gift.id);
+
+    if (!retryResult.changes) {
+      const err = new Error("GIFT_STATUS_CHANGED");
+      err.code = "GIFT_STATUS_CHANGED";
+      throw err;
+    }
 
     logGiftLifecycle("warn", "requeued", {
       gift_id: gift.id,

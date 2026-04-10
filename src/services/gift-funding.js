@@ -137,13 +137,23 @@ async function deleteGiftFundedReservationContent(db, reservationId, deletedAt) 
 
   const timestamp = deletedAt || new Date().toISOString();
   const tracks = await db.prepare(
-    "SELECT id FROM tracks WHERE gift_reservation_id = ? AND deleted_at IS NULL"
+    "SELECT id, share_token_id FROM tracks WHERE gift_reservation_id = ? AND deleted_at IS NULL"
   ).all(reservationId);
   const poems = await db.prepare(
-    "SELECT id FROM poems WHERE gift_reservation_id = ? AND deleted_at IS NULL"
+    "SELECT id, share_token_id FROM poems WHERE gift_reservation_id = ? AND deleted_at IS NULL"
   ).all(reservationId);
 
   for (const track of tracks) {
+    if (track.share_token_id) {
+      await db.prepare(
+        `UPDATE share_tokens
+         SET status = 'revoked',
+             web_stream_allowed = 0,
+             expires_at = COALESCE(expires_at, ?),
+             dispatched_at = NULL
+         WHERE id = ? AND status != 'revoked'`
+      ).run(timestamp, track.share_token_id);
+    }
     await db.prepare(
       "UPDATE tracks SET deleted_at = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL"
     ).run(timestamp, timestamp, track.id);
@@ -153,6 +163,15 @@ async function deleteGiftFundedReservationContent(db, reservationId, deletedAt) 
   }
 
   for (const poem of poems) {
+    if (poem.share_token_id) {
+      await db.prepare(
+        `UPDATE poem_share_tokens
+         SET status = 'revoked',
+             expires_at = COALESCE(expires_at, ?),
+             dispatched_at = NULL
+         WHERE id = ? AND status != 'revoked'`
+      ).run(timestamp, poem.share_token_id);
+    }
     await db.prepare(
       "UPDATE poems SET deleted_at = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL"
     ).run(timestamp, timestamp, poem.id);

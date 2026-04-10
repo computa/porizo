@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import SwiftUI
 
 struct GiftBundleConfig: Codable, Identifiable, Sendable {
     let productId: String
@@ -244,6 +245,82 @@ struct CreateGiftRequest: Encodable, Sendable {
         case sendAt = "send_at"
         case expiresInDays = "expires_in_days"
         case versionNum = "version_num"
+    }
+}
+
+extension GiftOrder {
+    var displayTitle: String {
+        if let contentTitle, !contentTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return contentTitle
+        }
+        switch contentType.lowercased() {
+        case GiftContentType.song.rawValue:
+            return "Song gift"
+        case GiftContentType.poem.rawValue:
+            return "Poem gift"
+        default:
+            return "Gift"
+        }
+    }
+
+    var recipientSummary: String {
+        let trimmedName = recipientName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let trimmedPhone = recipientPhone?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let trimmedEmail = recipientEmail?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+        if !trimmedName.isEmpty {
+            if !trimmedPhone.isEmpty && !trimmedEmail.isEmpty {
+                return "\(trimmedName) • \(trimmedPhone) • \(trimmedEmail)"
+            }
+            if !trimmedPhone.isEmpty {
+                return "\(trimmedName) • \(trimmedPhone)"
+            }
+            if !trimmedEmail.isEmpty {
+                return "\(trimmedName) • \(trimmedEmail)"
+            }
+            return trimmedName
+        }
+
+        if !trimmedPhone.isEmpty && !trimmedEmail.isEmpty {
+            return "\(trimmedPhone) • \(trimmedEmail)"
+        }
+        if !trimmedEmail.isEmpty {
+            return trimmedEmail
+        }
+        if !trimmedPhone.isEmpty {
+            return trimmedPhone
+        }
+        return "Recipient not set"
+    }
+
+    var managementStatusLabel: String {
+        switch status.lowercased() {
+        case "dispatch_retry":
+            return "Retrying"
+        case "dispatching":
+            return "Sending"
+        default:
+            return "Scheduled"
+        }
+    }
+
+    var managementStatusColor: Color {
+        switch status.lowercased() {
+        case "dispatch_retry":
+            return DesignTokens.warning
+        case "dispatching":
+            return DesignTokens.statusSuccess
+        default:
+            return DesignTokens.gold
+        }
+    }
+
+    var sendAtDate: Date {
+        GiftDateParsing.parse(sendAt)
+    }
+
+    var sendAtLabel: String {
+        DateFormatter.localizedString(from: sendAtDate, dateStyle: .medium, timeStyle: .short)
     }
 }
 

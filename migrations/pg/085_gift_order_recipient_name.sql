@@ -1,4 +1,4 @@
-ALTER TABLE gift_orders ADD COLUMN recipient_name TEXT;
+ALTER TABLE gift_orders ADD COLUMN IF NOT EXISTS recipient_name TEXT;
 
 UPDATE gift_orders
 SET recipient_name = COALESCE(

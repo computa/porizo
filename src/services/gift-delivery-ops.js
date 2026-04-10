@@ -2,6 +2,7 @@
 
 const { nowIso, toJson } = require("../utils/common");
 const { newUuid } = require("../utils/ids");
+const { dbQuery, dbGet, dbAll } = require("../utils/db-adapter");
 
 const RECEIPT_PRECEDENCE = {
   accepted: 1,
@@ -63,7 +64,9 @@ function chooseReceiptState({ currentStatus, currentEventAt, nextStatus, nextEve
   }
 
   if (normalizedCurrentStatus === normalizedNextStatus) {
-    return { shouldUpdate: true, nextStatus: normalizedNextStatus };
+    // Skip writes for duplicate terminal status updates (e.g., repeated 'delivered' callbacks)
+    const skipChurn = isTerminalReceiptStatus(normalizedCurrentStatus);
+    return { shouldUpdate: !skipChurn, nextStatus: normalizedNextStatus };
   }
 
   if (isTerminalReceiptStatus(normalizedCurrentStatus) && isTerminalReceiptStatus(normalizedNextStatus)) {
@@ -71,33 +74,6 @@ function chooseReceiptState({ currentStatus, currentEventAt, nextStatus, nextEve
   }
 
   return { shouldUpdate: false, nextStatus: normalizedCurrentStatus };
-}
-
-async function dbQuery(db, sql, params = []) {
-  if (typeof db === "function") {
-    return db(sql, params);
-  }
-  if (db && typeof db.query === "function") {
-    return db.query(sql, params);
-  }
-  const stmt = db.prepare(sql);
-  const upper = sql.trim().toUpperCase();
-  if (upper.startsWith("SELECT")) {
-    const rows = await stmt.all(...params);
-    return { rows };
-  }
-  const result = await stmt.run(...params);
-  return { rows: [], rowCount: result?.changes || 0, changes: result?.changes || 0 };
-}
-
-async function dbGet(db, sql, params = []) {
-  const result = await dbQuery(db, sql, params);
-  return result?.rows?.[0] || null;
-}
-
-async function dbAll(db, sql, params = []) {
-  const result = await dbQuery(db, sql, params);
-  return result?.rows || [];
 }
 
 function redactPhone(phone) {

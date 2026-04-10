@@ -18,6 +18,7 @@ struct GiftSendFlowView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(StyleStore.self) private var styleStore
     @Environment(STTRouter.self) private var sttRouter
+    @Environment(AuthManager.self) private var authManager
 
     @State private var screen: Screen = .content
     @State private var contentType: GiftContentType = .song
@@ -27,6 +28,7 @@ struct GiftSendFlowView: View {
 
     @State private var createLaunch: GiftCreateLaunch?
     @State private var recipientName = ""
+    @State private var senderDisplayName = ""
     @State private var sendViaText = true
     @State private var sendViaEmail = false
     @State private var recipientPhone = ""
@@ -401,7 +403,7 @@ struct GiftSendFlowView: View {
                             scheduledGiftRow(gift)
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel("Manage \(scheduledGiftTitle(for: gift))")
+                        .accessibilityLabel("Manage \(gift.displayTitle)")
                     }
 
                     if scheduledGifts.count > 3 {
@@ -430,6 +432,7 @@ struct GiftSendFlowView: View {
             VStack(alignment: .leading, spacing: 16) {
                 composerHero
                 composerRecipientSection
+                composerSenderSection
                 composerDestinationSection
                 composerNoteSection
                 composerTimingSection
@@ -622,6 +625,32 @@ struct GiftSendFlowView: View {
         }
     }
 
+    @ViewBuilder
+    private var composerSenderSection: some View {
+        if shouldPromptForSenderDisplayName {
+            VStack(alignment: .leading, spacing: 8) {
+                fieldLabel("How should your name appear?")
+
+                TextField("Your name", text: $senderDisplayName)
+                    .textContentType(.name)
+                    .autocorrectionDisabled(true)
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 10)
+                    .overlay(alignment: .bottom) {
+                        Rectangle()
+                            .fill(DesignTokens.border)
+                            .frame(height: 1)
+                    }
+                    .font(DesignTokens.bodyFont(size: 20, weight: .medium))
+                    .foregroundStyle(DesignTokens.textPrimary)
+
+                Text("This appears in the gift message so it feels personal, not anonymous.")
+                    .font(DesignTokens.bodyFont(size: 12))
+                    .foregroundStyle(DesignTokens.textSecondary)
+            }
+        }
+    }
+
     private var composerNoteSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             fieldLabel("Your note")
@@ -750,11 +779,11 @@ struct GiftSendFlowView: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .top, spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(scheduledGiftTitle(for: gift))
+                    Text(gift.displayTitle)
                         .font(DesignTokens.bodyFont(size: 15, weight: .semibold))
                         .foregroundStyle(DesignTokens.textPrimary)
 
-                    Text(scheduledGiftRecipient(for: gift))
+                    Text(gift.recipientSummary)
                         .font(DesignTokens.bodyFont(size: 13))
                         .foregroundStyle(DesignTokens.textSecondary)
                 }
@@ -762,12 +791,12 @@ struct GiftSendFlowView: View {
                 Spacer(minLength: 8)
 
                 HStack(spacing: 8) {
-                    Text(scheduledGiftStatusLabel(for: gift))
+                    Text(gift.managementStatusLabel)
                         .font(DesignTokens.bodyFont(size: 11, weight: .semibold))
-                        .foregroundStyle(scheduledGiftStatusColor(for: gift))
+                        .foregroundStyle(gift.managementStatusColor)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 5)
-                        .background(scheduledGiftStatusColor(for: gift).opacity(0.14))
+                        .background(gift.managementStatusColor.opacity(0.14))
                         .clipShape(Capsule())
 
                     Image(systemName: "chevron.right")
@@ -776,7 +805,7 @@ struct GiftSendFlowView: View {
                 }
             }
 
-            Text("Delivery: \(scheduledGiftDateLabel(for: gift))")
+            Text("Delivery: \(gift.sendAtLabel)")
                 .font(DesignTokens.bodyFont(size: 12))
                 .foregroundStyle(DesignTokens.textSecondary)
         }
@@ -1168,6 +1197,51 @@ struct GiftSendFlowView: View {
         return true
     }
 
+    private var trimmedSenderDisplayName: String {
+        senderDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var automaticSenderDisplayName: String? {
+        if let displayName = authManager.currentUser?.displayName?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !displayName.isEmpty {
+            return displayName
+        }
+
+        guard let email = authManager.currentUser?.email?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !email.isEmpty else {
+            return nil
+        }
+
+        let localPart = email.split(separator: "@").first.map(String.init) ?? ""
+        let cleaned = localPart
+            .replacingOccurrences(of: ".", with: " ")
+            .split(whereSeparator: { $0 == "_" || $0 == "-" || $0.isWhitespace })
+            .map { token -> String in
+                let lowercased = token.lowercased()
+                guard let first = lowercased.first else { return "" }
+                return first.uppercased() + lowercased.dropFirst()
+            }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return cleaned.isEmpty ? nil : cleaned
+    }
+
+    private var shouldPromptForSenderDisplayName: Bool {
+        automaticSenderDisplayName == nil
+    }
+
+    private var resolvedSenderDisplayName: String? {
+        if !trimmedSenderDisplayName.isEmpty {
+            return trimmedSenderDisplayName
+        }
+        return automaticSenderDisplayName
+    }
+
+    private var hasValidSenderIdentity: Bool {
+        resolvedSenderDisplayName != nil
+    }
+
     private var hasActiveReservation: Bool {
         guard let status = reservation?.status.lowercased() else { return false }
         return status == "reserved" || status == "content_ready"
@@ -1181,7 +1255,11 @@ struct GiftSendFlowView: View {
     }
 
     private var canSendGift: Bool {
-        selectedContentId != nil && hasAttachedReservationContent && hasValidRecipientAndDestination && isDeliveryValid
+        selectedContentId != nil
+            && hasAttachedReservationContent
+            && hasValidRecipientAndDestination
+            && hasValidSenderIdentity
+            && isDeliveryValid
     }
 
     private var isDeliveryValid: Bool {
@@ -1190,7 +1268,7 @@ struct GiftSendFlowView: View {
     }
 
     private var isComposerReadyForSummary: Bool {
-        hasAttachedReservationContent && hasValidRecipientAndDestination && isDeliveryValid
+        hasAttachedReservationContent && hasValidRecipientAndDestination && hasValidSenderIdentity && isDeliveryValid
     }
 
     private var primaryComposerCTA: String {
@@ -1375,6 +1453,10 @@ struct GiftSendFlowView: View {
             errorMessage = "Recipient details are incomplete."
             return
         }
+        guard let senderDisplayName = resolvedSenderDisplayName else {
+            errorMessage = "Add the name this gift should come from."
+            return
+        }
         if deliveryMode == .scheduled && !isDeliveryValid {
             scheduledAt = max(scheduledAt, defaultScheduledDate())
             showSchedulePicker = true
@@ -1391,7 +1473,7 @@ struct GiftSendFlowView: View {
 
         let request = FinalizeGiftReservationRequest(
             recipientName: trimmedRecipientName.isEmpty ? nil : trimmedRecipientName,
-            senderDisplayName: nil,
+            senderDisplayName: senderDisplayName,
             deliveryMode: deliveryMode.rawValue,
             senderTimezone: TimeZone.current.identifier,
             channels: selectedChannels,
@@ -1443,70 +1525,6 @@ struct GiftSendFlowView: View {
         return next.sorted { parseGiftDate($0.sendAt) < parseGiftDate($1.sendAt) }
     }
 
-    private func scheduledGiftTitle(for gift: GiftOrder) -> String {
-        if let contentTitle = gift.contentTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !contentTitle.isEmpty {
-            return contentTitle
-        }
-        switch gift.contentType.lowercased() {
-        case GiftContentType.song.rawValue:
-            return "Song gift"
-        case GiftContentType.poem.rawValue:
-            return "Poem gift"
-        default:
-            return "Gift"
-        }
-    }
-
-    private func scheduledGiftRecipient(for gift: GiftOrder) -> String {
-        let name = gift.recipientName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if !name.isEmpty {
-            if let email = gift.recipientEmail, !email.isEmpty, let phone = gift.recipientPhone, !phone.isEmpty {
-                return "\(name) • \(phone) • \(email)"
-            }
-            if let phone = gift.recipientPhone, !phone.isEmpty {
-                return "\(name) • \(phone)"
-            }
-            if let email = gift.recipientEmail, !email.isEmpty {
-                return "\(name) • \(email)"
-            }
-            return name
-        }
-        if let email = gift.recipientEmail, !email.isEmpty {
-            if let phone = gift.recipientPhone, !phone.isEmpty {
-                return "\(phone) • \(email)"
-            }
-            return email
-        }
-        return gift.recipientPhone ?? "Recipient not set"
-    }
-
-    private func scheduledGiftStatusLabel(for gift: GiftOrder) -> String {
-        switch gift.status.lowercased() {
-        case "dispatch_retry":
-            return "Retrying"
-        case "dispatching":
-            return "Sending"
-        default:
-            return "Scheduled"
-        }
-    }
-
-    private func scheduledGiftStatusColor(for gift: GiftOrder) -> Color {
-        switch gift.status.lowercased() {
-        case "dispatch_retry":
-            return DesignTokens.warning
-        case "dispatching":
-            return DesignTokens.statusSuccess
-        default:
-            return DesignTokens.gold
-        }
-    }
-
-    private func scheduledGiftDateLabel(for gift: GiftOrder) -> String {
-        DateFormatter.localizedString(from: parseGiftDate(gift.sendAt), dateStyle: .medium, timeStyle: .short)
-    }
-
     private var closeConfirmationMessage: String {
         if hasAttachedReservationContent {
             return "Save this gift and come back later, or discard it and release the credit."
@@ -1556,9 +1574,9 @@ struct GiftSendFlowView: View {
         let recipient = recipientName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? (!persistedRecipientName.isEmpty
                 ? persistedRecipientName
-                : scheduledGiftRecipient(for: gift))
+                : gift.recipientSummary)
             : recipientName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let when = scheduledGiftDateLabel(for: gift)
+        let when = gift.sendAtLabel
         if gift.deliveryMode.lowercased() == GiftDeliveryMode.scheduled.rawValue {
             return "We’ll deliver this to \(recipient) on \(when)."
         }

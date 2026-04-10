@@ -42,7 +42,7 @@ struct ScheduledGiftListSheet: View {
                                     scheduledGiftListRow(gift)
                                 }
                                 .buttonStyle(.plain)
-                                .accessibilityLabel("Manage \(gift.contentTitle ?? defaultTitle(for: gift))")
+                                .accessibilityLabel("Manage \(gift.displayTitle)")
                             }
                         }
                         .padding(20)
@@ -63,26 +63,26 @@ struct ScheduledGiftListSheet: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(gift.contentTitle ?? defaultTitle(for: gift))
+                    Text(gift.displayTitle)
                         .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
                         .foregroundStyle(DesignTokens.textPrimary)
-                    Text(recipientText(for: gift))
+                    Text(gift.recipientSummary)
                         .font(DesignTokens.bodyFont(size: 13))
                         .foregroundStyle(DesignTokens.textSecondary)
                 }
 
                 Spacer()
 
-                Text(statusText(for: gift))
+                Text(gift.managementStatusLabel)
                     .font(DesignTokens.bodyFont(size: 11, weight: .semibold))
-                    .foregroundStyle(statusColor(for: gift))
+                    .foregroundStyle(gift.managementStatusColor)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 5)
-                    .background(statusColor(for: gift).opacity(0.12))
+                    .background(gift.managementStatusColor.opacity(0.12))
                     .clipShape(Capsule())
             }
 
-            Text("Delivery: \(format(sendAt: gift.sendAt))")
+            Text("Delivery: \(gift.sendAtLabel)")
                 .font(DesignTokens.bodyFont(size: 13))
                 .foregroundStyle(DesignTokens.textSecondary)
         }
@@ -93,55 +93,6 @@ struct ScheduledGiftListSheet: View {
         .contentShape(Rectangle())
     }
 
-    private func defaultTitle(for gift: GiftOrder) -> String {
-        gift.contentType.lowercased() == GiftContentType.poem.rawValue ? "Poem gift" : "Song gift"
-    }
-
-    private func recipientText(for gift: GiftOrder) -> String {
-        let name = gift.recipientName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if !name.isEmpty {
-            if let email = gift.recipientEmail, !email.isEmpty, let phone = gift.recipientPhone, !phone.isEmpty {
-                return "\(name) • \(phone) • \(email)"
-            }
-            if let phone = gift.recipientPhone, !phone.isEmpty {
-                return "\(name) • \(phone)"
-            }
-            if let email = gift.recipientEmail, !email.isEmpty {
-                return "\(name) • \(email)"
-            }
-            return name
-        }
-        if let email = gift.recipientEmail, !email.isEmpty, let phone = gift.recipientPhone, !phone.isEmpty {
-            return "\(phone) • \(email)"
-        }
-        return gift.recipientPhone ?? gift.recipientEmail ?? "Recipient not set"
-    }
-
-    private func statusText(for gift: GiftOrder) -> String {
-        switch gift.status.lowercased() {
-        case "dispatch_retry":
-            return "Retrying"
-        case "dispatching":
-            return "Sending"
-        default:
-            return "Scheduled"
-        }
-    }
-
-    private func statusColor(for gift: GiftOrder) -> Color {
-        switch gift.status.lowercased() {
-        case "dispatch_retry":
-            return DesignTokens.warning
-        case "dispatching":
-            return DesignTokens.statusSuccess
-        default:
-            return DesignTokens.gold
-        }
-    }
-
-    private func format(sendAt: String) -> String {
-        GiftDateParsing.parse(sendAt).formatted(date: .abbreviated, time: .shortened)
-    }
 }
 
 struct GiftManagementSheet: View {
@@ -240,12 +191,12 @@ struct GiftManagementSheet: View {
 
     private var headerCard: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(gift.contentTitle ?? defaultTitle)
+            Text(gift.displayTitle)
                 .font(DesignTokens.bodyFont(size: 18, weight: .semibold))
                 .foregroundStyle(DesignTokens.textPrimary)
 
             HStack(spacing: 8) {
-                statusPill(text: statusText, color: statusColor)
+                statusPill(text: gift.managementStatusLabel, color: gift.managementStatusColor)
                 if let pin = gift.claimPin, !pin.isEmpty {
                     statusPill(text: "PIN \(pin)", color: DesignTokens.textSecondary)
                 }
@@ -442,32 +393,6 @@ struct GiftManagementSheet: View {
         return scheduledAt > Date.now.addingTimeInterval(60)
     }
 
-    private var defaultTitle: String {
-        gift.contentType.lowercased() == GiftContentType.poem.rawValue ? "Poem gift" : "Song gift"
-    }
-
-    private var statusText: String {
-        switch gift.status.lowercased() {
-        case "dispatch_retry":
-            return "Retrying"
-        case "dispatching":
-            return "Sending"
-        default:
-            return "Scheduled"
-        }
-    }
-
-    private var statusColor: Color {
-        switch gift.status.lowercased() {
-        case "dispatch_retry":
-            return DesignTokens.warning
-        case "dispatching":
-            return DesignTokens.statusSuccess
-        default:
-            return DesignTokens.gold
-        }
-    }
-
     private func sectionLabel(_ text: String) -> some View {
         Text(text)
             .font(DesignTokens.bodyFont(size: 13, weight: .medium))
@@ -574,6 +499,6 @@ enum GiftDateParsing {
     static func parse(_ isoString: String) -> Date {
         withFractionalSeconds.date(from: isoString)
             ?? basic.date(from: isoString)
-            ?? Date.now
+            ?? Date.now.addingTimeInterval(60 * 60) // Fallback: 1 hour from now, not "now" (prevents accidental immediate send)
     }
 }

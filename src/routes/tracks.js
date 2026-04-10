@@ -63,11 +63,23 @@ function registerTrackRoutes(app, {
 
     const now = nowIso();
     if (fundingSource === "gift_token") {
-      await query(
-        "UPDATE track_versions SET song_entitlement_consumed_at = ? WHERE id = ?",
-        [now, trackVersionId]
+      // Verify the gift reservation is still active (not expired/refunded)
+      const giftReservation = await query(
+        `SELECT id, status FROM gift_reservations
+         WHERE id = (SELECT gift_reservation_id FROM tracks WHERE id = ?)
+         AND status IN ('reserved', 'content_ready', 'finalized')`,
+        [trackId]
       );
-      return { consumed: false, consumedAt: now };
+      const reservationRow = Array.isArray(giftReservation) ? giftReservation[0] : giftReservation;
+      if (!reservationRow) {
+        // Reservation expired or was refunded — fall through to subscription spend
+      } else {
+        await query(
+          "UPDATE track_versions SET song_entitlement_consumed_at = ? WHERE id = ?",
+          [now, trackVersionId]
+        );
+        return { consumed: false, consumedAt: now };
+      }
     }
 
     const spendInTransaction = typeof subscriptionManager.spendSongInTransaction === "function"

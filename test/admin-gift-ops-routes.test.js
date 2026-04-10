@@ -255,7 +255,7 @@ describe("admin gift ops routes", () => {
     const detail = superadminDetail.json();
     assert.equal(detail.gift.recipient_email, "recipient@example.com");
     assert.equal(detail.gift.recipient_phone, "+61406371221");
-    assert.match(detail.gift.share_url || "", /\/play\//);
+    assert.match(detail.gift.share_url || "", /\/g\//);
 
     const adminRetry = await app.inject({
       method: "POST",
@@ -278,7 +278,7 @@ describe("admin gift ops routes", () => {
       url: "/admin/dashboard/gifts/overview",
       headers: { Authorization: `Bearer ${viewerToken}` },
     });
-    assert.equal(viewerOverview.statusCode, 200, viewerOverview.body);
+    assert.equal(viewerOverview.statusCode, 403, viewerOverview.body);
 
     const viewerRetry = await app.inject({
       method: "POST",
@@ -350,7 +350,7 @@ describe("admin gift ops routes", () => {
     const response = await app.inject({
       method: "GET",
       url: "/admin/dashboard/gifts/incidents",
-      headers: { Authorization: `Bearer ${viewerToken}` },
+      headers: { Authorization: `Bearer ${adminToken}` },
     });
     assert.equal(response.statusCode, 503, response.body);
     const body = response.json();

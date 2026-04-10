@@ -3,6 +3,7 @@
 const crypto = require("crypto");
 const { newUuid, newShareId } = require("../utils/ids");
 const { nowIso } = require("../utils/common");
+const { dbGet, dbRun } = require("../utils/db-adapter");
 
 const LIFETIME_SHARE_EXPIRES_AT = "9999-12-31T23:59:59.000Z";
 
@@ -22,31 +23,6 @@ function isShareUsable(share) {
     return true;
   }
   return new Date(share.expires_at) > new Date();
-}
-
-async function dbGet(db, sql, params = []) {
-  if (db?.prepare) {
-    return db.prepare(sql).get(...params);
-  }
-  if (db?.query) {
-    const result = await db.query(sql, params);
-    return result?.rows?.[0];
-  }
-  throw new Error("INVALID_DB_ADAPTER");
-}
-
-async function dbRun(db, sql, params = []) {
-  if (db?.prepare) {
-    return db.prepare(sql).run(...params);
-  }
-  if (db?.query) {
-    const result = await db.query(sql, params);
-    return {
-      changes: Number(result?.changes ?? result?.rowCount ?? 0),
-      rowCount: Number(result?.rowCount ?? result?.changes ?? 0),
-    };
-  }
-  throw new Error("INVALID_DB_ADAPTER");
 }
 
 /**

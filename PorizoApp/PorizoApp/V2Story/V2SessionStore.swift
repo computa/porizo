@@ -7,7 +7,7 @@
 
 import Foundation
 
-final class V2SessionStore {
+final class V2SessionStore: @unchecked Sendable {
     static let shared = V2SessionStore()
 
     private let fileURL: URL

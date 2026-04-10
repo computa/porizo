@@ -470,12 +470,13 @@ describe("Gift scheduling and wallet", () => {
     const reserveBody = JSON.parse(reserveRes.body);
 
     const trackId = `track_gift_funded_${Date.now()}`;
+    const shareTokenId = `share_gift_funded_${Date.now()}`;
     const addedAt = nowIso();
     db.prepare(
       `INSERT INTO tracks (
         id, user_id, status, title, occasion, recipient_name, style, voice_mode,
-        latest_version, funding_source, gift_reservation_id, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        latest_version, funding_source, gift_reservation_id, share_token_id, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       trackId,
       userId,
@@ -488,8 +489,24 @@ describe("Gift scheduling and wallet", () => {
       1,
       "gift_token",
       reserveBody.reservation.id,
+      shareTokenId,
       addedAt,
       addedAt
+    );
+    db.prepare(
+      `INSERT INTO share_tokens (
+        id, track_id, track_version_id, creator_id, share_type, status, claim_pin, expires_at, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      shareTokenId,
+      trackId,
+      `${trackId}:1`,
+      userId,
+      "gift",
+      "active",
+      "123456",
+      "9999-12-31T23:59:59.000Z",
+      addedAt,
     );
     db.prepare(
       `INSERT INTO track_library_entries (user_id, track_id, origin, share_token_id, added_at, updated_at)
@@ -516,6 +533,11 @@ describe("Gift scheduling and wallet", () => {
       "SELECT removed_at FROM track_library_entries WHERE track_id = ? AND user_id = ?"
     ).get(trackId, userId);
     assert.ok(libraryRow.removed_at, "Gift-funded track library entry should be removed");
+    const shareRow = db.prepare(
+      "SELECT status, web_stream_allowed FROM share_tokens WHERE id = ?"
+    ).get(shareTokenId);
+    assert.equal(shareRow.status, "revoked");
+    assert.equal(Number(shareRow.web_stream_allowed), 0);
   });
 
   it("deletes gift-funded content when a reservation expires", async () => {
@@ -534,12 +556,13 @@ describe("Gift scheduling and wallet", () => {
     const reserveBody = JSON.parse(reserveRes.body);
 
     const trackId = `track_gift_expire_${Date.now()}`;
+    const shareTokenId = `share_gift_expire_${Date.now()}`;
     const addedAt = nowIso();
     db.prepare(
       `INSERT INTO tracks (
         id, user_id, status, title, occasion, recipient_name, style, voice_mode,
-        latest_version, funding_source, gift_reservation_id, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        latest_version, funding_source, gift_reservation_id, share_token_id, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       trackId,
       userId,
@@ -552,8 +575,24 @@ describe("Gift scheduling and wallet", () => {
       1,
       "gift_token",
       reserveBody.reservation.id,
+      shareTokenId,
       addedAt,
       addedAt
+    );
+    db.prepare(
+      `INSERT INTO share_tokens (
+        id, track_id, track_version_id, creator_id, share_type, status, claim_pin, expires_at, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      shareTokenId,
+      trackId,
+      `${trackId}:1`,
+      userId,
+      "gift",
+      "active",
+      "654321",
+      "9999-12-31T23:59:59.000Z",
+      addedAt,
     );
     db.prepare(
       `INSERT INTO track_library_entries (user_id, track_id, origin, share_token_id, added_at, updated_at)
@@ -587,6 +626,11 @@ describe("Gift scheduling and wallet", () => {
       "SELECT removed_at FROM track_library_entries WHERE track_id = ? AND user_id = ?"
     ).get(trackId, userId);
     assert.ok(libraryRow.removed_at, "Expired reservation should remove gift-funded library entry");
+    const shareRow = db.prepare(
+      "SELECT status, web_stream_allowed FROM share_tokens WHERE id = ?"
+    ).get(shareTokenId);
+    assert.equal(shareRow.status, "revoked");
+    assert.equal(Number(shareRow.web_stream_allowed), 0);
   });
 
   it("enforces prepay when gift_prepay_enforced flag is enabled", async () => {

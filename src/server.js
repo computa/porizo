@@ -66,6 +66,7 @@ const {
   chooseReceiptState,
   redactGiftContacts,
 } = require("./services/gift-delivery-ops");
+const { createGiftOpsMonitor } = require("./services/gift-ops-monitoring");
 const { createHealthCheckService } = require("./workflows/health-check");
 const { buildTrackVersionUrls } = require("./services/track-urls");
 const { refreshAppleToken } = require("./services/apple-signin");
@@ -141,6 +142,10 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     appConfig.STREAM_BASE_URL ||
     config.PUBLIC_BASE_URL ||
     config.STREAM_BASE_URL;
+  const twilioStatusCallbackBaseUrl =
+    appConfig.TWILIO_STATUS_CALLBACK_BASE_URL ||
+    config.TWILIO_STATUS_CALLBACK_BASE_URL ||
+    publicBaseUrl;
 
   // Cache HTML templates at startup to avoid readFileSync on every request
   const webPlayerTemplate = fs.readFileSync(path.join(process.cwd(), "web-player", "index.html"), "utf-8");
@@ -1347,53 +1352,16 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     ).run(newUuid(), shareTokenId, eventType, toJson(metadata), nowIso());
   }
 
-  function logGiftLifecycle(level, event, metadata = {}) {
-    const safeLevel = typeof app.log?.[level] === "function" ? level : "info";
-    app.log[safeLevel]({
-      event: `gift_${event}`,
-      ...redactGiftContacts(metadata),
-    }, `gift_${event}`);
-  }
-
-  async function createGiftIncident({
-    incidentKey,
-    incidentType,
-    severity = "warning",
-    giftOrderId = null,
-    outboxId = null,
-    resourceType = giftOrderId ? "gift_order" : null,
-    resourceId = giftOrderId,
-    summary,
-    detail = null,
-    metadata = {},
-    reopen = true,
-  }) {
-    const incident = await upsertGiftIncident(db, {
-      incidentKey,
-      incidentType,
-      severity,
-      giftOrderId,
-      outboxId,
-      resourceType,
-      resourceId,
-      summary,
-      detail,
-      metadata,
-      reopen,
-    });
-    logGiftLifecycle(severity === "critical" ? "error" : "warn", "incident", {
-      incident_key: incidentKey,
-      incident_type: incidentType,
-      gift_id: giftOrderId,
-      outbox_id: outboxId,
-      summary,
-    });
-    return incident;
-  }
-
-  async function clearGiftIncident(incidentKey, resolverId = null) {
-    await resolveGiftIncident(db, incidentKey, resolverId);
-  }
+  const giftOpsMonitor = createGiftOpsMonitor({
+    db,
+    logger: app.log,
+    redactGiftContacts,
+    upsertGiftIncident,
+    resolveGiftIncident,
+  });
+  const logGiftLifecycle = giftOpsMonitor.logGiftLifecycle;
+  const createGiftIncident = giftOpsMonitor.recordGiftIncident;
+  const clearGiftIncident = giftOpsMonitor.clearGiftIncident;
 
   function normalizeGiftChannels(rawChannels) {
     if (!Array.isArray(rawChannels)) {
@@ -2313,8 +2281,8 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       From: fromNumber,
       Body: body,
     });
-    if (publicBaseUrl) {
-      payload.append("StatusCallback", `${publicBaseUrl.replace(/\/$/, "")}/gifts/webhooks/twilio-status?gift_id=${encodeURIComponent(giftId)}&outbox_id=${encodeURIComponent(outboxId)}`);
+    if (twilioStatusCallbackBaseUrl) {
+      payload.append("StatusCallback", `${twilioStatusCallbackBaseUrl.replace(/\/$/, "")}/gifts/webhooks/twilio-status?gift_id=${encodeURIComponent(giftId)}&outbox_id=${encodeURIComponent(outboxId)}`);
     }
     const response = await fetch(endpoint, {
       method: "POST",
@@ -2855,7 +2823,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       return;
     }
 
-    const webhookUrl = `${publicBaseUrl.replace(/\/$/, "")}${request.raw.url}`;
+    const webhookUrl = `${twilioStatusCallbackBaseUrl.replace(/\/$/, "")}${request.raw.url}`;
     const isValid = twilio.validateRequest(authToken, String(signature), webhookUrl, request.body || {});
     if (!isValid) {
       reply.code(401).send({ error: "INVALID_SIGNATURE" });
@@ -2882,7 +2850,16 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     reply.send({ received: true, updated: result.updated });
   });
 
-  app.post("/gifts/webhooks/resend-events", async (request, reply) => {
+  app.post("/gifts/webhooks/resend-events", {
+    preParsing: async (request, _reply, payload) => {
+      // Capture raw body for Svix signature verification before Fastify parses it
+      const chunks = [];
+      for await (const chunk of payload) { chunks.push(chunk); }
+      request.rawBody = Buffer.concat(chunks).toString("utf-8");
+      const { Readable } = require("stream");
+      return Readable.from([request.rawBody]);
+    },
+  }, async (request, reply) => {
     const webhookSecret =
       process.env.RESEND_WEBHOOK_SECRET ||
       appConfig.RESEND_WEBHOOK_SECRET ||
@@ -2911,7 +2888,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         "re_test"
       );
       verifiedPayload = resend.webhooks.verify({
-        payload: typeof request.body === "string" ? request.body : JSON.stringify(request.body || {}),
+        payload: request.rawBody || (typeof request.body === "string" ? request.body : JSON.stringify(request.body || {})),
         headers,
         webhookSecret,
       });

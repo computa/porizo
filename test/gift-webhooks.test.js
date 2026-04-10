@@ -209,6 +209,62 @@ describe("gift delivery webhook routes", () => {
     assert.ok(updated.receipt_updated_at);
   });
 
+  test("accepts valid Twilio signatures using the callback base URL override", async () => {
+    const callbackBaseUrl = "https://callbacks.porizo.co";
+    await app.close();
+    app = buildServer({
+      db,
+      config: {
+        STORAGE_DIR: "/tmp/test-storage",
+        PUBLIC_BASE_URL: publicBaseUrl,
+        STREAM_BASE_URL: "http://stream.local",
+        ALLOW_ANON_USER_ID: true,
+        TWILIO_AUTH_TOKEN: twilioAuthToken,
+        TWILIO_STATUS_CALLBACK_BASE_URL: callbackBaseUrl,
+      },
+      storage: {
+        put: async () => {},
+        get: async () => null,
+        exists: async () => false,
+        delete: async () => {},
+        getSignedUrl: async (key) => `http://localhost/${key}`,
+      },
+      billingServices: { appleValidator: appleValidatorStub },
+    });
+
+    const gift = await createScheduledGift("sms", { recipient_phone: "+61406371221" });
+    const outbox = await db.prepare(
+      "SELECT id FROM gift_delivery_outbox WHERE gift_order_id = ? AND channel = 'sms'"
+    ).get(gift.id);
+    await db.prepare(
+      "UPDATE gift_delivery_outbox SET provider_name = 'twilio', provider_message_id = ?, status = 'sent' WHERE id = ?"
+    ).run("SM_CALLBACK_OVERRIDE", outbox.id);
+
+    const payloadObject = {
+      MessageSid: "SM_CALLBACK_OVERRIDE",
+      MessageStatus: "delivered",
+      Timestamp: nowIso(),
+      To: "+61406371221",
+      From: "+12025550123",
+    };
+    const signature = twilio.getExpectedTwilioSignature(
+      twilioAuthToken,
+      `${callbackBaseUrl}/gifts/webhooks/twilio-status`,
+      payloadObject
+    );
+    const response = await app.inject({
+      method: "POST",
+      url: "/gifts/webhooks/twilio-status",
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        "x-twilio-signature": signature,
+      },
+      payload: new URLSearchParams(payloadObject).toString(),
+    });
+    assert.equal(response.statusCode, 200, response.body);
+    assert.equal(response.json().updated, true);
+  });
+
   test("keeps strongest Twilio receipt state across duplicate and out-of-order callbacks", async () => {
     const gift = await createScheduledGift("sms", { recipient_phone: "+61406371221" });
     const outbox = await db.prepare(
