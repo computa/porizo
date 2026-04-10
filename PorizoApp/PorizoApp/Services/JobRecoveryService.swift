@@ -33,21 +33,20 @@ struct JobRecoveryService {
     /// 3. Compares against previously-known rendering tracks
     /// 4. Shows local notifications for any newly completed renders
     /// 5. Posts `.trackRenderCompleted` notifications for UI updates
-    static func checkPendingRenders() async {
+    static func checkPendingRenders(using apiClient: APIClient) async {
         print("[JobRecovery] Checking for pending renders...")
 
-        // Load auth token from Keychain
-        guard let accessToken = KeychainHelper.loadString(key: "porizo_access_token") else {
-            print("[JobRecovery] No auth token available - skipping check")
+        // Avoid authenticated work if there is nothing to recover.
+        let previouslyPending = loadPendingRenderIds()
+        guard !previouslyPending.isEmpty else {
+            print("[JobRecovery] No pending renders recorded - skipping check")
             return
         }
 
-        // Load previously pending render IDs
-        let previouslyPending = loadPendingRenderIds()
-
         do {
-            // Fetch current tracks
-            let tracks = try await fetchTracksWithToken(accessToken)
+            // Fetch current tracks through the shared API client so auth refresh/retry
+            // behavior matches the rest of the app.
+            let tracks = try await apiClient.getTracks(limit: 50).tracks
 
             // Find tracks currently rendering
             let currentlyRendering = Set(tracks.filter {
@@ -111,36 +110,6 @@ struct JobRecoveryService {
         pending.remove(trackId)
         savePendingRenderIds(pending)
         print("[JobRecovery] Cleared track from pending: \(trackId)")
-    }
-
-    // MARK: - Network Request
-
-    /// Fetches tracks using a direct network request with the provided auth token.
-    private static func fetchTracksWithToken(_ token: String) async throws -> [Track] {
-        guard let url = URL(string: "\(AppConfig.apiBaseURL)/tracks?limit=50") else {
-            throw URLError(.badURL)
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.timeoutInterval = 30
-
-        let (data, response) = try await URLSession.shared.data(for: request)
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw URLError(.badServerResponse)
-        }
-
-        guard httpResponse.statusCode == 200 else {
-            print("[JobRecovery] Tracks fetch failed with status: \(httpResponse.statusCode)")
-            throw URLError(.badServerResponse)
-        }
-
-        let decoder = JSONDecoder()
-        let tracksResponse = try decoder.decode(GetTracksResponse.self, from: data)
-        return tracksResponse.tracks
     }
 
     // MARK: - Notification

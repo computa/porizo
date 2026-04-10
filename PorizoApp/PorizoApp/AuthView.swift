@@ -122,6 +122,11 @@ struct AuthView: View {
                 .environment(authManager)
                 .environment(apiWrapper)
         }
+        .onChange(of: authManager.isAuthenticated) { _, isAuthenticated in
+            if isAuthenticated {
+                errorMessage = nil
+            }
+        }
     }
 
     // MARK: - Components
@@ -271,13 +276,13 @@ struct AuthView: View {
                     errorMessage = error.localizedDescription
                 } catch {
                     currentNonce = nil
-                    errorMessage = "Sign in failed. Please try again."
+                    errorMessage = friendlyAppleSignInMessage(for: error)
                 }
 
             case .failure(let error):
                 // User cancelled - don't show error
                 if (error as NSError).code != ASAuthorizationError.canceled.rawValue {
-                    errorMessage = "Apple Sign In failed. Please try again."
+                    errorMessage = friendlyAppleSignInMessage(for: error)
                 }
                 currentNonce = nil
             }
@@ -322,6 +327,48 @@ struct AuthView: View {
         let inputData = Data(input.utf8)
         let hashed = SHA256.hash(data: inputData)
         return hashed.map { String(format: "%02x", $0) }.joined()
+    }
+
+    private func friendlyAppleSignInMessage(for error: Error) -> String {
+        if let authError = error as? AuthError {
+            return authError.localizedDescription
+        }
+
+        let nsError = error as NSError
+        if nsError.domain == ASAuthorizationError.errorDomain,
+           let authCode = ASAuthorizationError.Code(rawValue: nsError.code) {
+            if authCode == .canceled {
+                return ""
+            }
+            if authCode == .failed {
+                return "Apple Sign-In couldn't finish. Please try again."
+            }
+            if authCode == .invalidResponse {
+                return "Apple Sign-In returned an invalid response. Please try again."
+            }
+            if authCode == .notHandled {
+                return "Apple Sign-In couldn't be completed on this device right now."
+            }
+            if authCode == .unknown {
+                return "Apple Sign-In ran into an unexpected problem. Please try again."
+            }
+            if authCode == .notInteractive {
+                return "Apple Sign-In is not available right now. Please try again."
+            }
+
+            return "Apple Sign-In couldn't finish. Please try again."
+        }
+
+        if let urlError = error as? URLError {
+            switch urlError.code {
+            case .notConnectedToInternet, .networkConnectionLost, .cannotFindHost, .cannotConnectToHost, .timedOut:
+                return "Couldn't reach Apple right now. Check your connection and try again."
+            default:
+                break
+            }
+        }
+
+        return ErrorHandler.friendlyMessage(for: error, context: "Signing in with Apple")
     }
 }
 

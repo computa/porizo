@@ -247,6 +247,7 @@ struct RootView: View {
             Task {
                 if let client = apiClient {
                     _ = try? await client.ensureDeviceToken()
+                    await JobRecoveryService.checkPendingRenders(using: client)
                 }
             }
         }

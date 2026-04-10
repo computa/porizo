@@ -156,10 +156,6 @@ struct PorizoAppApp: App {
                         print("[App] Notification permission error: \(error)")
                     }
                 }
-                .task {
-                    // Check for renders that completed while the app was suspended
-                    await JobRecoveryService.checkPendingRenders()
-                }
                 .task(id: scenePhase) {
                     // When app enters background, schedule background tasks
                     if scenePhase == .background {
