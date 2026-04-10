@@ -19,6 +19,8 @@ struct DesignSampleView: View {
         if args.contains("--variant-c") { return .richImmersive }
         return .refinedCurrent
     }()
+    private let hideToolbar = ProcessInfo.processInfo.arguments.contains("--hide-toolbar")
+
     @State private var selectedScreen: ScreenType = {
         let args = ProcessInfo.processInfo.arguments
         if args.contains("--screen-songs") { return .songs }
@@ -68,7 +70,9 @@ struct DesignSampleView: View {
             DesignTokens.background.ignoresSafeArea()
 
             VStack(spacing: 0) {
-                controlBar
+                if !hideToolbar {
+                    controlBar
+                }
                 screenContent
             }
         }

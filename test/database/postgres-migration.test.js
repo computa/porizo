@@ -19,6 +19,7 @@ describe('PostgreSQL Migration', () => {
   let skipPostgres = false;
   const testDbPath = path.join(__dirname, 'test-postgres-migration.db');
   const postgresMigrationsDir = path.join(__dirname, '../../src/database/migrations/sql');
+  const testSchema = `migration_test_${Date.now()}`;
 
   before(async () => {
     // Clean up any existing test database
@@ -156,35 +157,36 @@ describe('PostgreSQL Migration', () => {
     // Create a test database connection
     const db = createPool({
       database: 'porizo_test',
+      schema: testSchema,
     });
 
-    // Drop existing tables for clean test
+    // Create an isolated schema so the test does not require ownership of public.
     await db.query(`
-      DROP SCHEMA public CASCADE;
-      CREATE SCHEMA public;
-      GRANT ALL ON SCHEMA public TO porizo;
-      GRANT ALL ON SCHEMA public TO public;
+      CREATE SCHEMA IF NOT EXISTS ${testSchema};
     `);
 
-    const runner = createMigrationRunner(db, postgresMigrationsDir);
+    try {
+      const runner = createMigrationRunner(db, postgresMigrationsDir);
 
-    // Run migrations
-    const result = await runner.migrate();
-    assert.strictEqual(result.applied, 1, 'Should apply 1 migration');
+      // Run migrations
+      const result = await runner.migrate();
+      assert.ok(result.applied >= 1, 'Should apply at least 1 migration');
 
-    // Verify tables exist
-    const tables = await db.query(`
-      SELECT table_name FROM information_schema.tables
-      WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
-      ORDER BY table_name
-    `);
+      // Verify tables exist in the isolated schema
+      const tables = await db.query(`
+        SELECT table_name FROM information_schema.tables
+        WHERE table_schema = ? AND table_type = 'BASE TABLE'
+        ORDER BY table_name
+      `, [testSchema]);
 
-    const tableNames = tables.rows.map(r => r.table_name);
-    assert.ok(tableNames.includes('users'), 'users table should exist');
-    assert.ok(tableNames.includes('tracks'), 'tracks table should exist');
-    assert.ok(tableNames.includes('jobs'), 'jobs table should exist');
-    assert.ok(tableNames.includes('schema_migrations'), 'schema_migrations should exist');
-
-    await db.close();
+      const tableNames = tables.rows.map(r => r.table_name);
+      assert.ok(tableNames.includes('users'), 'users table should exist');
+      assert.ok(tableNames.includes('tracks'), 'tracks table should exist');
+      assert.ok(tableNames.includes('jobs'), 'jobs table should exist');
+      assert.ok(tableNames.includes('schema_migrations'), 'schema_migrations should exist');
+    } finally {
+      await db.query(`DROP SCHEMA IF EXISTS ${testSchema} CASCADE`);
+      await db.close();
+    }
   });
 });

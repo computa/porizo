@@ -1,40 +1,87 @@
-# Fix P0/P1 Labov Story Guidance Bugs
+# Implement "The Envelope" — Schedule & Send Redesign
 
 **Branch:** `version3`
-**Context:** Code review found 6 bugs (3 P0 critical, 3 P1 high) in the Labov story guidance implementation. All are wiring/consistency issues -- no architectural changes needed.
-**Status:** COMPLETE
+**Approved Design:** Variant A "The Envelope" from `/design-shotgun` (2026-04-10)
+**Design Artifact:** `~/.gstack/projects/computa-porizo/designs/schedule-send-e2e-20260410/`
+**HTML Mockup:** `variant-A-envelope.html`
+**Codex Review:** Approved with refinements (2026-04-10)
 
----
+## Context
 
-## Fixes
+Replace the current 5-step checkout-style `GiftSendFlowView` (Content → Recipient → Delivery → Review → Success) with a single-screen emotional flow that follows YC research design principles:
+- One screen, one action, one CTA
+- No progress dots, no step indicators, no "Loading gift wallet..."
+- Internal states stay invisible — just who, when, send
+- Feels like wrapping a gift, not filling out a shipping form
 
-### P0 (Critical)
+## Design Decisions (from YC Research + Codex Review)
 
-- [x] **Fix 1:** Wire `extractStoryState()` into execution path
-  - Added `state.story_state = extractStoryState(state)` before `updateSession` in both `startStoryV3` and `continueStoryV3`
+1. **Emotional arc over state machine** — compress 5 backend steps to 1 user moment
+2. **One dominant action per screen** — single gold CTA at bottom
+3. **Sharing must be fast** — 1 screen from reveal to send
+4. **Song stays emotionally dominant** — not a tiny utility row, the emotional header
+5. **Delivery as collapsed toggle** — "Send Now" default, "Schedule" expands inline
+6. **Recipient = delivery destination** — abstract as "who + how", not phone-only
+7. **Natural-language summary above CTA** — "Sending Sarah your song by SMS on Apr 15 at 9:00 AM"
+8. **Dynamic CTA** — "Send Gift" (immediate) / "Schedule Gift" (scheduled)
+9. **Billing only on block** — wallet check on CTA tap, not screen load. Frame as "unlock this gift"
+10. **Flat state model** — one composer, one submit. No 5-step skeleton underneath.
 
-- [x] **Fix 2:** Wire `canProceedAnyway` into response
-  - Added `canProceedAnyway` to return objects in `startStoryV3` and `continueStoryV3`
-  - Added `can_proceed_anyway` to `mapAnalysisFields()` (writer/index.js)
-  - Added `can_proceed_anyway` to `spreadStoryAnalysisFields()` (routes/story.js)
+## Hard Rules (from Codex)
 
-- [x] **Fix 3:** Consolidate duplicate `EVALUATION_REGEX`
-  - Exported `EVALUATION_REGEX`, `SENSORY_REGEX`, `PAST_ACTION_REGEX`, `DEDICATION_REGEX` from quality.js
-  - In `extractStoryState()`, removed local duplicate and imported from quality.js
-  - Renamed misnamed `SENSORY_REGEX` to `PROPER_NOUN_REGEX` in index.js
+- No progress dots
+- No hidden "review" screen
+- No separate "success details confirmation" masquerading as closure
+- No top-of-screen wallet bootstrapping states
+- No forced bundle picker before user tries to send
+- No step-driven view model with screen names that leak into UX copy
+- Implementation collapses the old state model, does not just hide it
 
-### P1 (High)
+## Screen Hierarchy (top to bottom)
 
-- [x] **Fix 4:** Remove `/g` flag from regex used with `.test()` in loop
-  - Split into `SPECIFIC_DETAIL_MATCH_REGEX` (/gi for .match()) and `SPECIFIC_DETAIL_TEST_REGEX` (/i for .test())
+1. **Hero** — song preview card: title, occasion art, subtle playback state (waveform). Reminds user what they're sending.
+2. **Recipient** — "Who's this for?" Name field, then delivery method picker (SMS / Email), then destination input. Not prematurely phone-specialized.
+3. **Note** — personal message, 3-line field, warm placeholder. Visible and inviting but not dominant. ("Write something from the heart...")
+4. **Timing** — collapsed by default to "Send now". Tap to expand schedule picker. Once selected, immediately shows natural-language summary.
+5. **Delivery summary** — one sentence confirming recipient + method + timing. Sits directly above CTA.
+6. **CTA** — single button. "Send Gift" or "Schedule Gift". No ambiguity.
 
-- [x] **Fix 5:** Map `resolution` to display element in Labov branch
-  - Blended resolution into `moment` via `blendStrength(complicating.strength, resolution.strength, 0.25)`
+## Plan
 
-- [x] **Fix 6:** Replace hardcoded `0.6` with `STRENGTH_THRESHOLDS.covered`
-  - Changed `el.strength >= 0.6` to `el.strength >= STRENGTH_THRESHOLDS.covered` in `computeQuestionPriority()`
+### Phase 1: Understand
+- [ ] Read GiftSendFlowView.swift fully — map all state, backend calls, edge cases
+- [ ] Read GiftModels.swift, APIClient+Gifts.swift — document the API contract
+- [ ] Identify: wallet check, reservation, gift creation, StoreKit sync, delivery dispatch
+- [ ] List every backend call that must survive the redesign
 
-## Verification
+### Phase 2: Architecture
+- [ ] Design flat state model for EnvelopeSendView (no Step enum, no progress tracking)
+- [ ] Define: one `@State` struct for form data, one `submit()` async action
+- [ ] Plan inline sub-sheets: contact method picker, date/time picker, credit resolution
+- [ ] Map wallet/billing to lazy check pattern (check on submit, not on appear)
 
-- [x] Run `labov-fixes.test.js` -- 16/16 pass
-- [x] Run existing test suite -- 86/86 pass (labov-gap-analysis + question-targeting + tone-rewrite)
+### Phase 3: Build
+- [ ] Create EnvelopeSendView.swift — single-screen composer
+- [ ] Implement: song hero card with playback state
+- [ ] Implement: recipient section (name + delivery method + destination)
+- [ ] Implement: personal note field (3-line, warm placeholder)
+- [ ] Implement: timing section (collapsed "Send now" default, expandable schedule)
+- [ ] Implement: natural-language delivery summary above CTA
+- [ ] Implement: dynamic CTA ("Send Gift" / "Schedule Gift")
+- [ ] Implement: submit action — wallet check → reserve → create gift → dispatch
+- [ ] Implement: inline credit resolution sheet (only if wallet blocks send)
+- [ ] Implement: success state (inline confirmation, not a new screen)
+
+### Phase 4: Wire & Replace
+- [ ] Wire EnvelopeSendView into navigation from WarmCanvasFlowView reveal
+- [ ] Deprecate old GiftSendFlowView (keep file, mark deprecated, remove from nav)
+- [ ] Test E2E: create song → reveal → send gift → success
+
+### Phase 5: QA
+- [ ] Visual QA against refined mockup
+- [ ] Test: immediate send path
+- [ ] Test: scheduled send path
+- [ ] Test: wallet empty → inline credit resolution → send
+- [ ] Test: email delivery path
+- [ ] Test: SMS delivery path
+- [ ] Verify no leaked internal states (no loading spinners, no step language)
