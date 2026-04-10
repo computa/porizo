@@ -194,11 +194,16 @@ function getAdminInfo(token) {
   return validateSession(token);
 }
 
+const ALLOWED_ADMIN_ROLES = new Set(["viewer", "admin", "superadmin"]);
+
 /**
  * Create a new admin (superadmin only)
  */
 async function createAdmin(email, password, displayName, role = "admin") {
   if (!db) throw new Error("AdminAuthService not initialized");
+  if (!ALLOWED_ADMIN_ROLES.has(role)) {
+    return { success: false, error: "Invalid admin role" };
+  }
 
   const hash = await bcrypt.hash(password, config.bcryptCost);
   const id = generateId("adm");

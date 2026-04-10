@@ -1148,8 +1148,8 @@ describe("Gift scheduling and wallet", () => {
       batchSize: 10,
       staleDispatchMs: 5 * 60 * 1000,
     });
-    await job.tick();
     job.stop();
+    await job.tick();
 
     const recovered = db.prepare(
       "SELECT status, dispatch_status, dispatch_started_at, next_retry_at FROM gift_orders WHERE id = ?"
@@ -1158,6 +1158,52 @@ describe("Gift scheduling and wallet", () => {
     assert.strictEqual(recovered.dispatch_status, "error");
     assert.strictEqual(recovered.dispatch_started_at, null);
     assert.ok(recovered.next_retry_at, "Recovered gift should have next_retry_at");
+  });
+
+  it("marks overdue scheduled gifts with an incident for operator review", async () => {
+    await creditGiftToken(`gift_tx_overdue_${Date.now()}`);
+    const { trackId, versionNum } = await createRenderedTrack();
+    const createRes = await app.inject({
+      method: "POST",
+      url: "/gifts",
+      headers: { "x-user-id": userId },
+      payload: {
+        content_type: "song",
+        content_id: trackId,
+        version_num: versionNum,
+        delivery_mode: "scheduled",
+        send_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+        sender_timezone: "UTC",
+        channels: ["email"],
+        recipient_email: "overdue@example.com",
+      },
+    });
+    assert.strictEqual(createRes.statusCode, 200, createRes.body);
+    const gift = JSON.parse(createRes.body).gift;
+    db.prepare(
+      "UPDATE gift_orders SET send_at = ?, next_retry_at = NULL WHERE id = ?"
+    ).run(new Date(Date.now() - 60 * 60 * 1000).toISOString(), gift.id);
+
+    const job = startGiftDispatchJob({
+      db,
+      dispatchGiftById: async () => ({ skipped: true }),
+      intervalMs: 60_000,
+      batchSize: 0,
+      overdueGraceMs: 0,
+    });
+    job.stop();
+    await new Promise((resolve) => setTimeout(resolve, 25));
+
+    const updated = db.prepare(
+      "SELECT overdue_detected_at FROM gift_orders WHERE id = ?"
+    ).get(gift.id);
+    assert.ok(updated.overdue_detected_at, "Overdue gift should set overdue_detected_at");
+
+    const incident = db.prepare(
+      "SELECT incident_type, status FROM gift_delivery_incidents WHERE gift_order_id = ? AND incident_type = 'gift_overdue'"
+    ).get(gift.id);
+    assert.ok(incident, "Expected overdue incident row");
+    assert.strictEqual(incident.status, "open");
   });
 
   it("does NOT reset claim_attempts on anonymous poem unlock", async () => {

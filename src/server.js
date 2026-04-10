@@ -2,6 +2,8 @@ const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const fastify = require("fastify");
+const twilio = require("twilio");
+const { Resend } = require("resend");
 const { getDatabase } = require("./database");
 const config = require("./config");
 const { createHLSPlaylist } = require("./utils/hls");
@@ -55,6 +57,15 @@ const {
   SONG_VARIANT_LABELS, POEM_VARIANT_LABELS,
 } = require("./services/og-variant-dispatcher");
 const emailService = require("./services/email-service");
+const {
+  upsertGiftIncident,
+  resolveGiftIncident,
+  resolveGiftIncidentsForGift,
+  normalizeTwilioReceipt,
+  normalizeResendReceipt,
+  chooseReceiptState,
+  redactGiftContacts,
+} = require("./services/gift-delivery-ops");
 const { createHealthCheckService } = require("./workflows/health-check");
 const { buildTrackVersionUrls } = require("./services/track-urls");
 const { refreshAppleToken } = require("./services/apple-signin");
@@ -107,6 +118,24 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     bodyLimit: 1048576, // 1MB max body size to prevent JSON DoS
     trustProxy: true, // Railway reverse proxy — read X-Forwarded-For for real client IP
   });
+
+  app.addContentTypeParser(
+    "application/x-www-form-urlencoded",
+    { parseAs: "string" },
+    (_request, body, done) => {
+      try {
+        const params = new URLSearchParams(body);
+        const parsed = {};
+        for (const [key, value] of params.entries()) {
+          parsed[key] = value;
+        }
+        done(null, parsed);
+      } catch (err) {
+        done(err);
+      }
+    }
+  );
+
   const publicBaseUrl =
     appConfig.PUBLIC_BASE_URL ||
     appConfig.STREAM_BASE_URL ||
@@ -1307,6 +1336,54 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     ).run(newUuid(), shareTokenId, eventType, toJson(metadata), nowIso());
   }
 
+  function logGiftLifecycle(level, event, metadata = {}) {
+    const safeLevel = typeof app.log?.[level] === "function" ? level : "info";
+    app.log[safeLevel]({
+      event: `gift_${event}`,
+      ...redactGiftContacts(metadata),
+    }, `gift_${event}`);
+  }
+
+  async function createGiftIncident({
+    incidentKey,
+    incidentType,
+    severity = "warning",
+    giftOrderId = null,
+    outboxId = null,
+    resourceType = giftOrderId ? "gift_order" : null,
+    resourceId = giftOrderId,
+    summary,
+    detail = null,
+    metadata = {},
+    reopen = true,
+  }) {
+    const incident = await upsertGiftIncident(db, {
+      incidentKey,
+      incidentType,
+      severity,
+      giftOrderId,
+      outboxId,
+      resourceType,
+      resourceId,
+      summary,
+      detail,
+      metadata,
+      reopen,
+    });
+    logGiftLifecycle(severity === "critical" ? "error" : "warn", "incident", {
+      incident_key: incidentKey,
+      incident_type: incidentType,
+      gift_id: giftOrderId,
+      outbox_id: outboxId,
+      summary,
+    });
+    return incident;
+  }
+
+  async function clearGiftIncident(incidentKey, resolverId = null) {
+    await resolveGiftIncident(db, incidentKey, resolverId);
+  }
+
   function normalizeGiftChannels(rawChannels) {
     if (!Array.isArray(rawChannels)) {
       return [];
@@ -1782,13 +1859,15 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     for (const channel of channels) {
       const recipient = channel === "sms" ? recipientPhone : recipientEmail;
       if (!recipient) continue;
+      const providerName = channel === "sms" ? "twilio" : "resend";
 
       await query(
         `INSERT INTO gift_delivery_outbox (
           id, gift_order_id, channel, recipient, status, attempt_count,
           provider_message_id, last_error, send_after, next_retry_at, last_attempt_at, locked_at,
-          payload_json, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          payload_json, created_at, updated_at, provider_name, first_queued_at, first_attempt_started_at,
+          provider_accepted_at, receipt_status, receipt_event_at, receipt_updated_at, receipt_payload_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           newUuid(),
           giftOrderId,
@@ -1805,6 +1884,14 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
           toJson({}),
           timestamp,
           timestamp,
+          providerName,
+          timestamp,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
         ]
       );
     }
@@ -1879,11 +1966,26 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
            last_error = NULL,
            next_retry_at = NULL,
            last_attempt_at = ?,
+           provider_accepted_at = COALESCE(provider_accepted_at, ?),
+           receipt_status = COALESCE(receipt_status, 'accepted'),
+           receipt_event_at = COALESCE(receipt_event_at, ?),
+           receipt_updated_at = ?,
+           receipt_payload_json = ?,
            locked_at = NULL,
            payload_json = ?,
            updated_at = ?
        WHERE id = ?`
-    ).run(providerMessageId, sentAt, toJson(payloadMeta), sentAt, deliveryId);
+    ).run(
+      providerMessageId,
+      sentAt,
+      sentAt,
+      sentAt,
+      sentAt,
+      toJson(payloadMeta),
+      toJson(payloadMeta),
+      sentAt,
+      deliveryId
+    );
   }
 
   async function markGiftDeliveryFailed({
@@ -1900,6 +2002,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
            last_error = ?,
            next_retry_at = ?,
            last_attempt_at = ?,
+           receipt_updated_at = ?,
            locked_at = NULL,
            updated_at = ?
        WHERE id = ?`
@@ -1909,8 +2012,116 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       nextRetryAt,
       failedAt,
       failedAt,
+      failedAt,
       deliveryId
     );
+  }
+
+  async function applyGiftDeliveryReceipt({
+    providerName,
+    providerMessageId,
+    receiptStatus,
+    receiptEventAt,
+    receiptPayload = {},
+    incidentSummary = null,
+  }) {
+    if (!providerMessageId) {
+      await createGiftIncident({
+        incidentKey: `gift_unknown_receipt:${providerName}:${crypto.createHash("sha1").update(toJson(receiptPayload)).digest("hex")}`,
+        incidentType: "gift_unknown_receipt",
+        severity: "warning",
+        resourceType: "gift_receipt",
+        resourceId: providerName,
+        summary: incidentSummary || "Gift delivery receipt could not be matched to an outbox row",
+        detail: `Unknown provider message id for ${providerName}`,
+        metadata: { provider_name: providerName },
+      });
+      return { updated: false, reason: "missing_provider_message_id" };
+    }
+
+    const delivery = await db.prepare(
+      `SELECT gdo.*, go.id as gift_id, go.status as gift_status
+       FROM gift_delivery_outbox gdo
+       JOIN gift_orders go ON go.id = gdo.gift_order_id
+       WHERE gdo.provider_message_id = ?
+       ORDER BY gdo.updated_at DESC
+       LIMIT 1`
+    ).get(providerMessageId);
+
+    if (!delivery) {
+      await createGiftIncident({
+        incidentKey: `gift_unknown_receipt:${providerName}:${providerMessageId}`,
+        incidentType: "gift_unknown_receipt",
+        severity: "warning",
+        resourceType: "gift_receipt",
+        resourceId: providerMessageId,
+        summary: incidentSummary || "Gift delivery receipt could not be matched to an outbox row",
+        detail: `No outbox row matched provider message id ${providerMessageId}`,
+        metadata: { provider_name: providerName, provider_message_id: providerMessageId },
+      });
+      return { updated: false, reason: "unknown_provider_message_id" };
+    }
+
+    const nextState = chooseReceiptState({
+      currentStatus: delivery.receipt_status,
+      currentEventAt: delivery.receipt_event_at,
+      nextStatus: receiptStatus,
+      nextEventAt: receiptEventAt,
+    });
+
+    if (nextState.shouldUpdate) {
+      await db.prepare(
+        `UPDATE gift_delivery_outbox
+         SET receipt_status = ?,
+             receipt_event_at = ?,
+             receipt_updated_at = ?,
+             receipt_payload_json = ?,
+             updated_at = ?
+         WHERE id = ?`
+      ).run(
+        nextState.nextStatus,
+        receiptEventAt || nowIso(),
+        nowIso(),
+        toJson(receiptPayload),
+        nowIso(),
+        delivery.id
+      );
+    }
+
+    if (["undelivered", "bounced", "complained", "failed"].includes(String(receiptStatus || "").toLowerCase())) {
+      await createGiftIncident({
+        incidentKey: `gift_receipt_failure:${delivery.id}`,
+        incidentType: "gift_receipt_failure",
+        severity: "warning",
+        giftOrderId: delivery.gift_id,
+        outboxId: delivery.id,
+        summary: `Gift ${delivery.channel} receipt reported ${receiptStatus}`,
+        detail: `Provider ${providerName} reported ${receiptStatus} for delivery ${delivery.id}`,
+        metadata: {
+          provider_name: providerName,
+          provider_message_id: providerMessageId,
+          receipt_status: receiptStatus,
+        },
+      });
+    } else if (String(receiptStatus || "").toLowerCase() === "delivered") {
+      await clearGiftIncident(`gift_receipt_failure:${delivery.id}`);
+    }
+
+    if (delivery.gift_status === "cancelled") {
+      await createGiftIncident({
+        incidentKey: `gift_receipt_after_cancel:${delivery.id}`,
+        incidentType: "gift_receipt_after_cancel",
+        severity: "info",
+        giftOrderId: delivery.gift_id,
+        outboxId: delivery.id,
+        summary: "Receipt arrived after gift cancellation",
+        detail: `Provider ${providerName} sent ${receiptStatus} after cancellation`,
+        metadata: { provider_message_id: providerMessageId, receipt_status: receiptStatus },
+      });
+    }
+
+    await updateGiftAggregateObservability(delivery.gift_id);
+    return { updated: nextState.shouldUpdate, giftId: delivery.gift_id, outboxId: delivery.id };
   }
 
   async function recoverStaleGiftDeliveryRows(giftId, now) {
@@ -1956,6 +2167,67 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     };
   }
 
+  function computeGiftDeliveryLagMs(gift, outboxRows) {
+    const sendAtMs = new Date(gift.send_at).getTime();
+    if (!Number.isFinite(sendAtMs)) return null;
+    const firstAcceptedMs = outboxRows
+      .map((row) => new Date(row.provider_accepted_at || row.last_attempt_at || row.updated_at || row.created_at).getTime())
+      .filter((value, index) => outboxRows[index]?.status === "sent" && Number.isFinite(value))
+      .sort((a, b) => a - b)[0];
+    if (!Number.isFinite(firstAcceptedMs)) return null;
+    return Math.max(0, firstAcceptedMs - sendAtMs);
+  }
+
+  async function updateGiftAggregateObservability(giftId, { outboxRows = null, finalStatus = null } = {}) {
+    const gift = await db.prepare("SELECT * FROM gift_orders WHERE id = ?").get(giftId);
+    if (!gift) return null;
+
+    const rows = outboxRows || await db.prepare(
+      "SELECT * FROM gift_delivery_outbox WHERE gift_order_id = ? ORDER BY created_at ASC"
+    ).all(giftId);
+
+    const firstAttemptStartedAt = rows
+      .map((row) => row.first_attempt_started_at)
+      .filter(Boolean)
+      .sort()[0] || null;
+    const lastDispatchCompletedAt = rows
+      .map((row) => row.last_attempt_at || row.updated_at)
+      .filter(Boolean)
+      .sort()
+      .slice(-1)[0] || null;
+    const lastSuccessfulDeliveryAt = rows
+      .filter((row) => row.status === "sent")
+      .map((row) => row.provider_accepted_at || row.last_attempt_at || row.updated_at)
+      .filter(Boolean)
+      .sort()
+      .slice(-1)[0] || null;
+    const deliveryLagMs = computeGiftDeliveryLagMs(gift, rows);
+    const overdueDetectedAt = ["scheduled", "dispatch_retry", "dispatching"].includes(finalStatus || gift.status)
+      ? gift.overdue_detected_at
+      : null;
+
+    await db.prepare(
+      `UPDATE gift_orders
+       SET first_dispatch_started_at = COALESCE(first_dispatch_started_at, ?),
+           last_dispatch_completed_at = ?,
+           last_successful_delivery_at = ?,
+           delivery_lag_ms = COALESCE(?, delivery_lag_ms),
+           overdue_detected_at = ?,
+           updated_at = ?
+       WHERE id = ?`
+    ).run(
+      firstAttemptStartedAt,
+      lastDispatchCompletedAt,
+      lastSuccessfulDeliveryAt,
+      deliveryLagMs,
+      overdueDetectedAt,
+      nowIso(),
+      giftId
+    );
+
+    return db.prepare("SELECT * FROM gift_orders WHERE id = ?").get(giftId);
+  }
+
   async function syncGiftDeliveryShareDispatch(gift, dispatchedAt) {
     if (gift.content_type === "song") {
       await db.prepare(
@@ -1986,7 +2258,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     }
   }
 
-  async function sendGiftSmsViaTwilio({ to, body }) {
+  async function sendGiftSmsViaTwilio({ to, body, giftId, outboxId }) {
     const accountSid = process.env.TWILIO_ACCOUNT_SID;
     const authToken = process.env.TWILIO_AUTH_TOKEN;
     const fromNumber = process.env.TWILIO_PHONE_NUMBER;
@@ -2004,6 +2276,9 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       From: fromNumber,
       Body: body,
     });
+    if (publicBaseUrl) {
+      payload.append("StatusCallback", `${publicBaseUrl.replace(/\/$/, "")}/gifts/webhooks/twilio-status?gift_id=${encodeURIComponent(giftId)}&outbox_id=${encodeURIComponent(outboxId)}`);
+    }
     const response = await fetch(endpoint, {
       method: "POST",
       headers: {
@@ -2042,11 +2317,12 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       return { skipped: true, reason: "feature_disabled" };
     }
 
+    const dispatchStart = nowIso();
     const lock = await db.prepare(
       `UPDATE gift_orders
-       SET status = 'dispatching', dispatch_status = 'pending', dispatch_started_at = ?, updated_at = ?
+       SET status = 'dispatching', dispatch_status = 'pending', dispatch_started_at = ?, first_dispatch_started_at = COALESCE(first_dispatch_started_at, ?), updated_at = ?
        WHERE id = ? AND status IN ('scheduled', 'dispatch_retry')`
-    ).run(nowIso(), nowIso(), giftId);
+    ).run(dispatchStart, dispatchStart, dispatchStart, giftId);
     if (!lock.changes) {
       return { skipped: true, reason: "not_dispatchable" };
     }
@@ -2057,6 +2333,11 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     }
 
     try {
+      logGiftLifecycle("info", "dispatch_started", {
+        gift_id: gift.id,
+        send_at: gift.send_at,
+        dispatch_status: gift.dispatch_status,
+      });
       await ensureGiftDeliveryOutboxRows(gift);
 
       const channels = parseGiftChannelsJson(gift.channels_json);
@@ -2079,15 +2360,33 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
          ORDER BY created_at ASC`
       ).all(gift.id, now);
 
+      if (!dueRows.length) {
+        logGiftLifecycle("info", "dispatch_noop", {
+          gift_id: gift.id,
+          reason: "no_due_rows",
+        });
+      }
+
       for (const delivery of dueRows) {
         const lockResult = await db.prepare(
           `UPDATE gift_delivery_outbox
-           SET status = 'sending', locked_at = ?, updated_at = ?
+           SET status = 'sending',
+               locked_at = ?,
+               first_attempt_started_at = COALESCE(first_attempt_started_at, ?),
+               updated_at = ?
            WHERE id = ? AND status IN ('pending', 'failed')`
-        ).run(now, now, delivery.id);
+        ).run(now, now, now, delivery.id);
         if (!lockResult.changes) {
           continue;
         }
+
+        logGiftLifecycle("info", "channel_send_started", {
+          gift_id: gift.id,
+          outbox_id: delivery.id,
+          channel: delivery.channel,
+          recipient: delivery.recipient,
+          attempt_count: Number(delivery.attempt_count || 0) + 1,
+        });
 
         try {
           let providerMessageId = null;
@@ -2104,6 +2403,8 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
             const smsResult = await sendGiftSmsViaTwilio({
               to: delivery.recipient,
               body: payloadText,
+              giftId: gift.id,
+              outboxId: delivery.id,
             });
             providerMessageId = smsResult.providerMessageId;
             payloadMeta = { simulated: smsResult.simulated };
@@ -2126,6 +2427,10 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
                 claimPin: gift.claim_pin,
                 contentType: gift.content_type,
                 message: gift.message || "",
+                tags: [
+                  { name: "gift_order_id", value: gift.id },
+                  { name: "gift_outbox_id", value: delivery.id },
+                ],
               });
               providerMessageId = sent.messageId || providerMessageId;
             } else if (process.env.NODE_ENV === "production") {
@@ -2154,6 +2459,14 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
             payloadMeta,
             sentAt,
           });
+
+          await clearGiftIncident(`gift_channel_failure:${delivery.id}`);
+          logGiftLifecycle("info", "channel_send_accepted", {
+            gift_id: gift.id,
+            outbox_id: delivery.id,
+            channel: delivery.channel,
+            provider_message_id: providerMessageId,
+          });
         } catch (err) {
           const failedAt = nowIso();
           const nextAttemptCount = Number(delivery.attempt_count || 0) + 1;
@@ -2177,6 +2490,30 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
             errorMessage: err.message || err,
             nextRetryAt,
             failedAt,
+          });
+
+          await createGiftIncident({
+            incidentKey: `gift_channel_failure:${delivery.id}`,
+            incidentType: "channel_delivery_failed",
+            severity: nextRetryAt ? "warning" : "critical",
+            giftOrderId: gift.id,
+            outboxId: delivery.id,
+            summary: `Gift ${delivery.channel} delivery failed`,
+            detail: String(err.message || err),
+            metadata: {
+              channel: delivery.channel,
+              attempt_count: nextAttemptCount,
+              next_retry_at: nextRetryAt,
+              provider_name: delivery.provider_name || (delivery.channel === "sms" ? "twilio" : "resend"),
+            },
+          });
+          logGiftLifecycle("warn", "channel_send_failed", {
+            gift_id: gift.id,
+            outbox_id: delivery.id,
+            channel: delivery.channel,
+            attempt_count: nextAttemptCount,
+            next_retry_at: nextRetryAt,
+            error: String(err.message || err),
           });
         }
       }
@@ -2213,12 +2550,30 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
                last_dispatch_error = NULL,
                next_retry_at = NULL,
                dispatch_started_at = NULL,
+               last_dispatch_completed_at = ?,
+               last_successful_delivery_at = ?,
+               delivery_lag_ms = COALESCE(?, delivery_lag_ms),
+               overdue_detected_at = NULL,
                dispatched_at = ?,
                updated_at = ?
            WHERE id = ?`
-        ).run(nextAttempts, dispatchedAt, dispatchedAt, gift.id);
+        ).run(
+          nextAttempts,
+          dispatchedAt,
+          dispatchedAt,
+          computeGiftDeliveryLagMs(gift, outboxRows),
+          dispatchedAt,
+          dispatchedAt,
+          gift.id
+        );
 
         await syncGiftDeliveryShareDispatch(gift, dispatchedAt);
+        await resolveGiftIncidentsForGift(db, gift.id, [
+          "channel_delivery_failed",
+          "gift_overdue",
+          "gift_dispatch_stalled",
+          "gift_unknown_receipt",
+        ]);
 
         await addAuditEntry({
           userId: gift.sender_user_id,
@@ -2233,6 +2588,11 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
           resourceType: "gift_order",
           resourceId: gift.id,
           metadata: { channels, content_type: gift.content_type },
+        });
+        logGiftLifecycle("info", "dispatch_completed", {
+          gift_id: gift.id,
+          channels,
+          dispatch_lag_ms: computeGiftDeliveryLagMs(gift, outboxRows),
         });
         return { dispatched: true };
       }
@@ -2259,6 +2619,18 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         }
 
         await revokeGiftDeliveryShare(gift);
+        await createGiftIncident({
+          incidentKey: `gift_delivery_exhausted:${gift.id}`,
+          incidentType: "gift_delivery_exhausted",
+          severity: "critical",
+          giftOrderId: gift.id,
+          summary: "Gift delivery exhausted all retries",
+          detail: errors.join("; ") || "Gift delivery exhausted all retries.",
+          metadata: {
+            attempts: nextAttempts,
+            sent_channels: sentRows.map((row) => row.channel),
+          },
+        });
       }
 
       await db.prepare(
@@ -2269,6 +2641,10 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
              last_dispatch_error = ?,
              next_retry_at = ?,
              dispatch_started_at = NULL,
+             last_dispatch_completed_at = ?,
+             last_successful_delivery_at = CASE WHEN ? THEN COALESCE(last_successful_delivery_at, ?) ELSE last_successful_delivery_at END,
+             delivery_lag_ms = COALESCE(?, delivery_lag_ms),
+             overdue_detected_at = CASE WHEN ? THEN NULL ELSE overdue_detected_at END,
              dispatched_at = CASE WHEN ? THEN COALESCE(dispatched_at, ?) ELSE dispatched_at END,
              refund_transaction_id = COALESCE(?, refund_transaction_id),
              updated_at = ?
@@ -2279,12 +2655,22 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         nextAttempts,
         errors.join("; ") || null,
         exhausted || partialComplete ? null : nextRetryAt,
+        nowIso(),
+        partiallyDelivered ? 1 : 0,
+        partiallyDelivered ? nowIso() : null,
+        computeGiftDeliveryLagMs(gift, outboxRows),
+        partiallyDelivered || exhausted ? 1 : 0,
         partialComplete ? 1 : 0,
         partialComplete ? nowIso() : null,
         refundTxId,
         nowIso(),
         gift.id
       );
+
+      await updateGiftAggregateObservability(gift.id, {
+        outboxRows,
+        finalStatus: exhausted ? "failed" : (partialComplete ? "dispatched" : "dispatch_retry"),
+      });
 
       await addAuditEntry({
         userId: gift.sender_user_id,
@@ -2311,10 +2697,38 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         },
       });
 
+      if (!exhausted && retryableRows.length > 0) {
+        await createGiftIncident({
+          incidentKey: `gift_retry_pending:${gift.id}`,
+          incidentType: "gift_dispatch_retry",
+          severity: partiallyDelivered ? "warning" : "info",
+          giftOrderId: gift.id,
+          summary: partiallyDelivered ? "Gift partially delivered and is waiting to retry remaining channels" : "Gift delivery scheduled for retry",
+          detail: errors.join("; ") || null,
+          metadata: {
+            sent_channels: sentRows.map((row) => row.channel),
+            pending_channels: retryableRows.map((row) => row.channel),
+            next_retry_at: nextRetryAt,
+          },
+        });
+      } else {
+        await clearGiftIncident(`gift_retry_pending:${gift.id}`);
+      }
+
+      logGiftLifecycle(exhausted ? "error" : "warn", exhausted ? "dispatch_exhausted" : (partialComplete ? "dispatch_partial_complete" : "dispatch_retry_scheduled"), {
+        gift_id: gift.id,
+        attempts: nextAttempts,
+        errors,
+        next_retry_at: nextRetryAt,
+        sent_channels: sentRows.map((row) => row.channel),
+        pending_channels: retryableRows.map((row) => row.channel),
+      });
+
       return { dispatched: false, partial: partialComplete, errors };
 
     } catch (dispatchErr) {
       // Recover from stuck 'dispatching' state — increment attempts to respect max limit
+      const retryAt = computeGiftRetryAt(Number(gift?.dispatch_attempts || 0) + 1);
       await db.prepare(
         `UPDATE gift_orders
          SET status = 'dispatch_retry',
@@ -2323,19 +2737,131 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
              next_retry_at = ?,
              last_dispatch_error = ?,
              dispatch_started_at = NULL,
+             last_dispatch_completed_at = ?,
              updated_at = ?
          WHERE id = ? AND status = 'dispatching'`
       ).run(
-        computeGiftRetryAt(Number(gift?.dispatch_attempts || 0) + 1),
+        retryAt,
         String(dispatchErr.message || dispatchErr).slice(0, 500),
+        nowIso(),
         nowIso(),
         giftId
       );
+      await createGiftIncident({
+        incidentKey: `gift_dispatch_stalled:${giftId}`,
+        incidentType: "gift_dispatch_stalled",
+        severity: "critical",
+        giftOrderId: giftId,
+        summary: "Gift dispatch crashed and was moved back to retry",
+        detail: String(dispatchErr.message || dispatchErr),
+        metadata: { next_retry_at: retryAt },
+      });
+      logGiftLifecycle("error", "dispatch_crashed", {
+        gift_id: giftId,
+        next_retry_at: retryAt,
+        error: String(dispatchErr.message || dispatchErr),
+      });
       throw dispatchErr;
     }
   }
 
   app.decorate("dispatchGiftById", dispatchGiftById);
+
+  app.post("/gifts/webhooks/twilio-status", async (request, reply) => {
+    const authToken =
+      process.env.TWILIO_AUTH_TOKEN ||
+      appConfig.TWILIO_AUTH_TOKEN ||
+      config.TWILIO_AUTH_TOKEN;
+    const signature = request.headers["x-twilio-signature"];
+    if (!authToken || !signature) {
+      reply.code(401).send({ error: "UNAUTHORIZED" });
+      return;
+    }
+
+    const webhookUrl = `${publicBaseUrl.replace(/\/$/, "")}${request.raw.url}`;
+    const isValid = twilio.validateRequest(authToken, String(signature), webhookUrl, request.body || {});
+    if (!isValid) {
+      reply.code(401).send({ error: "INVALID_SIGNATURE" });
+      return;
+    }
+
+    const normalized = normalizeTwilioReceipt(request.body || {});
+    const result = await applyGiftDeliveryReceipt({
+      providerName: normalized.providerName,
+      providerMessageId: normalized.providerMessageId,
+      receiptStatus: normalized.receiptStatus,
+      receiptEventAt: normalized.receiptEventAt,
+      receiptPayload: normalized.metadata,
+      incidentSummary: "Twilio delivery receipt could not be matched to a gift outbox row",
+    });
+
+    logGiftLifecycle("info", "twilio_receipt_processed", {
+      provider_message_id: normalized.providerMessageId,
+      receipt_status: normalized.receiptStatus,
+      updated: result.updated,
+      gift_id: result.giftId || null,
+      outbox_id: result.outboxId || null,
+    });
+    reply.send({ received: true, updated: result.updated });
+  });
+
+  app.post("/gifts/webhooks/resend-events", async (request, reply) => {
+    const webhookSecret =
+      process.env.RESEND_WEBHOOK_SECRET ||
+      appConfig.RESEND_WEBHOOK_SECRET ||
+      config.RESEND_WEBHOOK_SECRET;
+    if (!webhookSecret) {
+      reply.code(404).send({ error: "NOT_CONFIGURED" });
+      return;
+    }
+
+    const headers = {
+      id: request.headers["svix-id"],
+      timestamp: request.headers["svix-timestamp"],
+      signature: request.headers["svix-signature"],
+    };
+    if (!headers.id || !headers.timestamp || !headers.signature) {
+      reply.code(401).send({ error: "INVALID_SIGNATURE" });
+      return;
+    }
+
+    let verifiedPayload;
+    try {
+      const resend = new Resend(
+        process.env.RESEND_API_KEY ||
+        appConfig.RESEND_API_KEY ||
+        config.RESEND_API_KEY ||
+        "re_test"
+      );
+      verifiedPayload = resend.webhooks.verify({
+        payload: typeof request.body === "string" ? request.body : JSON.stringify(request.body || {}),
+        headers,
+        webhookSecret,
+      });
+    } catch (err) {
+      reply.code(401).send({ error: "INVALID_SIGNATURE", message: err.message });
+      return;
+    }
+
+    const normalized = normalizeResendReceipt(verifiedPayload || {});
+    const result = await applyGiftDeliveryReceipt({
+      providerName: normalized.providerName,
+      providerMessageId: normalized.providerMessageId,
+      receiptStatus: normalized.receiptStatus,
+      receiptEventAt: normalized.receiptEventAt,
+      receiptPayload: normalized.metadata,
+      incidentSummary: "Resend delivery receipt could not be matched to a gift outbox row",
+    });
+
+    logGiftLifecycle("info", "resend_receipt_processed", {
+      provider_message_id: normalized.providerMessageId,
+      receipt_status: normalized.receiptStatus,
+      updated: result.updated,
+      gift_id: result.giftId || null,
+      outbox_id: result.outboxId || null,
+    });
+    reply.send({ received: true, updated: result.updated });
+  });
 
   async function findTrackVersion(trackId, versionNum) {
     return db

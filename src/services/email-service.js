@@ -375,6 +375,7 @@ If this wasn't you, please secure your account immediately by resetting your pas
  * @param {string} payload.claimPin - Share PIN
  * @param {string} payload.contentType - "song" or "poem"
  * @param {string} [payload.message] - Optional sender message
+ * @param {Array<{name: string, value: string}>} [payload.tags] - Optional provider tags
  */
 async function sendGiftDeliveryEmail(payload) {
   const {
@@ -384,6 +385,7 @@ async function sendGiftDeliveryEmail(payload) {
     claimPin,
     contentType,
     message,
+    tags,
   } = payload;
 
   const noun = contentType === "poem" ? "poem" : "song";
@@ -397,6 +399,7 @@ async function sendGiftDeliveryEmail(payload) {
     from: config.fromEmail,
     to,
     subject,
+    tags: Array.isArray(tags) ? tags : undefined,
     html: `
 <!DOCTYPE html>
 <html>

@@ -7,6 +7,11 @@ const {
   deleteGiftFundedReservationContent,
   findGiftFundingContent,
 } = require("../services/gift-funding");
+const {
+  dbGet,
+  upsertGiftIncident,
+  redactGiftContacts,
+} = require("../services/gift-delivery-ops");
 
 const ACTIVE_RESERVATION_STATUSES = new Set(["reserved", "content_ready"]);
 
@@ -126,6 +131,120 @@ function registerGiftRoutes(app, {
       channels,
       send_at: sendAtIso,
     };
+  }
+
+  function logGiftLifecycle(level, event, metadata = {}) {
+    const safeLevel = typeof app.log?.[level] === "function" ? level : "info";
+    app.log[safeLevel]({
+      event: `gift_${event}`,
+      ...redactGiftContacts(metadata),
+    }, `gift_${event}`);
+  }
+
+  async function recordGiftIncident({
+    incidentKey,
+    incidentType,
+    severity = "warning",
+    giftOrderId = null,
+    summary,
+    detail = null,
+    metadata = {},
+  }) {
+    const incident = await upsertGiftIncident(db, {
+      incidentKey,
+      incidentType,
+      severity,
+      giftOrderId,
+      resourceType: giftOrderId ? "gift_order" : null,
+      resourceId: giftOrderId,
+      summary,
+      detail,
+      metadata,
+    });
+    logGiftLifecycle(severity === "critical" ? "error" : "warn", "incident_opened", {
+      incident_key: incidentKey,
+      incident_type: incidentType,
+      gift_id: giftOrderId,
+      summary,
+    });
+    return incident;
+  }
+
+  async function verifyGiftFinalizeIntegrity(giftOrderId, query = null) {
+    const runner = query || db.query.bind(db);
+    const gift = await dbGet(runner, "SELECT * FROM gift_orders WHERE id = ?", [giftOrderId]);
+    if (!gift) {
+      return { ok: false, errors: ["missing_gift_order"], gift: null, outboxRows: [], shareRow: null };
+    }
+
+    const outboxRows = (await runner(
+      "SELECT id, channel, recipient, status, send_after, next_retry_at FROM gift_delivery_outbox WHERE gift_order_id = ? ORDER BY created_at ASC",
+      [giftOrderId]
+    ))?.rows || [];
+    const channels = parseGiftChannelsJson(gift.channels_json);
+    const shareTable = gift.content_type === "poem" ? "poem_share_tokens" : "share_tokens";
+    const shareRow = await dbGet(
+      runner,
+      `SELECT id, gift_order_id, delivery_source, dispatch_at FROM ${shareTable} WHERE id = ?`,
+      [gift.share_token_id]
+    );
+
+    const errors = [];
+    if (!gift.share_token_id || !shareRow) {
+      errors.push("missing_gift_share_token");
+    }
+    if (shareRow && (shareRow.gift_order_id !== giftOrderId || shareRow.delivery_source !== "gift")) {
+      errors.push("gift_share_token_binding_invalid");
+    }
+    if (shareRow && shareRow.dispatch_at !== gift.send_at) {
+      errors.push("gift_share_dispatch_at_mismatch");
+    }
+    if (outboxRows.length !== channels.length) {
+      errors.push("gift_outbox_channel_count_mismatch");
+    }
+    for (const channel of channels) {
+      const row = outboxRows.find((entry) => entry.channel === channel);
+      if (!row) {
+        errors.push(`missing_outbox_${channel}`);
+        continue;
+      }
+      if (row.send_after !== gift.send_at) {
+        errors.push(`outbox_send_after_mismatch_${channel}`);
+      }
+    }
+
+    return {
+      ok: errors.length === 0,
+      errors,
+      gift,
+      outboxRows,
+      shareRow,
+    };
+  }
+
+  async function assertGiftFinalizeIntegrity(giftOrderId) {
+    const integrity = await verifyGiftFinalizeIntegrity(giftOrderId);
+    if (integrity.ok) {
+      logGiftLifecycle("info", "finalize_integrity_verified", {
+        gift_id: giftOrderId,
+        outbox_count: integrity.outboxRows.length,
+      });
+      return integrity.gift;
+    }
+
+    await recordGiftIncident({
+      incidentKey: `gift_finalize_integrity:${giftOrderId}`,
+      incidentType: "finalize_integrity_failed",
+      severity: "critical",
+      giftOrderId,
+      summary: "Gift finalize integrity check failed",
+      detail: integrity.errors.join(", "),
+      metadata: { errors: integrity.errors },
+    });
+    throw Object.assign(new Error("GIFT_FINALIZE_INTEGRITY_FAILED"), {
+      code: "GIFT_FINALIZE_INTEGRITY_FAILED",
+      details: integrity.errors,
+    });
   }
 
   async function queryGet(query, sql, params = []) {
@@ -520,6 +639,19 @@ function registerGiftRoutes(app, {
       ? await executeCreate(externalQuery)
       : await db.transaction(async (query) => executeCreate(query));
 
+    const verifiedGift = await assertGiftFinalizeIntegrity(created.gift.id);
+    created.gift = verifiedGift;
+
+    logGiftLifecycle("info", created.idempotent ? "finalize_idempotent" : "finalized", {
+      gift_id: created.gift.id,
+      content_type: validated.contentType,
+      delivery_mode: deliveryMode,
+      channels,
+      send_at: sendAtIso,
+      recipient_phone: recipientPhone,
+      recipient_email: recipientEmail,
+    });
+
     if (!skipSideEffects) {
       await emitGiftActivity({
         userId,
@@ -576,6 +708,10 @@ function registerGiftRoutes(app, {
       sendError(reply, 400, "INVALID_VERSION_NUM", "version_num must be a positive integer.");
       return true;
     }
+    if (err.code === "GIFT_FINALIZE_INTEGRITY_FAILED") {
+      sendError(reply, 500, "GIFT_FINALIZE_INTEGRITY_FAILED", "Gift finalize integrity check failed.");
+      return true;
+    }
     return false;
   }
 
@@ -617,6 +753,177 @@ function registerGiftRoutes(app, {
 
     return { processed, refunded, failed };
   }
+
+  async function cancelGiftOrderById(giftId, {
+    actorUserId,
+    actorType = "user",
+  }) {
+    const gift = await db.prepare("SELECT * FROM gift_orders WHERE id = ?").get(giftId);
+    if (!gift) {
+      const err = new Error("GIFT_NOT_FOUND");
+      err.code = "GIFT_NOT_FOUND";
+      throw err;
+    }
+    if (gift.status === "dispatched") {
+      const err = new Error("GIFT_ALREADY_DISPATCHED");
+      err.code = "GIFT_ALREADY_DISPATCHED";
+      throw err;
+    }
+    if (gift.status === "cancelled") {
+      return {
+        gift,
+        walletBalance: (await ensureGiftWalletRow(gift.sender_user_id)).balance,
+        cancelled: true,
+        idempotent: true,
+      };
+    }
+    if (!(gift.status === "scheduled" || gift.status === "dispatch_retry")) {
+      const err = new Error("GIFT_NOT_CANCELLABLE");
+      err.code = "GIFT_NOT_CANCELLABLE";
+      throw err;
+    }
+
+    const sentDelivery = await db.prepare(
+      "SELECT id FROM gift_delivery_outbox WHERE gift_order_id = ? AND status = 'sent' LIMIT 1"
+    ).get(gift.id);
+    if (sentDelivery) {
+      const err = new Error("GIFT_ALREADY_PARTIALLY_DISPATCHED");
+      err.code = "GIFT_ALREADY_PARTIALLY_DISPATCHED";
+      throw err;
+    }
+
+    let refundTxId = gift.refund_transaction_id || null;
+    if (!refundTxId) {
+      const refundTx = await applyGiftWalletTransaction({
+        userId: gift.sender_user_id,
+        type: "gift_refund",
+        amount: 1,
+        source: actorType === "admin" ? "gift_cancel_admin" : "gift_cancel",
+        referenceType: "gift_order",
+        referenceId: gift.id,
+        description: "Gift token refunded after cancellation",
+        metadata: { gift_id: gift.id, actor_type: actorType, actor_user_id: actorUserId || null },
+        idempotencyKey: `gift_refund_${gift.id}`,
+      });
+      refundTxId = refundTx.transactionId;
+    }
+
+    const timestamp = nowIso();
+    await db.prepare(
+      `UPDATE gift_orders
+       SET status = 'cancelled',
+           dispatch_status = 'cancelled',
+           cancelled_at = ?,
+           refund_transaction_id = ?,
+           next_retry_at = NULL,
+           dispatch_started_at = NULL,
+           updated_at = ?
+       WHERE id = ?`
+    ).run(timestamp, refundTxId, timestamp, gift.id);
+
+    await db.prepare(
+      `UPDATE gift_delivery_outbox
+       SET status = 'cancelled',
+           next_retry_at = NULL,
+           locked_at = NULL,
+           updated_at = ?
+       WHERE gift_order_id = ? AND status IN ('pending', 'failed', 'sending')`
+    ).run(timestamp, gift.id);
+
+    if (gift.content_type === "song") {
+      await db.prepare(
+        `UPDATE share_tokens
+         SET status = 'revoked', web_stream_allowed = 0, expires_at = ?, dispatched_at = NULL
+         WHERE id = ? AND gift_order_id = ? AND delivery_source = 'gift'`
+      ).run(timestamp, gift.share_token_id, gift.id);
+    } else if (gift.content_type === "poem") {
+      await db.prepare(
+        `UPDATE poem_share_tokens
+         SET status = 'revoked', expires_at = ?, dispatched_at = NULL
+         WHERE id = ? AND gift_order_id = ? AND delivery_source = 'gift'`
+      ).run(timestamp, gift.share_token_id, gift.id);
+    }
+
+    logGiftLifecycle("warn", "cancelled", {
+      gift_id: gift.id,
+      actor_type: actorType,
+      actor_user_id: actorUserId || null,
+      refund_transaction_id: refundTxId,
+    });
+
+    const updated = await db.prepare("SELECT * FROM gift_orders WHERE id = ?").get(gift.id);
+    return {
+      gift: updated,
+      walletBalance: (await ensureGiftWalletRow(gift.sender_user_id)).balance,
+      cancelled: true,
+      idempotent: false,
+      refundTxId,
+    };
+  }
+
+  async function retryGiftOrderById(giftId, {
+    actorUserId,
+    actorType = "admin",
+  } = {}) {
+    const gift = await db.prepare("SELECT * FROM gift_orders WHERE id = ?").get(giftId);
+    if (!gift) {
+      const err = new Error("GIFT_NOT_FOUND");
+      err.code = "GIFT_NOT_FOUND";
+      throw err;
+    }
+    if (gift.status === "cancelled" || gift.dispatch_status === "cancelled") {
+      const err = new Error("GIFT_CANCELLED");
+      err.code = "GIFT_CANCELLED";
+      throw err;
+    }
+    if (!(gift.status === "scheduled" || gift.status === "dispatch_retry")) {
+      const err = new Error("GIFT_NOT_RETRYABLE");
+      err.code = "GIFT_NOT_RETRYABLE";
+      throw err;
+    }
+
+    const sentDelivery = await db.prepare(
+      "SELECT id FROM gift_delivery_outbox WHERE gift_order_id = ? AND status = 'sent' LIMIT 1"
+    ).get(gift.id);
+    if (sentDelivery) {
+      const err = new Error("GIFT_ALREADY_PARTIALLY_DISPATCHED");
+      err.code = "GIFT_ALREADY_PARTIALLY_DISPATCHED";
+      throw err;
+    }
+
+    const timestamp = nowIso();
+    await db.prepare(
+      `UPDATE gift_delivery_outbox
+       SET status = 'pending',
+           next_retry_at = ?,
+           locked_at = NULL,
+           last_error = CASE WHEN status = 'failed' THEN last_error ELSE last_error END,
+           updated_at = ?
+       WHERE gift_order_id = ?
+         AND status IN ('failed', 'pending')`
+    ).run(timestamp, timestamp, gift.id);
+
+    await db.prepare(
+      `UPDATE gift_orders
+       SET status = 'dispatch_retry',
+           dispatch_status = 'retrying',
+           next_retry_at = ?,
+           dispatch_started_at = NULL,
+           updated_at = ?
+       WHERE id = ?`
+    ).run(timestamp, timestamp, gift.id);
+
+    logGiftLifecycle("warn", "requeued", {
+      gift_id: gift.id,
+      actor_type: actorType,
+      actor_user_id: actorUserId || null,
+    });
+
+    return await db.prepare("SELECT * FROM gift_orders WHERE id = ?").get(gift.id);
+  }
+
+  app.decorate("retryGiftOrderById", retryGiftOrderById);
+  app.decorate("cancelGiftOrderById", cancelGiftOrderById);
 
   app.decorate("expireGiftReservations", expireGiftReservations);
 
@@ -1329,79 +1636,36 @@ function registerGiftRoutes(app, {
       sendError(reply, 409, "GIFT_NOT_CANCELLABLE", "Gift cannot be cancelled in its current state.");
       return;
     }
-    const sentDelivery = await db.prepare(
-      "SELECT id FROM gift_delivery_outbox WHERE gift_order_id = ? AND status = 'sent' LIMIT 1"
-    ).get(gift.id);
-    if (sentDelivery) {
-      sendError(reply, 409, "GIFT_ALREADY_PARTIALLY_DISPATCHED", "Gift delivery already started and can no longer be cancelled.");
-      return;
-    }
-
-    let refundTxId = gift.refund_transaction_id || null;
-    if (!refundTxId) {
-      const refundTx = await applyGiftWalletTransaction({
+    try {
+      const result = await cancelGiftOrderById(gift.id, { actorUserId: userId, actorType: "user" });
+      await emitGiftActivity({
         userId,
-        type: "gift_refund",
-        amount: 1,
-        source: "gift_cancel",
-        referenceType: "gift_order",
-        referenceId: gift.id,
-        description: "Gift token refunded after cancellation",
-        metadata: { gift_id: gift.id },
-        idempotencyKey: `gift_refund_${gift.id}`,
+        action: "gift_cancelled",
+        resourceType: "gift_order",
+        resourceId: gift.id,
+        metadata: { refund_transaction_id: result.refundTxId || gift.refund_transaction_id || null },
       });
-      refundTxId = refundTx.transactionId;
+      reply.send({
+        cancelled: true,
+        gift: renderGiftSummary(result.gift),
+        wallet_balance: result.walletBalance,
+      });
+    } catch (err) {
+      if (err.code === "GIFT_ALREADY_PARTIALLY_DISPATCHED") {
+        sendError(reply, 409, "GIFT_ALREADY_PARTIALLY_DISPATCHED", "Gift delivery already started and can no longer be cancelled.");
+        return;
+      }
+      if (err.code === "GIFT_ALREADY_DISPATCHED") {
+        sendError(reply, 409, "GIFT_ALREADY_DISPATCHED", "Gift has already been dispatched.");
+        return;
+      }
+      if (err.code === "GIFT_NOT_CANCELLABLE") {
+        sendError(reply, 409, "GIFT_NOT_CANCELLABLE", "Gift cannot be cancelled in its current state.");
+        return;
+      }
+      request.log.error({ err }, "Failed to cancel gift");
+      sendError(reply, 500, "GIFT_CANCEL_FAILED", "An internal error occurred.");
     }
-
-    await db.prepare(
-      `UPDATE gift_orders
-       SET status = 'cancelled',
-           dispatch_status = 'cancelled',
-           cancelled_at = ?,
-           refund_transaction_id = ?,
-           next_retry_at = NULL,
-           dispatch_started_at = NULL,
-           updated_at = ?
-       WHERE id = ?`
-    ).run(nowIso(), refundTxId, nowIso(), gift.id);
-
-    await db.prepare(
-      `UPDATE gift_delivery_outbox
-       SET status = 'cancelled',
-           next_retry_at = NULL,
-           locked_at = NULL,
-           updated_at = ?
-       WHERE gift_order_id = ? AND status IN ('pending', 'failed', 'sending')`
-    ).run(nowIso(), gift.id);
-
-    if (gift.content_type === "song") {
-      await db.prepare(
-        `UPDATE share_tokens
-         SET status = 'revoked', web_stream_allowed = 0, expires_at = ?, dispatched_at = NULL
-         WHERE id = ? AND gift_order_id = ? AND delivery_source = 'gift'`
-      ).run(nowIso(), gift.share_token_id, gift.id);
-    } else if (gift.content_type === "poem") {
-      await db.prepare(
-        `UPDATE poem_share_tokens
-         SET status = 'revoked', expires_at = ?, dispatched_at = NULL
-         WHERE id = ? AND gift_order_id = ? AND delivery_source = 'gift'`
-      ).run(nowIso(), gift.share_token_id, gift.id);
-    }
-
-    await emitGiftActivity({
-      userId,
-      action: "gift_cancelled",
-      resourceType: "gift_order",
-      resourceId: gift.id,
-      metadata: { refund_transaction_id: refundTxId },
-    });
-
-    const updated = await db.prepare("SELECT * FROM gift_orders WHERE id = ?").get(gift.id);
-    reply.send({
-      cancelled: true,
-      gift: renderGiftSummary(updated),
-      wallet_balance: (await ensureGiftWalletRow(userId)).balance,
-    });
   });
 }
 

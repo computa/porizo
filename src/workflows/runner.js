@@ -56,6 +56,7 @@ const {
 } = require("./render-contract");
 const { classifyError, PROVIDER_STEPS } = require("../utils/step-classification");
 const { createOrGetShareToken } = require("../services/share-service");
+const { upsertGiftIncident } = require("../services/gift-delivery-ops");
 
 // Provider identifiers for circuit breaker tracking
 const PROVIDERS = {
@@ -64,6 +65,49 @@ const PROVIDERS = {
   REPLICATE: "replicate",
   SEEDVC: "seedvc",
 };
+
+async function ensureRenderSharePreGeneration({
+  db,
+  trackReady,
+  trackVersionReady,
+  streamBaseUrl,
+  renderType,
+  createShareToken = createOrGetShareToken,
+  createIncident = upsertGiftIncident,
+}) {
+  try {
+    await createShareToken({
+      db,
+      trackId: trackReady.id,
+      trackVersionId: trackVersionReady.id,
+      userId: trackReady.user_id,
+      buildShareUrl: (shareId) => `${streamBaseUrl}/play/${shareId}`,
+    });
+    return { ok: true };
+  } catch (shareErr) {
+    console.warn(`[JobRunner] Share pre-generation failed (non-fatal):`, shareErr.message);
+    try {
+      await createIncident(db, {
+        incidentKey: `share_pre_generation:${trackVersionReady.id}`,
+        incidentType: "share_pre_generation_failed",
+        severity: "warning",
+        resourceType: "track_version",
+        resourceId: trackVersionReady.id,
+        summary: "Share pre-generation failed during render completion",
+        detail: String(shareErr.message || shareErr),
+        metadata: {
+          track_id: trackReady.id,
+          track_version_id: trackVersionReady.id,
+          user_id: trackReady.user_id,
+          render_type: renderType,
+        },
+      });
+    } catch (incidentErr) {
+      console.warn(`[JobRunner] Failed to persist share pre-generation incident:`, incidentErr.message);
+    }
+    return { ok: false, error: shareErr };
+  }
+}
 
 const PREVIEW_STEPS = [
   "moderation",
@@ -3900,17 +3944,13 @@ async function startJobRunner({
         });
 
         // Pre-generate share link so it's ready when user opens share screen (non-fatal)
-        try {
-          await createOrGetShareToken({
-            db: asyncDbAdapter,
-            trackId: trackReady.id,
-            trackVersionId: trackVersionReady.id,
-            userId: trackReady.user_id,
-            buildShareUrl: (shareId) => `${streamBaseUrl}/play/${shareId}`,
-          });
-        } catch (shareErr) {
-          console.warn(`[JobRunner] Share pre-generation failed (non-fatal):`, shareErr.message);
-        }
+        await ensureRenderSharePreGeneration({
+          db,
+          trackReady,
+          trackVersionReady,
+          streamBaseUrl,
+          renderType: isFull ? "full" : "preview",
+        });
 
         // Clean up intermediate files only after fully successful render (including S3)
         // In dev mode with S3 failure, keep temp files for debugging
@@ -4050,5 +4090,5 @@ async function startJobRunner({
 module.exports = {
   startJobRunner,
   cleanStaleStepFiles,
-  _testing: { performVoiceConversion, applyVocalPolish },
+  _testing: { performVoiceConversion, applyVocalPolish, ensureRenderSharePreGeneration },
 };

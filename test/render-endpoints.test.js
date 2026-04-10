@@ -8,8 +8,12 @@
 
 const { describe, it, beforeEach, afterEach } = require("node:test");
 const assert = require("node:assert/strict");
+process.env.JWT_SECRET = "test-jwt-secret-render-endpoints";
+process.env.ALLOW_ANON_USER_ID = "true";
+process.env.NODE_ENV = "test";
 const { initDb } = require("../src/db");
 const { buildServer } = require("../src/server");
+const { _testing: runnerTesting } = require("../src/workflows/runner");
 
 describe("Render Endpoints", async () => {
   let db;
@@ -261,5 +265,49 @@ describe("Render Endpoints", async () => {
     assert.equal(versionRows.rows[0].status, "processing");
     assert.ok(versionRows.rows[0].full_job_id);
     assert.ok(versionRows.rows[0].song_entitlement_consumed_at, "Gift-funded render should still mark version as funded");
+  });
+
+  it("render-ready share pre-generation works with a query-only adapter", async () => {
+    const { trackId, trackVersionId } = await createTrackAndVersion();
+    const queryOnlyDb = { query: db.query };
+
+    const result = await runnerTesting.ensureRenderSharePreGeneration({
+      db: queryOnlyDb,
+      trackReady: { id: trackId, user_id: userId },
+      trackVersionReady: { id: trackVersionId },
+      streamBaseUrl: "http://stream.local",
+      renderType: "full",
+    });
+
+    assert.equal(result.ok, true);
+    const shareRows = await db.query(
+      "SELECT id FROM share_tokens WHERE track_id = ? AND track_version_id = ?",
+      [trackId, trackVersionId]
+    );
+    assert.equal(shareRows.rows.length, 1);
+  });
+
+  it("render-ready share pre-generation failures create operator-visible incidents", async () => {
+    const { trackId, trackVersionId } = await createTrackAndVersion();
+
+    const result = await runnerTesting.ensureRenderSharePreGeneration({
+      db,
+      trackReady: { id: trackId, user_id: userId },
+      trackVersionReady: { id: trackVersionId },
+      streamBaseUrl: "http://stream.local",
+      renderType: "preview",
+      createShareToken: async () => {
+        throw new Error("simulated share generation failure");
+      },
+    });
+
+    assert.equal(result.ok, false);
+    const incidentRows = await db.query(
+      "SELECT incident_type, detail FROM gift_delivery_incidents WHERE incident_key = ?",
+      [`share_pre_generation:${trackVersionId}`]
+    );
+    assert.equal(incidentRows.rows.length, 1);
+    assert.equal(incidentRows.rows[0].incident_type, "share_pre_generation_failed");
+    assert.match(incidentRows.rows[0].detail, /simulated share generation failure/);
   });
 });

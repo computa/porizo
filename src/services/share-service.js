@@ -24,6 +24,31 @@ function isShareUsable(share) {
   return new Date(share.expires_at) > new Date();
 }
 
+async function dbGet(db, sql, params = []) {
+  if (db?.prepare) {
+    return db.prepare(sql).get(...params);
+  }
+  if (db?.query) {
+    const result = await db.query(sql, params);
+    return result?.rows?.[0];
+  }
+  throw new Error("INVALID_DB_ADAPTER");
+}
+
+async function dbRun(db, sql, params = []) {
+  if (db?.prepare) {
+    return db.prepare(sql).run(...params);
+  }
+  if (db?.query) {
+    const result = await db.query(sql, params);
+    return {
+      changes: Number(result?.changes ?? result?.rowCount ?? 0),
+      rowCount: Number(result?.rowCount ?? result?.changes ?? 0),
+    };
+  }
+  throw new Error("INVALID_DB_ADAPTER");
+}
+
 /**
  * Auto-heal a lifetime share that was incorrectly stamped "expired" by old code,
  * then check if the share is usable. Mutates `share.status` in-place if healed.
@@ -33,13 +58,11 @@ async function healAndCheckShare(db, share, table, activeStatus) {
   if (share.status === "expired" && isLifetimeShare(share)) {
     const isBound = share.bound_device_id || share.bound_user_id;
     share.status = isBound ? "claimed" : activeStatus;
-    await db.prepare(`UPDATE ${table} SET status = ? WHERE id = ?`)
-      .run(share.status, share.id);
+    await dbRun(db, `UPDATE ${table} SET status = ? WHERE id = ?`, [share.status, share.id]);
   }
   if (!isShareUsable(share)) {
     if (share.status !== "expired") {
-      await db.prepare(`UPDATE ${table} SET status = ? WHERE id = ?`)
-        .run("expired", share.id);
+      await dbRun(db, `UPDATE ${table} SET status = ? WHERE id = ?`, ["expired", share.id]);
     }
     return false;
   }
@@ -52,9 +75,11 @@ async function upgradeToLifetime(db, share, table, activeStatus) {
   const nextStatus = share.status === "expired"
     ? (isBound ? "claimed" : activeStatus)
     : (share.status || activeStatus);
-  await db.prepare(
-    `UPDATE ${table} SET share_type = ?, expires_at = ?, status = ? WHERE id = ?`
-  ).run("lifetime", LIFETIME_SHARE_EXPIRES_AT, nextStatus, share.id);
+  await dbRun(
+    db,
+    `UPDATE ${table} SET share_type = ?, expires_at = ?, status = ? WHERE id = ?`,
+    ["lifetime", LIFETIME_SHARE_EXPIRES_AT, nextStatus, share.id]
+  );
   share.share_type = "lifetime";
   share.expires_at = LIFETIME_SHARE_EXPIRES_AT;
   share.status = nextStatus;
@@ -87,9 +112,9 @@ async function createOrGetShareToken({
   attribution = {},
 }) {
   // Check for existing valid token (idempotent)
-  const track = await db.prepare("SELECT share_token_id FROM tracks WHERE id = ?").get(trackId);
+  const track = await dbGet(db, "SELECT share_token_id FROM tracks WHERE id = ?", [trackId]);
   if (track?.share_token_id) {
-    const existing = await db.prepare("SELECT * FROM share_tokens WHERE id = ?").get(track.share_token_id);
+    const existing = await dbGet(db, "SELECT * FROM share_tokens WHERE id = ?", [track.share_token_id]);
     if (existing && existing.status !== "revoked") {
       if (!isLifetimeShare(existing) && !isDemoShare(existing)) {
         await upgradeToLifetime(db, existing, "share_tokens", "unbound");
@@ -113,35 +138,42 @@ async function createOrGetShareToken({
   const claimPin = String(crypto.randomInt(100000, 1000000));
 
   // Handle UNIQUE constraint: delete expired token for this track if one exists
-  await db.prepare(
-    "DELETE FROM share_tokens WHERE track_id = ? AND status IN ('expired', 'revoked')"
-  ).run(trackId);
-
-  await db.prepare(
-    "INSERT INTO share_tokens (id, track_id, track_version_id, creator_id, status, share_type, bound_device_id, bound_device_platform, bound_app_version, bound_at, web_stream_allowed, app_save_allowed, expires_at, created_at, last_accessed_at, access_count, stream_key_id, stream_key, claim_pin, claim_attempts, utm_source, utm_medium, utm_campaign, referrer, created_ip, created_user_agent) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-  ).run(
-    shareId,
-    trackId,
-    trackVersionId,
-    userId,
-    "unbound",
-    "lifetime",
-    null, null, null, null, // device binding
-    1, 1, // web_stream_allowed, app_save_allowed
-    expiresAt,
-    nowIso(),
-    null, 0, // last_accessed_at, access_count
-    streamKeyId, streamKey, claimPin, 0, // stream key + PIN
-    attribution.utmSource || null,
-    attribution.utmMedium || null,
-    attribution.utmCampaign || null,
-    attribution.referrer || null,
-    attribution.ip || null,
-    attribution.userAgent || null
+  await dbRun(
+    db,
+    "DELETE FROM share_tokens WHERE track_id = ? AND status IN ('expired', 'revoked')",
+    [trackId]
   );
 
-  await db.prepare("UPDATE tracks SET share_token_id = ?, updated_at = ? WHERE id = ?")
-    .run(shareId, nowIso(), trackId);
+  await dbRun(
+    db,
+    "INSERT INTO share_tokens (id, track_id, track_version_id, creator_id, status, share_type, bound_device_id, bound_device_platform, bound_app_version, bound_at, web_stream_allowed, app_save_allowed, expires_at, created_at, last_accessed_at, access_count, stream_key_id, stream_key, claim_pin, claim_attempts, utm_source, utm_medium, utm_campaign, referrer, created_ip, created_user_agent) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    [
+      shareId,
+      trackId,
+      trackVersionId,
+      userId,
+      "unbound",
+      "lifetime",
+      null, null, null, null,
+      1, 1,
+      expiresAt,
+      nowIso(),
+      null, 0,
+      streamKeyId, streamKey, claimPin, 0,
+      attribution.utmSource || null,
+      attribution.utmMedium || null,
+      attribution.utmCampaign || null,
+      attribution.referrer || null,
+      attribution.ip || null,
+      attribution.userAgent || null,
+    ]
+  );
+
+  await dbRun(db, "UPDATE tracks SET share_token_id = ?, updated_at = ? WHERE id = ?", [
+    shareId,
+    nowIso(),
+    trackId,
+  ]);
 
   // Pre-generate share.mp4 for social crawlers (non-fatal, optional)
   if (ensureShareMp4) {
@@ -169,9 +201,9 @@ async function ensurePoemShareToken({
   buildShareUrl,
   attribution = {},
 }) {
-  const poem = await db.prepare("SELECT share_token_id FROM poems WHERE id = ?").get(poemId);
+  const poem = await dbGet(db, "SELECT share_token_id FROM poems WHERE id = ?", [poemId]);
   if (poem?.share_token_id) {
-    const existing = await db.prepare("SELECT * FROM poem_share_tokens WHERE id = ?").get(poem.share_token_id);
+    const existing = await dbGet(db, "SELECT * FROM poem_share_tokens WHERE id = ?", [poem.share_token_id]);
     if (existing && existing.status !== "revoked") {
       if (!isLifetimeShare(existing) && !isDemoShare(existing)) {
         await upgradeToLifetime(db, existing, "poem_share_tokens", "active");
@@ -191,37 +223,45 @@ async function ensurePoemShareToken({
   const shareId = newShareId();
   const claimPin = String(crypto.randomInt(100000, 1000000));
 
-  await db.prepare(
-    "DELETE FROM poem_share_tokens WHERE poem_id = ? AND status IN ('expired', 'revoked')"
-  ).run(poemId);
+  await dbRun(
+    db,
+    "DELETE FROM poem_share_tokens WHERE poem_id = ? AND status IN ('expired', 'revoked')",
+    [poemId]
+  );
 
-  await db.prepare(
+  await dbRun(
+    db,
     `INSERT INTO poem_share_tokens (
       id, poem_id, creator_id, status, share_type, claim_pin, claim_attempts, allow_save, expires_at,
       created_at, access_count, utm_source, utm_medium, utm_campaign, referrer, created_ip, created_user_agent
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(
-    shareId,
-    poemId,
-    userId,
-    "active",
-    "lifetime",
-    claimPin,
-    0,
-    allowSave ? 1 : 0,
-    LIFETIME_SHARE_EXPIRES_AT,
-    nowIso(),
-    0,
-    attribution.utmSource || null,
-    attribution.utmMedium || null,
-    attribution.utmCampaign || null,
-    attribution.referrer || null,
-    attribution.ip || null,
-    attribution.userAgent || null
+    ,
+    [
+      shareId,
+      poemId,
+      userId,
+      "active",
+      "lifetime",
+      claimPin,
+      0,
+      allowSave ? 1 : 0,
+      LIFETIME_SHARE_EXPIRES_AT,
+      nowIso(),
+      0,
+      attribution.utmSource || null,
+      attribution.utmMedium || null,
+      attribution.utmCampaign || null,
+      attribution.referrer || null,
+      attribution.ip || null,
+      attribution.userAgent || null,
+    ]
   );
 
-  await db.prepare("UPDATE poems SET share_token_id = ?, updated_at = ? WHERE id = ?")
-    .run(shareId, nowIso(), poemId);
+  await dbRun(db, "UPDATE poems SET share_token_id = ?, updated_at = ? WHERE id = ?", [
+    shareId,
+    nowIso(),
+    poemId,
+  ]);
 
   return {
     shareId,

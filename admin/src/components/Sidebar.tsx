@@ -9,6 +9,7 @@ import {
   Shield,
   CreditCard,
   Share2,
+  Gift,
   TrendingUp,
   BookOpen,
   LogOut,
@@ -39,6 +40,7 @@ const navItems = [
   { to: '/billing', icon: CreditCard, label: 'Billing' },
   { to: '/growth', icon: TrendingUp, label: 'Growth' },
   { to: '/shares', icon: Share2, label: 'Shares' },
+  { to: '/gifts', icon: Gift, label: 'Gift Ops' },
   { to: '/marketing', icon: Megaphone, label: 'Marketing' },
   { to: '/blog', icon: FileText, label: 'Blog' },
 ];
