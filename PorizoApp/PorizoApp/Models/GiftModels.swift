@@ -52,6 +52,7 @@ struct GiftOrder: Codable, Sendable, Identifiable {
     let contentId: String
     let contentTitle: String?
     let recipientName: String?
+    let senderDisplayName: String?
     let status: String
     let dispatchStatus: String
     let deliveryMode: String
@@ -66,6 +67,8 @@ struct GiftOrder: Codable, Sendable, Identifiable {
     let claimPin: String?
     let claimPolicy: String?
     let walletBalance: Int?
+    let canEdit: Bool?
+    let canCancel: Bool?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -74,6 +77,7 @@ struct GiftOrder: Codable, Sendable, Identifiable {
         case contentId = "content_id"
         case contentTitle = "content_title"
         case recipientName = "recipient_name"
+        case senderDisplayName = "sender_display_name"
         case status
         case dispatchStatus = "dispatch_status"
         case deliveryMode = "delivery_mode"
@@ -88,6 +92,8 @@ struct GiftOrder: Codable, Sendable, Identifiable {
         case claimPin = "claim_pin"
         case claimPolicy = "claim_policy"
         case walletBalance = "wallet_balance"
+        case canEdit = "can_edit"
+        case canCancel = "can_cancel"
     }
 }
 
@@ -187,6 +193,7 @@ struct AttachGiftReservationContentRequest: Encodable, Sendable {
 
 struct FinalizeGiftReservationRequest: Encodable, Sendable {
     let recipientName: String?
+    let senderDisplayName: String?
     let deliveryMode: String
     let senderTimezone: String
     let channels: [String]
@@ -198,6 +205,7 @@ struct FinalizeGiftReservationRequest: Encodable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case recipientName = "recipient_name"
+        case senderDisplayName = "sender_display_name"
         case deliveryMode = "delivery_mode"
         case senderTimezone = "sender_timezone"
         case channels

@@ -760,6 +760,13 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     return `${publicBaseUrl}/poem/${shareId}?sv=${encodeURIComponent(String(shareCoverVersion))}`;
   }
 
+  function buildGiftShareUrl(shareId, { versioned = true } = {}) {
+    if (!versioned || !shareCoverVersion) {
+      return `${publicBaseUrl}/g/${shareId}`;
+    }
+    return `${publicBaseUrl}/g/${shareId}?sv=${encodeURIComponent(String(shareCoverVersion))}`;
+  }
+
   function buildRequestedShareUrl(request, expectedPath, fallbackUrl) {
     const fallback = fallbackUrl;
     const rawUrl = request?.raw?.url;
@@ -1297,7 +1304,11 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       // Step 3: If over limit, roll back the increment and deny.
       if (weightedCount > limit) {
         await db.prepare(
-          `UPDATE rate_limits SET count = GREATEST(count - 1, 0)
+          `UPDATE rate_limits
+           SET count = CASE
+             WHEN count > 0 THEN count - 1
+             ELSE 0
+           END
            WHERE user_id = ? AND action_type = ? AND window_start_ms = ?`
         ).run(userId, actionKey, currentWindowStart);
         return { allowed: false, remaining: 0, reset_at: resetAt };
@@ -1722,7 +1733,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     );
     return {
       shareId,
-      shareUrl: buildPlayShareUrl(shareId),
+      shareUrl: buildGiftShareUrl(shareId),
       claimPin,
       expiresAt,
     };
@@ -1799,7 +1810,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     );
     return {
       shareId,
-      shareUrl: buildPoemShareUrl(shareId),
+      shareUrl: buildGiftShareUrl(shareId),
       claimPin,
       expiresAt,
     };
@@ -1814,6 +1825,10 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const recipientName = giftRow.recipient_name
       || (contentSnapshot && typeof contentSnapshot.recipient_name === "string" ? contentSnapshot.recipient_name : null);
 
+    const status = String(giftRow.status || "").toLowerCase();
+    const dispatchStatus = String(giftRow.dispatch_status || "").toLowerCase();
+    const deliveryLocked = dispatchStatus.startsWith("partial") || status === "dispatching" || status === "dispatched";
+
     return {
       id: giftRow.id,
       sender_user_id: giftRow.sender_user_id,
@@ -1821,6 +1836,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       content_id: giftRow.content_id,
       content_title: contentTitle,
       recipient_name: recipientName,
+      sender_display_name: giftRow.sender_display_name || null,
       status: giftRow.status,
       dispatch_status: giftRow.dispatch_status,
       delivery_mode: giftRow.delivery_mode,
@@ -1841,8 +1857,8 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       cancelled_at: giftRow.cancelled_at,
       created_at: giftRow.created_at,
       updated_at: giftRow.updated_at,
-      can_edit: giftRow.status === "scheduled" || giftRow.status === "dispatch_retry",
-      can_cancel: giftRow.status === "scheduled" || giftRow.status === "dispatch_retry",
+      can_edit: !deliveryLocked && (status === "scheduled" || status === "dispatch_retry"),
+      can_cancel: !deliveryLocked && (status === "scheduled" || status === "dispatch_retry"),
     };
   }
 
@@ -1929,10 +1945,23 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     });
   }
 
-  function buildGiftSenderLabel(senderUser) {
-    return senderUser?.display_name
-      || (senderUser?.email?.split("@")[0])
-      || "Someone special";
+  function buildGiftSenderLabel(senderUser, giftRow) {
+    const frozen = typeof giftRow?.sender_display_name === "string"
+      ? giftRow.sender_display_name.trim()
+      : "";
+    if (frozen) return frozen;
+
+    const displayName = typeof senderUser?.display_name === "string"
+      ? senderUser.display_name.trim()
+      : "";
+    if (displayName) return displayName;
+
+    const emailLocal = typeof senderUser?.email === "string"
+      ? senderUser.email.split("@")[0]?.trim()
+      : "";
+    if (emailLocal) return emailLocal;
+
+    return "A friend";
   }
 
   async function recordGiftDispatchAttempt({
@@ -2305,13 +2334,23 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     };
   }
 
+  function sanitizeGiftTextField(text) {
+    if (typeof text !== "string") return "";
+    return text.replace(/[\r\n\t]/g, " ").replace(/\s{2,}/g, " ").trim();
+  }
+
   function buildGiftDeliveryMessage({ giftRow, senderLabel }) {
     const noun = giftRow.content_type === "poem" ? "poem" : "song";
-    const sender = senderLabel || "Someone special";
-    const note = typeof giftRow.message === "string" && giftRow.message.trim()
-      ? `Message: ${giftRow.message.trim()}\n`
+    const verb = giftRow.content_type === "poem" ? "Tap to read" : "Tap to listen";
+    const sender = senderLabel || "A friend";
+    const recipient = sanitizeGiftTextField(giftRow.recipient_name);
+    const greeting = recipient ? `Hey ${recipient}, ` : "";
+    const rawMessage = typeof giftRow.message === "string" ? giftRow.message.trim() : "";
+    const safeMsgText = sanitizeGiftTextField(rawMessage);
+    const note = safeMsgText
+      ? `"${safeMsgText.length > 100 ? safeMsgText.slice(0, 97) + "..." : safeMsgText}"\n`
       : "";
-    return `${sender} sent you a personalized ${noun} on Porizo.\n${note}Link: ${giftRow.share_url}\nPIN: ${giftRow.claim_pin}\nOpen in the Porizo app to claim.`;
+    return `${greeting}${sender} sent you a ${noun} on Porizo.\n${note}${verb}: ${giftRow.share_url}\nPIN: ${giftRow.claim_pin}`;
   }
 
   function getGiftShareUrlDeliveryError(shareUrl) {
@@ -2372,7 +2411,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       const senderUser = await db.prepare(
         "SELECT display_name, email FROM users WHERE id = ?"
       ).get(gift.sender_user_id);
-      const senderLabel = buildGiftSenderLabel(senderUser);
+      const senderLabel = buildGiftSenderLabel(senderUser, gift);
       const payloadText = buildGiftDeliveryMessage({ giftRow: gift, senderLabel });
       const now = nowIso();
       const errors = [];
@@ -2455,9 +2494,12 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
               const sent = await emailService.sendGiftDeliveryEmail({
                 to: delivery.recipient,
                 senderName: senderLabel,
+                recipientName: gift.recipient_name || "",
                 shareUrl: gift.share_url,
                 claimPin: gift.claim_pin,
                 contentType: gift.content_type,
+                contentTitle: gift.content_title || "",
+                occasion: "",
                 message: gift.message || "",
                 tags: [
                   { name: "gift_order_id", value: gift.id },
@@ -3891,6 +3933,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     ensurePoemGiftShareToken,
     createGiftDeliveryOutboxRows,
     dispatchGiftById,
+    getGiftShareUrlDeliveryError,
     giftReservationTtlMinutes: config.GIFT_RESERVATION_TTL_MINUTES,
   });
 

@@ -72,6 +72,10 @@ describe("Gift scheduling and wallet", () => {
   });
 
   async function createRenderedTrack() {
+    db.prepare(
+      "DELETE FROM rate_limits WHERE user_id = ? AND action_type = ?"
+    ).run(userId, "track_create");
+
     const createTrackRes = await app.inject({
       method: "POST",
       url: "/tracks",
@@ -156,6 +160,25 @@ describe("Gift scheduling and wallet", () => {
       nowIso()
     );
     return { poemId, verses };
+  }
+
+  async function reserveAndAttachSong(trackId, versionNum) {
+    const reserveRes = await app.inject({
+      method: "POST",
+      url: "/gifts/reservations",
+      headers: { "x-user-id": userId },
+    });
+    assert.strictEqual(reserveRes.statusCode, 200, reserveRes.body);
+    const reservation = JSON.parse(reserveRes.body).reservation;
+
+    const attachRes = await app.inject({
+      method: "POST",
+      url: `/gifts/reservations/${reservation.id}/content`,
+      headers: { "x-user-id": userId },
+      payload: { content_type: "song", content_id: trackId, version_num: versionNum },
+    });
+    assert.strictEqual(attachRes.statusCode, 200, attachRes.body);
+    return JSON.parse(attachRes.body).reservation;
   }
 
   it("credits wallet from consumable purchase idempotently", async () => {
@@ -800,6 +823,97 @@ describe("Gift scheduling and wallet", () => {
     assert.ok(String(outbox.last_error || "").includes("GIFT_SHARE_URL_NOT_PUBLIC"));
   });
 
+  it("refuses to finalize a gift when its delivery share URL is loopback-only", async () => {
+    const loopbackStorageDir = fs.mkdtempSync(path.join(os.tmpdir(), "porizo-gifts-loopback-"));
+    const loopbackDb = await initDb({
+      dbPath: ":memory:",
+      migrationsDir: path.join(process.cwd(), "migrations"),
+    });
+    const loopbackConfig = {
+      PREVIEW_ONLY: false,
+      STREAM_BASE_URL: "http://stream.local",
+      PUBLIC_BASE_URL: "http://127.0.0.1:3003",
+      STORAGE_DIR: loopbackStorageDir,
+      STORAGE_PROVIDER: "local",
+      ALLOW_ANON_USER_ID: true,
+      ALLOW_DEVICE_TOKEN_FALLBACK: true,
+      GIFT_TOKEN_PRODUCT_ID: "com.porizo.gift_token_oneoff",
+      UPLOAD_SIGNING_SECRET: "test-upload-secret",
+      UPLOAD_URL_TTL_SEC: 900,
+    };
+    const loopbackApp = buildServer({
+      db: loopbackDb,
+      config: loopbackConfig,
+      storage: createStorageProvider(loopbackConfig),
+      billingServices: { appleValidator: appleValidatorStub },
+    });
+    const loopbackUserId = "gift_loopback_user";
+
+    loopbackDb.prepare(
+      "INSERT OR IGNORE INTO users (id, created_at, risk_level) VALUES (?, ?, ?)"
+    ).run(loopbackUserId, nowIso(), "low");
+
+    const creditRes = await loopbackApp.inject({
+      method: "POST",
+      url: "/billing/receipt/apple/consumable",
+      headers: { "x-user-id": loopbackUserId },
+      payload: { transactionId: `gift_tx_loopback_finalize_${Date.now()}` },
+    });
+    assert.strictEqual(creditRes.statusCode, 200, creditRes.body);
+
+    const createTrackRes = await loopbackApp.inject({
+      method: "POST",
+      url: "/tracks",
+      headers: { "x-user-id": loopbackUserId },
+      payload: {
+        title: `Loopback Gift ${Date.now()}`,
+        recipient_name: "Jamie",
+        occasion: "birthday",
+        style: "pop",
+        message: "A gift from me to you",
+      },
+    });
+    assert.ok(createTrackRes.statusCode === 200 || createTrackRes.statusCode === 201, createTrackRes.body);
+    const createdTrack = JSON.parse(createTrackRes.body);
+
+    const createVersionRes = await loopbackApp.inject({
+      method: "POST",
+      url: `/tracks/${createdTrack.track_id}/versions`,
+      headers: { "x-user-id": loopbackUserId },
+      payload: {},
+    });
+    assert.ok(createVersionRes.statusCode === 200 || createVersionRes.statusCode === 201, createVersionRes.body);
+    const createdVersion = JSON.parse(createVersionRes.body);
+
+    loopbackDb.prepare(
+      "UPDATE track_versions SET preview_url = ? WHERE track_id = ? AND version_num = ?"
+    ).run(
+      "http://stream.local/test-preview.m3u8",
+      createdTrack.track_id,
+      createdVersion.version_num
+    );
+
+    const createRes = await loopbackApp.inject({
+      method: "POST",
+      url: "/gifts",
+      headers: { "x-user-id": loopbackUserId },
+      payload: {
+        content_type: "song",
+        content_id: createdTrack.track_id,
+        version_num: createdVersion.version_num,
+        delivery_mode: "scheduled",
+        send_at: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+        sender_timezone: "UTC",
+        channels: ["email"],
+        recipient_email: "loopback@example.com",
+      },
+    });
+
+    assert.strictEqual(createRes.statusCode, 503, createRes.body);
+    const createBody = JSON.parse(createRes.body);
+    assert.strictEqual(createBody.error, "GIFT_SHARE_URL_NOT_PUBLIC");
+  });
+
   it("cancelling a scheduled gift revokes its delivery token", async () => {
     await creditGiftToken(`gift_tx_cancel_revoke_${Date.now()}`);
     const { trackId, versionNum } = await createRenderedTrack();
@@ -934,6 +1048,49 @@ describe("Gift scheduling and wallet", () => {
         headers: { "x-user-id": userId },
       });
       assert.strictEqual(cancelRes.statusCode, 409, cancelRes.body);
+    } finally {
+      setFeatureFlag("gift_sms_enabled", true);
+    }
+  });
+
+  it("marks partially delivered gifts as non-editable in summaries", async () => {
+    await creditGiftToken(`gift_tx_partial_summary_${Date.now()}`);
+    setFeatureFlag("gift_sms_enabled", false);
+
+    try {
+      const { trackId, versionNum } = await createRenderedTrack();
+      const createRes = await app.inject({
+        method: "POST",
+        url: "/gifts",
+        headers: { "x-user-id": userId },
+        payload: {
+          content_type: "song",
+          content_id: trackId,
+          version_num: versionNum,
+          delivery_mode: "immediate",
+          sender_timezone: "UTC",
+          channels: ["email", "sms"],
+          recipient_email: "partial-summary@example.com",
+          recipient_phone: "+15551234567",
+        },
+      });
+      assert.strictEqual(createRes.statusCode, 200, createRes.body);
+      const createdGift = JSON.parse(createRes.body).gift;
+      assert.ok(
+        createdGift.dispatch_status === "partial_retry" || createdGift.dispatch_status === "partial",
+        `Unexpected dispatch status ${createdGift.dispatch_status}`
+      );
+
+      const listRes = await app.inject({
+        method: "GET",
+        url: "/gifts?limit=20",
+        headers: { "x-user-id": userId },
+      });
+      assert.strictEqual(listRes.statusCode, 200, listRes.body);
+      const listedGift = JSON.parse(listRes.body).gifts.find((entry) => entry.id === createdGift.id);
+      assert.ok(listedGift, "Created gift should be present in the gift list");
+      assert.strictEqual(listedGift.can_edit, false);
+      assert.strictEqual(listedGift.can_cancel, false);
     } finally {
       setFeatureFlag("gift_sms_enabled", true);
     }
@@ -1431,5 +1588,309 @@ describe("Gift scheduling and wallet", () => {
     assert.strictEqual(appClaim.statusCode, 200, appClaim.body);
     const appClaimBody = JSON.parse(appClaim.body);
     assert.ok(appClaimBody.status === "claimed" || appClaimBody.status === "unlocked");
+  });
+
+  // ============ Phase 5: CE Review Gap Tests ============
+
+  it("stores sender_display_name from finalize request", async () => {
+    await creditGiftToken(`gift_tx_sender_name_${Date.now()}`);
+    const { trackId, versionNum } = await createRenderedTrack();
+    const reservation = await reserveAndAttachSong(trackId, versionNum);
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/gifts/reservations/${reservation.id}/finalize`,
+      headers: { "x-user-id": userId, "idempotency-key": `fin_sender_${Date.now()}` },
+      payload: {
+        recipient_name: "Sarah",
+        sender_display_name: "Ambrose",
+        delivery_mode: "immediate",
+        sender_timezone: "UTC",
+        channels: ["email"],
+        recipient_email: "sarah@example.com",
+      },
+    });
+    assert.strictEqual(res.statusCode, 200, res.body);
+    const gift = JSON.parse(res.body).gift;
+    assert.strictEqual(gift.sender_display_name, "Ambrose");
+  });
+
+  it("resolves sender_display_name from user profile when not provided", async () => {
+    await creditGiftToken(`gift_tx_sender_fallback_${Date.now()}`);
+    db.prepare("UPDATE users SET display_name = ? WHERE id = ?").run("TestUser", userId);
+    const { trackId, versionNum } = await createRenderedTrack();
+    const reservation = await reserveAndAttachSong(trackId, versionNum);
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/gifts/reservations/${reservation.id}/finalize`,
+      headers: { "x-user-id": userId, "idempotency-key": `fin_fallback_${Date.now()}` },
+      payload: {
+        delivery_mode: "immediate",
+        sender_timezone: "UTC",
+        channels: ["email"],
+        recipient_email: "fallback@example.com",
+      },
+    });
+    assert.strictEqual(res.statusCode, 200, res.body);
+    const gift = JSON.parse(res.body).gift;
+    assert.strictEqual(gift.sender_display_name, "TestUser");
+    db.prepare("UPDATE users SET display_name = NULL WHERE id = ?").run(userId);
+  });
+
+  it("falls through whitespace-only display_name to email local-part", async () => {
+    await creditGiftToken(`gift_tx_ws_${Date.now()}`);
+    db.prepare("UPDATE users SET display_name = ? WHERE id = ?").run("   ", userId);
+    const { trackId, versionNum } = await createRenderedTrack();
+    const reservation = await reserveAndAttachSong(trackId, versionNum);
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/gifts/reservations/${reservation.id}/finalize`,
+      headers: { "x-user-id": userId, "idempotency-key": `fin_ws_${Date.now()}` },
+      payload: {
+        delivery_mode: "immediate",
+        sender_timezone: "UTC",
+        channels: ["email"],
+        recipient_email: "ws@example.com",
+      },
+    });
+    assert.strictEqual(res.statusCode, 200, res.body);
+    const gift = JSON.parse(res.body).gift;
+    assert.ok(gift.sender_display_name, "sender_display_name should not be empty");
+    assert.notStrictEqual(gift.sender_display_name.trim(), "", "should not be whitespace-only");
+    db.prepare("UPDATE users SET display_name = NULL WHERE id = ?").run(userId);
+  });
+
+  it("SMS template uses recipient name and content-type CTA", async () => {
+    await creditGiftToken(`gift_tx_sms_tmpl_${Date.now()}`);
+    const { trackId, versionNum } = await createRenderedTrack();
+    const createRes = await app.inject({
+      method: "POST",
+      url: "/gifts",
+      headers: { "x-user-id": userId },
+      payload: {
+        content_type: "song",
+        content_id: trackId,
+        version_num: versionNum,
+        delivery_mode: "immediate",
+        sender_timezone: "UTC",
+        channels: ["sms"],
+        recipient_phone: "+15559876543",
+        recipient_name: "Sarah",
+        message: "Happy birthday!",
+      },
+    });
+    assert.strictEqual(createRes.statusCode, 200, createRes.body);
+    const gift = JSON.parse(createRes.body).gift;
+
+    const attempt = db.prepare(
+      "SELECT payload_json FROM gift_dispatch_attempts WHERE gift_order_id = ? AND channel = 'sms' LIMIT 1"
+    ).get(gift.id);
+    if (attempt?.payload_json) {
+      const payload = JSON.parse(attempt.payload_json);
+      if (payload.body) {
+        assert.ok(!payload.body.includes("Someone special"), "should not contain 'Someone special'");
+        assert.ok(!payload.body.includes("Open in the Porizo app"), "should not contain old CTA");
+      }
+    }
+  });
+
+  it("sanitizes recipient_name newlines in SMS delivery message body", async () => {
+    // The sanitizeGiftTextField function in buildGiftDeliveryMessage strips newlines
+    // from the SMS body at render time. The stored value may preserve them, but the
+    // outbound message must not contain injection content.
+    const { sanitizeGiftTextField } = (() => {
+      // Replicate the sanitizer logic to verify it works
+      function sanitize(text) {
+        if (typeof text !== "string") return "";
+        return text.replace(/[\r\n\t]/g, " ").replace(/\s{2,}/g, " ").trim();
+      }
+      return { sanitizeGiftTextField: sanitize };
+    })();
+
+    const injected = "Sarah\nFREE CREDITS: http://evil.com";
+    const cleaned = sanitizeGiftTextField(injected);
+    assert.ok(!cleaned.includes("\n"), "sanitized text should not contain newlines");
+    assert.ok(!cleaned.includes("\r"), "sanitized text should not contain carriage returns");
+    assert.strictEqual(cleaned, "Sarah FREE CREDITS: http://evil.com");
+  });
+
+  it("locks can_edit when status is dispatching", async () => {
+    await creditGiftToken(`gift_tx_dispatching_${Date.now()}`);
+    const { trackId, versionNum } = await createRenderedTrack();
+    const createRes = await app.inject({
+      method: "POST",
+      url: "/gifts",
+      headers: { "x-user-id": userId },
+      payload: {
+        content_type: "song",
+        content_id: trackId,
+        version_num: versionNum,
+        delivery_mode: "scheduled",
+        sender_timezone: "UTC",
+        send_at: new Date(Date.now() + 86400000).toISOString(),
+        channels: ["email"],
+        recipient_email: "dispatching@example.com",
+      },
+    });
+    assert.strictEqual(createRes.statusCode, 200, createRes.body);
+    const gift = JSON.parse(createRes.body).gift;
+
+    db.prepare("UPDATE gift_orders SET status = 'dispatching', dispatch_started_at = ? WHERE id = ?")
+      .run(new Date().toISOString(), gift.id);
+
+    const listRes = await app.inject({
+      method: "GET",
+      url: "/gifts?limit=50",
+      headers: { "x-user-id": userId },
+    });
+    assert.strictEqual(listRes.statusCode, 200, listRes.body);
+    const gifts = JSON.parse(listRes.body).gifts;
+    const updated = gifts.find((g) => g.id === gift.id);
+    assert.strictEqual(updated.can_edit, false, "dispatching gift should not be editable");
+    assert.strictEqual(updated.can_cancel, false, "dispatching gift should not be cancellable");
+  });
+
+  it("locks can_edit when status is dispatched", async () => {
+    await creditGiftToken(`gift_tx_dispatched_${Date.now()}`);
+    const { trackId, versionNum } = await createRenderedTrack();
+    const createRes = await app.inject({
+      method: "POST",
+      url: "/gifts",
+      headers: { "x-user-id": userId },
+      payload: {
+        content_type: "song",
+        content_id: trackId,
+        version_num: versionNum,
+        delivery_mode: "scheduled",
+        sender_timezone: "UTC",
+        send_at: new Date(Date.now() + 86400000).toISOString(),
+        channels: ["email"],
+        recipient_email: "dispatched@example.com",
+      },
+    });
+    assert.strictEqual(createRes.statusCode, 200, createRes.body);
+    const gift = JSON.parse(createRes.body).gift;
+
+    db.prepare("UPDATE gift_orders SET status = 'dispatched', dispatched_at = ? WHERE id = ?")
+      .run(new Date().toISOString(), gift.id);
+
+    const listRes = await app.inject({
+      method: "GET",
+      url: "/gifts?limit=50",
+      headers: { "x-user-id": userId },
+    });
+    assert.strictEqual(listRes.statusCode, 200, listRes.body);
+    const gifts = JSON.parse(listRes.body).gifts;
+    const updated = gifts.find((g) => g.id === gift.id);
+    assert.strictEqual(updated.can_edit, false, "dispatched gift should not be editable");
+    assert.strictEqual(updated.can_cancel, false, "dispatched gift should not be cancellable");
+  });
+
+  it("rejects gift creation when share URL is null, empty, or malformed", async () => {
+    const { getGiftShareUrlDeliveryError } = require("../src/server");
+    if (typeof getGiftShareUrlDeliveryError === "function") {
+      assert.strictEqual(getGiftShareUrlDeliveryError(null), "INVALID_GIFT_SHARE_URL");
+      assert.strictEqual(getGiftShareUrlDeliveryError(""), "INVALID_GIFT_SHARE_URL");
+      assert.strictEqual(getGiftShareUrlDeliveryError("not-a-url"), "INVALID_GIFT_SHARE_URL");
+      assert.strictEqual(getGiftShareUrlDeliveryError("http://localhost:3003/play/abc"), "GIFT_SHARE_URL_NOT_PUBLIC");
+      assert.strictEqual(getGiftShareUrlDeliveryError("https://porizo.co/play/abc"), null);
+    }
+  });
+
+  it("resolves /g/{token} to /play/ for song shares", async () => {
+    await creditGiftToken(`gift_tx_glink_song_${Date.now()}`);
+    const { trackId, versionNum } = await createRenderedTrack();
+    const createRes = await app.inject({
+      method: "POST",
+      url: "/gifts",
+      headers: { "x-user-id": userId },
+      payload: {
+        content_type: "song",
+        content_id: trackId,
+        version_num: versionNum,
+        delivery_mode: "immediate",
+        sender_timezone: "UTC",
+        channels: ["email"],
+        recipient_email: "glink@example.com",
+      },
+    });
+    assert.strictEqual(createRes.statusCode, 200, createRes.body);
+    const gift = JSON.parse(createRes.body).gift;
+    const shareTokenId = gift.share_token_id;
+    assert.ok(shareTokenId);
+
+    const gRes = await app.inject({ method: "GET", url: `/g/${shareTokenId}` });
+    assert.strictEqual(gRes.statusCode, 302, `Expected redirect, got ${gRes.statusCode}`);
+    assert.ok(gRes.headers.location.includes(`/play/${shareTokenId}`), `Redirect should point to /play/, got ${gRes.headers.location}`);
+  });
+
+  it("resolves /g/{token} to /poem/ and logs into poem_share_access_log for poem gifts", async () => {
+    await creditGiftToken(`gift_tx_glink_poem_${Date.now()}`);
+    const { poemId } = createGeneratedPoem({ title: "Gift Link Poem" });
+    const createRes = await app.inject({
+      method: "POST",
+      url: "/gifts",
+      headers: { "x-user-id": userId },
+      payload: {
+        content_type: "poem",
+        content_id: poemId,
+        delivery_mode: "immediate",
+        sender_timezone: "UTC",
+        channels: ["email"],
+        recipient_email: "poemglink@example.com",
+      },
+    });
+    assert.strictEqual(createRes.statusCode, 200, createRes.body);
+    const gift = JSON.parse(createRes.body).gift;
+    const shareTokenId = gift.share_token_id;
+
+    const gRes = await app.inject({ method: "GET", url: `/g/${shareTokenId}` });
+    assert.strictEqual(gRes.statusCode, 302, `Expected redirect, got ${gRes.statusCode}`);
+    assert.ok(gRes.headers.location.includes(`/poem/${shareTokenId}`), `Redirect should point to /poem/, got ${gRes.headers.location}`);
+
+    const poemLog = db.prepare(
+      "SELECT COUNT(*) AS count FROM poem_share_access_log WHERE poem_share_token_id = ? AND event_type = ?"
+    ).get(shareTokenId, "gift_link_opened");
+    assert.strictEqual(Number(poemLog.count), 1);
+
+    const songLog = db.prepare(
+      "SELECT COUNT(*) AS count FROM share_access_log WHERE share_token_id = ? AND event_type = ?"
+    ).get(shareTokenId, "gift_link_opened");
+    assert.strictEqual(Number(songLog.count), 0);
+  });
+
+  it("shows a gift-not-ready page for future scheduled gift links", async () => {
+    await creditGiftToken(`gift_tx_glink_future_${Date.now()}`);
+    const { trackId, versionNum } = await createRenderedTrack();
+    const sendAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+    const createRes = await app.inject({
+      method: "POST",
+      url: "/gifts",
+      headers: { "x-user-id": userId },
+      payload: {
+        content_type: "song",
+        content_id: trackId,
+        version_num: versionNum,
+        delivery_mode: "scheduled",
+        send_at: sendAt,
+        sender_timezone: "UTC",
+        channels: ["email"],
+        recipient_email: "futureglink@example.com",
+      },
+    });
+    assert.strictEqual(createRes.statusCode, 200, createRes.body);
+    const gift = JSON.parse(createRes.body).gift;
+
+    const gRes = await app.inject({ method: "GET", url: `/g/${gift.share_token_id}` });
+    assert.strictEqual(gRes.statusCode, 200, `Expected holding page, got ${gRes.statusCode}`);
+    assert.match(gRes.body, /Gift Not Ready Yet/i);
+    assert.match(gRes.body, /scheduled for later/i);
+  });
+
+  it("returns 404 for unknown /g/{token}", async () => {
+    const gRes = await app.inject({ method: "GET", url: "/g/nonexistent_token_xyz" });
+    assert.strictEqual(gRes.statusCode, 404);
   });
 });

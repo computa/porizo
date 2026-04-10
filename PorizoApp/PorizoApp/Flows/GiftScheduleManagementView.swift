@@ -251,7 +251,9 @@ struct GiftManagementSheet: View {
                 }
             }
 
-            Text("Make sure the recipient and delivery time are correct before we send it.")
+            Text(gift.canEdit != true
+                 ? "Delivery has already started, so this gift is now read-only."
+                 : "Make sure the recipient and delivery time are correct before we send it.")
                 .font(DesignTokens.bodyFont(size: 13))
                 .foregroundStyle(DesignTokens.textSecondary)
         }
@@ -267,6 +269,7 @@ struct GiftManagementSheet: View {
             channelToggle(title: "SMS", subtitle: "Send as a text message", isOn: $sendViaSMS)
             channelToggle(title: "Email", subtitle: "Send by email", isOn: $sendViaEmail)
         }
+        .opacity(gift.canEdit != true ? 0.7 : 1)
     }
 
     @ViewBuilder
@@ -282,6 +285,7 @@ struct GiftManagementSheet: View {
                 .background(DesignTokens.cardBackground)
                 .clipShape(.rect(cornerRadius: 10))
                 .foregroundStyle(DesignTokens.textPrimary)
+                .disabled(gift.canEdit != true)
 
             if sendViaSMS {
                 HStack(spacing: 8) {
@@ -297,6 +301,7 @@ struct GiftManagementSheet: View {
                             .clipShape(.rect(cornerRadius: 10))
                     }
                     .buttonStyle(.plain)
+                    .disabled(gift.canEdit != true)
 
                     TextField("Recipient phone", text: $recipientPhone)
                         .keyboardType(.phonePad)
@@ -306,6 +311,7 @@ struct GiftManagementSheet: View {
                         .background(DesignTokens.cardBackground)
                         .clipShape(.rect(cornerRadius: 10))
                         .foregroundStyle(DesignTokens.textPrimary)
+                        .disabled(gift.canEdit != true)
                         .onChange(of: recipientPhone) { _, newValue in
                             recipientPhone = formatPhoneInput(newValue, selectedCountry: selectedCountry)
                         }
@@ -323,8 +329,10 @@ struct GiftManagementSheet: View {
                     .background(DesignTokens.cardBackground)
                     .clipShape(.rect(cornerRadius: 10))
                     .foregroundStyle(DesignTokens.textPrimary)
+                    .disabled(gift.canEdit != true)
             }
         }
+        .opacity(gift.canEdit != true ? 0.7 : 1)
     }
 
     private var deliverySection: some View {
@@ -341,11 +349,13 @@ struct GiftManagementSheet: View {
             .padding(12)
             .background(DesignTokens.cardBackground)
             .clipShape(.rect(cornerRadius: 12))
+            .disabled(gift.canEdit != true)
 
             Text("Timezone: \(gift.senderTimezone ?? TimeZone.current.identifier)")
                 .font(DesignTokens.bodyFont(size: 13))
                 .foregroundStyle(DesignTokens.textSecondary)
         }
+        .opacity(gift.canEdit != true ? 0.7 : 1)
     }
 
     private var messageSection: some View {
@@ -357,7 +367,9 @@ struct GiftManagementSheet: View {
                 .background(DesignTokens.cardBackground)
                 .clipShape(.rect(cornerRadius: 10))
                 .foregroundStyle(DesignTokens.textPrimary)
+                .disabled(gift.canEdit != true)
         }
+        .opacity(gift.canEdit != true ? 0.7 : 1)
     }
 
     private var actionBar: some View {
@@ -378,27 +390,29 @@ struct GiftManagementSheet: View {
                 .background(canSave ? DesignTokens.gold : DesignTokens.surfaceMuted)
                 .clipShape(.rect(cornerRadius: 14))
             }
-            .disabled(!canSave || isSaving || isCancelling)
+            .disabled(gift.canEdit != true || !canSave || isSaving || isCancelling)
             .buttonStyle(.plain)
 
-            Button {
-                showCancelConfirmation = true
-            } label: {
-                HStack {
-                    if isCancelling {
-                        ProgressView().tint(DesignTokens.error)
+            if gift.canCancel != false {
+                Button {
+                    showCancelConfirmation = true
+                } label: {
+                    HStack {
+                        if isCancelling {
+                            ProgressView().tint(DesignTokens.error)
+                        }
+                        Text("Cancel gift")
+                            .font(DesignTokens.bodyFont(size: 14, weight: .semibold))
                     }
-                    Text("Cancel gift")
-                        .font(DesignTokens.bodyFont(size: 14, weight: .semibold))
+                    .foregroundStyle(DesignTokens.error)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 13)
+                    .background(DesignTokens.cardBackground)
+                    .clipShape(.rect(cornerRadius: 14))
                 }
-                .foregroundStyle(DesignTokens.error)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 13)
-                .background(DesignTokens.cardBackground)
-                .clipShape(.rect(cornerRadius: 14))
+                .disabled(isSaving || isCancelling)
+                .buttonStyle(.plain)
             }
-            .disabled(isSaving || isCancelling)
-            .buttonStyle(.plain)
         }
     }
 
@@ -472,6 +486,7 @@ struct GiftManagementSheet: View {
 
     private func channelToggle(title: String, subtitle: String, isOn: Binding<Bool>) -> some View {
         Button {
+            guard gift.canEdit == true else { return }
             isOn.wrappedValue.toggle()
         } label: {
             HStack {
@@ -515,7 +530,7 @@ struct GiftManagementSheet: View {
             onGiftUpdated(response.gift)
             dismiss()
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = giftUserFacingMessage(for: error)
         }
     }
 
@@ -529,7 +544,7 @@ struct GiftManagementSheet: View {
             onGiftCancelled(response.gift, response.walletBalance)
             dismiss()
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = giftUserFacingMessage(for: error)
         }
     }
 

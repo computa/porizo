@@ -78,7 +78,7 @@ struct GiftSendFlowView: View {
             switch self {
             case .content: return "Create Gift"
             case .composer: return "Address Your Gift"
-            case .success: return "Gift Ready"
+            case .success: return ""
             }
         }
     }
@@ -241,7 +241,7 @@ struct GiftSendFlowView: View {
 
             Spacer()
 
-            Text(screen.title)
+            Text(headerTitle)
                 .font(DesignTokens.displayFont(size: 20, weight: .semibold))
                 .foregroundStyle(DesignTokens.textPrimary)
 
@@ -266,6 +266,15 @@ struct GiftSendFlowView: View {
         }
         .padding(.horizontal, 20)
         .frame(height: 56)
+    }
+
+    private var headerTitle: String {
+        switch screen {
+        case .success:
+            return successTitle
+        default:
+            return screen.title
+        }
     }
 
     @ViewBuilder
@@ -1382,6 +1391,7 @@ struct GiftSendFlowView: View {
 
         let request = FinalizeGiftReservationRequest(
             recipientName: trimmedRecipientName.isEmpty ? nil : trimmedRecipientName,
+            senderDisplayName: nil,
             deliveryMode: deliveryMode.rawValue,
             senderTimezone: TimeZone.current.identifier,
             channels: selectedChannels,
@@ -1752,41 +1762,7 @@ struct GiftSendFlowView: View {
     }
 
     private func mapError(_ error: Error) -> String {
-        if let apiError = error as? APIClientError {
-            switch apiError {
-            case .serverError(let message, let code, _):
-                return normalizeGiftErrorMessage(message, code: code)
-            case .httpError(_, let body):
-                return normalizeGiftErrorMessage(body, code: nil)
-            default:
-                return apiError.localizedDescription
-            }
-        }
-        return error.localizedDescription
-    }
-
-    private func normalizeGiftErrorMessage(_ message: String, code: String?) -> String {
-        let normalized = message.trimmingCharacters(in: .whitespacesAndNewlines)
-        let upperCode = code?.uppercased() ?? ""
-
-        if upperCode == "INSUFFICIENT_GIFT_TOKENS" || normalized.localizedCaseInsensitiveContains("gift token") {
-            return "Unlock this gift to keep going."
-        }
-        if upperCode == "RESERVATION_EXPIRED" || normalized.localizedCaseInsensitiveContains("reservation expired") {
-            return "This gift draft expired. Start a fresh gift and we’ll help you finish it."
-        }
-        if normalized.localizedCaseInsensitiveContains("reserve a new token") {
-            return "Start a fresh gift and we’ll help you finish it."
-        }
-        if normalized.localizedCaseInsensitiveContains("reserve a gift token first") {
-            return "Start a fresh gift first."
-        }
-        if normalized.hasPrefix("{"), let data = normalized.data(using: .utf8),
-           let apiPayload = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-           let nestedMessage = apiPayload["message"] as? String {
-            return normalizeGiftErrorMessage(nestedMessage, code: apiPayload["error"] as? String)
-        }
-        return normalized
+        giftUserFacingMessage(for: error)
     }
 
     private func shouldPromptGiftUnlock(for error: Error) -> Bool {

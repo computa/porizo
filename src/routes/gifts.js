@@ -32,6 +32,7 @@ function registerGiftRoutes(app, {
   ensurePoemGiftShareToken,
   createGiftDeliveryOutboxRows,
   dispatchGiftById,
+  getGiftShareUrlDeliveryError,
   giftReservationTtlMinutes = 45,
 }) {
 
@@ -263,6 +264,9 @@ function registerGiftRoutes(app, {
     const recipientName = typeof body.recipient_name === "string"
       ? body.recipient_name.trim().slice(0, 100)
       : "";
+    const senderDisplayName = typeof body.sender_display_name === "string"
+      ? body.sender_display_name.trim().slice(0, 100)
+      : "";
     const deliveryMode = body.delivery_mode === "scheduled" ? "scheduled" : "immediate";
     const senderTimezone = typeof body.sender_timezone === "string" && body.sender_timezone.trim()
       ? body.sender_timezone.trim()
@@ -302,6 +306,7 @@ function registerGiftRoutes(app, {
 
     return {
       recipientName,
+      senderDisplayName,
       deliveryMode,
       senderTimezone,
       channels,
@@ -488,6 +493,7 @@ function registerGiftRoutes(app, {
     contentType,
     contentId,
     recipientName,
+    senderDisplayName,
     deliveryMode,
     senderTimezone,
     channels,
@@ -509,6 +515,15 @@ function registerGiftRoutes(app, {
     const resolvedRecipientName = (typeof recipientName === "string" && recipientName.trim())
       ? recipientName.trim().slice(0, 100)
       : (validated.contentSnapshot?.recipient_name || null);
+
+    // Resolve sender display name: explicit override → user profile → email prefix → "A friend"
+    let resolvedSenderDisplayName = typeof senderDisplayName === "string" ? senderDisplayName.trim() : "";
+    if (!resolvedSenderDisplayName) {
+      const senderUser = await db.prepare("SELECT display_name, email FROM users WHERE id = ?").get(userId);
+      const profileName = typeof senderUser?.display_name === "string" ? senderUser.display_name.trim() : "";
+      const emailLocal = typeof senderUser?.email === "string" ? senderUser.email.split("@")[0]?.trim() : "";
+      resolvedSenderDisplayName = profileName || emailLocal || "A friend";
+    }
 
     const executeCreate = async (query) => {
       if (idempotencyKey) {
@@ -569,15 +584,24 @@ function registerGiftRoutes(app, {
             externalQuery: query,
           });
 
+        const shareUrlError = typeof getGiftShareUrlDeliveryError === "function"
+          ? getGiftShareUrlDeliveryError(share.shareUrl)
+          : null;
+        if (shareUrlError) {
+          const err = new Error(shareUrlError);
+          err.code = shareUrlError;
+          throw err;
+        }
+
         const timestamp = nowIso();
         await query(
           `INSERT INTO gift_orders (
             id, sender_user_id, content_type, content_id, status, dispatch_status, delivery_mode,
-            send_at, sender_timezone, recipient_name, channels_json, recipient_phone, recipient_email, message,
+            send_at, sender_timezone, recipient_name, sender_display_name, channels_json, recipient_phone, recipient_email, message,
             share_token_id, share_url, claim_pin, claim_policy, expires_in_days, dispatch_attempts,
             last_dispatch_error, dispatched_at, cancelled_at, token_transaction_id, refund_transaction_id,
             version_num, content_snapshot_json, next_retry_at, dispatch_started_at, idempotency_key, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             giftOrderId,
             userId,
@@ -589,6 +613,7 @@ function registerGiftRoutes(app, {
             sendAtIso,
             senderTimezone,
             resolvedRecipientName,
+            resolvedSenderDisplayName,
             toJson(channels),
             recipientPhone,
             recipientEmail,
@@ -719,6 +744,10 @@ function registerGiftRoutes(app, {
     }
     if (err.code === "GIFT_FINALIZE_INTEGRITY_FAILED") {
       sendError(reply, 500, "GIFT_FINALIZE_INTEGRITY_FAILED", "Gift finalize integrity check failed.");
+      return true;
+    }
+    if (err.code === "GIFT_SHARE_URL_NOT_PUBLIC" || err.code === "INVALID_GIFT_SHARE_URL") {
+      sendError(reply, 503, err.code, "Gift delivery isn’t configured correctly right now.");
       return true;
     }
     return false;
@@ -1225,6 +1254,7 @@ function registerGiftRoutes(app, {
     if (!deliveryRequest) return;
     const {
       recipientName,
+      senderDisplayName,
       deliveryMode,
       senderTimezone,
       channels,
@@ -1262,6 +1292,7 @@ function registerGiftRoutes(app, {
           contentType: latestReservation.content_type,
           contentId: latestReservation.content_id,
           recipientName,
+          senderDisplayName,
           deliveryMode,
           senderTimezone,
           channels,
@@ -1417,6 +1448,7 @@ function registerGiftRoutes(app, {
     if (!deliveryRequest) return;
     const {
       recipientName,
+      senderDisplayName,
       deliveryMode,
       senderTimezone,
       channels,
@@ -1449,6 +1481,7 @@ function registerGiftRoutes(app, {
         contentType,
         contentId,
         recipientName,
+        senderDisplayName,
         deliveryMode,
         senderTimezone,
         channels,

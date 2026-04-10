@@ -381,19 +381,36 @@ async function sendGiftDeliveryEmail(payload) {
   const {
     to,
     senderName,
+    recipientName,
     shareUrl,
     claimPin,
     contentType,
+    contentTitle,
+    occasion,
     message,
     tags,
   } = payload;
 
   const noun = contentType === "poem" ? "poem" : "song";
-  const subject = `You received a gifted ${noun} on ${config.appName}`;
-  const safeSender = senderName || "Someone special";
+  const ctaLabel = contentType === "poem" ? "Read Your Poem" : "Listen Now";
+  const contentIcon = contentType === "poem" ? "&#128214;" : "&#9835;";
+  const safeSender = senderName || "A friend";
+  const safeRecipient = typeof recipientName === "string" ? recipientName.trim() : "";
   const safeMessage = typeof message === "string" ? message.trim() : "";
+  const safeTitle = typeof contentTitle === "string" ? contentTitle.trim() : "";
+  const safeOccasion = typeof occasion === "string" ? occasion.trim() : "";
   const safeSenderHtml = escapeHtml(safeSender);
+  const safeRecipientHtml = escapeHtml(safeRecipient);
   const safeMessageHtml = escapeHtml(safeMessage);
+  const safeTitleHtml = escapeHtml(safeTitle || `A ${noun} for ${safeRecipient || "you"}`);
+  const safeOccasionHtml = escapeHtml(safeOccasion);
+
+  const subject = safeRecipient
+    ? `${safeRecipient}, ${safeSender} made you a ${noun} 🎁`
+    : `${safeSender} made you a ${noun} 🎁`;
+  const subheading = safeRecipient
+    ? `A personal gift is waiting for you, ${safeRecipientHtml}.`
+    : "A personal gift is waiting for you.";
 
   const { data, error } = await getClient().emails.send({
     from: config.fromEmail,
@@ -402,47 +419,105 @@ async function sendGiftDeliveryEmail(payload) {
     tags: Array.isArray(tags) ? tags : undefined,
     html: `
 <!DOCTYPE html>
-<html>
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Your Gift</title>
 </head>
-<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.5; color: #1a1a1a; max-width: 600px; margin: 0 auto; padding: 20px;">
-  <div style="text-align: center; margin-bottom: 30px;">
-    <h1 style="color: #b0763f; margin: 0;">${config.appName}</h1>
-  </div>
+<body style="margin:0; padding:0; background:#F5F0EB; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; -webkit-font-smoothing: antialiased;">
+<center>
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#F5F0EB;">
+<tr><td align="center" style="padding: 24px 16px;">
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="600" style="max-width:600px; background:#FFFAF5; border-radius:16px; overflow:hidden;">
 
-  <h2 style="margin-top: 0;">A gift is waiting for you</h2>
-  <p><strong>${safeSenderHtml}</strong> sent you a personalized ${noun}.</p>
+  <tr><td align="center" style="padding: 32px 40px 16px;">
+    <span style="font-family: Georgia, 'Times New Roman', serif; font-size: 22px; color: #B0763F; letter-spacing: 1px;">${config.appName}</span>
+  </td></tr>
 
-  ${safeMessage ? `<p style="padding: 12px 14px; background: #f8f6f3; border-radius: 8px;"><strong>Message:</strong><br>${safeMessageHtml}</p>` : ""}
+  <tr><td align="center" style="padding: 8px 40px 4px;">
+    <span style="font-size: 48px;">&#127873;</span>
+  </td></tr>
 
-  <p><strong>Claim PIN:</strong> <span style="font-family: ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: 2px;">${claimPin}</span></p>
+  <tr><td align="center" style="padding: 12px 40px 8px;">
+    <h1 style="margin:0; font-family: Georgia, 'Times New Roman', serif; font-size: 26px; font-weight: normal; color: #1A1A1A; line-height: 1.3;">
+      ${safeSenderHtml} made you a ${noun}
+    </h1>
+  </td></tr>
 
-  <div style="text-align: center; margin: 28px 0;">
-    <a href="${shareUrl}" style="display: inline-block; background-color: #b0763f; color: white; text-decoration: none; padding: 14px 28px; border-radius: 8px; font-weight: 600;">
-      Open Your Gift
+  <tr><td align="center" style="padding: 0 40px 24px;">
+    <p style="margin:0; font-size: 15px; color: #666666; line-height: 1.5;">${subheading}</p>
+  </td></tr>
+
+  ${safeMessage ? `
+  <tr><td style="padding: 0 40px 24px;">
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+      <tr><td style="border-left: 3px solid #D4A574; padding: 16px 20px; background: #F8F6F3; border-radius: 0 8px 8px 0;">
+        <p style="margin: 0 0 8px; font-family: Georgia, 'Times New Roman', serif; font-style: italic; font-size: 16px; color: #1A1A1A; line-height: 1.6;">
+          &ldquo;${safeMessageHtml}&rdquo;
+        </p>
+        <p style="margin: 0; font-size: 13px; color: #999999;">&mdash; ${safeSenderHtml}</p>
+      </td></tr>
+    </table>
+  </td></tr>` : ""}
+
+  <tr><td style="padding: 0 40px 28px;">
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border: 1px solid #E8E0D8; border-radius: 12px; overflow: hidden;">
+      <tr><td style="padding: 16px 20px;">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+          <tr>
+            <td width="48" valign="top">
+              <div style="width: 48px; height: 48px; border-radius: 10px; background: linear-gradient(135deg, #D4A574, #B0763F); text-align: center; line-height: 48px;">
+                <span style="font-size: 22px; color: white;">${contentIcon}</span>
+              </div>
+            </td>
+            <td style="padding-left: 14px;" valign="middle">
+              <p style="margin: 0 0 4px; font-size: 16px; font-weight: 600; color: #1A1A1A;">${safeTitleHtml}</p>
+              ${safeOccasion ? `<p style="margin: 0;"><span style="display: inline-block; padding: 2px 10px; background: #FFF3E8; border-radius: 12px; font-size: 12px; color: #B0763F; font-weight: 500;">${safeOccasionHtml}</span></p>` : ""}
+            </td>
+          </tr>
+        </table>
+      </td></tr>
+    </table>
+  </td></tr>
+
+  <tr><td align="center" style="padding: 0 40px 16px;">
+    <a href="${shareUrl}" style="display: inline-block; background: #B0763F; color: #ffffff; text-decoration: none; padding: 16px 48px; border-radius: 12px; font-size: 17px; font-weight: 600; letter-spacing: 0.3px;">
+      ${ctaLabel}
     </a>
-  </div>
+  </td></tr>
 
-  <p style="color: #666; font-size: 14px;">For privacy and playback, open this gift in the ${config.appName} app.</p>
+  <tr><td align="center" style="padding: 8px 40px 8px;">
+    <p style="margin: 0; font-size: 14px; color: #666666;">
+      Your claim PIN: <span style="font-family: ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: 3px; font-weight: 600; color: #1A1A1A; font-size: 16px;">${claimPin}</span>
+    </p>
+  </td></tr>
+  <tr><td align="center" style="padding: 0 40px 32px;">
+    <p style="margin: 0; font-size: 12px; color: #999999;">You'll need this PIN to unlock your gift in the app.</p>
+  </td></tr>
 
-  <hr style="border: none; border-top: 1px solid #e5e5e5; margin: 30px 0;">
-  <p style="color: #999; font-size: 12px; text-align: center;">
-    © ${new Date().getFullYear()} ${config.appName}. All rights reserved.
-  </p>
+  <tr><td style="padding: 0 40px;"><div style="height: 1px; background: #E8E0D8;"></div></td></tr>
+
+  <tr><td align="center" style="padding: 20px 40px 28px;">
+    <p style="margin: 0; font-size: 12px; color: #BBBBBB; line-height: 1.6;">
+      Sent with love via <a href="https://porizo.co" style="color: #B0763F; text-decoration: none;">${config.appName}</a>
+    </p>
+  </td></tr>
+
+</table>
+</td></tr>
+</table>
+</center>
 </body>
 </html>
     `.trim(),
     text: `
-${safeSender} sent you a personalized ${noun} on ${config.appName}.
-
-${safeMessage ? `Message: ${safeMessage}\n` : ""}
+${safeSender} made you a ${noun} on ${config.appName}.
+${safeMessage ? `\n"${safeMessage}"\n` : ""}
 Claim PIN: ${claimPin}
 Open your gift: ${shareUrl}
 
-For privacy and playback, open this gift in the ${config.appName} app.
+You'll need the PIN to unlock your gift in the ${config.appName} app.
     `.trim(),
   });
 

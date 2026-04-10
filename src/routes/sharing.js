@@ -86,6 +86,46 @@ async function resolveValidShare(request, reply) {
   return share;
 }
 
+async function addPoemShareAccessLog({ poemShareTokenId, eventType, metadata }) {
+  await db.prepare(
+    "INSERT INTO poem_share_access_log (id, poem_share_token_id, event_type, metadata, created_at) VALUES (?, ?, ?, ?, ?)"
+  ).run(newUuid(), poemShareTokenId, eventType, toJson(metadata), nowIso());
+}
+
+function resolveGiftReadyAt(shareRow) {
+  if (!shareRow || shareRow.delivery_source !== "gift") {
+    return null;
+  }
+  const dispatchedAt = Date.parse(shareRow.dispatched_at || "");
+  if (Number.isFinite(dispatchedAt)) {
+    return null;
+  }
+  const sendAt = Date.parse(shareRow.gift_send_at || shareRow.dispatch_at || "");
+  return Number.isFinite(sendAt) ? sendAt : null;
+}
+
+function giftNotReadyHtml(readyAtMs) {
+  const readyLabel = Number.isFinite(readyAtMs)
+    ? new Date(readyAtMs).toLocaleString("en-AU", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      timeZoneName: "short",
+    })
+    : null;
+  return `<!DOCTYPE html>
+<html><head><title>Gift Not Ready Yet | Porizo</title></head>
+<body style="font-family:system-ui;background:#0a0a0a;color:#fff;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;">
+  <div style="text-align:center;padding:24px;max-width:420px;">
+    <h1 style="margin-bottom:16px;">Gift Not Ready Yet</h1>
+    <p style="color:#d4d4d4;line-height:1.5;">This gift is scheduled for later and is not available yet.</p>
+    <p style="color:#a3a3a3;line-height:1.5;">${readyLabel ? `Try again after ${readyLabel}.` : "Try again a little later."}</p>
+  </div>
+</body></html>`;
+}
+
 // ============ Download Token (HMAC-signed, short-lived) ============
 const DL_TOKEN_TTL_MS = 10 * 60 * 1000; // 10 minutes
 // Shared secret for download tokens — env var for multi-instance, random fallback for single-instance
@@ -328,9 +368,11 @@ app.get("/poem/:shareId", async (request, reply) => {
   // Auto-redirecting mobile traffic to the app makes shared links brittle in social apps.
 
   // Log access
-  await db.prepare(
-    "INSERT INTO poem_share_access_log (id, poem_share_token_id, event_type, metadata, created_at) VALUES (?, ?, ?, ?, ?)"
-  ).run(newUuid(), share.id, "web_viewer_opened", toJson({ user_agent: request.headers["user-agent"] || null }), nowIso());
+  await addPoemShareAccessLog({
+    poemShareTokenId: share.id,
+    eventType: "web_viewer_opened",
+    metadata: { user_agent: request.headers["user-agent"] || null },
+  });
 
   eventsService.emit("poem_teaser_viewed", {
     resourceType: "poem_share",
@@ -491,6 +533,63 @@ app.get("/play/:shareId", async (request, reply) => {
 // Backwards-compatible short link that forwards to /play/:id
 app.get("/s/:shareId", async (request, reply) => {
   return reply.redirect(`/play/${request.params.shareId}`);
+});
+
+// Universal gift short link — resolves to /play/ (songs) or /poem/ (poems)
+app.get("/g/:shareId", async (request, reply) => {
+  const shareId = request.params.shareId;
+  const sv = request.query.sv || "";
+  const qs = sv ? `?sv=${encodeURIComponent(sv)}` : "";
+
+  // Check song share_tokens first (more common)
+  const songShare = await db.prepare(
+    `SELECT st.id, st.delivery_source, st.dispatch_at, st.dispatched_at, st.gift_order_id,
+            go.send_at AS gift_send_at
+       FROM share_tokens st
+       LEFT JOIN gift_orders go ON go.id = st.gift_order_id
+      WHERE st.id = ?`
+  ).get(shareId);
+  if (songShare) {
+    const readyAt = resolveGiftReadyAt(songShare);
+    if (Number.isFinite(readyAt) && readyAt > Date.now()) {
+      return reply
+        .type("text/html")
+        .header("Cache-Control", "no-store")
+        .send(giftNotReadyHtml(readyAt));
+    }
+    await addShareAccessLog({
+      shareTokenId: songShare.id,
+      eventType: "gift_link_opened",
+      metadata: { source: "gift_delivery", user_agent: request.headers["user-agent"] || null },
+    });
+    return reply.redirect(`/play/${shareId}${qs}`);
+  }
+
+  // Check poem share_tokens
+  const poemShare = await db.prepare(
+    `SELECT pst.id, pst.delivery_source, pst.dispatch_at, pst.dispatched_at, pst.gift_order_id,
+            go.send_at AS gift_send_at
+       FROM poem_share_tokens pst
+       LEFT JOIN gift_orders go ON go.id = pst.gift_order_id
+      WHERE pst.id = ?`
+  ).get(shareId);
+  if (poemShare) {
+    const readyAt = resolveGiftReadyAt(poemShare);
+    if (Number.isFinite(readyAt) && readyAt > Date.now()) {
+      return reply
+        .type("text/html")
+        .header("Cache-Control", "no-store")
+        .send(giftNotReadyHtml(readyAt));
+    }
+    await addPoemShareAccessLog({
+      poemShareTokenId: poemShare.id,
+      eventType: "gift_link_opened",
+      metadata: { source: "gift_delivery", user_agent: request.headers["user-agent"] || null },
+    });
+    return reply.redirect(`/poem/${shareId}${qs}`);
+  }
+
+  return reply.status(404).type("text/html").send(shareNotFoundHtml("gift"));
 });
 
 // Embed player for Twitter Player Card iframes and oEmbed
