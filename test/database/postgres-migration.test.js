@@ -32,13 +32,13 @@ describe('PostgreSQL Migration', () => {
       process.env.DB_PROVIDER = 'postgres';
       process.env.POSTGRES_HOST = 'localhost';
       process.env.POSTGRES_PORT = '5432';
-      process.env.POSTGRES_DB = 'porizo_test';
+      process.env.POSTGRES_DB = 'porizo';
       process.env.POSTGRES_USER = 'porizo';
       process.env.POSTGRES_PASSWORD = 'dev_password';
 
       const { createPool } = require('../../src/database/postgres.js');
       const pgDb = createPool({
-        database: 'porizo_test',
+        database: 'porizo',
       });
       await pgDb.query('SELECT 1');
       await pgDb.close();
@@ -156,7 +156,7 @@ describe('PostgreSQL Migration', () => {
 
     // Create a test database connection
     const db = createPool({
-      database: 'porizo_test',
+      database: 'porizo',
       schema: testSchema,
     });
 
