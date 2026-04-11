@@ -415,7 +415,8 @@ extension APIClient {
         storyId: String,
         tone: String? = nil,
         style: String? = nil,
-        giftReservationId: String? = nil
+        giftReservationId: String? = nil,
+        force: Bool = false
     ) async throws -> StoryPoemGenerationResult {
         let url = URL(string: "\(baseURL)/story/\(storyId)/to-poem")!
 
@@ -425,7 +426,8 @@ extension APIClient {
             StoryToPoemRequest(
                 tone: tone,
                 style: style,
-                giftReservationId: giftReservationId
+                giftReservationId: giftReservationId,
+                force: force ? true : nil
             )
         )
 

@@ -2329,6 +2329,9 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       const parsed = new URL(shareUrl);
       const hostname = String(parsed.hostname || "").trim().toLowerCase();
       if (!hostname || hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1") {
+        if (config.DEV_MODE) {
+          return null;
+        }
         return "GIFT_SHARE_URL_NOT_PUBLIC";
       }
       return null;

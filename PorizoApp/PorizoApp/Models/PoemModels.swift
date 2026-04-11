@@ -159,11 +159,13 @@ struct StoryToPoemRequest: Encodable, Sendable {
     let tone: String?
     let style: String?
     let giftReservationId: String?
+    let force: Bool?
 
     enum CodingKeys: String, CodingKey {
         case tone
         case style
         case giftReservationId = "gift_reservation_id"
+        case force
     }
 }
 

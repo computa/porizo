@@ -152,7 +152,8 @@ struct PoemCreatingView: View {
                 let result = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "createPoemFromStory") {
                     try await apiClient.createPoemFromStory(
                         storyId: storyId,
-                        giftReservationId: giftReservationId
+                        giftReservationId: giftReservationId,
+                        force: true
                     )
                 }
 

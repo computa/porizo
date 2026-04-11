@@ -312,6 +312,7 @@ const schemas = {
         tone: { type: "string", maxLength: 50 },
         style: { type: "string", maxLength: 50 },
         gift_reservation_id: { type: "string", minLength: 1, maxLength: 64 },
+        force: { type: "boolean" },
       },
       additionalProperties: false,
     },
@@ -2384,7 +2385,7 @@ function registerStoryRoutes(app, {
     }
 
     const { story_id } = request.params;
-    const { tone, style, gift_reservation_id: giftReservationId } = request.body || {};
+    const { tone, style, gift_reservation_id: giftReservationId, force } = request.body || {};
     const existingGiftPoem = giftReservationId
       ? await findGiftFundingContent(db, {
         reservationId: giftReservationId,
@@ -2465,13 +2466,15 @@ function registerStoryRoutes(app, {
         return;
       }
 
-      const readiness = evaluatePoemReadiness(context);
-      if (!readiness.is_complete) {
-        sendError(reply, 422, "STORY_INCOMPLETE", "Story is missing required details.", {
-          gaps: readiness.gaps,
-          suggested_question: readiness.suggested_question,
-        });
-        return;
+      if (force !== true) {
+        const readiness = evaluatePoemReadiness(context);
+        if (!readiness.is_complete) {
+          sendError(reply, 422, "STORY_INCOMPLETE", "Story is missing required details.", {
+            gaps: readiness.gaps,
+            suggested_question: readiness.suggested_question,
+          });
+          return;
+        }
       }
 
       const finalTone = tone || context.dials?.tone || "heartfelt";
