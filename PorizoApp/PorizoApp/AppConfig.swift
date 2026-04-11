@@ -18,6 +18,7 @@ enum AppConfig {
             || lowercased.contains("changeme")
             || lowercased.contains("dummy_")
             || lowercased == "dummy"
+            || lowercased.contains("placeholder")
             || lowercased == "todo"
     }
 

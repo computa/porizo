@@ -41,7 +41,7 @@ Set these in Xcode (Build Settings → User-Defined) or Scheme Environment Varia
 - `PORIZO_FACEBOOK_REDIRECT_URI`
 - `PORIZO_FACEBOOK_ADS_APP_ID` (Meta Events Manager / Ads app id used by `FacebookAppID`; checked into the current project settings, but overrideable)
 - `PORIZO_FACEBOOK_CLIENT_TOKEN` (Meta client token used by `FacebookClientToken`; checked into the current project settings, but overrideable)
-- `PORIZO_TIKTOK_CLIENT_KEY` (TikTok Share/OpenSDK client key; required for in-app TikTok sharing and callback handling)
+- `PORIZO_TIKTOK_CLIENT_KEY` (TikTok Share/OpenSDK client key; project ships with a safe placeholder, but real in-app TikTok sharing and callback handling require the actual key)
 - `PORIZO_TIKTOK_REDIRECT_URI` (must match TikTok Share Kit redirect URI; default `https://porizo.co/tiktok/share-callback`)
 - `PORIZO_TIKTOK_BUSINESS_ACCESS_TOKEN` (TikTok Events Manager access token for app install attribution)
 - `PORIZO_TIKTOK_BUSINESS_TIKTOK_APP_ID` (numeric TikTok app id from Events Manager)
