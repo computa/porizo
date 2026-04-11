@@ -34,7 +34,7 @@
 	<key>FacebookAutoLogAppEventsEnabled</key>
 	<true/>
 	<key>FacebookAdvertiserIDCollectionEnabled</key>
-	<true/>
+	<false/>
 	<!-- TikTok Business SDK — required for TikTok Ads App Install attribution. -->
 	<!-- Separate from PORIZO_TIKTOK_CLIENT_KEY (Login/Share OpenSDK). -->
 	<!-- Get these values from TikTok Events Manager → Assets → Events → Web Events → API. -->
@@ -72,8 +72,6 @@
 	<string>Porizo saves your share card image to Photos so TikTok can attach it to your post.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Porizo uses speech recognition to transcribe your voice messages into text for song creation.</string>
-	<key>NSUserTrackingUsageDescription</key>
-	<string>Allow Porizo to measure which ads helped people discover the app so we can show more songs you'll love.</string>
 	<key>PORIZO_API_BASE_URL</key>
 	<string>$(PORIZO_API_BASE_URL)</string>
 	<key>PORIZO_GOOGLE_CLIENT_ID</key>

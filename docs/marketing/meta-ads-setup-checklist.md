@@ -16,7 +16,7 @@
 - `FacebookClientToken` = `$(PORIZO_FACEBOOK_CLIENT_TOKEN)` (env var substitution)
 - `FacebookDisplayName` = `Porizo`
 - `FacebookAutoLogAppEventsEnabled` = `true`
-- `FacebookAdvertiserIDCollectionEnabled` = `true`
+- `FacebookAdvertiserIDCollectionEnabled` = `false` (keeps the install-attribution setup aligned with "no ATT / no IDFA")
 - `LSApplicationQueriesSchemes`: added `fbapi`, `fbauth2`, `fb-messenger-share-api`, `fbshareextension`
 - `SKAdNetworkItems` array with 30 Meta-published ad network IDs
 

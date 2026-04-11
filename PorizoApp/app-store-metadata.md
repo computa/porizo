@@ -242,7 +242,7 @@ Use this table to complete App Store Connect privacy answers so they match runti
 Notes:
 - Firebase Analytics + Crashlytics are integrated.
 - Install-attribution SDKs are present for Meta Ads (covering both Facebook and Instagram placements), TikTok Ads, and Apple Search Ads token capture.
-- No ATT prompt, no IDFA access, and no cross-app tracking are currently implemented.
+- No ATT prompt, no IDFA access, and no cross-app tracking are currently implemented. `FacebookAdvertiserIDCollectionEnabled` is disabled in the shipped plist to keep runtime behavior aligned with that answer.
 - Keep these answers aligned with `/legal/privacy` and `PrivacyInfo.xcprivacy` on every release.
 
 ---
