@@ -13,6 +13,8 @@
 		94F467D80E53413686E7F658 /* BackgroundTaskManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3CC5BD0977E42E99B50ADFF /* BackgroundTaskManagerTests.swift */; };
 		A1B2C3D4E5F60718192A3B4C /* WAVWriterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1E2F3A4B5C60718293A4B5D /* WAVWriterTests.swift */; };
 		A1B2C3D4E5F6A7B8C9D0E1F2 /* OneSignalFramework in Frameworks */ = {isa = PBXBuildFile; productRef = B2C3D4E5F6A7B8C9D0E1F2A3 /* OneSignalFramework */; };
+		A34F0489F3E9AD9E69473B62 /* FacebookCore in Frameworks */ = {isa = PBXBuildFile; productRef = 8CBBA884DAF16B77F3B24AFC /* FacebookCore */; };
+		A560F92B3AC8AF9CB7FB056B /* AdServices.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C21605D8656A2E544391B0FD /* AdServices.framework */; settings = {ATTRIBUTES = (Weak, ); }; };
 		B1C2D3E4F5061829A3B4C5D6 /* RenderPollingServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2F3A4B5C6071829D4E5F6A7 /* RenderPollingServiceTests.swift */; };
 		C173AAB02F24754C00DAC87A /* FirebaseCrashlytics in Frameworks */ = {isa = PBXBuildFile; productRef = C173AAAF2F24754C00DAC87A /* FirebaseCrashlytics */; };
 		C173AAB22F24754C00DAC87B /* FirebaseAnalytics in Frameworks */ = {isa = PBXBuildFile; productRef = C173AAB12F24754C00DAC87B /* FirebaseAnalytics */; };
@@ -25,6 +27,7 @@
 		E9F14A305D7E8B9012345678 /* TikTokOpenShareSDK in Frameworks */ = {isa = PBXBuildFile; productRef = E9F14A2E5D7E8B9012345678 /* TikTokOpenShareSDK */; };
 		F1A2B3C4D5E6F7089A1B2C3D /* AmplitudeSwift in Frameworks */ = {isa = PBXBuildFile; productRef = F1A2B3C4D5E6F7089A1B2C3E /* AmplitudeSwift */; };
 		F7A8B9C0D1E2F3A4B5C6D7E8 /* AuthManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = H8I9J0K1L2M34N5O6P7Q8R9S /* AuthManagerTests.swift */; };
+		FC533DEA832DF6C76A418CC0 /* TikTokBusinessSDK in Frameworks */ = {isa = PBXBuildFile; productRef = 58BC046D29CE3F6A937DA5A9 /* TikTokBusinessSDK */; };
 		I9J0K1L2M3N45O6P7Q8R9S0T /* AuthProtectedDataTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = J0K1L2M3N4O56P7Q8R9S0T1U /* AuthProtectedDataTests.swift */; };
 		K1L2M3N4O5P67Q8R9S0T1U2V /* AuthManagerRaceConditionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = L2M3N4O5P6Q78R9S0T1U2V3W /* AuthManagerRaceConditionTests.swift */; };
 		M3N4O5P6Q7R89S0T1U2V3W4X /* PlaybackControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = N4O5P6Q7R8S90T1U2V3W4X5Y /* PlaybackControllerTests.swift */; };
@@ -61,6 +64,7 @@
 		C1958D962F31FAB10023BE47 /* PorizoApp.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = PorizoApp.xcodeproj; sourceTree = "<group>"; };
 		C1958FBB2F334D5A0023BE47 /* PorizoApp.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = PorizoApp.xcodeproj; sourceTree = "<group>"; };
 		C19594C72F34AE420023BE47 /* PorizoApp.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = PorizoApp.xcodeproj; sourceTree = "<group>"; };
+		C21605D8656A2E544391B0FD /* AdServices.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AdServices.framework; path = System/Library/Frameworks/AdServices.framework; sourceTree = SDKROOT; };
 		D1E2F3A4B5C60718293A4B5D /* WAVWriterTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = WAVWriterTests.swift; path = PorizoAppTests/WAVWriterTests.swift; sourceTree = "<group>"; };
 		D3CC5BD0977E42E99B50ADFF /* BackgroundTaskManagerTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = BackgroundTaskManagerTests.swift; path = PorizoAppTests/BackgroundTaskManagerTests.swift; sourceTree = "<group>"; };
 		E2F3A4B5C6071829D4E5F6A7 /* RenderPollingServiceTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = RenderPollingServiceTests.swift; path = PorizoAppTests/RenderPollingServiceTests.swift; sourceTree = "<group>"; };
@@ -106,6 +110,9 @@
 				E9F14A2F5D7E8B9012345678 /* TikTokOpenSDKCore in Frameworks */,
 				E9F14A305D7E8B9012345678 /* TikTokOpenShareSDK in Frameworks */,
 				A1B2C3D4E5F6A7B8C9D0E1F2 /* OneSignalFramework in Frameworks */,
+				A34F0489F3E9AD9E69473B62 /* FacebookCore in Frameworks */,
+				FC533DEA832DF6C76A418CC0 /* TikTokBusinessSDK in Frameworks */,
+				A560F92B3AC8AF9CB7FB056B /* AdServices.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -224,6 +231,7 @@
 			isa = PBXGroup;
 			children = (
 				0D8D034CB9C0CFD33FA9B9A2 /* iOS */,
+				C21605D8656A2E544391B0FD /* AdServices.framework */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -266,6 +274,10 @@
 				C125A4892F05F57600120F9A /* PorizoApp */,
 			);
 			name = PorizoApp;
+			packageProductDependencies = (
+				8CBBA884DAF16B77F3B24AFC /* FacebookCore */,
+				58BC046D29CE3F6A937DA5A9 /* TikTokBusinessSDK */,
+			);
 			productName = PorizoApp;
 			productReference = C125A4872F05F57600120F9A /* PorizoApp.app */;
 			productType = "com.apple.product-type.application";
@@ -320,6 +332,8 @@
 				E9F14A2C5D7E8B9012345678 /* XCRemoteSwiftPackageReference "tiktok-opensdk-ios" */,
 				D6E7F8A9B0C1D2E3F4A5B6C7 /* XCRemoteSwiftPackageReference "OneSignal-XCFramework" */,
 				F1A2B3C4D5E6F7089A1B2C30 /* XCRemoteSwiftPackageReference "Amplitude-Swift" */,
+				CC52155D818E6C869F8376D6 /* XCRemoteSwiftPackageReference "facebook-ios-sdk" */,
+				41B7CE2696C569D1A49E9961 /* XCRemoteSwiftPackageReference "tiktok-business-ios-sdk" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = C125A4882F05F57600120F9A /* Products */;
@@ -607,7 +621,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = PorizoApp/PorizoApp.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 87;
+				CURRENT_PROJECT_VERSION = 89;
 				DEVELOPMENT_TEAM = 5VCH6937XM;
 				ENABLE_PREVIEWS = YES;
 				EXCLUDED_SOURCE_FILE_NAMES = CLAUDE.md;
@@ -624,7 +638,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.5.1;
+				MARKETING_VERSION = 1.5.3;
 				PORIZO_TIKTOK_CLIENT_KEY = dummy_tiktok_client_key_replace_me;
 				PORIZO_TIKTOK_REDIRECT_URI = "https://porizo.co/tiktok/share-callback";
 				PRODUCT_BUNDLE_IDENTIFIER = porizo.ios.app.PorizoApp;
@@ -645,7 +659,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = PorizoApp/PorizoApp.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 87;
+				CURRENT_PROJECT_VERSION = 89;
 				DEVELOPMENT_TEAM = 5VCH6937XM;
 				ENABLE_PREVIEWS = YES;
 				EXCLUDED_SOURCE_FILE_NAMES = CLAUDE.md;
@@ -662,7 +676,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.5.1;
+				MARKETING_VERSION = 1.5.3;
 				PORIZO_TIKTOK_CLIENT_KEY = dummy_tiktok_client_key_replace_me;
 				PORIZO_TIKTOK_REDIRECT_URI = "https://porizo.co/tiktok/share-callback";
 				PRODUCT_BUNDLE_IDENTIFIER = porizo.ios.app.PorizoApp;
@@ -696,7 +710,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 87;
+				CURRENT_PROJECT_VERSION = 89;
 				DEVELOPMENT_TEAM = 5VCH6937XM;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = PorizoNotificationServiceExtension/Info.plist;
@@ -708,7 +722,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.5.1;
+				MARKETING_VERSION = 1.5.3;
 				PRODUCT_BUNDLE_IDENTIFIER = porizo.ios.app.PorizoApp.NotificationServiceExtension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -739,7 +753,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 87;
+				CURRENT_PROJECT_VERSION = 89;
 				DEVELOPMENT_TEAM = 5VCH6937XM;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = PorizoNotificationServiceExtension/Info.plist;
@@ -751,7 +765,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.5.1;
+				MARKETING_VERSION = 1.5.3;
 				PRODUCT_BUNDLE_IDENTIFIER = porizo.ios.app.PorizoApp.NotificationServiceExtension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -803,12 +817,28 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		41B7CE2696C569D1A49E9961 /* XCRemoteSwiftPackageReference "tiktok-business-ios-sdk" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/tiktok/tiktok-business-ios-sdk";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.6.0;
+			};
+		};
 		C173AAAC2F24754C00DAC87A /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/firebase/firebase-ios-sdk";
 			requirement = {
 				kind = upToNextMajorVersion;
 				minimumVersion = 12.8.0;
+			};
+		};
+		CC52155D818E6C869F8376D6 /* XCRemoteSwiftPackageReference "facebook-ios-sdk" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/facebook/facebook-ios-sdk";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 18.0.0;
 			};
 		};
 		D6E7F8A9B0C1D2E3F4A5B6C7 /* XCRemoteSwiftPackageReference "OneSignal-XCFramework" */ = {
@@ -838,6 +868,16 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		58BC046D29CE3F6A937DA5A9 /* TikTokBusinessSDK */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 41B7CE2696C569D1A49E9961 /* XCRemoteSwiftPackageReference "tiktok-business-ios-sdk" */;
+			productName = TikTokBusinessSDK;
+		};
+		8CBBA884DAF16B77F3B24AFC /* FacebookCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CC52155D818E6C869F8376D6 /* XCRemoteSwiftPackageReference "facebook-ios-sdk" */;
+			productName = FacebookCore;
+		};
 		B2C3D4E5F6A7B8C9D0E1F2A3 /* OneSignalFramework */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = D6E7F8A9B0C1D2E3F4A5B6C7 /* XCRemoteSwiftPackageReference "OneSignal-XCFramework" */;

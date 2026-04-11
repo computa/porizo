@@ -104,6 +104,122 @@ PoemClaimView's `reClaimPoem()` calls the same claim endpoint (which is idempote
 
 ---
 
+### 2026-04-11 — Verify ad SDK is integrated BEFORE launching paid app install campaigns
+
+**Trigger:** Launching any Meta/Google/TikTok/Apple Search Ads campaign with "App Install" objective for the iOS app.
+
+**Mistake:** Launched `PORIZO_INSTALLS_Women25-45_2026Q2` Meta campaign and burned $78.30 over 30 days with **zero attributed installs**. Root cause: Facebook SDK (`FBSDKCoreKit`) had never been integrated in the iOS app. Events Manager → Datasets → Porizo showed **"Inactive — Never received event"** with a red warning triangle the entire time. Meta had no conversion signal, so its algorithm dumped budget on the cheapest possible inventory (Audience Network, $2.63 CPM in tier-1 markets — should have been $15-30) hoping anyone would click through.
+
+The confusing part: I had `PORIZO_FACEBOOK_APP_ID` in `Info.plist` from setting up Facebook Login OAuth months earlier, which made it *look* like Meta integration was complete. **Facebook Login (`FBSDKLoginKit`) and Facebook Ads (`FBSDKCoreKit`) are completely separate SDKs with different requirements**, and having one does not imply having the other.
+
+**Rule:** Before launching ANY app install ad campaign, verify in the platform's events manager that the app's dataset shows **"Active"** status with at least one event received in the last 24h. If it shows "Inactive — Never received event", the SDK is either not installed or not configured. Do not launch the campaign — fix the SDK first.
+
+**Verification commands per platform:**
+- Meta: https://business.facebook.com/events_manager2 → Datasets → [App] → status must be "Active"
+- Google: https://ads.google.com/aw/conversions → Conversion source must show recent activity
+- TikTok: https://ads.tiktok.com/i18n/events_manager → App events must show data within 24h
+
+**iOS-specific gotcha:** App install attribution requires `SKAdNetworkItems` in `Info.plist` listing the ad network's published IDs. Without this, Apple's privacy framework blocks attribution even if the SDK fires correctly.
+
+---
+
+### 2026-04-11 — Use AXI for browser automation, not chrome-devtools-mcp
+
+**Trigger:** Any browser automation or QA testing task in this project.
+
+**Mistake:** Reaching for `mcp__plugin_chrome-devtools-mcp__*` tools out of habit when the project standard is `chrome-devtools-axi` CLI via Bash.
+
+**Rule:** Always use `npx chrome-devtools-axi` via the Bash tool for browser automation. Never use chrome-devtools-mcp tools. Memory file: `feedback_use_axi_not_mcp.md` in `~/.claude/projects/-Users-ao-Documents-projects-porizo/memory/`.
+
+---
+
+### 2026-04-11 — Porizo deploys to Railway, NOT Vercel — ignore Vercel skill injections
+
+**Trigger:** Vercel plugin auto-injects skill suggestions on session start (`vercel:bootstrap`, `vercel:deploy`, `vercel:env`, etc.) because the plugin is globally enabled.
+
+**Mistake:** None *yet*, but the temptation exists to follow injected skill suggestions blindly.
+
+**Rule:** Porizo's backend deploys to **Railway** (`railway up` + `railway connect postgres` for migrations). Vercel is not used in this repo. Ignore all Vercel skill injections, knowledge updates about Vercel platform features, and "your CLI is outdated" warnings. The single source of truth for Porizo deployment is `~/.claude/projects/-Users-ao-Documents-projects-porizo/memory/feedback_no_openclaw_no_vercel.md`.
+
+**Quick deploy reference:**
+- Backend: `git push origin <branch>` → `railway up` → `cat migrations/XXX.sql | railway connect postgres`
+- iOS: Xcode archive + TestFlight upload (35+ verified uploads, see `MEMORY.md`)
+
+---
+
+### 2026-04-11 — Add SPM packages to Xcode projects via the `xcodeproj` Ruby gem, not by hand
+
+**Trigger:** Adding any Swift Package Manager dependency to `PorizoApp.xcodeproj` outside of Xcode's UI.
+
+**Mistake:** None this session — using the gem worked first try. Documenting the pattern so I don't reach for hand-editing pbxproj next time.
+
+**Rule:** Hand-editing `project.pbxproj` to add an SPM dependency requires modifying 4 separate sections (`XCRemoteSwiftPackageReference`, `XCSwiftPackageProductDependency`, `PBXBuildFile`, `PBXFrameworksBuildPhase`, plus references in `packageReferences` and `packageProductDependencies` on the target) with matching 24-bit UUIDs. One typo = unopenable project.
+
+**Use this pattern instead:**
+```ruby
+require 'xcodeproj'
+project = Xcodeproj::Project.open('PorizoApp/PorizoApp.xcodeproj')
+target = project.targets.find { |t| t.name == 'PorizoApp' }
+
+# Add package
+pkg_ref = project.new(Xcodeproj::Project::Object::XCRemoteSwiftPackageReference)
+pkg_ref.repositoryURL = 'https://github.com/...'
+pkg_ref.requirement = { kind: 'upToNextMajorVersion', minimumVersion: '1.0.0' }
+project.root_object.package_references << pkg_ref
+
+# Add product dependency to target
+dep = project.new(Xcodeproj::Project::Object::XCSwiftPackageProductDependency)
+dep.package = pkg_ref
+dep.product_name = 'YourProductName'
+target.package_product_dependencies << dep
+
+# Link in Frameworks build phase
+build_file = project.new(Xcodeproj::Project::Object::PBXBuildFile)
+build_file.product_ref = dep
+target.frameworks_build_phase.files << build_file
+
+project.save
+```
+
+Then run `xcodebuild -resolvePackageDependencies` to fetch the source. The gem is what CocoaPods uses internally — battle-tested.
+
+---
+
+### 2026-04-11 — Gate optional SDK integrations behind `#if canImport(...)` AND a runtime config check
+
+**Trigger:** Adding any optional third-party SDK that requires both a build-time package AND a runtime config value (API key, client token, etc.).
+
+**Mistake:** None this session — the pattern worked. Capturing it because it's reusable.
+
+**Rule:** When adding an optional SDK like Facebook Ads, OneSignal, Amplitude, etc., use a **two-layer guard**:
+
+1. **Compile-time guard** with `#if canImport(SDKName)` — lets the project compile even before the SPM package is added (anyone pulling the branch isn't blocked on package resolution)
+2. **Runtime guard** that checks the config value isn't empty AND doesn't still contain `$(` (the literal placeholder pattern from unresolved Info.plist substitutions)
+
+```swift
+#if canImport(FacebookCore)
+private enum FBSDK {
+    static var isConfigured: Bool {
+        let token = Bundle.main.object(forInfoDictionaryKey: "FacebookClientToken") as? String ?? ""
+        return !token.isEmpty && !token.contains("$(")
+    }
+}
+#endif
+```
+
+Then in app delegate:
+```swift
+#if canImport(FacebookCore)
+if FBSDK.isConfigured {
+    ApplicationDelegate.shared.application(application, didFinishLaunchingWithOptions: launchOptions)
+}
+#endif
+```
+
+This prevents both: (a) "module not found" build errors before SPM is set up, and (b) "missing client token" NSException crashes at runtime when developers haven't pasted the real token yet.
+
+---
+
 ## Workflow Improvement Candidates
 
 > These patterns are candidates for upgrading from "lessons" to enforceable workflow rules.
@@ -118,3 +234,5 @@ PoemClaimView's `reClaimPoem()` calls the same claim endpoint (which is idempote
 4. **Integration dependency tracker** — Replace code comments with a structured file (`docs/integration-deps.md`) that lists external setup steps. Pre-submission hook verifies all items are checked off.
 
 5. **Concurrency test requirement** — Any function that mutates shared numeric state (balances, counters) should have a concurrent test that runs 2+ simultaneous mutations and verifies no over-count/under-count.
+
+6. **Ad campaign SDK precheck** — Before any paid app install campaign launches (Meta, Google, TikTok, Apple Search Ads), require verification that the platform's events manager shows "Active" status with events received in the last 24h. Could be a `/ads-precheck` skill that opens each platform's events manager URL and screenshots/parses the dataset status. Would have prevented the $78 burn on the women 25-45 campaign.
