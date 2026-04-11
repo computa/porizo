@@ -35,6 +35,7 @@ const { issueDeviceToken, verifyDeviceToken } = require("./services/device-token
 const { registerAuthRoutes } = require("./routes/auth");
 const { registerLegalRoutes } = require("./routes/legal");
 const { registerBlogRoutes } = require("./routes/blog");
+const { registerAnalyticsRoutes } = require("./routes/analytics");
 const { registerStoryRoutes } = require("./routes/story");
 const { registerEnrollmentRoutes } = require("./routes/enrollment");
 const { registerPoemRoutes } = require("./routes/poems");
@@ -3528,6 +3529,16 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     orchestrationExternalCommandJson,
     orchestrationExternalTimeoutMs,
     storyEngineDefault,
+  });
+
+  // ============ Analytics / Attribution ============
+  registerAnalyticsRoutes(app, {
+    db,
+    appConfig,
+    requireUserId,
+    sendError,
+    addAuditEntry,
+    eventsService,
   });
 
   app.get("/health", async () => ({

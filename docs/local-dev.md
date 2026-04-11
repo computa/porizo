@@ -39,10 +39,15 @@ Set these in Xcode (Build Settings → User-Defined) or Scheme Environment Varia
 - `PORIZO_GOOGLE_REDIRECT_URI`
 - `PORIZO_FACEBOOK_APP_ID`
 - `PORIZO_FACEBOOK_REDIRECT_URI`
-- `PORIZO_TIKTOK_CLIENT_KEY` (dummy default in project; replace with your real TikTok Client Key)
+- `PORIZO_FACEBOOK_ADS_APP_ID` (Meta Events Manager / Ads app id used by `FacebookAppID`; checked into the current project settings, but overrideable)
+- `PORIZO_FACEBOOK_CLIENT_TOKEN` (Meta client token used by `FacebookClientToken`; checked into the current project settings, but overrideable)
+- `PORIZO_TIKTOK_CLIENT_KEY` (TikTok Share/OpenSDK client key; required for in-app TikTok sharing and callback handling)
 - `PORIZO_TIKTOK_REDIRECT_URI` (must match TikTok Share Kit redirect URI; default `https://porizo.co/tiktok/share-callback`)
+- `PORIZO_TIKTOK_BUSINESS_ACCESS_TOKEN` (TikTok Events Manager access token for app install attribution)
+- `PORIZO_TIKTOK_BUSINESS_TIKTOK_APP_ID` (numeric TikTok app id from Events Manager)
 
 If these are not set, the Google/Facebook buttons are hidden in the auth screen.
+Meta app-events are configured in the checked-in build settings for this repo. TikTok Share/OpenSDK and TikTok Business attribution stay disabled until you provide real TikTok credentials. Instagram app install ads use the Meta SDK path; there is no separate Instagram iOS SDK in this project.
 
 ## Sample Flow
 ```

@@ -247,8 +247,22 @@ struct RootView: View {
             Task {
                 if let client = apiClient {
                     _ = try? await client.ensureDeviceToken()
+                    await AppleAdsAttributionService.submitPendingIfPossible(
+                        using: client,
+                        isAuthenticated: authManager.isAuthenticated
+                    )
                     await JobRecoveryService.checkPendingRenders(using: client)
                 }
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .appleAdsAttributionTokenCaptured)) { notification in
+            guard let token = notification.userInfo?["token"] as? String else { return }
+            AppleAdsAttributionService.storePendingToken(token)
+            Task {
+                await AppleAdsAttributionService.submitPendingIfPossible(
+                    using: apiClient,
+                    isAuthenticated: authManager.isAuthenticated
+                )
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .pushTokenUpdated)) { _ in

@@ -82,6 +82,10 @@ const APPLE_APP_STORE_ISSUER_ID = process.env.APPLE_APP_STORE_ISSUER_ID || "";
 const APPLE_APP_STORE_PRIVATE_KEY = process.env.APPLE_APP_STORE_PRIVATE_KEY || "";
 const APPLE_BUNDLE_ID = process.env.APPLE_BUNDLE_ID || "";
 const APPLE_ENVIRONMENT = process.env.APPLE_ENVIRONMENT || "production";
+const APPLE_ADS_ATTRIBUTION_URL =
+  process.env.APPLE_ADS_ATTRIBUTION_URL || "https://api-adservices.apple.com/api/v1/";
+const APPLE_ADS_ATTRIBUTION_TIMEOUT_MS =
+  Number(process.env.APPLE_ADS_ATTRIBUTION_TIMEOUT_MS || 8000);
 
 // OpenAI API key for Whisper speech-to-text
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
@@ -196,6 +200,8 @@ module.exports = {
   APPLE_APP_STORE_PRIVATE_KEY,
   APPLE_BUNDLE_ID,
   APPLE_ENVIRONMENT,
+  APPLE_ADS_ATTRIBUTION_URL,
+  APPLE_ADS_ATTRIBUTION_TIMEOUT_MS,
   SUNO_API_KEY,
   SUNO_BASE_URL,
   MUSIC_PROVIDER,

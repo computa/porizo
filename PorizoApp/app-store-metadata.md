@@ -215,9 +215,9 @@ All music is AI-generated, lyrics are original, and voice is user's own. No lice
 
 | Question | Answer | Reason |
 |----------|--------|--------|
-| Does this app use the Advertising Identifier (IDFA)? | **No** | No ads, no ad attribution SDKs |
+| Does this app use the Advertising Identifier (IDFA)? | **No** | Uses install-attribution SDKs (Meta, TikTok Business, AdServices) without requesting ATT / IDFA |
 
-The app does not request IDFA or ATT permission.
+The app does not request ATT permission and does not access IDFA. Install attribution relies on SKAdNetwork, Meta/TikTok app events, and Apple's AdServices token flow.
 
 ---
 
@@ -241,7 +241,8 @@ Use this table to complete App Store Connect privacy answers so they match runti
 
 Notes:
 - Firebase Analytics + Crashlytics are integrated.
-- No third-party advertising SDKs and no cross-app tracking.
+- Install-attribution SDKs are present for Meta Ads (covering both Facebook and Instagram placements), TikTok Ads, and Apple Search Ads token capture.
+- No ATT prompt, no IDFA access, and no cross-app tracking are currently implemented.
 - Keep these answers aligned with `/legal/privacy` and `PrivacyInfo.xcprivacy` on every release.
 
 ---

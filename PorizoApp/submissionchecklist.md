@@ -134,7 +134,7 @@ Before clicking "Submit for Review":
 - [ ] Build selected
 - [ ] Export compliance (uses encryption? HTTPS = Yes, exempt)
 - [ ] Content rights declaration
-- [ ] Advertising identifier (IDFA) — No if not using ads
+- [ ] Advertising identifier (IDFA) — No if not requesting ATT / using IDFA, even with install-attribution SDKs present
 
 ---
 

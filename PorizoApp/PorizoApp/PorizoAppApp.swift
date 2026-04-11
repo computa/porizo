@@ -28,8 +28,8 @@ private func infoPlistConfig(_ key: String) -> String {
 
 #if canImport(FacebookCore)
 /// Runtime guard — skips FB SDK init if `PORIZO_FACEBOOK_CLIENT_TOKEN` isn't set in
-/// xcconfig. Prevents "missing client token" NSException crashes in dev builds.
-/// Production builds must set the env var for Meta Ads attribution to work.
+/// build settings / Info.plist. Prevents "missing client token" NSException crashes
+/// in incomplete builds.
 private enum FBSDK {
     static var isConfigured: Bool {
         !infoPlistConfig("FacebookClientToken").isEmpty
@@ -63,6 +63,7 @@ private enum AppleAdsAttribution {
         }
         do {
             let token = try AAAttribution.attributionToken()
+            AppleAdsAttributionService.storePendingToken(token)
             print("[AppleAds] Captured attribution token (\(token.count) chars)")
             NotificationCenter.default.post(
                 name: .appleAdsAttributionTokenCaptured,
@@ -100,7 +101,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             )
             print("[FBSDK] Initialized for Meta Ads attribution")
         } else {
-            print("[FBSDK] Skipped init — PORIZO_FACEBOOK_CLIENT_TOKEN not set in xcconfig")
+            print("[FBSDK] Skipped init — FacebookClientToken not configured in build settings / Info.plist")
         }
         #endif
 
@@ -119,7 +120,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
                 }
             }
         } else {
-            print("[TikTokBiz] Skipped init — PORIZO_TIKTOK_BUSINESS_* keys not set in xcconfig")
+            print("[TikTokBiz] Skipped init — TikTok Business build settings not configured")
         }
         #endif
 

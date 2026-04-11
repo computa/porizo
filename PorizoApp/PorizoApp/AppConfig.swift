@@ -8,6 +8,19 @@
 import Foundation
 
 enum AppConfig {
+    private static func isPlaceholderConfigValue(_ value: String) -> Bool {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return true }
+
+        let lowercased = trimmed.lowercased()
+        return trimmed.hasPrefix("$(")
+            || lowercased.contains("replace_me")
+            || lowercased.contains("changeme")
+            || lowercased.contains("dummy_")
+            || lowercased == "dummy"
+            || lowercased == "todo"
+    }
+
     private static func parseBooleanString(_ value: String) -> Bool? {
         switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
         case "1", "true", "yes", "on":
@@ -21,13 +34,13 @@ enum AppConfig {
 
     private static func configString(_ key: String) -> String? {
         let envValue = ProcessInfo.processInfo.environment[key]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if !envValue.isEmpty {
+        if !isPlaceholderConfigValue(envValue) {
             return envValue
         }
 
         if let infoValue = Bundle.main.object(forInfoDictionaryKey: key) as? String {
             let trimmed = infoValue.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty, !trimmed.hasPrefix("$(") {
+            if !isPlaceholderConfigValue(trimmed) {
                 return trimmed
             }
         }

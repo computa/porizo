@@ -504,9 +504,9 @@ The current setup (4 direct SDKs: Meta + TikTok + Apple + Google-via-Firebase) i
 
 | Platform | SDK | Install | Config | Verification | Status |
 |---|---|---|---|---|---|
-| **Meta (Facebook + Instagram)** | `FacebookCore` | ✅ Added | ✅ Real token | Events Manager → `fb_mobile_activate_app` | **Ready (needs build 88 live)** |
-| **TikTok** | `TikTokBusinessSDK` | ✅ Added | ⚠️ Placeholders | TikTok Events Manager → Launch App | **Needs Steps T1-T3 (creds)** |
-| **Apple Search Ads** | `AdServices` (built-in) | ✅ Linked | N/A — no config | App Store Connect → Search Ads dashboard | **Code ready, needs backend + campaign** |
+| **Meta (Facebook + Instagram)** | `FacebookCore` | ✅ Added | ✅ Build settings + plist wired | Events Manager → `fb_mobile_activate_app` | **Launch-ready pending live device verification** |
+| **TikTok** | `TikTokBusinessSDK` + TikTok OpenSDK | ✅ Added | ⚠️ Integration complete, but real TikTok client key + business creds still required | TikTok Events Manager → Launch App + Share/OpenSDK callback | **Not launch-ready until real TikTok credentials are configured** |
+| **Apple Search Ads** | `AdServices` (built-in) | ✅ Linked | ✅ iOS token capture + backend resolution route | Search Ads dashboard + backend attribution rows | **Launch-ready pending campaign + live attribution test** |
 | **Google Ads (UAC)** | Firebase Analytics | ✅ Already wired | N/A — via Firebase link | Google Ads → Conversions | **Needs Step G1 (Firebase↔Google Ads link)** |
 
 ## Suggested Rollout Sequence (Revised from Part 1)

@@ -26,9 +26,9 @@
 	<!-- Separate from PORIZO_FACEBOOK_APP_ID below (which is used for Facebook Login/OAuth). -->
 	<!-- FacebookAppID must match the App ID shown in Meta Events Manager → Datasets → Porizo. -->
 	<key>FacebookAppID</key>
-	<string>1984455025792561</string>
+	<string>$(PORIZO_FACEBOOK_ADS_APP_ID)</string>
 	<key>FacebookClientToken</key>
-	<string>5f5ef71af5f6f046f514bccf946c7c0f</string>
+	<string>$(PORIZO_FACEBOOK_CLIENT_TOKEN)</string>
 	<key>FacebookDisplayName</key>
 	<string>Porizo</string>
 	<key>FacebookAutoLogAppEventsEnabled</key>
@@ -72,6 +72,8 @@
 	<string>Porizo saves your share card image to Photos so TikTok can attach it to your post.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Porizo uses speech recognition to transcribe your voice messages into text for song creation.</string>
+	<key>NSUserTrackingUsageDescription</key>
+	<string>Allow Porizo to measure which ads helped people discover the app so we can show more songs you'll love.</string>
 	<key>PORIZO_API_BASE_URL</key>
 	<string>$(PORIZO_API_BASE_URL)</string>
 	<key>PORIZO_GOOGLE_CLIENT_ID</key>
@@ -114,8 +116,15 @@
 			<key>CFBundleURLName</key>
 			<string>com.porizo.oauth</string>
 		</dict>
-		<!-- TikTok URL schemes added when client key is configured -->
-
+		<dict>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>$(PORIZO_TIKTOK_CLIENT_KEY)</string>
+				<string>tt$(PORIZO_TIKTOK_CLIENT_KEY)</string>
+			</array>
+			<key>CFBundleURLName</key>
+			<string>com.porizo.tiktok</string>
+		</dict>
 	</array>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
