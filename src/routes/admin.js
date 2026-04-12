@@ -8,6 +8,7 @@ const { BlogService, normalizePostInput } = require("../services/blog-service");
 const { inferBlogDraftFields } = require("../services/blog-autofill-service");
 const { reviewBlogDraft } = require("../services/blog-review-service");
 const { generateEditorialReview } = require("../services/blog-editorial-review-service");
+const blogRepairService = require("../services/blog-repair-service");
 const { renderBlogPostPage } = require("../services/blog-render-service");
 const { analyzeBlend, formatAnalysisReport } = require("../utils/blend-analyzer");
 const { newUuid } = require("../utils/ids");
@@ -430,6 +431,70 @@ app.post("/admin/dashboard/blog/posts/:id/review", async (request, reply) => {
     editorial_status: report.editorial_review?.status || null,
   });
   reply.send({ post: updated, report });
+});
+
+app.post("/admin/dashboard/blog/posts/:id/repair", async (request, reply) => {
+  const admin = await requireAdminSession(request, reply);
+  if (!admin) return;
+
+  const post = await blogService.getPostById(request.params.id);
+  if (!post) {
+    return sendError(reply, 404, "NOT_FOUND", "Blog post not found");
+  }
+
+  let reviewReport = post.review_report || reviewBlogDraft(post);
+  if (!reviewReport.editorial_review) {
+    reviewReport.editorial_review = await generateEditorialReview(post, reviewReport);
+  }
+
+  const repairResult = await blogRepairService.generateBlogRepairDraft(post, reviewReport);
+  if (repairResult.status !== "available" || !repairResult.draft) {
+    const message = repairResult.error || repairResult.summary || "AI draft repair is unavailable right now.";
+    return sendError(reply, 503, "BLOG_REPAIR_UNAVAILABLE", message);
+  }
+
+  const normalized = validateBlogPayload(
+    {
+      ...repairResult.draft,
+      author_name: repairResult.draft.author_name || post.author_name || admin.displayName || admin.email,
+    },
+    reply,
+    { requireBody: true }
+  );
+  if (!normalized) return;
+
+  try {
+    const repairedPost = await blogService.updatePost(request.params.id, normalized, admin.adminId);
+    if (!repairedPost) {
+      return sendError(reply, 404, "NOT_FOUND", "Blog post not found");
+    }
+
+    const repairedReport = reviewBlogDraft(repairedPost);
+    repairedReport.editorial_review = await generateEditorialReview(repairedPost, repairedReport);
+    const updated = await blogService.saveReviewResult(repairedPost.id, repairedReport, admin.adminId);
+
+    await adminService._audit(admin.adminId, "blog_post_repair", "blog_post", repairedPost.id, {
+      slug: repairedPost.slug,
+      review_score_before: reviewReport.overallScore,
+      review_score_after: repairedReport.overallScore,
+      repair_provider: repairResult.provider,
+      repair_model: repairResult.model,
+    });
+
+    reply.send({
+      post: updated,
+      repair: {
+        summary: repairResult.summary,
+        provider: repairResult.provider,
+        model: repairResult.model,
+        before: reviewReport,
+        after: repairedReport,
+      },
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to repair blog draft";
+    sendError(reply, 400, "BLOG_REPAIR_FAILED", message);
+  }
 });
 
 app.post("/admin/dashboard/blog/posts/:id/publish", async (request, reply) => {

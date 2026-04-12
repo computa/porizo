@@ -7,6 +7,7 @@ const { beforeEach, afterEach, describe, test } = require("node:test");
 
 const { getDatabase } = require("../src/database");
 const { buildServer } = require("../src/server");
+const blogRepairService = require("../src/services/blog-repair-service");
 
 function buildApprovedPayload(overrides = {}) {
   const bodyMarkdown = [
@@ -238,5 +239,114 @@ describe("blog CMS routes", () => {
     assert.equal(draft.target_intent, "informational");
     assert.ok(Array.isArray(draft.tags));
     assert.ok(draft.tags.includes("gifting"));
+  });
+
+  test("autofill still generates search metadata when the article has no markdown heading", async () => {
+    const response = await app.inject({
+      method: "POST",
+      url: "/admin/dashboard/blog/posts/autofill",
+      headers: { Authorization: `Bearer ${adminToken}` },
+      payload: {
+        body_markdown: [
+          "Your dad remembers the song that was playing the day you took your first steps and the drive home from the hospital with the windows down.",
+          "",
+          "A personalized song gift for dad lands better when the draft centers one vivid memory, one detail he would instantly recognize, and one emotional truth about what he gave you.",
+          "",
+          "The best gift ideas for parents stay specific instead of trying to retell an entire life story.",
+        ].join("\n"),
+      },
+    });
+
+    assert.equal(response.statusCode, 200);
+    const draft = response.json().draft;
+    assert.equal(draft.title, "Personalized Song Gift Ideas for Dad");
+    assert.equal(draft.primary_keyword, "personalized song gift for dad");
+    assert.equal(draft.target_query, "personalized song gift for dad");
+    assert.ok(draft.tags.includes("gifting"));
+  });
+
+  test("repair route rewrites the draft from review findings and reruns review", async () => {
+    const originalGenerateRepair = blogRepairService.generateBlogRepairDraft;
+    blogRepairService.generateBlogRepairDraft = async () => ({
+      status: "available",
+      summary: "Expanded the draft and fixed the review blockers.",
+      provider: "gemini",
+      model: "gemini-2.0-flash",
+      draft: {
+        title: "Personalized Song Gift Ideas for Dad",
+        slug: "personalized-song-gift-ideas-for-dad",
+        excerpt: "Learn how to turn one vivid family memory into a personalized song gift for dad that feels specific, warm, and easy to share.",
+        answer_summary: "A personalized song gift for dad works when it answers the emotional why quickly, then supports it with a concrete memory and clear structure.",
+        target_query: "personalized song gift for dad",
+        target_intent: "informational",
+        primary_keyword: "personalized song gift for dad",
+        hero_image_url: "",
+        body_markdown: [
+          "A personalized song gift for dad works best when the article opens with one clear memory and explains why that moment still matters.",
+          "",
+          "## How to write it well",
+          "",
+          "- Start with one scene he would recognize instantly.",
+          "- Add one quote or phrase he always says.",
+          "- Explain the emotional truth the song should carry.",
+          "",
+          "Read more about [gift ideas](/gift) and see [Google's helpful content guidance](https://developers.google.com/search/docs/fundamentals/creating-helpful-content).",
+          "",
+          "## FAQ",
+          "",
+          "### What makes a good personalized song gift for dad?",
+          "It should stay specific, emotionally clear, and easy to scan.",
+        ].join("\n"),
+        tags: ["gifting", "personalized songs"],
+      },
+    });
+
+    try {
+      const createResponse = await app.inject({
+        method: "POST",
+        url: "/admin/dashboard/blog/posts",
+        headers: { Authorization: `Bearer ${adminToken}` },
+        payload: buildApprovedPayload({
+          title: "Gift Ideas for Dad",
+          slug: "gift-ideas-for-dad",
+          excerpt: "Short excerpt.",
+          answer_summary: "Short summary.",
+          target_query: "",
+          primary_keyword: "",
+          hero_image_url: "",
+          body_markdown: "Your dad remembers the song from the drive home after the hospital.",
+        }),
+      });
+      assert.equal(createResponse.statusCode, 200);
+      const post = createResponse.json().post;
+
+      const reviewResponse = await app.inject({
+        method: "POST",
+        url: `/admin/dashboard/blog/posts/${post.id}/review`,
+        headers: { Authorization: `Bearer ${adminToken}` },
+        payload: {},
+      });
+      assert.equal(reviewResponse.statusCode, 200);
+      assert.equal(reviewResponse.json().report.decision, "rejected");
+
+      const repairResponse = await app.inject({
+        method: "POST",
+        url: `/admin/dashboard/blog/posts/${post.id}/repair`,
+        headers: { Authorization: `Bearer ${adminToken}` },
+        payload: {},
+      });
+
+      assert.equal(repairResponse.statusCode, 200);
+      const repaired = repairResponse.json();
+      assert.equal(repaired.post.title, "Personalized Song Gift Ideas for Dad");
+      assert.equal(repaired.post.primary_keyword, "personalized song gift for dad");
+      assert.equal(repaired.post.target_query, "personalized song gift for dad");
+      assert.match(repaired.post.body_markdown, /## How to write it well/);
+      assert.equal(repaired.repair.provider, "gemini");
+      assert.equal(repaired.repair.before.decision, "rejected");
+      assert.ok(typeof repaired.repair.after.overallScore === "number");
+    } finally {
+      blogRepairService.generateBlogRepairDraft = originalGenerateRepair;
+    }
   });
 });

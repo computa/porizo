@@ -66,6 +66,17 @@ interface BlogPost {
   updated_at: string;
 }
 
+interface BlogRepairResponse {
+  post: BlogPost;
+  repair: {
+    summary: string;
+    provider: string | null;
+    model: string | null;
+    before: ReviewReport;
+    after: ReviewReport;
+  };
+}
+
 interface BlogFormState {
   title: string;
   slug: string;
@@ -218,7 +229,7 @@ export function Blog() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [form, setForm] = useState<BlogFormState>(EMPTY_FORM);
   const [previewHtml, setPreviewHtml] = useState('');
-  const [busyAction, setBusyAction] = useState<'save' | 'autofill' | 'review' | 'preview' | 'publish' | 'unpublish' | null>(null);
+  const [busyAction, setBusyAction] = useState<'save' | 'autofill' | 'review' | 'repair' | 'preview' | 'publish' | 'unpublish' | null>(null);
   const [notice, setNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [search, setSearch] = useState('');
   const [slugTouched, setSlugTouched] = useState(false);
@@ -457,23 +468,69 @@ export function Blog() {
     }
   };
 
+  const reviewPost = async (postId: string) => {
+    const data = await post<{ post: BlogPost; report: ReviewReport }>(`/blog/posts/${postId}/review`, {});
+    await fetchPosts();
+    setSelectedId(data.post.id);
+    setForm(formFromPost(data.post));
+    setShowMetadata(true);
+    return data;
+  };
+
   const handleReview = async () => {
     try {
       const postRecord = !selectedId || hasUnsavedChanges ? await saveCurrent() : selectedPost;
       if (!postRecord) return;
       setBusyAction('review');
       setNotice(null);
-      const data = await post<{ post: BlogPost; report: ReviewReport }>(`/blog/posts/${postRecord.id}/review`, {});
-      await fetchPosts();
-      setSelectedId(data.post.id);
-      setForm(formFromPost(data.post));
-      setShowMetadata(true);
+      const data = await reviewPost(postRecord.id);
       setNotice({
         type: data.report.decision === 'approved' ? 'success' : 'error',
         text: data.report.decision === 'approved' ? 'Review approved this post.' : 'Review rejected this post. Fix blockers and retry.',
       });
     } catch (reviewError) {
       setNotice({ type: 'error', text: reviewError instanceof Error ? reviewError.message : 'Review failed' });
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const handleRepair = async () => {
+    setBusyAction('repair');
+    setNotice(null);
+    setError(null);
+
+    try {
+      const postRecord = !selectedId || hasUnsavedChanges ? await saveCurrent() : selectedPost;
+      if (!postRecord) return;
+
+      const needsFreshReview = !postRecord.review_report || postRecord.review_status === 'unreviewed';
+      if (needsFreshReview) {
+        await reviewPost(postRecord.id);
+      }
+
+      const data = await post<BlogRepairResponse>(`/blog/posts/${postRecord.id}/repair`, {});
+      await fetchPosts();
+      setSelectedId(data.post.id);
+      setForm(formFromPost(data.post));
+      setShowMetadata(true);
+      setPreviewHtml('');
+
+      const beforeScore = data.repair.before?.overallScore;
+      const afterScore = data.repair.after?.overallScore;
+      const scoreDelta = typeof beforeScore === 'number' && typeof afterScore === 'number'
+        ? ` Overall score ${beforeScore} -> ${afterScore}.`
+        : '';
+
+      setNotice({
+        type: data.repair.after.decision === 'approved' ? 'success' : 'error',
+        text: `${data.repair.summary}${scoreDelta} Review reran on the repaired draft.`,
+      });
+    } catch (repairError) {
+      setNotice({
+        type: 'error',
+        text: repairError instanceof Error ? repairError.message : 'AI draft repair failed.',
+      });
     } finally {
       setBusyAction(null);
     }
@@ -648,6 +705,14 @@ export function Blog() {
                 >
                   <RefreshCw className={`w-4 h-4 ${busyAction === 'review' ? 'animate-spin' : ''}`} />
                   Run Review
+                </button>
+                <button
+                  onClick={handleRepair}
+                  disabled={busyAction !== null}
+                  className="flex items-center gap-2 px-3 py-2 rounded-lg bg-indigo-500/20 text-indigo-200 hover:bg-indigo-500/30 disabled:opacity-50"
+                >
+                  <Wand2 className={`w-4 h-4 ${busyAction === 'repair' ? 'animate-pulse' : ''}`} />
+                  Auto Fix Issues
                 </button>
                 {selectedPost?.status === 'published' ? (
                   <button

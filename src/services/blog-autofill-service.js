@@ -8,6 +8,29 @@ const STOPWORDS = new Set([
   "tips", "to", "what", "when", "where", "which", "why", "with", "your",
 ]);
 
+const RELATIONSHIP_KEYWORDS = [
+  "dad", "father", "daddy", "mom", "mother", "mum", "mama", "parents", "parent", "wife", "husband",
+  "partner", "boyfriend", "girlfriend", "son", "daughter", "brother", "sister", "friend", "grandma",
+  "grandmother", "grandpa", "grandfather",
+];
+
+const TOPIC_PATTERNS = [
+  /personalized song gift(?:s)? for ([a-z' -]+)/i,
+  /custom song gift(?:s)? for ([a-z' -]+)/i,
+  /song gift(?:s)? for ([a-z' -]+)/i,
+  /gift(?:s)? for ([a-z' -]+)/i,
+  /personalized poem gift(?:s)? for ([a-z' -]+)/i,
+  /poem gift(?:s)? for ([a-z' -]+)/i,
+  /personalized song gift/i,
+  /custom song gift/i,
+  /song gift/i,
+  /personalized poem gift/i,
+  /poem gift/i,
+  /custom song/i,
+  /personalized song/i,
+  /personalized poem/i,
+];
+
 function countWords(value) {
   return stripMarkdown(value).split(/\s+/).filter(Boolean).length;
 }
@@ -102,6 +125,93 @@ function cleanKeywordCandidate(value) {
   return words.slice(0, 5).join(" ").trim();
 }
 
+function titleCasePhrase(value) {
+  return String(value || "")
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+function normalizeAudienceFragment(value) {
+  const relationship = findRelationshipAudience(value);
+  if (relationship) return relationship;
+
+  const words = cleanKeywordCandidate(value)
+    .split(/\s+/)
+    .filter(Boolean)
+    .filter((word) => !STOPWORDS.has(word))
+    .slice(0, 2);
+
+  return words.join(" ").trim();
+}
+
+function findRelationshipAudience(text) {
+  const normalized = ` ${String(text || "").toLowerCase()} `;
+  for (const relationship of RELATIONSHIP_KEYWORDS) {
+    const matcher = new RegExp(`\\b${relationship.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i");
+    if (matcher.test(normalized)) {
+      return relationship;
+    }
+  }
+  return "";
+}
+
+function inferContentMedium(text) {
+  const normalized = String(text || "").toLowerCase();
+  if (/\bpoem\b/.test(normalized)) return "poem";
+  if (/\bsong\b/.test(normalized)) return "song";
+  return "";
+}
+
+function inferTopicKeyword(text) {
+  const normalized = String(text || "").replace(/\s+/g, " ").trim();
+  for (const pattern of TOPIC_PATTERNS) {
+    const match = normalized.match(pattern);
+    if (!match) continue;
+    if (match[1]) {
+      const audience = normalizeAudienceFragment(match[1]);
+      const base = cleanKeywordCandidate(match[0].replace(match[1], "").replace(/\bfor\s*$/i, ""));
+      return audience ? `${base} for ${audience}`.trim() : base;
+    }
+    return cleanKeywordCandidate(match[0]);
+  }
+  return "";
+}
+
+function collectNgramCandidates(text) {
+  const tokens = String(text || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+
+  const candidates = new Set();
+  for (let size = 5; size >= 2; size -= 1) {
+    for (let index = 0; index <= tokens.length - size; index += 1) {
+      const phraseWords = tokens.slice(index, index + size);
+      if (STOPWORDS.has(phraseWords[0]) || STOPWORDS.has(phraseWords[phraseWords.length - 1])) continue;
+      const phrase = cleanKeywordCandidate(phraseWords.join(" "));
+      if (!phrase || countWords(phrase) < 2) continue;
+      if (!/\b(song|poem|gift|dad|father|mom|mother|parents|birthday|wedding|anniversary|keepsake)\b/.test(phrase)) continue;
+      candidates.add(phrase);
+    }
+  }
+  return Array.from(candidates);
+}
+
+function scoreCandidate(candidate, headingLower, bodyLower) {
+  const escaped = candidate.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const matcher = new RegExp(`\\b${escaped}\\b`, "gi");
+  const bodyHits = (bodyLower.match(matcher) || []).length;
+  const headingHits = (headingLower.match(matcher) || []).length;
+  let score = (bodyHits * 3) + (headingHits * 2) + candidate.split(" ").length;
+  if (/\b(personalized|custom)\b/.test(candidate)) score += 2;
+  if (/\b(song|poem|gift)\b/.test(candidate)) score += 3;
+  if (/\b(dad|father|mom|mother|mum|parents|wife|husband|partner|friend)\b/.test(candidate)) score += 2;
+  return score;
+}
+
 function inferPrimaryKeyword(title, headings, bodyText) {
   const titleWords = String(title || "")
     .toLowerCase()
@@ -118,24 +228,45 @@ function inferPrimaryKeyword(title, headings, bodyText) {
     }
   }
 
+  const combinedText = `${title} ${headings.map((heading) => heading.text).join(" ")} ${bodyText}`.trim();
+  const topicKeyword = inferTopicKeyword(combinedText);
+  if (topicKeyword) {
+    candidates.unshift(topicKeyword);
+  }
+
+  const audience = findRelationshipAudience(combinedText);
+  const medium = inferContentMedium(combinedText);
+  if (medium && audience) {
+    const base = medium === "poem" ? "personalized poem gift" : "personalized song gift";
+    candidates.unshift(`${base} for ${audience}`);
+  }
+
+  candidates.push(...collectNgramCandidates(`${headings.map((heading) => heading.text).join(" ")} ${bodyText}`));
+
   const bodyLower = ` ${String(bodyText || "").toLowerCase()} `;
   const headingLower = ` ${headings.map((heading) => heading.text.toLowerCase()).join(" ")} `;
 
   let best = "";
   let bestScore = -1;
-  for (const candidate of candidates) {
-    const escaped = candidate.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const matcher = new RegExp(`\\b${escaped}\\b`, "gi");
-    const bodyHits = (bodyLower.match(matcher) || []).length;
-    const headingHits = (headingLower.match(matcher) || []).length;
-    const score = (bodyHits * 3) + (headingHits * 2) + candidate.split(" ").length;
+  for (const candidate of new Set(candidates.filter(Boolean))) {
+    const score = scoreCandidate(candidate, headingLower, bodyLower);
     if (score > bestScore) {
       best = candidate;
       bestScore = score;
     }
   }
 
-  return best || cleanKeywordCandidate(title);
+  if (best) return best;
+
+  if (medium && audience) {
+    return `${medium === "poem" ? "personalized poem gift" : "personalized song gift"} for ${audience}`;
+  }
+
+  if (medium) {
+    return medium === "poem" ? "personalized poem gift" : "personalized song gift";
+  }
+
+  return cleanKeywordCandidate(title || bodyText);
 }
 
 function inferTargetIntent(title) {
@@ -157,9 +288,30 @@ function inferTargetQuery(title, primaryKeyword) {
     return normalizedTitle.toLowerCase();
   }
   if (primaryKeyword) {
-    return `what is ${primaryKeyword}`.trim();
+    return primaryKeyword.trim();
   }
   return normalizedTitle.toLowerCase();
+}
+
+function inferTitle(title, primaryKeyword, bodyText) {
+  if (title) return title;
+
+  const audience = findRelationshipAudience(bodyText);
+  const medium = inferContentMedium(bodyText);
+
+  if (medium && audience) {
+    const relationship = titleCasePhrase(audience);
+    if (medium === "poem") {
+      return `Personalized Poem Gift Ideas for ${relationship}`;
+    }
+    return `Personalized Song Gift Ideas for ${relationship}`;
+  }
+
+  if (primaryKeyword) {
+    return titleCasePhrase(primaryKeyword);
+  }
+
+  return "";
 }
 
 function inferTags({ title, headings, bodyText, primaryKeyword, targetIntent }) {
@@ -185,11 +337,13 @@ function inferBlogDraftFields(input) {
   const suppliedTitle = String(input?.title || "").trim();
   const headings = extractHeadings(bodyMarkdown);
   const paragraphs = extractParagraphs(bodyMarkdown);
-  const title = suppliedTitle || headings.find((heading) => heading.level === 1)?.text || headings[0]?.text || "";
   const bodyText = paragraphs.join(" ");
+  const headingTitle = headings.find((heading) => heading.level === 1)?.text || headings[0]?.text || "";
+  const rawTitle = suppliedTitle || headingTitle;
   const excerpt = collectExcerpt(paragraphs);
   const answerSummary = collectAnswerSummary(paragraphs);
-  const primaryKeyword = inferPrimaryKeyword(title, headings, bodyText);
+  const primaryKeyword = inferPrimaryKeyword(rawTitle, headings, bodyText);
+  const title = inferTitle(rawTitle, primaryKeyword, bodyText);
   const targetIntent = inferTargetIntent(title);
   const targetQuery = inferTargetQuery(title, primaryKeyword);
   const tags = inferTags({ title, headings, bodyText, primaryKeyword, targetIntent });

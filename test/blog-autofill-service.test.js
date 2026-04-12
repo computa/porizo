@@ -49,4 +49,22 @@ describe("blog autofill service", () => {
     assert.equal(draft.target_intent, "comparison");
     assert.match(draft.target_query, /personalized song gift vs custom poem gift/i);
   });
+
+  test("infers keyword, query, and title from body content when no heading is provided", () => {
+    const draft = inferBlogDraftFields({
+      body_markdown: [
+        "Your dad remembers the song that was playing the day you took your first steps. He remembers the drive home from the hospital and the broken AC.",
+        "",
+        "A personalized song gift for dad works best when the story uses one clear memory, one line he still says, and one emotional truth about what he gave you.",
+        "",
+        "These gift ideas for parents are strongest when they stay concrete instead of trying to summarize an entire childhood.",
+      ].join("\n"),
+    });
+
+    assert.equal(draft.title, "Personalized Song Gift Ideas for Dad");
+    assert.equal(draft.primary_keyword, "personalized song gift for dad");
+    assert.equal(draft.target_query, "personalized song gift for dad");
+    assert.ok(!draft.primary_keyword.includes(","));
+    assert.ok(draft.tags.includes("gifting"));
+  });
 });
