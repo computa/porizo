@@ -77,6 +77,17 @@ function truncateText(value, maxChars) {
   };
 }
 
+function sanitizeEditorialErrorMessage(error) {
+  const message = String(error?.message || "").trim();
+  if (!message) return "Editorial review is unavailable right now.";
+  if (
+    /unterminated string|unexpected end of json input|json\.parse|structured json response could not be parsed/i.test(message)
+  ) {
+    return "Editorial review returned an incomplete structured response.";
+  }
+  return message;
+}
+
 function buildUnavailableEditorialReview() {
   return {
     status: "unavailable",
@@ -205,11 +216,12 @@ async function generateEditorialReview(post, deterministicReport, { generateText
     const parsed = JSON.parse(String(result.text || "{}"));
     return normalizeEditorialReview(parsed, { provider: result.provider, model: result.model });
   } catch (error) {
+    console.error("[BlogEditorialReview] Failed:", error);
     return {
       ...buildUnavailableEditorialReview(),
       status: "error",
       summary: "Editorial LLM review failed. Deterministic SEO/GEO/AEO review still ran.",
-      error: error instanceof Error ? error.message : "Unknown editorial review failure",
+      error: sanitizeEditorialErrorMessage(error),
     };
   }
 }

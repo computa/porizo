@@ -148,12 +148,16 @@ describe("LLM Provider", () => {
   });
 
   describe("generateText", () => {
+    const originalGeminiKey = process.env.GEMINI_API_KEY;
     const originalAnthropicKey = process.env.ANTHROPIC_API_KEY;
     const originalOpenAIKey = process.env.OPENAI_API_KEY;
+    const originalFetch = global.fetch;
 
     afterEach(() => {
+      process.env.GEMINI_API_KEY = originalGeminiKey;
       process.env.ANTHROPIC_API_KEY = originalAnthropicKey;
       process.env.OPENAI_API_KEY = originalOpenAIKey;
+      global.fetch = originalFetch;
     });
 
     it("rejects prompts exceeding token limit", async () => {
@@ -170,6 +174,7 @@ describe("LLM Provider", () => {
     });
 
     it("throws when no providers are configured", async () => {
+      process.env.GEMINI_API_KEY = "";
       process.env.ANTHROPIC_API_KEY = "";
       process.env.OPENAI_API_KEY = "";
 
@@ -179,6 +184,74 @@ describe("LLM Provider", () => {
       } catch (err) {
         assert.strictEqual(err.code, ERROR_CODES.ALL_PROVIDERS_FAILED);
       }
+    });
+
+    it("normalizes embedded JSON text for structured responses", async () => {
+      process.env.GEMINI_API_KEY = "test-gemini-key";
+      process.env.ANTHROPIC_API_KEY = "";
+      process.env.OPENAI_API_KEY = "";
+
+      global.fetch = async () => ({
+        ok: true,
+        async json() {
+          return {
+            candidates: [
+              {
+                content: {
+                  parts: [{ text: 'Here is your JSON:\n```json\n{"title":"Hello"}\n```' }],
+                },
+                finishReason: "STOP",
+              },
+            ],
+            usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 5 },
+          };
+        },
+      });
+
+      const result = await generateText({
+        prompt: "Return JSON",
+        taskType: "simple",
+        responseMimeType: "application/json",
+      });
+
+      assert.strictEqual(result.provider, "gemini");
+      assert.deepStrictEqual(JSON.parse(result.text), { title: "Hello" });
+    });
+
+    it("fails malformed structured responses instead of returning unparseable text", async () => {
+      process.env.GEMINI_API_KEY = "test-gemini-key";
+      process.env.ANTHROPIC_API_KEY = "";
+      process.env.OPENAI_API_KEY = "";
+
+      global.fetch = async () => ({
+        ok: true,
+        async json() {
+          return {
+            candidates: [
+              {
+                content: {
+                  parts: [{ text: '{"title":"Hello"' }],
+                },
+                finishReason: "MAX_TOKENS",
+              },
+            ],
+            usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 5 },
+          };
+        },
+      });
+
+      await assert.rejects(
+        () => generateText({
+          prompt: "Return JSON",
+          taskType: "simple",
+          responseMimeType: "application/json",
+          providers: ["gemini"],
+        }),
+        (err) => {
+          assert.strictEqual(err.code, ERROR_CODES.ALL_PROVIDERS_FAILED);
+          return true;
+        }
+      );
     });
 
     it("returns result with expected structure when Anthropic is available", async () => {

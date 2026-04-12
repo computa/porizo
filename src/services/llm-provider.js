@@ -13,7 +13,7 @@ const Anthropic = require("@anthropic-ai/sdk");
 // Provider configuration
 const CONFIG = {
   primary: "gemini",
-  fallback: ["openai"],
+  fallback: ["anthropic", "openai"],
   timeoutMs: 30000,
   maxRetries: 2,
   retryDelayMs: 1000,
@@ -86,6 +86,64 @@ function validateInputTokens(prompt) {
  */
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function tryParseJsonText(rawText) {
+  const text = String(rawText || "").trim();
+  if (!text) return null;
+
+  try {
+    return JSON.parse(text);
+  } catch (_err) {
+    const fencedMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+    if (fencedMatch?.[1]) {
+      try {
+        return JSON.parse(fencedMatch[1].trim());
+      } catch (_innerErr) {
+        // fall through
+      }
+    }
+
+    const firstBrace = text.indexOf("{");
+    const lastBrace = text.lastIndexOf("}");
+    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+      try {
+        return JSON.parse(text.slice(firstBrace, lastBrace + 1));
+      } catch (_innerErr) {
+        // fall through
+      }
+    }
+
+    const firstBracket = text.indexOf("[");
+    const lastBracket = text.lastIndexOf("]");
+    if (firstBracket !== -1 && lastBracket !== -1 && lastBracket > firstBracket) {
+      try {
+        return JSON.parse(text.slice(firstBracket, lastBracket + 1));
+      } catch (_innerErr) {
+        // fall through
+      }
+    }
+  }
+
+  return null;
+}
+
+function normalizeStructuredResult(result, responseMimeType) {
+  if (responseMimeType !== "application/json") {
+    return result;
+  }
+
+  const parsed = tryParseJsonText(result?.text);
+  if (parsed === null) {
+    const error = new Error(`Structured JSON response could not be parsed: ${String(result?.text || "").slice(0, 120)}`);
+    error.code = ERROR_CODES.API_ERROR;
+    throw error;
+  }
+
+  return {
+    ...result,
+    text: JSON.stringify(parsed),
+  };
 }
 
 /**
@@ -471,11 +529,11 @@ async function generateText({
           `[LLM] Success with ${provider.name}: ${result.usage.outputTokens} tokens${result.finishReason ? ` (finishReason=${result.finishReason})` : ""}`
         );
 
-        return {
+        return normalizeStructuredResult({
           ...result,
           fallbackUsed: provider.name !== "gemini",
           attempts: attempt + 1,
-        };
+        }, responseMimeType);
       } catch (err) {
         console.error(
           `[LLM] ${provider.name} attempt ${attempt + 1} failed:`,

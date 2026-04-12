@@ -47,6 +47,17 @@ function buildUnavailableRepairResult() {
   };
 }
 
+function sanitizeRepairErrorMessage(error) {
+  const message = String(error?.message || "").trim();
+  if (!message) return "AI draft repair is unavailable right now.";
+  if (
+    /unterminated string|unexpected end of json input|json\.parse|structured json response could not be parsed/i.test(message)
+  ) {
+    return "AI draft repair returned an incomplete structured response.";
+  }
+  return message;
+}
+
 function normalizeRepairTags(value) {
   if (!Array.isArray(value)) return [];
   return value
@@ -173,11 +184,12 @@ async function generateBlogRepairDraft(post, report, { generateTextFn = generate
       draft: normalizeRepairDraft(post, parsed),
     };
   } catch (error) {
+    console.error("[BlogRepair] Failed:", error);
     return {
       ...buildUnavailableRepairResult(),
       status: "error",
       summary: "AI draft repair failed.",
-      error: error instanceof Error ? error.message : "Unknown repair failure",
+      error: sanitizeRepairErrorMessage(error),
     };
   }
 }
