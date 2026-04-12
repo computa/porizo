@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { BookOpen, Eye, FileText, RefreshCw, Rocket, Save, Search, Upload } from 'lucide-react';
+import { BookOpen, Eye, FileText, RefreshCw, Rocket, Save, Search, Upload, Wand2 } from 'lucide-react';
 import { useApi } from '../hooks/useApi';
 import { LoadingState } from '../components/LoadingState';
 import { ErrorState } from '../components/ErrorState';
@@ -80,6 +80,18 @@ interface BlogFormState {
   tags: string;
 }
 
+interface BlogAutofillDraft {
+  title: string;
+  slug: string;
+  excerpt: string;
+  answer_summary: string;
+  target_query: string;
+  target_intent: string;
+  primary_keyword: string;
+  tags: string[];
+  source: string;
+}
+
 const EMPTY_FORM: BlogFormState = {
   title: '',
   slug: '',
@@ -156,18 +168,34 @@ function normalizeComparablePost(post: BlogPost | null) {
   };
 }
 
-function inferTitleFromMarkdown(markdown: string) {
-  const heading = markdown.match(/^#\s+(.+)$/m);
-  return heading ? heading[1].trim() : '';
-}
-
-function inferExcerptFromMarkdown(markdown: string) {
-  const lines = markdown
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .filter((line) => !line.startsWith('#') && !line.startsWith('!['));
-  return lines[0] || '';
+function mergeAutofillIntoForm(
+  current: BlogFormState,
+  draft: BlogAutofillDraft,
+  options: { overwrite?: boolean; keepExistingSlug?: boolean } = {}
+) {
+  const overwrite = options.overwrite ?? false;
+  const keepExistingSlug = options.keepExistingSlug ?? false;
+  return {
+    ...current,
+    title: overwrite || !current.title.trim() ? (draft.title || current.title) : current.title,
+    slug: keepExistingSlug
+      ? current.slug
+      : ((overwrite || !current.slug.trim()) ? (draft.slug || current.slug) : current.slug),
+    excerpt: overwrite || !current.excerpt.trim() ? (draft.excerpt || current.excerpt) : current.excerpt,
+    answer_summary: overwrite || !current.answer_summary.trim()
+      ? (draft.answer_summary || current.answer_summary)
+      : current.answer_summary,
+    target_query: overwrite || !current.target_query.trim()
+      ? (draft.target_query || current.target_query)
+      : current.target_query,
+    target_intent: overwrite || current.target_intent === 'informational'
+      ? (draft.target_intent || current.target_intent)
+      : current.target_intent,
+    primary_keyword: overwrite || !current.primary_keyword.trim()
+      ? (draft.primary_keyword || current.primary_keyword)
+      : current.primary_keyword,
+    tags: overwrite || !current.tags.trim() ? (draft.tags.join(', ') || current.tags) : current.tags,
+  };
 }
 
 export function Blog() {
@@ -176,10 +204,11 @@ export function Blog() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [form, setForm] = useState<BlogFormState>(EMPTY_FORM);
   const [previewHtml, setPreviewHtml] = useState('');
-  const [busyAction, setBusyAction] = useState<'save' | 'review' | 'preview' | 'publish' | 'unpublish' | null>(null);
+  const [busyAction, setBusyAction] = useState<'save' | 'autofill' | 'review' | 'preview' | 'publish' | 'unpublish' | null>(null);
   const [notice, setNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [search, setSearch] = useState('');
   const [slugTouched, setSlugTouched] = useState(false);
+  const [showMetadata, setShowMetadata] = useState(false);
   const markdownFileInputRef = useRef<HTMLInputElement | null>(null);
 
   const selectedPost = useMemo(
@@ -221,6 +250,7 @@ export function Blog() {
       setForm(EMPTY_FORM);
       setPreviewHtml('');
       setSlugTouched(false);
+      setShowMetadata(false);
       return;
     }
 
@@ -232,6 +262,13 @@ export function Blog() {
         setForm(formFromPost(data.post));
         setPreviewHtml('');
         setSlugTouched(true);
+        setShowMetadata(Boolean(
+          data.post.answer_summary ||
+          data.post.target_query ||
+          data.post.primary_keyword ||
+          data.post.hero_image_url ||
+          data.post.tags.length
+        ));
       } catch {
         if (!cancelled) {
           setPreviewHtml('');
@@ -253,6 +290,47 @@ export function Blog() {
     });
   };
 
+  const runAutofill = useCallback(async ({
+    markdown,
+    overwrite = false,
+  }: {
+    markdown?: string;
+    overwrite?: boolean;
+  } = {}) => {
+    const bodyMarkdown = (markdown ?? form.body_markdown).trim();
+    if (!bodyMarkdown) {
+      setNotice({ type: 'error', text: 'Paste or import an article first so the editor has something to infer from.' });
+      return;
+    }
+
+    setBusyAction('autofill');
+    setNotice(null);
+    try {
+      const data = await post<{ draft: BlogAutofillDraft }>('/blog/posts/autofill', {
+        title: form.title,
+        body_markdown: bodyMarkdown,
+      });
+      setForm((current) => mergeAutofillIntoForm(current, data.draft, {
+        overwrite,
+        keepExistingSlug: slugTouched && current.slug.trim().length > 0,
+      }));
+      setShowMetadata(true);
+      setNotice({
+        type: 'success',
+        text: overwrite
+          ? 'Metadata refreshed from the article draft.'
+          : 'Filled the missing metadata fields from the article draft.',
+      });
+    } catch (autofillError) {
+      setNotice({
+        type: 'error',
+        text: autofillError instanceof Error ? autofillError.message : 'Failed to infer metadata from article draft.',
+      });
+    } finally {
+      setBusyAction(null);
+    }
+  }, [form.body_markdown, form.title, post, slugTouched]);
+
   const applyImportedMarkdown = useCallback((markdown: string, sourceLabel: string) => {
     const normalized = markdown.trim();
     if (!normalized) {
@@ -260,27 +338,10 @@ export function Blog() {
       return;
     }
 
-    setForm((current) => {
-      const next = { ...current, body_markdown: normalized };
-      if (!current.title.trim()) {
-        const inferredTitle = inferTitleFromMarkdown(normalized);
-        if (inferredTitle) {
-          next.title = inferredTitle;
-          if (!slugTouched) {
-            next.slug = slugify(inferredTitle);
-          }
-        }
-      }
-      if (!current.excerpt.trim()) {
-        const inferredExcerpt = inferExcerptFromMarkdown(normalized);
-        if (inferredExcerpt) {
-          next.excerpt = inferredExcerpt.slice(0, 300);
-        }
-      }
-      return next;
-    });
+    setForm((current) => ({ ...current, body_markdown: normalized }));
     setNotice({ type: 'success', text: `${sourceLabel} imported into markdown.` });
-  }, [slugTouched]);
+    void runAutofill({ markdown: normalized, overwrite: true });
+  }, [runAutofill]);
 
   const handleMarkdownFileImport = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -323,6 +384,9 @@ export function Blog() {
 
     setField('body_markdown', `${prefix}${insertion}${suffix}`);
     setNotice({ type: 'success', text: 'Converted rich-text paste into markdown.' });
+    if (prefix.length === 0 && suffix.length === 0) {
+      void runAutofill({ markdown, overwrite: true });
+    }
   };
 
   const payload = useMemo(() => createPayload(form), [form]);
@@ -346,6 +410,13 @@ export function Blog() {
       await fetchPosts();
       setSelectedId(data.post.id);
       setForm(formFromPost(data.post));
+      setShowMetadata(Boolean(
+        data.post.answer_summary ||
+        data.post.target_query ||
+        data.post.primary_keyword ||
+        data.post.hero_image_url ||
+        data.post.tags.length
+      ));
       setNotice({ type: 'success', text: 'Draft saved.' });
       return data.post;
     } catch (saveError) {
@@ -366,6 +437,7 @@ export function Blog() {
       await fetchPosts();
       setSelectedId(data.post.id);
       setForm(formFromPost(data.post));
+      setShowMetadata(true);
       setNotice({
         type: data.report.decision === 'approved' ? 'success' : 'error',
         text: data.report.decision === 'approved' ? 'Review approved this post.' : 'Review rejected this post. Fix blockers and retry.',
@@ -409,6 +481,13 @@ export function Blog() {
       await fetchPosts();
       setForm(formFromPost(data.post));
       setSelectedId(data.post.id);
+      setShowMetadata(Boolean(
+        data.post.answer_summary ||
+        data.post.target_query ||
+        data.post.primary_keyword ||
+        data.post.hero_image_url ||
+        data.post.tags.length
+      ));
       setNotice({ type: 'success', text: nextAction === 'publish' ? 'Post published.' : 'Post moved back to draft.' });
     } catch (actionError) {
       setNotice({ type: 'error', text: actionError instanceof Error ? actionError.message : 'Publish action failed' });
@@ -466,6 +545,7 @@ export function Blog() {
                 setForm(EMPTY_FORM);
                 setPreviewHtml('');
                 setSlugTouched(false);
+                setShowMetadata(false);
                 setNotice(null);
               }}
               className="px-3 py-2 bg-rose-500/20 text-rose-300 rounded-lg text-sm font-medium hover:bg-rose-500/30"
@@ -562,6 +642,53 @@ export function Blog() {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <label className="space-y-1 md:col-span-2">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <span className="text-xs uppercase tracking-wide text-slate-500">Article Markdown</span>
+                    <p className="mt-1 text-xs text-slate-500">
+                      Paste the article once. The editor will draft the title, excerpt, answer summary, query, keyword, and tags from it.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      ref={markdownFileInputRef}
+                      type="file"
+                      accept=".md,.markdown,.txt,.html,.htm,text/markdown,text/plain,text/html"
+                      onChange={handleMarkdownFileImport}
+                      className="hidden"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => markdownFileInputRef.current?.click()}
+                      className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900/50 px-3 py-2 text-xs font-medium text-slate-200 hover:bg-slate-800"
+                    >
+                      <Upload className="h-3.5 w-3.5" />
+                      Import File
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void runAutofill({ overwrite: true })}
+                      disabled={busyAction !== null}
+                      className="inline-flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs font-medium text-amber-200 hover:bg-amber-500/20 disabled:opacity-50"
+                    >
+                      <Wand2 className="h-3.5 w-3.5" />
+                      Autofill Fields
+                    </button>
+                  </div>
+                </div>
+                <p className="text-xs text-slate-500">
+                  Rich text pasted here is converted into markdown automatically. Embed media with <code>@[youtube Video title](https://www.youtube.com/watch?v=...)</code> or <code>@[audio Clip title](https://cdn.example.com/file.mp3)</code>.
+                </p>
+                <textarea
+                  value={form.body_markdown}
+                  onChange={(event) => setField('body_markdown', event.target.value)}
+                  onPaste={handleBodyPaste}
+                  rows={18}
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-slate-100 font-mono text-sm"
+                />
+              </label>
+
               <label className="space-y-1">
                 <span className="text-xs uppercase tracking-wide text-slate-500">Title</span>
                 <input value={form.title} onChange={(event) => setField('title', event.target.value)} className="w-full px-3 py-2 bg-slate-900/50 border border-slate-700 rounded-lg text-slate-100" />
@@ -577,78 +704,65 @@ export function Blog() {
                   className="w-full px-3 py-2 bg-slate-900/50 border border-slate-700 rounded-lg text-slate-100"
                 />
               </label>
-              <label className="space-y-1 md:col-span-2">
-                <span className="text-xs uppercase tracking-wide text-slate-500">Excerpt</span>
-                <textarea value={form.excerpt} onChange={(event) => setField('excerpt', event.target.value)} rows={2} className="w-full px-3 py-2 bg-slate-900/50 border border-slate-700 rounded-lg text-slate-100" />
-              </label>
-              <label className="space-y-1 md:col-span-2">
-                <span className="text-xs uppercase tracking-wide text-slate-500">Answer Summary</span>
-                <textarea value={form.answer_summary} onChange={(event) => setField('answer_summary', event.target.value)} rows={3} className="w-full px-3 py-2 bg-slate-900/50 border border-slate-700 rounded-lg text-slate-100" />
-              </label>
-              <label className="space-y-1">
-                <span className="text-xs uppercase tracking-wide text-slate-500">Target Query</span>
-                <input value={form.target_query} onChange={(event) => setField('target_query', event.target.value)} className="w-full px-3 py-2 bg-slate-900/50 border border-slate-700 rounded-lg text-slate-100" />
-              </label>
-              <label className="space-y-1">
-                <span className="text-xs uppercase tracking-wide text-slate-500">Target Intent</span>
-                <select value={form.target_intent} onChange={(event) => setField('target_intent', event.target.value)} className="w-full px-3 py-2 bg-slate-900/50 border border-slate-700 rounded-lg text-slate-100">
-                  <option value="informational">Informational</option>
-                  <option value="commercial">Commercial</option>
-                  <option value="comparison">Comparison</option>
-                  <option value="navigational">Navigational</option>
-                </select>
-              </label>
-              <label className="space-y-1">
-                <span className="text-xs uppercase tracking-wide text-slate-500">Primary Keyword</span>
-                <input value={form.primary_keyword} onChange={(event) => setField('primary_keyword', event.target.value)} className="w-full px-3 py-2 bg-slate-900/50 border border-slate-700 rounded-lg text-slate-100" />
-              </label>
               <label className="space-y-1">
                 <span className="text-xs uppercase tracking-wide text-slate-500">Author</span>
                 <input value={form.author_name} onChange={(event) => setField('author_name', event.target.value)} className="w-full px-3 py-2 bg-slate-900/50 border border-slate-700 rounded-lg text-slate-100" />
               </label>
+              <div className="rounded-lg border border-slate-700/70 bg-slate-900/30 px-3 py-2">
+                <p className="text-xs uppercase tracking-wide text-slate-500">Workflow</p>
+                <p className="mt-1 text-sm text-slate-300">Paste the article, let Autofill draft the metadata, then only correct what looks off.</p>
+              </div>
               <label className="space-y-1 md:col-span-2">
-                <span className="text-xs uppercase tracking-wide text-slate-500">Hero Image URL</span>
-                <input value={form.hero_image_url} onChange={(event) => setField('hero_image_url', event.target.value)} className="w-full px-3 py-2 bg-slate-900/50 border border-slate-700 rounded-lg text-slate-100" />
+                <span className="text-xs uppercase tracking-wide text-slate-500">Excerpt</span>
+                <textarea value={form.excerpt} onChange={(event) => setField('excerpt', event.target.value)} rows={2} className="w-full px-3 py-2 bg-slate-900/50 border border-slate-700 rounded-lg text-slate-100" />
               </label>
-              <label className="space-y-1 md:col-span-2">
-                <span className="text-xs uppercase tracking-wide text-slate-500">Tags</span>
-                <input value={form.tags} onChange={(event) => setField('tags', event.target.value)} placeholder="seo, gifting, personalized songs" className="w-full px-3 py-2 bg-slate-900/50 border border-slate-700 rounded-lg text-slate-100" />
-              </label>
-              <label className="space-y-1 md:col-span-2">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <span className="text-xs uppercase tracking-wide text-slate-500">Body Markdown</span>
-                  <div className="flex items-center gap-2">
-                    <input
-                      ref={markdownFileInputRef}
-                      type="file"
-                      accept=".md,.markdown,.txt,.html,.htm,text/markdown,text/plain,text/html"
-                      onChange={handleMarkdownFileImport}
-                      className="hidden"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => markdownFileInputRef.current?.click()}
-                      className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900/50 px-3 py-2 text-xs font-medium text-slate-200 hover:bg-slate-800"
-                    >
-                      <Upload className="h-3.5 w-3.5" />
-                      Import Markdown File
-                    </button>
+
+              <div className="md:col-span-2 rounded-xl border border-slate-700/70 bg-slate-900/30">
+                <button
+                  type="button"
+                  onClick={() => setShowMetadata((current) => !current)}
+                  className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
+                >
+                  <div>
+                    <p className="text-sm font-medium text-white">Search metadata</p>
+                    <p className="text-xs text-slate-500">Auto-filled from the article. Open this when you need to adjust the generated SEO/AEO fields.</p>
                   </div>
-                </div>
-                <p className="text-xs text-slate-500">
-                  Paste directly from Microsoft Word, Google Docs, HTML, or markdown. Rich text pasted here is converted into markdown automatically.
-                </p>
-                <p className="text-xs text-slate-500">
-                  Embed media with <code>@[youtube Video title](https://www.youtube.com/watch?v=...)</code> or <code>@[audio Clip title](https://cdn.example.com/file.mp3)</code>.
-                </p>
-                <textarea
-                  value={form.body_markdown}
-                  onChange={(event) => setField('body_markdown', event.target.value)}
-                  onPaste={handleBodyPaste}
-                  rows={20}
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-slate-100 font-mono text-sm"
-                />
-              </label>
+                  <span className="text-xs text-slate-400">{showMetadata ? 'Hide' : 'Show'}</span>
+                </button>
+                {showMetadata ? (
+                  <div className="grid grid-cols-1 gap-4 border-t border-slate-700/70 px-4 py-4 md:grid-cols-2">
+                    <label className="space-y-1 md:col-span-2">
+                      <span className="text-xs uppercase tracking-wide text-slate-500">Answer Summary</span>
+                      <textarea value={form.answer_summary} onChange={(event) => setField('answer_summary', event.target.value)} rows={3} className="w-full px-3 py-2 bg-slate-900/50 border border-slate-700 rounded-lg text-slate-100" />
+                    </label>
+                    <label className="space-y-1">
+                      <span className="text-xs uppercase tracking-wide text-slate-500">Target Query</span>
+                      <input value={form.target_query} onChange={(event) => setField('target_query', event.target.value)} className="w-full px-3 py-2 bg-slate-900/50 border border-slate-700 rounded-lg text-slate-100" />
+                    </label>
+                    <label className="space-y-1">
+                      <span className="text-xs uppercase tracking-wide text-slate-500">Target Intent</span>
+                      <select value={form.target_intent} onChange={(event) => setField('target_intent', event.target.value)} className="w-full px-3 py-2 bg-slate-900/50 border border-slate-700 rounded-lg text-slate-100">
+                        <option value="informational">Informational</option>
+                        <option value="commercial">Commercial</option>
+                        <option value="comparison">Comparison</option>
+                        <option value="navigational">Navigational</option>
+                      </select>
+                    </label>
+                    <label className="space-y-1">
+                      <span className="text-xs uppercase tracking-wide text-slate-500">Primary Keyword</span>
+                      <input value={form.primary_keyword} onChange={(event) => setField('primary_keyword', event.target.value)} className="w-full px-3 py-2 bg-slate-900/50 border border-slate-700 rounded-lg text-slate-100" />
+                    </label>
+                    <label className="space-y-1">
+                      <span className="text-xs uppercase tracking-wide text-slate-500">Tags</span>
+                      <input value={form.tags} onChange={(event) => setField('tags', event.target.value)} placeholder="seo, gifting, personalized songs" className="w-full px-3 py-2 bg-slate-900/50 border border-slate-700 rounded-lg text-slate-100" />
+                    </label>
+                    <label className="space-y-1 md:col-span-2">
+                      <span className="text-xs uppercase tracking-wide text-slate-500">Hero Image URL</span>
+                      <input value={form.hero_image_url} onChange={(event) => setField('hero_image_url', event.target.value)} className="w-full px-3 py-2 bg-slate-900/50 border border-slate-700 rounded-lg text-slate-100" />
+                    </label>
+                  </div>
+                ) : null}
+              </div>
             </div>
           </div>
 

@@ -208,4 +208,35 @@ describe("blog CMS routes", () => {
     assert.equal(response.statusCode, 400);
     assert.match(response.body, /target intent must be one of/i);
   });
+
+  test("autofills metadata from body markdown for faster drafting", async () => {
+    const response = await app.inject({
+      method: "POST",
+      url: "/admin/dashboard/blog/posts/autofill",
+      headers: { Authorization: `Bearer ${adminToken}` },
+      payload: {
+        body_markdown: [
+          "# How to write a personalized song gift brief",
+          "",
+          "A personalized song gift brief works when it answers the occasion quickly, names one specific memory, and explains what emotion the final song should leave behind.",
+          "",
+          "That makes the piece easier to write, easier to review, and easier for search and answer engines to understand.",
+          "",
+          "## Checklist",
+          "- Name the recipient.",
+          "- Describe the moment.",
+          "- Explain why it matters.",
+        ].join("\n"),
+      },
+    });
+
+    assert.equal(response.statusCode, 200);
+    const draft = response.json().draft;
+    assert.equal(draft.title, "How to write a personalized song gift brief");
+    assert.equal(draft.slug, "how-to-write-a-personalized-song-gift-brief");
+    assert.equal(draft.primary_keyword, "personalized song gift");
+    assert.equal(draft.target_intent, "informational");
+    assert.ok(Array.isArray(draft.tags));
+    assert.ok(draft.tags.includes("gifting"));
+  });
 });

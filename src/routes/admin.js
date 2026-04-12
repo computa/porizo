@@ -5,6 +5,7 @@ const path = require("path");
 const { AdminService, escapeLikePattern } = require("../services/admin-service");
 const { AdminGiftOpsService } = require("../services/admin-gift-ops-service");
 const { BlogService, normalizePostInput } = require("../services/blog-service");
+const { inferBlogDraftFields } = require("../services/blog-autofill-service");
 const { reviewBlogDraft } = require("../services/blog-review-service");
 const { generateEditorialReview } = require("../services/blog-editorial-review-service");
 const { renderBlogPostPage } = require("../services/blog-render-service");
@@ -300,6 +301,23 @@ app.get("/admin/dashboard/blog/posts", async (request, reply) => {
   const { limit, offset } = parsePagination(request.query, 25);
   const posts = await blogService.listPosts({ status, search, limit, offset });
   reply.send({ posts, limit, offset });
+});
+
+app.post("/admin/dashboard/blog/posts/autofill", async (request, reply) => {
+  const admin = await requireAdminSession(request, reply);
+  if (!admin) return;
+
+  const bodyMarkdown = String(request.body?.body_markdown || "").trim();
+  if (!bodyMarkdown) {
+    return sendError(reply, 400, "MISSING_BODY", "Body markdown is required to infer blog metadata");
+  }
+
+  const draft = inferBlogDraftFields({
+    title: request.body?.title || "",
+    body_markdown: bodyMarkdown,
+  });
+
+  reply.send({ draft });
 });
 
 app.get("/admin/dashboard/blog/posts/:id", async (request, reply) => {
