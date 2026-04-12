@@ -61,6 +61,7 @@ interface BlogPost {
   status: 'draft' | 'published' | 'archived';
   review_status: 'unreviewed' | 'approved' | 'rejected';
   review_report: ReviewReport | null;
+  reviewed_at?: string | null;
   tags: string[];
   published_at: string | null;
   updated_at: string;
@@ -235,6 +236,8 @@ export function Blog() {
   const [slugTouched, setSlugTouched] = useState(false);
   const [showMetadata, setShowMetadata] = useState(false);
   const markdownFileInputRef = useRef<HTMLInputElement | null>(null);
+  const formRef = useRef(form);
+  const slugTouchedRef = useRef(slugTouched);
 
   const selectedPost = useMemo(
     () => posts.find((postItem) => postItem.id === selectedId) || null,
@@ -271,6 +274,14 @@ export function Blog() {
       cancelled = true;
     };
   }, [get, search]);
+
+  useEffect(() => {
+    formRef.current = form;
+  }, [form]);
+
+  useEffect(() => {
+    slugTouchedRef.current = slugTouched;
+  }, [slugTouched]);
 
   useEffect(() => {
     if (!selectedId) {
@@ -333,20 +344,28 @@ export function Blog() {
     setBusyAction('autofill');
     setNotice(null);
     try {
+      const latestForm = formRef.current;
       const data = await post<{ draft: BlogAutofillDraft }>('/blog/posts/autofill', {
-        title: form.title,
+        title: latestForm.title,
         body_markdown: bodyMarkdown,
       });
-      setForm((current) => mergeAutofillIntoForm(current, data.draft, {
+      const currentForm = formRef.current;
+      const nextForm = mergeAutofillIntoForm(currentForm, data.draft, {
         overwrite,
-        keepExistingSlug: slugTouched && current.slug.trim().length > 0,
-      }));
+        keepExistingSlug: slugTouchedRef.current && currentForm.slug.trim().length > 0,
+      });
+      const metadataChanged = JSON.stringify(nextForm) !== JSON.stringify(currentForm);
+      setForm(nextForm);
       setShowMetadata(true);
       setNotice({
         type: 'success',
         text: overwrite
-          ? 'Metadata refreshed from the article draft.'
-          : 'Filled the missing metadata fields from the article draft.',
+          ? (metadataChanged
+              ? 'Metadata refreshed from the article draft.'
+              : 'Nothing changed. The current metadata already matches the article draft.')
+          : (metadataChanged
+              ? 'Filled the missing metadata fields from the article draft.'
+              : 'Nothing changed. Existing metadata was preserved. Use Refresh Metadata if you want to replace it.'),
       });
     } catch (autofillError) {
       setNotice({
@@ -356,7 +375,7 @@ export function Blog() {
     } finally {
       setBusyAction(null);
     }
-  }, [form.body_markdown, form.title, post, slugTouched]);
+  }, [form.body_markdown, post]);
 
   const applyImportedMarkdown = useCallback((markdown: string, sourceLabel: string) => {
     const normalized = markdown.trim();
@@ -367,7 +386,7 @@ export function Blog() {
 
     setForm((current) => ({ ...current, body_markdown: normalized }));
     setNotice({ type: 'success', text: `${sourceLabel} imported successfully.` });
-    void runAutofill({ markdown: normalized, overwrite: true });
+    void runAutofill({ markdown: normalized });
   }, [runAutofill]);
 
   const handleMarkdownFileImport = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -415,7 +434,7 @@ export function Blog() {
       setField('body_markdown', spliceInsertedContent(existingBody, selectionStart, selectionEnd, markdown));
       setNotice({ type: 'success', text: 'Converted rich-text paste into markdown.' });
       if (selectionStart === 0 && selectionEnd === existingBody.length) {
-        void runAutofill({ markdown, overwrite: true });
+        void runAutofill({ markdown });
       }
     } catch (pasteError) {
       if (plainText.trim()) {
@@ -439,6 +458,7 @@ export function Blog() {
     if (!comparablePost) return false;
     return JSON.stringify(payload) !== JSON.stringify(comparablePost);
   }, [payload, selectedId, selectedPost]);
+  const reviewIsStale = Boolean(selectedId) && (hasUnsavedChanges || selectedPost?.review_status === 'unreviewed');
 
   const saveCurrent = async () => {
     setBusyAction('save');
@@ -763,12 +783,12 @@ export function Blog() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => void runAutofill({ overwrite: true })}
+                      onClick={() => void runAutofill()}
                       disabled={busyAction !== null}
                       className="inline-flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs font-medium text-amber-200 hover:bg-amber-500/20 disabled:opacity-50"
                     >
                       <Wand2 className="h-3.5 w-3.5" />
-                      Autofill Fields
+                      Fill Missing Fields
                     </button>
                   </div>
                 </div>
@@ -805,7 +825,7 @@ export function Blog() {
               </label>
               <div className="rounded-lg border border-slate-700/70 bg-slate-900/30 px-3 py-2">
                 <p className="text-xs uppercase tracking-wide text-slate-500">Workflow</p>
-                <p className="mt-1 text-sm text-slate-300">Paste the article, let Autofill draft the metadata, then only correct what looks off.</p>
+                <p className="mt-1 text-sm text-slate-300">Paste the article, let the editor fill blank metadata, then only correct what looks off. Regenerate metadata explicitly if you want to replace what you already typed.</p>
               </div>
               <label className="space-y-1 md:col-span-2">
                 <span className="text-xs uppercase tracking-wide text-slate-500">Excerpt</span>
@@ -820,12 +840,26 @@ export function Blog() {
                 >
                   <div>
                     <p className="text-sm font-medium text-white">Search metadata</p>
-                    <p className="text-xs text-slate-500">Auto-filled from the article. Open this when you need to adjust the generated SEO/AEO fields.</p>
+                    <p className="text-xs text-slate-500">Open this when you need to adjust or regenerate the SEO/AEO fields drafted from the article.</p>
                   </div>
                   <span className="text-xs text-slate-400">{showMetadata ? 'Hide' : 'Show'}</span>
                 </button>
                 {showMetadata ? (
                   <div className="grid grid-cols-1 gap-4 border-t border-slate-700/70 px-4 py-4 md:grid-cols-2">
+                    <div className="md:col-span-2 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-700/60 bg-slate-950/40 px-3 py-2">
+                      <p className="text-xs text-slate-400">
+                        Fill Missing Fields keeps what you already typed. Refresh Metadata rewrites the generated title, excerpt, summary, query, keyword, and tags from the current article body.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => void runAutofill({ overwrite: true })}
+                        disabled={busyAction !== null || !form.body_markdown.trim()}
+                        className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-xs font-medium text-slate-200 hover:bg-slate-800 disabled:opacity-50"
+                      >
+                        <RefreshCw className={`h-3.5 w-3.5 ${busyAction === 'autofill' ? 'animate-spin' : ''}`} />
+                        Refresh Metadata
+                      </button>
+                    </div>
                     <label className="space-y-1 md:col-span-2">
                       <span className="text-xs uppercase tracking-wide text-slate-500">Answer Summary</span>
                       <textarea value={form.answer_summary} onChange={(event) => setField('answer_summary', event.target.value)} rows={3} className="w-full px-3 py-2 bg-slate-900/50 border border-slate-700 rounded-lg text-slate-100" />
@@ -867,7 +901,47 @@ export function Blog() {
                 <FileText className="w-4 h-4 text-rose-400" />
                 <h3 className="text-white font-semibold">Review Gate</h3>
               </div>
-              {selectedPost?.review_report ? (
+              {selectedId && reviewIsStale ? (
+                <div className="space-y-3">
+                  <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4">
+                    <p className="text-sm font-medium text-amber-200">Review results are out of date.</p>
+                    <p className="mt-2 text-sm text-amber-100/85">
+                      Preview shows the current draft. The review gate only reflects the last saved and reviewed version.
+                      Save your edits and run review again before trusting these blockers.
+                    </p>
+                  </div>
+                  {selectedPost?.review_report ? (
+                    <div className="rounded-lg border border-slate-700 bg-slate-900/50 p-4">
+                      <p className="text-xs uppercase tracking-wide text-slate-500">Last review snapshot</p>
+                      <div className="mt-3 grid grid-cols-2 gap-3">
+                        <div className="rounded-lg bg-slate-950/60 p-3">
+                          <p className="text-xs uppercase tracking-wide text-slate-500">Decision</p>
+                          <p className={`mt-1 text-sm font-semibold ${selectedPost.review_report.decision === 'approved' ? 'text-emerald-300' : 'text-rose-300'}`}>
+                            {selectedPost.review_report.decision}
+                          </p>
+                        </div>
+                        <div className="rounded-lg bg-slate-950/60 p-3">
+                          <p className="text-xs uppercase tracking-wide text-slate-500">Overall</p>
+                          <p className="mt-1 text-sm font-semibold text-white">{selectedPost.review_report.overallScore}</p>
+                        </div>
+                      </div>
+                      <p className="mt-3 text-xs text-slate-500">
+                        {selectedPost.reviewed_at
+                          ? `Last reviewed ${new Date(selectedPost.reviewed_at).toLocaleString('en-AU', {
+                              year: 'numeric',
+                              month: 'short',
+                              day: 'numeric',
+                              hour: 'numeric',
+                              minute: '2-digit',
+                            })}`
+                          : 'Last review timestamp unavailable'}
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-slate-500">No saved review yet. Save the draft, then run review.</p>
+                  )}
+                </div>
+              ) : selectedPost?.review_report ? (
                 <>
                   <div className="grid grid-cols-2 gap-3">
                     <div className="rounded-lg bg-slate-900/50 p-3">
@@ -1029,7 +1103,7 @@ export function Blog() {
                   </div>
                 </>
               ) : (
-                <p className="text-sm text-slate-500">Run review to score the draft and get publish guidance.</p>
+                <p className="text-sm text-slate-500">Run review to score the current saved draft and get publish guidance.</p>
               )}
             </div>
 

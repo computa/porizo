@@ -75,6 +75,7 @@ describe("blog repair service", () => {
 
     assert.match(prompt, /Deterministic review:/);
     assert.match(prompt, /Editorial review:/);
+    assert.match(prompt, /Repair context:/);
     assert.match(prompt, /body_markdown_truncated/);
     assert.ok(prompt.length < 25000);
   });
@@ -118,5 +119,43 @@ describe("blog repair service", () => {
     assert.equal(result.draft.target_query, "personalized song gift for dad");
     assert.match(result.draft.body_markdown, /## How to make it feel personal/);
     assert.ok(result.draft.tags.includes("gifting"));
+  });
+
+  test("applies deterministic repair fixups for internal links, hero image, and answer summary alignment", async () => {
+    const result = await generateBlogRepairDraft(samplePost, {
+      ...sampleReport,
+      recommendations: [
+        { code: "missing_internal_links", message: "No internal links were found.", recommendation: "Link to a relevant Porizo page." },
+        { code: "missing_hero_image", message: "Hero image is missing.", recommendation: "Add a hero image URL." },
+        { code: "answer_summary_alignment", message: "The answer summary does not clearly repeat the target query or keyword.", recommendation: "Make the summary answer the target query directly." },
+      ],
+    }, {
+      generateTextFn: async () => ({
+        text: JSON.stringify({
+          title: "Why a Personalized Song Is the Ultimate Father's Day Gift",
+          excerpt: "Learn why a personalized song gift for dad turns one specific memory into a meaningful Father's Day keepsake.",
+          answer_summary: "This guide explains why this kind of gift feels emotional.",
+          target_query: "personalized song gift for dad",
+          target_intent: "informational",
+          primary_keyword: "personalized song gift for dad",
+          body_markdown: [
+            "A personalized song can become a lasting Father's Day gift when it starts with a real memory.",
+            "",
+            "## Why it works",
+            "",
+            "Specific details make the gift feel like it belongs to your dad, not to anyone.",
+          ].join("\n"),
+          tags: ["gifting", "personalized songs"],
+          change_summary: "Improved the article.",
+        }),
+        provider: "gemini",
+        model: "gemini-2.0-flash",
+      }),
+    });
+
+    assert.equal(result.status, "available");
+    assert.match(result.draft.body_markdown, /\[See Porizo pricing and plan options\]\(\/pricing\.html\)/);
+    assert.equal(result.draft.hero_image_url, "/assets/og-song.png");
+    assert.match(result.draft.answer_summary, /personalized song gift for dad/i);
   });
 });
