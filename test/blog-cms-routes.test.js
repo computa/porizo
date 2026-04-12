@@ -120,6 +120,7 @@ describe("blog CMS routes", () => {
     const published = publishResponse.json().post;
     assert.equal(published.status, "published");
     assert.ok(published.published_at);
+    assert.equal(published.has_publication_history, true);
 
     const indexResponse = await app.inject({ method: "GET", url: "/blog" });
     assert.equal(indexResponse.statusCode, 200);
@@ -181,6 +182,7 @@ describe("blog CMS routes", () => {
     assert.equal(updated.status, "draft");
     assert.equal(updated.review_status, "unreviewed");
     assert.equal(updated.published_at, null);
+    assert.equal(updated.has_publication_history, true);
 
     const hiddenResponse = await app.inject({
       method: "GET",

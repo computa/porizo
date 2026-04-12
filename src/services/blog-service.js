@@ -74,21 +74,36 @@ class BlogService {
     this.db = db;
   }
 
+  postSelectSql() {
+    return `
+      SELECT
+        blog_posts.*,
+        CASE
+          WHEN blog_posts.status = 'published' OR blog_posts.published_at IS NOT NULL THEN 1
+          WHEN EXISTS (
+            SELECT 1
+            FROM blog_post_revisions AS revisions
+            WHERE revisions.post_id = blog_posts.id
+              AND revisions.status = 'published'
+          ) THEN 1
+          ELSE 0
+        END AS has_publication_history
+      FROM blog_posts
+    `;
+  }
+
   mapPostRow(row) {
     if (!row) return null;
     return {
       ...row,
       tags: parseJsonArray(row.tags_json),
       review_report: parseJsonObject(row.review_report_json),
+      has_publication_history: Boolean(row.has_publication_history),
     };
   }
 
   async listPosts({ status, search, limit = 50, offset = 0 } = {}) {
-    let sql = `
-      SELECT *
-      FROM blog_posts
-      WHERE 1=1
-    `;
+    let sql = `${this.postSelectSql()} WHERE 1=1`;
     const params = [];
 
     if (status) {
@@ -110,8 +125,7 @@ class BlogService {
 
   async listPublishedPosts({ limit = 100 } = {}) {
     const rows = await this.db.prepare(`
-      SELECT *
-      FROM blog_posts
+      ${this.postSelectSql()}
       WHERE status = 'published' AND published_at IS NOT NULL
       ORDER BY published_at DESC
       LIMIT ?
@@ -120,14 +134,13 @@ class BlogService {
   }
 
   async getPostById(id) {
-    const row = await this.db.prepare("SELECT * FROM blog_posts WHERE id = ?").get(id);
+    const row = await this.db.prepare(`${this.postSelectSql()} WHERE id = ?`).get(id);
     return this.mapPostRow(row);
   }
 
   async getPublishedPostBySlug(slug) {
     const row = await this.db.prepare(`
-      SELECT *
-      FROM blog_posts
+      ${this.postSelectSql()}
       WHERE slug = ? AND status = 'published' AND published_at IS NOT NULL
       LIMIT 1
     `).get(slug);
@@ -218,7 +231,7 @@ class BlogService {
       now
     );
 
-    const created = await this.db.prepare("SELECT * FROM blog_posts WHERE id = ?").get(id);
+    const created = await this.db.prepare(`${this.postSelectSql()} WHERE id = ?`).get(id);
     await this.createRevisionSnapshot(created, createdBy, "create");
     return this.mapPostRow(created);
   }
@@ -261,7 +274,7 @@ class BlogService {
       id
     );
 
-    const updated = await this.db.prepare("SELECT * FROM blog_posts WHERE id = ?").get(id);
+    const updated = await this.db.prepare(`${this.postSelectSql()} WHERE id = ?`).get(id);
     await this.createRevisionSnapshot(updated, updatedBy, "update");
     return this.mapPostRow(updated);
   }
@@ -299,7 +312,7 @@ class BlogService {
       now
     );
 
-    const updated = await this.db.prepare("SELECT * FROM blog_posts WHERE id = ?").get(id);
+    const updated = await this.db.prepare(`${this.postSelectSql()} WHERE id = ?`).get(id);
     await this.createRevisionSnapshot(updated, reviewedBy, "review");
     return this.mapPostRow(updated);
   }
@@ -318,7 +331,7 @@ class BlogService {
       WHERE id = ?
     `).run(now, updatedBy || null, now, id);
 
-    const updated = await this.db.prepare("SELECT * FROM blog_posts WHERE id = ?").get(id);
+    const updated = await this.db.prepare(`${this.postSelectSql()} WHERE id = ?`).get(id);
     await this.createRevisionSnapshot(updated, updatedBy, "publish");
     return this.mapPostRow(updated);
   }
@@ -334,7 +347,7 @@ class BlogService {
       WHERE id = ?
     `).run(updatedBy || null, now, id);
 
-    const updated = await this.db.prepare("SELECT * FROM blog_posts WHERE id = ?").get(id);
+    const updated = await this.db.prepare(`${this.postSelectSql()} WHERE id = ?`).get(id);
     await this.createRevisionSnapshot(updated, updatedBy, "unpublish");
     return this.mapPostRow(updated);
   }

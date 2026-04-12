@@ -62,6 +62,7 @@ interface BlogPost {
   review_status: 'unreviewed' | 'approved' | 'rejected';
   review_report: ReviewReport | null;
   reviewed_at?: string | null;
+  has_publication_history?: boolean;
   tags: string[];
   published_at: string | null;
   updated_at: string;
@@ -502,6 +503,8 @@ export function Blog() {
     () => articleLinks.filter((link) => link.isSuspicious),
     [articleLinks]
   );
+  const publishActionLabel = selectedPost?.has_publication_history ? 'Republish' : 'Publish';
+  const isRepublishFlow = Boolean(selectedPost?.has_publication_history);
   const hasUnsavedChanges = useMemo(() => {
     const comparablePost = normalizeComparablePost(selectedPost);
     if (!selectedId) {
@@ -517,6 +520,7 @@ export function Blog() {
     setNotice(null);
     setError(null);
     try {
+      const wasPublished = selectedPost?.status === 'published';
       const data = selectedId
         ? await put<{ post: BlogPost }>(`/blog/posts/${selectedId}`, payload)
         : await post<{ post: BlogPost }>('/blog/posts', payload);
@@ -526,11 +530,16 @@ export function Blog() {
       setShowMetadata(Boolean(
         data.post.answer_summary ||
         data.post.target_query ||
-        data.post.primary_keyword ||
-        data.post.hero_image_url ||
-        data.post.tags.length
+          data.post.primary_keyword ||
+          data.post.hero_image_url ||
+          data.post.tags.length
       ));
-      setNotice({ type: 'success', text: 'Draft saved.' });
+      setNotice({
+        type: 'success',
+        text: wasPublished
+          ? 'Changes saved. This article is now a draft until it passes review and is republished.'
+          : 'Draft saved.',
+      });
       return data.post;
     } catch (saveError) {
       setNotice({ type: 'error', text: saveError instanceof Error ? saveError.message : 'Failed to save draft' });
@@ -623,11 +632,12 @@ export function Blog() {
 
   const handlePublishToggle = async (nextAction: 'publish' | 'unpublish') => {
     if (!selectedId) return;
+    const publishLabel = isRepublishFlow ? 'republish' : 'publish';
     if (nextAction === 'publish' && hasUnsavedChanges) {
       try {
         const saved = await saveCurrent();
         if (!saved) return;
-        setNotice({ type: 'error', text: 'Draft changed. Review the saved version again before publishing.' });
+        setNotice({ type: 'error', text: `Draft changed. Review the saved version again before you ${publishLabel}.` });
         return;
       } catch {
         return;
@@ -647,7 +657,12 @@ export function Blog() {
         data.post.hero_image_url ||
         data.post.tags.length
       ));
-      setNotice({ type: 'success', text: nextAction === 'publish' ? 'Post published.' : 'Post moved back to draft.' });
+      setNotice({
+        type: 'success',
+        text: nextAction === 'publish'
+          ? (isRepublishFlow ? 'Post republished.' : 'Post published.')
+          : 'Post moved back to draft.',
+      });
     } catch (actionError) {
       setNotice({ type: 'error', text: actionError instanceof Error ? actionError.message : 'Publish action failed' });
     } finally {
@@ -671,6 +686,9 @@ export function Blog() {
           Blog Publishing
         </h1>
         <p className="text-slate-400 text-sm mt-1">Create markdown posts, run SEO/GEO/AEO review, and publish approved articles.</p>
+        {selectedPost?.has_publication_history && selectedPost.status !== 'published' ? (
+          <p className="text-sky-300 text-sm mt-2">This article was previously live. Save changes, rerun review, then republish the updated version.</p>
+        ) : null}
         {selectedId && hasUnsavedChanges ? (
           <p className="text-amber-300 text-sm mt-2">You have unsaved edits. Review will save them first. Publish will stop until the saved draft passes review again.</p>
         ) : null}
@@ -802,9 +820,14 @@ export function Blog() {
                     className="flex items-center gap-2 px-3 py-2 rounded-lg bg-rose-500 text-white hover:bg-rose-600 disabled:opacity-50"
                   >
                     <Rocket className="w-4 h-4" />
-                    Publish
+                    {publishActionLabel}
                   </button>
                 )}
+                {selectedPost?.status === 'published' && hasUnsavedChanges ? (
+                  <div className="px-3 py-2 rounded-lg border border-sky-500/30 bg-sky-500/10 text-sky-200 text-xs font-medium">
+                    Save and review your edits to republish them.
+                  </div>
+                ) : null}
               </div>
             </div>
 
