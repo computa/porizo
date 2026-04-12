@@ -1,29 +1,29 @@
-/* Porizo Design System - Velvet & Gold */
-/* Intimate luxury meets emotional warmth */
+/* Porizo Design System - Warm Canvas */
+/* Light, warm, and intimate — conveying love, trust, and connection */
 
 /* ============================================
    CSS Variables - Design Tokens
    ============================================ */
 :root {
-  /* Colors - Deep velvet with warm gold accents */
-  --bg: #0A0A0A;
-  --surface: #161616;
-  --surface-elevated: #1C1C1C;
-  --gold: #D4A574;
-  --gold-light: #E8C9A8;
-  --gold-dark: #8B7355;
-  --rose: #E8B4B8;
-  --text: #F5F5F0;
-  --text-secondary: #C4C4BE;
-  --muted: #8A8A8A;
+  /* Colors - Warm parchment with coral & sage accents */
+  --bg: #FBF7F2;
+  --surface: #FFFFFF;
+  --surface-elevated: #FFFFFF;
+  --gold: #E07850;
+  --gold-light: #E8926E;
+  --gold-dark: #C06030;
+  --rose: #7B8F6B;
+  --text: #2C2420;
+  --text-secondary: #6B6560;
+  --muted: #9A9490;
 
   /* Borders & Effects */
-  --border-subtle: rgba(255, 255, 255, 0.06);
-  --border-gold: rgba(212, 165, 116, 0.2);
-  --glow-gold: rgba(212, 165, 116, 0.15);
+  --border-subtle: rgba(44, 36, 32, 0.08);
+  --border-gold: rgba(224, 120, 80, 0.2);
+  --glow-gold: rgba(224, 120, 80, 0.12);
 
   /* Typography Scale */
-  --font-display: 'Playfair Display', Georgia, serif;
+  --font-display: 'Fraunces', Georgia, serif;
   --font-body: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
 
   /* Spacing */
@@ -54,7 +54,7 @@
 }
 
 html {
-  color-scheme: dark;
+  color-scheme: light;
   scroll-behavior: smooth;
 }
 
@@ -124,9 +124,10 @@ a:hover {
 }
 
 .nav.scrolled {
-  background: rgba(10, 10, 10, 0.95);
+  background: rgba(251, 247, 242, 0.95);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 1px 0 var(--border-subtle);
 }
 
 .nav__inner {
@@ -270,14 +271,14 @@ a:hover {
 
 .btn--primary {
   background: var(--gold);
-  color: var(--bg);
+  color: #FFFFFF;
 }
 
 .btn--primary:hover {
   background: var(--gold-light);
-  color: var(--bg);
+  color: #FFFFFF;
   transform: translateY(-2px);
-  box-shadow: 0 8px 24px rgba(212, 165, 116, 0.25);
+  box-shadow: 0 8px 24px rgba(224, 120, 80, 0.25);
 }
 
 .btn--ghost {
@@ -330,7 +331,7 @@ a:hover {
   align-items: center;
   gap: var(--space-sm);
   padding: 10px 16px;
-  background: linear-gradient(180deg, #1a1a1a 0%, #0a0a0a 100%);
+  background: linear-gradient(180deg, #F5F0EA 0%, #EDE8E2 100%);
   border: 1px solid var(--border-subtle);
   border-radius: 6px;
   height: 54px;
@@ -341,7 +342,7 @@ a:hover {
 
 .coming-soon-badge:hover {
   opacity: 0.85;
-  border-color: rgba(255, 255, 255, 0.15);
+  border-color: rgba(44, 36, 32, 0.15);
 }
 
 .coming-soon-badge .play-icon {
@@ -437,7 +438,7 @@ a:hover {
   background: linear-gradient(135deg, var(--gold) 0%, var(--gold-dark) 100%);
   font-family: var(--font-display);
   font-size: 24px;
-  color: var(--bg);
+  color: #FFFFFF;
 }
 
 .step__title {
@@ -481,30 +482,30 @@ a:hover {
   transform: translateY(-2px);
 }
 
-/* Gradient pills matching iOS occasion colors */
+/* Gradient pills matching iOS Warm Canvas occasion colors */
 .occasion-pill--birthday {
-  background: linear-gradient(135deg, rgba(255, 107, 107, 0.15), rgba(255, 107, 107, 0.05));
-  border-color: rgba(255, 107, 107, 0.3);
+  background: linear-gradient(135deg, rgba(224, 120, 80, 0.12), rgba(224, 120, 80, 0.04));
+  border-color: rgba(224, 120, 80, 0.25);
 }
 
 .occasion-pill--anniversary {
-  background: linear-gradient(135deg, rgba(232, 180, 184, 0.15), rgba(232, 180, 184, 0.05));
-  border-color: rgba(232, 180, 184, 0.3);
+  background: linear-gradient(135deg, rgba(232, 160, 168, 0.12), rgba(232, 160, 168, 0.04));
+  border-color: rgba(232, 160, 168, 0.25);
 }
 
 .occasion-pill--thanks {
-  background: linear-gradient(135deg, rgba(212, 165, 116, 0.15), rgba(212, 165, 116, 0.05));
-  border-color: rgba(212, 165, 116, 0.3);
+  background: linear-gradient(135deg, rgba(212, 137, 74, 0.12), rgba(212, 137, 74, 0.04));
+  border-color: rgba(212, 137, 74, 0.25);
 }
 
 .occasion-pill--love {
-  background: linear-gradient(135deg, rgba(255, 154, 158, 0.15), rgba(255, 154, 158, 0.05));
-  border-color: rgba(255, 154, 158, 0.3);
+  background: linear-gradient(135deg, rgba(232, 160, 168, 0.12), rgba(232, 160, 168, 0.04));
+  border-color: rgba(232, 160, 168, 0.25);
 }
 
 .occasion-pill--congrats {
-  background: linear-gradient(135deg, rgba(134, 239, 172, 0.15), rgba(134, 239, 172, 0.05));
-  border-color: rgba(134, 239, 172, 0.3);
+  background: linear-gradient(135deg, rgba(123, 143, 107, 0.12), rgba(123, 143, 107, 0.04));
+  border-color: rgba(123, 143, 107, 0.25);
 }
 
 /* ============================================
@@ -563,7 +564,7 @@ a:hover {
 }
 
 .card--glow {
-  background: linear-gradient(180deg, var(--glow-gold), rgba(22, 22, 22, 0));
+  background: linear-gradient(180deg, var(--glow-gold), rgba(255, 255, 255, 0));
   border-color: var(--border-gold);
 }
 
@@ -688,7 +689,7 @@ a:hover {
 .contact-btn {
   display: inline-block;
   background: var(--gold);
-  color: var(--bg);
+  color: #FFFFFF;
   padding: var(--space-md) var(--space-lg);
   border-radius: var(--radius-md);
   font-weight: 600;
@@ -697,9 +698,9 @@ a:hover {
 
 .contact-btn:hover {
   background: var(--gold-light);
-  color: var(--bg);
+  color: #FFFFFF;
   transform: translateY(-2px);
-  box-shadow: 0 8px 24px rgba(212, 165, 116, 0.25);
+  box-shadow: 0 8px 24px rgba(224, 120, 80, 0.25);
 }
 
 /* ============================================
