@@ -1,7 +1,7 @@
 # Create Section Specification
 
 ## Overview
-The heart of Porizo — a streamlined 3-step wizard that guides users through creating personalized songs using AI-powered conversational questions. The wizard uses a light rose-themed design with card-based inputs and progressive disclosure.
+The heart of Porizo — a streamlined 3-step wizard that guides users through creating personalized songs using AI-powered conversational questions. The wizard uses the Warm Canvas design with coral accents, card-based inputs, and progressive disclosure.
 
 ## Important Design Decisions
 

@@ -16,7 +16,7 @@
     "banner": {
       "headline": "Create Your First Song",
       "subtext": "Turn your memories into music",
-      "gradient": ["#8b5cf6", "#3b82f6"]
+      "gradient": ["#E07850", "#D4894A"]
     }
   },
   "songs": [
@@ -33,7 +33,7 @@
       "fullUrl": "https://cdn.porizo.co/tracks/song-001/full.m4a",
       "durationSeconds": 75,
       "lyricsPreview": "Every year you shine so bright, making everything feel right...",
-      "coverGradient": ["#8b5cf6", "#ec4899"]
+      "coverGradient": ["#E07850", "#D4894A"]
     },
     {
       "id": "song-002",
@@ -48,7 +48,7 @@
       "fullUrl": null,
       "durationSeconds": 22,
       "lyricsPreview": "Five years ago we said I do, and every day I fall for you...",
-      "coverGradient": ["#f43f5e", "#ec4899"]
+      "coverGradient": ["#E8A0A8", "#D4786A"]
     },
     {
       "id": "song-003",
@@ -63,7 +63,7 @@
       "fullUrl": null,
       "durationSeconds": null,
       "lyricsPreview": "You pushed us harder, made us strong...",
-      "coverGradient": ["#f59e0b", "#ef4444"],
+      "coverGradient": ["#D4894A", "#E07850"],
       "renderProgress": 65
     },
     {
@@ -79,7 +79,7 @@
       "fullUrl": null,
       "durationSeconds": null,
       "lyricsPreview": "From kindergarten to cap and gown...",
-      "coverGradient": ["#3b82f6", "#06b6d4"]
+      "coverGradient": ["#7B8CDE", "#5A6BC8"]
     },
     {
       "id": "song-005",
@@ -94,7 +94,7 @@
       "fullUrl": null,
       "durationSeconds": null,
       "lyricsPreview": "Words can't undo what I've done...",
-      "coverGradient": ["#8b5cf6", "#a855f7"],
+      "coverGradient": ["#B2B2FF", "#8A8AE8"],
       "errorMessage": "Voice conversion failed. Please try again."
     },
     {
@@ -110,7 +110,7 @@
       "fullUrl": null,
       "durationSeconds": null,
       "lyricsPreview": null,
-      "coverGradient": ["#ef4444", "#f43f5e"]
+      "coverGradient": ["#E8A0A8", "#C4707A"]
     }
   ],
   "statusLabels": {

@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Explore tab is the home screen of the app, providing quick access to creation flows and discovery features. It uses the Velvet & Gold design system with a dark theme (#0A0A0A background) and gold (#D4A574) accents.
+The Explore tab is the home screen of the app, providing quick access to creation flows and discovery features. It uses the Warm Canvas design system with a warm light theme (#FBF7F2 background) and coral (#E07850) accents.
 
 ## User Flows
 
@@ -27,11 +27,11 @@ The Explore tab is the home screen of the app, providing quick access to creatio
 
 ### Screen Structure (Top to Bottom)
 1. **Status Bar** - iOS system status
-2. **Header** - "Explore" title (Playfair Display, gold), Search + Bell icons
+2. **Header** - "Explore" title (Fraunces, coral), Search + Bell icons
 3. **Feature Banner** - Dismissible "Introducing Remixing" banner (optional)
 4. **Featured Card** - 140px tall, gradient background with waveform visualization
 5. **Stats Row** - 80px tall, engagement metrics (plays, likes, comments)
-6. **Create Button** - Full-width gold button "Express yourself, for them"
+6. **Create Button** - Full-width coral button "Express yourself, for them"
 7. **Popular Occasions** - Horizontal scroll chips with emojis
 8. **Tab Bar** - 4-tab navigation (Home, Songs, Poems, Profile)
 

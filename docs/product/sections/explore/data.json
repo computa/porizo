@@ -36,7 +36,7 @@
       "occasion": "birthday",
       "style": "soul",
       "playCount": 234,
-      "coverGradient": ["#8b5cf6", "#3b82f6"],
+      "coverGradient": ["#E07850", "#D4894A"],
       "durationSeconds": 68,
       "featured": true
     },
@@ -47,7 +47,7 @@
       "occasion": "anniversary",
       "style": "acoustic",
       "playCount": 189,
-      "coverGradient": ["#ec4899", "#f43f5e"],
+      "coverGradient": ["#E8A0A8", "#D4786A"],
       "durationSeconds": 75
     },
     {
@@ -57,7 +57,7 @@
       "occasion": "thank_you",
       "style": "pop",
       "playCount": 156,
-      "coverGradient": ["#f59e0b", "#ef4444"],
+      "coverGradient": ["#D4894A", "#E07850"],
       "durationSeconds": 62
     },
     {
@@ -67,7 +67,7 @@
       "occasion": "encouragement",
       "style": "folk",
       "playCount": 143,
-      "coverGradient": ["#22c55e", "#14b8a6"],
+      "coverGradient": ["#7B8F6B", "#5AB88A"],
       "durationSeconds": 71
     },
     {
@@ -77,7 +77,7 @@
       "occasion": "i_love_you",
       "style": "rnb",
       "playCount": 198,
-      "coverGradient": ["#f43f5e", "#ec4899"],
+      "coverGradient": ["#E8A0A8", "#C4707A"],
       "durationSeconds": 80
     }
   ],
@@ -90,7 +90,7 @@
       "occasion": "birthday",
       "style": "country",
       "playCount": 1247,
-      "coverGradient": ["#fbbf24", "#f59e0b"],
+      "coverGradient": ["#E07850", "#D4894A"],
       "durationSeconds": 72,
       "rankBadge": "gold"
     },
@@ -102,7 +102,7 @@
       "occasion": "anniversary",
       "style": "jazz",
       "playCount": 1089,
-      "coverGradient": ["#8b5cf6", "#a855f7"],
+      "coverGradient": ["#E8A0A8", "#D4786A"],
       "durationSeconds": 85,
       "rankBadge": "silver"
     },
@@ -114,7 +114,7 @@
       "occasion": "graduation",
       "style": "pop",
       "playCount": 967,
-      "coverGradient": ["#3b82f6", "#06b6d4"],
+      "coverGradient": ["#7B8CDE", "#5A6BC8"],
       "durationSeconds": 65,
       "rankBadge": "bronze"
     },
@@ -126,7 +126,7 @@
       "occasion": "wedding",
       "style": "acoustic",
       "playCount": 856,
-      "coverGradient": ["#ec4899", "#f472b6"],
+      "coverGradient": ["#E8D4C8", "#D4B8A8"],
       "durationSeconds": 90
     },
     {
@@ -137,21 +137,21 @@
       "occasion": "thank_you",
       "style": "folk",
       "playCount": 743,
-      "coverGradient": ["#f97316", "#fb923c"],
+      "coverGradient": ["#D4894A", "#E07850"],
       "durationSeconds": 58
     }
   ],
   "occasions": [
-    { "id": "birthday", "name": "Birthday", "emoji": "🎂", "color": "#ec4899", "count": 2547 },
-    { "id": "anniversary", "name": "Anniversary", "emoji": "💕", "color": "#f43f5e", "count": 1823 },
-    { "id": "thank_you", "name": "Thank You", "emoji": "🙏", "color": "#f59e0b", "count": 1456 },
-    { "id": "i_love_you", "name": "I Love You", "emoji": "❤️", "color": "#ef4444", "count": 1234 },
-    { "id": "wedding", "name": "Wedding", "emoji": "💒", "color": "#a855f7", "count": 987 },
-    { "id": "graduation", "name": "Graduation", "emoji": "🎓", "color": "#3b82f6", "count": 876 },
-    { "id": "celebration", "name": "Celebration", "emoji": "🎉", "color": "#eab308", "count": 654 },
-    { "id": "apology", "name": "Apology", "emoji": "💜", "color": "#8b5cf6", "count": 432 },
-    { "id": "encouragement", "name": "Encouragement", "emoji": "💪", "color": "#22c55e", "count": 567 },
-    { "id": "custom", "name": "Custom", "emoji": "✨", "color": "#6b7280", "count": 321 }
+    { "id": "birthday", "name": "Birthday", "emoji": "🎂", "color": "#E07850", "count": 2547 },
+    { "id": "anniversary", "name": "Anniversary", "emoji": "💕", "color": "#E8A0A8", "count": 1823 },
+    { "id": "thank_you", "name": "Thank You", "emoji": "🙏", "color": "#D4894A", "count": 1456 },
+    { "id": "i_love_you", "name": "I Love You", "emoji": "❤️", "color": "#E8A0A8", "count": 1234 },
+    { "id": "wedding", "name": "Wedding", "emoji": "💒", "color": "#D4B8A8", "count": 987 },
+    { "id": "graduation", "name": "Graduation", "emoji": "🎓", "color": "#7B8CDE", "count": 876 },
+    { "id": "celebration", "name": "Celebration", "emoji": "🎉", "color": "#E07850", "count": 654 },
+    { "id": "apology", "name": "Apology", "emoji": "💜", "color": "#B2B2FF", "count": 432 },
+    { "id": "encouragement", "name": "Encouragement", "emoji": "💪", "color": "#7B8F6B", "count": 567 },
+    { "id": "custom", "name": "Custom", "emoji": "✨", "color": "#6B6560", "count": 321 }
   ],
   "templates": [
     {
@@ -160,7 +160,7 @@
       "occasion": "birthday",
       "style": "soul",
       "description": "A warm, soulful celebration of half a century",
-      "coverGradient": ["#ec4899", "#8b5cf6"],
+      "coverGradient": ["#E07850", "#D4894A"],
       "usageCount": 456
     },
     {
@@ -169,7 +169,7 @@
       "occasion": "anniversary",
       "style": "acoustic",
       "description": "Celebrate your first year together",
-      "coverGradient": ["#f43f5e", "#ec4899"],
+      "coverGradient": ["#E8A0A8", "#C4707A"],
       "usageCount": 389
     },
     {
@@ -178,7 +178,7 @@
       "occasion": "thank_you",
       "style": "folk",
       "description": "Show appreciation for an educator",
-      "coverGradient": ["#f59e0b", "#eab308"],
+      "coverGradient": ["#D4894A", "#C07020"],
       "usageCount": 312
     },
     {
@@ -187,7 +187,7 @@
       "occasion": "graduation",
       "style": "pop",
       "description": "Honor the hard work and achievement",
-      "coverGradient": ["#3b82f6", "#8b5cf6"],
+      "coverGradient": ["#7B8CDE", "#5A6BC8"],
       "usageCount": 278
     }
   ]

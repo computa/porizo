@@ -37,7 +37,7 @@ Three-page slide wizard introducing Porizo's value proposition to new users. Fea
 
 ## Visual Elements
 - Light backgrounds (white)
-- Rose accent colors on illustrations
+- Coral accent colors on illustrations
 - Large, readable typography (system rounded)
 - Smooth slide transitions
 - Animated illustrations (subtle movement)

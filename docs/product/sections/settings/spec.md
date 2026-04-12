@@ -1,7 +1,7 @@
 # Settings Section Specification
 
 ## Overview
-Profile management, subscription handling, and app configuration. Voice enrollment is now **optional** — positioned as a premium enhancement rather than a required step. Light UI with rose accents and clear visual hierarchy.
+Profile management, subscription handling, and app configuration. Voice enrollment is now **optional** — positioned as a premium enhancement rather than a required step. Warm Canvas light UI with coral accents and clear visual hierarchy.
 
 ## User Flows
 

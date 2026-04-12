@@ -32,11 +32,11 @@ The user's personal library of created songs with modern light UI. Features card
 
 ## UI Requirements
 
-### Global Layout (Light Mode)
-- Background: white
-- Card backgrounds: white
-- Accent colors: rose-500, rose-300
-- Text: stone-900 (primary), stone-500 (secondary)
+### Global Layout (Light Mode — Warm Canvas)
+- Background: warm parchment (#FBF7F2)
+- Card backgrounds: white (#FFFFFF)
+- Accent colors: coral (#E07850), sage (#7B8F6B)
+- Text: warm near-black (#2C2420, primary), warm gray (#6B6560, secondary)
 
 ### Empty State
 - Full-screen centered layout

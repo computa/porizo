@@ -1,13 +1,14 @@
 {
-  "primary": "rose",
-  "secondary": "rose",
-  "neutral": "stone",
+  "primary": "coral",
+  "secondary": "sage",
+  "neutral": "warm-gray",
   "mode": "light",
   "notes": {
-    "background": "Clean white (#ffffff) as base, stone-50 (#fafaf9) for subtle sections",
-    "borders": "stone-200 (#e7e5e4) for subtle borders, stone-300 for emphasis",
-    "text": "stone-900 (#1c1917) for primary, stone-500 (#78716c) for secondary",
-    "accent": "rose-500 (#f43f5e) for primary actions - the color of love and warmth",
-    "philosophy": "Light, warm, and inviting - conveying love and friendship"
+    "background": "Warm parchment (#FBF7F2) as base, white (#FFFFFF) for surfaces",
+    "borders": "Warm light gray for subtle borders",
+    "text": "Warm near-black (#2C2420) for primary, warm gray (#6B6560) for secondary",
+    "accent": "Terracotta coral (#E07850) for primary actions — warm, inviting, approachable",
+    "secondary_accent": "Sage green (#7B8F6B) for AI elements — nature tones, calm guidance",
+    "philosophy": "Light, warm, and intimate — conveying love, trust, and meaningful connection. Designed for the gifting audience after YC design research (April 2026)."
   }
 }

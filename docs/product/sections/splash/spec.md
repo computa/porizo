@@ -12,16 +12,16 @@ Animated launch screen shown while the app initializes. Features a particle glob
 - Full-screen light background (white)
 - Centered animated particle globe visualization
 - Microphone icon integrated within or near the globe
-- Subtle rose glow effects on particles
+- Subtle coral glow effects on particles
 - "Porizo" wordmark below globe (optional, can be logo only)
 - No interactive elements - purely visual
 
 ## Visual Elements
 - Particle globe: Animated dots forming a sphere shape
 - Particles should have subtle movement/rotation
-- Rose-tinted particle accents
+- Coral-tinted particle accents
 - Soft glow/bloom effect
-- Microphone icon: Simple line icon, white or rose accent
+- Microphone icon: Simple line icon, white or coral accent
 
 ## Configuration
 - shell: false

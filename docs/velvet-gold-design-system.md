@@ -1,8 +1,11 @@
-# Velvet & Gold Design System
+# Warm Canvas Design System
 
-**Version:** 1.0
-**Last Updated:** January 2026
-**Philosophy:** "Your voice, their song" - a luxury gift-crafting atelier experience
+**Version:** 2.0
+**Last Updated:** April 2026
+**Philosophy:** "Opening the path for feelings to reach the ones you love" - warm, intimate, and inviting
+
+**Supersedes:** Velvet & Gold v1.0 (January 2026, dark luxury theme)
+**Origin:** YC-style design research (5-agent review) identified that the dark luxury aesthetic repelled the primary gifting audience. Warm Canvas was the recommended palette (Palette A) and is now the canonical design system.
 
 ---
 
@@ -12,33 +15,50 @@
 
 | Token | Hex | Usage |
 |-------|-----|-------|
-| `--background` | `#0A0A0A` | Deep velvet black, primary canvas |
-| `--surface` | `#161616` | Elevated cards, inputs, secondary surfaces |
-| `--surface-muted` | `#1C1C1C` | Subtle separators, tertiary surfaces |
+| `--background` | `#FBF7F2` | Warm parchment, primary canvas |
+| `--surface` | `#FFFFFF` | Cards, elevated containers |
+| `--surface-muted` | `#F5F0EA` | Subtle banners, separators, tertiary surfaces |
+| `--surface-elevated` | `#FFFFFF` | Modals, overlays (with shadow) |
+| `--input-background` | `#F8F4EF` | Input field backgrounds |
 
 ### Brand Colors
 
 | Token | Hex | Usage |
 |-------|-----|-------|
-| `--primary` / `--gold` | `#D4A574` | Warm gold - CTAs, accents, brand mark |
-| `--primary-soft` / `--gold-glow` | `#D4A57433` | Gold at 20% - glows, highlights, focus states |
-| `--secondary` / `--rose-gold` | `#E8B4B8` | Rose gold - secondary accents |
+| `--coral` / `--primary` | `#E07850` | Terracotta coral - CTAs, accents, brand mark |
+| `--coral-text` | `#C06030` | Contrast-safe coral for small body/link text (4.5:1 WCAG AA) |
+| `--coral-glow` | `#E0785040` | Coral at 25% - glows, highlights, focus states |
+| `--coral-soft` | `#E0785033` | Coral at 20% - subtle backgrounds |
+| `--sage` | `#7B8F6B` | Sage green - AI accent, nature tones, secondary accent |
+| `--amber` / `--rose-gold` | warm amber | Tertiary accent - secondary highlights |
+
+### Chat Bubble Colors
+
+| Token | Usage |
+|-------|-------|
+| `--coral-bubble` | User chat bubble background (soft coral) |
+| `--sage-bubble` | AI chat bubble background (soft sage) |
 
 ### Text Colors
 
 | Token | Hex | Usage |
 |-------|-----|-------|
-| `--foreground` | `#F5F5F0` | Warm white (not pure) - primary text |
-| `--muted-foreground` | `#8A8A8A` | Muted text - secondary labels |
-| `--text-muted` | `#666666` | Tertiary text - timestamps, hints |
+| `--text-primary` | `#2C2420` | Warm near-black - headings, primary text |
+| `--text-secondary` | `#6B6560` | Warm gray - subtitles, labels, metadata |
+| `--text-tertiary` | `#9A9490` | Warm light gray - hints, placeholders, disabled |
+| `--text-muted` | `#B5B0AA` | Lightest text - disabled states |
 
 ### Semantic Colors
 
 | Token | Hex | Usage |
 |-------|-----|-------|
-| `--success` | `#7DD3A6` | Soft green - confirmations |
-| `--error` | `#E57373` | Warm red - errors, destructive |
-| `--border` | `#2A2A2A` | Subtle borders |
+| `--success` | green | Confirmations, completion badges |
+| `--success-dark` | darker green | Text-safe success variant |
+| `--warning` | orange | Caution states |
+| `--error` | red | Errors, destructive actions |
+| `--status-info` | blue | Informational badges |
+| `--border` | warm light gray | Card borders, dividers |
+| `--border-subtle` | lighter warm gray | Input borders, subtle separation |
 
 ---
 
@@ -48,30 +68,41 @@
 
 | Token | Font | Usage |
 |-------|------|-------|
-| `--font-display` | Playfair Display | Headlines, emotional moments, brand |
-| `--font-primary` | SF Pro Display / Inter | Titles, labels, buttons |
-| `--font-secondary` | SF Pro Text / Inter | Body content, descriptions |
+| `--font-display` | **Fraunces** (variable) | Headlines, emotional moments, brand |
+| `--font-body` | **SF Pro** (system) | Body content, labels, buttons |
 
-### Type Scale
+### Type Scale (iOS)
+
+| Style | Font | Size | Weight | Usage |
+|-------|------|------|--------|-------|
+| Hero | Fraunces | 28pt | regular | Screen titles, hero text |
+| Title | Fraunces | 22-24pt | regular | Section headers, emotional headings |
+| Display | Fraunces | 14-20pt | regular-semibold | Card titles, decorative text |
+| Body | SF Pro | 15-16pt | regular | Primary content, buttons |
+| Label | SF Pro | 13-14pt | regular-medium | Labels, metadata |
+| Caption | SF Pro | 11-12pt | regular | Timestamps, captions |
+| Badge | SF Pro | 10pt | semibold | Status badges |
+
+### Type Scale (Web)
 
 | Style | Font | Size | Weight | Line Height | Usage |
 |-------|------|------|--------|-------------|-------|
-| Display | Playfair Display | 42pt | 400 | 1.1 | Hero headlines |
-| Title 1 | Playfair Display | 36pt | 400 | 1.2 | Screen titles |
-| Title 2 | Playfair Display | 28pt | 400 | 1.2 | Section headers |
-| Title 3 | Playfair Display | 20pt | 400 | 1.3 | Card titles, nav headers |
-| Body | Inter | 17pt | 400 | 1.4 | Primary content |
-| Body Small | Inter | 16pt | 400 | 1.4 | Buttons, inputs |
-| Caption | Inter | 14pt | 400 | 1.5 | Secondary info, labels |
-| Micro | Inter | 12-13pt | 400/600 | 1.5 | Timestamps, legal text |
+| Display | Fraunces | 42pt | 400 | 1.1 | Hero headlines |
+| Title 1 | Fraunces | 36pt | 400 | 1.2 | Screen titles |
+| Title 2 | Fraunces | 28pt | 400 | 1.2 | Section headers |
+| Title 3 | Fraunces | 20pt | 400 | 1.3 | Card titles |
+| Body | SF Pro / DM Sans | 17pt | 400 | 1.4 | Primary content |
+| Body Small | SF Pro / DM Sans | 16pt | 400 | 1.4 | Buttons, inputs |
+| Caption | SF Pro / DM Sans | 14pt | 400 | 1.5 | Secondary info |
+| Micro | SF Pro / DM Sans | 12-13pt | 400/600 | 1.5 | Timestamps, legal |
 
 ### Text Colors by Hierarchy
 
 ```
-Primary text:   #F5F5F0 (--foreground)
-Secondary text: #8A8A8A (--muted-foreground)
-Tertiary text:  #666666 (--text-muted)
-Link text:      #D4A574 (--gold)
+Primary text:   #2C2420 (--text-primary)
+Secondary text: #6B6560 (--text-secondary)
+Tertiary text:  #9A9490 (--text-tertiary)
+Link text:      #C06030 (--coral-text, WCAG AA)
 ```
 
 ---
@@ -79,32 +110,25 @@ Link text:      #D4A574 (--gold)
 ## Spacing & Layout
 
 ### Base Unit
-- **8px** base unit for all spacing calculations
+- **4px** base unit for all spacing calculations (multiples of 4)
+
+### Spacing Scale
+
+| Token | Value | Usage |
+|-------|-------|-------|
+| `spacing2` | 2pt | Text line spacing, tight gaps |
+| `spacing4` | 4pt | Minimal spacing, icon margins |
+| `spacing6` | 6pt | Inline label + badge gaps |
+| `spacing8` | 8pt | Component internal padding (small) |
+| `spacing12` | 12pt | Component internal padding (medium) |
+| `spacing16` | 16pt | Item-to-item spacing, standard padding |
+| `spacing20` | 20pt | Section padding, horizontal page padding |
+| `spacing24` | 24pt | Large spacing between sections |
+| `spacing28` | 28pt | Section-to-section spacing |
+| `spacing32` | 32pt | Premium card internal padding |
 
 ### Screen Padding
-- **24px** horizontal padding on all screens
-
-### Component Spacing
-
-| Context | Value |
-|---------|-------|
-| Section gap | 32-40px |
-| Card padding | 20-24px |
-| Component gap | 12-16px |
-| Button padding | 10px vertical, 16px horizontal |
-| Input padding | 8px vertical, 16px horizontal |
-
-### Layout Patterns
-
-```
-Screen structure:
-├── Status Bar (47px)
-├── Header (56px)
-└── Content (fill, padding: 24px)
-    ├── Title Section
-    ├── Spacer (flexible)
-    └── Actions
-```
+- **20px** horizontal padding on all screens
 
 ---
 
@@ -112,129 +136,119 @@ Screen structure:
 
 | Token | Value | Usage |
 |-------|-------|-------|
-| `--radius-button` | 28px | Pill buttons (full radius) |
-| `--radius-card` | 16px | Cards, modals |
-| `--radius-input` | 12px | Inputs, social buttons |
-| `--radius-chip` | 8px | Tags, chips, small elements |
+| `radiusSmall` | 4px | Small elements, badges, pills |
+| `radiusXSmall` | 8px | Artwork thumbnails, small containers |
+| `radiusMedium` | 12px | Buttons, standard cards |
+| `radiusCTA` | 14px | CTA buttons, full-width action buttons |
+| `radiusLarge` | 16px | Large cards, containers |
+| `radiusOverlay` | 20px | Overlay cards, album art, NowPlaying |
+| `radiusChip` | 22px | Chip buttons, occasion tags |
+| `radiusPremium` | 24px | Premium cards (poem detail, featured) |
+| `radiusPill` | 25px | Pill buttons (action bar) |
+| `radiusCircle` | 999px | Full circle |
+
+---
+
+## Elevation System
+
+Warm-tinted shadows with low opacity on light backgrounds.
+
+| Level | Opacity | Radius | Y-Offset | Usage |
+|-------|---------|--------|----------|-------|
+| Level 0 | 0 | 0 | 0 | Flat elements, backgrounds |
+| Level 1 | 0.06 | 4px | 2px | Small cards, list items |
+| Level 2 | 0.10 | 8px | 4px | Standard cards, sections |
+| Level 3 | 0.15 | 12px | 6px | Toasts, tooltips |
+| Level 4 | 0.20 | 16px | 8px | Modals, dialogs |
+
+Shadow color: `--text-primary` at the specified opacity.
+
+### Accent Shadow (Coral Glow)
+```css
+box-shadow: 0 4px 12px rgba(224, 120, 80, 0.15);
+```
+Used on primary CTAs for a warm coral glow effect.
 
 ---
 
 ## Components
 
-### Primary Button (Gold CTA)
+### Primary Button (Coral CTA)
 
 ```css
-background: #D4A574;
-color: #0A0A0A;
-height: 56px;
-border-radius: 28px;
-font: Inter 16px 600;
+background: #E07850;
+color: #FFFFFF;
+height: 54px;
+border-radius: 14px;
+font: SF Pro 16px 600;
 ```
 
 **States:**
-- Default: `#D4A574`
-- Pressed: `#C49464` (darken 5%)
-- Disabled: `#D4A57450` (50% opacity)
+- Default: `#E07850`
+- Pressed: darken 5%
+- Disabled: 50% opacity
+- Glow: `0 4px 12px rgba(224, 120, 80, 0.12)`
 
 ### Secondary Button (Surface)
 
 ```css
-background: #161616;
-color: #F5F5F0;
-border: 1px solid #2A2A2A;
-height: 56px;
-border-radius: 12px;
+background: #FFFFFF;
+color: #2C2420;
+border: 0.5px solid var(--border);
+height: 54px;
+border-radius: 14px;
 ```
 
-### Back Button
+### Chat Bubbles
 
+**User Bubble:**
 ```css
-background: #161616;
-width: 44px;
-height: 44px;
-border-radius: 22px;
-icon: arrow-left, 20px, #FFFFFF;
+background: var(--coral-bubble);
+color: #2C2420;
+border: 0.5px solid rgba(224, 120, 80, 0.15);
+border-radius: 16px;
+font: SF Pro 15px;
 ```
 
-### Input Field
-
+**AI Bubble:**
 ```css
-background: transparent;
-color: #F5F5F0;
-font: Inter 32px 300;
-caret-color: #D4A574;
-```
-
-### Numpad Key
-
-```css
-background: #2A2A2A;
-height: 52px;
-border-radius: 8px;
-color: #FFFFFF;
-font: Inter 24px 400;
+background: var(--sage-bubble);
+color: #2C2420;
+border: 0.5px solid rgba(123, 143, 107, 0.15);
+border-radius: 16px;
+font: SF Pro 15px;
 ```
 
 ---
 
 ## Brand Mark
 
-The **mic in rose-gold circle** is the core brand element.
+The **mic in coral circle** is the core brand element.
 
 ```css
 /* Brand Mark Container */
-background: #D4A574;
+background: #E07850;
 width: 120px;
 height: 120px;
 border-radius: 60px;
 
 /* Mic Icon */
-icon: lucide/mic;
+icon: mic (white SVG);
 size: 48px;
 color: #FFFFFF;
 ```
 
 **Usage:**
 - Splash screen (centered, 120px)
-- Create button (nav bar, 56px)
+- Create button (nav bar, coral filled)
 - Loading states (animated pulse)
 - App icon
 
 ---
 
-## Shadows & Effects
-
-### Gold Glow (Focus/Active States)
-
-```css
-box-shadow: 0 0 20px #D4A57440;
-```
-
-### Card Shadow
-
-```css
-box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
-```
-
-### Overlay
-
-```css
-background: #00000099; /* 60% black */
-```
-
----
-
 ## Icons
 
-**Primary Icon Set:** Lucide
-
-**Common Icons:**
-- `mic` - Voice/recording
-- `arrow-left` - Back navigation
-- `phone` - Phone auth
-- `check-circle` - Success state
-- `x` - Close/clear
-- `chevron-down` - Dropdowns
+**Primary Icon Set:** SF Symbols (iOS) / Lucide (Web)
 
 **Icon Sizes:**
 - Navigation: 20px
@@ -250,11 +264,11 @@ background: #00000099; /* 60% black */
 - **Duration:** 200-300ms
 - **Easing:** ease-out for entrances, ease-in for exits
 
-### Gold Glow Pulse
+### Coral Glow Pulse
 ```css
-@keyframes gold-pulse {
-  0%, 100% { box-shadow: 0 0 20px #D4A57440; }
-  50% { box-shadow: 0 0 30px #D4A57460; }
+@keyframes coral-pulse {
+  0%, 100% { box-shadow: 0 0 20px rgba(224, 120, 80, 0.25); }
+  50% { box-shadow: 0 0 30px rgba(224, 120, 80, 0.35); }
 }
 ```
 
@@ -269,50 +283,61 @@ transition: transform 100ms ease-out;
 ## Screen Templates
 
 ### Splash Screen
-- Full screen `#0A0A0A`
-- Centered brand mark (mic in gold circle)
-- "porizo" in Playfair Display below
+- Full screen `#FBF7F2` warm parchment
+- Centered brand mark (mic in coral circle)
+- "Porizo" in Fraunces below
 
 ### Landing/Hero Screen
-- Headline in Playfair Display 42pt
-- Subhead in Inter 17pt `#8A8A8A`
-- Gold waveform illustration
-- Gold CTA button
-- "Sign in" link in gold
+- Headline in Fraunces 28pt
+- Subhead in SF Pro 17pt `#6B6560`
+- Coral accent elements
+- Coral CTA button
+- "Sign in" link in coral-text
 
-### Auth Flow Screens
-- Header with Playfair Display 20pt
-- Content centered vertically
-- Gold confirm/action buttons
-- Surface-colored numpad
+### Creation Flow
+- Conversation Garden: organic bubbles, sage AI / coral user
+- The Pulse (wait): breathing coral rings on cream
+- The Bloom (reveal): radial coral gradient, in-route transformation
+- The Postcard (share): coral-to-amber gradient card
 
 ---
 
 ## Implementation Notes
 
-### SwiftUI Color Extension
+### SwiftUI (DesignTokens.swift)
 ```swift
-extension Color {
-    static let background = Color(hex: "0A0A0A")
-    static let surface = Color(hex: "161616")
-    static let gold = Color(hex: "D4A574")
-    static let roseGold = Color(hex: "E8B4B8")
-    static let warmWhite = Color(hex: "F5F5F0")
-    static let mutedText = Color(hex: "8A8A8A")
+// Colors reference the asset catalog
+static let background = Color("Colors/Background")
+static let surface = Color("Colors/Surface")
+static let gold = Color("Colors/Gold")       // coral accent (legacy name)
+static let sage = Color("Colors/Sage")
+static let textPrimary = Color("Colors/TextPrimary")
+
+// Display font
+static func displayFont(size: CGFloat, weight: Font.Weight = .regular) -> Font {
+    .custom("Fraunces", size: size).weight(weight)
+}
+
+// Body font (system SF Pro with Dynamic Type)
+static func bodyFont(size: CGFloat, weight: Font.Weight = .regular) -> Font {
+    Font(UIFontMetrics(forTextStyle: .body).scaledFont(
+        for: UIFont.systemFont(ofSize: size, weight: weight.uiFontWeight)
+    ))
 }
 ```
 
 ### CSS Variables
 ```css
 :root {
-    --background: #0A0A0A;
-    --surface: #161616;
-    --gold: #D4A574;
-    --gold-glow: #D4A57440;
-    --rose-gold: #E8B4B8;
-    --foreground: #F5F5F0;
-    --muted: #8A8A8A;
-    --border: #2A2A2A;
+    --background: #FBF7F2;
+    --surface: #FFFFFF;
+    --coral: #E07850;
+    --coral-text: #C06030;
+    --coral-glow: rgba(224, 120, 80, 0.25);
+    --sage: #7B8F6B;
+    --text-primary: #2C2420;
+    --text-secondary: #6B6560;
+    --border: #E8E2DC;
 }
 ```
 
@@ -320,8 +345,23 @@ extension Color {
 
 ## Design Principles
 
-1. **Luxury through restraint** - Use gold sparingly for maximum impact
-2. **Serif for emotion** - Playfair Display for headlines creates warmth
-3. **Deep velvet foundation** - The dark background makes gold elements glow
-4. **Warm, not cold** - Use warm whites (#F5F5F0) not pure white (#FFFFFF)
-5. **Purposeful accents** - Every gold element should guide the user's eye to important actions
+1. **Warmth through light** - The light parchment background creates an intimate, inviting canvas
+2. **Serif for emotion** - Fraunces (variable, high softness axis) adds organic warmth to headlines
+3. **Coral for action** - Coral accent guides the eye to CTAs and brand moments
+4. **Sage for guidance** - Sage green marks AI-driven elements (chat bubbles, suggestions)
+5. **Warm, not sterile** - Warm whites (#FBF7F2) and warm grays, never pure/cold tones
+6. **Trust through light** - Light mode increases trust and cognitive performance for emotional products
+7. **The song is the product** - Design energy builds toward the reveal moment, not the creation machinery
+
+---
+
+## Migration from Velvet & Gold
+
+| V1 (Velvet & Gold) | V2 (Warm Canvas) | Reason |
+|---------------------|-------------------|--------|
+| `#0A0A0A` dark bg | `#FBF7F2` warm parchment | Dark repelled gifting audience |
+| `#D4A574` metallic gold | `#E07850` terracotta coral | Warmer, more approachable |
+| Playfair Display | Fraunces (variable) | Higher softness axis, more organic |
+| Inter / DM Sans body | SF Pro (system) | Native feel, Dynamic Type support |
+| `#F5F5F0` warm white text | `#2C2420` warm dark text | Light bg requires dark text |
+| Rose gold secondary | Sage green `#7B8F6B` | Nature tones, AI differentiation |
