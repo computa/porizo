@@ -1,6 +1,7 @@
 "use strict";
 
 const { newUuid } = require("../utils/ids");
+const { stripMarkdown } = require("./blog-format-service");
 
 function nowIso() {
   return new Date().toISOString();
@@ -31,6 +32,60 @@ function normalizeTags(value) {
       .slice(0, 12);
   }
   return [];
+}
+
+function normalizeComparableText(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function createBodyFingerprint(markdown) {
+  return normalizeComparableText(stripMarkdown(markdown)).slice(0, 280);
+}
+
+function createTitleFingerprint(title) {
+  return normalizeComparableText(title);
+}
+
+function countSharedPrefixLength(left, right) {
+  const max = Math.min(left.length, right.length);
+  let index = 0;
+  while (index < max && left[index] === right[index]) {
+    index += 1;
+  }
+  return index;
+}
+
+function tokenOverlapRatio(left, right) {
+  const leftTokens = new Set(createTitleFingerprint(left).split(" ").filter(Boolean));
+  const rightTokens = new Set(createTitleFingerprint(right).split(" ").filter(Boolean));
+  if (leftTokens.size === 0 || rightTokens.size === 0) return 0;
+  let overlap = 0;
+  for (const token of leftTokens) {
+    if (rightTokens.has(token)) overlap += 1;
+  }
+  return overlap / Math.min(leftTokens.size, rightTokens.size);
+}
+
+function postsAreDuplicateDrafts(existing, incoming) {
+  const existingSlug = slugify(existing?.slug || existing?.title || "");
+  const incomingSlug = slugify(incoming?.slug || incoming?.title || "");
+  if (existingSlug && incomingSlug && existingSlug === incomingSlug) {
+    return true;
+  }
+
+  const existingBody = createBodyFingerprint(existing?.body_markdown || "");
+  const incomingBody = createBodyFingerprint(incoming?.body_markdown || "");
+  if (existingBody && incomingBody && existingBody === incomingBody) {
+    return true;
+  }
+
+  const sharedPrefix = countSharedPrefixLength(existingBody, incomingBody);
+  const overlap = tokenOverlapRatio(existing?.title || "", incoming?.title || "");
+  return sharedPrefix >= 140 && overlap >= 0.7;
 }
 
 function normalizePostInput(input) {
@@ -197,10 +252,38 @@ class BlogService {
     return revisionNumber;
   }
 
+  async findReusableDraft(input) {
+    const drafts = await this.listPosts({ status: "draft", limit: 100, offset: 0 });
+    return drafts.find((draft) => postsAreDuplicateDrafts(draft, input)) || null;
+  }
+
+  async archiveDuplicateDrafts(canonicalPost, updatedBy) {
+    const drafts = await this.listPosts({ status: "draft", limit: 100, offset: 0 });
+    const duplicates = drafts.filter((draft) => {
+      if (draft.id === canonicalPost.id) return false;
+      return postsAreDuplicateDrafts(draft, canonicalPost);
+    });
+
+    if (duplicates.length === 0) return;
+
+    const now = nowIso();
+    for (const duplicate of duplicates) {
+      await this.db.prepare(`
+        UPDATE blog_posts
+        SET status = 'archived', updated_by = ?, updated_at = ?
+        WHERE id = ?
+      `).run(updatedBy || null, now, duplicate.id);
+    }
+  }
+
   async createPost(input, createdBy) {
     const post = normalizePostInput(input);
     if (!post.title) throw new Error("Title is required");
     if (!post.slug) throw new Error("Slug is required");
+    const reusableDraft = await this.findReusableDraft(post);
+    if (reusableDraft) {
+      return this.updatePost(reusableDraft.id, post, createdBy);
+    }
     await this.assertSlugAvailable(post.slug);
 
     const id = newUuid();
@@ -276,7 +359,9 @@ class BlogService {
 
     const updated = await this.db.prepare(`${this.postSelectSql()} WHERE id = ?`).get(id);
     await this.createRevisionSnapshot(updated, updatedBy, "update");
-    return this.mapPostRow(updated);
+    const mapped = this.mapPostRow(updated);
+    await this.archiveDuplicateDrafts(mapped, updatedBy);
+    return this.getPostById(id);
   }
 
   async saveReviewResult(id, report, reviewedBy) {

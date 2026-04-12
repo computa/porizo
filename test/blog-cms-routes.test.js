@@ -267,6 +267,44 @@ describe("blog CMS routes", () => {
     assert.ok(draft.tags.includes("gifting"));
   });
 
+  test("reuses an existing draft for the same article instead of creating duplicates", async () => {
+    const payload = buildApprovedPayload({
+      title: "Why a Personalized Song Is the Best Father's Day Gift for Dad",
+      slug: "why-a-personalized-song-is-the-best-fathers-day-gift-for-dad",
+    });
+
+    const firstCreate = await app.inject({
+      method: "POST",
+      url: "/admin/dashboard/blog/posts",
+      headers: { Authorization: `Bearer ${adminToken}` },
+      payload,
+    });
+    assert.equal(firstCreate.statusCode, 200);
+    const firstPost = firstCreate.json().post;
+
+    const secondCreate = await app.inject({
+      method: "POST",
+      url: "/admin/dashboard/blog/posts",
+      headers: { Authorization: `Bearer ${adminToken}` },
+      payload: {
+        ...payload,
+        slug: "best-personalized-fathers-day-gift-song",
+      },
+    });
+    assert.equal(secondCreate.statusCode, 200);
+    const secondPost = secondCreate.json().post;
+    assert.equal(secondPost.id, firstPost.id);
+
+    const listResponse = await app.inject({
+      method: "GET",
+      url: "/admin/dashboard/blog/posts",
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
+    assert.equal(listResponse.statusCode, 200);
+    const posts = listResponse.json().posts.filter((post) => /best father's day gift for dad/i.test(post.title));
+    assert.equal(posts.length, 1);
+  });
+
   test("repair route rewrites the draft from review findings and reruns review", async () => {
     const originalGenerateRepair = blogRepairService.generateBlogRepairDraft;
     blogRepairService.generateBlogRepairDraft = async () => ({
