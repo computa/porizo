@@ -198,6 +198,19 @@ function mergeAutofillIntoForm(
   };
 }
 
+function spliceInsertedContent(
+  existing: string,
+  selectionStart: number,
+  selectionEnd: number,
+  inserted: string
+) {
+  const prefix = existing.slice(0, selectionStart);
+  const suffix = existing.slice(selectionEnd);
+  const needsLeadingNewline = prefix.length > 0 && !prefix.endsWith('\n');
+  const needsTrailingNewline = suffix.length > 0 && !suffix.startsWith('\n');
+  return `${prefix}${needsLeadingNewline ? '\n\n' : ''}${inserted}${needsTrailingNewline ? '\n\n' : ''}${suffix}`;
+}
+
 export function Blog() {
   const { get, post, put, loading, setError } = useApi();
   const [posts, setPosts] = useState<BlogPost[]>([]);
@@ -337,12 +350,12 @@ export function Blog() {
   const applyImportedMarkdown = useCallback((markdown: string, sourceLabel: string) => {
     const normalized = markdown.trim();
     if (!normalized) {
-      setNotice({ type: 'error', text: `No usable markdown found in ${sourceLabel}.` });
+      setNotice({ type: 'error', text: `No usable article content found in ${sourceLabel}.` });
       return;
     }
 
     setForm((current) => ({ ...current, body_markdown: normalized }));
-    setNotice({ type: 'success', text: `${sourceLabel} imported into markdown.` });
+    setNotice({ type: 'success', text: `${sourceLabel} imported successfully.` });
     void runAutofill({ markdown: normalized, overwrite: true });
   }, [runAutofill]);
 
@@ -351,8 +364,10 @@ export function Blog() {
     if (!file) return;
 
     try {
-      const raw = await file.text();
-      const markdown = extractMarkdownFromImport(raw, file.type);
+      const raw = file.name.toLowerCase().endsWith('.docx')
+        ? await file.arrayBuffer()
+        : await file.text();
+      const markdown = await extractMarkdownFromImport(raw, file.type, file.name);
       applyImportedMarkdown(markdown, file.name);
     } catch (importError) {
       setNotice({
@@ -364,31 +379,43 @@ export function Blog() {
     }
   };
 
-  const handleBodyPaste = (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
+  const handleBodyPaste = async (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
     const html = event.clipboardData.getData('text/html');
     if (!html.trim()) {
       return;
     }
 
-    const markdown = extractMarkdownFromImport(html, 'text/html');
-    if (!markdown) {
-      return;
-    }
-
     event.preventDefault();
+    const plainText = event.clipboardData.getData('text/plain');
     const target = event.currentTarget;
-    const start = target.selectionStart ?? form.body_markdown.length;
-    const end = target.selectionEnd ?? form.body_markdown.length;
-    const prefix = form.body_markdown.slice(0, start);
-    const suffix = form.body_markdown.slice(end);
-    const needsLeadingNewline = prefix.length > 0 && !prefix.endsWith('\n');
-    const needsTrailingNewline = suffix.length > 0 && !suffix.startsWith('\n');
-    const insertion = `${needsLeadingNewline ? '\n\n' : ''}${markdown}${needsTrailingNewline ? '\n\n' : ''}`;
+    const selectionStart = target.selectionStart ?? form.body_markdown.length;
+    const selectionEnd = target.selectionEnd ?? form.body_markdown.length;
+    const existingBody = form.body_markdown;
 
-    setField('body_markdown', `${prefix}${insertion}${suffix}`);
-    setNotice({ type: 'success', text: 'Converted rich-text paste into markdown.' });
-    if (prefix.length === 0 && suffix.length === 0) {
-      void runAutofill({ markdown, overwrite: true });
+    try {
+      const markdown = await extractMarkdownFromImport(html, 'text/html');
+      if (!markdown) {
+        if (plainText.trim()) {
+          setField('body_markdown', spliceInsertedContent(existingBody, selectionStart, selectionEnd, plainText));
+        }
+        return;
+      }
+
+      setField('body_markdown', spliceInsertedContent(existingBody, selectionStart, selectionEnd, markdown));
+      setNotice({ type: 'success', text: 'Converted rich-text paste into markdown.' });
+      if (selectionStart === 0 && selectionEnd === existingBody.length) {
+        void runAutofill({ markdown, overwrite: true });
+      }
+    } catch (pasteError) {
+      if (plainText.trim()) {
+        setField('body_markdown', spliceInsertedContent(existingBody, selectionStart, selectionEnd, plainText));
+        setNotice({ type: 'error', text: 'Could not convert rich text cleanly. Pasted plain text instead.' });
+        return;
+      }
+      setNotice({
+        type: 'error',
+        text: pasteError instanceof Error ? pasteError.message : 'Failed to convert pasted content.',
+      });
     }
   };
 
@@ -595,7 +622,7 @@ export function Blog() {
             <div className="flex flex-wrap items-center gap-3 justify-between">
               <div>
                 <h2 className="text-lg font-semibold text-white">{selectedId ? 'Edit Post' : 'New Post'}</h2>
-                <p className="text-sm text-slate-400">Markdown-first publishing with deterministic review.</p>
+                <p className="text-sm text-slate-400">Import Word or markdown, then review and publish.</p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <button
@@ -647,17 +674,17 @@ export function Blog() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <label className="space-y-1 md:col-span-2">
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <span className="text-xs uppercase tracking-wide text-slate-500">Article Markdown</span>
-                    <p className="mt-1 text-xs text-slate-500">
-                      Paste the article once. The editor will draft the title, excerpt, answer summary, query, keyword, and tags from it.
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
+                <div>
+                  <span className="text-xs uppercase tracking-wide text-slate-500">Article Content</span>
+                  <p className="mt-1 text-xs text-slate-500">
+                      Paste from Word or Google Docs, or import a `.docx` Word file or `.md` file once. The editor will draft the title, excerpt, answer summary, query, keyword, and tags from it.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
                     <input
                       ref={markdownFileInputRef}
                       type="file"
-                      accept=".md,.markdown,.txt,.html,.htm,text/markdown,text/plain,text/html"
+                      accept=".docx,.md,.markdown,.txt,.html,.htm,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/markdown,text/plain,text/html"
                       onChange={handleMarkdownFileImport}
                       className="hidden"
                     />
@@ -667,7 +694,7 @@ export function Blog() {
                       className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900/50 px-3 py-2 text-xs font-medium text-slate-200 hover:bg-slate-800"
                     >
                       <Upload className="h-3.5 w-3.5" />
-                      Import File
+                      Import Word (.docx) or Markdown
                     </button>
                     <button
                       type="button"
@@ -681,7 +708,7 @@ export function Blog() {
                   </div>
                 </div>
                 <p className="text-xs text-slate-500">
-                  Rich text pasted here is converted into markdown automatically. Embed media with <code>@[youtube Video title](https://www.youtube.com/watch?v=...)</code> or <code>@[audio Clip title](https://cdn.example.com/file.mp3)</code>.
+                  Word/Docs rich text pasted here is converted automatically. File import supports `.docx`, `.md`, plain text, and HTML. Embed media with <code>@[youtube Video title](https://www.youtube.com/watch?v=...)</code> or <code>@[audio Clip title](https://cdn.example.com/file.mp3)</code>.
                 </p>
                 <textarea
                   value={form.body_markdown}

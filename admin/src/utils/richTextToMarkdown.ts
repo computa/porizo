@@ -193,6 +193,21 @@ function renderNode(node: Node, context: RenderContext): string {
   return renderChildren(element, context);
 }
 
+function looksLikeDocx(mimeType?: string, fileName?: string) {
+  const normalizedMime = String(mimeType || '').toLowerCase();
+  const normalizedName = String(fileName || '').toLowerCase();
+  return (
+    normalizedMime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+    normalizedName.endsWith('.docx')
+  );
+}
+
+async function docxToMarkdown(content: ArrayBuffer) {
+  const mammoth = await import('mammoth/mammoth.browser');
+  const { value: html } = await mammoth.convertToHtml({ arrayBuffer: content });
+  return htmlToMarkdown(html);
+}
+
 export function htmlToMarkdown(html: string) {
   const parser = new DOMParser();
   const doc = parser.parseFromString(html, 'text/html');
@@ -203,7 +218,18 @@ export function htmlToMarkdown(html: string) {
     .trim();
 }
 
-export function extractMarkdownFromImport(content: string, mimeType?: string) {
+export async function extractMarkdownFromImport(
+  content: string | ArrayBuffer,
+  mimeType?: string,
+  fileName?: string
+) {
+  if (content instanceof ArrayBuffer) {
+    if (!looksLikeDocx(mimeType, fileName)) {
+      return '';
+    }
+    return docxToMarkdown(content);
+  }
+
   const trimmed = String(content || '').trim();
   if (!trimmed) return '';
   const looksLikeHtml =
