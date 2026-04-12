@@ -199,8 +199,9 @@ function mergeAutofillIntoForm(
 }
 
 export function Blog() {
-  const { get, post, put, loading, error, setError } = useApi();
+  const { get, post, put, loading, setError } = useApi();
   const [posts, setPosts] = useState<BlogPost[]>([]);
+  const [postsLoadError, setPostsLoadError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [form, setForm] = useState<BlogFormState>(EMPTY_FORM);
   const [previewHtml, setPreviewHtml] = useState('');
@@ -234,9 +235,11 @@ export function Blog() {
         const data = await get<{ posts: BlogPost[] }>(`/blog/posts${query ? `?${query}` : ''}`);
         if (cancelled) return;
         setPosts(data.posts);
-      } catch {
+        setPostsLoadError(null);
+      } catch (loadError) {
         if (!cancelled) {
           setPosts([]);
+          setPostsLoadError(loadError instanceof Error ? loadError.message : 'Failed to load blog posts');
         }
       }
     })();
@@ -500,8 +503,8 @@ export function Blog() {
     return <LoadingState message="Loading blog posts..." />;
   }
 
-  if (error && posts.length === 0) {
-    return <ErrorState message={`Error loading blog posts: ${error}`} />;
+  if (postsLoadError && posts.length === 0) {
+    return <ErrorState message={`Error loading blog posts: ${postsLoadError}`} />;
   }
 
   return (
