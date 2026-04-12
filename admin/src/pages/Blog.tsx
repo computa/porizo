@@ -104,6 +104,17 @@ interface BlogAutofillDraft {
   source: string;
 }
 
+interface MarkdownLink {
+  matchIndex: number;
+  start: number;
+  end: number;
+  label: string;
+  url: string;
+  isInternal: boolean;
+  isExternal: boolean;
+  isSuspicious: boolean;
+}
+
 const EMPTY_FORM: BlogFormState = {
   title: '',
   slug: '',
@@ -221,6 +232,42 @@ function spliceInsertedContent(
   const needsLeadingNewline = prefix.length > 0 && !prefix.endsWith('\n');
   const needsTrailingNewline = suffix.length > 0 && !suffix.startsWith('\n');
   return `${prefix}${needsLeadingNewline ? '\n\n' : ''}${inserted}${needsTrailingNewline ? '\n\n' : ''}${suffix}`;
+}
+
+function isInternalBlogLink(url: string) {
+  return /^(\/|https?:\/\/(?:www\.)?porizo\.co\b|https?:\/\/api\.porizo\.co\b)/i.test(url);
+}
+
+function extractMarkdownLinks(markdown: string): MarkdownLink[] {
+  const source = String(markdown || '');
+  return Array.from(source.matchAll(/\[([^\]]+)\]\(([^)]+)\)/g)).map((match, matchIndex) => {
+    const label = String(match[1] || '').trim();
+    const url = String(match[2] || '').trim();
+    const isInternal = isInternalBlogLink(url);
+    const isExternal = /^https?:\/\//i.test(url) && !isInternal;
+    const isSuspicious = /porizo/i.test(label) && !isInternal;
+    return {
+      matchIndex,
+      start: match.index ?? 0,
+      end: (match.index ?? 0) + match[0].length,
+      label,
+      url,
+      isInternal,
+      isExternal,
+      isSuspicious,
+    };
+  });
+}
+
+function replaceMarkdownLink(markdown: string, link: MarkdownLink, updates: { label?: string; url?: string }) {
+  const nextLabel = updates.label ?? link.label;
+  const nextUrl = updates.url ?? link.url;
+  const replacement = `[${nextLabel}](${nextUrl})`;
+  return `${markdown.slice(0, link.start)}${replacement}${markdown.slice(link.end)}`;
+}
+
+function removeMarkdownLink(markdown: string, link: MarkdownLink) {
+  return `${markdown.slice(0, link.start)}${link.label}${markdown.slice(link.end)}`;
 }
 
 export function Blog() {
@@ -450,6 +497,11 @@ export function Blog() {
   };
 
   const payload = useMemo(() => createPayload(form), [form]);
+  const articleLinks = useMemo(() => extractMarkdownLinks(form.body_markdown), [form.body_markdown]);
+  const suspiciousArticleLinks = useMemo(
+    () => articleLinks.filter((link) => link.isSuspicious),
+    [articleLinks]
+  );
   const hasUnsavedChanges = useMemo(() => {
     const comparablePost = normalizeComparablePost(selectedPost);
     if (!selectedId) {
@@ -795,6 +847,17 @@ export function Blog() {
                 <p className="text-xs text-slate-500">
                   Word/Docs rich text pasted here is converted automatically. File import supports `.docx`, `.md`, plain text, and HTML. Embed media with <code>@[youtube Video title](https://www.youtube.com/watch?v=...)</code> or <code>@[audio Clip title](https://cdn.example.com/file.mp3)</code>.
                 </p>
+                {articleLinks.length > 0 ? (
+                  <div className={`rounded-lg border px-3 py-2 text-xs ${
+                    suspiciousArticleLinks.length > 0
+                      ? 'border-amber-500/30 bg-amber-500/10 text-amber-100'
+                      : 'border-slate-700/70 bg-slate-900/40 text-slate-400'
+                  }`}>
+                    {suspiciousArticleLinks.length > 0
+                      ? `Review ${suspiciousArticleLinks.length} suspicious link${suspiciousArticleLinks.length === 1 ? '' : 's'} before publishing.`
+                      : `Detected ${articleLinks.length} markdown link${articleLinks.length === 1 ? '' : 's'} in this article.`}
+                  </div>
+                ) : null}
                 <textarea
                   value={form.body_markdown}
                   onChange={(event) => setField('body_markdown', event.target.value)}
@@ -803,6 +866,75 @@ export function Blog() {
                   className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-slate-100 font-mono text-sm"
                 />
               </label>
+
+              <div className="md:col-span-2 rounded-xl border border-slate-700/70 bg-slate-900/30">
+                <div className="flex items-center justify-between gap-3 px-4 py-3">
+                  <div>
+                    <p className="text-sm font-medium text-white">Link Review</p>
+                    <p className="text-xs text-slate-500">Inspect and replace imported article links before publishing. Hidden Word hyperlinks show up here.</p>
+                  </div>
+                  <span className="text-xs text-slate-400">{articleLinks.length} link{articleLinks.length === 1 ? '' : 's'}</span>
+                </div>
+                <div className="border-t border-slate-700/70 px-4 py-4">
+                  {articleLinks.length === 0 ? (
+                    <p className="text-sm text-slate-500">No markdown links detected in the current article body.</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {articleLinks.map((link) => (
+                        <div
+                          key={`${link.matchIndex}-${link.start}`}
+                          className={`rounded-lg border p-3 ${
+                            link.isSuspicious
+                              ? 'border-amber-500/30 bg-amber-500/10'
+                              : 'border-slate-700 bg-slate-900/50'
+                          }`}
+                        >
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="text-sm font-medium text-white">{link.label}</p>
+                            <span className={`rounded-full px-2 py-0.5 text-[10px] uppercase tracking-wide ${
+                              link.isInternal
+                                ? 'bg-emerald-500/10 text-emerald-300'
+                                : 'bg-slate-800 text-slate-300'
+                            }`}>
+                              {link.isInternal ? 'Internal' : 'External'}
+                            </span>
+                            {link.isSuspicious ? (
+                              <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] uppercase tracking-wide text-amber-200">
+                                Label/URL mismatch
+                              </span>
+                            ) : null}
+                          </div>
+                          <label className="mt-3 block space-y-1">
+                            <span className="text-xs uppercase tracking-wide text-slate-500">URL</span>
+                            <input
+                              value={link.url}
+                              onChange={(event) => setField('body_markdown', replaceMarkdownLink(form.body_markdown, link, { url: event.target.value }))}
+                              className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-slate-100 text-sm"
+                            />
+                          </label>
+                          <div className="mt-3 flex flex-wrap items-center gap-2">
+                            <a
+                              href={link.url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-xs font-medium text-slate-200 hover:bg-slate-800"
+                            >
+                              Open Link
+                            </a>
+                            <button
+                              type="button"
+                              onClick={() => setField('body_markdown', removeMarkdownLink(form.body_markdown, link))}
+                              className="inline-flex items-center gap-2 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs font-medium text-rose-200 hover:bg-rose-500/20"
+                            >
+                              Remove Link Keep Text
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
 
               <label className="space-y-1">
                 <span className="text-xs uppercase tracking-wide text-slate-500">Title</span>
