@@ -422,7 +422,13 @@ app.get("/play/:shareId", async (request, reply) => {
 
   // Validate share exists and fetch track metadata for OG tags
   const share = await db.prepare(
-    "SELECT st.id, st.status, st.expires_at, st.track_id, st.track_version_id, t.title, t.recipient_name, t.occasion FROM share_tokens st LEFT JOIN tracks t ON t.id = st.track_id WHERE st.id = ?"
+    `SELECT st.id, st.status, st.expires_at, st.track_id, st.track_version_id, st.gift_order_id,
+            t.title, t.recipient_name, t.occasion,
+            go.sender_display_name, go.recipient_name AS gift_recipient_name
+       FROM share_tokens st
+       LEFT JOIN tracks t ON t.id = st.track_id
+       LEFT JOIN gift_orders go ON go.id = st.gift_order_id
+      WHERE st.id = ?`
   ).get(shareId);
   if (!share) {
     return reply.status(404).type("text/html").send(shareNotFoundHtml("song"));
@@ -493,13 +499,29 @@ app.get("/play/:shareId", async (request, reply) => {
   }
 
   // Build OG metadata for rich social share cards
-  const ogTitle = share.recipient_name
-    ? `A song for ${share.recipient_name}`
-    : "Someone made you a song!";
+  const recipientName = (share.recipient_name || share.gift_recipient_name || "").trim();
+  const senderDisplayName = (share.sender_display_name || "").trim();
   const occasion = formatOccasion(share.occasion);
-  const ogDescription = occasion
-    ? `A personalized ${occasion} song — tap to listen`
-    : "A personalized song made just for you — tap to listen";
+  let ogTitle = "Someone made you a song!";
+  if (senderDisplayName && recipientName && occasion) {
+    ogTitle = `${senderDisplayName} made a ${occasion} song for ${recipientName}`;
+  } else if (senderDisplayName && recipientName) {
+    ogTitle = `${senderDisplayName} made a song for ${recipientName}`;
+  } else if (recipientName && occasion) {
+    ogTitle = `A ${occasion} song for ${recipientName}`;
+  } else if (recipientName) {
+    ogTitle = `A song for ${recipientName}`;
+  }
+  let ogDescription = "Open the song and listen in your browser.";
+  if (senderDisplayName && recipientName && occasion) {
+    ogDescription = `${senderDisplayName} made this ${occasion} song for ${recipientName}. Listen in your browser.`;
+  } else if (senderDisplayName && recipientName) {
+    ogDescription = `${senderDisplayName} made this song for ${recipientName}. Listen in your browser.`;
+  } else if (recipientName && occasion) {
+    ogDescription = `Open ${recipientName}'s ${occasion} song and listen in your browser.`;
+  } else if (recipientName) {
+    ogDescription = `Open the song made for ${recipientName} and listen in your browser.`;
+  }
   const socialCacheToken = extractSocialCacheToken(request);
   const ogUrl = buildRequestedPlayShareUrl(request, shareId);
 
@@ -705,6 +727,33 @@ app.get("/share/:shareId", async (request, reply) => {
   const deviceToken = getDeviceTokenPayload(request, reply);
   const requestDeviceId = deviceToken?.device_id || null;
   const requestPlatform = deviceToken?.platform || null;
+  const giftOrder = share.gift_order_id
+    ? await db.prepare(
+      "SELECT sender_display_name, recipient_name FROM gift_orders WHERE id = ?"
+    ).get(share.gift_order_id)
+    : null;
+  const [hydratedSharedTrack] = await hydrateTrackCoverImages(track ? [track] : []);
+  const trackInfo = {
+    title: hydratedSharedTrack?.title ?? track.title,
+    recipient_name:
+      hydratedSharedTrack?.recipient_name ??
+      track.recipient_name ??
+      giftOrder?.recipient_name ??
+      null,
+    sender_name: giftOrder?.sender_display_name?.trim() || null,
+    occasion: track.occasion || null,
+    duration_sec: (hydratedSharedTrack?.duration_target || track.duration_target || 60),
+    cover_image_url:
+      hydratedSharedTrack?.cover_image_small_url ||
+      hydratedSharedTrack?.cover_image_url ||
+      hydratedSharedTrack?.cover_image_large_url ||
+      null,
+  };
+  const lyricsData = parseJson(trackVersion.lyrics_json, null, "share_lyrics");
+  const lyrics = lyricsData?.sections || null;
+  const publicWebStreamUrl = share.web_stream_allowed
+    ? `${getBaseUrl(request)}/share/${share.id}/audio`
+    : null;
 
   if (share.status === "claimed") {
     const canAccess =
@@ -714,9 +763,13 @@ app.get("/share/:shareId", async (request, reply) => {
 
     reply.send({
       status: "claimed",
+      track_preview: trackInfo,
+      track: trackInfo,
       can_access: canAccess,
-      app_required: !canAccess, // Only require app if different device
+      app_required: !canAccess && !publicWebStreamUrl,
       app_download_url: buildShareAppDownloadUrl({ shareId: share.id }),
+      ...(publicWebStreamUrl && { web_stream_url: publicWebStreamUrl }),
+      ...(lyrics && { lyrics }),
     });
     return;
   }
@@ -734,26 +787,11 @@ app.get("/share/:shareId", async (request, reply) => {
         share.bound_device_platform === requestPlatform)
     );
 
-  const [hydratedSharedTrack] = await hydrateTrackCoverImages(track ? [track] : []);
-  const trackInfo = {
-    title: hydratedSharedTrack?.title ?? track.title,
-    recipient_name: hydratedSharedTrack?.recipient_name ?? track.recipient_name,
-    duration_sec: (hydratedSharedTrack?.duration_target || track.duration_target || 60),
-    cover_image_url:
-      hydratedSharedTrack?.cover_image_small_url ||
-      hydratedSharedTrack?.cover_image_url ||
-      hydratedSharedTrack?.cover_image_large_url ||
-      null,
-  };
-
   // Public web playback is preview-only for unbound shares.
   // Claim PIN remains an app ownership/binding control, not a web playback gate.
   const shareStreamUrl = share.web_stream_allowed && !appRequired
     ? `${getBaseUrl(request)}/share/${share.id}/audio`
     : null;
-
-  const lyricsData = parseJson(trackVersion.lyrics_json, null, "share_lyrics");
-  const lyrics = lyricsData?.sections || null;
 
   // dl_token remains gated behind PIN verification because downloads are meant for intentional export.
   const hasPinProtection = Boolean(share.claim_pin);
@@ -877,7 +915,7 @@ app.post("/share/:shareId/claim", { schema: schemas.shareClaim }, async (request
   // will both pass the JS checks above, but only one UPDATE will match.
   const claimResult = await db.prepare(
     "UPDATE share_tokens SET status = ?, bound_device_id = ?, bound_device_platform = ?, bound_app_version = ?, bound_user_id = COALESCE(?, bound_user_id), bound_at = ?, web_stream_allowed = ?, claim_attempts = 0 WHERE id = ? AND bound_device_id IS NULL AND status = 'unbound'"
-  ).run("claimed", deviceId, platform, appVersion, claimUserId, claimAt, 0, share.id);
+  ).run("claimed", deviceId, platform, appVersion, claimUserId, claimAt, share.web_stream_allowed ? 1 : 0, share.id);
   if (claimResult.changes === 0) {
     console.warn("[SecurityGuard:ClaimRace] Concurrent claim rejected for share", share.id);
     sendError(reply, 409, "TOKEN_ALREADY_BOUND", "Share token already bound to another device.");
@@ -920,10 +958,6 @@ app.get("/share/:shareId/stream", async (request, reply) => {
   if (!share) return;
 
   const deviceToken = getDeviceTokenPayload(request, reply, { required: false });
-  if (share.status === "claimed" && !deviceToken) {
-    sendError(reply, 400, "DEVICE_TOKEN_REQUIRED", "Missing x-device-token header.");
-    return;
-  }
   const deviceId = deviceToken?.device_id || null;
   const platform = deviceToken?.platform || request.headers["x-platform"];
   const baseUrl = getBaseUrl(request);
@@ -934,7 +968,56 @@ app.get("/share/:shareId/stream", async (request, reply) => {
 
   // For CLAIMED shares, require device match
   if (share.status === "claimed") {
-    if (share.bound_device_id !== deviceId || share.bound_device_platform !== platform) {
+    const canAccess =
+      Boolean(deviceToken) &&
+      share.bound_device_id === deviceId &&
+      share.bound_device_platform === platform;
+
+    if (canAccess) {
+      await addShareAccessLog({
+        shareTokenId: share.id,
+        eventType: "stream_started",
+        metadata: { platform, claimed: true },
+      });
+
+      // Emit share_stream event for analytics
+      eventsService.emit("share_stream", {
+        resourceType: "share",
+        resourceId: share.id,
+        metadata: { platform, claimed: true, track_id: share.track_id },
+        ip: request.ip,
+        userAgent: request.headers["user-agent"],
+      });
+
+      // Check if CDN (CloudFront) is configured for claimed shares
+      if (cdnSignerInstance && track && trackVersion) {
+        const hlsPath = `/tracks/${track.user_id}/${track.id}/v${trackVersion.version_num}/hls/playlist.m3u8`;
+        const signedPlaylist = cdnSignerInstance.createSignedStreamUrl({
+          path: hlsPath,
+          expiresInSeconds: 300,
+        });
+        reply.send({
+          stream_url: signedPlaylist.url,
+          cdn_enabled: true,
+          format: "hls",
+          expires_at: signedPlaylist.expiresAt,
+        });
+        return;
+      }
+
+      // Fallback to HLS playlist for claimed shares
+      reply.send({
+        stream_url: `${baseUrl}/share/${share.id}/playlist`,
+        key_url: `${baseUrl}/share/${share.id}/key`,
+        cdn_enabled: false,
+        format: "hls",
+        expires_at: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+      });
+      return;
+    }
+
+    const allowPublicClaimedPreview = share.web_stream_allowed && (!deviceToken || platform === "web");
+    if (!allowPublicClaimedPreview) {
       await addShareAccessLog({
         shareTokenId: share.id,
         eventType: "access_denied",
@@ -944,45 +1027,34 @@ app.get("/share/:shareId/stream", async (request, reply) => {
       return;
     }
 
-    await addShareAccessLog({
-      shareTokenId: share.id,
-      eventType: "stream_started",
-      metadata: { platform, claimed: true },
-    });
-
-    // Emit share_stream event for analytics
-    eventsService.emit("share_stream", {
-      resourceType: "share",
-      resourceId: share.id,
-      metadata: { platform, claimed: true, track_id: share.track_id },
-      ip: request.ip,
-      userAgent: request.headers["user-agent"],
-    });
-
-    // Check if CDN (CloudFront) is configured for claimed shares
-    if (cdnSignerInstance && track && trackVersion) {
-      const hlsPath = `/tracks/${track.user_id}/${track.id}/v${trackVersion.version_num}/hls/playlist.m3u8`;
-      const signedPlaylist = cdnSignerInstance.createSignedStreamUrl({
-        path: hlsPath,
-        expiresInSeconds: 300,
+    if (trackVersion && (trackVersion.preview_url || trackVersion.full_url)) {
+      await addShareAccessLog({
+        shareTokenId: share.id,
+        eventType: "stream_started",
+        metadata: { platform: platform || "web", claimed: true, mode: "public_preview" },
+      });
+      eventsService.emit("share_stream", {
+        resourceType: "share",
+        resourceId: share.id,
+        metadata: {
+          platform: platform || "web",
+          claimed: true,
+          track_id: share.track_id,
+          mode: "public_preview",
+        },
+        ip: request.ip,
+        userAgent: request.headers["user-agent"],
       });
       reply.send({
-        stream_url: signedPlaylist.url,
-        cdn_enabled: true,
-        format: "hls",
-        expires_at: signedPlaylist.expiresAt,
+        stream_url: `${baseUrl}/share/${share.id}/audio`,
+        cdn_enabled: false,
+        format: "audio",
+        expires_at: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
       });
       return;
     }
 
-    // Fallback to HLS playlist for claimed shares
-    reply.send({
-      stream_url: `${baseUrl}/share/${share.id}/playlist`,
-      key_url: `${baseUrl}/share/${share.id}/key`,
-      cdn_enabled: false,
-      format: "hls",
-      expires_at: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
-    });
+    sendError(reply, 404, "TRACK_NOT_READY", "Track audio not available.");
     return;
   }
 
@@ -1036,8 +1108,8 @@ app.get("/share/:shareId/stream", async (request, reply) => {
 app.get("/share/:shareId/audio", async (request, reply) => {
   const share = await resolveValidShare(request, reply);
   if (!share) return;
-  if (share.status !== "unbound") {
-    sendError(reply, 403, "SHARE_ALREADY_CLAIMED", "Share has been claimed in the app.");
+  if (share.status !== "unbound" && share.status !== "claimed") {
+    sendError(reply, 403, "SHARE_NOT_PLAYABLE", "Share is not playable.");
     return;
   }
   if (!share.web_stream_allowed) {
@@ -1069,8 +1141,8 @@ app.get("/share/:shareId/audio", async (request, reply) => {
 app.get("/share/:shareId/teaser", async (request, reply) => {
   const share = await resolveValidShare(request, reply);
   if (!share) return;
-  if (share.status !== "unbound") {
-    sendError(reply, 403, "SHARE_ALREADY_CLAIMED", "Share has been claimed in the app.");
+  if (share.status !== "unbound" && share.status !== "claimed") {
+    sendError(reply, 403, "SHARE_NOT_PLAYABLE", "Share is not playable.");
     return;
   }
   if (!share.web_stream_allowed) {

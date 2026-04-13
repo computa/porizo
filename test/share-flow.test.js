@@ -550,7 +550,7 @@ describe("Share Flow", () => {
       assert.strictEqual(body.format, "audio", "Should return audio format for unclaimed web shares");
     });
 
-    it("requires device headers for CLAIMED shares", async () => {
+    it("allows public preview playback for claimed shares when web streaming remains enabled", async () => {
       const deviceId = "claimed-stream-device-" + Date.now();
       const { trackId, versionNum } = await createShareableTrack();
 
@@ -574,13 +574,26 @@ describe("Share Flow", () => {
         },
       });
 
-      // Request stream WITHOUT headers - should fail for claimed shares
+      const infoRes = await app.inject({
+        method: "GET",
+        url: `/share/${share_id}`,
+      });
+      assert.strictEqual(infoRes.statusCode, 200, "Claimed share info should still load");
+      const info = JSON.parse(infoRes.body);
+      assert.strictEqual(info.status, "claimed");
+      assert.strictEqual(info.app_required, false, "Claimed share should not require app when public listening remains enabled");
+      assert.ok(info.web_stream_url, "Claimed share should retain a public browser stream");
+
+      // Request stream WITHOUT headers - should still return public preview playback
       const res = await app.inject({
         method: "GET",
         url: `/share/${share_id}/stream`,
       });
 
-      assert.strictEqual(res.statusCode, 400, "Should require headers for claimed shares");
+      assert.strictEqual(res.statusCode, 200, "Claimed share should still expose preview playback for browser listeners");
+      const body = JSON.parse(res.body);
+      assert.strictEqual(body.format, "audio", "Claimed public playback should use direct audio");
+      assert.ok(body.stream_url.includes(`/share/${share_id}/audio`), "Claimed public playback should route to the audio endpoint");
     });
 
     it("rejects stream from wrong device", async () => {
@@ -720,6 +733,41 @@ describe("Share Flow", () => {
       assert.ok(
         res.body.toLowerCase().includes("someone made you a song"),
         "Should contain player title"
+      );
+    });
+
+    it("renders recipient-aware OG metadata and keeps post-play CTA hidden in initial HTML", async () => {
+      const { trackId, versionNum } = await createShareableTrack();
+
+      const createRes = await app.inject({
+        method: "POST",
+        url: `/tracks/${trackId}/share`,
+        headers: { "x-user-id": testUserId },
+        payload: { version_num: versionNum },
+      });
+      const { share_id } = JSON.parse(createRes.body);
+
+      const res = await app.inject({
+        method: "GET",
+        url: `/play/${share_id}`,
+      });
+
+      assert.strictEqual(res.statusCode, 200);
+      assert.ok(
+        res.body.includes('property="og:title" content="A birthday song for Test"'),
+        "Should use recipient + occasion framing in og:title"
+      );
+      assert.ok(
+        res.body.includes('property="og:description" content="Open Test&#39;s birthday song and listen in your browser."'),
+        "Should use recipient-aware og:description"
+      );
+      assert.ok(
+        res.body.includes('id="post-play-cta" aria-hidden="true"'),
+        "Initial HTML should hide post-play CTA"
+      );
+      assert.ok(
+        !res.body.includes("post-play-cta visible"),
+        "Post-play CTA should not be visible in initial HTML"
       );
     });
 
@@ -1441,7 +1489,7 @@ describe("Share Flow", () => {
         .run(poemUserId, new Date().toISOString(), "low");
 
       // Create poem directly in DB (poem creation route may require story context)
-      const poemId = "poem_" + Date.now();
+      const poemId = "poem_" + require("crypto").randomUUID();
       const verses = JSON.stringify(["Roses are red", "Violets are blue", "This is a test", "Just for you"]);
       db.prepare(
         "INSERT INTO poems (id, user_id, title, recipient_name, occasion, verses, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
@@ -1615,6 +1663,111 @@ describe("Share Flow", () => {
       const info = JSON.parse(infoRes.body);
       assert.ok(info.web_stream_url, "default-policy gift must have web_stream_url");
       assert.strictEqual(info.app_required, false, "default-policy gift should not require app");
+    });
+
+    it("default-policy gift exposes sender context in share info and play-page OG metadata", async () => {
+      db.prepare("INSERT OR IGNORE INTO users (id, created_at, risk_level) VALUES (?, ?, ?)")
+        .run(giftUserId, new Date().toISOString(), "low");
+
+      const trackRes = await app.inject({
+        method: "POST", url: "/tracks",
+        headers: { "x-user-id": giftUserId },
+        payload: { title: "Gift Sender " + Date.now(), recipient_name: "Alex", message: "Proud of you", style: "pop", occasion: "graduation" },
+      });
+      const trackId = JSON.parse(trackRes.body).track_id;
+      const verRes = await app.inject({
+        method: "POST", url: `/tracks/${trackId}/versions`,
+        headers: { "x-user-id": giftUserId },
+        payload: { style: "pop" },
+      });
+      const versionNum = JSON.parse(verRes.body).version_num;
+      const versionId = db.prepare("SELECT id FROM track_versions WHERE track_id = ? AND version_num = ?").get(trackId, versionNum).id;
+      db.prepare("UPDATE track_versions SET preview_url = ? WHERE track_id = ? AND version_num = ?")
+        .run("http://stream.local/gift-sender.m3u8", trackId, versionNum);
+
+      const giftOrderId = "giftorder_" + Date.now();
+      const shareId = "giftctx_" + Date.now();
+      const createdAt = new Date().toISOString();
+      db.prepare(
+        `INSERT INTO gift_orders (
+          id, sender_user_id, content_type, content_id, status, dispatch_status, delivery_mode,
+          send_at, sender_timezone, recipient_name, sender_display_name, channels_json, recipient_phone,
+          recipient_email, message, share_token_id, share_url, claim_pin, claim_policy, expires_in_days,
+          dispatch_attempts, last_dispatch_error, dispatched_at, cancelled_at, token_transaction_id,
+          refund_transaction_id, version_num, content_snapshot_json, next_retry_at, dispatch_started_at,
+          idempotency_key, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        giftOrderId,
+        giftUserId,
+        "song",
+        trackId,
+        "scheduled",
+        "pending",
+        "immediate",
+        createdAt,
+        "UTC",
+        "Alex",
+        "Marcus",
+        JSON.stringify(["sms"]),
+        "+15555550123",
+        null,
+        "Proud of you",
+        shareId,
+        `http://localhost/share/${shareId}`,
+        "246810",
+        "default",
+        30,
+        0,
+        null,
+        null,
+        null,
+        null,
+        null,
+        versionNum,
+        null,
+        createdAt,
+        null,
+        `gift_ctx_${Date.now()}`,
+        createdAt,
+        createdAt
+      );
+
+      db.prepare(
+        `INSERT INTO share_tokens (id, track_id, track_version_id, creator_id, gift_order_id, status, share_type, claim_policy,
+         web_stream_allowed, app_save_allowed, expires_at, created_at, access_count, claim_pin, claim_attempts,
+         stream_key_id, stream_key, delivery_source)
+         VALUES (?, ?, ?, ?, ?, 'unbound', 'normal', 'default', 1, 1, ?, ?, 0, ?, 0, ?, ?, 'gift')`
+      ).run(
+        shareId,
+        trackId,
+        versionId,
+        giftUserId,
+        giftOrderId,
+        new Date(Date.now() + 30 * 86400000).toISOString(),
+        createdAt,
+        "246810",
+        require("crypto").randomUUID(),
+        require("crypto").randomBytes(16).toString("base64")
+      );
+      db.prepare("UPDATE tracks SET share_token_id = ? WHERE id = ?").run(shareId, trackId);
+
+      const infoRes = await app.inject({ method: "GET", url: `/share/${shareId}` });
+      assert.strictEqual(infoRes.statusCode, 200);
+      const info = JSON.parse(infoRes.body);
+      assert.strictEqual(info.track.sender_name, "Marcus");
+      assert.strictEqual(info.track.occasion, "graduation");
+
+      const playRes = await app.inject({ method: "GET", url: `/play/${shareId}` });
+      assert.strictEqual(playRes.statusCode, 200);
+      assert.ok(
+        playRes.body.includes('property="og:title" content="Marcus made a graduation song for Alex"'),
+        "Gift play page should use sender-aware og:title"
+      );
+      assert.ok(
+        playRes.body.includes('property="og:description" content="Marcus made this graduation song for Alex. Listen in your browser."'),
+        "Gift play page should use sender-aware og:description"
+      );
     });
   });
 });

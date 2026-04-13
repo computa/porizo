@@ -150,11 +150,40 @@
     }
   }
 
+  function capitalizeOccasion(value) {
+    if (!value || typeof value !== 'string') return '';
+    return value.charAt(0).toUpperCase() + value.slice(1);
+  }
+
+  function getTrackInfo() {
+    return shareData && (shareData.track || shareData.track_preview)
+      ? (shareData.track || shareData.track_preview)
+      : null;
+  }
+
+  function getExperienceHeading(trackInfo) {
+    if (!trackInfo) return 'Someone made you a song!';
+    const recipientName = (trackInfo.recipient_name || '').trim();
+    const occasion = capitalizeOccasion((trackInfo.occasion || '').trim());
+    if (recipientName && occasion) return `${occasion} song for ${recipientName}`;
+    if (recipientName) return `A song for ${recipientName}`;
+    return trackInfo.title || 'Someone made you a song!';
+  }
+
+  function getExperienceSubtitle(trackInfo) {
+    if (!trackInfo) return 'Open the gift and listen.';
+    const senderName = (trackInfo.sender_name || '').trim();
+    const recipientName = (trackInfo.recipient_name || '').trim();
+    if (senderName) return `From ${senderName}`;
+    if (recipientName) return `Made for ${recipientName}`;
+    return 'Open the gift and listen.';
+  }
+
   function updateTrackInfo() {
-    const trackInfo = shareData.track || shareData.track_preview;
+    const trackInfo = getTrackInfo();
     if (trackInfo) {
-      elements.trackTitle.textContent = trackInfo.title || 'Your Song';
-      elements.trackRecipient.textContent = `Made for ${trackInfo.recipient_name || 'You'}`;
+      elements.trackTitle.textContent = getExperienceHeading(trackInfo);
+      elements.trackRecipient.textContent = getExperienceSubtitle(trackInfo);
     }
   }
 
@@ -383,10 +412,17 @@
         return;
       }
 
-      // If already claimed by this device, stream with device headers
-      if (shareData.status === 'claimed' && shareData.can_access) {
-        await loadPlayer(true);
-        return;
+      // Claimed shares can still offer public browser playback while
+      // app ownership remains device-bound.
+      if (shareData.status === 'claimed') {
+        if (shareData.can_access) {
+          await loadPlayer(true);
+          return;
+        }
+        if (shareData.web_stream_url) {
+          await loadPlayer(false);
+          return;
+        }
       }
 
       // For unclaimed shares
@@ -411,8 +447,7 @@
         await loadPlayer(false);
         return;
       }
-
-      // Claimed by another device - app required
+      // Claimed by another device with no public browser listening surface
       showError(
         'This link has already been claimed on another device. Ask the sender for a new link.',
         {
@@ -515,6 +550,7 @@
       setupAudioPlayer(streamUrl, streamFormat);
       setupShareButtons();
       setupPostPlayCta();
+      hidePostPlayCta();
       showScreen('player');
 
     } catch (error) {
@@ -572,7 +608,10 @@
 
     // Event listeners
     // Start/stop atmospheric effects directly from audio events
-    audio.addEventListener('play', () => { startAtmosphere(); });
+    audio.addEventListener('play', () => {
+      hidePostPlayCta();
+      startAtmosphere();
+    });
     audio.addEventListener('pause', () => { stopAtmosphere(); });
 
     audio.addEventListener('loadedmetadata', () => {
@@ -746,11 +785,23 @@
   }
 
   function getShareText() {
-    var trackInfo = shareData && (shareData.track || shareData.track_preview);
-    var name = trackInfo ? trackInfo.recipient_name : '';
-    return name
-      ? 'Listen to this song made for ' + name + ' on Porizo'
-      : 'Listen to this personalized song on Porizo';
+    var trackInfo = getTrackInfo();
+    var recipientName = trackInfo ? (trackInfo.recipient_name || '').trim() : '';
+    var senderName = trackInfo ? (trackInfo.sender_name || '').trim() : '';
+    var occasion = trackInfo ? (trackInfo.occasion || '').trim() : '';
+    if (senderName && recipientName && occasion) {
+      return senderName + ' made a ' + occasion + ' song for ' + recipientName + '. Listen here.';
+    }
+    if (senderName && recipientName) {
+      return senderName + ' made this song for ' + recipientName + '. Listen here.';
+    }
+    if (recipientName && occasion) {
+      return 'A ' + occasion + ' song for ' + recipientName + '. Listen here.';
+    }
+    if (recipientName) {
+      return 'A song for ' + recipientName + '. Listen here.';
+    }
+    return 'Someone made you a song. Listen here.';
   }
 
   function showToast(message, toastId) {
@@ -806,15 +857,20 @@
   // Post-play CTA
   function showPostPlayCta() {
     var cta = document.getElementById('post-play-cta');
-    if (cta) cta.classList.add('visible');
+    if (!cta) return;
+    cta.classList.add('visible');
+    cta.setAttribute('aria-hidden', 'false');
   }
 
   function hidePostPlayCta() {
     var cta = document.getElementById('post-play-cta');
-    if (cta) cta.classList.remove('visible');
+    if (!cta) return;
+    cta.classList.remove('visible');
+    cta.setAttribute('aria-hidden', 'true');
   }
 
   function setupPostPlayCta() {
+    hidePostPlayCta();
     var ctaLink = document.getElementById('cta-download-link');
     if (ctaLink) {
       ctaLink.href = '/download?utm_source=webplayer&utm_medium=share&utm_campaign=post-play';
@@ -831,12 +887,10 @@
 
   async function loadTeaser() {
     cacheTeaserEls();
-    var trackInfo = shareData.track || shareData.track_preview;
+    var trackInfo = getTrackInfo();
 
     if (trackInfo) {
-      if (teaserEls.title) teaserEls.title.textContent = trackInfo.recipient_name
-        ? 'A song for ' + trackInfo.recipient_name
-        : 'Someone made you a song!';
+      if (teaserEls.title) teaserEls.title.textContent = getExperienceHeading(trackInfo);
       if (trackInfo.cover_image_url && teaserEls.artwork) {
         var img = document.createElement('img');
         img.src = trackInfo.cover_image_url;
