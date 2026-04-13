@@ -120,6 +120,40 @@ extension APIClient {
         return try Self.jsonDecoder.decode(AuthUser.self, from: data)
     }
 
+    // MARK: - Apple Identity Linking (Authenticated)
+
+    /// Link an Apple identity to the current authenticated account
+    /// - Parameters:
+    ///   - idToken: Apple identity token from ASAuthorizationAppleIDCredential
+    ///   - nonce: Raw nonce used for the Apple Sign-In request
+    ///   - authorizationCode: Apple authorization code
+    ///   - providerUserId: Apple's stable user identifier
+    /// - Returns: Updated user profile
+    func linkAppleIdentity(
+        idToken: String,
+        nonce: String,
+        authorizationCode: String,
+        providerUserId: String
+    ) async throws -> AuthUser {
+        var request = try await makeRequest(
+            url: URL(string: "\(baseURL)/auth/identity/link/apple")!,
+            method: "POST",
+            requiresAuth: true
+        )
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let body: [String: String] = [
+            "id_token": idToken,
+            "nonce": nonce,
+            "authorization_code": authorizationCode,
+            "provider_user_id": providerUserId,
+        ]
+        request.httpBody = try JSONEncoder().encode(body)
+
+        let (data, _) = try await executeWithAuthRetry(request: request)
+        return try decodeResponse(AuthUser.self, from: data)
+    }
+
     /// Skip profile completion for now
     func skipProfileCompletion() async throws {
         var request = try await makeRequest(
@@ -131,5 +165,34 @@ extension APIClient {
 
         let (_, response) = try await Self.session.data(for: request)
         try validateResponse(response, data: Data())
+    }
+
+    // MARK: - Email Verification
+
+    /// Resend verification email to the user's current email address
+    func resendEmailVerification() async throws {
+        let request = try await makeRequest(
+            url: URL(string: "\(baseURL)/auth/email/resend-verification")!,
+            method: "POST",
+            requiresAuth: true
+        )
+
+        let (_, response) = try await Self.session.data(for: request)
+        try validateResponse(response, data: Data())
+    }
+
+    /// Verify email using a deep link token.
+    /// Server returns `{ message }` on success — caller should re-fetch profile.
+    func verifyEmailToken(_ token: String) async throws {
+        let url = URL(string: "\(baseURL)/auth/verify-email")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(Self.appVersion, forHTTPHeaderField: "User-Agent")
+        let body = ["token": token]
+        request.httpBody = try JSONEncoder().encode(body)
+
+        let (data, response) = try await Self.session.data(for: request)
+        try validateResponse(response, data: data)
     }
 }

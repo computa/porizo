@@ -48,6 +48,9 @@ struct SettingsTabView: View {
     @State private var queuedGiftSheet: GiftSheetDestination?
     @State private var giftWalletBalance: Int?
 
+    // Account management
+    @State private var showAccountManagement = false
+
     // Account actions
     @State private var showLogoutConfirmation = false
     @State private var showDeleteAccountConfirmation = false
@@ -173,6 +176,12 @@ struct SettingsTabView: View {
                     onComplete: { activeGiftSheet = nil },
                     onCancel: { activeGiftSheet = nil }
                 )
+            }
+        }
+        .sheet(isPresented: $showAccountManagement) {
+            NavigationStack {
+                AccountManagementView(apiClient: apiClient)
+                    .environment(authManager)
             }
         }
         .sheet(isPresented: $showAuthSheet) {
@@ -314,7 +323,7 @@ struct SettingsTabView: View {
                     title: name,
                     subtitle: user.email ?? "",
                     initials: userInitials.isEmpty ? nil : userInitials,
-                    action: { /* Future: navigate to account details */ }
+                    action: { showAccountManagement = true }
                 )
             } else {
                 accountRow(

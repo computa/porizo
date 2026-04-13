@@ -225,6 +225,100 @@ final class APIContractTests: XCTestCase {
         XCTAssertEqual(ShareClaimInitialMode.resolve(for: response), .previewClaimable)
     }
 
+    // MARK: - AuthUser identity contract
+
+    func testAuthUser_decodesExpandedIdentityResponse() throws {
+        let json = Data("""
+        {
+            "user_id": "user_123",
+            "email": "primary@example.com",
+            "display_name": "Ambrose",
+            "avatar_url": null,
+            "email_verified": true,
+            "providers": ["apple", "phone"],
+            "created_at": "2026-04-13T00:00:00Z",
+            "phone_number": "+15551234567",
+            "username": "ambrose",
+            "needs_profile_completion": false,
+            "auth_methods": [
+                {
+                    "type": "apple",
+                    "linked_at": "2026-04-13T00:00:00Z",
+                    "last_used_at": "2026-04-13T01:00:00Z"
+                },
+                {
+                    "type": "phone",
+                    "linked_at": "2026-04-13T00:05:00Z",
+                    "last_used_at": "2026-04-13T01:05:00Z",
+                    "subject_masked": "+1***4567"
+                }
+            ],
+            "contacts": [
+                {
+                    "type": "email",
+                    "value_display": "primary@example.com",
+                    "verified": true,
+                    "is_primary": true,
+                    "is_relay": false
+                },
+                {
+                    "type": "phone",
+                    "value_display": "+1 555 123 4567",
+                    "verified": true,
+                    "is_primary": true
+                }
+            ],
+            "primary_email": "primary@example.com",
+            "primary_phone": "+15551234567",
+            "missing_profile_requirements": []
+        }
+        """.utf8)
+
+        let user = try decoder.decode(AuthUser.self, from: json)
+        XCTAssertEqual(user.id, "user_123")
+        XCTAssertEqual(user.authMethods.count, 2)
+        XCTAssertEqual(user.authMethods.first?.lastUsedAt, "2026-04-13T01:00:00Z")
+        XCTAssertEqual(user.contacts.count, 2)
+        XCTAssertEqual(user.primaryEmail, "primary@example.com")
+        XCTAssertEqual(user.primaryPhone, "+15551234567")
+        XCTAssertTrue(user.missingProfileRequirements.isEmpty)
+    }
+
+    func testAuthUser_decodesMissingProfileRequirementsForRelayAccount() throws {
+        let json = Data("""
+        {
+            "user_id": "user_relay",
+            "email": null,
+            "display_name": "Relay User",
+            "avatar_url": null,
+            "email_verified": false,
+            "providers": ["apple"],
+            "created_at": "2026-04-13T00:00:00Z",
+            "phone_number": null,
+            "username": null,
+            "needs_profile_completion": true,
+            "auth_methods": [],
+            "contacts": [
+                {
+                    "type": "email",
+                    "value_display": "relay@privaterelay.appleid.com",
+                    "verified": true,
+                    "is_primary": true,
+                    "is_relay": true
+                }
+            ],
+            "primary_email": null,
+            "primary_phone": null,
+            "missing_profile_requirements": ["verified_email", "verified_phone"]
+        }
+        """.utf8)
+
+        let user = try decoder.decode(AuthUser.self, from: json)
+        XCTAssertTrue(user.needsProfileCompletion)
+        XCTAssertEqual(user.contacts.first?.isRelay, true)
+        XCTAssertEqual(Set(user.missingProfileRequirements), Set(["verified_email", "verified_phone"]))
+    }
+
     // MARK: - Story guidance contract (backwards compatibility)
 
     /// Proves old iOS APIError decodes the same 422 body without crashing.

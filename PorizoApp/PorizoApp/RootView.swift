@@ -7,7 +7,15 @@
 //
 
 import SwiftUI
-import UIKit
+
+func emailVerificationToken(from url: URL) -> String? {
+    guard url.host == "verify-email" || url.path.hasPrefix("/verify-email") else {
+        return nil
+    }
+
+    return URLComponents(url: url, resolvingAgainstBaseURL: false)?
+        .queryItems?.first(where: { $0.name == "token" })?.value
+}
 
 struct RootView: View {
     @Environment(AuthManager.self) var authManager
@@ -397,9 +405,42 @@ struct RootView: View {
         }
     }
 
+    private func handleEmailVerification(token: String) {
+        guard let client = apiClient else {
+            ToastService.shared.error("Please reopen the verification link after the app finishes loading.")
+            return
+        }
+        Task { @MainActor in
+            do {
+                try await client.verifyEmailToken(token)
+                try? await authManager.fetchCurrentUser()
+                profileCompletionContext = nil
+                ToastService.shared.success("Email verified!")
+            } catch let error as APIClientError {
+                if case .serverError(_, let code, _) = error, code == "E119_EMAIL_CONFLICT" {
+                    ToastService.shared.error("This email is already linked to another account.")
+                } else {
+                    ToastService.shared.error("Verification failed. The link may have expired.")
+                }
+            } catch {
+                ToastService.shared.error("Verification failed. Please check your connection.")
+            }
+        }
+    }
+
     private func handleIncomingURL(_ url: URL) {
         // First pass to TikTok SDK so Share Kit callbacks are resolved.
         if TikTokShareService.shared.handleIncomingURL(url) {
+            return
+        }
+
+        // Handle email verification deep link: porizo://verify-email?token=XXX
+        if let token = emailVerificationToken(from: url) {
+            if !token.isEmpty {
+                handleEmailVerification(token: token)
+            } else {
+                ToastService.shared.error("Invalid verification link. Please request a new one.")
+            }
             return
         }
 

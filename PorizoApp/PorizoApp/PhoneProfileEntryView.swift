@@ -10,6 +10,17 @@
 
 import SwiftUI
 
+enum PhoneProfileEntryValidator {
+    static func isValidEmail(_ email: String) -> Bool {
+        let trimmed = email.trimmingCharacters(in: .whitespaces)
+        return !trimmed.isEmpty && trimmed.contains("@") && trimmed.contains(".")
+    }
+
+    static func canContinue(displayName: String, email: String) -> Bool {
+        !displayName.trimmingCharacters(in: .whitespaces).isEmpty && isValidEmail(email)
+    }
+}
+
 struct PhoneProfileEntryView: View {
     let phoneNumber: String
     let onSubmit: (String?, String?) async throws -> Void  // (name, email)
@@ -24,6 +35,14 @@ struct PhoneProfileEntryView: View {
 
     enum Field: Hashable {
         case name, email
+    }
+
+    private var isValidEmail: Bool {
+        PhoneProfileEntryValidator.isValidEmail(email)
+    }
+
+    private var canContinue: Bool {
+        PhoneProfileEntryValidator.canContinue(displayName: displayName, email: email)
     }
 
     var body: some View {
@@ -99,16 +118,11 @@ struct PhoneProfileEntryView: View {
                             .focused($focusedField, equals: .name)
                     }
 
-                    // Email field (optional)
+                    // Email field (required)
                     VStack(alignment: .leading, spacing: 6) {
-                        HStack {
-                            Text("Email")
-                                .font(DesignTokens.bodyFont(size: 13, weight: .medium))
-                                .foregroundStyle(DesignTokens.textSecondary)
-                            Text("(optional)")
-                                .font(DesignTokens.bodyFont(size: 12))
-                                .foregroundStyle(DesignTokens.textTertiary)
-                        }
+                        Text("Email")
+                            .font(DesignTokens.bodyFont(size: 13, weight: .medium))
+                            .foregroundStyle(DesignTokens.textSecondary)
                         TextField("your@email.com", text: $email)
                             .font(DesignTokens.bodyFont(size: 16))
                             .foregroundStyle(DesignTokens.textPrimary)
@@ -124,6 +138,9 @@ struct PhoneProfileEntryView: View {
                             .autocapitalization(.none)
                             .autocorrectionDisabled()
                             .focused($focusedField, equals: .email)
+                        Text("We'll send a verification link")
+                            .font(DesignTokens.bodyFont(size: 12))
+                            .foregroundStyle(DesignTokens.textTertiary)
                     }
 
                     // Error banner
@@ -162,8 +179,8 @@ struct PhoneProfileEntryView: View {
                         .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusCTA))
                     }
                     .buttonStyle(.plain)
-                    .disabled(isSubmitting || displayName.trimmingCharacters(in: .whitespaces).isEmpty)
-                    .opacity(displayName.trimmingCharacters(in: .whitespaces).isEmpty ? 0.5 : 1.0)
+                    .disabled(isSubmitting || !canContinue)
+                    .opacity(!canContinue ? 0.5 : 1.0)
                 }
                 .padding(.horizontal, 20)
                 .padding(.bottom, 34)

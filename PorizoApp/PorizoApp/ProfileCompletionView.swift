@@ -27,6 +27,10 @@ struct ProfileCompletionView: View {
     @State private var isSaving = false
     @State private var errorMessage: String?
 
+    // Email verification state
+    @State private var isResendingEmail = false
+    @State private var emailResendSuccess = false
+
     // Phone verification state
     @State private var showOTPEntry = false
     @State private var otpCode = ""
@@ -44,6 +48,19 @@ struct ProfileCompletionView: View {
     }
 
     // MARK: - Computed
+
+    /// Which profile requirements are missing, driven by the server response
+    private var missingRequirements: [String] {
+        authManager.currentUser?.missingProfileRequirements ?? []
+    }
+
+    private var needsVerifiedEmail: Bool {
+        missingRequirements.contains("verified_email")
+    }
+
+    private var needsVerifiedPhone: Bool {
+        missingRequirements.contains("verified_phone")
+    }
 
     private var hasPhone: Bool {
         authManager.currentUser?.phoneNumber != nil
@@ -80,9 +97,9 @@ struct ProfileCompletionView: View {
     }
 
     private var canContinue: Bool {
-        // Require both a valid email and phone verification
-        let emailReady = hasRealEmail || hasValidEmail
-        let phoneReady = hasPhone || phoneVerified
+        // Only require fields that the server says are missing
+        let emailReady = !needsVerifiedEmail || hasRealEmail || hasValidEmail
+        let phoneReady = !needsVerifiedPhone || hasPhone || phoneVerified
         return emailReady && phoneReady
     }
 
@@ -109,14 +126,19 @@ struct ProfileCompletionView: View {
                         // Display Name
                         nameField
 
-                        // Email
-                        emailField
+                        // Email — only show if server says verified_email is missing
+                        if needsVerifiedEmail {
+                            emailField
+                            resendEmailVerificationButton
+                        }
 
-                        // Phone — either input with OTP or verified badge
-                        if hasPhone {
-                            phoneVerifiedBadge
-                        } else {
-                            phoneInputSection
+                        // Phone — only show if server says verified_phone is missing
+                        if needsVerifiedPhone {
+                            if hasPhone {
+                                phoneVerifiedBadge
+                            } else {
+                                phoneInputSection
+                            }
                         }
 
                         // Error message
@@ -153,7 +175,7 @@ struct ProfileCompletionView: View {
                             Button {
                                 Task { await skip() }
                             } label: {
-                                Text("Skip for now")
+                                Text("Remind me later")
                                     .font(DesignTokens.bodyFont(size: 14, weight: .medium))
                                     .foregroundStyle(DesignTokens.gold)
                             }
@@ -383,6 +405,42 @@ struct ProfileCompletionView: View {
                     }
                 }
             }
+        }
+    }
+
+    // MARK: - Resend Email Verification Button
+
+    private var resendEmailVerificationButton: some View {
+        Button {
+            Task { await resendVerificationEmail() }
+        } label: {
+            HStack(spacing: 6) {
+                if isResendingEmail {
+                    ProgressView()
+                        .tint(DesignTokens.gold)
+                }
+                Text(emailResendSuccess ? "Verification email sent!" : "Resend verification email")
+                    .font(DesignTokens.bodyFont(size: 13, weight: .medium))
+                    .foregroundStyle(emailResendSuccess ? DesignTokens.success : DesignTokens.gold)
+            }
+        }
+        .disabled(isResendingEmail || emailResendSuccess)
+    }
+
+    private func resendVerificationEmail() async {
+        isResendingEmail = true
+        defer { isResendingEmail = false }
+
+        do {
+            try await apiClient.resendEmailVerification()
+            emailResendSuccess = true
+            // Reset after 30 seconds so user can resend again
+            Task {
+                try? await Task.sleep(for: .seconds(30))
+                emailResendSuccess = false
+            }
+        } catch {
+            errorMessage = "Failed to send verification email. Please try again."
         }
     }
 

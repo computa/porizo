@@ -9,6 +9,7 @@ const authService = require("../services/auth-service");
 const emailService = require("../services/email-service");
 const smsService = require("../services/sms-service");
 const gdprAuditService = require("../services/gdpr-audit-service");
+const identityService = require("../services/identity-service");
 const {
   verifySocialToken,
   verifyFacebookToken,
@@ -135,43 +136,6 @@ function isValidUsername(username) {
 }
 
 /**
- * Find a user by phone number, checking both user_auth_providers and legacy users.phone_number.
- * Optionally auto-creates a missing provider entry for legacy users.
- * @param {object} db - Database instance
- * @param {string} phoneNumber - E.164 phone number
- * @param {{ autoRepairProvider?: boolean }} options
- * @returns {Promise<{ id: string } | undefined>}
- */
-// SECURITY TODO: Phone numbers are stored and queried in plaintext in users.phone_number
-// and user_auth_providers.provider_user_id. Encrypt at rest in a future sprint.
-// See CSO audit 2026-04-07 Finding #3.
-async function findUserByPhone(db, phoneNumber, { autoRepairProvider = false } = {}) {
-  // Primary: user_auth_providers (source of truth)
-  let user = await db.prepare(
-    `SELECT u.id FROM user_auth_providers uap
-     JOIN users u ON u.id = uap.user_id AND u.deleted_at IS NULL
-     WHERE uap.provider = 'phone' AND uap.provider_user_id = ?`
-  ).get(phoneNumber);
-
-  if (user) return user;
-
-  // Fallback: legacy users.phone_number
-  user = await db.prepare(
-    "SELECT id FROM users WHERE phone_number = ? AND deleted_at IS NULL"
-  ).get(phoneNumber);
-
-  if (user && autoRepairProvider) {
-    const providerId = `ap_${crypto.randomBytes(8).toString("hex")}`;
-    await db.prepare(
-      `INSERT INTO user_auth_providers (id, user_id, provider, provider_user_id)
-       VALUES (?, ?, 'phone', ?) ON CONFLICT DO NOTHING`
-    ).run(providerId, user.id, phoneNumber);
-  }
-
-  return user;
-}
-
-/**
  * Cross-identifier account lookup.
  * Checks email, phone, and social provider to find if any identifier
  * is already associated with an existing account.
@@ -184,17 +148,25 @@ async function findUserByPhone(db, phoneNumber, { autoRepairProvider = false } =
 async function findExistingAccountByIdentifiers(db, { email, phone, providerType, providerUserId } = {}) {
   let matchedUserId = null;
 
-  // Check email → users table (only match verified emails to prevent unverified email claims)
+  // Check email → user_contacts (verified only)
   if (email) {
     const row = await db.prepare(
-      "SELECT id FROM users WHERE email = ? AND email_verified = 1 AND deleted_at IS NULL"
+      `SELECT uc.user_id as id FROM user_contacts uc
+       JOIN users u ON u.id = uc.user_id AND u.deleted_at IS NULL
+       WHERE uc.type = 'email' AND uc.value_normalized = ? AND uc.verified_at IS NOT NULL
+       LIMIT 1`
     ).get(email.toLowerCase());
     if (row) matchedUserId = row.id;
   }
 
-  // Check phone → user_auth_providers + legacy users.phone_number
+  // Check phone → user_auth_providers
   if (!matchedUserId && phone) {
-    const row = await findUserByPhone(db, phone);
+    const row = await db.prepare(
+      `SELECT uap.user_id as id FROM user_auth_providers uap
+       JOIN users u ON u.id = uap.user_id AND u.deleted_at IS NULL
+       WHERE uap.provider = 'phone' AND uap.provider_user_id = ? AND uap.status = 'active'
+       LIMIT 1`
+    ).get(phone);
     if (row) matchedUserId = row.id;
   }
 
@@ -286,13 +258,6 @@ function sendError(reply, statusCode, errorCode, message) {
  */
 function getClientIp(request) {
   return request.ip || "unknown";
-}
-
-/**
- * Generate unique user ID
- */
-function generateUserId() {
-  return `user_${crypto.randomBytes(12).toString("hex")}`;
 }
 
 /**
@@ -461,17 +426,11 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
         return; // Already linked (to this or another user) — skip
       }
 
-      // Link phone to this user
-      const providerId = `ap_${crypto.randomBytes(8).toString("hex")}`;
-      await db.transaction(async () => {
-        await db.prepare(
-          `INSERT INTO user_auth_providers (id, user_id, provider, provider_user_id)
-           VALUES (?, ?, 'phone', ?)`
-        ).run(providerId, userId, phoneNumber);
-
-        await db.prepare(
-          "UPDATE users SET phone_number = ?, phone_verified_at = CURRENT_TIMESTAMP WHERE id = ?"
-        ).run(phoneNumber, userId);
+      // Link phone to this user via identity service
+      await identityService.linkIdentityToUser(db, userId, {
+        type: "phone",
+        subject: phoneNumber,
+        verifiedAt: new Date().toISOString(),
       });
 
       await authService.logAuthEvent({
@@ -669,43 +628,47 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
     }
 
     try {
-      // Check if email already exists with a verified account (exclude soft-deleted and unverified claims)
+      // Check if email already exists with a verified contact (exclude soft-deleted and unverified claims)
       // Unverified emails from phone registration don't block legitimate email/password signup
-      const existing = await db.prepare("SELECT id FROM users WHERE email = ? AND email_verified = 1 AND deleted_at IS NULL").get(email.toLowerCase());
+      const existing = await db.prepare(
+        `SELECT uc.user_id as id FROM user_contacts uc
+         JOIN users u ON u.id = uc.user_id AND u.deleted_at IS NULL
+         WHERE uc.type = 'email' AND uc.value_normalized = ? AND uc.verified_at IS NOT NULL
+         LIMIT 1`
+      ).get(email.toLowerCase());
       if (existing) {
         return sendError(reply, 409, "EMAIL_EXISTS", "An account with this email already exists.");
       }
 
-      // Prepare all values before transaction (async operations must happen outside)
-      const userId = generateUserId();
+      // Prepare password hash before transaction (async bcrypt must happen outside)
       const now = new Date().toISOString();
       const passwordHash = await authService.hashPassword(password);
-      const providerId = `ap_${crypto.randomBytes(8).toString("hex")}`;
 
-      // Wrap all DB writes in a transaction for atomicity
-      // If any step fails, all changes are rolled back (no orphaned records)
-      await db.transaction(async () => {
-        // Create user
-        await db.prepare(
-          `INSERT INTO users (id, email, display_name, locale, country, risk_level, created_at)
-           VALUES (?, ?, ?, ?, ?, 'low', ?)`
-        ).run(userId, email.toLowerCase(), name || null, locale || null, country || null, now);
+      // Create user + email identity + email contact via identity service
+      const { userId } = await identityService.createUserWithIdentity(
+        db,
+        { type: "email", subject: identityService.normalizeEmail(email), verifiedAt: null },
+        {
+          contacts: [{ type: "email", value: email, source: "user_entered", verified: false }],
+          profile: { displayName: name || null, locale: locale || null, country: country || null },
+        }
+      );
 
-        // Create entitlements (centralized — reads feature flags + inserts 9-column row)
-        await subscriptionManager.createFreeEntitlements(userId, { now });
-
-        // Store password
+      // Store password credential + entitlements — compensate on failure to avoid orphaned user
+      try {
         await db.prepare(
           `INSERT INTO user_credentials (user_id, password_hash, created_at)
            VALUES (?, ?, ?)`
         ).run(userId, passwordHash, now);
 
-        // Create auth provider record
-        await db.prepare(
-          `INSERT INTO user_auth_providers (id, user_id, provider, provider_user_id)
-           VALUES (?, ?, 'email', ?)`
-        ).run(providerId, userId, email.toLowerCase());
-      });
+        await subscriptionManager.createFreeEntitlements(userId, { now });
+      } catch (err) {
+        console.error("[EmailSignup] Post-creation failed, cleaning up orphaned user:", err.message);
+        await db.prepare("DELETE FROM user_contacts WHERE user_id = ?").run(userId);
+        await db.prepare("DELETE FROM user_auth_providers WHERE user_id = ?").run(userId);
+        await db.prepare("DELETE FROM users WHERE id = ?").run(userId);
+        throw err;
+      }
 
       // Create session and tokens
       const { accessToken, refreshToken } = await createSessionAndTokens(userId, request, clientIp);
@@ -756,8 +719,9 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
     }
 
     try {
-      // Find user (exclude soft-deleted accounts)
-      const user = await db.prepare("SELECT id FROM users WHERE email = ? AND deleted_at IS NULL").get(normalizedEmail);
+      // Find user via identity service (email identity in user_auth_providers)
+      const resolved = await identityService.resolveUserByIdentity(db, "email", normalizedEmail);
+      const user = resolved ? { id: resolved.userId } : null;
 
       // Check account lock BEFORE bcrypt to avoid wasting CPU on locked accounts
       if (user) {
@@ -965,73 +929,75 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
         return sendError(reply, 400, "INVALID_TOKEN", "Could not extract user ID from token.");
       }
 
-      // Check if provider account is already linked
-      const existingProvider = await db
-        .prepare("SELECT user_id FROM user_auth_providers WHERE provider = ? AND provider_user_id = ?")
-        .get(provider, providerUserId);
+      // Resolve user by identity via identity service
+      let resolved = await identityService.resolveUserByIdentity(db, provider, providerUserId);
+
+      // Handle orphaned provider rows pointing to deleted users
+      if (!resolved) {
+        const orphan = await db.prepare(
+          `SELECT uap.id FROM user_auth_providers uap
+           JOIN users u ON u.id = uap.user_id
+           WHERE uap.provider = ? AND uap.provider_user_id = ? AND u.deleted_at IS NOT NULL`
+        ).get(provider, providerUserId);
+        if (orphan) {
+          await db.prepare("UPDATE user_auth_providers SET status = 'revoked' WHERE id = ?").run(orphan.id);
+          console.warn(`[SocialAuth] Revoked orphaned provider ${orphan.id} for deleted user`);
+        }
+      }
 
       let userId;
+      let identityId;
       let isNewUser = false;
       let autoLinked = false;
 
-      if (existingProvider) {
-        // Existing user, login
-        userId = existingProvider.user_id;
-        const existingUser = await db.prepare("SELECT id, deleted_at FROM users WHERE id = ?").get(userId);
-        if (!existingUser || existingUser.deleted_at) {
-          // Orphaned provider mapping or deleted user - create fresh account
-          // Use transaction to prevent race conditions with concurrent OAuth requests
-          const originalUserId = userId;
-          const recoveryReason = existingUser ? "deleted_user" : "orphaned_mapping";
-          const now = new Date().toISOString();
-          userId = generateUserId();
-          isNewUser = true;
+      if (resolved) {
+        // Existing identity — sign in
+        userId = resolved.userId;
+        identityId = resolved.identity.id;
 
-          await db.transaction(async () => {
-            await db.prepare(
-              `INSERT INTO users (id, email, display_name, email_verified, risk_level, created_at)
-               VALUES (?, ?, ?, 1, 'low', ?)`
-            ).run(userId, userEmail?.toLowerCase() || null, userName, now);
+        // Record usage on this identity
+        await identityService.recordIdentityUsage(db, identityId);
 
-            await subscriptionManager.createFreeEntitlements(userId, { now });
+        // If provider already linked and we have a new Apple refresh token, update provider_data
+        if (provider === "apple" && appleRefreshToken) {
+          let providerData = {};
+          if (resolved.identity.providerData) {
+            try {
+              providerData = typeof resolved.identity.providerData === "string"
+                ? JSON.parse(resolved.identity.providerData)
+                : resolved.identity.providerData;
+            } catch {
+              providerData = {};
+            }
+          }
+          providerData.apple_refresh_token = appleRefreshToken;
+          providerData.apple_refresh_obtained_at = new Date().toISOString();
+          await db
+            .prepare("UPDATE user_auth_providers SET provider_data = ? WHERE id = ?")
+            .run(JSON.stringify(providerData), identityId);
+        }
 
-            await db.prepare(
-              `UPDATE user_auth_providers SET user_id = ? WHERE provider = ? AND provider_user_id = ?`
-            ).run(userId, provider, providerUserId);
-          });
-
-          // Audit log for compliance - orphaned user recovery is security-sensitive
-          await authService.logAuthEvent({
-            userId,
-            // Use an allowed event type to satisfy the auth_events constraint.
-            // Preserve the recovery details in metadata for auditability.
-            eventType: "login_success",
-            ipAddress: clientIp,
-            userAgent: request.headers["user-agent"],
-            metadata: {
-              method: provider,
-              event_subtype: "orphaned_provider_recovery",
-              providerUserId,
-              originalUserId,
-              reason: recoveryReason,
-            },
+        // If Apple provides email, ensure contact exists
+        if (userEmail) {
+          await identityService.createOrUpdateContact(db, userId, {
+            type: "email",
+            value: userEmail.toLowerCase(),
+            source: "apple_claim",
+            sourceIdentityId: identityId,
           });
         }
       } else {
-        // New user, create account
-        // Cross-identifier note: Social providers (Apple/Google/Facebook) do not return
-        // phone numbers, so phone cross-check is not possible here. Email cross-check
-        // is handled below via the confirm_link auto-link flow. Provider ID is checked
-        // above via existingProvider. This covers all available identifiers.
+        // New identity — check for email-based account linking or create new user
         isNewUser = true;
-        userId = generateUserId();
-        const now = new Date().toISOString();
 
-        // Check if email already exists (link accounts, exclude soft-deleted)
+        // Check if email already exists via contacts (link accounts, exclude soft-deleted)
         // Only auto-link if the existing account's email is verified AND user confirms
         if (userEmail) {
           const existingUser = await db.prepare(
-            "SELECT id FROM users WHERE email = ? AND email_verified = 1 AND deleted_at IS NULL"
+            `SELECT uc.user_id as id FROM user_contacts uc
+             JOIN users u ON u.id = uc.user_id AND u.deleted_at IS NULL
+             WHERE uc.type = 'email' AND uc.value_normalized = ? AND uc.verified_at IS NOT NULL
+             LIMIT 1`
           ).get(userEmail.toLowerCase());
           if (existingUser) {
             if (!request.body.confirm_link) {
@@ -1050,48 +1016,55 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
           }
         }
 
-        // Link provider (and create user if new) — atomic transaction
-        const providerId = `ap_${crypto.randomBytes(8).toString("hex")}`;
+        const now = new Date().toISOString();
         const providerData = {
           email: userEmail,
           ...(appleRefreshToken ? { apple_refresh_token: appleRefreshToken, apple_refresh_obtained_at: now } : {}),
         };
 
-        await db.transaction(async () => {
-          if (isNewUser) {
-            await db.prepare(
-              `INSERT INTO users (id, email, display_name, email_verified, risk_level, created_at)
-               VALUES (?, ?, ?, 1, 'low', ?)`
-            ).run(userId, userEmail?.toLowerCase() || null, userName, now);
-
-            await subscriptionManager.createFreeEntitlements(userId, { now });
+        if (isNewUser) {
+          // Create user + identity atomically via identity service
+          const contacts = [];
+          if (userEmail) {
+            contacts.push({
+              type: "email",
+              value: userEmail.toLowerCase(),
+              source: provider === "apple" ? "apple_claim" : "provider_sync",
+              verified: true,
+            });
           }
 
-          await db.prepare(
-            `INSERT INTO user_auth_providers (id, user_id, provider, provider_user_id, provider_data)
-             VALUES (?, ?, ?, ?, ?)`
-          ).run(providerId, userId, provider, providerUserId, JSON.stringify(providerData));
-        });
-      }
+          const result = await identityService.createUserWithIdentity(
+            db,
+            { type: provider, subject: providerUserId, providerData, verifiedAt: now },
+            { contacts, profile: { displayName: userName } }
+          );
+          userId = result.userId;
+          identityId = result.identityId;
 
-      // If provider already linked and we have a new Apple refresh token, update provider_data
-      if (provider === "apple" && appleRefreshToken && existingProvider) {
-        const current = await db
-          .prepare("SELECT provider_data FROM user_auth_providers WHERE provider = ? AND provider_user_id = ?")
-          .get(provider, providerUserId);
-        let providerData = {};
-        if (current?.provider_data) {
+          // Create free entitlements — compensate on failure
           try {
-            providerData = JSON.parse(current.provider_data);
-          } catch {
-            providerData = {};
+            await subscriptionManager.createFreeEntitlements(userId, { now });
+          } catch (err) {
+            console.error("[SocialAuth] Entitlement creation failed, cleaning up orphaned user:", err.message);
+            await db.prepare("DELETE FROM user_contacts WHERE user_id = ?").run(userId);
+            await db.prepare("DELETE FROM user_auth_providers WHERE user_id = ?").run(userId);
+            await db.prepare("DELETE FROM users WHERE id = ?").run(userId);
+            throw err;
           }
+        } else {
+          // Link identity to existing user (auto-link via email match)
+          const result = await identityService.linkIdentityToUser(db, userId, {
+            type: provider,
+            subject: providerUserId,
+            providerData,
+            verifiedAt: now,
+          });
+          identityId = result.identityId;
         }
-        providerData.apple_refresh_token = appleRefreshToken;
-        providerData.apple_refresh_obtained_at = new Date().toISOString();
-        await db
-          .prepare("UPDATE user_auth_providers SET provider_data = ? WHERE provider = ? AND provider_user_id = ?")
-          .run(JSON.stringify(providerData), provider, providerUserId);
+
+        // Record initial usage
+        await identityService.recordIdentityUsage(db, identityId);
       }
 
       // Create session and tokens
@@ -1171,6 +1144,19 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
 
       // Generate new access token
       const accessToken = authService.generateAccessToken(result.userId);
+
+      // Record identity usage on refresh (non-blocking)
+      // Find the identity associated with this user's most recent sign-in method
+      const recentIdentity = await db.prepare(
+        `SELECT id FROM user_auth_providers
+         WHERE user_id = ? AND status = 'active'
+         ORDER BY last_used_at DESC LIMIT 1`
+      ).get(result.userId);
+      if (recentIdentity) {
+        identityService.recordIdentityUsage(db, recentIdentity.id).catch((err) => {
+          console.error("[TokenRefresh] Failed to record identity usage:", err.message);
+        });
+      }
 
       // Log token refresh
       await authService.logAuthEvent({
@@ -1258,8 +1244,9 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
     }
 
     try {
-      // Find user (exclude soft-deleted accounts)
-      const user = await db.prepare("SELECT id FROM users WHERE email = ? AND deleted_at IS NULL").get(normalizedEmail);
+      // Find user via identity service (email identity in user_auth_providers)
+      const resolved = await identityService.resolveUserByIdentity(db, "email", normalizedEmail);
+      const user = resolved ? { id: resolved.userId } : null;
 
       if (user && emailService.isConfigured()) {
         // Create reset token
@@ -1353,8 +1340,20 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
     try {
       const { userId, tokenId } = await authService.verifyEmailVerificationToken(token);
 
-      // Mark email as verified
-      await db.prepare("UPDATE users SET email_verified = 1 WHERE id = ?").run(userId);
+      // Find the user's most recent email contact to verify (may differ from users.email mirror)
+      const emailContact = await db.prepare(
+        `SELECT value_normalized FROM user_contacts
+         WHERE user_id = ? AND type = 'email' AND verified_at IS NULL
+         ORDER BY is_primary DESC, created_at DESC LIMIT 1`
+      ).get(userId);
+      // Fall back to users.email for legacy users without contacts yet
+      const emailToVerify = emailContact?.value_normalized
+        || (await db.prepare("SELECT email FROM users WHERE id = ?").get(userId))?.email;
+      if (emailToVerify) {
+        await identityService.verifyContact(db, userId, "email", emailToVerify, "email_token");
+      }
+
+      // email_verified now synced via identity service mirror (syncUserContactMirrors)
 
       // Mark token as used
       await authService.markEmailVerificationTokenUsed(tokenId);
@@ -1369,7 +1368,11 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
       return reply.send({ message: "Email verified successfully." });
     } catch (error) {
       console.error("Email verification error:", error.message);
-      // Unique constraint violation: another account already verified this email
+      // Identity service conflict: another account already verified this email
+      if (error instanceof identityService.IdentityError && error.code === "E119_EMAIL_CONFLICT") {
+        return sendError(reply, 409, "EMAIL_ALREADY_VERIFIED", "This email is already verified by another account. Please use a different email or sign in to the existing account.");
+      }
+      // Legacy unique constraint violation
       if (error.code === "23505" || error.message?.includes("UNIQUE constraint") || error.message?.includes("idx_users_verified_email")) {
         return sendError(reply, 409, "EMAIL_ALREADY_VERIFIED", "This email is already verified by another account. Please use a different email or sign in to the existing account.");
       }
@@ -1390,18 +1393,49 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
 
     if (!user) return null;
 
+    // Auth methods with linked_at and last_used_at
     const providerRows = await db
-      .prepare("SELECT provider FROM user_auth_providers WHERE user_id = ?")
+      .prepare(
+        `SELECT provider, provider_user_id, linked_at, last_used_at
+         FROM user_auth_providers WHERE user_id = ? AND status = 'active'`
+      )
       .all(userId);
     const providers = providerRows.map((p) => p.provider);
 
-    const isRelayEmail = user.email && user.email.endsWith("@privaterelay.appleid.com");
-    const hasVerifiedEmail = user.email && !isRelayEmail && user.email_verified;
-    const skippedRecently = user.profile_completion_skipped_at &&
-      (Date.now() - new Date(user.profile_completion_skipped_at).getTime() < 7 * 24 * 60 * 60 * 1000);
-    const needsProfileCompletion = (!hasVerifiedEmail || !user.phone_number) && !skippedRecently;
+    const authMethods = providerRows.map((p) => {
+      const method = { type: p.provider, linked_at: p.linked_at, last_used_at: p.last_used_at };
+      if (p.provider === "phone" && p.provider_user_id) {
+        // Mask phone: +1***1234
+        method.subject_masked = p.provider_user_id.slice(0, 3) + "***" + p.provider_user_id.slice(-4);
+      }
+      return method;
+    });
+
+    // Contacts from user_contacts table
+    const contactRows = await db
+      .prepare(
+        `SELECT id, type, value_normalized, value_display, verified_at, is_primary, is_relay
+         FROM user_contacts WHERE user_id = ?`
+      )
+      .all(userId);
+
+    const contacts = contactRows.map((c) => ({
+      type: c.type,
+      value_display: c.value_display || c.value_normalized,
+      verified: !!c.verified_at,
+      is_primary: !!c.is_primary,
+      ...(c.type === "email" ? { is_relay: !!c.is_relay } : {}),
+    }));
+
+    // Derive primary email and phone from contacts (prefer verified primary)
+    const primaryEmailContact = contactRows.find((c) => c.type === "email" && c.is_primary && c.verified_at);
+    const primaryPhoneContact = contactRows.find((c) => c.type === "phone" && c.is_primary && c.verified_at);
+
+    // Profile completeness via identity service
+    const completeness = await identityService.computeProfileCompleteness(db, userId);
 
     return {
+      // Existing fields (backward compat)
       user_id: user.id,
       email: user.email,
       display_name: user.display_name,
@@ -1411,7 +1445,13 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
       created_at: user.created_at,
       phone_number: user.phone_number || null,
       username: user.username || null,
-      needs_profile_completion: needsProfileCompletion,
+      // New identity-layer fields
+      auth_methods: authMethods,
+      contacts,
+      primary_email: primaryEmailContact?.value_normalized || user.email || null,
+      primary_phone: primaryPhoneContact?.value_normalized || user.phone_number || null,
+      needs_profile_completion: !completeness.complete,
+      missing_profile_requirements: completeness.missing,
     };
   }
 
@@ -1446,7 +1486,9 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
       // Check uniqueness only if email actually changed
       if (!currentUser || currentUser.email !== emailStr) {
         const existing = await db.prepare(
-          "SELECT id FROM users WHERE email = ? AND email_verified = 1 AND id != ? AND deleted_at IS NULL"
+          `SELECT uc.user_id as id FROM user_contacts uc
+           WHERE uc.type = 'email' AND uc.value_normalized = ? AND uc.verified_at IS NOT NULL AND uc.user_id != ?
+           LIMIT 1`
         ).get(emailStr, request.userId);
         if (existing) {
           return sendError(reply, 409, "EMAIL_EXISTS", "This email is already associated with another account.");
@@ -1454,33 +1496,37 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
       }
     }
 
-    // Build dynamic UPDATE
-    const setClauses = [];
-    const values = [];
-
-    if (contact_email != null) {
-      const newEmail = String(contact_email).trim().toLowerCase();
-      setClauses.push("email = ?");
-      values.push(newEmail);
-      // Only reset verification if email actually changed
-      if (!currentUser || currentUser.email !== newEmail) {
-        setClauses.push("email_verified = 0");
-      }
-    }
+    // Update display_name directly on users table
     if (display_name != null) {
       const trimmedName = String(display_name).trim();
       if (trimmedName.length > 100) {
         return sendError(reply, 400, "INVALID_DISPLAY_NAME", "Display name must be 100 characters or fewer.");
       }
-      setClauses.push("display_name = ?");
-      values.push(trimmedName);
+      await db.prepare("UPDATE users SET display_name = ? WHERE id = ?").run(trimmedName, request.userId);
     }
 
-    values.push(request.userId);
+    // Handle email via identity service — creates/updates UNVERIFIED contact.
+    // Mirror sync happens only after verification.
+    if (contact_email != null) {
+      const newEmail = String(contact_email).trim().toLowerCase();
+      const emailChanged = !currentUser || currentUser.email !== newEmail;
 
-    await db.prepare(
-      `UPDATE users SET ${setClauses.join(", ")} WHERE id = ?`
-    ).run(...values);
+      // Create or update contact as unverified
+      await identityService.createOrUpdateContact(db, request.userId, {
+        type: "email",
+        value: newEmail,
+        source: "user_entered",
+      });
+
+      // Send verification email for changed email (fire-and-forget)
+      if (emailChanged && emailService.isConfigured()) {
+        authService.createEmailVerificationToken(request.userId)
+          .then(({ token }) => emailService.sendVerificationEmail(newEmail, token))
+          .catch((err) => {
+            console.error("[ProfileUpdate] Failed to send verification email:", err.message);
+          });
+      }
+    }
 
     const profile = await buildUserProfileResponse(request.userId);
     return reply.send(profile);
@@ -1489,6 +1535,8 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
   // ==================== SKIP PROFILE COMPLETION ====================
 
   app.post("/auth/profile/skip-completion", { preHandler: requireAuth }, async (request, reply) => {
+    // Analytics-only: records skip timestamp but does NOT affect needs_profile_completion.
+    // buildUserProfileResponse uses computeProfileCompleteness() which ignores skip state.
     await db.prepare(
       "UPDATE users SET profile_completion_skipped_at = CURRENT_TIMESTAMP WHERE id = ?"
     ).run(request.userId);
@@ -1541,28 +1589,12 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
         return reply.send({ success: true, already_linked: true, ...profile });
       }
 
-      // Check if phone is linked to ANOTHER user
-      const existingOther = await db.prepare(
-        `SELECT user_id FROM user_auth_providers
-         WHERE provider = 'phone' AND provider_user_id = ?`
-      ).get(phone_number);
-
-      if (existingOther) {
-        return sendError(reply, 409, "E117_PHONE_EXISTS", "This phone number is already associated with another account.");
-      }
-
-      // Link phone to this user
-      // SECURITY TODO: Phone stored in plaintext (CSO audit 2026-04-07 #3)
-      const providerId = `ap_${crypto.randomBytes(8).toString("hex")}`;
-      await db.transaction(async () => {
-        await db.prepare(
-          `INSERT INTO user_auth_providers (id, user_id, provider, provider_user_id)
-           VALUES (?, ?, 'phone', ?)`
-        ).run(providerId, request.userId, phone_number);
-
-        await db.prepare(
-          "UPDATE users SET phone_number = ?, phone_verified_at = CURRENT_TIMESTAMP WHERE id = ?"
-        ).run(phone_number, request.userId);
+      // Link phone identity via identity service (handles conflict detection + contact creation + mirror sync)
+      const now = new Date().toISOString();
+      await identityService.linkIdentityToUser(db, request.userId, {
+        type: "phone",
+        subject: phone_number,
+        verifiedAt: now,
       });
 
       // Log auth event
@@ -1577,12 +1609,170 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
       const profile = await buildUserProfileResponse(request.userId);
       return reply.send({ success: true, ...profile });
     } catch (error) {
+      // Identity service conflict: phone already linked to another user
+      if (error instanceof identityService.IdentityError && error.code === "E118_PROVIDER_ALREADY_LINKED") {
+        return sendError(reply, 409, "E117_PHONE_EXISTS", "This phone number is already associated with another account.");
+      }
       // Catch UNIQUE constraint violation (race condition: phone linked to another user concurrently)
       if (error.code === "23505" || error.message?.includes("UNIQUE constraint")) {
         return sendError(reply, 409, "E117_PHONE_EXISTS", "This phone number is already associated with another account.");
       }
       console.error("Phone link error:", error);
       return sendError(reply, 500, "E119_PHONE_ERROR", "Failed to link phone number. Please try again.");
+    }
+  });
+
+  // ==================== APPLE IDENTITY LINKING (AUTHENTICATED) ====================
+
+  const appleLinkSchema = {
+    body: {
+      type: "object",
+      required: ["id_token", "nonce"],
+      properties: {
+        id_token: { type: "string" },
+        nonce: { type: "string", minLength: 8, maxLength: 256 },
+        authorization_code: { type: "string", maxLength: 2048 },
+        provider_user_id: { type: "string", maxLength: 255 },
+      },
+    },
+  };
+
+  app.post("/auth/identity/link/apple", { schema: appleLinkSchema, preHandler: requireAuth }, async (request, reply) => {
+    const { id_token, nonce, authorization_code } = request.body;
+    const clientIp = getClientIp(request);
+
+    // Rate limit: 3 attempts per hour per user
+    if (await consumeAuthRateLimit(`apple-link:${request.userId}`, 3, 60 * 60 * 1000)) {
+      return sendError(reply, 429, "E110_RATE_LIMITED", "Too many linking attempts. Please try again later.");
+    }
+
+    try {
+      // Verify Apple token (reuse existing verifier)
+      const verifiedToken = await verifySocialToken("apple", id_token, { rawNonce: nonce });
+
+      const appleSub = verifiedToken.sub;
+      if (!appleSub) {
+        return sendError(reply, 400, "INVALID_TOKEN", "Could not extract user ID from Apple token.");
+      }
+
+      const now = new Date().toISOString();
+      const providerData = {
+        email: verifiedToken.email,
+        emailVerified: verifiedToken.emailVerified,
+        isPrivateEmail: verifiedToken.isPrivateEmail,
+      };
+
+      // Link Apple identity via identity service
+      const { identityId } = await identityService.linkIdentityToUser(db, request.userId, {
+        type: "apple",
+        subject: appleSub,
+        providerData,
+        verifiedAt: now,
+      });
+
+      // Exchange authorization_code for refresh token (optional, non-blocking for link success)
+      if (authorization_code) {
+        try {
+          const exchange = await exchangeAppleAuthorizationCode(authorization_code);
+          if (exchange.refresh_token) {
+            providerData.apple_refresh_token = exchange.refresh_token;
+            providerData.apple_refresh_obtained_at = now;
+            await db.prepare(
+              "UPDATE user_auth_providers SET provider_data = ? WHERE id = ?"
+            ).run(JSON.stringify(providerData), identityId);
+          }
+        } catch (exchangeError) {
+          console.warn("[AppleLink] Auth code exchange failed:", exchangeError.message);
+          // Non-fatal — identity is already linked
+        }
+      }
+
+      // If Apple provides email, ensure contact exists
+      if (verifiedToken.email) {
+        await identityService.createOrUpdateContact(db, request.userId, {
+          type: "email",
+          value: verifiedToken.email.toLowerCase(),
+          source: "apple_claim",
+          sourceIdentityId: identityId,
+        });
+      }
+
+      // Log auth event
+      await authService.logAuthEvent({
+        userId: request.userId,
+        eventType: "provider_linked",
+        ipAddress: clientIp,
+        userAgent: request.headers["user-agent"],
+        metadata: { provider: "apple", provider_user_id: appleSub },
+      });
+
+      const profile = await buildUserProfileResponse(request.userId);
+      return reply.send({ success: true, ...profile });
+    } catch (error) {
+      // Identity service conflicts: Apple ID or email already linked to another user
+      if (error instanceof identityService.IdentityError) {
+        if (error.code === "E118_PROVIDER_ALREADY_LINKED") {
+          return sendError(reply, 409, "E118_PROVIDER_ALREADY_LINKED", "This Apple ID is already associated with another account.");
+        }
+        if (error.code === "E119_EMAIL_CONFLICT") {
+          return sendError(reply, 409, "E119_EMAIL_CONFLICT", "The email on this Apple ID is already linked to another account.");
+        }
+      }
+      console.error("Apple link error:", error);
+      return sendError(reply, 500, "LINK_ERROR", "Failed to link Apple ID. Please try again.");
+    }
+  });
+
+  // ==================== EMAIL RESEND VERIFICATION (AUTHENTICATED) ====================
+
+  app.post("/auth/email/resend-verification", { preHandler: requireAuth }, async (request, reply) => {
+    // Rate limit: 3 per hour per user
+    if (await consumeAuthRateLimit(`resend-verify:${request.userId}`, 3, 60 * 60 * 1000)) {
+      return sendError(reply, 429, "E110_RATE_LIMITED", "Too many verification requests. Please try again later.");
+    }
+
+    try {
+      // Get current user's unverified email from user_contacts
+      const unverifiedEmail = await db.prepare(
+        `SELECT value_normalized FROM user_contacts
+         WHERE user_id = ? AND type = 'email' AND verified_at IS NULL
+         ORDER BY created_at DESC LIMIT 1`
+      ).get(request.userId);
+
+      if (!unverifiedEmail) {
+        // Fall back to users.email if no contact row (legacy)
+        const user = await db.prepare(
+          "SELECT email, email_verified FROM users WHERE id = ?"
+        ).get(request.userId);
+
+        if (!user?.email || user.email_verified) {
+          return sendError(reply, 400, "NO_PENDING_VERIFICATION", "No unverified email address found.");
+        }
+
+        // Send verification for legacy email
+        if (emailService.isConfigured()) {
+          const { token } = await authService.createEmailVerificationToken(request.userId);
+          await emailService.sendVerificationEmail(user.email, token);
+        }
+
+        return reply.send({ success: true, email_masked: user.email.slice(0, 2) + "***@" + user.email.split("@")[1] });
+      }
+
+      // Send verification for contact email
+      if (!emailService.isConfigured()) {
+        return sendError(reply, 503, "EMAIL_NOT_CONFIGURED", "Email verification is not available.");
+      }
+
+      const { token } = await authService.createEmailVerificationToken(request.userId);
+      await emailService.sendVerificationEmail(unverifiedEmail.value_normalized, token);
+
+      const emailParts = unverifiedEmail.value_normalized.split("@");
+      const maskedEmail = emailParts[0].slice(0, 2) + "***@" + emailParts[1];
+
+      return reply.send({ success: true, email_masked: maskedEmail });
+    } catch (error) {
+      console.error("Resend verification error:", error);
+      return sendError(reply, 500, "E119_EMAIL_ERROR", "Failed to send verification email. Please try again.");
     }
   });
 
@@ -1689,15 +1879,17 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
       const result = await smsService.verifyCode(phone_number, code);
 
       if (result.verified) {
-        // Check if phone is already registered (auto-repairs missing provider entries)
-        const existingUser = await findUserByPhone(db, phone_number, { autoRepairProvider: true });
+        // Resolve user by phone identity via identity service
+        const resolved = await identityService.resolveUserByIdentity(db, "phone", phone_number);
 
-        if (existingUser) {
-          // Phone already registered - login instead
-          const { accessToken, refreshToken } = await createSessionAndTokens(existingUser.id, request, clientIp);
+        if (resolved) {
+          // Phone already registered - login
+          await identityService.recordIdentityUsage(db, resolved.identity.id);
+
+          const { accessToken, refreshToken } = await createSessionAndTokens(resolved.userId, request, clientIp);
 
           await authService.logAuthEvent({
-            userId: existingUser.id,
+            userId: resolved.userId,
             eventType: "login_success",
             ipAddress: clientIp,
             userAgent: request.headers["user-agent"],
@@ -1708,7 +1900,7 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
             success: true,
             verified: true,
             existing_user: true,
-            user_id: existingUser.id,
+            user_id: resolved.userId,
             access_token: accessToken,
             refresh_token: refreshToken,
             expires_in: 3600,
@@ -1777,26 +1969,34 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
         });
       }
 
-      // Create user
-      // SECURITY TODO: Phone stored in plaintext (CSO audit 2026-04-07 #3)
-      const userId = generateUserId();
+      // Create user + phone identity via identity service
       const now = new Date().toISOString();
+      const contacts = [
+        { type: "phone", value: phoneNumber, source: "phone_otp", verified: true },
+      ];
+      if (normalizedEmail) {
+        contacts.push({ type: "email", value: normalizedEmail, source: "user_entered", verified: false });
+      }
 
-      await db.transaction(async () => {
-        await db.prepare(
-          `INSERT INTO users (id, display_name, email, phone_number, phone_verified_at, risk_level, created_at)
-           VALUES (?, ?, ?, ?, ?, 'low', ?)`
-        ).run(userId, name || null, normalizedEmail, phoneNumber, now, now);
+      const { userId, identityId } = await identityService.createUserWithIdentity(
+        db,
+        { type: "phone", subject: phoneNumber, verifiedAt: now },
+        { contacts, profile: { displayName: name || null } }
+      );
 
-        // Create phone auth provider entry (first-class provider)
-        const providerId = `ap_${crypto.randomBytes(8).toString("hex")}`;
-        await db.prepare(
-          `INSERT INTO user_auth_providers (id, user_id, provider, provider_user_id)
-           VALUES (?, ?, 'phone', ?)`
-        ).run(providerId, userId, phoneNumber);
-
+      // Create free entitlements — compensate on failure
+      try {
         await subscriptionManager.createFreeEntitlements(userId, { now });
-      });
+      } catch (err) {
+        console.error("[PhoneRegister] Entitlement creation failed, cleaning up orphaned user:", err.message);
+        await db.prepare("DELETE FROM user_contacts WHERE user_id = ?").run(userId);
+        await db.prepare("DELETE FROM user_auth_providers WHERE user_id = ?").run(userId);
+        await db.prepare("DELETE FROM users WHERE id = ?").run(userId);
+        throw err;
+      }
+
+      // Record initial usage
+      await identityService.recordIdentityUsage(db, identityId);
 
       // Create session and tokens
       const { accessToken, refreshToken } = await createSessionAndTokens(userId, request, clientIp);

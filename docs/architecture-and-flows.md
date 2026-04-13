@@ -50,7 +50,7 @@ Porizo is a personalized song generation platform where users record their voice
 ├─────────────────────────────────────────────────────────────────────────────────────────┤
 │  ┌──────────────────────────────────────────────────────────────────────────────────┐   │
 │  │                            API Gateway (Node.js/Fastify)                          │   │
-│  │  • Authentication (Firebase/Auth0 token validation)                               │   │
+│  │  • Authentication (JWT sessions + authoritative identity model)                   │   │
 │  │  • Rate limiting (per-user, per-endpoint)                                         │   │
 │  │  • Request validation (OpenAPI schemas)                                           │   │
 │  │  • Signed URL generation for S3 uploads                                           │   │
@@ -1089,7 +1089,7 @@ CREATE INDEX idx_share_access_log_created ON share_access_log(created_at);
          │ REST API + WebSocket (status updates)
          ▼
 ┌──────────────────┐     ┌──────────────────┐
-│   API Gateway    │────►│ Authentication   │ (Firebase/Auth0)
+│   API Gateway    │────►│ Authentication   │ (users + auth identities + contacts)
 │   (Fastify)      │     │ Service          │
 └────────┬─────────┘     └──────────────────┘
          │
@@ -1153,7 +1153,7 @@ CREATE INDEX idx_share_access_log_created ON share_access_log(created_at);
 | **Voice Embedding** | Replicate API (ECAPA-TDNN) | Voice embedding extraction |
 | **Voice Conversion** | Replicate API (RVC v2) | Guide → User voice (~$0.03/run) |
 | **LLM** | OpenAI GPT-4o / Claude | Lyrics generation |
-| **Auth** | Firebase Auth / Auth0 | User authentication |
+| **Auth** | JWT sessions + authoritative identity model | User authentication |
 | **Encryption** | AWS KMS | Per-user encryption |
 | **Monitoring** | Datadog / CloudWatch | Observability |
 

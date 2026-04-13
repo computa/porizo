@@ -149,6 +149,27 @@ struct AccountExistsView: View {
                             }
                             .buttonStyle(.plain)
                         }
+
+                        if authMethods.contains("phone") {
+                            Button { onBack() } label: {
+                                HStack(spacing: 10) {
+                                    Image(systemName: "phone.fill")
+                                        .font(.system(size: 18))
+                                    Text("Sign in with phone")
+                                        .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
+                                }
+                                .foregroundStyle(DesignTokens.textPrimary)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 16)
+                                .background(DesignTokens.surface)
+                                .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusCTA))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: DesignTokens.radiusCTA)
+                                        .stroke(DesignTokens.border, lineWidth: 0.5)
+                                )
+                            }
+                            .buttonStyle(.plain)
+                        }
                     }
                 }
                 .padding(.horizontal, 20)

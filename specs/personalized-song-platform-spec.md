@@ -199,7 +199,7 @@ tracks/{user_id}/{track_id}/v{n}/
 | Column | Type | Description |
 |--------|------|-------------|
 | id | UUID | Primary key, generated server-side |
-| external_id | VARCHAR(255) | Auth provider ID (Firebase/Auth0) |
+| external_id | VARCHAR(255) | Legacy external auth identifier (superseded by `user_auth_providers`) |
 | email | VARCHAR(255) | Encrypted email for billing |
 | risk_level | ENUM | low, medium, high, blocked |
 | locale | VARCHAR(10) | User's preferred language |
@@ -1889,7 +1889,7 @@ Provide an internal admin dashboard to monitor, diagnose, and manage the core Po
 ##### Account and Identity
 - Signup / Login / Social Login / Token Refresh / Logout
   - Endpoints: `/auth/signup`, `/auth/login`, `/auth/social`, `/auth/refresh`, `/auth/logout`
-  - Data: `users`, `user_auth_providers`, `user_sessions`, `auth_events`
+  - Data: `users` (entitlement owner), `user_auth_providers` (sign-in authority), `user_contacts` (contact authority), `user_sessions`, `auth_events`
 - Password Reset / Email Verify
   - Endpoints: `/auth/forgot-password`, `/auth/reset-password`, `/auth/verify-email`
   - Data: `password_reset_tokens`, `email_verification_tokens`, `auth_events`

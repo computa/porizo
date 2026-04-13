@@ -10,6 +10,26 @@ import XCTest
 
 final class AuthManagerTests: XCTestCase {
 
+    // MARK: - Identity helpers
+
+    func testPhoneProfileEntryValidator_requiresNonEmptyNameAndValidEmail() {
+        XCTAssertFalse(PhoneProfileEntryValidator.canContinue(displayName: "", email: "ambrose@example.com"))
+        XCTAssertFalse(PhoneProfileEntryValidator.canContinue(displayName: "Ambrose", email: ""))
+        XCTAssertFalse(PhoneProfileEntryValidator.canContinue(displayName: "Ambrose", email: "invalid"))
+        XCTAssertTrue(PhoneProfileEntryValidator.canContinue(displayName: "Ambrose", email: "ambrose@example.com"))
+    }
+
+    func testEmailVerificationToken_extractsTokenFromSupportedDeepLinks() {
+        let customScheme = URL(string: "porizo://verify-email?token=abc123")!
+        XCTAssertEqual(emailVerificationToken(from: customScheme), "abc123")
+
+        let universalLink = URL(string: "https://porizo.app/verify-email?token=xyz789")!
+        XCTAssertEqual(emailVerificationToken(from: universalLink), "xyz789")
+
+        let unrelated = URL(string: "https://porizo.app/share/song")!
+        XCTAssertNil(emailVerificationToken(from: unrelated))
+    }
+
     // MARK: - Protected Data Tests
 
     @MainActor
