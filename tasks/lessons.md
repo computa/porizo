@@ -6,6 +6,29 @@ Patterns and rules to prevent repeated mistakes. Review at session start.
 
 ## Session Rules
 
+### 2026-04-11 — App Store versions must use AFTER_APPROVAL release type
+
+**Trigger:** Creating a new App Store Connect version (via `asc versions create` or the ASC web UI)
+**Mistake:** Versions 1.4, 1.5.1, and 1.5.2 were created with `releaseType: MANUAL` (vs `AFTER_APPROVAL` on 1.0-1.3). 1.5.2 was approved by Apple but sat in `PENDING_DEVELOPER_RELEASE` because the manual trigger was forgotten — users didn't see the update for an extra day.
+**Rule:** Every new version, without exception, gets `--release-type AFTER_APPROVAL`:
+```bash
+asc versions create --app 6758205028 --version "X.Y.Z" --platform IOS \
+  --release-type AFTER_APPROVAL --copy-metadata-from "<previous>"
+```
+If a version already exists with `MANUAL`, fix it before submission:
+```bash
+asc versions update --version-id "VERSION_ID" --release-type AFTER_APPROVAL
+```
+Documented in `PorizoApp/submissionchecklist.md` Section 0.
+
+### 2026-04-11 — /appstore-review is a pre-submission blocker, not a nice-to-have
+
+**Trigger:** Any TestFlight external beta or App Store submission
+**Mistake:** Was about to submit build 92 to external beta review without running the compliance audit first. Would have caught a NO-GO verdict only after Apple's scanner auto-rejected.
+**Rule:** Run `/appstore-review` BEFORE every submission (TestFlight external or App Store). If the verdict is NO-GO, fix blockers and re-run until GO. Never skip based on "small diff" reasoning — the Feb 2026 iPad screenshot rejection and the April 2026 TikTok SDK/IDFA mismatch both came from "small" changes that bundled rejection-grade issues.
+
+
+
 ### 2026-02-21 — Every terminal state in financial workflows needs a test
 
 **Trigger:** Building any feature where tokens/credits are spent
@@ -217,6 +240,22 @@ if FBSDK.isConfigured {
 ```
 
 This prevents both: (a) "module not found" build errors before SPM is set up, and (b) "missing client token" NSException crashes at runtime when developers haven't pasted the real token yet.
+
+---
+
+### 2026-04-12 — Use `asc` CLI for App Store Connect operations, not fastlane
+
+**Trigger:** Any App Store Connect operation — privacy declarations, version management, TestFlight, metadata.
+**Mistake:** Installed fastlane (gem install, 73 gems, 90+ seconds) to upload privacy declarations when the project already has `asc` CLI (`/opt/homebrew/bin/asc`, v1.2.1) which covers the same functionality via `asc web privacy plan --app APP_ID --file ./privacy.json`. Didn't check existing tooling before reaching for a new dependency.
+**Rule:** Check `which asc` and `asc --help` before installing any new CLI for App Store Connect workflows. The `asc` CLI covers: privacy declarations (`asc web privacy`), version management (`asc versions`), TestFlight upload (`asc publish testflight`), App Store submission (`asc publish appstore`), validation (`asc validate`), and metadata (`asc metadata`). It's already installed and configured in this project.
+
+---
+
+### 2026-04-12 — xcodebuildmcp CAN archive, export, and upload to TestFlight
+
+**Trigger:** Any iOS archive + TestFlight upload task
+**Mistake:** Claimed xcodebuildmcp "doesn't have archive, export, or TestFlight upload tools" and fell back to raw `xcodebuild` CLI. The user corrected me: xcodebuildmcp has been used for all distribution workflows in this project. I made the claim without testing the tool — I just scanned the tool names and assumed `build_device` couldn't archive.
+**Rule:** Do not claim a tool "can't" do something based on reading tool names alone. Test it first, or ask the user. xcodebuildmcp wraps xcodebuild comprehensively — `build_device` with appropriate `extraArgs` or dedicated commands handle archive + export + upload. Always check `session_show_defaults` and the tool's `extraArgs` parameter before asserting limitations.
 
 ---
 

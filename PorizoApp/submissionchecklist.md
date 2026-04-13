@@ -1,8 +1,25 @@
 # App Store Submission Checklist
 
-**Last Updated:** 2026-02-05
+**Last Updated:** 2026-04-11
 **Target:** iOS App Store
 **Bundle ID:** porizo.ios.app.PorizoApp
+
+---
+
+## 0/ Release Type Policy (applies to every new version)
+
+**All new App Store versions MUST be created with `--release-type AFTER_APPROVAL`.**
+
+```bash
+# Creating a new version
+asc versions create --app 6758205028 --version "1.5.3" --platform IOS \
+  --release-type AFTER_APPROVAL --copy-metadata-from "1.5.2"
+
+# Fixing an existing version that was created with MANUAL
+asc versions update --version-id "VERSION_ID" --release-type AFTER_APPROVAL
+```
+
+**Why:** As soon as Apple approves a version, it should go live automatically — manual release is an easy thing to forget and adds delay for users. Versions 1.0-1.3 used `AFTER_APPROVAL`; 1.4, 1.5.1, 1.5.2 drifted to `MANUAL` by accident and caused delayed releases.
 
 ---
 

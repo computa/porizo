@@ -41,3 +41,4 @@ out/
 
 # Duplicate nested admin directory (claude-mem artifact)
 admin/admin/
+.gstack/
