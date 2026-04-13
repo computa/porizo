@@ -56,6 +56,19 @@ struct AuthUser: Codable {
         primaryPhone = try container.decodeIfPresent(String.self, forKey: .primaryPhone)
         missingProfileRequirements = try container.decodeIfPresent([String].self, forKey: .missingProfileRequirements) ?? []
     }
+
+    // MARK: - Identity Predicates
+
+    /// Whether this user has an Apple sign-in method linked.
+    var hasAppleMethod: Bool { authMethods.contains(where: { $0.type == "apple" }) }
+
+    /// Whether this user has a phone sign-in method linked.
+    var hasPhoneMethod: Bool { authMethods.contains(where: { $0.type == "phone" }) }
+
+    /// Whether this user has a verified non-relay email contact.
+    var hasRealVerifiedEmail: Bool {
+        contacts.contains(where: { $0.type == "email" && $0.verified && !$0.isRelay })
+    }
 }
 
 // MARK: - Account Management Sub-Models

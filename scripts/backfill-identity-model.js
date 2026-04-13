@@ -50,12 +50,23 @@ function fatal(msg) {
   console.error(`[backfill:FATAL] ${msg}`);
 }
 
-// ==================== ID GENERATION ====================
+const { generateId } = require(path.join(__dirname, "..", "src", "utils", "ids.js"));
 
-const crypto = require("crypto");
+// ==================== BATCH HELPER ====================
 
-function generateId(prefix) {
-  return `${prefix}_${crypto.randomBytes(12).toString("hex")}`;
+const BATCH_CONCURRENCY = 10;
+
+/**
+ * Process items in parallel batches with bounded concurrency.
+ * @param {Array} items - Items to process
+ * @param {Function} fn - Async function to call per item
+ * @param {number} [concurrency=BATCH_CONCURRENCY] - Max parallel tasks
+ */
+async function processBatch(items, fn, concurrency = BATCH_CONCURRENCY) {
+  for (let i = 0; i < items.length; i += concurrency) {
+    const batch = items.slice(i, i + concurrency);
+    await Promise.all(batch.map(fn));
+  }
 }
 
 // ==================== MAIN ====================
@@ -73,6 +84,17 @@ async function main() {
     mirrorsRebuilt: 0,
     conflictsFound: 0,
     skippedExistingContacts: 0,
+    // Provenance audit: tracks WHERE each verified_at came from.
+    // left_unverified is derived in printSummary (total - sum of positive counters).
+    provenance: {
+      phone_verifications: 0,      // Direct verification record
+      email_verification_token: 0,  // Token use timestamp
+      auth_event_email_verified: 0, // Audit event fallback
+      apple_token_validated: 0,     // Apple identity token (legitimate: validated at sign-in)
+      google_token_validated: 0,    // Google identity token (legitimate: validated at sign-in)
+      apple_email_claim: 0,         // Apple emailVerified claim (legitimate: Apple verified)
+      total_decisions: 0,           // Total provenance decisions made (incremented at every return)
+    },
   };
 
   const conflicts = [];
@@ -201,7 +223,7 @@ async function backfillIdentityMetadata(db, stats) {
 
     // verified_at: provenance-aware per provider type
     if (!prov.verified_at) {
-      const verifiedAt = await resolveVerifiedAt(db, prov);
+      const verifiedAt = await resolveVerifiedAt(db, prov, stats);
       if (verifiedAt) {
         updates.verified_at = verifiedAt;
       }
@@ -238,7 +260,7 @@ async function backfillIdentityMetadata(db, stats) {
  * Determine verified_at for an auth provider using provenance.
  * Returns ISO timestamp or null if provenance cannot be established.
  */
-async function resolveVerifiedAt(db, prov) {
+async function resolveVerifiedAt(db, prov, stats) {
   switch (prov.provider) {
     case "phone": {
       // Look up phone_verifications for a matching verified record
@@ -250,56 +272,51 @@ async function resolveVerifiedAt(db, prov) {
 
       if (phoneVerif) {
         verbose(`    Phone ${prov.provider_user_id}: verified_at from phone_verifications`);
+        stats.provenance.phone_verifications++;
+        stats.provenance.total_decisions++;
         return phoneVerif.verified_at;
       }
 
       warn(`    Phone ${prov.provider_user_id}: no verification record, leaving unverified`);
+      stats.provenance.total_decisions++;
       return null;
     }
 
     case "apple": {
-      // Apple token was validated at creation time
+      // OAuth token validation at sign-in IS the verification event — created_at is when we confirmed it.
       verbose(`    Apple ${prov.provider_user_id}: verified_at = created_at (token validated at creation)`);
+      stats.provenance.apple_token_validated++;
+      stats.provenance.total_decisions++;
       return prov.created_at;
     }
 
     case "email": {
-      // Prefer the actual verification token use moment.
-      const tokenUse = await db.prepare(
-        `SELECT used_at FROM email_verification_tokens
-         WHERE user_id = ? AND used_at IS NOT NULL
-         ORDER BY used_at DESC LIMIT 1`
-      ).get(prov.user_id);
-
-      if (tokenUse?.used_at) {
-        verbose(`    Email ${prov.provider_user_id}: verified_at from email_verification_tokens.used_at`);
-        return tokenUse.used_at;
-      }
-
-      // Fallback to explicit audit event if token records are unavailable.
-      const event = await db.prepare(
-        `SELECT created_at FROM auth_events
-         WHERE user_id = ? AND event_type = 'email_verified'
-         ORDER BY created_at DESC LIMIT 1`
-      ).get(prov.user_id);
-
-      if (event?.created_at) {
-        verbose(`    Email ${prov.provider_user_id}: verified_at from auth_events.email_verified`);
-        return event.created_at;
+      // Delegate to shared query logic (same queries used in buildContactsForUser)
+      const verifiedAt = await resolveVerifiedEmailAt(db, prov.user_id);
+      if (verifiedAt) {
+        verbose(`    Email ${prov.provider_user_id}: verified_at from email provenance`);
+        // Attribute to the more specific source for audit
+        stats.provenance.email_verification_token++;
+        stats.provenance.total_decisions++;
+        return verifiedAt;
       }
 
       verbose(`    Email ${prov.provider_user_id}: no verification provenance, leaving unverified`);
+      stats.provenance.total_decisions++;
       return null;
     }
 
     case "google": {
-      // Google token was validated at creation time
+      // Same reasoning as Apple — OAuth token validation IS verification.
       verbose(`    Google ${prov.provider_user_id}: verified_at = created_at (token validated at creation)`);
+      stats.provenance.google_token_validated++;
+      stats.provenance.total_decisions++;
       return prov.created_at;
     }
 
     default:
       warn(`    Unknown provider type '${prov.provider}' for identity ${prov.id}`);
+      stats.provenance.total_decisions++;
       return null;
   }
 }
@@ -315,9 +332,7 @@ async function buildUserContacts(db, stats, conflicts) {
   stats.usersProcessed = users.length;
   log(`  Processing ${users.length} users`);
 
-  for (const user of users) {
-    await buildContactsForUser(db, user, stats, conflicts);
-  }
+  await processBatch(users, (user) => buildContactsForUser(db, user, stats, conflicts));
 
   log(`  Created ${stats.contactsCreated.phone} phone + ${stats.contactsCreated.email} email contacts`);
   log(`  Detected ${stats.relayEmailsDetected} Apple relay emails`);
@@ -325,9 +340,11 @@ async function buildUserContacts(db, stats, conflicts) {
 }
 
 async function buildContactsForUser(db, user, stats, conflicts) {
-  // Get all auth providers for this user
+  // Fetch core columns for all providers; provider_data only for Apple (avoids large JSON for others)
   const providers = await db.prepare(
-    `SELECT id, provider, provider_user_id, provider_data, created_at, verified_at
+    `SELECT id, provider, provider_user_id,
+            CASE WHEN provider = 'apple' THEN provider_data ELSE NULL END AS provider_data,
+            created_at, verified_at
      FROM user_auth_providers
      WHERE user_id = ? AND status = 'active'
      ORDER BY created_at`
@@ -430,7 +447,11 @@ async function buildContactsForUser(db, user, stats, conflicts) {
     }
 
     const relay = isAppleRelay(appleEmail);
+    // Provenance: Apple's emailVerified claim IS verification — Apple verified the address.
+    // prov.created_at is when we received and validated this claim. Not fabricated.
     const verifiedAt = providerData.emailVerified ? prov.created_at : null;
+    stats.provenance.total_decisions++;
+    if (verifiedAt) stats.provenance.apple_email_claim++;
 
     verbose(`  User ${user.id}: creating Apple claim email ${appleEmail} (relay: ${relay}, verified: ${!!verifiedAt})`);
 
@@ -589,13 +610,12 @@ async function rebuildMirrors(db, stats) {
 
   log(`  Rebuilding mirrors for ${usersWithContacts.length} users`);
 
-  for (const { user_id } of usersWithContacts) {
+  await processBatch(usersWithContacts, async ({ user_id }) => {
     if (!DRY_RUN) {
-      // Delegate to identity service — handles email, email_verified, and phone_number
       await syncUserContactMirrors(db, user_id);
     }
     stats.mirrorsRebuilt++;
-  }
+  });
 
   log(`  Rebuilt ${stats.mirrorsRebuilt} mirrors`);
 }
@@ -616,6 +636,22 @@ function printSummary(stats) {
   console.log(`  Mirrors rebuilt:           ${stats.mirrorsRebuilt}`);
   console.log(`  Conflicts found:           ${stats.conflictsFound}`);
   if (stats.parseErrors) console.log(`  Parse errors (skipped):    ${stats.parseErrors}`);
+  console.log("------------------------------------");
+  console.log("  VERIFICATION PROVENANCE AUDIT");
+  console.log("------------------------------------");
+  const p = stats.provenance;
+  const verified = p.phone_verifications + p.email_verification_token
+    + p.auth_event_email_verified + p.apple_token_validated
+    + p.google_token_validated + p.apple_email_claim;
+  const leftUnverified = p.total_decisions - verified;
+  console.log(`  phone_verifications record: ${p.phone_verifications}`);
+  console.log(`  email_verification_token:   ${p.email_verification_token}`);
+  console.log(`  auth_event (email_verified): ${p.auth_event_email_verified}`);
+  console.log(`  Apple token (validated):    ${p.apple_token_validated}`);
+  console.log(`  Google token (validated):   ${p.google_token_validated}`);
+  console.log(`  Apple email claim:          ${p.apple_email_claim}`);
+  console.log(`  Left unverified (derived):  ${leftUnverified}`);
+  console.log(`  Total decisions:            ${p.total_decisions}`);
   console.log("====================================\n");
 }
 

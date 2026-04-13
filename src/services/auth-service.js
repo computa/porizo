@@ -102,12 +102,7 @@ function hashToken(token) {
   return crypto.createHash("sha256").update(token).digest("hex");
 }
 
-/**
- * Generate unique ID with prefix
- */
-function generateId(prefix) {
-  return `${prefix}_${crypto.randomBytes(12).toString("hex")}`;
-}
+const { generateId } = require("../utils/ids");
 
 // ==================== JWT ACCESS TOKENS ====================
 

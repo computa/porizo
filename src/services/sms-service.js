@@ -75,14 +75,7 @@ function generateVerificationCode() {
   return (randomInt % max).toString().padStart(6, "0");
 }
 
-/**
- * Generate unique ID with prefix
- * @param {string} prefix
- * @returns {string}
- */
-function generateId(prefix) {
-  return `${prefix}_${crypto.randomBytes(12).toString("hex")}`;
-}
+const { generateId } = require("../utils/ids");
 
 /**
  * Mask a phone number for display (e.g., +1***...***1234)

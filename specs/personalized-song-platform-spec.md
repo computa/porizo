@@ -374,6 +374,15 @@ Composite primary key: (user_id, action_type, window_start)
 
 Constraint: one share token per track (share once ever).
 
+#### 3.2.12 Auth Providers Table (`user_auth_providers`) [IMPLEMENTED]
+
+Sign-in identity resolution. Each row is one linked auth method (Apple, phone, email, Google). A user can have multiple providers. Key columns: `provider`, `provider_user_id`, `verified_at`, `linked_at`, `last_used_at`, `status` (CHECK: active/revoked/suspended).
+
+#### 3.2.13 User Contacts Table (`user_contacts`) [IMPLEMENTED]
+
+Contact information independent from sign-in methods. Key columns: `type` (email/phone), `value_normalized`, `verified_at`, `source`, `is_primary`, `is_relay`. Verified contacts cannot be claimed by two users.
+
+> **Three-Layer Identity Model:** `users` = entitlement owner, `user_auth_providers` = sign-in authority, `user_contacts` = contact authority. `users.email` and `users.phone_number` are read-only mirrors synced after verification. Full column-level schema: [`docs/identity-contract.md`](/docs/identity-contract.md). Migrations: `090`, `091`, `092`.
 
 ---
 

@@ -43,13 +43,8 @@ struct AccountManagementView: View {
 
     private var user: AuthUser? { authManager.currentUser }
 
-    private var hasApple: Bool {
-        user?.authMethods.contains(where: { $0.type == "apple" }) ?? false
-    }
-
-    private var hasPhone: Bool {
-        user?.authMethods.contains(where: { $0.type == "phone" }) ?? false
-    }
+    private var hasApple: Bool { user?.hasAppleMethod ?? false }
+    private var hasPhone: Bool { user?.hasPhoneMethod ?? false }
 
     private var emailContact: ContactInfo? {
         user?.contacts.first(where: { $0.type == "email" })

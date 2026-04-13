@@ -6,9 +6,10 @@ UPDATE user_auth_providers
 SET status = 'active'
 WHERE status IS NULL OR status NOT IN ('active', 'revoked', 'suspended');
 
+-- Idempotent: drop-then-add avoids "already exists" on re-run.
 ALTER TABLE user_auth_providers
-  ADD CONSTRAINT user_auth_providers_status_check
-  CHECK (status IN ('active', 'revoked', 'suspended')) NOT VALID;
+  DROP CONSTRAINT IF EXISTS user_auth_providers_status_check;
 
 ALTER TABLE user_auth_providers
-  VALIDATE CONSTRAINT user_auth_providers_status_check;
+  ADD CONSTRAINT user_auth_providers_status_check
+  CHECK (status IN ('active', 'revoked', 'suspended'));

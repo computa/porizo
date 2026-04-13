@@ -16,16 +16,7 @@
  *   - Apple relay emails are tagged is_relay = true and excluded from completeness checks
  */
 
-const crypto = require("crypto");
-
-// ==================== ID GENERATION ====================
-
-/**
- * Generate unique ID with prefix (matches auth-service.js pattern)
- */
-function generateId(prefix) {
-  return `${prefix}_${crypto.randomBytes(12).toString("hex")}`;
-}
+const { generateId } = require("../utils/ids");
 
 // ==================== NORMALIZATION ====================
 
