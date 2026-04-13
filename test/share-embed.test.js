@@ -574,10 +574,10 @@ describe("Share Embed Routes", () => {
     assert.ok(body.includes("embed.js"), "Should load embed player JS");
   });
 
-  test("/embed/:shareId remains playable after claim by using teaser media", async (t) => {
+  test("/embed/:shareId remains playable after claim by using teaser media and preserving public web metadata", async (t) => {
     if (!postgresAvailable) { t.skip("PostgreSQL not available"); return; }
     await db.query(
-      `UPDATE share_tokens SET status = 'claimed', web_stream_allowed = 0 WHERE id = $1`,
+      `UPDATE share_tokens SET status = 'claimed', web_stream_allowed = 1 WHERE id = $1`,
       [testShareId]
     );
 
@@ -591,11 +591,15 @@ describe("Share Embed Routes", () => {
       "Embed should use claim-independent teaser media"
     );
 
-    const audioResponse = await app.inject({
+    const shareInfoResponse = await app.inject({
       method: "GET",
-      url: `/share/${testShareId}/audio`,
+      url: `/share/${testShareId}`,
     });
-    assert.equal(audioResponse.statusCode, 403, "Unclaimed audio endpoint must remain blocked after claim");
+    assert.equal(shareInfoResponse.statusCode, 200, "Claimed share metadata should still load");
+    const shareInfo = JSON.parse(shareInfoResponse.body);
+    assert.equal(shareInfo.status, "claimed");
+    assert.ok(shareInfo.web_stream_url, "Claimed share should still advertise a public browser listening surface");
+    assert.equal(shareInfo.app_required, false, "Claimed share should not require the app when public listening is still allowed");
 
     await db.query(
       `UPDATE share_tokens SET status = 'unbound', web_stream_allowed = 1 WHERE id = $1`,

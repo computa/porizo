@@ -893,11 +893,15 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   const SAFE_ID_RE = /^[a-zA-Z0-9._-]+$/;
 
   function getVersionDir(track, trackVersion) {
+    const storageDir = appConfig.STORAGE_DIR || config.STORAGE_DIR;
+    if (!storageDir) {
+      throw new Error("[PathConstruction] STORAGE_DIR is not configured");
+    }
     if (!SAFE_ID_RE.test(track.user_id) || !SAFE_ID_RE.test(track.id)) {
       throw new Error("[SecurityGuard:PathTraversal] Invalid ID format in path construction");
     }
     return path.join(
-      appConfig.STORAGE_DIR,
+      storageDir,
       "tracks",
       track.user_id,
       track.id,
@@ -1095,6 +1099,15 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   }
 
   async function ensureShareHls({ share, track, trackVersion }) {
+    const hasLocalTrackContext = Boolean(
+      track?.user_id &&
+      track?.id &&
+      trackVersion?.version_num != null &&
+      (appConfig.STORAGE_DIR || config.STORAGE_DIR)
+    );
+    if (!hasLocalTrackContext) {
+      return null;
+    }
     const versionDir = getVersionDir(track, trackVersion);
     const hlsDir = path.join(versionDir, "hls", `share_${share.id}`);
     const playlistPath = path.join(hlsDir, "playlist.m3u8");

@@ -293,11 +293,11 @@ describe('HLS CloudFront Streaming', () => {
     // Expected responses:
     // - 200: HLS ready and served
     // - 409: HLS not ready yet (STREAM_NOT_READY)
-    // - 500: Internal error (e.g., missing storage_ref for test data)
-    // All are acceptable since we're testing the route exists and validates device
+    // - 409: HLS not ready yet (STREAM_NOT_READY)
+    // The route should not 500 just because local share assets are unavailable.
     assert.ok(
-      [200, 409, 500].includes(playlistResponse.statusCode),
-      `Playlist should return 200/409/500, got ${playlistResponse.statusCode}`
+      [200, 409].includes(playlistResponse.statusCode),
+      `Playlist should return 200/409, got ${playlistResponse.statusCode}`
     );
 
     // Test with wrong device - should be 403
