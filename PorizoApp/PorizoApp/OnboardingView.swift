@@ -84,16 +84,18 @@ struct OnboardingView: View {
                             .background(DesignTokens.gold)
                             .clipShape(RoundedRectangle(cornerRadius: 14))
                     }
+                    .accessibilityIdentifier("onboarding-primary-cta")
 
                     if currentPage == pageCount - 1 {
                         Button {
                             stopSamplePlayback()
                             onSkip()
                         } label: {
-                            Text("Sign in")
+                            Text("Get started")
                                 .font(DesignTokens.bodyFont(size: 14, weight: .medium))
                                 .foregroundStyle(DesignTokens.gold)
                         }
+                        .accessibilityIdentifier("onboarding-secondary-cta")
                     }
                 }
                 .padding(.horizontal, 20)

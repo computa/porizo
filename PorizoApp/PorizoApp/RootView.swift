@@ -29,6 +29,7 @@ struct RootView: View {
     @AppStorage("hasCompletedFirstSong") private var hasCompletedFirstSong = false
     @AppStorage("pendingRecipientName") private var pendingRecipientName = ""
     @AppStorage("pendingOccasion") private var pendingOccasion = ""
+    @AppStorage("pendingCreateType") private var pendingCreateType = ""
     @State private var hasSkippedProfileCompletionInSession = false
     @State private var nameEntryHasOwnLyrics = false
     @State private var nameEntryIsInstrumental = false
@@ -64,6 +65,16 @@ struct RootView: View {
         ProcessInfo.processInfo.arguments.contains("--design-samples")
         || UserDefaults.standard.bool(forKey: "showDesignSamples")
     }()
+
+    /// Reset onboarding state for validation testing.
+    /// Usage: launch_app_sim(args: ["--reset-onboarding", "--bypass-auth"])
+    private let resetOnboarding: Bool = ProcessInfo.processInfo.arguments.contains("--reset-onboarding")
+    private let launchesValidationFixture: Bool = {
+        let args = ProcessInfo.processInfo.arguments
+        return args.contains("--fixture-reveal")
+            || args.contains("--fixture-reveal-ready")
+            || args.contains("--fixture-creating")
+    }()
     #endif
 
     struct ShareContext: Identifiable {
@@ -83,6 +94,14 @@ struct RootView: View {
             case .splash:
                 SplashView()
                     .onAppear {
+                        #if DEBUG
+                        if resetOnboarding {
+                            let keys = ["hasCompletedOnboarding", "onboardingViewCount", "hasCompletedFirstSong",
+                                         "pendingRecipientName", "pendingOccasion", "pendingCreateType"]
+                            keys.forEach { UserDefaults.standard.removeObject(forKey: $0) }
+                        }
+                        #endif
+
                         // Initialize API client with device ID as fallback
                         let deviceId = getOrCreateDeviceId()
                         let client = makeAPIClient(deviceId: deviceId)
@@ -113,6 +132,10 @@ struct RootView: View {
                                     appState = .designSamples
                                     return
                                 }
+                                if launchesValidationFixture {
+                                    appState = .main
+                                    return
+                                }
                                 #endif
                                 // Show onboarding up to 2 times until first song is generated
                                 let shouldShowOnboarding = onboardingViewCount < 2 && !hasCompletedFirstSong
@@ -137,9 +160,10 @@ struct RootView: View {
                     selectedType: nil,
                     hasOwnLyrics: $nameEntryHasOwnLyrics,
                     isInstrumental: $nameEntryIsInstrumental,
-                    onStart: { name, occasion, _ in
+                    onStart: { name, occasion, type in
                         pendingRecipientName = name
-                        pendingOccasion = occasion?.displayName ?? ""
+                        pendingOccasion = occasion?.rawValue ?? ""
+                        pendingCreateType = type.rawValue
                         withAnimation(.easeInOut(duration: 0.5)) {
                             appState = (skipAuth || authManager.isAuthenticated) ? .main : .auth
                         }
@@ -159,12 +183,24 @@ struct RootView: View {
 
             case .main:
                 if let client = apiClient, let router = sttRouter {
-                    MainTabView(apiClient: client)
+                    MainTabView(
+                        apiClient: client,
+                        pendingRecipientName: pendingRecipientName.isEmpty ? nil : pendingRecipientName,
+                        pendingOccasion: resolvedPendingOccasion,
+                        pendingType: resolvedPendingCreateType,
+                        onConsumePendingCreateContext: clearPendingCreateContext
+                    )
                         .environment(router)
                 } else {
                     // Fallback - create client if needed
                     let fallbackClient = makeAPIClient(deviceId: getOrCreateDeviceId())
-                    MainTabView(apiClient: fallbackClient)
+                    MainTabView(
+                        apiClient: fallbackClient,
+                        pendingRecipientName: pendingRecipientName.isEmpty ? nil : pendingRecipientName,
+                        pendingOccasion: resolvedPendingOccasion,
+                        pendingType: resolvedPendingCreateType,
+                        onConsumePendingCreateContext: clearPendingCreateContext
+                    )
                         .environment(sttRouter ?? STTRouter(apiClient: fallbackClient))
                 }
             case .auth:
@@ -323,12 +359,29 @@ struct RootView: View {
         )
     }
 
+    private var resolvedPendingOccasion: Occasion? {
+        guard !pendingOccasion.isEmpty else { return nil }
+        return Occasion(rawValue: pendingOccasion)
+            ?? Occasion.allCases.first { $0.displayName == pendingOccasion }
+    }
+
+    private var resolvedPendingCreateType: CreateFlowKind? {
+        guard !pendingCreateType.isEmpty else { return nil }
+        return CreateFlowKind(rawValue: pendingCreateType)
+    }
+
     private func completeOnboarding() {
         hasCompletedOnboarding = true
         onboardingViewCount += 1
         withAnimation(.easeInOut(duration: 0.5)) {
             appState = .nameEntry
         }
+    }
+
+    private func clearPendingCreateContext() {
+        pendingRecipientName = ""
+        pendingOccasion = ""
+        pendingCreateType = ""
     }
 
     private func syncProfileCompletionContext() {

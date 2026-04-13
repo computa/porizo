@@ -76,9 +76,10 @@ struct WaitPulseView: View {
                         .contentTransition(.interpolate)
                         .animation(.easeInOut(duration: 0.4), value: elapsedSeconds)
 
-                    Text("Usually under 2 minutes")
+                    Text("Ready in about 90 seconds")
                         .font(DesignTokens.bodyFont(size: 13))
                         .foregroundStyle(DesignTokens.textTertiary)
+                        .accessibilityIdentifier("wait-subtitle-text")
                 }
 
                 Spacer()

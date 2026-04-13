@@ -7,7 +7,6 @@
 
 import Foundation
 
-#if DEBUG
 
 struct MockLyricsSection: Identifiable {
     let id = UUID()
@@ -50,4 +49,3 @@ let mockLyrics: [MockLyricsSection] = [
     ]),
 ]
 
-#endif

@@ -13,11 +13,14 @@ struct RevealBloomView: View {
     let recipientName: String
     let occasion: String?
     var isPlaying: Bool = false
+    var hasSavedToLibrary: Bool = false
+    var shareDebugStatusLabel: String? = nil
     let onPlay: () -> Void
     let onShare: () -> Void
     let onEditLyrics: () -> Void
     let onSaveToLibrary: () -> Void
     var onListenFully: (() -> Void)?
+    let onClose: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -40,8 +43,23 @@ struct RevealBloomView: View {
 
             ScrollView {
                 VStack(spacing: DesignTokens.spacing24) {
+                    HStack {
+                        Spacer()
+                        Button(action: onClose) {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundStyle(.white.opacity(0.9))
+                                .frame(width: 40, height: 40)
+                                .background(.white.opacity(0.14))
+                                .clipShape(Circle())
+                        }
+                        .accessibilityIdentifier("reveal-exit-button")
+                        .accessibilityLabel("Close reveal")
+                    }
+                    .padding(.top, 16)
+
                     Spacer()
-                        .frame(height: 60)
+                        .frame(height: 4)
 
                     // Frosted checkmark
                     checkmarkCircle
@@ -84,12 +102,22 @@ struct RevealBloomView: View {
                             .font(DesignTokens.bodyFont(size: 14, weight: .medium))
                             .foregroundStyle(.white.opacity(0.8))
                         }
+                        .accessibilityIdentifier("reveal-listen-button")
                         .accessibilityLabel("Open full player with lyrics")
                     }
 
                     // Share secondary button
                     shareButton
                         .padding(.top, DesignTokens.spacing8)
+
+                    if let shareDebugStatusLabel {
+                        Text(shareDebugStatusLabel)
+                            .font(.system(size: 1))
+                            .foregroundStyle(.clear)
+                            .opacity(0.01)
+                            .accessibilityIdentifier("share-link-ready-indicator")
+                            .accessibilityLabel(shareDebugStatusLabel)
+                    }
 
                     // Tertiary links
                     tertiaryLinks
@@ -189,6 +217,7 @@ struct RevealBloomView: View {
             }
         }
         .scaleEffect(playButtonScale)
+        .accessibilityIdentifier("reveal-play-button")
         .accessibilityLabel("Play your song for \(recipientName)")
     }
 
@@ -204,6 +233,7 @@ struct RevealBloomView: View {
                 .background(.white)
                 .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusCTA))
         }
+        .accessibilityIdentifier("reveal-share-button")
         .accessibilityLabel("Share song with \(recipientName)")
     }
 
@@ -212,7 +242,10 @@ struct RevealBloomView: View {
     private var tertiaryLinks: some View {
         HStack(spacing: DesignTokens.spacing24) {
             Button("Edit lyrics", action: onEditLyrics)
-            Button("Save to library", action: onSaveToLibrary)
+                .accessibilityIdentifier("reveal-edit-lyrics-button")
+            Button(hasSavedToLibrary ? "Saved to library" : "Save to library", action: onSaveToLibrary)
+                .accessibilityIdentifier("reveal-save-button")
+                .disabled(hasSavedToLibrary)
         }
         .font(DesignTokens.bodyFont(size: 14, weight: .medium))
         .foregroundStyle(.white.opacity(0.7))
@@ -281,7 +314,8 @@ struct RevealBloomView: View {
         onPlay: {},
         onShare: {},
         onEditLyrics: {},
-        onSaveToLibrary: {}
+        onSaveToLibrary: {},
+        onClose: {}
     )
 }
 
@@ -292,6 +326,7 @@ struct RevealBloomView: View {
         onPlay: {},
         onShare: {},
         onEditLyrics: {},
-        onSaveToLibrary: {}
+        onSaveToLibrary: {},
+        onClose: {}
     )
 }

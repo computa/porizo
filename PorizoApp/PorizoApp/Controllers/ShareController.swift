@@ -133,6 +133,30 @@ final class ShareController {
 
     // MARK: - Public API
 
+    #if DEBUG
+    /// Seed deterministic share state for simulator validation fixtures.
+    func seedDebugShare(
+        shareUrl: String,
+        claimPin: String,
+        shareId: String,
+        qrCodeUrl: String? = nil,
+        expiresAt: String = "2099-12-31T23:59:59Z"
+    ) {
+        let response = CreateShareResponse(
+            shareId: shareId,
+            shareUrl: shareUrl,
+            qrCodeUrl: qrCodeUrl ?? "\(shareUrl)/qr",
+            expiresAt: expiresAt,
+            claimPin: claimPin
+        )
+
+        createResponse = response
+        shareURL = URL(string: shareUrl)
+        shareError = nil
+        phase = .hasShare
+    }
+    #endif
+
     /// Check whether a share already exists for this track.
     /// Transitions phase to `.hasShare` or `.noShare`.
     func checkShareStatus(trackId: String) {
@@ -363,13 +387,36 @@ struct ShareMessageContent: Sendable {
     let trackTitle: String
     let recipientName: String
 
-    static func activityMessage(shareURL: String, claimPin: String) -> String {
-        "I made you a personalized song! Listen here: \(shareURL)\n\nUse PIN: \(claimPin)"
+    static func activityMessage(
+        shareURL: String,
+        claimPin: String,
+        recipientName: String? = nil,
+        occasion: String? = nil
+    ) -> String {
+        let trimmedRecipient = recipientName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let occasionPhrase = formatOccasionPhrase(occasion)
+        let intro: String
+
+        if !trimmedRecipient.isEmpty, let occasionPhrase {
+            intro = "I made this \(occasionPhrase) song for you, \(trimmedRecipient)."
+        } else if !trimmedRecipient.isEmpty {
+            intro = "I made this song for you, \(trimmedRecipient)."
+        } else if let occasionPhrase {
+            intro = "I made this \(occasionPhrase) song for you."
+        } else {
+            intro = "I made this song for you."
+        }
+
+        return "\(intro) Listen here: \(shareURL)\n\nPIN: \(claimPin)"
     }
 
     /// Default message body for Messages, WhatsApp, system share sheet.
     var defaultMessage: String {
-        Self.activityMessage(shareURL: shareURL, claimPin: claimPin)
+        Self.activityMessage(
+            shareURL: shareURL,
+            claimPin: claimPin,
+            recipientName: recipientName
+        )
     }
 
     /// Formatted email subject line.
@@ -388,5 +435,18 @@ struct ShareMessageContent: Sendable {
         Listen here: \(shareURL)
         PIN: \(claimPin)
         """
+    }
+
+    private static func formatOccasionPhrase(_ occasion: String?) -> String? {
+        let trimmed = occasion?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !trimmed.isEmpty else { return nil }
+
+        if let knownOccasion = Occasion(rawValue: trimmed) {
+            return knownOccasion.displayName.lowercased()
+        }
+
+        return trimmed
+            .replacingOccurrences(of: "_", with: " ")
+            .lowercased()
     }
 }

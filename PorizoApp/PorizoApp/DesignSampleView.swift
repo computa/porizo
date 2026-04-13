@@ -8,8 +8,6 @@
 
 import SwiftUI
 
-#if DEBUG
-
 // MARK: - Design Sample Picker
 
 struct DesignSampleView: View {
@@ -2174,5 +2172,3 @@ private func emptyStateView(icon: String, title: String, subtitle: String, ctaLa
 #Preview {
     DesignSampleView()
 }
-
-#endif

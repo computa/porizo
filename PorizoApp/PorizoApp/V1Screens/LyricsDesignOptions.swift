@@ -70,7 +70,6 @@ enum LyricsTimingHelper {
 
 // MARK: - Auto-Advancing Preview State
 
-#if DEBUG
 /// Simulates playback by auto-incrementing currentTime so lyrics animate
 /// without actual audio. Starts at 75s to show mid-song state.
 @Observable
@@ -372,7 +371,6 @@ struct LyricsOptionView: View {
     }
 }
 
-#endif
 
 // MARK: - Option A: Spotlight — Cinematic Single-Line Focus
 

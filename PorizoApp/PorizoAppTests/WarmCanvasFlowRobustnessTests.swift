@@ -363,6 +363,7 @@ final class WarmCanvasFlowRobustnessTests: XCTestCase {
     /// Verify fresh start when no resume data exists.
     func testBootstrap_freshStart() {
         let action = CreateFlowBootstrapAction.resolve(
+            initialRecipientName: nil,
             preselectedOccasion: .birthday,
             preselectedType: .song,
             resumeTrackId: nil,
@@ -384,6 +385,7 @@ final class WarmCanvasFlowRobustnessTests: XCTestCase {
     /// Verify resume track takes priority over other bootstrap paths.
     func testBootstrap_resumeTrackPriority() {
         let action = CreateFlowBootstrapAction.resolve(
+            initialRecipientName: nil,
             preselectedOccasion: .birthday,
             preselectedType: .song,
             resumeTrackId: "track_resume",
@@ -417,6 +419,7 @@ final class WarmCanvasFlowRobustnessTests: XCTestCase {
         session.storyId = "story_restored"
 
         let action = CreateFlowBootstrapAction.resolve(
+            initialRecipientName: nil,
             preselectedOccasion: nil,
             preselectedType: .song,
             resumeTrackId: nil,
@@ -449,6 +452,7 @@ final class WarmCanvasFlowRobustnessTests: XCTestCase {
         session.storyId = "story_1"
 
         let action = CreateFlowBootstrapAction.resolve(
+            initialRecipientName: nil,
             preselectedOccasion: nil,
             preselectedType: nil,
             resumeTrackId: "track_priority",

@@ -7,7 +7,6 @@
 
 import SwiftUI
 
-#if DEBUG
 
 // MARK: - Rendering Progress Card
 
@@ -172,4 +171,3 @@ struct SongPlayerCard: View {
     }
 }
 
-#endif

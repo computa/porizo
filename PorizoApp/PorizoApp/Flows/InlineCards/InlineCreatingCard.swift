@@ -43,11 +43,6 @@ struct InlineCreatingCard: View {
                 .font(DesignTokens.bodyFont(size: 14, weight: .medium))
                 .foregroundStyle(DesignTokens.textPrimary)
                 .multilineTextAlignment(.center)
-
-            // Progress percentage
-            Text("\(progress)%")
-                .font(DesignTokens.bodyFont(size: 12, weight: .semibold))
-                .foregroundStyle(DesignTokens.gold)
         }
         .padding(16)
         .frame(maxWidth: .infinity)

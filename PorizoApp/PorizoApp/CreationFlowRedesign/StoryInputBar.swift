@@ -11,7 +11,6 @@
 
 import SwiftUI
 
-#if DEBUG
 
 struct StoryInputBarView: View {
     @Binding var text: String
@@ -91,4 +90,3 @@ func storyInputBar(text: Binding<String>) -> some View {
     StoryInputBarView(text: text)
 }
 
-#endif

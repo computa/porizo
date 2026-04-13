@@ -141,7 +141,7 @@ struct MySongsView: View {
                     if let urlString = track.shareUrl,
                        let claimPin = track.claimPin,
                        let url = URL(string: urlString) {
-                        presentShareSheetFromMySongs(url: url, claimPin: claimPin)
+                        presentShareSheetFromMySongs(track: track, url: url, claimPin: claimPin)
                         return
                     }
                     // Slow path: generate on-demand
@@ -162,7 +162,7 @@ struct MySongsView: View {
                             ToastService.shared.show("Could not create share link. Try again.", type: .error)
                             return
                         }
-                        presentShareSheetFromMySongs(url: url, claimPin: claimPin)
+                        presentShareSheetFromMySongs(track: track, url: url, claimPin: claimPin)
                     }
                 },
                 onSaveToPhotos: {},
@@ -256,10 +256,12 @@ struct MySongsView: View {
         }
     }
 
-    private func presentShareSheetFromMySongs(url: URL, claimPin: String) {
+    private func presentShareSheetFromMySongs(track: Track, url: URL, claimPin: String) {
         let message = ShareMessageContent.activityMessage(
             shareURL: url.absoluteString,
-            claimPin: claimPin
+            claimPin: claimPin,
+            recipientName: track.recipientName,
+            occasion: track.occasion
         )
         let activityVC = UIActivityViewController(activityItems: [message], applicationActivities: nil)
         if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,

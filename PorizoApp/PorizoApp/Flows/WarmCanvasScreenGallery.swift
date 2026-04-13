@@ -8,7 +8,6 @@
 
 import SwiftUI
 
-#if DEBUG
 struct WarmCanvasScreenGallery: View {
     @Environment(\.dismiss) private var dismiss
     @State private var activeScreen: ScreenPreview?
@@ -250,7 +249,7 @@ struct WarmCanvasScreenGallery: View {
             RevealBloomView(
                 recipientName: demoRecipient,
                 occasion: "Happy Birthday 🎂",
-                onPlay: {}, onShare: {}, onEditLyrics: {}, onSaveToLibrary: {}
+                onPlay: {}, onShare: {}, onEditLyrics: {}, onSaveToLibrary: {}, onClose: {}
             )
         case .lyricsReview: lyricsReviewDemoView
         case .share:
@@ -526,6 +525,10 @@ struct WarmCanvasScreenGallery: View {
                             .clipShape(RoundedRectangle(cornerRadius: 12))
                             .overlay(RoundedRectangle(cornerRadius: 12).stroke(DesignTokens.border, lineWidth: 1.5))
                     }
+                    Text("Send verification code")
+                        .font(DesignTokens.bodyFont(size: 14, weight: .medium))
+                        .foregroundStyle(DesignTokens.gold)
+                        .opacity(0.4)
                 }
 
                 coralButton("Continue")
@@ -1327,4 +1330,3 @@ struct WarmCanvasScreenGallery: View {
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(DesignTokens.border, lineWidth: 0.5))
     }
 }
-#endif

@@ -164,15 +164,6 @@
       }
     },
     {
-      "identity" : "tiktok-business-ios-sdk",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/tiktok/tiktok-business-ios-sdk",
-      "state" : {
-        "revision" : "79faf4f1a8a15b039cb0d41a5186ea32fff86cb2",
-        "version" : "1.6.0"
-      }
-    },
-    {
       "identity" : "tiktok-opensdk-ios",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/tiktok/tiktok-opensdk-ios",

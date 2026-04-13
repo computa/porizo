@@ -17,7 +17,6 @@
 
 import SwiftUI
 
-#if DEBUG
 
 // MARK: - Chat Message Model
 
@@ -333,4 +332,3 @@ struct OptionALetterView: View {
     }
 }
 
-#endif

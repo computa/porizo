@@ -21,7 +21,6 @@
 
 import SwiftUI
 
-#if DEBUG
 
 // MARK: - Unified View
 
@@ -831,4 +830,3 @@ struct UnifiedCreationFlowView: View {
     }
 }
 
-#endif

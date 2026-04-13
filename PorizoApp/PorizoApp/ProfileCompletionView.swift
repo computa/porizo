@@ -300,8 +300,9 @@ struct ProfileCompletionView: View {
                 if showOTPEntry {
                     // Inline OTP entry
                     inlineOTPSection
-                } else if isValidPhoneNumberInput(phoneNumber, selectedCountry: selectedCountry) {
-                    // Send code button
+                } else {
+                    // Send code button — always visible, disabled until phone is valid
+                    let phoneValid = isValidPhoneNumberInput(phoneNumber, selectedCountry: selectedCountry)
                     Button {
                         Task { await sendPhoneCode() }
                     } label: {
@@ -315,7 +316,8 @@ struct ProfileCompletionView: View {
                         }
                         .foregroundStyle(DesignTokens.gold)
                     }
-                    .disabled(isSendingCode)
+                    .disabled(!phoneValid || isSendingCode)
+                    .opacity(phoneValid ? 1.0 : 0.4)
                 }
 
                 if let phoneError {

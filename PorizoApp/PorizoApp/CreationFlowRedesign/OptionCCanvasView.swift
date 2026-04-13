@@ -23,7 +23,6 @@
 
 import SwiftUI
 
-#if DEBUG
 
 // MARK: - Timeline Beat
 
@@ -460,4 +459,3 @@ private struct FlowLayoutC: Layout {
     }
 }
 
-#endif

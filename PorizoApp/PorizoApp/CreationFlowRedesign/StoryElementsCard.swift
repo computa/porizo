@@ -15,7 +15,6 @@
 
 import SwiftUI
 
-#if DEBUG
 
 // MARK: - Story Beat Model
 
@@ -139,4 +138,3 @@ struct StoryElementsCard: View {
     }
 }
 
-#endif

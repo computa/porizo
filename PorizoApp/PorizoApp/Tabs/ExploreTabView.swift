@@ -89,28 +89,6 @@ struct ExploreTabView: View {
                 .foregroundStyle(DesignTokens.textPrimary)
 
             Spacer()
-
-            Button {
-                // TODO: Wire search action
-            } label: {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 20))
-                    .foregroundStyle(DesignTokens.textSecondary)
-                    .frame(width: 36, height: 36)
-            }
-            .accessibilityLabel("Search")
-            .accessibilityHint("Coming soon")
-
-            Button {
-                // TODO: Wire notifications
-            } label: {
-                Image(systemName: "bell")
-                    .font(.system(size: 20))
-                    .foregroundStyle(DesignTokens.textSecondary)
-                    .frame(width: 36, height: 36)
-            }
-            .accessibilityLabel("Notifications")
-            .accessibilityHint("Coming soon")
         }
         .padding(.horizontal, 20)
         .frame(height: 56)

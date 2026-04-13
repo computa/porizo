@@ -12,7 +12,6 @@
 
 import SwiftUI
 
-#if DEBUG
 
 struct PostCreateAllInChatView: View {
     @State private var inputText = ""
@@ -367,4 +366,3 @@ struct PostCreateAllInChatView: View {
     }
 }
 
-#endif

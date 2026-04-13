@@ -9,7 +9,6 @@
 
 import SwiftUI
 
-#if DEBUG
 
 struct PostCreateComposerView: View {
     @State private var inputText = ""
@@ -363,4 +362,3 @@ struct PostCreateComposerView: View {
     }
 }
 
-#endif

@@ -7,8 +7,6 @@
 
 import SwiftUI
 
-#if DEBUG
-
 struct CreationFlowPickerView: View {
     var body: some View {
         NavigationStack {
@@ -166,5 +164,3 @@ struct CreationFlowPickerView: View {
         .padding(.vertical, 6)
     }
 }
-
-#endif

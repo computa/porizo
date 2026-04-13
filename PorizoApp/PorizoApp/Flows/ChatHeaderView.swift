@@ -33,6 +33,7 @@ struct ChatHeaderView: View, Equatable {
             Text("For \(recipientName)")
                 .font(DesignTokens.displayFont(size: 20))
                 .foregroundStyle(DesignTokens.textPrimary)
+                .accessibilityIdentifier("create-flow-recipient-display")
 
             Spacer()
 

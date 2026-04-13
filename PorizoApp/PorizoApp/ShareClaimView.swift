@@ -7,6 +7,35 @@
 
 import SwiftUI
 
+enum ShareClaimInitialMode: Equatable {
+    case devicePlayback
+    case previewClaimable
+    case previewReadOnly
+    case requiresPin
+    case blocked(String)
+    case unavailable(String)
+
+    static func resolve(for info: ShareInfoResponse) -> ShareClaimInitialMode {
+        switch info.status {
+        case "claimed":
+            if info.canAccess == true {
+                return .devicePlayback
+            }
+            if let streamUrl = info.webStreamUrl, !streamUrl.isEmpty {
+                return .previewReadOnly
+            }
+            return .blocked("This song is already claimed on another device.")
+        case "unbound":
+            if let streamUrl = info.webStreamUrl, !streamUrl.isEmpty {
+                return .previewClaimable
+            }
+            return .requiresPin
+        default:
+            return .unavailable("This share link is not available.")
+        }
+    }
+}
+
 struct ShareClaimView: View {
     let apiClient: APIClient
     let shareId: String
@@ -31,7 +60,8 @@ struct ShareClaimView: View {
 
     enum ShareClaimState: Equatable {
         case loading
-        case preview        // Listen-first: song playing via web stream, PIN optional
+        case previewClaimable
+        case previewReadOnly
         case requiresPin    // Fallback when no web stream available
         case playing        // Fully claimed — device-bound stream
         case blocked(String)
@@ -77,7 +107,7 @@ struct ShareClaimView: View {
             ProgressView("Loading share...")
                 .foregroundStyle(DesignTokens.textSecondary)
 
-        case .preview:
+        case .previewClaimable, .previewReadOnly:
             previewView
 
         case .requiresPin:
@@ -338,27 +368,36 @@ struct ShareClaimView: View {
                     webStreamUrl = info.webStreamUrl
                 }
 
-                switch info.status {
-                case "claimed":
-                    if info.canAccess == true {
-                        await startPlayback()
-                    } else {
+                switch ShareClaimInitialMode.resolve(for: info) {
+                case .devicePlayback:
+                    await startPlayback()
+                case .previewClaimable:
+                    guard let streamUrl = info.webStreamUrl, !streamUrl.isEmpty else {
                         await MainActor.run {
-                            state = .blocked("This song is already claimed on another device.")
+                            state = .error("Share preview is unavailable.")
                         }
+                        return
                     }
-                case "unbound":
-                    // Listen-first: if web stream is available, start preview playback
-                    if let streamUrl = info.webStreamUrl, !streamUrl.isEmpty {
-                        await startWebPreview(streamUrl: streamUrl)
-                    } else {
+                    await startWebPreview(streamUrl: streamUrl, claimAllowed: true)
+                case .previewReadOnly:
+                    guard let streamUrl = info.webStreamUrl, !streamUrl.isEmpty else {
                         await MainActor.run {
-                            state = .requiresPin
+                            state = .error("Share preview is unavailable.")
                         }
+                        return
                     }
-                default:
+                    await startWebPreview(streamUrl: streamUrl, claimAllowed: false)
+                case .requiresPin:
                     await MainActor.run {
-                        state = .error("This share link is not available.")
+                        state = .requiresPin
+                    }
+                case .blocked(let message):
+                    await MainActor.run {
+                        state = .blocked(message)
+                    }
+                case .unavailable(let message):
+                    await MainActor.run {
+                        state = .error(message)
                     }
                 }
             } catch let error as APIClientError {
@@ -445,14 +484,14 @@ struct ShareClaimView: View {
         }
     }
 
-    private func startWebPreview(streamUrl: String) async {
+    private func startWebPreview(streamUrl: String, claimAllowed: Bool) async {
         await MainActor.run {
             let metadata = NowPlayingMetadata(
                 title: trackInfo?.title ?? "Shared Song",
                 artist: trackInfo?.recipientName
             )
             audioPlayer.play(url: streamUrl, headers: nil, metadata: metadata)
-            state = .preview
+            state = claimAllowed ? .previewClaimable : .previewReadOnly
         }
     }
 
@@ -504,31 +543,45 @@ struct ShareClaimView: View {
             }
             .padding(.horizontal, 20)
 
-            // Save to library (requires PIN claim)
-            VStack(spacing: 12) {
-                Text("Want to save this song?")
-                    .font(DesignTokens.bodyFont(size: 14))
-                    .foregroundStyle(DesignTokens.textSecondary)
-                    .padding(.top, 24)
+            if state == .previewClaimable {
+                VStack(spacing: 12) {
+                    Text("Want to save this song?")
+                        .font(DesignTokens.bodyFont(size: 14))
+                        .foregroundStyle(DesignTokens.textSecondary)
+                        .padding(.top, 24)
 
-                Button {
-                    state = .requiresPin
-                } label: {
-                    Text("Save to Library")
-                        .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
-                        .foregroundStyle(DesignTokens.gold)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                        .background(DesignTokens.surface)
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 12)
-                                .stroke(DesignTokens.gold.opacity(0.5), lineWidth: 1)
-                        )
+                    Button {
+                        state = .requiresPin
+                    } label: {
+                        Text("Save to Library")
+                            .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
+                            .foregroundStyle(DesignTokens.gold)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 14)
+                            .background(DesignTokens.surface)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .stroke(DesignTokens.gold.opacity(0.5), lineWidth: 1)
+                            )
+                    }
                 }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 40)
+            } else {
+                VStack(spacing: 8) {
+                    Text("This song is already claimed.")
+                        .font(DesignTokens.bodyFont(size: 14, weight: .medium))
+                        .foregroundStyle(DesignTokens.textSecondary)
+                        .padding(.top, 24)
+                    Text("You can still listen here, but ownership stays with the recipient who claimed it.")
+                        .font(DesignTokens.bodyFont(size: 13))
+                        .foregroundStyle(DesignTokens.textTertiary)
+                        .multilineTextAlignment(.center)
+                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 40)
             }
-            .padding(.horizontal, 20)
-            .padding(.bottom, 40)
         }
     }
 

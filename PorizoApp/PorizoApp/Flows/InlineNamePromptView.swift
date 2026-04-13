@@ -81,6 +81,7 @@ struct InlineNamePromptView: View {
                             .stroke(DesignTokens.border, lineWidth: 1.5)
                     )
                     .padding(.horizontal, 20)
+                    .accessibilityIdentifier("name-entry-recipient-field")
                     .onSubmit { submit() }
 
                 // Occasion chips
@@ -112,6 +113,7 @@ struct InlineNamePromptView: View {
                                 )
                             }
                             .buttonStyle(.plain)
+                            .accessibilityIdentifier("occasion-chip-\(item.label.lowercased())")
                         }
                     }
                     .padding(.horizontal, 20)

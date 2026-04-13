@@ -111,7 +111,9 @@ struct TrackPlayerFullView: View {
                           !claimPin.isEmpty else { return }
                     let message = ShareMessageContent.activityMessage(
                         shareURL: urlString,
-                        claimPin: claimPin
+                        claimPin: claimPin,
+                        recipientName: recipientName,
+                        occasion: occasion
                     )
                     let activityVC = UIActivityViewController(activityItems: [message], applicationActivities: nil)
                     if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,

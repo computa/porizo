@@ -12,11 +12,11 @@ import OneSignalFramework
 #if canImport(FacebookCore)
 import FacebookCore
 #endif
-#if canImport(TikTokBusinessSDK)
-import TikTokBusinessSDK
-#endif
 #if canImport(AdServices)
 import AdServices
+#endif
+#if canImport(AppTrackingTransparency)
+import AppTrackingTransparency
 #endif
 
 /// Reads a placeholder-safe string from Info.plist. Returns empty string if the
@@ -34,18 +34,6 @@ private enum FBSDK {
     static var isConfigured: Bool {
         !infoPlistConfig("FacebookClientToken").isEmpty
     }
-}
-#endif
-
-#if canImport(TikTokBusinessSDK)
-/// Runtime guard for TikTok Business SDK. Requires 3 values from TikTok Events
-/// Manager → Assets → Events → Web Events → API: access token, app id (bundle id),
-/// and the numeric tiktokAppId. Skips init if any are missing.
-private enum TikTokBiz {
-    static var accessToken: String { infoPlistConfig("PORIZO_TIKTOK_BUSINESS_ACCESS_TOKEN") }
-    static var appId: String       { infoPlistConfig("PORIZO_TIKTOK_BUSINESS_APP_ID") }
-    static var tiktokAppId: String { infoPlistConfig("PORIZO_TIKTOK_BUSINESS_TIKTOK_APP_ID") }
-    static var isConfigured: Bool  { !accessToken.isEmpty && !appId.isEmpty && !tiktokAppId.isEmpty }
 }
 #endif
 
@@ -102,25 +90,6 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             print("[FBSDK] Initialized for Meta Ads attribution")
         } else {
             print("[FBSDK] Skipped init — FacebookClientToken not configured in build settings / Info.plist")
-        }
-        #endif
-
-        #if canImport(TikTokBusinessSDK)
-        if TikTokBiz.isConfigured,
-           let config = TikTokConfig(
-               accessToken: TikTokBiz.accessToken,
-               appId: TikTokBiz.appId,
-               tiktokAppId: TikTokBiz.tiktokAppId
-           ) {
-            TikTokBusiness.initializeSdk(config) { success, error in
-                if success {
-                    print("[TikTokBiz] Initialized for TikTok Ads attribution")
-                } else {
-                    print("[TikTokBiz] Init failed: \(error?.localizedDescription ?? "unknown")")
-                }
-            }
-        } else {
-            print("[TikTokBiz] Skipped init — TikTok Business build settings not configured")
         }
         #endif
 
@@ -262,6 +231,19 @@ struct PorizoAppApp: App {
                     } catch {
                         print("[App] Notification permission error: \(error)")
                     }
+
+                    // Request App Tracking Transparency, then propagate the result to FBSDK so
+                    // fb_mobile_activate_app events carry IDFA + campaign attribution. Without
+                    // this, Meta Events Manager flags "not enough events sent with Campaign ID".
+                    #if canImport(AppTrackingTransparency) && canImport(FacebookCore)
+                    if FBSDK.isConfigured, #available(iOS 14.5, *) {
+                        let status = await ATTrackingManager.requestTrackingAuthorization()
+                        let granted = status == .authorized
+                        Settings.shared.isAdvertiserTrackingEnabled = granted
+                        Settings.shared.isAdvertiserIDCollectionEnabled = granted
+                        print("[FBSDK] ATT status raw: \(status.rawValue), tracking enabled: \(granted)")
+                    }
+                    #endif
                 }
                 .task(id: scenePhase) {
                     // When app enters background, schedule background tasks

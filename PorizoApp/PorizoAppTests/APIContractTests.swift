@@ -166,6 +166,65 @@ final class APIContractTests: XCTestCase {
         XCTAssertNil(version.lyricsJson)
     }
 
+    // MARK: - Share info contract
+
+    func testShareInfoResponse_decodesSenderAndWebStreamForClaimedShare() throws {
+        let json = Data("""
+        {
+            "status": "claimed",
+            "can_access": false,
+            "track": {
+                "title": "Birthday Song",
+                "recipient_name": "Sarah",
+                "sender_name": "Marcus",
+                "duration_sec": 60,
+                "cover_image_url": "https://example.com/cover.jpg"
+            },
+            "track_preview": {
+                "title": "Birthday Song",
+                "recipient_name": "Sarah",
+                "sender_name": "Marcus",
+                "duration_sec": 60,
+                "cover_image_url": "https://example.com/cover.jpg"
+            },
+            "web_stream_url": "https://example.com/share/abc/audio",
+            "app_download_url": "https://apps.apple.com/app/id123"
+        }
+        """.utf8)
+
+        let response = try decoder.decode(ShareInfoResponse.self, from: json)
+        XCTAssertEqual(response.status, "claimed")
+        XCTAssertEqual(response.track?.senderName, "Marcus")
+        XCTAssertEqual(response.trackPreview?.senderName, "Marcus")
+        XCTAssertEqual(response.webStreamUrl, "https://example.com/share/abc/audio")
+    }
+
+    func testShareClaimInitialMode_prefersReadOnlyPreviewForClaimedShareWithWebStream() {
+        let response = ShareInfoResponse(
+            status: "claimed",
+            canAccess: false,
+            track: nil,
+            trackPreview: nil,
+            webStreamUrl: "https://example.com/share/abc/audio",
+            appDownloadUrl: nil
+        )
+
+        XCTAssertEqual(ShareClaimInitialMode.resolve(for: response), .previewReadOnly)
+    }
+
+    func testShareClaimInitialMode_returnsClaimablePreviewForUnboundShareWithWebStream() {
+        let response = ShareInfoResponse(
+            status: "unbound",
+            canAccess: nil,
+            track: nil,
+            trackPreview: nil,
+            webStreamUrl: "https://example.com/share/abc/audio",
+            appDownloadUrl: nil
+        )
+
+        XCTAssertEqual(ShareClaimInitialMode.resolve(for: response), .previewClaimable)
+    }
+
     // MARK: - Story guidance contract (backwards compatibility)
 
     /// Proves old iOS APIError decodes the same 422 body without crashing.

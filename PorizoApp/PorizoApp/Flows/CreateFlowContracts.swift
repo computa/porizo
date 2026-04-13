@@ -49,6 +49,13 @@ struct StorySetup: Sendable, Equatable {
     var style: String? = nil
     var tone: PoemTone = .heartfelt
 
+    mutating func applyPreselectedRecipientName(_ recipientName: String?) {
+        guard let recipientName else { return }
+        let trimmed = recipientName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        self.recipientName = trimmed
+    }
+
     mutating func applyPreselectedOccasion(_ occasion: Occasion?) {
         guard let occasion else { return }
         self.occasion = occasion
@@ -81,6 +88,7 @@ struct StorySetup: Sendable, Equatable {
 
 struct CreateFlowLaunch: Identifiable, Sendable {
     let id = UUID()
+    let initialRecipientName: String?
     let preselectedOccasion: Occasion?
     let preselectedType: CreateFlowKind?
     let resumeTrackId: String?
@@ -97,6 +105,7 @@ enum CreateFlowBootstrapAction {
     case freshStart(initialSetup: StorySetup, forcedType: CreateFlowKind?)
 
     static func resolve(
+        initialRecipientName: String?,
         preselectedOccasion: Occasion?,
         preselectedType: CreateFlowKind?,
         resumeTrackId: String?,
@@ -131,6 +140,7 @@ enum CreateFlowBootstrapAction {
         }
 
         var setup = StorySetup()
+        setup.applyPreselectedRecipientName(initialRecipientName)
         setup.applyPreselectedOccasion(preselectedOccasion)
         return .freshStart(initialSetup: setup, forcedType: preselectedType)
     }

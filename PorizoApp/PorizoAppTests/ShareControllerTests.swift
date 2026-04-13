@@ -199,4 +199,23 @@ final class ShareControllerTests: XCTestCase {
         XCTAssertNil(content,
                      "prepareShareData should return nil when no share exists")
     }
+
+    #if DEBUG
+    @MainActor
+    func testSeedDebugShare_marksShareAsReady() {
+        let controller = ShareController(apiClient: makeAPIClient())
+
+        controller.seedDebugShare(
+            shareUrl: "https://porizo.app/play/sh_fixture",
+            claimPin: "246810",
+            shareId: "sh_fixture"
+        )
+
+        XCTAssertEqual(controller.phase, .hasShare)
+        XCTAssertEqual(controller.shareURLString, "https://porizo.app/play/sh_fixture")
+        XCTAssertEqual(controller.claimPin, "246810")
+        XCTAssertFalse(controller.isGeneratingLink)
+        XCTAssertNil(controller.shareError)
+    }
+    #endif
 }

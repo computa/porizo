@@ -20,6 +20,10 @@ import SwiftUI
 
 struct MainTabView: View {
     let apiClient: APIClient
+    var pendingRecipientName: String? = nil
+    var pendingOccasion: Occasion? = nil
+    var pendingType: CreateFlowKind? = nil
+    var onConsumePendingCreateContext: (() -> Void)? = nil
 
     @State private var selectedTab: Tab = {
         // Debug: allow setting initial tab via launch argument
@@ -38,6 +42,7 @@ struct MainTabView: View {
     // Global player state (shared across all tabs)
     @State private var playerState = PlayerState()
     @State private var showNowPlaying = false
+    @State private var hasConsumedPendingCreateContext = false
 
     // Track list refresh trigger - incremented when new track created
     @State private var trackListRefreshTrigger = 0
@@ -45,8 +50,18 @@ struct MainTabView: View {
     // StoreKit manager for subscriptions
     @State private var storeKitManager: StoreKitManager
 
-    init(apiClient: APIClient) {
+    init(
+        apiClient: APIClient,
+        pendingRecipientName: String? = nil,
+        pendingOccasion: Occasion? = nil,
+        pendingType: CreateFlowKind? = nil,
+        onConsumePendingCreateContext: (() -> Void)? = nil
+    ) {
         self.apiClient = apiClient
+        self.pendingRecipientName = pendingRecipientName
+        self.pendingOccasion = pendingOccasion
+        self.pendingType = pendingType
+        self.onConsumePendingCreateContext = onConsumePendingCreateContext
         self._storeKitManager = State(wrappedValue: StoreKitManager(apiClient: apiClient))
     }
 
@@ -157,6 +172,7 @@ struct MainTabView: View {
             WarmCanvasFlowView(
                 apiClient: apiClient,
                 storeKit: storeKitManager,
+                initialRecipientName: launch.initialRecipientName,
                 preselectedOccasion: launch.preselectedOccasion,
                 preselectedType: launch.preselectedType,
                 resumeTrackId: launch.resumeTrackId,
@@ -207,6 +223,19 @@ struct MainTabView: View {
         .task {
             playerState.setupInterruptionHandling()
             await storeKitManager.initializeAsync()
+            consumePendingCreateContextIfNeeded()
+
+            #if DEBUG
+            // Fixture launch args — detected inside WarmCanvasFlowView.initializeFlow()
+            let args = ProcessInfo.processInfo.arguments
+            if createFlowLaunch == nil,
+               args.contains("--fixture-reveal") ||
+               args.contains("--fixture-reveal-ready") ||
+               args.contains("--fixture-creating") {
+                try? await Task.sleep(for: .seconds(0.5))
+                presentCreateFlow()
+            }
+            #endif
         }
     }
 
@@ -265,6 +294,7 @@ struct MainTabView: View {
     }
 
     private func presentCreateFlow(
+        initialRecipientName: String? = nil,
         preselectedOccasion: Occasion? = nil,
         preselectedType: CreateFlowKind? = nil,
         resumeTrackId: String? = nil,
@@ -273,6 +303,7 @@ struct MainTabView: View {
         variationFrom poem: Poem? = nil
     ) {
         let launch = CreateFlowLaunch(
+            initialRecipientName: initialRecipientName,
             preselectedOccasion: preselectedOccasion,
             preselectedType: preselectedType,
             resumeTrackId: resumeTrackId,
@@ -284,6 +315,22 @@ struct MainTabView: View {
         // Entitlement check happens inside WarmCanvasFlowView (server-side, authoritative).
         // No client-side gate here — avoids race condition when StoreKit and server are out of sync.
         createFlowLaunch = launch
+    }
+
+    private func consumePendingCreateContextIfNeeded() {
+        guard !hasConsumedPendingCreateContext else { return }
+        guard createFlowLaunch == nil else { return }
+
+        let recipient = pendingRecipientName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !recipient.isEmpty else { return }
+
+        hasConsumedPendingCreateContext = true
+        onConsumePendingCreateContext?()
+        presentCreateFlow(
+            initialRecipientName: recipient,
+            preselectedOccasion: pendingOccasion,
+            preselectedType: pendingType
+        )
     }
 
     private func handleSongFlowCompletion(trackId: String, versionNum: Int) {

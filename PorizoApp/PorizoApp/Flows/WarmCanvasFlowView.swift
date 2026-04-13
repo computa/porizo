@@ -16,6 +16,7 @@ import SwiftUI
 struct WarmCanvasFlowView: View {
     let apiClient: APIClient
     var storeKit: StoreKitManager
+    var initialRecipientName: String?
     var preselectedOccasion: Occasion?
     var preselectedType: CreateFlowKind?
     var resumeTrackId: String?
@@ -77,6 +78,7 @@ struct WarmCanvasFlowView: View {
 
     @State private var activeSheet: ActiveSheet?
     @State private var activeAlert: ActiveAlert?
+    @State private var activeTrackPlayer: TrackPlayerSheetPayload?
     @State private var isStartingFullRender = false
 
     // MARK: - Lifecycle
@@ -96,12 +98,14 @@ struct WarmCanvasFlowView: View {
     @State private var showOccasionPicker = false
     @State private var preSessionPrompt: String?
     @State private var didHandOffGiftContent = false
+    @State private var didAcknowledgeLibrarySave = false
 
     // MARK: - Init
 
     init(
         apiClient: APIClient,
         storeKit: StoreKitManager,
+        initialRecipientName: String? = nil,
         preselectedOccasion: Occasion? = nil,
         preselectedType: CreateFlowKind? = nil,
         resumeTrackId: String? = nil,
@@ -117,6 +121,7 @@ struct WarmCanvasFlowView: View {
     ) {
         self.apiClient = apiClient
         self.storeKit = storeKit
+        self.initialRecipientName = initialRecipientName
         self.preselectedOccasion = preselectedOccasion
         self.preselectedType = preselectedType
         self.resumeTrackId = resumeTrackId
@@ -184,7 +189,7 @@ struct WarmCanvasFlowView: View {
                     )
                     .transition(.opacity)
                     .animation(.easeInOut(duration: 0.35), value: momentKey)
-                    .accessibilityLabel("Creating your poem for \(setup.recipientName). Please wait.")
+                    .accessibilityElement(children: .contain)
                 } else {
                     WaitPulseView(
                         recipientName: setup.recipientName,
@@ -193,20 +198,20 @@ struct WarmCanvasFlowView: View {
                     )
                     .transition(.opacity)
                     .animation(.easeInOut(duration: 0.35), value: momentKey)
-                    .accessibilityLabel("Creating your \(creationNoun) for \(setup.recipientName). Please wait.")
+                    .accessibilityElement(children: .contain)
                 }
             }
             if moment == .reveal {
                 revealPhase()
                     .transition(.opacity)
                     .animation(.easeInOut(duration: 0.35), value: momentKey)
-                    .accessibilityLabel("Your \(creationNoun) for \(setup.recipientName) is ready")
+                    .accessibilityElement(children: .contain)
             }
             if moment == .share {
                 sharePhase()
                     .transition(.opacity)
                     .animation(.easeInOut(duration: 0.35), value: momentKey)
-                    .accessibilityLabel("Share your \(creationNoun) for \(setup.recipientName)")
+                    .accessibilityElement(children: .contain)
             }
 
             // Layer 2: Error overlays — partial overlay so conversation context stays visible
@@ -241,6 +246,24 @@ struct WarmCanvasFlowView: View {
         // Sheet router
         .sheet(item: $activeSheet) { sheet in
             sheetContent(for: sheet)
+        }
+        .fullScreenCover(item: $activeTrackPlayer) { payload in
+            TrackPlayerFullView(
+                apiClient: apiClient,
+                trackId: payload.trackId,
+                versionNum: payload.versionNum,
+                onDone: {
+                    activeTrackPlayer = nil
+                },
+                onNewSong: {
+                    activeTrackPlayer = nil
+                    completeSongAndExit()
+                },
+                onEditLyricsRequested: { _ in
+                    activeTrackPlayer = nil
+                    activeSheet = .lyricsReview
+                }
+            )
         }
         // Alert router
         .alert(
@@ -665,20 +688,21 @@ struct WarmCanvasFlowView: View {
                 recipientName: setup.recipientName,
                 occasion: setup.occasion?.rawValue,
                 isPlaying: playbackController.isPlaying,
+                hasSavedToLibrary: didAcknowledgeLibrarySave,
+                shareDebugStatusLabel: shareLinkDebugStatusLabel,
                 onPlay: { playbackController.togglePlayPause() },
                 onShare: { withAnimation { moment = .share } },
                 onEditLyrics: {
                     activeSheet = .lyricsReview
                 },
                 onSaveToLibrary: {
-                    guard let trackId = songFlow.currentTrackId,
-                          let versionNum = songFlow.currentVersionNum else { return }
-                    onComplete(trackId, versionNum)
+                    acknowledgeLibrarySave()
                 },
                 onListenFully: {
-                    guard let trackId = songFlow.currentTrackId,
-                          let versionNum = songFlow.currentVersionNum else { return }
-                    onComplete(trackId, versionNum)
+                    openTrackPlayerIfReady()
+                },
+                onClose: {
+                    completeSongAndExit()
                 }
             )
         }
@@ -700,6 +724,8 @@ struct WarmCanvasFlowView: View {
             SharePostcardView(
                 recipientName: setup.recipientName,
                 occasion: setup.occasion?.rawValue,
+                shareURL: shareController?.shareURLString,
+                claimPIN: shareController?.claimPin,
                 onSend: {
                     guard let (trackId, versionNum) = ensureShareControllerAndTrackIds() else {
                         ToastService.shared.show("Song not ready to share yet", type: .warning)
@@ -760,12 +786,7 @@ struct WarmCanvasFlowView: View {
                     }
                 },
                 onSkip: {
-                    if let trackId = songFlow.currentTrackId,
-                       let versionNum = songFlow.currentVersionNum {
-                        onComplete(trackId, versionNum)
-                    } else {
-                        withAnimation { moment = .reveal }
-                    }
+                    withAnimation { moment = .reveal }
                 }
             )
         }
@@ -774,7 +795,9 @@ struct WarmCanvasFlowView: View {
     private func presentShareSheet(url: URL, claimPin: String) {
         let message = ShareMessageContent.activityMessage(
             shareURL: url.absoluteString,
-            claimPin: claimPin
+            claimPin: claimPin,
+            recipientName: setup.recipientName,
+            occasion: setup.occasion?.rawValue
         )
         let activityVC = UIActivityViewController(activityItems: [message], applicationActivities: nil)
         if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
@@ -786,12 +809,64 @@ struct WarmCanvasFlowView: View {
         }
     }
 
+    private func acknowledgeLibrarySave() {
+        guard !didAcknowledgeLibrarySave else { return }
+        didAcknowledgeLibrarySave = true
+        ToastService.shared.success("\(capitalizedCreationNoun) saved to your library!")
+    }
+
+    private func openTrackPlayerIfReady() {
+        guard let trackId = songFlow.currentTrackId,
+              let versionNum = songFlow.currentVersionNum else { return }
+        activeTrackPlayer = TrackPlayerSheetPayload(trackId: trackId, versionNum: versionNum)
+    }
+
+    private func completeSongAndExit() {
+        if let trackId = songFlow.currentTrackId,
+           let versionNum = songFlow.currentVersionNum {
+            onComplete(trackId, versionNum)
+        } else {
+            onCancel()
+        }
+    }
+
     /// Lazily create the share controller and return current track IDs, or nil if unavailable.
     private func ensureShareControllerAndTrackIds() -> (trackId: String, versionNum: Int)? {
         if shareController == nil { shareController = ShareController(apiClient: apiClient) }
         guard let trackId = songFlow.currentTrackId,
               let versionNum = songFlow.currentVersionNum else { return nil }
         return (trackId, versionNum)
+    }
+
+    private func prepareShareLinkIfNeeded() {
+        guard let (trackId, versionNum) = ensureShareControllerAndTrackIds() else { return }
+        guard shareController?.shareURLString == nil else { return }
+        guard shareController?.isGeneratingLink != true else { return }
+        shareController?.generateShareLink(trackId: trackId, versionNum: versionNum)
+    }
+
+    private var shareLinkDebugStatusLabel: String? {
+        #if DEBUG
+        guard shouldExposeShareDebugState else { return nil }
+        if shareController?.shareURLString != nil {
+            return "Share link ready"
+        }
+        if shareController?.isGeneratingLink == true {
+            return "Share link pending"
+        }
+        return "Share link unavailable"
+        #else
+        return nil
+        #endif
+    }
+
+    private var shouldExposeShareDebugState: Bool {
+        #if DEBUG
+        let args = ProcessInfo.processInfo.arguments
+        return args.contains("--fixture-reveal-ready") || args.contains("--validation-mode")
+        #else
+        return false
+        #endif
     }
 
     // MARK: - Error Overlays
@@ -1116,6 +1191,8 @@ struct WarmCanvasFlowView: View {
     private func transitionToReveal(audioURL: String) {
         playbackController.setupPlayer(url: audioURL)
         playbackController.play()
+        prepareShareLinkIfNeeded()
+        didAcknowledgeLibrarySave = false
         if !hasCompletedFirstSong { hasCompletedFirstSong = true }
         withAnimation { moment = .reveal }
     }
@@ -1645,9 +1722,50 @@ struct WarmCanvasFlowView: View {
     // MARK: - Resume / Bootstrap
 
     private func initializeFlow() {
+        #if DEBUG
+        // Validation fixtures: visual-only states for screenshot/accessibility testing.
+        // Play and share buttons are non-functional (no audio loaded, no share controller).
+        let fixtureArgs = ProcessInfo.processInfo.arguments
+        if fixtureArgs.contains("--fixture-reveal") {
+            setup.recipientName = "Sarah"
+            setup.occasion = .birthday
+            selectedType = .song
+            trackTitle = "Birthday Song for Sarah"
+            moment = .reveal
+            return
+        }
+        if fixtureArgs.contains("--fixture-reveal-ready") {
+            setup.recipientName = "Sarah"
+            setup.occasion = .birthday
+            selectedType = .song
+            trackTitle = "Birthday Song for Sarah"
+            songFlow.currentTrackId = "track_fixture_reveal_ready"
+            songFlow.currentVersionNum = 1
+            let seededShareController = ShareController(apiClient: apiClient)
+            seededShareController.seedDebugShare(
+                shareUrl: "https://porizo.app/play/sh_fixture_reveal_ready",
+                claimPin: "246810",
+                shareId: "sh_fixture_reveal_ready"
+            )
+            shareController = seededShareController
+            didAcknowledgeLibrarySave = false
+            moment = .reveal
+            return
+        }
+        if fixtureArgs.contains("--fixture-creating") {
+            setup.recipientName = "Sarah"
+            setup.occasion = .birthday
+            selectedType = .song
+            trackTitle = "Birthday Song for Sarah"
+            moment = .wait
+            return
+        }
+        #endif
+
         let persisted = CreateFlowStore.shared.load()
         let persistedSession = storyEngine.loadPersistedSession()
         let bootstrap = CreateFlowBootstrapAction.resolve(
+            initialRecipientName: initialRecipientName,
             preselectedOccasion: preselectedOccasion,
             preselectedType: preselectedType,
             resumeTrackId: resumeTrackId,
@@ -1709,7 +1827,17 @@ struct WarmCanvasFlowView: View {
             setup = initialSetup
             selectedType = forcedType ?? preselectedType
             trackTitle = Self.defaultTrackTitle(for: forcedType ?? preselectedType ?? .song)
-            moment = .tell(.nameEntry)
+            if !setup.recipientName.isEmpty, let selectedType {
+                didStartConversation = true
+                moment = .tell(.conversing)
+                if setup.occasion == nil {
+                    showOccasionPicker = true
+                } else {
+                    showPreSessionQuestion(for: selectedType)
+                }
+            } else {
+                moment = .tell(.nameEntry)
+            }
         }
     }
 
@@ -1802,6 +1930,8 @@ struct WarmCanvasFlowView: View {
                     let resolved = transformAudioUrl(url, baseURL: apiClient.baseURL)
                     playbackController.setupPlayer(url: resolved)
                     if shareController == nil { shareController = ShareController(apiClient: apiClient) }
+                    prepareShareLinkIfNeeded()
+                    didAcknowledgeLibrarySave = false
                     moment = .reveal
                 } else if version.fullJobId != nil, version.status != "failed" {
                     moment = .wait
@@ -1811,6 +1941,8 @@ struct WarmCanvasFlowView: View {
                     let resolved = transformAudioUrl(url, baseURL: apiClient.baseURL)
                     playbackController.setupPlayer(url: resolved)
                     if shareController == nil { shareController = ShareController(apiClient: apiClient) }
+                    prepareShareLinkIfNeeded()
+                    didAcknowledgeLibrarySave = false
                     moment = .reveal
                 } else if version.previewJobId != nil {
                     moment = .wait

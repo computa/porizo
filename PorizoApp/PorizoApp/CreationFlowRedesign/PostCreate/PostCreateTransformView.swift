@@ -9,7 +9,6 @@
 
 import SwiftUI
 
-#if DEBUG
 
 struct PostCreateTransformView: View {
     @State private var inputText = ""
@@ -402,4 +401,3 @@ struct PostCreateTransformView: View {
     }
 }
 
-#endif

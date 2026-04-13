@@ -111,6 +111,13 @@ struct ShareSheetPayload: Identifiable {
     var claimPin: String? = nil
 }
 
+struct TrackPlayerSheetPayload: Identifiable, Equatable {
+    let trackId: String
+    let versionNum: Int
+
+    var id: String { "\(trackId):\(versionNum)" }
+}
+
 // MARK: - Card Tab
 
 enum CardTab: String, CaseIterable {

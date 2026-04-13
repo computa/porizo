@@ -184,7 +184,6 @@ struct SettingsTabView: View {
             V1ScreenCatalogView(apiClient: apiClient)
                 .environment(authManager)
         }
-        #if DEBUG
         .sheet(isPresented: $showDesignVariants) {
             DesignSampleView()
         }
@@ -210,7 +209,6 @@ struct SettingsTabView: View {
                 .navigationBarTitleDisplayMode(.inline)
             }
         }
-        #endif
         // Theme picker removed — Warm Canvas is light-only
         .alert("Sign Out", isPresented: $showLogoutConfirmation) {
             Button("Cancel", role: .cancel) { }
@@ -590,39 +588,39 @@ struct SettingsTabView: View {
                 }
             }
 
-            #if DEBUG
-            settingsRow(
-                icon: "paintbrush",
-                title: "Design Variants",
-                showChevron: true
-            ) {
-                showDesignVariants = true
-            }
+            if isDevBuild {
+                settingsRow(
+                    icon: "paintbrush",
+                    title: "Design Variants",
+                    showChevron: true
+                ) {
+                    showDesignVariants = true
+                }
 
-            settingsRow(
-                icon: "music.note.list",
-                title: "Lyrics Redesign",
-                showChevron: true
-            ) {
-                showLyricsRedesign = true
-            }
+                settingsRow(
+                    icon: "music.note.list",
+                    title: "Lyrics Redesign",
+                    showChevron: true
+                ) {
+                    showLyricsRedesign = true
+                }
 
-            settingsRow(
-                icon: "bubble.left.and.text.bubble.right",
-                title: "Creation Flow Redesign",
-                showChevron: true
-            ) {
-                showCreationFlowRedesign = true
-            }
+                settingsRow(
+                    icon: "bubble.left.and.text.bubble.right",
+                    title: "Creation Flow Redesign",
+                    showChevron: true
+                ) {
+                    showCreationFlowRedesign = true
+                }
 
-            settingsRow(
-                icon: "sun.and.horizon",
-                title: "Warm Canvas Screens",
-                showChevron: true
-            ) {
-                showWarmCanvasScreens = true
+                settingsRow(
+                    icon: "sun.and.horizon",
+                    title: "Warm Canvas Screens",
+                    showChevron: true
+                ) {
+                    showWarmCanvasScreens = true
+                }
             }
-            #endif
         }
         .padding(.horizontal, 16)
         .padding(.top, 16)
