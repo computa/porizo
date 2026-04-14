@@ -52,6 +52,10 @@ struct LivingSplashView: View {
                                 .font(DesignTokens.displayFont(size: 22))
                                 .foregroundStyle(.white)
 
+                            Text("Summer at the Lake")
+                                .font(DesignTokens.bodyFont(size: 14, weight: .medium))
+                                .foregroundStyle(.white.opacity(0.6))
+
                             StaticWaveformBars(
                                 heights: [6, 12, 18, 24, 18, 12, 6],
                                 barWidth: 3,
@@ -66,15 +70,13 @@ struct LivingSplashView: View {
                     }
                     .shadow(color: DesignTokens.gold.opacity(0.2), radius: 20, y: 8)
 
-                    // Lyric preview line
-                    if let preview = lyricsPreview, !preview.isEmpty {
-                        Text(preview)
-                            .font(DesignTokens.displayFont(size: 16, relativeTo: .subheadline))
-                            .foregroundStyle(DesignTokens.textSecondary)
-                            .italic()
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal, DesignTokens.spacing32)
-                    }
+                    // Lyric preview line — always visible with hardcoded fallback
+                    Text(lyricsPreview ?? "Remember when the water was too cold but we jumped in anyway...")
+                        .font(DesignTokens.displayFont(size: 16, relativeTo: .subheadline))
+                        .foregroundStyle(DesignTokens.textSecondary)
+                        .italic()
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, DesignTokens.spacing32)
                 }
                 .opacity(showContent ? 1 : 0)
                 .scaleEffect(reduceMotion ? 1 : (showContent ? 1 : 0.9))

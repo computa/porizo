@@ -47,6 +47,7 @@ struct OnboardingV2View: View {
     @State private var painPointSelections: Set<String> = []
     @State private var nameInput = ""
     @State private var startTime = Date()
+    @State private var processingPulse = false
 
     // Audio owned here so it persists across splash → mirror → pain points → goal
     @State private var bgPlayer: AVPlayer?
@@ -56,6 +57,7 @@ struct OnboardingV2View: View {
         case splash
         case mirror
         case questionnaire
+        case processing
         case payoff
     }
 
@@ -89,6 +91,30 @@ struct OnboardingV2View: View {
 
                 case .questionnaire:
                     questionnaireContent
+
+                case .processing:
+                    OnboardingScreenShell(accessibilityId: "onboarding-processing") {
+                        VStack {
+                            Spacer()
+                            Text("Finding something special for \(engine?.answers.recipientName ?? "them")...")
+                                .font(DesignTokens.displayFont(size: 20))
+                                .foregroundStyle(DesignTokens.textPrimary)
+                                .multilineTextAlignment(.center)
+                                .opacity(processingPulse ? 1.0 : 0.5)
+                                .animation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true), value: processingPulse)
+                                .onAppear { processingPulse = true }
+                                .padding(.horizontal, DesignTokens.spacing20)
+                            Spacer()
+                        }
+                    } bottom: {
+                        EmptyView()
+                    }
+                    .onAppear {
+                        Task { @MainActor in
+                            try? await Task.sleep(for: .seconds(1.5))
+                            transitionToPayoff()
+                        }
+                    }
 
                 case .payoff:
                     OnboardingPayoffView(
@@ -260,9 +286,9 @@ struct OnboardingV2View: View {
                 )
 
             case .terminal:
-                // Should not render here — transition to payoff
+                // Should not render here — transition to processing moment
                 EmptyView()
-                    .onAppear { transitionToPayoff() }
+                    .onAppear { transitionTo(.processing) }
 
             case nil:
                 EmptyView()
@@ -285,7 +311,7 @@ struct OnboardingV2View: View {
     private func advanceOrPayoff() {
         guard let engine else { return }
         if engine.isTerminal {
-            transitionToPayoff()
+            transitionTo(.processing)
         }
     }
 

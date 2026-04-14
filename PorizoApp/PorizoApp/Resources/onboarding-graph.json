@@ -24,7 +24,7 @@
         { "label": "Say something I've never been able to say", "value": "unsaid_words" },
         { "label": "Create a gift that actually means something", "value": "meaningful_gift" },
         { "label": "Preserve a special memory", "value": "preserve_memory" },
-        { "label": "Just exploring", "value": "exploring" }
+        { "label": "I have someone in mind", "value": "someone_in_mind" }
       ],
       "next": "relationship_picker"
     },

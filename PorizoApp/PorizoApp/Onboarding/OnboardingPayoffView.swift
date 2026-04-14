@@ -89,6 +89,14 @@ struct OnboardingPayoffView: View {
 
     private func suggestionCard(_ suggestion: OnboardingSuggestion) -> some View {
         VStack(alignment: .leading, spacing: DesignTokens.spacing12) {
+            // Preview line — the emotional hook, shown as hero text
+            Text(suggestion.previewLine)
+                .font(DesignTokens.displayFont(size: 18))
+                .foregroundStyle(DesignTokens.textPrimary)
+                .italic()
+                .lineLimit(3)
+                .lineSpacing(3)
+
             // Song cover + title row
             HStack(spacing: DesignTokens.spacing12) {
                 ZStack {
@@ -108,22 +116,14 @@ struct OnboardingPayoffView: View {
 
                 VStack(alignment: .leading, spacing: DesignTokens.spacing4) {
                     Text(suggestion.title)
-                        .font(DesignTokens.bodyFont(size: 15, weight: .semibold))
-                        .foregroundStyle(DesignTokens.textPrimary)
+                        .font(DesignTokens.bodyFont(size: 14, weight: .semibold))
+                        .foregroundStyle(DesignTokens.textSecondary)
                     Text(suggestion.emotionalAngle)
                         .font(DesignTokens.bodyFont(size: 13))
                         .foregroundStyle(DesignTokens.textSecondary)
                         .lineLimit(2)
                 }
             }
-
-            // Preview line
-            Text(suggestion.previewLine)
-                .font(DesignTokens.displayFont(size: 14, relativeTo: .body))
-                .foregroundStyle(DesignTokens.textSecondary)
-                .italic()
-                .lineLimit(2)
-                .lineSpacing(3)
         }
         .padding(DesignTokens.spacing16)
         .background(DesignTokens.surface)
