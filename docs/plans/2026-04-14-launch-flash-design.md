@@ -198,7 +198,7 @@ Escape hatch: long-press anywhere on the flash → "Hide launch flash?" confirma
 | Key | Default | Purpose |
 |-----|---------|---------|
 | `lastBackgroundedAt` | 0 | Timestamp for warm resume detection |
-| `lastLaunchFlashTrackId` | "" | Avoid immediate repeats in rotation |
+| `recentLaunchFlashTrackIds` | "[]" | JSON array of last 3 shown track IDs |
 | `launchFlashDisabled` | false | Master opt-out toggle |
 | `launchFlashMode` | "all" | "all" / "my_songs" / "off" |
 
@@ -234,11 +234,13 @@ Track these weekly after launch:
 
 ---
 
-## Open Questions
+## Resolved Decisions
 
-1. **Bundled demo asset:** Should we ship an MP3 in the app bundle for true offline-first demo playback, or accept that offline first-launch = visual-only?
-2. **Received song privacy:** Should we default `launchFlashMode` to `"my_songs"` to avoid someone else's song auto-playing in public, or default to `"all"` for maximum emotional impact?
-3. **Rotation fatigue:** After how many shows of the same song should we force-skip it? (Spec says exclude last-shown; should we track more history?)
+1. **No bundled demo asset.** Offline first-launch = visual-only. Rationale: users need internet to download the app in the first place, so the offline-after-install scenario is vanishingly rare. Keep app size lean, rely on server `sample_audio_url` for demo audio. Visual splash alone still communicates the product.
+
+2. **Default `launchFlashMode = "all"`.** Received songs are the emotional anchor — defaulting to "my songs only" neuters the core value prop. Users who want quiet can opt out via long-press or Settings. Privacy-conscious users are a minority; we optimize for the majority emotional moment.
+
+3. **Exclude last 3 shown track IDs** (not just the last 1). Prevents "same 2 songs alternating forever" for small libraries. Store as array in `@AppStorage("recentLaunchFlashTrackIds")`. Degrades gracefully when library has ≤3 songs (just randomly picks from whatever is available).
 
 ---
 
