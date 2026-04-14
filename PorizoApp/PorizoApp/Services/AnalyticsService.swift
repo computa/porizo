@@ -32,6 +32,13 @@ enum AnalyticsEvent: String {
     case onboardingV2SuggestionShown = "onboarding_v2_suggestion_shown"
     case onboardingV2SuggestionUpgraded = "onboarding_v2_suggestion_upgraded"
     case onboardingV2CreateTapped = "onboarding_v2_create_tapped"
+
+    // MARK: - Launch Flash (TikTok-style auto-play on every cold launch)
+    case launchFlashShown = "launch_flash_shown"
+    case launchFlashAudioStarted = "launch_flash_audio_started"
+    case launchFlashDismissed = "launch_flash_dismissed"
+    case launchFlashDisabled = "launch_flash_disabled"
+    case launchFlashFailed = "launch_flash_failed"
     case onboardingV2Skipped = "onboarding_v2_skipped"
     case onboardingV2Completed = "onboarding_v2_completed"
 }

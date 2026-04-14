@@ -1,0 +1,279 @@
+//
+//  LaunchFlashResolver.swift
+//  PorizoApp
+//
+//  Picks what to show on the launch flash. Pure, dependency-injected,
+//  unit-testable. No async, no AVPlayer, no UIKit.
+//
+//  Content priority:
+//    1. mode == .all AND has received songs?  → received library (rotated)
+//    2. Has created songs?                     → created library (rotated)
+//    3. Has unconsumed pendingSuggestion?      → suggestion + CTA
+//    4. Demo audio URL available?              → Porizo demo
+//    5. None of the above?                     → nil (skip flash)
+//
+
+import Foundation
+
+struct LaunchFlashResolver {
+    private let source: LaunchFlashContentSource
+    private let onboardingConfig: OnboardingConfig?
+    private let defaults: UserDefaults
+
+    /// Maximum number of recent track IDs to track for rotation exclusion.
+    static let recentHistoryDepth = 3
+
+    /// Default fallback values used when server config doesn't supply a demo.
+    static let demoFallbackTitle = "Summer at the Lake"
+    static let demoFallbackRecipient = "For Mom"
+    static let demoFallbackLyric = "Remember when the water was too cold but we jumped in anyway..."
+
+    init(
+        source: LaunchFlashContentSource,
+        onboardingConfig: OnboardingConfig?,
+        defaults: UserDefaults = .standard
+    ) {
+        self.source = source
+        self.onboardingConfig = onboardingConfig
+        self.defaults = defaults
+    }
+
+    // MARK: - Public
+
+    /// Quick pre-check. Returns true if the resolver would produce content.
+    /// Used by RootView to decide whether to enter `.launchFlash` state at all.
+    func hasContent() -> Bool {
+        resolve(mode: currentMode()) != nil
+    }
+
+    /// Pick the launch flash content. Returns nil if nothing should be shown.
+    /// Pure function except for `defaults` reads (no writes).
+    func resolve(mode: LaunchFlashMode) -> LaunchFlashContent? {
+        guard mode != .off else { return nil }
+
+        let tracks = filterEligibleTracks(source.loadTracks())
+        let recentIds = recentTrackIds()
+
+        let received = tracks.filter { $0.isReceived }
+        let created = tracks.filter { !$0.isReceived }
+
+        // Priority 1+2: rotate through libraries (mode-aware)
+        if let track = pickWeightedTrack(
+            received: mode == .all ? received : [],
+            created: created,
+            excluding: recentIds
+        ) {
+            return makeContent(from: track, source: trackSource(track))
+        }
+
+        // Priority 3: pending suggestion
+        if let suggestion = pendingSuggestion() {
+            return makeContent(from: suggestion)
+        }
+
+        // Priority 4: Porizo demo
+        if let demo = makeDemoContent() {
+            return demo
+        }
+
+        // Priority 5: skip
+        return nil
+    }
+
+    // MARK: - Track Filtering
+
+    /// Filter tracks to those eligible for flash playback.
+    private func filterEligibleTracks(_ tracks: [Track]) -> [Track] {
+        tracks.filter { track in
+            track.status == "ready" && track.latestVersion > 0
+        }
+    }
+
+    // MARK: - Weighted Pick (70/30 received/created)
+
+    private func pickWeightedTrack(
+        received: [Track],
+        created: [Track],
+        excluding recentIds: [String]
+    ) -> Track? {
+        let receivedCandidates = applyRotation(received, excluding: recentIds)
+        let createdCandidates = applyRotation(created, excluding: recentIds)
+
+        let preferReceived = (Int.random(in: 0..<100) < 70) && !receivedCandidates.isEmpty
+
+        if preferReceived {
+            return receivedCandidates.randomElement()
+                ?? createdCandidates.randomElement()
+        } else {
+            return createdCandidates.randomElement()
+                ?? receivedCandidates.randomElement()
+        }
+    }
+
+    /// Three-tier rotation fallback: exclude all recent → exclude only most-recent → any.
+    private func applyRotation(_ library: [Track], excluding recentIds: [String]) -> [Track] {
+        guard !library.isEmpty else { return [] }
+
+        // Tier 1: exclude all recent IDs
+        let strict = library.filter { !recentIds.contains($0.id) }
+        if !strict.isEmpty { return strict }
+
+        // Tier 2: exclude only the most-recent ID
+        if let mostRecent = recentIds.first {
+            let lenient = library.filter { $0.id != mostRecent }
+            if !lenient.isEmpty { return lenient }
+        }
+
+        // Tier 3: any track
+        return library
+    }
+
+    private func trackSource(_ track: Track) -> LaunchFlashSource {
+        track.isReceived ? .received : .created
+    }
+
+    // MARK: - Pending Suggestion
+
+    /// Returns the pending suggestion if it should be shown.
+    /// Returns nil if cleared/expired/exhausted/de-duped.
+    private func pendingSuggestion() -> OnboardingSuggestion? {
+        let raw = defaults.string(forKey: "pendingSuggestion") ?? ""
+        guard !raw.isEmpty,
+              let data = raw.data(using: .utf8),
+              let suggestion = try? JSONDecoder().decode(OnboardingSuggestion.self, from: data)
+        else {
+            return nil
+        }
+
+        // Show count cap (5 shows then expire)
+        let showCount = defaults.integer(forKey: "pendingSuggestionShowCount")
+        if showCount >= 5 { return nil }
+
+        // 14-day expiry
+        let setAt = defaults.double(forKey: "pendingSuggestionSetAt")
+        if setAt > 0 {
+            let age = Date().timeIntervalSince1970 - setAt
+            if age > 14 * 86400 { return nil }
+        }
+
+        // De-dupe: if any created song already targets this recipient, skip
+        let recipient = defaults.string(forKey: "pendingRecipientName")?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        if let recipient, !recipient.isEmpty {
+            let createdMatches = source.loadTracks().contains { track in
+                !track.isReceived
+                    && track.recipientName?.trimmingCharacters(in: .whitespacesAndNewlines)
+                        .lowercased() == recipient
+            }
+            if createdMatches { return nil }
+        }
+
+        return suggestion
+    }
+
+    // MARK: - Content Construction
+
+    private func makeContent(from track: Track, source: LaunchFlashSource) -> LaunchFlashContent {
+        LaunchFlashContent(
+            trackId: track.id,
+            title: track.title,
+            recipientName: track.recipientName,
+            lyricPreview: nil,  // Not in cached Track model; future work
+            audioURL: nil,      // v1: visual-only for owned tracks (see design doc)
+            coverImageURL: track.coverImageUrl.flatMap { URL(string: $0) },
+            source: source
+        )
+    }
+
+    private func makeContent(from suggestion: OnboardingSuggestion) -> LaunchFlashContent {
+        let recipient = defaults.string(forKey: "pendingRecipientName")
+        return LaunchFlashContent(
+            trackId: nil,
+            title: suggestion.title,
+            recipientName: recipient,
+            lyricPreview: suggestion.previewLine,
+            audioURL: onboardingConfig?.sampleAudioUrl.flatMap { URL(string: $0) },
+            coverImageURL: nil,
+            source: .suggestion
+        )
+    }
+
+    private func makeDemoContent() -> LaunchFlashContent? {
+        // Demo only shown when we have at minimum a server-supplied audio URL OR
+        // a server-supplied recipient/lyric. Otherwise we'd be showing a fully
+        // hardcoded card to a user with no real content — feels broken.
+        let audioURL = onboardingConfig?.sampleAudioUrl.flatMap { URL(string: $0) }
+        let serverRecipient = onboardingConfig?.splashDemoRecipient
+        let serverLyric = onboardingConfig?.splashLyricsPreview
+
+        guard audioURL != nil || serverRecipient != nil || serverLyric != nil else {
+            return nil
+        }
+
+        return LaunchFlashContent(
+            trackId: nil,
+            title: Self.demoFallbackTitle,
+            recipientName: serverRecipient ?? Self.demoFallbackRecipient,
+            lyricPreview: serverLyric ?? Self.demoFallbackLyric,
+            audioURL: audioURL,
+            coverImageURL: nil,
+            source: .demo
+        )
+    }
+
+    // MARK: - Recent IDs Helpers (read-only here; writes happen in ViewModel)
+
+    private func recentTrackIds() -> [String] {
+        guard let raw = defaults.string(forKey: "recentLaunchFlashTrackIds"),
+              let data = raw.data(using: .utf8),
+              let ids = try? JSONDecoder().decode([String].self, from: data)
+        else {
+            return []
+        }
+        return ids
+    }
+
+    private func currentMode() -> LaunchFlashMode {
+        let raw = defaults.string(forKey: "launchFlashMode") ?? LaunchFlashMode.all.rawValue
+        return LaunchFlashMode(rawValue: raw) ?? .all
+    }
+}
+
+// MARK: - Recent IDs Mutation Helpers (used by view model after content is shown)
+
+enum LaunchFlashHistory {
+    static let storageKey = "recentLaunchFlashTrackIds"
+
+    /// Prepend a new track ID, dedupe, truncate to recentHistoryDepth.
+    /// No-op if trackId is nil (suggestion/demo don't get tracked).
+    static func record(trackId: String?, in defaults: UserDefaults = .standard) {
+        guard let trackId else { return }
+
+        var ids = read(from: defaults)
+        ids.removeAll { $0 == trackId }  // de-dupe
+        ids.insert(trackId, at: 0)        // newest-first
+        if ids.count > LaunchFlashResolver.recentHistoryDepth {
+            ids = Array(ids.prefix(LaunchFlashResolver.recentHistoryDepth))
+        }
+
+        if let data = try? JSONEncoder().encode(ids),
+           let json = String(data: data, encoding: .utf8) {
+            defaults.set(json, forKey: storageKey)
+        }
+    }
+
+    static func read(from defaults: UserDefaults = .standard) -> [String] {
+        guard let raw = defaults.string(forKey: storageKey),
+              let data = raw.data(using: .utf8),
+              let ids = try? JSONDecoder().decode([String].self, from: data)
+        else {
+            return []
+        }
+        return ids
+    }
+
+    static func reset(in defaults: UserDefaults = .standard) {
+        defaults.set("[]", forKey: storageKey)
+    }
+}

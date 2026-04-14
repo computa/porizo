@@ -40,6 +40,13 @@ struct RootView: View {
     @AppStorage("pendingRelationshipType") private var pendingRelationshipType = ""
     @AppStorage("pendingSuggestion") private var pendingSuggestion = ""
     @AppStorage("pendingCreateAutostart") private var pendingCreateAutostart = false
+    // Launch Flash state (TikTok-style auto-play on every cold launch / 10+min warm resume)
+    @AppStorage("launchFlashMode") private var launchFlashModeRaw: String = "all"
+    @AppStorage("launchFlashFailureCount") private var launchFlashFailureCount: Int = 0
+    @AppStorage("lastBackgroundedAtEpoch") private var lastBackgroundedAtEpoch: Double = 0
+    @State private var pendingLaunchFlashContent: LaunchFlashContent?
+    @State private var previousScenePhase: ScenePhase = .active
+    @Environment(\.scenePhase) private var scenePhase
     @State private var hasSkippedProfileCompletionInSession = false
     @State private var onboardingSampleURL: String?
     @State private var onboardingSplashRecipient: String?
@@ -64,11 +71,16 @@ struct RootView: View {
     enum RootState {
         case splash
         case onboardingV2
+        case launchFlash
         case auth
         case main
         #if DEBUG
         case designSamples
         #endif
+    }
+
+    private var launchFlashMode: LaunchFlashMode {
+        LaunchFlashMode(rawValue: launchFlashModeRaw) ?? .all
     }
 
     #if DEBUG
@@ -109,7 +121,11 @@ struct RootView: View {
                         if resetOnboarding {
                             let keys = ["hasCompletedOnboarding", "pendingRecipientName", "pendingOccasion",
                                          "pendingCreateType", "pendingEmotionalSeed", "pendingRelationshipType",
-                                         "pendingSuggestion", "pendingCreateAutostart"]
+                                         "pendingSuggestion", "pendingCreateAutostart",
+                                         // Launch flash state — reset for clean test runs
+                                         "recentLaunchFlashTrackIds", "lastBackgroundedAtEpoch",
+                                         "launchFlashFailureCount", "pendingSuggestionShowCount",
+                                         "pendingSuggestionSetAt"]
                             keys.forEach { UserDefaults.standard.removeObject(forKey: $0) }
                         }
                         #endif
@@ -150,13 +166,33 @@ struct RootView: View {
                                 }
                                 #endif
                                 if hasCompletedOnboarding {
-                                    appState = (skipAuth || authManager.isAuthenticated) ? .main : .auth
+                                    appState = nextStateAfterSplash()
                                 } else {
                                     appState = .onboardingV2
                                 }
                             }
                         }
                     }
+
+            case .launchFlash:
+                if let content = pendingLaunchFlashContent {
+                    LaunchFlashView(
+                        content: content,
+                        onDismiss: { dismissLaunchFlash() },
+                        onDisableRequested: {
+                            launchFlashModeRaw = LaunchFlashMode.off.rawValue
+                            AnalyticsService.shared.log(.launchFlashDisabled, properties: [
+                                "source": "long_press"
+                            ])
+                        }
+                    )
+                } else {
+                    // Safety: should never render .launchFlash without content — fall through
+                    SplashView()
+                        .onAppear {
+                            appState = routeToMainOrAuth()
+                        }
+                }
 
             case .onboardingV2:
                 if let client = apiClient {
@@ -253,6 +289,9 @@ struct RootView: View {
             #if DEBUG
             print("[RootView] Received trackRenderCompleted notification")
             #endif
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            handleScenePhaseChange(to: newPhase)
         }
         .onChange(of: authManager.isAuthenticated) { _, isAuthenticated in
             if isAuthenticated {
@@ -424,6 +463,143 @@ struct RootView: View {
         pendingRelationshipType = ""
         pendingSuggestion = ""
         pendingCreateAutostart = false
+    }
+
+    // MARK: - Launch Flash
+
+    /// Decide whether to show the launch flash on splash dismiss, or skip
+    /// straight to main/auth. Follows priority from design doc §"State Machine".
+    private func nextStateAfterSplash() -> RootState {
+        #if DEBUG
+        // DEBUG fixture flags always bypass the launch flash.
+        if launchesValidationFixture { return .main }
+        #endif
+
+        // Bootstrap intent (deep link / share) always wins
+        if pendingShareId != nil {
+            return routeToMainOrAuth()
+        }
+
+        // Settings opt-out
+        if launchFlashMode == .off {
+            return routeToMainOrAuth()
+        }
+
+        // Crash-loop circuit breaker — uses pre-increment-then-reset pattern so it
+        // survives even when failures are crashes (catch blocks won't run on a crash).
+        // We bump the count BEFORE risky work; dismissLaunchFlash() resets it on success.
+        if launchFlashFailureCount >= 3 {
+            AnalyticsService.shared.log(.launchFlashFailed, properties: [
+                "error_type": "circuit_breaker_open",
+                "failure_count": "\(launchFlashFailureCount)"
+            ])
+            return routeToMainOrAuth()
+        }
+        launchFlashFailureCount += 1
+
+        // Resolve content — if nothing to show, skip flash
+        let onboardingConfig = makeOnboardingConfigForResolver()
+        let resolver = LaunchFlashResolver(
+            source: LiveLaunchFlashContentSource(),
+            onboardingConfig: onboardingConfig
+        )
+        guard let content = resolver.resolve(mode: launchFlashMode) else {
+            // No content → not a failure, just skip and clear the speculative increment
+            launchFlashFailureCount = max(0, launchFlashFailureCount - 1)
+            return routeToMainOrAuth()
+        }
+
+        // Record history at decision time (per spec: guarantees rotation even on fast-kill)
+        LaunchFlashHistory.record(trackId: content.trackId)
+
+        // If the suggestion was shown, increment its counter so the 5-show cap can fire
+        if content.source == .suggestion {
+            let count = UserDefaults.standard.integer(forKey: "pendingSuggestionShowCount")
+            UserDefaults.standard.set(count + 1, forKey: "pendingSuggestionShowCount")
+        }
+
+        // Store content for the view and transition
+        pendingLaunchFlashContent = content
+
+        AnalyticsService.shared.log(.launchFlashShown, properties: [
+            "source": content.source.rawValue,
+            "audio_attempted": content.audioURL != nil ? "true" : "false",
+            "track_id": content.trackId ?? ""
+        ])
+
+        return .launchFlash
+    }
+
+    /// Helper for the non-flash path after splash (or failure path).
+    private func routeToMainOrAuth() -> RootState {
+        (skipAuth || authManager.isAuthenticated) ? .main : .auth
+    }
+
+    /// Transition out of the launch flash to the main app or auth.
+    private func dismissLaunchFlash() {
+        // Reset failure count on successful completion
+        if launchFlashFailureCount > 0 { launchFlashFailureCount = 0 }
+        pendingLaunchFlashContent = nil
+        withAnimation(.easeInOut(duration: 0.35)) {
+            appState = routeToMainOrAuth()
+        }
+    }
+
+    /// Build an OnboardingConfig for the resolver using the cached splash demo fields.
+    /// The resolver reads these for the .demo content path.
+    private func makeOnboardingConfigForResolver() -> OnboardingConfig {
+        OnboardingConfig(
+            sampleAudioUrl: onboardingSampleURL,
+            sampleLabel: nil,
+            splashDemoRecipient: onboardingSplashRecipient,
+            splashLyricsPreview: onboardingSplashLyricsPreview,
+            questionGraphVersion: onboardingGraphVersion,
+            questionGraphUrl: onboardingGraphUrl
+        )
+    }
+
+    /// Scene phase handler: tracks `lastBackgroundedAtEpoch` for warm resume detection.
+    /// iOS delivers transitions as .active→.inactive→.background and .background→.inactive→.active.
+    /// We track the LAST STABLE phase (.active or .background) so .inactive interim states
+    /// don't clobber our state. Without this, the .background→.inactive→.active sequence
+    /// would update `previousScenePhase` to .inactive mid-stream and the read branch
+    /// (.background → .active) would never match.
+    private func handleScenePhaseChange(to newPhase: ScenePhase) {
+        // Skip .inactive entirely — it's a transient state, not a destination
+        guard newPhase != .inactive else { return }
+
+        defer { previousScenePhase = newPhase }
+
+        // Write timestamp on entering .background (from any prior stable phase)
+        if newPhase == .background {
+            lastBackgroundedAtEpoch = Date().timeIntervalSince1970
+        }
+
+        // On returning to .active from background, evaluate warm-resume flash
+        if previousScenePhase == .background && newPhase == .active {
+            evaluateWarmResumeForLaunchFlash()
+        }
+    }
+
+    /// On warm resume past the 10-minute threshold, re-show the launch flash.
+    /// Only applies when the user is in .main or .auth (not .onboardingV2, .launchFlash, .splash).
+    private func evaluateWarmResumeForLaunchFlash() {
+        guard hasCompletedOnboarding else { return }
+        guard appState == .main || appState == .auth else { return }
+        guard launchFlashMode != .off else { return }
+
+        // No prior backgrounded timestamp = no warm resume to evaluate (cold launch
+        // path is handled by splash.onAppear). Return cleanly without re-firing.
+        guard lastBackgroundedAtEpoch > 0 else { return }
+
+        let now = Date().timeIntervalSince1970
+        let delta = now - lastBackgroundedAtEpoch
+
+        // Sanity clamp: negative (clock went back) treats as cold; otherwise 10-min threshold.
+        let isFreshSession = delta < 0 || delta >= 600
+        guard isFreshSession else { return }
+
+        appState = nextStateAfterSplash()
     }
 
     private func syncProfileCompletionContext() {

@@ -61,6 +61,10 @@ struct SettingsTabView: View {
     // Theme: Warm Canvas is light-only, no picker needed
     @AppStorage("lyricsStyle") private var lyricsStyle: LyricsDesignStyle = .karaokeSweep
     @AppStorage("appearanceMode") private var appearanceMode: String = "System"
+    @AppStorage("launchFlashMode") private var launchFlashModeRaw: String = LaunchFlashMode.all.rawValue
+    private var launchFlashMode: LaunchFlashMode {
+        LaunchFlashMode(rawValue: launchFlashModeRaw) ?? .all
+    }
 
     // (loadTask removed — .task auto-cancels on disappear)
 
@@ -541,6 +545,31 @@ struct SettingsTabView: View {
                 settingsRowLabel(emoji: "🌐", title: "Language", value: "English", showChevron: true)
             }
             .accessibilityHint("Tap to choose")
+
+            // Launch Flash row (TikTok-style auto-play on every cold launch)
+            Menu {
+                ForEach(LaunchFlashMode.allCases, id: \.self) { mode in
+                    Button {
+                        let previousMode = launchFlashMode
+                        launchFlashModeRaw = mode.rawValue
+                        if mode == .off && previousMode != .off {
+                            AnalyticsService.shared.log(.launchFlashDisabled, properties: [
+                                "source": "settings"
+                            ])
+                        }
+                    } label: {
+                        HStack {
+                            Text(mode.displayName)
+                            if mode == launchFlashMode {
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+                }
+            } label: {
+                settingsRowLabel(emoji: "✨", title: "Launch Flash", value: launchFlashMode.displayName, showChevron: true)
+            }
+            .accessibilityHint("Tap to choose how Porizo greets you on every launch")
         }
         .padding(.horizontal, 16)
         .padding(.top, 16)
