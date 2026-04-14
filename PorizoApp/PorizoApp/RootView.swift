@@ -178,6 +178,7 @@ struct RootView: View {
                 if let content = pendingLaunchFlashContent {
                     LaunchFlashView(
                         content: content,
+                        apiClient: apiClient,
                         onDismiss: { dismissLaunchFlash() },
                         onDisableRequested: {
                             launchFlashModeRaw = LaunchFlashMode.off.rawValue
@@ -521,9 +522,11 @@ struct RootView: View {
         // Store content for the view and transition
         pendingLaunchFlashContent = content
 
+        // audio_attempted == true if we have a URL OR we'll lazy-fetch one (owned tracks)
+        let willAttemptAudio = content.audioURL != nil || content.trackId != nil
         AnalyticsService.shared.log(.launchFlashShown, properties: [
             "source": content.source.rawValue,
-            "audio_attempted": content.audioURL != nil ? "true" : "false",
+            "audio_attempted": willAttemptAudio ? "true" : "false",
             "track_id": content.trackId ?? ""
         ])
 

@@ -56,6 +56,13 @@ final class LaunchFlashViewModel {
     /// Begin audio playback (if `content.audioURL` exists). Visual-only mode otherwise.
     func startAudio() {
         guard let url = content.audioURL, !hasDismissed else { return }
+        startAudio(with: url)
+    }
+
+    /// Begin playback with an explicit URL — used when the URL was lazy-fetched
+    /// after the view appeared (e.g., owned tracks where the URL lives on TrackVersion).
+    func startAudio(with url: URL) {
+        guard !hasDismissed, player == nil else { return }
 
         configureAudioSession()
         audioStartTime = Date()

@@ -13,6 +13,7 @@ import SwiftUI
 
 struct LaunchFlashView: View {
     let content: LaunchFlashContent
+    let apiClient: APIClient?
     let onDismiss: () -> Void
     let onDisableRequested: () -> Void
 
@@ -20,6 +21,7 @@ struct LaunchFlashView: View {
     @State private var showContent = false
     @State private var waveformPhase = false
     @State private var failsafeTask: Task<Void, Never>?
+    @State private var audioFetchTask: Task<Void, Never>?
     @State private var showDisableAlert = false
     @State private var dismissalType: String = "tap"
     @State private var appearedAt: Date = .init()
@@ -30,13 +32,17 @@ struct LaunchFlashView: View {
     private static let visibleFailsafeSeconds: TimeInterval = 15.0
     // VoiceOver auto-dismiss timer.
     private static let voiceOverDismissSeconds: TimeInterval = 4.0
+    // Owned-track URL fetch budget — beyond this, give up and stay visual-only.
+    private static let lazyAudioFetchTimeoutSeconds: TimeInterval = 2.5
 
     init(
         content: LaunchFlashContent,
+        apiClient: APIClient?,
         onDismiss: @escaping () -> Void,
         onDisableRequested: @escaping () -> Void
     ) {
         self.content = content
+        self.apiClient = apiClient
         self.onDismiss = onDismiss
         self.onDisableRequested = onDisableRequested
         _viewModel = State(initialValue: LaunchFlashViewModel(content: content))
@@ -230,7 +236,21 @@ struct LaunchFlashView: View {
                     "first_frame_delay_ms": "\(delayMs)"
                 ])
             }
-            viewModel.startAudio()
+
+            if content.audioURL != nil {
+                // Direct path: demo / suggestion already has a URL
+                viewModel.startAudio()
+            } else if let trackId = content.trackId, let client = apiClient {
+                // Lazy path: owned tracks need an async fetch for the version URL.
+                // Visual stays up; audio fades in if/when the URL resolves.
+                audioFetchTask = Task { @MainActor in
+                    if let url = await fetchAudioURL(for: trackId, using: client) {
+                        guard !Task.isCancelled, !viewModel.hasDismissed else { return }
+                        viewModel.startAudio(with: url)
+                    }
+                }
+            }
+
             // 15-second visible failsafe (covers user who walks away mid-flash)
             failsafeTask = Task { @MainActor in
                 try? await Task.sleep(for: .seconds(Self.visibleFailsafeSeconds))
@@ -243,7 +263,45 @@ struct LaunchFlashView: View {
     private func handleDisappear() {
         failsafeTask?.cancel()
         failsafeTask = nil
+        audioFetchTask?.cancel()
+        audioFetchTask = nil
         viewModel.dismiss()
+    }
+
+    /// Async-fetch the latest playable version URL for an owned track.
+    /// Returns nil on timeout / failure / cancellation — caller stays visual-only.
+    private func fetchAudioURL(for trackId: String, using client: APIClient) async -> URL? {
+        do {
+            let details = try await withTimeout(seconds: Self.lazyAudioFetchTimeoutSeconds) {
+                try await client.getTrack(trackId: trackId)
+            }
+            guard let (_, urlString) = details.latestPlayableVersion(), !urlString.isEmpty else {
+                return nil
+            }
+            let transformed = transformAudioUrl(urlString, baseURL: client.baseURL)
+            return URL(string: transformed)
+        } catch {
+            #if DEBUG
+            print("[LaunchFlash] Lazy audio fetch failed for \(trackId): \(error.localizedDescription)")
+            #endif
+            return nil
+        }
+    }
+
+    private func withTimeout<T: Sendable>(
+        seconds: TimeInterval,
+        operation: @escaping @Sendable () async throws -> T
+    ) async throws -> T {
+        try await withThrowingTaskGroup(of: T.self) { group in
+            group.addTask { try await operation() }
+            group.addTask {
+                try await Task.sleep(for: .seconds(seconds))
+                throw CancellationError()
+            }
+            guard let result = try await group.next() else { throw CancellationError() }
+            group.cancelAll()
+            return result
+        }
     }
 
     // MARK: - Dismiss
