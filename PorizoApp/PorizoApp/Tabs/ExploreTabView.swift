@@ -303,7 +303,7 @@ struct ExploreTabView: View {
         if !recipient.isEmpty, !pendingSuggestion.isEmpty,
            let data = pendingSuggestion.data(using: .utf8),
            let suggestion = try? JSONDecoder().decode(OnboardingSuggestion.self, from: data) {
-            VStack(alignment: .leading, spacing: DesignTokens.spacing8) {
+            VStack(alignment: .leading, spacing: DesignTokens.spacing12) {
                 HStack {
                     Text("Continue your song for \(recipient)")
                         .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
@@ -329,14 +329,19 @@ struct ExploreTabView: View {
                 Button {
                     onResumePendingSong?()
                 } label: {
-                    Text("\u{2726} Make This Song")
-                        .font(DesignTokens.bodyFont(size: 14, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .background(DesignTokens.gold)
-                        .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusCTA))
+                    HStack(spacing: DesignTokens.spacing8) {
+                        Image(systemName: "sparkles")
+                            .font(.system(size: 16))
+                        Text("Make This Song")
+                            .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
+                    }
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 16)
+                    .background(DesignTokens.gold)
+                    .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusCTA))
                 }
+                .goldGlow()
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("explore-resume-pending-song")
             }

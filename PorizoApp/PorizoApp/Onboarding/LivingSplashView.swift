@@ -49,7 +49,7 @@ struct LivingSplashView: View {
                                 .accessibilityHidden(true)
 
                             Text(recipientLabel ?? "For Mom")
-                                .font(DesignTokens.displayFont(size: 20, weight: .semibold, relativeTo: .headline))
+                                .font(DesignTokens.displayFont(size: 22))
                                 .foregroundStyle(.white)
 
                             StaticWaveformBars(

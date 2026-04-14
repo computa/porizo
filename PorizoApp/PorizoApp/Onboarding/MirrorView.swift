@@ -34,7 +34,7 @@ struct MirrorView: View {
                         .opacity(showLine3 ? 1 : 0)
                         .offset(y: reduceMotion ? 0 : (showLine3 ? 0 : 8))
                 }
-                .font(DesignTokens.bodyFont(size: 17))
+                .font(DesignTokens.bodyFont(size: 15))
                 .foregroundStyle(DesignTokens.textSecondary)
                 .multilineTextAlignment(.center)
                 .lineSpacing(3)

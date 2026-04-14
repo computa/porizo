@@ -70,6 +70,7 @@ struct OnboardingCTAButton: View {
                 .background(DesignTokens.gold)
                 .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusCTA))
         }
+        .goldGlow()
         .disabled(!enabled)
         .opacity(enabled ? 1.0 : 0.5)
         .padding(.horizontal, DesignTokens.spacing20)

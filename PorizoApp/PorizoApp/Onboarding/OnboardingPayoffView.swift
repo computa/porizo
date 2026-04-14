@@ -92,7 +92,7 @@ struct OnboardingPayoffView: View {
             // Song cover + title row
             HStack(spacing: DesignTokens.spacing12) {
                 ZStack {
-                    RoundedRectangle(cornerRadius: 10)
+                    RoundedRectangle(cornerRadius: DesignTokens.radiusMedium)
                         .fill(
                             LinearGradient(
                                 colors: [DesignTokens.gold, DesignTokens.goldGradientEnd],
@@ -140,22 +140,22 @@ struct OnboardingPayoffView: View {
     private var shimmerCard: some View {
         VStack(alignment: .leading, spacing: DesignTokens.spacing12) {
             HStack(spacing: DesignTokens.spacing12) {
-                RoundedRectangle(cornerRadius: 10)
+                RoundedRectangle(cornerRadius: DesignTokens.radiusMedium)
                     .fill(DesignTokens.surfaceMuted)
                     .frame(width: 56, height: 56)
                 VStack(alignment: .leading, spacing: DesignTokens.spacing8) {
-                    RoundedRectangle(cornerRadius: 4)
+                    RoundedRectangle(cornerRadius: DesignTokens.radiusSmall)
                         .fill(DesignTokens.surfaceMuted)
                         .frame(width: 140, height: 14)
-                    RoundedRectangle(cornerRadius: 4)
+                    RoundedRectangle(cornerRadius: DesignTokens.radiusSmall)
                         .fill(DesignTokens.surfaceMuted)
                         .frame(width: 200, height: 12)
                 }
             }
-            RoundedRectangle(cornerRadius: 4)
+            RoundedRectangle(cornerRadius: DesignTokens.radiusSmall)
                 .fill(DesignTokens.surfaceMuted)
                 .frame(height: 12)
-            RoundedRectangle(cornerRadius: 4)
+            RoundedRectangle(cornerRadius: DesignTokens.radiusSmall)
                 .fill(DesignTokens.surfaceMuted)
                 .frame(width: 160, height: 12)
         }

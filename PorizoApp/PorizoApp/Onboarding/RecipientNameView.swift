@@ -35,13 +35,14 @@ struct RecipientNameView: View {
                     .textInputAutocapitalization(.words)
                     .focused($isFocused)
                     .padding(.horizontal, DesignTokens.spacing16)
-                    .padding(.vertical, 14)
+                    .padding(.vertical, DesignTokens.spacing12)
                     .background(DesignTokens.surface)
                     .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusMedium))
                     .overlay(
                         RoundedRectangle(cornerRadius: DesignTokens.radiusMedium)
-                            .stroke(DesignTokens.border, lineWidth: 1.5)
+                            .stroke(isFocused ? DesignTokens.gold : DesignTokens.border, lineWidth: isFocused ? 1.5 : 0.5)
                     )
+                    .animation(.easeInOut(duration: 0.15), value: isFocused)
                     .padding(.horizontal, DesignTokens.spacing20)
                     .onSubmit { submit() }
                     .accessibilityIdentifier("onboarding-name-field")

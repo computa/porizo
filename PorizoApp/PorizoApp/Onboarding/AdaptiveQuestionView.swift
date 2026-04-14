@@ -36,7 +36,7 @@ struct AdaptiveQuestionView: View {
 
                     VStack(spacing: DesignTokens.spacing24) {
                         Text(resolvedQuestion)
-                            .font(DesignTokens.displayFont(size: 24))
+                            .font(DesignTokens.displayFont(size: 28))
                             .foregroundStyle(DesignTokens.textPrimary)
                             .multilineTextAlignment(.center)
                             .padding(.horizontal, DesignTokens.spacing20)
