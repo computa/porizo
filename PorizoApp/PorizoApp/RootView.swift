@@ -33,15 +33,18 @@ struct RootView: View {
     @State private var dismissedRecommendedUpdateVersion: String?
     @State private var profileCompletionContext: ProfileCompletionContext?
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
-    @AppStorage("onboardingViewCount") private var onboardingViewCount = 0
-    @AppStorage("hasCompletedFirstSong") private var hasCompletedFirstSong = false
     @AppStorage("pendingRecipientName") private var pendingRecipientName = ""
     @AppStorage("pendingOccasion") private var pendingOccasion = ""
     @AppStorage("pendingCreateType") private var pendingCreateType = ""
+    @AppStorage("pendingEmotionalSeed") private var pendingEmotionalSeed = ""
+    @AppStorage("pendingRelationshipType") private var pendingRelationshipType = ""
+    @AppStorage("pendingSuggestion") private var pendingSuggestion = ""
     @State private var hasSkippedProfileCompletionInSession = false
-    @State private var nameEntryHasOwnLyrics = false
-    @State private var nameEntryIsInstrumental = false
     @State private var onboardingSampleURL: String?
+    @State private var onboardingSplashRecipient: String?
+    @State private var onboardingSplashLyricsPreview: String?
+    @State private var onboardingGraphVersion: Int?
+    @State private var onboardingGraphUrl: String?
 
     // Configuration
     // Auth is required in all builds to avoid showing main tabs when logged out.
@@ -59,8 +62,7 @@ struct RootView: View {
 
     enum RootState {
         case splash
-        case onboarding
-        case nameEntry
+        case onboardingV2
         case auth
         case main
         #if DEBUG
@@ -104,8 +106,9 @@ struct RootView: View {
                     .onAppear {
                         #if DEBUG
                         if resetOnboarding {
-                            let keys = ["hasCompletedOnboarding", "onboardingViewCount", "hasCompletedFirstSong",
-                                         "pendingRecipientName", "pendingOccasion", "pendingCreateType"]
+                            let keys = ["hasCompletedOnboarding", "pendingRecipientName", "pendingOccasion",
+                                         "pendingCreateType", "pendingEmotionalSeed", "pendingRelationshipType",
+                                         "pendingSuggestion"]
                             keys.forEach { UserDefaults.standard.removeObject(forKey: $0) }
                         }
                         #endif
@@ -145,44 +148,30 @@ struct RootView: View {
                                     return
                                 }
                                 #endif
-                                // Show onboarding up to 2 times until first song is generated
-                                let shouldShowOnboarding = onboardingViewCount < 2 && !hasCompletedFirstSong
-                                if hasCompletedOnboarding && !shouldShowOnboarding {
+                                if hasCompletedOnboarding {
                                     appState = (skipAuth || authManager.isAuthenticated) ? .main : .auth
                                 } else {
-                                    appState = .onboarding
+                                    appState = .onboardingV2
                                 }
                             }
                         }
                     }
 
-            case .onboarding:
-                OnboardingView(
-                    sampleAudioURL: onboardingSampleURL,
-                    onComplete: completeOnboarding,
-                    onSkip: completeOnboarding
-                )
-
-            case .nameEntry:
-                InlineNamePromptView(
-                    selectedType: nil,
-                    hasOwnLyrics: $nameEntryHasOwnLyrics,
-                    isInstrumental: $nameEntryIsInstrumental,
-                    onStart: { name, occasion, type in
-                        pendingRecipientName = name
-                        pendingOccasion = occasion?.rawValue ?? ""
-                        pendingCreateType = type.rawValue
-                        withAnimation(.easeInOut(duration: 0.5)) {
-                            appState = (skipAuth || authManager.isAuthenticated) ? .main : .auth
-                        }
-                        syncProfileCompletionContext()
-                    },
-                    onCancel: {
-                        withAnimation(.easeInOut(duration: 0.3)) {
-                            appState = .onboarding
-                        }
-                    }
-                )
+            case .onboardingV2:
+                if let client = apiClient {
+                    OnboardingV2View(
+                        splashDemoURL: onboardingSampleURL,
+                        splashRecipientLabel: onboardingSplashRecipient,
+                        splashLyricsPreview: onboardingSplashLyricsPreview,
+                        questionGraphVersion: onboardingGraphVersion,
+                        questionGraphUrl: onboardingGraphUrl,
+                        apiClient: client,
+                        onComplete: { result in completeOnboardingV2(result) },
+                        onSkip: { partial in skipOnboardingV2(partial) }
+                    )
+                } else {
+                    SplashView()
+                }
 
             #if DEBUG
             case .designSamples:
@@ -273,7 +262,7 @@ struct RootView: View {
                         appState = .main
                     }
                 }
-            } else if hasCompletedOnboarding && !skipAuth && appState != .auth {
+            } else if hasCompletedOnboarding && !skipAuth && appState != .auth && pendingRecipientName.isEmpty {
                 profileCompletionContext = nil
                 withAnimation(.easeInOut(duration: 0.3)) {
                     appState = .auth
@@ -378,11 +367,40 @@ struct RootView: View {
         return CreateFlowKind(rawValue: pendingCreateType)
     }
 
-    private func completeOnboarding() {
+    private func completeOnboardingV2(_ result: OnboardingResult) {
+        pendingRecipientName = result.recipientName
+        pendingOccasion = result.occasion ?? ""
+        pendingEmotionalSeed = result.emotionalSeed
+        pendingRelationshipType = result.relationshipType
+        pendingCreateType = CreateFlowKind.song.rawValue
+
+        if let suggestion = result.suggestion,
+           let encoded = try? JSONEncoder().encode(suggestion),
+           let json = String(data: encoded, encoding: .utf8) {
+            pendingSuggestion = json
+        }
+
         hasCompletedOnboarding = true
-        onboardingViewCount += 1
+
         withAnimation(.easeInOut(duration: 0.5)) {
-            appState = .nameEntry
+            appState = .main
+        }
+        syncProfileCompletionContext()
+    }
+
+    private func skipOnboardingV2(_ partial: PartialOnboardingResult?) {
+        hasCompletedOnboarding = true
+
+        if let partial,
+           let encoded = try? JSONEncoder().encode(partial.suggestion),
+           let json = String(data: encoded, encoding: .utf8) {
+            pendingSuggestion = json
+            pendingRecipientName = partial.recipientName
+            pendingOccasion = partial.occasion ?? ""
+        }
+
+        withAnimation(.easeInOut(duration: 0.5)) {
+            appState = (skipAuth || authManager.isAuthenticated) ? .main : .auth
         }
     }
 
@@ -390,6 +408,9 @@ struct RootView: View {
         pendingRecipientName = ""
         pendingOccasion = ""
         pendingCreateType = ""
+        pendingEmotionalSeed = ""
+        pendingRelationshipType = ""
+        pendingSuggestion = ""
     }
 
     private func syncProfileCompletionContext() {
@@ -573,6 +594,12 @@ struct RootView: View {
             } else {
                 onboardingSampleURL = nil
             }
+
+            // V2 onboarding splash metadata
+            onboardingSplashRecipient = response.onboarding?.splashDemoRecipient
+            onboardingSplashLyricsPreview = response.onboarding?.splashLyricsPreview
+            onboardingGraphVersion = response.onboarding?.questionGraphVersion
+            onboardingGraphUrl = response.onboarding?.questionGraphUrl
 
             let nextPrompt = AppUpdatePolicy.evaluate(config: response.appUpdate)
             if let nextPrompt,

@@ -2402,11 +2402,16 @@ class AdminService {
       // Table may not exist yet if migration hasn't run — return empty array
     }
 
-    // Active onboarding sample for pre-auth audio playback
+    // Active onboarding sample for pre-auth audio playback + V2 config
     const activeSample = await this.getActiveOnboardingSample();
-    const onboarding = activeSample
-      ? { sample_audio_url: activeSample.audio_url, sample_label: activeSample.label }
-      : null;
+    const onboarding = {
+      sample_audio_url: activeSample?.audio_url || null,
+      sample_label: activeSample?.label || null,
+      splash_demo_recipient: activeSample?.label || null,
+      splash_lyrics_preview: null,
+      question_graph_version: null,
+      question_graph_url: null,
+    };
 
     return {
       stt: sttConfig,

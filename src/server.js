@@ -43,6 +43,7 @@ const { registerGiftRoutes } = require("./routes/gifts");
 const { registerTrackRoutes } = require("./routes/tracks");
 const { registerSharingRoutes } = require("./routes/sharing");
 const { registerBillingRoutes } = require("./routes/billing");
+const { registerOnboardingRoutes } = require("./routes/onboarding");
 const { registerAdminRoutes } = require("./routes/admin");
 const { createStoryRepository } = require("./database/story-repository");
 const writer = require("./writer");
@@ -4052,6 +4053,12 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     serveTrackAudio,
     getUserRiskLevel,
     consumeRateLimit,
+  });
+
+  // ============ Onboarding V2 ============
+  registerOnboardingRoutes(app, {
+    requireUserId,
+    sendError,
   });
 
   // ============ ADMIN DASHBOARD API ============

@@ -1,0 +1,182 @@
+{
+  "version": 1,
+  "entry_node": "pain_points",
+  "nodes": {
+    "pain_points": {
+      "type": "multi_select",
+      "question": "What makes gifting hard?",
+      "subtitle": "Pick all that apply.",
+      "options": [
+        { "label": "I'm not creative enough", "value": "not_creative" },
+        { "label": "I never know what to get", "value": "dont_know_what" },
+        { "label": "I always end up sending a text", "value": "default_to_text" },
+        { "label": "I forget until the last minute", "value": "forget_timing" },
+        { "label": "Nothing feels personal enough", "value": "not_personal" }
+      ],
+      "min_selections": 1,
+      "next": "goal_question"
+    },
+    "goal_question": {
+      "type": "single_select",
+      "question": "What brought you here today?",
+      "options": [
+        { "label": "Surprise someone for their birthday", "value": "birthday_surprise" },
+        { "label": "Say something I've never been able to say", "value": "unsaid_words" },
+        { "label": "Create a gift that actually means something", "value": "meaningful_gift" },
+        { "label": "Preserve a special memory", "value": "preserve_memory" },
+        { "label": "Just exploring", "value": "exploring" }
+      ],
+      "next": "relationship_picker"
+    },
+    "relationship_picker": {
+      "type": "single_select",
+      "question": "Who deserves something unforgettable?",
+      "options": [
+        { "label": "Mom", "value": "mom" },
+        { "label": "Dad", "value": "dad" },
+        { "label": "Partner", "value": "partner" },
+        { "label": "Sister", "value": "sister" },
+        { "label": "Brother", "value": "brother" },
+        { "label": "Best Friend", "value": "best_friend" },
+        { "label": "Son", "value": "son" },
+        { "label": "Daughter", "value": "daughter" },
+        { "label": "Grandparent", "value": "grandparent" },
+        { "label": "Someone Else", "value": "other" }
+      ],
+      "next": "name_entry"
+    },
+    "name_entry": {
+      "type": "text_input",
+      "question_template": "What's your {relationship_label}'s name?",
+      "fallback_question": "Who is this for?",
+      "next": "emotional_seed_{relationship_type}"
+    },
+    "emotional_seed_mom": {
+      "type": "single_select_or_text",
+      "question_template": "Is there something you've always wanted to say to {name}, but never found the words?",
+      "options": [
+        { "label": "Thank you for everything", "value": "thank_you_everything" },
+        { "label": "A childhood memory together", "value": "childhood_memory" },
+        { "label": "Something I've never said out loud", "value": "unsaid_words" }
+      ],
+      "allow_free_text": true,
+      "next": "occasion_picker"
+    },
+    "emotional_seed_dad": {
+      "type": "single_select_or_text",
+      "question_template": "Is there something you've always wanted to say to {name}, but never found the words?",
+      "options": [
+        { "label": "Thank you for everything", "value": "thank_you_everything" },
+        { "label": "A childhood memory together", "value": "childhood_memory" },
+        { "label": "Something I've never said out loud", "value": "unsaid_words" }
+      ],
+      "allow_free_text": true,
+      "next": "occasion_picker"
+    },
+    "emotional_seed_partner": {
+      "type": "single_select_or_text",
+      "question_template": "What moment is just yours and {name}'s?",
+      "options": [
+        { "label": "How we first met", "value": "first_met" },
+        { "label": "An inside joke only we get", "value": "inside_joke" },
+        { "label": "Something I want them to always remember", "value": "always_remember" }
+      ],
+      "allow_free_text": true,
+      "next": "occasion_picker"
+    },
+    "emotional_seed_sister": {
+      "type": "single_select_or_text",
+      "question_template": "What would {name} instantly recognize as something only you two share?",
+      "options": [
+        { "label": "Growing up together", "value": "growing_up" },
+        { "label": "An inside joke", "value": "inside_joke" },
+        { "label": "Something we survived together", "value": "survived_together" }
+      ],
+      "allow_free_text": true,
+      "next": "occasion_picker"
+    },
+    "emotional_seed_brother": {
+      "type": "single_select_or_text",
+      "question_template": "What would {name} instantly recognize as something only you two share?",
+      "options": [
+        { "label": "Growing up together", "value": "growing_up" },
+        { "label": "An inside joke", "value": "inside_joke" },
+        { "label": "Something we survived together", "value": "survived_together" }
+      ],
+      "allow_free_text": true,
+      "next": "occasion_picker"
+    },
+    "emotional_seed_best_friend": {
+      "type": "single_select_or_text",
+      "question_template": "What's the story only you and {name} know?",
+      "options": [
+        { "label": "How we became friends", "value": "how_we_met" },
+        { "label": "The thing we always laugh about", "value": "always_laugh" },
+        { "label": "A moment that changed everything", "value": "changed_everything" }
+      ],
+      "allow_free_text": true,
+      "next": "occasion_picker"
+    },
+    "emotional_seed_son": {
+      "type": "single_select_or_text",
+      "question_template": "What do you want {name} to always remember?",
+      "options": [
+        { "label": "How proud I am", "value": "proud" },
+        { "label": "A moment that made me smile", "value": "made_me_smile" },
+        { "label": "Something I want to pass on", "value": "pass_on" }
+      ],
+      "allow_free_text": true,
+      "next": "occasion_picker"
+    },
+    "emotional_seed_daughter": {
+      "type": "single_select_or_text",
+      "question_template": "What do you want {name} to always remember?",
+      "options": [
+        { "label": "How proud I am", "value": "proud" },
+        { "label": "A moment that made me smile", "value": "made_me_smile" },
+        { "label": "Something I want to pass on", "value": "pass_on" }
+      ],
+      "allow_free_text": true,
+      "next": "occasion_picker"
+    },
+    "emotional_seed_grandparent": {
+      "type": "single_select_or_text",
+      "question_template": "What makes {name} unforgettable?",
+      "options": [
+        { "label": "A memory I treasure", "value": "treasured_memory" },
+        { "label": "Something I've always admired", "value": "always_admired" },
+        { "label": "A moment I want to preserve", "value": "preserve_moment" }
+      ],
+      "allow_free_text": true,
+      "next": "occasion_picker"
+    },
+    "emotional_seed_other": {
+      "type": "single_select_or_text",
+      "question_template": "What makes {name} unforgettable?",
+      "options": [
+        { "label": "A memory I treasure", "value": "treasured_memory" },
+        { "label": "Something I've always admired", "value": "always_admired" },
+        { "label": "A moment I want to preserve", "value": "preserve_moment" }
+      ],
+      "allow_free_text": true,
+      "next": "occasion_picker"
+    },
+    "occasion_picker": {
+      "type": "single_select",
+      "question": "Is this for something special?",
+      "options": [
+        { "label": "Just Because", "value": null, "is_default": true },
+        { "label": "Birthday", "value": "birthday", "emoji": "\ud83c\udf82" },
+        { "label": "Anniversary", "value": "anniversary", "emoji": "\ud83d\udc91" },
+        { "label": "Thank You", "value": "thank_you", "emoji": "\ud83d\ude4f" },
+        { "label": "Graduation", "value": "graduation", "emoji": "\ud83c\udf93" },
+        { "label": "Wedding", "value": "wedding", "emoji": "\ud83d\udc92" }
+      ],
+      "next": "payoff"
+    },
+    "payoff": {
+      "type": "terminal",
+      "action": "generate_suggestion"
+    }
+  }
+}

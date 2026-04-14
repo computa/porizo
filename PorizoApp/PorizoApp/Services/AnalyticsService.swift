@@ -19,6 +19,21 @@ enum AnalyticsEvent: String {
     case createCompleted = "create_completed"
     case shareInitiated = "share_initiated"
     case shareCompleted = "share_completed"
+
+    // MARK: - Onboarding V2
+    case onboardingV2Started = "onboarding_v2_started"
+    case onboardingV2SplashAudioPlayed = "onboarding_v2_splash_audio_played"
+    case onboardingV2MirrorViewed = "onboarding_v2_mirror_viewed"
+    case onboardingV2PainPointsSelected = "onboarding_v2_pain_points_selected"
+    case onboardingV2GoalSelected = "onboarding_v2_goal_selected"
+    case onboardingV2PersonSelected = "onboarding_v2_person_selected"
+    case onboardingV2NameEntered = "onboarding_v2_name_entered"
+    case onboardingV2SeedSelected = "onboarding_v2_seed_selected"
+    case onboardingV2SuggestionShown = "onboarding_v2_suggestion_shown"
+    case onboardingV2SuggestionUpgraded = "onboarding_v2_suggestion_upgraded"
+    case onboardingV2CreateTapped = "onboarding_v2_create_tapped"
+    case onboardingV2Skipped = "onboarding_v2_skipped"
+    case onboardingV2Completed = "onboarding_v2_completed"
 }
 
 // MARK: - AnalyticsService
