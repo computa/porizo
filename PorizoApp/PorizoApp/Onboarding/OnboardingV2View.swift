@@ -8,6 +8,7 @@
 //
 
 import SwiftUI
+import AVFoundation
 
 // MARK: - Onboarding Result
 
@@ -46,6 +47,10 @@ struct OnboardingV2View: View {
     @State private var painPointSelections: Set<String> = []
     @State private var nameInput = ""
     @State private var startTime = Date()
+
+    // Audio owned here so it persists across splash → mirror → pain points → goal
+    @State private var bgPlayer: AVPlayer?
+    @State private var bgAudioTask: Task<Void, Never>?
 
     enum OnboardingScreen {
         case splash
@@ -135,12 +140,23 @@ struct OnboardingV2View: View {
             AnalyticsService.shared.log(.onboardingV2Started, properties: [
                 "audio_available": splashDemoURL != nil ? "true" : "false"
             ])
+            // Start background audio that persists across splash → mirror → pain points → goal
+            startBackgroundAudio()
             // Load graph with server override in background
             Task {
                 let graph = await QuestionGraphEngine.loadWithServerOverride(version: questionGraphVersion, url: questionGraphUrl)
                 if engine == nil {
                     engine = QuestionGraphEngine(graph: graph)
                 }
+            }
+        }
+        .onDisappear {
+            stopBackgroundAudio()
+        }
+        .onChange(of: screen) { _, newScreen in
+            // Fade out audio when user reaches the interactive questionnaire
+            if newScreen == .questionnaire {
+                fadeOutBackgroundAudio()
             }
         }
     }
@@ -315,6 +331,58 @@ struct OnboardingV2View: View {
         AnalyticsService.shared.log(.onboardingV2Completed, properties: [
             "total_time_seconds": "\(elapsed)"
         ])
+    }
+
+    // MARK: - Background Audio (persists across splash → mirror → pain points → goal)
+
+    private func startBackgroundAudio() {
+        guard let urlString = splashDemoURL, let url = URL(string: urlString) else { return }
+        do {
+            try AVAudioSession.sharedInstance().setCategory(.playback, options: .mixWithOthers)
+            try AVAudioSession.sharedInstance().setActive(true)
+        } catch {
+            #if DEBUG
+            print("[OnboardingV2] Audio session setup failed: \(error.localizedDescription)")
+            #endif
+            return
+        }
+        let player = AVPlayer(url: url)
+        player.volume = 0.4
+        player.play()
+        bgPlayer = player
+
+        // Auto-fade after 30 seconds
+        bgAudioTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(30))
+            guard !Task.isCancelled else { return }
+            fadeOutBackgroundAudio()
+        }
+    }
+
+    private func fadeOutBackgroundAudio() {
+        guard let player = bgPlayer, player.volume > 0 else { return }
+        bgAudioTask?.cancel()
+        // Smooth fade over 2 seconds
+        Task { @MainActor in
+            let steps = 20
+            let interval: TimeInterval = 2.0 / Double(steps)
+            let volumeStep = player.volume / Float(steps)
+            for _ in 0..<steps {
+                try? await Task.sleep(for: .seconds(interval))
+                guard !Task.isCancelled else { break }
+                player.volume = max(0, player.volume - volumeStep)
+            }
+            player.pause()
+            bgPlayer = nil
+            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        }
+    }
+
+    private func stopBackgroundAudio() {
+        bgAudioTask?.cancel()
+        bgPlayer?.pause()
+        bgPlayer = nil
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 
     /// Simple timeout wrapper for async operations.
