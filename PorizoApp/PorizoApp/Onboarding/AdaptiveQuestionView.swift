@@ -13,9 +13,11 @@ struct AdaptiveQuestionView: View {
     let resolvedQuestion: String
     let options: [GraphNodeOption]
     let allowFreeText: Bool
+    var preselectedValue: String? = nil
     let onContinue: (String) -> Void
 
     @State private var selectedValue: String?
+    @State private var hasCommitted = false
     @State private var showFreeText = false
     @State private var freeTextInput = ""
     @FocusState private var freeTextFocused: Bool
@@ -45,12 +47,13 @@ struct AdaptiveQuestionView: View {
                                 let optionValue = option.value ?? ""
                                 let isSelected = selectedValue == optionValue && !showFreeText
                                 Button {
-                                    guard selectedValue == nil || showFreeText else { return }
+                                    guard !hasCommitted || showFreeText else { return }
                                     showFreeText = false
                                     freeTextFocused = false
                                     withAnimation(.easeInOut(duration: 0.15)) {
                                         selectedValue = optionValue
                                     }
+                                    hasCommitted = true
                                     if !allowFreeText {
                                         // Auto-advance for single_select (occasion picker)
                                         Task { @MainActor in
@@ -146,6 +149,24 @@ struct AdaptiveQuestionView: View {
                                     .accessibilityIdentifier("onboarding-adaptive-free-continue")
                                 }
                             }
+
+                            // Skip button for optional single-select (e.g. occasion picker)
+                            if !allowFreeText {
+                                Button {
+                                    hasCommitted = true
+                                    // Send empty string — caller converts to nil occasion ("Just Because")
+                                    onContinue("")
+                                } label: {
+                                    Text("Continue")
+                                        .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
+                                        .foregroundStyle(DesignTokens.textSecondary)
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 16)
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityIdentifier("onboarding-adaptive-skip-continue")
+                                .accessibilityLabel("Continue without selecting")
+                            }
                         }
                         .padding(.horizontal, DesignTokens.spacing20)
                     }
@@ -156,5 +177,15 @@ struct AdaptiveQuestionView: View {
             .scrollDismissesKeyboard(.interactively)
         }
         .accessibilityIdentifier("onboarding-adaptive-question")
+        .onAppear {
+            // Pre-highlight from engine state (e.g. goal_intent → occasion) or is_default flag
+            if selectedValue == nil {
+                if let preselected = preselectedValue {
+                    selectedValue = preselected
+                } else if let defaultOption = options.first(where: { $0.isDefault == true }) {
+                    selectedValue = defaultOption.value ?? ""
+                }
+            }
+        }
     }
 }

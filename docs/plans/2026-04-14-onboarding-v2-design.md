@@ -120,7 +120,7 @@ Most gifts fade. A song stays.
 
 ### Screen 3 - Pain Points (8-10s)
 
-**Purpose:** Interactive self-identification. Creates psychological investment AND captures data that adapts the reframe embedded in the mirror's landing line.
+**Purpose:** Interactive self-identification. Creates psychological investment AND captures data that feeds analytics and the post-first-song profile builder.
 
 **Copy direction:**
 

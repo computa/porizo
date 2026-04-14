@@ -19,6 +19,8 @@ struct WarmCanvasFlowView: View {
     var initialRecipientName: String?
     var preselectedOccasion: Occasion?
     var preselectedType: CreateFlowKind?
+    var initialEmotionalSeed: String?
+    var initialRelationshipType: String?
     var resumeTrackId: String?
     var resumeVersionNum: Int?
     var resumeTarget: CreateFlowResumeTarget?
@@ -108,6 +110,8 @@ struct WarmCanvasFlowView: View {
         initialRecipientName: String? = nil,
         preselectedOccasion: Occasion? = nil,
         preselectedType: CreateFlowKind? = nil,
+        initialEmotionalSeed: String? = nil,
+        initialRelationshipType: String? = nil,
         resumeTrackId: String? = nil,
         resumeVersionNum: Int? = nil,
         resumeTarget: CreateFlowResumeTarget? = nil,
@@ -124,6 +128,8 @@ struct WarmCanvasFlowView: View {
         self.initialRecipientName = initialRecipientName
         self.preselectedOccasion = preselectedOccasion
         self.preselectedType = preselectedType
+        self.initialEmotionalSeed = initialEmotionalSeed
+        self.initialRelationshipType = initialRelationshipType
         self.resumeTrackId = resumeTrackId
         self.resumeVersionNum = resumeVersionNum
         self.resumeTarget = resumeTarget
@@ -1768,6 +1774,8 @@ struct WarmCanvasFlowView: View {
             initialRecipientName: initialRecipientName,
             preselectedOccasion: preselectedOccasion,
             preselectedType: preselectedType,
+            initialEmotionalSeed: initialEmotionalSeed,
+            initialRelationshipType: initialRelationshipType,
             resumeTrackId: resumeTrackId,
             resumeVersionNum: resumeVersionNum,
             resumeTarget: resumeTarget,

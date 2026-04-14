@@ -23,6 +23,8 @@ struct MainTabView: View {
     var pendingRecipientName: String? = nil
     var pendingOccasion: Occasion? = nil
     var pendingType: CreateFlowKind? = nil
+    var pendingEmotionalSeed: String? = nil
+    var pendingRelationshipType: String? = nil
     var onConsumePendingCreateContext: (() -> Void)? = nil
 
     @State private var selectedTab: Tab = {
@@ -55,12 +57,16 @@ struct MainTabView: View {
         pendingRecipientName: String? = nil,
         pendingOccasion: Occasion? = nil,
         pendingType: CreateFlowKind? = nil,
+        pendingEmotionalSeed: String? = nil,
+        pendingRelationshipType: String? = nil,
         onConsumePendingCreateContext: (() -> Void)? = nil
     ) {
         self.apiClient = apiClient
         self.pendingRecipientName = pendingRecipientName
         self.pendingOccasion = pendingOccasion
         self.pendingType = pendingType
+        self.pendingEmotionalSeed = pendingEmotionalSeed
+        self.pendingRelationshipType = pendingRelationshipType
         self.onConsumePendingCreateContext = onConsumePendingCreateContext
         self._storeKitManager = State(wrappedValue: StoreKitManager(apiClient: apiClient))
     }
@@ -117,6 +123,19 @@ struct MainTabView: View {
                         showsGiftSendEntry: AppConfig.enableGiftPurchaseUI,
                         onSeeAllSongs: {
                             selectedTab = .songs
+                        },
+                        onResumePendingSong: {
+                            let recipient = pendingRecipientName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                            guard !recipient.isEmpty else { return }
+                            hasConsumedPendingCreateContext = true
+                            onConsumePendingCreateContext?()
+                            presentCreateFlow(
+                                initialRecipientName: recipient,
+                                preselectedOccasion: pendingOccasion,
+                                preselectedType: pendingType,
+                                initialEmotionalSeed: pendingEmotionalSeed,
+                                initialRelationshipType: pendingRelationshipType
+                            )
                         }
                     )
                 case .songs:
@@ -175,6 +194,8 @@ struct MainTabView: View {
                 initialRecipientName: launch.initialRecipientName,
                 preselectedOccasion: launch.preselectedOccasion,
                 preselectedType: launch.preselectedType,
+                initialEmotionalSeed: launch.initialEmotionalSeed,
+                initialRelationshipType: launch.initialRelationshipType,
                 resumeTrackId: launch.resumeTrackId,
                 resumeVersionNum: launch.resumeVersionNum,
                 resumeTarget: launch.resumeTarget,
@@ -297,6 +318,8 @@ struct MainTabView: View {
         initialRecipientName: String? = nil,
         preselectedOccasion: Occasion? = nil,
         preselectedType: CreateFlowKind? = nil,
+        initialEmotionalSeed: String? = nil,
+        initialRelationshipType: String? = nil,
         resumeTrackId: String? = nil,
         resumeVersionNum: Int? = nil,
         resumeTarget: CreateFlowResumeTarget? = nil,
@@ -306,6 +329,8 @@ struct MainTabView: View {
             initialRecipientName: initialRecipientName,
             preselectedOccasion: preselectedOccasion,
             preselectedType: preselectedType,
+            initialEmotionalSeed: initialEmotionalSeed,
+            initialRelationshipType: initialRelationshipType,
             resumeTrackId: resumeTrackId,
             resumeVersionNum: resumeVersionNum,
             resumeTarget: resumeTarget,
@@ -329,7 +354,9 @@ struct MainTabView: View {
         presentCreateFlow(
             initialRecipientName: recipient,
             preselectedOccasion: pendingOccasion,
-            preselectedType: pendingType
+            preselectedType: pendingType,
+            initialEmotionalSeed: pendingEmotionalSeed,
+            initialRelationshipType: pendingRelationshipType
         )
     }
 

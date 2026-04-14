@@ -18,8 +18,11 @@ struct ExploreTabView: View {
     let onSendGift: () -> Void
     let showsGiftSendEntry: Bool
     var onSeeAllSongs: (() -> Void)?
+    var onResumePendingSong: (() -> Void)?
 
     @AppStorage("hasCompletedFirstSong") private var hasCompletedFirstSong = false
+    @AppStorage("pendingSuggestion") private var pendingSuggestion = ""
+    @AppStorage("pendingRecipientName") private var pendingRecipientName = ""
     @State private var recentTracks: [Track] = []
     @State private var isLoadingTracks = false
     @State private var audioLoadTask: Task<Void, Never>?
@@ -37,6 +40,11 @@ struct ExploreTabView: View {
 
                 ScrollView {
                     VStack(alignment: .leading, spacing: 16) {
+                        // "Continue where you left off" card for pending onboarding suggestion
+                        if !hasCompletedFirstSong {
+                            pendingSuggestionCard
+                        }
+
                         // Featured card with gradient
                         featuredCard
 
@@ -286,6 +294,62 @@ struct ExploreTabView: View {
         }
     }
 
+    // MARK: - Pending Suggestion Card
+
+    /// Parses `pendingSuggestion` JSON and returns a "Continue" card if valid.
+    @ViewBuilder
+    private var pendingSuggestionCard: some View {
+        let recipient = pendingRecipientName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !recipient.isEmpty, !pendingSuggestion.isEmpty,
+           let data = pendingSuggestion.data(using: .utf8),
+           let suggestion = try? JSONDecoder().decode(OnboardingSuggestion.self, from: data) {
+            VStack(alignment: .leading, spacing: DesignTokens.spacing8) {
+                HStack {
+                    Text("Continue your song for \(recipient)")
+                        .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
+                        .foregroundStyle(DesignTokens.textPrimary)
+                    Spacer()
+                    Button {
+                        pendingSuggestion = ""
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(DesignTokens.textTertiary)
+                            .frame(width: 28, height: 28)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Dismiss suggestion")
+                }
+
+                Text(suggestion.title)
+                    .font(DesignTokens.bodyFont(size: 14))
+                    .foregroundStyle(DesignTokens.textSecondary)
+                    .lineLimit(2)
+
+                Button {
+                    onResumePendingSong?()
+                } label: {
+                    Text("\u{2726} Make This Song")
+                        .font(DesignTokens.bodyFont(size: 14, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(DesignTokens.gold)
+                        .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusCTA))
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("explore-resume-pending-song")
+            }
+            .padding(DesignTokens.spacing12)
+            .background(DesignTokens.surface)
+            .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusMedium))
+            .overlay(
+                RoundedRectangle(cornerRadius: DesignTokens.radiusMedium)
+                    .stroke(DesignTokens.gold.opacity(0.3), lineWidth: 1)
+            )
+        }
+    }
+
     // MARK: - Playback
     // TODO: Extract to shared PlaybackService (see PlayerComponents.swift) — near-duplicate of MySongsView.togglePlayback
 
@@ -402,6 +466,7 @@ struct ExploreTabView: View {
         onOccasionSelected: { _ in },
         onCreate: { },
         onSendGift: { },
-        showsGiftSendEntry: true
+        showsGiftSendEntry: true,
+        onResumePendingSong: { }
     )
 }

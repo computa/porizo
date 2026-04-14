@@ -218,6 +218,7 @@ struct OnboardingV2View: View {
                     resolvedQuestion: engine.resolvedQuestion,
                     options: node?.options ?? [],
                     allowFreeText: false,
+                    preselectedValue: engine.currentNodeId == "occasion_picker" ? engine.answers.occasion : nil,
                     onContinue: { value in
                         let resolvedValue = value.isEmpty ? nil : value
                         engine.selectSingle(resolvedValue)

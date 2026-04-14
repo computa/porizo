@@ -48,6 +48,8 @@ struct StorySetup: Sendable, Equatable {
     var occasion: Occasion? = nil
     var style: String? = nil
     var tone: PoemTone = .heartfelt
+    var emotionalSeed: String? = nil
+    var relationshipType: String? = nil
 
     mutating func applyPreselectedRecipientName(_ recipientName: String?) {
         guard let recipientName else { return }
@@ -91,6 +93,8 @@ struct CreateFlowLaunch: Identifiable, Sendable {
     let initialRecipientName: String?
     let preselectedOccasion: Occasion?
     let preselectedType: CreateFlowKind?
+    let initialEmotionalSeed: String?
+    let initialRelationshipType: String?
     let resumeTrackId: String?
     let resumeVersionNum: Int?
     let resumeTarget: CreateFlowResumeTarget?
@@ -108,6 +112,8 @@ enum CreateFlowBootstrapAction {
         initialRecipientName: String?,
         preselectedOccasion: Occasion?,
         preselectedType: CreateFlowKind?,
+        initialEmotionalSeed: String?,
+        initialRelationshipType: String?,
         resumeTrackId: String?,
         resumeVersionNum: Int?,
         resumeTarget: CreateFlowResumeTarget?,
@@ -142,6 +148,8 @@ enum CreateFlowBootstrapAction {
         var setup = StorySetup()
         setup.applyPreselectedRecipientName(initialRecipientName)
         setup.applyPreselectedOccasion(preselectedOccasion)
+        setup.emotionalSeed = initialEmotionalSeed
+        setup.relationshipType = initialRelationshipType
         return .freshStart(initialSetup: setup, forcedType: preselectedType)
     }
 }

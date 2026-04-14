@@ -210,6 +210,10 @@ final class QuestionGraphEngine {
         switch nodeId {
         case "goal_question":
             answers.goalIntent = value
+            // Pre-select occasion from goal intent when applicable
+            if value == "birthday_surprise" {
+                answers.occasion = "birthday"
+            }
         case "relationship_picker":
             answers.relationshipType = value
             // Store human label from the option

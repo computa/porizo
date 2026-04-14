@@ -185,6 +185,8 @@ struct RootView: View {
                         pendingRecipientName: pendingRecipientName.isEmpty ? nil : pendingRecipientName,
                         pendingOccasion: resolvedPendingOccasion,
                         pendingType: resolvedPendingCreateType,
+                        pendingEmotionalSeed: pendingEmotionalSeed.isEmpty ? nil : pendingEmotionalSeed,
+                        pendingRelationshipType: pendingRelationshipType.isEmpty ? nil : pendingRelationshipType,
                         onConsumePendingCreateContext: clearPendingCreateContext
                     )
                         .environment(router)
@@ -196,6 +198,8 @@ struct RootView: View {
                         pendingRecipientName: pendingRecipientName.isEmpty ? nil : pendingRecipientName,
                         pendingOccasion: resolvedPendingOccasion,
                         pendingType: resolvedPendingCreateType,
+                        pendingEmotionalSeed: pendingEmotionalSeed.isEmpty ? nil : pendingEmotionalSeed,
+                        pendingRelationshipType: pendingRelationshipType.isEmpty ? nil : pendingRelationshipType,
                         onConsumePendingCreateContext: clearPendingCreateContext
                     )
                         .environment(sttRouter ?? STTRouter(apiClient: fallbackClient))
