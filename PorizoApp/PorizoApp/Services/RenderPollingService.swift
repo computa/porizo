@@ -50,6 +50,10 @@ final class RenderPollingService {
         self.refreshHandler = onRefresh
         self.isPolling = true
 
+        // Fire once immediately so newly-rendering states refresh without waiting
+        // for the first interval tick.
+        onRefresh()
+
         timerTask = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(interval))

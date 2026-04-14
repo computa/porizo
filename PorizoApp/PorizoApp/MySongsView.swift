@@ -599,6 +599,7 @@ struct MySongsView: View {
                 let transformedUrlString = transformAudioUrl(urlString, baseURL: apiClient.baseURL)
                 print("[Audio] Original URL: \(urlString)")
                 print("[Audio] Transformed URL: \(transformedUrlString)")
+                LocalCache.shared.savePlayableAudioURL(transformedUrlString, for: trackId)
 
                 guard let url = URL(string: transformedUrlString) else {
                     errorMessage = "Invalid audio URL"

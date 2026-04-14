@@ -24,9 +24,9 @@ struct LaunchFlashResolver {
     static let recentHistoryDepth = 3
 
     /// Default fallback values used when server config doesn't supply a demo.
-    static let demoFallbackTitle = "Summer at the Lake"
-    static let demoFallbackRecipient = "For Mom"
-    static let demoFallbackLyric = "Remember when the water was too cold but we jumped in anyway..."
+    static let demoFallbackTitle = "The Drive Home"
+    static let demoFallbackRecipient = "For Dad"
+    static let demoFallbackLyric = "You kept one hand on the wheel and one eye on me the whole way home..."
 
     init(
         source: LaunchFlashContentSource,
@@ -136,40 +136,11 @@ struct LaunchFlashResolver {
 
     /// Returns the pending suggestion if it should be shown.
     /// Returns nil if cleared/expired/exhausted/de-duped.
-    private func pendingSuggestion() -> OnboardingSuggestion? {
-        let raw = defaults.string(forKey: "pendingSuggestion") ?? ""
-        guard !raw.isEmpty,
-              let data = raw.data(using: .utf8),
-              let suggestion = try? JSONDecoder().decode(OnboardingSuggestion.self, from: data)
-        else {
-            return nil
-        }
-
-        // Show count cap (5 shows then expire)
-        let showCount = defaults.integer(forKey: "pendingSuggestionShowCount")
-        if showCount >= 5 { return nil }
-
-        // 14-day expiry
-        let setAt = defaults.double(forKey: "pendingSuggestionSetAt")
-        if setAt > 0 {
-            let age = Date().timeIntervalSince1970 - setAt
-            if age > 14 * 86400 { return nil }
-        }
-
-        // De-dupe: if any created song already targets this recipient, skip
-        let recipient = defaults.string(forKey: "pendingRecipientName")?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        if let recipient, !recipient.isEmpty {
-            let createdMatches = source.loadTracks().contains { track in
-                !track.isReceived
-                    && track.recipientName?.trimmingCharacters(in: .whitespacesAndNewlines)
-                        .lowercased() == recipient
-            }
-            if createdMatches { return nil }
-        }
-
-        return suggestion
+    private func pendingSuggestion() -> PendingSuggestionContext? {
+        PendingSuggestionStore.loadIfActive(
+            defaults: defaults,
+            tracks: source.loadTracks()
+        )
     }
 
     // MARK: - Content Construction
@@ -180,20 +151,19 @@ struct LaunchFlashResolver {
             title: track.title,
             recipientName: track.recipientName,
             lyricPreview: nil,  // Not in cached Track model; future work
-            audioURL: nil,      // v1: visual-only for owned tracks (see design doc)
+            audioURL: self.source.loadPlayableAudioURL(for: track.id),
             coverImageURL: track.coverImageUrl.flatMap { URL(string: $0) },
             source: source
         )
     }
 
-    private func makeContent(from suggestion: OnboardingSuggestion) -> LaunchFlashContent {
-        let recipient = defaults.string(forKey: "pendingRecipientName")
+    private func makeContent(from suggestion: PendingSuggestionContext) -> LaunchFlashContent {
         return LaunchFlashContent(
             trackId: nil,
-            title: suggestion.title,
-            recipientName: recipient,
-            lyricPreview: suggestion.previewLine,
-            audioURL: onboardingConfig?.sampleAudioUrl.flatMap { URL(string: $0) },
+            title: suggestion.suggestion.title,
+            recipientName: suggestion.recipientName,
+            lyricPreview: suggestion.suggestion.previewLine,
+            audioURL: (onboardingConfig?.launchFlashAudioUrl ?? onboardingConfig?.sampleAudioUrl).flatMap { URL(string: $0) },
             coverImageURL: nil,
             source: .suggestion
         )
@@ -203,9 +173,10 @@ struct LaunchFlashResolver {
         // Demo only shown when we have at minimum a server-supplied audio URL OR
         // a server-supplied recipient/lyric. Otherwise we'd be showing a fully
         // hardcoded card to a user with no real content — feels broken.
-        let audioURL = onboardingConfig?.sampleAudioUrl.flatMap { URL(string: $0) }
-        let serverRecipient = onboardingConfig?.splashDemoRecipient
-        let serverLyric = onboardingConfig?.splashLyricsPreview
+        let audioURL = (onboardingConfig?.launchFlashAudioUrl ?? onboardingConfig?.sampleAudioUrl).flatMap { URL(string: $0) }
+        let serverTitle = onboardingConfig?.launchFlashTitle
+        let serverRecipient = onboardingConfig?.launchFlashRecipient
+        let serverLyric = onboardingConfig?.launchFlashLyricsPreview
 
         guard audioURL != nil || serverRecipient != nil || serverLyric != nil else {
             return nil
@@ -213,7 +184,7 @@ struct LaunchFlashResolver {
 
         return LaunchFlashContent(
             trackId: nil,
-            title: Self.demoFallbackTitle,
+            title: serverTitle ?? Self.demoFallbackTitle,
             recipientName: serverRecipient ?? Self.demoFallbackRecipient,
             lyricPreview: serverLyric ?? Self.demoFallbackLyric,
             audioURL: audioURL,

@@ -5,8 +5,8 @@
 //  Owns the AVPlayer lifecycle for the launch flash.
 //
 //  Per design doc § "AVPlayer Lifecycle Contract":
-//  - Uses AVAudioSession.Category.ambient + .mixWithOthers
-//    (NOT .playback — .ambient respects the silent switch automatically)
+//  - Uses AVAudioSession.Category.playback so the launch flash remains audible
+//    on physical devices even when the silent switch is enabled.
 //  - Cleans up KVO observers, NotificationCenter observers, periodic time observers
 //  - Synchronously pauses + nils out player on dismiss, BEFORE starting fade
 //  - Deactivates session AFTER fade completes
@@ -26,6 +26,7 @@ final class LaunchFlashViewModel {
     private(set) var firstFrameDelayMs: Int?
     private(set) var hasDismissed = false
     private(set) var didFinishNaturally = false
+    private(set) var canResumePlayback = false
 
     private var player: AVPlayer?
     private var statusObserver: NSKeyValueObservation?
@@ -64,13 +65,14 @@ final class LaunchFlashViewModel {
     func startAudio(with url: URL) {
         guard !hasDismissed, player == nil else { return }
 
-        configureAudioSession()
+        guard configureAudioSession() else { return }
         audioStartTime = Date()
 
         let item = AVPlayerItem(url: url)
         let avPlayer = AVPlayer(playerItem: item)
         avPlayer.volume = 0.6
         player = avPlayer
+        canResumePlayback = true
 
         // KVO: track readiness + first frame
         statusObserver = item.observe(\.status, options: [.new]) { [weak self] observed, _ in
@@ -133,6 +135,7 @@ final class LaunchFlashViewModel {
         }
         player = nil
         isAudioPlaying = false
+        canResumePlayback = false
 
         statusObserver?.invalidate()
         statusObserver = nil
@@ -158,19 +161,21 @@ final class LaunchFlashViewModel {
 
     // MARK: - Audio Session
 
-    private func configureAudioSession() {
+    private func configureAudioSession() -> Bool {
         do {
-            // .ambient (NOT .playback) respects the silent switch automatically.
-            // .mixWithOthers ensures we don't interrupt podcasts/music.
-            try AVAudioSession.sharedInstance().setCategory(.ambient, options: .mixWithOthers)
+            // Launch flash is the product reveal. Keep it audible on device in the
+            // same way onboarding now is, instead of disappearing behind silent mode.
+            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
             try AVAudioSession.sharedInstance().setActive(true)
             sessionActivated = true
+            return true
         } catch {
             #if DEBUG
             print("[LaunchFlash] Audio session setup failed: \(error.localizedDescription)")
             #endif
             audioLoadFailed = true
             onAudioFailed?()
+            return false
         }
     }
 
@@ -182,15 +187,17 @@ final class LaunchFlashViewModel {
             object: AVAudioSession.sharedInstance(),
             queue: .main
         ) { [weak self] notification in
+            let userInfo = notification.userInfo
+            let typeValue = userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt
+            let optionsValue = userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt
             Task { @MainActor [weak self] in
-                self?.handleInterruption(notification)
+                self?.handleInterruption(typeValue: typeValue, optionsValue: optionsValue)
             }
         }
     }
 
-    private func handleInterruption(_ notification: Notification) {
-        guard let info = notification.userInfo,
-              let typeValue = info[AVAudioSessionInterruptionTypeKey] as? UInt,
+    private func handleInterruption(typeValue: UInt?, optionsValue: UInt?) {
+        guard let typeValue,
               let type = AVAudioSession.InterruptionType(rawValue: typeValue)
         else { return }
 
@@ -199,7 +206,7 @@ final class LaunchFlashViewModel {
             player?.pause()
             isAudioPlaying = false
         case .ended:
-            guard let optionsValue = info[AVAudioSessionInterruptionOptionKey] as? UInt else { return }
+            guard let optionsValue else { return }
             let options = AVAudioSession.InterruptionOptions(rawValue: optionsValue)
             if options.contains(.shouldResume), !hasDismissed {
                 player?.play()
@@ -216,15 +223,15 @@ final class LaunchFlashViewModel {
             object: AVAudioSession.sharedInstance(),
             queue: .main
         ) { [weak self] notification in
+            let reasonValue = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt
             Task { @MainActor [weak self] in
-                self?.handleRouteChange(notification)
+                self?.handleRouteChange(reasonValue: reasonValue)
             }
         }
     }
 
-    private func handleRouteChange(_ notification: Notification) {
-        guard let info = notification.userInfo,
-              let reasonValue = info[AVAudioSessionRouteChangeReasonKey] as? UInt,
+    private func handleRouteChange(reasonValue: UInt?) {
+        guard let reasonValue,
               let reason = AVAudioSession.RouteChangeReason(rawValue: reasonValue)
         else { return }
 

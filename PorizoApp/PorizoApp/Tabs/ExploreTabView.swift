@@ -304,17 +304,16 @@ struct ExploreTabView: View {
     /// Parses `pendingSuggestion` JSON and returns a "Continue" card if valid.
     @ViewBuilder
     private var pendingSuggestionCard: some View {
-        let recipient = pendingRecipientName.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !recipient.isEmpty, !pendingSuggestion.isEmpty,
-           let data = pendingSuggestion.data(using: .utf8),
-           let suggestion = try? JSONDecoder().decode(OnboardingSuggestion.self, from: data) {
+        let tracks = LocalCache.shared.loadTracks()?.data ?? recentTracks
+        if let context = PendingSuggestionStore.loadIfActive(tracks: tracks) {
             VStack(alignment: .leading, spacing: DesignTokens.spacing12) {
                 HStack {
-                    Text("Continue your song for \(recipient)")
+                    Text("Continue your song for \(context.recipientName)")
                         .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
                         .foregroundStyle(DesignTokens.textPrimary)
                     Spacer()
                     Button {
+                        PendingSuggestionStore.clear()
                         pendingSuggestion = ""
                         pendingRecipientName = ""
                         pendingOccasion = ""
@@ -332,7 +331,7 @@ struct ExploreTabView: View {
                     .accessibilityLabel("Dismiss suggestion")
                 }
 
-                Text(suggestion.title)
+                Text(context.suggestion.title)
                     .font(DesignTokens.bodyFont(size: 14))
                     .foregroundStyle(DesignTokens.textSecondary)
                     .lineLimit(2)
@@ -399,6 +398,7 @@ struct ExploreTabView: View {
                 }
 
                 let transformedUrl = transformAudioUrl(urlString, baseURL: apiClient.baseURL)
+                LocalCache.shared.savePlayableAudioURL(transformedUrl, for: trackId)
                 guard let url = URL(string: transformedUrl) else {
                     ToastService.shared.error("Invalid audio URL")
                     playerState.stopPlayback()

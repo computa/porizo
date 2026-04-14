@@ -3,7 +3,8 @@
 //  PorizoApp
 //
 //  Root container for the V2 onboarding flow.
-//  Orchestrates 9 screens: Living Splash → Mirror → Questionnaire → Payoff.
+//  Orchestrates the V2 onboarding arc: Living Splash → Mirror →
+//  Adaptive Questionnaire → Payoff.
 //  The questionnaire screens are driven by QuestionGraphEngine.
 //
 
@@ -43,6 +44,7 @@ struct OnboardingV2View: View {
     let onSkip: (PartialOnboardingResult?) -> Void
 
     @State private var engine: QuestionGraphEngine?
+    @State private var resolvedGraph: OnboardingGraph?
     @State private var screen: OnboardingScreen = .splash
     @State private var suggestion: OnboardingSuggestion?
     @State private var suggestionLoading = false
@@ -86,12 +88,16 @@ struct OnboardingV2View: View {
                     )
 
                 case .mirror:
-                    MirrorView {
-                        if engine == nil {
-                            engine = QuestionGraphEngine(graph: QuestionGraphEngine.loadBundled())
+                    MirrorView(
+                        isContinueEnabled: resolvedGraph != nil,
+                        onContinue: {
+                            guard let resolvedGraph else { return }
+                            if engine == nil {
+                                engine = QuestionGraphEngine(graph: resolvedGraph)
+                            }
+                            transitionTo(.questionnaire)
                         }
-                        transitionTo(.questionnaire)
-                    }
+                    )
 
                 case .questionnaire:
                     questionnaireContent
@@ -177,9 +183,7 @@ struct OnboardingV2View: View {
             // Load graph with server override in background
             Task {
                 let graph = await QuestionGraphEngine.loadWithServerOverride(version: questionGraphVersion, url: questionGraphUrl)
-                if engine == nil {
-                    engine = QuestionGraphEngine(graph: graph)
-                }
+                resolvedGraph = graph
             }
         }
         .onDisappear {
@@ -396,7 +400,9 @@ struct OnboardingV2View: View {
             return
         }
         do {
-            try AVAudioSession.sharedInstance().setCategory(.playback, options: .mixWithOthers)
+            // Onboarding is the product reveal. Keep it audible on device even when
+            // the silent switch is enabled; launch flash remains on the gentler path.
+            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
             try AVAudioSession.sharedInstance().setActive(true)
         } catch {
             #if DEBUG

@@ -45,12 +45,17 @@ struct RootView: View {
     @AppStorage("launchFlashFailureCount") private var launchFlashFailureCount: Int = 0
     @AppStorage("lastBackgroundedAtEpoch") private var lastBackgroundedAtEpoch: Double = 0
     @State private var pendingLaunchFlashContent: LaunchFlashContent?
+    @State private var launchFlashShownAt: Date?
     @State private var previousScenePhase: ScenePhase = .active
     @Environment(\.scenePhase) private var scenePhase
     @State private var hasSkippedProfileCompletionInSession = false
     @State private var onboardingSampleURL: String?
     @State private var onboardingSplashRecipient: String?
     @State private var onboardingSplashLyricsPreview: String?
+    @State private var launchFlashSampleURL: String?
+    @State private var launchFlashTitle: String?
+    @State private var launchFlashRecipient: String?
+    @State private var launchFlashLyricsPreview: String?
     @State private var onboardingGraphVersion: Int?
     @State private var onboardingGraphUrl: String?
 
@@ -180,6 +185,7 @@ struct RootView: View {
                         content: content,
                         apiClient: apiClient,
                         onDismiss: { dismissLaunchFlash() },
+                        onPrimaryActionRequested: { handleLaunchFlashPrimaryAction() },
                         onDisableRequested: {
                             launchFlashModeRaw = LaunchFlashMode.off.rawValue
                             AnalyticsService.shared.log(.launchFlashDisabled, properties: [
@@ -299,6 +305,9 @@ struct RootView: View {
                 hasSkippedProfileCompletionInSession = false
                 syncProfileCompletionContext()
                 authContextMessage = nil
+                if appState == .launchFlash {
+                    dismissLaunchFlash(reason: "auth_change", routeOverride: .main, shouldLog: true)
+                }
                 if let pendingShareId {
                     shareContext = ShareContext(shareId: pendingShareId, isPoem: pendingShareIsPoem)
                     self.pendingShareId = nil
@@ -311,8 +320,12 @@ struct RootView: View {
                 }
             } else if hasCompletedOnboarding && !skipAuth && appState != .auth && pendingRecipientName.isEmpty {
                 profileCompletionContext = nil
-                withAnimation(.easeInOut(duration: 0.3)) {
-                    appState = .auth
+                if appState == .launchFlash {
+                    dismissLaunchFlash(reason: "auth_change", routeOverride: .auth, shouldLog: true)
+                } else {
+                    withAnimation(.easeInOut(duration: 0.3)) {
+                        appState = .auth
+                    }
                 }
             }
         }
@@ -422,10 +435,22 @@ struct RootView: View {
         pendingCreateType = CreateFlowKind.song.rawValue
         pendingCreateAutostart = true
 
-        if let suggestion = result.suggestion,
-           let encoded = try? JSONEncoder().encode(suggestion),
-           let json = String(data: encoded, encoding: .utf8) {
-            pendingSuggestion = json
+        if let suggestion = result.suggestion {
+            PendingSuggestionStore.store(
+                suggestion: suggestion,
+                recipientName: result.recipientName,
+                occasion: result.occasion,
+                emotionalSeed: result.emotionalSeed,
+                relationshipType: result.relationshipType,
+                createTypeRaw: CreateFlowKind.song.rawValue
+            )
+            if let encoded = try? JSONEncoder().encode(suggestion),
+               let json = String(data: encoded, encoding: .utf8) {
+                pendingSuggestion = json
+            }
+        } else {
+            PendingSuggestionStore.clear()
+            pendingSuggestion = ""
         }
 
         hasCompletedOnboarding = true
@@ -439,15 +464,32 @@ struct RootView: View {
     private func skipOnboardingV2(_ partial: PartialOnboardingResult?) {
         hasCompletedOnboarding = true
 
-        if let partial,
-           let encoded = try? JSONEncoder().encode(partial.suggestion),
-           let json = String(data: encoded, encoding: .utf8) {
-            pendingSuggestion = json
+        if let partial {
+            PendingSuggestionStore.store(
+                suggestion: partial.suggestion,
+                recipientName: partial.recipientName,
+                occasion: partial.occasion,
+                emotionalSeed: partial.emotionalSeed,
+                relationshipType: partial.relationshipType,
+                createTypeRaw: CreateFlowKind.song.rawValue
+            )
+            if let encoded = try? JSONEncoder().encode(partial.suggestion),
+               let json = String(data: encoded, encoding: .utf8) {
+                pendingSuggestion = json
+            }
             pendingRecipientName = partial.recipientName
             pendingOccasion = partial.occasion ?? ""
             pendingEmotionalSeed = partial.emotionalSeed
             pendingRelationshipType = partial.relationshipType
             pendingCreateType = CreateFlowKind.song.rawValue
+        } else {
+            PendingSuggestionStore.clear()
+            pendingSuggestion = ""
+            pendingRecipientName = ""
+            pendingOccasion = ""
+            pendingEmotionalSeed = ""
+            pendingRelationshipType = ""
+            pendingCreateType = ""
         }
         pendingCreateAutostart = false
 
@@ -457,6 +499,7 @@ struct RootView: View {
     }
 
     private func clearPendingCreateContext() {
+        PendingSuggestionStore.clear()
         pendingRecipientName = ""
         pendingOccasion = ""
         pendingCreateType = ""
@@ -476,26 +519,25 @@ struct RootView: View {
         if launchesValidationFixture { return .main }
         #endif
 
-        // Bootstrap intent (deep link / share) always wins
-        if pendingShareId != nil {
+        let shouldAttemptFlash = LaunchFlashGate.shouldAttemptFlash(
+            hasPendingNavigationIntent: pendingShareId != nil,
+            isAuthenticated: authManager.isAuthenticated,
+            skipAuth: skipAuth,
+            mode: launchFlashMode,
+            failureCount: launchFlashFailureCount
+        )
+        guard shouldAttemptFlash else {
+            if launchFlashFailureCount >= 3 {
+                AnalyticsService.shared.log(.launchFlashFailed, properties: [
+                    "error_type": "circuit_breaker_open",
+                    "failure_count": "\(launchFlashFailureCount)"
+                ])
+            }
             return routeToMainOrAuth()
         }
 
-        // Settings opt-out
-        if launchFlashMode == .off {
-            return routeToMainOrAuth()
-        }
-
-        // Crash-loop circuit breaker — uses pre-increment-then-reset pattern so it
-        // survives even when failures are crashes (catch blocks won't run on a crash).
-        // We bump the count BEFORE risky work; dismissLaunchFlash() resets it on success.
-        if launchFlashFailureCount >= 3 {
-            AnalyticsService.shared.log(.launchFlashFailed, properties: [
-                "error_type": "circuit_breaker_open",
-                "failure_count": "\(launchFlashFailureCount)"
-            ])
-            return routeToMainOrAuth()
-        }
+        // We bump the failure count BEFORE risky work; dismissLaunchFlash()
+        // resets it on successful completion.
         launchFlashFailureCount += 1
 
         // Resolve content — if nothing to show, skip flash
@@ -510,17 +552,21 @@ struct RootView: View {
             return routeToMainOrAuth()
         }
 
+        #if DEBUG
+        print("[LaunchFlash] Resolved content — source: \(content.source.rawValue), trackId: \(content.trackId ?? "nil"), audioURL: \(content.audioURL?.absoluteString ?? "nil"), title: \(content.title)")
+        #endif
+
         // Record history at decision time (per spec: guarantees rotation even on fast-kill)
         LaunchFlashHistory.record(trackId: content.trackId)
 
         // If the suggestion was shown, increment its counter so the 5-show cap can fire
         if content.source == .suggestion {
-            let count = UserDefaults.standard.integer(forKey: "pendingSuggestionShowCount")
-            UserDefaults.standard.set(count + 1, forKey: "pendingSuggestionShowCount")
+            PendingSuggestionStore.markShown()
         }
 
         // Store content for the view and transition
         pendingLaunchFlashContent = content
+        launchFlashShownAt = Date()
 
         // audio_attempted == true if we have a URL OR we'll lazy-fetch one (owned tracks)
         let willAttemptAudio = content.audioURL != nil || content.trackId != nil
@@ -539,13 +585,42 @@ struct RootView: View {
     }
 
     /// Transition out of the launch flash to the main app or auth.
-    private func dismissLaunchFlash() {
+    private func dismissLaunchFlash(
+        reason: String = "tap",
+        routeOverride: RootState? = nil,
+        shouldLog: Bool = false
+    ) {
+        if shouldLog {
+            let durationMs = launchFlashShownAt.map { Int(Date().timeIntervalSince($0) * 1000) } ?? 0
+            AnalyticsService.shared.log(.launchFlashDismissed, properties: [
+                "duration_ms": "\(durationMs)",
+                "audio_finished_naturally": "false",
+                "dismissal_type": reason,
+            ])
+        }
         // Reset failure count on successful completion
         if launchFlashFailureCount > 0 { launchFlashFailureCount = 0 }
         pendingLaunchFlashContent = nil
+        launchFlashShownAt = nil
         withAnimation(.easeInOut(duration: 0.35)) {
-            appState = routeToMainOrAuth()
+            appState = routeOverride ?? routeToMainOrAuth()
         }
+    }
+
+    private func handleLaunchFlashPrimaryAction() {
+        guard pendingLaunchFlashContent?.source == .suggestion else {
+            dismissLaunchFlash()
+            return
+        }
+        if let context = PendingSuggestionStore.loadIfActive() {
+            pendingRecipientName = context.recipientName
+            pendingOccasion = context.occasion ?? ""
+            pendingEmotionalSeed = context.emotionalSeed ?? ""
+            pendingRelationshipType = context.relationshipType ?? ""
+            pendingCreateType = context.createTypeRaw ?? CreateFlowKind.song.rawValue
+        }
+        pendingCreateAutostart = true
+        dismissLaunchFlash(reason: "primary_cta", routeOverride: .main, shouldLog: true)
     }
 
     /// Build an OnboardingConfig for the resolver using the cached splash demo fields.
@@ -556,6 +631,10 @@ struct RootView: View {
             sampleLabel: nil,
             splashDemoRecipient: onboardingSplashRecipient,
             splashLyricsPreview: onboardingSplashLyricsPreview,
+            launchFlashAudioUrl: launchFlashSampleURL,
+            launchFlashTitle: launchFlashTitle,
+            launchFlashRecipient: launchFlashRecipient,
+            launchFlashLyricsPreview: launchFlashLyricsPreview,
             questionGraphVersion: onboardingGraphVersion,
             questionGraphUrl: onboardingGraphUrl
         )
@@ -664,11 +743,17 @@ struct RootView: View {
             apiClientReady = true
         }
         if !parsed.isPoem {
+            if appState == .launchFlash {
+                dismissLaunchFlash(reason: "deep_link", routeOverride: routeToMainOrAuth(), shouldLog: true)
+            }
             pendingShareId = nil
             pendingShareIsPoem = false
             authContextMessage = nil
             shareContext = ShareContext(shareId: parsed.shareId, isPoem: false)
         } else if authManager.isAuthenticated {
+            if appState == .launchFlash {
+                dismissLaunchFlash(reason: "deep_link", routeOverride: .main, shouldLog: true)
+            }
             shareContext = ShareContext(shareId: parsed.shareId, isPoem: parsed.isPoem)
         } else {
             pendingShareId = parsed.shareId
@@ -676,7 +761,11 @@ struct RootView: View {
             authContextMessage = parsed.isPoem
                 ? "Sign in to read your shared poem"
                 : "Sign in to listen to your shared song"
-            appState = .auth
+            if appState == .launchFlash {
+                dismissLaunchFlash(reason: "deep_link", routeOverride: .auth, shouldLog: true)
+            } else {
+                appState = .auth
+            }
         }
     }
 
@@ -790,6 +879,18 @@ struct RootView: View {
             // V2 onboarding splash metadata
             onboardingSplashRecipient = response.onboarding?.splashDemoRecipient
             onboardingSplashLyricsPreview = response.onboarding?.splashLyricsPreview
+            if let relativePath = response.onboarding?.launchFlashAudioUrl {
+                if relativePath.hasPrefix("http") {
+                    launchFlashSampleURL = relativePath
+                } else {
+                    launchFlashSampleURL = AppConfig.apiBaseURL + relativePath
+                }
+            } else {
+                launchFlashSampleURL = nil
+            }
+            launchFlashTitle = response.onboarding?.launchFlashTitle
+            launchFlashRecipient = response.onboarding?.launchFlashRecipient
+            launchFlashLyricsPreview = response.onboarding?.launchFlashLyricsPreview
             onboardingGraphVersion = response.onboarding?.questionGraphVersion
             onboardingGraphUrl = response.onboarding?.questionGraphUrl
 

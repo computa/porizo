@@ -36,6 +36,43 @@ final class LocalCache {
 
     func invalidateTracks() {
         invalidateCache(name: "tracks.json")
+        invalidateCache(name: "track-playable-audio-urls.json")
+    }
+
+    func loadPlayableAudioURLMap() -> [String: String]? {
+        loadEnvelope(name: "track-playable-audio-urls.json")?.data
+    }
+
+    func playableAudioURL(for trackId: String) -> URL? {
+        guard let urlString = loadPlayableAudioURLMap()?[trackId] else { return nil }
+        return URL(string: urlString)
+    }
+
+    func savePlayableAudioURL(_ urlString: String, for trackId: String) {
+        queue.async {
+            do {
+                if !FileManager.default.fileExists(atPath: self.baseURL.path()) {
+                    try FileManager.default.createDirectory(
+                        at: self.baseURL,
+                        withIntermediateDirectories: true
+                    )
+                }
+                let url = self.baseURL.appendingPathComponent("track-playable-audio-urls.json")
+                var map: [String: String] = [:]
+                if FileManager.default.fileExists(atPath: url.path()) {
+                    let existingData = try Data(contentsOf: url)
+                    if let envelope = try? self.decoder.decode(CacheEnvelope<[String: String]>.self, from: existingData) {
+                        map = envelope.data
+                    }
+                }
+                map[trackId] = urlString
+                let envelope = CacheEnvelope(savedAt: Date.now, data: map)
+                let encoded = try self.encoder.encode(envelope)
+                try encoded.write(to: url, options: [.atomic])
+            } catch {
+                // Ignore cache failures to avoid blocking UX.
+            }
+        }
     }
 
     func loadPoems() -> CacheEnvelope<[Poem]>? {

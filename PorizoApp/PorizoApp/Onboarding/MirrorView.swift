@@ -9,6 +9,7 @@
 import SwiftUI
 
 struct MirrorView: View {
+    var isContinueEnabled: Bool = true
     let onContinue: () -> Void
 
     @State private var hasAdvanced = false
@@ -51,11 +52,12 @@ struct MirrorView: View {
             .padding(.horizontal, DesignTokens.spacing20)
         } bottom: {
             OnboardingCTAButton(accessibilityId: "onboarding-mirror-continue") {
-                guard !hasAdvanced else { return }
+                guard !hasAdvanced, isContinueEnabled else { return }
                 hasAdvanced = true
                 onContinue()
             }
                 .opacity(showLanding ? 1 : 0)
+                .disabled(!isContinueEnabled)
         }
         .onAppear {
             if reduceMotion {

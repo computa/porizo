@@ -318,7 +318,9 @@ final class QuestionGraphEngine {
            let graph = try? JSONDecoder().decode(OnboardingGraph.self, from: cached) {
             return graph
         }
-        guard let data = try? await URLSession.shared.data(from: fetchURL).0,
+        var request = URLRequest(url: fetchURL)
+        request.timeoutInterval = 2.5
+        guard let data = try? await URLSession.shared.data(for: request).0,
               let graph = try? JSONDecoder().decode(OnboardingGraph.self, from: data) else {
             return bundled
         }

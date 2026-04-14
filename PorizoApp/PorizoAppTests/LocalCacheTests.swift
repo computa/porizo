@@ -201,4 +201,30 @@ final class LocalCacheTests: XCTestCase {
 
         XCTAssertNil(LocalCache.shared.loadTracks(), "Should be nil after invalidation")
     }
+
+    func testPlayableAudioURL_roundTrip_andInvalidateTracksClearsIt() {
+        XCTAssertNil(LocalCache.shared.playableAudioURL(for: "track_audio_1"))
+
+        LocalCache.shared.savePlayableAudioURL(
+            "https://cdn.example.com/audio/track_audio_1.m4a",
+            for: "track_audio_1"
+        )
+
+        let saveExp = expectation(description: "Playable audio cache write completes")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { saveExp.fulfill() }
+        wait(for: [saveExp], timeout: 2)
+
+        XCTAssertEqual(
+            LocalCache.shared.playableAudioURL(for: "track_audio_1")?.absoluteString,
+            "https://cdn.example.com/audio/track_audio_1.m4a"
+        )
+
+        LocalCache.shared.invalidateTracks()
+
+        let invalidateExp = expectation(description: "Playable audio cache invalidates")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { invalidateExp.fulfill() }
+        wait(for: [invalidateExp], timeout: 2)
+
+        XCTAssertNil(LocalCache.shared.playableAudioURL(for: "track_audio_1"))
+    }
 }

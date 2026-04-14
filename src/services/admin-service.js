@@ -2409,6 +2409,10 @@ class AdminService {
       sample_label: activeSample?.label || null,
       splash_demo_recipient: activeSample?.label || null,
       splash_lyrics_preview: null,
+      launch_flash_audio_url: null,
+      launch_flash_title: 'The Drive Home',
+      launch_flash_recipient: 'For Dad',
+      launch_flash_lyrics_preview: 'You kept one hand on the wheel and one eye on me the whole way home...',
       question_graph_version: 2,
       question_graph_url: `${config.PUBLIC_BASE_URL.replace(/\/+$/, "")}/api/onboarding/graph.json`,
     };

@@ -15,6 +15,7 @@ struct LaunchFlashView: View {
     let content: LaunchFlashContent
     let apiClient: APIClient?
     let onDismiss: () -> Void
+    let onPrimaryActionRequested: () -> Void
     let onDisableRequested: () -> Void
 
     @State private var viewModel: LaunchFlashViewModel
@@ -28,8 +29,6 @@ struct LaunchFlashView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
 
-    // Failsafe: if user hasn't tapped after this long, auto-dismiss.
-    private static let visibleFailsafeSeconds: TimeInterval = 15.0
     // VoiceOver auto-dismiss timer.
     private static let voiceOverDismissSeconds: TimeInterval = 4.0
     // Owned-track URL fetch budget — beyond this, give up and stay visual-only.
@@ -39,11 +38,13 @@ struct LaunchFlashView: View {
         content: LaunchFlashContent,
         apiClient: APIClient?,
         onDismiss: @escaping () -> Void,
+        onPrimaryActionRequested: @escaping () -> Void,
         onDisableRequested: @escaping () -> Void
     ) {
         self.content = content
         self.apiClient = apiClient
         self.onDismiss = onDismiss
+        self.onPrimaryActionRequested = onPrimaryActionRequested
         self.onDisableRequested = onDisableRequested
         _viewModel = State(initialValue: LaunchFlashViewModel(content: content))
     }
@@ -58,9 +59,30 @@ struct LaunchFlashView: View {
                     .opacity(showContent ? 1 : 0)
                     .scaleEffect(reduceMotion ? 1 : (showContent ? 1 : 0.92))
                 Spacer()
-                bottomHint
+                bottomArea
             }
             .padding(.horizontal, DesignTokens.spacing20)
+
+            VStack {
+                HStack {
+                    Spacer()
+                    Button {
+                        dismiss(type: "skip_button")
+                    } label: {
+                        Text("Skip")
+                            .font(DesignTokens.bodyFont(size: 15, weight: .semibold))
+                            .foregroundStyle(DesignTokens.textSecondary)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .background(DesignTokens.surface.opacity(0.9))
+                            .clipShape(Capsule())
+                    }
+                    .padding(.top, DesignTokens.spacing24)
+                    .padding(.trailing, DesignTokens.spacing20)
+                    .accessibilityIdentifier("launch-flash-skip")
+                }
+                Spacer()
+            }
         }
         .contentShape(Rectangle())
         .onTapGesture { dismiss(type: "tap") }
@@ -171,13 +193,36 @@ struct LaunchFlashView: View {
         }
     }
 
-    private var bottomHint: some View {
-        Text("Tap anywhere to continue")
-            .font(DesignTokens.bodyFont(size: 13))
-            .foregroundStyle(DesignTokens.textTertiary)
-            .opacity(showContent ? 0.6 : 0)
-            .padding(.bottom, DesignTokens.spacing32)
-            .accessibilityHidden(true)
+    @ViewBuilder
+    private var bottomArea: some View {
+        VStack(spacing: DesignTokens.spacing12) {
+            if content.source == .suggestion {
+                Button {
+                    onPrimaryActionRequested()
+                } label: {
+                    HStack(spacing: DesignTokens.spacing8) {
+                        Image(systemName: "sparkles")
+                            .font(.system(size: 16))
+                        Text("Make This Song")
+                            .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
+                    }
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 16)
+                    .background(DesignTokens.gold)
+                    .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusCTA))
+                }
+                .goldGlow()
+                .accessibilityIdentifier("launch-flash-primary-cta")
+            }
+
+            Text(content.source == .suggestion ? "Or tap anywhere to continue" : "Tap anywhere to continue")
+                .font(DesignTokens.bodyFont(size: 13))
+                .foregroundStyle(DesignTokens.textTertiary)
+                .opacity(showContent ? 0.6 : 0)
+                .accessibilityHidden(true)
+        }
+        .padding(.bottom, DesignTokens.spacing32)
     }
 
     private var coralGradient: LinearGradient {
@@ -189,8 +234,9 @@ struct LaunchFlashView: View {
     }
 
     private var shouldShowPlayAffordance: Bool {
-        // Show "Listen" only when audio is available but not currently playing.
-        content.audioURL != nil
+        // Show "Listen" whenever audio has been loaded successfully and is
+        // currently paused, including owned tracks that fetched audio lazily.
+        viewModel.canResumePlayback
             && !viewModel.isAudioPlaying
             && !viewModel.audioLoadFailed
             && !voiceOverEnabled
@@ -239,24 +285,37 @@ struct LaunchFlashView: View {
 
             if content.audioURL != nil {
                 // Direct path: demo / suggestion already has a URL
+                #if DEBUG
+                print("[LaunchFlash] handleAppear — direct audio path (URL already present)")
+                #endif
                 viewModel.startAudio()
             } else if let trackId = content.trackId, let client = apiClient {
                 // Lazy path: owned tracks need an async fetch for the version URL.
                 // Visual stays up; audio fades in if/when the URL resolves.
+                #if DEBUG
+                print("[LaunchFlash] handleAppear — lazy fetch needed for trackId: \(trackId)")
+                #endif
                 audioFetchTask = Task { @MainActor in
                     if let url = await fetchAudioURL(for: trackId, using: client) {
                         guard !Task.isCancelled, !viewModel.hasDismissed else { return }
+                        #if DEBUG
+                        print("[LaunchFlash] handleAppear — lazy fetch succeeded, starting audio")
+                        #endif
                         viewModel.startAudio(with: url)
+                    } else {
+                        #if DEBUG
+                        print("[LaunchFlash] handleAppear — lazy fetch returned nil, staying visual-only")
+                        #endif
                     }
                 }
+            } else {
+                #if DEBUG
+                print("[LaunchFlash] handleAppear — no audio path: trackId=\(content.trackId ?? "nil"), apiClient=\(apiClient != nil ? "set" : "nil"), audioURL=nil")
+                #endif
             }
 
-            // 15-second visible failsafe (covers user who walks away mid-flash)
-            failsafeTask = Task { @MainActor in
-                try? await Task.sleep(for: .seconds(Self.visibleFailsafeSeconds))
-                guard !Task.isCancelled else { return }
-                dismiss(type: "auto_15s_failsafe")
-            }
+            // No normal-user auto-dismiss. Launch flash is explicitly user-controlled:
+            // tap anywhere or use the visible Skip affordance.
         }
     }
 
@@ -279,6 +338,7 @@ struct LaunchFlashView: View {
                 return nil
             }
             let transformed = transformAudioUrl(urlString, baseURL: client.baseURL)
+            LocalCache.shared.savePlayableAudioURL(transformed, for: trackId)
             return URL(string: transformed)
         } catch {
             #if DEBUG
