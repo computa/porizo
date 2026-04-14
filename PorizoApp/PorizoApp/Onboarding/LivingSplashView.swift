@@ -13,8 +13,10 @@ struct LivingSplashView: View {
     let demoURL: String?
     let recipientLabel: String?
     let lyricsPreview: String?
+    let isAudioPlaying: Bool
+    let showsPlayFallback: Bool
+    let onPlayRequested: () -> Void
     let onAdvance: () -> Void
-    let onAudioPlayed: ((_ trigger: String) -> Void)?
 
     @State private var showContent = false
     @State private var waveformPhase = false
@@ -77,6 +79,26 @@ struct LivingSplashView: View {
                         .italic()
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, DesignTokens.spacing32)
+
+                    if showsPlayFallback {
+                        Button {
+                            onPlayRequested()
+                        } label: {
+                            HStack(spacing: DesignTokens.spacing8) {
+                                Image(systemName: isAudioPlaying ? "speaker.wave.2.fill" : "play.fill")
+                                    .font(.system(size: 14, weight: .semibold))
+                                Text(isAudioPlaying ? "Song preview playing" : "Play song preview")
+                                    .font(DesignTokens.bodyFont(size: 14, weight: .semibold))
+                            }
+                            .foregroundStyle(DesignTokens.textPrimary)
+                            .padding(.horizontal, DesignTokens.spacing16)
+                            .padding(.vertical, DesignTokens.spacing12)
+                            .background(DesignTokens.surface)
+                            .clipShape(Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("onboarding-splash-play-fallback")
+                    }
                 }
                 .opacity(showContent ? 1 : 0)
                 .scaleEffect(reduceMotion ? 1 : (showContent ? 1 : 0.9))

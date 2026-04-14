@@ -1376,9 +1376,7 @@ struct WarmCanvasFlowView: View {
         trackTitle = Self.defaultTrackTitle(for: type)
         preSessionPrompt = nil
 
-        // Occasion is required — it drives beats, questions, and song structure.
-        // If user skipped the chips in InlineNamePromptView, show the picker.
-        if setup.occasion == nil {
+        if shouldRequireOccasionSelection {
             showOccasionPicker = true
         } else {
             continueAfterOccasionSelection()
@@ -1392,7 +1390,14 @@ struct WarmCanvasFlowView: View {
     }
 
     private func showPreSessionQuestion(for type: CreateFlowKind) {
-        preSessionPrompt = "Tell me about the story with \(setup.recipientName) that you want to turn into a \(type.rawValue). What's a moment or memory that stands out?"
+        let recipient = setup.recipientName
+        if let seed = setup.emotionalSeed?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !seed.isEmpty {
+            let readableSeed = seed.replacingOccurrences(of: "_", with: " ")
+            preSessionPrompt = "You already have the seed for this \(type.rawValue): \(readableSeed). Tell me a little more about that moment with \(recipient)."
+        } else {
+            preSessionPrompt = "Tell me about the story with \(recipient) that you want to turn into a \(type.rawValue). What's a moment or memory that stands out?"
+        }
     }
 
     private func beginConversation(initialPromptOverride: String? = nil) async {
@@ -1437,7 +1442,7 @@ struct WarmCanvasFlowView: View {
             return
         }
 
-        if setup.occasion == nil {
+        if shouldRequireOccasionSelection {
             showOccasionPicker = true
             return
         }
@@ -1838,7 +1843,7 @@ struct WarmCanvasFlowView: View {
             if !setup.recipientName.isEmpty, let selectedType {
                 didStartConversation = true
                 moment = .tell(.conversing)
-                if setup.occasion == nil {
+                if shouldRequireOccasionSelection {
                     showOccasionPicker = true
                 } else {
                     showPreSessionQuestion(for: selectedType)
@@ -1847,6 +1852,12 @@ struct WarmCanvasFlowView: View {
                 moment = .tell(.nameEntry)
             }
         }
+    }
+
+    private var shouldRequireOccasionSelection: Bool {
+        if setup.occasion != nil { return false }
+        let seed = setup.emotionalSeed?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return seed.isEmpty
     }
 
     private func injectResumeContext(storyId: String?, target: CreateFlowResumeTarget?) {

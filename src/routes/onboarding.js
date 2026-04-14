@@ -1,5 +1,8 @@
 "use strict";
 
+const fs = require("fs/promises");
+const path = require("path");
+
 /**
  * Onboarding Routes
  *
@@ -99,6 +102,18 @@ function generateTemplateSuggestion({ recipient_name, relationship_type, emotion
 }
 
 function registerOnboardingRoutes(app, { sendError }) {
+  app.get("/api/onboarding/graph.json", async (request, reply) => {
+    try {
+      const graphPath = path.join(process.cwd(), "PorizoApp", "PorizoApp", "Resources", "onboarding-graph.json");
+      const data = await fs.readFile(graphPath, "utf8");
+      reply.type("application/json");
+      return reply.send(JSON.parse(data));
+    } catch (err) {
+      request.log.error({ err }, "[Onboarding] Graph load error");
+      return sendError(reply, 500, "Failed to load onboarding graph");
+    }
+  });
+
   /**
    * POST /api/onboarding/suggest
    *

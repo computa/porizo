@@ -25,6 +25,7 @@ struct MainTabView: View {
     var pendingType: CreateFlowKind? = nil
     var pendingEmotionalSeed: String? = nil
     var pendingRelationshipType: String? = nil
+    var shouldAutoLaunchPendingCreate: Bool = false
     var onConsumePendingCreateContext: (() -> Void)? = nil
 
     @State private var selectedTab: Tab = {
@@ -59,6 +60,7 @@ struct MainTabView: View {
         pendingType: CreateFlowKind? = nil,
         pendingEmotionalSeed: String? = nil,
         pendingRelationshipType: String? = nil,
+        shouldAutoLaunchPendingCreate: Bool = false,
         onConsumePendingCreateContext: (() -> Void)? = nil
     ) {
         self.apiClient = apiClient
@@ -67,6 +69,7 @@ struct MainTabView: View {
         self.pendingType = pendingType
         self.pendingEmotionalSeed = pendingEmotionalSeed
         self.pendingRelationshipType = pendingRelationshipType
+        self.shouldAutoLaunchPendingCreate = shouldAutoLaunchPendingCreate
         self.onConsumePendingCreateContext = onConsumePendingCreateContext
         self._storeKitManager = State(wrappedValue: StoreKitManager(apiClient: apiClient))
     }
@@ -345,6 +348,7 @@ struct MainTabView: View {
     private func consumePendingCreateContextIfNeeded() {
         guard !hasConsumedPendingCreateContext else { return }
         guard createFlowLaunch == nil else { return }
+        guard shouldAutoLaunchPendingCreate else { return }
 
         let recipient = pendingRecipientName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !recipient.isEmpty else { return }

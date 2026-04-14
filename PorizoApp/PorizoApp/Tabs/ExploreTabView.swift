@@ -23,6 +23,11 @@ struct ExploreTabView: View {
     @AppStorage("hasCompletedFirstSong") private var hasCompletedFirstSong = false
     @AppStorage("pendingSuggestion") private var pendingSuggestion = ""
     @AppStorage("pendingRecipientName") private var pendingRecipientName = ""
+    @AppStorage("pendingOccasion") private var pendingOccasion = ""
+    @AppStorage("pendingEmotionalSeed") private var pendingEmotionalSeed = ""
+    @AppStorage("pendingRelationshipType") private var pendingRelationshipType = ""
+    @AppStorage("pendingCreateType") private var pendingCreateType = ""
+    @AppStorage("pendingCreateAutostart") private var pendingCreateAutostart = false
     @State private var recentTracks: [Track] = []
     @State private var isLoadingTracks = false
     @State private var audioLoadTask: Task<Void, Never>?
@@ -311,6 +316,12 @@ struct ExploreTabView: View {
                     Spacer()
                     Button {
                         pendingSuggestion = ""
+                        pendingRecipientName = ""
+                        pendingOccasion = ""
+                        pendingEmotionalSeed = ""
+                        pendingRelationshipType = ""
+                        pendingCreateType = ""
+                        pendingCreateAutostart = false
                     } label: {
                         Image(systemName: "xmark")
                             .font(.system(size: 12, weight: .semibold))

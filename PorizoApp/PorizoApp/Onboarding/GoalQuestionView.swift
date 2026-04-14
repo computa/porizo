@@ -10,6 +10,7 @@ import SwiftUI
 
 struct GoalQuestionView: View {
     let options: [GraphNodeOption]
+    let supportingText: String?
     let onSelect: (String) -> Void
 
     @State private var selectedValue: String?
@@ -22,6 +23,14 @@ struct GoalQuestionView: View {
                     .foregroundStyle(DesignTokens.textPrimary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, DesignTokens.spacing20)
+
+                if let supportingText, !supportingText.isEmpty {
+                    Text(supportingText)
+                        .font(DesignTokens.bodyFont(size: 15))
+                        .foregroundStyle(DesignTokens.textSecondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, DesignTokens.spacing24)
+                }
 
                 VStack(spacing: DesignTokens.spacing12) {
                     ForEach(options) { option in

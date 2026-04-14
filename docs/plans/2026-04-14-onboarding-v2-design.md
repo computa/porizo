@@ -133,11 +133,11 @@ Pick all that apply.
 
 | Label | Key | Data Use |
 |-------|-----|----------|
-| I'm not creative enough | `not_creative` | Adapt reframe: "You don't need to be creative" |
-| I never know what to get | `dont_know_what` | Adapt reframe: "We'll suggest the perfect idea" |
-| I always end up sending a text | `default_to_text` | Adapt reframe: "What if that text became a song?" |
+| I'm not creative enough | `not_creative` | Adapt goal-screen support copy: "You don't need to be creative" |
+| I never know what to get | `dont_know_what` | Adapt goal-screen support copy: "We'll help you find the right idea" |
+| I always end up sending a text | `default_to_text` | Adapt goal-screen support copy: "What if that text became a song?" |
 | I forget until the last minute | `forget_timing` | Profile builder: emphasize reminders later |
-| Nothing feels personal enough | `not_personal` | Adapt reframe: "That's exactly what we fix" |
+| Nothing feels personal enough | `not_personal` | Adapt goal-screen support copy: "That's exactly what we fix" |
 
 **Interaction:**
 - Multi-select Warm Canvas chips (surface bg, 12px radius, coral border on selection)
@@ -150,7 +150,7 @@ Pick all that apply.
 **Why this stays in onboarding:**
 - It's interactive, not passive (10 seconds, not 10 minutes)
 - It makes users feel understood before asking them to commit
-- The data directly improves the mirror's landing line and later profile suggestions
+- The data directly improves the next-step support copy and later profile suggestions
 
 ---
 

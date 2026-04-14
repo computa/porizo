@@ -2409,8 +2409,8 @@ class AdminService {
       sample_label: activeSample?.label || null,
       splash_demo_recipient: activeSample?.label || null,
       splash_lyrics_preview: null,
-      question_graph_version: null,
-      question_graph_url: null,
+      question_graph_version: 2,
+      question_graph_url: `${config.PUBLIC_BASE_URL.replace(/\/+$/, "")}/api/onboarding/graph.json`,
     };
 
     return {

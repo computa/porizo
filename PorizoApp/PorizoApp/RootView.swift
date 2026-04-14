@@ -39,6 +39,7 @@ struct RootView: View {
     @AppStorage("pendingEmotionalSeed") private var pendingEmotionalSeed = ""
     @AppStorage("pendingRelationshipType") private var pendingRelationshipType = ""
     @AppStorage("pendingSuggestion") private var pendingSuggestion = ""
+    @AppStorage("pendingCreateAutostart") private var pendingCreateAutostart = false
     @State private var hasSkippedProfileCompletionInSession = false
     @State private var onboardingSampleURL: String?
     @State private var onboardingSplashRecipient: String?
@@ -108,7 +109,7 @@ struct RootView: View {
                         if resetOnboarding {
                             let keys = ["hasCompletedOnboarding", "pendingRecipientName", "pendingOccasion",
                                          "pendingCreateType", "pendingEmotionalSeed", "pendingRelationshipType",
-                                         "pendingSuggestion"]
+                                         "pendingSuggestion", "pendingCreateAutostart"]
                             keys.forEach { UserDefaults.standard.removeObject(forKey: $0) }
                         }
                         #endif
@@ -187,6 +188,7 @@ struct RootView: View {
                         pendingType: resolvedPendingCreateType,
                         pendingEmotionalSeed: pendingEmotionalSeed.isEmpty ? nil : pendingEmotionalSeed,
                         pendingRelationshipType: pendingRelationshipType.isEmpty ? nil : pendingRelationshipType,
+                        shouldAutoLaunchPendingCreate: pendingCreateAutostart,
                         onConsumePendingCreateContext: clearPendingCreateContext
                     )
                         .environment(router)
@@ -200,6 +202,7 @@ struct RootView: View {
                         pendingType: resolvedPendingCreateType,
                         pendingEmotionalSeed: pendingEmotionalSeed.isEmpty ? nil : pendingEmotionalSeed,
                         pendingRelationshipType: pendingRelationshipType.isEmpty ? nil : pendingRelationshipType,
+                        shouldAutoLaunchPendingCreate: pendingCreateAutostart,
                         onConsumePendingCreateContext: clearPendingCreateContext
                     )
                         .environment(sttRouter ?? STTRouter(apiClient: fallbackClient))
@@ -377,6 +380,7 @@ struct RootView: View {
         pendingEmotionalSeed = result.emotionalSeed
         pendingRelationshipType = result.relationshipType
         pendingCreateType = CreateFlowKind.song.rawValue
+        pendingCreateAutostart = true
 
         if let suggestion = result.suggestion,
            let encoded = try? JSONEncoder().encode(suggestion),
@@ -401,10 +405,14 @@ struct RootView: View {
             pendingSuggestion = json
             pendingRecipientName = partial.recipientName
             pendingOccasion = partial.occasion ?? ""
+            pendingEmotionalSeed = partial.emotionalSeed
+            pendingRelationshipType = partial.relationshipType
+            pendingCreateType = CreateFlowKind.song.rawValue
         }
+        pendingCreateAutostart = false
 
         withAnimation(.easeInOut(duration: 0.5)) {
-            appState = (skipAuth || authManager.isAuthenticated) ? .main : .auth
+            appState = .main
         }
     }
 
@@ -415,6 +423,7 @@ struct RootView: View {
         pendingEmotionalSeed = ""
         pendingRelationshipType = ""
         pendingSuggestion = ""
+        pendingCreateAutostart = false
     }
 
     private func syncProfileCompletionContext() {

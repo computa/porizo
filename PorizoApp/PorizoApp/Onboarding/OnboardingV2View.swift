@@ -26,6 +26,8 @@ struct PartialOnboardingResult {
     let suggestion: OnboardingSuggestion
     let recipientName: String
     let occasion: String?
+    let emotionalSeed: String
+    let relationshipType: String
 }
 
 // MARK: - OnboardingV2View
@@ -52,6 +54,8 @@ struct OnboardingV2View: View {
     // Audio owned here so it persists across splash → mirror → pain points → goal
     @State private var bgPlayer: AVPlayer?
     @State private var bgAudioTask: Task<Void, Never>?
+    @State private var bgStatusObserver: NSKeyValueObservation?
+    @State private var isBackgroundAudioPlaying = false
 
     enum OnboardingScreen {
         case splash
@@ -72,12 +76,12 @@ struct OnboardingV2View: View {
                         demoURL: splashDemoURL,
                         recipientLabel: splashRecipientLabel,
                         lyricsPreview: splashLyricsPreview,
+                        isAudioPlaying: isBackgroundAudioPlaying,
+                        showsPlayFallback: splashDemoURL != nil && !isBackgroundAudioPlaying,
+                        onPlayRequested: { startBackgroundAudio(trigger: "tap") },
                         onAdvance: {
                             transitionTo(.mirror)
                             AnalyticsService.shared.log(.onboardingV2MirrorViewed)
-                        },
-                        onAudioPlayed: { trigger in
-                            AnalyticsService.shared.log(.onboardingV2SplashAudioPlayed, properties: ["trigger": trigger])
                         }
                     )
 
@@ -147,7 +151,9 @@ struct OnboardingV2View: View {
                                 onSkip(PartialOnboardingResult(
                                     suggestion: suggestion,
                                     recipientName: engine.answers.recipientName ?? "",
-                                    occasion: engine.answers.occasion
+                                    occasion: engine.answers.occasion,
+                                    emotionalSeed: engine.answers.emotionalSeed ?? "",
+                                    relationshipType: engine.answers.relationshipType ?? ""
                                 ))
                             } else {
                                 onSkip(nil)
@@ -167,7 +173,7 @@ struct OnboardingV2View: View {
                 "audio_available": splashDemoURL != nil ? "true" : "false"
             ])
             // Start background audio that persists across splash → mirror → pain points → goal
-            startBackgroundAudio()
+            startBackgroundAudio(trigger: "auto")
             // Load graph with server override in background
             Task {
                 let graph = await QuestionGraphEngine.loadWithServerOverride(version: questionGraphVersion, url: questionGraphUrl)
@@ -198,7 +204,7 @@ struct OnboardingV2View: View {
             switch node?.type {
             case .multiSelect:
                 PainPointsView(
-                    options: node?.options ?? [],
+                    options: engine.orderedOptions,
                     selections: $painPointSelections,
                     minRequired: node?.minSelections ?? 1,
                     onContinue: { values in
@@ -214,7 +220,8 @@ struct OnboardingV2View: View {
 
             case .singleSelect where nodeId == "goal_question":
                 GoalQuestionView(
-                    options: node?.options ?? [],
+                    options: engine.orderedOptions,
+                    supportingText: adaptiveGoalSupportText(for: engine.answers.painPoints),
                     onSelect: { value in
                         engine.selectSingle(value)
                         AnalyticsService.shared.log(.onboardingV2GoalSelected, properties: [
@@ -227,7 +234,7 @@ struct OnboardingV2View: View {
 
             case .singleSelect where nodeId == "relationship_picker":
                 RecipientPickerView(
-                    options: node?.options ?? [],
+                    options: engine.orderedOptions,
                     onSelect: { value in
                         engine.selectSingle(value)
                         AnalyticsService.shared.log(.onboardingV2PersonSelected, properties: [
@@ -242,7 +249,7 @@ struct OnboardingV2View: View {
                 // Occasion picker or other single-select
                 AdaptiveQuestionView(
                     resolvedQuestion: engine.resolvedQuestion,
-                    options: node?.options ?? [],
+                    options: engine.orderedOptions,
                     allowFreeText: false,
                     preselectedValue: engine.currentNodeId == "occasion_picker" ? engine.answers.occasion : nil,
                     onContinue: { value in
@@ -275,7 +282,7 @@ struct OnboardingV2View: View {
             case .singleSelectOrText:
                 AdaptiveQuestionView(
                     resolvedQuestion: engine.resolvedQuestion,
-                    options: node?.options ?? [],
+                    options: engine.orderedOptions,
                     allowFreeText: node?.allowFreeText ?? false,
                     onContinue: { value in
                         engine.selectSingle(value)
@@ -305,6 +312,25 @@ struct OnboardingV2View: View {
         withAnimation(.easeInOut(duration: 0.35)) {
             screen = newScreen
         }
+    }
+
+    private func adaptiveGoalSupportText(for painPoints: [String]) -> String? {
+        if painPoints.contains("not_creative") {
+            return "You don't need to be creative. Start with one real memory."
+        }
+        if painPoints.contains("default_to_text") {
+            return "What if that text became something they could replay?"
+        }
+        if painPoints.contains("dont_know_what") {
+            return "You don't need the perfect gift idea. We'll help you find one."
+        }
+        if painPoints.contains("not_personal") {
+            return "This is how a gift feels like it could only come from you."
+        }
+        if painPoints.contains("forget_timing") {
+            return "Start with the person. We can help with the rest."
+        }
+        return nil
     }
 
     /// After advancing the engine, check if we've reached a terminal node and transition accordingly.
@@ -362,8 +388,13 @@ struct OnboardingV2View: View {
 
     // MARK: - Background Audio (persists across splash → mirror → pain points → goal)
 
-    private func startBackgroundAudio() {
+    private func startBackgroundAudio(trigger: String) {
         guard let urlString = splashDemoURL, let url = URL(string: urlString) else { return }
+        if bgPlayer != nil {
+            bgPlayer?.play()
+            isBackgroundAudioPlaying = true
+            return
+        }
         do {
             try AVAudioSession.sharedInstance().setCategory(.playback, options: .mixWithOthers)
             try AVAudioSession.sharedInstance().setActive(true)
@@ -373,10 +404,27 @@ struct OnboardingV2View: View {
             #endif
             return
         }
-        let player = AVPlayer(url: url)
+        let item = AVPlayerItem(url: url)
+        let player = AVPlayer(playerItem: item)
         player.volume = 0.4
         player.play()
         bgPlayer = player
+        isBackgroundAudioPlaying = true
+        AnalyticsService.shared.log(.onboardingV2SplashAudioPlayed, properties: ["trigger": trigger])
+
+        bgStatusObserver?.invalidate()
+        bgStatusObserver = item.observe(\.status, options: [.new]) { observed, _ in
+            Task { @MainActor in
+                switch observed.status {
+                case .readyToPlay:
+                    isBackgroundAudioPlaying = true
+                case .failed:
+                    isBackgroundAudioPlaying = false
+                default:
+                    break
+                }
+            }
+        }
 
         // Auto-fade after 30 seconds
         bgAudioTask = Task { @MainActor in
@@ -401,14 +449,20 @@ struct OnboardingV2View: View {
             }
             player.pause()
             bgPlayer = nil
+            bgStatusObserver?.invalidate()
+            bgStatusObserver = nil
+            isBackgroundAudioPlaying = false
             try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         }
     }
 
     private func stopBackgroundAudio() {
         bgAudioTask?.cancel()
+        bgStatusObserver?.invalidate()
+        bgStatusObserver = nil
         bgPlayer?.pause()
         bgPlayer = nil
+        isBackgroundAudioPlaying = false
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 

@@ -109,6 +109,10 @@ final class QuestionGraphEngine {
 
     var currentNode: GraphNode? { graph.nodes[currentNodeId] }
     var isTerminal: Bool { currentNode?.type == .terminal }
+    var orderedOptions: [GraphNodeOption] {
+        guard let options = currentNode?.options else { return [] }
+        return prioritizeOptions(options, for: currentNodeId)
+    }
 
     init(graph: OnboardingGraph) {
         self.graph = graph
@@ -182,6 +186,9 @@ final class QuestionGraphEngine {
     /// The resolved question for the current node (handles both `question` and `questionTemplate`).
     var resolvedQuestion: String {
         guard let node = currentNode else { return "" }
+        if let adaptive = adaptiveQuestionOverride(for: currentNodeId) {
+            return adaptive
+        }
         if let template = node.questionTemplate {
             let resolved = resolve(template)
             // If template tokens remain unresolved, use fallback
@@ -236,6 +243,50 @@ final class QuestionGraphEngine {
             return resolve(next)
         }
         return next
+    }
+
+    private func adaptiveQuestionOverride(for nodeId: String) -> String? {
+        guard nodeId.hasPrefix("emotional_seed_"), let goalIntent = answers.goalIntent else {
+            return nil
+        }
+
+        switch goalIntent {
+        case "preserve_memory":
+            let relationship = relationshipLabel?.lowercased() ?? "them"
+            return "What moment with \(relationship) would \(answers.recipientName ?? "them") instantly recognize?"
+        case "birthday_surprise":
+            return "What memory would make \(answers.recipientName ?? "them") smile right away?"
+        default:
+            return nil
+        }
+    }
+
+    private func prioritizeOptions(_ options: [GraphNodeOption], for nodeId: String) -> [GraphNodeOption] {
+        guard nodeId.hasPrefix("emotional_seed_"), let goalIntent = answers.goalIntent else {
+            return options
+        }
+
+        let priorityOrder: [String]
+        switch goalIntent {
+        case "unsaid_words":
+            priorityOrder = ["unsaid_words", "thank_you_everything", "always_admired", "proud"]
+        case "preserve_memory":
+            priorityOrder = ["childhood_memory", "treasured_memory", "preserve_moment", "made_me_smile", "changed_everything", "how_we_met", "first_met"]
+        case "birthday_surprise":
+            priorityOrder = ["made_me_smile", "always_laugh", "inside_joke", "thank_you_everything", "proud"]
+        default:
+            return options
+        }
+
+        let ranked = Dictionary(uniqueKeysWithValues: priorityOrder.enumerated().map { ($1, $0) })
+        return options.sorted { lhs, rhs in
+            let leftRank = ranked[lhs.value ?? ""] ?? Int.max
+            let rightRank = ranked[rhs.value ?? ""] ?? Int.max
+            if leftRank == rightRank {
+                return lhs.label < rhs.label
+            }
+            return leftRank < rightRank
+        }
     }
 
     // MARK: - Graph Loading
