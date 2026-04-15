@@ -41,7 +41,12 @@ out/
 
 # Duplicate nested admin directory (claude-mem artifact)
 admin/admin/
+# Duplicate nested PorizoApp directory (editor artifact, mirrors parent)
+PorizoApp/PorizoApp/PorizoApp/
 .gstack/
+
+# Skills tool lockfile (per-machine state)
+skills-lock.json
 
 # Python virtualenv
 .venv/
