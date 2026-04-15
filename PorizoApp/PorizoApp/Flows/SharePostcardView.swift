@@ -9,6 +9,7 @@
 
 import SwiftUI
 import UIKit
+import Photos
 
 struct SharePostcardView: View {
     let recipientName: String
@@ -481,9 +482,48 @@ struct SharePostcardView: View {
                 return
             }
 
-            UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
-            saveToPhotosStatus = .saved
-            onSaveToPhotos()
+            // Use PHPhotoLibrary so we can detect denied permission and
+            // actual write failures. UIImageWriteToSavedPhotosAlbum with a
+            // nil completion selector reports nothing back, so the previous
+            // code falsely flipped to .saved even when the write failed.
+            saveImageToPhotos(image)
+        }
+    }
+
+    private func saveImageToPhotos(_ image: UIImage) {
+        let attemptSave: () -> Void = {
+            PHPhotoLibrary.shared().performChanges {
+                PHAssetCreationRequest.creationRequestForAsset(from: image)
+            } completionHandler: { success, error in
+                Task { @MainActor in
+                    if success {
+                        saveToPhotosStatus = .saved
+                        onSaveToPhotos()
+                    } else {
+                        saveToPhotosStatus = .failed(error?.localizedDescription ?? "Could not save to Photos")
+                    }
+                }
+            }
+        }
+
+        let status = PHPhotoLibrary.authorizationStatus(for: .addOnly)
+        switch status {
+        case .authorized, .limited:
+            attemptSave()
+        case .notDetermined:
+            PHPhotoLibrary.requestAuthorization(for: .addOnly) { newStatus in
+                Task { @MainActor in
+                    if newStatus == .authorized || newStatus == .limited {
+                        attemptSave()
+                    } else {
+                        saveToPhotosStatus = .failed("Photos access denied")
+                    }
+                }
+            }
+        case .denied, .restricted:
+            saveToPhotosStatus = .failed("Photos access denied. Enable in Settings to save.")
+        @unknown default:
+            saveToPhotosStatus = .failed("Photos access unavailable")
         }
     }
 

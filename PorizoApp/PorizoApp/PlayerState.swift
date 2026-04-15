@@ -204,6 +204,16 @@ class PlayerState {
     @ObservationIgnored private var interruptionObserver: NSObjectProtocol?
 
     func setupInterruptionHandling() {
+        // Idempotent: tear down any prior observer before re-registering.
+        // Without this, a second call (e.g., MainTabView re-creation after
+        // sign-out → sign-in) would orphan the previous observer in
+        // NotificationCenter — leaking memory and causing the old closure
+        // to fire on every interruption forever.
+        if let existing = interruptionObserver {
+            NotificationCenter.default.removeObserver(existing)
+            interruptionObserver = nil
+        }
+
         interruptionObserver = NotificationCenter.default.addObserver(
             forName: AVAudioSession.interruptionNotification,
             object: AVAudioSession.sharedInstance(),

@@ -366,7 +366,10 @@ struct ExploreTabView: View {
     }
 
     // MARK: - Playback
-    // TODO: Extract to shared PlaybackService (see PlayerComponents.swift) — near-duplicate of MySongsView.togglePlayback
+    // Note: this is a near-duplicate of MySongsView.togglePlayback. They've
+    // diverged just enough (Explore: also calls trackViewedExplore analytics;
+    // MySongs: integrates with polling) that a unifying PlaybackService
+    // refactor is non-trivial. Keep them in sync manually until that lands.
 
     private func togglePlayback(for track: Track) {
         if playerState.isLoading { return }
