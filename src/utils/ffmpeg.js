@@ -44,10 +44,34 @@ const DEFAULT_TIMEOUT_MS = FFMPEG_TIMEOUT_MS;
 const MAX_STDERR_SIZE = FFMPEG_MAX_STDERR_SIZE;
 
 function getFFmpegPath() {
+  // Prefer system ffmpeg when available — it's a full build with libfreetype
+  // (drawtext), libass, etc. The bundled ffmpeg-static binary is a minimal
+  // build and silently lacks drawtext, which breaks animated share MP4s.
+  //
+  // Resolution order:
+  //   1. PORIZO_FFMPEG_PATH env override (tests, debugging)
+  //   2. System ffmpeg at well-known install locations (Docker: /usr/bin/ffmpeg)
+  //   3. ffmpeg-static (last resort — minimal filters only)
+  if (process.env.PORIZO_FFMPEG_PATH) {
+    return process.env.PORIZO_FFMPEG_PATH;
+  }
+  const systemCandidates = [
+    "/usr/bin/ffmpeg",
+    "/usr/local/bin/ffmpeg",
+    "/opt/homebrew/bin/ffmpeg",
+  ];
+  for (const candidate of systemCandidates) {
+    try {
+      fs.accessSync(candidate, fs.constants.X_OK);
+      return candidate;
+    } catch (_) {
+      // not present at this path — try next
+    }
+  }
   try {
     return require("ffmpeg-static");
   } catch (err) {
-    console.warn("[ffmpeg] ffmpeg-static not found, falling back to system ffmpeg");
+    console.warn("[ffmpeg] no system ffmpeg found and ffmpeg-static missing; relying on 'ffmpeg' in PATH");
     return "ffmpeg";
   }
 }
@@ -79,7 +103,7 @@ function runFFmpeg(args, timeoutMs = DEFAULT_TIMEOUT_MS) {
       clearTimeout(timer);
       if (killed) return; // Already rejected via timeout
       if (code === 0) resolve();
-      else reject(new Error("E301_FFMPEG_ERROR: " + stderr.slice(-500)));
+      else reject(new Error("E301_FFMPEG_ERROR: " + stderr.slice(-2000)));
     });
 
     ffmpeg.on("error", (err) => {
@@ -304,7 +328,7 @@ function runFFmpegCapture(args, timeoutMs = DEFAULT_TIMEOUT_MS) {
     ffmpeg.on("close", (code) => {
       settle(() => {
         if (code === 0) resolve(stderr);
-        else reject(new Error("E301_FFMPEG_ERROR: " + stderr.slice(-500)));
+        else reject(new Error("E301_FFMPEG_ERROR: " + stderr.slice(-2000)));
       });
     });
 

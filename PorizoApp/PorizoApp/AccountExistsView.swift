@@ -49,7 +49,7 @@ struct AccountExistsView: View {
                             .font(DesignTokens.bodyFont(size: 20, weight: .bold))
                             .foregroundStyle(DesignTokens.textPrimary)
 
-                        Text("This phone number is linked to an existing account. Sign in to connect it.")
+                        Text("We already have an account for these details. Sign in to connect it to this device.")
                             .font(DesignTokens.bodyFont(size: 14))
                             .foregroundStyle(DesignTokens.textSecondary)
                     }
