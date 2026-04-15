@@ -565,113 +565,6 @@ class AuthManager {
         }
     }
 
-    // MARK: - Signup
-
-    /// Create a new account with email and password
-    func signup(email: String, password: String, name: String? = nil) async throws {
-        isLoading = true
-        defer { isLoading = false }
-
-        let url = URL(string: "\(baseURL)/auth/signup")!
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-
-        var body: [String: Any] = [
-            "email": email.lowercased().trimmingCharacters(in: .whitespaces),
-            "password": password
-        ]
-        if let name = name, !name.isEmpty {
-            body["name"] = name
-        }
-
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-
-        let (data, response) = try await session.data(for: request)
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw AuthError.networkError("Invalid response")
-        }
-
-        switch httpResponse.statusCode {
-        case 201:
-            let authResponse = try JSONDecoder().decode(AuthResponse.self, from: data)
-            try saveTokens(authResponse)
-            setAuthProvider("password")
-            isAuthenticated = true
-            try await fetchCurrentUser()
-
-        case 400:
-            if let errorResponse = try? JSONDecoder().decode(ErrorResponse.self, from: data) {
-                if errorResponse.error == "INVALID_EMAIL" || errorResponse.message?.contains("email") == true {
-                    throw AuthError.invalidEmail
-                } else if errorResponse.error == "WEAK_PASSWORD" || errorResponse.message?.contains("password") == true {
-                    throw AuthError.weakPassword
-                }
-            }
-            throw AuthError.invalidCredentials
-
-        case 409:
-            throw AuthError.emailExists
-
-        case 429:
-            throw AuthError.serverError("Too many attempts. Please try again later.")
-
-        default:
-            throw AuthError.serverError("Signup failed (HTTP \(httpResponse.statusCode))")
-        }
-    }
-
-    // MARK: - Login
-
-    /// Login with email and password
-    func login(email: String, password: String) async throws {
-        isLoading = true
-        defer { isLoading = false }
-
-        let url = URL(string: "\(baseURL)/auth/login")!
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-
-        var body: [String: Any] = [
-            "email": email.lowercased().trimmingCharacters(in: .whitespaces),
-            "password": password
-        ]
-        // Auto-link pending phone from cross-identifier flow
-        if let phone = pendingPhoneLink {
-            body["pending_phone_link"] = phone
-        }
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-
-        let (data, response) = try await session.data(for: request)
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw AuthError.networkError("Invalid response")
-        }
-
-        switch httpResponse.statusCode {
-        case 200:
-            let authResponse = try JSONDecoder().decode(AuthResponse.self, from: data)
-            try saveTokens(authResponse)
-            setAuthProvider("password")
-            isAuthenticated = true
-            try await fetchCurrentUser()
-
-        case 401:
-            throw AuthError.invalidCredentials
-
-        case 423:
-            throw AuthError.serverError("Account temporarily locked. Please try again later.")
-
-        case 429:
-            throw AuthError.serverError("Too many attempts. Please try again later.")
-
-        default:
-            throw AuthError.serverError("Login failed (HTTP \(httpResponse.statusCode))")
-        }
-    }
-
     // MARK: - Social Auth (Apple)
 
     /// Handle Sign in with Apple
@@ -768,87 +661,6 @@ class AuthManager {
 
         default:
             throw AuthError.serverError("Apple sign-in failed (HTTP \(httpResponse.statusCode))")
-        }
-    }
-
-    /// Handle OAuth authorization code sign-in for Google/Facebook
-    func handleOAuthAuthorization(
-        provider: String,
-        authorizationCode: String,
-        codeVerifier: String? = nil,
-        redirectUri: String? = nil,
-        name: String? = nil
-    ) async throws {
-        pendingSocialLinkRequest = nil
-        isLoading = true
-        defer { isLoading = false }
-
-        let url = URL(string: "\(baseURL)/auth/social")!
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-
-        var body: [String: Any] = [
-            "provider": provider,
-            "authorization_code": authorizationCode
-        ]
-
-        if let codeVerifier {
-            body["code_verifier"] = codeVerifier
-        }
-
-        if let redirectUri {
-            body["redirect_uri"] = redirectUri
-        }
-
-        // Auto-link pending phone from cross-identifier flow
-        if let phone = pendingPhoneLink {
-            body["pending_phone_link"] = phone
-        }
-
-        if let name, !name.isEmpty {
-            body["name"] = name
-        }
-
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-
-        let (data, response) = try await session.data(for: request)
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw AuthError.networkError("Invalid response")
-        }
-
-        switch httpResponse.statusCode {
-        case 200, 201:
-            // Check if this is a link confirmation prompt (not a login response)
-            if let linkResponse = try? JSONDecoder().decode(LinkConfirmationResponse.self, from: data),
-               linkResponse.requiresLinkConfirmation == true {
-                pendingSocialLinkRequest = PendingSocialLinkRequest(
-                    provider: provider,
-                    body: body,
-                    appleUserIdentifier: nil
-                )
-                throw AuthError.requiresLinkConfirmation(
-                    provider: linkResponse.provider ?? provider,
-                    maskedEmail: linkResponse.existingAccountEmail ?? "existing account"
-                )
-            } else {
-                let authResponse = try JSONDecoder().decode(AuthResponse.self, from: data)
-                try saveTokens(authResponse)
-            }
-            setAuthProvider(provider)
-            isAuthenticated = true
-            try await fetchCurrentUser()
-
-        case 501:
-            throw AuthError.serverError("\(provider.capitalized) authentication is not configured.")
-
-        case 400:
-            let error = try? JSONDecoder().decode(ErrorResponse.self, from: data)
-            throw AuthError.serverError(error?.message ?? "Invalid \(provider) authorization.")
-
-        default:
-            throw AuthError.serverError("\(provider.capitalized) sign-in failed (HTTP \(httpResponse.statusCode))")
         }
     }
 
@@ -1260,7 +1072,9 @@ class AuthManager {
                     "TOKEN_EXPIRED",
                     "INVALID_TOKEN",
                     "INVALID_REFRESH_TOKEN",
-                    "TOKEN_FAMILY_COMPROMISED"
+                    "TOKEN_FAMILY_COMPROMISED",
+                    "SESSION_REVOKED",
+                    "SESSION_EXPIRED"
                 ]
 
                 if definitiveErrors.contains(errorBody.error ?? "") {
@@ -1409,27 +1223,6 @@ class AuthManager {
     func updateCurrentUser(_ user: AuthUser) {
         currentUser = user
         needsProfileCompletion = user.needsProfileCompletion
-    }
-
-    // MARK: - Password Reset
-
-    /// Request password reset email
-    func requestPasswordReset(email: String) async throws {
-        let url = URL(string: "\(baseURL)/auth/forgot-password")!
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-
-        let body: [String: Any] = ["email": email.lowercased().trimmingCharacters(in: .whitespaces)]
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-
-        let (_, response) = try await session.data(for: request)
-
-        guard let httpResponse = response as? HTTPURLResponse,
-              httpResponse.statusCode == 200 else {
-            throw AuthError.serverError("Failed to send reset email")
-        }
-        // Always succeeds to prevent email enumeration
     }
 
     // MARK: - Account Deletion

@@ -1,3 +1,45 @@
+# Pre-submission Comprehensive Review + Simplification (2026-04-15)
+
+**Goal:** Before submitting next TestFlight build, run `/ce:review` and `/simplify` on every user flow. Fix only confirmed issues; apply only confirmed simplifications. Maintain ship-readiness.
+
+## User Flow Inventory (5 groups, all must be covered)
+
+1. **Auth + Onboarding entry path** — `Onboarding/`, `AuthView`, `AuthManager`, `AccountExistsView`, `PhoneAuthView`, `RootView`
+2. **Voice Enrollment** — `VoiceEnrollmentView`, `AudioRecorder`, `APIClient+Enrollment`
+3. **Song Creation** — `Flows/WarmCanvasFlowView`, `SongFlowCoordinator`, `StoryFlowCoordinator`, `CreateFlowAsyncService`, `CustomCreateView`
+4. **Playback + Library + Sharing + Gifting** — `MySongsView`, `PlayerComponents`, `Tabs/ExploreTabView`, `SharePostcardView`, `GiftSendFlowView`, `Flows/share*`
+5. **Launch Flash + Lifecycle + Settings** — `Launch/*`, `MainTabView`, `Tabs/SettingsTabView`, scene-phase handling in `RootView`
+
+## Phases
+
+### Phase A — Parallel REVIEW (5 agents)
+- [ ] Dispatch 5 parallel `ce:review`-equivalent agents, one per flow group
+- [ ] Each agent identifies CONFIRMED issues only (no speculation)
+- [ ] Aggregate findings into a single severity-sorted list
+
+### Phase B — Fix confirmed issues (sequential)
+- [ ] Triage by severity (P1 ship-blocker, P2 should-fix, P3 polish)
+- [ ] Apply fixes for P1 + P2 only — defer P3
+- [ ] Re-build + smoke test after each fix cluster
+
+### Phase C — Parallel SIMPLIFY (5 agents)
+- [ ] Dispatch 5 parallel simplification agents on the same flow groups
+- [ ] Each agent proposes simplifications that preserve all behavior
+- [ ] Aggregate proposals; reject any that risk regressions
+
+### Phase D — Apply confirmed simplifications (sequential)
+- [ ] Apply low-risk consolidations + dead-code removal
+- [ ] Re-build + smoke test after each simplification cluster
+- [ ] Commit logically grouped changes
+
+### Phase E — Verify + commit
+- [ ] iOS Debug build succeeds
+- [ ] Server tests pass
+- [ ] All commits pushed
+- [ ] Document findings in `tasks/e2e-testflight-2026-04-15.md` results section
+
+---
+
 # Implement "The Envelope" — Schedule & Send Redesign
 
 **Branch:** `version3`

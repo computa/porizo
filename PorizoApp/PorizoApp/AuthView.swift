@@ -219,20 +219,7 @@ struct AuthView: View {
             }
         }
         .padding(.top, 8)
-        .sheet(isPresented: $showTerms) {
-            if let url = termsUrl {
-                SafariView(url: url)
-            } else {
-                legalFallbackView
-            }
-        }
-        .sheet(isPresented: $showPrivacy) {
-            if let url = privacyUrl {
-                SafariView(url: url)
-            } else {
-                legalFallbackView
-            }
-        }
+        .legalSheets(showTerms: $showTerms, showPrivacy: $showPrivacy)
     }
 
     private var appleSignInButton: some View {
@@ -254,27 +241,6 @@ struct AuthView: View {
         .clipShape(RoundedRectangle(cornerRadius: 14))
         .disabled(isLoading)
         .opacity(isLoading ? 0.7 : 1.0)
-    }
-
-    private var termsUrl: URL? {
-        URL(string: "\(AppConfig.apiBaseURL)/legal/terms")
-    }
-
-    private var privacyUrl: URL? {
-        URL(string: "\(AppConfig.apiBaseURL)/legal/privacy")
-    }
-
-    private var legalFallbackView: some View {
-        VStack(spacing: 12) {
-            Text("Legal page unavailable")
-                .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
-                .foregroundStyle(DesignTokens.textPrimary)
-            Text("Please try again later.")
-                .font(DesignTokens.bodyFont(size: 14))
-                .foregroundStyle(DesignTokens.textSecondary)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(DesignTokens.background.ignoresSafeArea())
     }
 
     private var phoneAuthPresented: Binding<Bool> {

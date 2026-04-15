@@ -148,6 +148,7 @@ function isValidUsername(username) {
  */
 async function findExistingAccountByIdentifiers(db, { email, phone, providerType, providerUserId } = {}) {
   let matchedUserId = null;
+  let matchedVia = null;
 
   // Check email → user_contacts (verified only)
   if (email) {
@@ -157,7 +158,10 @@ async function findExistingAccountByIdentifiers(db, { email, phone, providerType
        WHERE uc.type = 'email' AND uc.value_normalized = ? AND uc.verified_at IS NOT NULL
        LIMIT 1`
     ).get(email.toLowerCase());
-    if (row) matchedUserId = row.id;
+    if (row) {
+      matchedUserId = row.id;
+      matchedVia = "email";
+    }
   }
 
   // Check phone → user_auth_providers
@@ -168,7 +172,10 @@ async function findExistingAccountByIdentifiers(db, { email, phone, providerType
        WHERE uap.provider = 'phone' AND uap.provider_user_id = ? AND uap.status = 'active'
        LIMIT 1`
     ).get(phone);
-    if (row) matchedUserId = row.id;
+    if (row) {
+      matchedUserId = row.id;
+      matchedVia = "phone";
+    }
   }
 
   // Check social provider → user_auth_providers
@@ -178,7 +185,10 @@ async function findExistingAccountByIdentifiers(db, { email, phone, providerType
        JOIN users u ON u.id = uap.user_id AND u.deleted_at IS NULL
        WHERE uap.provider = ? AND uap.provider_user_id = ?`
     ).get(providerType, providerUserId);
-    if (row) matchedUserId = row.user_id;
+    if (row) {
+      matchedUserId = row.user_id;
+      matchedVia = "social";
+    }
   }
 
   if (!matchedUserId) {
@@ -209,7 +219,7 @@ async function findExistingAccountByIdentifiers(db, { email, phone, providerType
     maskedPhone = `${code}***${last4}`;
   }
 
-  return { exists: true, userId: matchedUserId, authMethods, maskedEmail, maskedPhone };
+  return { exists: true, userId: matchedUserId, matchedVia, authMethods, maskedEmail, maskedPhone };
 }
 
 /**
@@ -1968,12 +1978,19 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
       });
 
       if (existingAccount.exists) {
-        // Return account_exists so the client can prompt sign-in + link
+        // Privacy: caller verified ownership of THIS phone via OTP. If the matched
+        // account was found via email (not phone), the matched user's phone may be
+        // different — never disclose another user's phone to a caller who only
+        // proved phone X. Only return masked_phone when the phone match itself
+        // located the account.
+        const safeMaskedPhone = existingAccount.matchedVia === "phone"
+          ? existingAccount.maskedPhone
+          : null;
         return reply.status(200).send({
           account_exists: true,
           auth_methods: existingAccount.authMethods,
           masked_email: existingAccount.maskedEmail,
-          masked_phone: existingAccount.maskedPhone,
+          masked_phone: safeMaskedPhone,
         });
       }
 

@@ -231,41 +231,7 @@ struct PhoneAuthView: View {
                 }
             }
         }
-        .sheet(isPresented: $showTerms) {
-            if let url = termsUrl {
-                SafariView(url: url)
-            } else {
-                legalFallbackView
-            }
-        }
-        .sheet(isPresented: $showPrivacy) {
-            if let url = privacyUrl {
-                SafariView(url: url)
-            } else {
-                legalFallbackView
-            }
-        }
-    }
-
-    private var termsUrl: URL? {
-        URL(string: "\(AppConfig.apiBaseURL)/legal/terms")
-    }
-
-    private var privacyUrl: URL? {
-        URL(string: "\(AppConfig.apiBaseURL)/legal/privacy")
-    }
-
-    private var legalFallbackView: some View {
-        VStack(spacing: 12) {
-            Text("Legal page unavailable")
-                .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
-                .foregroundStyle(DesignTokens.textPrimary)
-            Text("Please try again later.")
-                .font(DesignTokens.bodyFont(size: 14))
-                .foregroundStyle(DesignTokens.textSecondary)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(DesignTokens.background.ignoresSafeArea())
+        .legalSheets(showTerms: $showTerms, showPrivacy: $showPrivacy)
     }
 
     // MARK: - Validation
