@@ -74,6 +74,12 @@ ALTER TABLE tracks ADD COLUMN IF NOT EXISTS voice_gender TEXT;
 ALTER TABLE tracks ADD COLUMN IF NOT EXISTS gift_reservation_id TEXT;
 ALTER TABLE tracks ADD COLUMN IF NOT EXISTS funding_source TEXT NOT NULL DEFAULT 'standard';
 
+-- Migrate any legacy 'gift_token' values (allowed by migration 082's constraint)
+-- to 'gift_wallet' (the renamed semantic equivalent in the new model).
+-- Must run BEFORE the new CHECK constraint, otherwise existing rows fail the check
+-- and the ALTER aborts the entire migration transaction.
+UPDATE tracks SET funding_source = 'gift_wallet' WHERE funding_source = 'gift_token';
+
 ALTER TABLE tracks DROP CONSTRAINT IF EXISTS tracks_funding_source_check;
 ALTER TABLE tracks
   ADD CONSTRAINT tracks_funding_source_check
