@@ -74,6 +74,11 @@ function createSubscriptionManager(db, services = {}) {
   /**
    * Acquire advisory lock and return FOR UPDATE suffix for PostgreSQL.
    * SQLite serializes writes naturally so both are no-ops there.
+   *
+   * IMPORTANT: Postgres requires FOR UPDATE to be the LAST clause —
+   * after any ORDER BY / LIMIT. Always interpolate the returned suffix
+   * at the very end of the query string, not after the WHERE clause
+   * when ORDER BY/LIMIT follow.
    */
   async function acquireUserLock(query, userId) {
     if (db.isPostgres) {
@@ -173,12 +178,12 @@ function createSubscriptionManager(db, services = {}) {
       if (!existingSubscription) {
         const productResult = await query(
           `SELECT * FROM subscriptions
-           WHERE user_id = ? AND product_id = ?${lockSuffix}
+           WHERE user_id = ? AND product_id = ?
            ORDER BY
              CASE WHEN expires_at IS NULL THEN 1 ELSE 0 END DESC,
              expires_at DESC,
              created_at DESC
-           LIMIT 1`,
+           LIMIT 1${lockSuffix}`,
           [userId, validation.productId]
         );
         existingSubscription = productResult.rows[0] || null;
