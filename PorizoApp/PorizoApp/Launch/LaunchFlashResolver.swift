@@ -40,12 +40,6 @@ struct LaunchFlashResolver {
 
     // MARK: - Public
 
-    /// Quick pre-check. Returns true if the resolver would produce content.
-    /// Used by RootView to decide whether to enter `.launchFlash` state at all.
-    func hasContent() -> Bool {
-        resolve(mode: currentMode()) != nil
-    }
-
     /// Pick the launch flash content. Returns nil if nothing should be shown.
     /// Pure function except for `defaults` reads (no writes).
     func resolve(mode: LaunchFlashMode) -> LaunchFlashContent? {
@@ -205,16 +199,22 @@ struct LaunchFlashResolver {
         return ids
     }
 
-    private func currentMode() -> LaunchFlashMode {
-        let raw = defaults.string(forKey: "launchFlashMode") ?? LaunchFlashMode.all.rawValue
-        return LaunchFlashMode(rawValue: raw) ?? .all
-    }
 }
 
 // MARK: - Recent IDs Mutation Helpers (used by view model after content is shown)
 
 enum LaunchFlashHistory {
     static let storageKey = "recentLaunchFlashTrackIds"
+
+    private static func read(from defaults: UserDefaults = .standard) -> [String] {
+        guard let raw = defaults.string(forKey: storageKey),
+              let data = raw.data(using: .utf8),
+              let ids = try? JSONDecoder().decode([String].self, from: data)
+        else {
+            return []
+        }
+        return ids
+    }
 
     /// Prepend a new track ID, dedupe, truncate to recentHistoryDepth.
     /// No-op if trackId is nil (suggestion/demo don't get tracked).
@@ -234,17 +234,4 @@ enum LaunchFlashHistory {
         }
     }
 
-    static func read(from defaults: UserDefaults = .standard) -> [String] {
-        guard let raw = defaults.string(forKey: storageKey),
-              let data = raw.data(using: .utf8),
-              let ids = try? JSONDecoder().decode([String].self, from: data)
-        else {
-            return []
-        }
-        return ids
-    }
-
-    static func reset(in defaults: UserDefaults = .standard) {
-        defaults.set("[]", forKey: storageKey)
-    }
 }

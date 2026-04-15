@@ -245,6 +245,13 @@ final class LaunchFlashViewModel {
 
     func resumePlayback() {
         guard !hasDismissed, let player else { return }
+        // If the audio already played to its end, the player's currentTime
+        // sits at .duration and a naked .play() is silent. Seek to .zero so
+        // tapping "Listen" after a natural finish actually replays.
+        if didFinishNaturally {
+            player.seek(to: .zero)
+            didFinishNaturally = false
+        }
         player.play()
         isAudioPlaying = true
     }

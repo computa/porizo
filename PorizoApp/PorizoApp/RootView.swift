@@ -544,21 +544,23 @@ struct RootView: View {
             return routeToMainOrAuth()
         }
 
-        // We bump the failure count BEFORE risky work; dismissLaunchFlash()
-        // resets it on successful completion.
-        launchFlashFailureCount += 1
-
-        // Resolve content — if nothing to show, skip flash
+        // Resolve content — if nothing to show, skip flash without
+        // touching the circuit breaker. Empty libraries / missing demo
+        // config aren't failures.
         let onboardingConfig = makeOnboardingConfigForResolver()
         let resolver = LaunchFlashResolver(
             source: LiveLaunchFlashContentSource(),
             onboardingConfig: onboardingConfig
         )
         guard let content = resolver.resolve(mode: launchFlashMode) else {
-            // No content → not a failure, just skip and clear the speculative increment
-            launchFlashFailureCount = max(0, launchFlashFailureCount - 1)
             return routeToMainOrAuth()
         }
+
+        // Bump failure count BEFORE risky work; dismissLaunchFlash() resets
+        // on successful completion. Doing this AFTER the resolve guard means
+        // an empty-library + fast-kill loop can never trip the breaker for a
+        // user who never actually got a flash.
+        launchFlashFailureCount += 1
 
         #if DEBUG
         print("[LaunchFlash] Resolved content — source: \(content.source.rawValue), trackId: \(content.trackId ?? "nil"), audioURL: \(content.audioURL?.absoluteString ?? "nil"), title: \(content.title)")
