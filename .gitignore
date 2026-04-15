@@ -42,3 +42,26 @@ out/
 # Duplicate nested admin directory (claude-mem artifact)
 admin/admin/
 .gstack/
+
+# Python virtualenv
+.venv/
+venv/
+
+# Agent tool working dirs (per-editor/per-agent state, not source)
+.agent/
+.agents/
+.codex/
+.cursor/
+.droid/
+.factory/
+.gemini/
+.kiro/
+.opencode/
+.qoder/
+.windsurf/
+
+# Local research artifacts
+autoresearch-story/
+
+# Local SQLite scratch file at repo root
+/db.sqlite

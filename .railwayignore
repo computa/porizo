@@ -42,5 +42,31 @@ dist/
 build/
 .cache/
 .venv/
+venv/
 .xcodebuild/
 .xcodebuildmcp/
+DerivedData/
+.build/
+.swiftpm/
+.tldr/
+.gstack/
+
+# Dev-only agent / editor state dirs
+.agent/
+.agents/
+.codex/
+.cursor/
+.droid/
+.factory/
+.gemini/
+.github/
+.kiro/
+.opencode/
+.qoder/
+.windsurf/
+
+# Local research scratch
+autoresearch-story/
+
+# Local SQLite scratch at repo root
+/db.sqlite
