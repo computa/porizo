@@ -111,8 +111,13 @@ const { generateId } = require("../utils/ids");
  */
 function generateAccessToken(userId, options = {}) {
   const expiresIn = options.expiresIn || config.accessTokenExpiry;
+  const payload = { sub: userId };
 
-  return jwt.sign({ sub: userId }, config.jwtSecret, {
+  if (options.sessionId) {
+    payload.sid = options.sessionId;
+  }
+
+  return jwt.sign(payload, config.jwtSecret, {
     expiresIn,
     issuer: config.jwtIssuer,
   });
@@ -140,10 +145,11 @@ function verifyAccessToken(token, options = {}) {
  */
 async function createRefreshToken(userId, options = {}) {
   const expiresIn = options.expiresIn ?? config.refreshTokenExpiryDays;
+  const sessionId = options.sessionId ?? null;
 
   // Create token family first
   const familyId = generateId("tf");
-  await db.prepare("INSERT INTO token_families (id, user_id) VALUES (?, ?)").run(familyId, userId);
+  await db.prepare("INSERT INTO token_families (id, user_id, session_id) VALUES (?, ?, ?)").run(familyId, userId, sessionId);
 
   // Generate secure token
   const rawToken = generateSecureToken();
@@ -181,9 +187,10 @@ async function verifyRefreshToken(rawToken) {
   // Look up token by hash
   const token = await db
     .prepare(
-      `SELECT rt.*, tf.compromised_at as family_compromised
+      `SELECT rt.*, tf.compromised_at as family_compromised, tf.session_id, us.revoked_at as session_revoked_at
        FROM refresh_tokens rt
        JOIN token_families tf ON rt.token_family = tf.id
+       LEFT JOIN user_sessions us ON tf.session_id = us.id
        WHERE rt.token_hash = ?`
     )
     .get(tokenHash);
@@ -195,6 +202,16 @@ async function verifyRefreshToken(rawToken) {
   // Check if family is compromised (reuse attack detected)
   if (token.family_compromised) {
     throw new Error("Token family compromised");
+  }
+
+  if (!token.session_id) {
+    const err = new Error("Refresh token session binding is missing");
+    err.code = "SESSION_BINDING_REQUIRED";
+    throw err;
+  }
+
+  if (token.session_revoked_at) {
+    throw new Error("Session has been revoked");
   }
 
   // Check if revoked
@@ -212,6 +229,7 @@ async function verifyRefreshToken(rawToken) {
     tokenId: token.id,
     tokenFamily: token.token_family,
     generation: token.generation,
+    sessionId: token.session_id || null,
   };
 }
 
@@ -351,10 +369,25 @@ async function rotateRefreshToken(oldRawToken) {
     }
 
     // Check if family already compromised
-    const family = await db.prepare("SELECT * FROM token_families WHERE id = ?").get(oldToken.token_family);
+    const family = await db.prepare(
+      `SELECT tf.*, us.revoked_at as session_revoked_at
+       FROM token_families tf
+       LEFT JOIN user_sessions us ON tf.session_id = us.id
+       WHERE tf.id = ?`
+    ).get(oldToken.token_family);
     if (family.compromised_at) {
       const err = new Error("Token family compromised");
       err.code = "TOKEN_FAMILY_COMPROMISED";
+      throw err;
+    }
+    if (!family.session_id) {
+      const err = new Error("Refresh token session binding is missing");
+      err.code = "SESSION_BINDING_REQUIRED";
+      throw err;
+    }
+    if (family.session_revoked_at) {
+      const err = new Error("Session has been revoked");
+      err.code = "SESSION_REVOKED";
       throw err;
     }
 
@@ -404,6 +437,7 @@ async function rotateRefreshToken(oldRawToken) {
       userId: oldToken.user_id,
       tokenFamily: oldToken.token_family,
       generation: newGeneration,
+      sessionId: family.session_id || null,
     };
     });
   } catch (err) {
@@ -436,6 +470,7 @@ async function rotateRefreshToken(oldRawToken) {
     tokenFamily: result.tokenFamily,
     generation: result.generation,
     expiresAt: expiresAt.toISOString(),
+    sessionId: result.sessionId || null,
   };
 }
 
@@ -503,6 +538,8 @@ async function verifyOneTimeToken(rawToken, tableName) {
     return {
       userId: token.user_id,
       tokenId: token.id,
+      email_normalized: token.email_normalized || null,
+      contact_id: token.contact_id || null,
     };
   });
 }
@@ -535,7 +572,8 @@ async function invalidateAllPasswordResetTokens(userId) {
 /**
  * Create email verification token
  */
-async function createEmailVerificationToken(userId) {
+async function createEmailVerificationToken(userId, options = {}) {
+  const emailNormalized = options.email ? String(options.email).trim().toLowerCase() : null;
   const rawToken = generateSecureToken();
   const tokenHash = hashToken(rawToken);
   const tokenId = generateId("evt");
@@ -544,14 +582,15 @@ async function createEmailVerificationToken(userId) {
   expiresAt.setDate(expiresAt.getDate() + config.emailVerificationExpiryDays);
 
   await db.prepare(
-    `INSERT INTO email_verification_tokens (id, user_id, token_hash, expires_at)
-     VALUES (?, ?, ?, ?)`
-  ).run(tokenId, userId, tokenHash, expiresAt.toISOString());
+    `INSERT INTO email_verification_tokens (id, user_id, token_hash, expires_at, email_normalized)
+     VALUES (?, ?, ?, ?, ?)`
+  ).run(tokenId, userId, tokenHash, expiresAt.toISOString(), emailNormalized);
 
   return {
     token: rawToken,
     tokenId,
     expiresAt: expiresAt.toISOString(),
+    emailNormalized,
   };
 }
 
@@ -560,6 +599,16 @@ async function createEmailVerificationToken(userId) {
  */
 async function verifyEmailVerificationToken(rawToken) {
   return verifyOneTimeToken(rawToken, "email_verification_tokens");
+}
+
+/**
+ * Invalidate all outstanding email verification tokens for a user.
+ * Used when the pending email target changes.
+ */
+async function invalidateEmailVerificationTokens(userId) {
+  await db.prepare(
+    "UPDATE email_verification_tokens SET used_at = CURRENT_TIMESTAMP WHERE user_id = ? AND used_at IS NULL"
+  ).run(userId);
 }
 
 /**
@@ -833,6 +882,7 @@ module.exports = {
   createEmailVerificationToken,
   verifyEmailVerificationToken,
   markEmailVerificationTokenUsed,
+  invalidateEmailVerificationTokens,
 
   // Sessions
   createSession,

@@ -24,6 +24,7 @@ const crypto = require("crypto");
 // The authoritative rate limit state is in the DB (rate_limits table), which survives
 // restarts and is shared across instances. The in-memory Map is a performance optimization only.
 const rateLimits = new Map();
+let authRouteDb = null;
 
 // HMAC key for hashing phone numbers in registration tokens (derived from JWT_SECRET)
 const PHONE_HMAC_KEY = process.env.JWT_SECRET || (process.env.NODE_ENV === "test" ? "test-secret-key-32chars-minimum!!" : (() => { throw new Error("JWT_SECRET required for phone HMAC"); })());
@@ -268,14 +269,14 @@ function getClientIp(request) {
  * @returns {Promise<{accessToken: string, refreshToken: string}>}
  */
 async function createSessionAndTokens(userId, request, clientIp) {
-  await authService.createSession(userId, {
+  const session = await authService.createSession(userId, {
     deviceName: request.headers["user-agent"],
     ipAddress: clientIp,
     userAgent: request.headers["user-agent"],
   });
 
-  const accessToken = authService.generateAccessToken(userId);
-  const { token: refreshToken } = await authService.createRefreshToken(userId);
+  const accessToken = authService.generateAccessToken(userId, { sessionId: session.id });
+  const { token: refreshToken } = await authService.createRefreshToken(userId, { sessionId: session.id });
 
   return { accessToken, refreshToken };
 }
@@ -291,6 +292,22 @@ async function requireAuth(request, reply) {
   }
   try {
     const payload = authService.verifyAccessToken(authHeader.substring(7));
+    const user = await authRouteDb.prepare(
+      "SELECT id FROM users WHERE id = ? AND deleted_at IS NULL"
+    ).get(payload.sub);
+    if (!user) {
+      return sendError(reply, 401, "INVALID_TOKEN", "Invalid or expired access token.");
+    }
+    if (!payload.sid) {
+      return sendError(reply, 401, "INVALID_TOKEN", "Invalid or expired access token.");
+    }
+    const session = await authRouteDb.prepare(
+      "SELECT id FROM user_sessions WHERE id = ? AND user_id = ? AND revoked_at IS NULL"
+    ).get(payload.sid, payload.sub);
+    if (!session) {
+      return sendError(reply, 401, "INVALID_TOKEN", "Invalid or expired access token.");
+    }
+    request.sessionId = payload.sid;
     request.userId = payload.sub;
   } catch {
     return sendError(reply, 401, "INVALID_TOKEN", "Invalid or expired access token.");
@@ -301,6 +318,7 @@ async function requireAuth(request, reply) {
  * Register auth routes on Fastify app
  */
 function registerAuthRoutes(app, { db, subscriptionManager }) {
+  authRouteDb = db;
   // Initialize services with database
   authService.initialize(db);
   gdprAuditService.initialize(db);
@@ -678,7 +696,7 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
 
       // Send verification email (don't await - fire and forget)
       if (emailService.isConfigured()) {
-        authService.createEmailVerificationToken(userId).then(({ token }) => {
+        authService.createEmailVerificationToken(userId, { email: email.toLowerCase() }).then(({ token }) => {
           emailService.sendVerificationEmail(email, token).catch((err) => {
             console.error("Failed to send verification email:", err.message);
           });
@@ -911,7 +929,7 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
       }
 
       const providerUserId = verifiedToken.sub;
-      const userEmail = verifiedToken.email; // Only populated if verified by provider
+      const userEmail = verifiedToken.emailVerified ? verifiedToken.email : null;
       const userName = verifiedToken.name || name || null; // Apple sends name separately on first auth
 
       // Optional: exchange Apple authorization code for refresh token (server-side validation capability)
@@ -1030,7 +1048,7 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
               type: "email",
               value: userEmail.toLowerCase(),
               source: provider === "apple" ? "apple_claim" : "provider_sync",
-              verified: true,
+              verified: !!verifiedToken.emailVerified,
             });
           }
 
@@ -1143,7 +1161,7 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
       }
 
       // Generate new access token
-      const accessToken = authService.generateAccessToken(result.userId);
+      const accessToken = authService.generateAccessToken(result.userId, { sessionId: result.sessionId || null });
 
       // Record identity usage on refresh (non-blocking)
       // Find the identity associated with this user's most recent sign-in method
@@ -1189,6 +1207,14 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
 
       if (error.code === "TOKEN_FAMILY_COMPROMISED") {
         return sendError(reply, 401, "TOKEN_FAMILY_COMPROMISED", "Session invalidated. Please login again.");
+      }
+
+      if (error.code === "SESSION_REVOKED") {
+        return sendError(reply, 401, "SESSION_REVOKED", "Session revoked. Please login again.");
+      }
+
+      if (error.code === "SESSION_BINDING_REQUIRED") {
+        return sendError(reply, 401, "SESSION_EXPIRED", "Session expired. Please sign in again.");
       }
 
       return sendError(reply, 401, "INVALID_REFRESH_TOKEN", "Invalid or expired refresh token.");
@@ -1338,16 +1364,8 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
     const { token } = request.body;
 
     try {
-      const { userId, tokenId } = await authService.verifyEmailVerificationToken(token);
-
-      // Find the user's most recent email contact to verify (may differ from users.email mirror)
-      const emailContact = await db.prepare(
-        `SELECT value_normalized FROM user_contacts
-         WHERE user_id = ? AND type = 'email' AND verified_at IS NULL
-         ORDER BY is_primary DESC, created_at DESC LIMIT 1`
-      ).get(userId);
-      // Fall back to users.email for legacy users without contacts yet
-      const emailToVerify = emailContact?.value_normalized
+      const { userId, tokenId, email_normalized: emailNormalized } = await authService.verifyEmailVerificationToken(token);
+      const emailToVerify = emailNormalized
         || (await db.prepare("SELECT email FROM users WHERE id = ?").get(userId))?.email;
       if (emailToVerify) {
         await identityService.verifyContact(db, userId, "email", emailToVerify, "email_token");
@@ -1512,15 +1530,18 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
       const emailChanged = !currentUser || currentUser.email !== newEmail;
 
       // Create or update contact as unverified
-      await identityService.createOrUpdateContact(db, request.userId, {
+      const contactResult = await identityService.createOrUpdateContact(db, request.userId, {
         type: "email",
         value: newEmail,
         source: "user_entered",
       });
 
       // Send verification email for changed email (fire-and-forget)
+      if (emailChanged) {
+        await authService.invalidateEmailVerificationTokens(request.userId);
+      }
       if (emailChanged && emailService.isConfigured()) {
-        authService.createEmailVerificationToken(request.userId)
+        authService.createEmailVerificationToken(request.userId, { email: newEmail, contactId: contactResult.contactId })
           .then(({ token }) => emailService.sendVerificationEmail(newEmail, token))
           .catch((err) => {
             console.error("[ProfileUpdate] Failed to send verification email:", err.message);
@@ -1740,22 +1761,7 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
       ).get(request.userId);
 
       if (!unverifiedEmail) {
-        // Fall back to users.email if no contact row (legacy)
-        const user = await db.prepare(
-          "SELECT email, email_verified FROM users WHERE id = ?"
-        ).get(request.userId);
-
-        if (!user?.email || user.email_verified) {
-          return sendError(reply, 400, "NO_PENDING_VERIFICATION", "No unverified email address found.");
-        }
-
-        // Send verification for legacy email
-        if (emailService.isConfigured()) {
-          const { token } = await authService.createEmailVerificationToken(request.userId);
-          await emailService.sendVerificationEmail(user.email, token);
-        }
-
-        return reply.send({ success: true, email_masked: user.email.slice(0, 2) + "***@" + user.email.split("@")[1] });
+        return sendError(reply, 400, "NO_PENDING_VERIFICATION", "No unverified email address found.");
       }
 
       // Send verification for contact email
@@ -1763,7 +1769,9 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
         return sendError(reply, 503, "EMAIL_NOT_CONFIGURED", "Email verification is not available.");
       }
 
-      const { token } = await authService.createEmailVerificationToken(request.userId);
+      const { token } = await authService.createEmailVerificationToken(request.userId, {
+        email: unverifiedEmail.value_normalized,
+      });
       await emailService.sendVerificationEmail(unverifiedEmail.value_normalized, token);
 
       const emailParts = unverifiedEmail.value_normalized.split("@");
@@ -2003,7 +2011,7 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
 
       // Send verification email for self-asserted email (fire-and-forget)
       if (normalizedEmail && emailService.isConfigured()) {
-        authService.createEmailVerificationToken(userId).then(({ token }) => {
+        authService.createEmailVerificationToken(userId, { email: normalizedEmail }).then(({ token }) => {
           emailService.sendVerificationEmail(normalizedEmail, token).catch((err) => {
             console.error("Failed to send verification email:", err.message);
           });

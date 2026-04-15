@@ -19,6 +19,11 @@ import UIKit    // For UIApplication.isProtectedDataAvailable
 @MainActor
 @Observable
 class AuthManager {
+    struct PendingSocialLinkRequest {
+        let provider: String
+        let body: [String: Any]
+        let appleUserIdentifier: String?
+    }
 
     // MARK: - Observable State
 
@@ -53,6 +58,8 @@ class AuthManager {
             }
         }
     }
+
+    private(set) var pendingSocialLinkRequest: PendingSocialLinkRequest?
 
     /// Suppresses didSet Keychain writes during restoration to avoid resetting TTL
     @ObservationIgnored private var isRestoringFromKeychain = false
@@ -669,6 +676,7 @@ class AuthManager {
 
     /// Handle Sign in with Apple
     func handleAppleSignIn(authorization: ASAuthorization, nonce: String) async throws {
+        pendingSocialLinkRequest = nil
         guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential,
               let identityToken = credential.identityToken,
               let tokenString = String(data: identityToken, encoding: .utf8) else {
@@ -730,18 +738,15 @@ class AuthManager {
             // Check if this is a link confirmation prompt (not a login response)
             if let linkResponse = try? JSONDecoder().decode(LinkConfirmationResponse.self, from: data),
                linkResponse.requiresLinkConfirmation == true {
-                // Server found an existing account matching this email — needs confirmation
-                // For now, ignore and proceed as new account (confirm_link not yet wired for Apple)
-                print("[Auth] Social auth requires link confirmation — retrying with confirm_link")
-                // Retry with confirm_link: true to auto-link
-                body["confirm_link"] = true
-                request.httpBody = try JSONSerialization.data(withJSONObject: body)
-                let (retryData, retryResponse) = try await session.data(for: request)
-                guard let retryHttp = retryResponse as? HTTPURLResponse, (200...201).contains(retryHttp.statusCode) else {
-                    throw AuthError.serverError("Apple sign-in link confirmation failed")
-                }
-                let authResponse = try JSONDecoder().decode(AuthResponse.self, from: retryData)
-                try saveTokens(authResponse)
+                pendingSocialLinkRequest = PendingSocialLinkRequest(
+                    provider: "apple",
+                    body: body,
+                    appleUserIdentifier: credential.user.isEmpty ? nil : credential.user
+                )
+                throw AuthError.requiresLinkConfirmation(
+                    provider: linkResponse.provider ?? "apple",
+                    maskedEmail: linkResponse.existingAccountEmail ?? "existing account"
+                )
             } else {
                 let authResponse = try JSONDecoder().decode(AuthResponse.self, from: data)
                 try saveTokens(authResponse)
@@ -774,6 +779,7 @@ class AuthManager {
         redirectUri: String? = nil,
         name: String? = nil
     ) async throws {
+        pendingSocialLinkRequest = nil
         isLoading = true
         defer { isLoading = false }
 
@@ -817,15 +823,15 @@ class AuthManager {
             // Check if this is a link confirmation prompt (not a login response)
             if let linkResponse = try? JSONDecoder().decode(LinkConfirmationResponse.self, from: data),
                linkResponse.requiresLinkConfirmation == true {
-                print("[Auth] OAuth requires link confirmation — retrying with confirm_link")
-                body["confirm_link"] = true
-                request.httpBody = try JSONSerialization.data(withJSONObject: body)
-                let (retryData, retryResponse) = try await session.data(for: request)
-                guard let retryHttp = retryResponse as? HTTPURLResponse, (200...201).contains(retryHttp.statusCode) else {
-                    throw AuthError.serverError("\(provider.capitalized) sign-in link confirmation failed")
-                }
-                let authResponse = try JSONDecoder().decode(AuthResponse.self, from: retryData)
-                try saveTokens(authResponse)
+                pendingSocialLinkRequest = PendingSocialLinkRequest(
+                    provider: provider,
+                    body: body,
+                    appleUserIdentifier: nil
+                )
+                throw AuthError.requiresLinkConfirmation(
+                    provider: linkResponse.provider ?? provider,
+                    maskedEmail: linkResponse.existingAccountEmail ?? "existing account"
+                )
             } else {
                 let authResponse = try JSONDecoder().decode(AuthResponse.self, from: data)
                 try saveTokens(authResponse)
@@ -844,6 +850,49 @@ class AuthManager {
         default:
             throw AuthError.serverError("\(provider.capitalized) sign-in failed (HTTP \(httpResponse.statusCode))")
         }
+    }
+
+    func confirmPendingSocialLink() async throws {
+        guard let pending = pendingSocialLinkRequest else {
+            throw AuthError.serverError("No pending link confirmation request found.")
+        }
+
+        isLoading = true
+        defer { isLoading = false }
+
+        let url = URL(string: "\(baseURL)/auth/social")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        var body = pending.body
+        body["confirm_link"] = true
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, response) = try await session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw AuthError.networkError("Invalid response")
+        }
+        guard (200...201).contains(httpResponse.statusCode) else {
+            throw AuthError.serverError("\(pending.provider.capitalized) sign-in link confirmation failed")
+        }
+
+        let authResponse = try JSONDecoder().decode(AuthResponse.self, from: data)
+        try saveTokens(authResponse)
+
+        if let appleUserIdentifier = pending.appleUserIdentifier {
+            let saved = KeychainHelper.saveString(key: Self.appleUserIdKey, value: appleUserIdentifier)
+            print("[Auth] Apple userIdentifier saved after confirmed link: \(saved)")
+        }
+
+        setAuthProvider(pending.provider)
+        pendingSocialLinkRequest = nil
+        isAuthenticated = true
+        try await fetchCurrentUser()
+    }
+
+    func cancelPendingSocialLink() {
+        pendingSocialLinkRequest = nil
     }
 
     // MARK: - Phone Auth
@@ -1279,12 +1328,17 @@ class AuthManager {
         KeychainHelper.delete(key: Self.deviceTokenExpiryKey)
         KeychainHelper.delete(key: Self.appleUserIdKey)
         KeychainHelper.delete(key: Self.authProviderKey)
+        KeychainHelper.delete(key: Self.pendingPhoneLinkKey)
+        KeychainHelper.delete(key: Self.pendingPhoneLinkExpiryKey)
+        PendingSuggestionStore.clear()
         tokenLock.withLock {
             cachedAccessToken = nil
             cachedRefreshToken = nil
             cachedTokenExpiryEpoch = nil
             cachedUserId = nil
         }
+        pendingPhoneLink = nil
+        pendingSocialLinkRequest = nil
 
         isAuthenticated = false
         hasValidatedSession = false
@@ -1331,6 +1385,7 @@ class AuthManager {
             pendingPhoneLink = nil
             // Link OneSignal external ID so marketing pushes target this user
             OneSignal.login(user.id)
+            await LocalNotificationService.shared.ensureAuthorizedForAuthenticatedUser()
             print("[Auth] fetchCurrentUser success: user=\(user.id)")
         } else if httpResponse.statusCode == 401 {
             // Token expired, try refresh

@@ -102,6 +102,14 @@ describe("Auth Service", () => {
       assert.ok(payload.iat, "should have issued at");
     });
 
+    it("should include session id when provided", () => {
+      const token = authService.generateAccessToken("user-sid", { sessionId: "sess-123" });
+      const payload = authService.verifyAccessToken(token);
+
+      assert.strictEqual(payload.sub, "user-sid");
+      assert.strictEqual(payload.sid, "sess-123");
+    });
+
     it("should reject expired token", async () => {
       // Generate token with very short expiry for testing
       const token = authService.generateAccessToken("user-789", { expiresIn: "1ms" });
@@ -155,13 +163,31 @@ describe("Auth Service", () => {
       assert.strictEqual(stored.user_id, testUserId);
     });
 
+    it("should bind refresh token family to session when provided", async () => {
+      const session = await authService.createSession(testUserId, { deviceName: "Test iPhone" });
+      const { tokenFamily } = await authService.createRefreshToken(testUserId, { sessionId: session.id });
+
+      const family = db.prepare("SELECT session_id FROM token_families WHERE id = ?").get(tokenFamily);
+      assert.strictEqual(family.session_id, session.id);
+    });
+
     it("should verify valid refresh token", async () => {
-      const { token } = await authService.createRefreshToken(testUserId);
+      const session = await authService.createSession(testUserId, { deviceName: "Test Device" });
+      const { token } = await authService.createRefreshToken(testUserId, { sessionId: session.id });
 
       const result = await authService.verifyRefreshToken(token);
       assert.strictEqual(result.userId, testUserId);
       assert.ok(result.tokenId, "should return token ID");
       assert.ok(result.tokenFamily, "should return token family");
+      assert.strictEqual(result.sessionId, session.id, "should return bound session ID");
+    });
+
+    it("should reject refresh tokens without a bound session", async () => {
+      const { token } = await authService.createRefreshToken(testUserId);
+
+      await assert.rejects(async () => {
+        await authService.verifyRefreshToken(token);
+      }, (error) => error?.code === "SESSION_BINDING_REQUIRED");
     });
 
     it("should reject invalid refresh token", async () => {
@@ -191,7 +217,11 @@ describe("Auth Service", () => {
     });
 
     it("should rotate refresh token (generate new, revoke old)", async () => {
-      const { token: oldToken, tokenId: oldTokenId, tokenFamily } = await authService.createRefreshToken(testUserId);
+      const session = await authService.createSession(testUserId, { deviceName: "Rotate Device" });
+      const { token: oldToken, tokenId: oldTokenId, tokenFamily } = await authService.createRefreshToken(
+        testUserId,
+        { sessionId: session.id }
+      );
 
       // Rotate the token
       const { token: newToken, tokenId: newTokenId, tokenFamily: newFamily } = await authService.rotateRefreshToken(
@@ -213,9 +243,18 @@ describe("Auth Service", () => {
       assert.strictEqual(result.userId, testUserId, "rotation result must include userId for access token minting");
     });
 
+    it("should reject rotation for refresh token families without a bound session", async () => {
+      const { token } = await authService.createRefreshToken(testUserId);
+
+      await assert.rejects(async () => {
+        await authService.rotateRefreshToken(token);
+      }, (error) => error?.code === "SESSION_BINDING_REQUIRED");
+    });
+
     it("should detect token reuse attack and revoke entire family", async () => {
       // Create initial token
-      const { token: token1, tokenFamily } = await authService.createRefreshToken(testUserId);
+      const session = await authService.createSession(testUserId, { deviceName: "Reuse Device" });
+      const { token: token1, tokenFamily } = await authService.createRefreshToken(testUserId, { sessionId: session.id });
 
       // Rotate to get token2
       const { token: token2 } = await authService.rotateRefreshToken(token1);
@@ -330,11 +369,24 @@ describe("Auth Service", () => {
       assert.ok(expiresAt, "should return expiration");
     });
 
+    it("should bind email verification token to the intended email", async () => {
+      const { tokenId, emailNormalized } = await authService.createEmailVerificationToken(testUserId, {
+        email: " Ambrose@Example.com ",
+      });
+
+      assert.strictEqual(emailNormalized, "ambrose@example.com");
+      const stored = db.prepare("SELECT email_normalized FROM email_verification_tokens WHERE id = ?").get(tokenId);
+      assert.strictEqual(stored.email_normalized, "ambrose@example.com");
+    });
+
     it("should verify valid email verification token", async () => {
-      const { token } = await authService.createEmailVerificationToken(testUserId);
+      const { token } = await authService.createEmailVerificationToken(testUserId, {
+        email: "recipient@example.com",
+      });
 
       const result = await authService.verifyEmailVerificationToken(token);
       assert.strictEqual(result.userId, testUserId);
+      assert.strictEqual(result.email_normalized, "recipient@example.com");
     });
 
     it("should reject already used token", async () => {

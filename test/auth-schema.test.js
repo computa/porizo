@@ -176,6 +176,7 @@ describe("Auth Schema (migration 019)", () => {
       assert.ok(columns.includes("token_hash"), "should have token_hash column");
       assert.ok(columns.includes("expires_at"), "should have expires_at column");
       assert.ok(columns.includes("used_at"), "should have used_at column");
+      assert.ok(columns.includes("email_normalized"), "should have email_normalized column");
     });
   });
 

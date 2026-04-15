@@ -63,12 +63,14 @@ enum PendingSuggestionStore {
 
         let showCount = defaults.integer(forKey: showCountKey)
         if showCount >= maxShows {
+            clear(defaults: defaults)
             return nil
         }
 
         let setAt = defaults.double(forKey: setAtKey)
         if setAt > 0 {
             if now.timeIntervalSince1970 - setAt > expirySeconds {
+                clear(defaults: defaults)
                 return nil
             }
         } else {
@@ -78,6 +80,7 @@ enum PendingSuggestionStore {
         let recipientName = defaults.string(forKey: recipientKey)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !recipientName.isEmpty else {
+            clear(defaults: defaults)
             return nil
         }
 
@@ -87,6 +90,7 @@ enum PendingSuggestionStore {
             track.recipientName?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == normalizedRecipient
         }
         if alreadyCreated {
+            clear(defaults: defaults)
             return nil
         }
 

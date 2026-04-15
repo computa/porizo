@@ -10,6 +10,13 @@ import XCTest
 
 final class AuthManagerTests: XCTestCase {
 
+    override func tearDown() {
+        super.tearDown()
+        PendingSuggestionStore.clear()
+        KeychainHelper.delete(key: "porizo_pending_phone_link")
+        KeychainHelper.delete(key: "porizo_pending_phone_link_expiry")
+    }
+
     // MARK: - Identity helpers
 
     func testPhoneProfileEntryValidator_requiresNonEmptyNameAndValidEmail() {
@@ -108,5 +115,34 @@ final class AuthManagerTests: XCTestCase {
         // When: ensureValidAccessToken is called
         // Then: It should call refreshTokens() proactively
         throw XCTSkip("Requires keychain mocking")
+    }
+
+    @MainActor
+    func testLogoutClearsPendingPhoneLinkAndPendingSuggestionState() async {
+        _ = KeychainHelper.saveString(key: "porizo_pending_phone_link", value: "+15551234567")
+        _ = KeychainHelper.saveString(
+            key: "porizo_pending_phone_link_expiry",
+            value: String(Date().addingTimeInterval(600).timeIntervalSince1970)
+        )
+        PendingSuggestionStore.store(
+            suggestion: OnboardingSuggestion(
+                title: "A Song for Mom",
+                emotionalAngle: "A thank-you she will keep forever",
+                previewLine: "You were there before I had the words...",
+                source: "template"
+            ),
+            recipientName: "Mom",
+            occasion: "birthday",
+            emotionalSeed: "unsaid_words",
+            relationshipType: "mom",
+            createTypeRaw: CreateFlowKind.song.rawValue
+        )
+
+        let authManager = AuthManager()
+        authManager.logout()
+
+        XCTAssertNil(KeychainHelper.loadString(key: "porizo_pending_phone_link"))
+        XCTAssertNil(KeychainHelper.loadString(key: "porizo_pending_phone_link_expiry"))
+        XCTAssertNil(PendingSuggestionStore.loadIfActive())
     }
 }

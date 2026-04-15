@@ -378,7 +378,7 @@ async function verifyFacebookToken(accessToken, options = {}) {
   return {
     sub: me.id || debug.data.user_id,
     email: me.email || null,
-    emailVerified: !!me.email,
+    emailVerified: false,
     name: me.name,
     iat: debug.data.issued_at,
     exp: debug.data.expires_at,

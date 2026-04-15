@@ -8,6 +8,7 @@
 
 import Foundation
 import UserNotifications
+import UIKit
 
 /// Service for managing local notifications, particularly for render completion alerts.
 @MainActor
@@ -33,6 +34,30 @@ final class LocalNotificationService {
     /// - Throws: An error if the authorization request fails.
     func requestAuthorization() async throws {
         try await notificationCenter.requestAuthorization(options: [.alert, .sound, .badge])
+    }
+
+    /// Ensures push/local notification authorization is requested only after the user
+    /// has a validated authenticated session. If authorization already exists, re-register
+    /// for remote notifications so APNs token delivery can occur for the signed-in user.
+    func ensureAuthorizedForAuthenticatedUser() async {
+        let settings = await notificationCenter.notificationSettings()
+
+        switch settings.authorizationStatus {
+        case .notDetermined:
+            do {
+                let granted = try await notificationCenter.requestAuthorization(options: [.alert, .sound, .badge])
+                guard granted else { return }
+                UIApplication.shared.registerForRemoteNotifications()
+            } catch {
+                print("[Notifications] Authorization request failed: \(error)")
+            }
+        case .authorized, .provisional, .ephemeral:
+            UIApplication.shared.registerForRemoteNotifications()
+        case .denied:
+            break
+        @unknown default:
+            break
+        }
     }
 
     // MARK: - Render Notifications

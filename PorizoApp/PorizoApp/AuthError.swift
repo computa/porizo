@@ -5,6 +5,7 @@ enum AuthError: Error, LocalizedError {
     case emailExists
     case weakPassword
     case invalidEmail
+    case requiresLinkConfirmation(provider: String, maskedEmail: String)
     case networkError(String)
     case tokenExpired
     case notAuthenticated
@@ -23,6 +24,8 @@ enum AuthError: Error, LocalizedError {
             return "Password must be at least 8 characters"
         case .invalidEmail:
             return "Please enter a valid email address"
+        case .requiresLinkConfirmation(_, let maskedEmail):
+            return "This sign-in matches an existing account (\(maskedEmail)). Confirm to link it."
         case .networkError(let msg):
             return "Network error: \(msg)"
         case .tokenExpired:

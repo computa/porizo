@@ -26,6 +26,7 @@ struct AuthView: View {
     @State private var currentNonce: String?
     @State private var showTerms = false
     @State private var showPrivacy = false
+    @State private var pendingLinkPrompt: (provider: String, maskedEmail: String)?
 
     var body: some View {
         ZStack {
@@ -125,6 +126,40 @@ struct AuthView: View {
             if isAuthenticated {
                 errorMessage = nil
             }
+        }
+        .alert(
+            "Link existing account?",
+            isPresented: Binding(
+                get: { pendingLinkPrompt != nil },
+                set: { isPresented in
+                    if !isPresented {
+                        pendingLinkPrompt = nil
+                    }
+                }
+            ),
+            presenting: pendingLinkPrompt
+        ) { prompt in
+            Button("Cancel", role: .cancel) {
+                authManager.cancelPendingSocialLink()
+                pendingLinkPrompt = nil
+            }
+            Button("Link and continue") {
+                Task { @MainActor in
+                    isLoading = true
+                    defer { isLoading = false }
+                    do {
+                        try await authManager.confirmPendingSocialLink()
+                        pendingLinkPrompt = nil
+                        dismiss()
+                    } catch let error as AuthError {
+                        errorMessage = error.localizedDescription
+                    } catch {
+                        errorMessage = ErrorHandler.friendlyMessage(for: error, context: "Confirming account link")
+                    }
+                }
+            }
+        } message: { prompt in
+            Text("This \(prompt.provider.capitalized) sign-in matches an existing account (\(prompt.maskedEmail)). Link it to continue?")
         }
     }
 
@@ -272,7 +307,11 @@ struct AuthView: View {
                     dismiss()
                 } catch let error as AuthError {
                     currentNonce = nil
-                    errorMessage = error.localizedDescription
+                    if case .requiresLinkConfirmation(let provider, let maskedEmail) = error {
+                        pendingLinkPrompt = (provider, maskedEmail)
+                    } else {
+                        errorMessage = error.localizedDescription
+                    }
                 } catch {
                     currentNonce = nil
                     errorMessage = friendlyAppleSignInMessage(for: error)

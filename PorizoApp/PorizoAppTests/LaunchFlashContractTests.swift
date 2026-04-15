@@ -90,6 +90,7 @@ final class LaunchFlashContractTests: XCTestCase {
         )
 
         XCTAssertNil(expired)
+        XCTAssertNil(defaults.string(forKey: PendingSuggestionStore.suggestionKey))
     }
 
     func testPendingSuggestionStore_hidesSuggestionAfterFiveShows() {
@@ -107,6 +108,7 @@ final class LaunchFlashContractTests: XCTestCase {
         (0..<5).forEach { _ in PendingSuggestionStore.markShown(defaults: defaults) }
 
         XCTAssertNil(PendingSuggestionStore.loadIfActive(defaults: defaults))
+        XCTAssertNil(defaults.string(forKey: PendingSuggestionStore.suggestionKey))
     }
 
     func testPendingSuggestionStore_hidesSuggestionWhenMatchingCreatedTrackExists() {
@@ -124,6 +126,7 @@ final class LaunchFlashContractTests: XCTestCase {
         let createdTrack = makeTrack(recipientName: "Tom", libraryOrigin: "created")
 
         XCTAssertNil(PendingSuggestionStore.loadIfActive(defaults: defaults, tracks: [createdTrack]))
+        XCTAssertNil(defaults.string(forKey: PendingSuggestionStore.suggestionKey))
     }
 
     func testLaunchFlashResolver_usesCachedPlayableAudioURLForTrackContent() {

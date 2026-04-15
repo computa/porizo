@@ -97,7 +97,6 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         AppleAdsAttribution.captureTokenIfAvailable()
         #endif
 
-        application.registerForRemoteNotifications()
         return true
     }
 
@@ -225,13 +224,6 @@ struct PorizoAppApp: App {
 
                 .withToasts()
                 .task {
-                    // Request notification permission on launch
-                    do {
-                        try await LocalNotificationService.shared.requestAuthorization()
-                    } catch {
-                        print("[App] Notification permission error: \(error)")
-                    }
-
                     // Request App Tracking Transparency, then propagate the result to FBSDK so
                     // fb_mobile_activate_app events carry IDFA + campaign attribution. Without
                     // this, Meta Events Manager flags "not enough events sent with Campaign ID".

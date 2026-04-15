@@ -32,7 +32,7 @@ struct RootView: View {
     @State private var appUpdatePrompt: AppUpdatePrompt?
     @State private var dismissedRecommendedUpdateVersion: String?
     @State private var profileCompletionContext: ProfileCompletionContext?
-    @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
+    @AppStorage("onboardingCompletionVersion") private var onboardingCompletionVersion = 0
     @AppStorage("pendingRecipientName") private var pendingRecipientName = ""
     @AppStorage("pendingOccasion") private var pendingOccasion = ""
     @AppStorage("pendingCreateType") private var pendingCreateType = ""
@@ -124,7 +124,7 @@ struct RootView: View {
                     .onAppear {
                         #if DEBUG
                         if resetOnboarding {
-                            let keys = ["hasCompletedOnboarding", "pendingRecipientName", "pendingOccasion",
+                            let keys = ["hasCompletedOnboarding", "onboardingCompletionVersion", "pendingRecipientName", "pendingOccasion",
                                          "pendingCreateType", "pendingEmotionalSeed", "pendingRelationshipType",
                                          "pendingSuggestion", "pendingCreateAutostart",
                                          // Launch flash state — reset for clean test runs
@@ -170,7 +170,8 @@ struct RootView: View {
                                     return
                                 }
                                 #endif
-                                if hasCompletedOnboarding {
+                                normalizeLegacyOnboardingCompletionIfNeeded()
+                                if hasCompletedOnboardingFlow {
                                     appState = nextStateAfterSplash()
                                 } else {
                                     appState = .onboardingV2
@@ -318,8 +319,10 @@ struct RootView: View {
                         appState = .main
                     }
                 }
-            } else if hasCompletedOnboarding && !skipAuth && appState != .auth && pendingRecipientName.isEmpty {
+            } else if hasCompletedOnboardingFlow && !skipAuth && appState != .auth {
+                clearPendingCreateContext()
                 profileCompletionContext = nil
+                authContextMessage = nil
                 if appState == .launchFlash {
                     dismissLaunchFlash(reason: "auth_change", routeOverride: .auth, shouldLog: true)
                 } else {
@@ -453,16 +456,21 @@ struct RootView: View {
             pendingSuggestion = ""
         }
 
-        hasCompletedOnboarding = true
+        markOnboardingCompleted()
 
         withAnimation(.easeInOut(duration: 0.5)) {
-            appState = .main
+            if authManager.isAuthenticated {
+                appState = .main
+            } else {
+                authContextMessage = "Sign in to make this song for \(result.recipientName)"
+                appState = .auth
+            }
         }
         syncProfileCompletionContext()
     }
 
     private func skipOnboardingV2(_ partial: PartialOnboardingResult?) {
-        hasCompletedOnboarding = true
+        markOnboardingCompleted()
 
         if let partial {
             PendingSuggestionStore.store(
@@ -666,7 +674,7 @@ struct RootView: View {
     /// On warm resume past the 10-minute threshold, re-show the launch flash.
     /// Only applies when the user is in .main or .auth (not .onboardingV2, .launchFlash, .splash).
     private func evaluateWarmResumeForLaunchFlash() {
-        guard hasCompletedOnboarding else { return }
+        guard hasCompletedOnboardingFlow else { return }
         guard appState == .main || appState == .auth else { return }
         guard launchFlashMode != .off else { return }
 
@@ -695,6 +703,40 @@ struct RootView: View {
         if profileCompletionContext == nil {
             profileCompletionContext = ProfileCompletionContext(apiClient: client)
         }
+    }
+
+    private var legacyHasCompletedOnboarding: Bool {
+        UserDefaults.standard.object(forKey: "hasCompletedOnboarding") as? Bool ?? false
+    }
+
+    private var hasCompletedOnboardingFlow: Bool {
+        OnboardingCompletionGate.isCompleted(
+            completionVersion: onboardingCompletionVersion,
+            legacyCompleted: legacyHasCompletedOnboarding,
+            isAuthenticated: authManager.isAuthenticated,
+            hasPendingSuggestion: !pendingSuggestion.isEmpty,
+            hasPendingRecipient: !pendingRecipientName.isEmpty,
+            hasPendingAutostart: pendingCreateAutostart
+        )
+    }
+
+    private func normalizeLegacyOnboardingCompletionIfNeeded() {
+        guard onboardingCompletionVersion < OnboardingCompletionGate.currentVersion else { return }
+        guard OnboardingCompletionGate.shouldMigrateLegacyCompletion(
+            legacyCompleted: legacyHasCompletedOnboarding,
+            isAuthenticated: authManager.isAuthenticated,
+            hasPendingSuggestion: !pendingSuggestion.isEmpty,
+            hasPendingRecipient: !pendingRecipientName.isEmpty,
+            hasPendingAutostart: pendingCreateAutostart
+        ) else { return }
+
+        onboardingCompletionVersion = OnboardingCompletionGate.currentVersion
+        UserDefaults.standard.removeObject(forKey: "hasCompletedOnboarding")
+    }
+
+    private func markOnboardingCompleted() {
+        onboardingCompletionVersion = OnboardingCompletionGate.currentVersion
+        UserDefaults.standard.removeObject(forKey: "hasCompletedOnboarding")
     }
 
     private func handleEmailVerification(token: String) {

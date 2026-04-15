@@ -14,6 +14,7 @@ const { initDb } = require("../src/db");
 const { buildServer } = require("../src/server");
 const { createStorageProvider } = require("../src/storage");
 const { clearRateLimits } = require("../src/routes/auth");
+const authService = require("../src/services/auth-service");
 
 describe("Auth API Endpoints", () => {
   let app;
@@ -158,7 +159,7 @@ describe("Auth API Endpoints", () => {
     let testEmail;
     const testPassword = "SecurePassword123";
 
-    before(async () => {
+    beforeEach(async () => {
       testEmail = uniqueEmail();
       await app.inject({
         method: "POST",
@@ -218,7 +219,7 @@ describe("Auth API Endpoints", () => {
   describe("POST /auth/refresh", () => {
     let refreshToken;
 
-    before(async () => {
+    beforeEach(async () => {
       const response = await app.inject({
         method: "POST",
         url: "/auth/signup",
@@ -271,6 +272,22 @@ describe("Auth API Endpoints", () => {
       });
 
       assert.strictEqual(response.statusCode, 401);
+    });
+
+    it("should reject legacy refresh tokens without a bound session", async () => {
+      const userId = `user_legacy_${crypto.randomBytes(4).toString("hex")}`;
+      db.prepare("INSERT INTO users (id, created_at, risk_level) VALUES (?, datetime('now'), 'low')").run(userId);
+      const { token } = await authService.createRefreshToken(userId);
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/auth/refresh",
+        payload: { refresh_token: token },
+      });
+
+      assert.strictEqual(response.statusCode, 401);
+      const body = JSON.parse(response.body);
+      assert.strictEqual(body.error, "SESSION_EXPIRED");
     });
   });
 
@@ -330,10 +347,28 @@ describe("Auth API Endpoints", () => {
 
       assert.strictEqual(response.statusCode, 401);
     });
+
+    it("should reject access tokens without a bound session id", async () => {
+      const userId = `user_sidless_${crypto.randomBytes(4).toString("hex")}`;
+      db.prepare("INSERT INTO users (id, created_at, risk_level) VALUES (?, datetime('now'), 'low')").run(userId);
+      const sidlessToken = authService.generateAccessToken(userId);
+
+      const response = await app.inject({
+        method: "GET",
+        url: "/auth/me",
+        headers: {
+          Authorization: `Bearer ${sidlessToken}`,
+        },
+      });
+
+      assert.strictEqual(response.statusCode, 401);
+    });
   });
 
   describe("POST /auth/logout", () => {
     let accessToken;
+    let refreshToken;
+    let sessionId;
 
     before(async () => {
       const response = await app.inject({
@@ -346,6 +381,16 @@ describe("Auth API Endpoints", () => {
       });
       const body = JSON.parse(response.body);
       accessToken = body.access_token;
+      refreshToken = body.refresh_token;
+
+      const sessionsResponse = await app.inject({
+        method: "GET",
+        url: "/auth/sessions",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+      sessionId = JSON.parse(sessionsResponse.body).sessions[0].id;
     });
 
     it("should logout successfully", async () => {
@@ -373,6 +418,36 @@ describe("Auth API Endpoints", () => {
       });
 
       assert.strictEqual(response.statusCode, 200);
+    });
+
+    it("should invalidate the current session access and refresh tokens", async () => {
+      const logoutResponse = await app.inject({
+        method: "POST",
+        url: "/auth/logout",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+      assert.strictEqual(logoutResponse.statusCode, 200);
+
+      const meResponse = await app.inject({
+        method: "GET",
+        url: "/auth/me",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+      assert.strictEqual(meResponse.statusCode, 401);
+
+      const refreshResponse = await app.inject({
+        method: "POST",
+        url: "/auth/refresh",
+        payload: { refresh_token: refreshToken },
+      });
+      assert.strictEqual(refreshResponse.statusCode, 401);
+
+      const session = db.prepare("SELECT revoked_at FROM user_sessions WHERE id = ?").get(sessionId);
+      assert.ok(session.revoked_at, "logout should revoke the backing session");
     });
   });
 
@@ -461,6 +536,54 @@ describe("Auth API Endpoints", () => {
       assert.strictEqual(response.statusCode, 200);
     });
 
+    it("should invalidate revoked session credentials", async () => {
+      const loginResponse = await app.inject({
+        method: "POST",
+        url: "/auth/signup",
+        payload: {
+          email: uniqueEmail(),
+          password: "SecurePassword123",
+        },
+      });
+      const loginBody = JSON.parse(loginResponse.body);
+      const currentAccessToken = loginBody.access_token;
+      const currentRefreshToken = loginBody.refresh_token;
+
+      const sessionsResponse = await app.inject({
+        method: "GET",
+        url: "/auth/sessions",
+        headers: { Authorization: `Bearer ${currentAccessToken}` },
+      });
+      const currentSessionId = JSON.parse(sessionsResponse.body).sessions[0].id;
+
+      const revokeResponse = await app.inject({
+        method: "DELETE",
+        url: `/auth/sessions/${currentSessionId}`,
+        headers: {
+          Authorization: `Bearer ${currentAccessToken}`,
+        },
+      });
+      assert.strictEqual(revokeResponse.statusCode, 200);
+
+      const meResponse = await app.inject({
+        method: "GET",
+        url: "/auth/me",
+        headers: {
+          Authorization: `Bearer ${currentAccessToken}`,
+        },
+      });
+      assert.strictEqual(meResponse.statusCode, 401);
+
+      const refreshResponse = await app.inject({
+        method: "POST",
+        url: "/auth/refresh",
+        payload: { refresh_token: currentRefreshToken },
+      });
+      assert.strictEqual(refreshResponse.statusCode, 401);
+      const refreshBody = JSON.parse(refreshResponse.body);
+      assert.strictEqual(refreshBody.error, "SESSION_REVOKED");
+    });
+
     it("should reject non-existent session", async () => {
       const response = await app.inject({
         method: "DELETE",
@@ -524,6 +647,98 @@ describe("Auth API Endpoints", () => {
       assert.ok(body.user_id);
       assert.ok(body.access_token);
       assert.strictEqual(body.is_new_user, true);
+    });
+  });
+
+  describe("Email verification token binding", () => {
+    it("should invalidate an old verification token when the pending email changes", async () => {
+      const signupEmail = uniqueEmail();
+      const signupResponse = await app.inject({
+        method: "POST",
+        url: "/auth/signup",
+        payload: {
+          email: signupEmail,
+          password: "SecurePassword123",
+          name: "Ambrose",
+        },
+      });
+      assert.strictEqual(signupResponse.statusCode, 201);
+      const signupBody = JSON.parse(signupResponse.body);
+      const accessToken = signupBody.access_token;
+      const userId = signupBody.user_id;
+
+      const rawToken = `verify-${crypto.randomBytes(12).toString("hex")}`;
+      db.prepare(
+        `INSERT INTO email_verification_tokens (id, user_id, token_hash, expires_at, email_normalized)
+         VALUES (?, ?, ?, datetime('now', '+1 day'), ?)`
+      ).run(
+        `evt_test_${crypto.randomBytes(4).toString("hex")}`,
+        userId,
+        sha256Hex(rawToken),
+        signupEmail.toLowerCase()
+      );
+
+      const newEmail = uniqueEmail();
+      const profileResponse = await app.inject({
+        method: "PATCH",
+        url: "/auth/profile",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+        payload: {
+          email: newEmail,
+        },
+      });
+      assert.strictEqual(profileResponse.statusCode, 200);
+
+      const verifyResponse = await app.inject({
+        method: "POST",
+        url: "/auth/verify-email",
+        payload: {
+          token: rawToken,
+        },
+      });
+      assert.strictEqual(verifyResponse.statusCode, 400);
+
+      const contacts = db.prepare(
+        "SELECT value_normalized, verified_at FROM user_contacts WHERE user_id = ? AND type = 'email' ORDER BY created_at ASC"
+      ).all(userId);
+      const oldContact = contacts.find((contact) => contact.value_normalized === signupEmail.toLowerCase());
+      const updatedContact = contacts.find((contact) => contact.value_normalized === newEmail.toLowerCase());
+
+      assert.ok(oldContact?.verified_at, "original signup email should remain verified");
+      assert.ok(updatedContact, "new pending email contact should exist");
+      assert.strictEqual(updatedContact.verified_at, null, "new pending email must remain unverified");
+    });
+
+    it("should reject resend verification when no pending email contact exists even if users.email remains populated", async () => {
+      const signupEmail = uniqueEmail();
+      const signupResponse = await app.inject({
+        method: "POST",
+        url: "/auth/signup",
+        payload: {
+          email: signupEmail,
+          password: "SecurePassword123",
+          name: "Contactless User",
+        },
+      });
+      assert.strictEqual(signupResponse.statusCode, 201);
+      const { access_token: accessToken, user_id: userId } = JSON.parse(signupResponse.body);
+
+      db.prepare("DELETE FROM user_contacts WHERE user_id = ? AND type = 'email'").run(userId);
+      db.prepare("UPDATE users SET email = ?, email_verified = 0 WHERE id = ?").run(signupEmail.toLowerCase(), userId);
+
+      const resendResponse = await app.inject({
+        method: "POST",
+        url: "/auth/email/resend-verification",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+
+      assert.strictEqual(resendResponse.statusCode, 400);
+      const body = JSON.parse(resendResponse.body);
+      assert.strictEqual(body.error, "NO_PENDING_VERIFICATION");
     });
   });
 });
