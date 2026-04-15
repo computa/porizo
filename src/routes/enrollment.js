@@ -689,6 +689,28 @@ function registerEnrollmentRoutes(app, deps) {
 
       const profileId = newUuid();
       const qualityScore = Math.round(qcResult.metrics.average_score || 50);
+
+      // Spec: voice profile only goes active when quality score >= 70.
+      // Without this gate, silent/noisy recordings that miss the E103/E104
+      // critical-error filter still create active profiles with garbage
+      // embeddings — leading to bad voice conversion downstream.
+      if (qcResult.passed === false || qualityScore < 70 || qcResult.grade === "F") {
+        request.log.warn(
+          { score: qualityScore, grade: qcResult.grade, errors: qcResult.errors },
+          "[Enrollment:complete] QC below threshold — rejecting"
+        );
+        await db.prepare(
+          "UPDATE enrollment_sessions SET status = ?, completed_at = ? WHERE id = ?"
+        ).run("failed_quality", nowIso(), session_id);
+        sendError(reply, 422, "E101_AUDIO_TOO_NOISY", "Audio quality below the minimum threshold. Please record again in a quieter environment.", {
+          score: qualityScore,
+          grade: qcResult.grade,
+          errors: qcResult.errors,
+          metrics: qcResult.metrics,
+        });
+        return;
+      }
+
       const qualityTier = qcResult.grade === "F" ? "minimal" :
                           qcResult.grade === "C" ? "fair" :
                           qcResult.grade === "B" ? "good" : "excellent";

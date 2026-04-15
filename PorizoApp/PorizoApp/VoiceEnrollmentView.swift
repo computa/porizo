@@ -125,6 +125,16 @@ struct VoiceEnrollmentView: View {
         .onChange(of: audioAnalyzer.metrics) { _, newMetrics in
             coachingManager.update(with: newMetrics, isRecording: isRecording)
         }
+        .onChange(of: recorder.isRecording) { _, recorderIsRecording in
+            // Sync local UI state if the recorder stops externally (e.g. on a
+            // phone-call interruption — AudioRecorder calls stopRecording()
+            // internally without going through this view's stopRecording()).
+            if !recorderIsRecording && isRecording {
+                isRecording = false
+                autoStopTask?.cancel()
+                autoStopTask = nil
+            }
+        }
     }
 
     // MARK: - Loading View
@@ -516,6 +526,11 @@ struct VoiceEnrollmentView: View {
 
         isRecording = false
         recordedPhrases.insert(currentPhraseIndex)
+        // Set BEFORE spawning the Task so the Complete button stays disabled
+        // even before the Task's body executes (closes a race where Complete
+        // could be tapped between stopRecording returning and the Task starting).
+        // uploadChunk's `defer { isUploading = false }` clears it on completion.
+        isUploading = true
 
         // Upload in background, then auto-advance
         Task {

@@ -23,12 +23,10 @@ class AudioRecorder: NSObject {
     var hasRecording = false
     var permissionGranted = false
     var permissionDenied = false
-    var wasInterrupted = false
 
     // MARK: - Private Properties
 
     private var audioRecorder: AVAudioRecorder?
-    private var audioPlayer: AVAudioPlayer?
     private(set) var recordingURL: URL?
     private var levelTimer: Timer?
     private var durationTimer: Timer?
@@ -83,14 +81,15 @@ class AudioRecorder: NSObject {
 
         switch type {
         case .began:
-            // Phone call or other interruption started
+            // Phone call or other interruption started — stop recording.
+            // Observers of `isRecording` (e.g. VoiceEnrollmentView) sync UI state
+            // automatically via .onChange(of: recorder.isRecording).
             if isRecording {
                 _ = stopRecording()
-                wasInterrupted = true
             }
         case .ended:
-            // Interruption ended - user can restart recording
-            wasInterrupted = false
+            // Interruption ended — user can restart recording manually.
+            break
         @unknown default:
             break
         }
@@ -135,9 +134,6 @@ class AudioRecorder: NSObject {
     // MARK: - Recording
 
     func startRecording() throws {
-        // Reset interrupted flag
-        wasInterrupted = false
-
         // Configure audio session for high-quality voice capture
         // Use .measurement mode to avoid voice processing that harms singing quality
         // .voiceChat applies echo cancellation, AGC, noise reduction - bad for voice enrollment
@@ -209,34 +205,7 @@ class AudioRecorder: NSObject {
         }
     }
 
-    // MARK: - Playback
-
-    func playRecording() {
-        guard let url = recordingURL else { return }
-
-        do {
-            audioPlayer = try AVAudioPlayer(contentsOf: url)
-            audioPlayer?.play()
-        } catch {
-            print("[AudioRecorder] Playback error: \(error.localizedDescription)")
-            Task { @MainActor in ToastService.shared.show("Could not play recording", type: .error) }
-        }
-    }
-
-    func stopPlayback() {
-        audioPlayer?.stop()
-    }
-
     // MARK: - File Access
-
-    func getRecordingData() -> Data? {
-        guard let url = recordingURL else { return nil }
-        return try? Data(contentsOf: url)
-    }
-
-    func getRecordingURL() -> URL? {
-        return recordingURL
-    }
 
     func recordingDuration() -> TimeInterval? {
         guard let url = recordingURL else { return nil }

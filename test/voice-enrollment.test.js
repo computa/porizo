@@ -761,17 +761,15 @@ describe("Voice Enrollment API", () => {
         payload: { session_id: sessionId },
       });
 
-      // Silent audio may pass with low quality or fail with E103
-      // The QC is lenient to allow users to complete enrollment
-      if (response.statusCode === 422) {
-        const body = response.json();
-        assert.ok(body.error.includes("E103"), "should have E103 error code");
-      } else {
-        assert.strictEqual(response.statusCode, 202);
-        const body = response.json();
-        // Should have minimal/basic tier for poor quality audio
-        assert.ok(["minimal", "basic"].includes(body.quality.tier), "should have low quality tier");
-      }
+      // Silent audio must be rejected (spec: score >= 70 to pass).
+      // The route returns E103 if the QC pipeline detected the silence
+      // explicitly, otherwise the score-threshold gate returns E101.
+      assert.strictEqual(response.statusCode, 422);
+      const body = response.json();
+      assert.ok(
+        body.error === "E103_NO_AUDIO_DETECTED" || body.error === "E101_AUDIO_TOO_NOISY",
+        `expected E101 or E103 rejection for silent audio, got ${body.error}`
+      );
     });
 
     it("should return quality tier information", async () => {
