@@ -231,8 +231,6 @@ struct WarmCanvasScreenGallery: View {
             InlineNamePromptView(
                 selectedType: .song,
                 preselectedOccasion: demoOccasion,
-                hasOwnLyrics: .constant(false),
-                isInstrumental: .constant(false),
                 onStart: { _, _, _ in activeScreen = nil },
                 onCancel: { activeScreen = nil }
             )

@@ -432,8 +432,6 @@ struct WarmCanvasFlowView: View {
                 InlineNamePromptView(
                     selectedType: selectedType,
                     preselectedOccasion: preselectedOccasion?.displayName,
-                    hasOwnLyrics: .constant(false),
-                    isInstrumental: .constant(false),
                     onStart: { name, occasion, type in
                         if let occasion { setup.occasion = occasion }
                         startChatWithName(name, type: type)
@@ -1973,8 +1971,12 @@ struct WarmCanvasFlowView: View {
                         startRenderTimeoutWatch()
                         renderController.startFullRender(trackId: trackId, versionNum: versionNum)
                     } else {
-                        moment = .tell(.trackCreated)
-                        await resumeLyricsState()
+                        // Render failed with no retriable job — falling silently
+                        // into the lyrics-review state would let the user re-tap
+                        // Approve and re-hit a known-failed version. Surface the
+                        // stale-resume alert so they can start fresh.
+                        CreateFlowStore.shared.clear()
+                        activeAlert = .staleResume
                     }
                 } else {
                     moment = .tell(.trackCreated)

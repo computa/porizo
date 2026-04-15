@@ -11,8 +11,6 @@ import SwiftUI
 struct InlineNamePromptView: View {
     let selectedType: CreateFlowKind?
     var preselectedOccasion: String?
-    @Binding var hasOwnLyrics: Bool
-    @Binding var isInstrumental: Bool
     let onStart: (String, Occasion?, CreateFlowKind) -> Void
     let onCancel: () -> Void
 
