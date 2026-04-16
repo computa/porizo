@@ -6,18 +6,15 @@
   <meta name="description" content="Turn your most meaningful moments into personalized songs. Original music for birthdays, anniversaries, and special occasions.">
   <meta name="theme-color" content="#FBF7F2">
 
-  <title>Porizo - Your moment in a song</title>
+  <title>Porizo — Your moment, in a song</title>
 
-  <!-- Favicon -->
   <link rel="icon" type="image/x-icon" href="/favicon.ico">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 
-  <!-- Google Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500&family=DM+Sans:wght@400;500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=DM+Sans:wght@400;500&display=swap" rel="stylesheet">
 
-  <!-- Styles -->
   <link rel="stylesheet" href="/styles/main.css">
 </head>
 <body>
@@ -27,103 +24,205 @@
     <div class="container">
       <div class="nav__inner">
         <a href="/" class="nav__logo">
-          <img src="/assets/logo.png" alt="Porizo" />
           <span class="nav__logo-text">Porizo</span>
         </a>
         <div class="nav__links">
-          <a href="/about" class="nav__link">About</a>
+          <a href="#how" class="nav__link">How it works</a>
+          <a href="#stories" class="nav__link">Stories</a>
           <a href="/pricing" class="nav__link">Pricing</a>
           <a href="/blog" class="nav__link">Blog</a>
-          <a href="/support" class="nav__link">Support</a>
         </div>
+        <a href="/download" class="nav__cta">Get the app</a>
       </div>
     </div>
   </nav>
 
-  <!-- Hero Section -->
-  <section class="hero">
-    <div class="hero__content">
-      <h1 class="hero__tagline">
-        Your moment,<br><span class="accent">in a song</span>
-      </h1>
-      <p class="hero__subhead">
-        Create original, personalized songs for the people who matter most.
-        A meaningful gift that captures what words alone can't express.
-      </p>
-      <div class="hero__cta">
-        <div class="download-badges">
-          <a href="/download" class="app-store-badge" aria-label="Download on the App Store">
-            <img src="/assets/app-store-badge.svg" alt="Download on the App Store" />
-          </a>
-          <div class="coming-soon-badge" aria-label="Android coming soon">
-            <svg class="play-icon" viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
-              <path d="M3.609 1.814L13.792 12 3.61 22.186a.996.996 0 0 1-.61-.92V2.734a1 1 0 0 1 .609-.92zm10.89 10.893l2.302 2.302-10.937 6.333 8.635-8.635zm3.199-3.198l2.807 1.626a1 1 0 0 1 0 1.73l-2.808 1.626L15.206 12l2.492-2.491zM5.864 2.658L16.8 8.99l-2.302 2.302-8.634-8.634z"/>
-            </svg>
-            <div class="coming-soon-text">
-              <span class="coming-soon-label">Coming Soon</span>
-              <span class="coming-soon-store">Google Play</span>
+  <!-- Hero — Variant B: Split Showcase with rotating events + iPhone mockup -->
+  <section class="hero-b">
+    <div class="container">
+      <div class="hero-b__grid">
+        <div class="hero-b__copy">
+          <span class="eyebrow">Original songs &middot; In minutes</span>
+          <h1 class="hero-b__title" style="margin-top: var(--s-4);">
+            Turn
+            <span class="ticker-wrap">
+              <span class="ticker-inner">
+                <span class="ticker-item">her 30th</span>
+                <span class="ticker-item">your proposal</span>
+                <span class="ticker-item">mom's love</span>
+                <span class="ticker-item">a Tuesday</span>
+                <span class="ticker-item">her 30th</span>
+              </span>
+            </span><br>
+            into <span class="accent">a song.</span>
+          </h1>
+          <p class="hero-b__body">
+            Create original, personalized songs for the people who matter most.
+            Birthdays, anniversaries, or just because &mdash; one memory becomes one song.
+          </p>
+          <div class="hero-b__actions">
+            <a href="/download" class="app-store-badge" aria-label="Download on the App Store">
+              <img src="/assets/app-store-badge.svg" alt="Download on the App Store" />
+            </a>
+            <a href="#how" class="btn btn--ghost">How it works</a>
+          </div>
+          <div class="hero-b__proof">
+            <span><span class="stars">&starf;&starf;&starf;&starf;&starf;</span> <strong>4.8</strong></span>
+            <span class="sep"></span>
+            <span>2,400+ reviews</span>
+            <span class="sep"></span>
+            <span>40k+ songs crafted</span>
+          </div>
+        </div>
+        <div class="hero-b__device">
+          <div class="phone" aria-hidden="true">
+            <div class="phone__screen">
+              <div class="phone__notch"></div>
+              <div class="phone__content">
+                <div class="phone__header">
+                  <div class="phone__header-title">Now Playing</div>
+                  <div class="phone__header-sub">Birthday &middot; Pop Ballad</div>
+                </div>
+                <div class="phone__song-card">
+                  <div class="phone__song-title">Always Sarah</div>
+                  <div class="phone__song-for">A birthday song for Sarah</div>
+                  <div class="phone__wave" id="pwave"></div>
+                  <div class="phone__time"><span>0:12</span><span>0:28</span></div>
+                  <div class="phone__play-row">
+                    <div class="phone__play">
+                      <svg viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="sample-chips" role="tablist" aria-label="Sample songs">
+        <div class="sample-chips__label">Hear a different sample</div>
+        <button class="sample-chip active" data-name="Sarah" data-occ="Birthday" data-genre="Pop Ballad">For Sarah &middot; 30th</button>
+        <button class="sample-chip" data-name="Mom" data-occ="Mother's Day" data-genre="Folk">For Mom &middot; Mother's Day</button>
+        <button class="sample-chip" data-name="Dad" data-occ="60th" data-genre="Country">For Dad &middot; 60th</button>
+        <button class="sample-chip" data-name="Leah" data-occ="Anniversary" data-genre="R&amp;B">For Leah &middot; 5 yrs</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Social proof row -->
+  <div class="proof-row">
+    <div class="container">
+      <div class="proof-row__inner">
+        <div class="proof-item"><div class="proof-item__val">4.8&starf;</div><div class="proof-item__label">App Store rating</div></div>
+        <div class="proof-item"><div class="proof-item__val">40k+</div><div class="proof-item__label">Songs crafted</div></div>
+        <div class="proof-item"><div class="proof-item__val">~3 min</div><div class="proof-item__label">To get your song</div></div>
+        <div class="proof-item"><div class="proof-item__val">15+</div><div class="proof-item__label">Occasions</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- How it works -->
+  <section class="section" id="how">
+    <div class="container">
+      <div class="section__head">
+        <span class="eyebrow">How it works</span>
+        <h2 style="margin-top: var(--s-4);">From memory to melody<br>in three taps.</h2>
+      </div>
+      <div class="step-cards">
+        <div class="step-card reveal">
+          <div class="step-card__icon">&#9997;&#65039;</div>
+          <h3 class="step-card__title">Tell your story</h3>
+          <p class="step-card__desc">Pick who it's for and share one real memory. That detail becomes the heart of the lyrics.</p>
+        </div>
+        <div class="step-card reveal">
+          <div class="step-card__icon">&#127925;</div>
+          <h3 class="step-card__title">We craft the song</h3>
+          <p class="step-card__desc">Original lyrics, original music &mdash; in the genre you choose. Preview in under 90 seconds.</p>
+        </div>
+        <div class="step-card reveal">
+          <div class="step-card__icon">&#128157;</div>
+          <h3 class="step-card__title">Share the moment</h3>
+          <p class="step-card__desc">Send a link, play it at dinner, post it to their story. Their reaction is the gift.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Occasions -->
+  <section class="section" style="padding-top: 0;">
+    <div class="container">
+      <div class="section__head">
+        <span class="eyebrow">Perfect for</span>
+        <h2 style="margin-top: var(--s-4);">Every moment that matters.</h2>
+      </div>
+      <div class="occ-scroll">
+        <div class="occ-card"><span class="occ-card__emoji">&#127874;</span><span class="occ-card__name">Birthdays</span></div>
+        <div class="occ-card"><span class="occ-card__emoji">&#128141;</span><span class="occ-card__name">Anniversaries</span></div>
+        <div class="occ-card"><span class="occ-card__emoji">&#128144;</span><span class="occ-card__name">Mother's Day</span></div>
+        <div class="occ-card"><span class="occ-card__emoji">&#127891;</span><span class="occ-card__name">Graduations</span></div>
+        <div class="occ-card"><span class="occ-card__emoji">&#128146;</span><span class="occ-card__name">Weddings</span></div>
+        <div class="occ-card"><span class="occ-card__emoji">&#128591;</span><span class="occ-card__name">Thank yous</span></div>
+        <div class="occ-card"><span class="occ-card__emoji">&#128140;</span><span class="occ-card__name">Love notes</span></div>
+        <div class="occ-card"><span class="occ-card__emoji">&#127881;</span><span class="occ-card__name">Congrats</span></div>
+        <div class="occ-card"><span class="occ-card__emoji">&#9728;&#65039;</span><span class="occ-card__name">Just because</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Testimonials -->
+  <section class="section" id="stories">
+    <div class="container">
+      <div class="section__head">
+        <span class="eyebrow">Real stories</span>
+        <h2 style="margin-top: var(--s-4);">People who made<br>someone cry today.</h2>
+      </div>
+      <div class="featured-test">
+        <div class="testimonial testimonial--featured reveal">
+          <div class="testimonial__stars">&starf;&starf;&starf;&starf;&starf;</div>
+          <blockquote class="testimonial__quote">&ldquo;I played it at dinner and my dad just stopped eating. He asked me to play it three more times.&rdquo;</blockquote>
+          <div class="testimonial__author">
+            <div class="testimonial__avatar">L</div>
+            <div class="testimonial__meta"><span class="n">Leah K.</span><span class="o">Dad's 60th birthday</span></div>
+          </div>
+        </div>
+        <div class="testimonial testimonial--featured reveal">
+          <div class="testimonial__stars">&starf;&starf;&starf;&starf;&starf;</div>
+          <blockquote class="testimonial__quote">&ldquo;Proposed with a Porizo song. She said yes before the second chorus.&rdquo;</blockquote>
+          <div class="testimonial__author">
+            <div class="testimonial__avatar">M</div>
+            <div class="testimonial__meta"><span class="n">Marcus T.</span><span class="o">Proposal &middot; Yosemite</span></div>
+          </div>
+        </div>
+        <div class="testimonial testimonial--featured reveal">
+          <div class="testimonial__stars">&starf;&starf;&starf;&starf;&starf;</div>
+          <blockquote class="testimonial__quote">&ldquo;No one had ever made something just for her. 80 years and this was a first.&rdquo;</blockquote>
+          <div class="testimonial__author">
+            <div class="testimonial__avatar">A</div>
+            <div class="testimonial__meta"><span class="n">Amara O.</span><span class="o">Grandmother's 80th</span></div>
+          </div>
+        </div>
+        <div class="testimonial testimonial--featured reveal">
+          <div class="testimonial__stars">&starf;&starf;&starf;&starf;&starf;</div>
+          <blockquote class="testimonial__quote">&ldquo;Mother's Day is hard since she passed. I made one with her name in it. My siblings couldn't stop playing it.&rdquo;</blockquote>
+          <div class="testimonial__author">
+            <div class="testimonial__avatar">J</div>
+            <div class="testimonial__meta"><span class="n">Jordan M.</span><span class="o">In memory of Mom</span></div>
           </div>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- How It Works Section -->
-  <section class="section section--muted">
-    <div class="container container--narrow">
-      <div class="section__header animate-on-scroll">
-        <h2 class="section__title">How it works</h2>
-        <p class="section__subtitle">
-          Three simple steps to create a song as unique as the person it's for
-        </p>
-      </div>
-
-      <div class="steps">
-        <div class="step animate-on-scroll">
-          <div class="step__number">1</div>
-          <h3 class="step__title">Tell your story</h3>
-          <p class="step__desc">
-            Pick an occasion, name who it's for, and share a memory or message.
-          </p>
-        </div>
-
-        <div class="step animate-on-scroll">
-          <div class="step__number">2</div>
-          <h3 class="step__title">Describe the moment</h3>
-          <p class="step__desc">
-            Tell us who it's for, the occasion, and what makes them special. We craft the perfect lyrics.
-          </p>
-        </div>
-
-        <div class="step animate-on-scroll">
-          <div class="step__number">3</div>
-          <h3 class="step__title">Share your song</h3>
-          <p class="step__desc">
-            Get a personalized song in minutes with custom lyrics and music. Share it with the people you love.
-          </p>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- Occasions Section -->
-  <section class="section">
-    <div class="container container--narrow">
-      <div class="section__header animate-on-scroll">
-        <h2 class="section__title">Perfect for every occasion</h2>
-        <p class="section__subtitle">
-          Meaningful moments deserve meaningful gifts
-        </p>
-      </div>
-
-      <div class="occasions animate-on-scroll">
-        <span class="occasion-pill occasion-pill--birthday">Birthdays</span>
-        <span class="occasion-pill occasion-pill--anniversary">Anniversaries</span>
-        <span class="occasion-pill occasion-pill--thanks">Thank Yous</span>
-        <span class="occasion-pill occasion-pill--love">Love Notes</span>
-        <span class="occasion-pill occasion-pill--congrats">Congratulations</span>
-      </div>
+  <!-- Final CTA -->
+  <section class="cta-block">
+    <div class="container container--tight">
+      <span class="eyebrow">Start for free</span>
+      <h2 style="margin-top: var(--s-4);">Someone deserves<br>a song today.</h2>
+      <p class="lede">It takes about three minutes. Your first preview is free.</p>
+      <a href="/download" class="app-store-badge" aria-label="Download on the App Store">
+        <img src="/assets/app-store-badge.svg" alt="Download on the App Store" />
+      </a>
     </div>
   </section>
 
@@ -131,70 +230,79 @@
   <footer class="footer">
     <div class="container">
       <div class="footer__inner">
-        <div class="footer__cta">
-          <div class="download-badges download-badges--small">
-            <a href="/download" class="app-store-badge" aria-label="Download on the App Store">
-              <img src="/assets/app-store-badge.svg" alt="Download on the App Store" />
-            </a>
-            <div class="coming-soon-badge coming-soon-badge--small" aria-label="Android coming soon">
-              <svg class="play-icon" viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
-                <path d="M3.609 1.814L13.792 12 3.61 22.186a.996.996 0 0 1-.61-.92V2.734a1 1 0 0 1 .609-.92zm10.89 10.893l2.302 2.302-10.937 6.333 8.635-8.635zm3.199-3.198l2.807 1.626a1 1 0 0 1 0 1.73l-2.808 1.626L15.206 12l2.492-2.491zM5.864 2.658L16.8 8.99l-2.302 2.302-8.634-8.634z"/>
-              </svg>
-              <div class="coming-soon-text">
-                <span class="coming-soon-label">Coming Soon</span>
-                <span class="coming-soon-store">Google Play</span>
-              </div>
-            </div>
-          </div>
+        <div class="footer__brand">
+          <a href="/" class="nav__logo"><span class="nav__logo-text">Porizo</span></a>
+          <p class="footer__tagline">Your moment, in a song.</p>
         </div>
-
-        <div class="footer__links">
-          <a href="/about" class="footer__link">About</a>
-          <a href="/pricing" class="footer__link">Pricing</a>
-          <a href="/blog" class="footer__link">Blog</a>
-          <a href="/support" class="footer__link">Support</a>
-          <a href="/legal/privacy" class="footer__link">Privacy</a>
-          <a href="/legal/terms" class="footer__link">Terms</a>
+        <div class="footer__col">
+          <h4>Product</h4>
+          <a href="/pricing">Pricing</a>
+          <a href="/#how">How it works</a>
+          <a href="/download">Download</a>
         </div>
-
-        <p class="footer__copy">
-          &copy; 2026 Porizo. All rights reserved.
-        </p>
+        <div class="footer__col">
+          <h4>Company</h4>
+          <a href="/about">About</a>
+          <a href="/blog">Blog</a>
+          <a href="/support">Support</a>
+        </div>
+        <div class="footer__col">
+          <h4>Legal</h4>
+          <a href="/legal/privacy">Privacy</a>
+          <a href="/legal/terms">Terms</a>
+        </div>
+      </div>
+      <div class="footer__bottom">
+        <span>&copy; 2026 Porizo. All rights reserved.</span>
+        <span>Made with care</span>
       </div>
     </div>
   </footer>
 
-  <!-- Scroll Animations -->
   <script>
-    // Nav scrolled state
-    const nav = document.getElementById('nav');
-
-    window.addEventListener('scroll', () => {
-      if (window.scrollY > 50) {
-        nav.classList.add('scrolled');
-      } else {
-        nav.classList.remove('scrolled');
+    (function() {
+      var pw = document.getElementById('pwave');
+      if (pw) {
+        for (var i = 0; i < 40; i++) {
+          var b = document.createElement('div');
+          b.className = 'phone__bar';
+          b.style.height = (15 + Math.sin(i * 0.6) * 15 + Math.random() * 20) + '%';
+          b.style.animationDelay = (i * 0.04) + 's';
+          pw.appendChild(b);
+        }
       }
-    });
 
-    // Animate elements on scroll
-    const observerOptions = {
-      threshold: 0.1,
-      rootMargin: '0px 0px -50px 0px'
-    };
+      document.querySelectorAll('.sample-chip').forEach(function(chip) {
+        chip.addEventListener('click', function() {
+          document.querySelectorAll('.sample-chip').forEach(function(c) { c.classList.remove('active'); });
+          chip.classList.add('active');
+          var name = chip.dataset.name, occ = chip.dataset.occ, genre = chip.dataset.genre;
+          var titleEl = document.querySelector('.phone__song-title');
+          var forEl = document.querySelector('.phone__song-for');
+          var subEl = document.querySelector('.phone__header-sub');
+          if (titleEl) titleEl.textContent = 'Always ' + name;
+          if (forEl) forEl.textContent = 'A ' + occ.toLowerCase() + ' song for ' + name;
+          if (subEl) subEl.textContent = occ + ' \u00B7 ' + genre;
+        });
+      });
 
-    const observer = new IntersectionObserver((entries) => {
-      entries.forEach(entry => {
-        if (entry.isIntersecting) {
-          entry.target.classList.add('visible');
+      window.addEventListener('scroll', function() {
+        var nav = document.getElementById('nav');
+        if (nav) nav.classList.toggle('scrolled', window.scrollY > 40);
+      });
+
+      var io = new IntersectionObserver(function(entries) {
+        entries.forEach(function(e) {
+          if (e.isIntersecting) e.target.classList.add('in');
+        });
+      }, { threshold: 0.15 });
+      document.querySelectorAll('.reveal, .animate-on-scroll').forEach(function(el) {
+        io.observe(el);
+        if (el.classList.contains('animate-on-scroll')) {
+          el.classList.add('reveal');
         }
       });
-    }, observerOptions);
-
-    // Observe all animate-on-scroll elements
-    document.querySelectorAll('.animate-on-scroll').forEach(el => {
-      observer.observe(el);
-    });
+    })();
   </script>
 
 </body>
