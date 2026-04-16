@@ -162,7 +162,9 @@ a:hover {
 
 .nav__link {
   font-size: 14px;
-  color: var(--muted);
+  /* --muted (#9A9490) fails WCAG AA (2.81:1) on the warm background.
+     --text-secondary (#6B6560) gives 5.39:1 — passes AA body text. */
+  color: var(--text-secondary);
   transition: color var(--transition-fast);
   position: relative;
 }
@@ -537,7 +539,9 @@ a:hover {
 
 .footer__link {
   font-size: 14px;
-  color: var(--muted);
+  /* AA contrast: --text-secondary on --bg = 5.39:1 (passes),
+     --muted on --bg = 2.81:1 (fails). */
+  color: var(--text-secondary);
 }
 
 .footer__link:hover {

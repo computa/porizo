@@ -351,6 +351,13 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   // DB-08: Security headers via Helmet
   app.register(require("@fastify/helmet"), {
     contentSecurityPolicy: false, // CSP managed separately for HTML pages
+    // Helmet's default `Cross-Origin-Resource-Policy: same-origin` triggers
+    // Chrome's ORB (Opaque Response Blocking) for external stylesheets and
+    // fonts loaded cross-origin (e.g., Google Fonts for the landing site),
+    // so headings were silently falling back to Georgia / Times. Relax to
+    // `cross-origin` — typical for marketing + API, still safe given no
+    // embedded credentialed APIs.
+    crossOriginResourcePolicy: { policy: "cross-origin" },
   });
 
   // Register multipart for file uploads
