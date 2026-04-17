@@ -164,23 +164,19 @@ struct LaunchFlashResolver {
     }
 
     private func makeDemoContent() -> LaunchFlashContent? {
-        // Demo only shown when we have at minimum a server-supplied audio URL OR
-        // a server-supplied recipient/lyric. Otherwise we'd be showing a fully
-        // hardcoded card to a user with no real content — feels broken.
+        // Always return a demo card when reached — caller has already ruled out
+        // tracks and suggestions, so falling back to visual-only keeps the flash
+        // reliable when /app/config is unreachable (offline, config endpoint
+        // down, DEBUG simulator with no local server). Previously we gated on
+        // server fields being populated, which made the flash disappear on
+        // every config fetch failure.
         let audioURL = (onboardingConfig?.launchFlashAudioUrl ?? onboardingConfig?.sampleAudioUrl).flatMap { URL(string: $0) }
-        let serverTitle = onboardingConfig?.launchFlashTitle
-        let serverRecipient = onboardingConfig?.launchFlashRecipient
-        let serverLyric = onboardingConfig?.launchFlashLyricsPreview
-
-        guard audioURL != nil || serverRecipient != nil || serverLyric != nil else {
-            return nil
-        }
 
         return LaunchFlashContent(
             trackId: nil,
-            title: serverTitle ?? Self.demoFallbackTitle,
-            recipientName: serverRecipient ?? Self.demoFallbackRecipient,
-            lyricPreview: serverLyric ?? Self.demoFallbackLyric,
+            title: onboardingConfig?.launchFlashTitle ?? Self.demoFallbackTitle,
+            recipientName: onboardingConfig?.launchFlashRecipient ?? Self.demoFallbackRecipient,
+            lyricPreview: onboardingConfig?.launchFlashLyricsPreview ?? Self.demoFallbackLyric,
             audioURL: audioURL,
             coverImageURL: nil,
             source: .demo

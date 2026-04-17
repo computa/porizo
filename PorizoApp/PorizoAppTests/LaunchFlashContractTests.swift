@@ -176,6 +176,26 @@ final class LaunchFlashContractTests: XCTestCase {
         XCTAssertEqual(content?.lyricPreview, "Launch flash lyric")
     }
 
+    func testLaunchFlashResolver_fallsBackToHardcodedDemoWhenConfigUnavailable() {
+        // Regression: previously makeDemoContent returned nil when the server
+        // didn't supply ANY of audioURL/recipient/lyric, which silently killed
+        // the flash any time /app/config was unreachable. Now we always render
+        // the fallback card (visual-only if audio is missing).
+        let resolver = LaunchFlashResolver(
+            source: FakeLaunchFlashContentSource(tracks: [], playableAudioURLs: [:]),
+            onboardingConfig: nil,
+            defaults: defaults
+        )
+
+        let content = resolver.resolve(mode: .all)
+
+        XCTAssertEqual(content?.source, .demo)
+        XCTAssertEqual(content?.title, LaunchFlashResolver.demoFallbackTitle)
+        XCTAssertEqual(content?.recipientName, LaunchFlashResolver.demoFallbackRecipient)
+        XCTAssertEqual(content?.lyricPreview, LaunchFlashResolver.demoFallbackLyric)
+        XCTAssertNil(content?.audioURL)  // visual-only mode when no audio is configured
+    }
+
     private func makeSuggestion(title: String = "A Song for Tom") -> OnboardingSuggestion {
         OnboardingSuggestion(
             title: title,
