@@ -45,6 +45,10 @@ struct RootView: View {
     // Launch Flash state (TikTok-style auto-play on every cold launch / 10+min warm resume)
     @AppStorage("launchFlashMode") private var launchFlashModeRaw: String = "all"
     @AppStorage("launchFlashFailureCount") private var launchFlashFailureCount: Int = 0
+    // Epoch of the most recent failure-count increment. Used to age out a stuck
+    // breaker — if the user had 3 bad launches days ago, they shouldn't lose the
+    // flash forever. A genuine rapid-kill loop keeps bumping this close to "now".
+    @AppStorage("launchFlashLastFailureAtEpoch") private var launchFlashLastFailureAtEpoch: Double = 0
     @AppStorage("lastBackgroundedAtEpoch") private var lastBackgroundedAtEpoch: Double = 0
     @State private var pendingLaunchFlashContent: LaunchFlashContent?
     @State private var launchFlashShownAt: Date?
@@ -133,8 +137,8 @@ struct RootView: View {
                                          "pendingSuggestion", "pendingCreateAutostart",
                                          // Launch flash state — reset for clean test runs
                                          "recentLaunchFlashTrackIds", "lastBackgroundedAtEpoch",
-                                         "launchFlashFailureCount", "pendingSuggestionShowCount",
-                                         "pendingSuggestionSetAt"]
+                                         "launchFlashFailureCount", "launchFlashLastFailureAtEpoch",
+                                         "pendingSuggestionShowCount", "pendingSuggestionSetAt"]
                             keys.forEach { UserDefaults.standard.removeObject(forKey: $0) }
                         }
                         #endif
@@ -531,6 +535,18 @@ struct RootView: View {
         if launchesValidationFixture { return .main }
         #endif
 
+        // Age-out the breaker: if the last failure is stale (>6h) — or the
+        // timestamp was never recorded, which is the case for devices that
+        // tripped the breaker before this code shipped — treat the stored
+        // count as stale and reset. A real rapid-kill loop keeps the timestamp
+        // fresh, so this only recovers stuck state.
+        let failureAgeSeconds = Date().timeIntervalSince1970 - launchFlashLastFailureAtEpoch
+        let breakerIsStale = launchFlashFailureCount > 0
+            && (launchFlashLastFailureAtEpoch == 0 || failureAgeSeconds > 6 * 60 * 60)
+        if breakerIsStale {
+            launchFlashFailureCount = 0
+        }
+
         let shouldAttemptFlash = LaunchFlashGate.shouldAttemptFlash(
             hasPendingNavigationIntent: pendingShareId != nil,
             isAuthenticated: authManager.isAuthenticated,
@@ -565,6 +581,7 @@ struct RootView: View {
         // an empty-library + fast-kill loop can never trip the breaker for a
         // user who never actually got a flash.
         launchFlashFailureCount += 1
+        launchFlashLastFailureAtEpoch = Date().timeIntervalSince1970
 
         #if DEBUG
         print("[LaunchFlash] Resolved content — source: \(content.source.rawValue), trackId: \(content.trackId ?? "nil"), audioURL: \(content.audioURL?.absoluteString ?? "nil"), title: \(content.title)")
@@ -613,7 +630,10 @@ struct RootView: View {
             ])
         }
         // Reset failure count on successful completion
-        if launchFlashFailureCount > 0 { launchFlashFailureCount = 0 }
+        if launchFlashFailureCount > 0 {
+            launchFlashFailureCount = 0
+            launchFlashLastFailureAtEpoch = 0
+        }
         pendingLaunchFlashContent = nil
         launchFlashShownAt = nil
         withAnimation(.easeInOut(duration: 0.35)) {
