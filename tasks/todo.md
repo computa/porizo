@@ -1,3 +1,85 @@
+# 1.5.4 Post-Approval Fixes (ACTIVE — 2026-04-17)
+
+**Status:** Planning — awaiting user approval before implementation.
+**Context:** 1.5.4 is approved on App Store, but has two production bugs. Fix and submit as 1.5.4 build 97 (or 1.5.5 if policy change warrants bump).
+
+## Bug 1 — "Complete your profile" re-appears on every cold launch
+
+### Root cause (verified in code)
+
+Three stacked issues:
+
+1. **Server policy is too strict.** `src/services/identity-service.js:computeProfileCompleteness` (lines 394-422) requires BOTH a verified non-relay email AND a verified phone. Apple-Sign-In users with relay emails, or users who only verified one channel, are stuck at `needs_profile_completion: true` forever.
+2. **Skip endpoint is dead code.** `/auth/profile/skip-completion` records a timestamp that `buildUserProfileResponse` never reads.
+3. **Client dismissal is ephemeral.** `hasSkippedProfileCompletionInSession` in `RootView.swift:51` is `@State` — resets on every cold launch. Even dismissing the sheet doesn't help for tomorrow's launch.
+
+### User's actual state (from screenshot)
+- Display name: ✓
+- Email `abcobimma@gmail.com`: unverified (shows "Resend verification email")
+- Phone `+61406371221`: verified (green check)
+
+Under current policy, `missing: ["verified_email"]` is technically correct — but forcing a verified-phone user to see a blocking sheet on every launch is bad UX.
+
+### Fix plan
+
+**Server — relax policy to "collection, not verification":**
+*(User clarification: email/phone is for marketing, not identity verification. Having any non-relay email OR phone on file is enough — no verification required.)*
+- [x] `src/services/identity-service.js:computeProfileCompleteness` — changed from "verified email AND phone" to "has non-relay email OR phone on file (verified or not)". Policy v1 doc comment updated.
+- [x] Updated S5b tests: (a) phone on file, (b) unverified real email on file, (c) relay-only still incomplete.
+- [x] Updated S8 skip test to use relay email so the scenario is still "genuinely incomplete".
+
+**Client — persist dismissal for 7 days:**
+- [ ] `RootView.swift:51` — replace `@State var hasSkippedProfileCompletionInSession: Bool` with `@AppStorage("profileCompletionSkippedAtEpoch") var profileCompletionSkippedAtEpoch: Double = 0`.
+- [ ] `syncProfileCompletionContext()` (line 697) — guard on `Date().timeIntervalSince1970 - skippedAt < 7*86400`.
+- [ ] Sheet dismiss handler (line 285) — write current epoch to storage.
+- [ ] `onChange(authManager.isAuthenticated)` (line 306) — reset to 0 on sign-in so a freshly signed-in user isn't accidentally suppressed.
+- [ ] When user successfully completes profile, clear the skip (so future policy-version bumps can re-prompt).
+
+## Bug 2 — Update prompt appears on latest (1.5.4)
+
+### Root cause (verified in code)
+
+- `AppUpdatePolicy.compare` is correct numeric semver; `1.5.4 == 1.5.4` yields `.orderedSame`, so the client wouldn't prompt if both sides are truly 1.5.4.
+- `normalizedVersion` trims whitespace correctly.
+- **Therefore the server is returning a version > 1.5.4 for `recommended_version` or `minimum_supported_version`.** Most likely: `security_config.ios_recommended_version` or `ios_min_supported_version` was pre-staged above 1.5.4, OR `ios_auto_recommended_version=true` + App Store Connect returning a pre-release version.
+- `dismissedRecommendedUpdateVersion` at `RootView.swift:33` is `@State` — even tapping "Later" doesn't survive a cold launch.
+
+### Fix plan
+
+**Verify DB state (needs user action — I don't have Railway access for the porizo project):**
+- [ ] User runs: `echo "SELECT ios_min_supported_version, ios_recommended_version, ios_auto_recommended_version, ios_last_app_store_version, ios_update_message FROM security_config WHERE id='default';" | railway connect postgres`
+- [ ] Share output so we can confirm and fix any > 1.5.4 value.
+
+**Server — safety clamp to prevent future admin-pre-staging bug:**
+- [ ] `src/services/admin-service.js:resolveIOSAppUpdatePolicy` (1147-1178) — if `ios_auto_recommended_version=true` and the App Store Connect sync returns a valid version, ignore the manually-stored `ios_recommended_version` entirely (use only the synced version). Prevents stale overrides.
+
+**Client — persist dismissal across launches:**
+- [ ] `RootView.swift:33` — replace `@State var dismissedRecommendedUpdateVersion: String?` with `@AppStorage("dismissedRecommendedUpdateVersion") var dismissedRecommendedUpdateVersion: String = ""`.
+- [ ] Suppression check at `RootView.swift:941-946` — treat empty-string as "no dismissal".
+- [ ] When local version reaches or exceeds the stored dismissed version, clear AppStorage.
+
+**Client — defensive check (zero-effort safety):**
+- [ ] `AppUpdatePolicy.evaluate` (line 29) — if `compare(currentVersion, recommended)` returns `.orderedDescending` OR `.orderedSame`, never prompt. Current code already does this, but add an explicit log line in DEBUG so we can diagnose from TestFlight console.
+
+## Verification plan (before claiming done)
+
+- [ ] **Bug 1 unit test:** `npm test` covering all three contact-verification permutations.
+- [ ] **Bug 1 live check:** After deploy, query Ambrose's `/auth/profile` → `needs_profile_completion: false`.
+- [ ] **Bug 1 device check:** Cold launch PorizoApp twice → no sheet either time.
+- [ ] **Bug 2 DB check:** `security_config` row shows consistent values, no stale overrides.
+- [ ] **Bug 2 device check:** Cold launch PorizoApp → no update prompt.
+- [ ] **Regression sweep:** Tap "Later" on a simulated update prompt → cold relaunch → still suppressed.
+- [ ] **Build:** Bump `CFBundleVersion` (build number) 96 → 97. Keep `CFBundleShortVersionString` at 1.5.4 (fixes only, no new features).
+- [ ] **TestFlight upload:** Per verified pattern in memory (`xcodebuild archive -allowProvisioningUpdates` → `-exportArchive`).
+
+## Open questions
+
+1. **1.5.4 build 97 vs 1.5.5?** — These are bug fixes to an already-approved build, so build 97 is appropriate.
+2. **Policy change OK?** — "At least one verified contact" is a real product decision. If you prefer keeping both required, we keep the strict server policy and lean on client-side 7-day skip instead.
+3. **Can you share the `security_config` row?** — Needed to confirm which field is wrong.
+
+---
+
 # Pre-submission Comprehensive Review + Simplification (2026-04-15)
 
 **Goal:** Before submitting next TestFlight build, run `/ce:review` and `/simplify` on every user flow. Fix only confirmed issues; apply only confirmed simplifications. Maintain ship-readiness.

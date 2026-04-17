@@ -389,13 +389,28 @@ async function setPrimaryContact(db, userId, contactId) {
  * @param {string} policyVersion - Policy version (default: 'v1')
  * @returns {Promise<{ complete: boolean, missing: string[] }>}
  *
- * Policy v1: verified non-relay email + verified phone
+ * Policy v1: profile is complete as soon as the user has ANY non-relay
+ * email OR any phone on file — regardless of verification state. The
+ * email/phone collection is a marketing signal, not an identity check
+ * (Apple Sign-In users hide their real email via relay, so we prompt for
+ * a real contact; once they provide one, we don't force verification).
+ *
+ * The `missing` array still reports unverified channels so the UI can
+ * nudge users to verify — but `complete` is true once any channel is
+ * present, so the "Complete your profile" sheet no longer blocks them.
  */
 async function computeProfileCompleteness(db, userId, policyVersion = "v1") {
   const missing = [];
 
   if (policyVersion === "v1") {
-    // Check for verified non-relay email
+    // A non-relay email on file (verified or not) counts as "collected".
+    // Relay emails (@privaterelay.appleid.com) don't — we still want a real address for marketing.
+    const hasRealEmail = await db.prepare(
+      `SELECT id FROM user_contacts
+       WHERE user_id = ? AND type = 'email' AND is_relay = false
+       LIMIT 1`
+    ).get(userId);
+
     const verifiedEmail = await db.prepare(
       `SELECT id FROM user_contacts
        WHERE user_id = ? AND type = 'email' AND verified_at IS NOT NULL AND is_relay = false
@@ -406,7 +421,13 @@ async function computeProfileCompleteness(db, userId, policyVersion = "v1") {
       missing.push("verified_email");
     }
 
-    // Check for verified phone
+    // Any phone contact counts as "collected".
+    const hasPhone = await db.prepare(
+      `SELECT id FROM user_contacts
+       WHERE user_id = ? AND type = 'phone'
+       LIMIT 1`
+    ).get(userId);
+
     const verifiedPhone = await db.prepare(
       `SELECT id FROM user_contacts
        WHERE user_id = ? AND type = 'phone' AND verified_at IS NOT NULL
@@ -416,6 +437,9 @@ async function computeProfileCompleteness(db, userId, policyVersion = "v1") {
     if (!verifiedPhone) {
       missing.push("verified_phone");
     }
+
+    const hasAnyContact = Boolean(hasRealEmail) || Boolean(hasPhone);
+    return { complete: hasAnyContact, missing };
   }
 
   return { complete: missing.length === 0, missing };

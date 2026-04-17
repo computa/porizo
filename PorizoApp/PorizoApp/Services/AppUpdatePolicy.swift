@@ -34,8 +34,23 @@ enum AppUpdatePolicy {
             return nil
         }
 
+        // Safety guard: if we couldn't read the local version (returned "0") AND the server
+        // hasn't declared either threshold, bail out rather than prompting on a phantom delta.
+        if currentVersion == "0"
+            && normalizedVersion(config.minimumSupportedVersion) == nil
+            && normalizedVersion(config.recommendedVersion) == nil {
+            return nil
+        }
+
+        #if DEBUG
+        print("[AppUpdatePolicy] evaluate — current=\(currentVersion) min=\(config.minimumSupportedVersion ?? "nil") recommended=\(config.recommendedVersion ?? "nil")")
+        #endif
+
         if let minimum = normalizedVersion(config.minimumSupportedVersion),
            compare(currentVersion, minimum) == .orderedAscending {
+            #if DEBUG
+            print("[AppUpdatePolicy] → required (current < minimum)")
+            #endif
             return AppUpdatePrompt(
                 kind: .required,
                 targetVersion: minimum,
@@ -46,6 +61,9 @@ enum AppUpdatePolicy {
 
         if let recommended = normalizedVersion(config.recommendedVersion),
            compare(currentVersion, recommended) == .orderedAscending {
+            #if DEBUG
+            print("[AppUpdatePolicy] → recommended (current < recommended)")
+            #endif
             return AppUpdatePrompt(
                 kind: .recommended,
                 targetVersion: recommended,
@@ -54,6 +72,9 @@ enum AppUpdatePolicy {
             )
         }
 
+        #if DEBUG
+        print("[AppUpdatePolicy] → nil (no prompt needed)")
+        #endif
         return nil
     }
 

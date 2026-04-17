@@ -30,7 +30,9 @@ struct RootView: View {
     @State private var authContextMessage: String?
     @Environment(StyleStore.self) private var styleStore
     @State private var appUpdatePrompt: AppUpdatePrompt?
-    @State private var dismissedRecommendedUpdateVersion: String?
+    // Persists across cold launches so tapping "Later" on the recommended-update
+    // sheet actually suppresses re-prompts until a newer version arrives.
+    @AppStorage("dismissedRecommendedUpdateVersion") private var dismissedRecommendedUpdateVersion: String = ""
     @State private var profileCompletionContext: ProfileCompletionContext?
     @AppStorage("onboardingCompletionVersion") private var onboardingCompletionVersion = 0
     @AppStorage("pendingRecipientName") private var pendingRecipientName = ""
@@ -48,7 +50,9 @@ struct RootView: View {
     @State private var launchFlashShownAt: Date?
     @State private var previousScenePhase: ScenePhase = .active
     @Environment(\.scenePhase) private var scenePhase
-    @State private var hasSkippedProfileCompletionInSession = false
+    // Persists across cold launches so dismissing the sheet suppresses it for 7 days
+    // instead of re-firing every app start. Stored as Unix epoch; 0 means never skipped.
+    @AppStorage("profileCompletionSkippedAtEpoch") private var profileCompletionSkippedAtEpoch: Double = 0
     @State private var onboardingSampleURL: String?
     @State private var onboardingSplashRecipient: String?
     @State private var onboardingSplashLyricsPreview: String?
@@ -284,7 +288,7 @@ struct RootView: View {
         }
         .sheet(item: $profileCompletionContext, onDismiss: {
             if authManager.needsProfileCompletion {
-                hasSkippedProfileCompletionInSession = true
+                profileCompletionSkippedAtEpoch = Date().timeIntervalSince1970
                 authManager.dismissProfileCompletion()
             }
         }) { context in
@@ -303,7 +307,7 @@ struct RootView: View {
         }
         .onChange(of: authManager.isAuthenticated) { _, isAuthenticated in
             if isAuthenticated {
-                hasSkippedProfileCompletionInSession = false
+                profileCompletionSkippedAtEpoch = 0
                 syncProfileCompletionContext()
                 authContextMessage = nil
                 if appState == .launchFlash {
@@ -695,8 +699,15 @@ struct RootView: View {
     }
 
     private func syncProfileCompletionContext() {
+        // Suppress the sheet for 7 days after the user dismisses it, so users who
+        // genuinely have nothing on file still have a path to "skip and get on with it"
+        // without being re-prompted on every cold launch.
+        let skipWindowSeconds: TimeInterval = 7 * 24 * 60 * 60
+        let isWithinSkipWindow = profileCompletionSkippedAtEpoch > 0
+            && Date().timeIntervalSince1970 - profileCompletionSkippedAtEpoch < skipWindowSeconds
+
         guard authManager.needsProfileCompletion,
-              !hasSkippedProfileCompletionInSession,
+              !isWithinSkipWindow,
               let client = apiClient else {
             profileCompletionContext = nil
             return
@@ -941,8 +952,18 @@ struct RootView: View {
             let nextPrompt = AppUpdatePolicy.evaluate(config: response.appUpdate)
             if let nextPrompt,
                nextPrompt.kind == .recommended,
+               !dismissedRecommendedUpdateVersion.isEmpty,
                dismissedRecommendedUpdateVersion == nextPrompt.targetVersion {
                 return
+            }
+            // Clear a stale dismissal once the user is on (or past) the dismissed version —
+            // prevents future genuine prompts from being suppressed by an old cached value.
+            if !dismissedRecommendedUpdateVersion.isEmpty,
+               AppUpdatePolicy.compare(
+                Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0",
+                dismissedRecommendedUpdateVersion
+               ) != .orderedAscending {
+                dismissedRecommendedUpdateVersion = ""
             }
             appUpdatePrompt = nextPrompt
         } catch {

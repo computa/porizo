@@ -486,6 +486,72 @@ describe("Auth Identity Model", () => {
     });
   });
 
+  // ==================== S5b: Collection-based completeness (policy v1) ====================
+  // Policy v1: profile is complete once a non-relay email OR a phone is on file.
+  // Verification is NOT required — the prompt is a marketing-signal collection,
+  // not an identity check. Prevents "Complete your profile" from re-appearing
+  // every launch for users who provided contact info but haven't clicked a verify link.
+
+  describe("S5b: Collection-based completeness", () => {
+    it("should mark profile complete when phone is on file (even unverified)", async () => {
+      const relayEmail = `test-${crypto.randomBytes(8).toString("hex")}@privaterelay.appleid.com`;
+      const appleUser = await createAppleUser(app, { email: relayEmail });
+
+      // Link phone (linkPhone performs OTP verification; contact is verified)
+      const phoneNumber = uniquePhone();
+      const linkRes = await linkPhone(app, db, appleUser.accessToken, phoneNumber);
+      assert.strictEqual(linkRes.statusCode, 200, "Phone link must succeed");
+
+      const me = await getMe(app, appleUser.accessToken);
+      assert.strictEqual(me.statusCode, 200);
+      assert.strictEqual(
+        me.body.needs_profile_completion,
+        false,
+        "User with phone on file should NOT need profile completion under policy v1"
+      );
+    });
+
+    it("should mark profile complete when real email is on file — even unverified", async () => {
+      const relayEmail = `test-${crypto.randomBytes(8).toString("hex")}@privaterelay.appleid.com`;
+      const appleUser = await createAppleUser(app, { email: relayEmail });
+      const realEmail = uniqueEmail();
+
+      // Add real email WITHOUT verifying it.
+      await app.inject({
+        method: "PATCH",
+        url: "/auth/profile",
+        headers: { Authorization: `Bearer ${appleUser.accessToken}` },
+        payload: { contact_email: realEmail },
+      });
+
+      const me = await getMe(app, appleUser.accessToken);
+      assert.strictEqual(me.statusCode, 200);
+      assert.strictEqual(
+        me.body.needs_profile_completion,
+        false,
+        "Unverified real email on file should still mark profile complete"
+      );
+      // verified_email stays in missing_profile_requirements as an informational nudge
+      assert.ok(
+        me.body.missing_profile_requirements.includes("verified_email"),
+        "missing_profile_requirements still reports unverified email for UI nudges"
+      );
+    });
+
+    it("should mark profile incomplete when only a relay email is on file", async () => {
+      const relayEmail = `test-${crypto.randomBytes(8).toString("hex")}@privaterelay.appleid.com`;
+      const appleUser = await createAppleUser(app, { email: relayEmail });
+
+      const me = await getMe(app, appleUser.accessToken);
+      assert.strictEqual(me.statusCode, 200);
+      assert.strictEqual(
+        me.body.needs_profile_completion,
+        true,
+        "Relay-only user has no real contact channel — still needs completion"
+      );
+    });
+  });
+
   // ==================== S6: Email verification lifecycle ====================
 
   describe("S6: Email verification lifecycle", () => {
@@ -628,7 +694,11 @@ describe("Auth Identity Model", () => {
 
   describe("S8: Skip profile completion -> re-check -> still incomplete", () => {
     it("should not grant grace period after skipping profile completion", async () => {
-      const user = await createAppleUser(app);
+      // Use a relay email so the user genuinely has no verified channel —
+      // otherwise policy v1 ("email OR phone verified") would mark them complete
+      // without needing to skip.
+      const relayEmail = `test-${crypto.randomBytes(8).toString("hex")}@privaterelay.appleid.com`;
+      const user = await createAppleUser(app, { email: relayEmail });
 
       // Skip completion
       const skipRes = await app.inject({
