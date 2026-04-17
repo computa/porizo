@@ -130,7 +130,7 @@ describe("blog CMS routes", () => {
     assert.equal(postResponse.statusCode, 200);
     assert.match(postResponse.body, /Article/);
     assert.match(postResponse.body, /A personalized song gift performs best/);
-    assert.match(postResponse.body, /In this article/);
+    assert.match(postResponse.body, />Contents</);
     assert.match(postResponse.body, /min read/);
     assert.match(postResponse.body, /id="why-a-personalized-song-gift-works"/);
 

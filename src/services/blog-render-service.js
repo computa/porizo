@@ -255,7 +255,7 @@ function renderArticleToc(headings) {
     .join("");
 
   return `<nav class="toc" aria-label="Table of contents">
-    <div class="toc__title">In this article</div>
+    <div class="toc__title">Contents</div>
     <ol class="toc__list">${items}</ol>
   </nav>`;
 }
@@ -273,13 +273,32 @@ function formatDate(value) {
   }
 }
 
+function tagClass(tag) {
+  const slug = slugifyFragment(String(tag || ""));
+  if (!slug) return "";
+  if (["stories", "story", "spotlight", "journal"].includes(slug)) return "tag--stories";
+  if (["product", "updates", "update", "launch", "release"].includes(slug)) return "tag--product";
+  if (["tips", "tip", "guide", "guides", "playbook", "howto", "how-to", "tutorial"].includes(slug)) return "tag--tips";
+  return "";
+}
+
+function renderTagList(tags) {
+  if (!Array.isArray(tags) || !tags.length) return "";
+  return tags
+    .map((tag) => {
+      const cls = tagClass(tag);
+      return `<span${cls ? ` class="${cls}"` : ""}>${escapeHtml(tag)}</span>`;
+    })
+    .join("");
+}
+
 function renderBlogIndexPage(posts, { siteOrigin = "https://porizo.co" } = {}) {
-  const cards = posts.map((post) => `
-    <article class="post-card">
+  const featuredCards = posts.map((post, index) => `
+    <article class="post-card${index === 0 && posts.length >= 3 ? " post-card--featured" : ""}">
       <div class="post-card__meta">${escapeHtml(formatDate(post.published_at))}</div>
       <h2><a href="/blog/${escapeHtml(post.slug)}">${escapeHtml(post.title)}</a></h2>
       <p class="post-card__excerpt">${escapeHtml(post.excerpt)}</p>
-      <div class="post-card__tags">${(Array.isArray(post.tags) ? post.tags : []).map((tag) => `<span>${escapeHtml(tag)}</span>`).join("")}</div>
+      <div class="post-card__tags">${renderTagList(post.tags)}</div>
     </article>
   `).join("\n");
 
@@ -290,33 +309,125 @@ function renderBlogIndexPage(posts, { siteOrigin = "https://porizo.co" } = {}) {
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Porizo Blog</title>
   <meta name="description" content="Porizo articles about personalized songs, gifting, storytelling, and creating memorable moments.">
+  <meta name="theme-color" content="#FBF7F2">
   <link rel="canonical" href="${escapeHtml(siteOrigin)}/blog">
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500&family=DM+Sans:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles/main.css">
   <style>
-    body{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0b1020;color:#e5e7eb;}
-    .shell{max-width:960px;margin:0 auto;padding:48px 20px 80px;}
-    .eyebrow{color:#fb7185;font-size:13px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}
-    h1{font-size:44px;line-height:1.05;margin:12px 0 16px}
-    .lede{color:#94a3b8;max-width:720px;font-size:18px;line-height:1.6}
-    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:20px;margin-top:36px}
-    .post-card{background:#111827;border:1px solid #1f2937;border-radius:18px;padding:22px}
-    .post-card__meta{color:#94a3b8;font-size:13px;margin-bottom:10px}
-    .post-card h2{margin:0 0 10px;font-size:24px;line-height:1.25}
-    .post-card a{color:#f8fafc;text-decoration:none}
-    .post-card a:hover{color:#fb7185}
-    .post-card__excerpt{color:#cbd5e1;line-height:1.6}
-    .post-card__tags{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}
-    .post-card__tags span{font-size:12px;background:#1f2937;color:#cbd5e1;padding:4px 8px;border-radius:999px}
+    .blog-index-hero{padding:calc(var(--s-8) + 60px) var(--s-5) var(--s-7);position:relative;overflow:hidden}
+    .blog-index-hero::before{content:'';position:absolute;top:10%;left:15%;width:520px;height:260px;background:var(--glow-gold);pointer-events:none;opacity:.35}
+    .blog-index-hero__content{position:relative;z-index:1;max-width:1120px;margin:0 auto;display:grid;grid-template-columns:auto 1fr;gap:var(--s-7);align-items:end}
+    .blog-index-hero__stream{display:flex;flex-direction:column;gap:var(--s-2);color:var(--ink-3);font-size:var(--fs-xs);text-transform:uppercase;letter-spacing:.12em;white-space:nowrap}
+    .blog-index-hero__stream span:first-child{color:var(--gold-deep)}
+    .blog-index-hero__copy{max-width:640px}
+    .blog-index-hero h1{font-size:clamp(3rem,7vw,5rem);line-height:.95;margin:0 0 var(--s-4);letter-spacing:-0.02em}
+    .blog-index-hero .lede{font-family:var(--font-display);font-variation-settings:"opsz" 72;font-size:var(--fs-lg);line-height:1.4;color:var(--ink-2);max-width:52ch;margin:0}
+    .blog-shell{max-width:1120px;margin:0 auto;padding:0 var(--s-5) var(--s-9)}
+    .post-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:var(--s-5)}
+    .post-card{background:var(--surface);border:1px solid var(--hairline);border-radius:var(--r-lg);padding:var(--s-6);transition:border-color var(--t-med),transform var(--t-med),box-shadow var(--t-med);opacity:0;animation:blog-fade-up 560ms var(--ease) forwards}
+    .post-card:nth-child(1){animation-delay:0ms}
+    .post-card:nth-child(2){animation-delay:60ms}
+    .post-card:nth-child(3){animation-delay:120ms}
+    .post-card:nth-child(4){animation-delay:180ms}
+    .post-card:nth-child(n+5){animation-delay:240ms}
+    @keyframes blog-fade-up{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+    @media (prefers-reduced-motion:reduce){.post-card{animation:none;opacity:1}}
+    .post-card:hover{border-color:var(--gold);transform:translateY(-4px);box-shadow:var(--shadow-hover)}
+    .post-card--featured{grid-column:span 2;padding:var(--s-7);background:linear-gradient(135deg,var(--surface) 0%,var(--bg-2) 100%)}
+    .post-card--featured h2{font-size:clamp(1.75rem,3vw,2.25rem)}
+    .post-card--featured .post-card__excerpt{font-size:var(--fs-md);max-width:56ch}
+    @media (max-width:680px){.post-card--featured{grid-column:span 1;padding:var(--s-6)}.post-card--featured h2{font-size:var(--fs-xl)}}
+    .post-card__meta{color:var(--ink-3);font-size:var(--fs-xs);text-transform:uppercase;letter-spacing:.1em;margin-bottom:var(--s-3)}
+    .post-card h2{font-family:var(--font-display);font-size:var(--fs-xl);line-height:1.25;margin:0 0 var(--s-3);font-variation-settings:"opsz" 72;color:var(--ink)}
+    .post-card a{color:var(--ink);text-decoration:none;transition:color var(--t-fast)}
+    .post-card:hover a{color:var(--gold-deep)}
+    .post-card__excerpt{color:var(--ink-3);line-height:1.6;font-size:var(--fs-sm);margin:0}
+    .post-card__tags{display:flex;gap:var(--s-2);flex-wrap:wrap;margin-top:var(--s-4)}
+    .post-card__tags span{display:inline-flex;font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:.06em;background:var(--bg-2);color:var(--ink-3);padding:3px 10px;border-radius:var(--r-pill);border:1px solid var(--hairline)}
+    .post-card__tags .tag--stories{background:linear-gradient(135deg,rgba(201,131,125,0.18),rgba(201,131,125,0.04));color:var(--rose-deep);border-color:rgba(201,131,125,0.28)}
+    .post-card__tags .tag--product{background:linear-gradient(135deg,rgba(224,120,80,0.18),rgba(224,120,80,0.04));color:var(--gold-deep);border-color:var(--border-gold)}
+    .post-card__tags .tag--tips{background:linear-gradient(135deg,rgba(123,143,107,0.18),rgba(123,143,107,0.04));color:var(--sage-deep);border-color:rgba(123,143,107,0.28)}
+    .post-empty{text-align:center;color:var(--ink-3);padding:var(--s-9) 0;font-family:var(--font-display);font-variation-settings:"opsz" 72;font-size:var(--fs-lg);max-width:480px;margin:0 auto}
+    .post-empty small{display:block;margin-top:var(--s-3);font-family:var(--font-sans);font-size:var(--fs-sm);color:var(--ink-3)}
+    @media (max-width:820px){.blog-index-hero__content{grid-template-columns:1fr;gap:var(--s-4);align-items:start}.blog-index-hero__stream{flex-direction:row;gap:var(--s-4)}}
+    @media (max-width:640px){.blog-index-hero{padding:100px var(--s-4) var(--s-6)}.blog-shell{padding:0 var(--s-4) var(--s-7)}}
   </style>
 </head>
 <body>
-  <main class="shell">
-    <div class="eyebrow">Porizo Publishing</div>
-    <h1>Blog</h1>
-    <p class="lede">Search-friendly and answer-engine-friendly articles about personal songs, gifting, memory capture, and storytelling.</p>
-    <section class="grid">
-      ${cards || '<p>No published posts yet.</p>'}
-    </section>
+  <nav class="nav" id="nav">
+    <div class="container">
+      <div class="nav__inner">
+        <a href="/" class="nav__logo"><span class="nav__logo-text">Porizo</span></a>
+        <div class="nav__links">
+          <a href="/about" class="nav__link">About</a>
+          <a href="/pricing" class="nav__link">Pricing</a>
+          <a href="/blog" class="nav__link">Blog</a>
+          <a href="/support" class="nav__link nav__link--secondary">Support</a>
+        </div>
+        <a href="/download" class="nav__cta">Get the app</a>
+      </div>
+    </div>
+  </nav>
+
+  <section class="blog-index-hero">
+    <div class="blog-index-hero__content">
+      <div class="blog-index-hero__stream">
+        <span>Porizo Publishing</span>
+        <span>${posts.length ? escapeHtml(`${posts.length} article${posts.length === 1 ? "" : "s"}`) : "In progress"}</span>
+      </div>
+      <div class="blog-index-hero__copy">
+        <h1>Blog</h1>
+        <p class="lede">Notes on the songs people make for each other.</p>
+      </div>
+    </div>
+  </section>
+
+  <main class="blog-shell">
+    ${posts.length ? `<section class="post-grid">${featuredCards}</section>` : '<p class="post-empty">New stories are on the way.<small>We\'re writing about personal songs, memory, and the moments behind them.</small></p>'}
   </main>
+
+  <footer class="footer">
+    <div class="container">
+      <div class="footer__inner">
+        <div class="footer__brand">
+          <a href="/" class="nav__logo"><span class="nav__logo-text">Porizo</span></a>
+          <p class="footer__tagline">Your moment, in a song.</p>
+        </div>
+        <div class="footer__col">
+          <h4>Product</h4>
+          <a href="/pricing">Pricing</a>
+          <a href="/#how">How it works</a>
+          <a href="/download">Download</a>
+        </div>
+        <div class="footer__col">
+          <h4>Company</h4>
+          <a href="/about">About</a>
+          <a href="/blog">Blog</a>
+          <a href="/support">Support</a>
+        </div>
+        <div class="footer__col">
+          <h4>Legal</h4>
+          <a href="/legal/privacy">Privacy</a>
+          <a href="/legal/terms">Terms</a>
+        </div>
+      </div>
+      <div class="footer__bottom">
+        <span>&copy; 2026 Porizo. All rights reserved.</span>
+        <span>One song at a time.</span>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    window.addEventListener('scroll', function () {
+      var n = document.getElementById('nav');
+      if (n) n.classList.toggle('scrolled', window.scrollY > 40);
+    });
+  </script>
 </body>
 </html>`;
 }
@@ -349,7 +460,10 @@ function renderBlogPostPage(post, { siteOrigin = "https://porizo.co" } = {}) {
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>${escapeHtml(post.title)}</title>
   <meta name="description" content="${escapeHtml(post.excerpt)}">
+  <meta name="theme-color" content="#FBF7F2">
   <link rel="canonical" href="${escapeHtml(canonicalUrl)}">
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
   <meta property="og:type" content="article">
   <meta property="og:title" content="${escapeHtml(post.title)}">
   <meta property="og:description" content="${escapeHtml(post.excerpt)}">
@@ -360,50 +474,82 @@ function renderBlogPostPage(post, { siteOrigin = "https://porizo.co" } = {}) {
   <meta name="twitter:description" content="${escapeHtml(post.excerpt)}">
   ${heroImage ? `<meta name="twitter:image" content="${escapeHtml(heroImage)}">` : ""}
   <script type="application/ld+json">${JSON.stringify(articleJsonLd)}</script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=DM+Sans:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles/main.css">
   <style>
-    body{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#fffaf5;color:#18181b}
-    .shell{max-width:1120px;margin:0 auto;padding:48px 20px 96px}
-    .back{display:inline-block;margin-bottom:24px;color:#b45309;text-decoration:none;font-weight:600}
-    .back:hover{text-decoration:underline}
-    .meta{color:#78716c;font-size:14px;margin-bottom:16px}
-    .meta span+span::before{content:"·";margin:0 8px;color:#d6d3d1}
-    h1{font-size:44px;line-height:1.05;margin:0 0 16px}
-    .excerpt{font-size:20px;line-height:1.6;color:#44403c;margin-bottom:24px;max-width:38em}
-    .answer-box{background:#fff7ed;border:1px solid #fdba74;border-radius:16px;padding:18px 20px;margin:24px 0}
-    .answer-box strong{display:block;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#9a3412;margin-bottom:8px}
-    .hero{width:100%;max-width:72ch;border-radius:20px;margin:24px 0}
-    .article-layout{display:grid;grid-template-columns:minmax(0,72ch) minmax(240px,280px);gap:32px;align-items:start}
+    .post-shell{max-width:1120px;margin:0 auto;padding:calc(var(--s-8) + 60px) var(--s-5) var(--s-9)}
+    .back{display:inline-flex;align-items:center;gap:var(--s-2);margin-bottom:var(--s-5);color:var(--gold-deep);text-decoration:none;font-size:var(--fs-sm);font-weight:500;transition:color var(--t-fast),transform var(--t-fast)}
+    .back svg{transition:transform var(--t-fast)}
+    .back:hover{color:var(--gold)}
+    .back:hover svg{transform:translateX(-2px)}
+    .post-meta{color:var(--ink-3);font-size:var(--fs-sm);margin-bottom:var(--s-4)}
+    .post-meta span+span::before{content:"·";margin:0 var(--s-3);color:var(--ink-3);opacity:.5}
+    .post-shell h1{font-size:clamp(2.25rem,5vw,3.5rem);line-height:1.05;margin:0 0 var(--s-4);max-width:22ch}
+    .excerpt{font-family:var(--font-display);font-variation-settings:"opsz" 72;font-size:var(--fs-lg);line-height:1.55;color:var(--ink-2);margin-bottom:var(--s-5);max-width:38em}
+    .answer-box{background:var(--bg-2);border:1px solid var(--hairline);border-radius:var(--r-lg);padding:var(--s-4) var(--s-5);margin:var(--s-5) 0}
+    .answer-box strong{display:block;font-size:var(--fs-xs);letter-spacing:.12em;text-transform:uppercase;color:var(--gold-deep);margin-bottom:var(--s-2)}
+    .answer-box div{color:var(--ink-2);line-height:1.6}
+    .hero{width:100%;max-width:72ch;border-radius:var(--r-xl);margin:var(--s-5) 0;box-shadow:var(--shadow-card)}
+    .article-layout{display:grid;grid-template-columns:minmax(0,72ch) minmax(240px,280px);gap:var(--s-7);align-items:start}
     .article-main{min-width:0}
-    .toc{position:sticky;top:24px;background:#fff;border:1px solid #fed7aa;border-radius:18px;padding:18px 18px 14px}
-    .toc__title{font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#9a3412;margin-bottom:10px}
-    .toc__list{list-style:none;padding:0;margin:0;display:grid;gap:8px}
-    .toc__item a{color:#44403c;text-decoration:none;line-height:1.45}
-    .toc__item a:hover{color:#b45309}
-    .toc__item--h3{padding-left:14px}
-    article{font-size:18px;line-height:1.8;color:#292524}
-    article h2,article h3,article h4{line-height:1.25;color:#111827;margin:40px 0 14px;scroll-margin-top:24px}
-    article h2{font-size:30px}
-    article h3{font-size:24px}
-    article p{margin:0 0 18px;max-width:68ch}
-    article ul,article ol{padding-left:24px;margin:0 0 18px}
-    article blockquote{margin:24px 0;padding:0 0 0 18px;border-left:4px solid #fdba74;color:#57534e}
-    article pre{background:#111827;color:#f8fafc;padding:16px;border-radius:14px;overflow:auto}
-    article code{background:#f5f5f4;padding:2px 6px;border-radius:6px}
-    article img{max-width:100%;border-radius:16px}
-    .embed{margin:28px 0;display:grid;gap:10px}
-    .embed figcaption{font-size:14px;line-height:1.5;color:#57534e}
-    .embed__frame{position:relative;padding-top:56.25%;border-radius:18px;overflow:hidden;background:#111827}
+    .toc{position:sticky;top:96px;background:var(--surface);border:1px solid var(--hairline);border-radius:var(--r-lg);padding:var(--s-4) var(--s-4) var(--s-3)}
+    .toc__title{font-size:var(--fs-xs);font-weight:500;letter-spacing:.12em;text-transform:uppercase;color:var(--gold-deep);margin-bottom:var(--s-3)}
+    .toc__list{list-style:none;padding:0;margin:0;display:grid;gap:var(--s-2)}
+    .toc__item a{color:var(--ink-2);text-decoration:none;line-height:1.45;font-size:var(--fs-sm);transition:color var(--t-fast)}
+    .toc__item a:hover{color:var(--gold-deep)}
+    .toc__item--h3{padding-left:var(--s-3)}
+    article{font-size:18px;line-height:1.75;color:var(--ink-2)}
+    article h2,article h3,article h4{font-family:var(--font-display);line-height:1.15;color:var(--ink);margin:var(--s-7) 0 var(--s-4);scroll-margin-top:96px;font-variation-settings:"opsz" 72;letter-spacing:-0.01em}
+    article h2{font-size:clamp(1.75rem,3.5vw,2rem)}
+    article h3{font-size:var(--fs-xl)}
+    article h4{font-size:var(--fs-md)}
+    article p{margin:0 0 var(--s-4);max-width:68ch}
+    article a{color:var(--gold-deep);text-decoration:underline;text-decoration-color:rgba(184,90,53,0.3);transition:color var(--t-fast),text-decoration-color var(--t-fast)}
+    article a:hover{color:var(--gold);text-decoration-color:var(--gold)}
+    article ul,article ol{padding-left:var(--s-5);margin:0 0 var(--s-4)}
+    article li{margin-bottom:var(--s-2)}
+    article blockquote{position:relative;margin:var(--s-6) 0;padding:0 0 0 var(--s-7);color:var(--ink-2);font-style:italic;font-family:var(--font-display);font-size:var(--fs-lg);line-height:1.5;font-variation-settings:"opsz" 96}
+    article blockquote::before{content:"\\201C";position:absolute;left:0;top:-0.15em;font-size:3.5em;line-height:1;color:var(--gold);font-family:var(--font-display);font-style:normal;font-variation-settings:"opsz" 144}
+    article blockquote p{margin:0;max-width:58ch}
+    article pre{background:var(--ink);color:#F5F5F0;padding:var(--s-4);border-radius:var(--r-md);overflow:auto;font-size:var(--fs-sm)}
+    article code{background:var(--bg-2);color:var(--ink);padding:2px 6px;border-radius:var(--r-xs);font-family:var(--font-mono);font-size:0.9em}
+    article pre code{background:transparent;padding:0;color:inherit}
+    article img{max-width:100%;border-radius:var(--r-md)}
+    .embed{margin:var(--s-6) 0;display:grid;gap:var(--s-3)}
+    .embed figcaption{font-size:var(--fs-sm);line-height:1.5;color:var(--ink-3)}
+    .embed__frame{position:relative;padding-top:56.25%;border-radius:var(--r-lg);overflow:hidden;background:var(--ink)}
     .embed__frame iframe{position:absolute;inset:0;width:100%;height:100%;border:0}
     .embed audio{width:100%}
-    .tags{display:flex;gap:8px;flex-wrap:wrap;margin-top:24px}
-    .tags span{font-size:12px;background:#f5f5f4;color:#44403c;padding:4px 8px;border-radius:999px}
+    .tags{display:flex;gap:var(--s-2);flex-wrap:wrap;margin-top:var(--s-6);padding-top:var(--s-5);border-top:1px solid var(--hairline)}
+    .tags span{display:inline-flex;font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:.06em;background:var(--bg-2);color:var(--ink-3);padding:3px 10px;border-radius:var(--r-pill);border:1px solid var(--hairline)}
+    .tags .tag--stories{background:linear-gradient(135deg,rgba(201,131,125,0.18),rgba(201,131,125,0.04));color:var(--rose-deep);border-color:rgba(201,131,125,0.28)}
+    .tags .tag--product{background:linear-gradient(135deg,rgba(224,120,80,0.18),rgba(224,120,80,0.04));color:var(--gold-deep);border-color:var(--border-gold)}
+    .tags .tag--tips{background:linear-gradient(135deg,rgba(123,143,107,0.18),rgba(123,143,107,0.04));color:var(--sage-deep);border-color:rgba(123,143,107,0.28)}
     @media (max-width: 980px){.article-layout{grid-template-columns:1fr}.toc{position:static;order:-1}}
+    @media (max-width: 640px){.post-shell{padding:100px var(--s-4) var(--s-7)}}
   </style>
 </head>
 <body>
-  <main class="shell">
-    <a class="back" href="/blog">← Back to Blog</a>
-    <div class="meta"><span>${escapeHtml(publishedDate)}</span>${post.author_name ? `<span>${escapeHtml(post.author_name)}</span>` : ""}<span>${escapeHtml(`${readingTimeMinutes} min read`)}</span></div>
+  <nav class="nav" id="nav">
+    <div class="container">
+      <div class="nav__inner">
+        <a href="/" class="nav__logo"><span class="nav__logo-text">Porizo</span></a>
+        <div class="nav__links">
+          <a href="/about" class="nav__link">About</a>
+          <a href="/pricing" class="nav__link">Pricing</a>
+          <a href="/blog" class="nav__link">Blog</a>
+          <a href="/support" class="nav__link nav__link--secondary">Support</a>
+        </div>
+        <a href="/download" class="nav__cta">Get the app</a>
+      </div>
+    </div>
+  </nav>
+
+  <main class="post-shell">
+    <a class="back" href="/blog"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M8.5 2.5L4 7l4.5 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>Back to Blog</a>
+    <div class="post-meta"><span>${escapeHtml(publishedDate)}</span>${post.author_name ? `<span>By ${escapeHtml(post.author_name)}</span>` : ""}<span>${escapeHtml(`${readingTimeMinutes} min read`)}</span></div>
     <h1>${escapeHtml(post.title)}</h1>
     <p class="excerpt">${escapeHtml(post.excerpt)}</p>
     ${post.answer_summary ? `<section class="answer-box"><strong>Quick Answer</strong><div>${escapeHtml(post.answer_summary)}</div></section>` : ""}
@@ -411,11 +557,50 @@ function renderBlogPostPage(post, { siteOrigin = "https://porizo.co" } = {}) {
     <div class="article-layout">
       <div class="article-main">
         <article>${bodyHtml}</article>
+        <div class="tags">${renderTagList(post.tags)}</div>
       </div>
       ${articleToc}
     </div>
-    <div class="tags">${(Array.isArray(post.tags) ? post.tags : []).map((tag) => `<span>${escapeHtml(tag)}</span>`).join("")}</div>
   </main>
+
+  <footer class="footer">
+    <div class="container">
+      <div class="footer__inner">
+        <div class="footer__brand">
+          <a href="/" class="nav__logo"><span class="nav__logo-text">Porizo</span></a>
+          <p class="footer__tagline">Your moment, in a song.</p>
+        </div>
+        <div class="footer__col">
+          <h4>Product</h4>
+          <a href="/pricing">Pricing</a>
+          <a href="/#how">How it works</a>
+          <a href="/download">Download</a>
+        </div>
+        <div class="footer__col">
+          <h4>Company</h4>
+          <a href="/about">About</a>
+          <a href="/blog">Blog</a>
+          <a href="/support">Support</a>
+        </div>
+        <div class="footer__col">
+          <h4>Legal</h4>
+          <a href="/legal/privacy">Privacy</a>
+          <a href="/legal/terms">Terms</a>
+        </div>
+      </div>
+      <div class="footer__bottom">
+        <span>&copy; 2026 Porizo. All rights reserved.</span>
+        <span>One song at a time.</span>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    window.addEventListener('scroll', function () {
+      var n = document.getElementById('nav');
+      if (n) n.classList.toggle('scrolled', window.scrollY > 40);
+    });
+  </script>
 </body>
 </html>`;
 }

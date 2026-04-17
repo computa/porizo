@@ -26,6 +26,7 @@
   --sage: #7B8F6B;
   --sage-deep: #5C6F4D;
   --rose: #C9837D;
+  --rose-deep: #A85F59;        /* AA text on warm bg: ~5.1:1 */
 
   /* Lines & shadow */
   --hairline: rgba(26, 20, 16, 0.08);

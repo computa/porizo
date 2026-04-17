@@ -75,7 +75,7 @@ describe("blog format service", () => {
       updated_at: "2026-04-07T00:00:00.000Z",
     });
 
-    assert.match(html, /In this article/);
+    assert.match(html, />Contents</);
     assert.match(html, /min read/);
     assert.match(html, /id="why-readable-formatting-matters"/);
     assert.match(html, /href="#how-to-break-up-sections"/);
