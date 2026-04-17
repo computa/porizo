@@ -76,25 +76,76 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: var(--space-md);
-      padding: var(--space-xl) 0 var(--space-lg);
+      gap: var(--s-4);
+      padding: var(--s-7) 0 var(--s-5);
+      flex-wrap: wrap;
+    }
+
+    .billing-toggle {
+      position: relative;
+      display: inline-flex;
+      padding: 4px;
+      background: var(--bg-2);
+      border: 1px solid var(--hairline);
+      border-radius: var(--r-pill);
+    }
+
+    .billing-toggle__option {
+      position: relative;
+      z-index: 1;
+      padding: 8px 20px;
+      font-size: var(--fs-sm);
+      font-weight: 500;
+      color: var(--ink-3);
+      cursor: pointer;
+      border-radius: var(--r-pill);
+      transition: color var(--t-fast);
+      user-select: none;
+    }
+
+    .billing-toggle__option input {
+      position: absolute;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .billing-toggle__option.active { color: var(--ink); }
+
+    .billing-toggle__pill {
+      position: absolute;
+      top: 4px;
+      bottom: 4px;
+      left: 4px;
+      width: calc(50% - 4px);
+      background: var(--surface);
+      border-radius: var(--r-pill);
+      box-shadow: 0 1px 2px rgba(26, 20, 16, 0.06), 0 4px 12px rgba(26, 20, 16, 0.08);
+      transition: transform var(--t-med);
+    }
+
+    .billing-toggle.annual .billing-toggle__pill {
+      transform: translateX(100%);
+    }
+
+    .billing-toggle__option:has(input:focus-visible) {
+      outline: 2px solid var(--gold);
+      outline-offset: 3px;
+      border-radius: var(--r-pill);
     }
 
     .billing-save {
-      font-size: 13px;
-      font-weight: 600;
-      color: var(--rose);
-      transition: opacity 0.3s var(--ease-out);
+      font-size: var(--fs-sm);
+      font-weight: 500;
+      color: var(--gold-deep);
+      transition: opacity var(--t-med);
     }
 
-    .billing-save.dimmed {
-      opacity: 0.4;
-    }
+    .billing-save.dimmed { opacity: 0.35; }
 
     /* Pricing Cards Grid */
     .pricing-cards {
       display: grid;
-      grid-template-columns: 1fr 1.08fr 1fr;
+      grid-template-columns: 1fr 1fr 1.08fr;
       gap: 24px;
       max-width: 1080px;
       margin: 0 auto;
@@ -482,8 +533,8 @@
         <div class="nav__links">
           <a href="/about" class="nav__link">About</a>
           <a href="/pricing" class="nav__link">Pricing</a>
-          <a href="/blog" class="nav__link">Blog</a>
-          <a href="/support" class="nav__link">Support</a>
+          <a href="/blog" class="nav__link nav__link--secondary">Blog</a>
+          <a href="/support" class="nav__link nav__link--secondary">Support</a>
         </div>
         <a href="/download" class="nav__cta">Get the app</a>
       </div>
@@ -544,8 +595,48 @@
       <a href="/download" class="btn btn--ghost">Get Started</a>
     </div>
 
+    <!-- Plus -->
+    <div class="pricing-card pricing-card--plus animate-on-scroll" style="transition-delay: 0.15s">
+      <p class="pricing-card__plan">Plus</p>
+      <div class="price-block">
+        <div class="price-monthly price-visible">
+          <div class="price-amount">
+            <span class="price-value">$9.99</span>
+            <span class="price-period">/month</span>
+          </div>
+        </div>
+        <div class="price-annual price-hidden">
+          <div class="price-amount">
+            <span class="price-struck">$9.99</span>
+            <span class="price-value">$8.33</span>
+            <span class="price-period">/month</span>
+          </div>
+          <p class="price-billed">billed $99.99/year</p>
+        </div>
+      </div>
+      <ul class="pricing-features">
+        <li>
+          <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          <span><strong>4</strong> songs/month</span>
+        </li>
+        <li>
+          <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          <span><strong>10</strong> poems/month</span>
+        </li>
+        <li>
+          <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          <span>All occasions & styles</span>
+        </li>
+        <li>
+          <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          <span>Voice cloning</span>
+        </li>
+      </ul>
+      <a href="/download" class="btn btn--ghost">Start Plus</a>
+    </div>
+
     <!-- Pro (Featured) -->
-    <div class="pricing-card pricing-card--featured animate-on-scroll">
+    <div class="pricing-card pricing-card--featured animate-on-scroll" style="transition-delay: 0.25s">
       <span class="popular-badge">Most Popular</span>
       <div class="vinyl-grooves" aria-hidden="true">
         <div class="vinyl-arc"></div>
@@ -596,46 +687,6 @@
         </li>
       </ul>
       <a href="/download" class="btn btn--primary">Start Pro</a>
-    </div>
-
-    <!-- Plus -->
-    <div class="pricing-card pricing-card--plus animate-on-scroll" style="transition-delay: 0.2s">
-      <p class="pricing-card__plan">Plus</p>
-      <div class="price-block">
-        <div class="price-monthly price-visible">
-          <div class="price-amount">
-            <span class="price-value">$9.99</span>
-            <span class="price-period">/month</span>
-          </div>
-        </div>
-        <div class="price-annual price-hidden">
-          <div class="price-amount">
-            <span class="price-struck">$9.99</span>
-            <span class="price-value">$8.33</span>
-            <span class="price-period">/month</span>
-          </div>
-          <p class="price-billed">billed $99.99/year</p>
-        </div>
-      </div>
-      <ul class="pricing-features">
-        <li>
-          <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
-          <span><strong>4</strong> songs/month</span>
-        </li>
-        <li>
-          <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
-          <span><strong>10</strong> poems/month</span>
-        </li>
-        <li>
-          <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
-          <span>All occasions & styles</span>
-        </li>
-        <li>
-          <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
-          <span>Voice cloning</span>
-        </li>
-      </ul>
-      <a href="/download" class="btn btn--ghost">Start Plus</a>
     </div>
 
   </section>
@@ -737,7 +788,7 @@
       </div>
       <div class="footer__bottom">
         <span>&copy; 2026 Porizo. All rights reserved.</span>
-        <span>Made with care</span>
+        <span>One song at a time.</span>
       </div>
     </div>
   </footer>
