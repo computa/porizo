@@ -703,8 +703,12 @@ struct RootView: View {
         // genuinely have nothing on file still have a path to "skip and get on with it"
         // without being re-prompted on every cold launch.
         let skipWindowSeconds: TimeInterval = 7 * 24 * 60 * 60
+        let secondsSinceSkip = Date().timeIntervalSince1970 - profileCompletionSkippedAtEpoch
+        // Reject negative deltas (device clock moved backward) so a rollback can't
+        // indefinitely extend the suppression.
         let isWithinSkipWindow = profileCompletionSkippedAtEpoch > 0
-            && Date().timeIntervalSince1970 - profileCompletionSkippedAtEpoch < skipWindowSeconds
+            && secondsSinceSkip >= 0
+            && secondsSinceSkip < skipWindowSeconds
 
         guard authManager.needsProfileCompletion,
               !isWithinSkipWindow,
@@ -958,11 +962,7 @@ struct RootView: View {
             }
             // Clear a stale dismissal once the user is on (or past) the dismissed version —
             // prevents future genuine prompts from being suppressed by an old cached value.
-            if !dismissedRecommendedUpdateVersion.isEmpty,
-               AppUpdatePolicy.compare(
-                Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0",
-                dismissedRecommendedUpdateVersion
-               ) != .orderedAscending {
+            if AppUpdatePolicy.shouldClearDismissal(dismissedRecommendedUpdateVersion) {
                 dismissedRecommendedUpdateVersion = ""
             }
             appUpdatePrompt = nextPrompt

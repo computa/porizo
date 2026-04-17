@@ -403,13 +403,10 @@ async function computeProfileCompleteness(db, userId, policyVersion = "v1") {
   const missing = [];
 
   if (policyVersion === "v1") {
-    // A non-relay email on file (verified or not) counts as "collected".
-    // Relay emails (@privaterelay.appleid.com) don't — we still want a real address for marketing.
-    const hasRealEmail = await db.prepare(
-      `SELECT id FROM user_contacts
-       WHERE user_id = ? AND type = 'email' AND is_relay = false
-       LIMIT 1`
-    ).get(userId);
+    // Verified rows are a strict subset of "on file" rows, so we only run the
+    // fallback query when the verified probe misses. Best case: 2 queries.
+    // Relay emails (@privaterelay.appleid.com) don't count — we want a real
+    // address for marketing.
 
     const verifiedEmail = await db.prepare(
       `SELECT id FROM user_contacts
@@ -417,16 +414,16 @@ async function computeProfileCompleteness(db, userId, policyVersion = "v1") {
        LIMIT 1`
     ).get(userId);
 
+    let hasRealEmail = Boolean(verifiedEmail);
     if (!verifiedEmail) {
       missing.push("verified_email");
+      const realEmail = await db.prepare(
+        `SELECT id FROM user_contacts
+         WHERE user_id = ? AND type = 'email' AND is_relay = false
+         LIMIT 1`
+      ).get(userId);
+      hasRealEmail = Boolean(realEmail);
     }
-
-    // Any phone contact counts as "collected".
-    const hasPhone = await db.prepare(
-      `SELECT id FROM user_contacts
-       WHERE user_id = ? AND type = 'phone'
-       LIMIT 1`
-    ).get(userId);
 
     const verifiedPhone = await db.prepare(
       `SELECT id FROM user_contacts
@@ -434,12 +431,18 @@ async function computeProfileCompleteness(db, userId, policyVersion = "v1") {
        LIMIT 1`
     ).get(userId);
 
+    let hasPhone = Boolean(verifiedPhone);
     if (!verifiedPhone) {
       missing.push("verified_phone");
+      const phone = await db.prepare(
+        `SELECT id FROM user_contacts
+         WHERE user_id = ? AND type = 'phone'
+         LIMIT 1`
+      ).get(userId);
+      hasPhone = Boolean(phone);
     }
 
-    const hasAnyContact = Boolean(hasRealEmail) || Boolean(hasPhone);
-    return { complete: hasAnyContact, missing };
+    return { complete: hasRealEmail || hasPhone, missing };
   }
 
   return { complete: missing.length === 0, missing };

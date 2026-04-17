@@ -538,18 +538,7 @@ describe("Auth Identity Model", () => {
       );
     });
 
-    it("should mark profile incomplete when only a relay email is on file", async () => {
-      const relayEmail = `test-${crypto.randomBytes(8).toString("hex")}@privaterelay.appleid.com`;
-      const appleUser = await createAppleUser(app, { email: relayEmail });
-
-      const me = await getMe(app, appleUser.accessToken);
-      assert.strictEqual(me.statusCode, 200);
-      assert.strictEqual(
-        me.body.needs_profile_completion,
-        true,
-        "Relay-only user has no real contact channel — still needs completion"
-      );
-    });
+    // Relay-only = incomplete is already covered by S5's first test.
   });
 
   // ==================== S6: Email verification lifecycle ====================

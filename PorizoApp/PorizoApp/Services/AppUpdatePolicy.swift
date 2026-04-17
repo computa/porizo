@@ -26,10 +26,22 @@ struct AppUpdatePrompt: Identifiable, Equatable {
 }
 
 enum AppUpdatePolicy {
+    static var currentBundleVersion: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
+    }
+
+    /// True when the local app version has caught up to (or passed) a previously
+    /// dismissed recommended-update version — callers should clear the stored
+    /// dismissal so a genuinely newer prompt isn't suppressed later.
+    static func shouldClearDismissal(_ dismissedVersion: String) -> Bool {
+        guard !dismissedVersion.isEmpty else { return false }
+        return compare(currentBundleVersion, dismissedVersion) != .orderedAscending
+    }
+
     static func evaluate(config: AppUpdateConfig?) -> AppUpdatePrompt? {
         guard let config else { return nil }
 
-        let currentVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
+        let currentVersion = currentBundleVersion
         guard let appStoreURL = URL(string: config.appStoreURL ?? AppConfig.appStoreURL) else {
             return nil
         }
@@ -42,40 +54,33 @@ enum AppUpdatePolicy {
             return nil
         }
 
-        #if DEBUG
-        print("[AppUpdatePolicy] evaluate — current=\(currentVersion) min=\(config.minimumSupportedVersion ?? "nil") recommended=\(config.recommendedVersion ?? "nil")")
-        #endif
-
-        if let minimum = normalizedVersion(config.minimumSupportedVersion),
-           compare(currentVersion, minimum) == .orderedAscending {
-            #if DEBUG
-            print("[AppUpdatePolicy] → required (current < minimum)")
-            #endif
-            return AppUpdatePrompt(
-                kind: .required,
-                targetVersion: minimum,
-                appStoreURL: appStoreURL,
-                message: config.message ?? "This version of Porizo is no longer supported. Update to continue."
-            )
-        }
-
-        if let recommended = normalizedVersion(config.recommendedVersion),
-           compare(currentVersion, recommended) == .orderedAscending {
-            #if DEBUG
-            print("[AppUpdatePolicy] → recommended (current < recommended)")
-            #endif
-            return AppUpdatePrompt(
-                kind: .recommended,
-                targetVersion: recommended,
-                appStoreURL: appStoreURL,
-                message: config.message ?? "A newer version of Porizo is available. Update for the best experience."
-            )
-        }
+        let outcome: AppUpdatePrompt? = {
+            if let minimum = normalizedVersion(config.minimumSupportedVersion),
+               compare(currentVersion, minimum) == .orderedAscending {
+                return AppUpdatePrompt(
+                    kind: .required,
+                    targetVersion: minimum,
+                    appStoreURL: appStoreURL,
+                    message: config.message ?? "This version of Porizo is no longer supported. Update to continue."
+                )
+            }
+            if let recommended = normalizedVersion(config.recommendedVersion),
+               compare(currentVersion, recommended) == .orderedAscending {
+                return AppUpdatePrompt(
+                    kind: .recommended,
+                    targetVersion: recommended,
+                    appStoreURL: appStoreURL,
+                    message: config.message ?? "A newer version of Porizo is available. Update for the best experience."
+                )
+            }
+            return nil
+        }()
 
         #if DEBUG
-        print("[AppUpdatePolicy] → nil (no prompt needed)")
+        let outcomeDescription = outcome.map { String(describing: $0.kind) } ?? "nil"
+        print("[AppUpdatePolicy] current=\(currentVersion) min=\(config.minimumSupportedVersion ?? "nil") recommended=\(config.recommendedVersion ?? "nil") → \(outcomeDescription)")
         #endif
-        return nil
+        return outcome
     }
 
     private static func normalizedVersion(_ version: String?) -> String? {
