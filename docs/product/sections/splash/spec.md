@@ -1,7 +1,7 @@
 # Splash Screen Specification
 
 ## Overview
-Animated launch screen shown while the app initializes. Features a particle globe visualization with embedded microphone icon, establishing Porizo's brand identity as a music/voice creation platform.
+Animated launch screen shown while the app initializes. Features a particle globe visualization with the wrapped-song gift mark, establishing Porizo's brand identity as a personal song-gifting platform.
 
 ## User Flows
 - App launches and displays splash screen immediately

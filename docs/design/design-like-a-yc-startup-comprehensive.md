@@ -1044,7 +1044,7 @@ The following changes have been implemented in the `version3` branch:
 
 - **Splash**: Italic "porizo" text, 24pt display font, gold color, 96x96 circle.
 - **Onboarding**: Single-page narrative with audio player mock, "Hear what a birthday sounds like", "Make one in 90 seconds" tagline.
-- **Auth**: Simplified to Apple + Phone only, "Sign in to create your song" title, "90 seconds" subtitle, gold mic circle.
+- **Auth**: Simplified to Apple + Phone only, "Sign in to create your song" title, "90 seconds" subtitle, wrapped-song brand mark.
 - **Phone entry**: Warm Canvas nav bar, gallery-style input fields (surface bg, 12pt radius, 1.5pt border).
 - **Phone verify**: 6 individual digit boxes (44x56), "Resend code" + "Wrong number?" links.
 - **Profile**: Email only, "Skip for now" bottom link, "sync across devices" subtitle.

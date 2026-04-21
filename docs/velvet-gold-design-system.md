@@ -223,19 +223,15 @@ font: SF Pro 15px;
 
 ## Brand Mark
 
-The **mic in coral circle** is the core brand element.
+The **wrapped-song gift mark** is the core brand element.
 
 ```css
-/* Brand Mark Container */
-background: #E07850;
-width: 120px;
-height: 120px;
-border-radius: 60px;
-
-/* Mic Icon */
-icon: mic (white SVG);
-size: 48px;
-color: #FFFFFF;
+/* Brand Mark */
+background: wrapped song gift mark (coral tile, cream gift, gold ribbon, cream note);
+shape: rounded square;
+primary color: #E07850;
+gift color: #FBF7F2;
+ribbon color: #D9AE47;
 ```
 
 **Usage:**
@@ -284,7 +280,7 @@ transition: transform 100ms ease-out;
 
 ### Splash Screen
 - Full screen `#FBF7F2` warm parchment
-- Centered brand mark (mic in coral circle)
+- Centered brand mark (wrapped-song gift mark)
 - "Porizo" in Fraunces below
 
 ### Landing/Hero Screen

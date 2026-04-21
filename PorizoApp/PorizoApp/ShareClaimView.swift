@@ -266,15 +266,8 @@ struct ShareClaimView: View {
 
     private var shareHeader: some View {
         VStack(spacing: 16) {
-            // Gold mic circle
-            Circle()
-                .fill(DesignTokens.gold)
-                .frame(width: 48, height: 48)
-                .overlay(
-                    Image(systemName: "mic.fill")
-                        .font(.system(size: 24))
-                        .foregroundStyle(.white)
-                )
+            // Brand mark
+            BrandMarkView(size: 48)
 
             // Sender text
             Text(senderHeadline)

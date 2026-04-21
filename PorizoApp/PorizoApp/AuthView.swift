@@ -36,34 +36,7 @@ struct AuthView: View {
             VStack(spacing: 0) {
                 Spacer()
 
-                // Brand element: gold mic circle
-                Circle()
-                    .fill(DesignTokens.gold)
-                    .frame(width: 48, height: 48)
-                    .overlay(
-                        Image(systemName: "mic.fill")
-                            .font(.system(size: 24))
-                            .foregroundStyle(.white)
-                    )
-
-                // Header: Sign in prompt + subtitle
-                VStack(spacing: 20) {
-                    Text("Sign in to create\nyour song")
-                        .font(DesignTokens.displayFont(size: 22))
-                        .foregroundStyle(DesignTokens.textPrimary)
-                        .multilineTextAlignment(.center)
-
-                    Text("It takes about 90 seconds")
-                        .font(DesignTokens.bodyFont(size: 14))
-                        .foregroundStyle(DesignTokens.textSecondary)
-
-                    if let contextMessage {
-                        Text(contextMessage)
-                            .font(DesignTokens.bodyFont(size: 14, weight: .medium))
-                            .foregroundStyle(DesignTokens.gold)
-                            .multilineTextAlignment(.center)
-                    }
-                }
+                authHeader
 
                 Spacer()
 
@@ -164,6 +137,40 @@ struct AuthView: View {
     }
 
     // MARK: - Components
+
+    private var authHeader: some View {
+        VStack(spacing: 18) {
+            BrandMarkView(size: 48)
+
+            VStack(spacing: 12) {
+                Text("Create a personalized\nsong gift")
+                    .font(DesignTokens.displayFont(size: 22))
+                    .foregroundStyle(DesignTokens.textPrimary)
+                    .multilineTextAlignment(.center)
+                    .lineSpacing(1)
+                    .frame(maxWidth: 252)
+
+                Text("For birthdays, anniversaries,\nand the moments that matter")
+                    .font(DesignTokens.bodyFont(size: 15))
+                    .foregroundStyle(DesignTokens.textPrimary.opacity(0.58))
+                    .multilineTextAlignment(.center)
+                    .lineSpacing(2)
+                    .frame(maxWidth: 272)
+
+                if let contextMessage {
+                    Text(contextMessage)
+                        .font(DesignTokens.bodyFont(size: 14, weight: .medium))
+                        .foregroundStyle(DesignTokens.gold)
+                        .multilineTextAlignment(.center)
+                        .lineSpacing(2)
+                        .frame(maxWidth: 272)
+                        .padding(.top, 2)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 20)
+    }
 
     private func errorBanner(_ error: String) -> some View {
         HStack(spacing: DesignTokens.spacing8) {

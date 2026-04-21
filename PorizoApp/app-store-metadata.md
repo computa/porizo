@@ -9,8 +9,8 @@
 
 | Field | Value | Limit | Status |
 |-------|-------|-------|--------|
-| **App Name** | Porizo | 30 chars | Ready (6 chars) |
-| **Subtitle** | Your moment in a song | 30 chars | Ready (21 chars) |
+| **App Name** | Porizo: Song Gift Maker | 30 chars | Ready (23 chars) |
+| **Subtitle** | Song gifts for special moments | 30 chars | Ready (30 chars) |
 
 ---
 
@@ -150,7 +150,7 @@ Answer these in App Store Connect:
 1. Replace `05-songs-empty.jpg` with a screenshot showing songs in the library
 2. Add a screenshot of the song creation flow
 3. Add a screenshot of the subscription/pricing screen
-4. Consider adding text overlays (e.g., "Your moment in a song" banner) — this is common for top apps
+4. Consider adding text overlays that reinforce the new positioning (e.g., "Song gifts for special moments") — this is common for top apps
 
 ---
 
@@ -281,7 +281,7 @@ Support: support@porizo.co
 | # | Item | Status |
 |---|------|--------|
 | 1 | App name | Ready — "Porizo" |
-| 2 | Subtitle | Ready — "Your moment in a song" (21 chars) |
+| 2 | Subtitle | Ready — "Song gifts for special moments" (30 chars) |
 | 3 | Description | Ready — 3,847 chars (paste from Section 2) |
 | 4 | Keywords | Ready — 99 chars (paste from Section 3) |
 | 5 | Support URL | Verified live |

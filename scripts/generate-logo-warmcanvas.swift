@@ -2,10 +2,7 @@
 
 //
 //  generate-logo-warmcanvas.swift
-//  Generates all Porizo logo sizes using the Warm Canvas design.
-//
-//  Design: Flat coral (#E07850) circle + centered white mic.fill
-//  Matches SplashView.swift / DesignTokens.gold exactly.
+//  Regenerates Warm Canvas derivatives from the shipped B4 brand mark.
 //
 //  Usage: swift generate-logo-warmcanvas.swift
 //  Output: AppIcon.png, logo.png, logo@2x.png, apple-touch-icon.png, favicons
@@ -13,15 +10,12 @@
 
 import Cocoa
 
-// Warm Canvas coral — DesignTokens.gold
-let coralColor = NSColor(red: 224/255, green: 120/255, blue: 80/255, alpha: 1.0)  // #E07850
-
 struct LogoSize {
     let size: Int
     let filename: String
 }
 
-let sizes: [LogoSize] = [
+let outputSizes: [LogoSize] = [
     LogoSize(size: 1024, filename: "AppIcon.png"),
     LogoSize(size: 1024, filename: "logo@2x.png"),
     LogoSize(size: 512, filename: "logo.png"),
@@ -30,75 +24,51 @@ let sizes: [LogoSize] = [
     LogoSize(size: 16, filename: "favicon-16.png"),
 ]
 
-func generateLogo(size: Int) -> NSImage? {
-    let s = CGFloat(size)
-    let image = NSImage(size: NSSize(width: s, height: s))
+let scriptURL = URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath()
+let scriptDirectory = scriptURL.deletingLastPathComponent()
+let sourceIconURL = scriptDirectory
+    .appendingPathComponent("../PorizoApp/PorizoApp/Assets.xcassets/AppIcon.appiconset/AppIcon.png")
+    .standardizedFileURL
 
-    image.lockFocus()
-
-    // Flat coral fill — full square (iOS applies its own squircle mask)
-    coralColor.setFill()
-    NSRect(x: 0, y: 0, width: s, height: s).fill()
-
-    // White mic.fill centered — 40% of circle diameter
-    let iconScale: CGFloat = 0.4
-    let symbolConfig = NSImage.SymbolConfiguration(pointSize: s * iconScale, weight: .regular)
-
-    if let micImage = NSImage(systemSymbolName: "mic.fill", accessibilityDescription: nil)?
-        .withSymbolConfiguration(symbolConfig) {
-
-        let symbolSize = micImage.size
-        let x = (s - symbolSize.width) / 2
-        let y = (s - symbolSize.height) / 2
-        let drawRect = NSRect(x: x, y: y, width: symbolSize.width, height: symbolSize.height)
-
-        let tinted = NSImage(size: micImage.size)
-        tinted.lockFocus()
-        micImage.draw(at: .zero, from: NSRect(origin: .zero, size: micImage.size), operation: .sourceOver, fraction: 1.0)
-        NSColor.white.set()
-        NSRect(origin: .zero, size: micImage.size).fill(using: .sourceAtop)
-        tinted.unlockFocus()
-
-        tinted.draw(in: drawRect, from: .zero, operation: .sourceOver, fraction: 1.0)
-    }
-
-    image.unlockFocus()
-    return image
+func resizedImage(from image: NSImage, size: Int) -> NSImage {
+    let targetSize = NSSize(width: size, height: size)
+    let result = NSImage(size: targetSize)
+    result.lockFocus()
+    NSGraphicsContext.current?.imageInterpolation = .high
+    image.draw(in: NSRect(origin: .zero, size: targetSize))
+    result.unlockFocus()
+    return result
 }
 
-func savePNG(_ image: NSImage, to path: String) -> Bool {
+func savePNG(_ image: NSImage, to url: URL) throws {
     guard let tiffData = image.tiffRepresentation,
           let bitmap = NSBitmapImageRep(data: tiffData),
           let pngData = bitmap.representation(using: .png, properties: [:]) else {
-        print("  Error: Failed to create PNG data for \(path)")
-        return false
+        throw NSError(domain: "generate-logo-warmcanvas", code: 1, userInfo: [NSLocalizedDescriptionKey: "Failed to create PNG data"])
     }
-    do {
-        try pngData.write(to: URL(fileURLWithPath: path))
-        return true
-    } catch {
-        print("  Error: \(error)")
-        return false
-    }
+    try pngData.write(to: url)
 }
 
-// MARK: - Main
+guard let sourceImage = NSImage(contentsOf: sourceIconURL) else {
+    fputs("Failed to load canonical app icon at \(sourceIconURL.path)\n", stderr)
+    exit(1)
+}
 
-print("Generating Porizo Warm Canvas logos...")
-print("Color: #E07850 (DesignTokens.gold)")
+print("Generating Porizo Warm Canvas logo derivatives from B4...")
+print("Source: \(sourceIconURL.path)")
 print("")
 
 var success = 0
 var fail = 0
 
-for logoSize in sizes {
-    if let image = generateLogo(size: logoSize.size) {
-        if savePNG(image, to: logoSize.filename) {
-            print("  \(logoSize.filename) (\(logoSize.size)x\(logoSize.size))")
-            success += 1
-        } else { fail += 1 }
-    } else {
-        print("  Failed: \(logoSize.filename)")
+for output in outputSizes {
+    let destinationURL = scriptDirectory.appendingPathComponent(output.filename)
+    do {
+        try savePNG(resizedImage(from: sourceImage, size: output.size), to: destinationURL)
+        print("  \(output.filename) (\(output.size)x\(output.size))")
+        success += 1
+    } catch {
+        print("  Failed \(output.filename): \(error.localizedDescription)")
         fail += 1
     }
 }

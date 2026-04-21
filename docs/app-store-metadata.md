@@ -2,12 +2,12 @@
 
 ## App Name (30 characters max)
 ```
-Porizo - Sing Any Song
+Porizo: Song Gift Maker
 ```
 
 ## Subtitle (30 characters max)
 ```
-Your Voice, Personalized Songs
+Song gifts for special moments
 ```
 
 ## Keywords (100 characters, comma-separated, no spaces after commas)

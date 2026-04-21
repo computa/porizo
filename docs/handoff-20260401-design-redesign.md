@@ -44,7 +44,7 @@ Trigger: "council this", "run the council", "pressure-test this"
 | Wait moment | **The Pulse** — transparent breathing coral rings, dark text on cream |
 | Reveal moment | **The Bloom** — radial coral gradient, in-route transformation |
 | Share moment | **The Postcard** — coral-to-amber gradient card, waveform decoration |
-| Logo | Coral circle (#E07850) with white microphone SVG |
+| Logo | Wrapped-song gift mark on coral tile (#E07850) |
 | Flow order | Name Entry → Auth → Tell (inline genre) → Lyrics Review (inline) → Wait → Reveal → Share |
 | First-time voice | Skip voice selection entirely, auto-select AI voice |
 | Target audience | Emotionally expressive gifting, women as primary wedge (not exclusive) |

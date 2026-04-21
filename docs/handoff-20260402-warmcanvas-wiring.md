@@ -34,7 +34,7 @@
 |------|--------|
 | SplashView | 96x96 circle, 24pt italic gold "porizo" |
 | OnboardingView | Single-page: audio player mock, "90 seconds" tagline |
-| AuthView | Gold mic circle, "Sign in to create your song", Apple + Phone only |
+| AuthView | Wrapped-song brand mark, "Sign in to create your song", Apple + Phone only |
 | PhoneAuthView | Warm Canvas nav bar, gallery-style inputs |
 | PhoneVerificationView | 6 individual digit boxes, "Resend code" + "Wrong number?" |
 | ProfileCompletionView | Email only, "Skip for now" bottom link |

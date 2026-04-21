@@ -2,7 +2,7 @@
 //  SplashView.swift
 //  PorizoApp
 //
-//  Splash screen with pulsing coral glow behind the mic circle.
+//  Splash screen with pulsing coral glow behind the brand mark.
 //  Warm Canvas design — radial pulse animation with fade-in.
 //
 
@@ -56,15 +56,12 @@ struct SplashView: View {
                             .opacity(showLogo ? 1.0 : 0)
                     }
 
-                    // Gold mic circle
-                    Circle()
-                        .fill(DesignTokens.gold)
-                        .frame(width: 96, height: 96)
-                        .shadow(color: DesignTokens.gold.opacity(0.3), radius: 20, y: 4)
-
-                    Image(systemName: "mic.fill")
-                        .font(.system(size: 40))
-                        .foregroundStyle(.white)
+                    BrandMarkView(
+                        size: 96,
+                        shadowColor: DesignTokens.gold.opacity(0.3),
+                        shadowRadius: 20,
+                        shadowY: 4
+                    )
                 }
                 .scaleEffect(reduceMotion ? 1 : (showLogo ? 1 : 0.8))
                 .opacity(showLogo ? 1 : 0)
