@@ -26,12 +26,21 @@ struct OnboardingConfig: Codable, Sendable {
     }
 }
 
+struct AnalyticsConfig: Codable, Sendable {
+    let amplitudeApiKey: String?
+
+    enum CodingKeys: String, CodingKey {
+        case amplitudeApiKey = "amplitude_api_key"
+    }
+}
+
 struct AppConfigResponse: Codable, Sendable {
     let stt: STTConfig
     let flags: ClientFlags?
     let giftBundles: [GiftBundleConfig]?
     let appUpdate: AppUpdateConfig?
     let onboarding: OnboardingConfig?
+    let analytics: AnalyticsConfig?
 
     enum CodingKeys: String, CodingKey {
         case stt
@@ -39,5 +48,6 @@ struct AppConfigResponse: Codable, Sendable {
         case giftBundles = "gift_bundles"
         case appUpdate = "app_update"
         case onboarding
+        case analytics
     }
 }

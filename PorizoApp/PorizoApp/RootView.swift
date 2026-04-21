@@ -960,6 +960,11 @@ struct RootView: View {
             let response = try await client.getAppConfig()
             router?.applyAppConfig(response)
 
+            // Amplitude iOS client key is served via remote config so it can
+            // be rotated or killed without shipping a new App Store build.
+            // Nil / missing key keeps Amplitude disabled; no other path changes.
+            AnalyticsService.shared.configureAmplitude(apiKey: response.analytics?.amplitudeApiKey)
+
             // Extract onboarding sample URL, constructing full URL from relative path
             if let relativePath = response.onboarding?.sampleAudioUrl {
                 if relativePath.hasPrefix("http") {

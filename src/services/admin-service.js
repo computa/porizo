@@ -2594,6 +2594,15 @@ class AdminService {
       question_graph_url: `${config.PUBLIC_BASE_URL.replace(/\/+$/, "")}/api/onboarding/graph.json`,
     };
 
+    // Client analytics config. Amplitude's iOS SDK key is a client key
+    // (embedded in the binary at build time is the usual pattern), but we
+    // prefer to serve it via remote config so it can be rotated or disabled
+    // without shipping a new App Store build. Only included when the env
+    // var is set — otherwise iOS sees `analytics` as null and keeps Amplitude
+    // disabled.
+    const amplitudeApiKey = process.env.AMPLITUDE_API_KEY || null;
+    const analytics = amplitudeApiKey ? { amplitude_api_key: amplitudeApiKey } : null;
+
     return {
       stt: sttConfig,
       music: {
@@ -2610,6 +2619,7 @@ class AdminService {
       gift_bundles,
       onboarding,
       app_update: appUpdatePolicy,
+      analytics,
     };
   }
 
