@@ -1635,12 +1635,14 @@ class AdminService {
       GROUP BY status
     `).all(daysAgo);
 
-    // Average access count
-    const avgAccess = (await this.db.prepare(`
+    // Average access count — Postgres' AVG() returns `numeric` which the pg
+    // driver delivers as a string, so coerce before .toFixed() below.
+    const avgAccessRaw = (await this.db.prepare(`
       SELECT AVG(access_count) as avg_access
       FROM share_tokens
       WHERE created_at > ?
     `).get(daysAgo))?.avg_access ?? 0;
+    const avgAccess = Number(avgAccessRaw) || 0;
 
     // Daily creation trend
     const dailyCreated = await this.db.prepare(`
