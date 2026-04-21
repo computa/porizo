@@ -224,6 +224,19 @@ struct PorizoAppApp: App {
 
                 .withToasts()
                 .task {
+                    // Wire analytics backend forward once per app launch. Uses
+                    // AuthManager's getAccessToken() as the token provider so the
+                    // latest valid token is read on every event (including after
+                    // token refresh).
+                    AnalyticsService.shared.configure(
+                        apiBaseURL: AppConfig.apiBaseURL,
+                        tokenProvider: { [weak authManager] in
+                            guard let authManager else { return nil }
+                            return try? await authManager.getAccessToken()
+                        }
+                    )
+                }
+                .task {
                     // Request App Tracking Transparency, then propagate the result to FBSDK so
                     // fb_mobile_activate_app events carry IDFA + campaign attribution. Without
                     // this, Meta Events Manager flags "not enough events sent with Campaign ID".
