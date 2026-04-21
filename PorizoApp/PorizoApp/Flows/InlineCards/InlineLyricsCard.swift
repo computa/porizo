@@ -202,7 +202,7 @@ struct InlineLyricsCard: View {
                     }
                 }
 
-                chipButton("Create my song ✦", isPrimary: !approveBlocked) {
+                primaryCTAButton("Create my song ✦", enabled: !approveBlocked) {
                     onApproved()
                 }
                 .disabled(approveBlocked)
@@ -307,6 +307,31 @@ struct InlineLyricsCard: View {
                 .overlay(
                     Capsule()
                         .stroke(isPrimary ? DesignTokens.gold.opacity(0.3) : DesignTokens.border, lineWidth: 0.5)
+                )
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// Prominent conversion CTA — solid coral fill, bold white text, softly glowing
+    /// shadow. Used for "Create my song" so it visually dominates over secondary
+    /// chips (Save / Regenerate) instead of blending in.
+    private func primaryCTAButton(
+        _ text: String,
+        enabled: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Text(text)
+                .font(DesignTokens.bodyFont(size: 15, weight: .bold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 12)
+                .background(DesignTokens.gold)
+                .clipShape(Capsule())
+                .shadow(
+                    color: DesignTokens.gold.opacity(enabled ? 0.35 : 0),
+                    radius: 10,
+                    y: 3
                 )
         }
         .buttonStyle(.plain)

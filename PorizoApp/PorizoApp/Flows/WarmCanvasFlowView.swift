@@ -1516,6 +1516,15 @@ struct WarmCanvasFlowView: View {
             return nil
         }
 
+        // Hide input bar (and its 'Done — ready to create' chip) once the user has
+        // passed the story-sharing step. Leaving it visible on lyrics review led
+        // to a confusing dual-CTA state (Done vs. Create my song).
+        if tellSubphase == .confirmed
+            || tellSubphase == .voiceSelected
+            || tellSubphase == .trackCreated {
+            return nil
+        }
+
         if tellSubphase == .poemGapQuestion {
             return InputBarCallbacks(
                 onSubmit: { submitPoemGapDetail($0) },
