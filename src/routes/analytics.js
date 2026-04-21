@@ -52,6 +52,27 @@ function normalizeAppleAdsRow(row) {
   };
 }
 
+// Keys that MUST NOT appear in event properties — server-side PII guard.
+// Code review alone is not a control; this is enforced at ingest.
+const FORBIDDEN_PROPERTY_KEYS = new Set([
+  "email",
+  "phone",
+  "name",
+  "recipient_name",
+  "recipient",
+  "message",
+  "lyrics",
+  "raw_text",
+  "full_name",
+  "user_email",
+  "user_phone",
+]);
+
+const EVENT_NAME_REGEX = /^[a-z][a-z0-9_]{0,63}$/;
+const EVENT_ID_REGEX = /^[a-zA-Z0-9_-]{8,64}$/;
+const MAX_PROPERTY_KEYS = 8;
+const MAX_PROPERTY_VALUE_LENGTH = 256;
+
 function registerAnalyticsRoutes(app, {
   db,
   appConfig,
@@ -59,6 +80,7 @@ function registerAnalyticsRoutes(app, {
   sendError,
   addAuditEntry,
   eventsService,
+  consumeRateLimit,
 }) {
   app.post("/analytics/apple-ads-attribution", async (request, reply) => {
     const userId = await requireUserId(request, reply);
@@ -267,6 +289,120 @@ function registerAnalyticsRoutes(app, {
       attribution: normalizeAppleAdsRow(row),
       deduped: false,
     });
+  });
+
+  // Client-side funnel event ingest. iOS posts here after firing Firebase;
+  // rows flow into the `events` table for admin query. Fire-and-forget from
+  // the client, so we optimise for fast validation + idempotent inserts.
+  app.post("/analytics/event", async (request, reply) => {
+    if (appConfig.ANALYTICS_INGEST_ENABLED === "false") {
+      return sendError(reply, 503, "ANALYTICS_INGEST_DISABLED", "Analytics ingestion is currently disabled.");
+    }
+
+    const userId = await requireUserId(request, reply);
+    if (!userId) {
+      return;
+    }
+
+    // Rate limit: 100/min AND 2000/day per user. Cheap insurance against
+    // a buggy or malicious client flooding the events table.
+    if (typeof consumeRateLimit === "function") {
+      const minuteLimit = await consumeRateLimit(userId, "analytics_event_minute", 100, 60);
+      if (!minuteLimit.allowed) {
+        return sendError(reply, 429, "RATE_LIMITED", "Analytics ingestion rate limit reached.", {
+          retry_after: minuteLimit.reset_at,
+        });
+      }
+      const dayLimit = await consumeRateLimit(userId, "analytics_event_day", 2000, 24 * 60 * 60);
+      if (!dayLimit.allowed) {
+        return sendError(reply, 429, "RATE_LIMITED", "Analytics ingestion daily cap reached.", {
+          retry_after: dayLimit.reset_at,
+        });
+      }
+    }
+
+    const body = request.body || {};
+    const eventId = body.event_id;
+    const eventName = body.event_name;
+    const properties = body.properties;
+    const resourceType = body.resource_type;
+    const resourceId = body.resource_id;
+
+    const startedAt = Date.now();
+    const logOutcome = (status, rejectReason) => {
+      const durationMs = Date.now() - startedAt;
+      if (rejectReason) {
+        console.log(`[analytics/event] ${status} event_name=${eventName ?? "?"} user_id=${userId} duration_ms=${durationMs} reject=${rejectReason}`);
+      } else {
+        console.log(`[analytics/event] ${status} event_name=${eventName} user_id=${userId} duration_ms=${durationMs}`);
+      }
+    };
+
+    if (typeof eventId !== "string" || !EVENT_ID_REGEX.test(eventId)) {
+      logOutcome("rejected", "event_id");
+      return sendError(reply, 400, "INVALID_EVENT_ID", "event_id must be a string of 8-64 alphanumeric/underscore/hyphen characters.");
+    }
+    if (typeof eventName !== "string" || !EVENT_NAME_REGEX.test(eventName)) {
+      logOutcome("rejected", "event_name");
+      return sendError(reply, 400, "INVALID_EVENT_NAME", "event_name must be snake_case, start with a letter, and be 1-64 chars.");
+    }
+
+    let metadata = null;
+    if (properties !== undefined && properties !== null) {
+      if (typeof properties !== "object" || Array.isArray(properties)) {
+        logOutcome("rejected", "properties_type");
+        return sendError(reply, 400, "INVALID_PROPERTIES", "properties must be an object.");
+      }
+      const keys = Object.keys(properties);
+      if (keys.length > MAX_PROPERTY_KEYS) {
+        logOutcome("rejected", "properties_count");
+        return sendError(reply, 413, "PROPERTIES_TOO_MANY", `properties must have at most ${MAX_PROPERTY_KEYS} keys.`);
+      }
+      for (const key of keys) {
+        if (FORBIDDEN_PROPERTY_KEYS.has(key)) {
+          logOutcome("rejected", `forbidden_key:${key}`);
+          return sendError(reply, 400, "FORBIDDEN_PROPERTY_KEY", `properties key "${key}" is not allowed (potential PII).`);
+        }
+        const value = properties[key];
+        if (typeof value !== "string") {
+          logOutcome("rejected", `non_string:${key}`);
+          return sendError(reply, 400, "INVALID_PROPERTY_VALUE", `properties.${key} must be a string.`);
+        }
+        if (value.length > MAX_PROPERTY_VALUE_LENGTH) {
+          logOutcome("rejected", `value_length:${key}`);
+          return sendError(reply, 413, "PROPERTY_VALUE_TOO_LONG", `properties.${key} exceeds ${MAX_PROPERTY_VALUE_LENGTH} characters.`);
+        }
+      }
+      metadata = properties;
+    }
+
+    if (resourceType !== undefined && typeof resourceType !== "string") {
+      logOutcome("rejected", "resource_type");
+      return sendError(reply, 400, "INVALID_RESOURCE_TYPE", "resource_type must be a string if provided.");
+    }
+    if (resourceId !== undefined && typeof resourceId !== "string") {
+      logOutcome("rejected", "resource_id");
+      return sendError(reply, 400, "INVALID_RESOURCE_ID", "resource_id must be a string if provided.");
+    }
+
+    try {
+      const result = await eventsService.emit(eventName, {
+        id: eventId,
+        userId,
+        resourceType: resourceType || undefined,
+        resourceId: resourceId || undefined,
+        metadata,
+        ip: request.ip,
+        userAgent: request.headers["user-agent"],
+      });
+
+      const status = result.duplicate ? "duplicate" : "accepted";
+      logOutcome(status);
+      reply.code(202).send({ id: result.id, status });
+    } catch (error) {
+      logOutcome("error", error?.message || "emit_failed");
+      return sendError(reply, 500, "INGEST_FAILED", "Failed to persist event.");
+    }
   });
 }
 

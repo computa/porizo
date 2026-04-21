@@ -22,26 +22,31 @@ class EventsService {
    * Emit a new event
    * @param {string} eventName - The event type (e.g., 'story_start', 'share_claim')
    * @param {Object} options - Event options
+   * @param {string} [options.id] - Caller-supplied event id for idempotent inserts. When provided, duplicate ids are silently ignored via ON CONFLICT DO NOTHING. If omitted, a new id is generated.
    * @param {string} [options.userId] - User who triggered the event
    * @param {string} [options.resourceType] - Type of resource (track, share, user)
    * @param {string} [options.resourceId] - ID of the resource
    * @param {Object} [options.metadata] - Additional event-specific data
    * @param {string} [options.ip] - IP address of the request
    * @param {string} [options.userAgent] - User agent string
-   * @returns {string} The generated event ID
+   * @returns {Promise<{ id: string, duplicate: boolean }>} The event id and whether the caller-supplied id already existed (duplicate). For auto-generated ids, `duplicate` is always false.
    */
-  async emit(eventName, { userId, resourceType, resourceId, metadata, ip, userAgent } = {}) {
-    const id = generateEventId();
+  async emit(eventName, { id, userId, resourceType, resourceId, metadata, ip, userAgent } = {}) {
+    const eventId = id || generateEventId();
     const metadataJson = metadata ? JSON.stringify(metadata) : null;
 
-    this.db
+    const result = this.db
       .prepare(
         `INSERT INTO events (id, event_name, user_id, resource_type, resource_id, metadata_json, ip_address, user_agent, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+         ON CONFLICT (id) DO NOTHING`
       )
-      .run(id, eventName, userId || null, resourceType || null, resourceId || null, metadataJson, ip || null, userAgent || null);
+      .run(eventId, eventName, userId || null, resourceType || null, resourceId || null, metadataJson, ip || null, userAgent || null);
 
-    return id;
+    // SQLite and Postgres report 0 changes when ON CONFLICT fires.
+    const changes = typeof result?.changes === "number" ? result.changes : Number(result?.rowCount ?? 0);
+    const duplicate = id != null && changes === 0;
+    return { id: eventId, duplicate };
   }
 
   /**

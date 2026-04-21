@@ -3560,6 +3560,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     sendError,
     addAuditEntry,
     eventsService,
+    consumeRateLimit,
   });
 
   app.get("/health", async () => ({
