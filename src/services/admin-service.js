@@ -37,6 +37,35 @@ class AdminService {
     this.db = db;
     this.appStoreConnectService =
       options.appStoreConnectService || createAppStoreConnectService();
+    // In-memory response cache for analytics aggregates. 60s TTL keeps
+    // dashboards responsive without hammering events table on every days-selector flick.
+    // Cleared on process restart; acceptable for admin-only endpoints.
+    this._analyticsCache = new Map();
+    this._analyticsCacheTTLMs = 60 * 1000;
+  }
+
+  _analyticsCacheGet(key) {
+    const entry = this._analyticsCache.get(key);
+    if (!entry) return null;
+    if (entry.expiresAt <= Date.now()) {
+      this._analyticsCache.delete(key);
+      return null;
+    }
+    return entry.payload;
+  }
+
+  _analyticsCacheSet(key, payload) {
+    this._analyticsCache.set(key, { payload, expiresAt: Date.now() + this._analyticsCacheTTLMs });
+  }
+
+  _clampDays(days) {
+    const n = Number.isFinite(Number(days)) ? Math.trunc(Number(days)) : 30;
+    return Math.max(1, Math.min(365, n));
+  }
+
+  _clampLimit(limit, max = 200) {
+    const n = Number.isFinite(Number(limit)) ? Math.trunc(Number(limit)) : 50;
+    return Math.max(1, Math.min(max, n));
   }
 
   async _persistSecurityConfig(config, actorId, { audit = true } = {}) {
@@ -1630,6 +1659,154 @@ class AdminService {
       avgAccessCount: avgAccess.toFixed(1),
       dailyCreated,
     };
+  }
+
+  // ============ FUNNEL ANALYTICS ============
+
+  /**
+   * Event counts grouped by name for the selected window.
+   * Cached 60s per days value.
+   */
+  async getAnalyticsOverview(days) {
+    const clampedDays = this._clampDays(days);
+    const cacheKey = `overview:${clampedDays}`;
+    const cached = this._analyticsCacheGet(cacheKey);
+    if (cached) return cached;
+
+    const daysAgo = new Date(Date.now() - clampedDays * 24 * 60 * 60 * 1000).toISOString();
+    const counts = await this.db.prepare(`
+      SELECT event_name, COUNT(*) as count
+      FROM events
+      WHERE created_at > ?
+      GROUP BY event_name
+      ORDER BY count DESC
+    `).all(daysAgo);
+
+    const payload = { days: clampedDays, counts };
+    this._analyticsCacheSet(cacheKey, payload);
+    return payload;
+  }
+
+  /**
+   * Daily series for a single event name. Cached 60s per (eventName, days).
+   */
+  async getAnalyticsDaily(eventName, days) {
+    const clampedDays = this._clampDays(days);
+    const cacheKey = `daily:${eventName}:${clampedDays}`;
+    const cached = this._analyticsCacheGet(cacheKey);
+    if (cached) return cached;
+
+    const daysAgo = new Date(Date.now() - clampedDays * 24 * 60 * 60 * 1000).toISOString();
+    const byDay = await this.db.prepare(`
+      SELECT DATE(created_at) as date, COUNT(*) as count
+      FROM events
+      WHERE event_name = ? AND created_at > ?
+      GROUP BY DATE(created_at)
+      ORDER BY date ASC
+    `).all(eventName, daysAgo);
+
+    const payload = { event_name: eventName, days: clampedDays, byDay };
+    this._analyticsCacheSet(cacheKey, payload);
+    return payload;
+  }
+
+  /**
+   * Per-user cohort funnel conversion across the 4 critical hops:
+   *   auth_completed → create_started
+   *   create_started → create_completed
+   *   create_completed → first_song_completed
+   *   first_song_completed → share_create
+   *
+   * "startUsers" = distinct users who fired startEvent in the window.
+   * "convertedUsers" = of those, who also fired endEvent AFTER their startEvent.
+   *
+   * This is a true per-user cohort ratio — not aggregate-over-window.
+   * Cached 60s per days value.
+   */
+  async getFunnelCohort(days) {
+    const clampedDays = this._clampDays(days);
+    const cacheKey = `funnel:${clampedDays}`;
+    const cached = this._analyticsCacheGet(cacheKey);
+    if (cached) return cached;
+
+    const daysAgo = new Date(Date.now() - clampedDays * 24 * 60 * 60 * 1000).toISOString();
+    const hops = [
+      ["auth_completed", "create_started"],
+      ["create_started", "create_completed"],
+      ["create_completed", "first_song_completed"],
+      ["first_song_completed", "share_create"],
+    ];
+
+    const steps = [];
+    for (const [from, to] of hops) {
+      const startRow = await this.db.prepare(`
+        SELECT COUNT(DISTINCT user_id) as c
+        FROM events
+        WHERE event_name = ? AND created_at > ? AND user_id IS NOT NULL
+      `).get(from, daysAgo);
+      const startUsers = startRow?.c ?? 0;
+
+      // Converted users: had startEvent in window, then endEvent at or after their earliest startEvent.
+      const convertedRow = await this.db.prepare(`
+        SELECT COUNT(DISTINCT s.user_id) as c
+        FROM events s
+        WHERE s.event_name = ?
+          AND s.created_at > ?
+          AND s.user_id IS NOT NULL
+          AND EXISTS (
+            SELECT 1 FROM events e
+            WHERE e.event_name = ?
+              AND e.user_id = s.user_id
+              AND e.created_at >= s.created_at
+          )
+      `).get(from, daysAgo, to);
+      const convertedUsers = convertedRow?.c ?? 0;
+
+      steps.push({
+        from,
+        to,
+        startUsers,
+        convertedUsers,
+        conversionRate: startUsers > 0 ? ((convertedUsers / startUsers) * 100).toFixed(2) : "0.00",
+      });
+    }
+
+    const payload = { days: clampedDays, steps };
+    this._analyticsCacheSet(cacheKey, payload);
+    return payload;
+  }
+
+  /**
+   * Per-user event timeline for support investigations.
+   * Writes an audit_logs row on every successful call — admin reads of user
+   * behavioral data must be traceable.
+   */
+  async getUserAnalytics(adminId, adminEmail, userId, limit) {
+    const clampedLimit = this._clampLimit(limit, 200);
+    const events = await this.db.prepare(`
+      SELECT id, event_name, user_id, resource_type, resource_id, metadata_json, created_at
+      FROM events
+      WHERE user_id = ?
+      ORDER BY created_at DESC
+      LIMIT ?
+    `).all(userId, clampedLimit);
+
+    // Audit trail — not conditional on whether events exist.
+    const auditId = `audit_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+    const now = new Date().toISOString();
+    const metadata = JSON.stringify({
+      admin_id: adminId,
+      admin_email: adminEmail,
+      target_user_id: userId,
+      event_count: events.length,
+    });
+    await this.db
+      .prepare(
+        "INSERT INTO audit_logs (id, user_id, action, resource_type, resource_id, metadata_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+      )
+      .run(auditId, adminId, "analytics.user.read", "user_analytics", userId, metadata, now);
+
+    return { userId, limit: clampedLimit, events };
   }
 
   // ============ ENROLLMENT METRICS ============

@@ -1368,6 +1368,48 @@ app.get("/admin/dashboard/growth/shares", async (request, reply) => {
   reply.send(metrics);
 });
 
+// --- Funnel Analytics ---
+//
+// These surface iOS-emitted funnel events (auth_completed, create_started,
+// create_completed, first_song_completed, session_resumed) plus server-side
+// events (share_create etc) from the events table. All responses except
+// /user/:userId are cached 60s in AdminService. /user/:userId writes an
+// audit_logs row on every call — admin reads of user behavioral data must
+// be traceable.
+
+app.get("/admin/dashboard/analytics/overview", async (request, reply) => {
+  const admin = await requireAdminSession(request, reply);
+  if (!admin) return;
+  const overview = await adminService.getAnalyticsOverview(request.query.days);
+  reply.send(overview);
+});
+
+app.get("/admin/dashboard/analytics/funnel", async (request, reply) => {
+  const admin = await requireAdminSession(request, reply);
+  if (!admin) return;
+  const funnel = await adminService.getFunnelCohort(request.query.days);
+  reply.send(funnel);
+});
+
+app.get("/admin/dashboard/analytics/daily/:eventName", async (request, reply) => {
+  const admin = await requireAdminSession(request, reply);
+  if (!admin) return;
+  const daily = await adminService.getAnalyticsDaily(request.params.eventName, request.query.days);
+  reply.send(daily);
+});
+
+app.get("/admin/dashboard/analytics/user/:userId", async (request, reply) => {
+  const admin = await requireAdminSession(request, reply);
+  if (!admin) return;
+  const userAnalytics = await adminService.getUserAnalytics(
+    admin.adminId,
+    admin.email,
+    request.params.userId,
+    request.query.limit
+  );
+  reply.send(userAnalytics);
+});
+
 // --- KPI Dashboard ---
 
 app.get("/admin/dashboard/kpis", async (request, reply) => {
