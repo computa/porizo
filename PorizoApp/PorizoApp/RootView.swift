@@ -311,6 +311,13 @@ struct RootView: View {
         }
         .onChange(of: authManager.isAuthenticated) { _, isAuthenticated in
             if isAuthenticated {
+                // Retention metric: fires on cold-launch session restore AND
+                // fresh sign-in (both are session starts). Distinct from
+                // auth_completed which is acquisition-only (fresh sign-ins).
+                AnalyticsService.shared.log(
+                    .sessionResumed,
+                    properties: ["trigger": "auth_change"]
+                )
                 profileCompletionSkippedAtEpoch = 0
                 syncProfileCompletionContext()
                 authContextMessage = nil
@@ -694,6 +701,15 @@ struct RootView: View {
         // On returning to .active from background, evaluate warm-resume flash
         if previousScenePhase == .background && newPhase == .active {
             evaluateWarmResumeForLaunchFlash()
+            // Retention metric — counts warm resumes for authenticated users.
+            // Cold-launch path is covered by the isAuthenticated onChange emit,
+            // so these two hooks partition the space without double-counting.
+            if authManager.isAuthenticated {
+                AnalyticsService.shared.log(
+                    .sessionResumed,
+                    properties: ["trigger": "warm_resume"]
+                )
+            }
         }
     }
 

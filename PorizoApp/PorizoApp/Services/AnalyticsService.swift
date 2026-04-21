@@ -15,6 +15,7 @@ import AmplitudeSwift
 enum AnalyticsEvent: String {
     case onboardingViewed = "onboarding_viewed"
     case authCompleted = "auth_completed"
+    case sessionResumed = "session_resumed"
     case createStarted = "create_started"
     case createCompleted = "create_completed"
     case firstSongCompleted = "first_song_completed"

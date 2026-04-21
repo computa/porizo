@@ -151,6 +151,18 @@ struct CreatingTrackView: View {
                 )
                 switch result {
                 case .created(let payload):
+                    // Funnel conversion event: user successfully submitted a track
+                    // creation request (render has been kicked off server-side).
+                    // Fires here, not on flow exit, so users who kill the app
+                    // after submission still count as "created."
+                    AnalyticsService.shared.log(
+                        .createCompleted,
+                        properties: [
+                            "type": "song",
+                            "trackId": payload.trackId,
+                            "versionNum": String(payload.versionNum),
+                        ]
+                    )
                     onTrackCreated(payload.trackId, payload.versionNum, payload.lyrics)
                 case .needsInput(let guidance):
                     onNeedsInput(guidance)

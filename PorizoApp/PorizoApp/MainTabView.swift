@@ -393,10 +393,10 @@ struct MainTabView: View {
                 "versionNum": versionNum,
             ]
         )
-        AnalyticsService.shared.log(
-            .createCompleted,
-            properties: ["type": "song", "trackId": trackId]
-        )
+        // Note: create_completed for songs is emitted at render kickoff inside
+        // CreatingTrackView.createTrack, NOT here (flow exit). That gives strict
+        // conversion-funnel semantics — counts users who successfully submitted
+        // a creation request, not just those who sat through the reveal screen.
         selectedTab = .songs
     }
 
