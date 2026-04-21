@@ -11,13 +11,16 @@ export default defineConfig({
     emptyOutDir: true,
     rollupOptions: {
       output: {
-        entryFileNames: 'assets/admin.js',
-        chunkFileNames: 'assets/chunk-[name].js',
+        // Content-hashed filenames so every build produces a unique URL.
+        // Without this, admin.js is cached by Chrome/CDN indefinitely and
+        // users see stale code until they hard-refresh.
+        entryFileNames: 'assets/admin.[hash].js',
+        chunkFileNames: 'assets/chunk-[name].[hash].js',
         assetFileNames: (assetInfo) => {
           if (assetInfo.name?.endsWith('.css')) {
-            return 'assets/admin.css';
+            return 'assets/admin.[hash].css';
           }
-          return 'assets/[name][extname]';
+          return 'assets/[name].[hash][extname]';
         },
       },
     },
