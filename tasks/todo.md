@@ -313,3 +313,44 @@ Replace the current 5-step checkout-style `GiftSendFlowView` (Content → Recipi
 - [ ] Extend `docs/marketing/meta-ads-setup-checklist.md` with TikTok + Apple Search Ads + Google Ads sections
 - [ ] Document MMP (AppsFlyer/Adjust/Singular) as future option when spend > $10K/month
 - [ ] Ship new TestFlight build (89) once all SDKs are wired
+
+---
+
+# Funnel Analytics Wire-Up (ACTIVE — 2026-04-21)
+
+**Context:** Paul Solt's 5-rule packaging investigation showed the funnel from install→first-song is dark between `launch_flash_shown` and `share_initiated`. Screenshot + icon work just shipped (variant-B4). Now wiring the 4 intermediate funnel hops so Amplitude/Firebase reflect real user progression.
+
+**Key decision (recorded 2026-04-21):** Porizo skips the preview stage by design and goes straight to full render. Legacy `preview_ready` status paths in MySongsView / JobRecoveryService / BackgroundTaskRegistrar are defensive only — production tracks transition `rendering → full_ready (or "ready")`. Analytics event is named `firstSongCompleted`, not `firstPreviewReady`.
+
+## Review & plan per task
+
+### Task #1 — Investigate `trackRenderCompleted` payload ✅ DONE
+- `trackRenderCompleted` is a NotificationCenter refresh broadcast with lossy `{trackId}` userInfo
+- Real preview/full distinction lives on `Track.status` field from server: `"full_ready"`, legacy `"ready"`
+- Hook point for #6 confirmed: `MySongsView.swift:209-223` `.onChange(of: tracks)`
+
+### Task #2 — Add `firstSongCompleted` enum case ✅ DONE
+- Added at `AnalyticsService.swift:20` between `createCompleted` and `shareInitiated`
+
+### Task #3 — Emit `auth_completed` in RootView
+- Hook: `RootView.swift:312` `.onChange(of: authManager.isAuthenticated)` `if isAuthenticated` branch
+- Call: `AnalyticsService.shared.log(.authCompleted, properties: ["method": <provider>])`
+- Need to figure out how to surface the auth method (Apple/Google/email) from AuthManager
+
+### Task #4 — Emit `create_started` in presentCreateFlow
+- Hook: `MainTabView.presentCreateFlow` (signature seen near line 358)
+- Call: `AnalyticsService.shared.log(.createStarted, properties: ["type": <song/poem>, "source": <tab/suggestion>])`
+
+### Task #5 — Emit `create_completed` on successful track creation
+- Hook: `MainTabView.handleSongFlowCompletion` at line 367 (already posts `.trackRenderCompleted`)
+- Call: `AnalyticsService.shared.log(.createCompleted, properties: ["trackId": trackId])`
+
+### Task #6 — Emit `first_song_completed` on first full_ready transition
+- Hook: `MySongsView.swift:218` inside the existing `justCompletedIds` loop
+- Guard: `@AppStorage("firstSongCompletedEmitted") var firstSongCompletedEmitted: Bool = false`
+- Trigger: first transition to `track.status == "full_ready" || track.status == "ready"`
+
+### Task #7 — Self-review + build verification
+- Full `xcodebuild` for device; confirm `** BUILD SUCCEEDED **`
+- Manual: sign out, sign back in, start/complete a create flow, confirm all 4 new events appear in `[Analytics]` debug console lines
+- Update tasks/lessons.md if anything surprised us

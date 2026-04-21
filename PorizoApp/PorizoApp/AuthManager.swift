@@ -76,6 +76,12 @@ class AuthManager {
         }
     }
 
+    /// Auth provider string for analytics (e.g. "apple", "phone", "google").
+    /// Returns nil if the provider key has never been written.
+    var authProvider: String? {
+        KeychainHelper.loadString(key: Self.authProviderKey)
+    }
+
     // MARK: - Configuration
 
     @ObservationIgnored private let baseURL: String
@@ -1359,6 +1365,13 @@ class AuthManager {
         if !saved {
             print("[Auth] ERROR: Failed to save auth provider \(provider)")
         }
+        // Funnel analytics: called from fresh sign-in paths only (apple / phone /
+        // social), not from keychain session restoration — gives strict
+        // conversion semantics in Amplitude/Firebase.
+        AnalyticsService.shared.log(
+            .authCompleted,
+            properties: ["method": provider]
+        )
     }
 }
 

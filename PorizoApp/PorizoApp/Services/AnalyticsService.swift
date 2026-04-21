@@ -17,6 +17,7 @@ enum AnalyticsEvent: String {
     case authCompleted = "auth_completed"
     case createStarted = "create_started"
     case createCompleted = "create_completed"
+    case firstSongCompleted = "first_song_completed"
     case shareInitiated = "share_initiated"
     case shareCompleted = "share_completed"
 

@@ -343,6 +343,23 @@ struct MainTabView: View {
         // Entitlement check happens inside WarmCanvasFlowView (server-side, authoritative).
         // No client-side gate here — avoids race condition when StoreKit and server are out of sync.
         createFlowLaunch = launch
+
+        // Funnel analytics: only emit for brand-new creations, not resumes of stuck jobs.
+        if resumeTrackId == nil {
+            let kind: String
+            switch preselectedType {
+            case .song: kind = "song"
+            case .poem: kind = "poem"
+            case .none: kind = "unknown"
+            }
+            AnalyticsService.shared.log(
+                .createStarted,
+                properties: [
+                    "type": kind,
+                    "variation": poem != nil ? "true" : "false",
+                ]
+            )
+        }
     }
 
     private func consumePendingCreateContextIfNeeded() {
@@ -376,6 +393,10 @@ struct MainTabView: View {
                 "versionNum": versionNum,
             ]
         )
+        AnalyticsService.shared.log(
+            .createCompleted,
+            properties: ["type": "song", "trackId": trackId]
+        )
         selectedTab = .songs
     }
 
@@ -388,6 +409,10 @@ struct MainTabView: View {
             userInfo: [
                 "poemId": poem.id,
             ]
+        )
+        AnalyticsService.shared.log(
+            .createCompleted,
+            properties: ["type": "poem", "poemId": poem.id]
         )
         selectedTab = .poems
     }

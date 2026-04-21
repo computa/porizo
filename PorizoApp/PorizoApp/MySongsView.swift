@@ -67,6 +67,11 @@ struct MySongsView: View {
     // Track IDs that were rendering to detect completions for notifications
     @State private var previouslyRenderingTrackIds: Set<String> = []
 
+    // Funnel milestone: fires first_song_completed analytics once per install
+    // when the user's first track finishes rendering. Porizo skips preview by
+    // design, so full_ready (or legacy "ready") is the success signal.
+    @AppStorage("firstSongCompletedEmitted") private var firstSongCompletedEmitted = false
+
     private var hasReceivedTracks: Bool {
         tracks.contains { $0.isReceived }
     }
@@ -224,6 +229,21 @@ struct MySongsView: View {
                             trackId: track.id,
                             trackTitle: track.title
                         )
+                    }
+
+                    // Funnel milestone — fires once per install on the user's
+                    // first finished song. Porizo skips preview by design, so
+                    // only count full_ready / legacy "ready" (not preview_ready).
+                    if !firstSongCompletedEmitted,
+                       track.status == "ready" || track.status == "full_ready" {
+                        AnalyticsService.shared.log(
+                            .firstSongCompleted,
+                            properties: [
+                                "trackId": track.id,
+                                "status": track.status,
+                            ]
+                        )
+                        firstSongCompletedEmitted = true
                     }
                 }
             }
