@@ -71,8 +71,10 @@ export function Growth() {
     ]).catch(console.error);
   }, [get, days]);
 
-  const formatPercent = (value: string | number) => {
+  const formatPercent = (value: string | number | undefined | null) => {
+    if (value === undefined || value === null) return '—';
     const num = typeof value === 'string' ? parseFloat(value) : value;
+    if (!Number.isFinite(num)) return '—';
     return `${num.toFixed(1)}%`;
   };
 
