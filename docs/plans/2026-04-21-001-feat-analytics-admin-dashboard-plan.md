@@ -1,7 +1,7 @@
 ---
 title: "feat: Expose funnel analytics to admin dashboard"
 type: feat
-status: active
+status: completed
 date: 2026-04-21
 deepened: 2026-04-21
 ---

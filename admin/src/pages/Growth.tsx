@@ -14,6 +14,7 @@ import { useApi } from '../hooks/useApi';
 import { formatShortDate, formatConversionRate } from '../utils/date';
 import { LoadingState } from '../components/LoadingState';
 import { ErrorState } from '../components/ErrorState';
+import { FunnelSection } from '../components/FunnelSection';
 
 interface Attribution {
   bySource: Array<{
@@ -104,6 +105,9 @@ export function Growth() {
           <option value={90}>Last 90 days</option>
         </select>
       </div>
+
+      {/* Client-side funnel conversion — acquisition → first finished song. */}
+      <FunnelSection days={days} />
 
       {/* Funnel Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-5">
