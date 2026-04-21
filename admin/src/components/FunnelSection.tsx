@@ -61,9 +61,9 @@ export function FunnelSection({ days }: FunnelSectionProps) {
     setIsLoading(true);
     setError(null);
     Promise.all([
-      get<FunnelResponse>(`/dashboard/analytics/funnel?days=${days}`),
-      get<OverviewResponse>(`/dashboard/analytics/overview?days=${days}`),
-      get<DailyResponse>(`/dashboard/analytics/daily/first_song_completed?days=${days}`),
+      get<FunnelResponse>(`/analytics/funnel?days=${days}`),
+      get<OverviewResponse>(`/analytics/overview?days=${days}`),
+      get<DailyResponse>(`/analytics/daily/first_song_completed?days=${days}`),
     ])
       .then(([f, o, d]) => {
         if (cancelled) return;
