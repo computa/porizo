@@ -1,6 +1,7 @@
 "use strict";
 
 const fs = require("fs/promises");
+const fsSync = require("fs");
 const path = require("path");
 
 /**
@@ -101,13 +102,32 @@ function generateTemplateSuggestion({ recipient_name, relationship_type, emotion
   };
 }
 
+function getOnboardingGraphPathCandidates() {
+  return [
+    path.join(__dirname, "..", "resources", "onboarding-graph.json"),
+    path.join(process.cwd(), "src", "resources", "onboarding-graph.json"),
+    path.join(process.cwd(), "PorizoApp", "PorizoApp", "Resources", "onboarding-graph.json"),
+  ];
+}
+
+async function loadOnboardingGraph() {
+  const candidates = getOnboardingGraphPathCandidates();
+  const graphPath = candidates.find((candidate) => fsSync.existsSync(candidate));
+  if (!graphPath) {
+    const error = new Error(`onboarding graph not found in any known path: ${candidates.join(", ")}`);
+    error.code = "ONBOARDING_GRAPH_MISSING";
+    throw error;
+  }
+
+  const data = await fs.readFile(graphPath, "utf8");
+  return JSON.parse(data);
+}
+
 function registerOnboardingRoutes(app, { sendError }) {
   app.get("/api/onboarding/graph.json", async (request, reply) => {
     try {
-      const graphPath = path.join(process.cwd(), "PorizoApp", "PorizoApp", "Resources", "onboarding-graph.json");
-      const data = await fs.readFile(graphPath, "utf8");
       reply.type("application/json");
-      return reply.send(JSON.parse(data));
+      return reply.send(await loadOnboardingGraph());
     } catch (err) {
       request.log.error({ err }, "[Onboarding] Graph load error");
       return sendError(reply, 500, "Failed to load onboarding graph");
@@ -155,4 +175,9 @@ function registerOnboardingRoutes(app, { sendError }) {
   });
 }
 
-module.exports = { registerOnboardingRoutes };
+module.exports = {
+  registerOnboardingRoutes,
+  generateTemplateSuggestion,
+  getOnboardingGraphPathCandidates,
+  loadOnboardingGraph,
+};
