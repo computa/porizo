@@ -122,6 +122,9 @@ struct PhoneAuthView: View {
                 isPresented: $showCountryPicker
             )
         }
+        .onChange(of: selectedCountry) { _, newCountry in
+            phoneNumber = formatPhoneInput(phoneNumber, selectedCountry: newCountry)
+        }
         .task { @MainActor in
             await Task.yield()
             isPhoneFieldFocused = true
@@ -275,10 +278,38 @@ struct PhoneAuthView: View {
                 error = "Failed to send verification code. Please try again."
             }
         } catch {
-            self.error = "Unable to send code. Please check your connection and try again."
+            self.error = phoneAuthErrorMessage(for: error)
         }
 
         isLoading = false
+    }
+
+    private func phoneAuthErrorMessage(for error: Error) -> String {
+        guard let apiError = error as? APIClientError else {
+            return (error as? LocalizedError)?.errorDescription
+                ?? "Unable to send code. Please try again."
+        }
+
+        switch apiError {
+        case .serverError(let message, let code, _):
+            switch code {
+            case "E111_INVALID_PHONE":
+                return "Enter a valid phone number."
+            case "E112_SMS_NOT_CONFIGURED":
+                return "Phone sign-in is temporarily unavailable."
+            default:
+                return message
+            }
+        case .rateLimited(let retryAfter):
+            if let retryAfter {
+                return "Too many verification attempts. Please wait \(retryAfter) seconds."
+            }
+            return "Too many verification attempts. Please try again later."
+        case .networkError:
+            return "Unable to reach the server. Please check your connection and try again."
+        default:
+            return apiError.errorDescription ?? "Unable to send code. Please try again."
+        }
     }
 }
 

@@ -321,7 +321,35 @@ struct PhoneVerificationView: View {
             code = ""
         } catch {
             isVerifying = false
-            self.error = "Failed to resend code. Please try again."
+            self.error = phoneSendCodeErrorMessage(for: error)
+        }
+    }
+
+    private func phoneSendCodeErrorMessage(for error: Error) -> String {
+        guard let apiError = error as? APIClientError else {
+            return (error as? LocalizedError)?.errorDescription
+                ?? "Failed to resend code. Please try again."
+        }
+
+        switch apiError {
+        case .serverError(let message, let code, _):
+            switch code {
+            case "E111_INVALID_PHONE":
+                return "Enter a valid phone number."
+            case "E112_SMS_NOT_CONFIGURED":
+                return "Phone sign-in is temporarily unavailable."
+            default:
+                return message
+            }
+        case .rateLimited(let retryAfter):
+            if let retryAfter {
+                return "Too many verification attempts. Please wait \(retryAfter) seconds."
+            }
+            return "Too many verification attempts. Please try again later."
+        case .networkError:
+            return "Unable to reach the server. Please check your connection and try again."
+        default:
+            return apiError.errorDescription ?? "Failed to resend code. Please try again."
         }
     }
 

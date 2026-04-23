@@ -65,7 +65,7 @@ func maskedPhoneDisplay(_ phoneNumber: String) -> String {
 }
 
 func formatPhoneInput(_ input: String, selectedCountry: Country) -> String {
-    let digits = input.filter(\.isNumber)
+    let digits = nationalDigitsForPhoneInput(input, selectedCountry: selectedCountry)
     let maxDigits = selectedCountry.dialCode == "+1" ? 10 : 15
     let limitedDigits = String(digits.prefix(maxDigits))
     guard selectedCountry.dialCode == "+1" else {
@@ -94,6 +94,12 @@ func normalizedE164PhoneNumber(_ rawInput: String, selectedCountry: Country) -> 
 
     let digits = raw.filter(\.isNumber)
     if raw.hasPrefix("+") {
+        let dialDigits = selectedCountry.dialCode.filter(\.isNumber)
+        if digits.hasPrefix(dialDigits) {
+            let national = String(digits.dropFirst(dialDigits.count))
+            guard !national.isEmpty else { return nil }
+            return selectedCountry.dialCode + national
+        }
         guard (8...15).contains(digits.count) else { return nil }
         return "+\(digits)"
     }
@@ -115,6 +121,22 @@ func normalizedE164PhoneNumber(_ rawInput: String, selectedCountry: Country) -> 
     }
 
     return selectedCountry.dialCode + normalizedNational
+}
+
+private func nationalDigitsForPhoneInput(_ rawInput: String, selectedCountry: Country) -> String {
+    let trimmed = rawInput.trimmingCharacters(in: .whitespacesAndNewlines)
+    var digits = trimmed.filter(\.isNumber)
+    let dialDigits = selectedCountry.dialCode.filter(\.isNumber)
+
+    if trimmed.hasPrefix("+"), digits.hasPrefix(dialDigits) {
+        digits = String(digits.dropFirst(dialDigits.count))
+    } else if selectedCountry.dialCode == "+1", digits.count > 10, digits.first == "1" {
+        // North American users often paste or type the trunk "1" even though the picker already
+        // provides +1. Drop it before formatting so the area code and E.164 value stay valid.
+        digits = String(digits.dropFirst())
+    }
+
+    return digits
 }
 
 func isValidPhoneNumberInput(_ rawInput: String, selectedCountry: Country) -> Bool {
