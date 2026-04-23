@@ -39,4 +39,56 @@ final class PhoneNumberFormattingTests: XCTestCase {
             "+447700900123"
         )
     }
+
+    func testFormatPhoneInput_stripsDoubleZeroInternationalPrefixForSelectedCountry() {
+        let uk = Country(id: "GB", name: "United Kingdom", dialCode: "+44", flag: "🇬🇧")
+
+        XCTAssertEqual(
+            formatPhoneInput("00447700900123", selectedCountry: uk),
+            "7700900123"
+        )
+    }
+
+    func testNormalizedE164PhoneNumber_acceptsDoubleZeroInternationalPrefixForSelectedCountry() {
+        let uk = Country(id: "GB", name: "United Kingdom", dialCode: "+44", flag: "🇬🇧")
+
+        XCTAssertEqual(
+            normalizedE164PhoneNumber("00447700900123", selectedCountry: uk),
+            "+447700900123"
+        )
+    }
+
+    func testNormalizedE164PhoneNumber_acceptsNorthAmericaIDDPrefix() {
+        let australia = Country(id: "AU", name: "Australia", dialCode: "+61", flag: "🇦🇺")
+
+        XCTAssertEqual(
+            normalizedE164PhoneNumber("01161412345678", selectedCountry: australia),
+            "+61412345678"
+        )
+    }
+
+    func testNormalizedPhoneCountry_detectsDoubleZeroInternationalPrefix() {
+        XCTAssertEqual(
+            normalizedPhoneCountry("00447700900123")?.id,
+            "GB"
+        )
+    }
+
+    func testResolvedPhoneInputState_switchesCountryBeforeFormatting() {
+        let current = Country(id: "CA", name: "Canada", dialCode: "+1", flag: "🇨🇦")
+
+        let resolved = resolvedPhoneInputState("+447700900123", currentCountry: current)
+
+        XCTAssertEqual(resolved.country.id, "GB")
+        XCTAssertEqual(resolved.formatted, "7700900123")
+    }
+
+    func testNationalPhoneNumberForInput_acceptsNorthAmericaIDDPrefix() {
+        let australia = Country(id: "AU", name: "Australia", dialCode: "+61", flag: "🇦🇺")
+
+        XCTAssertEqual(
+            nationalPhoneNumberForInput("01161412345678", selectedCountry: australia),
+            "412345678"
+        )
+    }
 }

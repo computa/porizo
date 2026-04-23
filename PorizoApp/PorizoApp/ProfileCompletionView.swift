@@ -315,7 +315,13 @@ struct ProfileCompletionView: View {
                         )
                         .focused($focusedField, equals: .phone)
                         .onChange(of: phoneNumber) { _, newValue in
-                            phoneNumber = formatPhoneInput(newValue, selectedCountry: selectedCountry)
+                            let resolved = resolvedPhoneInputState(newValue, currentCountry: selectedCountry)
+                            if selectedCountry != resolved.country {
+                                selectedCountry = resolved.country
+                            }
+                            if phoneNumber != resolved.formatted {
+                                phoneNumber = resolved.formatted
+                            }
                         }
                 }
 

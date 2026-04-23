@@ -45,8 +45,9 @@ struct Country: Identifiable, Hashable {
     static func country(forPhoneNumber phoneNumber: String?) -> Country {
         guard let phoneNumber else { return .default }
         let trimmed = phoneNumber.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.hasPrefix("+") else { return .default }
-        let matches = common.filter { trimmed.hasPrefix($0.dialCode) }
+        guard hasExplicitInternationalPrefix(trimmed) else { return .default }
+        let digits = digitsDroppingInternationalPrefix(from: trimmed.filter(\.isNumber), rawInput: trimmed)
+        let matches = common.filter { digits.hasPrefix($0.dialCode.filter(\.isNumber)) }
         return matches.max(by: { $0.dialCode.count < $1.dialCode.count }) ?? .default
     }
 }
@@ -93,15 +94,16 @@ func normalizedE164PhoneNumber(_ rawInput: String, selectedCountry: Country) -> 
     guard !raw.isEmpty else { return nil }
 
     let digits = raw.filter(\.isNumber)
-    if raw.hasPrefix("+") {
+    if hasExplicitInternationalPrefix(raw) {
+        let internationalDigits = digitsDroppingInternationalPrefix(from: digits, rawInput: raw)
         let dialDigits = selectedCountry.dialCode.filter(\.isNumber)
-        if digits.hasPrefix(dialDigits) {
-            let national = String(digits.dropFirst(dialDigits.count))
+        if internationalDigits.hasPrefix(dialDigits) {
+            let national = String(internationalDigits.dropFirst(dialDigits.count))
             guard !national.isEmpty else { return nil }
             return selectedCountry.dialCode + national
         }
-        guard (8...15).contains(digits.count) else { return nil }
-        return "+\(digits)"
+        guard (8...15).contains(internationalDigits.count) else { return nil }
+        return "+\(internationalDigits)"
     }
 
     guard !digits.isEmpty else { return nil }
@@ -128,14 +130,37 @@ private func nationalDigitsForPhoneInput(_ rawInput: String, selectedCountry: Co
     var digits = trimmed.filter(\.isNumber)
     let dialDigits = selectedCountry.dialCode.filter(\.isNumber)
 
-    if trimmed.hasPrefix("+"), digits.hasPrefix(dialDigits) {
-        digits = String(digits.dropFirst(dialDigits.count))
+    if hasExplicitInternationalPrefix(trimmed) {
+        digits = digitsDroppingInternationalPrefix(from: digits, rawInput: trimmed)
+        if digits.hasPrefix(dialDigits) {
+            digits = String(digits.dropFirst(dialDigits.count))
+        }
     } else if selectedCountry.dialCode == "+1", digits.count > 10, digits.first == "1" {
         // North American users often paste or type the trunk "1" even though the picker already
         // provides +1. Drop it before formatting so the area code and E.164 value stay valid.
         digits = String(digits.dropFirst())
     }
 
+    return digits
+}
+
+private func hasExplicitInternationalPrefix(_ input: String) -> Bool {
+    let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed.hasPrefix("+") || trimmed.hasPrefix("00") || trimmed.hasPrefix("011")
+}
+
+private func digitsDroppingInternationalPrefix(from digits: String, rawInput: String) -> String {
+    let trimmed = rawInput.trimmingCharacters(in: .whitespacesAndNewlines)
+
+    if trimmed.hasPrefix("+") {
+        return digits
+    }
+    if trimmed.hasPrefix("011"), digits.hasPrefix("011") {
+        return String(digits.dropFirst(3))
+    }
+    if trimmed.hasPrefix("00"), digits.hasPrefix("00") {
+        return String(digits.dropFirst(2))
+    }
     return digits
 }
 
@@ -149,12 +174,17 @@ func normalizedPhoneCountry(_ phoneNumber: String) -> Country? {
     return Country.country(forPhoneNumber: normalized)
 }
 
+func resolvedPhoneInputState(_ rawInput: String, currentCountry: Country) -> (country: Country, formatted: String) {
+    let inferredCountry = normalizedPhoneCountry(rawInput) ?? currentCountry
+    return (inferredCountry, formatPhoneInput(rawInput, selectedCountry: inferredCountry))
+}
+
 func nationalPhoneNumberForInput(_ phoneNumber: String, selectedCountry: Country) -> String? {
     let normalized = phoneNumber.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !normalized.isEmpty else { return nil }
 
-    if normalized.hasPrefix("+") {
-        let digits = normalized.filter(\.isNumber)
+    if hasExplicitInternationalPrefix(normalized) {
+        let digits = digitsDroppingInternationalPrefix(from: normalized.filter(\.isNumber), rawInput: normalized)
         let dialDigits = selectedCountry.dialCode.filter(\.isNumber)
         guard digits.hasPrefix(dialDigits) else { return nil }
         let national = String(digits.dropFirst(dialDigits.count))

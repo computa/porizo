@@ -169,7 +169,13 @@ struct PhoneAuthView: View {
                         .stroke(DesignTokens.border, lineWidth: 1.5)
                 )
                 .onChange(of: phoneNumber) { _, newValue in
-                    phoneNumber = formatPhoneNumber(newValue)
+                    let resolved = resolvedPhoneInputState(newValue, currentCountry: selectedCountry)
+                    if selectedCountry != resolved.country {
+                        selectedCountry = resolved.country
+                    }
+                    if phoneNumber != resolved.formatted {
+                        phoneNumber = resolved.formatted
+                    }
                 }
         }
     }

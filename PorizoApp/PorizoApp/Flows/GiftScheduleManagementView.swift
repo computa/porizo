@@ -264,7 +264,13 @@ struct GiftManagementSheet: View {
                         .foregroundStyle(DesignTokens.textPrimary)
                         .disabled(gift.canEdit != true)
                         .onChange(of: recipientPhone) { _, newValue in
-                            recipientPhone = formatPhoneInput(newValue, selectedCountry: selectedCountry)
+                            let resolved = resolvedPhoneInputState(newValue, currentCountry: selectedCountry)
+                            if selectedCountry != resolved.country {
+                                selectedCountry = resolved.country
+                            }
+                            if recipientPhone != resolved.formatted {
+                                recipientPhone = resolved.formatted
+                            }
                         }
                 }
             }
