@@ -31,6 +31,26 @@ struct PartialOnboardingResult {
     let relationshipType: String
 }
 
+struct OnboardingSplashAudioPlan: Equatable {
+    let playbackURL: URL?
+    let shouldAttemptAutoplay: Bool
+    let showsPlayFallback: Bool
+
+    static func resolve(sampleURL: String?, isAudioPlaying: Bool) -> OnboardingSplashAudioPlan {
+        let playbackURL = sampleURL.flatMap(URL.init(string:))
+        return OnboardingSplashAudioPlan(
+            playbackURL: playbackURL,
+            shouldAttemptAutoplay: playbackURL != nil && !isAudioPlaying,
+            showsPlayFallback: playbackURL != nil && !isAudioPlaying
+        )
+    }
+
+    func attemptAutoStart(using startPlayback: (URL) -> Void) {
+        guard shouldAttemptAutoplay, let playbackURL else { return }
+        startPlayback(playbackURL)
+    }
+}
+
 // MARK: - OnboardingV2View
 
 struct OnboardingV2View: View {
@@ -68,6 +88,11 @@ struct OnboardingV2View: View {
     }
 
     var body: some View {
+        let splashAudioPlan = OnboardingSplashAudioPlan.resolve(
+            sampleURL: splashDemoURL,
+            isAudioPlaying: isBackgroundAudioPlaying
+        )
+
         ZStack {
             DesignTokens.background.ignoresSafeArea()
 
@@ -79,8 +104,11 @@ struct OnboardingV2View: View {
                         recipientLabel: splashRecipientLabel,
                         lyricsPreview: splashLyricsPreview,
                         isAudioPlaying: isBackgroundAudioPlaying,
-                        showsPlayFallback: splashDemoURL != nil && !isBackgroundAudioPlaying,
-                        onPlayRequested: { startBackgroundAudio(trigger: "tap") },
+                        showsPlayFallback: splashAudioPlan.showsPlayFallback,
+                        onPlayRequested: {
+                            guard let playbackURL = splashAudioPlan.playbackURL else { return }
+                            startBackgroundAudio(url: playbackURL, trigger: "tap")
+                        },
                         onAdvance: {
                             transitionTo(.mirror)
                             AnalyticsService.shared.log(.onboardingV2MirrorViewed)
@@ -176,10 +204,12 @@ struct OnboardingV2View: View {
         .onAppear {
             startTime = Date()
             AnalyticsService.shared.log(.onboardingV2Started, properties: [
-                "audio_available": splashDemoURL != nil ? "true" : "false"
+                "audio_available": splashAudioPlan.playbackURL != nil ? "true" : "false"
             ])
             // Start background audio that persists across splash → mirror → pain points → goal
-            startBackgroundAudio(trigger: "auto")
+            splashAudioPlan.attemptAutoStart { playbackURL in
+                startBackgroundAudio(url: playbackURL, trigger: "auto")
+            }
             // Load graph with server override in background
             Task {
                 let graph = await QuestionGraphEngine.loadWithServerOverride(version: questionGraphVersion, url: questionGraphUrl)
@@ -392,8 +422,7 @@ struct OnboardingV2View: View {
 
     // MARK: - Background Audio (persists across splash → mirror → pain points → goal)
 
-    private func startBackgroundAudio(trigger: String) {
-        guard let urlString = splashDemoURL, let url = URL(string: urlString) else { return }
+    private func startBackgroundAudio(url: URL, trigger: String) {
         if bgPlayer != nil {
             bgPlayer?.play()
             isBackgroundAudioPlaying = true

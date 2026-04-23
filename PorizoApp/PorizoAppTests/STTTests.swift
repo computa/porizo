@@ -200,6 +200,107 @@ final class AppConfigResponseTests: XCTestCase {
         XCTAssertEqual(response.stt.whisperkitModel, "medium")
         XCTAssertFalse(response.stt.isProviderEnabled("whisperkit"))
     }
+
+    func testRelativeOnboardingURLsResolveAgainstFetchedConfigHost() throws {
+        let json = """
+        {
+            "stt": {
+                "primary_provider": "apple",
+                "fallback_provider": "whisperkit",
+                "whisperkit_model": "medium",
+                "provider_status": {
+                    "stt_apple": "active",
+                    "stt_whisperkit": "disabled",
+                    "stt_openai": "active"
+                }
+            },
+            "onboarding": {
+                "sample_audio_url": "/audio/cafeteria-light-trimmed.mp3",
+                "launch_flash_audio_url": "/audio/launch-flash.mp3",
+                "question_graph_url": "/api/onboarding/graph.json"
+            }
+        }
+        """.data(using: .utf8)!
+
+        let response = try JSONDecoder().decode(AppConfigResponse.self, from: json)
+            .resolvingRelativeURLs(against: URL(string: "https://api.porizo.co/app/config")!)
+
+        XCTAssertEqual(response.onboarding?.sampleAudioUrl, "https://api.porizo.co/audio/cafeteria-light-trimmed.mp3")
+        XCTAssertEqual(response.onboarding?.launchFlashAudioUrl, "https://api.porizo.co/audio/launch-flash.mp3")
+        XCTAssertEqual(response.onboarding?.questionGraphUrl, "https://api.porizo.co/api/onboarding/graph.json")
+    }
+
+    func testAbsoluteOnboardingURLsRemainUntouched() throws {
+        let json = """
+        {
+            "stt": {
+                "primary_provider": "apple",
+                "fallback_provider": "whisperkit",
+                "whisperkit_model": "medium",
+                "provider_status": {
+                    "stt_apple": "active",
+                    "stt_whisperkit": "disabled",
+                    "stt_openai": "active"
+                }
+            },
+            "onboarding": {
+                "sample_audio_url": "https://cdn.example.com/audio/sample.mp3",
+                "launch_flash_audio_url": "https://cdn.example.com/audio/launch.mp3",
+                "question_graph_url": "https://cdn.example.com/api/onboarding/graph.json"
+            }
+        }
+        """.data(using: .utf8)!
+
+        let response = try JSONDecoder().decode(AppConfigResponse.self, from: json)
+            .resolvingRelativeURLs(against: URL(string: "https://api.porizo.co/app/config")!)
+
+        XCTAssertEqual(response.onboarding?.sampleAudioUrl, "https://cdn.example.com/audio/sample.mp3")
+        XCTAssertEqual(response.onboarding?.launchFlashAudioUrl, "https://cdn.example.com/audio/launch.mp3")
+        XCTAssertEqual(response.onboarding?.questionGraphUrl, "https://cdn.example.com/api/onboarding/graph.json")
+    }
+}
+
+final class AppConfigLoadPolicyTests: XCTestCase {
+
+    func testFallsBackToHostedConfigOnSimulatorDebugWhenLocalConfig404s() {
+        let fallbackURL = AppConfigLoadPolicy.fallbackURL(
+            after: APIClientError.httpError(statusCode: 404, body: "missing"),
+            primaryURL: AppConfigLoadPolicy.localSimulatorConfigURL,
+            context: AppConfigLoadContext(isDebugBuild: true, isSimulator: true)
+        )
+
+        XCTAssertEqual(fallbackURL, AppConfigLoadPolicy.hostedConfigURL)
+    }
+
+    func testFallsBackToHostedConfigOnSimulatorDebugConnectivityFailure() {
+        let fallbackURL = AppConfigLoadPolicy.fallbackURL(
+            after: URLError(.cannotConnectToHost),
+            primaryURL: AppConfigLoadPolicy.localSimulatorConfigURL,
+            context: AppConfigLoadContext(isDebugBuild: true, isSimulator: true)
+        )
+
+        XCTAssertEqual(fallbackURL, AppConfigLoadPolicy.hostedConfigURL)
+    }
+
+    func testDoesNotFallbackOutsideSimulatorDebugContext() {
+        let fallbackURL = AppConfigLoadPolicy.fallbackURL(
+            after: APIClientError.httpError(statusCode: 404, body: "missing"),
+            primaryURL: AppConfigLoadPolicy.localSimulatorConfigURL,
+            context: AppConfigLoadContext(isDebugBuild: false, isSimulator: true)
+        )
+
+        XCTAssertNil(fallbackURL)
+    }
+
+    func testDoesNotFallbackForUnexpectedPrimaryURL() {
+        let fallbackURL = AppConfigLoadPolicy.fallbackURL(
+            after: APIClientError.httpError(statusCode: 404, body: "missing"),
+            primaryURL: URL(string: "https://api.porizo.co/app/config")!,
+            context: AppConfigLoadContext(isDebugBuild: true, isSimulator: true)
+        )
+
+        XCTAssertNil(fallbackURL)
+    }
 }
 
 // MARK: - STT Router Tests

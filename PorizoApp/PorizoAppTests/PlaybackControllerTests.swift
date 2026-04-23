@@ -207,3 +207,51 @@ final class PlaybackControllerTests: XCTestCase {
         XCTAssertEqual(controller.artistName, "Sarah")
     }
 }
+
+final class OnboardingSplashAudioPlanTests: XCTestCase {
+
+    func testAttemptsAutoStartOnFirstAppearWhenSampleURLExists() {
+        let plan = OnboardingSplashAudioPlan.resolve(
+            sampleURL: "https://api.porizo.co/audio/sample.mp3",
+            isAudioPlaying: false
+        )
+        var startedURL: URL?
+
+        plan.attemptAutoStart { url in
+            startedURL = url
+        }
+
+        XCTAssertEqual(startedURL?.absoluteString, "https://api.porizo.co/audio/sample.mp3")
+        XCTAssertTrue(plan.showsPlayFallback)
+    }
+
+    func testDoesNotAttemptAutoStartWithoutPlayableURL() {
+        let plan = OnboardingSplashAudioPlan.resolve(
+            sampleURL: nil,
+            isAudioPlaying: false
+        )
+        var didStart = false
+
+        plan.attemptAutoStart { _ in
+            didStart = true
+        }
+
+        XCTAssertFalse(didStart)
+        XCTAssertFalse(plan.showsPlayFallback)
+    }
+
+    func testDoesNotAutoStartOrShowFallbackWhenAudioAlreadyPlaying() {
+        let plan = OnboardingSplashAudioPlan.resolve(
+            sampleURL: "https://api.porizo.co/audio/sample.mp3",
+            isAudioPlaying: true
+        )
+        var didStart = false
+
+        plan.attemptAutoStart { _ in
+            didStart = true
+        }
+
+        XCTAssertFalse(didStart)
+        XCTAssertFalse(plan.showsPlayFallback)
+    }
+}

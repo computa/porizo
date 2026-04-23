@@ -17,6 +17,45 @@ func emailVerificationToken(from url: URL) -> String? {
         .queryItems?.first(where: { $0.name == "token" })?.value
 }
 
+struct RootAppConfigState: Equatable, Sendable {
+    var onboardingSampleURL: String?
+    var onboardingSplashRecipient: String?
+    var onboardingSplashLyricsPreview: String?
+    var launchFlashSampleURL: String?
+    var launchFlashTitle: String?
+    var launchFlashRecipient: String?
+    var launchFlashLyricsPreview: String?
+    var onboardingGraphVersion: Int?
+    var onboardingGraphUrl: String?
+
+    init(response: AppConfigResponse? = nil) {
+        onboardingSampleURL = response?.onboarding?.sampleAudioUrl
+        onboardingSplashRecipient = response?.onboarding?.splashDemoRecipient
+        onboardingSplashLyricsPreview = response?.onboarding?.splashLyricsPreview
+        launchFlashSampleURL = response?.onboarding?.launchFlashAudioUrl
+        launchFlashTitle = response?.onboarding?.launchFlashTitle
+        launchFlashRecipient = response?.onboarding?.launchFlashRecipient
+        launchFlashLyricsPreview = response?.onboarding?.launchFlashLyricsPreview
+        onboardingGraphVersion = response?.onboarding?.questionGraphVersion
+        onboardingGraphUrl = response?.onboarding?.questionGraphUrl
+    }
+
+    var onboardingConfig: OnboardingConfig {
+        OnboardingConfig(
+            sampleAudioUrl: onboardingSampleURL,
+            sampleLabel: nil,
+            splashDemoRecipient: onboardingSplashRecipient,
+            splashLyricsPreview: onboardingSplashLyricsPreview,
+            launchFlashAudioUrl: launchFlashSampleURL,
+            launchFlashTitle: launchFlashTitle,
+            launchFlashRecipient: launchFlashRecipient,
+            launchFlashLyricsPreview: launchFlashLyricsPreview,
+            questionGraphVersion: onboardingGraphVersion,
+            questionGraphUrl: onboardingGraphUrl
+        )
+    }
+}
+
 struct RootView: View {
     @Environment(AuthManager.self) var authManager
     @State private var appState: RootState = .splash
@@ -57,15 +96,7 @@ struct RootView: View {
     // Persists across cold launches so dismissing the sheet suppresses it for 7 days
     // instead of re-firing every app start. Stored as Unix epoch; 0 means never skipped.
     @AppStorage("profileCompletionSkippedAtEpoch") private var profileCompletionSkippedAtEpoch: Double = 0
-    @State private var onboardingSampleURL: String?
-    @State private var onboardingSplashRecipient: String?
-    @State private var onboardingSplashLyricsPreview: String?
-    @State private var launchFlashSampleURL: String?
-    @State private var launchFlashTitle: String?
-    @State private var launchFlashRecipient: String?
-    @State private var launchFlashLyricsPreview: String?
-    @State private var onboardingGraphVersion: Int?
-    @State private var onboardingGraphUrl: String?
+    @State private var appConfigState = RootAppConfigState()
 
     // Configuration
     // Auth is required in all builds to avoid showing main tabs when logged out.
@@ -213,11 +244,11 @@ struct RootView: View {
             case .onboardingV2:
                 if let client = apiClient {
                     OnboardingV2View(
-                        splashDemoURL: onboardingSampleURL,
-                        splashRecipientLabel: onboardingSplashRecipient,
-                        splashLyricsPreview: onboardingSplashLyricsPreview,
-                        questionGraphVersion: onboardingGraphVersion,
-                        questionGraphUrl: onboardingGraphUrl,
+                        splashDemoURL: appConfigState.onboardingSampleURL,
+                        splashRecipientLabel: appConfigState.onboardingSplashRecipient,
+                        splashLyricsPreview: appConfigState.onboardingSplashLyricsPreview,
+                        questionGraphVersion: appConfigState.onboardingGraphVersion,
+                        questionGraphUrl: appConfigState.onboardingGraphUrl,
                         apiClient: client,
                         onComplete: { result in completeOnboardingV2(result) },
                         onSkip: { partial in skipOnboardingV2(partial) }
@@ -667,18 +698,7 @@ struct RootView: View {
     /// Build an OnboardingConfig for the resolver using the cached splash demo fields.
     /// The resolver reads these for the .demo content path.
     private func makeOnboardingConfigForResolver() -> OnboardingConfig {
-        OnboardingConfig(
-            sampleAudioUrl: onboardingSampleURL,
-            sampleLabel: nil,
-            splashDemoRecipient: onboardingSplashRecipient,
-            splashLyricsPreview: onboardingSplashLyricsPreview,
-            launchFlashAudioUrl: launchFlashSampleURL,
-            launchFlashTitle: launchFlashTitle,
-            launchFlashRecipient: launchFlashRecipient,
-            launchFlashLyricsPreview: launchFlashLyricsPreview,
-            questionGraphVersion: onboardingGraphVersion,
-            questionGraphUrl: onboardingGraphUrl
-        )
+        appConfigState.onboardingConfig
     }
 
     /// Scene phase handler: tracks `lastBackgroundedAtEpoch` for warm resume detection.
@@ -964,35 +984,7 @@ struct RootView: View {
             // be rotated or killed without shipping a new App Store build.
             // Nil / missing key keeps Amplitude disabled; no other path changes.
             AnalyticsService.shared.configureAmplitude(apiKey: response.analytics?.amplitudeApiKey)
-
-            // Extract onboarding sample URL, constructing full URL from relative path
-            if let relativePath = response.onboarding?.sampleAudioUrl {
-                if relativePath.hasPrefix("http") {
-                    onboardingSampleURL = relativePath
-                } else {
-                    onboardingSampleURL = AppConfig.apiBaseURL + relativePath
-                }
-            } else {
-                onboardingSampleURL = nil
-            }
-
-            // V2 onboarding splash metadata
-            onboardingSplashRecipient = response.onboarding?.splashDemoRecipient
-            onboardingSplashLyricsPreview = response.onboarding?.splashLyricsPreview
-            if let relativePath = response.onboarding?.launchFlashAudioUrl {
-                if relativePath.hasPrefix("http") {
-                    launchFlashSampleURL = relativePath
-                } else {
-                    launchFlashSampleURL = AppConfig.apiBaseURL + relativePath
-                }
-            } else {
-                launchFlashSampleURL = nil
-            }
-            launchFlashTitle = response.onboarding?.launchFlashTitle
-            launchFlashRecipient = response.onboarding?.launchFlashRecipient
-            launchFlashLyricsPreview = response.onboarding?.launchFlashLyricsPreview
-            onboardingGraphVersion = response.onboarding?.questionGraphVersion
-            onboardingGraphUrl = response.onboarding?.questionGraphUrl
+            appConfigState = RootAppConfigState(response: response)
 
             let nextPrompt = AppUpdatePolicy.evaluate(config: response.appUpdate)
             if let nextPrompt,

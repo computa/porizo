@@ -7,6 +7,61 @@
 
 import Foundation
 
+struct AppConfigLoadContext: Equatable, Sendable {
+    let isDebugBuild: Bool
+    let isSimulator: Bool
+
+    static let current: AppConfigLoadContext = {
+        #if DEBUG
+        let isDebugBuild = true
+        #else
+        let isDebugBuild = false
+        #endif
+
+        #if targetEnvironment(simulator)
+        let isSimulator = true
+        #else
+        let isSimulator = false
+        #endif
+
+        return AppConfigLoadContext(isDebugBuild: isDebugBuild, isSimulator: isSimulator)
+    }()
+}
+
+enum AppConfigLoadPolicy {
+    static let hostedConfigURL = URL(string: "https://api.porizo.co/app/config")!
+    static let localSimulatorConfigURL = URL(string: "http://localhost:3000/app/config")!
+
+    static func fallbackURL(
+        after error: Error,
+        primaryURL: URL,
+        context: AppConfigLoadContext
+    ) -> URL? {
+        guard context.isDebugBuild, context.isSimulator else {
+            return nil
+        }
+
+        guard primaryURL == localSimulatorConfigURL else {
+            return nil
+        }
+
+        if let urlError = error as? URLError {
+            switch urlError.code {
+            case .cannotConnectToHost, .timedOut, .networkConnectionLost, .notConnectedToInternet:
+                return hostedConfigURL
+            default:
+                break
+            }
+        }
+
+        if case APIClientError.httpError(statusCode: 404, _) = error {
+            return hostedConfigURL
+        }
+
+        return nil
+    }
+}
+
 extension APIClient {
 
     // MARK: - Billing API
@@ -68,9 +123,26 @@ extension APIClient {
     /// Get app configuration (public endpoint, no auth required)
     func getAppConfig() async throws -> AppConfigResponse {
         let url = URL(string: "\(baseURL)/app/config")!
+        do {
+            return try await fetchAppConfig(from: url)
+        } catch {
+            if let fallbackURL = AppConfigLoadPolicy.fallbackURL(
+                after: error,
+                primaryURL: url,
+                context: .current
+            ) {
+                print("[AppConfig] Local /app/config unavailable at \(url.absoluteString). Falling back to hosted config.")
+                return try await fetchAppConfig(from: fallbackURL)
+            }
+            throw error
+        }
+    }
+
+    private func fetchAppConfig(from url: URL) async throws -> AppConfigResponse {
         let request = try await makeRequest(url: url, method: "GET", requiresAuth: false)
         let (data, response) = try await Self.session.data(for: request)
         try validateResponse(response, data: data)
-        return try decodeResponse(AppConfigResponse.self, from: data)
+        let decoded = try decodeResponse(AppConfigResponse.self, from: data)
+        return decoded.resolvingRelativeURLs(against: url)
     }
 }

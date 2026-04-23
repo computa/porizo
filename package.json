@@ -15,6 +15,7 @@
     "replicate:test": "node -r dotenv/config tools/replicate-voice-test.js --input tools/replicate-input.json",
     "elevenlabs:test": "node -r dotenv/config tools/elevenlabs-music-test.js --input tools/elevenlabs-input.json",
     "preflight:subscriptions": "node tools/preflight-subscriptions-runtime.js",
+    "appconfig:smoke": "node tools/verify-app-config-smoke.js",
     "migrate:files": "node -r dotenv/config scripts/migrate-files-to-s3.js",
     "migrate:files:dry-run": "node -r dotenv/config scripts/migrate-files-to-s3.js --dry-run",
     "blog:login": "node tools/blog-publish-production.js login",

@@ -51,3 +51,41 @@ struct AppConfigResponse: Codable, Sendable {
         case analytics
     }
 }
+
+extension OnboardingConfig {
+    func resolvingRelativeURLs(against configURL: URL) -> OnboardingConfig {
+        OnboardingConfig(
+            sampleAudioUrl: Self.resolve(urlString: sampleAudioUrl, against: configURL),
+            sampleLabel: sampleLabel,
+            splashDemoRecipient: splashDemoRecipient,
+            splashLyricsPreview: splashLyricsPreview,
+            launchFlashAudioUrl: Self.resolve(urlString: launchFlashAudioUrl, against: configURL),
+            launchFlashTitle: launchFlashTitle,
+            launchFlashRecipient: launchFlashRecipient,
+            launchFlashLyricsPreview: launchFlashLyricsPreview,
+            questionGraphVersion: questionGraphVersion,
+            questionGraphUrl: Self.resolve(urlString: questionGraphUrl, against: configURL)
+        )
+    }
+
+    private static func resolve(urlString: String?, against configURL: URL) -> String? {
+        guard let urlString, !urlString.isEmpty else { return nil }
+        guard URL(string: urlString)?.scheme == nil else { return urlString }
+
+        let rootURL = URL(string: "/", relativeTo: configURL) ?? configURL.deletingLastPathComponent()
+        return URL(string: urlString, relativeTo: rootURL)?.absoluteURL.absoluteString
+    }
+}
+
+extension AppConfigResponse {
+    func resolvingRelativeURLs(against configURL: URL) -> AppConfigResponse {
+        AppConfigResponse(
+            stt: stt,
+            flags: flags,
+            giftBundles: giftBundles,
+            appUpdate: appUpdate,
+            onboarding: onboarding?.resolvingRelativeURLs(against: configURL),
+            analytics: analytics
+        )
+    }
+}
