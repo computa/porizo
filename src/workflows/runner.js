@@ -1159,6 +1159,7 @@ async function startJobRunner({
           : config.MUSIC_PROVIDER || "suno";
     const fallback = {
       default_provider: envDefaultProvider,
+      suno_model: config.SUNO_MODEL || "V5",
       auto_style_routing: true,
       elevenlabs_generation_mode: "composition_plan",
       auto_reroll_enabled: true,
@@ -1177,6 +1178,10 @@ async function startJobRunner({
         const parsedMaxRerolls = Number(parsed?.max_rerolls);
         value = {
           default_provider: "suno", // ElevenLabs removed from music generation pipeline
+          suno_model:
+            parsed?.suno_model === "V4_5" || parsed?.suno_model === "V5" || parsed?.suno_model === "V5_5"
+              ? parsed.suno_model
+              : fallback.suno_model,
           auto_style_routing: parsed?.auto_style_routing !== false,
           elevenlabs_generation_mode:
             parsed?.elevenlabs_generation_mode === "compose_detailed"
@@ -1215,6 +1220,7 @@ async function startJobRunner({
       return {
         ...providerConfig[pinnedProvider],
         provider: pinnedProvider,
+        sunoModel: pinnedProvider === "suno" ? runtimeConfig.suno_model : null,
         runtimeConfig,
         routing: {
           ...routing,
@@ -1239,6 +1245,7 @@ async function startJobRunner({
     return {
       ...providerConfig[routing.provider],
       provider: routing.provider,
+      sunoModel: routing.provider === "suno" ? runtimeConfig.suno_model : null,
       routing,
       runtimeConfig,
     };
@@ -1274,6 +1281,7 @@ async function startJobRunner({
         fn: () => submitSunoTask({
           baseUrl: musicConfig.baseUrl,
           apiKey: musicConfig.apiKey,
+          sunoModel: musicConfig.sunoModel,
           lyrics: lyricsPayload,
           musicPlan,
           track,

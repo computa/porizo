@@ -28,6 +28,7 @@ describe("Suno Provider", () => {
       });
 
       assert.ok(payload.prompt, "Should have a prompt");
+      assert.equal(payload.model, "V5", "Should default to V5");
       assert.ok(payload.prompt.includes("Happy birthday"), "Prompt should include lyrics");
       assert.ok(!payload.prompt.includes("STYLE GUIDE:"), "Prompt should NOT include style directive");
       assert.ok(payload.style.length > 10, "Style field should be a rich descriptor");
@@ -49,8 +50,45 @@ describe("Suno Provider", () => {
       });
 
       assert.ok(payload.prompt, "Should have a prompt from track message");
+      assert.equal(payload.model, "V5");
       assert.ok(payload.prompt.includes("Alex") || payload.prompt.includes("thank"),
         "Prompt should use track info as fallback");
+    });
+
+    test("uses configured Suno model when provided", () => {
+      const { buildSunoPayload } = require("../src/providers/suno");
+
+      const payload = buildSunoPayload({
+        lyrics: null,
+        musicPlan: { style: "pop", duration_sec: 60 },
+        track: {
+          title: "Birthday Song",
+          recipient_name: "Sam",
+          occasion: "birthday",
+          message: "Wishing you the best",
+        },
+        sunoModel: "V5_5",
+      });
+
+      assert.equal(payload.model, "V5_5");
+    });
+
+    test("falls back to V5 for invalid configured Suno model", () => {
+      const { buildSunoPayload } = require("../src/providers/suno");
+
+      const payload = buildSunoPayload({
+        lyrics: null,
+        musicPlan: { style: "pop", duration_sec: 60 },
+        track: {
+          title: "Birthday Song",
+          recipient_name: "Sam",
+          occasion: "birthday",
+          message: "Wishing you the best",
+        },
+        sunoModel: "v6",
+      });
+
+      assert.equal(payload.model, "V5");
     });
 
     test("sets instrumental flag when no vocals needed", () => {

@@ -8,6 +8,7 @@ import { useSaveToast } from '../../../hooks/useSaveToast';
 
 interface MusicConfigData {
   default_provider: string;
+  suno_model: 'V4_5' | 'V5' | 'V5_5';
   auto_style_routing: boolean;
   elevenlabs_generation_mode: 'composition_plan' | 'compose_detailed';
   auto_reroll_enabled: boolean;
@@ -15,13 +16,15 @@ interface MusicConfigData {
   max_rerolls: number;
   style_overrides: Record<string, Record<string, unknown>>;
   available_providers: Record<string, boolean>;
+  available_suno_models?: string[];
   available_generation_modes?: string[];
   updated_at?: string;
   updated_by?: string;
 }
 
 const defaultConfig: MusicConfigData = {
-  default_provider: 'elevenlabs',
+  default_provider: 'suno',
+  suno_model: 'V5',
   auto_style_routing: true,
   elevenlabs_generation_mode: 'composition_plan',
   auto_reroll_enabled: true,
@@ -29,6 +32,7 @@ const defaultConfig: MusicConfigData = {
   max_rerolls: 1,
   style_overrides: {},
   available_providers: {},
+  available_suno_models: ['V4_5', 'V5', 'V5_5'],
   available_generation_modes: ['composition_plan', 'compose_detailed'],
 };
 
@@ -53,6 +57,7 @@ export function MusicProviderTab() {
         ...defaultConfig,
         ...data,
         style_overrides: data?.style_overrides || {},
+        available_suno_models: data?.available_suno_models || defaultConfig.available_suno_models,
         available_generation_modes: data?.available_generation_modes || defaultConfig.available_generation_modes,
       };
       setConfig(merged);
@@ -86,6 +91,7 @@ export function MusicProviderTab() {
 
       await put('/music/config', {
         default_provider: config.default_provider,
+        suno_model: config.suno_model,
         auto_style_routing: config.auto_style_routing,
         elevenlabs_generation_mode: config.elevenlabs_generation_mode,
         auto_reroll_enabled: config.auto_reroll_enabled,
@@ -157,32 +163,47 @@ export function MusicProviderTab() {
       <div className="flex items-start gap-3 p-4 bg-blue-500/10 border border-blue-500/20 rounded-lg">
         <Info className="w-5 h-5 text-blue-400 mt-0.5 flex-shrink-0" />
         <div className="text-sm text-blue-200">
-          <p className="font-medium mb-1">Music Provider Routing</p>
+          <p className="font-medium mb-1">Music Generation Routing</p>
           <p className="text-blue-300/80">
-            The default provider handles music generation for all renders. When auto style routing is enabled,
-            Nigerian-specific styles (Afrobeats, Highlife, Juju) are automatically routed to Suno for better
-            cultural accuracy, regardless of the default provider.
+            Suno is the only active song-generation provider in the current pipeline. ElevenLabs remains
+            available for guide-vocal / TTS steps, but not for final song generation. The main operator
+            control here is the Suno model version.
           </p>
         </div>
       </div>
 
-      {/* Default Provider */}
+      <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-5">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <span className="text-sm font-medium text-white">Song Generation Provider</span>
+            <p className="text-xs text-slate-400 mt-1">
+              Runtime is locked to Suno for song generation. Changing the model below is the supported control surface.
+            </p>
+          </div>
+          <span className="text-sm px-3 py-1 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/20">
+            Suno only
+          </span>
+        </div>
+      </div>
+
       <DropdownSelector
-        label="Default Provider"
-        description="Primary music generation provider for all renders"
-        value={config.default_provider}
-        options={PROVIDERS.map(p => ({ id: p.id, name: p.name, detail: p.cost }))}
+        label="Suno Model"
+        description="Model used when Suno handles song generation"
+        value={config.suno_model}
+        options={(config.available_suno_models || ['V4_5', 'V5', 'V5_5']).map((model) => ({
+          id: model,
+          name: model.replace('_', '.'),
+          detail:
+            model === 'V5_5'
+              ? 'Newest, higher unknowns'
+              : model === 'V5'
+                ? 'Recommended default'
+                : 'Legacy fallback',
+        }))}
         onChange={(value) => {
-          setConfig(prev => ({ ...prev, default_provider: value }));
+          setConfig(prev => ({ ...prev, suno_model: value as 'V4_5' | 'V5' | 'V5_5' }));
           setHasChanges(true);
         }}
-        badge={
-          config.available_providers[config.default_provider] ? (
-            <span className="text-[10px] px-1.5 py-0.5 bg-emerald-500/20 text-emerald-400 rounded">Available</span>
-          ) : (
-            <span className="text-[10px] px-1.5 py-0.5 bg-rose-500/20 text-rose-400 rounded">Unavailable</span>
-          )
-        }
       />
 
       {/* Auto Style Routing Toggle */}
@@ -192,7 +213,7 @@ export function MusicProviderTab() {
             <span className="text-sm font-medium text-white">Auto Style Routing</span>
             <p className="text-xs text-slate-400 mt-1">
               When enabled, Nigerian music styles (Afrobeats, Highlife, Juju) are automatically
-              routed to Suno for better cultural authenticity, even if ElevenLabs is the default.
+              routed with Suno-specific support constraints for better cultural authenticity.
             </p>
           </div>
           <button
@@ -320,7 +341,6 @@ export function MusicProviderTab() {
             <tbody className="divide-y divide-slate-700/30">
               {PROVIDERS.map(provider => {
                 const isAvailable = config.available_providers[provider.id];
-                const isDefault = config.default_provider === provider.id;
                 return (
                   <tr key={provider.id} className="hover:bg-slate-800/30">
                     <td className="py-3 px-4 text-sm text-white">{provider.name}</td>
@@ -332,9 +352,9 @@ export function MusicProviderTab() {
                       )}
                     </td>
                     <td className="py-3 px-4 text-sm text-slate-400">
-                      {isDefault ? (
-                        <span className="text-amber-400 font-medium">Default</span>
-                      ) : '\u2014'}
+                      {provider.id === 'suno'
+                        ? <span className="text-amber-400 font-medium">Song generation</span>
+                        : <span>Guide vocal / TTS</span>}
                     </td>
                   </tr>
                 );

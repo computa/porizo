@@ -20,6 +20,17 @@ const SUNO_AUDIO_SUCCESS_STATUSES = new Set([
 ]);
 const SUNO_PROVISIONAL_SUCCESS_STATUSES = new Set(["TEXT_SUCCESS", "LYRICS_SUCCESS"]);
 const SUNO_FAILED_STATUSES = new Set(["FAILED", "ERROR"]);
+const SUNO_MODELS = Object.freeze(["V4_5", "V5", "V5_5"]);
+
+function normalizeSunoModel(model) {
+  if (typeof model !== "string") {
+    return "V5";
+  }
+  const normalized = model.trim().toUpperCase().replace(/[.\-\s]+/g, "_");
+  if (normalized === "V45") return "V4_5";
+  if (normalized === "V55") return "V5_5";
+  return SUNO_MODELS.includes(normalized) ? normalized : "V5";
+}
 
 function normalizeSunoStatus(status) {
   if (typeof status !== "string") {
@@ -169,7 +180,7 @@ function buildSunoStyleField(styleDef, normalized, musicPlan, voiceGender, maxLe
  * @param {boolean} [options.instrumental] - Generate instrumental only
  * @returns {object} Suno API payload
  */
-function buildSunoPayload({ lyrics, musicPlan, track, instrumental }) {
+function buildSunoPayload({ lyrics, musicPlan, track, instrumental, sunoModel }) {
   const styleKey = (musicPlan && musicPlan.style) || "pop";
   // Single style resolution — all helpers receive pre-resolved styleDef
   const normalized = normalizeStyle(styleKey) || "pop";
@@ -210,6 +221,7 @@ function buildSunoPayload({ lyrics, musicPlan, track, instrumental }) {
   const consistencyParams = resolveSunoConsistencyParams(styleDef);
 
   return {
+    model: normalizeSunoModel(sunoModel),
     prompt,
     title,
     style,
@@ -259,13 +271,14 @@ async function submitSunoTask({
   track,
   timeoutMs,
   onTaskId,
+  sunoModel,
 }) {
   validateSunoInput({ apiKey, baseUrl, track });
-  const internalPayload = buildSunoPayload({ lyrics, musicPlan, track });
+  const internalPayload = buildSunoPayload({ lyrics, musicPlan, track, sunoModel });
   const apiPayload = {
     customMode: true,
     instrumental: internalPayload.instrumental,
-    model: "V4_5",
+    model: internalPayload.model,
     prompt: internalPayload.prompt,
     style: internalPayload.style,
     title: internalPayload.title,
@@ -595,6 +608,7 @@ async function generateMusicWithSuno({
   kind,
   onTaskId,
   onHeartbeat,
+  sunoModel,
 }) {
   validateSunoInput({ apiKey, baseUrl, track, trackVersion });
   console.log(`[Suno] Generating music for track ${track.id}, kind: ${kind}`);
@@ -607,6 +621,7 @@ async function generateMusicWithSuno({
     track,
     timeoutMs,
     onTaskId,
+    sunoModel,
   });
 
   // Use exponential backoff polling
@@ -708,6 +723,8 @@ async function generateMusicWithSuno({
 }
 
 module.exports = {
+  SUNO_MODELS,
+  normalizeSunoModel,
   buildSunoPayload,
   generateMusicWithSuno,
   submitSunoTask,

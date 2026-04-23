@@ -32,7 +32,8 @@ describe("Music Provider Config", () => {
   it("returns defaults with fidelity fields", async () => {
     await db.prepare("DELETE FROM app_config WHERE key = 'music_provider_config'").run();
     const config = await adminService.getMusicProviderConfig();
-    assert.equal(config.default_provider, "elevenlabs");
+    assert.equal(config.default_provider, "suno");
+    assert.equal(config.suno_model, "V5");
     assert.equal(config.auto_style_routing, true);
     assert.equal(config.elevenlabs_generation_mode, "composition_plan");
     assert.equal(config.auto_reroll_enabled, true);
@@ -41,10 +42,29 @@ describe("Music Provider Config", () => {
     assert.deepEqual(config.style_overrides, {});
   });
 
+  it("normalizes legacy default_provider values back to suno", async () => {
+    await db
+      .prepare("INSERT OR REPLACE INTO app_config (key, value_json, updated_at, updated_by) VALUES (?, ?, ?, ?)")
+      .run(
+        "music_provider_config",
+        JSON.stringify({
+          default_provider: "elevenlabs",
+          suno_model: "V4_5",
+        }),
+        new Date().toISOString(),
+        "admin_test"
+      );
+
+    const config = await adminService.getMusicProviderConfig();
+    assert.equal(config.default_provider, "suno");
+    assert.equal(config.suno_model, "V4_5");
+  });
+
   it("supports fidelity updates and sanitizes overrides", async () => {
     await adminService.setMusicProviderConfig(
       {
         default_provider: "suno",
+        suno_model: "V5_5",
         auto_style_routing: false,
         elevenlabs_generation_mode: "compose_detailed",
         auto_reroll_enabled: true,
@@ -65,6 +85,7 @@ describe("Music Provider Config", () => {
 
     const config = await adminService.getMusicProviderConfig();
     assert.equal(config.default_provider, "suno");
+    assert.equal(config.suno_model, "V5_5");
     assert.equal(config.auto_style_routing, false);
     assert.equal(config.elevenlabs_generation_mode, "compose_detailed");
     assert.equal(config.quality_threshold, 81);
@@ -91,5 +112,30 @@ describe("Music Provider Config", () => {
       /elevenlabs_generation_mode must be one of: composition_plan, compose_detailed/
     );
   });
-});
 
+  it("rejects invalid suno model", async () => {
+    await assert.rejects(
+      () =>
+        adminService.setMusicProviderConfig(
+          {
+            suno_model: "V6",
+          },
+          "admin_test"
+        ),
+      /suno_model must be one of: V4_5, V5, V5_5/
+    );
+  });
+
+  it("rejects switching default provider away from suno", async () => {
+    await assert.rejects(
+      () =>
+        adminService.setMusicProviderConfig(
+          {
+            default_provider: "elevenlabs",
+          },
+          "admin_test"
+        ),
+      /default_provider must be suno; ElevenLabs no longer handles song generation/
+    );
+  });
+});

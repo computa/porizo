@@ -65,6 +65,7 @@ const PROVIDER_TIMEOUT_MS = Number(process.env.PROVIDER_TIMEOUT_MS || 300000);
 // Suno API (third-party provider) - alternative to ElevenLabs for music generation
 const SUNO_API_KEY = process.env.SUNO_API_KEY || "";
 const SUNO_BASE_URL = process.env.SUNO_BASE_URL || "https://api.sunoapi.org";
+const SUNO_MODEL = process.env.SUNO_MODEL || "V5";
 // Music provider fallback default: "suno" or "elevenlabs"
 // Runtime default can be overridden from app_config.music_provider_config.
 const MUSIC_PROVIDER = process.env.MUSIC_PROVIDER || "suno";
@@ -204,6 +205,7 @@ module.exports = {
   APPLE_ADS_ATTRIBUTION_TIMEOUT_MS,
   SUNO_API_KEY,
   SUNO_BASE_URL,
+  SUNO_MODEL,
   MUSIC_PROVIDER,
   HF_TOKEN,
   DEFAULT_VOICE_MODE,

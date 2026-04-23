@@ -2171,6 +2171,7 @@ class AdminService {
 
     const defaults = {
       default_provider: "suno",
+      suno_model: "V5",
       auto_style_routing: true,
       elevenlabs_generation_mode: "composition_plan",
       auto_reroll_enabled: true,
@@ -2188,8 +2189,11 @@ class AdminService {
     try {
       const parsed = JSON.parse(row.value_json || "{}");
       return {
-        default_provider:
-          parsed.default_provider === "elevenlabs" ? "elevenlabs" : "suno",
+        default_provider: "suno",
+        suno_model:
+          parsed.suno_model === "V4_5" || parsed.suno_model === "V5" || parsed.suno_model === "V5_5"
+            ? parsed.suno_model
+            : defaults.suno_model,
         auto_style_routing: parsed.auto_style_routing !== false,
         elevenlabs_generation_mode:
           parsed.elevenlabs_generation_mode === "compose_detailed"
@@ -2220,15 +2224,17 @@ class AdminService {
    * Update music provider routing configuration
    * @param {Object} config - New configuration
    * @param {string} config.default_provider - elevenlabs|suno
+   * @param {string} config.suno_model - V4_5|V5|V5_5
    * @param {boolean} config.auto_style_routing - Enable style-based provider auto-routing
    * @param {string} adminId - Admin user ID for audit
    */
   async setMusicProviderConfig(config, adminId) {
-    const validProviders = ["elevenlabs", "suno"];
+    const validSunoModels = ["V4_5", "V5", "V5_5"];
     const validModes = ["composition_plan", "compose_detailed"];
     const existing = await this.getMusicProviderConfig();
     const next = {
       default_provider: existing.default_provider,
+      suno_model: existing.suno_model,
       auto_style_routing: existing.auto_style_routing,
       elevenlabs_generation_mode: existing.elevenlabs_generation_mode,
       auto_reroll_enabled: existing.auto_reroll_enabled,
@@ -2238,10 +2244,16 @@ class AdminService {
     };
 
     if (Object.prototype.hasOwnProperty.call(config, "default_provider")) {
-      if (!validProviders.includes(config.default_provider)) {
-        throw new Error(`Invalid default_provider: ${config.default_provider}`);
+      if (config.default_provider !== "suno") {
+        throw new Error("default_provider must be suno; ElevenLabs no longer handles song generation");
       }
-      next.default_provider = config.default_provider;
+      next.default_provider = "suno";
+    }
+    if (Object.prototype.hasOwnProperty.call(config, "suno_model")) {
+      if (!validSunoModels.includes(config.suno_model)) {
+        throw new Error("suno_model must be one of: V4_5, V5, V5_5");
+      }
+      next.suno_model = config.suno_model;
     }
     if (Object.prototype.hasOwnProperty.call(config, "auto_style_routing")) {
       if (typeof config.auto_style_routing !== "boolean") {

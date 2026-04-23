@@ -1470,6 +1470,7 @@ app.get("/admin/dashboard/music/config", async (request, reply) => {
         elevenlabs: Boolean(appConfig.ELEVENLABS_API_KEY),
         suno: Boolean(appConfig.SUNO_API_KEY),
       },
+      available_suno_models: ["V4_5", "V5", "V5_5"],
       available_generation_modes: ["composition_plan", "compose_detailed"],
     });
   } catch (err) {
@@ -1483,6 +1484,7 @@ app.put("/admin/dashboard/music/config", async (request, reply) => {
 
   const {
     default_provider,
+    suno_model,
     auto_style_routing,
     elevenlabs_generation_mode,
     auto_reroll_enabled,
@@ -1496,19 +1498,12 @@ app.put("/admin/dashboard/music/config", async (request, reply) => {
   }
 
   if (default_provider !== undefined) {
-    if (!["elevenlabs", "suno"].includes(default_provider)) {
-      return sendError(reply, 400, "INVALID_CONFIG", "default_provider must be one of: elevenlabs, suno");
-    }
-    const providerHasKey =
-      default_provider === "elevenlabs"
-        ? Boolean(appConfig.ELEVENLABS_API_KEY)
-        : Boolean(appConfig.SUNO_API_KEY);
-    if (!providerHasKey) {
+    if (default_provider !== "suno") {
       return sendError(
         reply,
         400,
         "INVALID_CONFIG",
-        `Cannot set default_provider=${default_provider}: missing API key in environment.`
+        "default_provider must be suno; ElevenLabs no longer handles song generation."
       );
     }
   }
@@ -1517,6 +1512,7 @@ app.put("/admin/dashboard/music/config", async (request, reply) => {
     const result = await adminService.setMusicProviderConfig(
       {
         ...(default_provider !== undefined ? { default_provider } : {}),
+        ...(suno_model !== undefined ? { suno_model } : {}),
         ...(auto_style_routing !== undefined ? { auto_style_routing } : {}),
         ...(elevenlabs_generation_mode !== undefined ? { elevenlabs_generation_mode } : {}),
         ...(auto_reroll_enabled !== undefined ? { auto_reroll_enabled } : {}),

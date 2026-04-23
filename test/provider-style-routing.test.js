@@ -28,24 +28,23 @@ describe("Style capability registry", () => {
 
 describe("Provider style routing", () => {
   const providerConfig = {
-    elevenlabs: { live: true },
     suno: { live: true },
   };
 
-  test("keeps default provider when support is acceptable", () => {
+  test("falls back to Suno when legacy default provider is requested", () => {
     const resolved = resolveMusicProvider({
-      requestedStyle: "highlife",
+      requestedStyle: "pop",
       defaultProvider: "elevenlabs",
       providerConfig,
       autoStyleRouting: true,
     });
 
-    assert.equal(resolved.provider, "elevenlabs");
+    assert.equal(resolved.provider, "suno");
     assert.equal(resolved.switched, false);
-    assert.equal(resolved.reason, "default_provider");
+    assert.equal(resolved.reason, "default_unavailable_fallback");
   });
 
-  test("auto-switches when default provider style support is weak", () => {
+  test("marks weak Suno-only routing as degraded instead of pretending a switch exists", () => {
     const resolved = resolveMusicProvider({
       requestedStyle: "ogene",
       defaultProvider: "suno",
@@ -53,10 +52,10 @@ describe("Provider style routing", () => {
       autoStyleRouting: true,
     });
 
-    assert.equal(resolved.provider, "elevenlabs");
-    assert.equal(resolved.switched, true);
-    assert.equal(resolved.reason, "auto_switch_style_support");
-    assert.equal(resolved.support, "medium");
+    assert.equal(resolved.provider, "suno");
+    assert.equal(resolved.switched, false);
+    assert.equal(resolved.reason, "degraded_style_support");
+    assert.equal(resolved.support, "weak");
   });
 
   test("respects admin style override support scores when routing", () => {
@@ -84,14 +83,13 @@ describe("Provider style routing", () => {
       requestedStyle: "pop",
       defaultProvider: "suno",
       providerConfig: {
-        elevenlabs: { live: true },
         suno: { live: false },
       },
       autoStyleRouting: true,
     });
 
-    assert.equal(resolved.provider, "elevenlabs");
-    assert.equal(resolved.reason, "default_unavailable_fallback");
+    assert.equal(resolved.provider, null);
+    assert.equal(resolved.reason, "no_live_music_providers");
   });
 
   test("returns no provider when none are live", () => {
@@ -99,7 +97,6 @@ describe("Provider style routing", () => {
       requestedStyle: "pop",
       defaultProvider: "elevenlabs",
       providerConfig: {
-        elevenlabs: { live: false },
         suno: { live: false },
       },
       autoStyleRouting: true,

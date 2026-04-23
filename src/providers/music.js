@@ -366,6 +366,7 @@ async function renderWithProvider({
       return generateMusicWithSuno({
         baseUrl: providerConfig.baseUrl,
         apiKey: providerConfig.apiKey,
+        sunoModel: providerConfig.sunoModel,
         storageDir,
         track,
         trackVersion,
