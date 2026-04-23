@@ -58,9 +58,9 @@ struct SettingsTabView: View {
     @State private var deleteAccountError: String?
     @State private var isDeletingAccount = false
 
-    // Theme: Warm Canvas is light-only, no picker needed
+    // Fresh installs default to Light, but users can still switch later.
     @AppStorage("lyricsStyle") private var lyricsStyle: LyricsDesignStyle = .karaokeSweep
-    @AppStorage("appearanceMode") private var appearanceMode: String = "System"
+    @AppStorage("appearanceMode") private var appearanceMode: String = "Light"
     @AppStorage("launchFlashMode") private var launchFlashModeRaw: String = LaunchFlashMode.all.rawValue
     private var launchFlashMode: LaunchFlashMode {
         LaunchFlashMode(rawValue: launchFlashModeRaw) ?? .all

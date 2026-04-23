@@ -187,8 +187,8 @@ struct PorizoAppApp: App {
     @Environment(\.scenePhase) private var scenePhase
     @State private var hasBeenBackgrounded = false
 
-    // Appearance preference (System / Light / Dark)
-    @AppStorage("appearanceMode") private var appearanceMode: String = "System"
+    // Appearance preference (System / Light / Dark). Fresh installs default to Light.
+    @AppStorage("appearanceMode") private var appearanceMode: String = "Light"
 
     private var resolvedColorScheme: ColorScheme? {
         switch appearanceMode {
