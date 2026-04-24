@@ -13,10 +13,21 @@ const {
   isAvailable,
   getConfiguredProviders,
   estimateTokens,
+  getGeminiModel,
+  resolveProviderModel,
+  __setGoogleGenAIFactoryForTest,
   CONFIG,
   ERROR_CODES,
   MODELS,
 } = require("../src/services/llm-provider");
+
+function restoreEnv(name, value) {
+  if (value === undefined) {
+    delete process.env[name];
+    return;
+  }
+  process.env[name] = value;
+}
 
 describe("LLM Provider", () => {
   describe("estimateTokens", () => {
@@ -41,63 +52,89 @@ describe("LLM Provider", () => {
   });
 
   describe("isAvailable", () => {
+    const originalGeminiKey = process.env.GEMINI_API_KEY;
     const originalAnthropicKey = process.env.ANTHROPIC_API_KEY;
     const originalOpenAIKey = process.env.OPENAI_API_KEY;
 
     afterEach(() => {
-      process.env.ANTHROPIC_API_KEY = originalAnthropicKey;
-      process.env.OPENAI_API_KEY = originalOpenAIKey;
+      restoreEnv("GEMINI_API_KEY", originalGeminiKey);
+      restoreEnv("ANTHROPIC_API_KEY", originalAnthropicKey);
+      restoreEnv("OPENAI_API_KEY", originalOpenAIKey);
+    });
+
+    it("returns true when Gemini key is set", () => {
+      process.env.GEMINI_API_KEY = "test-key";
+      delete process.env.ANTHROPIC_API_KEY;
+      delete process.env.OPENAI_API_KEY;
+      assert.strictEqual(isAvailable(), true);
     });
 
     it("returns true when Anthropic key is set", () => {
+      delete process.env.GEMINI_API_KEY;
       process.env.ANTHROPIC_API_KEY = "test-key";
-      process.env.OPENAI_API_KEY = "";
+      delete process.env.OPENAI_API_KEY;
       assert.strictEqual(isAvailable(), true);
     });
 
     it("returns true when OpenAI key is set", () => {
-      process.env.ANTHROPIC_API_KEY = "";
+      delete process.env.GEMINI_API_KEY;
+      delete process.env.ANTHROPIC_API_KEY;
       process.env.OPENAI_API_KEY = "test-key";
       assert.strictEqual(isAvailable(), true);
     });
 
     it("returns true when both keys are set", () => {
+      delete process.env.GEMINI_API_KEY;
       process.env.ANTHROPIC_API_KEY = "test-key";
       process.env.OPENAI_API_KEY = "test-key";
       assert.strictEqual(isAvailable(), true);
     });
 
     it("returns false when no keys are set", () => {
-      process.env.ANTHROPIC_API_KEY = "";
-      process.env.OPENAI_API_KEY = "";
+      delete process.env.GEMINI_API_KEY;
+      delete process.env.ANTHROPIC_API_KEY;
+      delete process.env.OPENAI_API_KEY;
       assert.strictEqual(isAvailable(), false);
     });
   });
 
   describe("getConfiguredProviders", () => {
+    const originalGeminiKey = process.env.GEMINI_API_KEY;
     const originalAnthropicKey = process.env.ANTHROPIC_API_KEY;
     const originalOpenAIKey = process.env.OPENAI_API_KEY;
 
     afterEach(() => {
-      process.env.ANTHROPIC_API_KEY = originalAnthropicKey;
-      process.env.OPENAI_API_KEY = originalOpenAIKey;
+      restoreEnv("GEMINI_API_KEY", originalGeminiKey);
+      restoreEnv("ANTHROPIC_API_KEY", originalAnthropicKey);
+      restoreEnv("OPENAI_API_KEY", originalOpenAIKey);
+    });
+
+    it("returns gemini when only Gemini key is set", () => {
+      process.env.GEMINI_API_KEY = "test-key";
+      delete process.env.ANTHROPIC_API_KEY;
+      delete process.env.OPENAI_API_KEY;
+      const providers = getConfiguredProviders();
+      assert.deepStrictEqual(providers, ["gemini"]);
     });
 
     it("returns anthropic when only Anthropic key is set", () => {
+      delete process.env.GEMINI_API_KEY;
       process.env.ANTHROPIC_API_KEY = "test-key";
-      process.env.OPENAI_API_KEY = "";
+      delete process.env.OPENAI_API_KEY;
       const providers = getConfiguredProviders();
       assert.deepStrictEqual(providers, ["anthropic"]);
     });
 
     it("returns openai when only OpenAI key is set", () => {
-      process.env.ANTHROPIC_API_KEY = "";
+      delete process.env.GEMINI_API_KEY;
+      delete process.env.ANTHROPIC_API_KEY;
       process.env.OPENAI_API_KEY = "test-key";
       const providers = getConfiguredProviders();
       assert.deepStrictEqual(providers, ["openai"]);
     });
 
     it("returns both when both keys are set", () => {
+      delete process.env.GEMINI_API_KEY;
       process.env.ANTHROPIC_API_KEY = "test-key";
       process.env.OPENAI_API_KEY = "test-key";
       const providers = getConfiguredProviders();
@@ -105,8 +142,9 @@ describe("LLM Provider", () => {
     });
 
     it("returns empty array when no keys are set", () => {
-      process.env.ANTHROPIC_API_KEY = "";
-      process.env.OPENAI_API_KEY = "";
+      delete process.env.GEMINI_API_KEY;
+      delete process.env.ANTHROPIC_API_KEY;
+      delete process.env.OPENAI_API_KEY;
       const providers = getConfiguredProviders();
       assert.deepStrictEqual(providers, []);
     });
@@ -125,15 +163,62 @@ describe("LLM Provider", () => {
 
   describe("MODELS", () => {
     it("has models for both providers", () => {
+      assert.ok(MODELS.gemini, "Should have Gemini models");
       assert.ok(MODELS.anthropic, "Should have Anthropic models");
       assert.ok(MODELS.openai, "Should have OpenAI models");
     });
 
     it("has models for different task types", () => {
+      assert.ok(MODELS.gemini.lyrics, "Should have Gemini lyrics model");
+      assert.ok(MODELS.gemini.simple, "Should have Gemini simple model");
       assert.ok(MODELS.anthropic.lyrics, "Should have Anthropic lyrics model");
       assert.ok(MODELS.anthropic.simple, "Should have Anthropic simple model");
       assert.ok(MODELS.openai.lyrics, "Should have OpenAI lyrics model");
       assert.ok(MODELS.openai.simple, "Should have OpenAI simple model");
+    });
+  });
+
+  describe("Gemini model resolution", () => {
+    const originalGeneric = process.env.GEMINI_MODEL;
+    const originalLyrics = process.env.GEMINI_MODEL_LYRICS;
+    const originalSimple = process.env.GEMINI_MODEL_SIMPLE;
+
+    afterEach(() => {
+      restoreEnv("GEMINI_MODEL", originalGeneric);
+      restoreEnv("GEMINI_MODEL_LYRICS", originalLyrics);
+      restoreEnv("GEMINI_MODEL_SIMPLE", originalSimple);
+    });
+
+    it("uses code defaults when no env overrides are set", () => {
+      delete process.env.GEMINI_MODEL;
+      delete process.env.GEMINI_MODEL_LYRICS;
+      delete process.env.GEMINI_MODEL_SIMPLE;
+
+      assert.strictEqual(getGeminiModel("lyrics"), "gemini-3-flash");
+      assert.strictEqual(getGeminiModel("simple"), "gemini-3-flash");
+    });
+
+    it("uses generic env override when task-specific override is absent", () => {
+      process.env.GEMINI_MODEL = "gemini-2.5-flash";
+      delete process.env.GEMINI_MODEL_LYRICS;
+      delete process.env.GEMINI_MODEL_SIMPLE;
+
+      assert.strictEqual(getGeminiModel("lyrics"), "gemini-2.5-flash");
+      assert.strictEqual(getGeminiModel("simple"), "gemini-2.5-flash");
+    });
+
+    it("uses task-specific env overrides over the generic override", () => {
+      process.env.GEMINI_MODEL = "gemini-2.5-flash";
+      process.env.GEMINI_MODEL_LYRICS = "gemini-3-flash";
+      process.env.GEMINI_MODEL_SIMPLE = "gemini-2.5-flash-lite";
+
+      assert.strictEqual(getGeminiModel("lyrics"), "gemini-3-flash");
+      assert.strictEqual(getGeminiModel("simple"), "gemini-2.5-flash-lite");
+    });
+
+    it("resolveProviderModel delegates Gemini resolution to env-backed config", () => {
+      process.env.GEMINI_MODEL = "gemini-2.5-flash";
+      assert.strictEqual(resolveProviderModel("gemini", "lyrics"), "gemini-2.5-flash");
     });
   });
 
@@ -151,13 +236,20 @@ describe("LLM Provider", () => {
     const originalGeminiKey = process.env.GEMINI_API_KEY;
     const originalAnthropicKey = process.env.ANTHROPIC_API_KEY;
     const originalOpenAIKey = process.env.OPENAI_API_KEY;
+    const originalGeminiModel = process.env.GEMINI_MODEL;
+    const originalGeminiModelLyrics = process.env.GEMINI_MODEL_LYRICS;
+    const originalGeminiModelSimple = process.env.GEMINI_MODEL_SIMPLE;
     const originalFetch = global.fetch;
 
     afterEach(() => {
-      process.env.GEMINI_API_KEY = originalGeminiKey;
-      process.env.ANTHROPIC_API_KEY = originalAnthropicKey;
-      process.env.OPENAI_API_KEY = originalOpenAIKey;
+      restoreEnv("GEMINI_API_KEY", originalGeminiKey);
+      restoreEnv("ANTHROPIC_API_KEY", originalAnthropicKey);
+      restoreEnv("OPENAI_API_KEY", originalOpenAIKey);
+      restoreEnv("GEMINI_MODEL", originalGeminiModel);
+      restoreEnv("GEMINI_MODEL_LYRICS", originalGeminiModelLyrics);
+      restoreEnv("GEMINI_MODEL_SIMPLE", originalGeminiModelSimple);
       global.fetch = originalFetch;
+      __setGoogleGenAIFactoryForTest();
     });
 
     it("rejects prompts exceeding token limit", async () => {
@@ -174,9 +266,9 @@ describe("LLM Provider", () => {
     });
 
     it("throws when no providers are configured", async () => {
-      process.env.GEMINI_API_KEY = "";
-      process.env.ANTHROPIC_API_KEY = "";
-      process.env.OPENAI_API_KEY = "";
+      delete process.env.GEMINI_API_KEY;
+      delete process.env.ANTHROPIC_API_KEY;
+      delete process.env.OPENAI_API_KEY;
 
       try {
         await generateText({ prompt: "Test prompt" });
@@ -190,23 +282,17 @@ describe("LLM Provider", () => {
       process.env.GEMINI_API_KEY = "test-gemini-key";
       process.env.ANTHROPIC_API_KEY = "";
       process.env.OPENAI_API_KEY = "";
-
-      global.fetch = async () => ({
-        ok: true,
-        async json() {
-          return {
-            candidates: [
-              {
-                content: {
-                  parts: [{ text: 'Here is your JSON:\n```json\n{"title":"Hello"}\n```' }],
-                },
-                finishReason: "STOP",
-              },
-            ],
-            usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 5 },
-          };
+      __setGoogleGenAIFactoryForTest(() => ({
+        models: {
+          async generateContent() {
+            return {
+              text: 'Here is your JSON:\n```json\n{"title":"Hello"}\n```',
+              candidates: [{ finishReason: "STOP" }],
+              usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 5 },
+            };
+          },
         },
-      });
+      }));
 
       const result = await generateText({
         prompt: "Return JSON",
@@ -222,23 +308,17 @@ describe("LLM Provider", () => {
       process.env.GEMINI_API_KEY = "test-gemini-key";
       process.env.ANTHROPIC_API_KEY = "";
       process.env.OPENAI_API_KEY = "";
-
-      global.fetch = async () => ({
-        ok: true,
-        async json() {
-          return {
-            candidates: [
-              {
-                content: {
-                  parts: [{ text: '{"title":"Hello"' }],
-                },
-                finishReason: "MAX_TOKENS",
-              },
-            ],
-            usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 5 },
-          };
+      __setGoogleGenAIFactoryForTest(() => ({
+        models: {
+          async generateContent() {
+            return {
+              text: '{"title":"Hello"',
+              candidates: [{ finishReason: "MAX_TOKENS" }],
+              usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 5 },
+            };
+          },
         },
-      });
+      }));
 
       await assert.rejects(
         () => generateText({
@@ -252,6 +332,72 @@ describe("LLM Provider", () => {
           return true;
         }
       );
+    });
+
+    it("passes the env-configured Gemini model into the SDK call", async () => {
+      process.env.GEMINI_API_KEY = "test-gemini-key";
+      process.env.ANTHROPIC_API_KEY = "";
+      process.env.OPENAI_API_KEY = "";
+      process.env.GEMINI_MODEL = "gemini-2.5-flash";
+
+      const calls = [];
+      __setGoogleGenAIFactoryForTest(() => ({
+        models: {
+          async generateContent(params) {
+            calls.push(params);
+            return {
+              text: "hello",
+              candidates: [{ finishReason: "STOP" }],
+              usageMetadata: { promptTokenCount: 4, candidatesTokenCount: 1 },
+            };
+          },
+        },
+      }));
+
+      const result = await generateText({
+        prompt: "Say hello.",
+        taskType: "lyrics",
+        providers: ["gemini"],
+      });
+
+      assert.strictEqual(result.provider, "gemini");
+      assert.strictEqual(result.model, "gemini-2.5-flash");
+      assert.strictEqual(calls.length, 1);
+      assert.strictEqual(calls[0].model, "gemini-2.5-flash");
+    });
+
+    it("falls back when Gemini SDK throws a 429-style error", async () => {
+      process.env.GEMINI_API_KEY = "test-gemini-key";
+      process.env.ANTHROPIC_API_KEY = "";
+      process.env.OPENAI_API_KEY = "test-openai-key";
+
+      __setGoogleGenAIFactoryForTest(() => ({
+        models: {
+          async generateContent() {
+            const err = new Error("Resource exhausted");
+            err.status = 429;
+            throw err;
+          },
+        },
+      }));
+
+      global.fetch = async () => ({
+        ok: true,
+        async json() {
+          return {
+            choices: [{ message: { content: "Fallback response" } }],
+            usage: { prompt_tokens: 8, completion_tokens: 3 },
+          };
+        },
+      });
+
+      const result = await generateText({
+        prompt: "Fallback please",
+        taskType: "simple",
+      });
+
+      assert.strictEqual(result.provider, "openai");
+      assert.strictEqual(result.fallbackUsed, true);
     });
 
     it("returns result with expected structure when Anthropic is available", async () => {

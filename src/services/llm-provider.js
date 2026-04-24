@@ -2,13 +2,14 @@
  * LLM Provider Service
  *
  * Provides a unified interface for text generation with:
- * - Primary provider: Gemini (gemini-1.5-pro for lyrics, gemini-1.5-flash for simple)
+ * - Primary provider: Gemini via @google/genai
  * - Fallback providers: Anthropic (Claude Sonnet), then OpenAI (GPT-4o)
  * - Cost guardrails: Token limits per request, usage tracking
  * - Error handling: Automatic fallback with retry logic
  */
 
 const Anthropic = require("@anthropic-ai/sdk");
+const { GoogleGenAI } = require("@google/genai");
 
 // Provider configuration
 const CONFIG = {
@@ -18,19 +19,20 @@ const CONFIG = {
   maxRetries: 2,
   retryDelayMs: 1000,
   // Token limits (cost guardrails)
-  // gemini-2.0-flash supports 8192 output tokens and 1M input tokens.
+  // Gemini Flash models support long-context creative prompting.
   // 6000 input tokens gives writer/reasoner headroom for long story contexts.
   maxInputTokens: 6000,
   maxOutputTokens: 2000,
 };
 
-// Model selection for different use cases
-// Note: gemini-2.5-flash has known truncation issues with structured output
-// Using gemini-2.0-flash for reliability (see: discuss.ai.google.dev/t/81258)
+// Default model selection for different use cases.
+// Gemini defaults are env-overridable via:
+// - GEMINI_MODEL_LYRICS / GEMINI_MODEL_SIMPLE
+// - GEMINI_MODEL
 const MODELS = {
   gemini: {
-    lyrics: "gemini-2.0-flash", // Stable for structured JSON output
-    simple: "gemini-2.0-flash", // Same model, reliable for JSON
+    lyrics: "gemini-3-flash",
+    simple: "gemini-3-flash",
   },
   anthropic: {
     lyrics: "claude-sonnet-4-20250514", // Higher quality for creative tasks
@@ -51,7 +53,35 @@ const ERROR_CODES = {
   ALL_PROVIDERS_FAILED: "E305_ALL_PROVIDERS_FAILED",
 };
 
+let googleGenAIFactory = (options) => new GoogleGenAI(options);
+let cachedGeminiClient = null;
+let cachedGeminiApiKey = null;
+
+function getGeminiModel(taskType = "lyrics") {
+  const normalizedTask = String(taskType || "lyrics").trim().toUpperCase();
+  const taskOverride = process.env[`GEMINI_MODEL_${normalizedTask}`];
+  if (taskOverride && taskOverride.trim()) {
+    return taskOverride.trim();
+  }
+  if (process.env.GEMINI_MODEL && process.env.GEMINI_MODEL.trim()) {
+    return process.env.GEMINI_MODEL.trim();
+  }
+  return MODELS.gemini[taskType] || MODELS.gemini.lyrics;
+}
+
+function getGeminiClient(apiKey) {
+  if (!apiKey) return null;
+  if (!cachedGeminiClient || cachedGeminiApiKey !== apiKey) {
+    cachedGeminiClient = googleGenAIFactory({ apiKey });
+    cachedGeminiApiKey = apiKey;
+  }
+  return cachedGeminiClient;
+}
+
 function resolveProviderModel(providerName, taskType = "lyrics") {
+  if (providerName === "gemini") {
+    return getGeminiModel(taskType);
+  }
   return MODELS[providerName]?.[taskType] || MODELS[providerName]?.lyrics || "unknown";
 }
 
@@ -249,32 +279,21 @@ async function generateWithGemini({
     throw error;
   }
 
-  const model = MODELS.gemini[taskType] || MODELS.gemini.lyrics;
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+  const model = getGeminiModel(taskType);
+  const client = getGeminiClient(apiKey);
 
-  const payload = {
-    contents: [
-      {
-        role: "user",
-        parts: [{ text: prompt }],
-      },
-    ],
-    generationConfig: {
-      temperature,
-      maxOutputTokens: maxOutputTokens || CONFIG.maxOutputTokens,
-      topP: 0.5, // Reduced from default 0.95 to prevent premature stop tokens
-    },
+  const config = {
+    temperature,
+    maxOutputTokens: maxOutputTokens || CONFIG.maxOutputTokens,
+    topP: 0.5, // Reduced from default 0.95 to prevent premature stop tokens
   };
 
   if (systemPrompt) {
-    payload.systemInstruction = {
-      role: "system",
-      parts: [{ text: systemPrompt }],
-    };
+    config.systemInstruction = systemPrompt;
   }
 
   if (responseMimeType) {
-    payload.generationConfig.responseMimeType = responseMimeType;
+    config.responseMimeType = responseMimeType;
   }
 
   if (responseSchema) {
@@ -284,81 +303,87 @@ async function generateWithGemini({
       sanitized?.type !== "object" || Object.keys(schemaProperties).length > 0;
 
     if (hasObjectProperties) {
-      payload.generationConfig.responseSchema = sanitized;
+      config.responseSchema = sanitized;
     }
   }
 
-  async function sendGeminiRequest(bodyPayload) {
-    return fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-goog-api-key": apiKey,
-      },
-      body: JSON.stringify(bodyPayload),
+  try {
+    const response = await client.models.generateContent({
+      model,
+      contents: [
+        {
+          role: "user",
+          parts: [{ text: prompt }],
+        },
+      ],
+      config,
     });
-  }
 
-  let response = await sendGeminiRequest(payload);
+    const text = response.text || "";
 
-  if (!response.ok) {
-    const body = await response.text();
+    return {
+      text,
+      provider: "gemini",
+      model,
+      finishReason: response.candidates?.[0]?.finishReason || null,
+      usage: {
+        inputTokens: response.usageMetadata?.promptTokenCount || 0,
+        outputTokens: response.usageMetadata?.candidatesTokenCount || 0,
+      },
+    };
+  } catch (err) {
+    const statusCode = Number(err?.status) || Number(err?.statusCode) || null;
+    const message = err?.message || String(err);
     const isSchemaError =
-      response.status === 400 && body.includes("response_schema");
+      statusCode === 400 &&
+      (message.includes("response_schema") || message.includes("responseSchema"));
 
-    if (isSchemaError && payload.generationConfig.responseSchema) {
-      const retryPayload = {
-        ...payload,
-        generationConfig: { ...payload.generationConfig },
-      };
-      delete retryPayload.generationConfig.responseSchema;
+    if (isSchemaError && config.responseSchema) {
+      const retryConfig = { ...config };
+      delete retryConfig.responseSchema;
 
-      response = await sendGeminiRequest(retryPayload);
-      if (response.ok) {
-        const data = await response.json();
-        const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-        // Validate the response is parseable JSON when responseMimeType is application/json
-        if (retryPayload.generationConfig?.responseMimeType === "application/json" && text) {
-          try {
-            JSON.parse(text);
-          } catch {
-            const parseError = new Error("Gemini schema retry returned non-JSON response");
-            parseError.code = ERROR_CODES.API_ERROR;
-            throw parseError;
-          }
-        }
-        return {
-          text,
-          provider: "gemini",
-          model,
-          finishReason: data.candidates?.[0]?.finishReason || null,
-          usage: {
-            inputTokens: data.usageMetadata?.promptTokenCount || 0,
-            outputTokens: data.usageMetadata?.candidatesTokenCount || 0,
+      const retryResponse = await client.models.generateContent({
+        model,
+        contents: [
+          {
+            role: "user",
+            parts: [{ text: prompt }],
           },
-        };
+        ],
+        config: retryConfig,
+      });
+
+      const text = retryResponse.text || "";
+      if (retryConfig.responseMimeType === "application/json" && text) {
+        try {
+          JSON.parse(text);
+        } catch {
+          const parseError = new Error("Gemini schema retry returned non-JSON response");
+          parseError.code = ERROR_CODES.API_ERROR;
+          throw parseError;
+        }
       }
+
+      return {
+        text,
+        provider: "gemini",
+        model,
+        finishReason: retryResponse.candidates?.[0]?.finishReason || null,
+        usage: {
+          inputTokens: retryResponse.usageMetadata?.promptTokenCount || 0,
+          outputTokens: retryResponse.usageMetadata?.candidatesTokenCount || 0,
+        },
+      };
     }
 
-    const error = new Error(`Gemini API error: ${response.status} ${body}`);
-    error.code = response.status === 429 ? ERROR_CODES.RATE_LIMIT : ERROR_CODES.API_ERROR;
-    error.statusCode = response.status;
+    const error = new Error(`Gemini API error: ${statusCode || "unknown"} ${message}`);
+    error.code =
+      statusCode === 429 || message.includes("RESOURCE_EXHAUSTED")
+        ? ERROR_CODES.RATE_LIMIT
+        : ERROR_CODES.API_ERROR;
+    error.statusCode = statusCode;
     throw error;
   }
-
-  const data = await response.json();
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-
-  return {
-    text,
-    provider: "gemini",
-    model,
-    finishReason: data.candidates?.[0]?.finishReason || null,
-    usage: {
-      inputTokens: data.usageMetadata?.promptTokenCount || 0,
-      outputTokens: data.usageMetadata?.candidatesTokenCount || 0,
-    },
-  };
 }
 
 /**
@@ -483,9 +508,14 @@ async function generateText({
   responseSchema,
   maxOutputTokens,
   providers,
+  logLabel,
 }) {
   // Validate input
   validateInputTokens(prompt);
+  const promptTokens = estimateTokens(prompt);
+  const label = typeof logLabel === "string" && logLabel.trim()
+    ? logLabel.trim()
+    : taskType;
 
   const availableProviders = [
     { name: "gemini", fn: generateWithGemini },
@@ -506,7 +536,7 @@ async function generateText({
       try {
         const model = resolveProviderModel(provider.name, taskType);
         console.log(
-          `[LLM] Attempting ${provider.name} model=${model} taskType=${taskType} (attempt ${attempt + 1}/${CONFIG.maxRetries + 1})`
+          `[LLM] Attempting ${provider.name} model=${model} taskType=${taskType} label=${label} promptTokens=${promptTokens} maxOutputTokens=${maxOutputTokens || CONFIG.maxOutputTokens} (attempt ${attempt + 1}/${CONFIG.maxRetries + 1})`
         );
 
         let timeoutId;
@@ -531,7 +561,7 @@ async function generateText({
         clearTimeout(timeoutId);
 
         console.log(
-          `[LLM] Success with ${provider.name} model=${result.model || model}: ${result.usage.outputTokens} tokens${result.finishReason ? ` (finishReason=${result.finishReason})` : ""}${provider.name !== "gemini" ? " fallbackUsed=true" : ""}`
+          `[LLM] Success with ${provider.name} model=${result.model || model} label=${label}: outputTokens=${result.usage.outputTokens} promptTokens=${promptTokens}${result.finishReason ? ` (finishReason=${result.finishReason})` : ""}${provider.name !== "gemini" ? " fallbackUsed=true" : ""}`
         );
 
         return normalizeStructuredResult({
@@ -542,7 +572,7 @@ async function generateText({
       } catch (err) {
         const model = resolveProviderModel(provider.name, taskType);
         console.error(
-          `[LLM] ${provider.name} model=${model} attempt ${attempt + 1} failed: code=${err.code || "unknown"} status=${err.statusCode || "n/a"} message=${err.message}`
+          `[LLM] ${provider.name} model=${model} label=${label} attempt ${attempt + 1} failed: code=${err.code || "unknown"} status=${err.statusCode || "n/a"} promptTokens=${promptTokens} message=${err.message}`
         );
         errors.push({ provider: provider.name, attempt, error: err.message });
 
@@ -656,6 +686,13 @@ module.exports = {
   isAvailable,
   getConfiguredProviders,
   estimateTokens,
+  getGeminiModel,
+  resolveProviderModel,
+  __setGoogleGenAIFactoryForTest(factory) {
+    googleGenAIFactory = factory || ((options) => new GoogleGenAI(options));
+    cachedGeminiClient = null;
+    cachedGeminiApiKey = null;
+  },
   // Export config and error codes for testing
   CONFIG,
   ERROR_CODES,
