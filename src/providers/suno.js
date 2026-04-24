@@ -84,6 +84,14 @@ function logSunoCreditUsage(taskId, response) {
   console.log(parts.join(" "));
 }
 
+function summarizeForLog(value, maxLen = 120) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (text.length <= maxLen) {
+    return text;
+  }
+  return `${text.slice(0, maxLen - 1)}…`;
+}
+
 
 function isSunoPolicyError(rawMessage) {
   if (!rawMessage) return false;
@@ -297,7 +305,9 @@ async function submitSunoTask({
   }
 
   const submitUrl = `${baseUrl}/api/v1/generate`;
-  console.log(`[Suno] Submitting to ${submitUrl}`);
+  console.log(
+    `[Suno] Submitting to ${submitUrl} model=${apiPayload.model} style=${musicPlan?.style || "unknown"} title="${summarizeForLog(apiPayload.title, 80)}" instrumental=${apiPayload.instrumental} promptChars=${apiPayload.prompt.length} styleChars=${apiPayload.style.length}`
+  );
   const submitResponse = await fetchJson(
     submitUrl,
     {
@@ -317,7 +327,7 @@ async function submitSunoTask({
   if (!taskId) {
     throw new Error("E302_SUNO_ERROR: No task ID returned from API");
   }
-  console.log(`[Suno] Task submitted: ${taskId}`);
+  console.log(`[Suno] Task submitted: ${taskId} model=${apiPayload.model}`);
   if (typeof onTaskId === "function") {
     try {
       onTaskId(taskId);
@@ -611,7 +621,9 @@ async function generateMusicWithSuno({
   sunoModel,
 }) {
   validateSunoInput({ apiKey, baseUrl, track, trackVersion });
-  console.log(`[Suno] Generating music for track ${track.id}, kind: ${kind}`);
+  console.log(
+    `[Suno] Generating music for track ${track.id}, version=${trackVersion?.version_num || "unknown"}, kind=${kind}, model=${normalizeSunoModel(sunoModel)}`
+  );
 
   const taskId = await submitSunoTask({
     baseUrl,

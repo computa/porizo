@@ -362,7 +362,9 @@ async function renderWithProvider({
     const provider = providerConfig.provider || "suno";
 
     if (provider === "suno") {
-      console.log(`[Music] Using Suno provider for track ${track.id}`);
+      console.log(
+        `[Music] Using Suno provider for track ${track.id} model=${providerConfig.sunoModel || "V5"} kind=${kind} style=${musicPlan?.style || "unknown"}`
+      );
       return generateMusicWithSuno({
         baseUrl: providerConfig.baseUrl,
         apiKey: providerConfig.apiKey,

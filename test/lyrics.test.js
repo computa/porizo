@@ -17,6 +17,7 @@ const {
 
 const {
   buildSongwriterPrompt,
+  applySongwriterPromptBudget,
   assessQuality,
   assessNarrativeFidelity,
   FIDELITY_MIN_SCORE,
@@ -132,6 +133,54 @@ describe("Lyrics Generation", () => {
       const message = "sunshine";
       const anchored = anchorMessage(lyrics, message);
       assert.strictEqual(anchored.anchor_line, "You are my sunshine");
+    });
+  });
+
+  describe("applySongwriterPromptBudget", () => {
+    it("logs compaction stages when prompt budget forces narrative and key detail trimming", () => {
+      const narrativeText = `NARRATIVE:\n${"This is a long family memory with detail. ".repeat(80)}`;
+      const prompt = [
+        "## SONG BRIEF",
+        narrativeText,
+        "KEY DETAILS:",
+        "- detail one",
+        "- detail two",
+        "- detail three",
+        "- detail four",
+        "- detail five",
+        "- detail six",
+        "- detail seven",
+        "## YOUR TASK",
+        "Write the song.",
+      ].join("\n");
+
+      const result = applySongwriterPromptBudget(prompt, {
+        narrativeText,
+        tokenBudget: 140,
+      });
+
+      assert.ok(result.compactions.some((entry) => entry.stage === "narrative_trim"));
+      assert.ok(result.compactions.some((entry) => entry.stage === "key_details_trimmed"));
+      const detailsTrim = result.compactions.find((entry) => entry.stage === "key_details_trimmed");
+      assert.strictEqual(detailsTrim.droppedCount, 2);
+      assert.match(detailsTrim.droppedPreview, /detail six/i);
+    });
+
+    it("records hard-cap summary when the brief must be chopped to fit", () => {
+      const prompt = [
+        "## SONG BRIEF",
+        "STORY-GROUNDED DETAILS:",
+        ...Array.from({ length: 20 }, (_, index) => `- detail ${index + 1} ${"memory ".repeat(20)}`),
+        "## YOUR TASK",
+        "Write the song.",
+      ].join("\n");
+
+      const result = applySongwriterPromptBudget(prompt, { tokenBudget: 90 });
+      const hardCap = result.compactions.find((entry) => entry.stage === "song_brief_hard_cap");
+
+      assert.ok(hardCap, "expected hard-cap compaction");
+      assert.ok(hardCap.removedChars > 0, "expected removed chars to be tracked");
+      assert.ok(hardCap.removedPreview.length > 0, "expected a removed preview");
     });
   });
 

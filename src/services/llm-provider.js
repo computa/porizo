@@ -51,6 +51,10 @@ const ERROR_CODES = {
   ALL_PROVIDERS_FAILED: "E305_ALL_PROVIDERS_FAILED",
 };
 
+function resolveProviderModel(providerName, taskType = "lyrics") {
+  return MODELS[providerName]?.[taskType] || MODELS[providerName]?.lyrics || "unknown";
+}
+
 /**
  * Estimate token count (rough approximation: ~4 chars per token)
  * @param {string} text - Text to estimate
@@ -500,8 +504,9 @@ async function generateText({
   for (const provider of orderedProviders) {
     for (let attempt = 0; attempt <= CONFIG.maxRetries; attempt++) {
       try {
+        const model = resolveProviderModel(provider.name, taskType);
         console.log(
-          `[LLM] Attempting ${provider.name} (attempt ${attempt + 1}/${CONFIG.maxRetries + 1})`
+          `[LLM] Attempting ${provider.name} model=${model} taskType=${taskType} (attempt ${attempt + 1}/${CONFIG.maxRetries + 1})`
         );
 
         let timeoutId;
@@ -526,7 +531,7 @@ async function generateText({
         clearTimeout(timeoutId);
 
         console.log(
-          `[LLM] Success with ${provider.name}: ${result.usage.outputTokens} tokens${result.finishReason ? ` (finishReason=${result.finishReason})` : ""}`
+          `[LLM] Success with ${provider.name} model=${result.model || model}: ${result.usage.outputTokens} tokens${result.finishReason ? ` (finishReason=${result.finishReason})` : ""}${provider.name !== "gemini" ? " fallbackUsed=true" : ""}`
         );
 
         return normalizeStructuredResult({
@@ -535,9 +540,9 @@ async function generateText({
           attempts: attempt + 1,
         }, responseMimeType);
       } catch (err) {
+        const model = resolveProviderModel(provider.name, taskType);
         console.error(
-          `[LLM] ${provider.name} attempt ${attempt + 1} failed:`,
-          err.message
+          `[LLM] ${provider.name} model=${model} attempt ${attempt + 1} failed: code=${err.code || "unknown"} status=${err.statusCode || "n/a"} message=${err.message}`
         );
         errors.push({ provider: provider.name, attempt, error: err.message });
 

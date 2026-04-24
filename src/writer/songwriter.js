@@ -129,6 +129,121 @@ function validateStyle(style) {
   return { valid: false, normalized: "pop" }; // Default to pop if unknown
 }
 
+function summarizePromptCompactionText(text, maxLen = 160) {
+  const value = String(text || "").replace(/\s+/g, " ").trim();
+  if (value.length <= maxLen) {
+    return value;
+  }
+  return `${value.slice(0, maxLen - 1)}…`;
+}
+
+function applySongwriterPromptBudget(prompt, {
+  narrativeText = "",
+  tokenBudget = 5500,
+} = {}) {
+  const roughTokens = (text) => Math.ceil((text || "").length / 4);
+  const compactions = [];
+  let finalPrompt = String(prompt || "").trim();
+  let tokens = roughTokens(finalPrompt);
+
+  if (tokens > tokenBudget) {
+    const overBy = tokens - tokenBudget;
+    const charsToRemove = overBy * 4;
+    if (narrativeText && narrativeText.length > charsToRemove + 100) {
+      const truncatedNarrative = narrativeText.slice(0, narrativeText.length - charsToRemove - 50);
+      const lastPeriod = truncatedNarrative.lastIndexOf(".");
+      const cleanNarrative = lastPeriod > 50 ? truncatedNarrative.slice(0, lastPeriod + 1) : truncatedNarrative;
+      finalPrompt = finalPrompt.replace(narrativeText, cleanNarrative);
+      const nextTokens = roughTokens(finalPrompt);
+      compactions.push({
+        stage: "narrative_trim",
+        removedChars: Math.max(0, narrativeText.length - cleanNarrative.length),
+        removedPreview: summarizePromptCompactionText(narrativeText.slice(cleanNarrative.length)),
+        beforeTokens: tokens,
+        afterTokens: nextTokens,
+      });
+      tokens = nextTokens;
+    }
+  }
+
+  if (tokens > tokenBudget) {
+    const supportIdx = finalPrompt.indexOf("SUPPORTING STORY CONTEXT:");
+    const altIdx = finalPrompt.indexOf("STORY-GROUNDED DETAILS:");
+    const removeIdx = supportIdx !== -1 ? supportIdx : altIdx;
+    if (removeIdx !== -1) {
+      const nextSection = finalPrompt.indexOf("\n## ", removeIdx + 1);
+      if (nextSection !== -1) {
+        const removedSection = finalPrompt.slice(removeIdx, nextSection);
+        finalPrompt = finalPrompt.slice(0, removeIdx) + finalPrompt.slice(nextSection);
+        const nextTokens = roughTokens(finalPrompt);
+        compactions.push({
+          stage: "supporting_context_removed",
+          removedSection: removedSection.split("\n")[0].replace(/:$/, ""),
+          removedPreview: summarizePromptCompactionText(removedSection),
+          beforeTokens: tokens,
+          afterTokens: nextTokens,
+        });
+        tokens = nextTokens;
+      }
+    }
+  }
+
+  if (tokens > tokenBudget) {
+    const detailsIdx = finalPrompt.indexOf("KEY DETAILS:");
+    if (detailsIdx !== -1) {
+      const detailsEnd = finalPrompt.indexOf("\n", detailsIdx + 200);
+      const detailsSection = finalPrompt.slice(detailsIdx, detailsEnd !== -1 ? detailsEnd : undefined);
+      const lines = detailsSection.split("\n").filter(l => l.startsWith("- "));
+      if (lines.length > 5) {
+        const droppedLines = lines.slice(5);
+        const truncated = `KEY DETAILS:\n${lines.slice(0, 5).join("\n")}`;
+        finalPrompt = finalPrompt.replace(detailsSection, truncated);
+        const nextTokens = roughTokens(finalPrompt);
+        compactions.push({
+          stage: "key_details_trimmed",
+          keptCount: 5,
+          droppedCount: droppedLines.length,
+          droppedPreview: summarizePromptCompactionText(droppedLines.join(" | ")),
+          beforeTokens: tokens,
+          afterTokens: nextTokens,
+        });
+        tokens = nextTokens;
+      }
+    }
+  }
+
+  if (tokens > tokenBudget) {
+    const briefIdx = finalPrompt.indexOf("## SONG BRIEF");
+    const taskIdx = finalPrompt.indexOf("## YOUR TASK");
+    if (briefIdx !== -1 && taskIdx !== -1 && taskIdx > briefIdx) {
+      const header = finalPrompt.slice(0, briefIdx);
+      const brief = finalPrompt.slice(briefIdx, taskIdx);
+      const tail = finalPrompt.slice(taskIdx);
+      const headerTokens = roughTokens(header);
+      const tailTokens = roughTokens(tail);
+      const briefBudget = (tokenBudget - headerTokens - tailTokens) * 4;
+      if (briefBudget > 200) {
+        const truncatedBrief = brief.slice(0, briefBudget);
+        const lastNewline = truncatedBrief.lastIndexOf("\n");
+        const cleanBrief = lastNewline > 100 ? truncatedBrief.slice(0, lastNewline + 1) : truncatedBrief;
+        const removedBriefTail = brief.slice(cleanBrief.length);
+        finalPrompt = `${header}${cleanBrief}\n\n${tail}`;
+        const nextTokens = roughTokens(finalPrompt);
+        compactions.push({
+          stage: "song_brief_hard_cap",
+          removedChars: Math.max(0, removedBriefTail.length),
+          removedPreview: summarizePromptCompactionText(removedBriefTail),
+          beforeTokens: tokens,
+          afterTokens: nextTokens,
+        });
+        tokens = nextTokens;
+      }
+    }
+  }
+
+  return { prompt: finalPrompt, tokens, tokenBudget, compactions };
+}
+
 /**
  * Count syllables in a word (approximate)
  */
@@ -2083,84 +2198,21 @@ Return ONLY valid JSON:
   "story_elements_used": ["list of story details woven into lyrics"]
 }`;
 
-  // Token budget enforcement: progressively truncate if prompt exceeds limit.
-  // Inline token estimation to avoid dependency on llm-provider (test mocks replace it).
-  const roughTokens = (text) => Math.ceil((text || "").length / 4);
-  const tokenBudget = 5500; // 6000 max minus 500 headroom
-  let finalPrompt = prompt.trim();
-  let tokens = roughTokens(finalPrompt);
+  const budgetedPrompt = applySongwriterPromptBudget(prompt, { narrativeText, tokenBudget: 5500 });
 
-  if (tokens > tokenBudget) {
-    // Truncate narrative (the largest section) to fit budget
-    const overBy = tokens - tokenBudget;
-    const charsToRemove = overBy * 4; // ~4 chars per token
-    if (narrativeText && narrativeText.length > charsToRemove + 100) {
-      const truncatedNarrative = narrativeText.slice(0, narrativeText.length - charsToRemove - 50);
-      // Cut at last sentence boundary
-      const lastPeriod = truncatedNarrative.lastIndexOf(".");
-      const cleanNarrative = lastPeriod > 50 ? truncatedNarrative.slice(0, lastPeriod + 1) : truncatedNarrative;
-      finalPrompt = finalPrompt.replace(narrativeText, cleanNarrative);
-      tokens = roughTokens(finalPrompt);
-    }
+  if (budgetedPrompt.compactions.length > 0) {
+    console.warn(`[Songwriter] Prompt compaction summary=${JSON.stringify(budgetedPrompt.compactions)}`);
   }
 
-  if (tokens > tokenBudget) {
-    // Still over — remove supporting story lines (atoms/primitives)
-    const supportIdx = finalPrompt.indexOf("SUPPORTING STORY CONTEXT:");
-    const altIdx = finalPrompt.indexOf("STORY-GROUNDED DETAILS:");
-    const removeIdx = supportIdx !== -1 ? supportIdx : altIdx;
-    if (removeIdx !== -1) {
-      const nextSection = finalPrompt.indexOf("\n## ", removeIdx + 1);
-      if (nextSection !== -1) {
-        finalPrompt = finalPrompt.slice(0, removeIdx) + finalPrompt.slice(nextSection);
-        tokens = roughTokens(finalPrompt);
-      }
-    }
+  if (budgetedPrompt.compactions.some((entry) => entry.stage === "song_brief_hard_cap")) {
+    console.warn(`[Songwriter] Hard-capped SONG BRIEF to fit budget: ~${budgetedPrompt.tokens} tokens`);
   }
 
-  if (tokens > tokenBudget) {
-    // Still over — truncate key details to top 5
-    const detailsIdx = finalPrompt.indexOf("KEY DETAILS:");
-    if (detailsIdx !== -1) {
-      const detailsEnd = finalPrompt.indexOf("\n", detailsIdx + 200);
-      const detailsSection = finalPrompt.slice(detailsIdx, detailsEnd !== -1 ? detailsEnd : undefined);
-      const lines = detailsSection.split("\n").filter(l => l.startsWith("- "));
-      if (lines.length > 5) {
-        const truncated = "KEY DETAILS:\n" + lines.slice(0, 5).join("\n");
-        finalPrompt = finalPrompt.replace(detailsSection, truncated);
-      }
-    }
+  if (budgetedPrompt.tokens > budgetedPrompt.tokenBudget) {
+    console.warn(`[Songwriter] Prompt still over budget after all truncation: ~${budgetedPrompt.tokens} tokens (max: ${budgetedPrompt.tokenBudget}). Proceeding with best effort.`);
   }
 
-  // Hard cap: if still over budget after all targeted truncations,
-  // find the SONG BRIEF section and truncate it to fit.
-  // Keep the persona header and task instructions, cut context.
-  if (tokens > tokenBudget) {
-    const briefIdx = finalPrompt.indexOf("## SONG BRIEF");
-    const taskIdx = finalPrompt.indexOf("## YOUR TASK");
-    if (briefIdx !== -1 && taskIdx !== -1 && taskIdx > briefIdx) {
-      const header = finalPrompt.slice(0, briefIdx);
-      const brief = finalPrompt.slice(briefIdx, taskIdx);
-      const tail = finalPrompt.slice(taskIdx);
-      const headerTokens = roughTokens(header);
-      const tailTokens = roughTokens(tail);
-      const briefBudget = (tokenBudget - headerTokens - tailTokens) * 4; // chars
-      if (briefBudget > 200) {
-        const truncatedBrief = brief.slice(0, briefBudget);
-        const lastNewline = truncatedBrief.lastIndexOf("\n");
-        const cleanBrief = lastNewline > 100 ? truncatedBrief.slice(0, lastNewline + 1) : truncatedBrief;
-        finalPrompt = header + cleanBrief + "\n\n" + tail;
-        tokens = roughTokens(finalPrompt);
-        console.warn(`[Songwriter] Hard-capped SONG BRIEF to fit budget: ~${tokens} tokens`);
-      }
-    }
-  }
-
-  if (tokens > tokenBudget) {
-    console.warn(`[Songwriter] Prompt still over budget after all truncation: ~${tokens} tokens (max: ${tokenBudget}). Proceeding with best effort.`);
-  }
-
-  return finalPrompt;
+  return budgetedPrompt.prompt;
 }
 
 function buildFidelityRepairNote(fidelity) {
@@ -2743,5 +2795,6 @@ module.exports = {
   assessNarrativeFidelity,
   assessQuality,
   buildStoryCertificationBlock,
+  applySongwriterPromptBudget,
   FIDELITY_MIN_SCORE,
 };
