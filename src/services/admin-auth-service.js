@@ -7,6 +7,7 @@
 
 const bcrypt = require("bcrypt");
 const crypto = require("crypto");
+const { generateId } = require("../utils/ids");
 
 // Configuration
 const config = {
@@ -42,7 +43,34 @@ function hashToken(token) {
   return crypto.createHash("sha256").update(token).digest("hex");
 }
 
-const { generateId } = require("../utils/ids");
+const DEFAULT_SEEDED_ADMIN_ID = "adm_initial";
+const DEFAULT_SEEDED_ADMIN_EMAIL = "admin@porizo.app";
+const DEFAULT_SEEDED_ADMIN_PASSWORD = "admin123";
+
+function isProductionEnvironment() {
+  return process.env.NODE_ENV === "production";
+}
+
+function allowDefaultAdminLoginInProduction() {
+  return process.env.ALLOW_DEFAULT_ADMIN_LOGIN_IN_PRODUCTION === "true";
+}
+
+function isDefaultSeededAdmin(admin) {
+  if (!admin) return false;
+  return (
+    admin.id === DEFAULT_SEEDED_ADMIN_ID &&
+    admin.email?.toLowerCase() === DEFAULT_SEEDED_ADMIN_EMAIL
+  );
+}
+
+function shouldBlockDefaultSeededAdminLogin(admin, password) {
+  return (
+    isProductionEnvironment() &&
+    !allowDefaultAdminLoginInProduction() &&
+    isDefaultSeededAdmin(admin) &&
+    password === DEFAULT_SEEDED_ADMIN_PASSWORD
+  );
+}
 
 // ==================== ADMIN AUTHENTICATION ====================
 
@@ -98,6 +126,14 @@ async function login(email, password, ip, userAgent) {
     return {
       success: false,
       error: `Account locked for ${config.lockoutDurationMinutes} minutes.`,
+    };
+  }
+
+  if (shouldBlockDefaultSeededAdminLogin(admin, password)) {
+    return {
+      success: false,
+      error:
+        "Default seeded admin credentials are disabled in production. Rotate this account password or create a new superadmin.",
     };
   }
 
