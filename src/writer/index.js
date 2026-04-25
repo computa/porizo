@@ -349,6 +349,63 @@ async function confirmStory(storyId, additionalNotesOrOptions) {
   };
 }
 
+// Re-runs the song-readiness preflight against a confirmed story so downstream
+// song-creation entry points (lyrics generation, to-track) cannot bypass the
+// gate when the story was originally confirmed without target_content_type=song.
+// Throws STORY_NEEDS_INPUT with the same envelope confirmStory uses, so route
+// handlers can catch a single error code and surface a consistent 422 envelope.
+async function assertSongReadiness(storyId) {
+  const sessionEngineVersion = await getSessionEngineVersion(storyId, DEFAULT_STORY_ENGINE_VERSION);
+  const { handler: engineHandler } = getStoryEngineHandler(sessionEngineVersion);
+
+  let songReadiness = null;
+  try {
+    const storyContext = await engineHandler.getStoryContext(storyId, {
+      includeReadiness: false,
+      includeMetadata: false,
+    });
+    songReadiness = assessSongReadiness({
+      recipient_name: storyContext.recipientName,
+      occasion: storyContext.occasion,
+      style: storyContext.style,
+      initial_prompt: storyContext.initialPrompt,
+      narrative: storyContext.narrative,
+      summary: storyContext.summary,
+      facts: storyContext.facts,
+      elements: storyContext.elements,
+      beats: storyContext.beats,
+      atoms: storyContext.atoms,
+      primitives: storyContext.primitives,
+      motifs: storyContext.motifs,
+      song_map: storyContext.song_map,
+      evaluation: storyContext.evaluation,
+      dials: storyContext.dials,
+      completed_story_package: storyContext.completed_story_package,
+    });
+  } catch (preflightErr) {
+    // Same degrade-open contract as confirmStory: readiness is a quality gate,
+    // not an availability gate. The downstream lyrics fidelity gate remains
+    // the hard correctness boundary.
+    console.warn(`[Writer] song_readiness_preflight_failed=${JSON.stringify({
+      story_id: storyId,
+      stage: "downstream_assert",
+      message: preflightErr.message || String(preflightErr),
+    })}`);
+    return;
+  }
+  if (songReadiness && !songReadiness.ready) {
+    const question = songReadiness.follow_up_question ||
+      "Before I make this a song, give me one more concrete detail that must not be lost.";
+    const err = new Error(question);
+    err.code = "STORY_NEEDS_INPUT";
+    err.question = question;
+    err.suggestions = songReadiness.suggestions || [];
+    err.missingBlocks = (songReadiness.blockers || []).map((blocker) => blocker.code || blocker.message).filter(Boolean);
+    err.songReadiness = songReadiness;
+    throw err;
+  }
+}
+
 async function reviseStory(storyId, revisionRequest, options = {}) {
   const sessionEngineVersion = await getSessionEngineVersion(storyId, DEFAULT_STORY_ENGINE_VERSION);
   const { handler: engineHandler } = getStoryEngineHandler(sessionEngineVersion);
@@ -692,6 +749,7 @@ module.exports = {
   writeSong,
   quickGenerate,
   assessSongReadiness,
+  assertSongReadiness,
 
   // Utilities
   getStoryContext,

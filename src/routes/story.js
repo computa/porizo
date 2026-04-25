@@ -2344,6 +2344,11 @@ function registerStoryRoutes(app, {
     if (!state) return;
 
     try {
+      // Re-run song readiness in case the story was confirmed without
+      // target_content_type=song (legacy clients, admin tools, internal scripts).
+      // Throws STORY_NEEDS_INPUT — caught and mapped to 422 below.
+      await writer.assertSongReadiness(story_id);
+
       const result = await writer.writeSong(story_id);
       const lyricsText = extractLyricsText(result.lyrics);
       const validation = validateGeneratedLyrics(lyricsText, state.recipient_name);
@@ -2390,7 +2395,16 @@ function registerStoryRoutes(app, {
       });
     } catch (err) {
       console.error("[Story] Lyrics generation failed:", { story_id, userId, error: err.message });
-      if (err.message && err.message.includes("must be confirmed")) {
+      if (err.code === "STORY_NEEDS_INPUT") {
+        sendError(reply, 422, "STORY_NEEDS_INPUT", err.question || err.message, {
+          recovery: {
+            question: err.question || err.message,
+            suggestions: Array.isArray(err.suggestions) ? err.suggestions : [],
+            missing_blocks: Array.isArray(err.missingBlocks) ? err.missingBlocks : [],
+          },
+          song_readiness: sanitizeSongReadinessForClient(err.songReadiness),
+        });
+      } else if (err.message && err.message.includes("must be confirmed")) {
         sendError(reply, 400, "STORY_NOT_CONFIRMED", "Story must be confirmed before generating lyrics.");
       } else if (err.code === "AI_UNAVAILABLE" || err.message === "AI_UNAVAILABLE") {
         sendError(reply, 503, "AI_UNAVAILABLE", "Lyrics generation is temporarily unavailable.");
@@ -2974,6 +2988,25 @@ function registerStoryRoutes(app, {
       if (storyContext.status !== "confirmed") {
         sendError(reply, 400, "STORY_NOT_CONFIRMED", "Story must be confirmed first.");
         return;
+      }
+
+      // Re-run song readiness gate so the user cannot bypass preflight by
+      // confirming as poem (or via a legacy client) and then calling /to-track.
+      try {
+        await writer.assertSongReadiness(story_id);
+      } catch (readinessErr) {
+        if (readinessErr?.code === "STORY_NEEDS_INPUT") {
+          sendError(reply, 422, "STORY_NEEDS_INPUT", readinessErr.question || readinessErr.message, {
+            recovery: {
+              question: readinessErr.question || readinessErr.message,
+              suggestions: Array.isArray(readinessErr.suggestions) ? readinessErr.suggestions : [],
+              missing_blocks: Array.isArray(readinessErr.missingBlocks) ? readinessErr.missingBlocks : [],
+            },
+            song_readiness: sanitizeSongReadinessForClient(readinessErr.songReadiness),
+          });
+          return;
+        }
+        throw readinessErr;
       }
 
       const riskLevel = await getUserRiskLevel(userId);
