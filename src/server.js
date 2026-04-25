@@ -4151,8 +4151,7 @@ async function start() {
     // Hugging Face token for Seed-VC (personalized voice mode)
     hfToken: config.HF_TOKEN || null,
   };
-  // Debug: Verify HF_TOKEN is loaded
-  console.log(`[Server] HF_TOKEN configured: ${providerConfig.hfToken ? "YES (" + providerConfig.hfToken.substring(0, 10) + "...)" : "NO"}`);
+  console.log(`[Server] HF_TOKEN configured: ${providerConfig.hfToken ? "YES" : "NO"}`);
   if (config.DEV_MODE) {
     console.log("[Server] DEV_MODE enabled - all providers disabled, using placeholders");
   }

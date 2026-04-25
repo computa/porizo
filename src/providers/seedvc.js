@@ -126,7 +126,7 @@ async function convertVoice({
   console.log(`[Seed-VC] Starting personalized voice conversion for track ${track.id}`);
   console.log(`[Seed-VC] Source: ${sourceAudioPath}`);
   console.log(`[Seed-VC] Reference: ${referenceAudioPath}`);
-  console.log(`[Seed-VC] HF_TOKEN provided: ${hfToken ? "YES (" + hfToken.substring(0, 10) + "...)" : "NO"}`);
+  console.log(`[Seed-VC] HF_TOKEN configured: ${hfToken ? "YES" : "NO"}`);
 
   const {
     diffusionSteps = DEFAULT_DIFFUSION_STEPS,
