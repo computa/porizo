@@ -204,6 +204,130 @@ test("writer.confirmStory skips song readiness preflight for poem confirmations"
   }
 });
 
+test("writer.confirmStory passes preflight when story has no required-detail blockers", async () => {
+  const originalConfirmStoryV3 = v3Engine.confirmStoryV3;
+  const originalGetStoryContextV3 = v3Engine.getStoryContextV3;
+
+  writer.initWithRepository({
+    async getSession(sessionId) {
+      return { id: sessionId, engineVersion: "v3" };
+    },
+  });
+
+  v3Engine.getStoryContextV3 = async () => ({
+    recipientName: "Chioma",
+    occasion: "birthday",
+    style: "acoustic",
+    initialPrompt: "Birthday song",
+    narrative: "Chioma is the steady heart of every family gathering.",
+    facts: [],
+    beats: [],
+    atoms: {},
+    primitives: {},
+    motifs: [],
+    dials: {},
+    song_map: null,
+    completed_story_package: {
+      prose: "Chioma is the steady heart of every family gathering.",
+      retained_details: [],
+      detail_coverage_map: {
+        stats: { requiredMissing: 0 },
+        missingRequired: [],
+      },
+    },
+  });
+  v3Engine.confirmStoryV3 = async () => ({
+    narrative: "Locked narrative",
+    completionScore: 90,
+    engineVersion: "v3",
+  });
+
+  try {
+    const result = await writer.confirmStory("story_song_zero_required", {
+      forceConfirm: true,
+      targetContentType: "song",
+    });
+    assert.equal(result.confirmed, true);
+  } finally {
+    v3Engine.confirmStoryV3 = originalConfirmStoryV3;
+    v3Engine.getStoryContextV3 = originalGetStoryContextV3;
+  }
+});
+
+test("writer.confirmStory does not call confirmStoryV3 when preflight throws STORY_NEEDS_INPUT", async () => {
+  const originalReviseStoryV3 = v3Engine.reviseStoryV3;
+  const originalConfirmStoryV3 = v3Engine.confirmStoryV3;
+  const originalGetStoryContextV3 = v3Engine.getStoryContextV3;
+
+  let reviseCalled = false;
+  let confirmCalled = false;
+
+  writer.initWithRepository({
+    async getSession(sessionId) {
+      return { id: sessionId, engineVersion: "v3" };
+    },
+  });
+
+  v3Engine.getStoryContextV3 = async () => ({
+    recipientName: "Chioma",
+    occasion: "birthday",
+    style: "acoustic",
+    initialPrompt: "Birthday song",
+    narrative: "Chioma carried the family through a difficult season.",
+    facts: [],
+    beats: [],
+    atoms: {},
+    primitives: {},
+    motifs: [],
+    dials: {},
+    song_map: null,
+    completed_story_package: {
+      prose: "Chioma carried the family through a difficult season.",
+      retained_details: [
+        {
+          id: "twins_sacrifice",
+          text: "She endured every discomfort and did everything possible to carry the twins safely.",
+          required: true,
+          category: "event",
+        },
+      ],
+      detail_coverage_map: {
+        stats: { requiredMissing: 1 },
+        missingRequired: [
+          {
+            id: "twins_sacrifice",
+            text: "She endured every discomfort and did everything possible to carry the twins safely.",
+          },
+        ],
+      },
+    },
+  });
+  v3Engine.reviseStoryV3 = async () => {
+    reviseCalled = true;
+    return { action: "CONFIRM" };
+  };
+  v3Engine.confirmStoryV3 = async () => {
+    confirmCalled = true;
+    return { narrative: "should not happen", completionScore: 0, engineVersion: "v3" };
+  };
+
+  try {
+    await assert.rejects(
+      () => writer.confirmStory("story_preflight_blocks_confirm", {
+        additionalNotes: "Tighten the bridge a touch.",
+        targetContentType: "song",
+      }),
+      (error) => error.code === "STORY_NEEDS_INPUT",
+    );
+    assert.equal(reviseCalled, false, "preflight runs before reviseStory; revision must not fire");
+    assert.equal(confirmCalled, false, "preflight throw must short-circuit confirmStoryV3");
+  } finally {
+    v3Engine.reviseStoryV3 = originalReviseStoryV3;
+    v3Engine.confirmStoryV3 = originalConfirmStoryV3;
+    v3Engine.getStoryContextV3 = originalGetStoryContextV3;
+  }
+});
+
 test("writer.confirmStory refuses to lock when the revision needs clarification", async () => {
   const originalReviseStoryV3 = v3Engine.reviseStoryV3;
   const originalConfirmStoryV3 = v3Engine.confirmStoryV3;

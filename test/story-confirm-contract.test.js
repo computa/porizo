@@ -105,6 +105,64 @@ describe("POST /story/:story_id/confirm contract", () => {
     assert.equal(body.follow_up_question, "Which part of the ending should change?");
   });
 
+  test("forwards target_content_type='song' to writer.confirmStory and surfaces sanitized 422 envelope", async () => {
+    writer.getStoryState = async () => ({ id: "story_confirm_song_target", userId: TEST_USER_ID });
+    let receivedArgs = null;
+    writer.confirmStory = async (_storyId, options) => {
+      receivedArgs = options;
+      const err = new Error("Before I make this a song, give me one more detail about the twins.");
+      err.code = "STORY_NEEDS_INPUT";
+      err.question = "Before I make this a song, give me one more detail about the twins.";
+      err.suggestions = ["Tell me one sentence about that day."];
+      err.missingBlocks = ["missing_required_story_detail"];
+      err.songReadiness = {
+        ready: false,
+        status: "needs_input",
+        blockers: [
+          {
+            code: "missing_required_story_detail",
+            id: "twins_sacrifice",
+            detail: "[twins_sacrifice] internal-detail-text-leaked",
+            message: "A required story detail is not present in the canonical story package.",
+          },
+        ],
+        warnings: [],
+        required_detail_count: 4,
+        canonical_required_detail_count: 4,
+      };
+      throw err;
+    };
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/story/story_confirm_song_target/confirm",
+      payload: { target_content_type: "song" },
+    });
+
+    assert.equal(response.statusCode, 422);
+    assert.equal(receivedArgs.targetContentType, "song",
+      "route must forward target_content_type to writer.confirmStory");
+
+    const body = response.json();
+    assert.equal(body.error, "STORY_NEEDS_INPUT");
+    assert.equal(body.recovery.question,
+      "Before I make this a song, give me one more detail about the twins.");
+    assert.deepEqual(body.recovery.missing_blocks, ["missing_required_story_detail"]);
+    assert.equal(body.recovery.session_version, undefined,
+      "session_version must be omitted when the writer didn't set sessionVersion");
+
+    // song_readiness must be sanitized: codes and counts only, no internal IDs or detail text.
+    assert.equal(body.song_readiness.ready, false);
+    assert.equal(body.song_readiness.required_detail_count, 4);
+    assert.deepEqual(body.song_readiness.blockers, [
+      { code: "missing_required_story_detail", message: "A required story detail is not present in the canonical story package." },
+    ]);
+    for (const blocker of body.song_readiness.blockers) {
+      assert.equal(blocker.id, undefined, "internal detail IDs must not leak to client");
+      assert.equal(blocker.detail, undefined, "raw detail text must not leak to client");
+    }
+  });
+
   test("passes force_confirm through to writer when the user explicitly proceeds anyway", async () => {
     writer.getStoryState = async () => ({ id: "story_confirm_force", userId: TEST_USER_ID });
     let receivedArgs = null;

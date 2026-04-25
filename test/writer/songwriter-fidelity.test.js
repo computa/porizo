@@ -13,11 +13,16 @@ function loadSongwriterWithSequence(sequence, calls) {
     filename: llmProviderPath,
     loaded: true,
     exports: {
-      generateText: async ({ taskType, prompt }) => {
-        calls.push({ taskType, prompt });
+      generateText: async ({ taskType, prompt, logLabel }) => {
+        calls.push({ taskType, prompt, logLabel });
         const next = sequence.shift();
         if (!next) {
           throw new Error(`No mock response left for ${taskType}`);
+        }
+        // Sentinel: an entry of the form { __throw: Error } makes the mock reject.
+        // Lets tests exercise transient LLM-call failures without redesigning the loader.
+        if (next && typeof next === "object" && next.__throw instanceof Error) {
+          throw next.__throw;
         }
         return {
           text: next,
@@ -34,6 +39,20 @@ function loadSongwriterWithSequence(sequence, calls) {
   };
 
   return require("../../src/writer/songwriter");
+}
+
+function captureStderr(fn) {
+  const original = console.warn;
+  const lines = [];
+  console.warn = (...args) => {
+    lines.push(args.map((a) => (typeof a === "string" ? a : JSON.stringify(a))).join(" "));
+  };
+  return Promise.resolve()
+    .then(fn)
+    .finally(() => {
+      console.warn = original;
+    })
+    .then((value) => ({ value, lines }));
 }
 
 function flattenTestLyrics(lyrics) {
@@ -778,4 +797,219 @@ test("generateLyrics keeps monolithic generation for legacy uncited song maps", 
   assert.equal(lyricCalls.length, 1, "legacy uncited contracts should stay on the monolithic path");
   assert.match(lyricCalls[0].prompt, /## SONG BRIEF/i);
   assert.doesNotMatch(lyricCalls[0].prompt, /## SECTION TASK/i);
+});
+
+// ---------------------------------------------------------------------------
+// Tests added as Phase 1 of deferred /ce:review fixes — lock down the repair
+// path's transient-failure behavior, the post-repair gate, and observability.
+// Reuses the exact context shape from the passing repair test so quality and
+// local-coverage signals match the production-tested code path.
+// ---------------------------------------------------------------------------
+
+function buildRepairContext() {
+  const missingDetail = "You followed every instruction, kept every appointment, endured every discomfort, and did everything possible to carry them safely.";
+  return {
+    missingDetail,
+    badDraft: JSON.stringify({
+      title: "Love in Action",
+      style: "acoustic",
+      sections: [
+        { name: "verse1", lines: [
+          "Chioma kept the home running",
+          "While raising four children",
+          "Our children grew in warmth",
+          "And structure because of you",
+        ] },
+        { name: "chorus", lines: [
+          "Chioma, that was love in action",
+          "A sacrifice beyond compare",
+          "I will never forget the twin pregnancy",
+          "High-risk fear around us",
+        ] },
+      ],
+      anchor_line: "Chioma, that was love in action",
+      story_elements_used: ["home", "appointments", "four children", "twins"],
+    }),
+    // Scores total 30 (< FIDELITY_MIN_SCORE - BORDERLINE_FIDELITY_MARGIN = 33)
+    // so the SELF_CORRECTION_MAX exhaustion path cannot slip through borderline-pass.
+    // invented_details: [] still satisfies canTryTargetedRepair's preconditions.
+    judgeMissing: JSON.stringify({
+      scores: { coverage: 6, flow: 6, specificity: 6, emotional_truth: 6, faithfulness: 6 },
+      missed_facts: [],
+      missing_story_beats: [],
+      uncovered_song_map_slots: [],
+      invented_details: [],
+      flattened_emotional_arc: "",
+      rewrite_targets: [],
+      feedback: "judge says fine but server coverage will block",
+    }),
+    context: {
+      recipient_name: "Chioma",
+      occasion: "birthday",
+      style: "acoustic",
+      message: "I see you and I am grateful",
+      completed_story_package: {
+        prose: `Chioma kept the home running while raising four children. I will never forget the high-risk pregnancy of the twins. ${missingDetail} Because of you, our children grew up in warmth and structure.`,
+        retained_details: [
+          { id: "daily_load", text: "Chioma kept the home running while raising four children.", required: true, category: "context" },
+          { id: "twins_risk", text: "I will never forget the high-risk pregnancy of the twins.", required: true, category: "context" },
+          { id: "followed_everything", text: missingDetail, required: true, category: "event" },
+          { id: "warmth_structure", text: "Because of you, our children grew up in warmth and structure.", required: true, category: "meaning" },
+        ],
+      },
+      narrative: `Chioma kept the home running while raising four children. I will never forget the high-risk pregnancy of the twins. ${missingDetail} Because of you, our children grew up in warmth and structure.`,
+      song_map: {
+        hook: "That was love in action",
+        verse1: ["Chioma kept the home running while raising four children"],
+        chorus: ["That was love in action"],
+        verse2: ["I will never forget the high-risk pregnancy of the twins"],
+        bridge: [missingDetail],
+        key_lines: ["I see you and I am grateful"],
+      },
+    },
+  };
+}
+
+test("repair LLM transient exception does not burn the single-shot repair budget", async () => {
+  const fixture = buildRepairContext();
+  const transientError = new Error("LLM transient failure");
+  // SELF_CORRECTION_MAX=3 → up to 4 attempts. Repair eligible from attempt 1.
+  // Each transient failure must leave targetedRepairTried false so the next
+  // iteration can try again. Provide enough draft/judge pairs + 3 repair throws
+  // (attempts 1, 2, 3 all eligible) to confirm the budget is not consumed early.
+  const { generateLyrics } = loadSongwriterWithSequence(
+    [
+      fixture.badDraft, fixture.judgeMissing,
+      fixture.badDraft, fixture.judgeMissing,
+      { __throw: transientError },
+      fixture.badDraft, fixture.judgeMissing,
+      { __throw: transientError },
+      fixture.badDraft, fixture.judgeMissing,
+      { __throw: transientError },
+    ],
+    [],
+  );
+
+  await assert.rejects(
+    () => generateLyrics(fixture.context),
+    (err) => err.code === "LYRICS_FIDELITY_LOW",
+  );
+});
+
+test("repair returning quality-passing lyrics that still fail fidelity holds the gate", async () => {
+  const fixture = buildRepairContext();
+  // Repair returns a 3-section draft (matches the passing-test shape so quality
+  // assessment behaves the same way). Re-judge fails: low total + invented_details
+  // present, defeating the borderline-pass branch (BORDERLINE_FIDELITY_MARGIN=2,
+  // requires invented_details.length === 0).
+  const repairedButStillBad = JSON.stringify({
+    title: "Love in Action",
+    style: "acoustic",
+    sections: [
+      { name: "verse1", lines: [
+        "Chioma kept the home together",
+        "Work and meals stayed on your mind",
+        "Four little hearts around her",
+        "Our children grew in warmth and structure",
+      ] },
+      { name: "chorus", lines: [
+        "Chioma, that was love in action",
+        "A sacrifice beyond compare",
+        "Through the high-risk twin pregnancy",
+        "You stayed though hardship loomed",
+      ] },
+      { name: "bridge", lines: [
+        "I will never forget what you carried",
+        "And the love that pulled us through",
+        "Even when the days felt heavy",
+      ] },
+    ],
+    anchor_line: "Chioma, that was love in action",
+    story_elements_used: ["work and meals", "four children", "high-risk pregnancy", "love"],
+  });
+  const judgeStillFails = JSON.stringify({
+    scores: { coverage: 5, flow: 6, specificity: 4, emotional_truth: 5, faithfulness: 4 },
+    missed_facts: ["the followed-every-instruction sacrifice"],
+    missing_story_beats: [],
+    uncovered_song_map_slots: [],
+    invented_details: ["hardship loomed (unsupported phrasing)"],
+    flattened_emotional_arc: "",
+    rewrite_targets: ["restore the followed-every-instruction sacrifice"],
+    feedback: "still missing the central sacrifice and added unsupported imagery",
+  });
+  const { generateLyrics } = loadSongwriterWithSequence(
+    [
+      fixture.badDraft, fixture.judgeMissing,
+      fixture.badDraft, fixture.judgeMissing,
+      repairedButStillBad, judgeStillFails,
+      fixture.badDraft, fixture.judgeMissing,
+      fixture.badDraft, fixture.judgeMissing,
+    ],
+    [],
+  );
+
+  await assert.rejects(
+    () => generateLyrics(fixture.context),
+    (err) => err.code === "LYRICS_FIDELITY_LOW",
+  );
+});
+
+test("repair emits repair_attempted observability metric on console.warn", async () => {
+  const fixture = buildRepairContext();
+  const repairedDraft = JSON.stringify({
+    title: "Love in Action",
+    style: "acoustic",
+    sections: [
+      { name: "verse1", lines: [
+        "Chioma kept the home together",
+        "Work and meals stayed on your mind",
+        "Four little hearts around her",
+        "Our children grew in warmth and structure",
+      ] },
+      { name: "chorus", lines: [
+        "Chioma, that was love in action",
+        "A sacrifice beyond compare",
+        "You kept each appointment, every instruction",
+        "Endured every discomfort, did all possible",
+        "To carry them safely through",
+      ] },
+      { name: "bridge", lines: [
+        "I will never forget the high-risk twins",
+        "Through fear and bleeding, you held on",
+        "And brought our children home",
+      ] },
+    ],
+    anchor_line: "Chioma, that was love in action",
+    story_elements_used: [
+      "work and meals",
+      "four children",
+      "kept each appointment and every instruction",
+      "endured every discomfort and did everything possible to carry them safely",
+    ],
+  });
+  const judgePass = JSON.stringify({
+    scores: { coverage: 9, flow: 9, specificity: 9, emotional_truth: 9, faithfulness: 9 },
+    missed_facts: [],
+    missing_story_beats: [],
+    uncovered_song_map_slots: [],
+    invented_details: [],
+    flattened_emotional_arc: "",
+    rewrite_targets: [],
+    feedback: "repaired",
+  });
+  const { generateLyrics } = loadSongwriterWithSequence(
+    [
+      fixture.badDraft, fixture.judgeMissing,
+      fixture.badDraft, fixture.judgeMissing,
+      repairedDraft, judgePass,
+    ],
+    [],
+  );
+
+  const { value: result, lines } = await captureStderr(() => generateLyrics(fixture.context));
+  assert.equal(result.acceptance_reason, "targeted_required_detail_repair_passed");
+  assert.ok(
+    lines.some((l) => l.includes("repair_attempted=") && l.includes("targeted_required_detail")),
+    "repair_attempted metric must be emitted to console.warn",
+  );
 });

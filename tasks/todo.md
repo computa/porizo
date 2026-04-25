@@ -1,3 +1,107 @@
+# Deferred /ce:review fixes (ACTIVE — 2026-04-25, post-707b3b2)
+
+Goal: address the four findings deferred from `707b3b2` in dependency order — tests
+first to lock behavior, then mechanical refactor, then structural refactor, then
+feature work.
+
+## Phase 1 — Test coverage (lock current behavior before refactor)
+
+- [ ] Repair LLM exception path returns to outer attempt loop without flipping `targetedRepairTried` (test-1)
+- [ ] Repair succeeds on quality but fails fidelity → outer gate still throws `LYRICS_FIDELITY_LOW` (test-2)
+- [ ] repair_attempted / repair_passed / repair_failed metric strings appear in stderr (test-5)
+- [ ] Preflight on story with 0 required details emits warning, not blocker (test-4)
+- [ ] Preflight throw leaves story unconfirmed (test-3)
+- [ ] Route layer accepts `target_content_type='song'`, surfaces 422 STORY_NEEDS_INPUT (test-6)
+
+Commit: `Lock down preflight + repair behavior with new tests`
+
+## Phase 2 — JSON extraction consolidation (maint-2)
+
+- [ ] Add `extractFirstJsonObject(text)` to `src/utils/common.js`
+- [ ] Replace inline regex in `parseLyricsJson` with the shared util
+- [ ] Replace 7 other inline callers
+- [ ] Add unit tests for the new util
+
+Commit: `Consolidate LLM JSON extraction into shared util`
+
+## Phase 3 — Songwriter god-module split (maint-1)
+
+- [ ] Extract `src/writer/song-readiness.js`
+- [ ] Extract `src/writer/lyric-repair.js`
+- [ ] Extract `src/writer/song-contract.js`
+- [ ] songwriter.js re-exports same surface
+- [ ] Full test suite + iOS build sanity check
+
+Commit: `Split songwriter.js into song-readiness, lyric-repair, song-contract modules`
+
+## Phase 4 — Gate downstream song paths (adv-002)
+
+- [ ] Persist `song_contract_status` on story row at confirm
+- [ ] Invalidate on story mutation
+- [ ] Re-check at `/story/:id/lyrics`, `/render_preview`, admin re-render
+- [ ] Tests for each path
+
+Commit: `Extend song readiness gate to render_preview, reroll, and admin re-render`
+
+---
+
+# Ship 1.5.7 with fixed share slide (ACTIVE — 2026-04-22)
+
+**Context:** 1.5.6 is live on the App Store with the broken share slide. 1.5.7's version entry in ASC already has the 5 fixed iPhone screenshots staged (uploaded earlier today via `asc screenshots upload`). Need a new build (100) since Apple requires a fresh build for a new version.
+
+- [ ] 1. Bump project.pbxproj: `MARKETING_VERSION 1.5.6 → 1.5.7` and `CURRENT_PROJECT_VERSION 99 → 100`
+- [ ] 2. `xcodebuild archive` — archive path `PorizoApp/build/PorizoApp-v100-157.xcarchive`
+- [ ] 3. `xcodebuild -exportArchive` with `destination=upload` → pushes IPA to App Store Connect
+- [ ] 4. Poll `asc status --app 6758205028` until build 100 is VALID (5-20 min)
+- [ ] 5. `asc versions attach-build --version-id 16675a98-… --build <build-100-id>`
+- [ ] 6. `asc versions update --version-id … --release-type AFTER_APPROVAL`
+- [ ] 7. `asc localizations update --version 16675a98-… --locale en-US --whats-new "App optimisation"` (or user's preferred copy)
+- [ ] 8. `asc validate --app 6758205028 --version-id 16675a98-…` — expect 0 errors
+- [ ] 9. `asc review submit --app 6758205028 --version-id 16675a98-… --build <build-100-id> --confirm`
+- [ ] 10. Confirm state = WAITING_FOR_REVIEW
+
+**Code state:** Zero app code changes since 1.5.6. Build 100 is just 99 recompiled with bumped version numbers — everything that worked on 1.5.6 will work on 1.5.7.
+
+---
+
+# Rebuild Slide 5 (Share) — fix "Make This Song" CTA leak ✅ DONE — 2026-04-22
+
+**Final direction:** Recipient-POV Messages thread (direction B). Phone shows a synthesized iMessage conversation, sender POV — the user (Sarah's contact at top) just sent a coral-gradient rich link card "For Sarah / Happy Birthday 🎂 / A song made just for you / porizo.app" with blue bubble "I made you a birthday song 🎂" above it and "Delivered" below. Centered vertically for balance.
+
+**Iteration history (3 Codex review passes):**
+- V1 (09-reveal.jpg + FloatingPill): rejected — duplicate of slide 4.
+- V2 (iMessage, receiver POV, "Mom" header + "For Sarah" card): rejected — recipient mismatch.
+- V3 (iMessage, sender POV, "Sarah" everywhere, bottom-anchored): rejected — bottom-heavy composition.
+- V4 (iMessage, sender POV, centered cluster, "I made you a birthday song"): **accepted by Codex** as "usable now, not off mark, good candidate for screenshot 5."
+
+- [x] Build `MessagesRecipientScreen` (synthesized iMessage thread)
+- [x] Sender POV + "Sarah" consistent everywhere
+- [x] "I made you a birthday song 🎂" bubble
+- [x] Card zoomed (820px, "Sarah" at 168pt)
+- [x] "Delivered" read-receipt under card
+- [x] Centered vertical composition
+- [x] Copy into canonical `current/{6.1,6.3,6.5,6.9}/porizo-share.png`
+- [ ] User ship decision: upload now via `asc screenshots upload` (replaces 1.5.6 on live store? or hold for next version)
+
+---
+
+# Submit 1.5.6 (build 99) for App Store Review ✅ DONE — 2026-04-21
+
+Submitted via `asc` CLI. All steps completed; version is now WAITING_FOR_REVIEW with automatic release after approval.
+
+- [x] 1. Confirm build 99 uploaded + VALID (via `asc status`)
+- [x] 2. Set "What's New" = "App optimisation" (`asc localizations update --whats-new`)
+- [x] 3. Attach build 99 to version 1.5.6 (`asc versions attach-build`)
+- [x] 4. Run `asc validate` → 0 errors, 1 non-blocking EULA warning (same as prior approved 1.5.x versions)
+- [x] 5. Set release type AFTER_APPROVAL (`asc versions update --release-type`)
+- [x] 6. Dry-run confirmed, then `asc review submit --confirm`
+- [x] 7. Confirmed state = WAITING_FOR_REVIEW
+
+**Submission ID:** `4bb9578e-6666-4958-9a21-4ab85018a036`
+**Next:** monitor via `asc status --app 6758205028` until IN_REVIEW → PENDING_DEVELOPER_RELEASE / APPROVED.
+
+---
+
 # 1.5.4 Post-Approval Fixes (ACTIVE — 2026-04-17)
 
 **Status:** Planning — awaiting user approval before implementation.
@@ -354,3 +458,77 @@ Replace the current 5-step checkout-style `GiftSendFlowView` (Content → Recipi
 - Full `xcodebuild` for device; confirm `** BUILD SUCCEEDED **`
 - Manual: sign out, sign back in, start/complete a create flow, confirm all 4 new events appear in `[Analytics]` debug console lines
 - Update tasks/lessons.md if anything surprised us
+
+
+---
+
+# App Store Screenshots — BOLD redesign (ACTIVE — 2026-04-21)
+
+**Status:** In progress. Current screenshots fail the Paul Solt "3-second rule" — text too small, two-color split, competing accent ornaments.
+
+**Visual target:** Cal.com App Store listing. ONE massive bold headline (1-3 words), single color, phone shows the proof.
+
+## Current design sins (identified)
+1. Headlines split two-color (dark + coral) — halves visual weight
+2. `fontWeight: 700` — not heavy enough; Cal.com uses ~900 (black)
+3. `fontSize: 104-112` — too small for black text on warm cream BG at thumbnail scale
+4. `letterSpacing: -2` — too loose for a display font at this weight
+5. Subtitles + accent bars + 2-color headlines = 4 competing focal points
+
+## Design system shifts
+- [ ] `Headline`: single color (textPrimary), weight **900**, size **180-200**, letter-spacing **-5**
+- [ ] Remove `AccentBar` from slides 1-5, 7 (keep on Slide 6 if desired)
+- [ ] Remove `Subtitle` from all hero slides (let phone show the detail)
+- [ ] Optional eyebrow text above headline (36pt, uppercase, coral, letter-spacing +4) — Cal-style
+
+## Per-slide headline rewrites (short, bold, scannable)
+- [ ] Slide 1 (Hero):   ~~"Your Moment / in a Song."~~  →  **"Your moment.<br/>In a song."** (single color, 190pt)
+- [ ] Slide 2 (Voice):  ~~"Every Word / In Your Voice."~~ → **"In your<br/>voice."** (190pt)
+- [ ] Slide 3 (Create): ~~"Songs & Poems / Made Personal."~~ → **"Made<br/>for them."** (200pt)
+- [ ] Slide 4 (Poems):  ~~"Every Feeling / In Perfect Words."~~ → **"Poems,<br/>too."** (200pt)
+- [ ] Slide 5 (Occasion): ~~"The Gift They'll / Never Forget."~~ → **"The gift<br/>they'll keep."** (180pt)
+- [ ] Slide 6 (Features): Tighten headline; keep feature rows (feature-list slide is OK to be denser)
+- [ ] Slide 7 (Share):  ~~"Share the Gift / They'll Treasure."~~ → **"Share it<br/>privately."** (200pt)
+
+## Verification
+- [ ] Visual preview at localhost:5173 — each headline should be readable at thumbnail scale (~180px wide)
+- [ ] Export all 4 sizes via `capture.mjs`
+- [ ] Compare slide 1 thumbnail with Cal.com "Bookings" slide thumbnail — weight should feel comparable
+
+---
+
+# iPad App Store screenshot redesign (ACTIVE — 2026-04-23)
+
+**Status:** Planning — awaiting user direction on approach.
+
+**Context:**
+- Uploaded iPad set on ASC is pre-Warm-Canvas (`current/ipad/01-explore.png`…`05-poems.png`, 2048×2732).
+- iPhone 6.9" set is live (`current/6.9/porizo-{hero,pick,tell,hear,share}.png`, 1320×2868, Cal-AI/Warm Canvas/Fraunces).
+- Generator `marketing/appstore/screenshots/generator/` is Vite+React+Puppeteer. `src/Generator.tsx` hard-codes `W=1320, H=2868` and absolute-positioned floating cards tuned to phone-portrait aspect (0.46:1). iPad target 2048×2732 is 0.75:1 — 60% wider relative to height.
+- Raw iPad simulator captures exist at `current/raw-ipad/*.png` (2048×2732).
+
+**Naive `SIZES` addition with `fit: "fill"` would horizontally stretch every element by ~60% — unusable.**
+
+## Three approaches
+
+### A — Phone-centered, iPad-composed  (RECOMMENDED for speed)
+Render at 2048×2732, keep iPhone 16 Pro Max mockup as hero, use the extra width for richer side composition (secondary floating card on opposite side, larger callout pills). New `IpadSlideBase` + iPad-tuned `phoneTop`/`phoneScale` + repositioned `FloatingCard`/`FloatingPill` per slide. Effort: 2–3 hrs. Visual: iPhone-forward but intentionally laid out for tablet.
+
+### B — Native iPad mockup  (BEST long-term polish)
+Draw iPad Pro 13" frame in CSS (like existing `Phone` component). Inject `current/raw-ipad/*.png` as `screenshot` prop. Redesign layouts for iPad-native feel. Effort: 1–2 days. Needs re-captures if existing raws don't match the 5 story beats.
+
+### C — Phone PNG letterboxed  (QUICK+DIRTY)
+Capture at 1320×2868 as today, pad with Warm Canvas cream `#F5F0EB` to 2048×2732 via `sharp.extend({...})`. Effort: 20 min. Visual: empty side margins signal "this app doesn't think about iPad."
+
+## Tasks (if Option A approved)
+- [ ] Add `IPAD_W = 2048`, `IPAD_H = 2732` constants + `IpadSlideBase` wrapper in `src/Generator.tsx`
+- [ ] Author 5 iPad slide variants (hero / pick / tell / hear / share) reusing existing phone mockup + screenshots, re-laying floating callouts into the extra horizontal space
+- [ ] Add iPad viewport + capture pass in `capture.mjs` (separate `SIZES_IPAD` array, larger Puppeteer viewport)
+- [ ] Run `node capture.mjs`, verify all 5 PNGs at 2048×2732 via `sips`
+- [ ] Archive old `current/ipad/*` set into `screenshots/archive/ipad-pre-warmcanvas-2026-04-23/`
+- [ ] Promote `exports/ipad-12.9/*.png` → `current/ipad/`
+- [ ] Update `marketing/appstore/CLAUDE.md` with iPad workflow section
+- [ ] Update memory: supersede `project_ipad_screenshots_deferred.md` with a "shipped" note
+
+## Open question for user
+Which approach — A, B, or C?
