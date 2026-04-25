@@ -803,6 +803,7 @@ async function attemptStructuredResponse({
   const result = await generateTextFn({
     prompt,
     taskType: "lyrics",
+    logLabel: `v3:${stage}`,
     temperature: JSON_TEMPERATURE,
     responseMimeType: "application/json",
     maxOutputTokens,

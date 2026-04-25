@@ -2,7 +2,7 @@ const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const config = require("../config");
-const { generateLyrics } = require("../providers/lyrics");
+const { generateLyrics, assessRequiredDetailCoverage } = require("../providers/lyrics");
 const { moderationCheck } = require("../providers/moderation");
 const { writeWav } = require("../utils/audio");
 const { ensureDir, parseJson, toJson, getVersionDir, nowIso, clampNumber } = require("../utils/common");
@@ -42,7 +42,7 @@ const { generateCover, isSharpAvailable } = require("../services/cover-generator
 const { alignLyrics } = require("../providers/whisper");
 const { alignSectionsToTimestamps, sectionsToText } = require("../utils/lyrics-alignment");
 const { sanitizeLyricsForProviderPolicy } = require("../services/lyrics-policy-sanitizer");
-const { buildLyricsContext } = require("../writer/lyrics-context");
+const { buildLyricsContext, summarizeLyricsContextForLog } = require("../writer/lyrics-context");
 const {
   buildRenderContract,
   resolveRenderContract,
@@ -851,6 +851,41 @@ async function startJobRunner({
       track_id: trackId || null,
       timestamp: new Date().toISOString(),
     }));
+  }
+
+  function assertPolicySanitizerPreservedStoryDetails({ originalLyrics, sanitizedLyrics, storyContext, provider, step, trackId }) {
+    if (!storyContext || typeof assessRequiredDetailCoverage !== "function") {
+      return null;
+    }
+    const before = assessRequiredDetailCoverage(originalLyrics, storyContext);
+    if (!before || before.required_count === 0) {
+      return null;
+    }
+    const after = assessRequiredDetailCoverage(sanitizedLyrics, storyContext);
+    const newlyMissing = (after.missing_required || []).filter(
+      (detail) => !(before.missing_required || []).includes(detail)
+    );
+    if (newlyMissing.length === 0) {
+      return { before, after, newly_missing: [] };
+    }
+
+    console.error(JSON.stringify({
+      event: "lyrics_policy_sanitizer_removed_story_detail",
+      provider: provider || null,
+      step: step || null,
+      track_id: trackId || null,
+      required_count: after.required_count,
+      before_missing_count: before.missing_required.length,
+      after_missing_count: after.missing_required.length,
+      newly_missing: newlyMissing.slice(0, 8),
+      timestamp: new Date().toISOString(),
+    }));
+    const err = new Error(
+      `E302_POLICY_SANITIZER_REMOVED_REQUIRED_DETAIL: provider policy rewrite removed required story detail (${newlyMissing.slice(0, 3).join("; ")}).`
+    );
+    err.code = "E302_POLICY_SANITIZER_REMOVED_REQUIRED_DETAIL";
+    err.coverage = { before, after, newly_missing: newlyMissing };
+    throw err;
   }
 
   function lyricsHashSha256(lyricsJson) {
@@ -2094,11 +2129,27 @@ async function startJobRunner({
     lyrics: async ({ track, trackVersion }) => {
       const existing = parseJson(trackVersion.lyrics_json, null, "lyrics_json");
       if (existing) {
+        const existingProvenance = parseJson(trackVersion.provenance_json, {}, "provenance_json");
+        console.log(`[JobRunner] Skipping lyrics regeneration: existing lyrics_json found ${JSON.stringify({
+          quality_score: existingProvenance?.lyrics?.quality_score ?? null,
+          acceptance_reason: existingProvenance?.lyrics?.acceptance_reason || null,
+          provider: existingProvenance?.lyrics?.provider || null,
+          model: existingProvenance?.lyrics?.model || null,
+          filtered_fact_count: existingProvenance?.lyrics?.filtered_fact_count ?? null,
+          prompt_budget: existingProvenance?.lyrics?.prompt_budget || null,
+          lyrics_summary: existingProvenance?.lyrics?.lyrics_summary || null,
+          story_context_summary: existingProvenance?.lyrics?.story_context_summary || null,
+          fidelity: existingProvenance?.lyrics?.fidelity || null,
+        })}`);
         return { lyrics_json: trackVersion.lyrics_json };
       }
 
       try {
-        const result = await generateLyrics(buildLyricsContext(track));
+        const lyricsContext = buildLyricsContext(track);
+        const lyricsContextSummary = summarizeLyricsContextForLog(lyricsContext);
+        console.log(`[JobRunner] Lyrics context summary=${JSON.stringify(lyricsContextSummary)}`);
+
+        const result = await generateLyrics(lyricsContext);
         const compliance = sanitizeLyricsForAllMusicProviders(result.lyrics, {
           recipientName: track?.recipient_name || null,
         });
@@ -2106,6 +2157,14 @@ async function startJobRunner({
           console.warn(
             `[JobRunner] Lyrics compliance sanitizer applied ${compliance.change_count} edit(s) across providers`
           );
+          assertPolicySanitizerPreservedStoryDetails({
+            originalLyrics: result.lyrics,
+            sanitizedLyrics: compliance.lyrics,
+            storyContext: lyricsContext,
+            provider: "all",
+            step: "lyrics",
+            trackId: track.id,
+          });
         }
         if (compliance.blocked) {
           const blockedTerms = compliance.reports
@@ -2121,9 +2180,17 @@ async function startJobRunner({
             compliance_sanitized: compliance.changed,
             compliance_change_count: compliance.change_count,
             compliance_reports: compliance.reports,
+            provider: result.provider || null,
+            model: result.model || null,
+            usage: result.usage || null,
             quality_score: result.quality_score ?? null,
             acceptance_reason: result.acceptance_reason || null,
             filtered_fact_count: Number.isFinite(result.filtered_fact_count) ? result.filtered_fact_count : null,
+            story_context_summary: lyricsContextSummary,
+            prompt_input_summary: result.prompt_input_summary || null,
+            prompt_budget: result.prompt_budget || null,
+            lyrics_summary: result.lyrics_summary || null,
+            contract_validation: result.contract_validation || null,
             fidelity: result.fidelity_debug || null,
           },
           timeline: compliance.changed
@@ -2285,6 +2352,14 @@ async function startJobRunner({
         console.log(
           `[JobRunner] Policy preflight adjusted lyrics for provider=${musicConfig.provider} (${policyPreflight.change_count} edits, passes=${policyPreflight.rewrite_passes})`
         );
+        assertPolicySanitizerPreservedStoryDetails({
+          originalLyrics: lyrics,
+          sanitizedLyrics: lyricsForProvider,
+          storyContext: buildLyricsContext(track),
+          provider: musicConfig.provider,
+          step: "instrumental",
+          trackId: track.id,
+        });
         logSanitizerIntervention({
           provider: musicConfig.provider,
           changeCount: policyPreflight.change_count,
@@ -2532,6 +2607,14 @@ async function startJobRunner({
         console.log(
           `[JobRunner] Policy preflight adjusted lyrics for provider=${musicConfig.provider} (${policyPreflight.change_count} edits, passes=${policyPreflight.rewrite_passes})`
         );
+        assertPolicySanitizerPreservedStoryDetails({
+          originalLyrics: lyrics,
+          sanitizedLyrics: lyricsForProvider,
+          storyContext: buildLyricsContext(track),
+          provider: musicConfig.provider,
+          step: "instrumental_full",
+          trackId: track.id,
+        });
         logSanitizerIntervention({
           provider: musicConfig.provider,
           changeCount: policyPreflight.change_count,

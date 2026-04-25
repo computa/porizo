@@ -20,10 +20,19 @@ const {
   applySongwriterPromptBudget,
   assessQuality,
   assessNarrativeFidelity,
+  summarizeLyricsOutputForLog,
+  summarizeFidelityForLog,
+  buildStoryDetailLedger,
+  buildStoryCertificationBlock,
+  assessRequiredDetailCoverage,
   FIDELITY_MIN_SCORE,
 } = require("../src/writer/songwriter");
 
-const { buildLyricsContext } = require("../src/writer/lyrics-context");
+const {
+  buildLyricsContext,
+  summarizeLyricsContextForLog,
+} = require("../src/writer/lyrics-context");
+const { sanitizeLyricsForAllMusicProviders } = require("../src/workflows/render-contract");
 
 describe("Lyrics Generation", () => {
   describe("buildLyrics (existing template-based)", () => {
@@ -137,40 +146,41 @@ describe("Lyrics Generation", () => {
   });
 
   describe("applySongwriterPromptBudget", () => {
-    it("logs compaction stages when prompt budget forces narrative and key detail trimming", () => {
-      const narrativeText = `NARRATIVE:\n${"This is a long family memory with detail. ".repeat(80)}`;
+    it("records key-detail trimming when a crowded detail list must be reduced", () => {
+      const narrativeText = "";
       const prompt = [
         "## SONG BRIEF",
-        narrativeText,
         "KEY DETAILS:",
-        "- detail one",
-        "- detail two",
-        "- detail three",
-        "- detail four",
-        "- detail five",
-        "- detail six",
-        "- detail seven",
+        "- detail 1",
+        "- detail 2",
+        "- detail 3",
+        "- detail 4",
+        "- detail 5",
+        "- detail 6",
+        "- detail 7",
+        "- detail 8",
+        "- detail 9",
+        "- detail 10",
         "## YOUR TASK",
         "Write the song.",
       ].join("\n");
 
       const result = applySongwriterPromptBudget(prompt, {
         narrativeText,
-        tokenBudget: 140,
+        tokenBudget: 30,
       });
 
-      assert.ok(result.compactions.some((entry) => entry.stage === "narrative_trim"));
       assert.ok(result.compactions.some((entry) => entry.stage === "key_details_trimmed"));
       const detailsTrim = result.compactions.find((entry) => entry.stage === "key_details_trimmed");
-      assert.strictEqual(detailsTrim.droppedCount, 2);
-      assert.match(detailsTrim.droppedPreview, /detail six/i);
+      assert.strictEqual(detailsTrim.droppedCount, 5);
+      assert.match(detailsTrim.droppedPreview, /detail 6/i);
     });
 
     it("records hard-cap summary when the brief must be chopped to fit", () => {
       const prompt = [
         "## SONG BRIEF",
-        "STORY-GROUNDED DETAILS:",
-        ...Array.from({ length: 20 }, (_, index) => `- detail ${index + 1} ${"memory ".repeat(20)}`),
+        "FREEFORM STORY BLOCK:",
+        "memory ".repeat(1000),
         "## YOUR TASK",
         "Write the song.",
       ].join("\n");
@@ -181,6 +191,292 @@ describe("Lyrics Generation", () => {
       assert.ok(hardCap, "expected hard-cap compaction");
       assert.ok(hardCap.removedChars > 0, "expected removed chars to be tracked");
       assert.ok(hardCap.removedPreview.length > 0, "expected a removed preview");
+    });
+
+    it("returns initial and final prompt budget metadata", () => {
+      const prompt = ["## SONG BRIEF", "A short story.", "## YOUR TASK", "Write the song."].join("\n");
+      const result = applySongwriterPromptBudget(prompt, { tokenBudget: 80 });
+
+      assert.ok(Number.isFinite(result.initialTokens));
+      assert.ok(Number.isFinite(result.tokens));
+      assert.ok(Number.isFinite(result.initialChars));
+      assert.ok(Number.isFinite(result.finalChars));
+      assert.ok(Number.isFinite(result.removedCharsTotal));
+      assert.equal(result.initialChars, prompt.length);
+      assert.ok(result.tokens <= result.initialTokens);
+    });
+  });
+
+  describe("story detail ledger", () => {
+    it("preserves required emotional story details before long prose can be compacted", () => {
+      const chiomaStory = [
+        "Chioma, my Chy, when I think about our family, I think about you.",
+        "You are hardworking, dependable, and the one who keeps our home running.",
+        "The high-risk pregnancy of the twins brought bleeding, fear, pain, and uncertainty.",
+        "You followed every instruction, kept every appointment, and endured every discomfort.",
+        "I knew you as a young girl and watched you grow into a strong woman.",
+        "On your birthday, I want you to know that I see you, appreciate you, and am deeply grateful.",
+        "daily family detail ".repeat(1200),
+      ].join(" ");
+      const context = buildLyricsContext({
+        title: "For Chioma",
+        recipient_name: "Chioma",
+        message: "I see you and appreciate you",
+        style: "country",
+        occasion: "birthday",
+        story_context_json: JSON.stringify({
+          narrative: chiomaStory,
+          facts: [
+            { id: "fact_1", text: "Chioma keeps the home running while managing work and four children.", beat: "context" },
+            { id: "fact_2", text: "The high-risk twin pregnancy involved bleeding, fear, pain, and uncertainty.", beat: "turning_point" },
+            { id: "fact_3", text: "She followed every instruction, kept every appointment, and endured every discomfort.", beat: "stakes" },
+            { id: "fact_4", text: "The sender knew her as a young girl and watched her grow into a strong woman.", beat: "meaning" },
+            { id: "fact_5", text: "The birthday message is that she is seen, appreciated, and deeply valued.", beat: "meaning" },
+          ],
+          completed_story_package: {
+            prose: chiomaStory,
+            retained_details: [
+              { id: "detail_twins", text: "high-risk twin pregnancy with bleeding, fear, pain, and uncertainty", required: true, category: "turning_point" },
+              { id: "detail_instructions", text: "followed every instruction, kept every appointment, and endured every discomfort", required: true, category: "sacrifice" },
+              { id: "detail_growth", text: "knew her as a young girl and watched her grow into a strong woman", required: true, category: "transformation" },
+              { id: "detail_gratitude", text: "birthday gratitude: I see you, appreciate you, and am deeply grateful", required: true, category: "gratitude" },
+            ],
+          },
+          song_map: {
+            hook: { idea: "love in action", source_facts: ["fact_5"] },
+            verse1: [{ idea: "home, work, and four children", source_facts: ["fact_1"] }],
+            chorus: [{ idea: "seen, appreciated, and deeply grateful", source_facts: ["fact_5"] }],
+            verse2: [{ idea: "high-risk twin pregnancy and bleeding fear", source_facts: ["fact_2"] }],
+            bridge: [{ idea: "young girl to strong woman", source_facts: ["fact_4"] }],
+          },
+        }),
+      });
+
+      const ledger = buildStoryDetailLedger(context);
+      assert.ok(ledger.some((entry) => entry.id === "detail_twins" && entry.required), "twins detail should be protected");
+      assert.ok(ledger.some((entry) => entry.id === "detail_growth" && entry.required), "growth arc should be protected");
+
+      const promptBuild = buildSongwriterPrompt(context, { returnMetadata: true });
+      assert.match(promptBuild.prompt, /STORY DETAIL LEDGER \(BINDING\)/);
+      assert.match(promptBuild.prompt, /high-risk twin pregnancy with bleeding/i);
+      assert.match(promptBuild.prompt, /young girl and watched her grow/i);
+      assert.ok(
+        promptBuild.metadata.prompt_input_summary.narrative_chars > 2000,
+        "canonical story should survive normalization beyond the old 2,000-char field cap"
+      );
+      assert.equal(
+        promptBuild.metadata.prompt_input_summary.prompt_inputs.story_prose_excerpt.compacted,
+        true,
+        "long prose should be compacted before prompt budgeting, not after emergency pressure"
+      );
+      assert.doesNotMatch(
+        JSON.stringify(promptBuild.metadata.prompt_budget.compactions),
+        /song_brief_hard_cap/,
+        "rich completed-story prompts should compact through the ledger before hard-capping"
+      );
+      assert.ok(promptBuild.metadata.prompt_input_summary.prompt_inputs.story_detail_ledger.required_count >= 4);
+    });
+
+    it("detects missing required details before lyrics can pass fidelity", () => {
+      const context = {
+        recipient_name: "Chioma",
+        narrative: "Chioma endured a high-risk twin pregnancy and became a stronger woman.",
+        completed_story_package: {
+          prose: "Chioma endured a high-risk twin pregnancy and became a stronger woman.",
+          retained_details: [
+            { id: "detail_twins", text: "high-risk twin pregnancy", required: true },
+            { id: "detail_growth", text: "became a stronger woman", required: true },
+          ],
+        },
+      };
+      const coverage = assessRequiredDetailCoverage({
+        sections: [
+          { name: "verse1", lines: ["Chioma kept the house warm", "You made every room feel kind"] },
+          { name: "chorus", lines: ["Chioma, you are loved", "We celebrate you today"] },
+        ],
+      }, context);
+
+      assert.equal(coverage.required_count, 2);
+      assert.equal(coverage.covered_count, 0);
+      assert.ok(coverage.missing_required.some((detail) => /high-risk twin pregnancy/i.test(detail)));
+    });
+
+    it("detects when provider policy sanitation removes a required story detail", () => {
+      const context = {
+        recipient_name: "Ada",
+        narrative: "Ada's birthday story includes the family singing Drake together at the kitchen table.",
+        completed_story_package: {
+          prose: "Ada's birthday story includes the family singing Drake together at the kitchen table.",
+          retained_details: [
+            { id: "detail_drake_memory", text: "Drake song", required: true },
+          ],
+        },
+      };
+      const lyrics = {
+        title: "For Ada",
+        sections: [
+          { name: "verse1", lines: ["We were singing Drake together at the kitchen table"] },
+          { name: "chorus", lines: ["Ada, that birthday stayed in our hearts"] },
+        ],
+      };
+
+      const before = assessRequiredDetailCoverage(lyrics, context);
+      const sanitized = sanitizeLyricsForAllMusicProviders(lyrics, { recipientName: "Ada" });
+      const after = assessRequiredDetailCoverage(sanitized.lyrics, context);
+
+      assert.equal(before.missing_required.length, 0, "original lyrics should cover the required detail");
+      assert.equal(sanitized.changed, true, "policy sanitizer should rewrite provider-risky artist wording");
+      assert.ok(
+        after.missing_required.some((detail) => /drake/i.test(detail)),
+        "post-policy lyrics must be rechecked because sanitizer can remove required story details"
+      );
+    });
+
+    it("does not silently drop required details beyond the prompt ledger display limit", () => {
+      const retainedDetails = Array.from({ length: 50 }, (_, index) => ({
+        id: `detail_${index + 1}`,
+        text: `required family memory number ${index + 1}`,
+        required: true,
+      }));
+      const context = {
+        recipient_name: "Chioma",
+        narrative: retainedDetails.map((detail) => detail.text).join(". "),
+        completed_story_package: {
+          prose: retainedDetails.map((detail) => detail.text).join(". "),
+          retained_details: retainedDetails,
+        },
+      };
+
+      const coverage = assessRequiredDetailCoverage({
+        sections: [
+          { name: "verse1", lines: ["required family memory number 1"] },
+        ],
+      }, context);
+
+      assert.equal(coverage.required_count, 50);
+      assert.ok(
+        coverage.missing_required.some((detail) => /required family memory number 50/i.test(detail)),
+        "fidelity coverage must inspect required details past the generation prompt display limit"
+      );
+    });
+
+    it("keeps tail details visible to the fidelity judge for long completed stories", () => {
+      const longStory = [
+        "Chioma carried the house with steady care.",
+        "middle ordinary detail ".repeat(450),
+        "At the end, the birthday gratitude says I see you, appreciate you, and am deeply grateful.",
+      ].join(" ");
+      const certification = buildStoryCertificationBlock({
+        recipient_name: "Chioma",
+        narrative: longStory,
+        completed_story_package: {
+          prose: longStory,
+          retained_details: [
+            {
+              id: "tail_gratitude",
+              text: "birthday gratitude says I see you, appreciate you, and am deeply grateful",
+              required: true,
+              category: "gratitude",
+            },
+          ],
+        },
+      });
+
+      assert.match(certification, /STORY DETAIL LEDGER \(BINDING\)/);
+      assert.match(certification, /tail_gratitude/);
+      assert.match(certification, /deeply grateful/i);
+      assert.match(certification, /head\/tail/i);
+    });
+  });
+
+  describe("story-to-lyrics observability summaries", () => {
+    it("summarizes a completed story package for live lyric-generation logs", () => {
+      const context = buildLyricsContext({
+        title: "For Chioma",
+        recipient_name: "Chioma",
+        message: "You carried our family with strength",
+        style: "country",
+        occasion: "birthday",
+        story_context_json: JSON.stringify({
+          narrative: "Chioma held the family steady through the twin pregnancy and the years after.",
+          facts: [{ id: "fact_1", text: "She kept every appointment." }],
+          motifs: ["love in action"],
+          song_map: {
+            hook: { idea: "Love in action" },
+            verse1: [{ idea: "appointments and work" }],
+            chorus: [{ idea: "what her strength means" }],
+          },
+          completed_story_package: {
+            prose: "Chioma carried the house, the work, and the fear of the high-risk twin pregnancy without letting go of anyone she loved.",
+            retained_details: [
+              { id: "detail_1", text: "high-risk twin pregnancy", required: true },
+              { id: "detail_2", text: "kept every appointment", required: true },
+            ],
+            detail_coverage_stats: {
+              total: 2,
+              preserved: 1,
+              paraphrased: 0,
+              missing: 1,
+              requiredMissing: 1,
+              coverageRate: 0.5,
+            },
+            missing_required: ["kept every appointment"],
+            detail_budget_warning: "Story is long and may need prioritisation",
+            llm_rewrite_applied: true,
+            schema_version: 2,
+          },
+        }),
+      });
+
+      const summary = summarizeLyricsContextForLog(context);
+
+      assert.equal(summary.recipient_name, "Chioma");
+      assert.equal(summary.has_completed_story_package, true);
+      assert.equal(summary.completed_story.retained_details_count, 2);
+      assert.equal(summary.completed_story.missing_required_count, 1);
+      assert.equal(summary.song_map.verse1, 1);
+      assert.equal(summary.song_map.chorus, 1);
+      assert.equal(summary.facts_count, 1);
+    });
+
+    it("summarizes lyric output and fidelity feedback without leaking the full draft", () => {
+      const lyricsSummary = summarizeLyricsOutputForLog({
+        title: "Love in Action",
+        style: "country",
+        sections: [
+          { name: "verse1", lines: ["Appointments marked in your hand", "You kept the house alive"] },
+          { name: "chorus", lines: ["Chioma, love in action", "You held us through the fear"] },
+        ],
+        anchor_line: "Chioma, love in action",
+        story_elements_used: ["appointments", "the fear", "the house"],
+      });
+
+      const fidelitySummary = summarizeFidelityForLog({
+        total: 33,
+        coverage: 8,
+        flow: 6,
+        specificity: 7,
+        emotional_truth: 7,
+        faithfulness: 5,
+        missing_story_beats: ["growth into a stronger woman"],
+        invented_details: ["sunrise prayers"],
+        uncovered_song_map_slots: ["bridge"],
+        broken_citations: [],
+        rewrite_targets: ["restore the payoff"],
+        flattened_emotional_arc: "The ending is too generic.",
+        feedback: "Restore the birthday gratitude and growth arc.",
+      });
+
+      assert.equal(lyricsSummary.section_count, 2);
+      assert.equal(lyricsSummary.line_count, 4);
+      assert.equal(lyricsSummary.story_elements_used_count, 3);
+      assert.match(lyricsSummary.anchor_line, /Chioma/);
+
+      assert.equal(fidelitySummary.total, 33);
+      assert.equal(fidelitySummary.missing_story_beats_count, 1);
+      assert.equal(fidelitySummary.invented_details_count, 1);
+      assert.deepEqual(fidelitySummary.uncovered_song_map_slots, ["bridge"]);
+      assert.match(fidelitySummary.feedback, /growth arc/i);
     });
   });
 

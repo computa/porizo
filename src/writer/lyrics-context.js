@@ -73,4 +73,85 @@ function buildLyricsContext(track) {
   };
 }
 
-module.exports = { buildLyricsContext };
+function summarizeCoverageForLog(completedStoryPackage) {
+  if (!completedStoryPackage || typeof completedStoryPackage !== "object") {
+    return null;
+  }
+
+  const coverage = completedStoryPackage.detail_coverage_map || {};
+  const stats = coverage.stats || completedStoryPackage.detail_coverage_stats || null;
+  const missingRequired = coverage.missingRequired || completedStoryPackage.missing_required || [];
+  const retainedDetails = Array.isArray(completedStoryPackage.retained_details)
+    ? completedStoryPackage.retained_details
+    : [];
+
+  return {
+    prose_chars: String(completedStoryPackage.prose || "").length,
+    retained_details_count: retainedDetails.length,
+    coverage_stats: stats,
+    missing_required_count: missingRequired.length,
+    missing_required_preview: missingRequired.slice(0, 4).map((detail) =>
+      typeof detail === "string" ? detail : (detail?.text || detail?.id || String(detail || ""))
+    ),
+    detail_budget_warning: completedStoryPackage.detail_budget_warning || null,
+    llm_rewrite_applied: Boolean(completedStoryPackage.llm_rewrite_applied),
+    schema_version: completedStoryPackage.schema_version || null,
+  };
+}
+
+function summarizeSongMapForLog(songMap) {
+  if (!songMap || typeof songMap !== "object") {
+    return null;
+  }
+
+  const slotLengths = Object.fromEntries(
+    ["verse1", "pre", "chorus", "verse2", "bridge", "key_lines"].map((slot) => [
+      slot,
+      Array.isArray(songMap[slot]) ? songMap[slot].length : 0,
+    ])
+  );
+
+  return {
+    has_hook: Boolean(songMap.hook),
+    ...slotLengths,
+    motif_count: Array.isArray(songMap.motifs) ? songMap.motifs.length : 0,
+  };
+}
+
+function summarizeLyricsContextForLog(context = {}) {
+  const completedStory = summarizeCoverageForLog(context.completed_story_package);
+  const narrative = context.completed_story_package?.prose || context.narrative || context.summary?.text || "";
+
+  return {
+    recipient_name: context.recipient_name || null,
+    occasion: context.occasion || null,
+    style: context.style || null,
+    narrative_chars: String(narrative || "").length,
+    facts_count: Array.isArray(context.facts) ? context.facts.length : 0,
+    beats_count: Array.isArray(context.beats) ? context.beats.length : 0,
+    motifs_count: Array.isArray(context.motifs) ? context.motifs.length : 0,
+    memory_answer_count: Array.isArray(context.memory_answers) ? context.memory_answers.length : 0,
+    elements_count: context.elements && typeof context.elements === "object"
+      ? Object.keys(context.elements).filter((key) => Boolean(context.elements[key])).length
+      : 0,
+    atoms_count: context.atoms && typeof context.atoms === "object"
+      ? Object.keys(context.atoms).filter((key) => Boolean(context.atoms[key])).length
+      : 0,
+    primitives_count: context.primitives && typeof context.primitives === "object"
+      ? Object.keys(context.primitives).filter((key) => Boolean(context.primitives[key])).length
+      : 0,
+    has_completed_story_package: Boolean(completedStory),
+    completed_story: completedStory,
+    song_map: summarizeSongMapForLog(context.song_map),
+    has_specific_memory: Boolean(context.specific_memory),
+    has_special_phrases: Boolean(context.special_phrases),
+    has_message: Boolean(context.message),
+  };
+}
+
+module.exports = {
+  buildLyricsContext,
+  summarizeLyricsContextForLog,
+  summarizeCoverageForLog,
+  summarizeSongMapForLog,
+};

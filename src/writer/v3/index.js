@@ -118,6 +118,9 @@ let storyRepo = null;
 const LLM_REWRITE_TIMEOUT_MS = 8000;
 // Only attempt LLM rewrite when missing ratio is below this threshold
 const LLM_REWRITE_MAX_MISSING_RATIO = 0.4;
+const LLM_REWRITE_MAX_PROSE_CHARS = 6000;
+const LLM_REWRITE_MAX_MISSING_DETAILS = 6;
+const LLM_REWRITE_MIN_LENGTH_RETENTION = 0.85;
 
 function createEmptyKernelStageTelemetry() {
   return {
@@ -139,16 +142,32 @@ function createEmptyKernelStageTelemetry() {
 async function rewriteNarrativeWithMissingDetails(prose, missingDetails, recipientName) {
   if (!isLLMAvailable()) return null;
 
-  const totalMissingText = missingDetails.join(" ");
-  const maxLength = prose.length + totalMissingText.length * 1.3;
+  const sourceProse = typeof prose === "string" ? prose.trim() : "";
+  const boundedMissingDetails = Array.isArray(missingDetails)
+    ? missingDetails
+      .filter((detail) => typeof detail === "string" && detail.trim().length > 0)
+      .slice(0, LLM_REWRITE_MAX_MISSING_DETAILS)
+    : [];
+  if (!sourceProse || boundedMissingDetails.length === 0) return null;
+
+  if (sourceProse.length > LLM_REWRITE_MAX_PROSE_CHARS) {
+    console.warn(
+      `[V3] Skipping LLM narrative rewrite: prose_chars=${sourceProse.length} exceeds safe rewrite cap=${LLM_REWRITE_MAX_PROSE_CHARS}`
+    );
+    return null;
+  }
+
+  const totalMissingText = boundedMissingDetails.join(" ");
+  const maxLength = sourceProse.length + totalMissingText.length * 1.3;
+  const minAcceptedLength = Math.floor(sourceProse.length * LLM_REWRITE_MIN_LENGTH_RETENTION);
 
   const prompt = `You are rewriting a completed story narrative to weave in missing details.
 
 CURRENT NARRATIVE:
-${prose}
+${sourceProse}
 
 MISSING DETAILS THAT MUST BE WOVEN IN:
-${missingDetails.map(d => `- ${d}`).join("\n")}
+${boundedMissingDetails.map(d => `- ${d}`).join("\n")}
 
 RULES:
 - Keep the narrative in third person about ${recipientName || "the person"}
@@ -165,6 +184,7 @@ Return ONLY the rewritten narrative text. No preamble, no explanation.`;
       generateText({
         prompt,
         taskType: "story",
+        logLabel: "v3:confirm_rewrite",
         temperature: 0.4,
         maxOutputTokens: Math.ceil(maxLength / 3),
       }),
@@ -174,7 +194,7 @@ Return ONLY the rewritten narrative text. No preamble, no explanation.`;
     ]);
 
     const rewritten = (result?.text || "").trim();
-    if (!rewritten || rewritten.length > maxLength * 1.2) return null;
+    if (!rewritten || rewritten.length > maxLength * 1.2 || rewritten.length < minAcceptedLength) return null;
     return rewritten;
   } catch (err) {
     console.warn("[V3] LLM narrative rewrite failed:", err.message);
@@ -1276,7 +1296,9 @@ function ensureCompletedStoryPackage(state, context) {
   console.log(
     `[V3] Completed story package: ${coverage.stats.preserved}/${coverage.stats.total} preserved, ` +
     `${coverage.stats.paraphrased} paraphrased, ${coverage.stats.requiredMissing} required missing` +
-    (repaired ? " (repaired)" : ""),
+    (repaired ? " (repaired)" : "") +
+    `${detailBudgetWarning ? ` warning=${detailBudgetWarning}` : ""}` +
+    `${coverage.missingRequired?.length ? ` missingPreview=${JSON.stringify(coverage.missingRequired.slice(0, 3))}` : ""}`,
   );
 
   return { state: nextState, repaired, coverage };
@@ -3391,7 +3413,8 @@ async function confirmStoryV3(sessionId, options = {}) {
               }
               console.log(
                 `[V3] LLM narrative rewrite improved coverage: ` +
-                `${confirmPackageResult.coverage.stats.requiredMissing} → ${newCoverage.stats.requiredMissing} missing`,
+                `${confirmPackageResult.coverage.stats.requiredMissing} → ${newCoverage.stats.requiredMissing} missing` +
+                `${newCoverage.missingRequired?.length ? ` remaining=${JSON.stringify(newCoverage.missingRequired.slice(0, 3))}` : ""}`,
               );
             }
           }
@@ -3503,5 +3526,6 @@ module.exports = {
     getTurnProgressScore,
     ensureSemanticStoryIntegrity,
     ensureCompletedStoryPackage,
+    rewriteNarrativeWithMissingDetails,
   },
 };

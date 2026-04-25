@@ -19,6 +19,7 @@ module.exports = {
   validateRecipientAnchor: songwriter.validateRecipientAnchor,
   repairRecipientAnchor: songwriter.repairRecipientAnchor,
   validateAndRepairLyrics: songwriter.validateAndRepairLyrics,
+  assessRequiredDetailCoverage: songwriter.assessRequiredDetailCoverage,
   countSyllables: songwriter.countSyllables,
   MUSIC_STYLES: songwriter.MUSIC_STYLES,
   RELATIONSHIP_DESCRIPTORS: songwriter.RELATIONSHIP_DESCRIPTORS,

@@ -5,7 +5,7 @@ const { createOrGetShareToken } = require("../services/share-service");
 const { nowIso, toJson, parseJson } = require("../utils/common");
 const { moderationCheck, validateGeneratedLyrics } = require("../providers/moderation");
 const { generateLyrics } = require("../providers/lyrics");
-const { buildLyricsContext } = require("../writer/lyrics-context");
+const { buildLyricsContext, summarizeLyricsContextForLog } = require("../writer/lyrics-context");
 const { getFeatureFlag } = require("../services/feature-flags");
 
 function registerTrackRoutes(app, {
@@ -43,6 +43,22 @@ function registerTrackRoutes(app, {
   ensureShareMp4,
   subscriptionManager,
 }) {
+
+  function mergeProvenanceJson(existingJson, patch) {
+    const current = parseJson(existingJson, {}, "provenance_json") || {};
+    return toJson({
+      ...current,
+      ...patch,
+      lyrics: {
+        ...(current.lyrics || {}),
+        ...(patch.lyrics || {}),
+      },
+      timeline: [
+        ...(Array.isArray(current.timeline) ? current.timeline : []),
+        ...(Array.isArray(patch.timeline) ? patch.timeline : []),
+      ],
+    });
+  }
 
   function toTimestamp(value) {
     if (!value) return null;
@@ -1053,8 +1069,12 @@ function registerTrackRoutes(app, {
       return;
     }
     let result;
+    let lyricsContextSummary = null;
     try {
-      result = await generateLyrics(buildLyricsContext(track));
+      const lyricsContext = buildLyricsContext(track);
+      lyricsContextSummary = summarizeLyricsContextForLog(lyricsContext);
+      console.log(`[Tracks] Lyrics generation context summary=${JSON.stringify(lyricsContextSummary)}`);
+      result = await generateLyrics(lyricsContext);
     } catch (err) {
       if (err && (err.code === "AI_UNAVAILABLE" || err.message === "AI_UNAVAILABLE")) {
         sendError(reply, 503, "AI_UNAVAILABLE", "Lyrics generation is temporarily unavailable.");
@@ -1097,9 +1117,32 @@ function registerTrackRoutes(app, {
     }
     // Track anchor presence for quality metrics (but don't block)
     const lyricsStatus = validation.hasAnchor ? result.lyrics_status : "needs_anchor";
+    const provenanceJson = mergeProvenanceJson(trackVersion.provenance_json, {
+      lyrics: {
+        provider: result.provider || null,
+        model: result.model || null,
+        usage: result.usage || null,
+        quality_score: result.quality_score ?? null,
+        acceptance_reason: result.acceptance_reason || null,
+        filtered_fact_count: Number.isFinite(result.filtered_fact_count) ? result.filtered_fact_count : null,
+        story_context_summary: lyricsContextSummary,
+        prompt_input_summary: result.prompt_input_summary || null,
+        prompt_budget: result.prompt_budget || null,
+        lyrics_summary: result.lyrics_summary || null,
+        contract_validation: result.contract_validation || null,
+        fidelity: result.fidelity_debug || null,
+      },
+      timeline: [
+        {
+          at: nowIso(),
+          step: "lyrics",
+          event: "lyrics_generated_from_route",
+        },
+      ],
+    });
     await db.prepare(
-      "UPDATE track_versions SET lyrics_json = ?, lyrics_status = ?, lyrics_updated_at = ? WHERE id = ?"
-    ).run(toJson(result.lyrics), lyricsStatus, nowIso(), trackVersion.id);
+      "UPDATE track_versions SET lyrics_json = ?, lyrics_status = ?, lyrics_updated_at = ?, provenance_json = ? WHERE id = ?"
+    ).run(toJson(result.lyrics), lyricsStatus, nowIso(), provenanceJson, trackVersion.id);
     reply.send({
       lyrics: result.lyrics,
       lyrics_status: lyricsStatus,

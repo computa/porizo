@@ -26,7 +26,10 @@ const SAFETY_BOUNDS = {
   // Backwards compatibility alias
   get maxTurns() { return this.recommendedMaxTurns; },
 
-  maxNarrativeLength: 4000,     // Max characters in narrative (aligned with builder limit)
+  // Rich emotional stories can legitimately exceed 4k chars. Keep this aligned
+  // with the story-to-lyrics canonical story limit so safety checks do not
+  // classify good source material as unsafe.
+  maxNarrativeLength: 12000,
   maxFactsPerTurn: 5,           // Max facts to add per turn
   minQuestionLength: 5,         // Min characters for a question
   maxQuestionLength: 500,       // Max characters for a question

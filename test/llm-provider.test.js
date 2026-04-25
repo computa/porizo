@@ -229,6 +229,7 @@ describe("LLM Provider", () => {
       assert.ok(ERROR_CODES.RATE_LIMIT, "Should have rate limit error code");
       assert.ok(ERROR_CODES.TOKEN_LIMIT, "Should have token limit error code");
       assert.ok(ERROR_CODES.ALL_PROVIDERS_FAILED, "Should have all providers failed code");
+      assert.ok(ERROR_CODES.OUTPUT_TRUNCATED, "Should have output truncated code");
     });
   });
 
@@ -332,6 +333,42 @@ describe("LLM Provider", () => {
           return true;
         }
       );
+    });
+
+    it("retries instead of accepting provider output stopped by max tokens", async () => {
+      process.env.GEMINI_API_KEY = "test-gemini-key";
+      process.env.ANTHROPIC_API_KEY = "";
+      process.env.OPENAI_API_KEY = "";
+      let calls = 0;
+      __setGoogleGenAIFactoryForTest(() => ({
+        models: {
+          async generateContent() {
+            calls += 1;
+            if (calls === 1) {
+              return {
+                text: '{"title":"Partial"}',
+                candidates: [{ finishReason: "MAX_TOKENS" }],
+                usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 20 },
+              };
+            }
+            return {
+              text: '{"title":"Complete"}',
+              candidates: [{ finishReason: "STOP" }],
+              usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 5 },
+            };
+          },
+        },
+      }));
+
+      const result = await generateText({
+        prompt: "Return JSON",
+        taskType: "simple",
+        responseMimeType: "application/json",
+        providers: ["gemini"],
+      });
+
+      assert.strictEqual(calls, 2);
+      assert.deepStrictEqual(JSON.parse(result.text), { title: "Complete" });
     });
 
     it("passes the env-configured Gemini model into the SDK call", async () => {

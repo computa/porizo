@@ -23,6 +23,7 @@ const {
   repairSongMapWithProfile,
   getSignificantWords,
 } = require("./story-semantics");
+const { summarizeLyricsContextForLog } = require("./lyrics-context");
 
 // Syllable constraints for singability
 const MIN_SYLLABLES_PER_LINE = 3;
@@ -32,6 +33,19 @@ const QUALITY_MIN_SCORE = 75;
 const SELF_CORRECTION_MAX = 3;
 const FIDELITY_MIN_SCORE = 35; // out of 50 (70%)
 const BORDERLINE_FIDELITY_MARGIN = 2;
+const LYRICS_LLM_MAX_OUTPUT_TOKENS = 3000;
+const SHORT_FIELD_CHAR_LIMIT = 2000;
+const LONG_STORY_CHAR_LIMIT = 12000;
+const PROMPT_STORY_EXCERPT_CHAR_LIMIT = 2400;
+const PROMPT_LEDGER_MAX_ENTRIES = 40;
+const FIDELITY_LEDGER_MAX_ENTRIES = 80;
+const SECTION_LEDGER_MAX_ENTRIES = 32;
+const LEDGER_PROMPT_TEXT_CHAR_LIMIT = 320;
+const STOP_WORDS_FOR_COVERAGE = new Set([
+  "the", "and", "for", "that", "this", "with", "from", "into", "about", "your",
+  "their", "they", "them", "you", "our", "her", "his", "she", "him", "was",
+  "were", "are", "had", "has", "have", "but", "not", "all", "every", "just",
+]);
 
 const factText = (f) => typeof f === "string" ? f : f?.text || "";
 
@@ -87,7 +101,7 @@ YOUR VOICE:
  * @param {string} text - Raw input text
  * @returns {string} - Sanitized text
  */
-function sanitizeInput(text) {
+function sanitizeText(text, maxLength = SHORT_FIELD_CHAR_LIMIT) {
   if (!text || typeof text !== "string") return "";
 
   return text
@@ -100,9 +114,27 @@ function sanitizeInput(text) {
     .replace(/[\u00A0\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200A\u2028\u2029\u202F\u205F\u3000]/g, " ")
     // Collapse multiple spaces to single space
     .replace(/\s+/g, " ")
-    // Limit length (2000 chars max per field)
-    .slice(0, 2000)
+    // Limit length for the caller's field type.
+    .slice(0, maxLength)
     .trim();
+}
+
+function sanitizeInput(text) {
+  return sanitizeText(text, SHORT_FIELD_CHAR_LIMIT);
+}
+
+function sanitizeLongStoryInput(text, maxLength = LONG_STORY_CHAR_LIMIT) {
+  return sanitizeText(text, maxLength);
+}
+
+function sanitizeLongStoryForPrompt(text) {
+  let sanitized = sanitizeLongStoryInput(text);
+  sanitized = sanitized.replace(/\r\n/g, "\n").replace(/\n{3,}/g, "\n\n");
+  sanitized = sanitized.replace(/<[^>]*>/g, "");
+  sanitized = sanitized.replace(/```[^`]*```/g, "");
+  sanitized = sanitized.replace(/###[^\n]*/g, "");
+  sanitized = sanitized.replace(/\[\[[^\]]*\]\]/g, "");
+  return sanitized.trim();
 }
 
 /**
@@ -137,28 +169,571 @@ function summarizePromptCompactionText(text, maxLen = 160) {
   return `${value.slice(0, maxLen - 1)}…`;
 }
 
+function summarizeArrayPreview(values, maxItems = 4) {
+  if (!Array.isArray(values) || values.length === 0) {
+    return [];
+  }
+  return values.slice(0, maxItems).map((value) => summarizePromptCompactionText(
+    typeof value === "string" ? value : (value?.text || value?.idea || value?.id || String(value || "")),
+    120
+  ));
+}
+
+function summarizePromptInputForLog(baseSummary, details = {}) {
+  return {
+    ...baseSummary,
+    prompt_inputs: {
+      has_structured_story: Boolean(details.hasStructuredStory),
+      has_completed_story: Boolean(details.hasCompletedStory),
+      prose_overlap_gating: Boolean(details.proseIsSubstantial),
+      narrative_source: details.hasCompletedStory ? "completed_story_package.prose" : "narrative_or_summary",
+      key_details_count: details.detailLinesCount || 0,
+      supporting_context_count: details.supportingStoryLinesCount || 0,
+      memory_answers_included_count: details.memoryAnswersIncludedCount || 0,
+      motifs_included_count: details.motifsIncludedCount || 0,
+      story_detail_ledger: details.storyDetailLedger || null,
+      story_prose_excerpt: details.storyProseExcerpt || null,
+      story_arc_present: Boolean(details.storyArcPresent),
+      revision_note_present: Boolean(details.revisionNote),
+      previous_draft_present: Boolean(details.previousDraft),
+      previous_draft_section_count: details.previousDraftSectionCount || 0,
+      contract_valid: details.contractValid ?? null,
+      contract_repaired: details.contractRepaired ?? null,
+      missing_sections: details.missingSections || [],
+      uncited_sections: details.uncitedSections || [],
+    },
+  };
+}
+
+function summarizeLyricsOutputForLog(lyrics) {
+  const sections = Array.isArray(lyrics?.sections) ? lyrics.sections : [];
+  const lines = sections.flatMap((section) => Array.isArray(section.lines) ? section.lines : []);
+  const sectionNames = sections.map((section) => section?.name).filter(Boolean);
+  const storyElementsUsed = Array.isArray(lyrics?.story_elements_used) ? lyrics.story_elements_used : [];
+
+  return {
+    title: lyrics?.title || null,
+    style: lyrics?.style || null,
+    section_count: sections.length,
+    section_names: sectionNames,
+    line_count: lines.length,
+    word_count: lines.join(" ").split(/\s+/).filter(Boolean).length,
+    anchor_line: summarizePromptCompactionText(lyrics?.anchor_line || "", 120),
+    story_elements_used_count: storyElementsUsed.length,
+    story_elements_used_preview: summarizeArrayPreview(storyElementsUsed, 5),
+  };
+}
+
+function summarizeFidelityForLog(fidelity) {
+  if (!fidelity || typeof fidelity !== "object") {
+    return null;
+  }
+
+  return {
+    total: Number.isFinite(fidelity.total) ? fidelity.total : null,
+    coverage: Number.isFinite(fidelity.coverage) ? fidelity.coverage : null,
+    flow: Number.isFinite(fidelity.flow) ? fidelity.flow : null,
+    specificity: Number.isFinite(fidelity.specificity) ? fidelity.specificity : null,
+    emotional_truth: Number.isFinite(fidelity.emotional_truth) ? fidelity.emotional_truth : null,
+    faithfulness: Number.isFinite(fidelity.faithfulness) ? fidelity.faithfulness : null,
+    missing_story_beats_count: Array.isArray(fidelity.missing_story_beats) ? fidelity.missing_story_beats.length : 0,
+    missing_story_beats_preview: summarizeArrayPreview(fidelity.missing_story_beats),
+    invented_details_count: Array.isArray(fidelity.invented_details) ? fidelity.invented_details.length : 0,
+    invented_details_preview: summarizeArrayPreview(fidelity.invented_details),
+    uncovered_song_map_slots: summarizeArrayPreview(fidelity.uncovered_song_map_slots),
+    broken_citations: summarizeArrayPreview(fidelity.broken_citations),
+    rewrite_targets: summarizeArrayPreview(fidelity.rewrite_targets),
+    required_detail_coverage: fidelity.required_detail_coverage
+      ? {
+        required_count: fidelity.required_detail_coverage.required_count || 0,
+        covered_count: fidelity.required_detail_coverage.covered_count || 0,
+        missing_required_preview: summarizeArrayPreview(fidelity.required_detail_coverage.missing_required, 6),
+      }
+      : null,
+    judge_compact_evidence: Boolean(fidelity.judge_compact_evidence),
+    flattened_emotional_arc: summarizePromptCompactionText(fidelity.flattened_emotional_arc || "", 120),
+    feedback: summarizePromptCompactionText(fidelity.feedback || "", 160),
+  };
+}
+
+function roughTokenEstimate(text) {
+  return Math.ceil((text || "").length / 4);
+}
+
+function normalizeLedgerText(text) {
+  return sanitizeInput(text || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function inferSectionForBeat(beat) {
+  const normalized = String(beat || "").toLowerCase();
+  if (["context", "scene", "meeting", "relationship", "who"].includes(normalized)) return "verse1";
+  if (["moment", "struggle", "stakes", "discovery", "turning_point"].includes(normalized)) return "verse2";
+  if (["meaning", "impact", "detail", "resolution"].includes(normalized)) return "chorus";
+  return null;
+}
+
+function inferSectionForCategory(category) {
+  const normalized = String(category || "").toLowerCase();
+  if (["setup", "context", "background", "relationship"].includes(normalized)) return "verse1";
+  if (["sacrifice", "turning_point", "conflict", "stakes", "challenge"].includes(normalized)) return "verse2";
+  if (["transformation", "growth", "payoff"].includes(normalized)) return "bridge";
+  if (["gratitude", "meaning", "resolution", "impact", "theme", "hook"].includes(normalized)) return "chorus";
+  return null;
+}
+
+function inferSectionForDetailText(text) {
+  const normalized = String(text || "").toLowerCase();
+  if (/\b(first met|started|beginning|grew up|young girl|young boy|from the start)\b/.test(normalized)) {
+    return "verse1";
+  }
+  if (/\b(pregnancy|bleeding|fear|pain|uncertainty|appointment|instruction|sacrifice|hardest|challenge|struggle)\b/.test(normalized)) {
+    return "verse2";
+  }
+  if (/\b(grow into|strong woman|strong man|became|changed|respect|love.*more|deepened)\b/.test(normalized)) {
+    return "bridge";
+  }
+  if (/\b(grateful|appreciate|see you|thank|meaning|birthday gratitude|love in action|home)\b/.test(normalized)) {
+    return "chorus";
+  }
+  return null;
+}
+
+function buildFactSectionMap(songMap) {
+  const map = new Map();
+  if (!songMap || typeof songMap !== "object") return map;
+  for (const sectionName of ["verse1", "pre", "chorus", "verse2", "bridge", "key_lines"]) {
+    const entries = Array.isArray(songMap[sectionName]) ? songMap[sectionName] : [];
+    for (const entry of entries) {
+      for (const factId of getSongMapSourceFacts(entry)) {
+        if (!map.has(factId)) {
+          map.set(factId, sectionName === "key_lines" ? "chorus" : sectionName);
+        }
+      }
+    }
+  }
+  for (const factId of getSongMapSourceFacts(songMap.hook)) {
+    if (!map.has(factId)) map.set(factId, "chorus");
+  }
+  return map;
+}
+
+function priorityForLedgerDetail(detail = {}) {
+  if (detail.required === true) return 100;
+  const beat = String(detail.beat || "").toLowerCase();
+  const category = String(detail.category || "").toLowerCase();
+  if (["turning_point", "meaning", "impact", "stakes"].includes(beat)) return 90;
+  if (["sacrifice", "turning_point", "gratitude", "transformation", "required"].includes(category)) return 90;
+  if (detail.section === "chorus" || detail.section === "bridge") return 80;
+  return 60;
+}
+
+function buildStoryDetailLedger(context, options = {}) {
+  const normalized = normalizeContext(context);
+  const factSectionMap = buildFactSectionMap(normalized.song_map);
+  const seen = new Set();
+  const entries = [];
+  const maxEntries = options.maxEntries === "all"
+    ? Number.POSITIVE_INFINITY
+    : (Number.isFinite(options.maxEntries) ? options.maxEntries : PROMPT_LEDGER_MAX_ENTRIES);
+
+  const add = (input = {}) => {
+    const text = sanitizeInput(input.text || input.idea || "");
+    if (!text || text.length < 8) return;
+    const key = normalizeLedgerText(text);
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    const id = sanitizeInput(input.id || `detail_${entries.length + 1}`);
+    const section = sanitizeInput(
+      input.section ||
+      inferSectionForBeat(input.beat) ||
+      inferSectionForCategory(input.category) ||
+      inferSectionForDetailText(text) ||
+      ""
+    );
+    const required = input.required === true || input.must_keep === true || priorityForLedgerDetail({ ...input, section }) >= 90;
+    const priority = priorityForLedgerDetail({ ...input, section, required });
+    entries.push({
+      id,
+      text,
+      section: section || "song",
+      required,
+      priority,
+      source: sanitizeInput(input.source || "story"),
+      category: sanitizeInput(input.category || input.beat || ""),
+    });
+  };
+
+  const retained = normalized.completed_story_package?.retained_details || [];
+  for (const detail of retained) {
+    add({
+      id: detail.id,
+      text: detail.text,
+      required: detail.required,
+      category: detail.category,
+      source: "completed_story",
+    });
+  }
+
+  for (const fact of normalized.facts || []) {
+    add({
+      id: fact.id,
+      text: fact.text,
+      beat: fact.beat,
+      section: factSectionMap.get(fact.id),
+      source: "fact",
+    });
+  }
+
+  if (normalized.primitives?.turning_point) {
+    add({ text: normalized.primitives.turning_point, section: "verse2", required: true, source: "primitive", category: "turning_point" });
+  }
+  if (normalized.primitives?.resolution) {
+    add({ text: normalized.primitives.resolution, section: "chorus", required: true, source: "primitive", category: "resolution" });
+  }
+  if (normalized.primitives?.theme) {
+    add({ text: normalized.primitives.theme, section: "chorus", source: "primitive", category: "theme" });
+  }
+  if (normalized.atoms?.after) {
+    add({ text: normalized.atoms.after, section: "bridge", source: "atom", category: "payoff" });
+  }
+
+  for (const answer of normalized.memory_answers || []) {
+    add({
+      id: answer.question_id,
+      text: answer.answer,
+      source: "memory_answer",
+      category: "memory",
+    });
+  }
+
+  if (hasSongMapContent(normalized.song_map)) {
+    for (const sectionName of ["verse1", "pre", "chorus", "verse2", "bridge", "key_lines"]) {
+      const entriesForSection = Array.isArray(normalized.song_map[sectionName]) ? normalized.song_map[sectionName] : [];
+      for (const entry of entriesForSection) {
+        add({
+          text: getSongMapIdea(entry),
+          section: sectionName === "key_lines" ? "chorus" : sectionName,
+          required: false,
+          source: "song_map",
+        });
+      }
+    }
+    if (normalized.song_map.hook) {
+      add({
+        text: getSongMapIdea(normalized.song_map.hook),
+        section: "chorus",
+        required: true,
+        source: "song_map",
+        category: "hook",
+      });
+    }
+  }
+
+  const proseForCheckpoints = normalized.completed_story_package?.prose || normalized.narrative || normalized.summary_text || "";
+  const checkpointFloor = Number.isFinite(maxEntries) ? Math.min(maxEntries, 10) : 10;
+  if (proseForCheckpoints && entries.length < checkpointFloor) {
+    const checkpointCount = Number.isFinite(maxEntries)
+      ? Math.min(8, maxEntries - entries.length)
+      : 8;
+    const checkpoints = extractStoryCheckpointSentences(proseForCheckpoints, checkpointCount);
+    for (const checkpoint of checkpoints) {
+      add({
+        id: `story_checkpoint_${checkpoint.index + 1}`,
+        text: checkpoint.text,
+        section: inferSectionFromSentencePosition(checkpoint.index, checkpoint.total),
+        required: false,
+        source: "story_checkpoint",
+        category: "story_checkpoint",
+      });
+    }
+  }
+
+  return entries
+    .sort((a, b) => b.priority - a.priority)
+    .slice(0, maxEntries)
+    .map((entry, index) => ({
+      ...entry,
+      id: entry.id || `detail_${index + 1}`,
+    }));
+}
+
+function formatStoryDetailLedgerForPrompt(ledger = [], options = {}) {
+  const details = Array.isArray(ledger) ? ledger : [];
+  if (details.length === 0) return "";
+  const maxTextChars = Number.isFinite(options.maxTextChars)
+    ? options.maxTextChars
+    : LEDGER_PROMPT_TEXT_CHAR_LIMIT;
+  const lines = details.map((entry) => {
+    const marker = entry.required ? "MUST KEEP" : "use if natural";
+    return `- [${entry.id}] [${entry.section}] [${marker}] ${sanitizeForPrompt(summarizePromptCompactionText(entry.text, maxTextChars))}`;
+  });
+  return [
+    "STORY DETAIL LEDGER (BINDING):",
+    "These are the product-critical story details. Required details must survive in the lyrics through literal wording or clear paraphrase. Do not drop them just because the prose is long.",
+    ...lines,
+  ].join("\n");
+}
+
+function summarizeStoryDetailLedgerForLog(ledger = []) {
+  const details = Array.isArray(ledger) ? ledger : [];
+  const required = details.filter((entry) => entry.required);
+  const bySection = {};
+  for (const entry of details) {
+    bySection[entry.section || "song"] = (bySection[entry.section || "song"] || 0) + 1;
+  }
+  return {
+    count: details.length,
+    required_count: required.length,
+    by_section: bySection,
+    required_preview: summarizeArrayPreview(required.map((entry) => `${entry.id}: ${entry.text}`), 8),
+  };
+}
+
+function splitStorySentences(text) {
+  return sanitizeLongStoryInput(text)
+    .split(/(?<=[.!?])\s+/)
+    .map((sentence) => sentence.trim())
+    .filter((sentence) => sentence.length >= 24 && sentence.length <= 280);
+}
+
+function scoreStoryCheckpointSentence(sentence, index, total) {
+  const lower = sentence.toLowerCase();
+  let score = 0;
+  const signalWords = [
+    "birth", "birthday", "pregnancy", "bleeding", "fear", "pain", "uncertainty",
+    "appointment", "instruction", "sacrifice", "mother", "children", "family",
+    "home", "work", "grateful", "appreciate", "respect", "strong", "strength",
+    "changed", "never forget", "remember", "love", "care", "steady",
+  ];
+  for (const word of signalWords) {
+    if (lower.includes(word)) score += 2;
+  }
+  if (index <= 1) score += 2;
+  if (index >= total - 2) score += 2;
+  if (/\b(i see you|thank you|never forget|because of you)\b/i.test(sentence)) score += 4;
+  return score;
+}
+
+function extractStoryCheckpointSentences(text, maxEntries = 8) {
+  const sentences = splitStorySentences(text);
+  if (sentences.length === 0) return [];
+  const scored = sentences.map((sentence, index) => ({
+    sentence,
+    index,
+    score: scoreStoryCheckpointSentence(sentence, index, sentences.length),
+  }));
+  const selected = scored
+    .sort((a, b) => b.score - a.score || a.index - b.index)
+    .slice(0, maxEntries)
+    .sort((a, b) => a.index - b.index);
+  return selected.map((entry) => ({
+    text: entry.sentence,
+    index: entry.index,
+    total: sentences.length,
+  }));
+}
+
+function inferSectionFromSentencePosition(index, total) {
+  if (!Number.isFinite(index) || !Number.isFinite(total) || total <= 1) return "song";
+  const ratio = index / Math.max(1, total - 1);
+  if (ratio < 0.35) return "verse1";
+  if (ratio < 0.7) return "verse2";
+  return "chorus";
+}
+
+function buildPromptStoryExcerpt(text, maxChars = PROMPT_STORY_EXCERPT_CHAR_LIMIT) {
+  const prose = sanitizeLongStoryForPrompt(text);
+  if (!prose || prose.length <= maxChars) {
+    return {
+      text: prose,
+      compacted: false,
+      originalChars: prose.length,
+      excerptChars: prose.length,
+    };
+  }
+
+  const headLength = Math.floor(maxChars * 0.55);
+  const tailLength = Math.floor(maxChars * 0.35);
+  const head = prose.slice(0, headLength).trim();
+  const tail = prose.slice(Math.max(headLength, prose.length - tailLength)).trim();
+  const excerpt = [
+    head,
+    `[Middle story prose compacted from ${prose.length} chars. Use the binding detail ledger and song map for omitted specifics.]`,
+    tail,
+  ].join("\n");
+
+  return {
+    text: excerpt,
+    compacted: true,
+    originalChars: prose.length,
+    excerptChars: excerpt.length,
+  };
+}
+
+function filterLedgerForSection(ledger, sectionName, maxEntries = SECTION_LEDGER_MAX_ENTRIES) {
+  const normalizedSection = String(sectionName || "").toLowerCase();
+  const entries = Array.isArray(ledger) ? ledger : [];
+  return entries
+    .filter((entry) =>
+      entry.section === normalizedSection ||
+      entry.section === "song" ||
+      (normalizedSection === "chorus" && entry.section === "key_lines")
+    )
+    .sort((a, b) => Number(b.required) - Number(a.required) || b.priority - a.priority)
+    .slice(0, maxEntries);
+}
+
+function filterLedgerAgainstCompletedStory(ledger, completedProse) {
+  const details = Array.isArray(ledger) ? ledger : [];
+  const proseWordSet = completedProse && completedProse.length >= 100
+    ? new Set(getSignificantWords(completedProse))
+    : null;
+  if (!proseWordSet) return details;
+  return details.filter((entry) => {
+    if (entry.source === "story_checkpoint") return true;
+    const words = getSignificantWords(entry.text);
+    if (words.length === 0) return true;
+    const overlap = significantWordOverlap(entry.text, proseWordSet);
+    if (words.length < 3) return overlap > 0;
+    return overlap > 0.3;
+  });
+}
+
+function buildCompactStoryEvidenceBlock(storyContext) {
+  const normalized = normalizeContext(storyContext);
+  const completedProse = normalized.completed_story_package?.prose || "";
+  const ledger = filterLedgerAgainstCompletedStory(
+    buildStoryDetailLedger(normalized, { maxEntries: FIDELITY_LEDGER_MAX_ENTRIES }),
+    completedProse
+  );
+  const parts = [];
+  if (ledger.length > 0) {
+    parts.push(formatStoryDetailLedgerForPrompt(ledger));
+  }
+  if (hasSongMapContent(normalized.song_map)) {
+    const factMap = buildFactMap(normalized.facts || []);
+    const lines = [];
+    if (normalized.song_map.hook) {
+      lines.push(`- hook: ${formatSongMapTextForPrompt(getSongMapIdea(normalized.song_map.hook))}`);
+    }
+    for (const sectionName of ["verse1", "pre", "chorus", "verse2", "bridge", "key_lines"]) {
+      const entries = Array.isArray(normalized.song_map[sectionName]) ? normalized.song_map[sectionName] : [];
+      if (entries.length === 0) continue;
+      lines.push(`- ${sectionName}: ${entries.map((entry) => {
+        const idea = formatSongMapTextForPrompt(getSongMapIdea(entry));
+        const support = getSongMapSourceFacts(entry)
+          .map((factId) => factMap.get(factId)?.text)
+          .filter(Boolean)
+          .map((text) => formatSongMapTextForPrompt(text, 180))
+          .join("; ");
+        return support ? `${idea} (${support})` : idea;
+      }).join(" | ")}`);
+    }
+    if (lines.length > 0) {
+      parts.push(`PRIMARY SONG MAP:\n${lines.join("\n")}`);
+    }
+  }
+  const prose = completedProse || normalized.narrative || "";
+  if (prose) {
+    const excerpt = buildPromptStoryExcerpt(prose, 2200);
+    parts.push(`STORY PROSE EXCERPT${excerpt.compacted ? " (HEAD/TAIL)" : ""}:\n${excerpt.text}`);
+  }
+  return parts.join("\n\n");
+}
+
+function assessRequiredDetailCoverage(lyrics, storyContext) {
+  const lyricWordSet = new Set(getSignificantWords(flattenLyricsText(lyrics)));
+  const required = buildStoryDetailLedger(storyContext, { maxEntries: "all" })
+    .filter((entry) => entry.required);
+  const requiredTokenFrequency = buildRequiredDetailTokenFrequency(required);
+  const lyricCoverageTokenSet = new Set(getCoverageTokens(flattenLyricsText(lyrics)));
+  const details = required.map((entry) => {
+    const overlap = significantWordOverlap(entry.text, lyricWordSet);
+    const distinctiveTokens = getCoverageTokens(entry.text)
+      .filter((token) => (requiredTokenFrequency.get(token) || 0) <= 2);
+    const distinctiveOverlap = distinctiveTokens.length > 0
+      ? distinctiveTokens.filter((token) => lyricCoverageTokenSet.has(token)).length / distinctiveTokens.length
+      : 1;
+    return {
+      id: entry.id,
+      section: entry.section,
+      text: entry.text,
+      overlap,
+      distinctive_tokens: distinctiveTokens,
+      distinctive_overlap: distinctiveOverlap,
+      covered: overlap >= 0.3 && distinctiveOverlap >= 0.5,
+    };
+  });
+  const missing = details.filter((entry) => !entry.covered);
+  return {
+    required_count: required.length,
+    covered_count: details.length - missing.length,
+    missing_required: missing.map((entry) => `[${entry.id}] ${entry.text}`),
+    detail_scores: details.map((entry) => ({
+      id: entry.id,
+      section: entry.section,
+      overlap: Number(entry.overlap.toFixed(2)),
+      distinctive_overlap: Number(entry.distinctive_overlap.toFixed(2)),
+      covered: entry.covered,
+    })),
+  };
+}
+
+function getCoverageTokens(text) {
+  return normalizeCoverageKey(text)
+    .split(/\W+/)
+    .filter(Boolean)
+    .map((token) => token.replace(/s$/, ""))
+    .filter((token) => (/^\d+$/.test(token) || (token.length > 2 && !STOP_WORDS_FOR_COVERAGE.has(token))));
+}
+
+function normalizeCoverageKey(text) {
+  return String(text || "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
+function buildRequiredDetailTokenFrequency(requiredDetails) {
+  const frequency = new Map();
+  for (const detail of requiredDetails || []) {
+    const tokens = new Set(getCoverageTokens(detail?.text || ""));
+    for (const token of tokens) {
+      frequency.set(token, (frequency.get(token) || 0) + 1);
+    }
+  }
+  return frequency;
+}
+
 function applySongwriterPromptBudget(prompt, {
   narrativeText = "",
   tokenBudget = 5500,
 } = {}) {
-  const roughTokens = (text) => Math.ceil((text || "").length / 4);
   const compactions = [];
   let finalPrompt = String(prompt || "").trim();
-  let tokens = roughTokens(finalPrompt);
+  const initialChars = finalPrompt.length;
+  const initialTokens = roughTokenEstimate(finalPrompt);
+  let tokens = initialTokens;
 
   if (tokens > tokenBudget) {
     const overBy = tokens - tokenBudget;
     const charsToRemove = overBy * 4;
     if (narrativeText && narrativeText.length > charsToRemove + 100) {
-      const truncatedNarrative = narrativeText.slice(0, narrativeText.length - charsToRemove - 50);
-      const lastPeriod = truncatedNarrative.lastIndexOf(".");
-      const cleanNarrative = lastPeriod > 50 ? truncatedNarrative.slice(0, lastPeriod + 1) : truncatedNarrative;
+      const targetLength = Math.max(900, narrativeText.length - charsToRemove - 50);
+      const headLength = Math.ceil(targetLength * 0.55);
+      const tailLength = Math.max(250, Math.floor(targetLength * 0.35));
+      const head = narrativeText.slice(0, headLength);
+      const tail = narrativeText.slice(Math.max(headLength, narrativeText.length - tailLength));
+      const cleanNarrative = `${head.trim()}\n[Story prose compacted. Required details are preserved in the binding detail ledger.]\n${tail.trim()}`;
       finalPrompt = finalPrompt.replace(narrativeText, cleanNarrative);
-      const nextTokens = roughTokens(finalPrompt);
+      const nextTokens = roughTokenEstimate(finalPrompt);
       compactions.push({
         stage: "narrative_trim",
         removedChars: Math.max(0, narrativeText.length - cleanNarrative.length),
-        removedPreview: summarizePromptCompactionText(narrativeText.slice(cleanNarrative.length)),
+        removedPreview: summarizePromptCompactionText(narrativeText.slice(head.length, Math.max(head.length, narrativeText.length - tail.length))),
         beforeTokens: tokens,
         afterTokens: nextTokens,
       });
@@ -175,7 +750,7 @@ function applySongwriterPromptBudget(prompt, {
       if (nextSection !== -1) {
         const removedSection = finalPrompt.slice(removeIdx, nextSection);
         finalPrompt = finalPrompt.slice(0, removeIdx) + finalPrompt.slice(nextSection);
-        const nextTokens = roughTokens(finalPrompt);
+        const nextTokens = roughTokenEstimate(finalPrompt);
         compactions.push({
           stage: "supporting_context_removed",
           removedSection: removedSection.split("\n")[0].replace(/:$/, ""),
@@ -198,7 +773,7 @@ function applySongwriterPromptBudget(prompt, {
         const droppedLines = lines.slice(5);
         const truncated = `KEY DETAILS:\n${lines.slice(0, 5).join("\n")}`;
         finalPrompt = finalPrompt.replace(detailsSection, truncated);
-        const nextTokens = roughTokens(finalPrompt);
+        const nextTokens = roughTokenEstimate(finalPrompt);
         compactions.push({
           stage: "key_details_trimmed",
           keptCount: 5,
@@ -212,6 +787,27 @@ function applySongwriterPromptBudget(prompt, {
     }
   }
 
+  if (tokens > tokenBudget && narrativeText) {
+    const proseOmission = "[Full story prose omitted after extracting the binding detail ledger and song map. Use the ledger as the source of truth.]";
+    const beforeChars = finalPrompt.length;
+    if (finalPrompt.includes(narrativeText)) {
+      finalPrompt = finalPrompt.replace(narrativeText, proseOmission);
+    } else {
+      finalPrompt = finalPrompt.replace(/\[Story prose compacted\. Required details are preserved in the binding detail ledger\.\][\s\S]*?(?=\n[A-Z][A-Z\s()/-]+:|\n## |\n$)/, proseOmission);
+    }
+    const nextTokens = roughTokenEstimate(finalPrompt);
+    if (nextTokens < tokens) {
+      compactions.push({
+        stage: "story_prose_replaced_by_ledger",
+        removedChars: Math.max(0, beforeChars - finalPrompt.length),
+        removedPreview: "Full prose removed after ledger extraction",
+        beforeTokens: tokens,
+        afterTokens: nextTokens,
+      });
+      tokens = nextTokens;
+    }
+  }
+
   if (tokens > tokenBudget) {
     const briefIdx = finalPrompt.indexOf("## SONG BRIEF");
     const taskIdx = finalPrompt.indexOf("## YOUR TASK");
@@ -219,8 +815,8 @@ function applySongwriterPromptBudget(prompt, {
       const header = finalPrompt.slice(0, briefIdx);
       const brief = finalPrompt.slice(briefIdx, taskIdx);
       const tail = finalPrompt.slice(taskIdx);
-      const headerTokens = roughTokens(header);
-      const tailTokens = roughTokens(tail);
+      const headerTokens = roughTokenEstimate(header);
+      const tailTokens = roughTokenEstimate(tail);
       const briefBudget = (tokenBudget - headerTokens - tailTokens) * 4;
       if (briefBudget > 200) {
         const truncatedBrief = brief.slice(0, briefBudget);
@@ -228,7 +824,7 @@ function applySongwriterPromptBudget(prompt, {
         const cleanBrief = lastNewline > 100 ? truncatedBrief.slice(0, lastNewline + 1) : truncatedBrief;
         const removedBriefTail = brief.slice(cleanBrief.length);
         finalPrompt = `${header}${cleanBrief}\n\n${tail}`;
-        const nextTokens = roughTokens(finalPrompt);
+        const nextTokens = roughTokenEstimate(finalPrompt);
         compactions.push({
           stage: "song_brief_hard_cap",
           removedChars: Math.max(0, removedBriefTail.length),
@@ -241,7 +837,16 @@ function applySongwriterPromptBudget(prompt, {
     }
   }
 
-  return { prompt: finalPrompt, tokens, tokenBudget, compactions };
+  return {
+    prompt: finalPrompt,
+    tokens,
+    tokenBudget,
+    initialTokens,
+    initialChars,
+    finalChars: finalPrompt.length,
+    removedCharsTotal: Math.max(0, initialChars - finalPrompt.length),
+    compactions,
+  };
 }
 
 /**
@@ -575,12 +1180,17 @@ function getSongMapSourceFacts(entry) {
   return entry.source_facts.filter(Boolean);
 }
 
+function formatSongMapTextForPrompt(text, maxChars = 220) {
+  return sanitizeForPrompt(summarizePromptCompactionText(text || "", maxChars));
+}
+
 function formatSongMapEntry(entry, factMap) {
-  const idea = getSongMapIdea(entry);
+  const idea = formatSongMapTextForPrompt(getSongMapIdea(entry));
   if (!idea) return "";
   const support = getSongMapSourceFacts(entry)
     .map((factId) => factMap.get(factId)?.text)
-    .filter(Boolean);
+    .filter(Boolean)
+    .map((text) => formatSongMapTextForPrompt(text, 180));
   if (support.length === 0) return `- ${idea}`;
   return `- ${idea}\n  Support: ${support.join("; ")}`;
 }
@@ -1302,8 +1912,23 @@ async function generateSectionLyrics(context, sectionName, options = {}) {
     ? getSectionText(options.previousDraft, normalizedSection)
     : "";
   const repairNote = sanitizeForPrompt(options.repairNote || "");
-  const narrative = sanitizeForPrompt(promptContext.narrative || promptContext.summary_text || "");
+  const sectionStorySource = promptContext.completed_story_package?.prose ||
+    promptContext.narrative ||
+    promptContext.summary_text ||
+    "";
+  const narrativeExcerpt = buildPromptStoryExcerpt(sectionStorySource, 1000);
+  const narrative = narrativeExcerpt.text;
   const message = sanitizeForPrompt(promptContext.message || "");
+  const sectionLedger = filterLedgerForSection(
+    filterLedgerAgainstCompletedStory(
+      buildStoryDetailLedger(promptContext, { maxEntries: FIDELITY_LEDGER_MAX_ENTRIES }),
+      promptContext.completed_story_package?.prose || ""
+    ),
+    normalizedSection
+  );
+  const sectionLedgerText = sectionLedger.length > 0
+    ? `${formatStoryDetailLedgerForPrompt(sectionLedger, { maxTextChars: 240 }).replace("STORY DETAIL LEDGER (BINDING):", "BINDING DETAIL LEDGER FOR THIS SECTION:")}\n`
+    : "";
 
   const prompt = `${SONGWRITER_PERSONA}
 
@@ -1321,6 +1946,7 @@ GLOBAL STORY BRIEF:
 - Core message: ${message || "tell the story truthfully"}
 ${narrative ? `- Narrative: ${narrative}` : ""}
 
+${sectionLedgerText}
 PRIMARY SECTION CONTRACT:
 ${formatSectionContractEntries(sectionEntries, factMap)}
 
@@ -1336,6 +1962,7 @@ Return ONLY valid JSON:
   const llmResult = await generateText({
     prompt,
     taskType: "lyrics",
+    logLabel: `songwriter:section:${normalizedSection}`,
     temperature: 0.7,
     responseMimeType: "application/json",
   });
@@ -1395,6 +2022,10 @@ async function generateLyricsBySection(context, options = {}) {
   let provider = null;
   let model = null;
   let usage = {};
+  const reusedSections = [];
+  const generatedSectionSummaries = [];
+
+  console.log(`[Songwriter] Sectioned generation order=${JSON.stringify(order)} regenerate=${JSON.stringify(sectionsToRegenerate ? Array.from(sectionsToRegenerate) : [])}`);
 
   for (const sectionName of order) {
     const shouldReuse = sectionsToRegenerate
@@ -1403,6 +2034,7 @@ async function generateLyricsBySection(context, options = {}) {
 
     if (shouldReuse) {
       const reusedSection = previousSectionsByName.get(sectionName);
+      reusedSections.push(sectionName);
       generatedSections.push({
         name: sectionName,
         lines: (reusedSection.lines || []).map((line) => typeof line === "string" ? line : (line && line.text) || "").filter(Boolean),
@@ -1417,6 +2049,13 @@ async function generateLyricsBySection(context, options = {}) {
       priorSections: generatedSections,
       previousDraft,
       repairNote: buildSectionRepairNote(sectionName, options.fidelity, previousDraft),
+    });
+    generatedSectionSummaries.push({
+      section: sectionName,
+      provider: sectionResult.provider || null,
+      model: sectionResult.model || null,
+      line_count: Array.isArray(sectionResult.section?.lines) ? sectionResult.section.lines.length : 0,
+      story_elements_used_count: Array.isArray(sectionResult.story_elements_used) ? sectionResult.story_elements_used.length : 0,
     });
     generatedSections.push(sectionResult.section);
     if (!provider && sectionResult.provider) provider = sectionResult.provider;
@@ -1436,6 +2075,12 @@ async function generateLyricsBySection(context, options = {}) {
     provider,
     model,
     usage,
+    observability: {
+      sectioned_generation: true,
+      generated_sections: generatedSectionSummaries,
+      reused_sections: reusedSections,
+      generation_order: order,
+    },
   };
 }
 
@@ -1445,33 +2090,31 @@ function buildStoryCertificationBlock(storyContext) {
   const parts = [];
   const factMap = buildFactMap(normalized.facts);
   const hasCompletedStory = !!(normalized.completed_story_package?.prose);
+  const completedProse = normalized.completed_story_package?.prose || "";
+  const fidelityLedger = filterLedgerAgainstCompletedStory(
+    buildStoryDetailLedger(normalized, { maxEntries: FIDELITY_LEDGER_MAX_ENTRIES }),
+    completedProse
+  );
+
+  if (fidelityLedger.length > 0) {
+    parts.push(formatStoryDetailLedgerForPrompt(fidelityLedger));
+  }
 
   // CR-5: Build proseWordSet from completed_story_package.prose (not narrative).
   // After repair, prose and narrative can diverge; the judge must certify against prose.
-  const completedProse = normalized.completed_story_package?.prose || "";
   const proseWordSet = hasCompletedStory && completedProse.length >= 100
     ? new Set(getSignificantWords(completedProse))
     : null;
 
   // When completed story package exists, use it as primary narrative for the judge
   if (hasCompletedStory) {
-    parts.push(`Completed story (PRIMARY — single source of truth):\n${completedProse.slice(0, 3000)}`);
+    const excerpt = buildPromptStoryExcerpt(completedProse, 3200);
+    parts.push(`Completed story ${excerpt.compacted ? "excerpt (PRIMARY — head/tail)" : "(PRIMARY — single source of truth)"}:\n${excerpt.text}`);
     parts.push("Primary check: every lyric detail must trace to the completed story above. Details that appear in lyrics but NOT in the completed story are invented and should fail faithfulness.");
-
-    // Include retained details as reference for the judge
-    const retainedDetails = normalized.completed_story_package.retained_details || [];
-    if (retainedDetails.length > 0) {
-      const detailLines = retainedDetails
-        .slice(0, 15)
-        .map((d) => `- [${d.id || "?"}] [${d.category || "detail"}] ${sanitizeInput(d.text || "")}`)
-        .filter((line) => line.length > 10);
-      if (detailLines.length > 0) {
-        parts.push(`Retained details (extracted from original story — major story elements should be represented in the lyrics. Not every retained detail needs literal mention, but no lyric detail should be invented outside this source material):\n${detailLines.join("\n")}`);
-      }
-    }
   } else if (normalized.narrative) {
     // Legacy fallback: use narrative as before
-    parts.push(`Narrative:\n${normalized.narrative.slice(0, 2400)}`);
+    const excerpt = buildPromptStoryExcerpt(normalized.narrative, 2400);
+    parts.push(`Narrative${excerpt.compacted ? " excerpt (head/tail)" : ""}:\n${excerpt.text}`);
   }
 
   // CR-4: When completed story exists, filter facts directly by prose overlap (> 0.3),
@@ -1492,7 +2135,7 @@ function buildStoryCertificationBlock(storyContext) {
       included = sorted.slice(0, Math.min(3, scored.length));
     }
     if (included.length > 0) {
-      parts.push(`Key facts:\n${included.slice(0, 10).map((fact) => `- [${fact.id || "fact"}] ${fact.text}`).join("\n")}`);
+      parts.push(`Key facts:\n${included.slice(0, 20).map((fact) => `- [${fact.id || "fact"}] ${fact.text}`).join("\n")}`);
     }
   } else {
     // No completed story: preserve original behavior with filterFactsForPrompt
@@ -1500,14 +2143,14 @@ function buildStoryCertificationBlock(storyContext) {
       .map((fact) => ({ id: fact.id || "", text: factText(fact) }))
       .filter((fact) => fact.text);
     if (facts.length > 0) {
-      parts.push(`Key facts:\n${facts.slice(0, 10).map((fact) => `- [${fact.id || "fact"}] ${fact.text}`).join("\n")}`);
+      parts.push(`Key facts:\n${facts.slice(0, 20).map((fact) => `- [${fact.id || "fact"}] ${fact.text}`).join("\n")}`);
     }
   }
 
   if (normalized.song_map && hasSongMapContent(normalized.song_map)) {
     const songMapLines = [];
     if (normalized.song_map.hook) {
-      const hookIdea = getSongMapIdea(normalized.song_map.hook);
+      const hookIdea = formatSongMapTextForPrompt(getSongMapIdea(normalized.song_map.hook));
       const hookSources = getSongMapSourceFacts(normalized.song_map.hook);
       songMapLines.push(`- hook: ${hookIdea}${hookSources.length > 0 ? ` [source_facts: ${hookSources.join(", ")}]` : ""}`);
     }
@@ -1515,11 +2158,12 @@ function buildStoryCertificationBlock(storyContext) {
       const lines = normalized.song_map[key] || [];
       if (Array.isArray(lines) && lines.length > 0) {
         songMapLines.push(`- ${key}: ${lines.map((entry) => {
-          const idea = getSongMapIdea(entry);
+          const idea = formatSongMapTextForPrompt(getSongMapIdea(entry));
           const sources = getSongMapSourceFacts(entry);
           const support = sources
             .map((factId) => factMap.get(factId)?.text)
             .filter(Boolean)
+            .map((text) => formatSongMapTextForPrompt(text, 180))
             .join("; ");
           return `${idea}${sources.length > 0 ? ` [source_facts: ${sources.join(", ")}${support ? ` => ${support}` : ""}]` : ""}`;
         }).join(" | ")}`);
@@ -1612,11 +2256,11 @@ function normalizeContext(raw = {}) {
   const what_makes_them_special = sanitizeInput(raw.what_makes_them_special || raw.whatMakesThemSpecial || "");
   const initial_prompt = sanitizeInput(raw.initial_prompt || raw.initialPrompt || raw.message || "");
 
-  const summary_text = sanitizeInput(
+  const summary_text = sanitizeLongStoryInput(
     raw.summary?.summary_text || raw.summary?.text || raw.narrative || ""
   );
   const soul = sanitizeInput(raw.summary?.soul || raw.soul || raw.what_makes_them_special || "");
-  const narrative = sanitizeInput(raw.narrative || summary_text || "");
+  const narrative = sanitizeLongStoryInput(raw.narrative || summary_text || "");
 
   const elements = sanitizeStringMap(raw.elements);
 
@@ -1683,7 +2327,7 @@ function normalizeContext(raw = {}) {
       .map(a => ({
         question_id: sanitizeInput(a?.question_id),
         question: sanitizeInput(a?.question),
-        answer: sanitizeInput(a?.answer),
+        answer: sanitizeLongStoryInput(a?.answer, 4000),
       }))
       .filter(a => a.question && a.answer)
     : [];
@@ -1691,7 +2335,7 @@ function normalizeContext(raw = {}) {
   // Pass through the completed story package when present (canonical authority source)
   const completed_story_package = raw.completed_story_package && typeof raw.completed_story_package === "object"
     ? {
-      prose: sanitizeInput(raw.completed_story_package.prose || ""),
+      prose: sanitizeLongStoryInput(raw.completed_story_package.prose || ""),
       retained_details: Array.isArray(raw.completed_story_package.retained_details)
         ? raw.completed_story_package.retained_details
         : [],
@@ -1901,7 +2545,7 @@ function buildSongwriterPrompt(context, options = {}) {
       ? prepared.memory_answers.map(a => ({
         question_id: a.question_id,
         question: sanitizeForPrompt(a.question),
-        answer: sanitizeForPrompt(a.answer),
+        answer: buildPromptStoryExcerpt(a.answer, 700).text,
       }))
       : [],
   };
@@ -1912,6 +2556,11 @@ function buildSongwriterPrompt(context, options = {}) {
   const proseIsSubstantial = hasCompletedStory
     && completedProse.length >= 100
     && completedProse.split(/[.!?]\s+/).filter(Boolean).length >= 2;
+  const storyDetailLedger = filterLedgerAgainstCompletedStory(
+    buildStoryDetailLedger(prepared, { maxEntries: PROMPT_LEDGER_MAX_ENTRIES }),
+    prepared.completed_story_package?.prose || ""
+  );
+  const storyDetailLedgerText = formatStoryDetailLedgerForPrompt(storyDetailLedger);
 
   // Pre-compute prose word set for parallel-content and fact filtering.
   // When proseIsSubstantial, parallel fields with <40% overlap are suppressed
@@ -1941,6 +2590,10 @@ function buildSongwriterPrompt(context, options = {}) {
     contextSections.push(`HISTORY: They have known each other for ${safe.years_known} years`);
   }
 
+  if (storyDetailLedgerText) {
+    contextSections.push(storyDetailLedgerText);
+  }
+
   if (safe.specific_memory && shouldIncludeParallel(safe.specific_memory)) {
     contextSections.push(`SPECIFIC MEMORY: "${safe.specific_memory}"`);
   }
@@ -1954,13 +2607,20 @@ function buildSongwriterPrompt(context, options = {}) {
   }
 
   const narrativeText = hasCompletedStory
-    ? sanitizeForPrompt(prepared.completed_story_package.prose)
-    : (safe.summary_text || safe.narrative);
-  if (narrativeText) {
+    ? prepared.completed_story_package.prose
+    : (prepared.summary_text || prepared.narrative);
+  const promptStoryExcerpt = buildPromptStoryExcerpt(narrativeText);
+  if (promptStoryExcerpt.text) {
     if (hasCompletedStory) {
-      contextSections.push(`AUTHORITATIVE COMPLETED STORY:\nThis is the single source of truth. Every lyric detail must trace to this story.\n${narrativeText}`);
+      const label = promptStoryExcerpt.compacted
+        ? "AUTHORITATIVE COMPLETED STORY EXCERPT"
+        : "AUTHORITATIVE COMPLETED STORY";
+      contextSections.push(`${label}:\nThis is the single source of truth. Every lyric detail must trace to this story. If compacted, the binding ledger above carries the required details.\n${promptStoryExcerpt.text}`);
     } else {
-      contextSections.push(`STORY NARRATIVE:\n${narrativeText}`);
+      const label = promptStoryExcerpt.compacted
+        ? "STORY NARRATIVE EXCERPT"
+        : "STORY NARRATIVE";
+      contextSections.push(`${label}:\n${promptStoryExcerpt.text}`);
     }
   }
 
@@ -1968,6 +2628,7 @@ function buildSongwriterPrompt(context, options = {}) {
     contextSections.push(`THE SOUL (most important details):\n${safe.soul}`);
   }
 
+  let motifsIncludedCount = 0;
   if (safe.motifs.length > 0) {
     // Gate motifs through prose overlap when completed story exists (consistent with judge block)
     let filteredMotifs = safe.motifs;
@@ -1983,6 +2644,7 @@ function buildSongwriterPrompt(context, options = {}) {
       }
     }
     if (filteredMotifs.length > 0) {
+      motifsIncludedCount = filteredMotifs.length;
       contextSections.push(`RECURRING MOTIFS:\n${filteredMotifs.map((motif) => `- ${motif}`).join("\n")}`);
     }
   }
@@ -2023,7 +2685,7 @@ function buildSongwriterPrompt(context, options = {}) {
       }
     }
   }
-  if (detailLines.length > 0) {
+  if (detailLines.length > 0 && !hasCompletedStory) {
     contextSections.push(`KEY DETAILS:\n${detailLines.join("\n")}`);
   }
 
@@ -2103,8 +2765,9 @@ function buildSongwriterPrompt(context, options = {}) {
     );
   }
 
+  let includedAnswers = [];
   if (Array.isArray(safe.memory_answers) && safe.memory_answers.length > 0) {
-    let includedAnswers = safe.memory_answers;
+    includedAnswers = safe.memory_answers;
     if (hasCompletedStory && proseWordSet) {
       const scored = safe.memory_answers.map(a => {
         const overlap = significantWordOverlap(a.answer || "", proseWordSet);
@@ -2198,7 +2861,45 @@ Return ONLY valid JSON:
   "story_elements_used": ["list of story details woven into lyrics"]
 }`;
 
-  const budgetedPrompt = applySongwriterPromptBudget(prompt, { narrativeText, tokenBudget: 5500 });
+  const budgetedPrompt = applySongwriterPromptBudget(prompt, {
+    narrativeText: promptStoryExcerpt.text || narrativeText,
+    tokenBudget: 5500,
+  });
+  const promptInputSummary = summarizePromptInputForLog(summarizeLyricsContextForLog(prepared), {
+    hasStructuredStory,
+    hasCompletedStory,
+    proseIsSubstantial,
+    detailLinesCount: detailLines.length,
+    supportingStoryLinesCount: supportingStoryLines.length,
+    memoryAnswersIncludedCount: includedAnswers.length,
+    motifsIncludedCount,
+    storyArcPresent: Boolean(storyArcSection),
+    storyDetailLedger: summarizeStoryDetailLedgerForLog(storyDetailLedger),
+    storyProseExcerpt: {
+      compacted: promptStoryExcerpt.compacted,
+      original_chars: promptStoryExcerpt.originalChars,
+      excerpt_chars: promptStoryExcerpt.excerptChars,
+    },
+    revisionNote,
+    previousDraft,
+    previousDraftSectionCount: Array.isArray(options.previousDraft?.sections) ? options.previousDraft.sections.length : 0,
+    contractValid: contractReport.valid,
+    contractRepaired: ensured.repaired,
+    missingSections: ensured.initialReport.missingSections || [],
+    uncitedSections: ensured.initialReport.uncitedSections || [],
+  });
+
+  console.log(`[Songwriter] Prompt input summary=${JSON.stringify({
+    ...promptInputSummary,
+    prompt_budget: {
+      initial_tokens: budgetedPrompt.initialTokens,
+      final_tokens: budgetedPrompt.tokens,
+      token_budget: budgetedPrompt.tokenBudget,
+      initial_chars: budgetedPrompt.initialChars,
+      final_chars: budgetedPrompt.finalChars,
+      removed_chars_total: budgetedPrompt.removedCharsTotal,
+    },
+  })}`);
 
   if (budgetedPrompt.compactions.length > 0) {
     console.warn(`[Songwriter] Prompt compaction summary=${JSON.stringify(budgetedPrompt.compactions)}`);
@@ -2210,6 +2911,24 @@ Return ONLY valid JSON:
 
   if (budgetedPrompt.tokens > budgetedPrompt.tokenBudget) {
     console.warn(`[Songwriter] Prompt still over budget after all truncation: ~${budgetedPrompt.tokens} tokens (max: ${budgetedPrompt.tokenBudget}). Proceeding with best effort.`);
+  }
+
+  if (options.returnMetadata) {
+    return {
+      prompt: budgetedPrompt.prompt,
+      metadata: {
+        prompt_input_summary: promptInputSummary,
+        prompt_budget: {
+          initial_tokens: budgetedPrompt.initialTokens,
+          final_tokens: budgetedPrompt.tokens,
+          token_budget: budgetedPrompt.tokenBudget,
+          initial_chars: budgetedPrompt.initialChars,
+          final_chars: budgetedPrompt.finalChars,
+          removed_chars_total: budgetedPrompt.removedCharsTotal,
+          compactions: budgetedPrompt.compactions,
+        },
+      },
+    };
   }
 
   return budgetedPrompt.prompt;
@@ -2291,12 +3010,15 @@ function refineContextForRetry(context, fidelity) {
 }
 
 async function generateLyricsWithLLM(context, options = {}) {
-  const prompt = buildSongwriterPrompt(context, options);
+  const promptBuild = buildSongwriterPrompt(context, { ...options, returnMetadata: true });
+  const prompt = promptBuild.prompt;
   const llmResult = await generateText({
     prompt,
     taskType: "lyrics",
+    logLabel: "songwriter:lyrics",
     temperature: 0.7,
     responseMimeType: "application/json",
+    maxOutputTokens: LYRICS_LLM_MAX_OUTPUT_TOKENS,
   });
 
   const rawText = (llmResult.text || "").trim();
@@ -2329,6 +3051,7 @@ async function generateLyricsWithLLM(context, options = {}) {
     provider: llmResult.provider,
     model: llmResult.model,
     usage: llmResult.usage,
+    observability: promptBuild.metadata,
   };
 }
 
@@ -2389,6 +3112,7 @@ async function generateLyricsFromContext(context) {
   const ensured = ensureSongContract(normalized);
   const workingContext = ensured.context;
   const canUseSectionedGeneration = ensured.report.valid && ensured.initialReport.hasCitedContract;
+  const contextSummary = summarizeLyricsContextForLog(workingContext);
 
   if (!isAvailable()) {
     const err = new Error("AI_UNAVAILABLE");
@@ -2402,7 +3126,21 @@ async function generateLyricsFromContext(context) {
   let bestFidelityScore = -1;
   let lastFidelity = null;
   let lastDraft = null;
-  const hasStoryContext = !!(workingContext.narrative || (workingContext.facts && workingContext.facts.length > 0));
+  const hasStoryContext = !!(
+    workingContext.narrative ||
+    workingContext.completed_story_package?.prose ||
+    (workingContext.facts && workingContext.facts.length > 0)
+  );
+
+  console.log(`[Songwriter] Starting lyric generation context=${JSON.stringify({
+    ...contextSummary,
+    has_story_context: hasStoryContext,
+    sectioned_generation_enabled: canUseSectionedGeneration,
+    contract_valid: ensured.report.valid,
+    contract_repaired: ensured.repaired,
+    missing_sections: ensured.initialReport.missingSections || [],
+    uncited_sections: ensured.initialReport.uncitedSections || [],
+  })}`);
 
   for (let attempt = 0; attempt <= SELF_CORRECTION_MAX; attempt++) {
     try {
@@ -2422,6 +3160,13 @@ async function generateLyricsFromContext(context) {
       const sectionsToRegenerate = canUseSectionedGeneration && lastFidelity
         ? identifySectionsForRepair(lastFidelity, lastDraft)
         : null;
+      console.log(`[Songwriter] Attempt ${attempt + 1}/${SELF_CORRECTION_MAX + 1} revision=${JSON.stringify({
+        quality_repair: attempt > 0 && lastQuality < QUALITY_MIN_SCORE,
+        fidelity_repair: Boolean(safeFeedback),
+        sections_to_regenerate: sectionsToRegenerate || [],
+        last_quality: Number.isFinite(lastQuality) ? lastQuality : null,
+        last_fidelity: summarizeFidelityForLog(lastFidelity),
+      })}`);
       const llmResult = canUseSectionedGeneration
         ? await generateLyricsBySection(retryContext, {
           previousDraft: lastDraft,
@@ -2437,6 +3182,19 @@ async function generateLyricsFromContext(context) {
       const qualityScore = assessQuality(lyrics, workingContext);
       lastQuality = qualityScore;
       lastDraft = lyrics;
+      const lyricsSummary = summarizeLyricsOutputForLog(lyrics);
+
+      console.log(`[Songwriter] Candidate lyrics summary=${JSON.stringify({
+        attempt: attempt + 1,
+        provider: llmResult.provider || null,
+        model: llmResult.model || null,
+        usage: llmResult.usage || null,
+        validation_issue_count: validated.issues.length,
+        lyrics: lyricsSummary,
+        prompt_budget: llmResult.observability?.prompt_budget || null,
+        generation_observability: llmResult.observability || null,
+      })}`);
+      console.log(`[Songwriter] Candidate quality attempt=${attempt + 1} score=${qualityScore}`);
 
       if (qualityScore >= QUALITY_MIN_SCORE) {
         // Track best quality-passing lyrics
@@ -2447,6 +3205,9 @@ async function generateLyricsFromContext(context) {
           model: llmResult.model,
           usage: llmResult.usage,
           filtered_fact_count: filterFactsForPrompt(workingContext.facts || [], workingContext.narrative).length,
+          prompt_input_summary: llmResult.observability?.prompt_input_summary || contextSummary,
+          prompt_budget: llmResult.observability?.prompt_budget || null,
+          lyrics_summary: lyricsSummary,
           contract_validation: {
             valid: ensured.report.valid,
             repaired: ensured.repaired,
@@ -2465,6 +3226,13 @@ async function generateLyricsFromContext(context) {
           try {
             const fidelity = await assessNarrativeFidelity(lyrics, workingContext);
             candidateResult.fidelity_debug = fidelity;
+            console.log(`[Songwriter] Fidelity summary=${JSON.stringify({
+              attempt: attempt + 1,
+              provider: llmResult.provider || null,
+              model: llmResult.model || null,
+              quality_score: qualityScore,
+              fidelity: summarizeFidelityForLog(fidelity),
+            })}`);
             if (
               !bestLyrics ||
               fidelity.total > bestFidelityScore ||
@@ -2479,8 +3247,27 @@ async function generateLyricsFromContext(context) {
             }
             lastFidelity = fidelity;
           } catch (judgeErr) {
-            console.warn("[Songwriter] Fidelity judge failed, accepting quality-passing lyrics:", judgeErr.message);
-            return { ...candidateResult, acceptance_reason: "judge_unavailable_quality_passed" };
+            console.warn("[Songwriter] Fidelity judge failed for story-backed lyrics:", judgeErr.message);
+            lastFidelity = {
+              total: 0,
+              coverage: 0,
+              flow: 0,
+              specificity: 0,
+              emotional_truth: 0,
+              faithfulness: 0,
+              missing_story_beats: ["fidelity judge unavailable"],
+              invented_details: [],
+              rewrite_targets: ["retry with a smaller, more explicit story-detail ledger"],
+              feedback: `Fidelity judge unavailable: ${judgeErr.message}`,
+            };
+            if (attempt >= SELF_CORRECTION_MAX) {
+              const fidelityError = new Error("LYRICS_FIDELITY_LOW");
+              fidelityError.code = "LYRICS_FIDELITY_LOW";
+              fidelityError.fidelity = lastFidelity;
+              fidelityError.cause = judgeErr;
+              throw fidelityError;
+            }
+            continue;
           }
 
           if (attempt >= SELF_CORRECTION_MAX) {
@@ -2646,10 +3433,8 @@ function assessQuality(lyrics, storyContext) {
  * Returns { scores, total, missed_facts, feedback } or throws on failure.
  */
 async function assessNarrativeFidelity(lyrics, storyContext) {
-  const storyBlock = buildStoryCertificationBlock(storyContext);
   const lyricsText = flattenLyricsText(lyrics);
-
-  const prompt = `You are a story fidelity judge for song lyrics. Score how well these lyrics TELL the story (not just mention keywords).
+  const buildPrompt = (storyBlock, compactMode = false) => `You are a story fidelity judge for song lyrics. Score how well these lyrics TELL the story (not just mention keywords).
 
 STORY:
 ${storyBlock}
@@ -2665,13 +3450,25 @@ ${lyricsText}
 5. FAITHFULNESS: Do the lyrics avoid unsupported concrete details? Deduct for each invented person, event, object, place, activity, food, or quoted phrase not grounded in the story.
 
 Use the full story package, especially the primary song map, to judge whether each song section is carrying the right part of the story. A lyric that mentions the right keywords in the wrong section should lose points.
+${compactMode ? "\nThis is a compact evidence bundle built to fit the model context. Treat the binding detail ledger as the source of truth for required story details." : ""}
 
 Return ONLY valid JSON:
 {"scores":{"coverage":N,"flow":N,"specificity":N,"emotional_truth":N,"faithfulness":N},"total":N,"missed_facts":["fact not in lyrics"],"missing_story_beats":["missing setup/turn/payoff detail"],"uncovered_song_map_slots":["verse1/chorus/bridge slot not expressed"],"broken_citations":["contract item cites the wrong fact"],"unsupported_lines":["lyric line not supported by the story"],"invented_details":["detail not in story"],"flattened_emotional_arc":"short note or empty string","rewrite_targets":["line or issue to fix"],"feedback":"one sentence: what to fix"}`;
 
+  const fullStoryBlock = buildStoryCertificationBlock(storyContext);
+  let prompt = buildPrompt(fullStoryBlock, false);
+  let compactJudge = false;
+  if (roughTokenEstimate(prompt) > 5400) {
+    const compactStoryBlock = buildCompactStoryEvidenceBlock(storyContext);
+    prompt = buildPrompt(compactStoryBlock, true);
+    compactJudge = true;
+    console.warn(`[Songwriter] Fidelity judge using compact evidence: promptTokens~${roughTokenEstimate(prompt)}`);
+  }
+
   const result = await generateText({
     prompt,
     taskType: "fidelity_judge",
+    logLabel: "songwriter:fidelity_judge",
     temperature: 0.1,
     responseMimeType: "application/json",
   });
@@ -2706,7 +3503,26 @@ Return ONLY valid JSON:
     throw new Error(`Fidelity scores out of range: ${computed}`);
   }
   parsed.scores = { ...scores, ...numericScores };
-  parsed.total = computed;
+  const requiredCoverage = assessRequiredDetailCoverage(lyrics, storyContext);
+  if (requiredCoverage.missing_required.length > 0) {
+    parsed.missing_story_beats = [
+      ...(Array.isArray(parsed.missing_story_beats) ? parsed.missing_story_beats : []),
+      ...requiredCoverage.missing_required,
+    ];
+    parsed.rewrite_targets = [
+      ...(Array.isArray(parsed.rewrite_targets) ? parsed.rewrite_targets : []),
+      ...requiredCoverage.missing_required.map((detail) => `restore required story detail: ${detail}`),
+    ];
+    parsed.feedback = [
+      parsed.feedback,
+      `Required story details are missing: ${requiredCoverage.missing_required.slice(0, 4).join("; ")}`,
+    ].filter(Boolean).join(" ");
+  }
+  parsed.required_detail_coverage = requiredCoverage;
+  parsed.total = requiredCoverage.missing_required.length > 0
+    ? Math.min(computed, FIDELITY_MIN_SCORE - 1)
+    : computed;
+  parsed.judge_compact_evidence = compactJudge;
 
   return parsed;
 }
@@ -2795,6 +3611,11 @@ module.exports = {
   assessNarrativeFidelity,
   assessQuality,
   buildStoryCertificationBlock,
+  buildStoryDetailLedger,
+  buildCompactStoryEvidenceBlock,
+  assessRequiredDetailCoverage,
   applySongwriterPromptBudget,
+  summarizeLyricsOutputForLog,
+  summarizeFidelityForLog,
   FIDELITY_MIN_SCORE,
 };

@@ -23,6 +23,12 @@ const {
   buildStoryCertificationBlock,
 } = require("../../src/writer/songwriter");
 const { buildLyricsContext } = require("../../src/writer/lyrics-context");
+const {
+  STORY_CONTEXT_FACTS_MAX,
+  STORY_CONTEXT_NARRATIVE_MAX_LENGTH,
+  STORY_CONTEXT_RETAINED_DETAILS_MAX,
+  buildTrackStoryContextPayload,
+} = require("../../src/writer/story-context-serialization");
 
 // ---------------------------------------------------------------------------
 // Fixture: Chioma story with follow-up conversation + facts + atoms
@@ -117,35 +123,9 @@ const SONG_MAP = {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Simulates the exact to-track serialization from src/routes/story.js:2727 */
+/** Simulates the exact to-track serialization from src/routes/story.js. */
 function simulateToTrackSerialization(storyContext) {
-  const csp = storyContext.completed_story_package;
-  return JSON.stringify({
-    story_id: "story_e2e_chioma",
-    elements: storyContext.elements || {},
-    narrative: typeof storyContext.narrative === "string"
-      ? storyContext.narrative.slice(0, 10000) : "",
-    facts: (storyContext.facts || []).slice(0, 20),
-    beats: (storyContext.beats || []).slice(0, 15),
-    atoms: storyContext.atoms || {},
-    primitives: storyContext.primitives || {},
-    motifs: storyContext.motifs || [],
-    song_map: storyContext.song_map || null,
-    evaluation: storyContext.evaluation || null,
-    completed_story_package: csp
-      ? {
-          prose: (csp.prose || "").slice(0, 10000),
-          retained_details: (csp.retained_details || []).slice(0, 30),
-          detail_coverage_stats: csp.detail_coverage_map?.stats || null,
-          missing_required: csp.detail_coverage_map?.missingRequired || [],
-          semantic_block_profile: csp.semantic_block_profile || null,
-          schema_version: csp.schema_version || null,
-          detail_budget_warning: csp.detail_budget_warning || null,
-        }
-      : null,
-    dials: storyContext.dials || {},
-    summary: storyContext.summary,
-  });
+  return JSON.stringify(buildTrackStoryContextPayload(storyContext, { storyId: "story_e2e_chioma" }));
 }
 
 // ---------------------------------------------------------------------------
@@ -750,10 +730,10 @@ describe("E2E: Story-to-Lyrics Authority Chain (Chioma flow)", () => {
         parsed.completed_story_package.retained_details.length > 0,
         "retained_details must survive serialization",
       );
-      // Verify retained_details is within the slice limit
+      // Verify retained_details is within the production slice limit.
       assert.ok(
-        parsed.completed_story_package.retained_details.length <= 30,
-        `retained_details should be within 30-item slice, got ${parsed.completed_story_package.retained_details.length}`,
+        parsed.completed_story_package.retained_details.length <= STORY_CONTEXT_RETAINED_DETAILS_MAX,
+        `retained_details should be within ${STORY_CONTEXT_RETAINED_DETAILS_MAX}-item slice, got ${parsed.completed_story_package.retained_details.length}`,
       );
       assert.ok(parsed.song_map, "song_map must survive serialization");
       assert.ok(parsed.song_map.hook, "song_map.hook must survive");
@@ -778,6 +758,100 @@ describe("E2E: Story-to-Lyrics Authority Chain (Chioma flow)", () => {
         restored.completed_story_package.schema_version,
         2,
         "schema_version must persist through round-trip",
+      );
+    });
+
+    it("preserves long-story tail details during to-track serialization", () => {
+      const tailDetail = "The final birthday message says every sleepless night was worth it and his children truly see him.";
+      const oversizedStory = [
+        MARCUS_COMPLETE_NARRATIVE,
+        "ordinary middle detail ".repeat(850),
+        tailDetail,
+      ].join(" ");
+      const serialized = simulateToTrackSerialization({
+        ...engineContext,
+        narrative: oversizedStory,
+        completed_story_package: {
+          ...engineContext.completed_story_package,
+          prose: oversizedStory,
+          retained_details: [
+            ...engineContext.completed_story_package.retained_details,
+            { id: "tail_message", text: tailDetail, required: true, category: "meaning" },
+          ],
+        },
+      });
+      const parsed = JSON.parse(serialized);
+
+      assert.ok(
+        parsed.completed_story_package.prose.length <= STORY_CONTEXT_NARRATIVE_MAX_LENGTH,
+        "serialized prose must stay within track context budget",
+      );
+      assert.match(
+        parsed.completed_story_package.prose,
+        /Story middle compacted for track context/,
+        "long prose should compact the middle, not cut off the end",
+      );
+      assert.match(
+        parsed.completed_story_package.prose,
+        /children truly see him/i,
+        "tail payoff details must survive serialization",
+      );
+      assert.match(
+        parsed.narrative,
+        /children truly see him/i,
+        "canonical narrative tail must survive serialization",
+      );
+    });
+
+    it("prioritizes required details and song-map-cited facts before serializer caps", () => {
+      const requiredTailDetail = "The late payoff says his daughter finally understood the sacrifice behind every quiet shift.";
+      const citedLateFact = {
+        id: "fact_99",
+        text: "His daughter finally understood the sacrifice behind every quiet shift.",
+        beat: "meaning",
+      };
+      const fillerFacts = Array.from({ length: STORY_CONTEXT_FACTS_MAX + 12 }, (_, index) => ({
+        id: `filler_${index + 1}`,
+        text: `Ordinary background fact ${index + 1}`,
+        beat: "context",
+      }));
+      const fillerDetails = Array.from({ length: STORY_CONTEXT_RETAINED_DETAILS_MAX + 12 }, (_, index) => ({
+        id: `filler_detail_${index + 1}`,
+        text: `minor retained detail ${index + 1}`,
+        required: false,
+        category: "background",
+      }));
+
+      const serialized = simulateToTrackSerialization({
+        ...engineContext,
+        facts: [...fillerFacts, citedLateFact],
+        song_map: {
+          hook: { idea: "Quiet shifts became love", source_facts: ["fact_99"] },
+          verse1: [{ idea: "The house kept moving", source_facts: ["filler_1"] }],
+          chorus: [{ idea: "His daughter understood the sacrifice", source_facts: ["fact_99"] }],
+          verse2: [],
+          bridge: [],
+          key_lines: [],
+        },
+        completed_story_package: {
+          ...engineContext.completed_story_package,
+          retained_details: [
+            ...fillerDetails,
+            { id: "required_tail", text: requiredTailDetail, required: true, category: "payoff" },
+          ],
+        },
+      });
+      const parsed = JSON.parse(serialized);
+
+      assert.ok(parsed.facts.length <= STORY_CONTEXT_FACTS_MAX);
+      assert.ok(
+        parsed.facts.some((fact) => fact.id === "fact_99"),
+        "song-map-cited late facts must survive serializer caps",
+      );
+      assert.ok(parsed.completed_story_package.retained_details.length <= STORY_CONTEXT_RETAINED_DETAILS_MAX);
+      assert.ok(
+        parsed.completed_story_package.retained_details.some((detail) => detail.id === "required_tail"),
+        "late required retained details must survive serializer caps",
       );
     });
 

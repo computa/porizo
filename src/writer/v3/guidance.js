@@ -91,6 +91,7 @@ async function callGuidanceLLM(state, elementDef, elementState, generateTextFn) 
   const response = await generateTextFn({
     prompt,
     taskType: "simple",
+    logLabel: `v3:guidance:${elementDef.id}`,
     temperature: 0.3,
     responseMimeType: "application/json",
     maxOutputTokens: 300,

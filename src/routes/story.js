@@ -29,6 +29,7 @@ const {
   findGiftFundingContent,
   validateGiftFundingReservation,
 } = require("../services/gift-funding");
+const { buildTrackStoryContextPayload } = require("../writer/story-context-serialization");
 
 const STORY_INITIAL_PROMPT_WARNING_THRESHOLD = 8000;
 const STORY_INITIAL_PROMPT_MAX_LENGTH = 12000;
@@ -2993,37 +2994,7 @@ function registerStoryRoutes(app, {
         storyContext.recipientName,
         effectiveStyle,
         storyContext.initialPrompt,
-        JSON.stringify({
-          story_id,
-          elements: storyContext.elements || {},
-          narrative: typeof storyContext.narrative === "string"
-            ? storyContext.narrative.slice(0, 10000)
-            : "",
-          facts: (storyContext.facts || []).slice(0, 20),
-          beats: (storyContext.beats || []).slice(0, 15),
-          atoms: storyContext.atoms || {},
-          primitives: storyContext.primitives || {},
-          motifs: storyContext.motifs || [],
-          song_map: storyContext.song_map || null,
-          evaluation: storyContext.evaluation || null,
-          completed_story_package: storyContext.completed_story_package
-            ? {
-                prose: (storyContext.completed_story_package.prose || "").slice(0, 10000),
-                retained_details: (storyContext.completed_story_package.retained_details || []).slice(0, 40),
-                detail_coverage_stats: storyContext.completed_story_package.detail_coverage_map?.stats || null,
-                missing_required: storyContext.completed_story_package.detail_coverage_map?.missingRequired || [],
-                semantic_block_profile: storyContext.completed_story_package.semantic_block_profile || null,
-                schema_version: storyContext.completed_story_package.schema_version || null,
-                detail_budget_warning: storyContext.completed_story_package.detail_budget_warning || null,
-                llm_rewrite_applied: storyContext.completed_story_package.llm_rewrite_applied || false,
-              }
-            : null,
-          dials: storyContext.dials || {},
-          summary: storyContext.summary,
-          arc: storyContext.eventType || "unified",
-          narrative_version: typeof storyContext.narrativeVersion === "number" ? storyContext.narrativeVersion : 0,
-          engine_version: storyContext.engineVersion || null,
-        }),
+        JSON.stringify(buildTrackStoryContextPayload(storyContext, { storyId: story_id })),
         requestedVoiceMode,
         request.body?.voice_gender || null,
         giftFundingReservation ? "gift_token" : "standard",

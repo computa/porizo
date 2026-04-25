@@ -275,7 +275,7 @@ test("generateLyrics self-corrects with judge feedback and previous draft contex
   assert.match(firstJudgePrompt.prompt, /source_facts:/i);
 });
 
-test("generateLyrics degrades gracefully when judge returns malformed faithfulness score", async () => {
+test("generateLyrics fails closed when story-backed fidelity judge is malformed", async () => {
   const lyricJson = JSON.stringify({
     title: "Held Together",
     style: "pop",
@@ -331,21 +331,111 @@ test("generateLyrics degrades gracefully when judge returns malformed faithfulne
   );
 
   const calls = [];
-  const { generateLyrics } = loadSongwriterWithSequence([lyricJson, malformedJudge], calls);
-  const result = await generateLyrics({
-    recipient_name: "Chioma",
-    occasion: "mothers_day",
-    style: "pop",
-    message: "You held the family together",
-    narrative: "Chioma held the family together through a frightening season.",
-    facts: [
-      { text: "She carried school runs, work calls, and the whole home." },
-      { text: "Warnings and pressure tested the family." },
+  const { generateLyrics } = loadSongwriterWithSequence([
+    lyricJson,
+    malformedJudge,
+    lyricJson,
+    malformedJudge,
+    lyricJson,
+    malformedJudge,
+    lyricJson,
+    malformedJudge,
+  ], calls);
+  await assert.rejects(
+    () => generateLyrics({
+      recipient_name: "Chioma",
+      occasion: "mothers_day",
+      style: "pop",
+      message: "You held the family together",
+      narrative: "Chioma held the family together through a frightening season.",
+      facts: [
+        { text: "She carried school runs, work calls, and the whole home." },
+        { text: "Warnings and pressure tested the family." },
+      ],
+    }),
+    (err) => {
+      assert.equal(err.code, "LYRICS_FIDELITY_LOW");
+      assert.match(err.fidelity?.feedback || "", /Fidelity judge unavailable/i);
+      return true;
+    }
+  );
+  assert.ok(calls.some((call) => call.taskType === "fidelity_judge"));
+});
+
+test("generateLyrics treats completed_story_package.prose as story-backed even without narrative or facts", async () => {
+  const calls = [];
+  const lyricJson = JSON.stringify({
+    title: "Quiet Shifts",
+    style: "country",
+    sections: [
+      {
+        name: "verse1",
+        lines: [
+          "Marcus kept the hallway light on",
+          "Through every quiet shift at home",
+          "His daughter saw the sacrifice",
+          "In all the years he carried alone",
+        ],
+      },
+      {
+        name: "chorus",
+        lines: [
+          "Marcus, now she sees the love",
+          "Behind the work you never named",
+          "On your birthday, every late night shines",
+          "As love in action in her heart",
+        ],
+      },
     ],
+    anchor_line: "Marcus, now she sees the love",
+    story_elements_used: ["quiet shifts", "daughter saw the sacrifice"],
+  });
+  const judgePass = JSON.stringify({
+    scores: {
+      coverage: 9,
+      flow: 9,
+      specificity: 8,
+      emotional_truth: 9,
+      faithfulness: 9,
+    },
+    missed_facts: [],
+    missing_story_beats: [],
+    uncovered_song_map_slots: [],
+    invented_details: [],
+    flattened_emotional_arc: "",
+    rewrite_targets: [],
+    feedback: "good",
   });
 
-  assert.equal(result.acceptance_reason, "judge_unavailable_quality_passed");
-  assert.ok(calls.some((call) => call.taskType === "fidelity_judge"));
+  const { generateLyrics } = loadSongwriterWithSequence([lyricJson, judgePass], calls);
+  const result = await generateLyrics({
+    recipient_name: "Marcus",
+    occasion: "birthday",
+    style: "country",
+    message: "His daughter finally sees his sacrifice",
+    completed_story_package: {
+      prose: "Marcus worked quiet shifts for years while his daughter was too young to understand the sacrifice. On his birthday, she finally saw that every late night was love in action.",
+      retained_details: [
+        {
+          id: "quiet_shifts",
+          text: "worked quiet shifts for years while his daughter was too young to understand the sacrifice",
+          required: true,
+          category: "sacrifice",
+        },
+        {
+          id: "birthday_payoff",
+          text: "on his birthday, she finally saw that every late night was love in action",
+          required: true,
+          category: "payoff",
+        },
+      ],
+    },
+  });
+
+  assert.equal(result.acceptance_reason, "quality_and_fidelity_passed");
+  assert.ok(calls.some((call) => call.taskType === "fidelity_judge"), "completed story prose must trigger fidelity judging");
+  const lyricsPrompt = calls.find((call) => call.taskType === "lyrics");
+  assert.match(lyricsPrompt.prompt, /AUTHORITATIVE COMPLETED STORY/i);
 });
 
 test("generateLyrics uses sectioned generation for valid cited contracts and rewrites only weak sections", async () => {

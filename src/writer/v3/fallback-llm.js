@@ -130,6 +130,7 @@ async function callLightweightModel(state, userInput, options = {}) {
     const response = await generateTextFn({
       prompt,
       taskType: "simple",
+      logLabel: "v3:lightweight_fallback",
       temperature: 0.2,
       responseMimeType: "application/json",
       maxOutputTokens: 180,

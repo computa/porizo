@@ -51,6 +51,7 @@ const ERROR_CODES = {
   RATE_LIMIT: "E303_LLM_RATE_LIMIT",
   TOKEN_LIMIT: "E304_TOKEN_LIMIT_EXCEEDED",
   ALL_PROVIDERS_FAILED: "E305_ALL_PROVIDERS_FAILED",
+  OUTPUT_TRUNCATED: "E306_LLM_OUTPUT_TRUNCATED",
 };
 
 let googleGenAIFactory = (options) => new GoogleGenAI(options);
@@ -178,6 +179,14 @@ function normalizeStructuredResult(result, responseMimeType) {
     ...result,
     text: JSON.stringify(parsed),
   };
+}
+
+function isOutputTruncatedFinishReason(finishReason) {
+  const normalized = String(finishReason || "").trim().toUpperCase();
+  return normalized === "MAX_TOKENS" ||
+    normalized === "MAX_TOKEN" ||
+    normalized === "MAX_TOKENS_REACHED" ||
+    normalized === "LENGTH";
 }
 
 /**
@@ -420,6 +429,7 @@ async function generateWithAnthropic({
     text,
     provider: "anthropic",
     model,
+    finishReason: response.stop_reason || null,
     usage: {
       inputTokens: response.usage?.input_tokens || 0,
       outputTokens: response.usage?.output_tokens || 0,
@@ -474,12 +484,14 @@ async function generateWithOpenAI({
   }
 
   const data = await response.json();
-  const text = data.choices?.[0]?.message?.content || "";
+  const choice = data.choices?.[0] || {};
+  const text = choice.message?.content || "";
 
   return {
     text,
     provider: "openai",
     model,
+    finishReason: choice.finish_reason || null,
     usage: {
       inputTokens: data.usage?.prompt_tokens || 0,
       outputTokens: data.usage?.completion_tokens || 0,
@@ -559,6 +571,14 @@ async function generateText({
           }),
         ]);
         clearTimeout(timeoutId);
+
+        if (isOutputTruncatedFinishReason(result.finishReason)) {
+          const error = new Error(
+            `${provider.name} output truncated before completion: finishReason=${result.finishReason}`
+          );
+          error.code = ERROR_CODES.OUTPUT_TRUNCATED;
+          throw error;
+        }
 
         console.log(
           `[LLM] Success with ${provider.name} model=${result.model || model} label=${label}: outputTokens=${result.usage.outputTokens} promptTokens=${promptTokens}${result.finishReason ? ` (finishReason=${result.finishReason})` : ""}${provider.name !== "gemini" ? " fallbackUsed=true" : ""}`
@@ -688,6 +708,7 @@ module.exports = {
   estimateTokens,
   getGeminiModel,
   resolveProviderModel,
+  isOutputTruncatedFinishReason,
   __setGoogleGenAIFactoryForTest(factory) {
     googleGenAIFactory = factory || ((options) => new GoogleGenAI(options));
     cachedGeminiClient = null;
