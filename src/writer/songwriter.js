@@ -35,6 +35,12 @@ const SELF_CORRECTION_MAX = 3;
 const FIDELITY_MIN_SCORE = 35; // out of 50 (70%)
 const BORDERLINE_FIDELITY_MARGIN = 2;
 const LYRICS_LLM_MAX_OUTPUT_TOKENS = 3000;
+// Repair patches existing sections rather than regenerating the song, so it
+// runs at 60% of the full-generation budget with a 1500 floor.
+const LYRICS_LLM_REPAIR_MAX_OUTPUT_TOKENS = Math.max(
+  1500,
+  Math.ceil(LYRICS_LLM_MAX_OUTPUT_TOKENS * 0.6),
+);
 const SHORT_FIELD_CHAR_LIMIT = 2000;
 const LONG_STORY_CHAR_LIMIT = 12000;
 const PROMPT_STORY_EXCERPT_CHAR_LIMIT = 2400;
@@ -834,7 +840,9 @@ function assessSongReadiness(rawContext = {}) {
     ? packageCoverage.missingRequired
     : [];
   const requiredMissingCount = Number(packageCoverage?.stats?.requiredMissing || 0);
-  if (requiredMissingCount > 0) {
+  // Stats and the array can drift; trust whichever signal sees more missing.
+  const effectiveMissingCount = Math.max(requiredMissingCount, missingRequiredFromPackage.length);
+  if (effectiveMissingCount > 0) {
     for (const missing of missingRequiredFromPackage.slice(0, 3)) {
       blockers.push({
         code: "missing_required_story_detail",
@@ -846,7 +854,7 @@ function assessSongReadiness(rawContext = {}) {
     if (missingRequiredFromPackage.length === 0) {
       blockers.push({
         code: "missing_required_story_detail",
-        message: `${requiredMissingCount} required story detail(s) are missing from the canonical story package.`,
+        message: `${effectiveMissingCount} required story detail(s) are missing from the canonical story package.`,
       });
     }
   }
@@ -3352,14 +3360,42 @@ function getInventedDetails(fidelity) {
 }
 
 function parseLyricsJson(rawText, errorPrefix = "lyrics") {
-  const text = String(rawText || "").trim();
-  const jsonMatch = text.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) {
+  // LLMs occasionally wrap JSON in ```json ... ``` fences despite responseMimeType.
+  const text = String(rawText || "")
+    .replace(/^\s*```(?:json)?\s*([\s\S]*?)\s*```\s*$/i, "$1")
+    .trim();
+  if (!text) {
     throw new Error(`E201_LYRICS_ERROR: No JSON found in ${errorPrefix} response`);
   }
 
+  // Balanced-brace extraction: greedy `/{...}/` would concatenate two top-level
+  // JSON blobs (e.g., when the LLM echoes the original lyrics) into invalid input.
+  const start = text.indexOf("{");
+  if (start === -1) {
+    throw new Error(`E201_LYRICS_ERROR: No JSON found in ${errorPrefix} response`);
+  }
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  let end = -1;
+  for (let i = start; i < text.length; i += 1) {
+    const ch = text[i];
+    if (escape) { escape = false; continue; }
+    if (ch === "\\") { escape = true; continue; }
+    if (ch === "\"") { inString = !inString; continue; }
+    if (inString) continue;
+    if (ch === "{") depth += 1;
+    else if (ch === "}") {
+      depth -= 1;
+      if (depth === 0) { end = i; break; }
+    }
+  }
+  if (end === -1) {
+    throw new Error(`E201_LYRICS_ERROR: Unterminated JSON in ${errorPrefix} response`);
+  }
+  const jsonText = text.slice(start, end + 1);
   try {
-    return JSON.parse(jsonMatch[0]);
+    return JSON.parse(jsonText);
   } catch (parseErr) {
     console.error(`[Songwriter] Failed to parse ${errorPrefix} JSON:`, parseErr.message);
     throw new Error(`Failed to parse ${errorPrefix}`);
@@ -3424,6 +3460,7 @@ Return ONLY the repaired lyrics JSON in the same schema:
     missing_required_count: missingRequired.length,
     invented_details_count: inventedDetails.length,
     prompt_tokens_estimate: promptTokens,
+    max_output_tokens: LYRICS_LLM_REPAIR_MAX_OUTPUT_TOKENS,
   })}`);
   const llmResult = await generateText({
     prompt,
@@ -3431,7 +3468,7 @@ Return ONLY the repaired lyrics JSON in the same schema:
     logLabel: "songwriter:required_detail_repair",
     temperature: 0.25,
     responseMimeType: "application/json",
-    maxOutputTokens: LYRICS_LLM_MAX_OUTPUT_TOKENS,
+    maxOutputTokens: LYRICS_LLM_REPAIR_MAX_OUTPUT_TOKENS,
   });
 
   const repairedLyrics = parseLyricsJson(llmResult.text, "required detail repair");
@@ -3643,10 +3680,9 @@ async function generateLyricsFromContext(context) {
             && missingRequiredDetails.length > 0
             && inventedDetailsForAttempt.length === 0
             && qualityScore >= QUALITY_MIN_SCORE
-            && (attempt >= 1 || attempt >= SELF_CORRECTION_MAX);
+            && attempt >= 1;
 
-          if (canTryTargetedRepair || attempt >= SELF_CORRECTION_MAX) {
-            targetedRepairTried = true;
+          if (canTryTargetedRepair || (attempt >= SELF_CORRECTION_MAX && !targetedRepairTried)) {
             try {
               const targetedRepair = await repairLyricsForRequiredDetails({
                 lyrics,
@@ -3655,6 +3691,9 @@ async function generateLyricsFromContext(context) {
                 recipientName: normalized.recipient_name,
                 style: normalized.style,
               });
+              // Burn the single-shot budget only after the LLM call returned —
+              // transient errors (network, quota) should not consume the repair attempt.
+              targetedRepairTried = true;
               const repairQualityFloor = QUALITY_MIN_SCORE - REPAIR_QUALITY_FIDELITY_OVERRIDE_MARGIN;
               if (targetedRepair && targetedRepair.qualityScore >= repairQualityFloor) {
                 const repairedFidelity = await assessNarrativeFidelity(targetedRepair.lyrics, workingContext);
@@ -3686,7 +3725,19 @@ async function generateLyricsFromContext(context) {
                     acceptance_reason: "targeted_required_detail_repair_passed",
                   };
                 }
-                lastFidelity = repairedFidelity;
+                // Only adopt the repair's fidelity score if it didn't go backwards —
+                // a worse repair must not flip a borderline-pass into a hard reject.
+                const priorTotal = Number.isFinite(lastFidelity?.total) ? lastFidelity.total : -Infinity;
+                const repairTotal = Number.isFinite(repairedFidelity.total) ? repairedFidelity.total : -Infinity;
+                if (repairTotal >= priorTotal) {
+                  lastFidelity = repairedFidelity;
+                } else {
+                  console.warn(`[Songwriter] repair_regression=${JSON.stringify({
+                    type: "targeted_required_detail",
+                    prior_fidelity: priorTotal,
+                    repair_fidelity: repairTotal,
+                  })}`);
+                }
               } else if (targetedRepair) {
                 console.warn(`[Songwriter] repair_failed=${JSON.stringify({
                   type: "targeted_required_detail",
@@ -3701,6 +3752,9 @@ async function generateLyricsFromContext(context) {
                 reason: "exception",
                 message: repairErr.message || String(repairErr),
               })}`);
+              // Do not flip targetedRepairTried on transient failures — leaves room
+              // for the final-attempt fallback above (`attempt >= SELF_CORRECTION_MAX`)
+              // to retry once if the failure was infra, not output quality.
             }
           }
 

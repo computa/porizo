@@ -42,6 +42,7 @@ const { getStyleList } = require("../providers/style-registry");
 let storyRepository = null;
 const DEFAULT_STORY_ENGINE_VERSION = "v3";
 const SUPPORTED_STORY_ENGINE_VERSIONS = new Set(["v3"]);
+const SUPPORTED_TARGET_CONTENT_TYPES = new Set(["song", "poem"]);
 const STORY_ENGINE_HANDLERS = {
   v3: {
     initialize: (repository) => v3Engine.initialize(repository),
@@ -250,9 +251,67 @@ async function confirmStory(storyId, additionalNotesOrOptions) {
     : { additionalNotes: additionalNotesOrOptions };
   const normalizedNotes = typeof options.additionalNotes === "string" ? options.additionalNotes.trim() : "";
   const forceConfirm = options.forceConfirm === true;
-  const targetContentType = typeof options.targetContentType === "string"
+  // Re-validate: confirmStory is also reachable from admin scripts/tests/jobs that bypass the route schema.
+  const rawTargetContentType = typeof options.targetContentType === "string"
     ? options.targetContentType.trim().toLowerCase()
     : "";
+  const targetContentType = SUPPORTED_TARGET_CONTENT_TYPES.has(rawTargetContentType)
+    ? rawTargetContentType
+    : "";
+
+  // Run the song-readiness gate BEFORE the optional final-notes revision.
+  // Reasoning: a revision that lands on an unfit story would persist the
+  // user's note to a story version that the gate will then reject — leaving
+  // the system in a half-edited state and stacking duplicate revisions on
+  // every retry. Gate first, revise second.
+  if (targetContentType === "song") {
+    let songReadiness = null;
+    try {
+      const storyContext = await engineHandler.getStoryContext(storyId, {
+        includeReadiness: false,
+        includeMetadata: false,
+      });
+      songReadiness = assessSongReadiness({
+        recipient_name: storyContext.recipientName,
+        occasion: storyContext.occasion,
+        style: storyContext.style,
+        initial_prompt: storyContext.initialPrompt,
+        narrative: storyContext.narrative,
+        summary: storyContext.summary,
+        facts: storyContext.facts,
+        elements: storyContext.elements,
+        beats: storyContext.beats,
+        atoms: storyContext.atoms,
+        primitives: storyContext.primitives,
+        motifs: storyContext.motifs,
+        song_map: storyContext.song_map,
+        evaluation: storyContext.evaluation,
+        dials: storyContext.dials,
+        completed_story_package: storyContext.completed_story_package,
+      });
+    } catch (preflightErr) {
+      // Degrade open: the preflight is a quality gate, not an availability gate.
+      // If readiness assessment itself crashes, do not block the user from
+      // confirming a story they have legitimately built. The downstream lyrics
+      // gate remains the hard correctness boundary.
+      console.warn(`[Writer] song_readiness_preflight_failed=${JSON.stringify({
+        story_id: storyId,
+        message: preflightErr.message || String(preflightErr),
+      })}`);
+      songReadiness = null;
+    }
+    if (songReadiness && !songReadiness.ready) {
+      const question = songReadiness.follow_up_question ||
+        "Before I make this a song, give me one more concrete detail that must not be lost.";
+      const err = new Error(question);
+      err.code = "STORY_NEEDS_INPUT";
+      err.question = question;
+      err.suggestions = songReadiness.suggestions || [];
+      err.missingBlocks = (songReadiness.blockers || []).map((blocker) => blocker.code || blocker.message).filter(Boolean);
+      err.songReadiness = songReadiness;
+      throw err;
+    }
+  }
 
   if (normalizedNotes) {
     const revisionResult = await engineHandler.reviseStory(storyId, normalizedNotes, {
@@ -266,42 +325,6 @@ async function confirmStory(storyId, additionalNotesOrOptions) {
       const followUp = revisionResult.question || "Your final edit needs one more clarification before confirmation.";
       const err = new Error(followUp);
       err.code = "STORY_REVISION_CLARIFY_REQUIRED";
-      throw err;
-    }
-  }
-
-  if (targetContentType === "song") {
-    const storyContext = await engineHandler.getStoryContext(storyId, {
-      includeReadiness: false,
-      includeMetadata: false,
-    });
-    const songReadiness = assessSongReadiness({
-      recipient_name: storyContext.recipientName,
-      occasion: storyContext.occasion,
-      style: storyContext.style,
-      initial_prompt: storyContext.initialPrompt,
-      narrative: storyContext.narrative,
-      summary: storyContext.summary,
-      facts: storyContext.facts,
-      elements: storyContext.elements,
-      beats: storyContext.beats,
-      atoms: storyContext.atoms,
-      primitives: storyContext.primitives,
-      motifs: storyContext.motifs,
-      song_map: storyContext.song_map,
-      evaluation: storyContext.evaluation,
-      dials: storyContext.dials,
-      completed_story_package: storyContext.completed_story_package,
-    });
-    if (!songReadiness.ready) {
-      const question = songReadiness.follow_up_question ||
-        "Before I make this a song, give me one more concrete detail that must not be lost.";
-      const err = new Error(question);
-      err.code = "STORY_NEEDS_INPUT";
-      err.question = question;
-      err.suggestions = songReadiness.suggestions || [];
-      err.missingBlocks = (songReadiness.blockers || []).map((blocker) => blocker.code || blocker.message).filter(Boolean);
-      err.songReadiness = songReadiness;
       throw err;
     }
   }
@@ -668,6 +691,7 @@ module.exports = {
   // Lyrics Generation
   writeSong,
   quickGenerate,
+  assessSongReadiness,
 
   // Utilities
   getStoryContext,

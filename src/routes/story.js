@@ -110,6 +110,29 @@ function mapGiftFundingError(reply, err) {
  * @param {Object} state - Raw story state from the engine
  * @returns {Object} Client-safe story state
  */
+// recovery.question already carries the user-facing prompt; client only needs counts/codes.
+function sanitizeSongReadinessForClient(readiness) {
+  if (!readiness || typeof readiness !== "object") return null;
+  const safeBlockers = Array.isArray(readiness.blockers)
+    ? readiness.blockers.map((b) => ({ code: b?.code || null, message: b?.message || null }))
+    : [];
+  const safeWarnings = Array.isArray(readiness.warnings)
+    ? readiness.warnings.map((w) => ({ code: w?.code || null, message: w?.message || null }))
+    : [];
+  return {
+    ready: Boolean(readiness.ready),
+    status: readiness.status || null,
+    blockers: safeBlockers,
+    warnings: safeWarnings,
+    required_detail_count: Number.isFinite(readiness.required_detail_count)
+      ? readiness.required_detail_count
+      : null,
+    canonical_required_detail_count: Number.isFinite(readiness.canonical_required_detail_count)
+      ? readiness.canonical_required_detail_count
+      : null,
+  };
+}
+
 function sanitizeStoryStateForClient(state) {
   if (!state) return state;
   return {
@@ -2107,19 +2130,24 @@ function registerStoryRoutes(app, {
       }
       console.error("[Story] Confirm failed:", { story_id, userId, error: err.message });
       if (err.code === "STORY_NEEDS_INPUT") {
+        const recoveryQuestion = err.question || err.message ||
+          "Before I lock this in, give me one more line about what changed or what this story means to you.";
+        const recoveryPayload = {
+          question: recoveryQuestion,
+          suggestions: Array.isArray(err.suggestions) ? err.suggestions : [],
+          missing_blocks: Array.isArray(err.missingBlocks) ? err.missingBlocks : [],
+        };
+        if (Number.isFinite(Number(err.sessionVersion))) {
+          recoveryPayload.session_version = Number(err.sessionVersion);
+        }
         sendError(
           reply,
           422,
           "STORY_NEEDS_INPUT",
-          err.question || err.message || "Before I lock this in, give me one more line about what changed or what this story means to you.",
+          recoveryQuestion,
           {
-            recovery: {
-              question: err.question || err.message || "Before I lock this in, give me one more line about what changed or what this story means to you.",
-              suggestions: Array.isArray(err.suggestions) ? err.suggestions : [],
-              missing_blocks: Array.isArray(err.missingBlocks) ? err.missingBlocks : [],
-              session_version: Number.isFinite(Number(err.sessionVersion)) ? Number(err.sessionVersion) : null,
-            },
-            song_readiness: err.songReadiness || null,
+            recovery: recoveryPayload,
+            song_readiness: sanitizeSongReadinessForClient(err.songReadiness),
           }
         );
         return;

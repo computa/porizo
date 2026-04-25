@@ -80,6 +80,8 @@ struct ConfirmStoryRequest: Encodable, Sendable {
 
 struct StoryGuidanceRecovery: Codable, Sendable, Equatable {
     let question: String
+    // Backend narrows the payload (e.g., session_version is dropped when there's no session).
+    // Defaults in init(from:) prevent decode failures on narrowed responses.
     let suggestions: [String]
     let missingBlocks: [String]
     let sessionVersion: Int?
@@ -90,12 +92,60 @@ struct StoryGuidanceRecovery: Codable, Sendable, Equatable {
         case missingBlocks = "missing_blocks"
         case sessionVersion = "session_version"
     }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        question = try container.decode(String.self, forKey: .question)
+        suggestions = try container.decodeIfPresent([String].self, forKey: .suggestions) ?? []
+        missingBlocks = try container.decodeIfPresent([String].self, forKey: .missingBlocks) ?? []
+        sessionVersion = try container.decodeIfPresent(Int.self, forKey: .sessionVersion)
+    }
+
+    init(question: String, suggestions: [String] = [], missingBlocks: [String] = [], sessionVersion: Int? = nil) {
+        self.question = question
+        self.suggestions = suggestions
+        self.missingBlocks = missingBlocks
+        self.sessionVersion = sessionVersion
+    }
+}
+
+/// Sanitized readiness payload mirroring the server's `sanitizeSongReadinessForClient`
+/// projection — codes and counts only, never raw detail ledger entries.
+struct SongReadinessSummary: Codable, Sendable, Equatable {
+    let ready: Bool
+    let status: String?
+    let blockers: [SongReadinessNote]
+    let warnings: [SongReadinessNote]
+    let requiredDetailCount: Int?
+    let canonicalRequiredDetailCount: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case ready
+        case status
+        case blockers
+        case warnings
+        case requiredDetailCount = "required_detail_count"
+        case canonicalRequiredDetailCount = "canonical_required_detail_count"
+    }
+}
+
+struct SongReadinessNote: Codable, Sendable, Equatable {
+    let code: String?
+    let message: String?
 }
 
 struct StoryGuidanceResponse: Codable, Error, Sendable, Equatable {
     let error: String
     let message: String
     let recovery: StoryGuidanceRecovery
+    let songReadiness: SongReadinessSummary?
+
+    enum CodingKeys: String, CodingKey {
+        case error
+        case message
+        case recovery
+        case songReadiness = "song_readiness"
+    }
 }
 
 enum StoryConfirmResult: Sendable {
