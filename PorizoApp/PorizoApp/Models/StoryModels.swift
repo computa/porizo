@@ -69,10 +69,12 @@ struct ContinueStoryRequest: Encodable, Sendable {
 struct ConfirmStoryRequest: Encodable, Sendable {
     let additionalNotes: String?
     let forceConfirm: Bool?
+    let targetContentType: String?
 
     enum CodingKeys: String, CodingKey {
         case additionalNotes = "additional_notes"
         case forceConfirm = "force_confirm"
+        case targetContentType = "target_content_type"
     }
 }
 

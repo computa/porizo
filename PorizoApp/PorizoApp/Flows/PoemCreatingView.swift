@@ -126,7 +126,8 @@ struct PoemCreatingView: View {
                     try await apiClient.confirmStoryV2(
                         storyId: storyId,
                         additionalNotes: finalNotes,
-                        forceConfirm: true
+                        forceConfirm: true,
+                        targetContentType: "poem"
                     )
                 }
                 switch confirmResult {

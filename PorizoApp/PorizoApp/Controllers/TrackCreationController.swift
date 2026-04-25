@@ -95,7 +95,8 @@ final class TrackCreationController {
             let confirmResult = try await self.apiClient.confirmStoryV2(
                 storyId: storyId,
                 additionalNotes: storyContext.finalNotes,
-                forceConfirm: true
+                forceConfirm: true,
+                targetContentType: "song"
             )
             switch confirmResult {
             case .needsInput(let guidance):

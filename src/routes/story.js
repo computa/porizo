@@ -241,6 +241,7 @@ const schemas = {
       properties: {
         additional_notes: { type: "string", maxLength: 500 },
         force_confirm: { type: "boolean" },
+        target_content_type: { type: "string", enum: ["song", "poem"] },
       },
       additionalProperties: false,
     },
@@ -2035,7 +2036,7 @@ function registerStoryRoutes(app, {
     if (!userId) return;
 
     const { story_id } = request.params;
-    const { additional_notes, force_confirm } = request.body || {};
+    const { additional_notes, force_confirm, target_content_type } = request.body || {};
 
     // Rate limit confirm attempts (prevents guidance loop abuse)
     const confirmLimit = await consumeRateLimit(userId, "story_confirm", 20, 60 * 60);
@@ -2072,6 +2073,7 @@ function registerStoryRoutes(app, {
       const result = await writer.confirmStory(story_id, {
         additionalNotes: additional_notes,
         forceConfirm: force_confirm === true,
+        targetContentType: target_content_type,
       });
 
       addAuditEntry({
@@ -2090,6 +2092,7 @@ function registerStoryRoutes(app, {
           metadata: {
             has_additional_notes: Boolean(additional_notes),
             force_confirm: force_confirm === true,
+            target_content_type: target_content_type || null,
           },
           ip: request.ip,
           userAgent: request.headers["user-agent"],
@@ -2116,6 +2119,7 @@ function registerStoryRoutes(app, {
               missing_blocks: Array.isArray(err.missingBlocks) ? err.missingBlocks : [],
               session_version: Number.isFinite(Number(err.sessionVersion)) ? Number(err.sessionVersion) : null,
             },
+            song_readiness: err.songReadiness || null,
           }
         );
         return;

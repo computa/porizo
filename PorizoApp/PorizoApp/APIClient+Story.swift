@@ -292,7 +292,8 @@ extension APIClient {
     func confirmStoryV2(
         storyId: String,
         additionalNotes: String? = nil,
-        forceConfirm: Bool = false
+        forceConfirm: Bool = false,
+        targetContentType: String? = nil
     ) async throws -> StoryConfirmResult {
         let url = URL(string: "\(baseURL)/story/\(storyId)/confirm")!
 
@@ -300,7 +301,8 @@ extension APIClient {
 
         let requestBody = ConfirmStoryRequest(
             additionalNotes: additionalNotes,
-            forceConfirm: forceConfirm ? true : nil
+            forceConfirm: forceConfirm ? true : nil,
+            targetContentType: targetContentType
         )
         request.httpBody = try JSONEncoder().encode(requestBody)
 

@@ -30,6 +30,7 @@ const MIN_SYLLABLES_PER_LINE = 3;
 const MAX_SYLLABLES_PER_LINE = 15;
 const TARGET_DURATION_SECONDS = { min: 45, max: 60 };
 const QUALITY_MIN_SCORE = 75;
+const REPAIR_QUALITY_FIDELITY_OVERRIDE_MARGIN = 5;
 const SELF_CORRECTION_MAX = 3;
 const FIDELITY_MIN_SCORE = 35; // out of 50 (70%)
 const BORDERLINE_FIDELITY_MARGIN = 2;
@@ -768,6 +769,152 @@ function assessRequiredDetailCoverage(lyrics, storyContext) {
       distinctive_overlap: Number(entry.distinctive_overlap.toFixed(2)),
       covered: entry.covered,
     })),
+  };
+}
+
+function buildSongReadinessFollowUp(blocker) {
+  const detail = blocker?.detail || blocker?.message || "";
+  if (blocker?.code === "missing_required_story_detail" && detail) {
+    const cleanDetail = detail.replace(/^\[[^\]]+\]\s*/, "");
+    return `Before I make this a song, give me one clear sentence about this part: ${cleanDetail}`;
+  }
+  if (blocker?.code === "too_many_required_details") {
+    return "Before I make this a song, choose the few details that absolutely must be heard in the lyrics.";
+  }
+  if (blocker?.code === "missing_story") {
+    return "Before I make this a song, give me one specific memory or moment you want the lyrics to carry.";
+  }
+  return "Before I make this a song, give me one more concrete detail that must not be lost.";
+}
+
+function assessSongReadiness(rawContext = {}) {
+  const normalized = normalizeContext(rawContext);
+  const blockers = [];
+  const warnings = [];
+  const checkedAt = new Date().toISOString();
+  const hasStoryText = Boolean(
+    normalized.completed_story_package?.prose ||
+    normalized.narrative ||
+    normalized.message ||
+    normalized.specific_memory
+  );
+
+  if (!hasStoryText) {
+    blockers.push({
+      code: "missing_story",
+      message: "No usable story text is available for lyric generation.",
+    });
+  }
+
+  const requiredLedger = buildStoryDetailLedger(normalized, { maxEntries: "all" })
+    .filter((entry) => entry.required);
+  const totalRequired = requiredLedger.length;
+  const canonicalRequired = buildStoryDetailLedger(normalized, { maxEntries: CANONICAL_REQUIRED_DETAIL_LIMIT })
+    .filter((entry) => entry.required);
+
+  if (totalRequired > CANONICAL_REQUIRED_DETAIL_LIMIT * 2) {
+    warnings.push({
+      code: "high_required_detail_pressure",
+      message: `The story has ${totalRequired} required details; only the strongest details can fit cleanly in a short song.`,
+      required_detail_count: totalRequired,
+    });
+  }
+
+  if (canonicalRequired.length === 0 && hasStoryText) {
+    warnings.push({
+      code: "no_required_detail_ledger",
+      message: "No required story-detail ledger entries were identified; final lyrics will rely on the narrative and song map.",
+    });
+  }
+
+  const packageCoverage = normalized.completed_story_package?.detail_coverage_map ||
+    normalized.completed_story_package?.coverage ||
+    null;
+  const missingRequiredFromPackage = Array.isArray(packageCoverage?.missingRequired)
+    ? packageCoverage.missingRequired
+    : [];
+  const requiredMissingCount = Number(packageCoverage?.stats?.requiredMissing || 0);
+  if (requiredMissingCount > 0) {
+    for (const missing of missingRequiredFromPackage.slice(0, 3)) {
+      blockers.push({
+        code: "missing_required_story_detail",
+        id: missing?.id || null,
+        detail: missing?.text || String(missing || ""),
+        message: "A required story detail is not present in the canonical story package.",
+      });
+    }
+    if (missingRequiredFromPackage.length === 0) {
+      blockers.push({
+        code: "missing_required_story_detail",
+        message: `${requiredMissingCount} required story detail(s) are missing from the canonical story package.`,
+      });
+    }
+  }
+
+  const promptBuild = buildSongwriterPrompt(normalized, {
+    returnMetadata: true,
+    suppressLogs: true,
+  });
+  const promptBudget = {
+    initialTokens: promptBuild.metadata.prompt_budget.initial_tokens,
+    tokens: promptBuild.metadata.prompt_budget.final_tokens,
+    tokenBudget: promptBuild.metadata.prompt_budget.token_budget,
+    removedCharsTotal: promptBuild.metadata.prompt_budget.removed_chars_total,
+    compactions: promptBuild.metadata.prompt_budget.compactions || [],
+  };
+  const hardCapCompaction = (promptBudget.compactions || [])
+    .some((entry) => entry.stage === "song_brief_hard_cap");
+  if (hardCapCompaction) {
+    blockers.push({
+      code: "prompt_budget_hard_cap",
+      message: "The story contract is too large and would require hard prompt truncation before lyric generation.",
+    });
+  } else if ((promptBudget.compactions || []).length > 0) {
+    warnings.push({
+      code: "prompt_budget_compacted",
+      message: "The story is large enough to require compact prompt evidence, but the required-detail ledger remains available.",
+      compactions: promptBudget.compactions.map((entry) => entry.stage),
+    });
+  }
+
+  const contract = validateSongContract(normalized);
+  if (!contract.valid && (contract.missingSections || []).length > 0) {
+    warnings.push({
+      code: "song_contract_repair_needed",
+      message: "The song map needs deterministic repair before lyric generation.",
+      missing_sections: contract.missingSections,
+    });
+  }
+
+  const ready = blockers.length === 0;
+  const followUpQuestion = ready ? null : buildSongReadinessFollowUp(blockers[0]);
+  return {
+    ready,
+    status: ready ? "ready" : "needs_input",
+    checked_at: checkedAt,
+    blockers,
+    warnings,
+    follow_up_question: followUpQuestion,
+    suggestions: ready ? [] : [
+      "Add the concrete moment in one sentence.",
+      "Name what changed because of it.",
+      "Say why this detail matters now.",
+    ],
+    required_detail_count: totalRequired,
+    canonical_required_detail_count: canonicalRequired.length,
+    prompt_budget: {
+      initial_tokens: promptBudget.initialTokens,
+      final_tokens: promptBudget.tokens,
+      token_budget: promptBudget.tokenBudget,
+      removed_chars_total: promptBudget.removedCharsTotal,
+      compactions: (promptBudget.compactions || []).map((entry) => entry.stage),
+    },
+    contract: {
+      valid: contract.valid,
+      missing_sections: contract.missingSections || [],
+      uncited_sections: contract.uncitedSections || [],
+      broken_citations: contract.brokenCitations || [],
+    },
   };
 }
 
@@ -2978,28 +3125,30 @@ Return ONLY valid JSON:
     uncitedSections: ensured.initialReport.uncitedSections || [],
   });
 
-  console.log(`[Songwriter] Prompt input summary=${JSON.stringify({
-    ...promptInputSummary,
-    prompt_budget: {
-      initial_tokens: budgetedPrompt.initialTokens,
-      final_tokens: budgetedPrompt.tokens,
-      token_budget: budgetedPrompt.tokenBudget,
-      initial_chars: budgetedPrompt.initialChars,
-      final_chars: budgetedPrompt.finalChars,
-      removed_chars_total: budgetedPrompt.removedCharsTotal,
-    },
-  })}`);
+  if (options.suppressLogs !== true) {
+    console.log(`[Songwriter] Prompt input summary=${JSON.stringify({
+      ...promptInputSummary,
+      prompt_budget: {
+        initial_tokens: budgetedPrompt.initialTokens,
+        final_tokens: budgetedPrompt.tokens,
+        token_budget: budgetedPrompt.tokenBudget,
+        initial_chars: budgetedPrompt.initialChars,
+        final_chars: budgetedPrompt.finalChars,
+        removed_chars_total: budgetedPrompt.removedCharsTotal,
+      },
+    })}`);
 
-  if (budgetedPrompt.compactions.length > 0) {
-    console.warn(`[Songwriter] Prompt compaction summary=${JSON.stringify(budgetedPrompt.compactions)}`);
-  }
+    if (budgetedPrompt.compactions.length > 0) {
+      console.warn(`[Songwriter] Prompt compaction summary=${JSON.stringify(budgetedPrompt.compactions)}`);
+    }
 
-  if (budgetedPrompt.compactions.some((entry) => entry.stage === "song_brief_hard_cap")) {
-    console.warn(`[Songwriter] Hard-capped SONG BRIEF to fit budget: ~${budgetedPrompt.tokens} tokens`);
-  }
+    if (budgetedPrompt.compactions.some((entry) => entry.stage === "song_brief_hard_cap")) {
+      console.warn(`[Songwriter] Hard-capped SONG BRIEF to fit budget: ~${budgetedPrompt.tokens} tokens`);
+    }
 
-  if (budgetedPrompt.tokens > budgetedPrompt.tokenBudget) {
-    console.warn(`[Songwriter] Prompt still over budget after all truncation: ~${budgetedPrompt.tokens} tokens (max: ${budgetedPrompt.tokenBudget}). Proceeding with best effort.`);
+    if (budgetedPrompt.tokens > budgetedPrompt.tokenBudget) {
+      console.warn(`[Songwriter] Prompt still over budget after all truncation: ~${budgetedPrompt.tokens} tokens (max: ${budgetedPrompt.tokenBudget}). Proceeding with best effort.`);
+    }
   }
 
   if (options.returnMetadata) {
@@ -3196,6 +3345,12 @@ function getMissingRequiredDetails(fidelity) {
     .filter(Boolean);
 }
 
+function getInventedDetails(fidelity) {
+  return (Array.isArray(fidelity?.invented_details) ? fidelity.invented_details : [])
+    .map((detail) => sanitizeForPrompt(detail))
+    .filter(Boolean);
+}
+
 function parseLyricsJson(rawText, errorPrefix = "lyrics") {
   const text = String(rawText || "").trim();
   const jsonMatch = text.match(/\{[\s\S]*\}/);
@@ -3220,6 +3375,7 @@ async function repairLyricsForRequiredDetails({
 }) {
   const missingRequired = getMissingRequiredDetails(fidelity).slice(0, 4);
   if (missingRequired.length === 0) return null;
+  const inventedDetails = getInventedDetails(fidelity).slice(0, 6);
 
   const draftJson = JSON.stringify(lyrics, null, 2);
   const compactEvidence = buildCompactStoryEvidenceBlock(storyContext);
@@ -3238,6 +3394,9 @@ Repair goal:
 
 MISSING REQUIRED DETAILS:
 ${missingRequired.map((detail) => `- ${detail}`).join("\n")}
+
+UNSUPPORTED INVENTED DETAILS TO REMOVE:
+${inventedDetails.length > 0 ? inventedDetails.map((detail) => `- ${detail}`).join("\n") : "- none reported by the judge"}
 
 COMPACT STORY EVIDENCE:
 ${compactEvidence}
@@ -3260,7 +3419,12 @@ Return ONLY the repaired lyrics JSON in the same schema:
 }`;
 
   const promptTokens = roughTokenEstimate(prompt);
-  console.warn(`[Songwriter] Running targeted required-detail repair missing=${missingRequired.length} promptTokens~${promptTokens}`);
+  console.warn(`[Songwriter] repair_attempted=${JSON.stringify({
+    type: "targeted_required_detail",
+    missing_required_count: missingRequired.length,
+    invented_details_count: inventedDetails.length,
+    prompt_tokens_estimate: promptTokens,
+  })}`);
   const llmResult = await generateText({
     prompt,
     taskType: "lyrics",
@@ -3285,14 +3449,17 @@ Return ONLY the repaired lyrics JSON in the same schema:
   const finalLyrics = validated.lyrics || repairedLyrics;
   const qualityScore = assessQuality(finalLyrics, storyContext);
   const repairCoverage = assessRequiredDetailCoverage(finalLyrics, storyContext);
-  console.log(`[Songwriter] Targeted required-detail repair result=${JSON.stringify({
+  console.log(`[Songwriter] repair_result=${JSON.stringify({
+    type: "targeted_required_detail",
     provider: llmResult.provider || null,
     model: llmResult.model || null,
     usage: llmResult.usage || null,
     quality_score: qualityScore,
     validation_issue_count: validated.issues.length,
+    missing_required_before: missingRequired.length,
     missing_required_after: repairCoverage.missing_required.length,
     missing_required_preview: summarizeArrayPreview(repairCoverage.missing_required, 4),
+    repair_passed_local_required_gate: repairCoverage.missing_required.length === 0,
     lyrics: summarizeLyricsOutputForLog(finalLyrics),
   })}`);
 
@@ -3325,6 +3492,7 @@ async function generateLyricsFromContext(context) {
   let bestFidelityScore = -1;
   let lastFidelity = null;
   let lastDraft = null;
+  let targetedRepairTried = false;
   const hasStoryContext = !!(
     workingContext.narrative ||
     workingContext.completed_story_package?.prose ||
@@ -3469,7 +3637,16 @@ async function generateLyricsFromContext(context) {
             continue;
           }
 
-          if (attempt >= SELF_CORRECTION_MAX) {
+          const missingRequiredDetails = getMissingRequiredDetails(lastFidelity);
+          const inventedDetailsForAttempt = getInventedDetails(lastFidelity);
+          const canTryTargetedRepair = !targetedRepairTried
+            && missingRequiredDetails.length > 0
+            && inventedDetailsForAttempt.length === 0
+            && qualityScore >= QUALITY_MIN_SCORE
+            && (attempt >= 1 || attempt >= SELF_CORRECTION_MAX);
+
+          if (canTryTargetedRepair || attempt >= SELF_CORRECTION_MAX) {
+            targetedRepairTried = true;
             try {
               const targetedRepair = await repairLyricsForRequiredDetails({
                 lyrics,
@@ -3478,7 +3655,8 @@ async function generateLyricsFromContext(context) {
                 recipientName: normalized.recipient_name,
                 style: normalized.style,
               });
-              if (targetedRepair && targetedRepair.qualityScore >= QUALITY_MIN_SCORE) {
+              const repairQualityFloor = QUALITY_MIN_SCORE - REPAIR_QUALITY_FIDELITY_OVERRIDE_MARGIN;
+              if (targetedRepair && targetedRepair.qualityScore >= repairQualityFloor) {
                 const repairedFidelity = await assessNarrativeFidelity(targetedRepair.lyrics, workingContext);
                 console.log(`[Songwriter] Targeted repair fidelity summary=${JSON.stringify({
                   provider: targetedRepair.provider || null,
@@ -3487,6 +3665,13 @@ async function generateLyricsFromContext(context) {
                   fidelity: summarizeFidelityForLog(repairedFidelity),
                 })}`);
                 if (Number.isFinite(repairedFidelity.total) && repairedFidelity.total >= FIDELITY_MIN_SCORE) {
+                  console.log(`[Songwriter] repair_passed=${JSON.stringify({
+                    type: "targeted_required_detail",
+                    attempt: attempt + 1,
+                    quality_score: targetedRepair.qualityScore,
+                    quality_below_normal_gate: targetedRepair.qualityScore < QUALITY_MIN_SCORE,
+                    fidelity_total: repairedFidelity.total,
+                  })}`);
                   return {
                     ...candidateResult,
                     lyrics: targetedRepair.lyrics,
@@ -3502,11 +3687,24 @@ async function generateLyricsFromContext(context) {
                   };
                 }
                 lastFidelity = repairedFidelity;
+              } else if (targetedRepair) {
+                console.warn(`[Songwriter] repair_failed=${JSON.stringify({
+                  type: "targeted_required_detail",
+                  reason: "quality_below_repair_floor",
+                  quality_score: targetedRepair.qualityScore,
+                  quality_floor: repairQualityFloor,
+                })}`);
               }
             } catch (repairErr) {
-              console.warn("[Songwriter] Targeted required-detail repair failed:", repairErr.message || repairErr);
+              console.warn(`[Songwriter] repair_failed=${JSON.stringify({
+                type: "targeted_required_detail",
+                reason: "exception",
+                message: repairErr.message || String(repairErr),
+              })}`);
             }
+          }
 
+          if (attempt >= SELF_CORRECTION_MAX) {
             const inventedDetails = Array.isArray(lastFidelity?.invented_details) ? lastFidelity.invented_details : [];
             const isBorderlinePass = inventedDetails.length === 0
               && Number.isFinite(lastFidelity?.total)
@@ -3848,6 +4046,7 @@ module.exports = {
   assessQuality,
   buildStoryCertificationBlock,
   buildStoryDetailLedger,
+  assessSongReadiness,
   buildCompactStoryEvidenceBlock,
   assessRequiredDetailCoverage,
   applySongwriterPromptBudget,

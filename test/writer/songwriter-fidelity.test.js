@@ -389,8 +389,6 @@ test("generateLyrics runs compact targeted repair when one required detail remai
     [
       badDraft, judgeLooksGoodButServerCoverageFails,
       badDraft, judgeLooksGoodButServerCoverageFails,
-      badDraft, judgeLooksGoodButServerCoverageFails,
-      badDraft, judgeLooksGoodButServerCoverageFails,
       repairedDraft, judgePass,
     ],
     calls

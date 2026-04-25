@@ -99,6 +99,111 @@ test("writer.confirmStory forwards explicit forceConfirm intent", async () => {
   }
 });
 
+test("writer.confirmStory runs song readiness preflight before locking song stories", async () => {
+  const originalConfirmStoryV3 = v3Engine.confirmStoryV3;
+  const originalGetStoryContextV3 = v3Engine.getStoryContextV3;
+  let confirmCalled = false;
+
+  writer.initWithRepository({
+    async getSession(sessionId) {
+      return { id: sessionId, engineVersion: "v3" };
+    },
+  });
+
+  v3Engine.getStoryContextV3 = async () => ({
+    recipientName: "Chioma",
+    occasion: "birthday",
+    style: "acoustic",
+    initialPrompt: "Birthday song",
+    narrative: "Chioma carried the family through a difficult season.",
+    facts: [],
+    beats: [],
+    atoms: {},
+    primitives: {},
+    motifs: [],
+    dials: {},
+    song_map: null,
+    completed_story_package: {
+      prose: "Chioma carried the family through a difficult season.",
+      retained_details: [
+        {
+          id: "twins_sacrifice",
+          text: "She endured every discomfort and did everything possible to carry the twins safely.",
+          required: true,
+          category: "event",
+        },
+      ],
+      detail_coverage_map: {
+        stats: { requiredMissing: 1 },
+        missingRequired: [
+          {
+            id: "twins_sacrifice",
+            text: "She endured every discomfort and did everything possible to carry the twins safely.",
+          },
+        ],
+      },
+    },
+  });
+  v3Engine.confirmStoryV3 = async () => {
+    confirmCalled = true;
+    throw new Error("confirm should not run when song readiness fails");
+  };
+
+  try {
+    await assert.rejects(
+      () => writer.confirmStory("story_song_blocked", {
+        forceConfirm: true,
+        targetContentType: "song",
+      }),
+      (error) => {
+        assert.equal(error.code, "STORY_NEEDS_INPUT");
+        assert.match(error.question, /twins safely/i);
+        assert.equal(error.songReadiness.ready, false);
+        return true;
+      }
+    );
+    assert.equal(confirmCalled, false);
+  } finally {
+    v3Engine.confirmStoryV3 = originalConfirmStoryV3;
+    v3Engine.getStoryContextV3 = originalGetStoryContextV3;
+  }
+});
+
+test("writer.confirmStory skips song readiness preflight for poem confirmations", async () => {
+  const originalConfirmStoryV3 = v3Engine.confirmStoryV3;
+  const originalGetStoryContextV3 = v3Engine.getStoryContextV3;
+  let getContextCalled = false;
+
+  writer.initWithRepository({
+    async getSession(sessionId) {
+      return { id: sessionId, engineVersion: "v3" };
+    },
+  });
+
+  v3Engine.getStoryContextV3 = async () => {
+    getContextCalled = true;
+    throw new Error("song readiness should not run for poems");
+  };
+  v3Engine.confirmStoryV3 = async () => ({
+    narrative: "Poem narrative",
+    completionScore: 82,
+    engineVersion: "v3",
+  });
+
+  try {
+    const result = await writer.confirmStory("story_poem_confirm", {
+      forceConfirm: true,
+      targetContentType: "poem",
+    });
+
+    assert.equal(result.confirmed, true);
+    assert.equal(getContextCalled, false);
+  } finally {
+    v3Engine.confirmStoryV3 = originalConfirmStoryV3;
+    v3Engine.getStoryContextV3 = originalGetStoryContextV3;
+  }
+});
+
 test("writer.confirmStory refuses to lock when the revision needs clarification", async () => {
   const originalReviseStoryV3 = v3Engine.reviseStoryV3;
   const originalConfirmStoryV3 = v3Engine.confirmStoryV3;

@@ -130,6 +130,7 @@ describe("POST /story/:story_id/confirm contract", () => {
     assert.deepEqual(receivedArgs, {
       additionalNotes: undefined,
       forceConfirm: true,
+      targetContentType: undefined,
     });
   });
 

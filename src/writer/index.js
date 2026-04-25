@@ -33,6 +33,7 @@ const v3Engine = require("./v3");
 const {
   writeSong,
   writeSongFromContext,
+  assessSongReadiness,
 } = require("./songwriter");
 
 const { getStyleList } = require("../providers/style-registry");
@@ -249,6 +250,9 @@ async function confirmStory(storyId, additionalNotesOrOptions) {
     : { additionalNotes: additionalNotesOrOptions };
   const normalizedNotes = typeof options.additionalNotes === "string" ? options.additionalNotes.trim() : "";
   const forceConfirm = options.forceConfirm === true;
+  const targetContentType = typeof options.targetContentType === "string"
+    ? options.targetContentType.trim().toLowerCase()
+    : "";
 
   if (normalizedNotes) {
     const revisionResult = await engineHandler.reviseStory(storyId, normalizedNotes, {
@@ -262,6 +266,42 @@ async function confirmStory(storyId, additionalNotesOrOptions) {
       const followUp = revisionResult.question || "Your final edit needs one more clarification before confirmation.";
       const err = new Error(followUp);
       err.code = "STORY_REVISION_CLARIFY_REQUIRED";
+      throw err;
+    }
+  }
+
+  if (targetContentType === "song") {
+    const storyContext = await engineHandler.getStoryContext(storyId, {
+      includeReadiness: false,
+      includeMetadata: false,
+    });
+    const songReadiness = assessSongReadiness({
+      recipient_name: storyContext.recipientName,
+      occasion: storyContext.occasion,
+      style: storyContext.style,
+      initial_prompt: storyContext.initialPrompt,
+      narrative: storyContext.narrative,
+      summary: storyContext.summary,
+      facts: storyContext.facts,
+      elements: storyContext.elements,
+      beats: storyContext.beats,
+      atoms: storyContext.atoms,
+      primitives: storyContext.primitives,
+      motifs: storyContext.motifs,
+      song_map: storyContext.song_map,
+      evaluation: storyContext.evaluation,
+      dials: storyContext.dials,
+      completed_story_package: storyContext.completed_story_package,
+    });
+    if (!songReadiness.ready) {
+      const question = songReadiness.follow_up_question ||
+        "Before I make this a song, give me one more concrete detail that must not be lost.";
+      const err = new Error(question);
+      err.code = "STORY_NEEDS_INPUT";
+      err.question = question;
+      err.suggestions = songReadiness.suggestions || [];
+      err.missingBlocks = (songReadiness.blockers || []).map((blocker) => blocker.code || blocker.message).filter(Boolean);
+      err.songReadiness = songReadiness;
       throw err;
     }
   }
