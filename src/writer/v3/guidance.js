@@ -12,6 +12,7 @@
  */
 
 const { generateText, isAvailable } = require("../../services/llm-provider");
+const { extractFirstJsonObject } = require("../../utils/common");
 const {
   SLOT_GUIDANCE_TEMPLATES,
   STORY_ELEMENT_DEFINITIONS,
@@ -234,19 +235,7 @@ function findBestVerbatimQuote(llmAnchor, facts) {
  */
 function parseGuidanceResponse(responseText) {
   try {
-    let jsonText = responseText;
-
-    // Extract JSON from code blocks
-    const codeBlockMatch = responseText.match(/```(?:json)?\s*([\s\S]*?)```/);
-    if (codeBlockMatch) {
-      jsonText = codeBlockMatch[1].trim();
-    }
-
-    const jsonMatch = jsonText.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      jsonText = jsonMatch[0];
-    }
-
+    const jsonText = extractFirstJsonObject(responseText) || responseText;
     const data = JSON.parse(jsonText);
 
     // Validate required fields

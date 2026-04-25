@@ -8,6 +8,7 @@
  */
 
 const { generateText, isAvailable } = require("../../services/llm-provider");
+const { extractFirstJsonObject } = require("../../utils/common");
 
 /**
  * Valid actions for lightweight model responses
@@ -64,20 +65,7 @@ JSON: {"action":"...", "message":"..."}`;
  */
 function parseLightweightResponse(responseText) {
   try {
-    let jsonText = responseText;
-
-    // Extract JSON from markdown code block if present
-    const codeBlockMatch = responseText.match(/```(?:json)?\s*([\s\S]*?)```/);
-    if (codeBlockMatch) {
-      jsonText = codeBlockMatch[1].trim();
-    }
-
-    // Try to find JSON object in response
-    const jsonMatch = jsonText.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      jsonText = jsonMatch[0];
-    }
-
+    const jsonText = extractFirstJsonObject(responseText) || responseText;
     const data = JSON.parse(jsonText);
 
     // Validate action field

@@ -12,6 +12,7 @@
 
 const { generateText } = require("./llm-provider");
 const { sanitizeForPrompt } = require("./content-filter");
+const { extractFirstJsonObject } = require("../utils/common");
 
 /**
  * Generate contextual follow-up questions based on a memory
@@ -103,14 +104,13 @@ function parseQuestionsResponse(text) {
   }
 
   try {
-    // Try to extract JSON from the response (in case there's extra text)
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
+    const jsonText = extractFirstJsonObject(text);
+    if (!jsonText) {
       console.warn("[memory-questions] No JSON found in response, using defaults");
       return { questions: getDefaultQuestions() };
     }
 
-    const parsed = JSON.parse(jsonMatch[0]);
+    const parsed = JSON.parse(jsonText);
 
     // Validate structure
     if (!Array.isArray(parsed.questions) || parsed.questions.length === 0) {

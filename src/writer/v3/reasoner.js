@@ -12,6 +12,7 @@
  */
 
 const { generateText, isAvailable } = require("../../services/llm-provider");
+const { extractFirstJsonObject } = require("../../utils/common");
 const {
   buildContextPrompt,
   buildSelectionPrompt,
@@ -495,23 +496,14 @@ function sanitizeJsonString(jsonStr) {
  */
 function parseReasoningResponse(response) {
   try {
-    // Try to extract JSON from markdown code blocks
-    let jsonStr = response;
-    const codeBlockMatch = response.match(/```(?:json)?\s*([\s\S]*?)```/);
-    if (codeBlockMatch) {
-      jsonStr = codeBlockMatch[1].trim();
-    }
-
-    // Try to find JSON object in response
-    const jsonMatch = jsonStr.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
+    let jsonStr = extractFirstJsonObject(response);
+    if (!jsonStr) {
       return {
         success: false,
         error: "No JSON object found in response",
         raw: response,
       };
     }
-    jsonStr = jsonMatch[0];
 
     // Sanitize common LLM JSON quirks (trailing commas, etc.)
     jsonStr = sanitizeJsonString(jsonStr);
@@ -657,18 +649,11 @@ function parseReasoningResponse(response) {
 
 function parseJsonResponse(response) {
   try {
-    let jsonStr = response;
-    const codeBlockMatch = response.match(/```(?:json)?\s*([\s\S]*?)```/);
-    if (codeBlockMatch) {
-      jsonStr = codeBlockMatch[1].trim();
-    }
-
-    const jsonMatch = jsonStr.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
+    let jsonStr = extractFirstJsonObject(response);
+    if (!jsonStr) {
       console.error("[V3 Reasoner] No JSON object found in response:", response.substring(0, 500));
       return { success: false, error: "No JSON object found", raw: response };
     }
-    jsonStr = jsonMatch[0];
     jsonStr = sanitizeJsonString(jsonStr);
     const data = JSON.parse(jsonStr);
     return { success: true, data };

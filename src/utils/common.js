@@ -107,6 +107,42 @@ function clampNumber(value, min, max, fallback) {
   return Math.max(min, Math.min(max, numeric));
 }
 
+/**
+ * Extract the first balanced top-level JSON object from a string. Strips
+ * ```json ... ``` code fences when the entire payload is wrapped in them,
+ * then walks character-by-character to find a balanced `{...}` block,
+ * honoring strings and escapes. Greedy `/{[\s\S]*}/` regex would concatenate
+ * two top-level objects (e.g., when an LLM echoes the original input alongside
+ * its response) into invalid input.
+ *
+ * @param {string} rawText - Raw LLM output, possibly fenced or with prose
+ * @returns {string|null} The matched JSON object substring, or null if none found
+ */
+function extractFirstJsonObject(rawText) {
+  const text = String(rawText || "")
+    .replace(/^\s*```(?:json)?\s*([\s\S]*?)\s*```\s*$/i, "$1")
+    .trim();
+  if (!text) return null;
+  const start = text.indexOf("{");
+  if (start === -1) return null;
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  for (let i = start; i < text.length; i += 1) {
+    const ch = text[i];
+    if (escape) { escape = false; continue; }
+    if (ch === "\\") { escape = true; continue; }
+    if (ch === "\"") { inString = !inString; continue; }
+    if (inString) continue;
+    if (ch === "{") depth += 1;
+    else if (ch === "}") {
+      depth -= 1;
+      if (depth === 0) return text.slice(start, i + 1);
+    }
+  }
+  return null;
+}
+
 module.exports = {
   ensureDir,
   parseJson,
@@ -114,4 +150,5 @@ module.exports = {
   getVersionDir,
   nowIso,
   clampNumber,
+  extractFirstJsonObject,
 };

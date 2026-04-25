@@ -24,6 +24,7 @@ const {
   getSignificantWords,
 } = require("./story-semantics");
 const { summarizeLyricsContextForLog } = require("./lyrics-context");
+const { extractFirstJsonObject } = require("../utils/common");
 
 // Syllable constraints for singability
 const MIN_SYLLABLES_PER_LINE = 3;
@@ -2211,15 +2212,14 @@ Return ONLY valid JSON:
     responseMimeType: "application/json",
   });
 
-  const rawText = (llmResult.text || "").trim();
-  const jsonMatch = rawText.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) {
+  const jsonText = extractFirstJsonObject(llmResult.text);
+  if (!jsonText) {
     throw new Error(`E201_LYRICS_ERROR: No JSON found in ${normalizedSection} response`);
   }
 
   let parsed;
   try {
-    parsed = JSON.parse(jsonMatch[0]);
+    parsed = JSON.parse(jsonText);
   } catch (parseErr) {
     console.error(`[Songwriter] Failed to parse ${normalizedSection} JSON:`, parseErr.message);
     throw new Error(`Failed to parse generated ${normalizedSection}`);
@@ -3360,40 +3360,10 @@ function getInventedDetails(fidelity) {
 }
 
 function parseLyricsJson(rawText, errorPrefix = "lyrics") {
-  // LLMs occasionally wrap JSON in ```json ... ``` fences despite responseMimeType.
-  const text = String(rawText || "")
-    .replace(/^\s*```(?:json)?\s*([\s\S]*?)\s*```\s*$/i, "$1")
-    .trim();
-  if (!text) {
+  const jsonText = extractFirstJsonObject(rawText);
+  if (!jsonText) {
     throw new Error(`E201_LYRICS_ERROR: No JSON found in ${errorPrefix} response`);
   }
-
-  // Balanced-brace extraction: greedy `/{...}/` would concatenate two top-level
-  // JSON blobs (e.g., when the LLM echoes the original lyrics) into invalid input.
-  const start = text.indexOf("{");
-  if (start === -1) {
-    throw new Error(`E201_LYRICS_ERROR: No JSON found in ${errorPrefix} response`);
-  }
-  let depth = 0;
-  let inString = false;
-  let escape = false;
-  let end = -1;
-  for (let i = start; i < text.length; i += 1) {
-    const ch = text[i];
-    if (escape) { escape = false; continue; }
-    if (ch === "\\") { escape = true; continue; }
-    if (ch === "\"") { inString = !inString; continue; }
-    if (inString) continue;
-    if (ch === "{") depth += 1;
-    else if (ch === "}") {
-      depth -= 1;
-      if (depth === 0) { end = i; break; }
-    }
-  }
-  if (end === -1) {
-    throw new Error(`E201_LYRICS_ERROR: Unterminated JSON in ${errorPrefix} response`);
-  }
-  const jsonText = text.slice(start, end + 1);
   try {
     return JSON.parse(jsonText);
   } catch (parseErr) {
@@ -3961,13 +3931,12 @@ Return ONLY valid JSON:
     responseMimeType: "application/json",
   });
 
-  const rawText = (result.text || "").trim();
-  const jsonMatch = rawText.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) throw new Error("No JSON in fidelity judge response");
+  const jsonText = extractFirstJsonObject(result.text);
+  if (!jsonText) throw new Error("No JSON in fidelity judge response");
 
   let parsed;
   try {
-    parsed = JSON.parse(jsonMatch[0]);
+    parsed = JSON.parse(jsonText);
   } catch {
     throw new Error("Malformed JSON from fidelity judge");
   }
