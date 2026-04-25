@@ -33,8 +33,8 @@ const v3Engine = require("./v3");
 const {
   writeSong,
   writeSongFromContext,
-  assessSongReadiness,
 } = require("./songwriter");
+const { assessSongReadiness } = require("./song-readiness");
 
 const { getStyleList } = require("../providers/style-registry");
 
