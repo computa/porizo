@@ -15,7 +15,7 @@ Users should not be told a story is ready for a song if the backend can already 
 - [x] (2026-04-25T05:55Z) Hardened targeted lyric repair with invented-detail input, earlier safe repair, repair metrics, and a small fidelity-priority quality margin.
 - [x] (2026-04-25T06:02Z) Updated tests for preflight blocking, poem bypass, route contract forwarding, and targeted repair behavior.
 - [x] (2026-04-25T06:08Z) Ran focused tests, lint, full backend tests, and iOS build validation.
-- [ ] Deploy and record production health evidence.
+- [x] (2026-04-25T06:11Z) Deployed to Railway and verified production health.
 
 ## Surprises & Discoveries
 
@@ -30,6 +30,9 @@ Users should not be told a story is ready for a song if the backend can already 
 
 - Observation: the readiness path originally reused `buildSongwriterPrompt` in a way that emitted normal generation prompt logs during preflight.
   Evidence: focused tests showed prompt summaries from a confirmation-only readiness check. The implementation now uses `returnMetadata` plus `suppressLogs` for preflight.
+
+- Observation: Railway startup logs printed a partial Hugging Face token prefix from unrelated Seed-VC diagnostics.
+  Evidence: deploy log inspection showed the token prefix in the old container start log. A follow-up safety commit now logs only YES/NO.
 
 ## Decision Log
 
@@ -55,6 +58,12 @@ Validation passed:
 - `npm run lint`
 - `npm test` (`351` tests, `345` pass, `6` skipped, `0` failed)
 - `xcodebuild -project PorizoApp/PorizoApp.xcodeproj -scheme PorizoApp -destination 'generic/platform=iOS' build`
+
+Deployment passed:
+
+- `railway up` uploaded the backend service.
+- `curl -s https://api.porizo.co/health` returned `{"ok":true,...}` at `2026-04-25T06:10:58.821Z`.
+- Follow-up logs from the new container at `2026-04-25T06:10:45Z` showed the service listening on `0.0.0.0:3000`.
 
 ## Context and Orientation
 
@@ -101,7 +110,7 @@ The backend changes are code-only and can be redeployed repeatedly with `railway
 
 ## Artifacts and Notes
 
-Validation output is recorded in Outcomes & Retrospective. Production deploy evidence remains pending until `railway up` and `/health` complete.
+Validation and deployment output are recorded in Outcomes & Retrospective.
 
 ## Interfaces and Dependencies
 
