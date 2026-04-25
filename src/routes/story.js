@@ -2362,6 +2362,10 @@ function registerStoryRoutes(app, {
         sendError(reply, 400, "STORY_NOT_CONFIRMED", "Story must be confirmed before generating lyrics.");
       } else if (err.code === "AI_UNAVAILABLE" || err.message === "AI_UNAVAILABLE") {
         sendError(reply, 503, "AI_UNAVAILABLE", "Lyrics generation is temporarily unavailable.");
+      } else if (err.code === "LYRICS_FIDELITY_LOW") {
+        sendError(reply, 422, "STORY_NEEDS_REPAIR", "Your story needs one more pass before it can become a song.", {
+          fidelity: err.fidelity || null,
+        });
       } else {
         sendError(reply, 500, "LYRICS_GENERATION_FAILED", "Something went wrong creating your lyrics. Your story is saved — please try again.");
       }

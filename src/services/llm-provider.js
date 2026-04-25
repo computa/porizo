@@ -31,8 +31,8 @@ const CONFIG = {
 // - GEMINI_MODEL
 const MODELS = {
   gemini: {
-    lyrics: "gemini-3-flash",
-    simple: "gemini-3-flash",
+    lyrics: "gemini-3-flash-preview",
+    simple: "gemini-3-flash-preview",
   },
   anthropic: {
     lyrics: "claude-sonnet-4-20250514", // Higher quality for creative tasks
@@ -84,6 +84,45 @@ function resolveProviderModel(providerName, taskType = "lyrics") {
     return getGeminiModel(taskType);
   }
   return MODELS[providerName]?.[taskType] || MODELS[providerName]?.lyrics || "unknown";
+}
+
+function buildGeminiGenerationConfig({
+  temperature,
+  maxOutputTokens,
+  responseMimeType,
+  systemPrompt,
+  responseSchema,
+}) {
+  const config = {
+    temperature,
+    maxOutputTokens: maxOutputTokens || CONFIG.maxOutputTokens,
+  };
+
+  const thinkingLevel = process.env.GEMINI_THINKING_LEVEL?.trim();
+  if (thinkingLevel) {
+    config.thinkingConfig = { thinkingLevel };
+  }
+
+  if (systemPrompt) {
+    config.systemInstruction = systemPrompt;
+  }
+
+  if (responseMimeType) {
+    config.responseMimeType = responseMimeType;
+  }
+
+  if (responseSchema) {
+    const sanitized = sanitizeSchemaForGemini(responseSchema);
+    const schemaProperties = sanitized?.properties || {};
+    const hasObjectProperties =
+      sanitized?.type !== "object" || Object.keys(schemaProperties).length > 0;
+
+    if (hasObjectProperties) {
+      config.responseSchema = sanitized;
+    }
+  }
+
+  return config;
 }
 
 /**
@@ -291,30 +330,13 @@ async function generateWithGemini({
   const model = getGeminiModel(taskType);
   const client = getGeminiClient(apiKey);
 
-  const config = {
+  const config = buildGeminiGenerationConfig({
     temperature,
-    maxOutputTokens: maxOutputTokens || CONFIG.maxOutputTokens,
-    topP: 0.5, // Reduced from default 0.95 to prevent premature stop tokens
-  };
-
-  if (systemPrompt) {
-    config.systemInstruction = systemPrompt;
-  }
-
-  if (responseMimeType) {
-    config.responseMimeType = responseMimeType;
-  }
-
-  if (responseSchema) {
-    const sanitized = sanitizeSchemaForGemini(responseSchema);
-    const schemaProperties = sanitized?.properties || {};
-    const hasObjectProperties =
-      sanitized?.type !== "object" || Object.keys(schemaProperties).length > 0;
-
-    if (hasObjectProperties) {
-      config.responseSchema = sanitized;
-    }
-  }
+    maxOutputTokens,
+    responseMimeType,
+    systemPrompt,
+    responseSchema,
+  });
 
   try {
     const response = await client.models.generateContent({
@@ -708,6 +730,7 @@ module.exports = {
   estimateTokens,
   getGeminiModel,
   resolveProviderModel,
+  buildGeminiGenerationConfig,
   isOutputTruncatedFinishReason,
   __setGoogleGenAIFactoryForTest(factory) {
     googleGenAIFactory = factory || ((options) => new GoogleGenAI(options));

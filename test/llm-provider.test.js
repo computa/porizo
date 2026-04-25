@@ -15,6 +15,7 @@ const {
   estimateTokens,
   getGeminiModel,
   resolveProviderModel,
+  buildGeminiGenerationConfig,
   __setGoogleGenAIFactoryForTest,
   CONFIG,
   ERROR_CODES,
@@ -182,11 +183,13 @@ describe("LLM Provider", () => {
     const originalGeneric = process.env.GEMINI_MODEL;
     const originalLyrics = process.env.GEMINI_MODEL_LYRICS;
     const originalSimple = process.env.GEMINI_MODEL_SIMPLE;
+    const originalThinkingLevel = process.env.GEMINI_THINKING_LEVEL;
 
     afterEach(() => {
       restoreEnv("GEMINI_MODEL", originalGeneric);
       restoreEnv("GEMINI_MODEL_LYRICS", originalLyrics);
       restoreEnv("GEMINI_MODEL_SIMPLE", originalSimple);
+      restoreEnv("GEMINI_THINKING_LEVEL", originalThinkingLevel);
     });
 
     it("uses code defaults when no env overrides are set", () => {
@@ -194,8 +197,8 @@ describe("LLM Provider", () => {
       delete process.env.GEMINI_MODEL_LYRICS;
       delete process.env.GEMINI_MODEL_SIMPLE;
 
-      assert.strictEqual(getGeminiModel("lyrics"), "gemini-3-flash");
-      assert.strictEqual(getGeminiModel("simple"), "gemini-3-flash");
+      assert.strictEqual(getGeminiModel("lyrics"), "gemini-3-flash-preview");
+      assert.strictEqual(getGeminiModel("simple"), "gemini-3-flash-preview");
     });
 
     it("uses generic env override when task-specific override is absent", () => {
@@ -209,11 +212,33 @@ describe("LLM Provider", () => {
 
     it("uses task-specific env overrides over the generic override", () => {
       process.env.GEMINI_MODEL = "gemini-2.5-flash";
-      process.env.GEMINI_MODEL_LYRICS = "gemini-3-flash";
+      process.env.GEMINI_MODEL_LYRICS = "gemini-3-flash-preview";
       process.env.GEMINI_MODEL_SIMPLE = "gemini-2.5-flash-lite";
 
-      assert.strictEqual(getGeminiModel("lyrics"), "gemini-3-flash");
+      assert.strictEqual(getGeminiModel("lyrics"), "gemini-3-flash-preview");
       assert.strictEqual(getGeminiModel("simple"), "gemini-2.5-flash-lite");
+    });
+
+    it("does not force legacy Gemini sampling settings", () => {
+      delete process.env.GEMINI_THINKING_LEVEL;
+      const config = buildGeminiGenerationConfig({
+        temperature: 1,
+        maxOutputTokens: 1200,
+        responseMimeType: "application/json",
+      });
+
+      assert.strictEqual(config.temperature, 1);
+      assert.strictEqual(config.maxOutputTokens, 1200);
+      assert.strictEqual(config.responseMimeType, "application/json");
+      assert.strictEqual(config.topP, undefined);
+    });
+
+    it("allows Gemini thinking level to be configured without hardcoding it", () => {
+      process.env.GEMINI_THINKING_LEVEL = "HIGH";
+      const config = buildGeminiGenerationConfig({ temperature: 1 });
+
+      assert.deepStrictEqual(config.thinkingConfig, { thinkingLevel: "HIGH" });
+      delete process.env.GEMINI_THINKING_LEVEL;
     });
 
     it("resolveProviderModel delegates Gemini resolution to env-backed config", () => {

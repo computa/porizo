@@ -301,6 +301,57 @@ describe("Lyrics Generation", () => {
       assert.ok(coverage.missing_required.some((detail) => /high-risk twin pregnancy/i.test(detail)));
     });
 
+    it("keeps Chioma-style rich stories feasible by enforcing canonical must-keep beats", () => {
+      const retainedDetails = [
+        "strength, care, and the steady way she holds family life together",
+        "hardworking, dependable, and keeps the home running",
+        "appointments, meals, the home, work, and the daily chaos of raising four children",
+        "where there could be disorder, she brings structure",
+        "where there could be stress, she brings stability",
+        "high-risk pregnancy of the twins",
+        "bleeding, fear, pain, uncertainty, and constant worry",
+        "followed every instruction, kept every appointment, and endured every discomfort",
+        "did everything possible to carry the twins safely",
+        "love in action, sacrifice, and motherhood at its deepest level",
+        "watched her grow from a young girl into a strong woman",
+        "rose to motherhood with courage and grace",
+        "children growing in a home filled with warmth, care, and structure",
+        "birthday gratitude: I see you, appreciate you, and am deeply grateful",
+        "celebrates the woman she has become and the blessing she is to the family",
+      ].map((text, index) => {
+        let category = "meaning";
+        if (index >= 5 && index <= 9) category = "sacrifice";
+        if (index >= 10 && index <= 12) category = "transformation";
+        if (index >= 13) category = "gratitude";
+        return {
+          id: `chioma_${index + 1}`,
+          text,
+          required: true,
+          category,
+        };
+      });
+      const context = {
+        recipient_name: "Chioma",
+        occasion: "birthday",
+        style: "country",
+        narrative: retainedDetails.map((detail) => detail.text).join(". "),
+        completed_story_package: {
+          prose: retainedDetails.map((detail) => detail.text).join(". "),
+          retained_details: retainedDetails,
+        },
+      };
+
+      const ledger = buildStoryDetailLedger(context, { maxEntries: "all" });
+      const requiredTexts = ledger.filter((entry) => entry.required).map((entry) => entry.text).join(" | ");
+
+      assert.equal(ledger.filter((entry) => entry.required).length, 8);
+      assert.match(requiredTexts, /high-risk pregnancy|twins/i);
+      assert.match(requiredTexts, /bleeding|fear|uncertainty/i);
+      assert.match(requiredTexts, /appointments|meals|work|four children/i);
+      assert.match(requiredTexts, /young girl|strong woman|motherhood/i);
+      assert.match(requiredTexts, /see you|appreciate|grateful|blessing/i);
+    });
+
     it("detects when provider policy sanitation removes a required story detail", () => {
       const context = {
         recipient_name: "Ada",
@@ -332,7 +383,7 @@ describe("Lyrics Generation", () => {
       );
     });
 
-    it("does not silently drop required details beyond the prompt ledger display limit", () => {
+    it("caps blocking required details while preserving extra story details as support", () => {
       const retainedDetails = Array.from({ length: 50 }, (_, index) => ({
         id: `detail_${index + 1}`,
         text: `required family memory number ${index + 1}`,
@@ -347,16 +398,22 @@ describe("Lyrics Generation", () => {
         },
       };
 
+      const ledger = buildStoryDetailLedger(context, { maxEntries: "all" });
+      const tailDetail = ledger.find((entry) => entry.id === "detail_50");
+      assert.ok(tailDetail, "support details must remain visible beyond the blocking contract");
+      assert.equal(tailDetail.required, false, "overflow details should be non-blocking support, not impossible song requirements");
+      assert.equal(tailDetail.required_downgraded, true);
+
       const coverage = assessRequiredDetailCoverage({
         sections: [
           { name: "verse1", lines: ["required family memory number 1"] },
         ],
       }, context);
 
-      assert.equal(coverage.required_count, 50);
+      assert.equal(coverage.required_count, 8);
       assert.ok(
-        coverage.missing_required.some((detail) => /required family memory number 50/i.test(detail)),
-        "fidelity coverage must inspect required details past the generation prompt display limit"
+        !coverage.missing_required.some((detail) => /required family memory number 50/i.test(detail)),
+        "fidelity should not block on every sentence-level detail after canonical capping"
       );
     });
 

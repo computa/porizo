@@ -41,6 +41,7 @@ const PROMPT_LEDGER_MAX_ENTRIES = 40;
 const FIDELITY_LEDGER_MAX_ENTRIES = 80;
 const SECTION_LEDGER_MAX_ENTRIES = 32;
 const LEDGER_PROMPT_TEXT_CHAR_LIMIT = 320;
+const CANONICAL_REQUIRED_DETAIL_LIMIT = 8;
 const STOP_WORDS_FOR_COVERAGE = new Set([
   "the", "and", "for", "that", "this", "with", "from", "into", "about", "your",
   "their", "they", "them", "you", "our", "her", "his", "she", "him", "was",
@@ -330,6 +331,87 @@ function priorityForLedgerDetail(detail = {}) {
   return 60;
 }
 
+function requiredDetailSemanticScore(entry = {}) {
+  const text = `${entry.text || ""} ${entry.category || ""} ${entry.section || ""}`.toLowerCase();
+  let score = Number(entry.priority) || 0;
+
+  const signals = [
+    { pattern: /\b(twin|pregnan|bleed|risk|fear|pain|uncertaint|sacrifice|endured?)\b/i, weight: 45 },
+    { pattern: /\b(grateful|gratitude|appreciate|i see you|celebrate|birthday)\b/i, weight: 40 },
+    { pattern: /\b(grow|grew|young girl|strong woman|motherhood|became|watched you)\b/i, weight: 36 },
+    { pattern: /\b(work|home|house|appointments?|grocery|children|four|responsibilit|structure|stability)\b/i, weight: 34 },
+    { pattern: /\b(love|support|kindness|care|dependable|steady|strength)\b/i, weight: 24 },
+  ];
+
+  for (const signal of signals) {
+    if (signal.pattern.test(text)) score += signal.weight;
+  }
+
+  if (entry.source === "song_map") score += 16;
+  if (entry.source === "primitive") score += 12;
+  if (entry.section === "chorus") score += 8;
+  if (entry.section === "verse2" || entry.section === "bridge") score += 5;
+
+  return score;
+}
+
+function resolveCanonicalRequiredDetailLimit(options = {}) {
+  if (Number.isFinite(options.requiredLimit)) {
+    return Math.max(1, Math.floor(options.requiredLimit));
+  }
+
+  const envLimit = Number.parseInt(process.env.LYRIC_REQUIRED_DETAIL_LIMIT || "", 10);
+  if (Number.isFinite(envLimit) && envLimit > 0) {
+    return Math.max(1, Math.min(20, envLimit));
+  }
+
+  return CANONICAL_REQUIRED_DETAIL_LIMIT;
+}
+
+function capCanonicalRequiredDetails(entries = [], options = {}) {
+  const requiredLimit = resolveCanonicalRequiredDetailLimit(options);
+  const required = entries.filter((entry) => entry.required);
+  if (required.length <= requiredLimit) {
+    return entries.map((entry) => ({
+      ...entry,
+      required_limit: requiredLimit,
+      raw_required: entry.required === true,
+    }));
+  }
+
+  const keep = new Set(
+    required
+      .map((entry, index) => ({
+        key: `${entry.id || ""}\u0000${entry.text || ""}`,
+        score: requiredDetailSemanticScore(entry),
+        index,
+      }))
+      .sort((a, b) => b.score - a.score || a.index - b.index)
+      .slice(0, requiredLimit)
+      .map((entry) => entry.key)
+  );
+
+  return entries.map((entry) => {
+    const key = `${entry.id || ""}\u0000${entry.text || ""}`;
+    const rawRequired = entry.required === true;
+    if (!rawRequired || keep.has(key)) {
+      return {
+        ...entry,
+        required_limit: requiredLimit,
+        raw_required: rawRequired,
+      };
+    }
+
+    return {
+      ...entry,
+      required: false,
+      raw_required: true,
+      required_downgraded: true,
+      required_limit: requiredLimit,
+    };
+  });
+}
+
 function buildStoryDetailLedger(context, options = {}) {
   const normalized = normalizeContext(context);
   const factSectionMap = buildFactSectionMap(normalized.song_map);
@@ -451,13 +533,15 @@ function buildStoryDetailLedger(context, options = {}) {
     }
   }
 
-  return entries
+  const sorted = entries
     .sort((a, b) => b.priority - a.priority)
     .slice(0, maxEntries)
     .map((entry, index) => ({
       ...entry,
       id: entry.id || `detail_${index + 1}`,
     }));
+
+  return capCanonicalRequiredDetails(sorted, options);
 }
 
 function formatStoryDetailLedgerForPrompt(ledger = [], options = {}) {
@@ -480,13 +564,18 @@ function formatStoryDetailLedgerForPrompt(ledger = [], options = {}) {
 function summarizeStoryDetailLedgerForLog(ledger = []) {
   const details = Array.isArray(ledger) ? ledger : [];
   const required = details.filter((entry) => entry.required);
+  const rawRequired = details.filter((entry) => entry.raw_required === true || entry.required === true);
+  const downgraded = details.filter((entry) => entry.required_downgraded === true);
   const bySection = {};
   for (const entry of details) {
     bySection[entry.section || "song"] = (bySection[entry.section || "song"] || 0) + 1;
   }
   return {
     count: details.length,
+    required_limit: details[0]?.required_limit || CANONICAL_REQUIRED_DETAIL_LIMIT,
+    raw_required_count: rawRequired.length,
     required_count: required.length,
+    downgraded_required_count: downgraded.length,
     by_section: bySection,
     required_preview: summarizeArrayPreview(required.map((entry) => `${entry.id}: ${entry.text}`), 8),
   };
