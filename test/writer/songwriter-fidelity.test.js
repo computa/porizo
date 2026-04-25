@@ -36,6 +36,12 @@ function loadSongwriterWithSequence(sequence, calls) {
   return require("../../src/writer/songwriter");
 }
 
+function flattenTestLyrics(lyrics) {
+  return (lyrics?.sections || [])
+    .flatMap((section) => section.lines || [])
+    .join("\n");
+}
+
 test("generateLyrics rejects story-backed lyrics that fail fidelity after structured repair retry", async () => {
   const calls = [];
   const lyricJson = JSON.stringify({
@@ -136,7 +142,9 @@ test("generateLyrics rejects story-backed lyrics that fail fidelity after struct
     }
   );
 
-  const secondLyricsPrompt = calls.findLast((call) => call.taskType === "lyrics");
+  const secondLyricsPrompt = calls.find((call) =>
+    call.taskType === "lyrics" && /PREVIOUS DRAFT TO REWRITE/i.test(call.prompt)
+  );
   assert.ok(secondLyricsPrompt, "expected a second lyrics attempt");
   assert.match(secondLyricsPrompt.prompt, /Invented details to remove: sunrise prayers/i);
   assert.match(secondLyricsPrompt.prompt, /Watching her grow into a stronger woman/i);
@@ -273,6 +281,153 @@ test("generateLyrics self-corrects with judge feedback and previous draft contex
   assert.match(firstJudgePrompt.prompt, /Primary song map:/i);
   assert.match(firstJudgePrompt.prompt, /bridge: Watching her grow into a stronger woman/i);
   assert.match(firstJudgePrompt.prompt, /source_facts:/i);
+});
+
+test("generateLyrics runs compact targeted repair when one required detail remains missing", async () => {
+  const calls = [];
+  const missingDetail = "You followed every instruction, kept every appointment, endured every discomfort, and did everything possible to carry them safely.";
+  const badDraft = JSON.stringify({
+    title: "Love in Action",
+    style: "acoustic",
+    sections: [
+      {
+        name: "verse1",
+        lines: [
+          "Chioma kept the home running",
+          "While raising four children",
+          "Our children grew in warmth",
+          "And structure because of you",
+        ],
+      },
+      {
+        name: "chorus",
+        lines: [
+          "Chioma, that was love in action",
+          "A sacrifice beyond compare",
+          "I will never forget the twin pregnancy",
+          "High-risk fear around us",
+        ],
+      },
+    ],
+    anchor_line: "Chioma, that was love in action",
+    story_elements_used: ["home", "appointments", "four children", "twins"],
+  });
+  const repairedDraft = JSON.stringify({
+    title: "Love in Action",
+    style: "acoustic",
+    sections: [
+      {
+        name: "verse1",
+        lines: [
+          "Chioma kept the home together",
+          "Work and meals stayed on your mind",
+          "Four little hearts around her",
+          "Our children grew in warmth and structure",
+        ],
+      },
+      {
+        name: "chorus",
+        lines: [
+          "Chioma, that was love in action",
+          "A sacrifice beyond compare",
+          "You kept each appointment, every instruction",
+          "Endured every discomfort, did all possible",
+          "To carry them safely through",
+        ],
+      },
+      {
+        name: "bridge",
+        lines: [
+          "I will never forget the high-risk twins",
+          "Through fear and bleeding, you held on",
+          "And brought our children home",
+        ],
+      },
+    ],
+    anchor_line: "Chioma, that was love in action",
+    story_elements_used: [
+      "work and meals",
+      "four children",
+      "kept each appointment and every instruction",
+      "endured every discomfort and did everything possible to carry them safely",
+    ],
+  });
+  const judgeLooksGoodButServerCoverageFails = JSON.stringify({
+    scores: {
+      coverage: 9,
+      flow: 9,
+      specificity: 8,
+      emotional_truth: 9,
+      faithfulness: 9,
+    },
+    missed_facts: [],
+    missing_story_beats: [],
+    uncovered_song_map_slots: [],
+    invented_details: [],
+    flattened_emotional_arc: "",
+    rewrite_targets: [],
+    feedback: "good except server-side required coverage will decide",
+  });
+  const judgePass = JSON.stringify({
+    scores: {
+      coverage: 9,
+      flow: 9,
+      specificity: 9,
+      emotional_truth: 9,
+      faithfulness: 9,
+    },
+    missed_facts: [],
+    missing_story_beats: [],
+    uncovered_song_map_slots: [],
+    invented_details: [],
+    flattened_emotional_arc: "",
+    rewrite_targets: [],
+    feedback: "repaired",
+  });
+
+  const { generateLyrics } = loadSongwriterWithSequence(
+    [
+      badDraft, judgeLooksGoodButServerCoverageFails,
+      badDraft, judgeLooksGoodButServerCoverageFails,
+      badDraft, judgeLooksGoodButServerCoverageFails,
+      badDraft, judgeLooksGoodButServerCoverageFails,
+      repairedDraft, judgePass,
+    ],
+    calls
+  );
+
+  const result = await generateLyrics({
+    recipient_name: "Chioma",
+    occasion: "birthday",
+    style: "acoustic",
+    message: "I see you and I am grateful",
+    completed_story_package: {
+      prose: `Chioma kept the home running while raising four children. I will never forget the high-risk pregnancy of the twins. ${missingDetail} Because of you, our children grew up in warmth and structure.`,
+      retained_details: [
+        { id: "daily_load", text: "Chioma kept the home running while raising four children.", required: true, category: "context" },
+        { id: "twins_risk", text: "I will never forget the high-risk pregnancy of the twins.", required: true, category: "context" },
+        { id: "followed_everything", text: missingDetail, required: true, category: "event" },
+        { id: "warmth_structure", text: "Because of you, our children grew up in warmth and structure.", required: true, category: "meaning" },
+      ],
+    },
+    narrative: `Chioma kept the home running while raising four children. I will never forget the high-risk pregnancy of the twins. ${missingDetail} Because of you, our children grew up in warmth and structure.`,
+    song_map: {
+      hook: "That was love in action",
+      verse1: ["Chioma kept the home running while raising four children"],
+      chorus: ["That was love in action"],
+      verse2: ["I will never forget the high-risk pregnancy of the twins"],
+      bridge: [missingDetail],
+      key_lines: ["I see you and I am grateful"],
+    },
+  });
+
+  assert.equal(result.acceptance_reason, "targeted_required_detail_repair_passed");
+  assert.match(flattenTestLyrics(result.lyrics), /instruction/i);
+  assert.match(flattenTestLyrics(result.lyrics), /carry them safely/i);
+  const repairPrompt = calls.find((call) => /SURGICAL REQUIRED-DETAIL REPAIR/.test(call.prompt));
+  assert.ok(repairPrompt, "expected compact targeted repair prompt");
+  assert.match(repairPrompt.prompt, /MISSING REQUIRED DETAILS/i);
+  assert.match(repairPrompt.prompt, /followed every instruction/i);
 });
 
 test("generateLyrics fails closed when story-backed fidelity judge is malformed", async () => {
