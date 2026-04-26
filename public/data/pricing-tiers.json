@@ -1,0 +1,26 @@
+{
+  "currency": "USD",
+  "tiers": [
+    {
+      "id": "free",
+      "name": "Free",
+      "price_monthly_usd": 0,
+      "price_annual_usd": 0,
+      "description": "Start free. Limited previews and shareable songs."
+    },
+    {
+      "id": "premium_monthly",
+      "name": "Premium (monthly)",
+      "price_monthly_usd": 9.99,
+      "price_annual_usd": null,
+      "description": "Full access to song and poem creation, more previews per day, voice enrollment."
+    },
+    {
+      "id": "premium_annual",
+      "name": "Premium (annual)",
+      "price_monthly_usd": null,
+      "price_annual_usd": 99.0,
+      "description": "All Premium features billed annually for the lower effective monthly rate."
+    }
+  ]
+}

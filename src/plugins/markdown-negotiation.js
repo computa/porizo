@@ -30,6 +30,8 @@ const translator = new NodeHtmlMarkdown({
 
 async function markdownNegotiation(app) {
   app.addHook("onSend", async (request, reply, payload) => {
+    // Cheapest checks first — this hook fires on every response.
+    if (request.method !== "GET") return payload;
     if (!isAllowlisted(request.raw.url)) return payload;
 
     // Always advertise that the response varies by Accept so CDN/edge caches
@@ -50,10 +52,28 @@ async function markdownNegotiation(app) {
       const html = Buffer.isBuffer(payload) ? payload.toString("utf8") : payload;
       const markdown = translator.translate(html);
       reply.header("Content-Type", "text/markdown; charset=utf-8");
+      // Force `private` so a CDN can't cache the markdown variant under a key
+      // a permissive Vary normalization would later serve to an HTML-asking
+      // client. The handler's original Cache-Control (public, max-age=300)
+      // applies fine to the HTML branch; this overrides it on the rewritten
+      // markdown response.
+      reply.header("Cache-Control", "private, max-age=0, must-revalidate");
       return markdown;
     } catch (err) {
-      request.log.warn({ err, url: request.raw.url }, "markdown translation failed");
-      return payload;
+      // Translation should not fail on the marketing pages we control, so a
+      // failure is unusual enough to log at error. We refuse the response
+      // (RFC 7231 §6.5.6 — 406 Not Acceptable) rather than serving HTML to a
+      // client that explicitly asked for markdown — silently downgrading the
+      // representation would mislead an agent into parsing HTML it didn't
+      // request.
+      request.log.error({ err, url: request.raw.url }, "markdown translation failed");
+      reply.code(406);
+      reply.header("Content-Type", "application/json");
+      return JSON.stringify({
+        error: "markdown_translation_failed",
+        error_description:
+          "Server failed to convert HTML response to markdown. Retry with Accept: text/html.",
+      });
     }
   });
 }

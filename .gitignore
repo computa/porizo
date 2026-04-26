@@ -8,7 +8,7 @@ node_modules/
 .env
 
 # Local runtime data
-data/
+/data/
 /storage/
 test-output/
 *.log
@@ -54,7 +54,12 @@ venv/
 
 # Agent tool working dirs (per-editor/per-agent state, not source)
 .agent/
-.agents/
+!.agents/
+.agents/*
+!.agents/skills/
+.agents/skills/*
+!.agents/skills/porizo-shortform-pipeline/
+!.agents/skills/porizo-shortform-pipeline/**
 .codex/
 .cursor/
 .droid/
@@ -70,3 +75,10 @@ autoresearch-story/
 
 # Local SQLite scratch file at repo root
 /db.sqlite
+
+# Fastlane
+PorizoApp/fastlane/screenshots/
+PorizoApp/fastlane/report.xml
+PorizoApp/fastlane/Preview.html
+PorizoApp/fastlane/metadata/
+PorizoApp/fastlane/test_output/

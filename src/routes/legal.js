@@ -1,47 +1,26 @@
-const fs = require("fs");
-const path = require("path");
 const config = require("../config");
 const geoip = require("geoip-lite");
 const { generatePrefixedId } = require("../utils/ids");
-
-// Load public pages at startup for performance
-function loadPublicPage(relativePath) {
-  const filePath = path.join(process.cwd(), "public", relativePath);
-  try {
-    return fs.readFileSync(filePath, "utf8");
-  } catch (error) {
-    return null;
-  }
-}
+const { loadPublicFile } = require("../utils/public-files");
 
 const publicPages = {
-  index: loadPublicPage("index.html"),
-  support: loadPublicPage("support.html"),
-  about: loadPublicPage("about.html"),
-  pricing: loadPublicPage("pricing.html"),
-  terms: loadPublicPage("legal/terms.html"),
-  privacy: loadPublicPage("legal/privacy.html"),
+  index: loadPublicFile("index.html", { warnOnMissing: true }),
+  support: loadPublicFile("support.html", { warnOnMissing: true }),
+  about: loadPublicFile("about.html", { warnOnMissing: true }),
+  pricing: loadPublicFile("pricing.html", { warnOnMissing: true }),
+  terms: loadPublicFile("legal/terms.html", { warnOnMissing: true }),
+  privacy: loadPublicFile("legal/privacy.html", { warnOnMissing: true }),
 };
 
 const fallbackPage = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Porizo</title></head><body><main><h1>Porizo</h1><p>Page unavailable.</p></main></body></html>`;
 
-// Load binary files (favicon, apple-touch-icon)
-function loadBinaryFile(relativePath) {
-  const filePath = path.join(process.cwd(), "public", relativePath);
-  try {
-    return fs.readFileSync(filePath);
-  } catch (error) {
-    return null;
-  }
-}
-
-const favicon = loadBinaryFile("favicon.ico");
-const appleTouchIcon = loadBinaryFile("apple-touch-icon.png");
+const favicon = loadPublicFile("favicon.ico", { encoding: null, warnOnMissing: true });
+const appleTouchIcon = loadPublicFile("apple-touch-icon.png", { encoding: null, warnOnMissing: true });
 
 // Load SEO files
-const robotsTxt = loadPublicPage("robots.txt");
-const sitemapXml = loadPublicPage("sitemap.xml");
-const llmsTxt = loadPublicPage("llms.txt");
+const robotsTxt = loadPublicFile("robots.txt", { warnOnMissing: true });
+const sitemapXml = loadPublicFile("sitemap.xml", { warnOnMissing: true });
+const llmsTxt = loadPublicFile("llms.txt", { warnOnMissing: true });
 
 const appStoreUrl =
   config.APP_STORE_URL || "https://apps.apple.com/app/porizo/id6758205028";
@@ -96,10 +75,11 @@ function resolveDownloadUrl(request) {
   return appStoreUrl;
 }
 
-function decodeMaybe(value) {
+function decodeMaybe(value, log) {
   try {
     return decodeURIComponent(value);
-  } catch (error) {
+  } catch (err) {
+    if (log) log.debug({ err, raw: value }, "decodeMaybe: malformed percent-encoding, using raw value");
     return value;
   }
 }
@@ -109,13 +89,15 @@ function resolveDeepLink(request) {
   if (typeof rawDeepLink !== "string" || rawDeepLink.trim() === "") {
     return null;
   }
-  const deepLink = decodeMaybe(rawDeepLink.trim());
+  const deepLink = decodeMaybe(rawDeepLink.trim(), request.log);
   try {
     const parsed = new URL(deepLink);
     if (parsed.protocol !== "porizo:") {
+      request.log?.debug({ deepLink, protocol: parsed.protocol }, "resolveDeepLink: rejected non-porizo: protocol");
       return null;
     }
-  } catch (error) {
+  } catch (err) {
+    request.log?.debug({ err, rawDeepLink }, "resolveDeepLink: URL parse failed");
     return null;
   }
   return deepLink;
@@ -159,7 +141,10 @@ async function withDynamicBlogEntries(sitemap, db) {
     }).join("\n");
 
     return sitemap.replace("</urlset>", `${entries}\n</urlset>`);
-  } catch (_error) {
+  } catch (err) {
+    // DB read failed — serve the static sitemap so SEO survives, but log so
+    // the regression is visible (the silent fallback used to mask schema drift).
+    console.warn(`[legal] withDynamicBlogEntries DB read failed: ${err.message}`);
     return sitemap;
   }
 }
@@ -312,16 +297,24 @@ function logDownloadEvent(db, request) {
   const country = geo ? geo.country : null;
   const id = generatePrefixedId("dl");
 
-  db.prepare(
-    `INSERT INTO download_events (id, ip_address, user_agent, utm_source, utm_medium, utm_campaign, utm_content, utm_term, country, referrer_url, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(
-    id, ip, ua,
-    q.utm_source || null, q.utm_medium || null, q.utm_campaign || null,
-    q.utm_content || null, q.utm_term || null,
-    country, q.ref || request.headers.referer || null,
-    new Date().toISOString()
-  ).catch(err => console.error("Failed to log download event:", err.message));
+  // better-sqlite3 .run() is synchronous and throws — the prior `.catch()`
+  // was dead code. A logging-only insert must never crash the route.
+  try {
+    db.prepare(
+      `INSERT INTO download_events (id, ip_address, user_agent, utm_source, utm_medium, utm_campaign, utm_content, utm_term, country, referrer_url, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      id, ip, ua,
+      q.utm_source || null, q.utm_medium || null, q.utm_campaign || null,
+      q.utm_content || null, q.utm_term || null,
+      country, q.ref || request.headers.referer || null,
+      new Date().toISOString()
+    );
+  } catch (err) {
+    request.log
+      ? request.log.warn({ err }, "download event log failed")
+      : console.warn(`[legal] download event log failed: ${err.message}`);
+  }
 }
 
 // RFC 8288 Link relations for AI agent discovery on marketing pages.
@@ -394,41 +387,29 @@ function registerLegalRoutes(app, { db } = {}) {
     }
   });
 
-  // Landing page
-  app.get("/", async (_request, reply) => {
+  // Helper: every marketing/legal page sends the same shape — HTML body,
+  // 5-min cache, agent Link header for discovery. Centralizing it means a new
+  // page can't accidentally ship without the Link header (which is exactly
+  // the regression that hit /legal/terms + /legal/privacy initially).
+  function respondMarketingHtml(reply, body) {
     reply
       .type("text/html; charset=utf-8")
       .header("Cache-Control", "public, max-age=300")
       .header("Link", AGENT_LINK_HEADER)
-      .send(publicPages.index || fallbackPage);
-  });
+      .send(body || fallbackPage);
+  }
+
+  // Landing page
+  app.get("/", async (_request, reply) => respondMarketingHtml(reply, publicPages.index));
 
   // Support page
-  app.get("/support", async (_request, reply) => {
-    reply
-      .type("text/html; charset=utf-8")
-      .header("Cache-Control", "public, max-age=300")
-      .header("Link", AGENT_LINK_HEADER)
-      .send(publicPages.support || fallbackPage);
-  });
+  app.get("/support", async (_request, reply) => respondMarketingHtml(reply, publicPages.support));
 
   // About page
-  app.get("/about", async (_request, reply) => {
-    reply
-      .type("text/html; charset=utf-8")
-      .header("Cache-Control", "public, max-age=300")
-      .header("Link", AGENT_LINK_HEADER)
-      .send(publicPages.about || fallbackPage);
-  });
+  app.get("/about", async (_request, reply) => respondMarketingHtml(reply, publicPages.about));
 
   // Pricing page
-  app.get("/pricing", async (_request, reply) => {
-    reply
-      .type("text/html; charset=utf-8")
-      .header("Cache-Control", "public, max-age=300")
-      .header("Link", AGENT_LINK_HEADER)
-      .send(publicPages.pricing || fallbackPage);
-  });
+  app.get("/pricing", async (_request, reply) => respondMarketingHtml(reply, publicPages.pricing));
 
   // App download redirect helper for share flows
   app.get("/download", async (request, reply) => {
@@ -457,19 +438,9 @@ function registerLegalRoutes(app, { db } = {}) {
     reply.redirect(301, "/legal/privacy");
   });
 
-  app.get("/legal/terms", async (_request, reply) => {
-    reply
-      .type("text/html; charset=utf-8")
-      .header("Cache-Control", "public, max-age=300")
-      .send(publicPages.terms || fallbackPage);
-  });
+  app.get("/legal/terms", async (_request, reply) => respondMarketingHtml(reply, publicPages.terms));
 
-  app.get("/legal/privacy", async (_request, reply) => {
-    reply
-      .type("text/html; charset=utf-8")
-      .header("Cache-Control", "public, max-age=300")
-      .send(publicPages.privacy || fallbackPage);
-  });
+  app.get("/legal/privacy", async (_request, reply) => respondMarketingHtml(reply, publicPages.privacy));
 }
 
 module.exports = { registerLegalRoutes };
