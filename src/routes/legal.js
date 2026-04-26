@@ -324,6 +324,17 @@ function logDownloadEvent(db, request) {
   ).catch(err => console.error("Failed to log download event:", err.message));
 }
 
+// RFC 8288 Link relations for AI agent discovery on marketing pages.
+// Comma-joined per RFC 8288 §3 (multiple values in one Link header are
+// equivalent to multiple Link headers).
+const AGENT_LINK_HEADER = [
+  '</.well-known/api-catalog>; rel="api-catalog"',
+  '</.well-known/mcp/server-card.json>; rel="mcp-server-card"',
+  '</.well-known/agent-skills/index.json>; rel="agent-skills"',
+  '</llms.txt>; rel="llms"',
+  '</sitemap.xml>; rel="sitemap"',
+].join(", ");
+
 function registerLegalRoutes(app, { db } = {}) {
   // SEO files
   app.get("/robots.txt", async (_request, reply) => {
@@ -388,6 +399,7 @@ function registerLegalRoutes(app, { db } = {}) {
     reply
       .type("text/html; charset=utf-8")
       .header("Cache-Control", "public, max-age=300")
+      .header("Link", AGENT_LINK_HEADER)
       .send(publicPages.index || fallbackPage);
   });
 
@@ -396,6 +408,7 @@ function registerLegalRoutes(app, { db } = {}) {
     reply
       .type("text/html; charset=utf-8")
       .header("Cache-Control", "public, max-age=300")
+      .header("Link", AGENT_LINK_HEADER)
       .send(publicPages.support || fallbackPage);
   });
 
@@ -404,6 +417,7 @@ function registerLegalRoutes(app, { db } = {}) {
     reply
       .type("text/html; charset=utf-8")
       .header("Cache-Control", "public, max-age=300")
+      .header("Link", AGENT_LINK_HEADER)
       .send(publicPages.about || fallbackPage);
   });
 
@@ -412,6 +426,7 @@ function registerLegalRoutes(app, { db } = {}) {
     reply
       .type("text/html; charset=utf-8")
       .header("Cache-Control", "public, max-age=300")
+      .header("Link", AGENT_LINK_HEADER)
       .send(publicPages.pricing || fallbackPage);
   });
 

@@ -1,0 +1,16 @@
+{
+  "$schema": "https://modelcontextprotocol.io/schema/2024-11/server-card.json",
+  "serverInfo": {
+    "name": "porizo",
+    "version": "1.5.9"
+  },
+  "transport": {
+    "type": "http",
+    "endpoint": "https://porizo.co/mcp"
+  },
+  "capabilities": {
+    "tools": {
+      "listChanged": false
+    }
+  }
+}

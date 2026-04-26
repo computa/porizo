@@ -1,0 +1,18 @@
+{
+  "linkset": [
+    {
+      "anchor": "https://porizo.co/api",
+      "service-desc": [
+        {
+          "href": "https://porizo.co/openapi.json",
+          "type": "application/openapi+json"
+        }
+      ],
+      "status": [
+        {
+          "href": "https://porizo.co/health"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+{
+  "resource": "https://porizo.co/api",
+  "authorization_servers": ["https://porizo.co"],
+  "scopes_supported": ["read", "create:song", "share"],
+  "bearer_methods_supported": ["header"]
+}

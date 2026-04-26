@@ -34,6 +34,8 @@ const authService = require("./services/auth-service");
 const { issueDeviceToken, verifyDeviceToken } = require("./services/device-token");
 const { registerAuthRoutes } = require("./routes/auth");
 const { registerLegalRoutes } = require("./routes/legal");
+const { registerWellKnownRoutes } = require("./routes/well-known");
+const { registerMcpRoutes } = require("./routes/mcp");
 const { registerBlogRoutes } = require("./routes/blog");
 const { registerAnalyticsRoutes } = require("./routes/analytics");
 const { registerStoryRoutes } = require("./routes/story");
@@ -365,6 +367,11 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     limits: { fileSize: 50 * 1024 * 1024 }, // 50MB max
   });
 
+  // Rate limiting (used by /mcp; opt-in via route config.rateLimit).
+  app.register(require("@fastify/rate-limit"), {
+    global: false,
+  });
+
   app.addContentTypeParser(
     ["audio/wav", "application/octet-stream"],
     { parseAs: "buffer" },
@@ -375,6 +382,8 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
 
   // ============ Authentication Routes ============
   registerLegalRoutes(app, { db });
+  registerWellKnownRoutes(app);
+  registerMcpRoutes(app);
   registerBlogRoutes(app, { db, config: appConfig });
   registerAuthRoutes(app, { db, subscriptionManager });
 

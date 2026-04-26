@@ -1,0 +1,60 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Porizo Public API",
+    "version": "1.5.9",
+    "description": "Public endpoints exposed by porizo.co. Most user-facing API endpoints (song generation, voice enrollment, etc.) require authentication via the Porizo iOS app and are not part of the public API surface."
+  },
+  "servers": [
+    {
+      "url": "https://porizo.co",
+      "description": "Production"
+    }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "operationId": "getHealth",
+        "summary": "Service health check",
+        "responses": {
+          "200": {
+            "description": "Service is healthy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/mcp": {
+      "post": {
+        "operationId": "mcpEndpoint",
+        "summary": "MCP (Model Context Protocol) JSON-RPC endpoint",
+        "description": "Streamable HTTP transport for the Porizo MCP server. Exposes the create-song and get-pricing tools.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "JSON-RPC 2.0 request"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "JSON-RPC 2.0 response"
+          }
+        }
+      }
+    }
+  }
+}
