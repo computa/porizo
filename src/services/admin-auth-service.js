@@ -9,10 +9,22 @@ const bcrypt = require("bcrypt");
 const crypto = require("crypto");
 const { generateId } = require("../utils/ids");
 
+const MAX_SESSION_DURATION_HOURS = 7 * 24;
+const DEFAULT_SESSION_DURATION_HOURS = MAX_SESSION_DURATION_HOURS;
+
+function getSessionDurationMs() {
+  const rawHours = process.env.ADMIN_SESSION_DURATION_HOURS;
+  const parsedHours = rawHours === undefined ? DEFAULT_SESSION_DURATION_HOURS : Number(rawHours);
+  const durationHours = Number.isFinite(parsedHours)
+    ? Math.min(Math.max(parsedHours, 1), MAX_SESSION_DURATION_HOURS)
+    : DEFAULT_SESSION_DURATION_HOURS;
+
+  return durationHours * 60 * 60 * 1000;
+}
+
 // Configuration
 const config = {
   bcryptCost: 12,
-  sessionDurationMs: 8 * 60 * 60 * 1000, // 8 hours
   maxFailedLoginAttempts: 5,
   lockoutDurationMinutes: 15,
 };
@@ -147,7 +159,7 @@ async function login(email, password, ip, userAgent) {
   const tokenHash = hashToken(token);
   const sessionId = generateId("admsess");
   const expiresAt = new Date(
-    Date.now() + config.sessionDurationMs
+    Date.now() + getSessionDurationMs()
   ).toISOString();
 
   await db.prepare(`

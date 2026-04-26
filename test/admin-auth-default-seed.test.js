@@ -14,10 +14,13 @@ describe("admin auth seeded default credentials", () => {
   let app;
   let originalNodeEnv;
   let originalBypass;
+  let originalAdminSessionDurationHours;
 
   beforeEach(async () => {
     originalNodeEnv = process.env.NODE_ENV;
     originalBypass = process.env.ALLOW_DEFAULT_ADMIN_LOGIN_IN_PRODUCTION;
+    originalAdminSessionDurationHours = process.env.ADMIN_SESSION_DURATION_HOURS;
+    delete process.env.ADMIN_SESSION_DURATION_HOURS;
 
     db = await getDatabase({
       provider: "sqlite",
@@ -49,6 +52,11 @@ describe("admin auth seeded default credentials", () => {
       delete process.env.ALLOW_DEFAULT_ADMIN_LOGIN_IN_PRODUCTION;
     } else {
       process.env.ALLOW_DEFAULT_ADMIN_LOGIN_IN_PRODUCTION = originalBypass;
+    }
+    if (originalAdminSessionDurationHours === undefined) {
+      delete process.env.ADMIN_SESSION_DURATION_HOURS;
+    } else {
+      process.env.ADMIN_SESSION_DURATION_HOURS = originalAdminSessionDurationHours;
     }
 
     await app.close();
@@ -101,5 +109,43 @@ describe("admin auth seeded default credentials", () => {
 
     assert.equal(response.statusCode, 200, response.body);
     assert.equal(response.json().admin.email, "admin@porizo.app");
+  });
+
+  test("issues admin sessions that last up to 7 days by default", async () => {
+    process.env.ALLOW_DEFAULT_ADMIN_LOGIN_IN_PRODUCTION = "true";
+    const beforeLoginMs = Date.now();
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/admin/auth/login",
+      payload: { email: "admin@porizo.app", password: "admin123" },
+    });
+
+    assert.equal(response.statusCode, 200, response.body);
+    const expiresAtMs = new Date(response.json().expiresAt).getTime();
+    const durationMs = expiresAtMs - beforeLoginMs;
+    const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
+
+    assert.ok(durationMs > sevenDaysMs - 5_000, `expected ~7 days, got ${durationMs}ms`);
+    assert.ok(durationMs <= sevenDaysMs + 5_000, `expected session to be capped at 7 days, got ${durationMs}ms`);
+  });
+
+  test("caps admin session duration overrides at 7 days", async () => {
+    process.env.ALLOW_DEFAULT_ADMIN_LOGIN_IN_PRODUCTION = "true";
+    process.env.ADMIN_SESSION_DURATION_HOURS = "999";
+    const beforeLoginMs = Date.now();
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/admin/auth/login",
+      payload: { email: "admin@porizo.app", password: "admin123" },
+    });
+
+    assert.equal(response.statusCode, 200, response.body);
+    const expiresAtMs = new Date(response.json().expiresAt).getTime();
+    const durationMs = expiresAtMs - beforeLoginMs;
+    const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
+
+    assert.ok(durationMs <= sevenDaysMs + 5_000, `expected cap at 7 days, got ${durationMs}ms`);
   });
 });
