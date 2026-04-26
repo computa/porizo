@@ -372,6 +372,9 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     global: false,
   });
 
+  // Markdown content negotiation for marketing pages (Accept: text/markdown).
+  app.register(require("./plugins/markdown-negotiation"));
+
   app.addContentTypeParser(
     ["audio/wav", "application/octet-stream"],
     { parseAs: "buffer" },
