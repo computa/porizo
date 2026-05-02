@@ -54,7 +54,7 @@ describe("Unit 6: Job retry status guard", () => {
     const now = new Date().toISOString();
     await db.prepare("INSERT INTO users (id, created_at) VALUES (?, ?)").run(userId, now);
     await db.prepare(
-      "INSERT INTO entitlements (user_id, tier, credits_balance, updated_at) VALUES (?, 'free', 100, ?)"
+      "INSERT INTO entitlements (user_id, tier, songs_remaining, updated_at) VALUES (?, 'free', 100, ?)"
     ).run(userId, now);
   });
 

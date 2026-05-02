@@ -310,8 +310,8 @@ describe("Subscription Manager", async () => {
     it("throws when no songs remaining", async () => {
       // Create entitlements with 0 songs
       await db.query(
-        `INSERT INTO entitlements (user_id, tier, songs_remaining, credits_balance, updated_at)
-         VALUES (?, 'free', 0, 0, datetime('now'))`,
+        `INSERT INTO entitlements (user_id, tier, songs_remaining, updated_at)
+         VALUES (?, 'free', 0, datetime('now'))`,
         [testUserId]
       );
 

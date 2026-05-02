@@ -4206,9 +4206,6 @@ async function start() {
         now,
         hold.id
       );
-      await db.prepare(
-        "UPDATE entitlements SET credits_balance = credits_balance + ?, updated_at = ? WHERE user_id = ?"
-      ).run(hold.credits_held, now, hold.user_id);
       await db.prepare("UPDATE track_versions SET status = ? WHERE id = ?").run(
         "failed",
         hold.track_version_id

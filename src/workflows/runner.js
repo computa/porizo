@@ -1761,9 +1761,6 @@ async function startJobRunner({
     "UPDATE billing_holds SET status = ?, resolved_at = ? WHERE id = ?"
   );
   const getHold = await db.prepare("SELECT * FROM billing_holds WHERE id = ?");
-  const refundCredits = await db.prepare(
-    "UPDATE entitlements SET credits_balance = credits_balance + ?, updated_at = ? WHERE user_id = ?"
-  );
   const updateUserRisk = await db.prepare("UPDATE users SET risk_level = ? WHERE id = ?");
   const insertAuditLog = await db.prepare(
     "INSERT INTO audit_logs (id, user_id, action, resource_type, resource_id, metadata_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
@@ -2089,7 +2086,6 @@ async function startJobRunner({
       return;
     }
     await updateHold.run("released", now, hold.id);
-    await refundCredits.run(hold.credits_held, now, hold.user_id);
     await insertAuditLog.run(
       crypto.randomUUID(),
       hold.user_id,

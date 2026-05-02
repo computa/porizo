@@ -17,7 +17,6 @@ interface User {
   tier: string;
   track_count: number;
   voice_status: string;
-  credits_used: number;
   last_active: string;
   acquisition_source: string | null;
   acquisition_campaign: string | null;
@@ -331,7 +330,6 @@ export function Users() {
               <th scope="col">User</th>
               <th scope="col">Tier</th>
               <th scope="col">Songs</th>
-              <th scope="col">Credits</th>
               <th scope="col">Active</th>
               <th scope="col">Risk</th>
               <th scope="col">Status</th>
@@ -409,9 +407,6 @@ export function Users() {
                     </td>
                     <td>
                       <span className="text-white font-data">{user.track_count}</span>
-                    </td>
-                    <td>
-                      <span className="text-white font-data">{user.credits_used}</span>
                     </td>
                     <td>
                       <span className="text-slate-400 text-sm">{getTimeSince(user.last_active)}</span>
@@ -518,7 +513,6 @@ interface UserDetail {
   } | null;
   entitlements: {
     tier: string;
-    credits_balance: number;
     preview_count_today: number;
   } | null;
   subscription: {
@@ -587,7 +581,7 @@ function UserDetailPanel({ userId, onClose, onUserDeleted }: UserDetailPanelProp
 
   // Edit entitlements state
   const [editingEntitlements, setEditingEntitlements] = useState(false);
-  const [entitlementFields, setEntitlementFields] = useState({ tier: 'free', credits_balance: 0 });
+  const [entitlementFields, setEntitlementFields] = useState({ tier: 'free' });
 
   // Sessions state
   const [sessions, setSessions] = useState<UserSession[] | null>(null);
@@ -674,7 +668,6 @@ function UserDetailPanel({ userId, onClose, onUserDeleted }: UserDetailPanelProp
     if (!detail) return;
     setEntitlementFields({
       tier: detail.entitlements?.tier || 'free',
-      credits_balance: detail.entitlements?.credits_balance ?? 0,
     });
     setEditingEntitlements(true);
   };
@@ -846,10 +839,6 @@ function UserDetailPanel({ userId, onClose, onUserDeleted }: UserDetailPanelProp
           <p className="text-white font-medium capitalize">{detail.entitlements?.tier || 'free'}</p>
         </div>
         <div className="bg-slate-800/50 rounded-lg p-4">
-          <p className="text-slate-500 text-xs uppercase tracking-wider mb-1">Credits</p>
-          <p className="text-white font-medium font-data">{detail.entitlements?.credits_balance || 0}</p>
-        </div>
-        <div className="bg-slate-800/50 rounded-lg p-4">
           <p className="text-slate-500 text-xs uppercase tracking-wider mb-1">Voice Profile</p>
           <p className="text-white font-medium capitalize">{detail.voiceProfile?.status || 'None'}</p>
         </div>
@@ -904,16 +893,6 @@ function UserDetailPanel({ userId, onClose, onUserDeleted }: UserDetailPanelProp
                     <option value="pro">Pro</option>
                     <option value="plus">Plus</option>
                   </select>
-                </div>
-                <div>
-                  <label className="block text-xs text-slate-500 mb-1">Credits</label>
-                  <input
-                    type="number"
-                    min={0}
-                    value={entitlementFields.credits_balance}
-                    onChange={(e) => setEntitlementFields(f => ({ ...f, credits_balance: parseInt(e.target.value) || 0 }))}
-                    className="w-28 bg-slate-800/50 border border-slate-600/50 rounded-lg px-3 py-2 text-sm text-white"
-                  />
                 </div>
               </div>
               <div className="flex items-center gap-2">

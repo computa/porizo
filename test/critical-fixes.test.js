@@ -87,7 +87,7 @@ describe("Stale Job Recovery", () => {
     );
 
     // Create entitlements (user_id is primary key)
-    db.prepare("INSERT INTO entitlements (user_id, tier, credits_balance, updated_at) VALUES (?, 'free', 100, ?)").run(
+    db.prepare("INSERT INTO entitlements (user_id, tier, songs_remaining, updated_at) VALUES (?, 'free', 100, ?)").run(
       userId, new Date().toISOString()
     );
 
@@ -240,7 +240,7 @@ describe("Version Increment Race Condition", () => {
     db.prepare("INSERT INTO users (id, created_at) VALUES (?, ?)").run(
       userId, new Date().toISOString()
     );
-    db.prepare("INSERT INTO entitlements (user_id, tier, credits_balance, updated_at) VALUES (?, 'premium', 1000, ?)").run(
+    db.prepare("INSERT INTO entitlements (user_id, tier, songs_remaining, updated_at) VALUES (?, 'premium', 1000, ?)").run(
       userId, new Date().toISOString()
     );
 
@@ -324,7 +324,7 @@ describe("Voice Mode Standardization", () => {
     db.prepare("INSERT INTO users (id, created_at) VALUES (?, ?)").run(
       userId, new Date().toISOString()
     );
-    db.prepare("INSERT INTO entitlements (user_id, tier, credits_balance, updated_at) VALUES (?, 'free', 100, ?)").run(
+    db.prepare("INSERT INTO entitlements (user_id, tier, songs_remaining, updated_at) VALUES (?, 'free', 100, ?)").run(
       userId, new Date().toISOString()
     );
 
@@ -385,7 +385,7 @@ describe("Voice Mode Standardization", () => {
 
     db.prepare("INSERT INTO users (id, created_at) VALUES (?, ?)").run(userId, now);
     db.prepare(
-      "INSERT INTO entitlements (user_id, tier, credits_balance, updated_at) VALUES (?, 'free', 100, ?)"
+      "INSERT INTO entitlements (user_id, tier, songs_remaining, updated_at) VALUES (?, 'free', 100, ?)"
     ).run(userId, now);
     db.prepare(`
       INSERT INTO voice_profiles (id, user_id, status, quality_score, model_version, consent_version, created_at)
@@ -477,7 +477,7 @@ describe("Error Handling - Lyrics Unavailable", () => {
     db.prepare("INSERT INTO users (id, created_at) VALUES (?, ?)").run(
       userId, new Date().toISOString()
     );
-    db.prepare("INSERT INTO entitlements (user_id, tier, credits_balance, updated_at) VALUES (?, 'free', 100, ?)").run(
+    db.prepare("INSERT INTO entitlements (user_id, tier, songs_remaining, updated_at) VALUES (?, 'free', 100, ?)").run(
       userId, new Date().toISOString()
     );
 
@@ -572,7 +572,7 @@ describe("Rate Limiting - Lyrics Generation", () => {
     db.prepare("INSERT INTO users (id, created_at) VALUES (?, ?)").run(
       userId, new Date().toISOString()
     );
-    db.prepare("INSERT INTO entitlements (user_id, tier, credits_balance, updated_at) VALUES (?, 'free', 100, ?)").run(
+    db.prepare("INSERT INTO entitlements (user_id, tier, songs_remaining, updated_at) VALUES (?, 'free', 100, ?)").run(
       userId, new Date().toISOString()
     );
 

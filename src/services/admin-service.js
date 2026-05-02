@@ -143,7 +143,7 @@ class AdminService {
 
   /**
    * Search users with optional filters
-   * Returns user data with adoption metrics (tier, track_count, voice_status, credits_used, last_active)
+   * Returns user data with adoption metrics (tier, track_count, voice_status, last_active)
    */
   async searchUsers({ email, userId, riskLevel, tier, trackId, shareId, recipientName, limit = 50, offset = 0 }) {
     const bounds = safeBounds(limit, offset);
@@ -153,7 +153,6 @@ class AdminService {
         u.id, u.email, u.display_name, u.risk_level, u.locked_until, u.created_at,
         u.acquisition_source, u.acquisition_campaign, u.acquisition_country,
         COALESCE(e.tier, 'free') as tier,
-        COALESCE(e.credits_used_total, 0) as credits_used,
         COALESCE(track_counts.track_count, 0) as track_count,
         COALESCE(vp.status, 'none') as voice_status,
         COALESCE(activity.last_active, u.created_at) as last_active
@@ -403,7 +402,7 @@ class AdminService {
   }
 
   /**
-   * Update user entitlements (tier, credits_balance)
+   * Update user entitlements (tier)
    */
   async updateUserEntitlements(userId, fields, adminId) {
     const validTiers = ['free', 'trial', 'pro', 'plus'];
@@ -411,42 +410,24 @@ class AdminService {
     if (fields.tier && !validTiers.includes(fields.tier)) {
       return { success: false, error: `tier must be one of: ${validTiers.join(', ')}` };
     }
-    if (fields.credits_balance !== undefined && (typeof fields.credits_balance !== 'number' || fields.credits_balance < 0)) {
-      return { success: false, error: 'credits_balance must be a non-negative number' };
-    }
 
-    // Get current entitlements for audit
-    const current = await this.db.prepare('SELECT tier, credits_balance FROM entitlements WHERE user_id = ?').get(userId);
-
-    const setClauses = [];
-    const params = [];
-    if (fields.tier) {
-      setClauses.push('tier = ?');
-      params.push(fields.tier);
-    }
-    if (fields.credits_balance !== undefined) {
-      setClauses.push('credits_balance = ?');
-      params.push(fields.credits_balance);
-    }
-
-    if (setClauses.length === 0) {
+    if (!fields.tier) {
       return { success: false, error: 'No valid fields provided' };
     }
 
-    params.push(userId);
+    const current = await this.db.prepare('SELECT tier FROM entitlements WHERE user_id = ?').get(userId);
 
     if (current) {
-      await this.db.prepare(`UPDATE entitlements SET ${setClauses.join(', ')} WHERE user_id = ?`).run(...params);
+      await this.db.prepare('UPDATE entitlements SET tier = ? WHERE user_id = ?').run(fields.tier, userId);
     } else {
-      // Create entitlements row if none exists
       await this.db.prepare(
-        'INSERT INTO entitlements (user_id, tier, credits_balance) VALUES (?, ?, ?)'
-      ).run(userId, fields.tier || 'free', fields.credits_balance ?? 0);
+        'INSERT INTO entitlements (user_id, tier) VALUES (?, ?)'
+      ).run(userId, fields.tier);
     }
 
     await this._audit(adminId, 'admin_update_entitlements', 'user', userId, {
-      previous: current || { tier: 'free', credits_balance: 0 },
-      updated: { tier: fields.tier, credits_balance: fields.credits_balance },
+      previous: current || { tier: 'free' },
+      updated: { tier: fields.tier },
     });
 
     return { success: true };

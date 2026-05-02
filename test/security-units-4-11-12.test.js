@@ -154,7 +154,7 @@ describe("Unit 11: Poem credit pre-check before LLM call", () => {
 
     // Set entitlements with zero poems_remaining
     await db.prepare(
-      "INSERT INTO entitlements (user_id, tier, credits_balance, poems_remaining, updated_at) VALUES (?, 'free', 0, 0, ?)"
+      "INSERT INTO entitlements (user_id, tier, songs_remaining, poems_remaining, updated_at) VALUES (?, 'free', 0, 0, ?)"
     ).run(userId, now);
 
     // Create poem
@@ -207,7 +207,7 @@ describe("Unit 11: Poem credit pre-check before LLM call", () => {
 
     // Set entitlements with positive poems_remaining
     await db.prepare(
-      "INSERT INTO entitlements (user_id, tier, credits_balance, poems_remaining, updated_at) VALUES (?, 'pro', 10, 5, ?)"
+      "INSERT INTO entitlements (user_id, tier, songs_remaining, poems_remaining, updated_at) VALUES (?, 'pro', 10, 5, ?)"
     ).run(userId, now);
 
     // Create poem

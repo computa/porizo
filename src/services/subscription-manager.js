@@ -435,10 +435,10 @@ function createSubscriptionManager(db, services = {}) {
       `INSERT INTO entitlements (
         user_id, tier, songs_remaining, songs_allowance, songs_used_total,
         poems_remaining, poems_allowance,
-        credits_balance, credits_used_total, preview_count_today,
+        preview_count_today,
         plan_id, billing_period, subscription_starts_at, subscription_renews_at,
         updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
       ON CONFLICT(user_id) DO UPDATE SET
         tier = excluded.tier,
         songs_remaining = excluded.songs_remaining,
@@ -461,8 +461,6 @@ function createSubscriptionManager(db, services = {}) {
         current.songs_used_total,
         newPoemsBalance,
         poemsAllowance,
-        newBalance, // Keep credits_balance in sync for backward compatibility
-        current.songs_used_total,
         current.preview_count_today || 0,
         planId,
         billingPeriod,
@@ -539,10 +537,10 @@ function createSubscriptionManager(db, services = {}) {
         `INSERT INTO entitlements (
           user_id, tier, songs_remaining, songs_allowance, songs_used_total,
           poems_remaining, poems_allowance, poems_used_total,
-          credits_balance, credits_used_total, preview_count_today,
+          preview_count_today,
           trial_songs_remaining, trial_expires_at, trial_started_at,
           updated_at
-        ) VALUES (?, 'free', 0, 0, 0, 0, 0, 0, 0, 0, 0, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        ) VALUES (?, 'free', 0, 0, 0, 0, 0, 0, 0, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
         ON CONFLICT(user_id) DO UPDATE SET
           trial_songs_remaining = ?,
           trial_expires_at = ?,
@@ -647,7 +645,6 @@ function createSubscriptionManager(db, services = {}) {
           songs_allowance = 0,
           poems_remaining = 0,
           poems_allowance = 0,
-          credits_balance = 0,
           plan_id = NULL,
           billing_period = NULL,
           subscription_renews_at = NULL,
@@ -758,13 +755,12 @@ function createSubscriptionManager(db, services = {}) {
           `UPDATE entitlements SET
             tier = 'free',
             songs_remaining = ?,
-            credits_balance = ?,
             plan_id = NULL,
             billing_period = NULL,
             subscription_renews_at = NULL,
             updated_at = CURRENT_TIMESTAMP
           WHERE user_id = ?`,
-          [newBalance, newBalance, subscription.user_id]
+          [newBalance, subscription.user_id]
         );
       } else {
         // M2: Also revoke poems and reset allowances on revocation
@@ -781,13 +777,12 @@ function createSubscriptionManager(db, services = {}) {
             songs_allowance = 0,
             poems_remaining = ?,
             poems_allowance = 0,
-            credits_balance = ?,
             plan_id = NULL,
             billing_period = NULL,
             subscription_renews_at = NULL,
             updated_at = CURRENT_TIMESTAMP
           WHERE user_id = ?`,
-          [newBalance, newPoemsBalance, 0, subscription.user_id]
+          [newBalance, newPoemsBalance, subscription.user_id]
         );
       }
 
@@ -865,7 +860,6 @@ function createSubscriptionManager(db, services = {}) {
         `UPDATE entitlements SET
           trial_songs_remaining = trial_songs_remaining - 1,
           songs_used_total = songs_used_total + 1,
-          credits_used_total = credits_used_total + 1,
           updated_at = CURRENT_TIMESTAMP
         WHERE user_id = ? AND trial_songs_remaining > 0`,
         [userId]
@@ -882,9 +876,7 @@ function createSubscriptionManager(db, services = {}) {
       const songResult = await query(
         `UPDATE entitlements SET
           songs_remaining = songs_remaining - 1,
-          credits_balance = credits_balance - 1,
           songs_used_total = songs_used_total + 1,
-          credits_used_total = credits_used_total + 1,
           updated_at = CURRENT_TIMESTAMP
         WHERE user_id = ? AND songs_remaining > 0`,
         [userId]
@@ -1126,13 +1118,12 @@ function createSubscriptionManager(db, services = {}) {
       const newBalance = currentBalance + amount;
 
       await query(
-        `INSERT INTO entitlements (user_id, tier, songs_remaining, credits_balance, updated_at)
-         VALUES (?, 'free', ?, ?, CURRENT_TIMESTAMP)
+        `INSERT INTO entitlements (user_id, tier, songs_remaining, updated_at)
+         VALUES (?, 'free', ?, CURRENT_TIMESTAMP)
          ON CONFLICT(user_id) DO UPDATE SET
            songs_remaining = entitlements.songs_remaining + ?,
-           credits_balance = entitlements.credits_balance + ?,
            updated_at = CURRENT_TIMESTAMP`,
-        [userId, amount, amount, amount, amount]
+        [userId, amount, amount]
       );
 
       await recordSongTransaction(
@@ -1196,11 +1187,10 @@ function createSubscriptionManager(db, services = {}) {
           songs_allowance = ?,
           poems_remaining = poems_remaining + ?,
           poems_allowance = ?,
-          credits_balance = credits_balance + ?,
           updated_at = CURRENT_TIMESTAMP
         WHERE user_id = ?`,
         [tier, expiresAt, songsToGrant, songsToGrant,
-         poemsToGrant, poemsToGrant, songsToGrant, userId]
+         poemsToGrant, poemsToGrant, userId]
       );
 
       if (songsToGrant > 0) {
@@ -1539,11 +1529,11 @@ function createSubscriptionManager(db, services = {}) {
     const previewCountResetAt = opts.previewCountResetAt || new Date(Date.now() + 86400000).toISOString();
 
     await db.prepare(
-      `INSERT INTO entitlements (user_id, tier, credits_balance, songs_remaining, poems_remaining,
-       credits_used_total, preview_count_today, preview_count_reset_at, updated_at)
-       VALUES (?, 'free', ?, ?, ?, 0, ?, ?, ?)
+      `INSERT INTO entitlements (user_id, tier, songs_remaining, poems_remaining,
+       preview_count_today, preview_count_reset_at, updated_at)
+       VALUES (?, 'free', ?, ?, ?, ?, ?)
        ON CONFLICT (user_id) DO NOTHING`
-    ).run(userId, songsGrant, songsGrant, poemsGrant, previewCountToday, previewCountResetAt, now);
+    ).run(userId, songsGrant, poemsGrant, previewCountToday, previewCountResetAt, now);
   }
 
   return {

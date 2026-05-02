@@ -200,7 +200,7 @@ describe("Share Embed Routes", () => {
       [testUserId, now]
     );
     await db.query(
-      `INSERT INTO entitlements (user_id, tier, credits_balance, credits_used_total, preview_count_today, preview_count_reset_at, updated_at) VALUES ($1, 'free', 1, 0, 0, $2, $2)`,
+      `INSERT INTO entitlements (user_id, tier, songs_remaining, preview_count_today, preview_count_reset_at, updated_at) VALUES ($1, 'free', 1, 0, $2, $2)`,
       [testUserId, now]
     );
     await db.query(
