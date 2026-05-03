@@ -4197,31 +4197,6 @@ async function start() {
     await db.prepare(
       "UPDATE share_tokens SET status = 'expired' WHERE status NOT IN ('revoked','expired') AND share_type != 'demo' AND expires_at < ?"
     ).run(now);
-    const expiredHolds = await db
-      .prepare("SELECT * FROM billing_holds WHERE status = 'held' AND expires_at < ?")
-      .all(now);
-    for (const hold of expiredHolds) {
-      await db.prepare("UPDATE billing_holds SET status = ?, resolved_at = ? WHERE id = ?").run(
-        "expired",
-        now,
-        hold.id
-      );
-      await db.prepare("UPDATE track_versions SET status = ? WHERE id = ?").run(
-        "failed",
-        hold.track_version_id
-      );
-      await db.prepare(
-        "INSERT INTO audit_logs (id, user_id, action, resource_type, resource_id, metadata_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
-      ).run(
-        newUuid(),
-        hold.user_id,
-        "billing_hold_expired",
-        "billing_hold",
-        hold.id,
-        toJson({ track_version_id: hold.track_version_id }),
-        now
-      );
-    }
   }, config.CLEANUP_INTERVAL_MS);
 
   const startupEventsService = createEventsService(db);

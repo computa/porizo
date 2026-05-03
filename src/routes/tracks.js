@@ -438,7 +438,7 @@ function registerTrackRoutes(app, {
     const versionNum = await db.transaction(async () => {
       const num = await incrementTrackVersion(track.id);
       await db.prepare(
-        "INSERT INTO track_versions (id, track_id, version_num, parent_version_id, status, render_type, params_json, params_hash, cost_estimate_json, actual_cost_json, storage_ref, created_at, completed_at, preview_url, full_url, billing_hold_id, lyrics_status, lyrics_updated_at, lyrics_approved_at, guide_access_token, stream_base_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        "INSERT INTO track_versions (id, track_id, version_num, parent_version_id, status, render_type, params_json, params_hash, cost_estimate_json, actual_cost_json, storage_ref, created_at, completed_at, preview_url, full_url, lyrics_status, lyrics_updated_at, lyrics_approved_at, guide_access_token, stream_base_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
       ).run(
         trackVersionId,
         track.id,
@@ -452,7 +452,6 @@ function registerTrackRoutes(app, {
         null,
         `tracks/${userId}/${track.id}/v${num}`,
         nowIso(),
-        null,
         null,
         null,
         null,
@@ -696,7 +695,6 @@ function registerTrackRoutes(app, {
     if (trackVersion.status === "full_ready" && trackVersion.full_url) {
       reply.code(200).send({
         job_id: trackVersion.full_job_id || null,
-        billing_hold_id: trackVersion.billing_hold_id || null,
         credits_reserved: 0,
         estimated_completion_sec: 0,
       });
@@ -715,7 +713,6 @@ function registerTrackRoutes(app, {
     if (isActiveJob(existingJob)) {
       reply.code(202).send({
         job_id: existingJob.id,
-        billing_hold_id: trackVersion.billing_hold_id || null,
         credits_reserved: 0,
         estimated_completion_sec: 180,
       });
@@ -775,7 +772,6 @@ function registerTrackRoutes(app, {
         if (fallbackJob) {
           reply.code(202).send({
             job_id: fallbackJob.id,
-            billing_hold_id: null,
             credits_reserved: 0,
             estimated_completion_sec: 180,
           });
@@ -803,7 +799,6 @@ function registerTrackRoutes(app, {
     const job = await db.prepare("SELECT * FROM jobs WHERE id = ?").get(billingResult.jobId);
     reply.code(202).send({
       job_id: job.id,
-      billing_hold_id: null,
       credits_reserved: 0,
       estimated_completion_sec: 180,
     });
@@ -893,7 +888,6 @@ function registerTrackRoutes(app, {
 
     const now = nowIso();
     try {
-      let holdRefunded = false;
       await db.transaction(async () => {
         const cancelResult = await db.prepare(
           "UPDATE jobs SET status = 'cancelled', completed_at = ?, error_code = 'USER_CANCELLED', error_message = 'Cancelled by user', updated_at = ? WHERE id = ? AND status IN ('queued','running')"
@@ -902,17 +896,6 @@ function registerTrackRoutes(app, {
         // TOCTOU guard: if job completed between check and update, abort
         if (cancelResult.changes === 0) {
           throw Object.assign(new Error("Job already finalized"), { code: "NO_ACTIVE_RENDER" });
-        }
-
-        // Release billing hold if one exists for this track version
-        const hold = await db.prepare(
-          "SELECT * FROM billing_holds WHERE track_version_id = ? AND status = 'held'"
-        ).get(trackVersion.id);
-        if (hold) {
-          await db.prepare(
-            "UPDATE billing_holds SET status = 'refunded', resolved_at = ? WHERE id = ?"
-          ).run(now, hold.id);
-          holdRefunded = true;
         }
 
         // Reset track version status so the user can re-render
@@ -933,7 +916,6 @@ function registerTrackRoutes(app, {
         metadata: {
           job_id: activeJob.id,
           workflow_type: activeJob.workflow_type,
-          billing_hold_refunded: holdRefunded,
         },
       });
 
@@ -942,7 +924,6 @@ function registerTrackRoutes(app, {
         cancelled: true,
         job_id: activeJob.id,
         workflow_type: activeJob.workflow_type,
-        billing_hold_refunded: holdRefunded,
       });
     } catch (err) {
       if (err.code === "NO_ACTIVE_RENDER") {

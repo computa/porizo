@@ -805,7 +805,6 @@ async function deleteUserAccount(userId) {
     await db.prepare("DELETE FROM poems WHERE user_id = ?").run(userId);
 
     // 5. Billing & entitlements
-    await db.prepare("DELETE FROM billing_holds WHERE user_id = ?").run(userId);
     await db.prepare("DELETE FROM credit_transactions WHERE user_id = ?").run(userId);
     await db.prepare("DELETE FROM purchase_receipts WHERE user_id = ?").run(userId);
     await db.prepare("DELETE FROM subscriptions WHERE user_id = ?").run(userId);

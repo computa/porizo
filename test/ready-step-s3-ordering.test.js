@@ -46,7 +46,6 @@ async function waitForJobTerminal(jobId) {
 async function seedReadyFixture({
   workflowType = "preview_render",
   lyricsJson = null,
-  withBillingHold = false,
 }) {
   counter += 1;
   const now = new Date().toISOString();
@@ -54,7 +53,6 @@ async function seedReadyFixture({
   const trackId = `ready-track-${counter}`;
   const versionId = `ready-tv-${counter}`;
   const jobId = `ready-job-${counter}`;
-  const holdId = withBillingHold ? `hold-${counter}` : null;
   const isFull = workflowType === "full_render";
 
   await db.prepare("INSERT INTO users (id, created_at) VALUES (?, ?)").run(userId, now);
@@ -62,22 +60,17 @@ async function seedReadyFixture({
     "INSERT INTO tracks (id, user_id, title, recipient_name, message, occasion, style, voice_mode, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
   ).run(trackId, userId, "Ready Test", "Bob", "Happy day", "birthday", "pop", "ai_voice", "rendering", now, now);
   await db.prepare(
-    "INSERT INTO track_versions (id, track_id, version_num, status, render_type, params_hash, created_at, lyrics_json, billing_hold_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
-  ).run(versionId, trackId, 1, "processing", isFull ? "full" : "preview", `hash-${counter}`, now, lyricsJson, holdId);
+    "INSERT INTO track_versions (id, track_id, version_num, status, render_type, params_hash, created_at, lyrics_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+  ).run(versionId, trackId, 1, "processing", isFull ? "full" : "preview", `hash-${counter}`, now, lyricsJson);
   await db.prepare(
     "INSERT INTO jobs (id, track_version_id, workflow_type, status, step, attempts, max_attempts, step_index, created_at, updated_at) VALUES (?, ?, ?, 'queued', 'ready', 0, 3, 8, ?, ?)"
   ).run(jobId, versionId, workflowType, now, now);
-  if (withBillingHold) {
-    await db.prepare(
-      "INSERT INTO billing_holds (id, user_id, track_version_id, credits_held, status, created_at, expires_at) VALUES (?, ?, ?, 1, 'pending', ?, ?)"
-    ).run(holdId, userId, versionId, now, new Date(Date.now() + 3600_000).toISOString());
-  }
 
   const versionDir = path.join(storageDir, "tracks", userId, trackId, "v1");
   fs.mkdirSync(versionDir, { recursive: true });
   fs.writeFileSync(path.join(versionDir, isFull ? "full.m4a" : "preview.m4a"), Buffer.from("fake-audio"));
 
-  return { userId, trackId, versionId, jobId, holdId };
+  return { userId, trackId, versionId, jobId };
 }
 
 describe("ready step upload-before-commit ordering", () => {
@@ -140,36 +133,6 @@ describe("ready step upload-before-commit ordering", () => {
     assert.equal(track.status, "rendering");
     assert.equal(job.status, "failed");
     assert.equal(job.error_code, "S3_UPLOAD_FAILED");
-  });
-
-  test("full upload failure does not capture billing hold", async () => {
-    const { startJobRunner, restore } = loadRunnerWithMockedAlignLyrics();
-    restoreRunnerModule = restore;
-    const fixture = await seedReadyFixture({ workflowType: "full_render", withBillingHold: true });
-    process.env.NODE_ENV = "production";
-
-    runner = await startJobRunner({
-      db,
-      storageDir,
-      streamBaseUrl: "http://stream.local",
-      intervalMs: 1_000_000,
-      storageProvider: {
-        type: "s3",
-        putFile: async () => {
-          throw new Error("simulated upload failure");
-        },
-      },
-    });
-
-    await runner.tick();
-    await waitForJobTerminal(fixture.jobId);
-
-    const hold = await db.prepare("SELECT status, resolved_at FROM billing_holds WHERE id = ?").get(fixture.holdId);
-    const version = await db.prepare("SELECT status, full_url FROM track_versions WHERE id = ?").get(fixture.versionId);
-    assert.equal(hold.status, "pending");
-    assert.equal(hold.resolved_at, null);
-    assert.equal(version.status, "processing");
-    assert.equal(version.full_url, null);
   });
 
   test("lyrics alignment writes timestamps without advancing ready status before upload", async () => {

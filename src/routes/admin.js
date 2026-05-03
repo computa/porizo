@@ -2916,12 +2916,6 @@ app.post("/admin/dashboard/tracks/:trackId/transfer", async (request, reply) => 
         [transferId, target_user_id, "track_transferred", "track", trackId,
          JSON.stringify({ from_user: sourceUserId, to_user: target_user_id, admin: admin.email }), now]
       );
-
-      // 5. billing_holds — reassign if any exist
-      await query(
-        "UPDATE billing_holds SET user_id = ? WHERE user_id = ? AND track_version_id IN (SELECT id FROM track_versions WHERE track_id = ?)",
-        [target_user_id, sourceUserId, trackId]
-      );
     });
   } catch (err) {
     if (err.message === "CONCURRENT_TRANSFER") {

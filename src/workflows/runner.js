@@ -1757,10 +1757,6 @@ async function startJobRunner({
   const updateTrack = await db.prepare(
     "UPDATE tracks SET status = ?, updated_at = ? WHERE id = ?"
   );
-  const updateHold = await db.prepare(
-    "UPDATE billing_holds SET status = ?, resolved_at = ? WHERE id = ?"
-  );
-  const getHold = await db.prepare("SELECT * FROM billing_holds WHERE id = ?");
   const updateUserRisk = await db.prepare("UPDATE users SET risk_level = ? WHERE id = ?");
   const insertAuditLog = await db.prepare(
     "INSERT INTO audit_logs (id, user_id, action, resource_type, resource_id, metadata_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
@@ -2075,29 +2071,6 @@ async function startJobRunner({
     // Rate limits are transient. Allow more retries with spread-out backoff
     // to avoid immediate DLQ on burst throttling.
     return Math.max(configuredMaxAttempts, 6);
-  }
-
-  async function releaseHoldIfNeeded({ track, trackVersion, now, reason }) {
-    if (!track || !trackVersion || !trackVersion.billing_hold_id) {
-      return;
-    }
-    const hold = await getHold.get(trackVersion.billing_hold_id);
-    if (!hold || hold.status !== "held") {
-      return;
-    }
-    await updateHold.run("released", now, hold.id);
-    await insertAuditLog.run(
-      crypto.randomUUID(),
-      hold.user_id,
-      "billing_hold_released",
-      "billing_hold",
-      hold.id,
-      JSON.stringify({
-        reason: reason || "job_failed",
-        track_version_id: trackVersion.id,
-      }),
-      now
-    );
   }
 
   const stepHandlers = {
@@ -3735,12 +3708,6 @@ async function startJobRunner({
                 }
               }
 
-              releaseHoldIfNeeded({
-                track,
-                trackVersion,
-                now,
-                reason: "job_failed",
-              });
             } else {
               await updateJobAttempt.run("queued", progressPct, now, null, now, job.id, runnerId);
             }
@@ -3797,12 +3764,6 @@ async function startJobRunner({
           JSON.stringify({ reason: stepData.moderation_reason || "blocked" }),
           now
         );
-        releaseHoldIfNeeded({
-          track,
-          trackVersion,
-          now,
-          reason: "moderation_blocked",
-        });
         return;
       }
 
@@ -3946,12 +3907,6 @@ async function startJobRunner({
               } catch (dlqErr) {
                 console.error(`[JobRunner] DLQ move failed for job ${job.id}:`, dlqErr.message);
               }
-              releaseHoldIfNeeded({
-                track: trackReady,
-                trackVersion: trackVersionReady,
-                now,
-                reason: "job_failed",
-              });
               return;
             }
             // In dev mode, warn loudly that this would fail in production
@@ -3999,9 +3954,6 @@ async function startJobRunner({
           trackVersionReady.id
         );
         await updateTrack.run(isFull ? "ready" : "preview_ready", now, trackReady.id);
-        if (isFull && trackVersionReady.billing_hold_id) {
-          await updateHold.run("captured", now, trackVersionReady.billing_hold_id);
-        }
         if (generatedCover) {
           await updateTrackVersionCover.run(
             generatedCover.coverUrl,

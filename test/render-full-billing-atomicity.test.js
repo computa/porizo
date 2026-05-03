@@ -255,17 +255,15 @@ describe("Song Generation Entitlement", async () => {
     assert.equal(response.statusCode, 202);
     assert.equal(spendCalls, 0);
     assert.equal(response.json().credits_reserved, 0);
-    assert.equal(response.json().billing_hold_id, null);
 
     const versionRows = await db.query(
-      "SELECT status, full_job_id, song_entitlement_consumed_at, billing_hold_id FROM track_versions WHERE id = ?",
+      "SELECT status, full_job_id, song_entitlement_consumed_at FROM track_versions WHERE id = ?",
       [trackVersionId]
     );
     assert.equal(versionRows.rows.length, 1);
     assert.equal(versionRows.rows[0].status, "processing");
     assert.ok(versionRows.rows[0].full_job_id);
     assert.ok(versionRows.rows[0].song_entitlement_consumed_at);
-    assert.equal(versionRows.rows[0].billing_hold_id, null);
   });
 
   it("spends once at full render for legacy preview-ready versions without an entitlement marker", async () => {

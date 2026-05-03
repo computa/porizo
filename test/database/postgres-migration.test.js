@@ -82,7 +82,6 @@ describe('PostgreSQL Migration', () => {
       'share_access_log',
       'audit_logs',
       'entitlements',
-      'billing_holds',
       'rate_limits',
       'share_events',
     ];
