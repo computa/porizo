@@ -160,6 +160,34 @@ describe("admin attribution contract", () => {
     assert.equal(unknownResponse.json().users[0].attribution_status, "unknown");
   });
 
+  test("stored non-Apple source overrides resolved Apple Ads display attribution", async () => {
+    const userId = "admin_attr_founder_override";
+    await insertUser(db, userId);
+    await db.prepare(
+      "UPDATE users SET acquisition_source = ?, acquisition_campaign = ?, acquisition_country = ? WHERE id = ?"
+    ).run("Founder outreach", "friends_test", "US", userId);
+    await insertAppleAdsAttribution(db, {
+      id: "aaa_admin_attr_founder_override",
+      userId,
+      status: "resolved",
+      campaignId: 321,
+      country: "US",
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/admin/dashboard/users?userId=${userId}`,
+      headers: adminHeaders,
+    });
+
+    assert.equal(response.statusCode, 200, response.body);
+    const user = response.json().users[0];
+    assert.equal(user.acquisition_source, "Founder outreach");
+    assert.equal(user.acquisition_campaign, "friends_test");
+    assert.equal(user.acquisition_country, "US");
+    assert.equal(user.attribution_confidence, "stored");
+  });
+
   test("admin attribution health reports Apple Ads and display mismatch metrics", async () => {
     const resolvedUserId = "admin_attr_health_resolved";
     const pendingUserId = "admin_attr_health_pending";

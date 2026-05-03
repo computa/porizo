@@ -152,6 +152,48 @@ describe("apple ads attribution route", () => {
     assert.equal(user.acquisition_country, "US");
   });
 
+  test("does not backfill Apple Ads attribution for an existing user captured long after signup", async () => {
+    const oldUserId = "old_apple_ads_user";
+    await db.prepare(
+      "INSERT OR IGNORE INTO users (id, created_at, risk_level) VALUES (?, ?, 'low')"
+    ).run(oldUserId, "2026-01-24T07:31:11.455Z");
+
+    global.fetch = async () => ({
+      status: 200,
+      async text() {
+        return JSON.stringify({
+          campaignId: 123,
+          countryOrRegion: "US",
+        });
+      },
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/analytics/apple-ads-attribution",
+      headers: { "x-user-id": oldUserId },
+      payload: { attributionToken: `${attributionToken}_late` },
+    });
+
+    assert.equal(response.statusCode, 200, response.body);
+
+    await db.prepare(
+      "UPDATE apple_ads_attribution SET created_at = ?, updated_at = ?, resolved_at = ? WHERE user_id = ?"
+    ).run("2026-04-11T08:51:35.304Z", "2026-04-11T08:51:35.304Z", "2026-04-11T08:51:35.304Z", oldUserId);
+
+    const { AttributionService } = require("../src/services/attribution-service");
+    const service = new AttributionService(db);
+    const row = await db.prepare("SELECT * FROM apple_ads_attribution WHERE user_id = ?").get(oldUserId);
+    await service.backfillUserAcquisitionFromAppleAds(row);
+
+    const user = await db.prepare(
+      "SELECT acquisition_source, acquisition_campaign, acquisition_country FROM users WHERE id = ?"
+    ).get(oldUserId);
+    assert.equal(user.acquisition_source, null);
+    assert.equal(user.acquisition_campaign, null);
+    assert.equal(user.acquisition_country, null);
+  });
+
   test("stores not_found responses without retrying forever", async () => {
     let fetchCalls = 0;
     global.fetch = async () => {

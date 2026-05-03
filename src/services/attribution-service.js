@@ -18,6 +18,22 @@ function sourceFromDownload(row) {
   return clean(row.utm_source) || clean(row.referrer_url) || "Download link";
 }
 
+function isAppleAdsSource(value) {
+  return clean(value)?.toLowerCase() === "apple ads";
+}
+
+function withinBackfillWindow(userCreatedAt, attributionCreatedAt, maxAgeMs = 48 * 60 * 60 * 1000) {
+  if (!userCreatedAt || !attributionCreatedAt) {
+    return true;
+  }
+  const userTime = Date.parse(userCreatedAt);
+  const attributionTime = Date.parse(attributionCreatedAt);
+  if (!Number.isFinite(userTime) || !Number.isFinite(attributionTime)) {
+    return true;
+  }
+  return attributionTime - userTime <= maxAgeMs;
+}
+
 function placeholders(count) {
   return Array.from({ length: count }, () => "?").join(", ");
 }
@@ -43,7 +59,9 @@ class AttributionService {
       result.attribution_confidence = "stored";
     }
 
-    if (appleAdsAttribution?.status === "resolved") {
+    const hasStoredNonAppleSource = result.acquisition_source && !isAppleAdsSource(result.acquisition_source);
+
+    if (appleAdsAttribution?.status === "resolved" && !hasStoredNonAppleSource) {
       result.acquisition_source = result.acquisition_source || "Apple Ads";
       result.acquisition_campaign = result.acquisition_campaign || campaignFromAppleAds(appleAdsAttribution);
       result.acquisition_country = result.acquisition_country || clean(appleAdsAttribution.country_or_region);
@@ -210,6 +228,16 @@ class AttributionService {
 
   async backfillUserAcquisitionFromAppleAds(row) {
     if (!row || row.status !== "resolved" || !row.user_id) {
+      return;
+    }
+
+    const user = await this.db.prepare(`
+      SELECT id, acquisition_source, acquisition_campaign, acquisition_country, created_at
+      FROM users
+      WHERE id = ?
+    `).get(row.user_id);
+
+    if (!user || !withinBackfillWindow(user.created_at, row.created_at)) {
       return;
     }
 

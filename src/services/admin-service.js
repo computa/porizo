@@ -389,10 +389,17 @@ class AdminService {
   }
 
   /**
-   * Update user profile fields (display_name, email, phone_number)
+   * Update user profile and attribution override fields.
    */
   async updateUserProfile(userId, fields, adminId) {
-    const allowedFields = ['display_name', 'email', 'phone_number'];
+    const allowedFields = [
+      'display_name',
+      'email',
+      'phone_number',
+      'acquisition_source',
+      'acquisition_campaign',
+      'acquisition_country',
+    ];
     const updates = {};
     for (const key of allowedFields) {
       if (Object.prototype.hasOwnProperty.call(fields, key)) {
