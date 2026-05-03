@@ -19,4 +19,11 @@
 | ID | Time | T | Title | Read |
 |----|------|---|-------|------|
 | #8456 | 6:44 AM | 🔵 | GDPR Compliance Audit Service for Account Deletion | ~332 |
+
+### Apr 17, 2026
+
+| ID | Time | T | Title | Read |
+|----|------|---|-------|------|
+| #12897 | 5:01 PM | 🔄 | Blog post template redesigned with unified design system and site navigation | ~782 |
+| #12896 | 5:00 PM | 🔄 | Blog render service refactored to match polished design system | ~591 |
 </claude-mem-context>

@@ -259,6 +259,23 @@ This prevents both: (a) "module not found" build errors before SPM is set up, an
 
 ---
 
+### 2026-04-26 — Confirm UGC asset choices before rendering on credit-consuming platforms
+
+**Trigger:** Reel.farm UGC video composer. Auto-selected demo tile + I picked an uploaded song ("thanks mom.mp3") without verifying with user, and without checking project-side curated assets in `marketing/`.
+
+**Mistake:** Burned 2 export credits producing videos with the wrong song and wrong demo. The user corrected: "you used the wrong song and demo for the reel." The correct Mother's Day song lives in `marketing/audio hooks/clips/mom-shower-love/` (segmented as hook/proof/payoff/tail per `README.md`). The correct product demos live in `marketing/product demo/Thank you mom*.mp4`. Neither were uploaded to ReelFarm yet — the platform's existing assets ("thanks mom.mp3", stock demo tiles) were stale/different files with similar names.
+
+**Rule:** Before clicking Create / generate / render on any paid/credited platform (ReelFarm, Suno, ElevenLabs, etc.):
+1. Read the project's `marketing/` directory for curated assets first (`find marketing/audio*`, `find marketing/product*`).
+2. Read any `README.md` inside clip directories — they contain the recommended pairing for the campaign.
+3. List the chosen song path and demo path explicitly in chat.
+4. Wait for user confirmation.
+5. Only then upload + render.
+
+Naming similarity on a remote platform ("thanks mom.mp3" vs `marketing/audio hooks/.../proof.mp3`) is not evidence the asset is the same file. Confirm by checksum or by user before spending credits.
+
+---
+
 ## Workflow Improvement Candidates
 
 > These patterns are candidates for upgrading from "lessons" to enforceable workflow rules.
@@ -275,3 +292,11 @@ This prevents both: (a) "module not found" build errors before SPM is set up, an
 5. **Concurrency test requirement** — Any function that mutates shared numeric state (balances, counters) should have a concurrent test that runs 2+ simultaneous mutations and verifies no over-count/under-count.
 
 6. **Ad campaign SDK precheck** — Before any paid app install campaign launches (Meta, Google, TikTok, Apple Search Ads), require verification that the platform's events manager shows "Active" status with events received in the last 24h. Could be a `/ads-precheck` skill that opens each platform's events manager URL and screenshots/parses the dataset status. Would have prevented the $78 burn on the women 25-45 campaign.
+
+### 2026-05-01 — TikTok reels: ONE 21s music track, never clip-and-repeat
+
+**Trigger:** Building first AI-mom reaction reel; clipped a 12s chorus and was going to layer it under voice slots.
+
+**Mistake:** Defaulted to a short music clip with the assumption we'd loop or pad the rest. Earlier reels with this approach had repeating audio that sounded amateur — exactly the bug user flagged.
+
+**Rule:** All Porizo TikTok reels are scored with **one continuous 21s music track**. Music plays through the whole reel; volume ducks under voiceovers and restores after. Never cut a shorter clip and loop it. This is the project standard — wire it into `pipeline/audio_kit.py` as the default behavior, not a per-reel decision.

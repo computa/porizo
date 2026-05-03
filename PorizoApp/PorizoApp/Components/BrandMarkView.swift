@@ -20,6 +20,7 @@ struct BrandMarkView: View {
             .interpolation(.high)
             .scaledToFit()
             .frame(width: size, height: size)
+            .clipShape(RoundedRectangle(cornerRadius: size * 0.2237, style: .continuous))
             .shadow(color: shadowColor, radius: shadowRadius, y: shadowY)
             .accessibilityHidden(true)
     }

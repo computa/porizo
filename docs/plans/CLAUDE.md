@@ -10,4 +10,11 @@
 | #2467 | 11:21 PM | ✅ | Committed iOS background execution implementation plan to NewUI branch | ~418 |
 | #2267 | 9:22 PM | ✅ | iOS background execution implementation with BackgroundTaskManager staged for commit | ~525 |
 | #2239 | 9:12 PM | ✅ | Created comprehensive iOS background execution implementation plan | ~470 |
+
+### Apr 20, 2026
+
+| ID | Time | T | Title | Read |
+|----|------|---|-------|------|
+| #13500 | 4:00 PM | 🔄 | Refined iOS funnel plan to review-first approach with explicit pricing exclusion | ~533 |
+| #13496 | 3:44 PM | 🔄 | Refactored iOS funnel plan to Paul Solt's 5-rule framework | ~531 |
 </claude-mem-context>

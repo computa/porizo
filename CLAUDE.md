@@ -28,7 +28,7 @@ Porizo is a personalized song generation platform that creates 45-90 second cust
 | Workflow Orchestration | DB-backed queue + polling runner | IMPLEMENTED |
 | Object Storage | Local filesystem (`storage/`) | DEV ONLY |
 | Primary Database | PostgreSQL 15+ (Docker dev, Railway prod); SQLite via sql.js (test suite) | IMPLEMENTED |
-| Music Generation | Suno via Replicate API | IMPLEMENTED |
+| Music Generation | Suno via sunoapi.org | IMPLEMENTED |
 | Voice Conversion | Seed-VC via Gradio API | IMPLEMENTED |
 | Voice Embedding | Replicate API (ECAPA-TDNN) | IMPLEMENTED |
 | API Layer | Node.js + Fastify (JavaScript) | IMPLEMENTED |
@@ -221,7 +221,7 @@ Every workflow step must be idempotent:
 - **Full render (45-90s):** ~$0.25 (section-by-section API calls)
 
 Cost breakdown per preview:
-- Suno via Replicate (instrumental): ~$0.02-0.03
+- Suno via sunoapi.org (instrumental): ~$0.02-0.03
 - ElevenLabs (guide vocal TTS): ~$0.01
 - Seed-VC via Gradio (voice conversion): ~$0.02-0.03
 - CPU (mix/master/watermark): ~$0.003

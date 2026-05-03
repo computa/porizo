@@ -106,6 +106,43 @@ final class OccasionTests: XCTestCase {
         XCTAssertEqual(birthday.rawValue, "birthday")
         XCTAssertEqual(birthday.emoji, "🎂")
     }
+
+    func testMothersDayOccasion() {
+        let mothersDay = Occasion.mothersDay
+        XCTAssertEqual(mothersDay.rawValue, "mothers_day")
+        XCTAssertEqual(mothersDay.displayName, "Mother's Day")
+        XCTAssertEqual(mothersDay.greeting, "Happy Mother's Day")
+    }
+}
+
+// MARK: - Create Deep Link Tests
+
+final class CreateDeepLinkTests: XCTestCase {
+
+    func testParsesSongCreateDeepLink() throws {
+        let url = try XCTUnwrap(URL(string: "porizo://create?type=song&occasion=birthday&recipient=Sarah"))
+
+        let context = try XCTUnwrap(parseCreateDeepLink(from: url))
+
+        XCTAssertEqual(context.type, .song)
+        XCTAssertEqual(context.occasion, .birthday)
+        XCTAssertEqual(context.recipientName, "Sarah")
+    }
+
+    func testParsesMothersDayAliases() throws {
+        let url = try XCTUnwrap(URL(string: "porizo://create?type=song&occasion=mothers-day"))
+
+        let context = try XCTUnwrap(parseCreateDeepLink(from: url))
+
+        XCTAssertEqual(context.type, .song)
+        XCTAssertEqual(context.occasion, .mothersDay)
+    }
+
+    func testIgnoresShareDeepLink() throws {
+        let url = try XCTUnwrap(URL(string: "porizo://play/share_123"))
+
+        XCTAssertNil(parseCreateDeepLink(from: url))
+    }
 }
 
 // MARK: - Style Store Tests

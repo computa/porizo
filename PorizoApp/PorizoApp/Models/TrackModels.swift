@@ -529,6 +529,7 @@ final class StyleStore {
 /// Available occasions
 enum Occasion: String, CaseIterable, Identifiable, Sendable {
     case birthday = "birthday"
+    case mothersDay = "mothers_day"
     case anniversary = "anniversary"
     case thankYou = "thank_you"
     case iLoveYou = "i_love_you"
@@ -548,6 +549,7 @@ enum Occasion: String, CaseIterable, Identifiable, Sendable {
     var displayName: String {
         switch self {
         case .birthday: return "Birthday"
+        case .mothersDay: return "Mother's Day"
         case .anniversary: return "Anniversary"
         case .thankYou: return "Thank You"
         case .iLoveYou: return "I Love You"
@@ -567,6 +569,7 @@ enum Occasion: String, CaseIterable, Identifiable, Sendable {
     var emoji: String {
         switch self {
         case .birthday: return "🎂"
+        case .mothersDay: return "💐"
         case .anniversary: return "💑"
         case .thankYou: return "🙏"
         case .iLoveYou: return "❤️"
@@ -588,6 +591,7 @@ enum Occasion: String, CaseIterable, Identifiable, Sendable {
     var greeting: String? {
         switch self {
         case .birthday: return "Happy Birthday"
+        case .mothersDay: return "Happy Mother's Day"
         case .anniversary: return "Happy Anniversary"
         case .thankYou: return "Thank You"
         case .iLoveYou: return "With Love"

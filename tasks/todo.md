@@ -1,3 +1,114 @@
+# Retire `billing_holds` table (ACTIVE — 2026-05-03)
+
+**Trigger:** Code review during the credits_balance retirement (2026-05-02) found `billing_holds` is dead in production: 0 rows ever, no production INSERT path. The cancel-render and hold-expiry "refund" code is unreachable. Doing it now while context is loaded.
+
+## Phase 1 — Server code
+
+- [ ] `src/routes/tracks.js`: remove `billing_hold_id` from track_versions INSERT (line 441) + corresponding null param; drop the field from 4 API response objects (lines 699, 718, 778, 806); delete the cancel-render hold lookup block (lines 907-916); drop `billing_hold_refunded` from cancel response + audit metadata (lines 936, 945)
+- [ ] `src/routes/admin.js:2920-2924`: delete billing_holds reassignment in user-merge transfer
+- [ ] `src/services/auth-service.js:808`: delete `DELETE FROM billing_holds` in account deletion
+- [ ] `src/workflows/runner.js:1760-1763`: delete `getHold` / `updateHold` prepared statements
+- [ ] `src/workflows/runner.js:2080-2101`: delete `releaseHoldIfNeeded` function
+- [ ] `src/workflows/runner.js:3738, 3800, 3949`: delete the 3 callers of `releaseHoldIfNeeded`
+- [ ] `src/workflows/runner.js:4002-4004`: delete the capture-on-full-ready block
+- [ ] `src/server.js:4200-4227`: delete the entire hold-expiry cleanup loop
+
+## Phase 2 — Tests
+
+- [ ] `test/ready-step-s3-ordering.test.js`: remove `withBillingHold` from `seedReadyFixture`, drop billing_hold_id from track_versions INSERT (line 65), delete the "full upload failure does not capture billing hold" test (redundant with preview test once hold isn't tracked)
+- [ ] `test/render-full-billing-atomicity.test.js`: drop the 3 `billing_hold_id` assertions (lines 258, 261, 268)
+- [ ] `test/database/postgres-migration.test.js:85`: remove `'billing_holds'` from expected-tables list
+
+## Phase 3 — Migration
+
+- [ ] Write `migrations/pg/095_drop_billing_holds.sql` — `ALTER TABLE track_versions DROP COLUMN IF EXISTS billing_hold_id; DROP TABLE IF EXISTS billing_holds CASCADE;`
+- [ ] Apply to production via `cat ... | railway connect postgres`
+- [ ] Record in `schema_migrations`
+
+## Phase 4 — iOS (deliberately skipped)
+
+- iOS still has `let billingHoldId: String?` in `TrackModels.swift:401`. Swift `Codable` optionals tolerate missing JSON keys — when the API stops returning the field, decoding silently produces `nil`. No breakage. Leave it; iOS will pick it up at next app version cleanup.
+
+## Phase 5 — Verify
+
+- [ ] `npm test` passes
+- [ ] Production schema: `\d entitlements`, `\d track_versions`, `SELECT FROM information_schema.tables WHERE table_name='billing_holds'`
+- [ ] Deploy via `railway up`
+- [ ] Live `/health` returns 200 from new container
+
+---
+
+# Retire `credits_balance` / `credits_used_total` (SHIPPED — 2026-05-02)
+
+**Trigger:** Forensic of user `dr9rwwd6gc@privaterelay…` showed `credits_balance = -5` while `songs_remaining = 5`. Root cause: legacy ledger drift — `subscription-manager.js` `ON CONFLICT DO UPDATE` for entitlements upsert never refills `credits_balance` on subscription grant for existing users, but `spendSong` keeps decrementing it. 49/49 free users + 2/2 paying users have negative or stale values. Field is **internal-only** (admin dashboard reads it; iOS app and public API do not).
+
+**Goal:** Remove the orphan ledger entirely. `songs_remaining` is canonical (it's what gates renders). Drop columns, remove every read/write site.
+
+## Phase 1 — Code removal (server)
+
+- [ ] `subscription-manager.js:885` — remove `credits_balance = credits_balance - 1` from `spendSong` UPDATE
+- [ ] `subscription-manager.js:868, 887` — remove `credits_used_total = credits_used_total + 1` from both spend paths (trial + regular)
+- [ ] `subscription-manager.js:438, 464` — drop `credits_balance, credits_used_total` from `updateEntitlements` upsert columns/values + remove "backward compatibility" comment
+- [ ] `subscription-manager.js:542` — drop from `activateTrial` upsert
+- [ ] `subscription-manager.js:650` — drop `credits_balance = 0` from `handleExpiration` SET
+- [ ] `subscription-manager.js:761, 784` — drop `credits_balance = ?` from `handleRevocation` SET (both branches) + matching params
+- [ ] `subscription-manager.js:1129–1135` — drop from `adminGrantSongs` upsert
+- [ ] `subscription-manager.js:1199` — drop from `adminComplimentaryUpgrade` UPDATE
+- [ ] `subscription-manager.js:1542–1546` — drop from `createFreeEntitlements` INSERT
+- [ ] `server.js:4210` — delete refund UPDATE (orphan refund into dead column)
+- [ ] `workflows/runner.js:1764–1766` — delete `refundCredits` prepared statement + any callers
+- [ ] `routes/tracks.js:916` — delete refund UPDATE (cancel-render path)
+- [ ] `services/admin-service.js:146, 156` — drop `credits_used` from list query SELECT + JSDoc
+- [ ] `services/admin-service.js:406–449` — strip `credits_balance` branch from `updateUserEntitlements` (validation, SET clause, INSERT, audit fields, JSDoc)
+
+## Phase 2 — Tests
+
+- [ ] `test/dlq-auto-reprocess.test.js:30` — drop `credits_balance` from setup INSERT
+- [ ] `test/security-units-4-11-12.test.js:157, 210` — drop from setup
+- [ ] `test/subscription-manager.test.js:313` — drop from setup
+- [ ] `test/security-units-6-7-8.test.js:57` — drop from setup
+- [ ] `test/dlq-retry-endpoint.test.js:48` — drop from setup
+- [ ] `test/critical-fixes.test.js:90, 243, 327, 388, 480, 575` — drop from 6 setup INSERTs
+- [ ] `test/share-embed.test.js:203` — drop from setup (also `credits_used_total`)
+
+## Phase 3 — Migration
+
+- [ ] Write `migrations/pg/094_drop_legacy_credits_columns.sql` — `ALTER TABLE entitlements DROP COLUMN credits_balance, DROP COLUMN credits_used_total;`
+- [ ] Apply to production: `cat migrations/pg/094_*.sql | railway connect postgres`
+- [ ] Record in `schema_migrations`
+- [ ] Verify post-drop: `\d entitlements` shows columns gone; `SELECT COUNT(*) FROM entitlements` unchanged
+
+## Phase 4 — Admin UI
+
+- [ ] `admin/src/pages/Users.tsx:521` — remove `credits_balance: number` from interface
+- [ ] `admin/src/pages/Users.tsx:414` — remove `credits_used` cell from list table
+- [ ] `admin/src/pages/Users.tsx:590, 677` — remove from `entitlementFields` state + initialiser
+- [ ] `admin/src/pages/Users.tsx:850` — remove "Credits Balance" stat card
+- [ ] `admin/src/pages/Users.tsx:913–914` — remove input control (and any column-header label)
+
+## Phase 5 — Verify
+
+- [ ] `npm test` — green (or only pre-existing failures)
+- [ ] `npm run build` (admin) — green
+- [ ] `railway connect postgres` → `\d entitlements` — columns gone
+- [ ] Admin dashboard loads a paid user without 500
+- [ ] Render a song end-to-end on dev → confirm `songs_remaining` decrements and no SQL error
+
+---
+
+# Bootstrap research: download + registration funnel (ACTIVE — 2026-04-28)
+
+**Trigger:** Apple Ads is now spec-compliant (Brand/Mother's Day/Gift Category/Discovery, $15/day total). After 7 days: 1,061 Brand impressions → 11 taps → 1 install; Gift Category 278 imp → 4 taps → 0 installs. Tap-rate is OK; install conversion and registration are the actual bottleneck.
+
+**Goal:** Identify highest-leverage moves for download + registration. Not more ad spend until creative/funnel is fixed.
+
+- [ ] R1 — External: Bootstrap playbooks for low-budget consumer/gift apps (case studies, growth hacks)
+- [ ] R2 — External: Mobile registration funnel optimization (onboarding, sign-up reduction tactics)
+- [ ] R3 — Internal: Audit current Porizo funnel (App Store page, onboarding code, registration, analytics gaps)
+- [ ] Synthesize 3-5 prioritized bets with rough cost/effort/expected-impact
+
+---
+
 # Deferred /ce:review fixes (ACTIVE — 2026-04-25, post-707b3b2)
 
 Goal: address the four findings deferred from `707b3b2` in dependency order — tests

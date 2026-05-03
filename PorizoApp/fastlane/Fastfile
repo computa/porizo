@@ -1,0 +1,55 @@
+default_platform(:ios)
+
+# Source of truth for App Store screenshots — edited here, copied into fastlane's layout at upload time.
+SCREENSHOT_SOURCE = File.expand_path("../../marketing/appstore/screenshots/current", __dir__).freeze
+SCREENSHOT_DEST   = File.expand_path("./screenshots/en-US", __dir__).freeze
+SIZES             = %w[6.9 6.5 6.3 6.1].freeze
+SLIDES            = [[1, "hero"], [2, "pick"], [3, "tell"], [4, "hear"], [5, "share"]].freeze
+
+platform :ios do
+  desc "Copy marketing/appstore/screenshots/current/ into fastlane/screenshots/en-US/"
+  lane :prep_screenshots do
+    sh "mkdir -p '#{SCREENSHOT_DEST}'"
+    sh "rm -f '#{SCREENSHOT_DEST}'/*.png"
+    SIZES.each do |size|
+      SLIDES.each do |idx, name|
+        src = "#{SCREENSHOT_SOURCE}/#{size}/porizo-#{name}.png"
+        dst = "#{SCREENSHOT_DEST}/#{size.tr('.', '_')}_#{idx}_#{name}.png"
+        UI.user_error!("Missing screenshot: #{src}") unless File.exist?(src)
+        sh "cp '#{src}' '#{dst}'"
+      end
+    end
+    UI.success("Copied #{SIZES.length * SLIDES.length} screenshots to #{SCREENSHOT_DEST}")
+  end
+
+  desc "Upload screenshots to App Store Connect (replaces existing)"
+  lane :upload_screenshots do
+    prep_screenshots
+
+    key_id    = ENV.fetch("APP_STORE_CONNECT_KEY_ID")
+    issuer_id = ENV.fetch("APP_STORE_CONNECT_ISSUER_ID")
+    key_path  = "#{Dir.home}/.appstoreconnect/private_keys/AuthKey_#{key_id}.p8"
+    UI.user_error!("API key file not found at #{key_path}") unless File.exist?(key_path)
+
+    api_key = app_store_connect_api_key(
+      key_id: key_id,
+      issuer_id: issuer_id,
+      key_filepath: key_path,
+      duration: 1200,
+      in_house: false
+    )
+
+    deliver(
+      api_key: api_key,
+      skip_binary_upload: true,
+      skip_metadata: true,
+      skip_screenshots: false,
+      overwrite_screenshots: true,
+      force: true,
+      run_precheck_before_submit: false,
+      submit_for_review: false,
+      languages: ["en-US"],
+      screenshots_path: File.expand_path("./screenshots", __dir__)
+    )
+  end
+end

@@ -2,6 +2,9 @@
 .claude/
 .tldr/
 .xcodebuildmcp/
+.agents/
+.asc/
+.context/
 
 # Node artifacts
 node_modules/

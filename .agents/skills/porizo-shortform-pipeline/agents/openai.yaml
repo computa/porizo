@@ -1,0 +1,7 @@
+interface:
+  display_name: "Porizo Shortform Pipeline"
+  short_description: "Build story, song cuts, and reel assets"
+  default_prompt: "Use $porizo-shortform-pipeline to turn a memory into a Porizo story package, cut the finished song into reusable excerpts, and prepare short-form demo assets."
+
+policy:
+  allow_implicit_invocation: true

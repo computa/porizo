@@ -17,6 +17,58 @@ func emailVerificationToken(from url: URL) -> String? {
         .queryItems?.first(where: { $0.name == "token" })?.value
 }
 
+struct CreateDeepLinkContext: Equatable, Sendable {
+    let type: CreateFlowKind
+    let occasion: Occasion?
+    let recipientName: String?
+}
+
+func parseCreateDeepLink(from url: URL) -> CreateDeepLinkContext? {
+    guard url.host == "create" || url.pathComponents.contains("create") else {
+        return nil
+    }
+
+    let queryItems = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+    func queryValue(_ names: String...) -> String? {
+        for name in names {
+            if let value = queryItems.first(where: { $0.name == name })?.value?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+               !value.isEmpty {
+                return value
+            }
+        }
+        return nil
+    }
+
+    let typeRaw = queryValue("type", "kind")?.lowercased()
+    let type = typeRaw.flatMap(CreateFlowKind.init(rawValue:)) ?? .song
+    let occasion = queryValue("occasion").flatMap(occasionFromDeepLinkValue)
+    let recipientName = queryValue("recipient", "recipient_name", "name")
+
+    return CreateDeepLinkContext(
+        type: type,
+        occasion: occasion,
+        recipientName: recipientName
+    )
+}
+
+private func occasionFromDeepLinkValue(_ value: String) -> Occasion? {
+    let normalized = value
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .lowercased()
+        .replacingOccurrences(of: "'", with: "")
+        .replacingOccurrences(of: " ", with: "_")
+        .replacingOccurrences(of: "-", with: "_")
+
+    switch normalized {
+    case "mothersday", "mothers_day", "mother_day":
+        return .mothersDay
+    default:
+        return Occasion(rawValue: normalized)
+            ?? Occasion.allCases.first { $0.displayName.lowercased() == value.lowercased() }
+    }
+}
+
 struct RootAppConfigState: Equatable, Sendable {
     var onboardingSampleURL: String?
     var onboardingSplashRecipient: String?
@@ -851,6 +903,11 @@ struct RootView: View {
             return
         }
 
+        if let createContext = parseCreateDeepLink(from: url) {
+            handleCreateDeepLink(createContext)
+            return
+        }
+
         guard let parsed = parseShareUrl(from: url) else { return }
         let deviceId = getOrCreateDeviceId()
         if apiClient == nil {
@@ -881,6 +938,22 @@ struct RootView: View {
             } else {
                 appState = .auth
             }
+        }
+    }
+
+    private func handleCreateDeepLink(_ context: CreateDeepLinkContext) {
+        pendingCreateType = context.type.rawValue
+        pendingOccasion = context.occasion?.rawValue ?? ""
+        if let recipientName = context.recipientName {
+            pendingRecipientName = recipientName
+        }
+        pendingCreateAutostart = true
+        authContextMessage = nil
+
+        if appState == .launchFlash {
+            dismissLaunchFlash(reason: "create_deep_link", routeOverride: routeToMainOrAuth(), shouldLog: true)
+        } else {
+            appState = routeToMainOrAuth()
         }
     }
 

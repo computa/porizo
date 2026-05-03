@@ -25,4 +25,16 @@
 |----|------|---|-------|------|
 | #2939 | 12:02 PM | 🔵 | TestFlight submission readiness assessment: 60% complete with critical blockers identified | ~913 |
 | #2915 | 12:00 PM | 🔵 | Porizo backend configuration reveals AI music generation and voice conversion platform | ~633 |
+
+### Apr 17, 2026
+
+| ID | Time | T | Title | Read |
+|----|------|---|-------|------|
+| #12864 | 4:36 PM | 🔵 | Fastify server static file serving configuration | ~484 |
+
+### Apr 18, 2026
+
+| ID | Time | T | Title | Read |
+|----|------|---|-------|------|
+| #13239 | 3:14 PM | 🔵 | skill-optimizer auto-detection identified porizo as SDK project with medium confidence | ~359 |
 </claude-mem-context>

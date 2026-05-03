@@ -15,4 +15,10 @@
 | ID | Time | T | Title | Read |
 |----|------|---|-------|------|
 | #12325 | 10:16 AM | ⚖️ | Story Guidance Algorithm Redesign Plan: Labov-Based Evaluation with Feature Flag | ~1212 |
+
+### Apr 17, 2026
+
+| ID | Time | T | Title | Read |
+|----|------|---|-------|------|
+| #12894 | 4:57 PM | 🔵 | Blog routing implementation with 5-minute caching and dynamic rendering | ~515 |
 </claude-mem-context>

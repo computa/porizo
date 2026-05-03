@@ -507,6 +507,10 @@ async function polishVocal({ inputPath, outputPath, params = {}, timeoutMs = DEF
 
   // Build filter chain in professional order
   const filters = [
+    // Create a small amount of headroom before subtractive EQ. This keeps
+    // full-scale synthetic inputs from clipping inside FFmpeg's IIR filters.
+    "volume=0.8",
+
     // Phase 1: Clean
     `highpass=f=${highpassFreq}`,
     `equalizer=f=${mudCutFreq}:t=q:w=2.0:g=${mudCutGain}`,
@@ -517,12 +521,13 @@ async function polishVocal({ inputPath, outputPath, params = {}, timeoutMs = DEF
     `acompressor=threshold=${compThreshold}:ratio=${compRatio}:attack=${compAttack}:release=${compRelease}:knee=${compKnee}:makeup=${compMakeup}`,
   ];
 
-  // Phase 3: Saturation (subtle soft-clip for warmth + harmonics)
-  // tanh(x) = (exp(2x)-1)/(exp(2x)+1) — expanded because FFmpeg <7 lacks tanh()
+  // Phase 3: Saturation (subtle soft clip for warmth + harmonics).
+  // Avoid aeval here: FFmpeg 8 on macOS can segfault on the expanded tanh
+  // expression. asoftclip is materially safer across local/Homebrew builds.
   if (saturation > 0) {
-    const dry = (1.0 - saturation).toFixed(3);
-    const wet = saturation.toFixed(3);
-    filters.push(`aeval=val(0)*${dry}+${wet}*((exp(6*val(0))-1)/(exp(6*val(0))+1)):c=same`);
+    const threshold = (1.0 - (saturation * 0.6)).toFixed(3);
+    const param = (1.0 + (saturation * 3)).toFixed(3);
+    filters.push(`asoftclip=type=tanh:threshold=${threshold}:output=1:param=${param}`);
   }
 
   // Phase 3 continued: Additive EQ (after compression — this is what adds "polish")
@@ -541,6 +546,7 @@ async function polishVocal({ inputPath, outputPath, params = {}, timeoutMs = DEF
   filters.push(
     `lowpass=f=${lowpassFreq}`,
     `loudnorm=I=${targetLufs}:TP=-1:LRA=11`,
+    "alimiter=limit=0.98",
   );
 
   const args = [
