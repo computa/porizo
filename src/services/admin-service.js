@@ -411,6 +411,22 @@ class AdminService {
       return { success: false, error: 'No valid fields provided' };
     }
 
+    const attributionFields = ['acquisition_source', 'acquisition_campaign', 'acquisition_country'];
+    const attributionUpdates = {};
+    for (const key of attributionFields) {
+      if (Object.prototype.hasOwnProperty.call(updates, key)) {
+        attributionUpdates[key] = updates[key];
+      }
+    }
+
+    const previousAttribution = Object.keys(attributionUpdates).length > 0
+      ? await this.db.prepare(`
+          SELECT acquisition_source, acquisition_campaign, acquisition_country
+          FROM users
+          WHERE id = ?
+        `).get(userId)
+      : null;
+
     const setClauses = [];
     const params = [];
     for (const [key, value] of Object.entries(updates)) {
@@ -422,6 +438,27 @@ class AdminService {
 
     await this.db.prepare(`UPDATE users SET ${setClauses.join(', ')} WHERE id = ?`).run(...params);
     await this._audit(adminId, 'admin_update_user_profile', 'user', userId, { changedFields: updates });
+    if (Object.keys(attributionUpdates).length > 0) {
+      const nextAttribution = await this.db.prepare(`
+        SELECT acquisition_source, acquisition_campaign, acquisition_country
+        FROM users
+        WHERE id = ?
+      `).get(userId);
+      await this._audit(adminId, 'admin_update_user_attribution', 'user', userId, {
+        contract: 'attribution-source-precedence-v1',
+        previous: previousAttribution || {
+          acquisition_source: null,
+          acquisition_campaign: null,
+          acquisition_country: null,
+        },
+        next: nextAttribution || {
+          acquisition_source: null,
+          acquisition_campaign: null,
+          acquisition_country: null,
+        },
+        changedFields: attributionUpdates,
+      });
+    }
 
     return { success: true, updated: updates };
   }

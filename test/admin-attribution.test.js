@@ -188,6 +188,47 @@ describe("admin attribution contract", () => {
     assert.equal(user.attribution_confidence, "stored");
   });
 
+  test("manual attribution override writes an old/new audit contract entry", async () => {
+    const userId = "admin_attr_audit_override";
+    await insertUser(db, userId);
+
+    const updateResponse = await app.inject({
+      method: "PUT",
+      url: `/admin/dashboard/users/${userId}/profile`,
+      headers: adminHeaders,
+      payload: {
+        acquisition_source: "Founder outreach",
+        acquisition_campaign: "friends_test",
+        acquisition_country: "US",
+      },
+    });
+    assert.equal(updateResponse.statusCode, 200, updateResponse.body);
+
+    const auditRow = await db.prepare(`
+      SELECT action, resource_type, resource_id, metadata_json
+      FROM audit_logs
+      WHERE action = ? AND resource_id = ?
+      ORDER BY created_at DESC
+      LIMIT 1
+    `).get("admin_update_user_attribution", userId);
+
+    assert.ok(auditRow, "expected attribution override audit log");
+    assert.equal(auditRow.resource_type, "user");
+    const metadata = JSON.parse(auditRow.metadata_json);
+    assert.equal(metadata.contract, "attribution-source-precedence-v1");
+    assert.equal(metadata.previous.acquisition_source, null);
+    assert.equal(metadata.previous.acquisition_campaign, null);
+    assert.equal(metadata.previous.acquisition_country, null);
+    assert.equal(metadata.next.acquisition_source, "Founder outreach");
+    assert.equal(metadata.next.acquisition_campaign, "friends_test");
+    assert.equal(metadata.next.acquisition_country, "US");
+    assert.deepEqual(metadata.changedFields, {
+      acquisition_source: "Founder outreach",
+      acquisition_campaign: "friends_test",
+      acquisition_country: "US",
+    });
+  });
+
   test("admin attribution health reports Apple Ads and display mismatch metrics", async () => {
     const resolvedUserId = "admin_attr_health_resolved";
     const pendingUserId = "admin_attr_health_pending";
