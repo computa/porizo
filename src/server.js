@@ -116,7 +116,7 @@ function deriveRetrySanitizerProvider({ trackVersion, classification }) {
   return null;
 }
 
-function buildServer({ db, config: appConfig, storage, cdnSigner = null, billingServices = null }) {
+function buildServer({ db, config: appConfig, storage, cdnSigner = null, billingServices = null, oneSignalService = null }) {
   let requireAdminRole; // Forward declaration — assigned by registerAdminRoutes below
   const app = fastify({
     logger: true,
@@ -4089,6 +4089,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     adminAuthService,
     subscriptionManager,
     planConfigService,
+    ...(oneSignalService ? { oneSignalService } : {}),
   }));
 
   // ============ Billing API Routes ============

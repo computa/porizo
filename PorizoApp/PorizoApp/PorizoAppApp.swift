@@ -26,6 +26,18 @@ private func infoPlistConfig(_ key: String) -> String {
     return (raw.isEmpty || raw.contains("$(")) ? "" : raw
 }
 
+private enum OneSignalMarketing {
+    static func initialize(launchOptions: [UIApplication.LaunchOptionsKey: Any]?) {
+        guard let appId = AppConfig.oneSignalAppId else { return }
+
+        #if DEBUG
+        OneSignal.Debug.setLogLevel(.LL_VERBOSE)
+        #endif
+
+        OneSignal.initialize(appId, withLaunchOptions: launchOptions)
+    }
+}
+
 #if canImport(FacebookCore)
 /// Runtime guard — skips FB SDK init if `PORIZO_FACEBOOK_CLIENT_TOKEN` isn't set in
 /// build settings / Info.plist. Prevents "missing client token" NSException crashes
@@ -81,6 +93,8 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
+        OneSignalMarketing.initialize(launchOptions: launchOptions)
+
         #if canImport(FacebookCore)
         if FBSDK.isConfigured {
             ApplicationDelegate.shared.application(
@@ -201,15 +215,6 @@ struct PorizoAppApp: App {
     init() {
         // Initialize Firebase core services (Crashlytics + Analytics enabled)
         FirebaseApp.configure()
-
-        // Initialize OneSignal for marketing/engagement push notifications.
-        // Transactional pushes ("song ready") continue via native APNs in push-notification.js.
-        if let appId = AppConfig.oneSignalAppId {
-            OneSignal.initialize(appId)
-            #if DEBUG
-            OneSignal.Debug.setLogLevel(.LL_VERBOSE)
-            #endif
-        }
 
         // Register BGTaskScheduler tasks for periodic background work
         BackgroundTaskRegistrar.registerTasks()

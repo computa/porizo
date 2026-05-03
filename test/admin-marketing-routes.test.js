@@ -130,4 +130,112 @@ describe("admin marketing routes", () => {
     assert.equal(response.statusCode, 400);
     assert.match(response.body, /status must be one of/i);
   });
+
+  test("sends push campaigns through OneSignal and records the notification", async () => {
+    const now = nowIso();
+    const calls = [];
+    await db.prepare(`
+      INSERT INTO marketing_campaigns (id, name, type, status, created_at, updated_at)
+      VALUES (?, ?, 'push', 'draft', ?, ?)
+    `).run("push-camp-1", "Welcome Push", now, now);
+
+    await app.close();
+    app = buildServer({
+      db,
+      config: { STORAGE_DIR: "/tmp/test-storage" },
+      storage: {
+        put: async () => {},
+        get: async () => null,
+        exists: async () => false,
+        delete: async () => {},
+        getSignedUrl: async (key) => `http://localhost/${key}`,
+      },
+      oneSignalService: {
+        isConfigured: () => true,
+        sendToSegment: async (payload) => {
+          calls.push(payload);
+          return { id: "os-notification-1", recipients: 7 };
+        },
+      },
+    });
+    adminToken = await loginAdmin();
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/admin/dashboard/marketing/campaigns/push-camp-1/send-push",
+      headers: { Authorization: `Bearer ${adminToken}` },
+      payload: {
+        title: "Make a song",
+        body: "Turn a memory into music today.",
+        segments: ["All"],
+        confirm: "SEND_PUSH",
+      },
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.json().onesignal.id, "os-notification-1");
+    assert.equal(response.json().onesignal.recipients, 7);
+    assert.equal(calls.length, 1);
+    assert.deepEqual(calls[0], {
+      segments: ["All"],
+      title: "Make a song",
+      body: "Turn a memory into music today.",
+      data: {
+        campaign_id: "push-camp-1",
+        campaign_name: "Welcome Push",
+      },
+      imageUrl: null,
+      name: "Welcome Push",
+    });
+
+    const campaign = await db.prepare("SELECT status, recipient_count FROM marketing_campaigns WHERE id = ?").get("push-camp-1");
+    assert.equal(campaign.status, "sent");
+    assert.equal(campaign.recipient_count, 7);
+
+    const push = await db.prepare("SELECT onesignal_notification_id, recipients_count FROM push_campaigns WHERE name = ?").get("Welcome Push");
+    assert.equal(push.onesignal_notification_id, "os-notification-1");
+    assert.equal(push.recipients_count, 7);
+  });
+
+  test("requires explicit confirmation before sending a live push campaign", async () => {
+    const now = nowIso();
+    await db.prepare(`
+      INSERT INTO marketing_campaigns (id, name, type, status, created_at, updated_at)
+      VALUES (?, ?, 'push', 'draft', ?, ?)
+    `).run("push-camp-2", "Unconfirmed Push", now, now);
+
+    await app.close();
+    app = buildServer({
+      db,
+      config: { STORAGE_DIR: "/tmp/test-storage" },
+      storage: {
+        put: async () => {},
+        get: async () => null,
+        exists: async () => false,
+        delete: async () => {},
+        getSignedUrl: async (key) => `http://localhost/${key}`,
+      },
+      oneSignalService: {
+        isConfigured: () => true,
+        sendToSegment: async () => {
+          throw new Error("should not send");
+        },
+      },
+    });
+    adminToken = await loginAdmin();
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/admin/dashboard/marketing/campaigns/push-camp-2/send-push",
+      headers: { Authorization: `Bearer ${adminToken}` },
+      payload: {
+        title: "No send",
+        body: "Missing confirmation",
+        segments: ["All"],
+      },
+    });
+
+    assert.equal(response.statusCode, 400);
+    assert.match(response.body, /SEND_PUSH/);
+  });
 });

@@ -7,6 +7,7 @@
 //
 
 import Foundation
+import OneSignalFramework
 import UserNotifications
 import UIKit
 
@@ -44,14 +45,17 @@ final class LocalNotificationService {
 
         switch settings.authorizationStatus {
         case .notDetermined:
-            do {
-                let granted = try await notificationCenter.requestAuthorization(options: [.alert, .sound, .badge])
-                guard granted else { return }
-                UIApplication.shared.registerForRemoteNotifications()
-            } catch {
-                print("[Notifications] Authorization request failed: \(error)")
-            }
+            OneSignal.Notifications.requestPermission({ accepted in
+                if accepted {
+                    OneSignal.User.pushSubscription.optIn()
+                    UIApplication.shared.registerForRemoteNotifications()
+                }
+                print("[OneSignal] Notification permission accepted: \(accepted)")
+            }, fallbackToSettings: false)
         case .authorized, .provisional, .ephemeral:
+            if !OneSignal.User.pushSubscription.optedIn {
+                OneSignal.User.pushSubscription.optIn()
+            }
             UIApplication.shared.registerForRemoteNotifications()
         case .denied:
             break

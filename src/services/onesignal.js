@@ -42,7 +42,8 @@ async function apiRequest(method, path, body = null) {
   }
 
   const response = await fetch(url, options);
-  const data = await response.json();
+  const text = await response.text();
+  const data = text ? JSON.parse(text) : {};
 
   if (!response.ok) {
     const error = new Error(`OneSignal API error: ${response.status}`);
@@ -65,15 +66,20 @@ async function apiRequest(method, path, body = null) {
  * @param {string} [options.imageUrl] - Rich notification image URL
  * @returns {Promise<Object>} OneSignal API response with notification ID
  */
-async function sendToSegment({ segments, title, body, data, imageUrl }) {
+async function sendToSegment({ segments, title, body, data, imageUrl, name }) {
   const { appId } = getConfig();
 
   const payload = {
     app_id: appId,
+    target_channel: "push",
     included_segments: segments,
     headings: { en: title },
     contents: { en: body },
   };
+
+  if (name) {
+    payload.name = name;
+  }
 
   if (data) {
     payload.data = data;
@@ -97,7 +103,7 @@ async function sendToSegment({ segments, title, body, data, imageUrl }) {
  * @param {string} [options.imageUrl] - Rich notification image URL
  * @returns {Promise<Object>} OneSignal API response
  */
-async function sendToUsers({ userIds, title, body, data, imageUrl }) {
+async function sendToUsers({ userIds, title, body, data, imageUrl, name }) {
   const { appId } = getConfig();
 
   const payload = {
@@ -107,6 +113,10 @@ async function sendToUsers({ userIds, title, body, data, imageUrl }) {
     headings: { en: title },
     contents: { en: body },
   };
+
+  if (name) {
+    payload.name = name;
+  }
 
   if (data) {
     payload.data = data;

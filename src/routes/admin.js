@@ -14,6 +14,7 @@ const { analyzeBlend, formatAnalysisReport } = require("../utils/blend-analyzer"
 const { newUuid } = require("../utils/ids");
 const { nowIso } = require("../utils/common");
 const { acknowledgeGiftIncident } = require("../services/gift-delivery-ops");
+const defaultOneSignalService = require("../services/onesignal");
 
 function registerAdminRoutes(app, {
   db,
@@ -22,6 +23,7 @@ function registerAdminRoutes(app, {
   adminAuthService,
   subscriptionManager,
   planConfigService,
+  oneSignalService = defaultOneSignalService,
 }) {
 // ============ ADMIN DASHBOARD API ============
 
@@ -2309,6 +2311,8 @@ const TEMPLATE_ALLOWLIST = [
 
 const CAMPAIGN_TYPES = ['email', 'push', 'social', 'partnership'];
 const CAMPAIGN_STATUSES = ['draft', 'scheduled', 'sent', 'completed'];
+const MAX_PUSH_TITLE_LENGTH = 80;
+const MAX_PUSH_BODY_LENGTH = 180;
 
 function validateCampaignFields({ type, status, template_id }, reply) {
   if (type && !CAMPAIGN_TYPES.includes(type)) {
@@ -2324,6 +2328,35 @@ function validateCampaignFields({ type, status, template_id }, reply) {
     return false;
   }
   return true;
+}
+
+function normalizePushText(value) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function normalizeOneSignalSegments({ segment, segments }) {
+  const rawSegments = Array.isArray(segments) ? segments : [segment || "All"];
+  return rawSegments
+    .map((item) => normalizePushText(item))
+    .filter(Boolean)
+    .slice(0, 10);
+}
+
+function normalizeUserIds(userIds) {
+  if (!Array.isArray(userIds)) return [];
+  return userIds
+    .map((item) => normalizePushText(item))
+    .filter(Boolean)
+    .slice(0, 1000);
+}
+
+function oneSignalRecipientCount(response) {
+  const candidates = [response?.recipients, response?.successful];
+  for (const value of candidates) {
+    const number = Number(value);
+    if (Number.isFinite(number) && number >= 0) return number;
+  }
+  return 0;
 }
 
 app.get("/admin/dashboard/marketing/email-templates", async (request, reply) => {
@@ -2585,6 +2618,139 @@ app.put("/admin/dashboard/marketing/campaigns/:id", async (request, reply) => {
 
   const campaign = await db.prepare("SELECT * FROM marketing_campaigns WHERE id = ?").get(request.params.id);
   reply.send({ campaign });
+});
+
+app.post("/admin/dashboard/marketing/campaigns/:id/send-push", async (request, reply) => {
+  const admin = await requireAdminRole(request, reply, ["admin", "superadmin"]);
+  if (!admin) return;
+
+  const campaign = await db.prepare("SELECT * FROM marketing_campaigns WHERE id = ?").get(request.params.id);
+  if (!campaign) {
+    return sendError(reply, 404, "NOT_FOUND", "Campaign not found");
+  }
+  if (campaign.type !== "push") {
+    return sendError(reply, 400, "INVALID_CAMPAIGN_TYPE", "Only push campaigns can be sent through OneSignal");
+  }
+  if (!oneSignalService.isConfigured()) {
+    return sendError(reply, 503, "ONESIGNAL_NOT_CONFIGURED", "OneSignal credentials are not configured");
+  }
+
+  const title = normalizePushText(request.body?.title);
+  const body = normalizePushText(request.body?.body);
+  const imageUrl = normalizePushText(request.body?.image_url || request.body?.imageUrl) || null;
+  const dryRun = request.body?.dry_run === true || request.body?.dryRun === true;
+  const segments = normalizeOneSignalSegments(request.body || {});
+  const userIds = normalizeUserIds(request.body?.user_ids || request.body?.userIds);
+
+  if (!title) {
+    return sendError(reply, 400, "MISSING_TITLE", "Push title is required");
+  }
+  if (!body) {
+    return sendError(reply, 400, "MISSING_BODY", "Push body is required");
+  }
+  if (title.length > MAX_PUSH_TITLE_LENGTH) {
+    return sendError(reply, 400, "TITLE_TOO_LONG", `Push title must not exceed ${MAX_PUSH_TITLE_LENGTH} characters`);
+  }
+  if (body.length > MAX_PUSH_BODY_LENGTH) {
+    return sendError(reply, 400, "BODY_TOO_LONG", `Push body must not exceed ${MAX_PUSH_BODY_LENGTH} characters`);
+  }
+  if (userIds.length === 0 && segments.length === 0) {
+    return sendError(reply, 400, "MISSING_TARGET", "At least one segment or user ID is required");
+  }
+  if (request.body?.data && (typeof request.body.data !== "object" || Array.isArray(request.body.data))) {
+    return sendError(reply, 400, "INVALID_DATA", "Push data must be an object");
+  }
+
+  const pushData = {
+    ...(request.body?.data || {}),
+    campaign_id: campaign.id,
+    campaign_name: campaign.name,
+  };
+  const target = userIds.length > 0 ? { type: "users", user_ids: userIds } : { type: "segments", segments };
+
+  if (dryRun) {
+    return reply.send({
+      success: true,
+      dry_run: true,
+      configured: true,
+      target,
+      title,
+      body,
+    });
+  }
+
+  if (request.body?.confirm !== "SEND_PUSH") {
+    return sendError(reply, 400, "CONFIRMATION_REQUIRED", "Set confirm to SEND_PUSH before sending a live push");
+  }
+
+  let response;
+  try {
+    response = userIds.length > 0
+      ? await oneSignalService.sendToUsers({
+        userIds,
+        title,
+        body,
+        data: pushData,
+        imageUrl,
+        name: campaign.name,
+      })
+      : await oneSignalService.sendToSegment({
+        segments,
+        title,
+        body,
+        data: pushData,
+        imageUrl,
+        name: campaign.name,
+      });
+  } catch (err) {
+    request.log?.error({ err, campaignId: campaign.id }, "OneSignal push send failed");
+    return sendError(reply, err.status || 502, "ONESIGNAL_SEND_FAILED", "OneSignal rejected the push send request");
+  }
+
+  const sentAt = nowIso();
+  const recipients = oneSignalRecipientCount(response);
+  const targetLabel = userIds.length > 0 ? `users:${userIds.length}` : segments.join(",");
+
+  await db.prepare(`
+    INSERT INTO push_campaigns (
+      id, name, segment, title, body, data_json, image_url,
+      onesignal_notification_id, sent_at, recipients_count, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    newUuid(),
+    campaign.name,
+    targetLabel,
+    title,
+    body,
+    JSON.stringify(pushData),
+    imageUrl,
+    response.id || null,
+    sentAt,
+    recipients,
+    sentAt
+  );
+
+  await db.prepare(`
+    UPDATE marketing_campaigns
+    SET status = 'sent', sent_at = ?, recipient_count = ?, updated_at = ?
+    WHERE id = ?
+  `).run(sentAt, recipients, sentAt, campaign.id);
+
+  await adminService._audit(admin.adminId, "marketing_push_send", "marketing_campaigns", campaign.id, {
+    onesignal_notification_id: response.id || null,
+    recipients,
+    target,
+  });
+
+  const updated = await db.prepare("SELECT * FROM marketing_campaigns WHERE id = ?").get(campaign.id);
+  reply.send({
+    success: true,
+    campaign: updated,
+    onesignal: {
+      id: response.id || null,
+      recipients,
+    },
+  });
 });
 
 // --- Import GMass Results ---

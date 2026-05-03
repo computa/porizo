@@ -12,6 +12,8 @@ const {
   songsCreatedBucket,
   daysSince,
   isConfigured,
+  sendToSegment,
+  sendToUsers,
 } = require("../src/services/onesignal");
 
 describe("OneSignal Service", () => {
@@ -115,6 +117,88 @@ describe("OneSignal Service", () => {
       } else {
         delete process.env.ONESIGNAL_REST_API_KEY;
       }
+    });
+  });
+
+  describe("send payloads", () => {
+    async function withMockedOneSignal(fn) {
+      const origAppId = process.env.ONESIGNAL_APP_ID;
+      const origKey = process.env.ONESIGNAL_REST_API_KEY;
+      const origFetch = global.fetch;
+      const calls = [];
+
+      process.env.ONESIGNAL_APP_ID = "app-id";
+      process.env.ONESIGNAL_REST_API_KEY = "rest-key";
+      global.fetch = async (url, options) => {
+        calls.push({ url, options, body: JSON.parse(options.body) });
+        return {
+          ok: true,
+          status: 200,
+          text: async () => JSON.stringify({ id: "notification-1", recipients: 3 }),
+        };
+      };
+
+      try {
+        return await fn(calls);
+      } finally {
+        global.fetch = origFetch;
+        if (origAppId) {
+          process.env.ONESIGNAL_APP_ID = origAppId;
+        } else {
+          delete process.env.ONESIGNAL_APP_ID;
+        }
+        if (origKey) {
+          process.env.ONESIGNAL_REST_API_KEY = origKey;
+        } else {
+          delete process.env.ONESIGNAL_REST_API_KEY;
+        }
+      }
+    }
+
+    it("sends segment pushes through the push channel", async () => {
+      await withMockedOneSignal(async (calls) => {
+        const result = await sendToSegment({
+          segments: ["All"],
+          title: "Hello",
+          body: "World",
+          name: "Launch push",
+        });
+
+        assert.strictEqual(result.id, "notification-1");
+        assert.strictEqual(calls.length, 1);
+        assert.strictEqual(calls[0].url, "https://api.onesignal.com/notifications");
+        assert.strictEqual(calls[0].options.headers.Authorization, "Key rest-key");
+        assert.deepStrictEqual(calls[0].body, {
+          app_id: "app-id",
+          target_channel: "push",
+          included_segments: ["All"],
+          headings: { en: "Hello" },
+          contents: { en: "World" },
+          name: "Launch push",
+        });
+      });
+    });
+
+    it("targets users by external ID for direct pushes", async () => {
+      await withMockedOneSignal(async (calls) => {
+        await sendToUsers({
+          userIds: ["user_1", "user_2"],
+          title: "Song ready",
+          body: "Open Porizo",
+          data: { screen: "songs" },
+          name: "Direct push",
+        });
+
+        assert.deepStrictEqual(calls[0].body, {
+          app_id: "app-id",
+          include_aliases: { external_id: ["user_1", "user_2"] },
+          target_channel: "push",
+          headings: { en: "Song ready" },
+          contents: { en: "Open Porizo" },
+          name: "Direct push",
+          data: { screen: "songs" },
+        });
+      });
     });
   });
 });

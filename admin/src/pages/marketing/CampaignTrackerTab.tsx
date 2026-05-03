@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useState, useCallback } from 'react';
-import { Plus, Edit2, BarChart3, Upload, ChevronDown, ChevronRight } from 'lucide-react';
+import { Plus, Edit2, BarChart3, Upload, ChevronDown, ChevronRight, Send } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { useApi } from '../../hooks/useApi';
 import { LoadingState } from '../../components/LoadingState';
@@ -43,6 +43,11 @@ interface ImportResult {
   total: number;
 }
 
+interface PushSendResult {
+  campaign: Campaign;
+  onesignal: { id: string | null; recipients: number };
+}
+
 function getErrorMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback;
 }
@@ -59,6 +64,7 @@ const statusColors: Record<string, string> = {
 
 interface CampaignForm { name: string; type: string; status: string; recipient_count: number; notes: string }
 const emptyForm: CampaignForm = { name: '', type: 'email', status: 'draft', recipient_count: 0, notes: '' };
+interface PushForm { id: string; title: string; body: string; segment: string }
 
 export function CampaignTrackerTab() {
   const { get, post, put, postForm, loading, error, setError } = useApi();
@@ -66,6 +72,7 @@ export function CampaignTrackerTab() {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [statsForm, setStatsForm] = useState<{ id: string; opens: number; clicks: number; replies: number; bounces: number; unsubscribes: number } | null>(null);
+  const [pushForm, setPushForm] = useState<PushForm | null>(null);
 
   // Import state
   const [importingId, setImportingId] = useState<string | null>(null);
@@ -156,6 +163,29 @@ export function CampaignTrackerTab() {
       setNotice({ type: 'success', text: 'Campaign status updated.' });
     } catch (err) {
       setNotice({ type: 'error', text: getErrorMessage(err, 'Failed to update campaign status') });
+    }
+  };
+
+  const handleSendPush = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!pushForm) return;
+    if (!confirm('Send this push campaign now?')) return;
+
+    try {
+      const data = await post<PushSendResult>(`/marketing/campaigns/${pushForm.id}/send-push`, {
+        title: pushForm.title,
+        body: pushForm.body,
+        segments: [pushForm.segment || 'All'],
+        confirm: 'SEND_PUSH',
+      });
+      setPushForm(null);
+      await fetchCampaigns();
+      setNotice({
+        type: 'success',
+        text: `Push sent. OneSignal accepted ${data.onesignal.recipients.toLocaleString()} recipient${data.onesignal.recipients === 1 ? '' : 's'}.`,
+      });
+    } catch (err) {
+      setNotice({ type: 'error', text: getErrorMessage(err, 'Failed to send push campaign') });
     }
   };
 
@@ -370,6 +400,54 @@ export function CampaignTrackerTab() {
         </form>
       )}
 
+      {pushForm && (
+        <form onSubmit={handleSendPush} className="bg-slate-800/50 border border-violet-500/30 rounded-xl p-5 space-y-4">
+          <h4 className="text-white font-medium">Send Push</h4>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label className="block text-sm text-slate-400 mb-1">Title</label>
+              <input
+                type="text"
+                value={pushForm.title}
+                onChange={(e) => setPushForm({ ...pushForm, title: e.target.value })}
+                className="w-full px-3 py-2 bg-slate-900/50 border border-slate-600/50 rounded-lg text-sm text-slate-200 focus:outline-none focus:border-violet-500/50"
+                maxLength={80}
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-sm text-slate-400 mb-1">Body</label>
+              <input
+                type="text"
+                value={pushForm.body}
+                onChange={(e) => setPushForm({ ...pushForm, body: e.target.value })}
+                className="w-full px-3 py-2 bg-slate-900/50 border border-slate-600/50 rounded-lg text-sm text-slate-200 focus:outline-none focus:border-violet-500/50"
+                maxLength={180}
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-sm text-slate-400 mb-1">Segment</label>
+              <input
+                type="text"
+                value={pushForm.segment}
+                onChange={(e) => setPushForm({ ...pushForm, segment: e.target.value })}
+                className="w-full px-3 py-2 bg-slate-900/50 border border-slate-600/50 rounded-lg text-sm text-slate-200 focus:outline-none focus:border-violet-500/50"
+                placeholder="All"
+              />
+            </div>
+          </div>
+          <div className="flex gap-3">
+            <button type="submit" className="px-4 py-2 bg-violet-500 text-white rounded-lg text-sm font-medium hover:bg-violet-600 transition-colors">
+              Send Push
+            </button>
+            <button type="button" onClick={() => setPushForm(null)} className="px-4 py-2 text-slate-400 hover:text-slate-200 text-sm transition-colors">
+              Cancel
+            </button>
+          </div>
+        </form>
+      )}
+
       {/* Campaign list */}
       {campaigns.length === 0 ? (
         <div className="text-center py-12 text-slate-500">
@@ -428,6 +506,15 @@ export function CampaignTrackerTab() {
                           >
                             <Edit2 className="w-4 h-4" />
                           </button>
+                          {c.type === 'push' && c.status !== 'sent' && c.status !== 'completed' && (
+                            <button
+                              onClick={() => setPushForm({ id: c.id, title: c.name, body: c.notes || '', segment: 'All' })}
+                              className="text-slate-400 hover:text-violet-400 transition-colors"
+                              title="Send push"
+                            >
+                              <Send className="w-4 h-4" />
+                            </button>
+                          )}
                           {(c.status === 'sent' || c.status === 'completed') && (
                             <label
                               className="flex items-center gap-1 text-slate-400 hover:text-blue-400 transition-colors cursor-pointer"

@@ -20,6 +20,8 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>OneSignal_app_groups_key</key>
+	<string>group.porizo.ios.app.PorizoApp</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<!-- Facebook Ads SDK (FBSDKCoreKit) — required for App Install attribution via Events Manager. -->
