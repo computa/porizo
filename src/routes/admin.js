@@ -549,6 +549,13 @@ app.get("/admin/dashboard/users/stats", async (request, reply) => {
   reply.send(stats);
 });
 
+app.get("/admin/dashboard/attribution/health", async (request, reply) => {
+  const admin = await requireAdminSession(request, reply);
+  if (!admin) return;
+  const health = await adminService.getAttributionHealth();
+  reply.send(health);
+});
+
 app.get("/admin/dashboard/users/:id", async (request, reply) => {
   const admin = await requireAdminSession(request, reply);
   if (!admin) return;

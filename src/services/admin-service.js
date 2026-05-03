@@ -6,6 +6,7 @@
 const crypto = require("crypto");
 const config = require("../config");
 const { createAppStoreConnectService } = require("./app-store-connect-service");
+const { AttributionService } = require("./attribution-service");
 const { sanitizeStyleOverrides } = require("../providers/style-registry");
 
 /**
@@ -37,6 +38,7 @@ class AdminService {
     this.db = db;
     this.appStoreConnectService =
       options.appStoreConnectService || createAppStoreConnectService();
+    this.attributionService = options.attributionService || new AttributionService(db);
     // In-memory response cache for analytics aggregates. 60s TTL keeps
     // dashboards responsive without hammering events table on every days-selector flick.
     // Cleared on process restart; acceptable for admin-only endpoints.
@@ -151,7 +153,9 @@ class AdminService {
     let sql = `
       SELECT
         u.id, u.email, u.display_name, u.risk_level, u.locked_until, u.created_at,
-        u.acquisition_source, u.acquisition_campaign, u.acquisition_country,
+        u.acquisition_source,
+        u.acquisition_campaign,
+        u.acquisition_country,
         COALESCE(e.tier, 'free') as tier,
         COALESCE(track_counts.track_count, 0) as track_count,
         COALESCE(vp.status, 'none') as voice_status,
@@ -219,7 +223,8 @@ class AdminService {
     sql += ' ORDER BY u.created_at DESC LIMIT ? OFFSET ?';
     params.push(bounds.limit, bounds.offset);
 
-    return await this.db.prepare(sql).all(...params);
+    const users = await this.db.prepare(sql).all(...params);
+    return await this.attributionService.attachAttributionToUsers(users);
   }
 
   /**
@@ -258,7 +263,7 @@ class AdminService {
 
     if (!user) return null;
 
-    const [voiceProfile, entitlements, subscription, tracks, shares, attribution] = await Promise.all([
+    const [voiceProfile, entitlements, subscription, tracks, shares, attribution, appleAdsAttribution, canonicalAttribution] = await Promise.all([
       this.db.prepare(
         'SELECT id, status, quality_score, created_at FROM voice_profiles WHERE user_id = ? AND deleted_at IS NULL'
       ).get(userId),
@@ -284,9 +289,22 @@ class AdminService {
          WHERE matched_user_id = ?
          ORDER BY created_at DESC LIMIT 1`
       ).get(userId),
+      this.db.prepare(
+        `SELECT id, status, campaign_id, ad_group_id, keyword_id, org_id, conversion_type, country_or_region, created_at, resolved_at
+         FROM apple_ads_attribution
+         WHERE user_id = ? AND status = 'resolved'
+         ORDER BY created_at DESC LIMIT 1`
+      ).get(userId),
+      this.attributionService.getUserAttribution(user),
     ]);
 
-    return { user, voiceProfile, entitlements, subscription, tracks, shares, attribution };
+    Object.assign(user, canonicalAttribution);
+
+    return { user, voiceProfile, entitlements, subscription, tracks, shares, attribution, appleAdsAttribution };
+  }
+
+  async getAttributionHealth() {
+    return await this.attributionService.getAttributionHealth();
   }
 
   /**

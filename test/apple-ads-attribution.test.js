@@ -102,6 +102,13 @@ describe("apple ads attribution route", () => {
     assert.equal(row.api_status_code, 200);
     assert.ok(row.resolved_at);
 
+    const user = await db.prepare(
+      "SELECT acquisition_source, acquisition_campaign, acquisition_country FROM users WHERE id = ?"
+    ).get(userId);
+    assert.equal(user.acquisition_source, "Apple Ads");
+    assert.equal(user.acquisition_campaign, "123");
+    assert.equal(user.acquisition_country, "AU");
+
     const deduped = await app.inject({
       method: "POST",
       url: "/analytics/apple-ads-attribution",
@@ -111,6 +118,38 @@ describe("apple ads attribution route", () => {
     assert.equal(deduped.statusCode, 200, deduped.body);
     assert.equal(deduped.json().deduped, true);
     assert.equal(fetchCalls, 1);
+  });
+
+  test("does not overwrite existing download attribution on Apple Ads resolution", async () => {
+    await db.prepare(
+      "UPDATE users SET acquisition_source = ?, acquisition_campaign = ?, acquisition_country = ? WHERE id = ?"
+    ).run("TikTok", "mothersday", "US", userId);
+
+    global.fetch = async () => ({
+      status: 200,
+      async text() {
+        return JSON.stringify({
+          campaignId: 123,
+          countryOrRegion: "AU",
+        });
+      },
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/analytics/apple-ads-attribution",
+      headers: { "x-user-id": userId },
+      payload: { attributionToken },
+    });
+
+    assert.equal(response.statusCode, 200, response.body);
+
+    const user = await db.prepare(
+      "SELECT acquisition_source, acquisition_campaign, acquisition_country FROM users WHERE id = ?"
+    ).get(userId);
+    assert.equal(user.acquisition_source, "TikTok");
+    assert.equal(user.acquisition_campaign, "mothersday");
+    assert.equal(user.acquisition_country, "US");
   });
 
   test("stores not_found responses without retrying forever", async () => {

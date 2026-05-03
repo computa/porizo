@@ -10,6 +10,7 @@ const emailService = require("../services/email-service");
 const smsService = require("../services/sms-service");
 const gdprAuditService = require("../services/gdpr-audit-service");
 const identityService = require("../services/identity-service");
+const { AttributionService } = require("../services/attribution-service");
 const {
   verifySocialToken,
   verifyFacebookToken,
@@ -329,6 +330,7 @@ async function requireAuth(request, reply) {
  */
 function registerAuthRoutes(app, { db, subscriptionManager }) {
   authRouteDb = db;
+  const attributionService = new AttributionService(db);
   // Initialize services with database
   authService.initialize(db);
   gdprAuditService.initialize(db);
@@ -488,9 +490,7 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
 
       if (!event) return;
 
-      await db.prepare(
-        `UPDATE users SET acquisition_source = ?, acquisition_campaign = ?, acquisition_country = ? WHERE id = ?`
-      ).run(event.utm_source || null, event.utm_campaign || null, event.country || null, userId);
+      await attributionService.backfillUserAcquisitionFromDownload(userId, event);
 
       await db.prepare(
         `UPDATE download_events SET matched_user_id = ? WHERE id = ?`

@@ -3,6 +3,7 @@
 const crypto = require("crypto");
 const { nowIso, toJson } = require("../utils/common");
 const { newUuid } = require("../utils/ids");
+const { AttributionService } = require("../services/attribution-service");
 
 function asInteger(value) {
   if (value === null || value === undefined || value === "") {
@@ -82,6 +83,8 @@ function registerAnalyticsRoutes(app, {
   eventsService,
   consumeRateLimit,
 }) {
+  const attributionService = new AttributionService(db);
+
   app.post("/analytics/apple-ads-attribution", async (request, reply) => {
     const userId = await requireUserId(request, reply);
     if (!userId) {
@@ -105,6 +108,7 @@ function registerAnalyticsRoutes(app, {
     ).get(tokenHash);
 
     if (existing && ["resolved", "not_found"].includes(existing.status)) {
+      await attributionService.backfillUserAcquisitionFromAppleAds(existing);
       reply.send({
         attribution: normalizeAppleAdsRow(existing),
         deduped: true,
@@ -251,6 +255,7 @@ function registerAnalyticsRoutes(app, {
     const row = await db.prepare(
       "SELECT * FROM apple_ads_attribution WHERE attribution_token_sha256 = ?"
     ).get(tokenHash);
+    await attributionService.backfillUserAcquisitionFromAppleAds(row);
 
     await addAuditEntry({
       userId,

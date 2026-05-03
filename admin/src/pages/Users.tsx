@@ -21,6 +21,9 @@ interface User {
   acquisition_source: string | null;
   acquisition_campaign: string | null;
   acquisition_country: string | null;
+  attribution_status: string | null;
+  attribution_reason: string | null;
+  attribution_confidence: string | null;
 }
 
 interface UserStats {
@@ -52,6 +55,18 @@ const tierColors: Record<string, { bg: string; text: string }> = {
   pro: { bg: 'bg-sky-500/10', text: 'text-sky-400' },
   plus: { bg: 'bg-rose-500/10', text: 'text-rose-400' },
 };
+
+const attributionColors: Record<string, { bg: string; text: string }> = {
+  attributed: { bg: 'bg-violet-500/10', text: 'text-violet-400' },
+  organic: { bg: 'bg-sky-500/10', text: 'text-sky-400' },
+  pending: { bg: 'bg-amber-500/10', text: 'text-amber-400' },
+  failed: { bg: 'bg-rose-500/10', text: 'text-rose-400' },
+  unknown: { bg: 'bg-slate-500/10', text: 'text-slate-400' },
+};
+
+function attributionStyle(status: string | null | undefined) {
+  return attributionColors[status || 'unknown'] || attributionColors.unknown;
+}
 
 export function Users() {
   const { get, post, loading, error } = useApi();
@@ -430,20 +445,23 @@ export function Users() {
                       )}
                     </td>
                     <td>
-                      {user.acquisition_source ? (
-                        <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-violet-500/10">
-                          <Megaphone className="w-3 h-3 text-violet-400" />
-                          <span className="text-xs font-medium text-violet-400">{user.acquisition_source}</span>
-                        </div>
-                      ) : (
-                        <span className="text-slate-600 text-xs">--</span>
-                      )}
+                      <div
+                        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full ${attributionStyle(user.attribution_status).bg}`}
+                        title={user.attribution_reason || undefined}
+                      >
+                        <Megaphone className={`w-3 h-3 ${attributionStyle(user.attribution_status).text}`} />
+                        <span className={`text-xs font-medium ${attributionStyle(user.attribution_status).text}`}>
+                          {user.acquisition_source || 'Unknown'}
+                        </span>
+                      </div>
                     </td>
                     <td>
                       {user.acquisition_country ? (
                         <span className="text-slate-300 text-sm font-data">{user.acquisition_country}</span>
                       ) : (
-                        <span className="text-slate-600 text-xs">--</span>
+                        <span className="text-slate-500 text-xs" title={user.attribution_reason || undefined}>
+                          Unknown
+                        </span>
                       )}
                     </td>
                     <td>
@@ -504,6 +522,9 @@ interface UserDetail {
     acquisition_source: string | null;
     acquisition_campaign: string | null;
     acquisition_country: string | null;
+    attribution_status: string | null;
+    attribution_reason: string | null;
+    attribution_confidence: string | null;
   };
   voiceProfile: {
     id: string;
@@ -854,24 +875,22 @@ function UserDetailPanel({ userId, onClose, onUserDeleted }: UserDetailPanelProp
           <Globe className="w-4 h-4" />
           Acquisition
         </h3>
-        {detail.user.acquisition_source || detail.attribution ? (
-          <div className="grid grid-cols-2 gap-3">
-            <InfoCell label="Source" value={detail.user.acquisition_source} />
-            <InfoCell label="Campaign" value={detail.user.acquisition_campaign} />
-            <InfoCell label="Country" value={detail.user.acquisition_country} />
-            {detail.attribution && (
-              <>
-                <InfoCell label="Medium" value={detail.attribution.utm_medium} />
-                {detail.attribution.referrer_url && (
-                  <InfoCell label="Referrer" value={detail.attribution.referrer_url} colSpan={2} />
-                )}
-                <InfoCell label="Download Link Clicked" value={formatFullDate(detail.attribution.created_at)} colSpan={2} />
-              </>
-            )}
-          </div>
-        ) : (
-          <p className="text-sm text-slate-600">No attribution data — user signed up before tracking or via direct install</p>
-        )}
+        <div className="grid grid-cols-2 gap-3">
+          <InfoCell label="Source" value={detail.user.acquisition_source || 'Unknown'} />
+          <InfoCell label="Status" value={detail.user.attribution_status || 'unknown'} />
+          <InfoCell label="Campaign" value={detail.user.acquisition_campaign} />
+          <InfoCell label="Country" value={detail.user.acquisition_country || 'Unknown'} />
+          <InfoCell label="Reason" value={detail.user.attribution_reason || 'No attribution reason recorded'} colSpan={2} />
+          {detail.attribution && (
+            <>
+              <InfoCell label="Medium" value={detail.attribution.utm_medium} />
+              {detail.attribution.referrer_url && (
+                <InfoCell label="Referrer" value={detail.attribution.referrer_url} colSpan={2} />
+              )}
+              <InfoCell label="Download Link Clicked" value={formatFullDate(detail.attribution.created_at)} colSpan={2} />
+            </>
+          )}
+        </div>
       </div>
 
       {/* Edit Entitlements */}
