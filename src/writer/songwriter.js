@@ -3795,8 +3795,12 @@ Return ONLY valid JSON:
     throw new Error("Malformed JSON from fidelity judge");
   }
 
-  // Compute total server-side — never trust the LLM's self-reported total
-  const scores = parsed.scores || {};
+  // Compute total server-side — never trust the LLM's self-reported total.
+  // Some providers occasionally flatten the score object despite the schema;
+  // accept that numeric shape, but still fail closed for missing/non-numeric values.
+  const scores = (parsed.scores && typeof parsed.scores === "object")
+    ? parsed.scores
+    : parsed;
   const requiredScoreKeys = ["coverage", "flow", "specificity", "emotional_truth", "faithfulness"];
   const numericScores = {};
   for (const key of requiredScoreKeys) {
@@ -3814,6 +3818,7 @@ Return ONLY valid JSON:
     throw new Error(`Fidelity scores out of range: ${computed}`);
   }
   parsed.scores = { ...scores, ...numericScores };
+  Object.assign(parsed, numericScores);
   const requiredCoverage = assessRequiredDetailCoverage(lyrics, storyContext);
   if (requiredCoverage.missing_required.length > 0) {
     parsed.missing_story_beats = [

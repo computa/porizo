@@ -534,6 +534,47 @@ test("generateLyrics fails closed when story-backed fidelity judge is malformed"
   assert.ok(calls.some((call) => call.taskType === "fidelity_judge"));
 });
 
+test("assessNarrativeFidelity accepts flat numeric score objects", async () => {
+  const flatJudge = JSON.stringify({
+    coverage: 8,
+    flow: 7,
+    specificity: 8,
+    emotional_truth: 9,
+    faithfulness: 8,
+    missing_story_beats: [],
+    invented_details: [],
+    feedback: "flat score shape from provider",
+  });
+  const judgeCalls = [];
+  const { assessNarrativeFidelity } = loadSongwriterWithSequence([flatJudge], judgeCalls);
+
+  const result = await assessNarrativeFidelity(
+    {
+      sections: [
+        {
+          name: "verse1",
+          lines: [
+            "Chioma kept the home steady",
+            "Through the pressure and the fear",
+          ],
+        },
+      ],
+    },
+    {
+      narrative: "Chioma kept the home steady through pressure and fear.",
+      facts: [
+        { text: "Chioma kept the home steady." },
+        { text: "There was pressure and fear." },
+      ],
+    }
+  );
+
+  assert.equal(result.total, 40);
+  assert.equal(result.flow, 7);
+  assert.equal(result.scores.flow, 7);
+  assert.equal(result.feedback, "flat score shape from provider");
+});
+
 test("generateLyrics treats completed_story_package.prose as story-backed even without narrative or facts", async () => {
   const calls = [];
   const lyricJson = JSON.stringify({

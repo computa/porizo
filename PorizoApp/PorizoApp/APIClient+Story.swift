@@ -108,7 +108,7 @@ extension APIClient {
         let url = URL(string: "\(baseURL)/story/\(storyId)/lyrics")!
 
         var request = try await makeRequest(url: url, method: "POST")
-        request.timeoutInterval = 60  // Lyrics generation takes longer
+        request.timeoutInterval = 180  // Story-backed lyrics can run multiple LLM repair passes
         request.httpBody = "{}".data(using: .utf8)  // Empty body for Fastify JSON parser
 
         let (data, _) = try await executeWithAuthRetry(request: request)
