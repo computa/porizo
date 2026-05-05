@@ -1056,14 +1056,10 @@ function registerEnrollmentRoutes(app, deps) {
           Boolean(appConfig.REPLICATE_API_TOKEN) &&
           Boolean(appConfig.REPLICATE_EMBEDDING_MODEL_VERSION);
         const sunoPersonaFlags = await getFeatureFlags(db, [
-          "user_voice_engine",
-          "suno_voice_persona_enabled",
           "suno_voice_persona_model",
           "suno_voice_persona_audio_weight",
         ]);
-        const shouldQueueSunoPersona =
-          sunoPersonaFlags.user_voice_engine === "suno_voice_persona" &&
-          sunoPersonaFlags.suno_voice_persona_enabled === true;
+        const shouldQueueSunoPersona = true;
         // U2: Read consent_scopes (added by migration 098), NOT consent_version
         // (semver). The previous fallback to consent_version was the silent-deny bug.
         const hasProviderConsent = enrollmentSessionHasPersonaConsent(session);
@@ -1333,7 +1329,7 @@ function registerEnrollmentRoutes(app, deps) {
                 userId,
                 model: sunoPersonaFlags.suno_voice_persona_model || "V5_5",
                 audioWeight:
-                  sunoPersonaFlags.suno_voice_persona_audio_weight || 0.85,
+                  sunoPersonaFlags.suno_voice_persona_audio_weight ?? 0.85,
                 vocalWindow: personaVocalWindow,
               }),
             });

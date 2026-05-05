@@ -80,10 +80,6 @@ const DEFAULTS = {
   // Voice Conversion Provider Selection
   // 'seedvc' = Seed-VC (free HF Space), 'elevenlabs' = ElevenLabs Voice Changer API
   'voice_conversion_provider': 'seedvc',
-  // User-voice engine controls the end-to-end render architecture.
-  // Keep Seed-VC as default until Suno persona creation is verified in live API tests.
-  'user_voice_engine': 'seedvc',
-  'suno_voice_persona_enabled': false,
   'suno_voice_persona_model': 'V5_5',
   'suno_voice_persona_persona_model': 'voice_persona',
   // Used by the persona preparation cover/upload path, not the final generate request.
@@ -401,19 +397,6 @@ const FLAG_METADATA = {
     description: 'Which provider to use for voice conversion. seedvc=free Seed-VC, elevenlabs=ElevenLabs Voice Changer (~$0.10/preview).',
     type: 'select',
     options: ['seedvc', 'elevenlabs'],
-  },
-  'user_voice_engine': {
-    category: 'voice_conversion',
-    label: 'User Voice Engine',
-    description: 'End-to-end engine for My Voice song renders. suno_voice_persona uses provider-complete Suno voice personas instead of local voice conversion.',
-    type: 'select',
-    options: ['seedvc', 'elevenlabs', 'suno_voice_persona'],
-  },
-  'suno_voice_persona_enabled': {
-    category: 'voice_conversion',
-    label: 'Suno Voice Persona Enabled',
-    description: 'Master gate for sending user-voice-derived audio to Suno persona APIs. Keep disabled until live API contract and consent flow are validated.',
-    type: 'boolean',
   },
   'suno_voice_persona_model': {
     category: 'voice_conversion',

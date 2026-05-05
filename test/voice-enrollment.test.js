@@ -19,7 +19,6 @@ const crypto = require("crypto");
 const { initDb } = require("../src/db");
 const { buildServer } = require("../src/server");
 const { createStorageProvider } = require("../src/storage");
-const { clearCache, setFeatureFlag } = require("../src/services/feature-flags");
 const {
   REQUIRED_CONSENT_SCOPE,
 } = require("../src/services/suno-voice-persona-service");
@@ -824,15 +823,7 @@ describe("Voice Enrollment API", () => {
       );
     });
 
-    it("queues Suno persona preparation when engine is enabled and consent is Suno-specific", async () => {
-      await setFeatureFlag(
-        db,
-        "user_voice_engine",
-        "suno_voice_persona",
-        "test",
-      );
-      await setFeatureFlag(db, "suno_voice_persona_enabled", true, "test");
-      clearCache();
+    it("queues Suno persona preparation when consent is Suno-specific", async () => {
       const userId = uniqueUserId("suno_persona");
       const sessionId = await setupEnrollmentWithChunks(userId, {
         consentVersion: "1.0",
@@ -871,20 +862,9 @@ describe("Voice Enrollment API", () => {
       assert.equal(providerJob.voice_provider_profile_id, providerProfile.id);
       assert.ok(!String(providerJob.step_data).includes("persona_live_"));
 
-      await setFeatureFlag(db, "user_voice_engine", "seedvc", "test");
-      await setFeatureFlag(db, "suno_voice_persona_enabled", false, "test");
-      clearCache();
     });
 
     it("does not queue Suno persona preparation without Suno-specific consent", async () => {
-      await setFeatureFlag(
-        db,
-        "user_voice_engine",
-        "suno_voice_persona",
-        "test",
-      );
-      await setFeatureFlag(db, "suno_voice_persona_enabled", true, "test");
-      clearCache();
       const userId = uniqueUserId("suno_no_consent");
       const sessionId = await setupEnrollmentWithChunks(userId, {
         consentVersion: "1.0",
@@ -910,9 +890,6 @@ describe("Voice Enrollment API", () => {
         .get(userId);
       assert.equal(count.count, 0);
 
-      await setFeatureFlag(db, "user_voice_engine", "seedvc", "test");
-      await setFeatureFlag(db, "suno_voice_persona_enabled", false, "test");
-      clearCache();
     });
 
     it("should reject completion for non-existent session", async () => {

@@ -12,10 +12,7 @@ const {
   buildLyricsContext,
   summarizeLyricsContextForLog,
 } = require("../writer/lyrics-context");
-const {
-  getFeatureFlag,
-  getFeatureFlags,
-} = require("../services/feature-flags");
+const { getFeatureFlag } = require("../services/feature-flags");
 const {
   findActiveProviderProfileForUser,
 } = require("../services/voice-provider-profile-service");
@@ -85,16 +82,6 @@ function registerTrackRoutes(
 
   async function preflightUserVoicePersonaReadiness({ userId, track }) {
     if (track?.voice_mode !== "user_voice") {
-      return { ok: true };
-    }
-    const flags = await getFeatureFlags(db, [
-      "user_voice_engine",
-      "suno_voice_persona_enabled",
-    ]);
-    if (
-      flags.user_voice_engine !== "suno_voice_persona" ||
-      flags.suno_voice_persona_enabled !== true
-    ) {
       return { ok: true };
     }
     const providerProfile = await findActiveProviderProfileForUser(db, {

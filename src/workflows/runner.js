@@ -2785,28 +2785,9 @@ async function startJobRunner({
       if (track.voice_gender) {
         plan.voice_gender = track.voice_gender;
       }
-      const userVoiceFlags =
-        track.voice_mode === "user_voice"
-          ? await getFeatureFlags(db, [
-              "voice_conversion_provider",
-              "user_voice_engine",
-              "suno_voice_persona_enabled",
-            ])
-          : {};
-      const voiceConversionProvider =
-        track.voice_mode === "user_voice"
-          ? (userVoiceFlags.voice_conversion_provider ?? "seedvc")
-          : null;
-      const requestedUserVoiceEngine =
-        userVoiceFlags.user_voice_engine === "suno_voice_persona"
-          ? "suno_voice_persona"
-          : voiceConversionProvider;
+      const voiceConversionProvider = null;
       let voiceProviderProfileId = null;
-      if (
-        track.voice_mode === "user_voice" &&
-        requestedUserVoiceEngine === "suno_voice_persona" &&
-        userVoiceFlags.suno_voice_persona_enabled === true
-      ) {
+      if (track.voice_mode === "user_voice") {
         const sunoProviderProfile = await findActiveProviderProfileForUser(db, {
           userId: track.user_id,
           provider: "suno",
@@ -2823,10 +2804,7 @@ async function startJobRunner({
         voiceProviderProfileId = sunoProviderProfile.id;
       }
       const userVoiceEngine =
-        requestedUserVoiceEngine === "suno_voice_persona" &&
-        userVoiceFlags.suno_voice_persona_enabled === true
-          ? "suno_voice_persona"
-          : voiceConversionProvider;
+        track.voice_mode === "user_voice" ? "suno_voice_persona" : null;
       const renderContract = buildRenderContract({
         provider: plan.provider_resolved || musicConfig?.provider || null,
         voiceMode: track.voice_mode,
@@ -2834,6 +2812,9 @@ async function startJobRunner({
         userVoiceEngine,
         voiceProviderProfileId,
       });
+      console.log(
+        `[JobRunner] Render contract: track=${track.id} voice_mode=${renderContract.voice_mode} pipeline=${renderContract.pipeline} user_voice_engine=${renderContract.user_voice_engine || "none"} provider_profile=${renderContract.voice_provider_profile_id ? "present" : "none"}`,
+      );
       plan.render_contract = renderContract;
       const provenance_json = mergeProvenanceJson(
         trackVersion?.provenance_json || null,

@@ -14,7 +14,6 @@ process.env.NODE_ENV = "test";
 const { initDb } = require("../src/db");
 const { buildServer } = require("../src/server");
 const { _testing: runnerTesting } = require("../src/workflows/runner");
-const { setFeatureFlag } = require("../src/services/feature-flags");
 
 describe("Render Endpoints", async () => {
   let db;
@@ -199,16 +198,13 @@ describe("Render Endpoints", async () => {
        WHERE id = ?`,
       [trackVersionId]
     );
-    await setFeatureFlag(db, "user_voice_engine", "suno_voice_persona", "test");
-    await setFeatureFlag(db, "suno_voice_persona_enabled", true, "test");
-
     const response = await app.inject({
       method: "POST",
       url: `/tracks/${trackId}/versions/1/render_preview`,
       headers: { "x-user-id": userId },
     });
 
-    assert.equal(response.statusCode, 409, `Expected 409, got ${response.statusCode}: ${response.body}`);
+    assert.equal(response.statusCode, 422, `Expected 422, got ${response.statusCode}: ${response.body}`);
     assert.match(response.body, /SUNO_PERSONA_NOT_READY/);
     assert.equal(spendCalls, 0, "Should not spend entitlement when persona is not ready");
 
@@ -247,16 +243,13 @@ describe("Render Endpoints", async () => {
        WHERE id = ?`,
       [trackVersionId]
     );
-    await setFeatureFlag(db, "user_voice_engine", "suno_voice_persona", "test");
-    await setFeatureFlag(db, "suno_voice_persona_enabled", true, "test");
-
     const response = await app.inject({
       method: "POST",
       url: `/tracks/${trackId}/versions/1/render_full`,
       headers: { "x-user-id": userId },
     });
 
-    assert.equal(response.statusCode, 409, `Expected 409, got ${response.statusCode}: ${response.body}`);
+    assert.equal(response.statusCode, 422, `Expected 422, got ${response.statusCode}: ${response.body}`);
     assert.match(response.body, /SUNO_PERSONA_NOT_READY/);
     assert.equal(spendCalls, 0, "Should not spend entitlement when persona is not ready");
 
@@ -312,16 +305,13 @@ describe("Render Endpoints", async () => {
        WHERE id = ?`,
       [trackVersionId]
     );
-    await setFeatureFlag(db, "user_voice_engine", "suno_voice_persona", "test");
-    await setFeatureFlag(db, "suno_voice_persona_enabled", true, "test");
-
     const response = await app.inject({
       method: "POST",
       url: `/tracks/${trackId}/versions/1/render_preview`,
       headers: { "x-user-id": userId },
     });
 
-    assert.equal(response.statusCode, 409);
+    assert.equal(response.statusCode, 422);
     assert.equal(spendCalls, 0);
     const jobs = await db.query("SELECT id FROM jobs WHERE track_version_id = ?", [trackVersionId]);
     assert.equal(jobs.rows.length, 0);
