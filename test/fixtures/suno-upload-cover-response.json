@@ -1,0 +1,58 @@
+{
+  "_fixture_metadata": {
+    "purpose": "Canonical shape of SunoAPI upload-cover task status response",
+    "captured_from": "tools/suno-persona-probe.js live run",
+    "capture_timestamp": "2026-05-05T11:12:19.392Z",
+    "source_doc": "https://docs.sunoapi.org/suno-api/generate-persona",
+    "redaction": "Bearer tokens, URLs, persona/audio/task IDs replaced with deterministic hashes",
+    "status": "VERIFIED — captured from a successful upload-cover probe"
+  },
+  "code": 200,
+  "msg": "success",
+  "data": {
+    "taskId": "task_REDACTED_b1dc1f92",
+    "parentMusicId": "",
+    "param": "{\"audioWeight\":0.85,\"callBackUrl\":\"[redacted_url]\",\"customMode\":true,\"instrumental\":false,\"model\":\"V5_5\",\"prompt\":\"[Verse]\\nSing this clear melody in a natural voice\\nKeep the vocal centered and expressive\",\"style\":\"clean pop vocal, warm studio mix, clear lead vocal\",\"title\":\"Porizo Voice Persona Seed\",\"uploadUrl\":\"[redacted_url]\"}",
+    "response": {
+      "taskId": "task_REDACTED_b1dc1f92",
+      "sunoData": [
+        {
+          "id": "audio_REDACTED_35aaa521",
+          "audioUrl": "[redacted_url]",
+          "sourceAudioUrl": "[redacted_url]",
+          "streamAudioUrl": "[redacted_url]",
+          "sourceStreamAudioUrl": "[redacted_url]",
+          "imageUrl": "[redacted_url]",
+          "sourceImageUrl": "[redacted_url]",
+          "prompt": "[Verse]\nSing this clear melody in a natural voice\nKeep the vocal centered and expressive",
+          "modelName": "chirp-fenix",
+          "title": "Porizo Voice Persona Seed",
+          "tags": "clean pop vocal, warm studio mix, clear lead vocal",
+          "createTime": 1777979507741,
+          "duration": 10.8
+        },
+        {
+          "id": "audio_REDACTED_01e1db08",
+          "audioUrl": "[redacted_url]",
+          "sourceAudioUrl": "[redacted_url]",
+          "streamAudioUrl": "[redacted_url]",
+          "sourceStreamAudioUrl": "[redacted_url]",
+          "imageUrl": "[redacted_url]",
+          "sourceImageUrl": "[redacted_url]",
+          "prompt": "[Verse]\nSing this clear melody in a natural voice\nKeep the vocal centered and expressive",
+          "modelName": "chirp-fenix",
+          "title": "Porizo Voice Persona Seed",
+          "tags": "clean pop vocal, warm studio mix, clear lead vocal",
+          "createTime": 1777979507741,
+          "duration": 479.4
+        }
+      ]
+    },
+    "status": "SUCCESS",
+    "type": "chirp-fenix",
+    "operationType": "upload_cover",
+    "errorCode": null,
+    "errorMessage": null,
+    "createTime": 1777979228000
+  }
+}

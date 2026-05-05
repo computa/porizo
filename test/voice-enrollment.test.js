@@ -19,6 +19,10 @@ const crypto = require("crypto");
 const { initDb } = require("../src/db");
 const { buildServer } = require("../src/server");
 const { createStorageProvider } = require("../src/storage");
+const { clearCache, setFeatureFlag } = require("../src/services/feature-flags");
+const {
+  REQUIRED_CONSENT_SCOPE,
+} = require("../src/services/suno-voice-persona-service");
 
 // ============================================================
 // Test Utilities
@@ -95,7 +99,9 @@ describe("Voice Enrollment API", () => {
   let storage;
 
   before(async () => {
-    storageDir = fs.mkdtempSync(path.join(os.tmpdir(), "porizo-enrollment-test-"));
+    storageDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "porizo-enrollment-test-"),
+    );
     config = {
       PREVIEW_ONLY: false,
       STREAM_BASE_URL: "http://stream.local",
@@ -105,7 +111,10 @@ describe("Voice Enrollment API", () => {
       UPLOAD_URL_TTL_SEC: 900,
       LIVE_PROVIDERS: false, // Disable external API calls for tests
     };
-    db = await initDb({ dbPath: ":memory:", migrationsDir: path.join(process.cwd(), "migrations") });
+    db = await initDb({
+      dbPath: ":memory:",
+      migrationsDir: path.join(process.cwd(), "migrations"),
+    });
     storage = createStorageProvider(config);
     app = buildServer({ db, config, storage });
   });
@@ -149,11 +158,21 @@ describe("Voice Enrollment API", () => {
       assert.ok(firstPrompt.id, "prompt should have id");
       assert.ok(firstPrompt.type, "prompt should have type (spoken/sung)");
       assert.ok(firstPrompt.text, "prompt should have text");
-      assert.ok(firstPrompt.duration_hint_sec, "prompt should have duration_hint_sec");
+      assert.ok(
+        firstPrompt.duration_hint_sec,
+        "prompt should have duration_hint_sec",
+      );
 
       // Verify upload URLs
-      assert.ok(Array.isArray(body.upload_urls), "should return upload_urls array");
-      assert.strictEqual(body.upload_urls.length, body.prompts.length, "upload_urls should match prompts");
+      assert.ok(
+        Array.isArray(body.upload_urls),
+        "should return upload_urls array",
+      );
+      assert.strictEqual(
+        body.upload_urls.length,
+        body.prompts.length,
+        "upload_urls should match prompts",
+      );
 
       const firstUpload = body.upload_urls[0];
       assert.ok(firstUpload.chunk_id, "upload should have chunk_id");
@@ -245,7 +264,11 @@ describe("Voice Enrollment API", () => {
           headers: { "x-user-id": userId },
           payload: { consent_accepted: true },
         });
-        assert.strictEqual(response.statusCode, 200, `request ${i + 1} should succeed`);
+        assert.strictEqual(
+          response.statusCode,
+          200,
+          `request ${i + 1} should succeed`,
+        );
       }
 
       // 11th request should be rate limited
@@ -302,7 +325,9 @@ describe("Voice Enrollment API", () => {
       assert.strictEqual(setup.statusCode, 200, "setup request should succeed");
 
       // Set user to blocked
-      await db.prepare("UPDATE users SET risk_level = 'blocked' WHERE id = ?").run(userId);
+      await db
+        .prepare("UPDATE users SET risk_level = 'blocked' WHERE id = ?")
+        .run(userId);
 
       const response = await app.inject({
         method: "POST",
@@ -311,7 +336,11 @@ describe("Voice Enrollment API", () => {
         payload: { consent_accepted: true },
       });
 
-      assert.strictEqual(response.statusCode, 403, "should return 403 for blocked accounts");
+      assert.strictEqual(
+        response.statusCode,
+        403,
+        "should return 403 for blocked accounts",
+      );
       const body = response.json();
       assert.strictEqual(body.error, "ACCOUNT_BLOCKED");
     });
@@ -329,7 +358,9 @@ describe("Voice Enrollment API", () => {
       assert.strictEqual(setup.statusCode, 200, "setup request should succeed");
 
       // Set user to high risk
-      await db.prepare("UPDATE users SET risk_level = 'high' WHERE id = ?").run(userId);
+      await db
+        .prepare("UPDATE users SET risk_level = 'high' WHERE id = ?")
+        .run(userId);
 
       const response = await app.inject({
         method: "POST",
@@ -338,7 +369,11 @@ describe("Voice Enrollment API", () => {
         payload: { consent_accepted: true },
       });
 
-      assert.strictEqual(response.statusCode, 403, "should return 403 for high-risk accounts");
+      assert.strictEqual(
+        response.statusCode,
+        403,
+        "should return 403 for high-risk accounts",
+      );
       const body = response.json();
       assert.strictEqual(body.error, "ACCOUNT_BLOCKED");
     });
@@ -355,7 +390,9 @@ describe("Voice Enrollment API", () => {
       });
 
       // Set user to medium risk
-      await db.prepare("UPDATE users SET risk_level = 'medium' WHERE id = ?").run(userId);
+      await db
+        .prepare("UPDATE users SET risk_level = 'medium' WHERE id = ?")
+        .run(userId);
 
       const response = await app.inject({
         method: "POST",
@@ -364,7 +401,11 @@ describe("Voice Enrollment API", () => {
         payload: { consent_accepted: true },
       });
 
-      assert.strictEqual(response.statusCode, 200, "should allow medium-risk accounts");
+      assert.strictEqual(
+        response.statusCode,
+        200,
+        "should allow medium-risk accounts",
+      );
     });
   });
 
@@ -392,7 +433,13 @@ describe("Voice Enrollment API", () => {
       const chunkId = "p1";
 
       // Create the chunk file in storage
-      const chunkDir = path.join(storageDir, "enrollment", "raw", testUserId, testSessionId);
+      const chunkDir = path.join(
+        storageDir,
+        "enrollment",
+        "raw",
+        testUserId,
+        testSessionId,
+      );
       fs.mkdirSync(chunkDir, { recursive: true });
       const chunkPath = path.join(chunkDir, `${chunkId}.wav`);
       fs.writeFileSync(chunkPath, createTestWav({ durationSec: 5 }));
@@ -463,7 +510,13 @@ describe("Voice Enrollment API", () => {
       const chunkId = "p1";
 
       // Create a very short chunk (1 second, min is 2)
-      const chunkDir = path.join(storageDir, "enrollment", "raw", testUserId, testSessionId);
+      const chunkDir = path.join(
+        storageDir,
+        "enrollment",
+        "raw",
+        testUserId,
+        testSessionId,
+      );
       fs.mkdirSync(chunkDir, { recursive: true });
       const chunkPath = path.join(chunkDir, `${chunkId}.wav`);
       fs.writeFileSync(chunkPath, createTestWav({ durationSec: 1 }));
@@ -489,9 +542,18 @@ describe("Voice Enrollment API", () => {
       const chunkId = "p1";
 
       // Create the chunk file
-      const chunkDir = path.join(storageDir, "enrollment", "raw", testUserId, testSessionId);
+      const chunkDir = path.join(
+        storageDir,
+        "enrollment",
+        "raw",
+        testUserId,
+        testSessionId,
+      );
       fs.mkdirSync(chunkDir, { recursive: true });
-      fs.writeFileSync(path.join(chunkDir, `${chunkId}.wav`), createTestWav({ durationSec: 4 }));
+      fs.writeFileSync(
+        path.join(chunkDir, `${chunkId}.wav`),
+        createTestWav({ durationSec: 4 }),
+      );
 
       await app.inject({
         method: "POST",
@@ -508,7 +570,11 @@ describe("Voice Enrollment API", () => {
         .prepare("SELECT * FROM enrollment_sessions WHERE id = ?")
         .get(testSessionId);
 
-      assert.strictEqual(session.chunk_count, 1, "chunk_count should be incremented");
+      assert.strictEqual(
+        session.chunk_count,
+        1,
+        "chunk_count should be incremented",
+      );
       const metrics = JSON.parse(session.quality_metrics);
       assert.ok(metrics[chunkId], "chunk should be in quality_metrics");
       assert.strictEqual(metrics[chunkId].accepted, true);
@@ -521,7 +587,13 @@ describe("Voice Enrollment API", () => {
         .prepare("UPDATE enrollment_sessions SET expires_at = ? WHERE id = ?")
         .run(pastDate, testSessionId);
 
-      const chunkDir = path.join(storageDir, "enrollment", "raw", testUserId, testSessionId);
+      const chunkDir = path.join(
+        storageDir,
+        "enrollment",
+        "raw",
+        testUserId,
+        testSessionId,
+      );
       fs.mkdirSync(chunkDir, { recursive: true });
       fs.writeFileSync(path.join(chunkDir, "p1.wav"), createTestWav());
 
@@ -543,7 +615,13 @@ describe("Voice Enrollment API", () => {
     it("should reject notification from different user", async () => {
       const differentUser = uniqueUserId("different");
 
-      const chunkDir = path.join(storageDir, "enrollment", "raw", testUserId, testSessionId);
+      const chunkDir = path.join(
+        storageDir,
+        "enrollment",
+        "raw",
+        testUserId,
+        testSessionId,
+      );
       fs.mkdirSync(chunkDir, { recursive: true });
       fs.writeFileSync(path.join(chunkDir, "p1.wav"), createTestWav());
 
@@ -557,7 +635,11 @@ describe("Voice Enrollment API", () => {
         },
       });
 
-      assert.strictEqual(response.statusCode, 404, "should not find session for different user");
+      assert.strictEqual(
+        response.statusCode,
+        404,
+        "should not find session for different user",
+      );
     });
   });
 
@@ -568,25 +650,49 @@ describe("Voice Enrollment API", () => {
     /**
      * Helper to set up a complete enrollment session with audio files
      */
-    async function setupEnrollmentWithChunks(userId, numChunks = 4) {
+    async function setupEnrollmentWithChunks(userId, numChunksOrOptions = 4) {
+      const options =
+        typeof numChunksOrOptions === "object"
+          ? numChunksOrOptions
+          : { numChunks: numChunksOrOptions };
+      const numChunks = options.numChunks || 4;
       // Start enrollment
       const startResponse = await app.inject({
         method: "POST",
         url: "/voice/enrollment/start",
         headers: { "x-user-id": userId },
-        payload: { consent_accepted: true },
+        payload: {
+          consent_accepted: true,
+          consent_version: options.consentVersion,
+          // U2/U17: when the test wants persona consent, pass an explicit scope
+          // grant. Tests that only set consentVersion still leave consent_scopes
+          // null (fail-secure). Tests that need persona consent pass
+          // `consentScopes` explicitly.
+          ...(options.consentScopes
+            ? { consent_scopes: options.consentScopes }
+            : {}),
+          ...(options.voiceSunoPersonaConsent
+            ? { voice_suno_persona_consent: true }
+            : {}),
+        },
       });
       const sessionId = startResponse.json().session_id;
 
       // Create chunk files
-      const chunkDir = path.join(storageDir, "enrollment", "raw", userId, sessionId);
+      const chunkDir = path.join(
+        storageDir,
+        "enrollment",
+        "raw",
+        userId,
+        sessionId,
+      );
       fs.mkdirSync(chunkDir, { recursive: true });
 
       for (let i = 0; i < numChunks; i++) {
         const chunkId = `p${i + 1}`;
         fs.writeFileSync(
           path.join(chunkDir, `${chunkId}.wav`),
-          createTestWav({ durationSec: 4 })
+          createTestWav({ durationSec: 4 }),
         );
       }
 
@@ -604,7 +710,11 @@ describe("Voice Enrollment API", () => {
         payload: { session_id: sessionId },
       });
 
-      assert.strictEqual(response.statusCode, 202, "should return 202 Accepted");
+      assert.strictEqual(
+        response.statusCode,
+        202,
+        "should return 202 Accepted",
+      );
       const body = response.json();
 
       // Verify response structure
@@ -613,10 +723,19 @@ describe("Voice Enrollment API", () => {
       assert.ok(body.voice_profile_id, "should return voice_profile_id");
       assert.ok(body.quality, "should return quality info");
       assert.ok(body.quality.tier, "should have quality tier");
-      assert.ok(typeof body.quality.score === "number", "should have quality score");
-      assert.ok(typeof body.quality.stars === "number", "should have quality stars");
+      assert.ok(
+        typeof body.quality.score === "number",
+        "should have quality score",
+      );
+      assert.ok(
+        typeof body.quality.stars === "number",
+        "should have quality stars",
+      );
       assert.ok(body.quality.label, "should have quality label");
-      assert.ok(body.estimated_completion_sec, "should have estimated completion");
+      assert.ok(
+        body.estimated_completion_sec,
+        "should have estimated completion",
+      );
     });
 
     it("should update session status to completed", async () => {
@@ -688,13 +807,112 @@ describe("Voice Enrollment API", () => {
       const oldProfile = await db
         .prepare("SELECT * FROM voice_profiles WHERE id = ?")
         .get(profileId1);
-      assert.strictEqual(oldProfile.status, "deleted", "old profile should be deleted");
+      assert.strictEqual(
+        oldProfile.status,
+        "deleted",
+        "old profile should be deleted",
+      );
 
       // New profile should be active
       const newProfile = await db
         .prepare("SELECT * FROM voice_profiles WHERE id = ?")
         .get(profileId2);
-      assert.strictEqual(newProfile.status, "active", "new profile should be active");
+      assert.strictEqual(
+        newProfile.status,
+        "active",
+        "new profile should be active",
+      );
+    });
+
+    it("queues Suno persona preparation when engine is enabled and consent is Suno-specific", async () => {
+      await setFeatureFlag(
+        db,
+        "user_voice_engine",
+        "suno_voice_persona",
+        "test",
+      );
+      await setFeatureFlag(db, "suno_voice_persona_enabled", true, "test");
+      clearCache();
+      const userId = uniqueUserId("suno_persona");
+      const sessionId = await setupEnrollmentWithChunks(userId, {
+        consentVersion: "1.0",
+        // U2: explicit Suno-persona consent grant (the previous behavior of
+        // treating REQUIRED_CONSENT_SCOPE as consent_version was a scope/version
+        // confusion the U2 split corrects).
+        voiceSunoPersonaConsent: true,
+      });
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/voice/enrollment/complete",
+        headers: { "x-user-id": userId },
+        payload: { session_id: sessionId },
+      });
+
+      assert.strictEqual(response.statusCode, 202);
+      const body = response.json();
+      assert.equal(body.voice_provider_profile.provider, "suno");
+      assert.equal(body.voice_provider_profile.status, "pending");
+      assert.ok(body.voice_provider_profile.job_id);
+
+      const providerProfile = await db
+        .prepare(
+          "SELECT * FROM voice_provider_profiles WHERE voice_profile_id = ?",
+        )
+        .get(body.voice_profile_id);
+      assert.ok(providerProfile);
+      assert.equal(providerProfile.provider, "suno");
+      assert.equal(providerProfile.consent_scope, REQUIRED_CONSENT_SCOPE);
+      assert.equal(providerProfile.provider_profile_id, null);
+
+      const providerJob = await db
+        .prepare("SELECT * FROM voice_provider_jobs WHERE id = ?")
+        .get(body.voice_provider_profile.job_id);
+      assert.equal(providerJob.voice_provider_profile_id, providerProfile.id);
+      assert.ok(!String(providerJob.step_data).includes("persona_live_"));
+
+      await setFeatureFlag(db, "user_voice_engine", "seedvc", "test");
+      await setFeatureFlag(db, "suno_voice_persona_enabled", false, "test");
+      clearCache();
+    });
+
+    it("does not queue Suno persona preparation without Suno-specific consent", async () => {
+      await setFeatureFlag(
+        db,
+        "user_voice_engine",
+        "suno_voice_persona",
+        "test",
+      );
+      await setFeatureFlag(db, "suno_voice_persona_enabled", true, "test");
+      clearCache();
+      const userId = uniqueUserId("suno_no_consent");
+      const sessionId = await setupEnrollmentWithChunks(userId, {
+        consentVersion: "1.0",
+      });
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/voice/enrollment/complete",
+        headers: { "x-user-id": userId },
+        payload: { session_id: sessionId },
+      });
+
+      assert.strictEqual(response.statusCode, 202);
+      assert.deepEqual(response.json().voice_provider_profile, {
+        provider: "suno",
+        status: "consent_required",
+        job_id: null,
+      });
+      const count = await db
+        .prepare(
+          "SELECT COUNT(*) AS count FROM voice_provider_jobs WHERE user_id = ?",
+        )
+        .get(userId);
+      assert.equal(count.count, 0);
+
+      await setFeatureFlag(db, "user_voice_engine", "seedvc", "test");
+      await setFeatureFlag(db, "suno_voice_persona_enabled", false, "test");
+      clearCache();
     });
 
     it("should reject completion for non-existent session", async () => {
@@ -745,12 +963,18 @@ describe("Voice Enrollment API", () => {
       const sessionId = startResponse.json().session_id;
 
       // Create silent chunk files
-      const chunkDir = path.join(storageDir, "enrollment", "raw", userId, sessionId);
+      const chunkDir = path.join(
+        storageDir,
+        "enrollment",
+        "raw",
+        userId,
+        sessionId,
+      );
       fs.mkdirSync(chunkDir, { recursive: true });
       for (let i = 0; i < 4; i++) {
         fs.writeFileSync(
           path.join(chunkDir, `p${i + 1}.wav`),
-          createTestWav({ durationSec: 4, silent: true })
+          createTestWav({ durationSec: 4, silent: true }),
         );
       }
 
@@ -767,8 +991,9 @@ describe("Voice Enrollment API", () => {
       assert.strictEqual(response.statusCode, 422);
       const body = response.json();
       assert.ok(
-        body.error === "E103_NO_AUDIO_DETECTED" || body.error === "E101_AUDIO_TOO_NOISY",
-        `expected E101 or E103 rejection for silent audio, got ${body.error}`
+        body.error === "E103_NO_AUDIO_DETECTED" ||
+          body.error === "E101_AUDIO_TOO_NOISY",
+        `expected E101 or E103 rejection for silent audio, got ${body.error}`,
       );
     });
 
@@ -786,9 +1011,17 @@ describe("Voice Enrollment API", () => {
       const body = response.json();
 
       // Verify quality tier structure
-      assert.ok(["minimal", "basic", "fair", "good", "excellent"].includes(body.quality.tier));
+      assert.ok(
+        ["minimal", "basic", "fair", "good", "excellent"].includes(
+          body.quality.tier,
+        ),
+      );
       assert.ok(body.quality.score >= 0 && body.quality.score <= 100);
-      assert.ok(typeof body.quality.stars === "number" && body.quality.stars >= 0 && body.quality.stars <= 3);
+      assert.ok(
+        typeof body.quality.stars === "number" &&
+          body.quality.stars >= 0 &&
+          body.quality.stars <= 3,
+      );
       assert.ok(body.quality.label);
       assert.ok(body.quality.disclosure);
       assert.ok(typeof body.quality.can_improve === "boolean");
@@ -833,12 +1066,18 @@ describe("Voice Enrollment API", () => {
       const sessionId = startResponse.json().session_id;
 
       // Create chunks
-      const chunkDir = path.join(storageDir, "enrollment", "raw", userId, sessionId);
+      const chunkDir = path.join(
+        storageDir,
+        "enrollment",
+        "raw",
+        userId,
+        sessionId,
+      );
       fs.mkdirSync(chunkDir, { recursive: true });
       for (let i = 0; i < 4; i++) {
         fs.writeFileSync(
           path.join(chunkDir, `p${i + 1}.wav`),
-          createTestWav({ durationSec: 4 })
+          createTestWav({ durationSec: 4 }),
         );
       }
 
@@ -888,12 +1127,18 @@ describe("Voice Enrollment API", () => {
       });
       const sessionId = startResponse.json().session_id;
 
-      const chunkDir = path.join(storageDir, "enrollment", "raw", userId, sessionId);
+      const chunkDir = path.join(
+        storageDir,
+        "enrollment",
+        "raw",
+        userId,
+        sessionId,
+      );
       fs.mkdirSync(chunkDir, { recursive: true });
       for (let i = 0; i < 4; i++) {
         fs.writeFileSync(
           path.join(chunkDir, `p${i + 1}.wav`),
-          createTestWav({ durationSec: 4 })
+          createTestWav({ durationSec: 4 }),
         );
       }
 
@@ -943,7 +1188,13 @@ describe("Voice Enrollment API", () => {
       assert.strictEqual(upload_urls.length, prompts.length);
 
       // Step 2: Upload chunks (simulated)
-      const chunkDir = path.join(storageDir, "enrollment", "raw", userId, session_id);
+      const chunkDir = path.join(
+        storageDir,
+        "enrollment",
+        "raw",
+        userId,
+        session_id,
+      );
       fs.mkdirSync(chunkDir, { recursive: true });
 
       for (const prompt of prompts) {
@@ -1006,10 +1257,19 @@ describe("Voice Enrollment API", () => {
       });
       const session1 = start1.json().session_id;
 
-      const chunkDir1 = path.join(storageDir, "enrollment", "raw", userId, session1);
+      const chunkDir1 = path.join(
+        storageDir,
+        "enrollment",
+        "raw",
+        userId,
+        session1,
+      );
       fs.mkdirSync(chunkDir1, { recursive: true });
       for (let i = 1; i <= 4; i++) {
-        fs.writeFileSync(path.join(chunkDir1, `p${i}.wav`), createTestWav({ durationSec: 4 }));
+        fs.writeFileSync(
+          path.join(chunkDir1, `p${i}.wav`),
+          createTestWav({ durationSec: 4 }),
+        );
       }
 
       const complete1 = await app.inject({
@@ -1029,10 +1289,19 @@ describe("Voice Enrollment API", () => {
       });
       const session2 = start2.json().session_id;
 
-      const chunkDir2 = path.join(storageDir, "enrollment", "raw", userId, session2);
+      const chunkDir2 = path.join(
+        storageDir,
+        "enrollment",
+        "raw",
+        userId,
+        session2,
+      );
       fs.mkdirSync(chunkDir2, { recursive: true });
       for (let i = 1; i <= 4; i++) {
-        fs.writeFileSync(path.join(chunkDir2, `p${i}.wav`), createTestWav({ durationSec: 4 }));
+        fs.writeFileSync(
+          path.join(chunkDir2, `p${i}.wav`),
+          createTestWav({ durationSec: 4 }),
+        );
       }
 
       const complete2 = await app.inject({
@@ -1044,8 +1313,12 @@ describe("Voice Enrollment API", () => {
       const profile2 = complete2.json().voice_profile_id;
 
       // Verify first profile is deleted, second is active
-      const dbProfile1 = await db.prepare("SELECT status FROM voice_profiles WHERE id = ?").get(profile1);
-      const dbProfile2 = await db.prepare("SELECT status FROM voice_profiles WHERE id = ?").get(profile2);
+      const dbProfile1 = await db
+        .prepare("SELECT status FROM voice_profiles WHERE id = ?")
+        .get(profile1);
+      const dbProfile2 = await db
+        .prepare("SELECT status FROM voice_profiles WHERE id = ?")
+        .get(profile2);
 
       assert.strictEqual(dbProfile1.status, "deleted");
       assert.strictEqual(dbProfile2.status, "active");

@@ -11,8 +11,14 @@ const { generateShareMp4 } = require("./utils/ffmpeg");
 const { newUuid, newShareId } = require("./utils/ids");
 const { ensureDir, parseJson, toJson, nowIso } = require("./utils/common");
 const { stableStringify } = require("./utils/stable-json");
-const { extractPolicyTermsFromMessage, expandPolicyTermVariants } = require("./utils/policy-terms");
-const { scanLyricsForProviderPolicy, sanitizeLyricsForProviderPolicy } = require("./services/lyrics-policy-sanitizer");
+const {
+  extractPolicyTermsFromMessage,
+  expandPolicyTermVariants,
+} = require("./utils/policy-terms");
+const {
+  scanLyricsForProviderPolicy,
+  sanitizeLyricsForProviderPolicy,
+} = require("./services/lyrics-policy-sanitizer");
 const {
   createStorageProvider,
   enrollmentChunkKey,
@@ -25,16 +31,30 @@ const { startSubscriptionSyncJob } = require("./jobs/subscription-sync");
 const { startGiftDispatchJob } = require("./jobs/gift-dispatch");
 const { startJobRunner, cleanStaleStepFiles } = require("./workflows/runner");
 // Billing services
-const { createAppleReceiptValidator } = require("./services/apple-receipt-validator");
-const { createGoogleReceiptValidator } = require("./services/google-receipt-validator");
-const { createAppleWebhookHandler } = require("./services/apple-webhook-handler");
+const {
+  createAppleReceiptValidator,
+} = require("./services/apple-receipt-validator");
+const {
+  createGoogleReceiptValidator,
+} = require("./services/google-receipt-validator");
+const {
+  createAppleWebhookHandler,
+} = require("./services/apple-webhook-handler");
 const { createPlanConfigService } = require("./services/plan-config");
-const { createSubscriptionManager } = require("./services/subscription-manager");
+const {
+  createSubscriptionManager,
+} = require("./services/subscription-manager");
 const authService = require("./services/auth-service");
-const { issueDeviceToken, verifyDeviceToken } = require("./services/device-token");
+const {
+  issueDeviceToken,
+  verifyDeviceToken,
+} = require("./services/device-token");
 const { registerAuthRoutes } = require("./routes/auth");
 const { registerLegalRoutes } = require("./routes/legal");
 const { registerWellKnownRoutes } = require("./routes/well-known");
+const {
+  registerInternalSunoCallbackRoutes,
+} = require("./routes/internal-suno-callback");
 const { registerMcpRoutes } = require("./routes/mcp");
 const { registerBlogRoutes } = require("./routes/blog");
 const { registerAnalyticsRoutes } = require("./routes/analytics");
@@ -53,12 +73,19 @@ const adminAuthService = require("./services/admin-auth-service");
 const { createEventsService } = require("./services/events-service");
 const { getFeatureFlag } = require("./services/feature-flags");
 const { generatePoemOgImage } = require("./services/poem-og-generator");
-const { generateSongOgImage, generateSongOgImageSquare } = require("./services/song-og-generator");
 const {
-  getSongOgGenerator, getPoemOgGenerator,
-  generateSongOgPreview, generatePoemOgPreview,
-  SONG_VARIANT_NAMES, POEM_VARIANT_NAMES,
-  SONG_VARIANT_LABELS, POEM_VARIANT_LABELS,
+  generateSongOgImage,
+  generateSongOgImageSquare,
+} = require("./services/song-og-generator");
+const {
+  getSongOgGenerator,
+  getPoemOgGenerator,
+  generateSongOgPreview,
+  generatePoemOgPreview,
+  SONG_VARIANT_NAMES,
+  POEM_VARIANT_NAMES,
+  SONG_VARIANT_LABELS,
+  POEM_VARIANT_LABELS,
 } = require("./services/og-variant-dispatcher");
 const emailService = require("./services/email-service");
 const {
@@ -97,26 +124,44 @@ function extractLyricsText(lyrics) {
 
 function lyricsHashSha256(lyricsJson) {
   if (!lyricsJson) return null;
-  const text = typeof lyricsJson === "string" ? lyricsJson : stableStringify(lyricsJson);
+  const text =
+    typeof lyricsJson === "string" ? lyricsJson : stableStringify(lyricsJson);
   return crypto.createHash("sha256").update(text).digest("hex");
 }
 
 function deriveRetrySanitizerProvider({ trackVersion, classification }) {
-  const musicPlan = parseJson(trackVersion?.music_plan_json, null, "retry_music_plan");
-  if (typeof musicPlan?.provider_resolved === "string" && musicPlan.provider_resolved.trim()) {
+  const musicPlan = parseJson(
+    trackVersion?.music_plan_json,
+    null,
+    "retry_music_plan",
+  );
+  if (
+    typeof musicPlan?.provider_resolved === "string" &&
+    musicPlan.provider_resolved.trim()
+  ) {
     return musicPlan.provider_resolved.trim();
   }
   const providerLocked = musicPlan?.render_contract?.provider_locked;
   if (typeof providerLocked === "string" && providerLocked.trim()) {
     return providerLocked.trim();
   }
-  if (typeof classification?.provider === "string" && classification.provider.trim()) {
+  if (
+    typeof classification?.provider === "string" &&
+    classification.provider.trim()
+  ) {
     return classification.provider.trim();
   }
   return null;
 }
 
-function buildServer({ db, config: appConfig, storage, cdnSigner = null, billingServices = null, oneSignalService = null }) {
+function buildServer({
+  db,
+  config: appConfig,
+  storage,
+  cdnSigner = null,
+  billingServices = null,
+  oneSignalService = null,
+}) {
   let requireAdminRole; // Forward declaration — assigned by registerAdminRoutes below
   const app = fastify({
     logger: true,
@@ -138,7 +183,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       } catch (err) {
         done(err);
       }
-    }
+    },
   );
 
   const publicBaseUrl =
@@ -152,19 +197,28 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     publicBaseUrl;
 
   // Cache HTML templates at startup to avoid readFileSync on every request
-  const webPlayerTemplate = fs.readFileSync(path.join(process.cwd(), "web-player", "index.html"), "utf-8");
-  const poemViewerTemplate = fs.readFileSync(path.join(process.cwd(), "poem-viewer", "index.html"), "utf-8");
-  const embedPlayerTemplate = fs.readFileSync(path.join(process.cwd(), "embed-player", "index.html"), "utf-8");
+  const webPlayerTemplate = fs.readFileSync(
+    path.join(process.cwd(), "web-player", "index.html"),
+    "utf-8",
+  );
+  const poemViewerTemplate = fs.readFileSync(
+    path.join(process.cwd(), "poem-viewer", "index.html"),
+    "utf-8",
+  );
+  const embedPlayerTemplate = fs.readFileSync(
+    path.join(process.cwd(), "embed-player", "index.html"),
+    "utf-8",
+  );
 
   if (!storage) {
     throw new Error("Storage provider is required.");
   }
   const storageProvider = storage;
   const allowAnonUserId =
-    appConfig.ALLOW_ANON_USER_ID
-      ?? (process.env.ALLOW_ANON_USER_ID === "true"
-        ? true
-        : (config.ALLOW_ANON_USER_ID ?? false));
+    appConfig.ALLOW_ANON_USER_ID ??
+    (process.env.ALLOW_ANON_USER_ID === "true"
+      ? true
+      : (config.ALLOW_ANON_USER_ID ?? false));
   const enableDebugRoutes =
     appConfig.ENABLE_DEBUG_ROUTES ?? config.ENABLE_DEBUG_ROUTES ?? false;
   const enableV3OrchestrationRoutes =
@@ -184,13 +238,12 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     config.ORCHESTRATION_EXTERNAL_TIMEOUT_MS ??
     120000;
   const storyEngineDefault =
-    appConfig.STORY_ENGINE_DEFAULT ??
-    config.STORY_ENGINE_DEFAULT ??
-    "v3";
-  const requireS3 =
-    appConfig.REQUIRE_S3 ?? config.REQUIRE_S3 ?? false;
+    appConfig.STORY_ENGINE_DEFAULT ?? config.STORY_ENGINE_DEFAULT ?? "v3";
+  const requireS3 = appConfig.REQUIRE_S3 ?? config.REQUIRE_S3 ?? false;
   const allowDeviceTokenFallback =
-    appConfig.ALLOW_DEVICE_TOKEN_FALLBACK ?? config.ALLOW_DEVICE_TOKEN_FALLBACK ?? false;
+    appConfig.ALLOW_DEVICE_TOKEN_FALLBACK ??
+    config.ALLOW_DEVICE_TOKEN_FALLBACK ??
+    false;
   const deviceTokenTtlDays = Number(process.env.DEVICE_TOKEN_TTL_DAYS || 30);
   const giftTokenProductId =
     appConfig.GIFT_TOKEN_PRODUCT_ID ||
@@ -198,22 +251,18 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     "com.porizo.gift_token_oneoff";
   const giftDispatchMaxAttempts = Number(
     appConfig.GIFT_DISPATCH_MAX_ATTEMPTS ??
-    config.GIFT_DISPATCH_MAX_ATTEMPTS ??
-    5
+      config.GIFT_DISPATCH_MAX_ATTEMPTS ??
+      5,
   );
   const shareVideoMaxDurationSec = Number(
     appConfig.SHARE_VIDEO_MAX_DURATION_SEC ??
-    config.SHARE_VIDEO_MAX_DURATION_SEC ??
-    0
+      config.SHARE_VIDEO_MAX_DURATION_SEC ??
+      0,
   );
   const facebookAppId =
-    appConfig.FACEBOOK_APP_ID ||
-    config.FACEBOOK_APP_ID ||
-    "";
+    appConfig.FACEBOOK_APP_ID || config.FACEBOOK_APP_ID || "";
   const configuredShareCoverVersion =
-    config.SHARE_COVER_VERSION ||
-    appConfig.SHARE_COVER_VERSION ||
-    "2";
+    config.SHARE_COVER_VERSION || appConfig.SHARE_COVER_VERSION || "2";
   const shareCoverVersion = String(configuredShareCoverVersion || "")
     .trim()
     .replace(/[^a-zA-Z0-9._-]/g, "");
@@ -226,18 +275,23 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   const cdnSignerInstance = cdnSigner;
 
   // Initialize billing services (use passed-in services or create new ones)
-  const planConfigService = billingServices?.planConfigService || createPlanConfigService(db);
-  const appleValidator = billingServices?.appleValidator || createAppleReceiptValidator({
-    keyId: appConfig.APPLE_APP_STORE_KEY_ID,
-    issuerId: appConfig.APPLE_APP_STORE_ISSUER_ID,
-    privateKey: appConfig.APPLE_APP_STORE_PRIVATE_KEY,
-    bundleId: appConfig.APPLE_BUNDLE_ID,
-    environment: appConfig.APPLE_ENVIRONMENT || "production",
-  });
-  const googleValidator = billingServices?.googleValidator || createGoogleReceiptValidator({
-    packageName: appConfig.GOOGLE_PLAY_PACKAGE_NAME,
-    credentials: appConfig.GOOGLE_PLAY_CREDENTIALS_JSON,
-  });
+  const planConfigService =
+    billingServices?.planConfigService || createPlanConfigService(db);
+  const appleValidator =
+    billingServices?.appleValidator ||
+    createAppleReceiptValidator({
+      keyId: appConfig.APPLE_APP_STORE_KEY_ID,
+      issuerId: appConfig.APPLE_APP_STORE_ISSUER_ID,
+      privateKey: appConfig.APPLE_APP_STORE_PRIVATE_KEY,
+      bundleId: appConfig.APPLE_BUNDLE_ID,
+      environment: appConfig.APPLE_ENVIRONMENT || "production",
+    });
+  const googleValidator =
+    billingServices?.googleValidator ||
+    createGoogleReceiptValidator({
+      packageName: appConfig.GOOGLE_PLAY_PACKAGE_NAME,
+      credentials: appConfig.GOOGLE_PLAY_CREDENTIALS_JSON,
+    });
   const defaultSubscriptionManager = createSubscriptionManager(db, {
     planConfigService,
     appleValidator,
@@ -248,11 +302,13 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     ? { ...defaultSubscriptionManager, ...billingServices.subscriptionManager }
     : defaultSubscriptionManager;
 
-  const appleWebhookHandler = billingServices?.appleWebhookHandler || createAppleWebhookHandler(db, {
-    subscriptionManager,
-    appleValidator,
-    planConfigService,
-  });
+  const appleWebhookHandler =
+    billingServices?.appleWebhookHandler ||
+    createAppleWebhookHandler(db, {
+      subscriptionManager,
+      appleValidator,
+      planConfigService,
+    });
 
   // Initialize auth service for JWT verification
   authService.initialize(db);
@@ -331,10 +387,12 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   const aasaJson = JSON.stringify({
     applinks: {
       apps: [],
-      details: [{
-        appID: "5VCH6937XM.com.porizo.PorizoApp",
-        paths: ["/play/*", "/s/*", "/poem/*"],
-      }],
+      details: [
+        {
+          appID: "5VCH6937XM.com.porizo.PorizoApp",
+          paths: ["/play/*", "/s/*", "/poem/*"],
+        },
+      ],
     },
   });
   app.get("/.well-known/apple-app-site-association", async (request, reply) => {
@@ -343,10 +401,14 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
 
   // DB-07: CORS — allow same-origin + configured origins
   if (!process.env.CORS_ORIGIN && process.env.NODE_ENV === "production") {
-    throw new Error("[SecurityGuard:CORS] CORS_ORIGIN must be set in production. Server cannot start with unrestricted CORS. Set CORS_ORIGIN to a comma-separated list of allowed origins.");
+    throw new Error(
+      "[SecurityGuard:CORS] CORS_ORIGIN must be set in production. Server cannot start with unrestricted CORS. Set CORS_ORIGIN to a comma-separated list of allowed origins.",
+    );
   }
   app.register(require("@fastify/cors"), {
-    origin: process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(",") : false,
+    origin: process.env.CORS_ORIGIN
+      ? process.env.CORS_ORIGIN.split(",")
+      : false,
     credentials: true,
   });
 
@@ -380,12 +442,13 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     { parseAs: "buffer" },
     (request, body, done) => {
       done(null, body);
-    }
+    },
   );
 
   // ============ Authentication Routes ============
   registerLegalRoutes(app, { db });
   registerWellKnownRoutes(app);
+  registerInternalSunoCallbackRoutes(app, { appConfig, sendError });
   registerMcpRoutes(app);
   registerBlogRoutes(app, { db, config: appConfig });
   registerAuthRoutes(app, { db, subscriptionManager });
@@ -459,6 +522,16 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         properties: {
           consent_accepted: { type: "boolean", const: true },
           consent_version: { type: "string", maxLength: 50 },
+          // U2/U17: explicit Suno-persona scope grant (separate from general
+          // enrollment consent). Either form is accepted:
+          //   consent_scopes: ["voice_suno_persona_v1", ...]
+          //   voice_suno_persona_consent: true (boolean shortcut)
+          consent_scopes: {
+            type: "array",
+            items: { type: "string", maxLength: 100 },
+            maxItems: 16,
+          },
+          voice_suno_persona_consent: { type: "boolean" },
         },
         additionalProperties: false,
       },
@@ -469,6 +542,15 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         required: ["session_id"],
         properties: {
           session_id: { type: "string", format: "uuid" },
+          // Late-grant of persona consent: client may opt in at completion
+          // time even if /start did not include the scope. Same shape as
+          // enrollmentStart so the gate is consistent.
+          consent_scopes: {
+            type: "array",
+            items: { type: "string", maxLength: 100 },
+            maxItems: 16,
+          },
+          voice_suno_persona_consent: { type: "boolean" },
         },
         additionalProperties: false,
       },
@@ -560,7 +642,8 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
 </body></html>`;
   }
 
-  const SOCIAL_CRAWLER_UA_REGEX = /(facebookexternalhit|facebot|twitterbot|slackbot|discordbot|linkedinbot|whatsapp|telegrambot|pinterest|skypeuripreview)/i;
+  const SOCIAL_CRAWLER_UA_REGEX =
+    /(facebookexternalhit|facebot|twitterbot|slackbot|discordbot|linkedinbot|whatsapp|telegrambot|pinterest|skypeuripreview)/i;
 
   function isSocialCrawlerUserAgent(userAgent) {
     if (!userAgent || typeof userAgent !== "string") {
@@ -583,14 +666,19 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
 
   function isMobileUserAgent(userAgent) {
     if (!userAgent || typeof userAgent !== "string") return false;
-    return /iphone|ipad|ipod/i.test(userAgent) ||
-      (/macintosh/i.test(userAgent) && /mobile/i.test(userAgent));
+    return (
+      /iphone|ipad|ipod/i.test(userAgent) ||
+      (/macintosh/i.test(userAgent) && /mobile/i.test(userAgent))
+    );
   }
 
   async function withTimeout(promise, timeoutMs) {
     let timeoutId = null;
     const timeoutPromise = new Promise((_resolve, reject) => {
-      timeoutId = setTimeout(() => reject(new Error(`Operation timed out after ${timeoutMs}ms`)), timeoutMs);
+      timeoutId = setTimeout(
+        () => reject(new Error(`Operation timed out after ${timeoutMs}ms`)),
+        timeoutMs,
+      );
     });
     try {
       return await Promise.race([promise, timeoutPromise]);
@@ -599,20 +687,23 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     }
   }
 
-  function injectOgTags(html, {
-    ogTitle,
-    ogDescription,
-    ogImage,
-    ogImageWidth,
-    ogImageHeight,
-    ogUrl,
-    ogType,
-    ogVideo,
-    embedUrl,
-    oembedUrl,
-    fbAppId,
-    shareId,
-  }) {
+  function injectOgTags(
+    html,
+    {
+      ogTitle,
+      ogDescription,
+      ogImage,
+      ogImageWidth,
+      ogImageHeight,
+      ogUrl,
+      ogType,
+      ogVideo,
+      embedUrl,
+      oembedUrl,
+      fbAppId,
+      shareId,
+    },
+  ) {
     const hasVideo = Boolean(ogVideo);
     const escapedVideo = escapeHtml(ogVideo || "");
     const escapedEmbedUrl = escapeHtml(embedUrl || "");
@@ -622,19 +713,19 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
           `<meta property="og:video" content="${escapedVideo}">`,
           `<meta property="og:video:url" content="${escapedVideo}">`,
           `<meta property="og:video:secure_url" content="${escapedVideo}">`,
-          "<meta property=\"og:video:type\" content=\"video/mp4\">",
-          "<meta property=\"og:video:width\" content=\"1280\">",
-          "<meta property=\"og:video:height\" content=\"1280\">",
+          '<meta property="og:video:type" content="video/mp4">',
+          '<meta property="og:video:width" content="1280">',
+          '<meta property="og:video:height" content="1280">',
         ].join("\n  ")
       : "";
     const twitterCardType = hasVideo ? "player" : "summary_large_image";
     const twitterPlayerMeta = hasVideo
       ? [
           `<meta name="twitter:player" content="${escapedEmbedUrl}">`,
-          "<meta name=\"twitter:player:width\" content=\"480\">",
-          "<meta name=\"twitter:player:height\" content=\"180\">",
+          '<meta name="twitter:player:width" content="480">',
+          '<meta name="twitter:player:height" content="180">',
           `<meta name="twitter:player:stream" content="${escapedVideo}">`,
-          "<meta name=\"twitter:player:stream:content_type\" content=\"video/mp4\">",
+          '<meta name="twitter:player:stream:content_type" content="video/mp4">',
         ].join("\n  ")
       : "";
     const fbAppIdMeta = fbAppId
@@ -657,12 +748,16 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   }
 
   async function ensureUser(userId) {
-    const existing = await db.prepare("SELECT id FROM users WHERE id = ?").get(userId);
+    const existing = await db
+      .prepare("SELECT id FROM users WHERE id = ?")
+      .get(userId);
     if (!existing) {
       console.log(`[ensureUser] Creating new user: ${userId}`);
-      await db.prepare(
-        "INSERT INTO users (id, created_at, risk_level) VALUES (?, ?, 'low') ON CONFLICT (id) DO NOTHING"
-      ).run(userId, nowIso());
+      await db
+        .prepare(
+          "INSERT INTO users (id, created_at, risk_level) VALUES (?, ?, 'low') ON CONFLICT (id) DO NOTHING",
+        )
+        .run(userId, nowIso());
     }
     const entitlements = await db
       .prepare("SELECT user_id FROM entitlements WHERE user_id = ?")
@@ -674,7 +769,9 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   }
 
   async function getUserRiskLevel(userId) {
-    const user = await db.prepare("SELECT risk_level FROM users WHERE id = ?").get(userId);
+    const user = await db
+      .prepare("SELECT risk_level FROM users WHERE id = ?")
+      .get(userId);
     return user?.risk_level || "low";
   }
 
@@ -700,9 +797,14 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
               code: err?.code,
             },
           },
-          "Access token verification failed"
+          "Access token verification failed",
         );
-        sendError(reply, 401, "INVALID_TOKEN", "Invalid or expired access token.");
+        sendError(
+          reply,
+          401,
+          "INVALID_TOKEN",
+          "Invalid or expired access token.",
+        );
         return null;
       }
     }
@@ -737,7 +839,12 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         }
       }
       if (required) {
-        sendError(reply, 401, "DEVICE_TOKEN_REQUIRED", "Missing x-device-token header.");
+        sendError(
+          reply,
+          401,
+          "DEVICE_TOKEN_REQUIRED",
+          "Missing x-device-token header.",
+        );
       }
       return null;
     }
@@ -745,7 +852,12 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       return verifyDeviceToken(rawToken);
     } catch (err) {
       if (required) {
-        sendError(reply, 401, "INVALID_DEVICE_TOKEN", "Invalid or expired device token.");
+        sendError(
+          reply,
+          401,
+          "INVALID_DEVICE_TOKEN",
+          "Invalid or expired device token.",
+        );
       }
       return null;
     }
@@ -764,7 +876,10 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   }
 
   function buildShareAppDownloadUrl({ shareId, kind = "song" }) {
-    const deepLinkPath = kind === "poem" ? `porizo:///poem/${shareId}` : `porizo:///play/${shareId}`;
+    const deepLinkPath =
+      kind === "poem"
+        ? `porizo:///poem/${shareId}`
+        : `porizo:///play/${shareId}`;
     const query = new URLSearchParams({
       channel: "appstore",
       deep_link: deepLinkPath,
@@ -811,11 +926,19 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   }
 
   function buildRequestedPlayShareUrl(request, shareId) {
-    return buildRequestedShareUrl(request, `/play/${shareId}`, buildPlayShareUrl(shareId));
+    return buildRequestedShareUrl(
+      request,
+      `/play/${shareId}`,
+      buildPlayShareUrl(shareId),
+    );
   }
 
   function buildRequestedPoemShareUrl(request, shareId) {
-    return buildRequestedShareUrl(request, `/poem/${shareId}`, buildPoemShareUrl(shareId));
+    return buildRequestedShareUrl(
+      request,
+      `/poem/${shareId}`,
+      buildPoemShareUrl(shareId),
+    );
   }
 
   function extractSocialCacheToken(request) {
@@ -918,14 +1041,16 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       throw new Error("[PathConstruction] STORAGE_DIR is not configured");
     }
     if (!SAFE_ID_RE.test(track.user_id) || !SAFE_ID_RE.test(track.id)) {
-      throw new Error("[SecurityGuard:PathTraversal] Invalid ID format in path construction");
+      throw new Error(
+        "[SecurityGuard:PathTraversal] Invalid ID format in path construction",
+      );
     }
     return path.join(
       storageDir,
       "tracks",
       track.user_id,
       track.id,
-      `v${trackVersion.version_num}`
+      `v${trackVersion.version_num}`,
     );
   }
 
@@ -938,8 +1063,16 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       if (err.code === "ENOENT") {
         sendError(reply, 404, "AUDIO_NOT_FOUND", "Audio file not found.");
       } else {
-        console.error(`[sendMediaFile] Failed to stat file: ${filePath}`, err.message);
-        sendError(reply, 500, "FILE_ACCESS_ERROR", "Unable to access audio file.");
+        console.error(
+          `[sendMediaFile] Failed to stat file: ${filePath}`,
+          err.message,
+        );
+        sendError(
+          reply,
+          500,
+          "FILE_ACCESS_ERROR",
+          "Unable to access audio file.",
+        );
       }
       return;
     }
@@ -949,7 +1082,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const lastModified = stat.mtime.toUTCString();
 
     // Helper to normalize ETags (strip W/ weak prefix for comparison)
-    const normalizeEtag = (tag) => tag ? tag.replace(/^W\//, "") : null;
+    const normalizeEtag = (tag) => (tag ? tag.replace(/^W\//, "") : null);
 
     // Check If-None-Match for 304 Not Modified response
     const clientEtag = request.headers["if-none-match"];
@@ -970,11 +1103,12 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
 
     // Set caching headers - default for versioned media; override allowed for private endpoints.
     const immutableStr = config.AUDIO_CACHE_IMMUTABLE ? ", immutable" : "";
-    const cacheControl = options.cacheControl
-      || `public, max-age=${config.AUDIO_CACHE_MAX_AGE_SEC}${immutableStr}`;
+    const cacheControl =
+      options.cacheControl ||
+      `public, max-age=${config.AUDIO_CACHE_MAX_AGE_SEC}${immutableStr}`;
     const cacheHeaders = {
       "Cache-Control": cacheControl,
-      "ETag": etag,
+      ETag: etag,
       "Last-Modified": lastModified,
     };
 
@@ -990,7 +1124,9 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         .header("Content-Length", stat.size)
         .header("Accept-Ranges", "bytes")
         .headers(cacheHeaders)
-        .send(useBuffer ? fs.readFileSync(filePath) : fs.createReadStream(filePath));
+        .send(
+          useBuffer ? fs.readFileSync(filePath) : fs.createReadStream(filePath),
+        );
       return;
     }
     const match = /bytes=(\d*)-(\d*)/.exec(range);
@@ -1000,7 +1136,9 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         .header("Content-Length", stat.size)
         .header("Accept-Ranges", "bytes")
         .headers(cacheHeaders)
-        .send(useBuffer ? fs.readFileSync(filePath) : fs.createReadStream(filePath));
+        .send(
+          useBuffer ? fs.readFileSync(filePath) : fs.createReadStream(filePath),
+        );
       return;
     }
     let start = match[1] ? Number(match[1]) : 0;
@@ -1012,10 +1150,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       end = stat.size - 1;
     }
     if (start > end) {
-      reply
-        .code(416)
-        .header("Content-Range", `bytes */${stat.size}`)
-        .send();
+      reply.code(416).header("Content-Range", `bytes */${stat.size}`).send();
       return;
     }
     // Read range into buffer instead of streaming to fix Content-Length handling
@@ -1064,9 +1199,13 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
 
   async function resolveEnrollmentChunkFiles({ session, metrics, userId }) {
     const prompts = parseJson(session.prompts_json, [], "prompts_json");
-    const orderedPromptIds = Array.isArray(prompts) ? prompts.map((prompt) => prompt.id) : [];
+    const orderedPromptIds = Array.isArray(prompts)
+      ? prompts.map((prompt) => prompt.id)
+      : [];
     const acceptedIds = orderedPromptIds.filter((id) => metrics[id]?.accepted);
-    let chunkIds = acceptedIds.length ? acceptedIds : Object.keys(metrics || {});
+    let chunkIds = acceptedIds.length
+      ? acceptedIds
+      : Object.keys(metrics || {});
 
     if (chunkIds.length === 0 && storageProvider.type === "local") {
       const localDir = path.join(
@@ -1074,7 +1213,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         "enrollment",
         "raw",
         userId,
-        session.id
+        session.id,
       );
       if (fs.existsSync(localDir)) {
         chunkIds = fs
@@ -1088,11 +1227,17 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const missingChunks = [];
     let tempDir = null;
     if (storageProvider.type !== "local") {
-      tempDir = fs.mkdtempSync(path.join(appConfig.STORAGE_DIR, "tmp-enrollment-"));
+      tempDir = fs.mkdtempSync(
+        path.join(appConfig.STORAGE_DIR, "tmp-enrollment-"),
+      );
     }
 
     for (const chunkId of chunkIds) {
-      const key = enrollmentChunkKey({ userId, sessionId: session.id, chunkId });
+      const key = enrollmentChunkKey({
+        userId,
+        sessionId: session.id,
+        chunkId,
+      });
       const exists = await storageProvider.objectExists({ key });
 
       if (!exists) {
@@ -1111,7 +1256,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     if (missingChunks.length > 0) {
       console.warn("[Enrollment:resolve] Missing chunks:", {
         sessionId: session.id,
-        missing: missingChunks.map(c => c.chunkId),
+        missing: missingChunks.map((c) => c.chunkId),
       });
     }
 
@@ -1123,7 +1268,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       track?.user_id &&
       track?.id &&
       trackVersion?.version_num != null &&
-      (appConfig.STORAGE_DIR || config.STORAGE_DIR)
+      (appConfig.STORAGE_DIR || config.STORAGE_DIR),
     );
     if (!hasLocalTrackContext) {
       return null;
@@ -1147,7 +1292,10 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
           keyUrl: "key",
         });
       } catch (err) {
-        console.error(`[ensureShareHls] HLS creation failed for share ${share.id}:`, err.message);
+        console.error(
+          `[ensureShareHls] HLS creation failed for share ${share.id}:`,
+          err.message,
+        );
         return null;
       }
     }
@@ -1178,7 +1326,10 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       await storageProvider.downloadToFile({ key, filePath: localPath });
       return fs.existsSync(localPath);
     } catch (err) {
-      console.error(`[ensureLocalFileFromStorage] Failed for key ${key}:`, err.message);
+      console.error(
+        `[ensureLocalFileFromStorage] Failed for key ${key}:`,
+        err.message,
+      );
       return false;
     }
   }
@@ -1193,11 +1344,13 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       return false;
     }
     try {
-      return await storageProvider.objectExists({ key: shareVideoKeyForTrackVersion(track, trackVersion) });
+      return await storageProvider.objectExists({
+        key: shareVideoKeyForTrackVersion(track, trackVersion),
+      });
     } catch (err) {
       console.error(
         `[isShareMp4Ready] Failed to check storage existence for track ${track?.id || "unknown"}:`,
-        err.message
+        err.message,
       );
       return false;
     }
@@ -1212,7 +1365,10 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     }
     // If this server instance was restarted, recover pre-generated share.mp4 from object storage.
     if (storageProvider.type !== "local") {
-      const downloaded = await ensureLocalFileFromStorage({ key: shareVideoKey, localPath: mp4Path });
+      const downloaded = await ensureLocalFileFromStorage({
+        key: shareVideoKey,
+        localPath: mp4Path,
+      });
       if (downloaded) {
         return mp4Path;
       }
@@ -1222,7 +1378,9 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const previewPath = path.join(versionDir, "preview.m4a");
     let audioPath = fs.existsSync(fullPath)
       ? fullPath
-      : (fs.existsSync(previewPath) ? previewPath : null);
+      : fs.existsSync(previewPath)
+        ? previewPath
+        : null;
 
     if (!audioPath && storageProvider.type !== "local") {
       const fullKey = trackMasterKey({
@@ -1240,11 +1398,16 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         await ensureLocalFileFromStorage({ key: fullKey, localPath: fullPath });
       }
       if (!fs.existsSync(fullPath)) {
-        await ensureLocalFileFromStorage({ key: previewKey, localPath: previewPath });
+        await ensureLocalFileFromStorage({
+          key: previewKey,
+          localPath: previewPath,
+        });
       }
       audioPath = fs.existsSync(fullPath)
         ? fullPath
-        : (fs.existsSync(previewPath) ? previewPath : null);
+        : fs.existsSync(previewPath)
+          ? previewPath
+          : null;
     }
 
     if (!audioPath) {
@@ -1253,17 +1416,27 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
 
     // Prefer local cover art; if missing, recover from object storage, then fall back to default OG image.
     const artworkPath = path.join(versionDir, "cover_1024.jpg");
-    const fallbackArtwork = path.join(process.cwd(), "public", "assets", "og-song.png");
+    const fallbackArtwork = path.join(
+      process.cwd(),
+      "public",
+      "assets",
+      "og-song.png",
+    );
     if (!fs.existsSync(artworkPath) && storageProvider.type !== "local") {
       const coverKey = `${trackVersionKey({
         userId: track.user_id,
         trackId: track.id,
         versionNum: trackVersion.version_num,
       })}/cover_1024.jpg`;
-      await ensureLocalFileFromStorage({ key: coverKey, localPath: artworkPath });
+      await ensureLocalFileFromStorage({
+        key: coverKey,
+        localPath: artworkPath,
+      });
     }
 
-    const resolvedArtwork = fs.existsSync(artworkPath) ? artworkPath : fallbackArtwork;
+    const resolvedArtwork = fs.existsSync(artworkPath)
+      ? artworkPath
+      : fallbackArtwork;
     if (!fs.existsSync(resolvedArtwork)) {
       return null;
     }
@@ -1287,13 +1460,16 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         } catch (uploadErr) {
           console.error(
             `[ensureShareMp4] Generated local MP4 but failed upload for track ${track.id}:`,
-            uploadErr.message
+            uploadErr.message,
           );
         }
       }
       return mp4Path;
     } catch (err) {
-      console.error(`[ensureShareMp4] MP4 generation failed for track ${track.id}:`, err.message);
+      console.error(
+        `[ensureShareMp4] MP4 generation failed for track ${track.id}:`,
+        err.message,
+      );
       return null;
     }
   }
@@ -1319,20 +1495,26 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
 
       // Step 1: Atomically increment the current window counter first.
       // Using INSERT ... ON CONFLICT DO UPDATE to ensure atomicity.
-      await db.prepare(
-        `INSERT INTO rate_limits (user_id, action_type, window_start_ms, window_seconds, count, limit_count)
+      await db
+        .prepare(
+          `INSERT INTO rate_limits (user_id, action_type, window_start_ms, window_seconds, count, limit_count)
          VALUES (?, ?, ?, ?, 1, ?)
          ON CONFLICT(user_id, action_type, window_start_ms)
-         DO UPDATE SET count = rate_limits.count + 1`
-      ).run(userId, actionKey, currentWindowStart, windowSeconds, limit);
+         DO UPDATE SET count = rate_limits.count + 1`,
+        )
+        .run(userId, actionKey, currentWindowStart, windowSeconds, limit);
 
       // Step 2: Read back current and previous window counts post-increment.
-      const currentWindow = await db.prepare(
-        "SELECT count FROM rate_limits WHERE user_id = ? AND action_type = ? AND window_start_ms = ?"
-      ).get(userId, actionKey, currentWindowStart);
-      const previousWindow = await db.prepare(
-        "SELECT count FROM rate_limits WHERE user_id = ? AND action_type = ? AND window_start_ms = ?"
-      ).get(userId, actionKey, previousWindowStart);
+      const currentWindow = await db
+        .prepare(
+          "SELECT count FROM rate_limits WHERE user_id = ? AND action_type = ? AND window_start_ms = ?",
+        )
+        .get(userId, actionKey, currentWindowStart);
+      const previousWindow = await db
+        .prepare(
+          "SELECT count FROM rate_limits WHERE user_id = ? AND action_type = ? AND window_start_ms = ?",
+        )
+        .get(userId, actionKey, previousWindowStart);
 
       const currentCount = currentWindow?.count || 0;
       const previousCount = previousWindow?.count || 0;
@@ -1342,14 +1524,16 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
 
       // Step 3: If over limit, roll back the increment and deny.
       if (weightedCount > limit) {
-        await db.prepare(
-          `UPDATE rate_limits
+        await db
+          .prepare(
+            `UPDATE rate_limits
            SET count = CASE
              WHEN count > 0 THEN count - 1
              ELSE 0
            END
-           WHERE user_id = ? AND action_type = ? AND window_start_ms = ?`
-        ).run(userId, actionKey, currentWindowStart);
+           WHERE user_id = ? AND action_type = ? AND window_start_ms = ?`,
+          )
+          .run(userId, actionKey, currentWindowStart);
         return { allowed: false, remaining: 0, reset_at: resetAt };
       }
 
@@ -1371,19 +1555,39 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   }
 
   async function setRiskLevel(userId, level) {
-    await db.prepare("UPDATE users SET risk_level = ? WHERE id = ?").run(level, userId);
+    await db
+      .prepare("UPDATE users SET risk_level = ? WHERE id = ?")
+      .run(level, userId);
   }
 
-  async function addAuditEntry({ userId, action, resourceType, resourceId, metadata }) {
-    await db.prepare(
-      "INSERT INTO audit_logs (id, user_id, action, resource_type, resource_id, metadata_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
-    ).run(newUuid(), userId || null, action, resourceType || null, resourceId || null, toJson(metadata), nowIso());
+  async function addAuditEntry({
+    userId,
+    action,
+    resourceType,
+    resourceId,
+    metadata,
+  }) {
+    await db
+      .prepare(
+        "INSERT INTO audit_logs (id, user_id, action, resource_type, resource_id, metadata_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      )
+      .run(
+        newUuid(),
+        userId || null,
+        action,
+        resourceType || null,
+        resourceId || null,
+        toJson(metadata),
+        nowIso(),
+      );
   }
 
   async function addShareAccessLog({ shareTokenId, eventType, metadata }) {
-    await db.prepare(
-      "INSERT INTO share_access_log (id, share_token_id, event_type, metadata, created_at) VALUES (?, ?, ?, ?, ?)"
-    ).run(newUuid(), shareTokenId, eventType, toJson(metadata), nowIso());
+    await db
+      .prepare(
+        "INSERT INTO share_access_log (id, share_token_id, event_type, metadata, created_at) VALUES (?, ?, ?, ?, ?)",
+      )
+      .run(newUuid(), shareTokenId, eventType, toJson(metadata), nowIso());
   }
 
   const giftOpsMonitor = createGiftOpsMonitor({
@@ -1446,20 +1650,26 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     if (code === "23505" || code.includes("SQLITE_CONSTRAINT")) {
       return true;
     }
-    return message.includes("UNIQUE") || message.toLowerCase().includes("duplicate");
+    return (
+      message.includes("UNIQUE") || message.toLowerCase().includes("duplicate")
+    );
   }
 
   async function ensureGiftWalletRow(userId) {
     const now = nowIso();
-    await db.prepare(
-      `INSERT INTO gift_wallet (user_id, balance, updated_at)
+    await db
+      .prepare(
+        `INSERT INTO gift_wallet (user_id, balance, updated_at)
        VALUES (?, 0, ?)
-       ON CONFLICT(user_id) DO NOTHING`
-    ).run(userId, now);
+       ON CONFLICT(user_id) DO NOTHING`,
+      )
+      .run(userId, now);
 
-    const wallet = await db.prepare(
-      "SELECT user_id, balance, updated_at FROM gift_wallet WHERE user_id = ?"
-    ).get(userId);
+    const wallet = await db
+      .prepare(
+        "SELECT user_id, balance, updated_at FROM gift_wallet WHERE user_id = ?",
+      )
+      .get(userId);
     return {
       userId: wallet?.user_id || userId,
       balance: Number(wallet?.balance || 0),
@@ -1489,7 +1699,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         `INSERT INTO gift_wallet (user_id, balance, updated_at)
          VALUES (?, 0, ?)
          ON CONFLICT(user_id) DO NOTHING`,
-        [userId, timestamp]
+        [userId, timestamp],
       );
 
       if (idempotencyKey) {
@@ -1499,7 +1709,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
            WHERE user_id = ? AND idempotency_key = ?
            ORDER BY created_at DESC
            LIMIT 1`,
-          [userId, idempotencyKey]
+          [userId, idempotencyKey],
         );
         const existing = existingResult?.rows?.[0];
         if (existing) {
@@ -1520,7 +1730,14 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       if (db.isPostgres) {
         const updatedResult = await query(
           "UPDATE gift_wallet SET balance = balance + ?, updated_at = ? WHERE user_id = ? AND (balance + ?) >= 0 AND (balance + ?) <= ? RETURNING balance",
-          [numAmount, timestamp, userId, numAmount, numAmount, MAX_WALLET_BALANCE]
+          [
+            numAmount,
+            timestamp,
+            userId,
+            numAmount,
+            numAmount,
+            MAX_WALLET_BALANCE,
+          ],
         );
         const updated = updatedResult?.rows?.[0];
         if (!updated) {
@@ -1533,7 +1750,14 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       } else {
         const updatedResult = await query(
           "UPDATE gift_wallet SET balance = balance + ?, updated_at = ? WHERE user_id = ? AND (balance + ?) >= 0 AND (balance + ?) <= ?",
-          [numAmount, timestamp, userId, numAmount, numAmount, MAX_WALLET_BALANCE]
+          [
+            numAmount,
+            timestamp,
+            userId,
+            numAmount,
+            numAmount,
+            MAX_WALLET_BALANCE,
+          ],
         );
         if (!updatedResult?.rowCount) {
           const err = new Error("INSUFFICIENT_GIFT_TOKENS");
@@ -1542,7 +1766,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         }
         const walletResult = await query(
           "SELECT balance FROM gift_wallet WHERE user_id = ?",
-          [userId]
+          [userId],
         );
         const walletRow = walletResult?.rows?.[0];
         balanceAfter = Number(walletRow?.balance || 0);
@@ -1570,7 +1794,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
             toJson(metadata || {}),
             idempotencyKey,
             timestamp,
-          ]
+          ],
         );
       } catch (err) {
         if (idempotencyKey && isUniqueConstraintError(err)) {
@@ -1578,7 +1802,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
           // Revert this request's balance mutation before returning the existing tx.
           const revertResult = await query(
             "UPDATE gift_wallet SET balance = balance - ?, updated_at = ? WHERE user_id = ? AND balance >= ?",
-            [numAmount, timestamp, userId, numAmount]
+            [numAmount, timestamp, userId, numAmount],
           );
           if (revertResult.rowCount === 0) {
             console.warn("[GiftWallet] Revert skipped after idempotency race", {
@@ -1592,7 +1816,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
              WHERE user_id = ? AND idempotency_key = ?
              ORDER BY created_at DESC
              LIMIT 1`,
-            [userId, idempotencyKey]
+            [userId, idempotencyKey],
           );
           const existing = existingResult?.rows?.[0];
           if (existing) {
@@ -1617,13 +1841,15 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
 
   async function getGiftWalletSummary(userId, limit = 20) {
     const wallet = await ensureGiftWalletRow(userId);
-    const rows = await db.prepare(
-      `SELECT id, type, amount, balance_before, balance_after, source, reference_type, reference_id, description, metadata_json, created_at
+    const rows = await db
+      .prepare(
+        `SELECT id, type, amount, balance_before, balance_after, source, reference_type, reference_id, description, metadata_json, created_at
        FROM gift_wallet_transactions
        WHERE user_id = ?
        ORDER BY created_at DESC
-       LIMIT ?`
-    ).all(userId, Math.max(1, Math.min(Number(limit) || 20, 100)));
+       LIMIT ?`,
+      )
+      .all(userId, Math.max(1, Math.min(Number(limit) || 20, 100)));
 
     return {
       balance: wallet.balance,
@@ -1655,7 +1881,9 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     externalQuery = null,
   }) {
     const query = externalQuery || db.query.bind(db);
-    const trackResult = await query("SELECT * FROM tracks WHERE id = ?", [trackId]);
+    const trackResult = await query("SELECT * FROM tracks WHERE id = ?", [
+      trackId,
+    ]);
     const track = trackResult?.rows?.[0] || null;
     if (!track || track.user_id !== senderUserId || track.deleted_at) {
       const err = new Error("TRACK_NOT_FOUND");
@@ -1666,7 +1894,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const resolvedVersionNum = Number(versionNum || track.latest_version || 1);
     const trackVersionResult = await query(
       "SELECT * FROM track_versions WHERE track_id = ? AND version_num = ?",
-      [track.id, resolvedVersionNum]
+      [track.id, resolvedVersionNum],
     );
     const trackVersion = trackVersionResult?.rows?.[0] || null;
     if (!trackVersion) {
@@ -1683,7 +1911,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const claimPolicy = requireAppClaim ? "app_only" : "default";
 
     const expiresAt = new Date(
-      new Date(sendAtIso).getTime() + expiresInDays * 24 * 60 * 60 * 1000
+      new Date(sendAtIso).getTime() + expiresInDays * 24 * 60 * 60 * 1000,
     ).toISOString();
     const claimPin = String(crypto.randomInt(100000, 1000000));
     const streamKeyId = newUuid();
@@ -1731,7 +1959,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         claimPolicy,
         sendAtIso,
         null,
-      ]
+      ],
     );
     return {
       shareId,
@@ -1751,7 +1979,10 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     externalQuery = null,
   }) {
     const query = externalQuery || db.query.bind(db);
-    const poemResult = await query("SELECT * FROM poems WHERE id = ? AND deleted_at IS NULL", [poemId]);
+    const poemResult = await query(
+      "SELECT * FROM poems WHERE id = ? AND deleted_at IS NULL",
+      [poemId],
+    );
     const poem = poemResult?.rows?.[0] || null;
     if (!poem || poem.user_id !== senderUserId) {
       const err = new Error("POEM_NOT_FOUND");
@@ -1769,7 +2000,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const claimPolicy = requireAppClaim ? "app_only" : "default";
 
     const expiresAt = new Date(
-      new Date(sendAtIso).getTime() + expiresInDays * 24 * 60 * 60 * 1000
+      new Date(sendAtIso).getTime() + expiresInDays * 24 * 60 * 60 * 1000,
     ).toISOString();
     const claimPin = String(crypto.randomInt(100000, 1000000));
 
@@ -1808,7 +2039,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         claimPolicy,
         sendAtIso,
         null,
-      ]
+      ],
     );
     return {
       shareId,
@@ -1820,16 +2051,29 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
 
   function renderGiftSummary(giftRow) {
     const contentSnapshot = giftRow.content_snapshot_json
-      ? parseJson(giftRow.content_snapshot_json, null, `gift_${giftRow.id}_content_snapshot`)
+      ? parseJson(
+          giftRow.content_snapshot_json,
+          null,
+          `gift_${giftRow.id}_content_snapshot`,
+        )
       : null;
-    const contentTitle = giftRow.content_title
-      || (contentSnapshot && typeof contentSnapshot.title === "string" ? contentSnapshot.title : null);
-    const recipientName = giftRow.recipient_name
-      || (contentSnapshot && typeof contentSnapshot.recipient_name === "string" ? contentSnapshot.recipient_name : null);
+    const contentTitle =
+      giftRow.content_title ||
+      (contentSnapshot && typeof contentSnapshot.title === "string"
+        ? contentSnapshot.title
+        : null);
+    const recipientName =
+      giftRow.recipient_name ||
+      (contentSnapshot && typeof contentSnapshot.recipient_name === "string"
+        ? contentSnapshot.recipient_name
+        : null);
 
     const status = String(giftRow.status || "").toLowerCase();
     const dispatchStatus = String(giftRow.dispatch_status || "").toLowerCase();
-    const deliveryLocked = dispatchStatus.startsWith("partial") || status === "dispatching" || status === "dispatched";
+    const deliveryLocked =
+      dispatchStatus.startsWith("partial") ||
+      status === "dispatching" ||
+      status === "dispatched";
 
     return {
       id: giftRow.id,
@@ -1859,8 +2103,12 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       cancelled_at: giftRow.cancelled_at,
       created_at: giftRow.created_at,
       updated_at: giftRow.updated_at,
-      can_edit: !deliveryLocked && (status === "scheduled" || status === "dispatch_retry"),
-      can_cancel: !deliveryLocked && (status === "scheduled" || status === "dispatch_retry"),
+      can_edit:
+        !deliveryLocked &&
+        (status === "scheduled" || status === "dispatch_retry"),
+      can_cancel:
+        !deliveryLocked &&
+        (status === "scheduled" || status === "dispatch_retry"),
     };
   }
 
@@ -1913,7 +2161,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
           null,
           null,
           null,
-        ]
+        ],
       );
     }
   }
@@ -1922,7 +2170,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const query = externalQuery || db.query.bind(db);
     const existingResult = await query(
       "SELECT id FROM gift_delivery_outbox WHERE gift_order_id = ? LIMIT 1",
-      [gift.id]
+      [gift.id],
     );
     if ((existingResult?.rows || []).length > 0) {
       return;
@@ -1948,19 +2196,22 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   }
 
   function buildGiftSenderLabel(senderUser, giftRow) {
-    const frozen = typeof giftRow?.sender_display_name === "string"
-      ? giftRow.sender_display_name.trim()
-      : "";
+    const frozen =
+      typeof giftRow?.sender_display_name === "string"
+        ? giftRow.sender_display_name.trim()
+        : "";
     if (frozen) return frozen;
 
-    const displayName = typeof senderUser?.display_name === "string"
-      ? senderUser.display_name.trim()
-      : "";
+    const displayName =
+      typeof senderUser?.display_name === "string"
+        ? senderUser.display_name.trim()
+        : "";
     if (displayName) return displayName;
 
-    const emailLocal = typeof senderUser?.email === "string"
-      ? senderUser.email.split("@")[0]?.trim()
-      : "";
+    const emailLocal =
+      typeof senderUser?.email === "string"
+        ? senderUser.email.split("@")[0]?.trim()
+        : "";
     if (emailLocal) return emailLocal;
 
     return "A friend";
@@ -1975,25 +2226,33 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     payload = {},
     createdAt,
   }) {
-    await db.prepare(
-      `INSERT INTO gift_dispatch_attempts (
+    await db
+      .prepare(
+        `INSERT INTO gift_dispatch_attempts (
         id, gift_order_id, channel, status, provider_message_id, error_message, payload_json, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(
-      newUuid(),
-      giftId,
-      channel,
-      status,
-      providerMessageId,
-      errorMessage,
-      toJson(payload),
-      createdAt
-    );
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        newUuid(),
+        giftId,
+        channel,
+        status,
+        providerMessageId,
+        errorMessage,
+        toJson(payload),
+        createdAt,
+      );
   }
 
-  async function markGiftDeliverySent({ deliveryId, providerMessageId, payloadMeta, sentAt }) {
-    await db.prepare(
-      `UPDATE gift_delivery_outbox
+  async function markGiftDeliverySent({
+    deliveryId,
+    providerMessageId,
+    payloadMeta,
+    sentAt,
+  }) {
+    await db
+      .prepare(
+        `UPDATE gift_delivery_outbox
        SET status = 'sent',
            attempt_count = attempt_count + 1,
            provider_message_id = ?,
@@ -2008,18 +2267,19 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
            locked_at = NULL,
            payload_json = ?,
            updated_at = ?
-       WHERE id = ?`
-    ).run(
-      providerMessageId,
-      sentAt,
-      sentAt,
-      sentAt,
-      sentAt,
-      toJson(payloadMeta),
-      toJson(payloadMeta),
-      sentAt,
-      deliveryId
-    );
+       WHERE id = ?`,
+      )
+      .run(
+        providerMessageId,
+        sentAt,
+        sentAt,
+        sentAt,
+        sentAt,
+        toJson(payloadMeta),
+        toJson(payloadMeta),
+        sentAt,
+        deliveryId,
+      );
   }
 
   async function markGiftDeliveryFailed({
@@ -2029,8 +2289,9 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     nextRetryAt,
     failedAt,
   }) {
-    await db.prepare(
-      `UPDATE gift_delivery_outbox
+    await db
+      .prepare(
+        `UPDATE gift_delivery_outbox
        SET status = 'failed',
            attempt_count = ?,
            last_error = ?,
@@ -2039,16 +2300,17 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
            receipt_updated_at = ?,
            locked_at = NULL,
            updated_at = ?
-       WHERE id = ?`
-    ).run(
-      attemptCount,
-      String(errorMessage || "").slice(0, 500),
-      nextRetryAt,
-      failedAt,
-      failedAt,
-      failedAt,
-      deliveryId
-    );
+       WHERE id = ?`,
+      )
+      .run(
+        attemptCount,
+        String(errorMessage || "").slice(0, 500),
+        nextRetryAt,
+        failedAt,
+        failedAt,
+        failedAt,
+        deliveryId,
+      );
   }
 
   async function applyGiftDeliveryReceipt({
@@ -2066,21 +2328,25 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         severity: "warning",
         resourceType: "gift_receipt",
         resourceId: providerName,
-        summary: incidentSummary || "Gift delivery receipt could not be matched to an outbox row",
+        summary:
+          incidentSummary ||
+          "Gift delivery receipt could not be matched to an outbox row",
         detail: `Unknown provider message id for ${providerName}`,
         metadata: { provider_name: providerName },
       });
       return { updated: false, reason: "missing_provider_message_id" };
     }
 
-    const delivery = await db.prepare(
-      `SELECT gdo.*, go.id as gift_id, go.status as gift_status
+    const delivery = await db
+      .prepare(
+        `SELECT gdo.*, go.id as gift_id, go.status as gift_status
        FROM gift_delivery_outbox gdo
        JOIN gift_orders go ON go.id = gdo.gift_order_id
        WHERE gdo.provider_message_id = ?
        ORDER BY gdo.updated_at DESC
-       LIMIT 1`
-    ).get(providerMessageId);
+       LIMIT 1`,
+      )
+      .get(providerMessageId);
 
     if (!delivery) {
       await createGiftIncident({
@@ -2089,9 +2355,14 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         severity: "warning",
         resourceType: "gift_receipt",
         resourceId: providerMessageId,
-        summary: incidentSummary || "Gift delivery receipt could not be matched to an outbox row",
+        summary:
+          incidentSummary ||
+          "Gift delivery receipt could not be matched to an outbox row",
         detail: `No outbox row matched provider message id ${providerMessageId}`,
-        metadata: { provider_name: providerName, provider_message_id: providerMessageId },
+        metadata: {
+          provider_name: providerName,
+          provider_message_id: providerMessageId,
+        },
       });
       return { updated: false, reason: "unknown_provider_message_id" };
     }
@@ -2104,25 +2375,31 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     });
 
     if (nextState.shouldUpdate) {
-      await db.prepare(
-        `UPDATE gift_delivery_outbox
+      await db
+        .prepare(
+          `UPDATE gift_delivery_outbox
          SET receipt_status = ?,
              receipt_event_at = ?,
              receipt_updated_at = ?,
              receipt_payload_json = ?,
              updated_at = ?
-         WHERE id = ?`
-      ).run(
-        nextState.nextStatus,
-        receiptEventAt || nowIso(),
-        nowIso(),
-        toJson(receiptPayload),
-        nowIso(),
-        delivery.id
-      );
+         WHERE id = ?`,
+        )
+        .run(
+          nextState.nextStatus,
+          receiptEventAt || nowIso(),
+          nowIso(),
+          toJson(receiptPayload),
+          nowIso(),
+          delivery.id,
+        );
     }
 
-    if (["undelivered", "bounced", "complained", "failed"].includes(String(receiptStatus || "").toLowerCase())) {
+    if (
+      ["undelivered", "bounced", "complained", "failed"].includes(
+        String(receiptStatus || "").toLowerCase(),
+      )
+    ) {
       await createGiftIncident({
         incidentKey: `gift_receipt_failure:${delivery.id}`,
         incidentType: "gift_receipt_failure",
@@ -2150,48 +2427,63 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         outboxId: delivery.id,
         summary: "Receipt arrived after gift cancellation",
         detail: `Provider ${providerName} sent ${receiptStatus} after cancellation`,
-        metadata: { provider_message_id: providerMessageId, receipt_status: receiptStatus },
+        metadata: {
+          provider_message_id: providerMessageId,
+          receipt_status: receiptStatus,
+        },
       });
     }
 
     await updateGiftAggregateObservability(delivery.gift_id);
-    return { updated: nextState.shouldUpdate, giftId: delivery.gift_id, outboxId: delivery.id };
+    return {
+      updated: nextState.shouldUpdate,
+      giftId: delivery.gift_id,
+      outboxId: delivery.id,
+    };
   }
 
   async function recoverStaleGiftDeliveryRows(giftId, now) {
-    await db.prepare(
-      `UPDATE gift_delivery_outbox
+    await db
+      .prepare(
+        `UPDATE gift_delivery_outbox
        SET status = 'failed',
            last_error = COALESCE(last_error, 'stale_channel_send_recovered'),
            next_retry_at = ?,
            locked_at = NULL,
            updated_at = ?
-       WHERE gift_order_id = ? AND status = 'sending'`
-    ).run(now, now, giftId);
+       WHERE gift_order_id = ? AND status = 'sending'`,
+      )
+      .run(now, now, giftId);
   }
 
-  function summarizeGiftDeliveryRows({ outboxRows, fallbackChannels, dispatchAttempts, maxAttempts }) {
+  function summarizeGiftDeliveryRows({
+    outboxRows,
+    fallbackChannels,
+    dispatchAttempts,
+    maxAttempts,
+  }) {
     const totalChannels = outboxRows.length || fallbackChannels.length;
     const sentRows = outboxRows.filter((row) => row.status === "sent");
-    const retryableRows = outboxRows.filter((row) =>
-      row.status === "pending" ||
-      (row.status === "failed" &&
-        Boolean(row.next_retry_at) &&
-        Number(row.attempt_count || 0) < maxAttempts)
+    const retryableRows = outboxRows.filter(
+      (row) =>
+        row.status === "pending" ||
+        (row.status === "failed" &&
+          Boolean(row.next_retry_at) &&
+          Number(row.attempt_count || 0) < maxAttempts),
     );
-    const exhaustedRows = outboxRows.filter((row) =>
-      row.status === "failed" && (
-        Number(row.attempt_count || 0) >= maxAttempts ||
-        !row.next_retry_at
-      )
+    const exhaustedRows = outboxRows.filter(
+      (row) =>
+        row.status === "failed" &&
+        (Number(row.attempt_count || 0) >= maxAttempts || !row.next_retry_at),
     );
-    const nextRetryAt = retryableRows
-      .map((row) => row.next_retry_at || row.send_after)
-      .filter(Boolean)
-      .sort()[0] || null;
+    const nextRetryAt =
+      retryableRows
+        .map((row) => row.next_retry_at || row.send_after)
+        .filter(Boolean)
+        .sort()[0] || null;
     const nextAttempts = Math.max(
       Number(dispatchAttempts || 0),
-      ...outboxRows.map((row) => Number(row.attempt_count || 0))
+      ...outboxRows.map((row) => Number(row.attempt_count || 0)),
     );
 
     return {
@@ -2210,90 +2502,129 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const sendAtMs = new Date(gift.send_at).getTime();
     if (!Number.isFinite(sendAtMs)) return null;
     const firstAcceptedMs = outboxRows
-      .map((row) => new Date(row.provider_accepted_at || row.last_attempt_at || row.updated_at || row.created_at).getTime())
-      .filter((value, index) => outboxRows[index]?.status === "sent" && Number.isFinite(value))
+      .map((row) =>
+        new Date(
+          row.provider_accepted_at ||
+            row.last_attempt_at ||
+            row.updated_at ||
+            row.created_at,
+        ).getTime(),
+      )
+      .filter(
+        (value, index) =>
+          outboxRows[index]?.status === "sent" && Number.isFinite(value),
+      )
       .sort((a, b) => a - b)[0];
     if (!Number.isFinite(firstAcceptedMs)) return null;
     return Math.max(0, firstAcceptedMs - sendAtMs);
   }
 
-  async function updateGiftAggregateObservability(giftId, { outboxRows = null, finalStatus = null } = {}) {
-    const gift = await db.prepare("SELECT * FROM gift_orders WHERE id = ?").get(giftId);
+  async function updateGiftAggregateObservability(
+    giftId,
+    { outboxRows = null, finalStatus = null } = {},
+  ) {
+    const gift = await db
+      .prepare("SELECT * FROM gift_orders WHERE id = ?")
+      .get(giftId);
     if (!gift) return null;
 
-    const rows = outboxRows || await db.prepare(
-      "SELECT * FROM gift_delivery_outbox WHERE gift_order_id = ? ORDER BY created_at ASC"
-    ).all(giftId);
+    const rows =
+      outboxRows ||
+      (await db
+        .prepare(
+          "SELECT * FROM gift_delivery_outbox WHERE gift_order_id = ? ORDER BY created_at ASC",
+        )
+        .all(giftId));
 
-    const firstAttemptStartedAt = rows
-      .map((row) => row.first_attempt_started_at)
-      .filter(Boolean)
-      .sort()[0] || null;
-    const lastDispatchCompletedAt = rows
-      .map((row) => row.last_attempt_at || row.updated_at)
-      .filter(Boolean)
-      .sort()
-      .slice(-1)[0] || null;
-    const lastSuccessfulDeliveryAt = rows
-      .filter((row) => row.status === "sent")
-      .map((row) => row.provider_accepted_at || row.last_attempt_at || row.updated_at)
-      .filter(Boolean)
-      .sort()
-      .slice(-1)[0] || null;
+    const firstAttemptStartedAt =
+      rows
+        .map((row) => row.first_attempt_started_at)
+        .filter(Boolean)
+        .sort()[0] || null;
+    const lastDispatchCompletedAt =
+      rows
+        .map((row) => row.last_attempt_at || row.updated_at)
+        .filter(Boolean)
+        .sort()
+        .slice(-1)[0] || null;
+    const lastSuccessfulDeliveryAt =
+      rows
+        .filter((row) => row.status === "sent")
+        .map(
+          (row) =>
+            row.provider_accepted_at || row.last_attempt_at || row.updated_at,
+        )
+        .filter(Boolean)
+        .sort()
+        .slice(-1)[0] || null;
     const deliveryLagMs = computeGiftDeliveryLagMs(gift, rows);
-    const overdueDetectedAt = ["scheduled", "dispatch_retry", "dispatching"].includes(finalStatus || gift.status)
+    const overdueDetectedAt = [
+      "scheduled",
+      "dispatch_retry",
+      "dispatching",
+    ].includes(finalStatus || gift.status)
       ? gift.overdue_detected_at
       : null;
 
-    await db.prepare(
-      `UPDATE gift_orders
+    await db
+      .prepare(
+        `UPDATE gift_orders
        SET first_dispatch_started_at = COALESCE(first_dispatch_started_at, ?),
            last_dispatch_completed_at = ?,
            last_successful_delivery_at = ?,
            delivery_lag_ms = COALESCE(?, delivery_lag_ms),
            overdue_detected_at = ?,
            updated_at = ?
-       WHERE id = ?`
-    ).run(
-      firstAttemptStartedAt,
-      lastDispatchCompletedAt,
-      lastSuccessfulDeliveryAt,
-      deliveryLagMs,
-      overdueDetectedAt,
-      nowIso(),
-      giftId
-    );
+       WHERE id = ?`,
+      )
+      .run(
+        firstAttemptStartedAt,
+        lastDispatchCompletedAt,
+        lastSuccessfulDeliveryAt,
+        deliveryLagMs,
+        overdueDetectedAt,
+        nowIso(),
+        giftId,
+      );
 
     return db.prepare("SELECT * FROM gift_orders WHERE id = ?").get(giftId);
   }
 
   async function syncGiftDeliveryShareDispatch(gift, dispatchedAt) {
     if (gift.content_type === "song") {
-      await db.prepare(
-        "UPDATE share_tokens SET dispatched_at = ?, dispatch_at = COALESCE(dispatch_at, ?), gift_order_id = COALESCE(gift_order_id, ?) WHERE id = ?"
-      ).run(dispatchedAt, gift.send_at, gift.id, gift.share_token_id);
+      await db
+        .prepare(
+          "UPDATE share_tokens SET dispatched_at = ?, dispatch_at = COALESCE(dispatch_at, ?), gift_order_id = COALESCE(gift_order_id, ?) WHERE id = ?",
+        )
+        .run(dispatchedAt, gift.send_at, gift.id, gift.share_token_id);
       return;
     }
 
     if (gift.content_type === "poem") {
-      await db.prepare(
-        "UPDATE poem_share_tokens SET dispatched_at = ?, dispatch_at = COALESCE(dispatch_at, ?), gift_order_id = COALESCE(gift_order_id, ?) WHERE id = ?"
-      ).run(dispatchedAt, gift.send_at, gift.id, gift.share_token_id);
+      await db
+        .prepare(
+          "UPDATE poem_share_tokens SET dispatched_at = ?, dispatch_at = COALESCE(dispatch_at, ?), gift_order_id = COALESCE(gift_order_id, ?) WHERE id = ?",
+        )
+        .run(dispatchedAt, gift.send_at, gift.id, gift.share_token_id);
     }
   }
 
   async function revokeGiftDeliveryShare(gift) {
     if (gift.content_type === "song") {
-      await db.prepare(
-        "UPDATE share_tokens SET status = 'revoked', web_stream_allowed = 0, dispatched_at = NULL WHERE id = ? AND gift_order_id = ? AND delivery_source = 'gift'"
-      ).run(gift.share_token_id, gift.id);
+      await db
+        .prepare(
+          "UPDATE share_tokens SET status = 'revoked', web_stream_allowed = 0, dispatched_at = NULL WHERE id = ? AND gift_order_id = ? AND delivery_source = 'gift'",
+        )
+        .run(gift.share_token_id, gift.id);
       return;
     }
 
     if (gift.content_type === "poem") {
-      await db.prepare(
-        "UPDATE poem_share_tokens SET status = 'revoked', dispatched_at = NULL WHERE id = ? AND gift_order_id = ? AND delivery_source = 'gift'"
-      ).run(gift.share_token_id, gift.id);
+      await db
+        .prepare(
+          "UPDATE poem_share_tokens SET status = 'revoked', dispatched_at = NULL WHERE id = ? AND gift_order_id = ? AND delivery_source = 'gift'",
+        )
+        .run(gift.share_token_id, gift.id);
     }
   }
 
@@ -2316,7 +2647,10 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       Body: body,
     });
     if (twilioStatusCallbackBaseUrl) {
-      payload.append("StatusCallback", `${twilioStatusCallbackBaseUrl.replace(/\/$/, "")}/gifts/webhooks/twilio-status?gift_id=${encodeURIComponent(giftId)}&outbox_id=${encodeURIComponent(outboxId)}`);
+      payload.append(
+        "StatusCallback",
+        `${twilioStatusCallbackBaseUrl.replace(/\/$/, "")}/gifts/webhooks/twilio-status?gift_id=${encodeURIComponent(giftId)}&outbox_id=${encodeURIComponent(outboxId)}`,
+      );
     }
     const response = await fetch(endpoint, {
       method: "POST",
@@ -2338,16 +2672,21 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
 
   function sanitizeGiftTextField(text) {
     if (typeof text !== "string") return "";
-    return text.replace(/[\r\n\t]/g, " ").replace(/\s{2,}/g, " ").trim();
+    return text
+      .replace(/[\r\n\t]/g, " ")
+      .replace(/\s{2,}/g, " ")
+      .trim();
   }
 
   function buildGiftDeliveryMessage({ giftRow, senderLabel }) {
     const noun = giftRow.content_type === "poem" ? "poem" : "song";
-    const verb = giftRow.content_type === "poem" ? "Tap to read" : "Tap to listen";
+    const verb =
+      giftRow.content_type === "poem" ? "Tap to read" : "Tap to listen";
     const sender = senderLabel || "A friend";
     const recipient = sanitizeGiftTextField(giftRow.recipient_name);
     const greeting = recipient ? `Hey ${recipient}, ` : "";
-    const rawMessage = typeof giftRow.message === "string" ? giftRow.message.trim() : "";
+    const rawMessage =
+      typeof giftRow.message === "string" ? giftRow.message.trim() : "";
     const safeMsgText = sanitizeGiftTextField(rawMessage);
     const note = safeMsgText
       ? `"${safeMsgText.length > 100 ? safeMsgText.slice(0, 97) + "..." : safeMsgText}"\n`
@@ -2361,8 +2700,15 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     }
     try {
       const parsed = new URL(shareUrl);
-      const hostname = String(parsed.hostname || "").trim().toLowerCase();
-      if (!hostname || hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1") {
+      const hostname = String(parsed.hostname || "")
+        .trim()
+        .toLowerCase();
+      if (
+        !hostname ||
+        hostname === "localhost" ||
+        hostname === "127.0.0.1" ||
+        hostname === "::1"
+      ) {
         if (config.DEV_MODE) {
           return null;
         }
@@ -2375,31 +2721,44 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   }
 
   function isNonRetryableGiftDeliveryError(errorMessage) {
-    return errorMessage === "GIFT_SHARE_URL_NOT_PUBLIC" || errorMessage === "INVALID_GIFT_SHARE_URL";
+    return (
+      errorMessage === "GIFT_SHARE_URL_NOT_PUBLIC" ||
+      errorMessage === "INVALID_GIFT_SHARE_URL"
+    );
   }
 
   function computeGiftRetryAt(attemptNumber) {
-    const backoffMinutes = Math.min(60, Math.max(1, 2 ** Math.max(0, Number(attemptNumber || 1) - 1)));
+    const backoffMinutes = Math.min(
+      60,
+      Math.max(1, 2 ** Math.max(0, Number(attemptNumber || 1) - 1)),
+    );
     return new Date(Date.now() + backoffMinutes * 60 * 1000).toISOString();
   }
 
   async function dispatchGiftById(giftId) {
-    const giftSchedulingEnabled = await getFeatureFlag(db, "gift_scheduling_enabled");
+    const giftSchedulingEnabled = await getFeatureFlag(
+      db,
+      "gift_scheduling_enabled",
+    );
     if (!giftSchedulingEnabled) {
       return { skipped: true, reason: "feature_disabled" };
     }
 
     const dispatchStart = nowIso();
-    const lock = await db.prepare(
-      `UPDATE gift_orders
+    const lock = await db
+      .prepare(
+        `UPDATE gift_orders
        SET status = 'dispatching', dispatch_status = 'pending', dispatch_started_at = ?, first_dispatch_started_at = COALESCE(first_dispatch_started_at, ?), updated_at = ?
-       WHERE id = ? AND status IN ('scheduled', 'dispatch_retry')`
-    ).run(dispatchStart, dispatchStart, dispatchStart, giftId);
+       WHERE id = ? AND status IN ('scheduled', 'dispatch_retry')`,
+      )
+      .run(dispatchStart, dispatchStart, dispatchStart, giftId);
     if (!lock.changes) {
       return { skipped: true, reason: "not_dispatchable" };
     }
 
-    const gift = await db.prepare("SELECT * FROM gift_orders WHERE id = ?").get(giftId);
+    const gift = await db
+      .prepare("SELECT * FROM gift_orders WHERE id = ?")
+      .get(giftId);
     if (!gift) {
       return { skipped: true, reason: "not_found" };
     }
@@ -2413,24 +2772,29 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       await ensureGiftDeliveryOutboxRows(gift);
 
       const channels = parseGiftChannelsJson(gift.channels_json);
-      const senderUser = await db.prepare(
-        "SELECT display_name, email FROM users WHERE id = ?"
-      ).get(gift.sender_user_id);
+      const senderUser = await db
+        .prepare("SELECT display_name, email FROM users WHERE id = ?")
+        .get(gift.sender_user_id);
       const senderLabel = buildGiftSenderLabel(senderUser, gift);
-      const payloadText = buildGiftDeliveryMessage({ giftRow: gift, senderLabel });
+      const payloadText = buildGiftDeliveryMessage({
+        giftRow: gift,
+        senderLabel,
+      });
       const now = nowIso();
       const errors = [];
 
       await recoverStaleGiftDeliveryRows(gift.id, now);
 
-      const dueRows = await db.prepare(
-        `SELECT *
+      const dueRows = await db
+        .prepare(
+          `SELECT *
          FROM gift_delivery_outbox
          WHERE gift_order_id = ?
            AND status IN ('pending', 'failed')
            AND COALESCE(next_retry_at, send_after) <= ?
-         ORDER BY created_at ASC`
-      ).all(gift.id, now);
+         ORDER BY created_at ASC`,
+        )
+        .all(gift.id, now);
 
       if (!dueRows.length) {
         logGiftLifecycle("info", "dispatch_noop", {
@@ -2440,14 +2804,16 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       }
 
       for (const delivery of dueRows) {
-        const lockResult = await db.prepare(
-          `UPDATE gift_delivery_outbox
+        const lockResult = await db
+          .prepare(
+            `UPDATE gift_delivery_outbox
            SET status = 'sending',
                locked_at = ?,
                first_attempt_started_at = COALESCE(first_attempt_started_at, ?),
                updated_at = ?
-           WHERE id = ? AND status IN ('pending', 'failed')`
-        ).run(now, now, now, delivery.id);
+           WHERE id = ? AND status IN ('pending', 'failed')`,
+          )
+          .run(now, now, now, delivery.id);
         if (!lockResult.changes) {
           continue;
         }
@@ -2553,8 +2919,8 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
           const nextRetryAt = isNonRetryableGiftDeliveryError(errorMessage)
             ? null
             : nextAttemptCount >= giftDispatchMaxAttempts
-            ? null
-            : computeGiftRetryAt(nextAttemptCount);
+              ? null
+              : computeGiftRetryAt(nextAttemptCount);
 
           errors.push(`${delivery.channel}:${errorMessage}`);
 
@@ -2586,7 +2952,9 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
               channel: delivery.channel,
               attempt_count: nextAttemptCount,
               next_retry_at: nextRetryAt,
-              provider_name: delivery.provider_name || (delivery.channel === "sms" ? "twilio" : "resend"),
+              provider_name:
+                delivery.provider_name ||
+                (delivery.channel === "sms" ? "twilio" : "resend"),
             },
           });
           logGiftLifecycle("warn", "channel_send_failed", {
@@ -2600,12 +2968,14 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         }
       }
 
-      const outboxRows = await db.prepare(
-        `SELECT *
+      const outboxRows = await db
+        .prepare(
+          `SELECT *
          FROM gift_delivery_outbox
          WHERE gift_order_id = ?
-         ORDER BY created_at ASC`
-      ).all(gift.id);
+         ORDER BY created_at ASC`,
+        )
+        .all(gift.id);
 
       const {
         sentRows,
@@ -2624,8 +2994,9 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
 
       if (allDelivered) {
         const dispatchedAt = nowIso();
-        await db.prepare(
-          `UPDATE gift_orders
+        await db
+          .prepare(
+            `UPDATE gift_orders
            SET status = 'dispatched',
                dispatch_status = 'sent',
                dispatch_attempts = ?,
@@ -2638,16 +3009,17 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
                overdue_detected_at = NULL,
                dispatched_at = ?,
                updated_at = ?
-           WHERE id = ?`
-        ).run(
-          nextAttempts,
-          dispatchedAt,
-          dispatchedAt,
-          computeGiftDeliveryLagMs(gift, outboxRows),
-          dispatchedAt,
-          dispatchedAt,
-          gift.id
-        );
+           WHERE id = ?`,
+          )
+          .run(
+            nextAttempts,
+            dispatchedAt,
+            dispatchedAt,
+            computeGiftDeliveryLagMs(gift, outboxRows),
+            dispatchedAt,
+            dispatchedAt,
+            gift.id,
+          );
 
         await syncGiftDeliveryShareDispatch(gift, dispatchedAt);
         await resolveGiftIncidentsForGift(db, gift.id, [
@@ -2679,7 +3051,10 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         return { dispatched: true };
       }
 
-      const exhausted = !partiallyDelivered && retryableRows.length === 0 && exhaustedRows.length > 0;
+      const exhausted =
+        !partiallyDelivered &&
+        retryableRows.length === 0 &&
+        exhaustedRows.length > 0;
       const partialComplete = partiallyDelivered && retryableRows.length === 0;
 
       let refundTxId = null;
@@ -2697,7 +3072,10 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
           });
           refundTxId = refund.transactionId;
         } catch (refundErr) {
-          app.log.error({ giftId: gift.id, err: refundErr }, "Failed to auto-refund gift token");
+          app.log.error(
+            { giftId: gift.id, err: refundErr },
+            "Failed to auto-refund gift token",
+          );
         }
 
         await revokeGiftDeliveryShare(gift);
@@ -2715,8 +3093,9 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         });
       }
 
-      await db.prepare(
-        `UPDATE gift_orders
+      await db
+        .prepare(
+          `UPDATE gift_orders
          SET status = ?,
              dispatch_status = ?,
              dispatch_attempts = ?,
@@ -2730,33 +3109,52 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
              dispatched_at = CASE WHEN ? THEN COALESCE(dispatched_at, ?) ELSE dispatched_at END,
              refund_transaction_id = COALESCE(?, refund_transaction_id),
              updated_at = ?
-         WHERE id = ?`
-      ).run(
-        exhausted ? "failed" : (partialComplete ? "dispatched" : "dispatch_retry"),
-        exhausted ? "failed" : (partialComplete ? "partial" : (partiallyDelivered ? "partial_retry" : "retrying")),
-        nextAttempts,
-        errors.join("; ") || null,
-        exhausted || partialComplete ? null : nextRetryAt,
-        nowIso(),
-        partiallyDelivered ? 1 : 0,
-        partiallyDelivered ? nowIso() : null,
-        computeGiftDeliveryLagMs(gift, outboxRows),
-        partiallyDelivered || exhausted ? 1 : 0,
-        partialComplete ? 1 : 0,
-        partialComplete ? nowIso() : null,
-        refundTxId,
-        nowIso(),
-        gift.id
-      );
+         WHERE id = ?`,
+        )
+        .run(
+          exhausted
+            ? "failed"
+            : partialComplete
+              ? "dispatched"
+              : "dispatch_retry",
+          exhausted
+            ? "failed"
+            : partialComplete
+              ? "partial"
+              : partiallyDelivered
+                ? "partial_retry"
+                : "retrying",
+          nextAttempts,
+          errors.join("; ") || null,
+          exhausted || partialComplete ? null : nextRetryAt,
+          nowIso(),
+          partiallyDelivered ? 1 : 0,
+          partiallyDelivered ? nowIso() : null,
+          computeGiftDeliveryLagMs(gift, outboxRows),
+          partiallyDelivered || exhausted ? 1 : 0,
+          partialComplete ? 1 : 0,
+          partialComplete ? nowIso() : null,
+          refundTxId,
+          nowIso(),
+          gift.id,
+        );
 
       await updateGiftAggregateObservability(gift.id, {
         outboxRows,
-        finalStatus: exhausted ? "failed" : (partialComplete ? "dispatched" : "dispatch_retry"),
+        finalStatus: exhausted
+          ? "failed"
+          : partialComplete
+            ? "dispatched"
+            : "dispatch_retry",
       });
 
       await addAuditEntry({
         userId: gift.sender_user_id,
-        action: exhausted ? "gift_dispatch_failed" : (partialComplete ? "gift_partially_dispatched" : "gift_dispatch_retry"),
+        action: exhausted
+          ? "gift_dispatch_failed"
+          : partialComplete
+            ? "gift_partially_dispatched"
+            : "gift_dispatch_retry",
         resourceType: "gift_order",
         resourceId: gift.id,
         metadata: {
@@ -2767,17 +3165,24 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
           pending_channels: retryableRows.map((row) => row.channel),
         },
       });
-      eventsService.emit(exhausted ? "gift_failed" : (partialComplete ? "gift_partially_dispatched" : "gift_retry"), {
-        userId: gift.sender_user_id,
-        resourceType: "gift_order",
-        resourceId: gift.id,
-        metadata: {
-          errors,
-          attempts: nextAttempts,
-          sent_channels: sentRows.map((row) => row.channel),
-          pending_channels: retryableRows.map((row) => row.channel),
+      eventsService.emit(
+        exhausted
+          ? "gift_failed"
+          : partialComplete
+            ? "gift_partially_dispatched"
+            : "gift_retry",
+        {
+          userId: gift.sender_user_id,
+          resourceType: "gift_order",
+          resourceId: gift.id,
+          metadata: {
+            errors,
+            attempts: nextAttempts,
+            sent_channels: sentRows.map((row) => row.channel),
+            pending_channels: retryableRows.map((row) => row.channel),
+          },
         },
-      });
+      );
 
       if (!exhausted && retryableRows.length > 0) {
         await createGiftIncident({
@@ -2785,7 +3190,9 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
           incidentType: "gift_dispatch_retry",
           severity: partiallyDelivered ? "warning" : "info",
           giftOrderId: gift.id,
-          summary: partiallyDelivered ? "Gift partially delivered and is waiting to retry remaining channels" : "Gift delivery scheduled for retry",
+          summary: partiallyDelivered
+            ? "Gift partially delivered and is waiting to retry remaining channels"
+            : "Gift delivery scheduled for retry",
           detail: errors.join("; ") || null,
           metadata: {
             sent_channels: sentRows.map((row) => row.channel),
@@ -2797,22 +3204,32 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         await clearGiftIncident(`gift_retry_pending:${gift.id}`);
       }
 
-      logGiftLifecycle(exhausted ? "error" : "warn", exhausted ? "dispatch_exhausted" : (partialComplete ? "dispatch_partial_complete" : "dispatch_retry_scheduled"), {
-        gift_id: gift.id,
-        attempts: nextAttempts,
-        errors,
-        next_retry_at: nextRetryAt,
-        sent_channels: sentRows.map((row) => row.channel),
-        pending_channels: retryableRows.map((row) => row.channel),
-      });
+      logGiftLifecycle(
+        exhausted ? "error" : "warn",
+        exhausted
+          ? "dispatch_exhausted"
+          : partialComplete
+            ? "dispatch_partial_complete"
+            : "dispatch_retry_scheduled",
+        {
+          gift_id: gift.id,
+          attempts: nextAttempts,
+          errors,
+          next_retry_at: nextRetryAt,
+          sent_channels: sentRows.map((row) => row.channel),
+          pending_channels: retryableRows.map((row) => row.channel),
+        },
+      );
 
       return { dispatched: false, partial: partialComplete, errors };
-
     } catch (dispatchErr) {
       // Recover from stuck 'dispatching' state — increment attempts to respect max limit
-      const retryAt = computeGiftRetryAt(Number(gift?.dispatch_attempts || 0) + 1);
-      await db.prepare(
-        `UPDATE gift_orders
+      const retryAt = computeGiftRetryAt(
+        Number(gift?.dispatch_attempts || 0) + 1,
+      );
+      await db
+        .prepare(
+          `UPDATE gift_orders
          SET status = 'dispatch_retry',
              dispatch_status = 'error',
              dispatch_attempts = dispatch_attempts + 1,
@@ -2821,14 +3238,15 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
              dispatch_started_at = NULL,
              last_dispatch_completed_at = ?,
              updated_at = ?
-         WHERE id = ? AND status = 'dispatching'`
-      ).run(
-        retryAt,
-        String(dispatchErr.message || dispatchErr).slice(0, 500),
-        nowIso(),
-        nowIso(),
-        giftId
-      );
+         WHERE id = ? AND status = 'dispatching'`,
+        )
+        .run(
+          retryAt,
+          String(dispatchErr.message || dispatchErr).slice(0, 500),
+          nowIso(),
+          nowIso(),
+          giftId,
+        );
       await createGiftIncident({
         incidentKey: `gift_dispatch_stalled:${giftId}`,
         incidentType: "gift_dispatch_stalled",
@@ -2861,7 +3279,12 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     }
 
     const webhookUrl = `${twilioStatusCallbackBaseUrl.replace(/\/$/, "")}${request.raw.url}`;
-    const isValid = twilio.validateRequest(authToken, String(signature), webhookUrl, request.body || {});
+    const isValid = twilio.validateRequest(
+      authToken,
+      String(signature),
+      webhookUrl,
+      request.body || {},
+    );
     if (!isValid) {
       reply.code(401).send({ error: "INVALID_SIGNATURE" });
       return;
@@ -2874,7 +3297,8 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       receiptStatus: normalized.receiptStatus,
       receiptEventAt: normalized.receiptEventAt,
       receiptPayload: normalized.metadata,
-      incidentSummary: "Twilio delivery receipt could not be matched to a gift outbox row",
+      incidentSummary:
+        "Twilio delivery receipt could not be matched to a gift outbox row",
     });
 
     logGiftLifecycle("info", "twilio_receipt_processed", {
@@ -2887,76 +3311,91 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     reply.send({ received: true, updated: result.updated });
   });
 
-  app.post("/gifts/webhooks/resend-events", {
-    preParsing: async (request, _reply, payload) => {
-      // Capture raw body for Svix signature verification before Fastify parses it
-      const chunks = [];
-      for await (const chunk of payload) { chunks.push(chunk); }
-      request.rawBody = Buffer.concat(chunks).toString("utf-8");
-      const { Readable } = require("stream");
-      return Readable.from([request.rawBody]);
+  app.post(
+    "/gifts/webhooks/resend-events",
+    {
+      preParsing: async (request, _reply, payload) => {
+        // Capture raw body for Svix signature verification before Fastify parses it
+        const chunks = [];
+        for await (const chunk of payload) {
+          chunks.push(chunk);
+        }
+        request.rawBody = Buffer.concat(chunks).toString("utf-8");
+        const { Readable } = require("stream");
+        return Readable.from([request.rawBody]);
+      },
     },
-  }, async (request, reply) => {
-    const webhookSecret =
-      process.env.RESEND_WEBHOOK_SECRET ||
-      appConfig.RESEND_WEBHOOK_SECRET ||
-      config.RESEND_WEBHOOK_SECRET;
-    if (!webhookSecret) {
-      reply.code(404).send({ error: "NOT_CONFIGURED" });
-      return;
-    }
+    async (request, reply) => {
+      const webhookSecret =
+        process.env.RESEND_WEBHOOK_SECRET ||
+        appConfig.RESEND_WEBHOOK_SECRET ||
+        config.RESEND_WEBHOOK_SECRET;
+      if (!webhookSecret) {
+        reply.code(404).send({ error: "NOT_CONFIGURED" });
+        return;
+      }
 
-    const headers = {
-      id: request.headers["svix-id"],
-      timestamp: request.headers["svix-timestamp"],
-      signature: request.headers["svix-signature"],
-    };
-    if (!headers.id || !headers.timestamp || !headers.signature) {
-      reply.code(401).send({ error: "INVALID_SIGNATURE" });
-      return;
-    }
+      const headers = {
+        id: request.headers["svix-id"],
+        timestamp: request.headers["svix-timestamp"],
+        signature: request.headers["svix-signature"],
+      };
+      if (!headers.id || !headers.timestamp || !headers.signature) {
+        reply.code(401).send({ error: "INVALID_SIGNATURE" });
+        return;
+      }
 
-    let verifiedPayload;
-    try {
-      const resend = new Resend(
-        process.env.RESEND_API_KEY ||
-        appConfig.RESEND_API_KEY ||
-        config.RESEND_API_KEY ||
-        "re_test"
-      );
-      verifiedPayload = resend.webhooks.verify({
-        payload: request.rawBody || (typeof request.body === "string" ? request.body : JSON.stringify(request.body || {})),
-        headers,
-        webhookSecret,
+      let verifiedPayload;
+      try {
+        const resend = new Resend(
+          process.env.RESEND_API_KEY ||
+            appConfig.RESEND_API_KEY ||
+            config.RESEND_API_KEY ||
+            "re_test",
+        );
+        verifiedPayload = resend.webhooks.verify({
+          payload:
+            request.rawBody ||
+            (typeof request.body === "string"
+              ? request.body
+              : JSON.stringify(request.body || {})),
+          headers,
+          webhookSecret,
+        });
+      } catch (err) {
+        reply
+          .code(401)
+          .send({ error: "INVALID_SIGNATURE", message: err.message });
+        return;
+      }
+
+      const normalized = normalizeResendReceipt(verifiedPayload || {});
+      const result = await applyGiftDeliveryReceipt({
+        providerName: normalized.providerName,
+        providerMessageId: normalized.providerMessageId,
+        receiptStatus: normalized.receiptStatus,
+        receiptEventAt: normalized.receiptEventAt,
+        receiptPayload: normalized.metadata,
+        incidentSummary:
+          "Resend delivery receipt could not be matched to a gift outbox row",
       });
-    } catch (err) {
-      reply.code(401).send({ error: "INVALID_SIGNATURE", message: err.message });
-      return;
-    }
 
-    const normalized = normalizeResendReceipt(verifiedPayload || {});
-    const result = await applyGiftDeliveryReceipt({
-      providerName: normalized.providerName,
-      providerMessageId: normalized.providerMessageId,
-      receiptStatus: normalized.receiptStatus,
-      receiptEventAt: normalized.receiptEventAt,
-      receiptPayload: normalized.metadata,
-      incidentSummary: "Resend delivery receipt could not be matched to a gift outbox row",
-    });
-
-    logGiftLifecycle("info", "resend_receipt_processed", {
-      provider_message_id: normalized.providerMessageId,
-      receipt_status: normalized.receiptStatus,
-      updated: result.updated,
-      gift_id: result.giftId || null,
-      outbox_id: result.outboxId || null,
-    });
-    reply.send({ received: true, updated: result.updated });
-  });
+      logGiftLifecycle("info", "resend_receipt_processed", {
+        provider_message_id: normalized.providerMessageId,
+        receipt_status: normalized.receiptStatus,
+        updated: result.updated,
+        gift_id: result.giftId || null,
+        outbox_id: result.outboxId || null,
+      });
+      reply.send({ received: true, updated: result.updated });
+    },
+  );
 
   async function findTrackVersion(trackId, versionNum) {
     return db
-      .prepare("SELECT * FROM track_versions WHERE track_id = ? AND version_num = ?")
+      .prepare(
+        "SELECT * FROM track_versions WHERE track_id = ? AND version_num = ?",
+      )
       .get(trackId, versionNum);
   }
 
@@ -2972,7 +3411,9 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   }
 
   function isTerminalFailedJobStatus(status) {
-    return status === "failed" || status === "dead_letter" || status === "blocked";
+    return (
+      status === "failed" || status === "dead_letter" || status === "blocked"
+    );
   }
 
   function isTerminalTrackFailureStatus(status) {
@@ -3014,17 +3455,32 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     // re-scan the lyrics using the policy sanitizer to identify likely triggers
     if (terms.length === 0 && lyricsJson) {
       try {
-        const lyrics = typeof lyricsJson === "string" ? JSON.parse(lyricsJson) : lyricsJson;
+        const lyrics =
+          typeof lyricsJson === "string" ? JSON.parse(lyricsJson) : lyricsJson;
         const provider = resolveProviderFromErrorCode(jobRow.error_code);
-        const { violations } = scanLyricsForProviderPolicy({ lyrics, provider });
+        const { violations } = scanLyricsForProviderPolicy({
+          lyrics,
+          provider,
+        });
         if (violations.length > 0) {
-          const sorted = violations
-            .sort((a, b) => (a.severity === "hard" ? 0 : 1) - (b.severity === "hard" ? 0 : 1));
-          const rescanTerms = [...new Set(sorted.map(v => v.term))].slice(0, 8);
-          return [...new Set(rescanTerms.flatMap(t => expandPolicyTermVariants(t)))];
+          const sorted = violations.sort(
+            (a, b) =>
+              (a.severity === "hard" ? 0 : 1) - (b.severity === "hard" ? 0 : 1),
+          );
+          const rescanTerms = [...new Set(sorted.map((v) => v.term))].slice(
+            0,
+            8,
+          );
+          return [
+            ...new Set(rescanTerms.flatMap((t) => expandPolicyTermVariants(t))),
+          ];
         }
       } catch (err) {
-        console.warn("[extractRenderPolicyTermsFromJob] lyrics rescan failed for job", jobRow?.id, err?.message);
+        console.warn(
+          "[extractRenderPolicyTermsFromJob] lyrics rescan failed for job",
+          jobRow?.id,
+          err?.message,
+        );
       }
     }
 
@@ -3043,11 +3499,10 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         `SELECT * FROM jobs
          WHERE track_version_id = ? AND workflow_type = ? AND status IN ('failed', 'dead_letter', 'blocked')
          ORDER BY COALESCE(completed_at, updated_at) DESC
-         LIMIT 1`
+         LIMIT 1`,
       )
       .get(trackVersionId, workflowType);
   }
-
 
   function normalizeRenderFailureMessage(rawMessage, rawCode) {
     const code = typeof rawCode === "string" ? rawCode : "";
@@ -3066,7 +3521,10 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       return "Music generation failed due to provider content policy. Please adjust the lyrics and try again.";
     }
 
-    if (!message && (code === "E302_SUNO_ERROR" || code === "E302_SUNO_INCOMPLETE_OUTPUT")) {
+    if (
+      !message &&
+      (code === "E302_SUNO_ERROR" || code === "E302_SUNO_INCOMPLETE_OUTPUT")
+    ) {
       return "Music provider returned an incomplete audio result. Please try again.";
     }
 
@@ -3111,7 +3569,8 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const wireCategory = WIRE_COMPAT_MAP[result.category] || result.category;
     return {
       error_category: wireCategory,
-      error_subcategory: result.category !== wireCategory ? result.category : undefined,
+      error_subcategory:
+        result.category !== wireCategory ? result.category : undefined,
       can_auto_rewrite: result.canAutoRewrite,
       suggested_action: result.suggestedAction,
       provider: result.provider,
@@ -3121,7 +3580,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   async function findActiveJobForVersion(trackVersionId, workflowType) {
     return db
       .prepare(
-        "SELECT * FROM jobs WHERE track_version_id = ? AND workflow_type = ? AND status IN ('queued','running') ORDER BY created_at DESC LIMIT 1"
+        "SELECT * FROM jobs WHERE track_version_id = ? AND workflow_type = ? AND status IN ('queued','running') ORDER BY created_at DESC LIMIT 1",
       )
       .get(trackVersionId, workflowType);
   }
@@ -3138,10 +3597,14 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   async function incrementTrackVersion(trackId) {
     const now = nowIso();
     // Note: Callers wrap this in a transaction for atomicity with INSERT
-    await db.prepare(
-      "UPDATE tracks SET latest_version = latest_version + 1, updated_at = ? WHERE id = ?"
-    ).run(now, trackId);
-    const track = await db.prepare("SELECT latest_version FROM tracks WHERE id = ?").get(trackId);
+    await db
+      .prepare(
+        "UPDATE tracks SET latest_version = latest_version + 1, updated_at = ? WHERE id = ?",
+      )
+      .run(now, trackId);
+    const track = await db
+      .prepare("SELECT latest_version FROM tracks WHERE id = ?")
+      .get(trackId);
     return track.latest_version;
   }
 
@@ -3150,7 +3613,9 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       return [];
     }
     const versions = await db
-      .prepare("SELECT * FROM track_versions WHERE track_id = ? ORDER BY version_num")
+      .prepare(
+        "SELECT * FROM track_versions WHERE track_id = ? ORDER BY version_num",
+      )
       .all(track.id);
 
     const versionIds = versions.map((version) => version.id).filter(Boolean);
@@ -3165,7 +3630,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
          WHERE track_version_id IN (${placeholders})
            AND status IN ('failed', 'dead_letter', 'blocked')
          ORDER BY COALESCE(completed_at, updated_at) DESC`,
-        versionIds
+        versionIds,
       );
 
       for (const job of failedJobs) {
@@ -3188,7 +3653,11 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       });
       const latestFailure = latestFailedJobByVersion.get(version.id);
       const failureHints = latestFailure
-        ? classifyRenderFailure(latestFailure?.error_message, latestFailure?.error_code, latestFailure?.step)
+        ? classifyRenderFailure(
+            latestFailure?.error_message,
+            latestFailure?.error_code,
+            latestFailure?.step,
+          )
         : null;
       return {
         ...rest,
@@ -3210,9 +3679,12 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         last_error_code: latestFailure?.error_code || null,
         last_error_message: normalizeRenderFailureMessage(
           latestFailure?.error_message,
-          latestFailure?.error_code
+          latestFailure?.error_code,
         ),
-        last_error_terms: extractRenderPolicyTermsFromJob(latestFailure, version.lyrics_json),
+        last_error_terms: extractRenderPolicyTermsFromJob(
+          latestFailure,
+          version.lyrics_json,
+        ),
         last_error_category: failureHints?.error_category || null,
         last_error_can_auto_rewrite: failureHints?.can_auto_rewrite ?? null,
         last_error_suggested_action: failureHints?.suggested_action || null,
@@ -3229,24 +3701,28 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     addedAt = nowIso(),
   }) {
     const now = nowIso();
-    const updateResult = await db.prepare(
-      `UPDATE track_library_entries
+    const updateResult = await db
+      .prepare(
+        `UPDATE track_library_entries
        SET origin = CASE WHEN origin = 'created' THEN origin ELSE ? END,
            share_token_id = COALESCE(?, share_token_id),
            added_at = CASE WHEN removed_at IS NOT NULL THEN ? ELSE added_at END,
            removed_at = NULL, updated_at = ?
-       WHERE user_id = ? AND track_id = ?`
-    ).run(origin, shareTokenId, addedAt, now, userId, trackId);
+       WHERE user_id = ? AND track_id = ?`,
+      )
+      .run(origin, shareTokenId, addedAt, now, userId, trackId);
 
     if (updateResult.changes > 0) {
       return;
     }
 
-    await db.prepare(
-      `INSERT INTO track_library_entries
+    await db
+      .prepare(
+        `INSERT INTO track_library_entries
        (user_id, track_id, origin, share_token_id, added_at, removed_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, NULL, ?)`
-    ).run(userId, trackId, origin, shareTokenId, addedAt, now);
+       VALUES (?, ?, ?, ?, ?, NULL, ?)`,
+      )
+      .run(userId, trackId, origin, shareTokenId, addedAt, now);
   }
 
   async function upsertPoemLibraryEntry({
@@ -3257,29 +3733,34 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     addedAt = nowIso(),
   }) {
     const now = nowIso();
-    const updateResult = await db.prepare(
-      `UPDATE poem_library_entries
+    const updateResult = await db
+      .prepare(
+        `UPDATE poem_library_entries
        SET origin = CASE WHEN origin = 'created' THEN origin ELSE ? END,
            share_token_id = COALESCE(?, share_token_id),
            added_at = CASE WHEN removed_at IS NOT NULL THEN ? ELSE added_at END,
            removed_at = NULL, updated_at = ?
-       WHERE user_id = ? AND poem_id = ?`
-    ).run(origin, shareTokenId, addedAt, now, userId, poemId);
+       WHERE user_id = ? AND poem_id = ?`,
+      )
+      .run(origin, shareTokenId, addedAt, now, userId, poemId);
 
     if (updateResult.changes > 0) {
       return;
     }
 
-    await db.prepare(
-      `INSERT INTO poem_library_entries
+    await db
+      .prepare(
+        `INSERT INTO poem_library_entries
        (user_id, poem_id, origin, share_token_id, added_at, removed_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, NULL, ?)`
-    ).run(userId, poemId, origin, shareTokenId, addedAt, now);
+       VALUES (?, ?, ?, ?, ?, NULL, ?)`,
+      )
+      .run(userId, poemId, origin, shareTokenId, addedAt, now);
   }
 
   async function getTrackForLibrary(userId, trackId) {
-    return db.prepare(
-      `SELECT t.*,
+    return db
+      .prepare(
+        `SELECT t.*,
               tle.origin AS library_origin,
               tle.added_at AS library_added_at,
               tle.share_token_id AS library_share_token_id,
@@ -3299,13 +3780,15 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         AND st.status NOT IN ('revoked', 'expired')
        WHERE t.id = ?
          AND t.deleted_at IS NULL
-         AND NOT (COALESCE(t.funding_source, 'standard') = 'gift_token' AND tle.origin = 'created')`
-    ).get(userId, userId, userId, trackId);
+         AND NOT (COALESCE(t.funding_source, 'standard') = 'gift_token' AND tle.origin = 'created')`,
+      )
+      .get(userId, userId, userId, trackId);
   }
 
   async function getPoemForLibrary(userId, poemId) {
-    return db.prepare(
-      `SELECT p.*,
+    return db
+      .prepare(
+        `SELECT p.*,
               ple.origin AS library_origin,
               ple.added_at AS library_added_at,
               ple.share_token_id AS library_share_token_id,
@@ -3319,8 +3802,9 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         AND ple.removed_at IS NULL
        WHERE p.id = ?
          AND p.deleted_at IS NULL
-         AND NOT (COALESCE(p.funding_source, 'standard') = 'gift_token' AND ple.origin = 'created')`
-    ).get(userId, userId, userId, poemId);
+         AND NOT (COALESCE(p.funding_source, 'standard') = 'gift_token' AND ple.origin = 'created')`,
+      )
+      .get(userId, userId, userId, poemId);
   }
 
   async function hydrateTrackCoverImages(trackRows) {
@@ -3328,7 +3812,9 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       return [];
     }
 
-    const trackIds = [...new Set(trackRows.map((row) => row?.id).filter(Boolean))];
+    const trackIds = [
+      ...new Set(trackRows.map((row) => row?.id).filter(Boolean)),
+    ];
     if (trackIds.length === 0) {
       return trackRows;
     }
@@ -3338,7 +3824,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const placeholders = trackIds.map(() => "?").join(",");
     const { rows: versions } = await db.query(
       `SELECT * FROM track_versions WHERE track_id IN (${placeholders})`,
-      trackIds
+      trackIds,
     );
 
     const byTrackVersion = new Map();
@@ -3353,9 +3839,16 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
 
       return {
         ...row,
-        cover_image_url: latestVersion?.cover_image_url ?? row.cover_image_url ?? null,
-        cover_image_small_url: latestVersion?.cover_image_small_url ?? row.cover_image_small_url ?? null,
-        cover_image_large_url: latestVersion?.cover_image_large_url ?? row.cover_image_large_url ?? null,
+        cover_image_url:
+          latestVersion?.cover_image_url ?? row.cover_image_url ?? null,
+        cover_image_small_url:
+          latestVersion?.cover_image_small_url ??
+          row.cover_image_small_url ??
+          null,
+        cover_image_large_url:
+          latestVersion?.cover_image_large_url ??
+          row.cover_image_large_url ??
+          null,
       };
     });
   }
@@ -3368,14 +3861,19 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     delete rest.story_context_json;
 
     // Construct share_url from share_token_id if a valid share exists
-    const hasShare = rest.share_token_id && rest.share_status && rest.share_status !== "revoked" && rest.share_status !== "expired";
+    const hasShare =
+      rest.share_token_id &&
+      rest.share_status &&
+      rest.share_status !== "revoked" &&
+      rest.share_status !== "expired";
     const result = {
       ...rest,
       can_edit: asBool(trackRow.can_edit),
       can_share: asBool(trackRow.can_share),
       can_delete: asBool(trackRow.can_delete),
       share_url: hasShare ? buildPlayShareUrl(rest.share_token_id) : null,
-      claim_pin: hasShare && asBool(trackRow.can_edit) ? rest.share_claim_pin : null,
+      claim_pin:
+        hasShare && asBool(trackRow.can_edit) ? rest.share_claim_pin : null,
       share_expires_at: hasShare ? rest.share_expires_at : null,
     };
     // Clean up internal join fields
@@ -3396,26 +3894,51 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     };
   }
 
-  async function retryFailedJob({ trackVersionId, workflowType, userId, track, trackVersion }) {
+  async function retryFailedJob({
+    trackVersionId,
+    workflowType,
+    userId,
+    track,
+    trackVersion,
+  }) {
     // 1. Idempotent: if there's already an active job, return it
-    const activeJob = await findActiveJobForVersion(trackVersionId, workflowType);
+    const activeJob = await findActiveJobForVersion(
+      trackVersionId,
+      workflowType,
+    );
     if (activeJob) {
       return { job: activeJob, created: false };
     }
 
     // 2. Find the failed/DLQ'd job for this track version
-    const failedJob = await findLatestFailedJobForVersion(trackVersionId, workflowType);
+    const failedJob = await findLatestFailedJobForVersion(
+      trackVersionId,
+      workflowType,
+    );
     if (!failedJob) {
       return null;
     }
 
     const { classifyError } = require("./utils/step-classification");
-    const classification = classifyError(failedJob.error_message, failedJob.error_code, failedJob.step);
+    const classification = classifyError(
+      failedJob.error_message,
+      failedJob.error_code,
+      failedJob.step,
+    );
 
-    if (classification.category === "policy_content" && classification.canAutoRewrite) {
+    if (
+      classification.category === "policy_content" &&
+      classification.canAutoRewrite
+    ) {
       const latestTrackVersion =
-        await db.prepare("SELECT * FROM track_versions WHERE id = ?").get(trackVersionId) || trackVersion;
-      const currentLyrics = parseJson(latestTrackVersion?.lyrics_json, null, "retry_failed_job_lyrics");
+        (await db
+          .prepare("SELECT * FROM track_versions WHERE id = ?")
+          .get(trackVersionId)) || trackVersion;
+      const currentLyrics = parseJson(
+        latestTrackVersion?.lyrics_json,
+        null,
+        "retry_failed_job_lyrics",
+      );
       const provider = deriveRetrySanitizerProvider({
         trackVersion: latestTrackVersion,
         classification,
@@ -3437,21 +3960,23 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         }
         if (sanitized.changed) {
           const now = nowIso();
-          const writeResult = await db.prepare(
-            `UPDATE track_versions
+          const writeResult = await db
+            .prepare(
+              `UPDATE track_versions
                 SET lyrics_json = ?, lyrics_updated_at = ?
               WHERE id = ?
                 AND (
                   (lyrics_updated_at IS NULL AND ? IS NULL)
                   OR lyrics_updated_at = ?
-                )`
-          ).run(
-            toJson(sanitized.lyrics),
-            now,
-            trackVersionId,
-            readTimestamp,
-            readTimestamp
-          );
+                )`,
+            )
+            .run(
+              toJson(sanitized.lyrics),
+              now,
+              trackVersionId,
+              readTimestamp,
+              readTimestamp,
+            );
           if (writeResult.changes > 0) {
             await addAuditEntry({
               userId,
@@ -3462,15 +3987,17 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
                 provider: sanitized.provider,
                 change_count: sanitized.change_count,
                 rewrite_passes: sanitized.rewrite_passes,
-                original_lyrics_hash: lyricsHashSha256(latestTrackVersion?.lyrics_json),
+                original_lyrics_hash: lyricsHashSha256(
+                  latestTrackVersion?.lyrics_json,
+                ),
               },
             });
             console.log(
-              `[retryFailedJob] Auto-sanitized lyrics for policy retry (${sanitized.change_count} changes, provider=${sanitized.provider})`
+              `[retryFailedJob] Auto-sanitized lyrics for policy retry (${sanitized.change_count} changes, provider=${sanitized.provider})`,
             );
           } else {
             console.log(
-              `[retryFailedJob] Skipped auto-sanitize write due to concurrent lyrics update (trackVersionId=${trackVersionId})`
+              `[retryFailedJob] Skipped auto-sanitize write due to concurrent lyrics update (trackVersionId=${trackVersionId})`,
             );
           }
         }
@@ -3485,26 +4012,32 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
 
     // 4. Reset job: re-queue with fresh attempts (status guard prevents race condition)
     const now = nowIso();
-    const resetResult = await db.prepare(
-      "UPDATE jobs SET status = 'queued', step = 'queued', step_index = 0, attempts = 0, error_code = NULL, error_message = NULL, progress_pct = 0, completed_at = NULL, next_attempt_at = NULL, locked_by = NULL, locked_at = NULL, updated_at = ? WHERE id = ? AND status IN ('failed', 'dead_letter', 'blocked')"
-    ).run(now, failedJob.id);
+    const resetResult = await db
+      .prepare(
+        "UPDATE jobs SET status = 'queued', step = 'queued', step_index = 0, attempts = 0, error_code = NULL, error_message = NULL, progress_pct = 0, completed_at = NULL, next_attempt_at = NULL, locked_by = NULL, locked_at = NULL, updated_at = ? WHERE id = ? AND status IN ('failed', 'dead_letter', 'blocked')",
+      )
+      .run(now, failedJob.id);
     if (resetResult.changes === 0) {
       // Job status changed between findLatestFailedJobForVersion and this UPDATE — race condition
       return { conflict: true };
     }
 
     // 5. Mark DLQ entry as reprocessed (if exists)
-    await db.prepare(
-      "UPDATE dead_letter_queue SET reprocessed_at = ?, reprocess_job_id = ? WHERE job_id = ? AND reprocessed_at IS NULL"
-    ).run(now, failedJob.id, failedJob.id);
+    await db
+      .prepare(
+        "UPDATE dead_letter_queue SET reprocessed_at = ?, reprocess_job_id = ? WHERE job_id = ? AND reprocessed_at IS NULL",
+      )
+      .run(now, failedJob.id, failedJob.id);
 
     // 6. Reset track_version and track status
-    await db.prepare(
-      "UPDATE track_versions SET status = 'processing' WHERE id = ?"
-    ).run(trackVersionId);
-    await db.prepare(
-      "UPDATE tracks SET status = 'rendering', updated_at = ? WHERE id = ?"
-    ).run(now, track.id);
+    await db
+      .prepare("UPDATE track_versions SET status = 'processing' WHERE id = ?")
+      .run(trackVersionId);
+    await db
+      .prepare(
+        "UPDATE tracks SET status = 'rendering', updated_at = ? WHERE id = ?",
+      )
+      .run(now, track.id);
 
     // 7. Audit trail
     await addAuditEntry({
@@ -3516,7 +4049,9 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     });
 
     // 8. Return the re-queued job
-    const job = await db.prepare("SELECT * FROM jobs WHERE id = ?").get(failedJob.id);
+    const job = await db
+      .prepare("SELECT * FROM jobs WHERE id = ?")
+      .get(failedJob.id);
     return { job, created: false };
   }
 
@@ -3594,9 +4129,11 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
 
     const healthChecker = createHealthCheckService({
       elevenlabsApiKey: process.env.ELEVENLABS_API_KEY,
-      elevenlabsBaseUrl: process.env.ELEVENLABS_BASE_URL || "https://api.elevenlabs.io",
+      elevenlabsBaseUrl:
+        process.env.ELEVENLABS_BASE_URL || "https://api.elevenlabs.io",
       replicateToken: process.env.REPLICATE_API_TOKEN,
-      replicateBaseUrl: process.env.REPLICATE_BASE_URL || "https://api.replicate.com",
+      replicateBaseUrl:
+        process.env.REPLICATE_BASE_URL || "https://api.replicate.com",
       timeoutMs: 5000,
     });
 
@@ -3625,7 +4162,9 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     if (!userId) {
       return;
     }
-    const job = await db.prepare("SELECT * FROM jobs WHERE id = ?").get(request.params.id);
+    const job = await db
+      .prepare("SELECT * FROM jobs WHERE id = ?")
+      .get(request.params.id);
     if (!job) {
       sendError(reply, 404, "JOB_NOT_FOUND", "Job not found.");
       return;
@@ -3634,10 +4173,17 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       .prepare("SELECT * FROM track_versions WHERE id = ?")
       .get(job.track_version_id);
     if (!trackVersion) {
-      sendError(reply, 404, "TRACK_VERSION_NOT_FOUND", "Track version not found.");
+      sendError(
+        reply,
+        404,
+        "TRACK_VERSION_NOT_FOUND",
+        "Track version not found.",
+      );
       return;
     }
-    const track = await db.prepare("SELECT * FROM tracks WHERE id = ?").get(trackVersion.track_id);
+    const track = await db
+      .prepare("SELECT * FROM tracks WHERE id = ?")
+      .get(trackVersion.track_id);
     if (!track || track.user_id !== userId || track.deleted_at) {
       sendError(reply, 403, "FORBIDDEN", "Job does not belong to this user.");
       return;
@@ -3658,36 +4204,67 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
 
     if (responseJob.status === "failed") {
       const rawErrorMessage = responseJob.error_message;
-      const failureHints = classifyRenderFailure(rawErrorMessage, responseJob.error_code, responseJob.step);
+      const failureHints = classifyRenderFailure(
+        rawErrorMessage,
+        responseJob.error_code,
+        responseJob.step,
+      );
       responseJob = {
         ...responseJob,
-        error_message: normalizeRenderFailureMessage(responseJob.error_message, responseJob.error_code),
-        error_terms: extractRenderPolicyTermsFromJob({
-          ...responseJob,
-          error_message: rawErrorMessage,
-        }, trackVersion.lyrics_json),
+        error_message: normalizeRenderFailureMessage(
+          responseJob.error_message,
+          responseJob.error_code,
+        ),
+        error_terms: extractRenderPolicyTermsFromJob(
+          {
+            ...responseJob,
+            error_message: rawErrorMessage,
+          },
+          trackVersion.lyrics_json,
+        ),
         ...failureHints,
       };
     }
 
-    if ((responseJob.status === "queued" || responseJob.status === "running") &&
-        (isTerminalTrackFailureStatus(track.status) || isTerminalTrackFailureStatus(trackVersion.status))) {
-      const latestFailedJob = await findLatestFailedJobForVersion(job.track_version_id, job.workflow_type);
-      const fallbackErrorCode = latestFailedJob?.error_code || responseJob.error_code || "RENDER_FAILED";
-      const fallbackErrorMessage = latestFailedJob?.error_message || responseJob.error_message;
+    if (
+      (responseJob.status === "queued" || responseJob.status === "running") &&
+      (isTerminalTrackFailureStatus(track.status) ||
+        isTerminalTrackFailureStatus(trackVersion.status))
+    ) {
+      const latestFailedJob = await findLatestFailedJobForVersion(
+        job.track_version_id,
+        job.workflow_type,
+      );
+      const fallbackErrorCode =
+        latestFailedJob?.error_code ||
+        responseJob.error_code ||
+        "RENDER_FAILED";
+      const fallbackErrorMessage =
+        latestFailedJob?.error_message || responseJob.error_message;
 
       responseJob = {
         ...responseJob,
         status: "failed",
         progress: 100,
         error_code: fallbackErrorCode,
-        error_message: normalizeRenderFailureMessage(fallbackErrorMessage, fallbackErrorCode),
-        error_terms: extractRenderPolicyTermsFromJob({
-          ...(latestFailedJob || {}),
-          error_message: fallbackErrorMessage,
-        }, trackVersion.lyrics_json),
-        completed_at: latestFailedJob?.completed_at || responseJob.completed_at || nowIso(),
-        ...classifyRenderFailure(fallbackErrorMessage, fallbackErrorCode, latestFailedJob?.step || responseJob.step),
+        error_message: normalizeRenderFailureMessage(
+          fallbackErrorMessage,
+          fallbackErrorCode,
+        ),
+        error_terms: extractRenderPolicyTermsFromJob(
+          {
+            ...(latestFailedJob || {}),
+            error_message: fallbackErrorMessage,
+          },
+          trackVersion.lyrics_json,
+        ),
+        completed_at:
+          latestFailedJob?.completed_at || responseJob.completed_at || nowIso(),
+        ...classifyRenderFailure(
+          fallbackErrorMessage,
+          fallbackErrorCode,
+          latestFailedJob?.step || responseJob.step,
+        ),
       };
     }
 
@@ -3701,10 +4278,17 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
   // Supports both .mp3 and .m4a formats
   // Helper: serve track audio from R2 (primary) or local disk (fallback for dev)
   // Proxies from R2 to avoid CORS issues with browser <audio> elements.
-  async function serveTrackAudio(request, reply, { track, trackVersion, s3Key, localFileName, contentType }) {
+  async function serveTrackAudio(
+    request,
+    reply,
+    { track, trackVersion, s3Key, localFileName, contentType },
+  ) {
     // R2 is the source of truth — proxy the response to avoid CORS issues
     if (storageProvider.type !== "local") {
-      const download = storageProvider.createPresignedDownload({ key: s3Key, expiresInSec: 300 });
+      const download = storageProvider.createPresignedDownload({
+        key: s3Key,
+        expiresInSec: 300,
+      });
       try {
         const fetchHeaders = {};
         if (request.headers.range) {
@@ -3712,23 +4296,42 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         }
         const r2Response = await fetch(download.url, { headers: fetchHeaders });
         if (!r2Response.ok && r2Response.status !== 206) {
-          sendError(reply, 404, "AUDIO_NOT_FOUND", "Audio file not found in storage.");
+          sendError(
+            reply,
+            404,
+            "AUDIO_NOT_FOUND",
+            "Audio file not found in storage.",
+          );
           return;
         }
         // Convert Web ReadableStream to Buffer for Fastify compatibility
         const buffer = Buffer.from(await r2Response.arrayBuffer());
         reply.status(r2Response.status);
-        reply.header("Content-Type", r2Response.headers.get("content-type") || contentType || "audio/mp4");
+        reply.header(
+          "Content-Type",
+          r2Response.headers.get("content-type") || contentType || "audio/mp4",
+        );
         reply.header("Content-Length", buffer.length);
         if (r2Response.headers.get("content-range")) {
-          reply.header("Content-Range", r2Response.headers.get("content-range"));
+          reply.header(
+            "Content-Range",
+            r2Response.headers.get("content-range"),
+          );
         }
         reply.header("Accept-Ranges", "bytes");
         reply.header("Cache-Control", "public, max-age=3600");
         reply.send(buffer);
       } catch (err) {
-        console.error(`[serveTrackAudio] R2 proxy failed for ${s3Key}:`, err.message);
-        sendError(reply, 502, "STORAGE_ERROR", "Failed to fetch audio from storage.");
+        console.error(
+          `[serveTrackAudio] R2 proxy failed for ${s3Key}:`,
+          err.message,
+        );
+        sendError(
+          reply,
+          502,
+          "STORAGE_ERROR",
+          "Failed to fetch audio from storage.",
+        );
       }
       return;
     }
@@ -3747,16 +4350,33 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       .prepare("SELECT * FROM track_versions WHERE id = ?")
       .get(request.params.trackVersionId);
     if (!trackVersion) {
-      sendError(reply, 404, "TRACK_VERSION_NOT_FOUND", "Track version not found.");
+      sendError(
+        reply,
+        404,
+        "TRACK_VERSION_NOT_FOUND",
+        "Track version not found.",
+      );
       return;
     }
-    const track = await db.prepare("SELECT * FROM tracks WHERE id = ?").get(trackVersion.track_id);
+    const track = await db
+      .prepare("SELECT * FROM tracks WHERE id = ?")
+      .get(trackVersion.track_id);
     if (!track || track.deleted_at) {
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;
     }
-    const key = trackPreviewKey({ userId: track.user_id, trackId: track.id, versionNum: trackVersion.version_num }).replace(/\.m4a$/, ".mp3");
-    await serveTrackAudio(request, reply, { track, trackVersion, s3Key: key, localFileName: "preview.mp3", contentType: "audio/mpeg" });
+    const key = trackPreviewKey({
+      userId: track.user_id,
+      trackId: track.id,
+      versionNum: trackVersion.version_num,
+    }).replace(/\.m4a$/, ".mp3");
+    await serveTrackAudio(request, reply, {
+      track,
+      trackVersion,
+      s3Key: key,
+      localFileName: "preview.mp3",
+      contentType: "audio/mpeg",
+    });
   });
 
   app.get("/preview/:trackVersionId.m4a", async (request, reply) => {
@@ -3764,16 +4384,32 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       .prepare("SELECT * FROM track_versions WHERE id = ?")
       .get(request.params.trackVersionId);
     if (!trackVersion) {
-      sendError(reply, 404, "TRACK_VERSION_NOT_FOUND", "Track version not found.");
+      sendError(
+        reply,
+        404,
+        "TRACK_VERSION_NOT_FOUND",
+        "Track version not found.",
+      );
       return;
     }
-    const track = await db.prepare("SELECT * FROM tracks WHERE id = ?").get(trackVersion.track_id);
+    const track = await db
+      .prepare("SELECT * FROM tracks WHERE id = ?")
+      .get(trackVersion.track_id);
     if (!track || track.deleted_at) {
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;
     }
-    const key = trackPreviewKey({ userId: track.user_id, trackId: track.id, versionNum: trackVersion.version_num });
-    await serveTrackAudio(request, reply, { track, trackVersion, s3Key: key, localFileName: "preview.m4a" });
+    const key = trackPreviewKey({
+      userId: track.user_id,
+      trackId: track.id,
+      versionNum: trackVersion.version_num,
+    });
+    await serveTrackAudio(request, reply, {
+      track,
+      trackVersion,
+      s3Key: key,
+      localFileName: "preview.m4a",
+    });
   });
 
   app.get("/full/:trackVersionId.m4a", async (request, reply) => {
@@ -3785,16 +4421,33 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       .prepare("SELECT * FROM track_versions WHERE id = ?")
       .get(request.params.trackVersionId);
     if (!trackVersion) {
-      sendError(reply, 404, "TRACK_VERSION_NOT_FOUND", "Track version not found.");
+      sendError(
+        reply,
+        404,
+        "TRACK_VERSION_NOT_FOUND",
+        "Track version not found.",
+      );
       return;
     }
-    const track = await db.prepare("SELECT * FROM tracks WHERE id = ?").get(trackVersion.track_id);
+    const track = await db
+      .prepare("SELECT * FROM tracks WHERE id = ?")
+      .get(trackVersion.track_id);
     if (!track || track.user_id !== userId || track.deleted_at) {
       sendError(reply, 403, "FORBIDDEN", "Track does not belong to this user.");
       return;
     }
-    const key = trackMasterKey({ userId: track.user_id, trackId: track.id, versionNum: trackVersion.version_num, format: "m4a" });
-    await serveTrackAudio(request, reply, { track, trackVersion, s3Key: key, localFileName: "full.m4a" });
+    const key = trackMasterKey({
+      userId: track.user_id,
+      trackId: track.id,
+      versionNum: trackVersion.version_num,
+      format: "m4a",
+    });
+    await serveTrackAudio(request, reply, {
+      track,
+      trackVersion,
+      s3Key: key,
+      localFileName: "full.m4a",
+    });
   });
 
   // Cover image serving - supports 256 and 1024 sizes
@@ -3809,10 +4462,17 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       .prepare("SELECT * FROM track_versions WHERE id = ?")
       .get(trackVersionId);
     if (!trackVersion) {
-      sendError(reply, 404, "TRACK_VERSION_NOT_FOUND", "Track version not found.");
+      sendError(
+        reply,
+        404,
+        "TRACK_VERSION_NOT_FOUND",
+        "Track version not found.",
+      );
       return;
     }
-    const track = await db.prepare("SELECT * FROM tracks WHERE id = ?").get(trackVersion.track_id);
+    const track = await db
+      .prepare("SELECT * FROM tracks WHERE id = ?")
+      .get(trackVersion.track_id);
     if (!track || track.deleted_at) {
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;
@@ -3822,7 +4482,11 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
     const shareToken = request.query.share_token;
     let authorized = false;
     if (shareToken) {
-      const share = await db.prepare("SELECT * FROM share_tokens WHERE id = ? AND status != 'revoked'").get(shareToken);
+      const share = await db
+        .prepare(
+          "SELECT * FROM share_tokens WHERE id = ? AND status != 'revoked'",
+        )
+        .get(shareToken);
       if (share && share.track_id === track.id) {
         authorized = true;
       }
@@ -3831,14 +4495,22 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       const userId = await requireUserId(request, reply);
       if (!userId) return;
       if (track.user_id !== userId) {
-        sendError(reply, 403, "FORBIDDEN", "Track does not belong to this user.");
+        sendError(
+          reply,
+          403,
+          "FORBIDDEN",
+          "Track does not belong to this user.",
+        );
         return;
       }
     }
 
     if (storageProvider.type !== "local") {
       const key = `${trackVersionKey({ userId: track.user_id, trackId: track.id, versionNum: trackVersion.version_num })}/cover_${size}.jpg`;
-      const download = storageProvider.createPresignedDownload({ key, expiresInSec: 300 });
+      const download = storageProvider.createPresignedDownload({
+        key,
+        expiresInSec: 300,
+      });
       reply.redirect(download.url);
       return;
     }
@@ -3867,7 +4539,9 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
       sendError(reply, 410, "TOKEN_EXPIRED", "Guide vocal token has expired.");
       return;
     }
-    const track = await db.prepare("SELECT * FROM tracks WHERE id = ?").get(trackVersion.track_id);
+    const track = await db
+      .prepare("SELECT * FROM tracks WHERE id = ?")
+      .get(trackVersion.track_id);
     if (!track || track.deleted_at) {
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;
@@ -3879,7 +4553,7 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
         ? ["guide_vocal_full.mp3", "guide_vocal_full.wav"]
         : ["guide_vocal.mp3", "guide_vocal.wav"];
     const fileName = candidates.find((name) =>
-      fs.existsSync(path.join(versionDir, name))
+      fs.existsSync(path.join(versionDir, name)),
     );
     if (!fileName) {
       sendError(reply, 404, "AUDIO_NOT_FOUND", "Guide vocal not found.");
@@ -4116,8 +4790,13 @@ function buildServer({ db, config: appConfig, storage, cdnSigner = null, billing
 }
 
 async function start() {
-  if (process.env.ALLOW_ANON_USER_ID === 'true' && process.env.NODE_ENV === 'production') {
-    throw new Error('ALLOW_ANON_USER_ID must not be enabled in production — it bypasses all authentication');
+  if (
+    process.env.ALLOW_ANON_USER_ID === "true" &&
+    process.env.NODE_ENV === "production"
+  ) {
+    throw new Error(
+      "ALLOW_ANON_USER_ID must not be enabled in production — it bypasses all authentication",
+    );
   }
   const db = await getDatabase({
     dbPath: config.DB_PATH,
@@ -4164,9 +4843,13 @@ async function start() {
     // Hugging Face token for Seed-VC (personalized voice mode)
     hfToken: config.HF_TOKEN || null,
   };
-  console.log(`[Server] HF_TOKEN configured: ${providerConfig.hfToken ? "YES" : "NO"}`);
+  console.log(
+    `[Server] HF_TOKEN configured: ${providerConfig.hfToken ? "YES" : "NO"}`,
+  );
   if (config.DEV_MODE) {
-    console.log("[Server] DEV_MODE enabled - all providers disabled, using placeholders");
+    console.log(
+      "[Server] DEV_MODE enabled - all providers disabled, using placeholders",
+    );
   }
   const providerStatus = {
     elevenlabs: providerConfig.elevenlabs.live,
@@ -4179,7 +4862,9 @@ async function start() {
     ...config,
     STREAM_BASE_URL: config.STREAM_BASE_URL,
   });
-  console.log(`[Storage] Provider: ${storage.type}${storage.type === 's3' ? ' (R2/S3)' : ' (local filesystem)'}`);
+  console.log(
+    `[Storage] Provider: ${storage.type}${storage.type === "s3" ? " (R2/S3)" : " (local filesystem)"}`,
+  );
   // db.save() is SQLite-specific (WAL flush); skip on PostgreSQL where it is a no-op stub
   const saveTimer = db.save ? setInterval(() => db.save(), 2000) : null;
   // Start file cleanup job for expired enrollment sessions
@@ -4192,19 +4877,39 @@ async function start() {
   });
   const cleanupTimer = setInterval(async () => {
     const now = nowIso();
-    await db.prepare(
-      "UPDATE enrollment_sessions SET status = 'expired' WHERE status NOT IN ('completed','failed_quality','failed_verification') AND expires_at < ?"
-    ).run(now);
-    await db.prepare(
-      "UPDATE share_tokens SET status = 'expired' WHERE status NOT IN ('revoked','expired') AND share_type != 'demo' AND expires_at < ?"
-    ).run(now);
+    await db
+      .prepare(
+        "UPDATE enrollment_sessions SET status = 'expired' WHERE status NOT IN ('completed','failed_quality','failed_verification') AND expires_at < ?",
+      )
+      .run(now);
+    await db
+      .prepare(
+        "UPDATE share_tokens SET status = 'expired' WHERE status NOT IN ('revoked','expired') AND share_type != 'demo' AND expires_at < ?",
+      )
+      .run(now);
   }, config.CLEANUP_INTERVAL_MS);
 
   const startupEventsService = createEventsService(db);
-  async function addStartupAuditEntry({ userId, action, resourceType, resourceId, metadata }) {
-    await db.prepare(
-      "INSERT INTO audit_logs (id, user_id, action, resource_type, resource_id, metadata_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
-    ).run(newUuid(), userId || null, action, resourceType, resourceId || null, toJson(metadata || {}), nowIso());
+  async function addStartupAuditEntry({
+    userId,
+    action,
+    resourceType,
+    resourceId,
+    metadata,
+  }) {
+    await db
+      .prepare(
+        "INSERT INTO audit_logs (id, user_id, action, resource_type, resource_id, metadata_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      )
+      .run(
+        newUuid(),
+        userId || null,
+        action,
+        resourceType,
+        resourceId || null,
+        toJson(metadata || {}),
+        nowIso(),
+      );
   }
 
   // Validate Apple refresh tokens once per day (best practice for persistent sessions)
@@ -4212,7 +4917,9 @@ async function start() {
   setInterval(async () => {
     try {
       const rows = await db
-        .prepare("SELECT id, user_id, provider_data FROM user_auth_providers WHERE provider = 'apple' AND provider_data IS NOT NULL")
+        .prepare(
+          "SELECT id, user_id, provider_data FROM user_auth_providers WHERE provider = 'apple' AND provider_data IS NOT NULL",
+        )
         .all();
       const now = nowIso();
       for (const row of rows) {
@@ -4228,7 +4935,10 @@ async function start() {
         const lastValidated = providerData.apple_last_validated_at;
         if (lastValidated) {
           const last = Date.parse(lastValidated);
-          if (!Number.isNaN(last) && Date.now() - last < appleValidationIntervalMs) {
+          if (
+            !Number.isNaN(last) &&
+            Date.now() - last < appleValidationIntervalMs
+          ) {
             continue;
           }
         }
@@ -4242,7 +4952,9 @@ async function start() {
           }
           providerData.apple_last_validated_at = now;
           await db
-            .prepare("UPDATE user_auth_providers SET provider_data = ? WHERE id = ?")
+            .prepare(
+              "UPDATE user_auth_providers SET provider_data = ? WHERE id = ?",
+            )
             .run(JSON.stringify(providerData), row.id);
 
           await addStartupAuditEntry({
@@ -4266,11 +4978,17 @@ async function start() {
             });
           }
         } catch (err) {
-          console.warn("[AppleSignIn] Refresh token validation failed:", err.message);
+          console.warn(
+            "[AppleSignIn] Refresh token validation failed:",
+            err.message,
+          );
           providerData.apple_refresh_invalid_at = now;
-          providerData.apple_refresh_error = err.code || "APPLE_REFRESH_TOKEN_FAILED";
+          providerData.apple_refresh_error =
+            err.code || "APPLE_REFRESH_TOKEN_FAILED";
           await db
-            .prepare("UPDATE user_auth_providers SET provider_data = ? WHERE id = ?")
+            .prepare(
+              "UPDATE user_auth_providers SET provider_data = ? WHERE id = ?",
+            )
             .run(JSON.stringify(providerData), row.id);
 
           await addStartupAuditEntry({
@@ -4297,7 +5015,10 @@ async function start() {
         }
       }
     } catch (err) {
-      console.error("[AppleSignIn] Daily refresh token validation failed:", err.message);
+      console.error(
+        "[AppleSignIn] Daily refresh token validation failed:",
+        err.message,
+      );
     }
   }, appleValidationIntervalMs);
 
@@ -4324,9 +5045,20 @@ async function start() {
     appleValidator,
     planConfigService,
   });
-  const billingServices = { planConfigService, appleValidator, googleValidator, subscriptionManager, appleWebhookHandler };
+  const billingServices = {
+    planConfigService,
+    appleValidator,
+    googleValidator,
+    subscriptionManager,
+    appleWebhookHandler,
+  };
 
-  const app = buildServer({ db, config: { ...config, providerStatus }, storage, billingServices });
+  const app = buildServer({
+    db,
+    config: { ...config, providerStatus },
+    storage,
+    billingServices,
+  });
   app.log.info({ providers: providerStatus }, "provider status");
   let jobRunner;
   if (config.INLINE_JOB_RUNNER) {
@@ -4367,11 +5099,14 @@ async function start() {
     intervalMs: 24 * 60 * 60 * 1000, // 24 hours
   });
 
-  const giftReservationExpiryTimer = setInterval(() => {
-    app.expireGiftReservations({ limit: 50 }).catch((err) => {
-      app.log.error(err, "Gift reservation expiry sweep failed");
-    });
-  }, config.GIFT_RESERVATION_SWEEP_INTERVAL_MS || 60 * 1000);
+  const giftReservationExpiryTimer = setInterval(
+    () => {
+      app.expireGiftReservations({ limit: 50 }).catch((err) => {
+        app.log.error(err, "Gift reservation expiry sweep failed");
+      });
+    },
+    config.GIFT_RESERVATION_SWEEP_INTERVAL_MS || 60 * 1000,
+  );
 
   app.expireGiftReservations({ limit: 50 }).catch((err) => {
     app.log.error(err, "Initial gift reservation expiry sweep failed");

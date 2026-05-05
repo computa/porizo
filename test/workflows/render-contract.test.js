@@ -6,6 +6,7 @@ const {
   resolveRenderContract,
   getProviderAudioUrl,
   extractProviderAudioUrl,
+  isProviderCompleteAudioPipeline,
   sanitizeProviderRoutingForContract,
   sanitizeLyricsForAllMusicProviders,
   shouldSkipStep,
@@ -21,6 +22,8 @@ describe("render contract helpers", () => {
         pipeline: "provider_complete_audio",
         fallback_allowed_until_step: "instrumental",
         voice_conversion_provider: null,
+        user_voice_engine: null,
+        voice_provider_profile_id: null,
       }
     );
 
@@ -28,6 +31,17 @@ describe("render contract helpers", () => {
       buildRenderContract({ provider: "suno", voiceMode: "user_voice" }).pipeline,
       "provider_audio_personalized_convert"
     );
+
+    const personaContract = buildRenderContract({
+      provider: "suno",
+      voiceMode: "user_voice",
+      voiceConversionProvider: "seedvc",
+      userVoiceEngine: "suno_voice_persona",
+      voiceProviderProfileId: "vpp_123",
+    });
+    assert.equal(personaContract.pipeline, "suno_voice_persona_complete_audio");
+    assert.equal(personaContract.user_voice_engine, "suno_voice_persona");
+    assert.equal(personaContract.voice_provider_profile_id, "vpp_123");
 
     assert.equal(
       buildRenderContract({ provider: "elevenlabs", voiceMode: "user_voice" }).pipeline,
@@ -50,6 +64,8 @@ describe("render contract helpers", () => {
     assert.equal(fromExisting.voice_mode, "user_voice");
     assert.equal(fromExisting.provider_locked, "suno");
     assert.equal(fromExisting.pipeline, "provider_audio_personalized_convert");
+    assert.equal(fromExisting.user_voice_engine, null);
+    assert.equal(fromExisting.voice_provider_profile_id, null);
 
     const built = resolveRenderContract({
       track: { voice_mode: "personalized" },
@@ -151,6 +167,12 @@ describe("render contract helpers", () => {
     assert.equal(shouldSkipStep("voice_convert", "provider_complete_audio"), true);
     assert.equal(shouldSkipStep("voice_convert_sections", "provider_complete_audio"), true);
     assert.equal(shouldSkipStep("mix", "provider_complete_audio"), false);
+
+    // Suno voice persona is provider-complete personalized audio and skips local conversion
+    assert.equal(shouldSkipStep("guide_vocal", "suno_voice_persona_complete_audio"), true);
+    assert.equal(shouldSkipStep("voice_convert", "suno_voice_persona_complete_audio"), true);
+    assert.equal(shouldSkipStep("voice_convert_sections", "suno_voice_persona_complete_audio"), true);
+    assert.equal(isProviderCompleteAudioPipeline("suno_voice_persona_complete_audio"), true);
 
     // provider_audio_personalized_convert skips guide_vocal only
     assert.equal(shouldSkipStep("guide_vocal", "provider_audio_personalized_convert"), true);

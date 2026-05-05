@@ -5,11 +5,36 @@ const { promisify } = require("util");
 const { fetchJson, ensureDir } = require("./http");
 const { pollWithBackoff, createPollingConfig } = require("../utils/polling");
 const { normalizeStyle, getStyle } = require("./style-registry");
+const config = require("../config");
 const execFileAsync = promisify(execFile);
+
+// U1: Resolves the Suno callback URL.
+// Order: explicit config.SUNO_CALLBACK_URL → derived from PUBLIC_BASE_URL.
+// Never falls back to a public service (httpbin or otherwise).
+// See src/routes/internal-suno-callback.js for the receiving endpoint.
+function resolveSunoCallbackUrl() {
+  if (
+    typeof config.SUNO_CALLBACK_URL === "string" &&
+    config.SUNO_CALLBACK_URL.trim()
+  ) {
+    return config.SUNO_CALLBACK_URL.trim();
+  }
+  const base = (config.PUBLIC_BASE_URL || "").replace(/\/+$/, "");
+  if (!base) {
+    throw new Error(
+      "E302_SUNO_CALLBACK_NOT_CONFIGURED: SUNO_CALLBACK_URL or PUBLIC_BASE_URL must be set",
+    );
+  }
+  return `${base}/internal/suno/callback`;
+}
 
 const MERGED_TENS_WORD_REGEX =
   /\b(twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)[\s-]?(one|two|three|four|five|six|seven|eight|nine)\b/gi;
-const POLICY_ERROR_PATTERNS = ["producer tag", "specific artists", "sensitive_word_error"];
+const POLICY_ERROR_PATTERNS = [
+  "producer tag",
+  "specific artists",
+  "sensitive_word_error",
+];
 const SUNO_AUDIO_SUCCESS_STATUSES = new Set([
   "AUDIO_SUCCESS",
   "SUCCESS",
@@ -18,7 +43,10 @@ const SUNO_AUDIO_SUCCESS_STATUSES = new Set([
   "MEDIA_SUCCESS",
   "RENDER_SUCCESS",
 ]);
-const SUNO_PROVISIONAL_SUCCESS_STATUSES = new Set(["TEXT_SUCCESS", "LYRICS_SUCCESS"]);
+const SUNO_PROVISIONAL_SUCCESS_STATUSES = new Set([
+  "TEXT_SUCCESS",
+  "LYRICS_SUCCESS",
+]);
 const SUNO_FAILED_STATUSES = new Set(["FAILED", "ERROR"]);
 const SUNO_MODELS = Object.freeze(["V4_5", "V5", "V5_5"]);
 
@@ -26,7 +54,10 @@ function normalizeSunoModel(model) {
   if (typeof model !== "string") {
     return "V5";
   }
-  const normalized = model.trim().toUpperCase().replace(/[.\-\s]+/g, "_");
+  const normalized = model
+    .trim()
+    .toUpperCase()
+    .replace(/[.\-\s]+/g, "_");
   if (normalized === "V45") return "V4_5";
   if (normalized === "V55") return "V5_5";
   return SUNO_MODELS.includes(normalized) ? normalized : "V5";
@@ -39,18 +70,65 @@ function normalizeSunoStatus(status) {
   return status.trim().toUpperCase();
 }
 
+function normalizeSunoPersona(persona) {
+  if (!persona || typeof persona !== "object") {
+    return null;
+  }
+  const rawPersonaId =
+    persona.personaId ||
+    persona.persona_id ||
+    persona.providerPersonaId ||
+    persona.provider_persona_id ||
+    persona.provider_profile_id;
+  if (typeof rawPersonaId !== "string" || !rawPersonaId.trim()) {
+    return null;
+  }
+  const rawPersonaModel =
+    persona.personaModel || persona.persona_model || "voice_persona";
+  const personaModel =
+    typeof rawPersonaModel === "string" && rawPersonaModel.trim()
+      ? rawPersonaModel.trim()
+      : "voice_persona";
+  return {
+    personaId: rawPersonaId.trim(),
+    personaModel,
+    audioWeight: normalizeSunoAudioWeight(
+      persona.audioWeight ?? persona.audio_weight,
+    ),
+  };
+}
+
+function normalizeSunoAudioWeight(value, fallback = null) {
+  if (value == null && fallback == null) {
+    return null;
+  }
+  const numeric = Number(value ?? fallback);
+  if (!Number.isFinite(numeric)) {
+    return fallback == null ? null : normalizeSunoAudioWeight(fallback, null);
+  }
+  const clamped = Math.max(0, Math.min(1, numeric));
+  return Math.round(clamped * 100) / 100;
+}
+
 function classifySunoStatus(status) {
   const normalized = normalizeSunoStatus(status);
   if (!normalized) {
     return { phase: "pending", status: normalized };
   }
-  if (SUNO_FAILED_STATUSES.has(normalized) || normalized.endsWith("_ERROR") || normalized.endsWith("_FAILED")) {
+  if (
+    SUNO_FAILED_STATUSES.has(normalized) ||
+    normalized.endsWith("_ERROR") ||
+    normalized.endsWith("_FAILED")
+  ) {
     return { phase: "failed", status: normalized };
   }
   if (SUNO_AUDIO_SUCCESS_STATUSES.has(normalized)) {
     return { phase: "audio_success", status: normalized };
   }
-  if (SUNO_PROVISIONAL_SUCCESS_STATUSES.has(normalized) || normalized.endsWith("SUCCESS")) {
+  if (
+    SUNO_PROVISIONAL_SUCCESS_STATUSES.has(normalized) ||
+    normalized.endsWith("SUCCESS")
+  ) {
     return { phase: "provisional_success", status: normalized };
   }
   return { phase: "pending", status: normalized };
@@ -85,20 +163,20 @@ function logSunoCreditUsage(taskId, response) {
 }
 
 function summarizeForLog(value, maxLen = 120) {
-  const text = String(value || "").replace(/\s+/g, " ").trim();
+  const text = String(value || "")
+    .replace(/\s+/g, " ")
+    .trim();
   if (text.length <= maxLen) {
     return text;
   }
   return `${text.slice(0, maxLen - 1)}…`;
 }
 
-
 function isSunoPolicyError(rawMessage) {
   if (!rawMessage) return false;
   const message = String(rawMessage).toLowerCase();
   return POLICY_ERROR_PATTERNS.some((pattern) => message.includes(pattern));
 }
-
 
 /**
  * Build a rich style descriptor for Suno's `style` field from registry data.
@@ -126,14 +204,24 @@ function resolveSunoNegativeTags(styleDef, musicPlan) {
 function resolveSunoConsistencyParams(styleDef) {
   const support = styleDef.suno?.support || "unknown";
   switch (support) {
-    case "strong":  return { styleWeight: 0.65, weirdnessConstraint: 0.50 };
-    case "medium":  return { styleWeight: 0.80, weirdnessConstraint: 0.30 };
-    case "weak":    return { styleWeight: 0.90, weirdnessConstraint: 0.15 };
-    default:        return { styleWeight: 0.75, weirdnessConstraint: 0.35 };
+    case "strong":
+      return { styleWeight: 0.65, weirdnessConstraint: 0.5 };
+    case "medium":
+      return { styleWeight: 0.8, weirdnessConstraint: 0.3 };
+    case "weak":
+      return { styleWeight: 0.9, weirdnessConstraint: 0.15 };
+    default:
+      return { styleWeight: 0.75, weirdnessConstraint: 0.35 };
   }
 }
 
-function buildSunoStyleField(styleDef, normalized, musicPlan, voiceGender, maxLen = 500) {
+function buildSunoStyleField(
+  styleDef,
+  normalized,
+  musicPlan,
+  voiceGender,
+  maxLen = 500,
+) {
   const providerHint =
     musicPlan?.provider_style_hint ||
     styleDef.suno?.hint ||
@@ -158,7 +246,10 @@ function buildSunoStyleField(styleDef, normalized, musicPlan, voiceGender, maxLe
 
   // For weak/medium-support genres, inject rhythmic_signature to anchor the groove
   const support = styleDef.suno?.support || "unknown";
-  if ((support === "weak" || support === "medium") && styleDef.rhythmic_signature) {
+  if (
+    (support === "weak" || support === "medium") &&
+    styleDef.rhythmic_signature
+  ) {
     parts.push(styleDef.rhythmic_signature);
   }
 
@@ -186,30 +277,48 @@ function buildSunoStyleField(styleDef, normalized, musicPlan, voiceGender, maxLe
  * @param {object} options.musicPlan - Music plan with style, duration
  * @param {object} options.track - Track metadata
  * @param {boolean} [options.instrumental] - Generate instrumental only
+ * @param {object|null} [options.sunoPersona] - Optional Suno persona routing.
  * @returns {object} Suno API payload
  */
-function buildSunoPayload({ lyrics, musicPlan, track, instrumental, sunoModel }) {
+function buildSunoPayload({
+  lyrics,
+  musicPlan,
+  track,
+  instrumental,
+  sunoModel,
+  sunoPersona,
+}) {
   const styleKey = (musicPlan && musicPlan.style) || "pop";
   // Single style resolution — all helpers receive pre-resolved styleDef
   const normalized = normalizeStyle(styleKey) || "pop";
   const styleDef = getStyle(normalized);
   const voiceGender = musicPlan?.voice_gender || track?.voice_gender || null;
 
-  const style = buildSunoStyleField(styleDef, normalized, musicPlan, voiceGender);
+  const style = buildSunoStyleField(
+    styleDef,
+    normalized,
+    musicPlan,
+    voiceGender,
+  );
 
   // Build prompt from lyrics with vocal metatag at the top
   let prompt = "";
 
   // Inject vocal gender metatag — placed at top of lyrics for whole-song effect
-  const vocalTag = voiceGender === "male" ? "[Male Vocal]\n"
-    : voiceGender === "female" ? "[Female Vocal]\n"
-    : "";
+  const vocalTag =
+    voiceGender === "male"
+      ? "[Male Vocal]\n"
+      : voiceGender === "female"
+        ? "[Female Vocal]\n"
+        : "";
 
   if (lyrics && lyrics.sections && lyrics.sections.length > 0) {
     const formattedSections = lyrics.sections.map((section) => {
       const sectionHeader = section.name ? `[${section.name}]` : "";
       const lines = section.lines
-        ? section.lines.map(l => typeof l === "string" ? l : (l && l.text) || "").join("\n")
+        ? section.lines
+            .map((l) => (typeof l === "string" ? l : (l && l.text) || ""))
+            .join("\n")
         : "";
       return sectionHeader ? `${sectionHeader}\n${lines}` : lines;
     });
@@ -222,13 +331,18 @@ function buildSunoPayload({ lyrics, musicPlan, track, instrumental, sunoModel })
     prompt = vocalTag + (parts.join(" - ") || "Generate a song");
   }
 
-  const titleSource = (lyrics && lyrics.title) || (track && track.title) || "Untitled";
-  const title = titleSource.replace(MERGED_TENS_WORD_REGEX, (_, tens, ones) => `${tens} ${ones}`);
+  const titleSource =
+    (lyrics && lyrics.title) || (track && track.title) || "Untitled";
+  const title = titleSource.replace(
+    MERGED_TENS_WORD_REGEX,
+    (_, tens, ones) => `${tens} ${ones}`,
+  );
 
   const negativeTags = resolveSunoNegativeTags(styleDef, musicPlan);
   const consistencyParams = resolveSunoConsistencyParams(styleDef);
+  const persona = normalizeSunoPersona(sunoPersona);
 
-  return {
+  const payload = {
     model: normalizeSunoModel(sunoModel),
     prompt,
     title,
@@ -237,6 +351,14 @@ function buildSunoPayload({ lyrics, musicPlan, track, instrumental, sunoModel })
     negativeTags,
     ...consistencyParams,
   };
+  if (persona) {
+    payload.personaId = persona.personaId;
+    payload.personaModel = persona.personaModel;
+    if (persona.audioWeight != null) {
+      payload.audioWeight = persona.audioWeight;
+    }
+  }
+  return payload;
 }
 
 /**
@@ -264,10 +386,14 @@ function validateSunoInput({ apiKey, baseUrl, track, trackVersion }) {
     throw new Error("E302_SUNO_ERROR: Base URL is required");
   }
   if (!track || !track.user_id || !track.id) {
-    throw new Error("E302_SUNO_ERROR: Valid track with user_id and id required");
+    throw new Error(
+      "E302_SUNO_ERROR: Valid track with user_id and id required",
+    );
   }
   if (trackVersion && !trackVersion.version_num) {
-    throw new Error("E302_SUNO_ERROR: Valid trackVersion with version_num required");
+    throw new Error(
+      "E302_SUNO_ERROR: Valid trackVersion with version_num required",
+    );
   }
 }
 
@@ -280,9 +406,17 @@ async function submitSunoTask({
   timeoutMs,
   onTaskId,
   sunoModel,
+  sunoPersona,
+  fetchJsonFn = fetchJson,
 }) {
   validateSunoInput({ apiKey, baseUrl, track });
-  const internalPayload = buildSunoPayload({ lyrics, musicPlan, track, sunoModel });
+  const internalPayload = buildSunoPayload({
+    lyrics,
+    musicPlan,
+    track,
+    sunoModel,
+    sunoPersona,
+  });
   const apiPayload = {
     customMode: true,
     instrumental: internalPayload.instrumental,
@@ -290,12 +424,20 @@ async function submitSunoTask({
     prompt: internalPayload.prompt,
     style: internalPayload.style,
     title: internalPayload.title,
-    // Use httpbin as dummy callback - we poll for status instead
-    callBackUrl: "https://httpbin.org/post",
+    // U1: Callback URL resolved from config (no httpbin fallback). We poll for
+    // status; the callback endpoint is a stub that returns 200 (HMAC-verified).
+    callBackUrl: resolveSunoCallbackUrl(),
   };
+  if (internalPayload.personaId) {
+    apiPayload.personaId = internalPayload.personaId;
+    apiPayload.personaModel = internalPayload.personaModel || "voice_persona";
+    if (internalPayload.audioWeight != null) {
+      apiPayload.audioWeight = internalPayload.audioWeight;
+    }
+  }
   // Suno V4.5 consistency controls — sent as separate params, not inside style text
   if (internalPayload.negativeTags) {
-    apiPayload.negative_tags = internalPayload.negativeTags;
+    apiPayload.negativeTags = internalPayload.negativeTags;
   }
   if (internalPayload.styleWeight != null) {
     apiPayload.styleWeight = internalPayload.styleWeight;
@@ -306,9 +448,9 @@ async function submitSunoTask({
 
   const submitUrl = `${baseUrl}/api/v1/generate`;
   console.log(
-    `[Suno] Submitting to ${submitUrl} model=${apiPayload.model} style=${musicPlan?.style || "unknown"} title="${summarizeForLog(apiPayload.title, 80)}" instrumental=${apiPayload.instrumental} promptChars=${apiPayload.prompt.length} styleChars=${apiPayload.style.length}`
+    `[Suno] Submitting to ${submitUrl} model=${apiPayload.model} style=${musicPlan?.style || "unknown"} title="${summarizeForLog(apiPayload.title, 80)}" instrumental=${apiPayload.instrumental} persona=${apiPayload.personaId ? apiPayload.personaModel || "voice_persona" : "none"} promptChars=${apiPayload.prompt.length} styleChars=${apiPayload.style.length}`,
   );
-  const submitResponse = await fetchJson(
+  const submitResponse = await fetchJsonFn(
     submitUrl,
     {
       method: "POST",
@@ -318,7 +460,7 @@ async function submitSunoTask({
       },
       body: JSON.stringify(apiPayload),
     },
-    timeoutMs
+    timeoutMs,
   );
   if (submitResponse.code !== 200) {
     throw new Error(`E302_SUNO_ERROR: API error - ${submitResponse.msg}`);
@@ -332,13 +474,22 @@ async function submitSunoTask({
     try {
       onTaskId(taskId);
     } catch (err) {
-      console.warn(`[Suno] Failed to persist task id ${taskId}:`, err.message || err);
+      console.warn(
+        `[Suno] Failed to persist task id ${taskId}:`,
+        err.message || err,
+      );
     }
   }
   return taskId;
 }
 
-async function pollSunoTaskOnce({ baseUrl, apiKey, taskId, timeoutMs, onHeartbeat }) {
+async function pollSunoTaskOnce({
+  baseUrl,
+  apiKey,
+  taskId,
+  timeoutMs,
+  onHeartbeat,
+}) {
   if (typeof onHeartbeat === "function") {
     onHeartbeat();
   }
@@ -351,7 +502,7 @@ async function pollSunoTaskOnce({ baseUrl, apiKey, taskId, timeoutMs, onHeartbea
         authorization: `Bearer ${apiKey}`,
       },
     },
-    timeoutMs
+    timeoutMs,
   );
   if (typeof onHeartbeat === "function") {
     onHeartbeat();
@@ -453,10 +604,13 @@ function extractSunoTrack(statusResponse, status = null) {
   const readiness = inspectSunoAudioReadiness(statusResponse);
   if (!readiness.ready) {
     const statusLabel = status || statusResponse?.data?.status || "unknown";
-    const detail = readiness.reason === "no_audio_data"
-      ? "No audio data in response"
-      : "No audio URL in response";
-    throw new Error(`E302_SUNO_INCOMPLETE_OUTPUT: status=${statusLabel}, ${detail}`);
+    const detail =
+      readiness.reason === "no_audio_data"
+        ? "No audio data in response"
+        : "No audio URL in response";
+    throw new Error(
+      `E302_SUNO_INCOMPLETE_OUTPUT: status=${statusLabel}, ${detail}`,
+    );
   }
 
   return {
@@ -466,10 +620,16 @@ function extractSunoTrack(statusResponse, status = null) {
   };
 }
 
-async function downloadSunoAudio({ storageDir, track, trackVersion, kind, statusResponse }) {
+async function downloadSunoAudio({
+  storageDir,
+  track,
+  trackVersion,
+  kind,
+  statusResponse,
+}) {
   const { sunoData, firstTrack, audioUrl } = extractSunoTrack(
     statusResponse,
-    statusResponse?.data?.status || null
+    statusResponse?.data?.status || null,
   );
   console.log(`[Suno] Downloading audio from: ${audioUrl}`);
 
@@ -478,13 +638,15 @@ async function downloadSunoAudio({ storageDir, track, trackVersion, kind, status
     "tracks",
     track.user_id,
     track.id,
-    `v${trackVersion.version_num}`
+    `v${trackVersion.version_num}`,
   );
   ensureDir(versionDir);
 
   const audioResponse = await fetch(audioUrl);
   if (!audioResponse.ok) {
-    throw new Error(`E302_SUNO_ERROR: Failed to download audio - ${audioResponse.status}`);
+    throw new Error(
+      `E302_SUNO_ERROR: Failed to download audio - ${audioResponse.status}`,
+    );
   }
   const audioBuffer = Buffer.from(await audioResponse.arrayBuffer());
   const instName = kind === "preview" ? "inst_preview.mp3" : "inst_full.mp3";
@@ -502,13 +664,13 @@ async function downloadSunoAudio({ storageDir, track, trackVersion, kind, status
       : "unknown";
     const codecLabel = validation.codecName || "unknown";
     throw new Error(
-      `E302_SUNO_AUDIO_NOT_READY: status=${statusLabel}, reason=${validation.reason}, duration=${durationLabel}s, codec=${codecLabel}`
+      `E302_SUNO_AUDIO_NOT_READY: status=${statusLabel}, reason=${validation.reason}, duration=${durationLabel}s, codec=${codecLabel}`,
     );
   }
 
   console.log(`[Suno] Saved ${audioBuffer.length} bytes to ${instName}`);
   console.log(
-    `[Suno] Duration: ${validation.durationSec ?? firstTrack.duration}s, Codec: ${validation.codecName}, Model: ${firstTrack.modelName}`
+    `[Suno] Duration: ${validation.durationSec ?? firstTrack.duration}s, Codec: ${validation.codecName}, Model: ${firstTrack.modelName}`,
   );
 
   return {
@@ -518,7 +680,9 @@ async function downloadSunoAudio({ storageDir, track, trackVersion, kind, status
       audio_url: audioUrl,
       guide_vocal_url: audioUrl,
       instrumental_url: audioUrl,
-      duration: Number.isFinite(validation.durationSec) ? validation.durationSec : firstTrack.duration,
+      duration: Number.isFinite(validation.durationSec)
+        ? validation.durationSec
+        : firstTrack.duration,
       model: firstTrack.modelName,
       alt_audio_url: sunoData[1]?.sourceAudioUrl || sunoData[1]?.audioUrl,
       status: statusLabel,
@@ -552,11 +716,19 @@ async function probeAudioMetadata(filePath) {
     const audioStreams = Array.isArray(parsed?.streams)
       ? parsed.streams.filter((stream) => stream?.codec_type === "audio")
       : [];
-    const codecName = audioStreams
-      .map((stream) => (typeof stream?.codec_name === "string" ? stream.codec_name.trim() : ""))
-      .find(Boolean) || null;
+    const codecName =
+      audioStreams
+        .map((stream) =>
+          typeof stream?.codec_name === "string"
+            ? stream.codec_name.trim()
+            : "",
+        )
+        .find(Boolean) || null;
     const formatDuration = Number(parsed?.format?.duration);
-    let durationSec = Number.isFinite(formatDuration) && formatDuration > 0 ? formatDuration : null;
+    let durationSec =
+      Number.isFinite(formatDuration) && formatDuration > 0
+        ? formatDuration
+        : null;
     if (!durationSec) {
       const streamDurations = audioStreams
         .map((stream) => Number(stream?.duration))
@@ -595,15 +767,30 @@ async function validateDownloadedSunoAudio({ filePath, kind }) {
   }
   const durationSec = metadata.durationSec;
   if (!Number.isFinite(durationSec) || durationSec <= 0) {
-    return { ready: false, reason: "duration_unknown", durationSec: null, codecName: metadata.codecName };
+    return {
+      ready: false,
+      reason: "duration_unknown",
+      durationSec: null,
+      codecName: metadata.codecName,
+    };
   }
 
   const minDurationSec = kind === "preview" ? 8 : 24;
   if (durationSec < minDurationSec) {
-    return { ready: false, reason: "duration_too_short", durationSec, codecName: metadata.codecName };
+    return {
+      ready: false,
+      reason: "duration_too_short",
+      durationSec,
+      codecName: metadata.codecName,
+    };
   }
 
-  return { ready: true, reason: null, durationSec, codecName: metadata.codecName };
+  return {
+    ready: true,
+    reason: null,
+    durationSec,
+    codecName: metadata.codecName,
+  };
 }
 
 async function generateMusicWithSuno({
@@ -619,10 +806,11 @@ async function generateMusicWithSuno({
   onTaskId,
   onHeartbeat,
   sunoModel,
+  sunoPersona,
 }) {
   validateSunoInput({ apiKey, baseUrl, track, trackVersion });
   console.log(
-    `[Suno] Generating music for track ${track.id}, version=${trackVersion?.version_num || "unknown"}, kind=${kind}, model=${normalizeSunoModel(sunoModel)}`
+    `[Suno] Generating music for track ${track.id}, version=${trackVersion?.version_num || "unknown"}, kind=${kind}, model=${normalizeSunoModel(sunoModel)}`,
   );
 
   const taskId = await submitSunoTask({
@@ -634,6 +822,7 @@ async function generateMusicWithSuno({
     timeoutMs,
     onTaskId,
     sunoModel,
+    sunoPersona,
   });
 
   // Use exponential backoff polling
@@ -645,7 +834,8 @@ async function generateMusicWithSuno({
 
   // Derive max attempts from timeoutMs if provided
   // Average interval approximation: (initial + max) / 2 = (5000 + 30000) / 2 = 17500ms
-  const avgIntervalMs = (pollingConfig.initialIntervalMs + pollingConfig.maxIntervalMs) / 2;
+  const avgIntervalMs =
+    (pollingConfig.initialIntervalMs + pollingConfig.maxIntervalMs) / 2;
   const derivedMaxAttempts = timeoutMs
     ? Math.max(5, Math.ceil(timeoutMs / avgIntervalMs))
     : pollingConfig.maxAttempts;
@@ -663,7 +853,10 @@ async function generateMusicWithSuno({
         const status = result.status;
         const statusInfo = classifySunoStatus(status);
 
-        if (statusInfo.phase === "audio_success" || statusInfo.phase === "provisional_success") {
+        if (
+          statusInfo.phase === "audio_success" ||
+          statusInfo.phase === "provisional_success"
+        ) {
           const readiness = inspectSunoAudioReadiness(result.response);
           if (readiness.ready) {
             return { done: true, response: result.response, status };
@@ -674,8 +867,13 @@ async function generateMusicWithSuno({
           return { done: false, response: result.response, status };
         }
         if (statusInfo.phase === "failed") {
-          const errorMsg = result.response?.data?.errorMessage || "Unknown error";
-          return { done: false, failed: true, error: `E302_SUNO_ERROR: Generation failed - ${errorMsg}` };
+          const errorMsg =
+            result.response?.data?.errorMessage || "Unknown error";
+          return {
+            done: false,
+            failed: true,
+            error: `E302_SUNO_ERROR: Generation failed - ${errorMsg}`,
+          };
         }
         return { done: false, response: result.response, status };
       },
@@ -683,9 +881,11 @@ async function generateMusicWithSuno({
         ...pollingConfig,
         maxAttempts: derivedMaxAttempts,
         onPoll: (attempt, interval) => {
-          console.log(`[Suno] Polling task ${taskId}, attempt ${attempt}/${derivedMaxAttempts}, next interval: ${interval}ms`);
+          console.log(
+            `[Suno] Polling task ${taskId}, attempt ${attempt}/${derivedMaxAttempts}, next interval: ${interval}ms`,
+          );
         },
-      }
+      },
     );
     statusResponse = pollResult.response;
   } catch (pollErr) {
@@ -694,16 +894,20 @@ async function generateMusicWithSuno({
       throw pollErr;
     }
     const errMessage = pollErr?.message ?? String(pollErr || "unknown error");
-    const isTimeout = errMessage.includes("exceeded") || errMessage.includes("Polling timeout");
+    const isTimeout =
+      errMessage.includes("exceeded") || errMessage.includes("Polling timeout");
     if (isTimeout && sawSuccessWithoutAudio) {
-      const detail = lastSuccessWithoutAudioReason === "no_audio_data"
-        ? "No audio data in response"
-        : "No audio URL in response";
+      const detail =
+        lastSuccessWithoutAudioReason === "no_audio_data"
+          ? "No audio data in response"
+          : "No audio URL in response";
       throw new Error(
-        `E302_SUNO_INCOMPLETE_OUTPUT: status=${lastSuccessStatus || "unknown"}, ${detail}`
+        `E302_SUNO_INCOMPLETE_OUTPUT: status=${lastSuccessStatus || "unknown"}, ${detail}`,
       );
     }
-    throw new Error(`E302_SUNO_ERROR: task=${taskId}, ${isTimeout ? "Generation timed out" : errMessage}`);
+    throw new Error(
+      `E302_SUNO_ERROR: task=${taskId}, ${isTimeout ? "Generation timed out" : errMessage}`,
+    );
   }
 
   logSunoCreditUsage(taskId, statusResponse);
@@ -737,6 +941,8 @@ async function generateMusicWithSuno({
 module.exports = {
   SUNO_MODELS,
   normalizeSunoModel,
+  normalizeSunoPersona,
+  normalizeSunoAudioWeight,
   buildSunoPayload,
   generateMusicWithSuno,
   submitSunoTask,

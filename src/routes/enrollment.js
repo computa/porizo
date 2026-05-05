@@ -15,12 +15,23 @@ const { generateMemoryQuestions } = require("../services/memory-questions");
 const { extractEmbedding } = require("../providers/replicate");
 const { downloadToFile } = require("../providers/http");
 const { moderationCheck } = require("../providers/moderation");
-const {
-  enrollmentChunkKey,
-  enrollmentCleanKey,
-} = require("../storage");
+const { enrollmentChunkKey, enrollmentCleanKey } = require("../storage");
 const { newUuid } = require("../utils/ids");
 const { ensureDir, parseJson, toJson, nowIso } = require("../utils/common");
+const {
+  cancelVoiceProviderJobsForVoiceProfile,
+  createPendingProviderProfile,
+  createVoiceProviderJob,
+  softDeleteProviderProfilesForVoiceProfile,
+} = require("../services/voice-provider-profile-service");
+const { getFeatureFlags } = require("../services/feature-flags");
+const {
+  REQUIRED_CONSENT_SCOPE,
+  enrollmentSessionHasPersonaConsent,
+} = require("../services/suno-voice-persona-service");
+const {
+  revokeAllEnrollmentSessionTokensForUser,
+} = require("../services/enrollment-session-service");
 
 /**
  * SVC-10: Validate audio file magic bytes to reject non-audio uploads.
@@ -31,14 +42,30 @@ const { ensureDir, parseJson, toJson, nowIso } = require("../utils/common");
 function isValidAudioFormat(buffer) {
   if (!Buffer.isBuffer(buffer) || buffer.length < 12) return false;
   // WAV: RIFF header + WAVE format
-  if (buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46 &&
-      buffer[8] === 0x57 && buffer[9] === 0x41 && buffer[10] === 0x56 && buffer[11] === 0x45) return true;
+  if (
+    buffer[0] === 0x52 &&
+    buffer[1] === 0x49 &&
+    buffer[2] === 0x46 &&
+    buffer[3] === 0x46 &&
+    buffer[8] === 0x57 &&
+    buffer[9] === 0x41 &&
+    buffer[10] === 0x56 &&
+    buffer[11] === 0x45
+  )
+    return true;
   // MP3: ID3 tag
-  if (buffer[0] === 0x49 && buffer[1] === 0x44 && buffer[2] === 0x33) return true;
+  if (buffer[0] === 0x49 && buffer[1] === 0x44 && buffer[2] === 0x33)
+    return true;
   // MP3: sync word (0xFF followed by 0xE0+ in high bits)
-  if (buffer[0] === 0xFF && (buffer[1] & 0xE0) === 0xE0) return true;
+  if (buffer[0] === 0xff && (buffer[1] & 0xe0) === 0xe0) return true;
   // M4A/MP4: ftyp box at bytes 4-7
-  if (buffer[4] === 0x66 && buffer[5] === 0x74 && buffer[6] === 0x79 && buffer[7] === 0x70) return true;
+  if (
+    buffer[4] === 0x66 &&
+    buffer[5] === 0x74 &&
+    buffer[6] === 0x79 &&
+    buffer[7] === 0x70
+  )
+    return true;
   return false;
 }
 
@@ -48,6 +75,69 @@ function isValidAudioFormat(buffer) {
  * @param {Object} app - Fastify instance
  * @param {Object} deps - Dependencies from server.js closure
  */
+/**
+ * U14: Derive a [vocalStart, vocalEnd] window from clean enrollment audio.
+ *
+ * SunoAPI's generate-persona endpoint accepts a 10-30 second window into the
+ * uploaded audio. Pre-U14, vocalStart/vocalEnd were always defaulted to 0/30
+ * in `buildGeneratePersonaPayload`. U14 derives a sensible window: skip the
+ * first ~5 seconds (typical user warm-up / silence) and use the next ~20
+ * seconds. Falls back to defaults (0/30) when audio metadata is unavailable.
+ *
+ * Validation (10-30s duration) is enforced downstream in
+ * `buildGeneratePersonaPayload` — this function only proposes a window.
+ */
+function deriveVocalWindow(cleanAudioPath) {
+  try {
+    if (!cleanAudioPath || !fs.existsSync(cleanAudioPath)) {
+      return null;
+    }
+    const buffer = fs.readFileSync(cleanAudioPath);
+    const wavInfo = parseWavBuffer(buffer);
+    if (!wavInfo || !Number.isFinite(wavInfo.durationSec)) {
+      return null;
+    }
+    const duration = wavInfo.durationSec;
+    if (duration < 10) {
+      return null;
+    }
+    const start = Math.min(5, Math.max(0, duration * 0.1));
+    const idealEnd = start + 20;
+    const end = Math.min(idealEnd, duration);
+    if (end - start < 10) {
+      return null;
+    }
+    return {
+      vocal_start: Number(start.toFixed(2)),
+      vocal_end: Number(Math.min(end, start + 30).toFixed(2)),
+    };
+  } catch (_err) {
+    return null;
+  }
+}
+
+function buildPersonaJobStepData({
+  providerProfileId,
+  sessionId,
+  userId,
+  model,
+  audioWeight,
+  vocalWindow = null,
+}) {
+  const base = {
+    voice_provider_profile_id: providerProfileId,
+    enrollment_session_id: sessionId,
+    source_audio_key: enrollmentCleanKey({ userId, sessionId }),
+    model,
+    audio_weight: audioWeight,
+  };
+  if (vocalWindow) {
+    base.vocal_start = vocalWindow.vocal_start;
+    base.vocal_end = vocalWindow.vocal_end;
+  }
+  return base;
+}
+
 function registerEnrollmentRoutes(app, deps) {
   const {
     db,
@@ -90,11 +180,17 @@ function registerEnrollmentRoutes(app, deps) {
       "clean",
       session.user_id,
       session.id,
-      "clean.wav"
+      "clean.wav",
     );
-    const key = enrollmentCleanKey({ userId: session.user_id, sessionId: session.id });
+    const key = enrollmentCleanKey({
+      userId: session.user_id,
+      sessionId: session.id,
+    });
     if (storageProvider.type !== "local") {
-      const download = storageProvider.createPresignedDownload({ key, expiresInSec: 300 });
+      const download = storageProvider.createPresignedDownload({
+        key,
+        expiresInSec: 300,
+      });
       reply.redirect(download.url);
       return;
     }
@@ -103,234 +199,344 @@ function registerEnrollmentRoutes(app, deps) {
 
   // ---- Device registration ----
 
-  app.post("/device/register", { schema: schemas.deviceRegister }, async (request, reply) => {
-    const userId = await requireUserId(request, reply);
-    if (!userId) {
-      return;
-    }
-
-    const { device_id, platform, app_version, push_token } = request.body || {};
-    const now = nowIso();
-
-    const existing = await db
-      .prepare("SELECT id FROM devices WHERE user_id = ? AND device_id = ?")
-      .get(userId, device_id);
-
-    if (existing) {
-      if (push_token) {
-        await db.prepare(
-          "UPDATE devices SET platform = ?, app_version = ?, last_seen_at = ?, push_token = ?, push_token_updated_at = ?, updated_at = ? WHERE id = ?"
-        ).run(platform, app_version || null, now, push_token, now, now, existing.id);
-      } else {
-        await db.prepare(
-          "UPDATE devices SET platform = ?, app_version = ?, last_seen_at = ?, updated_at = ? WHERE id = ?"
-        ).run(platform, app_version || null, now, now, existing.id);
+  app.post(
+    "/device/register",
+    { schema: schemas.deviceRegister },
+    async (request, reply) => {
+      const userId = await requireUserId(request, reply);
+      if (!userId) {
+        return;
       }
-    } else {
-      const deviceRecordId = newUuid();
-      await db.prepare(
-        "INSERT INTO devices (id, user_id, device_id, platform, app_version, last_seen_at, push_token, push_token_updated_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-      ).run(deviceRecordId, userId, device_id, platform, app_version || null, now, push_token || null, push_token ? now : null, now, now);
-    }
 
-    const deviceToken = issueDeviceToken({
-      userId,
-      deviceId: device_id,
-      platform,
-      appVersion: app_version,
-    });
+      const { device_id, platform, app_version, push_token } =
+        request.body || {};
+      const now = nowIso();
 
-    reply.send({
-      device_token: deviceToken,
-      expires_at: new Date(Date.now() + deviceTokenTtlDays * 24 * 60 * 60 * 1000).toISOString(),
-    });
-  });
+      const existing = await db
+        .prepare("SELECT id FROM devices WHERE user_id = ? AND device_id = ?")
+        .get(userId, device_id);
+
+      if (existing) {
+        if (push_token) {
+          await db
+            .prepare(
+              "UPDATE devices SET platform = ?, app_version = ?, last_seen_at = ?, push_token = ?, push_token_updated_at = ?, updated_at = ? WHERE id = ?",
+            )
+            .run(
+              platform,
+              app_version || null,
+              now,
+              push_token,
+              now,
+              now,
+              existing.id,
+            );
+        } else {
+          await db
+            .prepare(
+              "UPDATE devices SET platform = ?, app_version = ?, last_seen_at = ?, updated_at = ? WHERE id = ?",
+            )
+            .run(platform, app_version || null, now, now, existing.id);
+        }
+      } else {
+        const deviceRecordId = newUuid();
+        await db
+          .prepare(
+            "INSERT INTO devices (id, user_id, device_id, platform, app_version, last_seen_at, push_token, push_token_updated_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          )
+          .run(
+            deviceRecordId,
+            userId,
+            device_id,
+            platform,
+            app_version || null,
+            now,
+            push_token || null,
+            push_token ? now : null,
+            now,
+            now,
+          );
+      }
+
+      const deviceToken = issueDeviceToken({
+        userId,
+        deviceId: device_id,
+        platform,
+        appVersion: app_version,
+      });
+
+      reply.send({
+        device_token: deviceToken,
+        expires_at: new Date(
+          Date.now() + deviceTokenTtlDays * 24 * 60 * 60 * 1000,
+        ).toISOString(),
+      });
+    },
+  );
 
   // ---- Storage upload (local dev only) ----
 
-  app.put("/storage/upload", { bodyLimit: 50 * 1024 * 1024 }, async (request, reply) => {
-    if (storageProvider.type !== "local") {
-      sendError(reply, 404, "NOT_FOUND", "Upload endpoint unavailable.");
-      return;
-    }
-    const { key, expires, sig, content_type } = request.query || {};
-    if (!key || !expires || !sig) {
-      sendError(reply, 400, "MISSING_SIGNATURE", "Upload signature is required.");
-      return;
-    }
-    const expiresAt = Number(expires);
-    if (!Number.isFinite(expiresAt)) {
-      sendError(reply, 400, "INVALID_SIGNATURE", "Invalid expiration.");
-      return;
-    }
-    if (Date.now() > expiresAt) {
-      sendError(reply, 410, "UPLOAD_EXPIRED", "Upload URL expired.");
-      return;
-    }
-    if (!key.startsWith("enrollment/raw/")) {
-      sendError(reply, 403, "FORBIDDEN", "Upload key not allowed.");
-      return;
-    }
-    const contentType = content_type || "";
-    const verified = storageProvider.verifyPresignedRequest({
-      key,
-      expiresAt,
-      signature: sig,
-      contentType,
-      purpose: "upload",
-    });
-    if (!verified) {
-      sendError(reply, 403, "INVALID_SIGNATURE", "Upload signature invalid.");
-      return;
-    }
-    if (!Buffer.isBuffer(request.body) || request.body.length === 0) {
-      sendError(reply, 400, "EMPTY_BODY", "Upload body is required.");
-      return;
-    }
-    // SVC-10: Validate audio magic bytes before writing to disk
-    if (!isValidAudioFormat(request.body)) {
-      sendError(reply, 415, "UNSUPPORTED_MEDIA_TYPE", "Upload must be a valid audio file (WAV, MP3, or M4A).");
-      return;
-    }
-    if (contentType && request.headers["content-type"] && request.headers["content-type"] !== contentType) {
-      sendError(reply, 400, "CONTENT_TYPE_MISMATCH", "Content-Type mismatch.");
-      return;
-    }
-    const filePath = resolveStoragePath(key);
-    if (!filePath) {
-      sendError(reply, 400, "INVALID_PATH", "Invalid storage path.");
-      return;
-    }
-    ensureDir(path.dirname(filePath));
-    fs.writeFileSync(filePath, request.body);
-    reply.send({ ok: true, key });
-  });
+  app.put(
+    "/storage/upload",
+    { bodyLimit: 50 * 1024 * 1024 },
+    async (request, reply) => {
+      if (storageProvider.type !== "local") {
+        sendError(reply, 404, "NOT_FOUND", "Upload endpoint unavailable.");
+        return;
+      }
+      const { key, expires, sig, content_type } = request.query || {};
+      if (!key || !expires || !sig) {
+        sendError(
+          reply,
+          400,
+          "MISSING_SIGNATURE",
+          "Upload signature is required.",
+        );
+        return;
+      }
+      const expiresAt = Number(expires);
+      if (!Number.isFinite(expiresAt)) {
+        sendError(reply, 400, "INVALID_SIGNATURE", "Invalid expiration.");
+        return;
+      }
+      if (Date.now() > expiresAt) {
+        sendError(reply, 410, "UPLOAD_EXPIRED", "Upload URL expired.");
+        return;
+      }
+      if (!key.startsWith("enrollment/raw/")) {
+        sendError(reply, 403, "FORBIDDEN", "Upload key not allowed.");
+        return;
+      }
+      const contentType = content_type || "";
+      const verified = storageProvider.verifyPresignedRequest({
+        key,
+        expiresAt,
+        signature: sig,
+        contentType,
+        purpose: "upload",
+      });
+      if (!verified) {
+        sendError(reply, 403, "INVALID_SIGNATURE", "Upload signature invalid.");
+        return;
+      }
+      if (!Buffer.isBuffer(request.body) || request.body.length === 0) {
+        sendError(reply, 400, "EMPTY_BODY", "Upload body is required.");
+        return;
+      }
+      // SVC-10: Validate audio magic bytes before writing to disk
+      if (!isValidAudioFormat(request.body)) {
+        sendError(
+          reply,
+          415,
+          "UNSUPPORTED_MEDIA_TYPE",
+          "Upload must be a valid audio file (WAV, MP3, or M4A).",
+        );
+        return;
+      }
+      if (
+        contentType &&
+        request.headers["content-type"] &&
+        request.headers["content-type"] !== contentType
+      ) {
+        sendError(
+          reply,
+          400,
+          "CONTENT_TYPE_MISMATCH",
+          "Content-Type mismatch.",
+        );
+        return;
+      }
+      const filePath = resolveStoragePath(key);
+      if (!filePath) {
+        sendError(reply, 400, "INVALID_PATH", "Invalid storage path.");
+        return;
+      }
+      ensureDir(path.dirname(filePath));
+      fs.writeFileSync(filePath, request.body);
+      reply.send({ ok: true, key });
+    },
+  );
 
   // ---- Voice enrollment start ----
 
-  app.post("/voice/enrollment/start", { schema: schemas.enrollmentStart }, async (request, reply) => {
-    const userId = await requireUserId(request, reply);
-    if (!userId) {
-      return;
-    }
-    const riskLevel = await getUserRiskLevel(userId);
-    if (riskLevel === "blocked" || riskLevel === "high") {
-      sendError(reply, 403, "ACCOUNT_BLOCKED", "Voice features are not available for this account");
-      return;
-    }
-    const limit = await consumeRateLimit(userId, "enrollment_start", 10, 24 * 60 * 60);
-    if (!limit.allowed) {
-      sendError(reply, 429, "RATE_LIMITED", "Enrollment rate limit reached.", {
-        retry_at: limit.reset_at,
+  app.post(
+    "/voice/enrollment/start",
+    { schema: schemas.enrollmentStart },
+    async (request, reply) => {
+      const userId = await requireUserId(request, reply);
+      if (!userId) {
+        return;
+      }
+      const riskLevel = await getUserRiskLevel(userId);
+      if (riskLevel === "blocked" || riskLevel === "high") {
+        sendError(
+          reply,
+          403,
+          "ACCOUNT_BLOCKED",
+          "Voice features are not available for this account",
+        );
+        return;
+      }
+      const limit = await consumeRateLimit(
+        userId,
+        "enrollment_start",
+        10,
+        24 * 60 * 60,
+      );
+      if (!limit.allowed) {
+        sendError(
+          reply,
+          429,
+          "RATE_LIMITED",
+          "Enrollment rate limit reached.",
+          {
+            retry_at: limit.reset_at,
+          },
+        );
+        return;
+      }
+      const { consent_accepted, consent_version } = request.body || {};
+      if (!consent_accepted) {
+        sendError(reply, 400, "CONSENT_REQUIRED", "Consent must be accepted.");
+        return;
+      }
+      const sessionId = newUuid();
+      const promptSetId = `ps_${newUuid()}`;
+      const prompts = [
+        {
+          id: "p1",
+          type: "spoken",
+          text: "The quick brown fox jumps over the lazy dog.",
+          duration_hint_sec: 5,
+        },
+        {
+          id: "p2",
+          type: "spoken",
+          text: "Pack my box with five dozen liquor jugs.",
+          duration_hint_sec: 5,
+        },
+        {
+          id: "p3",
+          type: "spoken",
+          text: "How vexingly quick daft zebras jump!",
+          duration_hint_sec: 5,
+        },
+        {
+          id: "p4",
+          type: "spoken",
+          text: "The five boxing wizards jump quickly.",
+          duration_hint_sec: 5,
+        },
+        {
+          id: "p5",
+          type: "sung",
+          text: "La la la, la la la la la, la la la la la la la",
+          pitch_hint: "Start comfortable, go up",
+          duration_hint_sec: 8,
+        },
+        {
+          id: "p6",
+          type: "sung",
+          text: "Ooh ooh ooh, ah ah ah, ooh ooh ooh ah",
+          pitch_hint: "Smooth and flowing",
+          duration_hint_sec: 8,
+        },
+      ];
+      const baseUrl = getBaseUrl(request);
+      const uploadUrls = prompts.map((prompt) => {
+        const chunkId = prompt.id;
+        const key = enrollmentChunkKey({ userId, sessionId, chunkId });
+        const presigned = storageProvider.createPresignedUpload({
+          key,
+          contentType: "audio/wav",
+          expiresInSec: appConfig.UPLOAD_URL_TTL_SEC,
+          baseUrl,
+        });
+        return {
+          chunk_id: chunkId,
+          url: presigned.url,
+          method: presigned.method,
+          headers: presigned.headers,
+          expires_at: presigned.expiresAt,
+        };
       });
-      return;
-    }
-    const { consent_accepted, consent_version } = request.body || {};
-    if (!consent_accepted) {
-      sendError(reply, 400, "CONSENT_REQUIRED", "Consent must be accepted.");
-      return;
-    }
-    const sessionId = newUuid();
-    const promptSetId = `ps_${newUuid()}`;
-    const prompts = [
-      {
-        id: "p1",
-        type: "spoken",
-        text: "The quick brown fox jumps over the lazy dog.",
-        duration_hint_sec: 5,
-      },
-      {
-        id: "p2",
-        type: "spoken",
-        text: "Pack my box with five dozen liquor jugs.",
-        duration_hint_sec: 5,
-      },
-      {
-        id: "p3",
-        type: "spoken",
-        text: "How vexingly quick daft zebras jump!",
-        duration_hint_sec: 5,
-      },
-      {
-        id: "p4",
-        type: "spoken",
-        text: "The five boxing wizards jump quickly.",
-        duration_hint_sec: 5,
-      },
-      {
-        id: "p5",
-        type: "sung",
-        text: "La la la, la la la la la, la la la la la la la",
-        pitch_hint: "Start comfortable, go up",
-        duration_hint_sec: 8,
-      },
-      {
-        id: "p6",
-        type: "sung",
-        text: "Ooh ooh ooh, ah ah ah, ooh ooh ooh ah",
-        pitch_hint: "Smooth and flowing",
-        duration_hint_sec: 8,
-      },
-    ];
-    const baseUrl = getBaseUrl(request);
-    const uploadUrls = prompts.map((prompt) => {
-      const chunkId = prompt.id;
-      const key = enrollmentChunkKey({ userId, sessionId, chunkId });
-      const presigned = storageProvider.createPresignedUpload({
-        key,
-        contentType: "audio/wav",
-        expiresInSec: appConfig.UPLOAD_URL_TTL_SEC,
-        baseUrl,
+      const expiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+
+      // U2/U17: Persona-specific consent. The general `consent_accepted` flag
+      // covers voice ENROLLMENT consent (recording + processing); it does NOT
+      // imply consent to send the user's voice to a third-party persona service.
+      // The client must EXPLICITLY grant the Suno-persona scope by either
+      //   (a) sending `consent_scopes: ["voice_suno_persona_v1", ...]` (array), or
+      //   (b) sending `voice_suno_persona_consent: true` (boolean shortcut).
+      // Otherwise consent_scopes stays null and the persona path is gated off
+      // by enrollmentSessionHasPersonaConsent (fail-secure).
+      // Allowlist filter: only persist known scope literals so future
+      // consumers of consent_scopes inherit a clean, audit-safe column.
+      // Today the only known scope is REQUIRED_CONSENT_SCOPE; add new scopes
+      // here when they're introduced (and only when their semantics are
+      // intentionally honored by readers of this column).
+      const KNOWN_CONSENT_SCOPES = new Set([REQUIRED_CONSENT_SCOPE]);
+      const requestedScopes = Array.isArray(request.body?.consent_scopes)
+        ? request.body.consent_scopes
+            .filter((s) => typeof s === "string")
+            .filter((s) => KNOWN_CONSENT_SCOPES.has(s))
+        : null;
+      const explicitPersonaConsent =
+        request.body?.voice_suno_persona_consent === true;
+      let consentScopes = null;
+      if (
+        consent_accepted &&
+        (explicitPersonaConsent ||
+          (requestedScopes && requestedScopes.includes(REQUIRED_CONSENT_SCOPE)))
+      ) {
+        consentScopes =
+          requestedScopes && requestedScopes.length
+            ? requestedScopes.join(" ")
+            : REQUIRED_CONSENT_SCOPE;
+      }
+      await db
+        .prepare(
+          "INSERT INTO enrollment_sessions (id, user_id, status, prompt_set_id, prompts_json, chunk_count, quality_metrics, failure_reason, started_at, completed_at, expires_at, consent_version, consent_scopes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .run(
+          sessionId,
+          userId,
+          "recording",
+          promptSetId,
+          toJson(prompts),
+          0,
+          toJson({}),
+          null,
+          nowIso(),
+          null,
+          expiresAt,
+          consent_version || "1.0",
+          consentScopes,
+        );
+
+      await addAuditEntry({
+        userId,
+        action: "enrollment_started",
+        resourceType: "enrollment_session",
+        resourceId: sessionId,
+        metadata: { consent_version },
       });
-      return {
-        chunk_id: chunkId,
-        url: presigned.url,
-        method: presigned.method,
-        headers: presigned.headers,
-        expires_at: presigned.expiresAt,
-      };
-    });
-    const expiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString();
 
-    await db.prepare(
-      "INSERT INTO enrollment_sessions (id, user_id, status, prompt_set_id, prompts_json, chunk_count, quality_metrics, failure_reason, started_at, completed_at, expires_at, consent_version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-    ).run(
-      sessionId,
-      userId,
-      "recording",
-      promptSetId,
-      toJson(prompts),
-      0,
-      toJson({}),
-      null,
-      nowIso(),
-      null,
-      expiresAt,
-      consent_version || "1.0"
-    );
-
-    await addAuditEntry({
-      userId,
-      action: "enrollment_started",
-      resourceType: "enrollment_session",
-      resourceId: sessionId,
-      metadata: { consent_version },
-    });
-
-    reply.send({
-      session_id: sessionId,
-      prompt_set_id: promptSetId,
-      prompts,
-      upload_urls: uploadUrls,
-      recording_settings: {
-        sample_rate: 44100,
-        channels: 1,
-        format: "wav",
-        max_chunk_duration_sec: 20,
-      },
-      session_expires_at: expiresAt,
-    });
-  });
+      reply.send({
+        session_id: sessionId,
+        prompt_set_id: promptSetId,
+        prompts,
+        upload_urls: uploadUrls,
+        recording_settings: {
+          sample_rate: 44100,
+          channels: 1,
+          format: "wav",
+          max_chunk_duration_sec: 20,
+        },
+        session_expires_at: expiresAt,
+      });
+    },
+  );
 
   // ---- Chunk upload notification ----
 
@@ -350,14 +556,18 @@ function registerEnrollmentRoutes(app, deps) {
       .prepare("SELECT * FROM enrollment_sessions WHERE id = ?")
       .get(session_id);
     if (!session || session.user_id !== userId) {
-      sendError(reply, 404, "SESSION_NOT_FOUND", "Enrollment session not found.");
+      sendError(
+        reply,
+        404,
+        "SESSION_NOT_FOUND",
+        "Enrollment session not found.",
+      );
       return;
     }
     if (new Date(session.expires_at) < new Date()) {
-      await db.prepare("UPDATE enrollment_sessions SET status = ? WHERE id = ?").run(
-        "expired",
-        session_id
-      );
+      await db
+        .prepare("UPDATE enrollment_sessions SET status = ? WHERE id = ?")
+        .run("expired", session_id);
       sendError(reply, 410, "SESSION_EXPIRED", "Enrollment session expired.");
       return;
     }
@@ -368,7 +578,12 @@ function registerEnrollmentRoutes(app, deps) {
     });
     const exists = await storageProvider.objectExists({ key: storageKey });
     if (!exists) {
-      sendError(reply, 404, "CHUNK_NOT_FOUND", "Uploaded chunk not found. Please retry.");
+      sendError(
+        reply,
+        404,
+        "CHUNK_NOT_FOUND",
+        "Uploaded chunk not found. Please retry.",
+      );
       return;
     }
 
@@ -404,10 +619,11 @@ function registerEnrollmentRoutes(app, deps) {
         reason: "DURATION_OUT_OF_RANGE",
         duration_sec: resolvedDuration,
       };
-      await db.prepare("UPDATE enrollment_sessions SET quality_metrics = ? WHERE id = ?").run(
-        toJson(metrics),
-        session_id
-      );
+      await db
+        .prepare(
+          "UPDATE enrollment_sessions SET quality_metrics = ? WHERE id = ?",
+        )
+        .run(toJson(metrics), session_id);
       sendError(reply, 400, "QC_FAILED", "Audio chunk failed QC.", {
         reason: "DURATION_OUT_OF_RANGE",
         re_record: true,
@@ -420,10 +636,11 @@ function registerEnrollmentRoutes(app, deps) {
         reason: "CHECKSUM_MISMATCH",
         duration_sec: resolvedDuration,
       };
-      await db.prepare("UPDATE enrollment_sessions SET quality_metrics = ? WHERE id = ?").run(
-        toJson(metrics),
-        session_id
-      );
+      await db
+        .prepare(
+          "UPDATE enrollment_sessions SET quality_metrics = ? WHERE id = ?",
+        )
+        .run(toJson(metrics), session_id);
       sendError(reply, 400, "QC_FAILED", "Audio chunk checksum mismatch.", {
         reason: "CHECKSUM_MISMATCH",
         re_record: true,
@@ -436,9 +653,11 @@ function registerEnrollmentRoutes(app, deps) {
       client_checksum,
       storage_key: storageKey,
     };
-    await db.prepare(
-      "UPDATE enrollment_sessions SET chunk_count = chunk_count + 1, status = ?, quality_metrics = ? WHERE id = ?"
-    ).run("processing", toJson(metrics), session_id);
+    await db
+      .prepare(
+        "UPDATE enrollment_sessions SET chunk_count = chunk_count + 1, status = ?, quality_metrics = ? WHERE id = ?",
+      )
+      .run("processing", toJson(metrics), session_id);
 
     reply.send({
       status: "accepted",
@@ -474,7 +693,13 @@ function registerEnrollmentRoutes(app, deps) {
       const gen = songGenerators[request.params.variant];
       if (!gen) return reply.code(404).send("Unknown variant");
       const { title, name, occasion } = request.query;
-      const buf = await gen({ title: title || "A Song For You", recipientName: name || "You", occasion: occasion || "birthday", coverPath: null, brandName: "Porizo" });
+      const buf = await gen({
+        title: title || "A Song For You",
+        recipientName: name || "You",
+        occasion: occasion || "birthday",
+        coverPath: null,
+        brandName: "Porizo",
+      });
       if (!buf) return reply.code(500).send("sharp not available");
       return reply.type("image/jpeg").send(buf);
     });
@@ -483,8 +708,15 @@ function registerEnrollmentRoutes(app, deps) {
       const gen = poemGenerators[request.params.variant];
       if (!gen) return reply.code(404).send("Unknown variant");
       const { title, name, occasion, verses: versesParam } = request.query;
-      const verses = versesParam ? String(versesParam).split("|") : ["A poem written just for you."];
-      const buf = await gen({ title: title || "A Poem For You", recipientName: name || "You", occasion: occasion || "birthday", verses });
+      const verses = versesParam
+        ? String(versesParam).split("|")
+        : ["A poem written just for you."];
+      const buf = await gen({
+        title: title || "A Poem For You",
+        recipientName: name || "You",
+        occasion: occasion || "birthday",
+        verses,
+      });
       if (!buf) return reply.code(500).send("sharp not available");
       return reply.type("image/png").send(buf);
     });
@@ -493,435 +725,707 @@ function registerEnrollmentRoutes(app, deps) {
   // ---- Debug chunk upload (dev only) ----
 
   if (enableDebugRoutes) {
-  app.post("/debug/upload-chunk", async (request, reply) => {
-    const userId = await requireUserId(request, reply);
-    if (!userId) {
-      return;
-    }
+    app.post("/debug/upload-chunk", async (request, reply) => {
+      const userId = await requireUserId(request, reply);
+      if (!userId) {
+        return;
+      }
 
-    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    if (!UUID_RE.test(userId)) {
-      sendError(reply, 400, "INVALID_USER_ID", "Invalid user ID format");
-      return;
-    }
+      const UUID_RE =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (!UUID_RE.test(userId)) {
+        sendError(reply, 400, "INVALID_USER_ID", "Invalid user ID format");
+        return;
+      }
 
-    let data;
-    try {
-      data = await request.file();
-    } catch (err) {
-      sendError(reply, 400, "NO_FILE", "No file uploaded or invalid multipart request.");
-      return;
-    }
+      let data;
+      try {
+        data = await request.file();
+      } catch (err) {
+        sendError(
+          reply,
+          400,
+          "NO_FILE",
+          "No file uploaded or invalid multipart request.",
+        );
+        return;
+      }
 
-    if (!data) {
-      sendError(reply, 400, "NO_FILE", "No file uploaded.");
-      return;
-    }
+      if (!data) {
+        sendError(reply, 400, "NO_FILE", "No file uploaded.");
+        return;
+      }
 
-    const sessionIdField = data.fields.session_id;
-    const chunkIdField = data.fields.chunk_id;
+      const sessionIdField = data.fields.session_id;
+      const chunkIdField = data.fields.chunk_id;
 
-    const sessionId = Array.isArray(sessionIdField)
-      ? sessionIdField[0]?.value
-      : sessionIdField?.value;
-    const chunkId = Array.isArray(chunkIdField)
-      ? chunkIdField[0]?.value
-      : chunkIdField?.value;
+      const sessionId = Array.isArray(sessionIdField)
+        ? sessionIdField[0]?.value
+        : sessionIdField?.value;
+      const chunkId = Array.isArray(chunkIdField)
+        ? chunkIdField[0]?.value
+        : chunkIdField?.value;
 
-    if (!sessionId || !chunkId) {
-      sendError(reply, 400, "MISSING_FIELDS", "session_id and chunk_id are required.");
-      return;
-    }
+      if (!sessionId || !chunkId) {
+        sendError(
+          reply,
+          400,
+          "MISSING_FIELDS",
+          "session_id and chunk_id are required.",
+        );
+        return;
+      }
 
-    if (!/^[a-zA-Z0-9_-]{1,64}$/.test(chunkId)) {
-      sendError(reply, 400, "INVALID_CHUNK_ID", "chunk_id contains invalid characters.");
-      return;
-    }
+      if (!/^[a-zA-Z0-9_-]{1,64}$/.test(chunkId)) {
+        sendError(
+          reply,
+          400,
+          "INVALID_CHUNK_ID",
+          "chunk_id contains invalid characters.",
+        );
+        return;
+      }
 
-    const session = await db
-      .prepare("SELECT * FROM enrollment_sessions WHERE id = ?")
-      .get(sessionId);
+      const session = await db
+        .prepare("SELECT * FROM enrollment_sessions WHERE id = ?")
+        .get(sessionId);
 
-    if (!session || session.user_id !== userId) {
-      sendError(reply, 404, "SESSION_NOT_FOUND", "Enrollment session not found.");
-      return;
-    }
+      if (!session || session.user_id !== userId) {
+        sendError(
+          reply,
+          404,
+          "SESSION_NOT_FOUND",
+          "Enrollment session not found.",
+        );
+        return;
+      }
 
-    const chunkDir = path.join(
-      appConfig.STORAGE_DIR,
-      "enrollment",
-      "raw",
-      userId,
-      sessionId
-    );
-    ensureDir(chunkDir);
-    const chunkPath = path.join(chunkDir, `${chunkId}.wav`);
+      const chunkDir = path.join(
+        appConfig.STORAGE_DIR,
+        "enrollment",
+        "raw",
+        userId,
+        sessionId,
+      );
+      ensureDir(chunkDir);
+      const chunkPath = path.join(chunkDir, `${chunkId}.wav`);
 
-    const chunks = [];
-    for await (const chunk of data.file) {
-      chunks.push(chunk);
-    }
-    const buffer = Buffer.concat(chunks);
-    fs.writeFileSync(chunkPath, buffer);
+      const chunks = [];
+      for await (const chunk of data.file) {
+        chunks.push(chunk);
+      }
+      const buffer = Buffer.concat(chunks);
+      fs.writeFileSync(chunkPath, buffer);
 
-    let durationSec = 0;
-    if (buffer.length > 44 && buffer.toString('ascii', 0, 4) === 'RIFF') {
-      let sampleRate = 0;
-      let bitsPerSample = 16;
-      let numChannels = 1;
-      let dataSize = 0;
+      let durationSec = 0;
+      if (buffer.length > 44 && buffer.toString("ascii", 0, 4) === "RIFF") {
+        let sampleRate = 0;
+        let bitsPerSample = 16;
+        let numChannels = 1;
+        let dataSize = 0;
 
-      let offset = 12;
-      while (offset < buffer.length - 8) {
-        const chunkId = buffer.toString('ascii', offset, offset + 4);
-        const chunkSize = buffer.readUInt32LE(offset + 4);
+        let offset = 12;
+        while (offset < buffer.length - 8) {
+          const chunkId = buffer.toString("ascii", offset, offset + 4);
+          const chunkSize = buffer.readUInt32LE(offset + 4);
 
-        if (chunkId === 'fmt ') {
-          numChannels = buffer.readUInt16LE(offset + 10);
-          sampleRate = buffer.readUInt32LE(offset + 12);
-          bitsPerSample = buffer.readUInt16LE(offset + 22);
-        } else if (chunkId === 'data') {
-          dataSize = chunkSize;
-          break;
+          if (chunkId === "fmt ") {
+            numChannels = buffer.readUInt16LE(offset + 10);
+            sampleRate = buffer.readUInt32LE(offset + 12);
+            bitsPerSample = buffer.readUInt16LE(offset + 22);
+          } else if (chunkId === "data") {
+            dataSize = chunkSize;
+            break;
+          }
+
+          offset += 8 + chunkSize;
+          if (chunkSize % 2 === 1) offset++;
         }
 
-        offset += 8 + chunkSize;
-        if (chunkSize % 2 === 1) offset++;
+        if (sampleRate > 0 && dataSize > 0) {
+          const bytesPerSample = (bitsPerSample / 8) * numChannels;
+          durationSec = dataSize / bytesPerSample / sampleRate;
+        }
       }
 
-      if (sampleRate > 0 && dataSize > 0) {
-        const bytesPerSample = (bitsPerSample / 8) * numChannels;
-        durationSec = dataSize / bytesPerSample / sampleRate;
-      }
-    }
+      const metrics = parseJson(session.quality_metrics, {});
+      metrics[chunkId] = { accepted: true, duration_sec: durationSec };
+      await db
+        .prepare(
+          "UPDATE enrollment_sessions SET chunk_count = chunk_count + 1, quality_metrics = ? WHERE id = ?",
+        )
+        .run(toJson(metrics), sessionId);
 
-    const metrics = parseJson(session.quality_metrics, {});
-    metrics[chunkId] = { accepted: true, duration_sec: durationSec };
-    await db.prepare(
-      "UPDATE enrollment_sessions SET chunk_count = chunk_count + 1, quality_metrics = ? WHERE id = ?"
-    ).run(toJson(metrics), sessionId);
-
-    reply.send({
-      status: "accepted",
-      chunk_id: chunkId,
-      duration_sec: durationSec,
+      reply.send({
+        status: "accepted",
+        chunk_id: chunkId,
+        duration_sec: durationSec,
+      });
     });
-  });
   } // end enableDebugRoutes (chunk upload)
 
   // ---- Enrollment complete ----
 
-  app.post("/voice/enrollment/complete", { schema: schemas.enrollmentComplete }, async (request, reply) => {
-    const userId = await requireUserId(request, reply);
-    if (!userId) {
-      return;
-    }
-    const { session_id } = request.body || {};
-
-    const session = await db
-      .prepare("SELECT * FROM enrollment_sessions WHERE id = ?")
-      .get(session_id);
-    if (!session || session.user_id !== userId) {
-      sendError(reply, 404, "SESSION_NOT_FOUND", "Enrollment session not found.");
-      return;
-    }
-
-    console.log("[Enrollment:complete] START", {
-      sessionId: session_id,
-      status: session.status,
-      chunks: session.chunk_count,
-    });
-
-    if (new Date(session.expires_at) < new Date()) {
-      await db.prepare("UPDATE enrollment_sessions SET status = ? WHERE id = ?").run(
-        "expired",
-        session_id
-      );
-      sendError(reply, 410, "SESSION_EXPIRED", "Enrollment session expired.");
-      return;
-    }
-
-    const metrics = parseJson(session.quality_metrics, {});
-    const { files: chunkFiles, tempDir, missingChunks } = await resolveEnrollmentChunkFiles({
-      session,
-      metrics,
-      userId,
-    });
-
-    if (chunkFiles.length === 0) {
-      request.log.error({ sessionId: session_id, missingChunks }, "[Enrollment:complete] No files found");
-      sendError(reply, 500, "STORAGE_ERROR", "Failed to retrieve uploaded audio files. Please try again.");
-      return;
-    }
-    let qcResult;
-    try {
-      qcResult = await validateEnrollmentWithGrading({
-        userId,
-        sessionId: session_id,
-        storageDir: appConfig.STORAGE_DIR,
-        chunkFiles,
-        applyPreprocessing: true,
-      });
-
-      const criticalErrors = qcResult.errors.filter(
-        (e) => e.includes("E103_NO_AUDIO_DETECTED") || e.includes("E104")
-      );
-
-      if (criticalErrors.length > 0) {
-        request.log.error({ errors: criticalErrors, grade: qcResult.grade }, "[Enrollment:complete] QC failed");
-        await db.prepare(
-          "UPDATE enrollment_sessions SET status = ?, completed_at = ? WHERE id = ?"
-        ).run("failed_quality", nowIso(), session_id);
-
-        const errorCode = criticalErrors[0].split(":")[0];
-        sendError(reply, 422, errorCode, "Audio quality check failed.", {
-          errors: criticalErrors,
-          metrics: qcResult.metrics,
-        });
+  app.post(
+    "/voice/enrollment/complete",
+    { schema: schemas.enrollmentComplete },
+    async (request, reply) => {
+      const userId = await requireUserId(request, reply);
+      if (!userId) {
         return;
       }
+      const { session_id } = request.body || {};
 
-      if (qcResult.metrics.chunk_results) {
-        await db.prepare(
-          "UPDATE enrollment_sessions SET chunk_quality_json = ? WHERE id = ?"
-        ).run(JSON.stringify(qcResult.metrics.chunk_results), session_id);
-      }
-
-      const profileId = newUuid();
-      const qualityScore = Math.round(qcResult.metrics.average_score || 50);
-
-      // Spec: voice profile only goes active when quality score >= 70.
-      // Without this gate, silent/noisy recordings that miss the E103/E104
-      // critical-error filter still create active profiles with garbage
-      // embeddings — leading to bad voice conversion downstream.
-      if (qcResult.passed === false || qualityScore < 70 || qcResult.grade === "F") {
-        request.log.warn(
-          { score: qualityScore, grade: qcResult.grade, errors: qcResult.errors },
-          "[Enrollment:complete] QC below threshold — rejecting"
+      let session = await db
+        .prepare("SELECT * FROM enrollment_sessions WHERE id = ?")
+        .get(session_id);
+      if (!session || session.user_id !== userId) {
+        sendError(
+          reply,
+          404,
+          "SESSION_NOT_FOUND",
+          "Enrollment session not found.",
         );
-        await db.prepare(
-          "UPDATE enrollment_sessions SET status = ?, completed_at = ? WHERE id = ?"
-        ).run("failed_quality", nowIso(), session_id);
-        sendError(reply, 422, "E101_AUDIO_TOO_NOISY", "Audio quality below the minimum threshold. Please record again in a quieter environment.", {
-          score: qualityScore,
-          grade: qcResult.grade,
-          errors: qcResult.errors,
-          metrics: qcResult.metrics,
-        });
         return;
       }
 
-      const qualityTier = qcResult.grade === "F" ? "minimal" :
-                          qcResult.grade === "C" ? "fair" :
-                          qcResult.grade === "B" ? "good" : "excellent";
-      const embeddingRef = `voice_profiles/${userId}/${profileId}/embedding.bin`;
-      const shouldEmbed =
-        appConfig.LIVE_PROVIDERS &&
-        Boolean(appConfig.REPLICATE_API_TOKEN) &&
-        Boolean(appConfig.REPLICATE_EMBEDDING_MODEL_VERSION);
-
-      const cleanDir = path.join(
-        appConfig.STORAGE_DIR,
-        "enrollment",
-        "clean",
-        userId,
-        session_id
-      );
-      const cleanPath = path.join(cleanDir, "clean.wav");
-      try {
-        concatWavFiles(chunkFiles, cleanPath);
-        await storageProvider.putFile({
-          key: enrollmentCleanKey({ userId, sessionId: session_id }),
-          filePath: cleanPath,
-          contentType: "audio/wav",
-        });
-      } catch (err) {
-        console.warn("[Enrollment:complete] Clean audio concat failed:", err.message);
-      }
-
-      if (shouldEmbed) {
-        try {
-          const accessToken = crypto.randomBytes(16).toString("hex");
-          await db.prepare("UPDATE enrollment_sessions SET access_token = ? WHERE id = ?").run(
-            accessToken,
-            session_id
-          );
-          const audioUrl = `${getBaseUrl(request)}/enrollment/${session_id}/clean.wav?token=${accessToken}`;
-          const embedding = await extractEmbedding({
-            baseUrl: appConfig.REPLICATE_BASE_URL,
-            token: appConfig.REPLICATE_API_TOKEN,
-            modelVersion: appConfig.REPLICATE_EMBEDDING_MODEL_VERSION,
-            audioUrl,
-            timeoutMs: appConfig.PROVIDER_TIMEOUT_MS,
-          });
-          const embeddingPath = storageProvider.resolveLocalPath
-            ? storageProvider.resolveLocalPath(embeddingRef)
-            : path.join(appConfig.STORAGE_DIR, "tmp-embedding", `${profileId}.bin`);
-          await downloadToFile(
-            embedding.embedding_url,
-            embeddingPath,
-            appConfig.PROVIDER_TIMEOUT_MS
-          );
-          await storageProvider.putFile({
-            key: embeddingRef,
-            filePath: embeddingPath,
-            contentType: "application/octet-stream",
-          });
-          if (!storageProvider.resolveLocalPath) {
-            fs.rmSync(embeddingPath, { force: true });
-          }
-        } catch (err) {
-          request.log.error({ err }, "[Enrollment:complete] Embedding failed");
-          await db.prepare(
-            "UPDATE enrollment_sessions SET status = ?, completed_at = ? WHERE id = ?"
-          ).run("failed_verification", nowIso(), session_id);
-          sendError(reply, 502, "E106_EMBEDDING_FAILED", "Voice embedding failed. Please try again.");
-          return;
+      // Late-grant: a client that didn't include the persona scope at /start
+      // can grant it here. Only writes when the column was previously NULL,
+      // so a prior denial isn't quietly upgraded. Same allowlist as /start.
+      if (!session.consent_scopes) {
+        const KNOWN_CONSENT_SCOPES = new Set([REQUIRED_CONSENT_SCOPE]);
+        const completeScopes = Array.isArray(request.body?.consent_scopes)
+          ? request.body.consent_scopes
+              .filter((s) => typeof s === "string")
+              .filter((s) => KNOWN_CONSENT_SCOPES.has(s))
+          : null;
+        const completePersonaConsent =
+          request.body?.voice_suno_persona_consent === true;
+        let lateScope = null;
+        if (
+          completePersonaConsent ||
+          (completeScopes && completeScopes.includes(REQUIRED_CONSENT_SCOPE))
+        ) {
+          lateScope =
+            completeScopes && completeScopes.length
+              ? completeScopes.join(" ")
+              : REQUIRED_CONSENT_SCOPE;
+        }
+        if (lateScope) {
+          await db
+            .prepare(
+              "UPDATE enrollment_sessions SET consent_scopes = ? WHERE id = ? AND consent_scopes IS NULL",
+            )
+            .run(lateScope, session_id);
+          session = await db
+            .prepare("SELECT * FROM enrollment_sessions WHERE id = ?")
+            .get(session_id);
         }
       }
 
-      let elevenlabsVoiceId = null;
-      const shouldCreateElevenLabsClone = appConfig.LIVE_PROVIDERS && Boolean(appConfig.ELEVENLABS_API_KEY);
-      if (shouldCreateElevenLabsClone) {
-        const elCleanDir = path.join(
+      console.log("[Enrollment:complete] START", {
+        sessionId: session_id,
+        status: session.status,
+        chunks: session.chunk_count,
+      });
+
+      if (new Date(session.expires_at) < new Date()) {
+        await db
+          .prepare("UPDATE enrollment_sessions SET status = ? WHERE id = ?")
+          .run("expired", session_id);
+        sendError(reply, 410, "SESSION_EXPIRED", "Enrollment session expired.");
+        return;
+      }
+
+      const metrics = parseJson(session.quality_metrics, {});
+      const {
+        files: chunkFiles,
+        tempDir,
+        missingChunks,
+      } = await resolveEnrollmentChunkFiles({
+        session,
+        metrics,
+        userId,
+      });
+
+      if (chunkFiles.length === 0) {
+        request.log.error(
+          { sessionId: session_id, missingChunks },
+          "[Enrollment:complete] No files found",
+        );
+        sendError(
+          reply,
+          500,
+          "STORAGE_ERROR",
+          "Failed to retrieve uploaded audio files. Please try again.",
+        );
+        return;
+      }
+      let qcResult;
+      try {
+        qcResult = await validateEnrollmentWithGrading({
+          userId,
+          sessionId: session_id,
+          storageDir: appConfig.STORAGE_DIR,
+          chunkFiles,
+          applyPreprocessing: true,
+        });
+
+        const criticalErrors = qcResult.errors.filter(
+          (e) => e.includes("E103_NO_AUDIO_DETECTED") || e.includes("E104"),
+        );
+
+        if (criticalErrors.length > 0) {
+          request.log.error(
+            { errors: criticalErrors, grade: qcResult.grade },
+            "[Enrollment:complete] QC failed",
+          );
+          await db
+            .prepare(
+              "UPDATE enrollment_sessions SET status = ?, completed_at = ? WHERE id = ?",
+            )
+            .run("failed_quality", nowIso(), session_id);
+
+          const errorCode = criticalErrors[0].split(":")[0];
+          sendError(reply, 422, errorCode, "Audio quality check failed.", {
+            errors: criticalErrors,
+            metrics: qcResult.metrics,
+          });
+          return;
+        }
+
+        if (qcResult.metrics.chunk_results) {
+          await db
+            .prepare(
+              "UPDATE enrollment_sessions SET chunk_quality_json = ? WHERE id = ?",
+            )
+            .run(JSON.stringify(qcResult.metrics.chunk_results), session_id);
+        }
+
+        const profileId = newUuid();
+        const qualityScore = Math.round(qcResult.metrics.average_score || 50);
+
+        // Spec: voice profile only goes active when quality score >= 70.
+        // Without this gate, silent/noisy recordings that miss the E103/E104
+        // critical-error filter still create active profiles with garbage
+        // embeddings — leading to bad voice conversion downstream.
+        if (
+          qcResult.passed === false ||
+          qualityScore < 70 ||
+          qcResult.grade === "F"
+        ) {
+          request.log.warn(
+            {
+              score: qualityScore,
+              grade: qcResult.grade,
+              errors: qcResult.errors,
+            },
+            "[Enrollment:complete] QC below threshold — rejecting",
+          );
+          await db
+            .prepare(
+              "UPDATE enrollment_sessions SET status = ?, completed_at = ? WHERE id = ?",
+            )
+            .run("failed_quality", nowIso(), session_id);
+          sendError(
+            reply,
+            422,
+            "E101_AUDIO_TOO_NOISY",
+            "Audio quality below the minimum threshold. Please record again in a quieter environment.",
+            {
+              score: qualityScore,
+              grade: qcResult.grade,
+              errors: qcResult.errors,
+              metrics: qcResult.metrics,
+            },
+          );
+          return;
+        }
+
+        const qualityTier =
+          qcResult.grade === "F"
+            ? "minimal"
+            : qcResult.grade === "C"
+              ? "fair"
+              : qcResult.grade === "B"
+                ? "good"
+                : "excellent";
+        const embeddingRef = `voice_profiles/${userId}/${profileId}/embedding.bin`;
+        const shouldEmbed =
+          appConfig.LIVE_PROVIDERS &&
+          Boolean(appConfig.REPLICATE_API_TOKEN) &&
+          Boolean(appConfig.REPLICATE_EMBEDDING_MODEL_VERSION);
+        const sunoPersonaFlags = await getFeatureFlags(db, [
+          "user_voice_engine",
+          "suno_voice_persona_enabled",
+          "suno_voice_persona_model",
+          "suno_voice_persona_audio_weight",
+        ]);
+        const shouldQueueSunoPersona =
+          sunoPersonaFlags.user_voice_engine === "suno_voice_persona" &&
+          sunoPersonaFlags.suno_voice_persona_enabled === true;
+        // U2: Read consent_scopes (added by migration 098), NOT consent_version
+        // (semver). The previous fallback to consent_version was the silent-deny bug.
+        const hasProviderConsent = enrollmentSessionHasPersonaConsent(session);
+        let providerProfileResult =
+          shouldQueueSunoPersona && !hasProviderConsent
+            ? { provider: "suno", status: "consent_required", job_id: null }
+            : null;
+
+        const cleanDir = path.join(
           appConfig.STORAGE_DIR,
           "enrollment",
           "clean",
           userId,
-          session_id
+          session_id,
         );
-        const elCleanPath = path.join(elCleanDir, "clean.wav");
-
-        if (fs.existsSync(elCleanPath)) {
-          try {
-            const { createVoiceClone, deleteVoiceClone } = require("../providers/elevenlabs-voice");
-
-            const existingWithClone = await db.prepare(
-              "SELECT elevenlabs_voice_id FROM voice_profiles WHERE user_id = ? AND status = 'active' AND elevenlabs_voice_id IS NOT NULL"
-            ).get(userId);
-            if (existingWithClone?.elevenlabs_voice_id) {
-              console.log(`[Enrollment:complete] Deleting existing ElevenLabs clone: ${existingWithClone.elevenlabs_voice_id}`);
-              await deleteVoiceClone({
-                apiKey: appConfig.ELEVENLABS_API_KEY,
-                voiceId: existingWithClone.elevenlabs_voice_id,
-              }).catch(err => console.warn("[Enrollment:complete] Failed to delete old clone:", err.message));
-            }
-
-            const voiceClone = await createVoiceClone({
-              apiKey: appConfig.ELEVENLABS_API_KEY,
-              audioPath: elCleanPath,
-              name: `porizo_user_${userId.slice(0, 8)}_${profileId.slice(0, 8)}`,
-              description: `Porizo voice profile ${profileId}`,
-            });
-            elevenlabsVoiceId = voiceClone.voice_id;
-            console.log(`[Enrollment:complete] ElevenLabs voice clone created: ${elevenlabsVoiceId}`);
-          } catch (err) {
-            request.log.error({ err }, "[Enrollment:complete] ElevenLabs clone creation failed (non-fatal)");
-          }
-        } else {
-          console.warn("[Enrollment:complete] Clean audio not found for ElevenLabs clone");
+        const cleanPath = path.join(cleanDir, "clean.wav");
+        let cleanAudioReady = false;
+        try {
+          concatWavFiles(chunkFiles, cleanPath);
+          await storageProvider.putFile({
+            key: enrollmentCleanKey({ userId, sessionId: session_id }),
+            filePath: cleanPath,
+            contentType: "audio/wav",
+          });
+          cleanAudioReady = true;
+        } catch (err) {
+          console.warn(
+            "[Enrollment:complete] Clean audio concat failed:",
+            err.message,
+          );
         }
-      }
 
-      const existingProfile = await db
-        .prepare(
-          "SELECT id, quality_score FROM voice_profiles WHERE user_id = ? AND status = 'active' LIMIT 1"
-        )
-        .get(userId);
+        let cleanAudioAccessToken = session.access_token || null;
+        if (
+          (shouldEmbed || (shouldQueueSunoPersona && hasProviderConsent)) &&
+          !cleanAudioAccessToken
+        ) {
+          cleanAudioAccessToken = crypto.randomBytes(16).toString("hex");
+          await db
+            .prepare(
+              "UPDATE enrollment_sessions SET access_token = ? WHERE id = ?",
+            )
+            .run(cleanAudioAccessToken, session_id);
+        }
 
-      let outcome = "new";
-      const existingScore = existingProfile?.quality_score || 0;
+        if (shouldEmbed) {
+          try {
+            const audioUrl = `${getBaseUrl(request)}/enrollment/${session_id}/clean.wav?token=${cleanAudioAccessToken}`;
+            const embedding = await extractEmbedding({
+              baseUrl: appConfig.REPLICATE_BASE_URL,
+              token: appConfig.REPLICATE_API_TOKEN,
+              modelVersion: appConfig.REPLICATE_EMBEDDING_MODEL_VERSION,
+              audioUrl,
+              timeoutMs: appConfig.PROVIDER_TIMEOUT_MS,
+            });
+            const embeddingPath = storageProvider.resolveLocalPath
+              ? storageProvider.resolveLocalPath(embeddingRef)
+              : path.join(
+                  appConfig.STORAGE_DIR,
+                  "tmp-embedding",
+                  `${profileId}.bin`,
+                );
+            await downloadToFile(
+              embedding.embedding_url,
+              embeddingPath,
+              appConfig.PROVIDER_TIMEOUT_MS,
+            );
+            await storageProvider.putFile({
+              key: embeddingRef,
+              filePath: embeddingPath,
+              contentType: "application/octet-stream",
+            });
+            if (!storageProvider.resolveLocalPath) {
+              fs.rmSync(embeddingPath, { force: true });
+            }
+          } catch (err) {
+            request.log.error(
+              { err },
+              "[Enrollment:complete] Embedding failed",
+            );
+            await db
+              .prepare(
+                "UPDATE enrollment_sessions SET status = ?, completed_at = ? WHERE id = ?",
+              )
+              .run("failed_verification", nowIso(), session_id);
+            sendError(
+              reply,
+              502,
+              "E106_EMBEDDING_FAILED",
+              "Voice embedding failed. Please try again.",
+            );
+            return;
+          }
+        }
 
-      if (existingProfile) {
-        outcome = qualityScore > existingScore ? "upgraded" : "replaced";
-      }
+        let elevenlabsVoiceId = null;
+        const shouldCreateElevenLabsClone =
+          appConfig.LIVE_PROVIDERS && Boolean(appConfig.ELEVENLABS_API_KEY);
+        if (shouldCreateElevenLabsClone) {
+          const elCleanDir = path.join(
+            appConfig.STORAGE_DIR,
+            "enrollment",
+            "clean",
+            userId,
+            session_id,
+          );
+          const elCleanPath = path.join(elCleanDir, "clean.wav");
 
-      await db.transaction(async () => {
-        await db.prepare(
-          "UPDATE enrollment_sessions SET status = ?, completed_at = ? WHERE id = ?"
-        ).run("completed", nowIso(), session_id);
+          if (fs.existsSync(elCleanPath)) {
+            try {
+              const {
+                createVoiceClone,
+                deleteVoiceClone,
+              } = require("../providers/elevenlabs-voice");
+
+              const existingWithClone = await db
+                .prepare(
+                  "SELECT elevenlabs_voice_id FROM voice_profiles WHERE user_id = ? AND status = 'active' AND elevenlabs_voice_id IS NOT NULL",
+                )
+                .get(userId);
+              if (existingWithClone?.elevenlabs_voice_id) {
+                console.log(
+                  `[Enrollment:complete] Deleting existing ElevenLabs clone: ${existingWithClone.elevenlabs_voice_id}`,
+                );
+                await deleteVoiceClone({
+                  apiKey: appConfig.ELEVENLABS_API_KEY,
+                  voiceId: existingWithClone.elevenlabs_voice_id,
+                }).catch((err) =>
+                  console.warn(
+                    "[Enrollment:complete] Failed to delete old clone:",
+                    err.message,
+                  ),
+                );
+              }
+
+              const voiceClone = await createVoiceClone({
+                apiKey: appConfig.ELEVENLABS_API_KEY,
+                audioPath: elCleanPath,
+                name: `porizo_user_${userId.slice(0, 8)}_${profileId.slice(0, 8)}`,
+                description: `Porizo voice profile ${profileId}`,
+              });
+              elevenlabsVoiceId = voiceClone.voice_id;
+              console.log(
+                `[Enrollment:complete] ElevenLabs voice clone created: ${elevenlabsVoiceId}`,
+              );
+            } catch (err) {
+              request.log.error(
+                { err },
+                "[Enrollment:complete] ElevenLabs clone creation failed (non-fatal)",
+              );
+            }
+          } else {
+            console.warn(
+              "[Enrollment:complete] Clean audio not found for ElevenLabs clone",
+            );
+          }
+        }
+
+        const existingProfile = await db
+          .prepare(
+            "SELECT id, quality_score FROM voice_profiles WHERE user_id = ? AND status = 'active' LIMIT 1",
+          )
+          .get(userId);
+
+        let outcome = "new";
+        const existingScore = existingProfile?.quality_score || 0;
 
         if (existingProfile) {
-          await db.prepare(
-            "UPDATE voice_profiles SET status = ?, deleted_at = ? WHERE id = ?"
-          ).run("deleted", nowIso(), existingProfile.id);
+          outcome = qualityScore > existingScore ? "upgraded" : "replaced";
         }
 
-        await db.prepare(
-          "INSERT INTO voice_profiles (id, user_id, status, embedding_ref, quality_score, quality_tier, quality_metrics_json, model_version, consent_version, consent_at, last_verified_at, created_at, elevenlabs_voice_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-        ).run(
-          profileId,
-          userId,
-          "active",
-          embeddingRef,
-          qualityScore,
-          qualityTier,
-          JSON.stringify(qcResult.metrics),
-          shouldEmbed ? appConfig.REPLICATE_EMBEDDING_MODEL_VERSION : "embed_stub",
-          session.consent_version,
-          session.started_at,
-          nowIso(),
-          nowIso(),
-          elevenlabsVoiceId
-        );
+        // U14 (review fix): compute vocal window via fs.readFileSync OUTSIDE
+        // the DB transaction. Reading a multi-MB WAV synchronously while
+        // holding a DB connection serializes concurrent enrollment-completes
+        // and adds latency variance to a critical user flow.
+        const personaVocalWindow =
+          shouldQueueSunoPersona && hasProviderConsent && cleanAudioReady
+            ? deriveVocalWindow(cleanPath)
+            : null;
 
-        await addAuditEntry({
-          userId,
-          action: "enrollment_completed",
-          resourceType: "voice_profile",
-          resourceId: profileId,
-          metadata: {
-            quality_score: qualityScore,
-            existing_score: existingProfile ? existingScore : null,
-            outcome: outcome,
-            qc_metrics: qcResult.metrics,
-          },
+        await db.transaction(async () => {
+          await db
+            .prepare(
+              "UPDATE enrollment_sessions SET status = ?, completed_at = ? WHERE id = ?",
+            )
+            .run("completed", nowIso(), session_id);
+
+          if (existingProfile) {
+            await cancelVoiceProviderJobsForVoiceProfile(db, {
+              voiceProfileId: existingProfile.id,
+              userId,
+              reason: "voice_profile_replaced",
+            });
+            await softDeleteProviderProfilesForVoiceProfile(db, {
+              voiceProfileId: existingProfile.id,
+              userId,
+              reason: "voice_profile_replaced",
+            });
+            await db
+              .prepare(
+                "UPDATE voice_profiles SET status = ?, deleted_at = ? WHERE id = ?",
+              )
+              .run("deleted", nowIso(), existingProfile.id);
+          }
+
+          await db
+            .prepare(
+              "INSERT INTO voice_profiles (id, user_id, status, embedding_ref, quality_score, quality_tier, quality_metrics_json, model_version, consent_version, consent_at, last_verified_at, created_at, elevenlabs_voice_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            )
+            .run(
+              profileId,
+              userId,
+              "active",
+              embeddingRef,
+              qualityScore,
+              qualityTier,
+              JSON.stringify(qcResult.metrics),
+              shouldEmbed
+                ? appConfig.REPLICATE_EMBEDDING_MODEL_VERSION
+                : "embed_stub",
+              session.consent_version,
+              session.started_at,
+              nowIso(),
+              nowIso(),
+              elevenlabsVoiceId,
+            );
+
+          if (
+            shouldQueueSunoPersona &&
+            hasProviderConsent &&
+            !cleanAudioReady
+          ) {
+            providerProfileResult = {
+              provider: "suno",
+              status: "source_audio_unavailable",
+              job_id: null,
+            };
+          }
+
+          if (shouldQueueSunoPersona && hasProviderConsent && cleanAudioReady) {
+            const providerProfile = await createPendingProviderProfile(db, {
+              voiceProfileId: profileId,
+              userId,
+              provider: "suno",
+              consentScope: REQUIRED_CONSENT_SCOPE,
+              metadata: {
+                source: "enrollment",
+                enrollment_session_id: session_id,
+                consent_version: session.consent_version,
+              },
+            });
+            const providerJob = await createVoiceProviderJob(db, {
+              voiceProfileId: profileId,
+              userId,
+              provider: "suno",
+              voiceProviderProfileId: providerProfile.id,
+              step: "prepare_persona",
+              // U14: derive vocal window from clean audio metadata. Skip the
+              // first ~5s (typical user warm-up / silence) and use the next
+              // ~20s of vocal content. SunoAPI requires a 10-30s window;
+              // buildGeneratePersonaPayload validates this and clamps if needed.
+              // Falls back to defaults (0/30) when audio duration metadata is
+              // not yet available — preserves original behavior.
+              stepData: buildPersonaJobStepData({
+                providerProfileId: providerProfile.id,
+                sessionId: session_id,
+                userId,
+                model: sunoPersonaFlags.suno_voice_persona_model || "V5_5",
+                audioWeight:
+                  sunoPersonaFlags.suno_voice_persona_audio_weight || 0.85,
+                vocalWindow: personaVocalWindow,
+              }),
+            });
+            providerProfileResult = {
+              provider: "suno",
+              status: providerProfile.status,
+              id: providerProfile.id,
+              job_id: providerJob.id,
+            };
+          }
+
+          await addAuditEntry({
+            userId,
+            action: "enrollment_completed",
+            resourceType: "voice_profile",
+            resourceId: profileId,
+            metadata: {
+              quality_score: qualityScore,
+              existing_score: existingProfile ? existingScore : null,
+              outcome: outcome,
+              qc_metrics: qcResult.metrics,
+              voice_provider_profile: providerProfileResult
+                ? {
+                    provider: providerProfileResult.provider,
+                    status: providerProfileResult.status,
+                    id: providerProfileResult.id || null,
+                    job_id: providerProfileResult.job_id || null,
+                  }
+                : null,
+            },
+          });
         });
-      });
 
-      const tierMeta = getTierMetadata(qualityTier);
-      const chunkResults = qcResult.metrics.chunk_results || [];
-      const improvementTips = chunkResults
-        .filter((c) => c.issues && c.issues.length > 0)
-        .map((c, i) => `Prompt ${i + 1}: ${c.issues[0]}`)
-        .slice(0, 3);
+        const tierMeta = getTierMetadata(qualityTier);
+        const chunkResults = qcResult.metrics.chunk_results || [];
+        const improvementTips = chunkResults
+          .filter((c) => c.issues && c.issues.length > 0)
+          .map((c, i) => `Prompt ${i + 1}: ${c.issues[0]}`)
+          .slice(0, 3);
 
-      reply.code(202).send({
-        status: "processing",
-        job_id: newUuid(),
-        voice_profile_id: profileId,
-        outcome: outcome,
-        quality: {
-          tier: qualityTier,
-          score: qualityScore,
-          new_score: qualityScore,
-          existing_score: existingProfile ? existingScore : null,
-          stars: tierMeta.stars,
-          label: tierMeta.label,
-          disclosure: tierMeta.disclosure,
-          can_improve: qualityTier !== "excellent",
-          improvement_tips: improvementTips,
-        },
-        chunks: chunkResults.map((c, i) => ({
-          index: i,
-          type: c.metrics?.is_singing ? "sung" : "spoken",
-          quality: c.grade === "A" ? "excellent" : c.grade === "B" ? "good" : c.grade === "C" ? "fair" : "poor",
-          suggestion: c.issues?.[0] || null,
-        })),
-        estimated_completion_sec: 30,
-      });
-    } catch (err) {
-      request.log.error({ err }, "[Enrollment:complete] Unexpected error");
-      await db.prepare(
-        "UPDATE enrollment_sessions SET status = ?, completed_at = ? WHERE id = ?"
-      ).run("failed_internal", nowIso(), session_id);
-      sendError(reply, 500, "S501_INTERNAL_ERROR", "Enrollment processing failed unexpectedly. Please try again.");
-    } finally {
-      if (tempDir) {
-        fs.rmSync(tempDir, { recursive: true, force: true });
+        reply.code(202).send({
+          status: "processing",
+          job_id: newUuid(),
+          voice_profile_id: profileId,
+          outcome: outcome,
+          quality: {
+            tier: qualityTier,
+            score: qualityScore,
+            new_score: qualityScore,
+            existing_score: existingProfile ? existingScore : null,
+            stars: tierMeta.stars,
+            label: tierMeta.label,
+            disclosure: tierMeta.disclosure,
+            can_improve: qualityTier !== "excellent",
+            improvement_tips: improvementTips,
+          },
+          chunks: chunkResults.map((c, i) => ({
+            index: i,
+            type: c.metrics?.is_singing ? "sung" : "spoken",
+            quality:
+              c.grade === "A"
+                ? "excellent"
+                : c.grade === "B"
+                  ? "good"
+                  : c.grade === "C"
+                    ? "fair"
+                    : "poor",
+            suggestion: c.issues?.[0] || null,
+          })),
+          voice_provider_profile: providerProfileResult,
+          estimated_completion_sec: 30,
+        });
+      } catch (err) {
+        request.log.error({ err }, "[Enrollment:complete] Unexpected error");
+        await db
+          .prepare(
+            "UPDATE enrollment_sessions SET status = ?, completed_at = ? WHERE id = ?",
+          )
+          .run("failed_internal", nowIso(), session_id);
+        sendError(
+          reply,
+          500,
+          "S501_INTERNAL_ERROR",
+          "Enrollment processing failed unexpectedly. Please try again.",
+        );
+      } finally {
+        if (tempDir) {
+          fs.rmSync(tempDir, { recursive: true, force: true });
+        }
       }
-    }
-  });
+    },
+  );
 
   // ---- Voice profile ----
 
@@ -932,7 +1436,7 @@ function registerEnrollmentRoutes(app, deps) {
     }
     const profile = await db
       .prepare(
-        "SELECT * FROM voice_profiles WHERE user_id = ? AND status != 'deleted' ORDER BY created_at DESC LIMIT 1"
+        "SELECT * FROM voice_profiles WHERE user_id = ? AND status != 'deleted' ORDER BY created_at DESC LIMIT 1",
       )
       .get(userId);
     if (!profile) {
@@ -956,7 +1460,9 @@ function registerEnrollmentRoutes(app, deps) {
       return;
     }
     const profile = await db
-      .prepare("SELECT id FROM voice_profiles WHERE user_id = ? AND status = 'active'")
+      .prepare(
+        "SELECT id FROM voice_profiles WHERE user_id = ? AND status = 'active'",
+      )
       .get(userId);
     if (!profile) {
       sendError(reply, 404, "NO_VOICE_PROFILE", "Voice profile not found.");
@@ -966,7 +1472,10 @@ function registerEnrollmentRoutes(app, deps) {
     reply.send({
       challenge_id: challengeId,
       challenge_type: "random_phrase",
-      prompt: { text: "Seven blue elephants walk quietly.", duration_hint_sec: 5 },
+      prompt: {
+        text: "Seven blue elephants walk quietly.",
+        duration_hint_sec: 5,
+      },
       upload_url: `https://s3.example.com/upload/reverify/${challengeId}`,
       expires_at: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
     });
@@ -978,7 +1487,9 @@ function registerEnrollmentRoutes(app, deps) {
       return;
     }
     const profile = await db
-      .prepare("SELECT * FROM voice_profiles WHERE user_id = ? AND status != 'deleted'")
+      .prepare(
+        "SELECT * FROM voice_profiles WHERE user_id = ? AND status != 'deleted'",
+      )
       .get(userId);
     if (!profile) {
       sendError(reply, 404, "NO_VOICE_PROFILE", "Voice profile not found.");
@@ -992,66 +1503,122 @@ function registerEnrollmentRoutes(app, deps) {
           apiKey: appConfig.ELEVENLABS_API_KEY,
           voiceId: profile.elevenlabs_voice_id,
         });
-        console.log(`[Voice:delete] Deleted ElevenLabs clone: ${profile.elevenlabs_voice_id}`);
+        console.log(
+          `[Voice:delete] Deleted ElevenLabs clone: ${profile.elevenlabs_voice_id}`,
+        );
       } catch (err) {
-        console.warn("[Voice:delete] Failed to delete ElevenLabs clone:", err.message);
+        console.warn(
+          "[Voice:delete] Failed to delete ElevenLabs clone:",
+          err.message,
+        );
       }
     }
 
-    await db.prepare(
-      "UPDATE voice_profiles SET status = ?, embedding_ref = ?, elevenlabs_voice_id = ?, deleted_at = ? WHERE id = ?"
-    ).run("deleted", null, null, nowIso(), profile.id);
+    const providerProfiles = await db
+      .prepare(
+        `SELECT id, voice_profile_id, provider, status
+         FROM voice_provider_profiles
+        WHERE voice_profile_id = ? AND user_id = ? AND deleted_at IS NULL`,
+      )
+      .all(profile.id, userId);
+    await softDeleteProviderProfilesForVoiceProfile(db, {
+      voiceProfileId: profile.id,
+      userId,
+      reason: "voice_profile_deleted",
+    });
+    await cancelVoiceProviderJobsForVoiceProfile(db, {
+      voiceProfileId: profile.id,
+      userId,
+      reason: "voice_profile_deleted",
+    });
+    // U3: token revocation goes through enrollment-domain service.
+    await revokeAllEnrollmentSessionTokensForUser(db, userId);
+
+    await db
+      .prepare(
+        "UPDATE voice_profiles SET status = ?, embedding_ref = ?, elevenlabs_voice_id = ?, deleted_at = ? WHERE id = ?",
+      )
+      .run("deleted", null, null, nowIso(), profile.id);
     await addAuditEntry({
       userId,
       action: "voice_profile_deleted",
       resourceType: "voice_profile",
       resourceId: profile.id,
+      metadata: {
+        provider_profiles_deleted: providerProfiles.map((row) => ({
+          id: row.id,
+          voice_profile_id: row.voice_profile_id,
+          provider: row.provider,
+          status: row.status,
+        })),
+      },
     });
     reply.send({ deleted: true, deletion_job_id: newUuid() });
   });
 
   // ---- Memory Questions ----
 
-  app.post("/memory/questions", { schema: schemas.memoryQuestions }, async (request, reply) => {
-    const userId = await requireUserId(request, reply);
-    if (!userId) {
-      return;
-    }
+  app.post(
+    "/memory/questions",
+    { schema: schemas.memoryQuestions },
+    async (request, reply) => {
+      const userId = await requireUserId(request, reply);
+      if (!userId) {
+        return;
+      }
 
-    const limit = await consumeRateLimit(userId, "memory_questions", 30, 60);
-    if (!limit.allowed) {
-      sendError(reply, 429, "RATE_LIMITED", "Question generation rate limit reached.", {
-        retry_at: limit.reset_at,
-      });
-      return;
-    }
+      const limit = await consumeRateLimit(userId, "memory_questions", 30, 60);
+      if (!limit.allowed) {
+        sendError(
+          reply,
+          429,
+          "RATE_LIMITED",
+          "Question generation rate limit reached.",
+          {
+            retry_at: limit.reset_at,
+          },
+        );
+        return;
+      }
 
-    const body = request.body || {};
-    const { memory, occasion, recipient_name } = body;
+      const body = request.body || {};
+      const { memory, occasion, recipient_name } = body;
 
-    const moderation = moderationCheck({ message: memory });
-    if (!moderation.allowed) {
-      sendError(reply, 422, "MODERATION_BLOCKED", "Memory blocked by moderation.", {
-        reason: moderation.reason,
-      });
-      return;
-    }
+      const moderation = moderationCheck({ message: memory });
+      if (!moderation.allowed) {
+        sendError(
+          reply,
+          422,
+          "MODERATION_BLOCKED",
+          "Memory blocked by moderation.",
+          {
+            reason: moderation.reason,
+          },
+        );
+        return;
+      }
 
-    try {
-      const result = await generateMemoryQuestions({
-        memory,
-        occasion: occasion || "celebration",
-        recipientName: recipient_name || "them",
-      });
+      try {
+        const result = await generateMemoryQuestions({
+          memory,
+          occasion: occasion || "celebration",
+          recipientName: recipient_name || "them",
+        });
 
-      reply.send({
-        questions: result.questions,
-      });
-    } catch (err) {
-      console.error("[POST /memory/questions] Error:", err.message);
-      sendError(reply, 500, "QUESTION_GENERATION_FAILED", "Failed to generate questions. Please try again.");
-    }
-  });
+        reply.send({
+          questions: result.questions,
+        });
+      } catch (err) {
+        console.error("[POST /memory/questions] Error:", err.message);
+        sendError(
+          reply,
+          500,
+          "QUESTION_GENERATION_FAILED",
+          "Failed to generate questions. Please try again.",
+        );
+      }
+    },
+  );
 }
 
 module.exports = { registerEnrollmentRoutes };

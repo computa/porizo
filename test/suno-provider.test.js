@@ -73,6 +73,71 @@ describe("Suno Provider", () => {
       assert.equal(payload.model, "V5_5");
     });
 
+    test("adds Suno voice persona fields without leaking them into prompt or style", () => {
+      const { buildSunoPayload, normalizeSunoPersona } = require("../src/providers/suno");
+
+      const persona = normalizeSunoPersona({
+        provider_profile_id: "persona_live_123",
+        persona_model: "voice_persona",
+      });
+      assert.deepEqual(persona, {
+        personaId: "persona_live_123",
+        personaModel: "voice_persona",
+        audioWeight: null,
+      });
+
+      const payload = buildSunoPayload({
+        lyrics: {
+          title: "Voice Song",
+          sections: [{ name: "chorus", lines: ["This is our chorus"] }],
+        },
+        musicPlan: { style: "pop", duration_sec: 60 },
+        track: { title: "Voice Song" },
+        sunoModel: "V5_5",
+        sunoPersona: persona,
+      });
+
+      assert.equal(payload.model, "V5_5");
+      assert.equal(payload.personaId, "persona_live_123");
+      assert.equal(payload.personaModel, "voice_persona");
+      assert.ok(!payload.prompt.includes("persona_live_123"));
+      assert.ok(!payload.style.includes("persona_live_123"));
+    });
+
+    test("submitSunoTask sends persona audioWeight and camelCase negativeTags", async () => {
+      const { submitSunoTask } = require("../src/providers/suno");
+      let submitted;
+
+      const taskId = await submitSunoTask({
+        baseUrl: "https://api.sunoapi.org",
+        apiKey: "secret",
+        lyrics: {
+          title: "Voice Song",
+          sections: [{ name: "verse", lines: ["Sing this line"] }],
+        },
+        musicPlan: { style: "pop", duration_sec: 60, style_negative_constraints: ["Heavy Metal"] },
+        track: { id: "track_1", user_id: "user_1", title: "Voice Song" },
+        timeoutMs: 30000,
+        sunoModel: "V5_5",
+        sunoPersona: {
+          personaId: "persona_live_123",
+          personaModel: "voice_persona",
+          audioWeight: 0.876,
+        },
+        fetchJsonFn: async (_url, options) => {
+          submitted = JSON.parse(options.body);
+          return { code: 200, msg: "success", data: { taskId: "task_123" } };
+        },
+      });
+
+      assert.equal(taskId, "task_123");
+      assert.equal(submitted.personaId, "persona_live_123");
+      assert.equal(submitted.personaModel, "voice_persona");
+      assert.equal(submitted.audioWeight, 0.88);
+      assert.equal(submitted.negativeTags, "Heavy Metal");
+      assert.equal(submitted.negative_tags, undefined);
+    });
+
     test("falls back to V5 for invalid configured Suno model", () => {
       const { buildSunoPayload } = require("../src/providers/suno");
 

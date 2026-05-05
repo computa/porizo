@@ -18,7 +18,8 @@ const PUBLIC_BASE_URL =
 const APP_STORE_URL =
   process.env.APP_STORE_URL || "https://apps.apple.com/app/porizo/id6758205028";
 const PLAY_STORE_URL =
-  process.env.PLAY_STORE_URL || "https://play.google.com/store/apps/details?id=com.porizo.app";
+  process.env.PLAY_STORE_URL ||
+  "https://play.google.com/store/apps/details?id=com.porizo.app";
 const IOS_TESTFLIGHT_URL = process.env.IOS_TESTFLIGHT_URL || "";
 const LIVE_PROVIDERS = process.env.LIVE_PROVIDERS === "true";
 // Dev mode: skip all provider API calls, use placeholders instead
@@ -26,7 +27,9 @@ const DEV_MODE = process.env.DEV_MODE === "true";
 const FACEBOOK_APP_ID = process.env.FACEBOOK_APP_ID || "";
 const SHARE_COVER_VERSION = process.env.SHARE_COVER_VERSION || "";
 // 0 = full audio duration for share.mp4 social previews
-const SHARE_VIDEO_MAX_DURATION_SEC = Number(process.env.SHARE_VIDEO_MAX_DURATION_SEC || 0);
+const SHARE_VIDEO_MAX_DURATION_SEC = Number(
+  process.env.SHARE_VIDEO_MAX_DURATION_SEC || 0,
+);
 const INLINE_JOB_RUNNER = process.env.INLINE_JOB_RUNNER !== "false";
 const ALLOW_ANON_USER_ID = process.env.ALLOW_ANON_USER_ID === "true";
 const ALLOW_DEVICE_TOKEN_FALLBACK =
@@ -34,12 +37,14 @@ const ALLOW_DEVICE_TOKEN_FALLBACK =
 const ENABLE_DEBUG_ROUTES = process.env.ENABLE_DEBUG_ROUTES === "true";
 const ENABLE_V3_ORCHESTRATION_ROUTES =
   process.env.ENABLE_V3_ORCHESTRATION_ROUTES === "true";
-const ORCHESTRATION_EXECUTOR_MODE =
-  (process.env.ORCHESTRATION_EXECUTOR_MODE || "local").toLowerCase();
+const ORCHESTRATION_EXECUTOR_MODE = (
+  process.env.ORCHESTRATION_EXECUTOR_MODE || "local"
+).toLowerCase();
 const ORCHESTRATION_EXTERNAL_COMMAND_JSON =
   process.env.ORCHESTRATION_EXTERNAL_COMMAND_JSON || "";
-const ORCHESTRATION_EXTERNAL_TIMEOUT_MS =
-  Number(process.env.ORCHESTRATION_EXTERNAL_TIMEOUT_MS || 120000);
+const ORCHESTRATION_EXTERNAL_TIMEOUT_MS = Number(
+  process.env.ORCHESTRATION_EXTERNAL_TIMEOUT_MS || 120000,
+);
 const REQUIRE_S3 = process.env.REQUIRE_S3 === "true";
 
 const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY || "";
@@ -51,7 +56,8 @@ const ELEVENLABS_COMPOSITION_PLAN_ENDPOINT =
   process.env.ELEVENLABS_COMPOSITION_PLAN_ENDPOINT || "/v1/music/plan";
 const ELEVENLABS_VOICE_ID = process.env.ELEVENLABS_VOICE_ID || "";
 // Default TTS voice: "Rachel" - clear female voice good for singing
-const ELEVENLABS_TTS_VOICE_ID = process.env.ELEVENLABS_TTS_VOICE_ID || "21m00Tcm4TlvDq8ikWAM";
+const ELEVENLABS_TTS_VOICE_ID =
+  process.env.ELEVENLABS_TTS_VOICE_ID || "21m00Tcm4TlvDq8ikWAM";
 
 const REPLICATE_API_TOKEN = process.env.REPLICATE_API_TOKEN || "";
 const REPLICATE_MODEL_VERSION = process.env.REPLICATE_MODEL_VERSION || "";
@@ -65,28 +71,47 @@ const PROVIDER_TIMEOUT_MS = Number(process.env.PROVIDER_TIMEOUT_MS || 300000);
 // Suno API (third-party provider) - alternative to ElevenLabs for music generation
 const SUNO_API_KEY = process.env.SUNO_API_KEY || "";
 const SUNO_BASE_URL = process.env.SUNO_BASE_URL || "https://api.sunoapi.org";
+const SUNO_FILE_UPLOAD_BASE_URL =
+  process.env.SUNO_FILE_UPLOAD_BASE_URL || "https://sunoapiorg.redpandaai.co";
 const SUNO_MODEL = process.env.SUNO_MODEL || "V5";
+// Suno callback URL: receives async upload-cover/persona task results.
+// MUST be configured (no default) to avoid leaking task metadata to public services.
+// See src/routes/internal-suno-callback.js for the receiving endpoint.
+const SUNO_CALLBACK_URL = process.env.SUNO_CALLBACK_URL || "";
+// HMAC secret for verifying inbound /internal/suno/callback POSTs.
+const SUNO_CALLBACK_HMAC_SECRET = process.env.SUNO_CALLBACK_HMAC_SECRET || "";
 // Music provider fallback default: "suno" or "elevenlabs"
 // Runtime default can be overridden from app_config.music_provider_config.
 const MUSIC_PROVIDER = process.env.MUSIC_PROVIDER || "suno";
 const CLEANUP_INTERVAL_MS = Number(process.env.CLEANUP_INTERVAL_MS || 600000);
-const GIFT_DISPATCH_INTERVAL_MS = Number(process.env.GIFT_DISPATCH_INTERVAL_MS || 30000);
-const GIFT_DISPATCH_MAX_ATTEMPTS = Number(process.env.GIFT_DISPATCH_MAX_ATTEMPTS || 5);
-const GIFT_RESERVATION_TTL_MINUTES = Number(process.env.GIFT_RESERVATION_TTL_MINUTES || 45);
-const GIFT_RESERVATION_SWEEP_INTERVAL_MS = Number(process.env.GIFT_RESERVATION_SWEEP_INTERVAL_MS || 60000);
+const GIFT_DISPATCH_INTERVAL_MS = Number(
+  process.env.GIFT_DISPATCH_INTERVAL_MS || 30000,
+);
+const GIFT_DISPATCH_MAX_ATTEMPTS = Number(
+  process.env.GIFT_DISPATCH_MAX_ATTEMPTS || 5,
+);
+const GIFT_RESERVATION_TTL_MINUTES = Number(
+  process.env.GIFT_RESERVATION_TTL_MINUTES || 45,
+);
+const GIFT_RESERVATION_SWEEP_INTERVAL_MS = Number(
+  process.env.GIFT_RESERVATION_SWEEP_INTERVAL_MS || 60000,
+);
 const GIFT_TOKEN_PRODUCT_ID =
   process.env.GIFT_TOKEN_PRODUCT_ID || "com.porizo.gift_token_oneoff";
 const TWILIO_STATUS_CALLBACK_BASE_URL =
   process.env.TWILIO_STATUS_CALLBACK_BASE_URL || "";
 const APPLE_APP_STORE_KEY_ID = process.env.APPLE_APP_STORE_KEY_ID || "";
 const APPLE_APP_STORE_ISSUER_ID = process.env.APPLE_APP_STORE_ISSUER_ID || "";
-const APPLE_APP_STORE_PRIVATE_KEY = process.env.APPLE_APP_STORE_PRIVATE_KEY || "";
+const APPLE_APP_STORE_PRIVATE_KEY =
+  process.env.APPLE_APP_STORE_PRIVATE_KEY || "";
 const APPLE_BUNDLE_ID = process.env.APPLE_BUNDLE_ID || "";
 const APPLE_ENVIRONMENT = process.env.APPLE_ENVIRONMENT || "production";
 const APPLE_ADS_ATTRIBUTION_URL =
-  process.env.APPLE_ADS_ATTRIBUTION_URL || "https://api-adservices.apple.com/api/v1/";
-const APPLE_ADS_ATTRIBUTION_TIMEOUT_MS =
-  Number(process.env.APPLE_ADS_ATTRIBUTION_TIMEOUT_MS || 8000);
+  process.env.APPLE_ADS_ATTRIBUTION_URL ||
+  "https://api-adservices.apple.com/api/v1/";
+const APPLE_ADS_ATTRIBUTION_TIMEOUT_MS = Number(
+  process.env.APPLE_ADS_ATTRIBUTION_TIMEOUT_MS || 8000,
+);
 
 // OpenAI API key for Whisper speech-to-text
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
@@ -98,14 +123,16 @@ const HF_TOKEN = process.env.HF_TOKEN || "";
 const DEFAULT_VOICE_MODE = process.env.DEFAULT_VOICE_MODE || "ai_voice";
 // AI voice model for RVC - used when voice_mode is "ai_voice"
 // This is a pre-trained model identifier for Replicate's RVC
-const DEFAULT_AI_VOICE_MODEL = process.env.DEFAULT_AI_VOICE_MODEL || "Squidward";
+const DEFAULT_AI_VOICE_MODEL =
+  process.env.DEFAULT_AI_VOICE_MODEL || "Squidward";
 
 // Seed-VC voice conversion parameters
 // cfgRate controls voice fidelity vs natural singing balance:
 // - 0.3-0.5: Voice cover mode (natural singing, reasonable voice similarity)
 // - 0.6-0.8: Voice cloning mode (strong similarity, may sound robotic)
 const SEEDVC_CFG_RATE = Number(process.env.SEEDVC_CFG_RATE || 0.65);
-const DEMUCS_SEPARATION_MODEL = process.env.DEMUCS_SEPARATION_MODEL || "htdemucs_ft";
+const DEMUCS_SEPARATION_MODEL =
+  process.env.DEMUCS_SEPARATION_MODEL || "htdemucs_ft";
 const DEMUCS_SHIFTS = Number(process.env.DEMUCS_SHIFTS || 3);
 
 // S3-compatible storage configuration (supports AWS S3 and Cloudflare R2)
@@ -113,9 +140,15 @@ const DEMUCS_SHIFTS = Number(process.env.DEMUCS_SHIFTS || 3);
 const S3_BUCKET = process.env.R2_BUCKET_NAME || process.env.S3_BUCKET || "";
 const S3_REGION = process.env.S3_REGION || process.env.AWS_REGION || "auto"; // R2 uses "auto"
 const S3_ACCESS_KEY_ID =
-  process.env.R2_ACCESS_KEY_ID || process.env.S3_ACCESS_KEY_ID || process.env.AWS_ACCESS_KEY_ID || "";
+  process.env.R2_ACCESS_KEY_ID ||
+  process.env.S3_ACCESS_KEY_ID ||
+  process.env.AWS_ACCESS_KEY_ID ||
+  "";
 const S3_SECRET_ACCESS_KEY =
-  process.env.R2_SECRET_ACCESS_KEY || process.env.S3_SECRET_ACCESS_KEY || process.env.AWS_SECRET_ACCESS_KEY || "";
+  process.env.R2_SECRET_ACCESS_KEY ||
+  process.env.S3_SECRET_ACCESS_KEY ||
+  process.env.AWS_SECRET_ACCESS_KEY ||
+  "";
 const S3_SESSION_TOKEN =
   process.env.S3_SESSION_TOKEN || process.env.AWS_SESSION_TOKEN || "";
 // R2 endpoint format: https://<account-id>.r2.cloudflarestorage.com
@@ -125,38 +158,66 @@ const S3_URL_EXPIRES_SEC = Number(process.env.S3_URL_EXPIRES_SEC || 900);
 
 // Story session configuration
 const STORY_MAX_TURNS = Number(process.env.STORY_MAX_TURNS || 30);
-const STORY_SESSION_TTL_HOURS = Number(process.env.STORY_SESSION_TTL_HOURS || 24);
-const STORY_MAX_CONVERSATION_TURNS = Number(process.env.STORY_MAX_CONVERSATION_TURNS || 100);
+const STORY_SESSION_TTL_HOURS = Number(
+  process.env.STORY_SESSION_TTL_HOURS || 24,
+);
+const STORY_MAX_CONVERSATION_TURNS = Number(
+  process.env.STORY_MAX_CONVERSATION_TURNS || 100,
+);
 const STORY_ENGINE_DEFAULT = "v3";
 
 // Polling configuration
 const SUNO_MAX_POLL_ATTEMPTS = Number(process.env.SUNO_MAX_POLL_ATTEMPTS || 60);
-const SUNO_POLL_INITIAL_INTERVAL_MS = Number(process.env.SUNO_POLL_INITIAL_INTERVAL_MS || 5000);
-const SUNO_POLL_MAX_INTERVAL_MS = Number(process.env.SUNO_POLL_MAX_INTERVAL_MS || 30000);
-const REPLICATE_MAX_POLL_ATTEMPTS = Number(process.env.REPLICATE_MAX_POLL_ATTEMPTS || 120);
-const REPLICATE_POLL_INITIAL_INTERVAL_MS = Number(process.env.REPLICATE_POLL_INITIAL_INTERVAL_MS || 2000);
-const REPLICATE_POLL_MAX_INTERVAL_MS = Number(process.env.REPLICATE_POLL_MAX_INTERVAL_MS || 15000);
+const SUNO_POLL_INITIAL_INTERVAL_MS = Number(
+  process.env.SUNO_POLL_INITIAL_INTERVAL_MS || 5000,
+);
+const SUNO_POLL_MAX_INTERVAL_MS = Number(
+  process.env.SUNO_POLL_MAX_INTERVAL_MS || 30000,
+);
+const REPLICATE_MAX_POLL_ATTEMPTS = Number(
+  process.env.REPLICATE_MAX_POLL_ATTEMPTS || 120,
+);
+const REPLICATE_POLL_INITIAL_INTERVAL_MS = Number(
+  process.env.REPLICATE_POLL_INITIAL_INTERVAL_MS || 2000,
+);
+const REPLICATE_POLL_MAX_INTERVAL_MS = Number(
+  process.env.REPLICATE_POLL_MAX_INTERVAL_MS || 15000,
+);
 
 // Render pipeline configuration
-const FFMPEG_MAX_STDERR_SIZE = Number(process.env.FFMPEG_MAX_STDERR_SIZE || 10000);
+const FFMPEG_MAX_STDERR_SIZE = Number(
+  process.env.FFMPEG_MAX_STDERR_SIZE || 10000,
+);
 const FFMPEG_TIMEOUT_MS = Number(process.env.FFMPEG_TIMEOUT_MS || 120000);
 
 // HTTP client configuration
-const HTTP_DEFAULT_TIMEOUT_MS = Number(process.env.HTTP_DEFAULT_TIMEOUT_MS || 30000);
+const HTTP_DEFAULT_TIMEOUT_MS = Number(
+  process.env.HTTP_DEFAULT_TIMEOUT_MS || 30000,
+);
 const HTTP_MAX_RETRIES = Number(process.env.HTTP_MAX_RETRIES || 3);
 
 // Cache/CDN configuration
-const AUDIO_CACHE_MAX_AGE_SEC = Number(process.env.AUDIO_CACHE_MAX_AGE_SEC || 31536000); // 1 year
+const AUDIO_CACHE_MAX_AGE_SEC = Number(
+  process.env.AUDIO_CACHE_MAX_AGE_SEC || 31536000,
+); // 1 year
 const AUDIO_CACHE_IMMUTABLE = process.env.AUDIO_CACHE_IMMUTABLE !== "false";
 
 // Admin dashboard configuration
 // In production, ADMIN_SECRET_KEY must be explicitly set (no fallback)
-const ADMIN_SECRET_KEY = process.env.ADMIN_SECRET_KEY ||
-  (process.env.NODE_ENV === "production" ? (() => { throw new Error("ADMIN_SECRET_KEY must be set in production"); })() : "dev-admin-key-change-in-prod");
+const ADMIN_SECRET_KEY =
+  process.env.ADMIN_SECRET_KEY ||
+  (process.env.NODE_ENV === "production"
+    ? (() => {
+        throw new Error("ADMIN_SECRET_KEY must be set in production");
+      })()
+    : "dev-admin-key-change-in-prod");
 
 // Database and worker configuration
-const DB_MAX_CONNECTIONS = parseInt(process.env.DB_MAX_CONNECTIONS || '20', 10);
-const MAX_CONCURRENT_JOBS = parseInt(process.env.MAX_CONCURRENT_JOBS || '3', 10);
+const DB_MAX_CONNECTIONS = parseInt(process.env.DB_MAX_CONNECTIONS || "20", 10);
+const MAX_CONCURRENT_JOBS = parseInt(
+  process.env.MAX_CONCURRENT_JOBS || "3",
+  10,
+);
 
 module.exports = {
   PORT,
@@ -205,7 +266,10 @@ module.exports = {
   APPLE_ADS_ATTRIBUTION_TIMEOUT_MS,
   SUNO_API_KEY,
   SUNO_BASE_URL,
+  SUNO_FILE_UPLOAD_BASE_URL,
   SUNO_MODEL,
+  SUNO_CALLBACK_URL,
+  SUNO_CALLBACK_HMAC_SECRET,
   MUSIC_PROVIDER,
   HF_TOKEN,
   DEFAULT_VOICE_MODE,

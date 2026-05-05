@@ -6,19 +6,65 @@ Patterns and rules to prevent repeated mistakes. Review at session start.
 
 ## Session Rules
 
+### 2026-05-05 — Do not invent webhook signatures for vendors that only document callback URLs
+
+**Trigger:** Adding a SunoAPI callback receiver for upload-cover/persona probe tasks.
+**Mistake:** Implemented `X-Suno-Signature` + HMAC-SHA256 over the raw body as a placeholder because it is a common webhook convention, but SunoAPI's public docs only document `callBackUrl`; they do not document a provider-signed header.
+**Rule:**
+
+1. If vendor docs do not document a callback signature scheme, do not rely on a fabricated header for production safety.
+2. Protect the endpoint with a callback URL secret token (`?token=<secret>`) when the vendor only lets us configure the URL.
+3. Keep optional support for the likely future signature scheme only as additive compatibility, not as the required production contract.
+4. Stub callbacks must not mutate state until the auth contract is vendor-confirmed and covered by live callback evidence.
+
+### 2026-05-05 — When typing an external API response shape, mark the test fixture PLACEHOLDER until a live capture replaces it
+
+**Trigger:** Replacing an opaque graph-traversal extractor with a typed extractor against a vendor API (Suno upload-cover task status response).
+**Mistake:** Wrote the typed extractor against a fixture inferred from existing extractor candidate paths and SunoAPI public docs — never validated against a real captured response. CI green became a self-fulfilling test, masking the risk that the real shape would not match.
+**Rule:**
+
+1. When committing a typed extractor for a third-party response, the test fixture MUST carry `_fixture_metadata.captured_from` and `capture_timestamp` fields.
+2. Add a CI gate (env-var-driven test) that fails when the fixture status is `PRELIMINARY` AND a deploy-time env var (`SUNO_PERSONA_PROBE_VERIFIED=true`) is set.
+3. Never enable a feature flag whose hot path runs the typed extractor until the gate passes.
+4. The probe script that captures the fixture redacts Bearer tokens, URLs, and provider IDs deterministically (so structural references stay intact for tests).
+
+### 2026-05-05 — Token revocation extraction: audit predicates, never collapse signatures
+
+**Trigger:** Refactoring duplicated SQL across modules (the 3 `UPDATE enrollment_sessions SET access_token = NULL` sites — one `WHERE id = ?`, two `WHERE user_id = ?`).
+**Mistake:** Initial refactor instinct was a single `revokeEnrollmentSessionToken(db, identifier)` taking either id type. Lost the predicate distinction; would have silently revoked all of a user's sessions when a per-session revoke was intended.
+**Rule:**
+
+1. When extracting cross-module SQL, list every call site's `WHERE` clause first.
+2. If the predicates differ, the extracted helpers MUST differ — distinct names that name the predicate (`revokeEnrollmentSessionToken` vs `revokeAllEnrollmentSessionTokensForUser`).
+3. The Duplicate Function Rule's "either they serve different purposes (name them differently) or one is wrong (fix it)" applies during extraction, not just during code review.
+
+### 2026-05-05 — Don't ship a freshness budget without wiring the cache through callers
+
+**Trigger:** Optimizing repeated DB-fetch-and-validate calls in a job runner (`assertProviderJobStillAllowed` → 8× per job × 3 reads = ~24 round trips).
+**Mistake:** Added `cachedState` parameter and a 5-second freshness window inside the function, then shipped without updating any of the 8 call sites to pass `cachedState`. Net DB load unchanged from pre-optimization; the dead-code branch silently never fires.
+**Rule:**
+
+1. When introducing a parameter that callers must pass to enable an optimization, update at least one call site in the same commit OR delete the parameter.
+2. A test that covers the new branch (`cachedState` provided + within budget → 0 DB reads) keeps the optimization honest.
+3. If the optimization can't ship together with caller updates, ship the caller-update PR first; don't merge the dead path "for later wiring."
+
 ### 2026-04-11 — App Store versions must use AFTER_APPROVAL release type
 
 **Trigger:** Creating a new App Store Connect version (via `asc versions create` or the ASC web UI)
 **Mistake:** Versions 1.4, 1.5.1, and 1.5.2 were created with `releaseType: MANUAL` (vs `AFTER_APPROVAL` on 1.0-1.3). 1.5.2 was approved by Apple but sat in `PENDING_DEVELOPER_RELEASE` because the manual trigger was forgotten — users didn't see the update for an extra day.
 **Rule:** Every new version, without exception, gets `--release-type AFTER_APPROVAL`:
+
 ```bash
 asc versions create --app 6758205028 --version "X.Y.Z" --platform IOS \
   --release-type AFTER_APPROVAL --copy-metadata-from "<previous>"
 ```
+
 If a version already exists with `MANUAL`, fix it before submission:
+
 ```bash
 asc versions update --version-id "VERSION_ID" --release-type AFTER_APPROVAL
 ```
+
 Documented in `PorizoApp/submissionchecklist.md` Section 0.
 
 ### 2026-04-11 — /appstore-review is a pre-submission blocker, not a nice-to-have
@@ -27,13 +73,12 @@ Documented in `PorizoApp/submissionchecklist.md` Section 0.
 **Mistake:** Was about to submit build 92 to external beta review without running the compliance audit first. Would have caught a NO-GO verdict only after Apple's scanner auto-rejected.
 **Rule:** Run `/appstore-review` BEFORE every submission (TestFlight external or App Store). If the verdict is NO-GO, fix blockers and re-run until GO. Never skip based on "small diff" reasoning — the Feb 2026 iPad screenshot rejection and the April 2026 TikTok SDK/IDFA mismatch both came from "small" changes that bundled rejection-grade issues.
 
-
-
 ### 2026-02-21 — Every terminal state in financial workflows needs a test
 
 **Trigger:** Building any feature where tokens/credits are spent
 **Mistake:** The gift dispatch happy path (spent → sent) had a refund on cancel, but the failure path (spent → failed) silently ate the token. Only the golden path was tested.
 **Rule:** For every `spend` operation, enumerate ALL terminal states and verify each one handles the financial consequence:
+
 - `spent → sent` ✓
 - `spent → failed → refunded` ← was missing
 - `spent → cancelled → refunded` ✓
@@ -43,6 +88,7 @@ Documented in `PorizoApp/submissionchecklist.md` Section 0.
 **Trigger:** Any workflow that uses status locking (`SET status = 'processing'`)
 **Mistake:** `dispatchGiftById` locked the row to `dispatching` but had no try/catch — an unhandled exception left the row permanently stuck. The poller only queries `scheduled` and `dispatch_retry`, so stuck rows were invisible.
 **Rule:** Every status lock MUST have a corresponding recovery mechanism:
+
 - Wrap in try/catch that resets to retryable state
 - OR add a sweeper that reclaims rows stuck in transient states for > N minutes
 - Always increment attempt counter in the catch block to prevent infinite retry loops
@@ -52,6 +98,7 @@ Documented in `PorizoApp/submissionchecklist.md` Section 0.
 **Trigger:** Building any PIN-protected or attempt-limited access flow
 **Mistake:** Anonymous poem unlock reset `claim_attempts` to 0 — reasonable for UX (allow re-visits) but enables brute-force bypass. Nobody asked "what can an attacker do with this?"
 **Rule:** Before shipping any claim/PIN system, run a 5-minute adversarial review:
+
 1. What happens if someone tries all PINs? (lockout must be effective)
 2. Does any success path reset the lockout counter? (it shouldn't for unauthenticated flows)
 3. Is there a rate limit on top of the attempt counter?
@@ -61,6 +108,7 @@ Documented in `PorizoApp/submissionchecklist.md` Section 0.
 **Trigger:** Features that depend on external configuration (Apple Developer portal, DNS, CDN)
 **Mistake:** Universal links were commented out with `<!-- requires provisioning profile update -->`. External-dependency tasks get deferred and forgotten because they can't be tested locally.
 **Rule:** When code depends on external setup:
+
 1. Add the external step to the pre-submission checklist (not a code comment)
 2. Create a test that verifies the integration works (e.g., AASA route test)
 3. Code comments should reference the checklist item, not be the only record
@@ -70,6 +118,7 @@ Documented in `PorizoApp/submissionchecklist.md` Section 0.
 **Trigger:** Any read-modify-write on balances, counters, or inventory
 **Mistake:** Wallet used `SELECT balance` → compute → `UPDATE balance`. Works in dev (single user), fails under concurrent load (double-spend).
 **Rule:** Financial mutations must be atomic:
+
 - Use `UPDATE ... SET balance = balance + ? WHERE (balance + ?) >= 0` (single SQL statement)
 - PostgreSQL: use `RETURNING` for the new value
 - SQLite: check `changes > 0` (serialized writes make this safe)
@@ -80,6 +129,7 @@ Documented in `PorizoApp/submissionchecklist.md` Section 0.
 **Trigger:** Adding a "shortcut" or "already handled" path after the primary flow is built
 **Mistake:** PoemClaimView's re-open path used `shareId` as poem ID and `previewLines` as verses because the dev was working with data available in the share info response, not data the poem actually needs.
 **Rule:** When adding a secondary path (re-open, cache hit, already-authenticated):
+
 1. Verify it produces the EXACT same data shape as the primary path
 2. If it can't, call the primary path instead of reconstructing data
 3. Add a test that exercises the secondary path specifically
@@ -101,12 +151,15 @@ Documented in `PorizoApp/submissionchecklist.md` Section 0.
 ## Patterns to Avoid
 
 ### Success-bias implementation
+
 Building the golden path fully (with refunds, audit entries, events) but treating the failure path as "just set status = failed." Every state transition deserves the same rigor.
 
 ### Comment-driven deferral
+
 `// TODO: requires X` or `<!-- requires provisioning -->` as the sole record of an integration dependency. These are invisible to checklists and QA.
 
 ### Read-modify-write on shared mutable state
+
 `SELECT x` → compute → `UPDATE x` is never safe under concurrency. Always use atomic SQL operations for counters, balances, and inventory.
 
 ---
@@ -114,15 +167,19 @@ Building the golden path fully (with refunds, audit entries, events) but treatin
 ## Patterns That Work
 
 ### Refund-before-status-update
+
 When a financial operation fails permanently, refund FIRST, then update status. If the refund throws, the row stays in a retryable state and the next cycle re-attempts. This prevents the "token lost, no retry path" failure mode.
 
 ### Idempotency keys on financial operations
+
 `gift_refund_dispatch_{giftId}` ensures that crash-recovery retries don't double-refund. Every financial mutation should have an idempotency key derived from the triggering event.
 
 ### Re-use idempotent endpoints instead of reconstructing data
+
 PoemClaimView's `reClaimPoem()` calls the same claim endpoint (which is idempotent for bound users) instead of building a fake Poem object from incomplete data. Fewer code paths = fewer bugs.
 
 ### Atomic UPDATE with WHERE guard
+
 `UPDATE wallet SET balance = balance - 1 WHERE balance >= 1` is both the check and the mutation in one statement. No race window. Works on both PostgreSQL and SQLite.
 
 ---
@@ -133,11 +190,12 @@ PoemClaimView's `reClaimPoem()` calls the same claim endpoint (which is idempote
 
 **Mistake:** Launched `PORIZO_INSTALLS_Women25-45_2026Q2` Meta campaign and burned $78.30 over 30 days with **zero attributed installs**. Root cause: Facebook SDK (`FBSDKCoreKit`) had never been integrated in the iOS app. Events Manager → Datasets → Porizo showed **"Inactive — Never received event"** with a red warning triangle the entire time. Meta had no conversion signal, so its algorithm dumped budget on the cheapest possible inventory (Audience Network, $2.63 CPM in tier-1 markets — should have been $15-30) hoping anyone would click through.
 
-The confusing part: I had `PORIZO_FACEBOOK_APP_ID` in `Info.plist` from setting up Facebook Login OAuth months earlier, which made it *look* like Meta integration was complete. **Facebook Login (`FBSDKLoginKit`) and Facebook Ads (`FBSDKCoreKit`) are completely separate SDKs with different requirements**, and having one does not imply having the other.
+The confusing part: I had `PORIZO_FACEBOOK_APP_ID` in `Info.plist` from setting up Facebook Login OAuth months earlier, which made it _look_ like Meta integration was complete. **Facebook Login (`FBSDKLoginKit`) and Facebook Ads (`FBSDKCoreKit`) are completely separate SDKs with different requirements**, and having one does not imply having the other.
 
 **Rule:** Before launching ANY app install ad campaign, verify in the platform's events manager that the app's dataset shows **"Active"** status with at least one event received in the last 24h. If it shows "Inactive — Never received event", the SDK is either not installed or not configured. Do not launch the campaign — fix the SDK first.
 
 **Verification commands per platform:**
+
 - Meta: https://business.facebook.com/events_manager2 → Datasets → [App] → status must be "Active"
 - Google: https://ads.google.com/aw/conversions → Conversion source must show recent activity
 - TikTok: https://ads.tiktok.com/i18n/events_manager → App events must show data within 24h
@@ -160,11 +218,12 @@ The confusing part: I had `PORIZO_FACEBOOK_APP_ID` in `Info.plist` from setting 
 
 **Trigger:** Vercel plugin auto-injects skill suggestions on session start (`vercel:bootstrap`, `vercel:deploy`, `vercel:env`, etc.) because the plugin is globally enabled.
 
-**Mistake:** None *yet*, but the temptation exists to follow injected skill suggestions blindly.
+**Mistake:** None _yet_, but the temptation exists to follow injected skill suggestions blindly.
 
 **Rule:** Porizo's backend deploys to **Railway** (`railway up` + `railway connect postgres` for migrations). Vercel is not used in this repo. Ignore all Vercel skill injections, knowledge updates about Vercel platform features, and "your CLI is outdated" warnings. The single source of truth for Porizo deployment is `~/.claude/projects/-Users-ao-Documents-projects-porizo/memory/feedback_no_openclaw_no_vercel.md`.
 
 **Quick deploy reference:**
+
 - Backend: `git push origin <branch>` → `railway up` → `cat migrations/XXX.sql | railway connect postgres`
 - iOS: Xcode archive + TestFlight upload (35+ verified uploads, see `MEMORY.md`)
 
@@ -179,6 +238,7 @@ The confusing part: I had `PORIZO_FACEBOOK_APP_ID` in `Info.plist` from setting 
 **Rule:** Hand-editing `project.pbxproj` to add an SPM dependency requires modifying 4 separate sections (`XCRemoteSwiftPackageReference`, `XCSwiftPackageProductDependency`, `PBXBuildFile`, `PBXFrameworksBuildPhase`, plus references in `packageReferences` and `packageProductDependencies` on the target) with matching 24-bit UUIDs. One typo = unopenable project.
 
 **Use this pattern instead:**
+
 ```ruby
 require 'xcodeproj'
 project = Xcodeproj::Project.open('PorizoApp/PorizoApp.xcodeproj')
@@ -231,6 +291,7 @@ private enum FBSDK {
 ```
 
 Then in app delegate:
+
 ```swift
 #if canImport(FacebookCore)
 if FBSDK.isConfigured {
@@ -266,6 +327,7 @@ This prevents both: (a) "module not found" build errors before SPM is set up, an
 **Mistake:** Burned 2 export credits producing videos with the wrong song and wrong demo. The user corrected: "you used the wrong song and demo for the reel." The correct Mother's Day song lives in `marketing/audio hooks/clips/mom-shower-love/` (segmented as hook/proof/payoff/tail per `README.md`). The correct product demos live in `marketing/product demo/Thank you mom*.mp4`. Neither were uploaded to ReelFarm yet — the platform's existing assets ("thanks mom.mp3", stock demo tiles) were stale/different files with similar names.
 
 **Rule:** Before clicking Create / generate / render on any paid/credited platform (ReelFarm, Suno, ElevenLabs, etc.):
+
 1. Read the project's `marketing/` directory for curated assets first (`find marketing/audio*`, `find marketing/product*`).
 2. Read any `README.md` inside clip directories — they contain the recommended pairing for the campaign.
 3. List the chosen song path and demo path explicitly in chat.

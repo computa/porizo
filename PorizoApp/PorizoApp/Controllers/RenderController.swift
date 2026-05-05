@@ -846,6 +846,15 @@ final class RenderController {
             return ("entitlement_limit", "upgrade_or_wait", false, inferredProvider)
         }
 
+        // U4: server returns HTTP 422 SUNO_PERSONA_NOT_READY when the user
+        // selects voice_mode=user_voice but their Suno persona profile is not
+        // yet active. Without a dedicated branch this falls through to the
+        // catch-all and surfaces as ("infra_terminal","retry") — wrong UX
+        // because retrying changes nothing while the persona is preparing.
+        if normalizedCode == "SUNO_PERSONA_NOT_READY" {
+            return ("input_missing", "wait_for_persona", false, "suno")
+        }
+
         if normalizedCode == "DAILY_LIMIT_REACHED" || lowercased.contains("daily preview limit reached") {
             return ("entitlement_limit", "wait_for_reset", false, inferredProvider)
         }

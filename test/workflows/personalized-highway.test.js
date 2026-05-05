@@ -60,6 +60,16 @@ describe("assertPersonalizedContract", () => {
     assert.doesNotThrow(() => assertPersonalizedContract(contract, "instrumental"));
   });
 
+  test("passes for valid Suno voice persona contract", () => {
+    const contract = {
+      voice_mode: "user_voice",
+      pipeline: "suno_voice_persona_complete_audio",
+      provider_locked: "suno",
+      user_voice_engine: "suno_voice_persona",
+    };
+    assert.doesNotThrow(() => assertPersonalizedContract(contract, "mix"));
+  });
+
   test("passes for valid elevenlabs personalized contract", () => {
     const contract = {
       voice_mode: "user_voice",
@@ -116,6 +126,7 @@ describe("resolveRenderContract strict mode", () => {
       },
     });
     assert.equal(result.voice_conversion_provider, "elevenlabs");
+    assert.equal(result.user_voice_engine, "elevenlabs");
   });
 
   test("returns voice_conversion_provider: null when field absent in stored contract", () => {
@@ -130,6 +141,7 @@ describe("resolveRenderContract strict mode", () => {
       },
     });
     assert.equal(result.voice_conversion_provider, null);
+    assert.equal(result.user_voice_engine, null);
   });
 });
 

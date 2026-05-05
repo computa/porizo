@@ -9,6 +9,9 @@ const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
 const { authLogger } = require("../utils/logger");
+const {
+  revokeAllEnrollmentSessionTokensForUser,
+} = require("./enrollment-session-service");
 
 // Validate required environment variables
 function getJwtSecret() {
@@ -21,12 +24,12 @@ function getJwtSecret() {
     throw new Error(
       "CRITICAL: JWT_SECRET environment variable is not set. " +
         "This is required for secure token signing. " +
-        "Generate one with: node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\""
+        "Generate one with: node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\"",
     );
   }
   if (secret.length < 32) {
     throw new Error(
-      "CRITICAL: JWT_SECRET must be at least 32 characters long for security."
+      "CRITICAL: JWT_SECRET must be at least 32 characters long for security.",
     );
   }
   return secret;
@@ -47,7 +50,9 @@ const config = {
   emailVerificationExpiryDays: 7,
   maxFailedLoginAttempts: 5,
   lockoutDurationMinutes: 15,
-  get jwtSecret() { return getJwtSecret(); },
+  get jwtSecret() {
+    return getJwtSecret();
+  },
   jwtIssuer: "porizo",
 };
 
@@ -56,7 +61,11 @@ function getJwtFingerprint() {
     issuer: config.jwtIssuer,
     accessTokenExpiry: config.accessTokenExpiry,
     refreshTokenExpiryDays: config.refreshTokenExpiryDays,
-    secretHash: crypto.createHash("sha256").update(config.jwtSecret).digest("hex").slice(0, 12),
+    secretHash: crypto
+      .createHash("sha256")
+      .update(config.jwtSecret)
+      .digest("hex")
+      .slice(0, 12),
   };
 }
 
@@ -149,7 +158,11 @@ async function createRefreshToken(userId, options = {}) {
 
   // Create token family first
   const familyId = generateId("tf");
-  await db.prepare("INSERT INTO token_families (id, user_id, session_id) VALUES (?, ?, ?)").run(familyId, userId, sessionId);
+  await db
+    .prepare(
+      "INSERT INTO token_families (id, user_id, session_id) VALUES (?, ?, ?)",
+    )
+    .run(familyId, userId, sessionId);
 
   // Generate secure token
   const rawToken = generateSecureToken();
@@ -164,10 +177,12 @@ async function createRefreshToken(userId, options = {}) {
     expiresAt.setDate(expiresAt.getDate() + expiresIn);
   }
 
-  await db.prepare(
-    `INSERT INTO refresh_tokens (id, user_id, token_hash, token_family, generation, expires_at)
-     VALUES (?, ?, ?, ?, 1, ?)`
-  ).run(tokenId, userId, tokenHash, familyId, expiresAt.toISOString());
+  await db
+    .prepare(
+      `INSERT INTO refresh_tokens (id, user_id, token_hash, token_family, generation, expires_at)
+     VALUES (?, ?, ?, ?, 1, ?)`,
+    )
+    .run(tokenId, userId, tokenHash, familyId, expiresAt.toISOString());
 
   return {
     token: rawToken,
@@ -191,7 +206,7 @@ async function verifyRefreshToken(rawToken) {
        FROM refresh_tokens rt
        JOIN token_families tf ON rt.token_family = tf.id
        LEFT JOIN user_sessions us ON tf.session_id = us.id
-       WHERE rt.token_hash = ?`
+       WHERE rt.token_hash = ?`,
     )
     .get(tokenHash);
 
@@ -237,7 +252,11 @@ async function verifyRefreshToken(rawToken) {
  * Revoke a refresh token by ID
  */
 async function revokeRefreshToken(tokenId) {
-  await db.prepare("UPDATE refresh_tokens SET revoked_at = CURRENT_TIMESTAMP WHERE id = ?").run(tokenId);
+  await db
+    .prepare(
+      "UPDATE refresh_tokens SET revoked_at = CURRENT_TIMESTAMP WHERE id = ?",
+    )
+    .run(tokenId);
 }
 
 /**
@@ -248,10 +267,15 @@ async function revokeRefreshToken(tokenId) {
  * @returns {number} Number of tokens revoked
  */
 async function revokeAllRefreshTokensForUser(userId) {
-  const result = await db.prepare(
-    "UPDATE refresh_tokens SET revoked_at = CURRENT_TIMESTAMP WHERE user_id = ? AND revoked_at IS NULL"
-  ).run(userId);
-  authLogger.info({ userId, tokensRevoked: result.changes }, "All refresh tokens revoked (logout)");
+  const result = await db
+    .prepare(
+      "UPDATE refresh_tokens SET revoked_at = CURRENT_TIMESTAMP WHERE user_id = ? AND revoked_at IS NULL",
+    )
+    .run(userId);
+  authLogger.info(
+    { userId, tokensRevoked: result.changes },
+    "All refresh tokens revoked (logout)",
+  );
   return result.changes;
 }
 
@@ -263,9 +287,11 @@ async function revokeAllRefreshTokensForUser(userId) {
  * @returns {number} Number of families marked compromised
  */
 async function compromiseAllTokenFamiliesForUser(userId) {
-  const result = await db.prepare(
-    "UPDATE token_families SET compromised_at = CURRENT_TIMESTAMP WHERE user_id = ? AND compromised_at IS NULL"
-  ).run(userId);
+  const result = await db
+    .prepare(
+      "UPDATE token_families SET compromised_at = CURRENT_TIMESTAMP WHERE user_id = ? AND compromised_at IS NULL",
+    )
+    .run(userId);
   return result.changes;
 }
 
@@ -288,7 +314,10 @@ async function rotateRefreshToken(oldRawToken) {
 
   const parseDbTimestamp = (value) => {
     if (!value) return null;
-    if (typeof value === "string" && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(value)) {
+    if (
+      typeof value === "string" &&
+      /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(value)
+    ) {
       // SQLite CURRENT_TIMESTAMP is UTC without timezone suffix.
       return new Date(value.replace(" ", "T") + "Z");
     }
@@ -301,149 +330,188 @@ async function rotateRefreshToken(oldRawToken) {
   let result;
   try {
     result = await db.transaction(async () => {
-    // Get old token with fresh read inside transaction
-    const oldToken = await db.prepare("SELECT * FROM refresh_tokens WHERE token_hash = ?").get(oldTokenHash);
+      // Get old token with fresh read inside transaction
+      const oldToken = await db
+        .prepare("SELECT * FROM refresh_tokens WHERE token_hash = ?")
+        .get(oldTokenHash);
 
-    if (!oldToken) {
-      const err = new Error("Token not found");
-      err.code = "TOKEN_NOT_FOUND";
-      throw err;
-    }
+      if (!oldToken) {
+        const err = new Error("Token not found");
+        err.code = "TOKEN_NOT_FOUND";
+        throw err;
+      }
 
-    // Check if already revoked (possible reuse attack!)
-    if (oldToken.revoked_at) {
-      const revokedAt = parseDbTimestamp(oldToken.revoked_at);
-      const gracePeriodMs = 30 * 1000; // 30 second grace period for app kill scenarios
-      const timeSinceRevocation = revokedAt ? Date.now() - revokedAt.getTime() : Number.POSITIVE_INFINITY;
+      // Check if already revoked (possible reuse attack!)
+      if (oldToken.revoked_at) {
+        const revokedAt = parseDbTimestamp(oldToken.revoked_at);
+        const gracePeriodMs = 30 * 1000; // 30 second grace period for app kill scenarios
+        const timeSinceRevocation = revokedAt
+          ? Date.now() - revokedAt.getTime()
+          : Number.POSITIVE_INFINITY;
 
-      // If revoked within grace period, this is likely an app that was killed during refresh
-      // Find and check if a replacement token was already issued
-      if (timeSinceRevocation < gracePeriodMs) {
-        const replacementToken = await db.prepare(
-          `SELECT id FROM refresh_tokens
-           WHERE token_family = ? AND generation = ? AND revoked_at IS NULL`
-        ).get(oldToken.token_family, oldToken.generation + 1);
+        // If revoked within grace period, this is likely an app that was killed during refresh
+        // Find and check if a replacement token was already issued
+        if (timeSinceRevocation < gracePeriodMs) {
+          const replacementToken = await db
+            .prepare(
+              `SELECT id FROM refresh_tokens
+           WHERE token_family = ? AND generation = ? AND revoked_at IS NULL`,
+            )
+            .get(oldToken.token_family, oldToken.generation + 1);
+
+          if (replacementToken) {
+            // A new token was already issued - client needs to re-authenticate
+            // but we DON'T mark the family as compromised (not a real attack)
+            authLogger.info(
+              { timeSinceRevocation, hasReplacement: true },
+              "Token reuse within grace period - replacement exists, requesting re-auth",
+            );
+            const err = new Error(
+              "Token already rotated - please re-authenticate",
+            );
+            err.code = "TOKEN_ALREADY_ROTATED";
+            throw err;
+          }
+
+          // Within grace period but no replacement token - likely a failed/interrupted refresh
+          // Allow this token to be reused (un-revoke it and proceed normally)
+          // This handles edge cases like server crash during token rotation
+          authLogger.info(
+            {
+              timeSinceRevocation,
+              hasReplacement: false,
+              tokenId: oldToken.id,
+            },
+            "Token reuse within grace period - no replacement, allowing reuse",
+          );
+          await db
+            .prepare("UPDATE refresh_tokens SET revoked_at = NULL WHERE id = ?")
+            .run(oldToken.id);
+          // Continue with normal rotation flow - the token is now un-revoked
+          // Fall through to the rest of the function
+        } else {
+          // Outside grace period = potential attack, compromise the family
+          authLogger.warn(
+            { timeSinceRevocation, tokenFamily: oldToken.token_family },
+            "Token reuse detected outside grace period - compromising family",
+          );
+
+          // Mark entire family as compromised
+          await db
+            .prepare(
+              "UPDATE token_families SET compromised_at = CURRENT_TIMESTAMP WHERE id = ?",
+            )
+            .run(oldToken.token_family);
+
+          // Revoke all tokens in family
+          await db
+            .prepare(
+              "UPDATE refresh_tokens SET revoked_at = CURRENT_TIMESTAMP WHERE token_family = ?",
+            )
+            .run(oldToken.token_family);
+
+          return {
+            reuseDetected: true,
+            tokenFamily: oldToken.token_family,
+          };
+        }
+      }
+
+      // Check if family already compromised
+      const family = await db
+        .prepare(
+          `SELECT tf.*, us.revoked_at as session_revoked_at
+       FROM token_families tf
+       LEFT JOIN user_sessions us ON tf.session_id = us.id
+       WHERE tf.id = ?`,
+        )
+        .get(oldToken.token_family);
+      if (family.compromised_at) {
+        const err = new Error("Token family compromised");
+        err.code = "TOKEN_FAMILY_COMPROMISED";
+        throw err;
+      }
+      if (!family.session_id) {
+        const err = new Error("Refresh token session binding is missing");
+        err.code = "SESSION_BINDING_REQUIRED";
+        throw err;
+      }
+      if (family.session_revoked_at) {
+        const err = new Error("Session has been revoked");
+        err.code = "SESSION_REVOKED";
+        throw err;
+      }
+
+      // Revoke old token using optimistic locking to prevent TOCTOU race
+      // The conditional WHERE revoked_at IS NULL ensures only ONE concurrent
+      // refresh request can succeed - others will get changes=0
+      const revokeResult = await db
+        .prepare(
+          "UPDATE refresh_tokens SET revoked_at = CURRENT_TIMESTAMP WHERE id = ? AND revoked_at IS NULL",
+        )
+        .run(oldToken.id);
+
+      // If no rows affected, another concurrent request already revoked this token
+      if (revokeResult.changes === 0) {
+        // Re-check if a replacement token was created (within grace period scenario)
+        const replacementToken = await db
+          .prepare(
+            `SELECT id FROM refresh_tokens
+         WHERE token_family = ? AND generation = ? AND revoked_at IS NULL`,
+          )
+          .get(oldToken.token_family, oldToken.generation + 1);
 
         if (replacementToken) {
-          // A new token was already issued - client needs to re-authenticate
-          // but we DON'T mark the family as compromised (not a real attack)
           authLogger.info(
-            { timeSinceRevocation, hasReplacement: true },
-            "Token reuse within grace period - replacement exists, requesting re-auth"
+            { tokenId: oldToken.id, hasReplacement: true },
+            "Concurrent token rotation detected - replacement exists",
           );
-          const err = new Error("Token already rotated - please re-authenticate");
+          const err = new Error(
+            "Token already rotated - please re-authenticate",
+          );
           err.code = "TOKEN_ALREADY_ROTATED";
           throw err;
         }
 
-        // Within grace period but no replacement token - likely a failed/interrupted refresh
-        // Allow this token to be reused (un-revoke it and proceed normally)
-        // This handles edge cases like server crash during token rotation
-        authLogger.info(
-          { timeSinceRevocation, hasReplacement: false, tokenId: oldToken.id },
-          "Token reuse within grace period - no replacement, allowing reuse"
-        );
-        await db.prepare("UPDATE refresh_tokens SET revoked_at = NULL WHERE id = ?").run(oldToken.id);
-        // Continue with normal rotation flow - the token is now un-revoked
-        // Fall through to the rest of the function
-      } else {
-        // Outside grace period = potential attack, compromise the family
+        // No replacement but couldn't revoke - unexpected state, fail safely
         authLogger.warn(
-          { timeSinceRevocation, tokenFamily: oldToken.token_family },
-          "Token reuse detected outside grace period - compromising family"
+          { tokenId: oldToken.id },
+          "Concurrent token rotation detected - no replacement found, failing safely",
         );
-
-        // Mark entire family as compromised
-        await db.prepare("UPDATE token_families SET compromised_at = CURRENT_TIMESTAMP WHERE id = ?").run(oldToken.token_family);
-
-        // Revoke all tokens in family
-        await db.prepare("UPDATE refresh_tokens SET revoked_at = CURRENT_TIMESTAMP WHERE token_family = ?").run(
-          oldToken.token_family
-        );
-
-        return {
-          reuseDetected: true,
-          tokenFamily: oldToken.token_family,
-        };
-      }
-    }
-
-    // Check if family already compromised
-    const family = await db.prepare(
-      `SELECT tf.*, us.revoked_at as session_revoked_at
-       FROM token_families tf
-       LEFT JOIN user_sessions us ON tf.session_id = us.id
-       WHERE tf.id = ?`
-    ).get(oldToken.token_family);
-    if (family.compromised_at) {
-      const err = new Error("Token family compromised");
-      err.code = "TOKEN_FAMILY_COMPROMISED";
-      throw err;
-    }
-    if (!family.session_id) {
-      const err = new Error("Refresh token session binding is missing");
-      err.code = "SESSION_BINDING_REQUIRED";
-      throw err;
-    }
-    if (family.session_revoked_at) {
-      const err = new Error("Session has been revoked");
-      err.code = "SESSION_REVOKED";
-      throw err;
-    }
-
-    // Revoke old token using optimistic locking to prevent TOCTOU race
-    // The conditional WHERE revoked_at IS NULL ensures only ONE concurrent
-    // refresh request can succeed - others will get changes=0
-    const revokeResult = await db.prepare(
-      "UPDATE refresh_tokens SET revoked_at = CURRENT_TIMESTAMP WHERE id = ? AND revoked_at IS NULL"
-    ).run(oldToken.id);
-
-    // If no rows affected, another concurrent request already revoked this token
-    if (revokeResult.changes === 0) {
-      // Re-check if a replacement token was created (within grace period scenario)
-      const replacementToken = await db.prepare(
-        `SELECT id FROM refresh_tokens
-         WHERE token_family = ? AND generation = ? AND revoked_at IS NULL`
-      ).get(oldToken.token_family, oldToken.generation + 1);
-
-      if (replacementToken) {
-        authLogger.info(
-          { tokenId: oldToken.id, hasReplacement: true },
-          "Concurrent token rotation detected - replacement exists"
-        );
-        const err = new Error("Token already rotated - please re-authenticate");
-        err.code = "TOKEN_ALREADY_ROTATED";
+        const err = new Error("Token rotation conflict - please retry");
+        err.code = "TOKEN_ROTATION_CONFLICT";
         throw err;
       }
 
-      // No replacement but couldn't revoke - unexpected state, fail safely
-      authLogger.warn(
-        { tokenId: oldToken.id },
-        "Concurrent token rotation detected - no replacement found, failing safely"
-      );
-      const err = new Error("Token rotation conflict - please retry");
-      err.code = "TOKEN_ROTATION_CONFLICT";
-      throw err;
-    }
+      // Create new token in same family
+      const newGeneration = oldToken.generation + 1;
+      await db
+        .prepare(
+          `INSERT INTO refresh_tokens (id, user_id, token_hash, token_family, generation, expires_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          newTokenId,
+          oldToken.user_id,
+          newTokenHash,
+          oldToken.token_family,
+          newGeneration,
+          expiresAt.toISOString(),
+        );
 
-    // Create new token in same family
-    const newGeneration = oldToken.generation + 1;
-    await db.prepare(
-      `INSERT INTO refresh_tokens (id, user_id, token_hash, token_family, generation, expires_at)
-       VALUES (?, ?, ?, ?, ?, ?)`
-    ).run(newTokenId, oldToken.user_id, newTokenHash, oldToken.token_family, newGeneration, expiresAt.toISOString());
-
-    return {
-      userId: oldToken.user_id,
-      tokenFamily: oldToken.token_family,
-      generation: newGeneration,
-      sessionId: family.session_id || null,
-    };
+      return {
+        userId: oldToken.user_id,
+        tokenFamily: oldToken.token_family,
+        generation: newGeneration,
+        sessionId: family.session_id || null,
+      };
     });
   } catch (err) {
     if (
       err?.code === "ERR_SQLITE_ERROR" &&
-      /locked|busy|cannot start a transaction within a transaction/i.test(String(err.message || ""))
+      /locked|busy|cannot start a transaction within a transaction/i.test(
+        String(err.message || ""),
+      )
     ) {
       const conflictError = new Error("Token rotation conflict - please retry");
       conflictError.code = "TOKEN_ROTATION_CONFLICT";
@@ -459,8 +527,12 @@ async function rotateRefreshToken(oldRawToken) {
   }
 
   authLogger.info(
-    { userId: result.userId, tokenFamily: result.tokenFamily, generation: result.generation },
-    "Token rotated successfully"
+    {
+      userId: result.userId,
+      tokenFamily: result.tokenFamily,
+      generation: result.generation,
+    },
+    "Token rotated successfully",
   );
 
   return {
@@ -489,10 +561,12 @@ async function createPasswordResetToken(userId, options = {}) {
   const expiresAt = new Date();
   expiresAt.setMinutes(expiresAt.getMinutes() + expiresIn);
 
-  await db.prepare(
-    `INSERT INTO password_reset_tokens (id, user_id, token_hash, expires_at)
-     VALUES (?, ?, ?, ?)`
-  ).run(tokenId, userId, tokenHash, expiresAt.toISOString());
+  await db
+    .prepare(
+      `INSERT INTO password_reset_tokens (id, user_id, token_hash, expires_at)
+     VALUES (?, ?, ?, ?)`,
+    )
+    .run(tokenId, userId, tokenHash, expiresAt.toISOString());
 
   return {
     token: rawToken,
@@ -518,7 +592,9 @@ async function verifyOneTimeToken(rawToken, tableName) {
   // Wrap in transaction so the SELECT and subsequent UPDATE (mark used) are atomic.
   // This prevents double-use from concurrent requests racing on the same token.
   return await db.transaction(async () => {
-    const token = await db.prepare(`SELECT * FROM ${tableName} WHERE token_hash = ?`).get(tokenHash);
+    const token = await db
+      .prepare(`SELECT * FROM ${tableName} WHERE token_hash = ?`)
+      .get(tokenHash);
 
     if (!token) {
       throw new Error("Token not found or invalid");
@@ -533,7 +609,11 @@ async function verifyOneTimeToken(rawToken, tableName) {
     }
 
     // Mark as used immediately inside the transaction to prevent concurrent reuse
-    await db.prepare(`UPDATE ${tableName} SET used_at = CURRENT_TIMESTAMP WHERE id = ? AND used_at IS NULL`).run(token.id);
+    await db
+      .prepare(
+        `UPDATE ${tableName} SET used_at = CURRENT_TIMESTAMP WHERE id = ? AND used_at IS NULL`,
+      )
+      .run(token.id);
 
     return {
       userId: token.user_id,
@@ -555,16 +635,22 @@ async function verifyPasswordResetToken(rawToken) {
  * Mark password reset token as used
  */
 async function markPasswordResetTokenUsed(tokenId) {
-  await db.prepare("UPDATE password_reset_tokens SET used_at = CURRENT_TIMESTAMP WHERE id = ?").run(tokenId);
+  await db
+    .prepare(
+      "UPDATE password_reset_tokens SET used_at = CURRENT_TIMESTAMP WHERE id = ?",
+    )
+    .run(tokenId);
 }
 
 /**
  * Invalidate all password reset tokens for user
  */
 async function invalidateAllPasswordResetTokens(userId) {
-  await db.prepare("UPDATE password_reset_tokens SET used_at = CURRENT_TIMESTAMP WHERE user_id = ? AND used_at IS NULL").run(
-    userId
-  );
+  await db
+    .prepare(
+      "UPDATE password_reset_tokens SET used_at = CURRENT_TIMESTAMP WHERE user_id = ? AND used_at IS NULL",
+    )
+    .run(userId);
 }
 
 // ==================== EMAIL VERIFICATION TOKENS ====================
@@ -573,7 +659,9 @@ async function invalidateAllPasswordResetTokens(userId) {
  * Create email verification token
  */
 async function createEmailVerificationToken(userId, options = {}) {
-  const emailNormalized = options.email ? String(options.email).trim().toLowerCase() : null;
+  const emailNormalized = options.email
+    ? String(options.email).trim().toLowerCase()
+    : null;
   const rawToken = generateSecureToken();
   const tokenHash = hashToken(rawToken);
   const tokenId = generateId("evt");
@@ -581,10 +669,12 @@ async function createEmailVerificationToken(userId, options = {}) {
   const expiresAt = new Date();
   expiresAt.setDate(expiresAt.getDate() + config.emailVerificationExpiryDays);
 
-  await db.prepare(
-    `INSERT INTO email_verification_tokens (id, user_id, token_hash, expires_at, email_normalized)
-     VALUES (?, ?, ?, ?, ?)`
-  ).run(tokenId, userId, tokenHash, expiresAt.toISOString(), emailNormalized);
+  await db
+    .prepare(
+      `INSERT INTO email_verification_tokens (id, user_id, token_hash, expires_at, email_normalized)
+     VALUES (?, ?, ?, ?, ?)`,
+    )
+    .run(tokenId, userId, tokenHash, expiresAt.toISOString(), emailNormalized);
 
   return {
     token: rawToken,
@@ -606,16 +696,22 @@ async function verifyEmailVerificationToken(rawToken) {
  * Used when the pending email target changes.
  */
 async function invalidateEmailVerificationTokens(userId) {
-  await db.prepare(
-    "UPDATE email_verification_tokens SET used_at = CURRENT_TIMESTAMP WHERE user_id = ? AND used_at IS NULL"
-  ).run(userId);
+  await db
+    .prepare(
+      "UPDATE email_verification_tokens SET used_at = CURRENT_TIMESTAMP WHERE user_id = ? AND used_at IS NULL",
+    )
+    .run(userId);
 }
 
 /**
  * Mark email verification token as used
  */
 async function markEmailVerificationTokenUsed(tokenId) {
-  await db.prepare("UPDATE email_verification_tokens SET used_at = CURRENT_TIMESTAMP WHERE id = ?").run(tokenId);
+  await db
+    .prepare(
+      "UPDATE email_verification_tokens SET used_at = CURRENT_TIMESTAMP WHERE id = ?",
+    )
+    .run(tokenId);
 }
 
 // ==================== SESSION MANAGEMENT ====================
@@ -629,10 +725,18 @@ async function createSession(userId, sessionData = {}) {
   }
   const sessionId = generateId("sess");
 
-  await db.prepare(
-    `INSERT INTO user_sessions (id, user_id, device_name, ip_address, user_agent, last_active_at)
-     VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`
-  ).run(sessionId, userId, sessionData.deviceName || null, sessionData.ipAddress || null, sessionData.userAgent || null);
+  await db
+    .prepare(
+      `INSERT INTO user_sessions (id, user_id, device_name, ip_address, user_agent, last_active_at)
+     VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+    )
+    .run(
+      sessionId,
+      userId,
+      sessionData.deviceName || null,
+      sessionData.ipAddress || null,
+      sessionData.userAgent || null,
+    );
 
   return {
     id: sessionId,
@@ -652,7 +756,7 @@ async function listSessions(userId) {
       `SELECT id, user_id, device_name, ip_address, user_agent, last_active_at, created_at
        FROM user_sessions
        WHERE user_id = ? AND revoked_at IS NULL
-       ORDER BY last_active_at DESC`
+       ORDER BY last_active_at DESC`,
     )
     .all(userId);
   return rows.map((row) => ({
@@ -670,17 +774,22 @@ async function listSessions(userId) {
  * Revoke a session
  */
 async function revokeSession(sessionId) {
-  await db.prepare("UPDATE user_sessions SET revoked_at = CURRENT_TIMESTAMP WHERE id = ?").run(sessionId);
+  await db
+    .prepare(
+      "UPDATE user_sessions SET revoked_at = CURRENT_TIMESTAMP WHERE id = ?",
+    )
+    .run(sessionId);
 }
 
 /**
  * Revoke all sessions except the current one
  */
 async function revokeAllSessionsExcept(userId, currentSessionId) {
-  await db.prepare("UPDATE user_sessions SET revoked_at = CURRENT_TIMESTAMP WHERE user_id = ? AND id != ?").run(
-    userId,
-    currentSessionId
-  );
+  await db
+    .prepare(
+      "UPDATE user_sessions SET revoked_at = CURRENT_TIMESTAMP WHERE user_id = ? AND id != ?",
+    )
+    .run(userId, currentSessionId);
 }
 
 // ==================== AUTH EVENTS (AUDIT) ====================
@@ -688,13 +797,28 @@ async function revokeAllSessionsExcept(userId, currentSessionId) {
 /**
  * Log an authentication event
  */
-async function logAuthEvent({ userId, eventType, ipAddress, userAgent, metadata }) {
+async function logAuthEvent({
+  userId,
+  eventType,
+  ipAddress,
+  userAgent,
+  metadata,
+}) {
   const eventId = generateId("evt");
 
-  await db.prepare(
-    `INSERT INTO auth_events (id, user_id, event_type, ip_address, user_agent, metadata)
-     VALUES (?, ?, ?, ?, ?, ?)`
-  ).run(eventId, userId || null, eventType, ipAddress || null, userAgent || null, metadata ? JSON.stringify(metadata) : null);
+  await db
+    .prepare(
+      `INSERT INTO auth_events (id, user_id, event_type, ip_address, user_agent, metadata)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      eventId,
+      userId || null,
+      eventType,
+      ipAddress || null,
+      userAgent || null,
+      metadata ? JSON.stringify(metadata) : null,
+    );
 
   return eventId;
 }
@@ -707,12 +831,16 @@ async function logAuthEvent({ userId, eventType, ipAddress, userAgent, metadata 
  */
 async function incrementFailedLoginCount(userId) {
   // Atomic increment — prevents lost updates from concurrent failed logins
-  await db.prepare(
-    "UPDATE users SET failed_login_count = COALESCE(failed_login_count, 0) + 1 WHERE id = ?"
-  ).run(userId);
+  await db
+    .prepare(
+      "UPDATE users SET failed_login_count = COALESCE(failed_login_count, 0) + 1 WHERE id = ?",
+    )
+    .run(userId);
 
   // Read back the atomically-incremented count for lockout decision
-  const user = await db.prepare("SELECT failed_login_count FROM users WHERE id = ?").get(userId);
+  const user = await db
+    .prepare("SELECT failed_login_count FROM users WHERE id = ?")
+    .get(userId);
   const newCount = user?.failed_login_count || 0;
 
   if (newCount >= config.maxFailedLoginAttempts) {
@@ -720,15 +848,15 @@ async function incrementFailedLoginCount(userId) {
     // Lockout count = how many times the threshold has been hit (consecutive failures / threshold).
     // e.g. base=15min → 15, 30, 60, 120, ... minutes on repeated lockouts.
     const lockoutCount = Math.floor(newCount / config.maxFailedLoginAttempts);
-    const escalatedMinutes = config.lockoutDurationMinutes * Math.pow(2, lockoutCount - 1);
+    const escalatedMinutes =
+      config.lockoutDurationMinutes * Math.pow(2, lockoutCount - 1);
 
     const lockedUntil = new Date();
     lockedUntil.setMinutes(lockedUntil.getMinutes() + escalatedMinutes);
 
-    await db.prepare("UPDATE users SET locked_until = ? WHERE id = ?").run(
-      lockedUntil.toISOString(),
-      userId
-    );
+    await db
+      .prepare("UPDATE users SET locked_until = ? WHERE id = ?")
+      .run(lockedUntil.toISOString(), userId);
   }
 }
 
@@ -736,7 +864,9 @@ async function incrementFailedLoginCount(userId) {
  * Check if account is locked
  */
 async function isAccountLocked(userId) {
-  const user = await db.prepare("SELECT locked_until FROM users WHERE id = ?").get(userId);
+  const user = await db
+    .prepare("SELECT locked_until FROM users WHERE id = ?")
+    .get(userId);
 
   if (!user?.locked_until) {
     return false;
@@ -749,7 +879,11 @@ async function isAccountLocked(userId) {
  * Reset failed login count (on successful login)
  */
 async function resetFailedLoginCount(userId) {
-  await db.prepare("UPDATE users SET failed_login_count = 0, locked_until = NULL WHERE id = ?").run(userId);
+  await db
+    .prepare(
+      "UPDATE users SET failed_login_count = 0, locked_until = NULL WHERE id = ?",
+    )
+    .run(userId);
 }
 
 // ==================== ACCOUNT DELETION (GDPR Article 17) ====================
@@ -762,7 +896,9 @@ async function resetFailedLoginCount(userId) {
  */
 async function deleteUserAccount(userId) {
   // Verify user exists
-  const user = await db.prepare("SELECT id FROM users WHERE id = ? AND deleted_at IS NULL").get(userId);
+  const user = await db
+    .prepare("SELECT id FROM users WHERE id = ? AND deleted_at IS NULL")
+    .get(userId);
   if (!user) {
     throw new Error("User not found");
   }
@@ -772,47 +908,129 @@ async function deleteUserAccount(userId) {
   // Transaction for atomic deletion
   await db.transaction(async () => {
     // 1. Story data (deepest first)
-    await db.prepare(`
+    await db
+      .prepare(
+        `
       DELETE FROM story_turns WHERE session_id IN
       (SELECT id FROM story_sessions WHERE user_id = ?)
-    `).run(userId);
-    await db.prepare("DELETE FROM story_sessions WHERE user_id = ?").run(userId);
+    `,
+      )
+      .run(userId);
+    await db
+      .prepare("DELETE FROM story_sessions WHERE user_id = ?")
+      .run(userId);
 
     // 2. Share data (depends on tracks)
-    await db.prepare(`
+    await db
+      .prepare(
+        `
       DELETE FROM share_access_log WHERE share_token_id IN
       (SELECT id FROM share_tokens WHERE track_id IN
        (SELECT id FROM tracks WHERE user_id = ?))
-    `).run(userId);
-    await db.prepare(`
+    `,
+      )
+      .run(userId);
+    await db
+      .prepare(
+        `
       DELETE FROM share_tokens WHERE track_id IN
       (SELECT id FROM tracks WHERE user_id = ?)
-    `).run(userId);
+    `,
+      )
+      .run(userId);
 
     // 3. Track data (deepest first: jobs → track_versions → tracks)
-    await db.prepare(`
+    await db
+      .prepare(
+        `
       DELETE FROM jobs WHERE track_version_id IN
       (SELECT id FROM track_versions WHERE track_id IN
        (SELECT id FROM tracks WHERE user_id = ?))
-    `).run(userId);
-    await db.prepare(`
+    `,
+      )
+      .run(userId);
+    await db
+      .prepare(
+        `
       DELETE FROM track_versions WHERE track_id IN
       (SELECT id FROM tracks WHERE user_id = ?)
-    `).run(userId);
+    `,
+      )
+      .run(userId);
     await db.prepare("DELETE FROM tracks WHERE user_id = ?").run(userId);
 
     // 4. Poems
     await db.prepare("DELETE FROM poems WHERE user_id = ?").run(userId);
 
     // 5. Billing & entitlements
-    await db.prepare("DELETE FROM credit_transactions WHERE user_id = ?").run(userId);
-    await db.prepare("DELETE FROM purchase_receipts WHERE user_id = ?").run(userId);
+    await db
+      .prepare("DELETE FROM credit_transactions WHERE user_id = ?")
+      .run(userId);
+    await db
+      .prepare("DELETE FROM purchase_receipts WHERE user_id = ?")
+      .run(userId);
     await db.prepare("DELETE FROM subscriptions WHERE user_id = ?").run(userId);
     await db.prepare("DELETE FROM entitlements WHERE user_id = ?").run(userId);
 
-    // 6. Voice data
-    await db.prepare("DELETE FROM enrollment_sessions WHERE user_id = ?").run(userId);
-    await db.prepare("DELETE FROM voice_profiles WHERE user_id = ?").run(userId);
+    // 6. Voice data. Disable provider-side profile references before deleting
+    // parent voice rows so provider lifecycle evidence is preserved without raw ids.
+    const providerProfiles = await db
+      .prepare(
+        `SELECT id, voice_profile_id, provider, status
+         FROM voice_provider_profiles
+        WHERE user_id = ? AND deleted_at IS NULL`,
+      )
+      .all(userId);
+    if (providerProfiles.length > 0) {
+      await db
+        .prepare(
+          `UPDATE voice_provider_profiles
+            SET status = 'deleted',
+                provider_profile_id = NULL,
+                source_upload_url = NULL,
+                source_task_id = NULL,
+                source_audio_id = NULL,
+                last_error = ?,
+                deleted_at = ?,
+                updated_at = ?
+          WHERE user_id = ? AND deleted_at IS NULL`,
+        )
+        .run("account_deletion", now, now, userId);
+      await db
+        .prepare(
+          `INSERT INTO audit_logs (
+          id, user_id, action, resource_type, resource_id, metadata_json, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          `aud_${crypto.randomBytes(12).toString("hex")}`,
+          userId,
+          "voice_provider_profiles_deleted",
+          "user",
+          userId,
+          JSON.stringify({
+            reason: "account_deletion",
+            provider_profiles_deleted: providerProfiles.map((row) => ({
+              id: row.id,
+              voice_profile_id: row.voice_profile_id,
+              provider: row.provider,
+              status: row.status,
+            })),
+          }),
+          now,
+        );
+    }
+    await db
+      .prepare("DELETE FROM voice_provider_jobs WHERE user_id = ?")
+      .run(userId);
+    // U3: token revocation goes through enrollment-domain service.
+    await revokeAllEnrollmentSessionTokensForUser(db, userId);
+    await db
+      .prepare("DELETE FROM enrollment_sessions WHERE user_id = ?")
+      .run(userId);
+    await db
+      .prepare("DELETE FROM voice_profiles WHERE user_id = ?")
+      .run(userId);
 
     // 7. Rate limits
     await db.prepare("DELETE FROM rate_limits WHERE user_id = ?").run(userId);
@@ -825,23 +1043,39 @@ async function deleteUserAccount(userId) {
     //   UPDATE auth_events SET user_id = NULL, ip_address = NULL WHERE user_id = ?
     // The user row itself is already soft-deleted and anonymized (step 9 below).
     await db.prepare("DELETE FROM auth_events WHERE user_id = ?").run(userId);
-    await db.prepare("DELETE FROM email_verification_tokens WHERE user_id = ?").run(userId);
-    await db.prepare("DELETE FROM password_reset_tokens WHERE user_id = ?").run(userId);
-    await db.prepare("DELETE FROM refresh_tokens WHERE user_id = ?").run(userId);
-    await db.prepare("DELETE FROM token_families WHERE user_id = ?").run(userId);
+    await db
+      .prepare("DELETE FROM email_verification_tokens WHERE user_id = ?")
+      .run(userId);
+    await db
+      .prepare("DELETE FROM password_reset_tokens WHERE user_id = ?")
+      .run(userId);
+    await db
+      .prepare("DELETE FROM refresh_tokens WHERE user_id = ?")
+      .run(userId);
+    await db
+      .prepare("DELETE FROM token_families WHERE user_id = ?")
+      .run(userId);
     await db.prepare("DELETE FROM user_sessions WHERE user_id = ?").run(userId);
-    await db.prepare("DELETE FROM user_auth_providers WHERE user_id = ?").run(userId);
-    await db.prepare("DELETE FROM user_credentials WHERE user_id = ?").run(userId);
+    await db
+      .prepare("DELETE FROM user_auth_providers WHERE user_id = ?")
+      .run(userId);
+    await db
+      .prepare("DELETE FROM user_credentials WHERE user_id = ?")
+      .run(userId);
 
     // 9. Soft-delete user (preserve audit trail, anonymize PII)
-    await db.prepare(`
+    await db
+      .prepare(
+        `
       UPDATE users SET
         email = 'deleted_' || id || '@deleted.local',
         display_name = 'Deleted User',
         avatar_url = NULL,
         deleted_at = ?
       WHERE id = ?
-    `).run(now, userId);
+    `,
+      )
+      .run(now, userId);
   });
 }
 

@@ -162,6 +162,14 @@ describe("personalized pipeline skip map integrity", () => {
     assert.equal(shouldSkipStep("voice_convert_sections", "provider_complete_audio"), true);
   });
 
+  test("suno_voice_persona_complete_audio skips local vocal processing", () => {
+    assert.equal(shouldSkipStep("guide_vocal", "suno_voice_persona_complete_audio"), true);
+    assert.equal(shouldSkipStep("guide_vocal_full", "suno_voice_persona_complete_audio"), true);
+    assert.equal(shouldSkipStep("voice_convert", "suno_voice_persona_complete_audio"), true);
+    assert.equal(shouldSkipStep("voice_convert_sections", "suno_voice_persona_complete_audio"), true);
+    assert.equal(shouldSkipStep("mix", "suno_voice_persona_complete_audio"), false);
+  });
+
   test("guide_tts_and_voice_convert skips nothing (full TTS pipeline)", () => {
     const steps = ["guide_vocal", "guide_vocal_full", "voice_convert", "voice_convert_sections", "mix"];
     for (const step of steps) {

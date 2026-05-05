@@ -356,6 +356,7 @@ async function renderWithProvider({
   lyrics,
   musicPlan,
   onTaskId,
+  sunoPersona,
 }) {
   if (providerConfig?.live) {
     // Select provider based on config (defaults to suno)
@@ -377,6 +378,7 @@ async function renderWithProvider({
         timeoutMs: providerConfig.timeoutMs,
         kind,
         onTaskId,
+        sunoPersona,
       });
     }
 
