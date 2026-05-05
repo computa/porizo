@@ -177,7 +177,7 @@ describe("Render Endpoints", async () => {
     assert.equal(spendCalls, 1, "Should spend exactly one entitlement");
   });
 
-  it("POST /tracks/:id/versions/:version/render_preview blocks missing Suno persona before spend", async () => {
+  it("POST /tracks/:id/versions/:version/render_preview falls back when Suno persona is missing", async () => {
     const { trackId, trackVersionId } = await createTrackAndVersion();
     const now = new Date().toISOString();
     await db.query(
@@ -204,24 +204,29 @@ describe("Render Endpoints", async () => {
       headers: { "x-user-id": userId },
     });
 
-    assert.equal(response.statusCode, 422, `Expected 422, got ${response.statusCode}: ${response.body}`);
-    assert.match(response.body, /SUNO_PERSONA_NOT_READY/);
-    assert.equal(spendCalls, 0, "Should not spend entitlement when persona is not ready");
+    assert.equal(response.statusCode, 202, `Expected 202, got ${response.statusCode}: ${response.body}`);
+    assert.equal(spendCalls, 1, "Should spend entitlement through legacy voice conversion fallback");
 
     const jobRows = await db.query(
-      "SELECT id FROM jobs WHERE track_version_id = ?",
+      "SELECT id, workflow_type, status, step_data FROM jobs WHERE track_version_id = ?",
       [trackVersionId]
     );
-    assert.equal(jobRows.rows.length, 0, "Should not create a render job");
+    assert.equal(jobRows.rows.length, 1, "Should create a render job");
+    assert.equal(jobRows.rows[0].workflow_type, "preview_render");
+    assert.equal(jobRows.rows[0].status, "queued");
+    assert.equal(
+      JSON.parse(jobRows.rows[0].step_data).render_request.user_voice_engine,
+      "seedvc"
+    );
     const versionRows = await db.query(
       "SELECT status, song_entitlement_consumed_at FROM track_versions WHERE id = ?",
       [trackVersionId]
     );
-    assert.equal(versionRows.rows[0].status, "queued");
-    assert.equal(versionRows.rows[0].song_entitlement_consumed_at, null);
+    assert.equal(versionRows.rows[0].status, "processing");
+    assert.ok(versionRows.rows[0].song_entitlement_consumed_at);
   });
 
-  it("POST /tracks/:id/versions/:version/render_full blocks missing Suno persona before spend", async () => {
+  it("POST /tracks/:id/versions/:version/render_full falls back when Suno persona is missing", async () => {
     const { trackId, trackVersionId } = await createTrackAndVersion();
     const now = new Date().toISOString();
     await db.query(
@@ -249,25 +254,29 @@ describe("Render Endpoints", async () => {
       headers: { "x-user-id": userId },
     });
 
-    assert.equal(response.statusCode, 422, `Expected 422, got ${response.statusCode}: ${response.body}`);
-    assert.match(response.body, /SUNO_PERSONA_NOT_READY/);
-    assert.equal(spendCalls, 0, "Should not spend entitlement when persona is not ready");
+    assert.equal(response.statusCode, 202, `Expected 202, got ${response.statusCode}: ${response.body}`);
+    assert.equal(spendCalls, 1, "Should spend entitlement through legacy voice conversion fallback");
 
     const jobRows = await db.query(
-      "SELECT id FROM jobs WHERE track_version_id = ? AND workflow_type = 'full_render'",
+      "SELECT id, status, step_data FROM jobs WHERE track_version_id = ? AND workflow_type = 'full_render'",
       [trackVersionId]
     );
-    assert.equal(jobRows.rows.length, 0, "Should not create a full render job");
+    assert.equal(jobRows.rows.length, 1, "Should create a full render job");
+    assert.equal(jobRows.rows[0].status, "queued");
+    assert.equal(
+      JSON.parse(jobRows.rows[0].step_data).render_request.user_voice_engine,
+      "seedvc"
+    );
     const versionRows = await db.query(
       "SELECT status, full_job_id, song_entitlement_consumed_at FROM track_versions WHERE id = ?",
       [trackVersionId]
     );
-    assert.equal(versionRows.rows[0].status, "queued");
-    assert.equal(versionRows.rows[0].full_job_id, null);
-    assert.equal(versionRows.rows[0].song_entitlement_consumed_at, null);
+    assert.equal(versionRows.rows[0].status, "processing");
+    assert.equal(versionRows.rows[0].full_job_id, jobRows.rows[0].id);
+    assert.ok(versionRows.rows[0].song_entitlement_consumed_at);
   });
 
-  it("POST /tracks/:id/versions/:version/render_preview rejects invalid Suno consent before spend", async () => {
+  it("POST /tracks/:id/versions/:version/render_preview falls back when Suno consent is invalid", async () => {
     const { trackId, trackVersionId } = await createTrackAndVersion();
     const now = new Date().toISOString();
     await db.query(
@@ -311,8 +320,66 @@ describe("Render Endpoints", async () => {
       headers: { "x-user-id": userId },
     });
 
-    assert.equal(response.statusCode, 422);
+    assert.equal(response.statusCode, 202, `Expected 202, got ${response.statusCode}: ${response.body}`);
+    assert.equal(spendCalls, 1);
+    const jobs = await db.query("SELECT id FROM jobs WHERE track_version_id = ?", [trackVersionId]);
+    assert.equal(jobs.rows.length, 1);
+  });
+
+  it("POST /tracks/:id/versions/:version/render_preview blocks completed-but-inactive voice profile", async () => {
+    const { trackId, trackVersionId } = await createTrackAndVersion();
+    const now = new Date().toISOString();
+    await db.query(
+      `INSERT INTO voice_profiles (
+        id, user_id, status, quality_score, model_version, consent_version,
+        consent_at, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      ["voice_render_completed", userId, "completed", 0.9, "test", "voice_v1", now, now]
+    );
+    await db.query("UPDATE tracks SET voice_mode = 'user_voice' WHERE id = ?", [trackId]);
+    await db.query(
+      `UPDATE track_versions
+       SET status = 'queued',
+           lyrics_status = 'approved',
+           song_entitlement_consumed_at = NULL
+       WHERE id = ?`,
+      [trackVersionId]
+    );
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/tracks/${trackId}/versions/1/render_preview`,
+      headers: { "x-user-id": userId },
+    });
+
+    assert.equal(response.statusCode, 422, `Expected 422, got ${response.statusCode}: ${response.body}`);
+    assert.match(response.body, /VOICE_PROFILE_REQUIRED/);
     assert.equal(spendCalls, 0);
+    const jobs = await db.query("SELECT id FROM jobs WHERE track_version_id = ?", [trackVersionId]);
+    assert.equal(jobs.rows.length, 0);
+  });
+
+  it("POST /tracks/:id/versions/:version/render_preview blocks My Voice with no enrolled voice profile", async () => {
+    const { trackId, trackVersionId } = await createTrackAndVersion();
+    await db.query("UPDATE tracks SET voice_mode = 'user_voice' WHERE id = ?", [trackId]);
+    await db.query(
+      `UPDATE track_versions
+       SET status = 'queued',
+           lyrics_status = 'approved',
+           song_entitlement_consumed_at = NULL
+       WHERE id = ?`,
+      [trackVersionId]
+    );
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/tracks/${trackId}/versions/1/render_preview`,
+      headers: { "x-user-id": userId },
+    });
+
+    assert.equal(response.statusCode, 422, `Expected 422, got ${response.statusCode}: ${response.body}`);
+    assert.match(response.body, /VOICE_PROFILE_REQUIRED/);
+    assert.equal(spendCalls, 0, "Should not spend entitlement without an enrolled voice profile");
     const jobs = await db.query("SELECT id FROM jobs WHERE track_version_id = ?", [trackVersionId]);
     assert.equal(jobs.rows.length, 0);
   });

@@ -2751,7 +2751,7 @@ async function startJobRunner({
       }
     },
 
-    music_plan: async ({ track, trackVersion }) => {
+    music_plan: async ({ track, trackVersion, job }) => {
       const musicConfig = await getMusicProviderConfig({
         requestedStyle: track.style,
       });
@@ -2785,26 +2785,74 @@ async function startJobRunner({
       if (track.voice_gender) {
         plan.voice_gender = track.voice_gender;
       }
-      const voiceConversionProvider = null;
+      let voiceConversionProvider = null;
+      let userVoiceEngine = null;
       let voiceProviderProfileId = null;
       if (track.voice_mode === "user_voice") {
-        const sunoProviderProfile = await findActiveProviderProfileForUser(db, {
-          userId: track.user_id,
-          provider: "suno",
-        });
-        if (
-          !sunoProviderProfile ||
-          !sunoProviderProfile.provider_profile_id ||
-          !hasPersonaConsentScope(sunoProviderProfile.consent_scope)
-        ) {
+        const activeVoiceProfile = await db
+          .prepare(
+            "SELECT id FROM voice_profiles WHERE user_id = ? AND status = 'active' ORDER BY created_at DESC LIMIT 1",
+          )
+          .get(track.user_id);
+        if (!activeVoiceProfile) {
           throw new Error(
-            "E302_SUNO_PERSONA_NOT_READY: Active Suno voice persona is required before user-voice render.",
+            "E302_VOICE_PROFILE_REQUIRED: Active voice profile required for My Voice.",
           );
         }
-        voiceProviderProfileId = sunoProviderProfile.id;
+        const renderRequest =
+          parseJson(job?.step_data, {}, "render_request_step_data")
+            ?.render_request || {};
+        const frozenEngine =
+          typeof renderRequest.user_voice_engine === "string"
+            ? renderRequest.user_voice_engine
+            : null;
+        let sunoProviderProfile = null;
+        if (
+          frozenEngine === "suno_voice_persona" &&
+          renderRequest.voice_provider_profile_id
+        ) {
+          sunoProviderProfile = await getProviderProfileById(
+            db,
+            renderRequest.voice_provider_profile_id,
+          );
+          if (
+            sunoProviderProfile?.user_id !== track.user_id ||
+            sunoProviderProfile?.provider !== "suno" ||
+            sunoProviderProfile?.status !== "active"
+          ) {
+            sunoProviderProfile = null;
+          }
+        } else {
+          sunoProviderProfile = await findActiveProviderProfileForUser(db, {
+            userId: track.user_id,
+            provider: "suno",
+          });
+        }
+        if (
+          (!frozenEngine || frozenEngine === "suno_voice_persona") &&
+          sunoProviderProfile &&
+          sunoProviderProfile.provider_profile_id &&
+          hasPersonaConsentScope(sunoProviderProfile.consent_scope)
+        ) {
+          userVoiceEngine = "suno_voice_persona";
+          voiceProviderProfileId = sunoProviderProfile.id;
+        } else {
+          if (frozenEngine === "suno_voice_persona") {
+            throw new Error(
+              "E302_SUNO_PERSONA_NOT_READY: Frozen Suno voice persona is not ready.",
+            );
+          }
+          voiceConversionProvider =
+            renderRequest.voice_conversion_provider ||
+            frozenEngine ||
+            (await getFeatureFlag(db, "voice_conversion_provider")) ||
+            "seedvc";
+          userVoiceEngine = voiceConversionProvider;
+          console.warn(
+            `[JobRunner] Suno voice persona unavailable for track=${track.id}; using ${voiceConversionProvider} voice conversion`,
+          );
+        }
       }
-      const userVoiceEngine =
-        track.voice_mode === "user_voice" ? "suno_voice_persona" : null;
       const renderContract = buildRenderContract({
         provider: plan.provider_resolved || musicConfig?.provider || null,
         voiceMode: track.voice_mode,

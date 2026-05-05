@@ -80,9 +80,21 @@ function registerTrackRoutes(
     return Number.isFinite(ts) ? ts : null;
   }
 
-  async function preflightUserVoicePersonaReadiness({ userId, track }) {
+  async function preflightUserVoiceReadiness({ userId, track }) {
     if (track?.voice_mode !== "user_voice") {
       return { ok: true };
+    }
+    const voiceProfile = await db
+      .prepare(
+        "SELECT id, elevenlabs_voice_id FROM voice_profiles WHERE user_id = ? AND status = 'active' ORDER BY created_at DESC LIMIT 1",
+      )
+      .get(userId);
+    if (!voiceProfile) {
+      return {
+        ok: false,
+        code: "VOICE_PROFILE_REQUIRED",
+        message: "Active voice profile required for My Voice.",
+      };
     }
     const providerProfile = await findActiveProviderProfileForUser(db, {
       userId,
@@ -93,14 +105,42 @@ function registerTrackRoutes(
       providerProfile.provider_profile_id &&
       hasPersonaConsentScope(providerProfile.consent_scope)
     ) {
-      return { ok: true };
+      return {
+        ok: true,
+        renderRequest: {
+          user_voice_engine: "suno_voice_persona",
+          voice_provider_profile_id: providerProfile.id,
+          voice_conversion_provider: null,
+        },
+      };
+    }
+    const voiceConversionProvider =
+      (await getFeatureFlag(db, "voice_conversion_provider")) ?? "seedvc";
+    if (
+      voiceConversionProvider === "elevenlabs" &&
+      !voiceProfile.elevenlabs_voice_id
+    ) {
+      return {
+        ok: false,
+        code: "VOICE_PROVIDER_NOT_READY",
+        message:
+          "My Voice is not ready for the selected voice conversion provider.",
+      };
     }
     return {
-      ok: false,
-      code: "SUNO_PERSONA_NOT_READY",
-      message:
-        "Your voice persona is still being prepared. Try again when My Voice is ready.",
+      ok: true,
+      renderRequest: {
+        user_voice_engine: voiceConversionProvider,
+        voice_provider_profile_id: null,
+        voice_conversion_provider: voiceConversionProvider,
+      },
     };
+  }
+
+  function buildRenderRequestStepData(preflight) {
+    return preflight?.renderRequest
+      ? toJson({ render_request: preflight.renderRequest })
+      : null;
   }
 
   async function consumeSongEntitlementInTransaction(
@@ -732,7 +772,7 @@ function registerTrackRoutes(
           return;
         }
       }
-      const personaPreflight = await preflightUserVoicePersonaReadiness({
+      const personaPreflight = await preflightUserVoiceReadiness({
         userId,
         track,
       });
@@ -745,6 +785,8 @@ function registerTrackRoutes(
         sendError(reply, 422, personaPreflight.code, personaPreflight.message);
         return;
       }
+      const renderRequestStepData =
+        buildRenderRequestStepData(personaPreflight);
       // Keep preview/retry abuse-resistant without exposing preview as a user-facing entitlement unit.
       const limit = await consumeRateLimit(
         userId,
@@ -796,7 +838,7 @@ function registerTrackRoutes(
               0,
               3,
               0,
-              null,
+              renderRequestStepData,
               null,
               null,
               0,
@@ -880,6 +922,8 @@ function registerTrackRoutes(
         job_id: previewResult.jobId,
         estimated_completion_sec: 90,
         poll_url: `/jobs/${previewResult.jobId}`,
+        user_voice_engine:
+          personaPreflight.renderRequest?.user_voice_engine || null,
       });
     },
   );
@@ -969,7 +1013,7 @@ function registerTrackRoutes(
       // Song entitlement is now consumed when a version first starts generation.
       // Full render on the same version reuses that entitlement. Legacy preview-ready
       // versions without the marker still spend once here for backward compatibility.
-      const personaPreflight = await preflightUserVoicePersonaReadiness({
+      const personaPreflight = await preflightUserVoiceReadiness({
         userId,
         track,
       });
@@ -982,6 +1026,8 @@ function registerTrackRoutes(
         sendError(reply, 422, personaPreflight.code, personaPreflight.message);
         return;
       }
+      const renderRequestStepData =
+        buildRenderRequestStepData(personaPreflight);
       const jobId = newUuid();
 
       let billingResult;
@@ -1022,7 +1068,7 @@ function registerTrackRoutes(
               0,
               3,
               0,
-              null,
+              renderRequestStepData,
               null,
               null,
               0,
@@ -1109,6 +1155,8 @@ function registerTrackRoutes(
         job_id: job.id,
         credits_reserved: 0,
         estimated_completion_sec: 180,
+        user_voice_engine:
+          personaPreflight.renderRequest?.user_voice_engine || null,
       });
     },
   );

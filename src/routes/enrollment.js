@@ -22,12 +22,14 @@ const {
   cancelVoiceProviderJobsForVoiceProfile,
   createPendingProviderProfile,
   createVoiceProviderJob,
+  findLatestProviderProfileForVoiceProfile,
   softDeleteProviderProfilesForVoiceProfile,
 } = require("../services/voice-provider-profile-service");
 const { getFeatureFlags } = require("../services/feature-flags");
 const {
   REQUIRED_CONSENT_SCOPE,
   enrollmentSessionHasPersonaConsent,
+  hasPersonaConsentScope,
 } = require("../services/suno-voice-persona-service");
 const {
   revokeAllEnrollmentSessionTokensForUser,
@@ -1439,6 +1441,16 @@ function registerEnrollmentRoutes(app, deps) {
       sendError(reply, 404, "NO_VOICE_PROFILE", "Voice profile not found.");
       return;
     }
+    const providerProfile = await findLatestProviderProfileForVoiceProfile(db, {
+      voiceProfileId: profile.id,
+      provider: "suno",
+    });
+    const providerProfileReady = Boolean(
+      providerProfile &&
+        providerProfile.status === "active" &&
+        providerProfile.provider_profile_id &&
+        hasPersonaConsentScope(providerProfile.consent_scope),
+    );
     reply.send({
       profile_id: profile.id,
       status: profile.status,
@@ -1447,6 +1459,21 @@ function registerEnrollmentRoutes(app, deps) {
       last_verified_at: profile.last_verified_at,
       model_version: profile.model_version,
       requires_reverification: false,
+      my_voice_ready: profile.status === "active",
+      voice_provider_profile: providerProfile
+        ? {
+            id: providerProfile.id,
+            provider: providerProfile.provider,
+            status: providerProfile.status,
+            ready: providerProfileReady,
+            has_provider_profile_id: Boolean(
+              providerProfile.provider_profile_id,
+            ),
+            consent_scope: providerProfile.consent_scope || null,
+            updated_at: providerProfile.updated_at || null,
+            last_error: providerProfile.last_error || null,
+          }
+        : null,
     });
   });
 
