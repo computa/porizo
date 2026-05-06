@@ -297,15 +297,16 @@ function isRetryableGeneratePersonaReadinessError(error) {
   return (
     message.includes("music does not exist") ||
     message.includes("music is still generating") ||
-    message.includes("ensure the music generation task is fully completed")
+    message.includes("ensure the music generation task is fully completed") ||
+    message.includes("create persona error")
   );
 }
 
 async function generatePersonaWithReadinessRetry({
   generatePersonaFn,
   personaArgs,
-  maxAttempts = 4,
-  delayMs = 5000,
+  maxAttempts = 8,
+  delayMs = 15000,
   sleepFn = sleep,
 } = {}) {
   const attempts = Math.max(1, Number(maxAttempts) || 1);
@@ -546,8 +547,8 @@ async function runSunoVoicePersonaJob({
     const persona = await generatePersonaWithReadinessRetry({
       generatePersonaFn: sunoClient.generatePersona,
       personaArgs,
-      maxAttempts: config.SUNO_PERSONA_GENERATE_MAX_ATTEMPTS || 4,
-      delayMs: config.SUNO_PERSONA_GENERATE_RETRY_DELAY_MS || 5000,
+      maxAttempts: config.SUNO_PERSONA_GENERATE_MAX_ATTEMPTS || 8,
+      delayMs: config.SUNO_PERSONA_GENERATE_RETRY_DELAY_MS || 15000,
     });
     try {
       ({ providerProfile, session } = await assertProviderJobStillAllowed({

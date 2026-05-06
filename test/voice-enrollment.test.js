@@ -666,10 +666,9 @@ describe("Voice Enrollment API", () => {
         payload: {
           consent_accepted: true,
           consent_version: options.consentVersion,
-          // U2/U17: when the test wants persona consent, pass an explicit scope
-          // grant. Tests that only set consentVersion still leave consent_scopes
-          // null (fail-secure). Tests that need persona consent pass
-          // `consentScopes` explicitly.
+          // U2/U17: when the test wants persona consent, pass an explicit
+          // scope grant. Legacy consent_version "1.0" also grants persona
+          // consent for app builds that predate consent_scopes.
           ...(options.consentScopes
             ? { consent_scopes: options.consentScopes }
             : {}),
@@ -870,7 +869,7 @@ describe("Voice Enrollment API", () => {
     it("does not queue Suno persona preparation without Suno-specific consent", async () => {
       const userId = uniqueUserId("suno_no_consent");
       const sessionId = await setupEnrollmentWithChunks(userId, {
-        consentVersion: "1.0",
+        consentVersion: "app_v3_without_persona_scope",
       });
 
       const response = await app.inject({
@@ -1132,6 +1131,22 @@ describe("Voice Enrollment API", () => {
         false,
       );
 
+      const immediatePollResponse = await app.inject({
+        method: "GET",
+        url: "/voice/profile",
+        headers: { "x-user-id": userId },
+      });
+      assert.strictEqual(
+        immediatePollResponse.statusCode,
+        200,
+        "voice setup polling must not share the delete-profile rate limiter",
+      );
+
+      await db
+        .prepare(
+          "UPDATE voice_provider_profiles SET status = ?, source_task_id = ?, source_audio_id = ? WHERE id = ?",
+        )
+        .run("persona_submitted", "task_123", "audio_456", providerProfileId);
       await markProviderProfileActive(db, providerProfileId, {
         providerProfileId: "persona_live_test_123",
         model: "voice_persona",

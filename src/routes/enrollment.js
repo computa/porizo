@@ -1396,6 +1396,7 @@ function registerEnrollmentRoutes(app, deps) {
               userId,
               provider: "suno",
               voiceProviderProfileId: providerProfile.id,
+              maxAttempts: 8,
               step: "prepare_persona",
               // U14: derive vocal window from clean audio metadata. Skip the
               // first ~5s (typical user warm-up / silence) and use the next
@@ -1516,11 +1517,17 @@ function registerEnrollmentRoutes(app, deps) {
     if (!userId) {
       return;
     }
-    const limit = await consumeRateLimit(userId, "voice_profile_delete", 1, 60);
+    const limit = await consumeRateLimit(userId, "voice_profile_read", 120, 60);
     if (!limit.allowed) {
-      sendError(reply, 429, "RATE_LIMITED", "Please wait before deleting another voice profile.", {
-        retry_at: limit.reset_at,
-      });
+      sendError(
+        reply,
+        429,
+        "RATE_LIMITED",
+        "Please wait before checking your voice profile again.",
+        {
+          retry_at: limit.reset_at,
+        },
+      );
       return;
     }
     const profile = await db

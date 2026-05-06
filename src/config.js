@@ -83,10 +83,10 @@ const SUNO_CALLBACK_URL = process.env.SUNO_CALLBACK_URL || "";
 // HMAC secret for verifying inbound /internal/suno/callback POSTs.
 const SUNO_CALLBACK_HMAC_SECRET = process.env.SUNO_CALLBACK_HMAC_SECRET || "";
 const SUNO_PERSONA_GENERATE_MAX_ATTEMPTS = Number(
-  process.env.SUNO_PERSONA_GENERATE_MAX_ATTEMPTS || 4,
+  process.env.SUNO_PERSONA_GENERATE_MAX_ATTEMPTS || 8,
 );
 const SUNO_PERSONA_GENERATE_RETRY_DELAY_MS = Number(
-  process.env.SUNO_PERSONA_GENERATE_RETRY_DELAY_MS || 5000,
+  process.env.SUNO_PERSONA_GENERATE_RETRY_DELAY_MS || 15000,
 );
 // Music provider fallback default: "suno" or "elevenlabs"
 // Runtime default can be overridden from app_config.music_provider_config.

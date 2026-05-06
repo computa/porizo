@@ -135,6 +135,14 @@ describe("Suno voice persona service", () => {
       ),
       true,
     );
+    assert.equal(
+      isRetryableGeneratePersonaReadinessError(
+        new Error(
+          "E302_SUNO_PERSONA_ERROR: generate-persona failed - create persona error",
+        ),
+      ),
+      true,
+    );
 
     let attempts = 0;
     const persona = await generatePersonaWithReadinessRetry({
@@ -611,6 +619,76 @@ describe("Suno voice persona service", () => {
     assert.equal(job.status, "failed");
     assert.equal(job.step, "generate_persona");
     assert.equal(job.next_attempt_at, null);
+  });
+
+  test("keeps provider job pending after Suno create-persona readiness errors", async () => {
+    await db
+      .prepare(
+        "UPDATE enrollment_sessions SET access_token = NULL WHERE id = ?",
+      )
+      .run("sess_1");
+    const providerProfile = await createPendingProviderProfile(db, {
+      voiceProfileId: "voice_1",
+      userId: "user_1",
+      provider: "suno",
+      consentScope: REQUIRED_CONSENT_SCOPE,
+    });
+    await db
+      .prepare(
+        "UPDATE voice_provider_profiles SET status = ?, source_task_id = ?, source_audio_id = ? WHERE id = ?",
+      )
+      .run("persona_submitted", "task_123", "audio_456", providerProfile.id);
+    const providerJob = await createVoiceProviderJob(db, {
+      voiceProfileId: "voice_1",
+      userId: "user_1",
+      provider: "suno",
+      voiceProviderProfileId: providerProfile.id,
+      maxAttempts: 3,
+      stepData: { enrollment_session_id: "sess_1" },
+    });
+
+    await assert.rejects(
+      runSunoVoicePersonaJob({
+        db,
+        jobId: providerJob.id,
+        config: {
+          PUBLIC_BASE_URL: "https://porizo.example",
+          SUNO_BASE_URL: "https://api.sunoapi.org",
+          SUNO_API_KEY: "secret",
+          SUNO_PERSONA_GENERATE_MAX_ATTEMPTS: 1,
+          SUNO_PERSONA_GENERATE_RETRY_DELAY_MS: 0,
+        },
+        sunoClient: {
+          uploadFileUrl: async () => null,
+          submitUploadCoverTask: async () => null,
+          pollUploadCoverForAudio: async () => null,
+          generatePersona: async () => {
+            throw new Error(
+              "E302_SUNO_PERSONA_ERROR: generate-persona failed - create persona error",
+            );
+          },
+        },
+      }),
+      /create persona error/,
+    );
+
+    const job = await db
+      .prepare(
+        "SELECT status, step, attempts, next_attempt_at FROM voice_provider_jobs WHERE id = ?",
+      )
+      .get(providerJob.id);
+    assert.equal(job.status, "pending");
+    assert.equal(job.step, "generate_persona");
+    assert.equal(job.attempts, 1);
+    assert.ok(job.next_attempt_at);
+
+    const profile = await db
+      .prepare(
+        "SELECT status, last_error FROM voice_provider_profiles WHERE id = ?",
+      )
+      .get(providerProfile.id);
+    assert.equal(profile.status, "persona_submitted");
+    assert.match(profile.last_error || "", /^$/);
   });
 
   test("preserves remote persona id for manual cleanup if deletion wins during generate", async () => {

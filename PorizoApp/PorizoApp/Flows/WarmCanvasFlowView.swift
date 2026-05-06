@@ -1643,7 +1643,17 @@ struct WarmCanvasFlowView: View {
                     withAnimation { moment = .tell(.voiceSelected) }
                     await applyVoiceAndCreateTrack()
                 } else if profile.isMyVoicePreparing {
-                    activeAlert = .error("Your voice is still being prepared. Try My Voice again in a moment.")
+                    shouldResumeMyVoiceAfterEnrollment = true
+                    guard let readyProfile = await waitForMyVoiceReadiness(),
+                          readyProfile.isMyVoiceReady else {
+                        shouldResumeMyVoiceAfterEnrollment = false
+                        activeAlert = .error("Your voice is still being prepared. Try My Voice again in a moment.")
+                        return
+                    }
+                    shouldResumeMyVoiceAfterEnrollment = false
+                    songFlow.voiceMode = .myVoice
+                    withAnimation { moment = .tell(.voiceSelected) }
+                    await applyVoiceAndCreateTrack()
                 } else {
                     shouldResumeMyVoiceAfterEnrollment = true
                     activeSheet = .voiceEnrollment
@@ -1726,7 +1736,7 @@ struct WarmCanvasFlowView: View {
     }
 
     private func waitForMyVoiceReadiness() async -> VoiceProfileStatus? {
-        for attempt in 0..<6 {
+        for attempt in 0..<36 {
             do {
                 let profile = try await apiClient.getVoiceProfile()
                 if profile.isMyVoiceReady || profile.didMyVoiceSetupFail || !profile.isMyVoicePreparing {
@@ -1735,8 +1745,8 @@ struct WarmCanvasFlowView: View {
             } catch {
                 return nil
             }
-            if attempt < 5 {
-                try? await Task.sleep(for: .seconds(3))
+            if attempt < 35 {
+                try? await Task.sleep(for: .seconds(10))
                 if Task.isCancelled { return nil }
             }
         }
