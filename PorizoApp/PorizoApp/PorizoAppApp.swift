@@ -249,7 +249,6 @@ struct PorizoAppApp: App {
                     if FBSDK.isConfigured, #available(iOS 14.5, *) {
                         let status = await ATTrackingManager.requestTrackingAuthorization()
                         let granted = status == .authorized
-                        Settings.shared.isAdvertiserTrackingEnabled = granted
                         Settings.shared.isAdvertiserIDCollectionEnabled = granted
                         print("[FBSDK] ATT status raw: \(status.rawValue), tracking enabled: \(granted)")
                     }
