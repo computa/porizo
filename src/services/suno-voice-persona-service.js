@@ -332,6 +332,45 @@ async function generatePersonaWithReadinessRetry({
   throw new Error("E302_SUNO_PERSONA_ERROR: generate-persona retry exhausted");
 }
 
+function buildPersonaVocalWindow(stepData = {}, audioDurationSec = null) {
+  let start =
+    typeof stepData.vocal_start === "number" && Number.isFinite(stepData.vocal_start)
+      ? Math.max(0, stepData.vocal_start)
+      : 0;
+  let end =
+    typeof stepData.vocal_end === "number" && Number.isFinite(stepData.vocal_end)
+      ? stepData.vocal_end
+      : start + 30;
+
+  const audioDuration = Number(audioDurationSec);
+  if (Number.isFinite(audioDuration) && audioDuration > 0) {
+    if (audioDuration < 10) {
+      return null;
+    }
+    start = Math.min(start, Math.max(0, audioDuration - 10));
+    end = Math.min(end, audioDuration);
+    if (end - start < 10) {
+      end = Math.min(audioDuration, start + 20);
+    }
+    if (end - start < 10) {
+      start = Math.max(0, audioDuration - Math.min(30, audioDuration));
+      end = audioDuration;
+    }
+  }
+
+  if (end - start > 30) {
+    end = start + 30;
+  }
+  if (end - start < 10 || end <= start) {
+    return null;
+  }
+
+  return {
+    vocalStart: Number(start.toFixed(2)),
+    vocalEnd: Number(end.toFixed(2)),
+  };
+}
+
 async function runSunoVoicePersonaJob({
   db,
   jobId,
@@ -479,6 +518,8 @@ async function runSunoVoicePersonaJob({
         baseUrl: config.SUNO_BASE_URL,
         apiKey: config.SUNO_API_KEY,
         taskId: sourceTaskId,
+        vocalStart: stepData.vocal_start,
+        vocalEnd: stepData.vocal_end,
         timeoutMs: config.PROVIDER_TIMEOUT_MS,
         pollingOptions,
       });
@@ -501,6 +542,13 @@ async function runSunoVoicePersonaJob({
           sourceTaskId,
         sourceAudioId,
         model,
+        metadata: {
+          suno_source_audio_duration_sec: audio.audioDurationSec || null,
+          suno_source_audio_track_index:
+            typeof audio.audioTrackIndex === "number"
+              ? audio.audioTrackIndex
+              : null,
+        },
       });
     }
 
@@ -538,11 +586,16 @@ async function runSunoVoicePersonaJob({
       style: "clean pop vocal, warm studio mix, clear lead vocal",
       timeoutMs: config.PROVIDER_TIMEOUT_MS,
     };
-    if (typeof stepData.vocal_start === "number") {
-      personaArgs.vocalStart = stepData.vocal_start;
-    }
-    if (typeof stepData.vocal_end === "number") {
-      personaArgs.vocalEnd = stepData.vocal_end;
+    const personaWindow = buildPersonaVocalWindow(
+      stepData,
+      providerProfile.metadata_json
+        ? parseJson(providerProfile.metadata_json, {})
+            .suno_source_audio_duration_sec
+        : null,
+    );
+    if (personaWindow) {
+      personaArgs.vocalStart = personaWindow.vocalStart;
+      personaArgs.vocalEnd = personaWindow.vocalEnd;
     }
     const persona = await generatePersonaWithReadinessRetry({
       generatePersonaFn: sunoClient.generatePersona,

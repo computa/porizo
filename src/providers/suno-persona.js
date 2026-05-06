@@ -76,6 +76,68 @@ function pickAudioIdLike(candidate) {
   return null;
 }
 
+function parseTrackDurationSec(track) {
+  const value = Number(
+    track?.duration ?? track?.durationSec ?? track?.duration_sec,
+  );
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
+function resolvePersonaWindowBounds({ vocalStart = 0, vocalEnd = 30 } = {}) {
+  const start = Math.max(0, Number(vocalStart) || 0);
+  const requestedEnd = Number(vocalEnd);
+  const end = Number.isFinite(requestedEnd) ? requestedEnd : start + 30;
+  return { start, end, duration: end - start };
+}
+
+function selectSunoPersonaSourceTrack(statusResponse, options = {}) {
+  const readiness = inspectSunoAudioReadiness(statusResponse);
+  const tracks = readiness.tracks?.length
+    ? readiness.tracks
+    : readiness.track
+      ? [readiness.track]
+      : [];
+  const { start, end } = resolvePersonaWindowBounds(options);
+  const candidates = tracks
+    .map((track, index) => ({
+      track,
+      index,
+      id: pickAudioIdLike(track),
+      durationSec: parseTrackDurationSec(track),
+    }))
+    .filter((candidate) => candidate.id);
+
+  if (candidates.length === 0) {
+    return null;
+  }
+
+  candidates.sort((a, b) => {
+    const aDuration = a.durationSec || 0;
+    const bDuration = b.durationSec || 0;
+    const aFitsRequested = aDuration >= end;
+    const bFitsRequested = bDuration >= end;
+    if (aFitsRequested !== bFitsRequested) {
+      return aFitsRequested ? -1 : 1;
+    }
+    const aFitsMinimum = aDuration >= start + 10;
+    const bFitsMinimum = bDuration >= start + 10;
+    if (aFitsMinimum !== bFitsMinimum) {
+      return aFitsMinimum ? -1 : 1;
+    }
+    const aHasUsableDuration = aDuration >= 10;
+    const bHasUsableDuration = bDuration >= 10;
+    if (aHasUsableDuration !== bHasUsableDuration) {
+      return aHasUsableDuration ? -1 : 1;
+    }
+    if (aDuration !== bDuration) {
+      return bDuration - aDuration;
+    }
+    return a.index - b.index;
+  });
+
+  return candidates[0];
+}
+
 /**
  * U6: Typed extractor for SunoAPI upload-cover task status response.
  *
@@ -93,11 +155,11 @@ function pickAudioIdLike(candidate) {
  */
 function extractSunoAudioId(statusResponse) {
   // Path 1: pre-extracted by inspectSunoAudioReadiness (the canonical Suno
-  // helper for "is this audio ready"). When it surfaces a track object, that
-  // is authoritative.
-  const readiness = inspectSunoAudioReadiness(statusResponse);
-  const fromReadiness = pickAudioIdLike(readiness?.track);
-  if (fromReadiness) return fromReadiness;
+  // helper for "is this audio ready"). When multiple tracks are present, choose
+  // one that can cover the default 0-30s persona window instead of blindly
+  // selecting sunoData[0].
+  const selected = selectSunoPersonaSourceTrack(statusResponse);
+  if (selected?.id) return selected.id;
 
   // Path 2: direct field paths matching the captured fixture shape
   // (test/fixtures/suno-upload-cover-response.json). These are the ONLY paths
@@ -239,6 +301,8 @@ async function pollUploadCoverForAudio({
   baseUrl,
   apiKey,
   taskId,
+  vocalStart = 0,
+  vocalEnd = 30,
   timeoutMs = 30000,
   pollTaskOnceFn = pollSunoTaskOnce,
   pollingOptions = null,
@@ -271,9 +335,17 @@ async function pollUploadCoverForAudio({
         // "not done yet" so the poll loop continues. A genuine shape mismatch
         // will surface only when the final audio_success state still can't be
         // extracted, at which point the throw surfaces to the caller.
-        let audioId = null;
+        let selectedTrack = null;
         try {
-          audioId = extractSunoAudioId(poll.response);
+          selectedTrack = selectSunoPersonaSourceTrack(poll.response, {
+            vocalStart,
+            vocalEnd,
+          });
+          if (!selectedTrack?.id) {
+            throw new Error(
+              "E302_SUNO_PERSONA_AUDIO_SHAPE_UNKNOWN: upload-cover response shape did not match any known path",
+            );
+          }
         } catch (err) {
           if (
             statusInfo.phase === "provisional_success" &&
@@ -290,11 +362,13 @@ async function pollUploadCoverForAudio({
           throw err;
         }
         const readiness = inspectSunoAudioReadiness(poll.response);
-        if (audioId && readiness.ready) {
+        if (selectedTrack?.id && readiness.ready) {
           return {
             done: true,
             status: poll.status,
-            audioId,
+            audioId: selectedTrack.id,
+            audioDurationSec: selectedTrack.durationSec,
+            audioTrackIndex: selectedTrack.index,
             response: poll.response,
           };
         }
@@ -329,6 +403,8 @@ async function pollUploadCoverForAudio({
   }
   return {
     audioId: result.audioId,
+    audioDurationSec: result.audioDurationSec,
+    audioTrackIndex: result.audioTrackIndex,
     status: result.status,
     response: result.response,
   };
@@ -409,6 +485,7 @@ module.exports = {
   normalizeAudioWeight,
   pollUploadCoverForAudio,
   redactedId,
+  selectSunoPersonaSourceTrack,
   submitUploadCoverTask,
   uploadFileUrl,
 };

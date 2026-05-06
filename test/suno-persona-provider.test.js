@@ -6,6 +6,7 @@ const {
   buildUploadCoverPayload,
   extractSunoAudioId,
   generatePersona,
+  selectSunoPersonaSourceTrack,
   submitUploadCoverTask,
   uploadFileUrl,
 } = require("../src/providers/suno-persona");
@@ -168,6 +169,33 @@ describe("Suno persona provider", () => {
       /^audio_/,
       "fixture extraction should produce a string starting with 'audio_'",
     );
+  });
+
+  test("selects a Suno source track that can cover the requested persona window", () => {
+    const selected = selectSunoPersonaSourceTrack(
+      {
+        data: {
+          response: {
+            sunoData: [
+              {
+                id: "audio_too_short",
+                sourceAudioUrl: "https://cdn.example/short.mp3",
+                duration: 10.8,
+              },
+              {
+                id: "audio_persona_ready",
+                sourceAudioUrl: "https://cdn.example/ready.mp3",
+                duration: 42.1,
+              },
+            ],
+          },
+        },
+      },
+      { vocalStart: 5, vocalEnd: 25 },
+    );
+
+    assert.equal(selected.id, "audio_persona_ready");
+    assert.equal(selected.index, 1);
   });
 
   test("U16/U6: pre-deploy gate — fixture must be live-captured before persona feature flag is flipped", () => {
