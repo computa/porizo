@@ -8,6 +8,7 @@ const { beforeEach, afterEach, describe, test } = require("node:test");
 const { getDatabase } = require("../src/database");
 const { buildServer } = require("../src/server");
 const blogRepairService = require("../src/services/blog-repair-service");
+const { formatSitemapLastmod } = require("../src/routes/legal");
 
 function buildApprovedPayload(overrides = {}) {
   const bodyMarkdown = [
@@ -137,10 +138,29 @@ describe("blog CMS routes", () => {
     const sitemapResponse = await app.inject({ method: "GET", url: "/sitemap.xml" });
     assert.equal(sitemapResponse.statusCode, 200);
     assert.match(sitemapResponse.body, new RegExp(`/blog/${published.slug}`));
+    assert.doesNotMatch(sitemapResponse.body, /<lastmod>[A-Za-z]{3}\s/);
+    assert.match(sitemapResponse.body, /<lastmod>\d{4}-\d{2}-\d{2}<\/lastmod>/);
+  });
+
+  test("formats sitemap lastmod values as ISO dates for postgres Date objects", () => {
+    assert.equal(
+      formatSitemapLastmod(new Date("2026-04-12T09:15:00.000Z")),
+      "2026-04-12"
+    );
+    assert.equal(
+      formatSitemapLastmod("2026-04-12T09:15:00.000Z"),
+      "2026-04-12"
+    );
+    assert.equal(formatSitemapLastmod("not a date"), null);
   });
 
   test("serves admin JS assets as javascript instead of falling through to the SPA HTML shell", async () => {
-    const response = await app.inject({ method: "GET", url: "/admin/assets/admin.js" });
+    const indexResponse = await app.inject({ method: "GET", url: "/admin" });
+    assert.equal(indexResponse.statusCode, 200);
+    const assetPath = indexResponse.body.match(/src="([^"]+\/admin\.[^"]+\.js)"/)?.[1];
+    assert.ok(assetPath, "admin index should reference a built JS asset");
+
+    const response = await app.inject({ method: "GET", url: assetPath });
     assert.equal(response.statusCode, 200);
     assert.match(response.headers["content-type"] || "", /application\/javascript/);
     assert.doesNotMatch(response.body, /<!doctype html>/i);

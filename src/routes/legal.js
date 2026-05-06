@@ -112,6 +112,25 @@ function escapeHtml(value) {
     .replaceAll("'", "&#39;");
 }
 
+function formatSitemapLastmod(value) {
+  if (!value) {
+    return null;
+  }
+
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value.toISOString().slice(0, 10);
+  }
+
+  const text = String(value).trim();
+  const isoDate = text.match(/^(\d{4}-\d{2}-\d{2})(?:$|[T\s])/);
+  if (isoDate) {
+    return isoDate[1];
+  }
+
+  const parsed = new Date(text);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString().slice(0, 10);
+}
+
 async function withDynamicBlogEntries(sitemap, db) {
   if (!db || !sitemap || !sitemap.includes("</urlset>")) {
     return sitemap;
@@ -131,10 +150,11 @@ async function withDynamicBlogEntries(sitemap, db) {
 
     const entries = posts.map((post) => {
       const lastmod = post.updated_at || post.published_at;
+      const lastmodDate = formatSitemapLastmod(lastmod);
       return [
         "  <url>",
         `    <loc>https://porizo.co/blog/${escapeHtml(post.slug)}</loc>`,
-        lastmod ? `    <lastmod>${escapeHtml(String(lastmod).slice(0, 10))}</lastmod>` : null,
+        lastmodDate ? `    <lastmod>${escapeHtml(lastmodDate)}</lastmod>` : null,
         "    <priority>0.6</priority>",
         "  </url>",
       ].filter(Boolean).join("\n");
@@ -443,4 +463,4 @@ function registerLegalRoutes(app, { db } = {}) {
   app.get("/legal/privacy", async (_request, reply) => respondMarketingHtml(reply, publicPages.privacy));
 }
 
-module.exports = { registerLegalRoutes };
+module.exports = { registerLegalRoutes, formatSitemapLastmod };
