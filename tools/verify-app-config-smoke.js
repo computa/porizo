@@ -41,6 +41,18 @@ async function verifyAudioUrl(url) {
   throw new Error(`sample audio returned HTTP ${response.status}`);
 }
 
+function verifyNullableString(value, field) {
+  if (value != null && typeof value !== 'string') {
+    throw new Error(`${field} must be a string or null`);
+  }
+}
+
+function verifyNullablePositiveInteger(value, field) {
+  if (value != null && (!Number.isInteger(value) || value < 1)) {
+    throw new Error(`${field} must be a positive integer or null`);
+  }
+}
+
 (async () => {
   const configUrl = process.env.PORIZO_APP_CONFIG_URL || DEFAULT_CONFIG_URL;
   const config = await fetchJson(configUrl);
@@ -65,6 +77,17 @@ async function verifyAudioUrl(url) {
 
   await verifyAudioUrl(resolvedSampleAudioUrl);
 
+  if (!config.app_update || typeof config.app_update !== 'object') {
+    throw new Error('missing app_update config block');
+  }
+  verifyNullableString(config.app_update.minimum_supported_version, 'app_update.minimum_supported_version');
+  verifyNullableString(config.app_update.recommended_version, 'app_update.recommended_version');
+  verifyNullablePositiveInteger(config.app_update.minimum_supported_build, 'app_update.minimum_supported_build');
+  verifyNullablePositiveInteger(config.app_update.recommended_build, 'app_update.recommended_build');
+  if (typeof config.app_update.app_store_url !== 'string' || !config.app_update.app_store_url.startsWith('https://')) {
+    throw new Error('missing or invalid app_update.app_store_url');
+  }
+
   const resolvedQuestionGraphUrl = resolveRelativeUrl(onboarding.question_graph_url, configUrl);
 
   console.log('[appconfig:smoke] PASS');
@@ -74,6 +97,7 @@ async function verifyAudioUrl(url) {
   if (resolvedQuestionGraphUrl) {
     console.log(`question_graph_url: ${resolvedQuestionGraphUrl}`);
   }
+  console.log(`app_update.app_store_url: ${config.app_update.app_store_url}`);
 })().catch((error) => {
   console.error(`[appconfig:smoke] FAIL: ${error.message}`);
   process.exitCode = 1;

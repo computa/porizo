@@ -79,9 +79,16 @@ struct LaunchFlashResolver {
     /// Filter tracks to those eligible for flash playback.
     private func filterEligibleTracks(_ tracks: [Track]) -> [Track] {
         tracks.filter { track in
-            track.status == "ready" && track.latestVersion > 0
+            let status = track.status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            return Self.playableTrackStatuses.contains(status) && track.latestVersion > 0
         }
     }
+
+    /// Backend history includes all three values:
+    /// - `ready`: current full-render terminal status
+    /// - `preview_ready`: preview has a playable URL before final render
+    /// - `completed`: legacy/test/share rows that still represent playable songs
+    private static let playableTrackStatuses: Set<String> = ["ready", "preview_ready", "completed"]
 
     // MARK: - Weighted Pick (70/30 received/created)
 

@@ -440,7 +440,7 @@ struct RootView: View {
             guard hasValidated else { return }
             Task {
                 if let client = apiClient {
-                    _ = try? await client.ensureDeviceToken()
+                    await registerDeviceIfReady(using: client, reason: "session_validated", needsShareToken: true)
                     await AppleAdsAttributionService.submitPendingIfPossible(
                         using: client,
                         isAuthenticated: authManager.isAuthenticated
@@ -462,7 +462,9 @@ struct RootView: View {
         .onReceive(NotificationCenter.default.publisher(for: .pushTokenUpdated)) { _ in
             // Re-register device when APNs token changes (ensures server has latest push token)
             guard authManager.isAuthenticated, let client = apiClient else { return }
-            Task { _ = try? await client.registerDevice(appVersion: APIClient.appVersion) }
+            Task {
+                await registerDeviceIfReady(using: client, reason: "push_token_updated", needsShareToken: false)
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .appReturnedToForeground)) { _ in
             guard let client = apiClient else { return }
@@ -1081,6 +1083,27 @@ struct RootView: View {
 
     private func openAppStore(for prompt: AppUpdatePrompt) {
         UIApplication.shared.open(prompt.appStoreURL)
+    }
+
+    @MainActor
+    private func registerDeviceIfReady(
+        using client: APIClient,
+        reason: String,
+        needsShareToken: Bool
+    ) async {
+        guard authManager.isAuthenticated else { return }
+        do {
+            if needsShareToken {
+                _ = try await client.ensureDeviceToken()
+            } else {
+                _ = try await client.registerDevice(appVersion: APIClient.appVersion)
+            }
+            #if DEBUG
+            print("[Push] Device registration succeeded (\(reason))")
+            #endif
+        } catch {
+            print("[Push] Device registration failed (\(reason)): \(error.localizedDescription)")
+        }
     }
 }
 

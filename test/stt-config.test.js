@@ -272,7 +272,9 @@ describe("STT Configuration Service", async () => {
 
       assert.deepEqual(appConfig.app_update, {
         minimum_supported_version: "1.2.0",
+        minimum_supported_build: null,
         recommended_version: "1.4.0",
+        recommended_build: null,
         message: "Update to continue using Porizo.",
         app_store_url: "https://apps.apple.com/app/porizo/id6758205028",
         auto_recommended_version: false,

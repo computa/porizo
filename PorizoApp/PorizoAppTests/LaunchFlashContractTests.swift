@@ -146,6 +146,57 @@ final class LaunchFlashContractTests: XCTestCase {
         XCTAssertEqual(content?.audioURL?.absoluteString, "https://cdn.example.com/audio/track_1.m4a")
     }
 
+    func testLaunchFlashResolver_acceptsLegacyCompletedTracksAsPlayable() {
+        let track = makeTrack(recipientName: "Tom", libraryOrigin: "created", status: "completed")
+        let resolver = LaunchFlashResolver(
+            source: FakeLaunchFlashContentSource(
+                tracks: [track],
+                playableAudioURLs: [track.id: URL(string: "https://cdn.example.com/audio/legacy.m4a")!]
+            ),
+            onboardingConfig: nil,
+            defaults: defaults
+        )
+
+        let content = resolver.resolve(mode: .all)
+
+        XCTAssertEqual(content?.trackId, track.id)
+        XCTAssertEqual(content?.audioURL?.absoluteString, "https://cdn.example.com/audio/legacy.m4a")
+    }
+
+    func testLaunchFlashResolver_acceptsPreviewReadyTracksAsPlayable() {
+        let track = makeTrack(recipientName: "Tom", libraryOrigin: "created", status: "preview_ready")
+        let resolver = LaunchFlashResolver(
+            source: FakeLaunchFlashContentSource(
+                tracks: [track],
+                playableAudioURLs: [track.id: URL(string: "https://cdn.example.com/audio/preview.m4a")!]
+            ),
+            onboardingConfig: nil,
+            defaults: defaults
+        )
+
+        let content = resolver.resolve(mode: .all)
+
+        XCTAssertEqual(content?.trackId, track.id)
+        XCTAssertEqual(content?.audioURL?.absoluteString, "https://cdn.example.com/audio/preview.m4a")
+    }
+
+    func testLaunchFlashResolver_ignoresNonPlayableTrackStatuses() {
+        let track = makeTrack(recipientName: "Tom", libraryOrigin: "created", status: "rendering")
+        let resolver = LaunchFlashResolver(
+            source: FakeLaunchFlashContentSource(
+                tracks: [track],
+                playableAudioURLs: [track.id: URL(string: "https://cdn.example.com/audio/rendering.m4a")!]
+            ),
+            onboardingConfig: nil,
+            defaults: defaults
+        )
+
+        let content = resolver.resolve(mode: .all)
+
+        XCTAssertNotEqual(content?.trackId, track.id)
+        XCTAssertEqual(content?.source, .demo)
+    }
+
     func testLaunchFlashResolver_usesDedicatedLaunchFlashDemoAudioWhenConfigured() {
         let resolver = LaunchFlashResolver(
             source: FakeLaunchFlashContentSource(
@@ -205,7 +256,7 @@ final class LaunchFlashContractTests: XCTestCase {
         )
     }
 
-    private func makeTrack(recipientName: String, libraryOrigin: String?) -> Track {
+    private func makeTrack(recipientName: String, libraryOrigin: String?, status: String = "ready") -> Track {
         Track(
             id: "track_1",
             userId: "user_1",
@@ -216,7 +267,7 @@ final class LaunchFlashContractTests: XCTestCase {
             durationTarget: 60,
             voiceMode: "ai_voice",
             message: nil,
-            status: "ready",
+            status: status,
             latestVersion: 1,
             shareTokenId: nil,
             createdAt: "2026-04-14T00:00:00Z",

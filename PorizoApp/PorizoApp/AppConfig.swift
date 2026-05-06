@@ -121,7 +121,8 @@ enum AppConfig {
 
     /// OneSignal App ID for marketing/engagement push notifications.
     /// Public identifier (not a secret) — standard to embed in client per OneSignal docs.
-    static let oneSignalAppId: String? = "67365cfb-f88a-44cc-ba25-29a9a01d01f0"
+    static let oneSignalAppId: String? =
+        configString("PORIZO_ONESIGNAL_APP_ID") ?? "67365cfb-f88a-44cc-ba25-29a9a01d01f0"
 
     /// App Store URL for sharing.
     static let appStoreURL = "https://apps.apple.com/app/porizo/id6758205028"

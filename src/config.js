@@ -21,6 +21,8 @@ const PLAY_STORE_URL =
   process.env.PLAY_STORE_URL ||
   "https://play.google.com/store/apps/details?id=com.porizo.app";
 const IOS_TESTFLIGHT_URL = process.env.IOS_TESTFLIGHT_URL || "";
+const IOS_MIN_SUPPORTED_BUILD = Number(process.env.IOS_MIN_SUPPORTED_BUILD || 0);
+const IOS_RECOMMENDED_BUILD = Number(process.env.IOS_RECOMMENDED_BUILD || 0);
 const LIVE_PROVIDERS = process.env.LIVE_PROVIDERS === "true";
 // Dev mode: skip all provider API calls, use placeholders instead
 const DEV_MODE = process.env.DEV_MODE === "true";
@@ -239,6 +241,8 @@ module.exports = {
   APP_STORE_URL,
   PLAY_STORE_URL,
   IOS_TESTFLIGHT_URL,
+  IOS_MIN_SUPPORTED_BUILD,
+  IOS_RECOMMENDED_BUILD,
   LIVE_PROVIDERS,
   DEV_MODE,
   FACEBOOK_APP_ID,

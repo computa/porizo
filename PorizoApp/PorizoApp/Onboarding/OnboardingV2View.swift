@@ -37,12 +37,25 @@ struct OnboardingSplashAudioPlan: Equatable {
     let showsPlayFallback: Bool
 
     static func resolve(sampleURL: String?, isAudioPlaying: Bool) -> OnboardingSplashAudioPlan {
-        let playbackURL = sampleURL.flatMap(URL.init(string:))
+        let playbackURL = playableRemoteURL(from: sampleURL)
         return OnboardingSplashAudioPlan(
             playbackURL: playbackURL,
             shouldAttemptAutoplay: playbackURL != nil && !isAudioPlaying,
             showsPlayFallback: playbackURL != nil && !isAudioPlaying
         )
+    }
+
+    private static func playableRemoteURL(from sampleURL: String?) -> URL? {
+        guard let sampleURL else { return nil }
+        let trimmed = sampleURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = URL(string: trimmed),
+              let scheme = url.scheme?.lowercased(),
+              ["http", "https"].contains(scheme),
+              url.host != nil
+        else {
+            return nil
+        }
+        return url
     }
 
     func attemptAutoStart(using startPlayback: (URL) -> Void) {
@@ -78,6 +91,7 @@ struct OnboardingV2View: View {
     @State private var bgAudioTask: Task<Void, Never>?
     @State private var bgStatusObserver: NSKeyValueObservation?
     @State private var isBackgroundAudioPlaying = false
+    @State private var hasLoggedBackgroundAudioStart = false
 
     enum OnboardingScreen {
         case splash
@@ -442,24 +456,28 @@ struct OnboardingV2View: View {
         let item = AVPlayerItem(url: url)
         let player = AVPlayer(playerItem: item)
         player.volume = 0.4
-        player.play()
-        bgPlayer = player
-        isBackgroundAudioPlaying = true
-        AnalyticsService.shared.log(.onboardingV2SplashAudioPlayed, properties: ["trigger": trigger])
 
         bgStatusObserver?.invalidate()
-        bgStatusObserver = item.observe(\.status, options: [.new]) { observed, _ in
+        bgStatusObserver = item.observe(\.status, options: [.initial, .new]) { observed, _ in
             Task { @MainActor in
                 switch observed.status {
                 case .readyToPlay:
                     isBackgroundAudioPlaying = true
+                    if !hasLoggedBackgroundAudioStart {
+                        hasLoggedBackgroundAudioStart = true
+                        AnalyticsService.shared.log(.onboardingV2SplashAudioPlayed, properties: ["trigger": trigger])
+                    }
                 case .failed:
                     isBackgroundAudioPlaying = false
+                    stopBackgroundAudio()
                 default:
                     break
                 }
             }
         }
+
+        bgPlayer = player
+        player.play()
 
         // Auto-fade after 30 seconds
         bgAudioTask = Task { @MainActor in
@@ -487,6 +505,7 @@ struct OnboardingV2View: View {
             bgStatusObserver?.invalidate()
             bgStatusObserver = nil
             isBackgroundAudioPlaying = false
+            hasLoggedBackgroundAudioStart = false
             try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         }
     }
@@ -498,6 +517,7 @@ struct OnboardingV2View: View {
         bgPlayer?.pause()
         bgPlayer = nil
         isBackgroundAudioPlaying = false
+        hasLoggedBackgroundAudioStart = false
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 

@@ -240,6 +240,36 @@ final class OnboardingSplashAudioPlanTests: XCTestCase {
         XCTAssertFalse(plan.showsPlayFallback)
     }
 
+    func testDoesNotAttemptAutoStartForMalformedSampleURL() {
+        let plan = OnboardingSplashAudioPlan.resolve(
+            sampleURL: "not a url",
+            isAudioPlaying: false
+        )
+        var didStart = false
+
+        plan.attemptAutoStart { _ in
+            didStart = true
+        }
+
+        XCTAssertFalse(didStart)
+        XCTAssertFalse(plan.showsPlayFallback)
+    }
+
+    func testDoesNotAttemptAutoStartForNonWebSampleURL() {
+        let plan = OnboardingSplashAudioPlan.resolve(
+            sampleURL: "file:///tmp/sample.mp3",
+            isAudioPlaying: false
+        )
+        var didStart = false
+
+        plan.attemptAutoStart { _ in
+            didStart = true
+        }
+
+        XCTAssertFalse(didStart)
+        XCTAssertFalse(plan.showsPlayFallback)
+    }
+
     func testDoesNotAutoStartOrShowFallbackWhenAudioAlreadyPlaying() {
         let plan = OnboardingSplashAudioPlan.resolve(
             sampleURL: "https://api.porizo.co/audio/sample.mp3",

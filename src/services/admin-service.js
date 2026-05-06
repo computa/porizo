@@ -1239,7 +1239,9 @@ class AdminService {
 
     return {
       minimum_supported_version: securityConfig.iosMinSupportedVersion || null,
+      minimum_supported_build: config.IOS_MIN_SUPPORTED_BUILD > 0 ? config.IOS_MIN_SUPPORTED_BUILD : null,
       recommended_version: recommendedVersion,
+      recommended_build: config.IOS_RECOMMENDED_BUILD > 0 ? config.IOS_RECOMMENDED_BUILD : null,
       message: securityConfig.iosUpdateMessage || null,
       app_store_url: config.APP_STORE_URL || null,
       auto_recommended_version: securityConfig.iosAutoRecommendedVersion,
