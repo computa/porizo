@@ -566,15 +566,15 @@ struct VoiceEnrollmentView: View {
         }
 
         guard let session = enrollmentSession,
-              let uploadUrl = currentUploadUrl else {
+              let uploadUrl = uploadURLForPhrase(at: currentPhraseIndex) else {
             isRecording = false
             enrollmentError = "Recording could not be saved. Please try again."
             showErrorAlert = true
             return
         }
 
+        let phraseIndex = currentPhraseIndex
         isRecording = false
-        recordedPhrases.insert(currentPhraseIndex)
         // Set BEFORE spawning the Task so the Complete button stays disabled
         // even before the Task's body executes (closes a race where Complete
         // could be tapped between stopRecording returning and the Task starting).
@@ -586,6 +586,7 @@ struct VoiceEnrollmentView: View {
             await uploadChunk(
                 sessionId: session.sessionId,
                 chunkId: uploadUrl.chunkId,
+                phraseIndex: phraseIndex,
                 localUrl: url,
                 uploadUrl: uploadUrl
             )
@@ -594,9 +595,27 @@ struct VoiceEnrollmentView: View {
 
     private func advanceToNextPhrase() {
         guard currentPhraseIndex < prompts.count - 1 else { return }
+        let nextPhraseIndex = currentPhraseIndex + 1
         withAnimation(.easeInOut(duration: 0.2)) {
-            currentPhraseIndex += 1
+            currentPhraseIndex = nextPhraseIndex
         }
+        currentUploadUrl = uploadURLForPhrase(at: nextPhraseIndex)
+    }
+
+    private func uploadURLForPhrase(at index: Int) -> UploadURL? {
+        guard index >= 0 else { return nil }
+
+        if let promptId = prompts.indices.contains(index) ? prompts[index].id : nil,
+           let uploadUrl = enrollmentSession?.uploadUrls?.first(where: { $0.chunkId == promptId }) {
+            return uploadUrl
+        }
+
+        if let uploadUrls = enrollmentSession?.uploadUrls,
+           uploadUrls.indices.contains(index) {
+            return uploadUrls[index]
+        }
+
+        return index == currentPhraseIndex ? currentUploadUrl : nil
     }
 
     // MARK: - Backend Integration
@@ -620,6 +639,7 @@ struct VoiceEnrollmentView: View {
     private func uploadChunk(
         sessionId: String,
         chunkId: String,
+        phraseIndex: Int,
         localUrl: URL,
         uploadUrl: UploadURL
     ) async {
@@ -644,15 +664,15 @@ struct VoiceEnrollmentView: View {
                 )
             }
 
-            // Get next upload URL for next phrase
-            currentUploadUrl = response.nextUploadUrl
-
-            // Auto-advance after upload completes
             await MainActor.run {
-                if currentPhraseIndex < prompts.count - 1 {
+                recordedPhrases.insert(phraseIndex)
+                currentUploadUrl = response.nextUploadUrl ?? uploadURLForPhrase(at: phraseIndex + 1)
+
+                // Auto-advance after upload completes.
+                if currentPhraseIndex == phraseIndex && phraseIndex < prompts.count - 1 {
                     advanceToNextPhrase()
                 }
-                // Note: Don't auto-complete on last phrase - let user tap "Complete" button
+                // Note: Don't auto-complete on last phrase - let user tap "Complete" button.
             }
         } catch {
             await MainActor.run {
