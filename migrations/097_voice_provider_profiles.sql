@@ -2,9 +2,11 @@ CREATE TABLE IF NOT EXISTS voice_provider_profiles (
   id TEXT PRIMARY KEY,
   voice_profile_id TEXT NOT NULL REFERENCES voice_profiles(id) ON DELETE CASCADE,
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  provider TEXT NOT NULL CHECK (provider IN ('suno', 'seedvc', 'replicate')),
+  provider TEXT NOT NULL CONSTRAINT voice_provider_profiles_provider_check
+    CHECK (provider IN ('suno', 'seedvc', 'replicate')),
   provider_profile_id TEXT,
   status TEXT NOT NULL DEFAULT 'pending'
+    CONSTRAINT voice_provider_profiles_status_check
     CHECK (status IN (
       'pending', 'upload_submitted', 'cover_submitted',
       'persona_submitted', 'active', 'failed', 'cancelled',
@@ -37,11 +39,14 @@ CREATE TABLE IF NOT EXISTS voice_provider_jobs (
   id TEXT PRIMARY KEY,
   voice_profile_id TEXT NOT NULL,
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  provider TEXT NOT NULL CHECK (provider IN ('suno', 'seedvc', 'replicate')),
+  provider TEXT NOT NULL CONSTRAINT voice_provider_jobs_provider_check
+    CHECK (provider IN ('suno', 'seedvc', 'replicate')),
   voice_provider_profile_id TEXT REFERENCES voice_provider_profiles(id) ON DELETE SET NULL,
   status TEXT NOT NULL DEFAULT 'pending'
+    CONSTRAINT voice_provider_jobs_status_check
     CHECK (status IN ('pending', 'running', 'completed', 'failed', 'cancelled')),
   step TEXT NOT NULL DEFAULT 'prepare_persona'
+    CONSTRAINT voice_provider_jobs_step_check
     CHECK (step IN ('prepare_persona', 'generate_persona', 'persona_active', 'completed')),
   attempts INTEGER NOT NULL DEFAULT 0,
   max_attempts INTEGER NOT NULL DEFAULT 3,

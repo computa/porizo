@@ -6,6 +6,7 @@ const {
   buildUploadCoverPayload,
   extractSunoAudioId,
   generatePersona,
+  pollUploadCoverForAudio,
   selectSunoPersonaSourceTrack,
   submitUploadCoverTask,
   uploadFileUrl,
@@ -92,6 +93,54 @@ describe("Suno persona provider", () => {
       "https://porizo.test/internal/suno/callback",
     );
     assert.equal(result.taskId, "task_123");
+  });
+
+  test("polls upload-cover until audio data is ready", async () => {
+    let calls = 0;
+    const result = await pollUploadCoverForAudio({
+      baseUrl: "https://api.sunoapi.org",
+      apiKey: "secret",
+      taskId: "task_123",
+      vocalStart: 0,
+      vocalEnd: 16,
+      pollingOptions: {
+        maxAttempts: 5,
+        initialIntervalMs: 1,
+        maxIntervalMs: 1,
+        backoffMultiplier: 1,
+        jitter: false,
+      },
+      pollTaskOnceFn: async () => {
+        calls++;
+        if (calls < 3) {
+          return {
+            status: "TEXT_SUCCESS",
+            response: { code: 200, data: { response: {} } },
+          };
+        }
+        return {
+          status: "AUDIO_SUCCESS",
+          response: {
+            code: 200,
+            data: {
+              response: {
+                sunoData: [
+                  {
+                    id: "audio_ready",
+                    sourceAudioUrl: "https://cdn.example/ready.mp3",
+                    duration: 20,
+                  },
+                ],
+              },
+            },
+          },
+        };
+      },
+    });
+
+    assert.equal(calls, 3);
+    assert.equal(result.audioId, "audio_ready");
+    assert.equal(result.audioDurationSec, 20);
   });
 
   test("U6: extracts audio id from sunoData[0] (canonical fixture path)", () => {

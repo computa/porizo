@@ -5558,12 +5558,14 @@ async function startJobRunner({
       clearInterval(recoveryTimer);
       clearInterval(dlqReprocessTimer);
     },
+    tickVoiceProviderJobs,
     // Expose concurrent job stats for health checks
     getActiveJobs: () => activeJobs,
     getMaxConcurrent: () => MAX_CONCURRENT,
     getProcessingJobIds: () => [...processingJobs],
     getActiveVoiceProviderJobs: () => activeVoiceProviderJobs,
     getProcessingVoiceProviderJobIds: () => [...voiceProviderProcessingJobs],
+    isVoiceProviderLaneDisabled: () => voiceProviderLaneDisabled,
     // Expose workflow hardening services for health checks and admin
     getCircuitBreakerStats: () => circuitBreaker.getAllStats(),
     getCircuitBreakerState: (provider) => circuitBreaker.getState(provider),

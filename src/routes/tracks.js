@@ -1537,7 +1537,11 @@ function registerTrackRoutes(
         console.log(
           `[Tracks] Lyrics generation context summary=${JSON.stringify(lyricsContextSummary)}`,
         );
-        result = await generateLyrics(lyricsContext);
+        const lyricsGenerator =
+          typeof config?.generateLyricsFn === "function"
+            ? config.generateLyricsFn
+            : generateLyrics;
+        result = await lyricsGenerator(lyricsContext);
       } catch (err) {
         if (
           err &&

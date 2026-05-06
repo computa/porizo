@@ -10,10 +10,12 @@ const {
   test,
 } = require("node:test");
 const fastify = require("fastify");
+const path = require("node:path");
 
 const {
   registerInternalSunoCallbackRoutes,
 } = require("../../src/routes/internal-suno-callback");
+const { initDb } = require("../../src/db");
 
 const TEST_SECRET = "test_hmac_secret_abc123_32_chars_min";
 
@@ -30,6 +32,56 @@ function buildApp({ secret = TEST_SECRET } = {}) {
     appConfig: { SUNO_CALLBACK_HMAC_SECRET: secret },
   });
   return app;
+}
+
+async function createCallbackStateDb() {
+  const db = await initDb({
+    dbPath: ":memory:",
+    migrationsDir: path.join(process.cwd(), "migrations"),
+  });
+  const now = new Date().toISOString();
+  await db.prepare("INSERT INTO users (id, created_at) VALUES (?, ?)").run("callback_user", now);
+  await db
+    .prepare(
+      `INSERT INTO voice_profiles (
+        id, user_id, status, quality_score, model_version, consent_version, created_at
+      ) VALUES (?, ?, 'active', 90, 'test', 'voice_suno_persona_v1', ?)`,
+    )
+    .run("callback_voice", "callback_user", now);
+  await db
+    .prepare(
+      `INSERT INTO voice_provider_profiles (
+        id, voice_profile_id, user_id, provider, status, source_task_id,
+        consent_scope, created_at, updated_at
+      ) VALUES (?, ?, ?, 'suno', 'cover_submitted', 'task_test',
+        'voice_suno_persona_v1', ?, ?)`,
+    )
+    .run("callback_profile", "callback_voice", "callback_user", now, now);
+  await db
+    .prepare(
+      `INSERT INTO voice_provider_jobs (
+        id, voice_profile_id, user_id, provider, voice_provider_profile_id,
+        status, step, attempts, max_attempts, step_data, created_at, updated_at
+      ) VALUES (?, ?, ?, 'suno', ?, 'running', 'generate_persona', 1, 3, '{}', ?, ?)`,
+    )
+    .run("callback_job", "callback_voice", "callback_user", "callback_profile", now, now);
+  return db;
+}
+
+function snapshotCallbackState(db) {
+  return {
+    profile: db
+      .prepare("SELECT * FROM voice_provider_profiles WHERE id = ?")
+      .get("callback_profile"),
+    job: db
+      .prepare("SELECT * FROM voice_provider_jobs WHERE id = ?")
+      .get("callback_job"),
+    profileCount: db
+      .prepare("SELECT COUNT(*) AS count FROM voice_provider_profiles")
+      .get().count,
+    jobCount: db.prepare("SELECT COUNT(*) AS count FROM voice_provider_jobs").get()
+      .count,
+  };
 }
 
 describe("POST /internal/suno/callback (U18)", () => {
@@ -106,6 +158,8 @@ describe("POST /internal/suno/callback (U18)", () => {
   test("returns 200 when callback query token is valid; does not mutate state", async () => {
     const app = buildApp();
     await app.ready();
+    const db = await createCallbackStateDb();
+    const before = snapshotCallbackState(db);
     try {
       const res = await app.inject({
         method: "POST",
@@ -118,14 +172,18 @@ describe("POST /internal/suno/callback (U18)", () => {
       });
       assert.equal(res.statusCode, 200);
       assert.deepEqual(JSON.parse(res.payload), { received: true });
+      assert.deepEqual(snapshotCallbackState(db), before);
     } finally {
       await app.close();
+      db.close();
     }
   });
 
   test("returns 200 when signature is valid; does not mutate state", async () => {
     const app = buildApp();
     await app.ready();
+    const db = await createCallbackStateDb();
+    const before = snapshotCallbackState(db);
     try {
       const body = JSON.stringify({
         taskId: "task_test",
@@ -143,8 +201,10 @@ describe("POST /internal/suno/callback (U18)", () => {
       });
       assert.equal(res.statusCode, 200);
       assert.deepEqual(JSON.parse(res.payload), { received: true });
+      assert.deepEqual(snapshotCallbackState(db), before);
     } finally {
       await app.close();
+      db.close();
     }
   });
 

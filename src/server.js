@@ -4665,7 +4665,7 @@ function buildServer({
   // ============ Tracks ============
   registerTrackRoutes(app, {
     db,
-    config,
+    config: { ...config, ...appConfig },
     appConfig,
     storageProvider,
     requireUserId,
@@ -4876,6 +4876,7 @@ async function start() {
       token: config.REPLICATE_API_TOKEN,
       baseUrl: config.REPLICATE_BASE_URL,
       modelVersion: config.REPLICATE_MODEL_VERSION,
+      rvcModel: config.DEFAULT_AI_VOICE_MODEL,
       timeoutMs: config.PROVIDER_TIMEOUT_MS,
       demucsModel: config.DEMUCS_SEPARATION_MODEL,
       demucsShifts: config.DEMUCS_SHIFTS,

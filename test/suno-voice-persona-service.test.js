@@ -16,6 +16,7 @@ const {
   cancelVoiceProviderJobsForVoiceProfile,
   createPendingProviderProfile,
   createVoiceProviderJob,
+  markProviderProfilePersonaSubmitted,
 } = require("../src/services/voice-provider-profile-service");
 
 describe("Suno voice persona service", () => {
@@ -266,14 +267,51 @@ describe("Suno voice persona service", () => {
     assert.equal(active.source_audio_id, "audio_456");
 
     const job = await db
-      .prepare("SELECT * FROM voice_provider_jobs WHERE id = ?")
+      .prepare(
+        "SELECT status, step, attempts, locked_at, locked_by, next_attempt_at, completed_at, step_data FROM voice_provider_jobs WHERE id = ?",
+      )
       .get(providerJob.id);
     assert.equal(job.status, "completed");
+    assert.equal(job.step, "persona_active");
+    assert.equal(job.attempts, 1);
+    assert.equal(job.locked_at, null);
+    assert.equal(job.locked_by, null);
+    assert.equal(job.next_attempt_at, null);
+    assert.ok(job.completed_at);
     assert.ok(!String(job.step_data).includes("persona_live_789"));
+    const orphanJobs = await db
+      .prepare(
+        "SELECT COUNT(*) AS count FROM voice_provider_jobs WHERE user_id = ? AND voice_provider_profile_id IS NULL",
+      )
+      .get("user_1");
+    assert.equal(orphanJobs.count, 0);
+    const duplicateActiveProfiles = await db
+      .prepare(
+        "SELECT COUNT(*) AS count FROM voice_provider_profiles WHERE provider_profile_id = ?",
+      )
+      .get("persona_live_789");
+    assert.equal(duplicateActiveProfiles.count, 1);
     const session = await db
       .prepare("SELECT access_token FROM enrollment_sessions WHERE id = ?")
       .get("sess_1");
     assert.equal(session.access_token, null);
+  });
+
+  test("rejects persona_submitted transition before cover_submitted state", async () => {
+    const providerProfile = await createPendingProviderProfile(db, {
+      voiceProfileId: "voice_1",
+      userId: "user_1",
+      provider: "suno",
+      consentScope: REQUIRED_CONSENT_SCOPE,
+    });
+
+    await assert.rejects(
+      markProviderProfilePersonaSubmitted(db, providerProfile.id, {
+        sourceTaskId: "task_123",
+        sourceAudioId: "audio_456",
+      }),
+      /VOICE_PROVIDER_PROFILE_INVALID_TRANSITION: persona_submitted/,
+    );
   });
 
   test("fails without Suno-specific consent before calling the provider", async () => {

@@ -252,21 +252,7 @@ struct EnrollmentFlowView: View {
                         .padding(.horizontal, 20)
                 }
 
-                // Level meter bars
-                HStack(spacing: 4) {
-                    ForEach([15, 25, 35, 25, 15], id: \.self) { h in
-                        RoundedRectangle(cornerRadius: 2)
-                            .fill(DesignTokens.gold.opacity(recorder.isRecording ? 1.0 : 0.3))
-                            .frame(width: 4, height: CGFloat(h))
-                    }
-                }
-                .frame(height: 40)
-                .animation(
-                    recorder.isRecording
-                        ? .easeInOut(duration: 0.3).repeatForever(autoreverses: true)
-                        : .easeOut(duration: 0.3),
-                    value: recorder.isRecording
-                )
+                EnrollmentLevelMeter(isRecording: recorder.isRecording)
 
                 // Record button
                 Button {
@@ -297,9 +283,10 @@ struct EnrollmentFlowView: View {
                 .accessibilityLabel(recorder.isRecording ? "Stop recording" : "Start recording")
                 .accessibilityValue(recorder.isRecording ? "\(countdownSeconds) seconds remaining" : "Ready to record")
 
-                Text(recorder.isRecording ? "Recording... \(countdownSeconds)s" : "Tap to record")
-                    .font(DesignTokens.bodyFont(size: 13))
-                    .foregroundStyle(DesignTokens.textTertiary)
+                EnrollmentCountdownLabel(
+                    isRecording: recorder.isRecording,
+                    countdownSeconds: countdownSeconds
+                )
 
                 Spacer()
 
@@ -751,5 +738,37 @@ struct EnrollmentFlowView: View {
             showingError = true
             dismiss()
         }
+    }
+}
+
+private struct EnrollmentLevelMeter: View {
+    let isRecording: Bool
+
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach([15, 25, 35, 25, 15], id: \.self) { height in
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(DesignTokens.gold.opacity(isRecording ? 1.0 : 0.3))
+                    .frame(width: 4, height: CGFloat(height))
+            }
+        }
+        .frame(height: 40)
+        .animation(
+            isRecording
+                ? .easeInOut(duration: 0.3).repeatForever(autoreverses: true)
+                : .easeOut(duration: 0.3),
+            value: isRecording
+        )
+    }
+}
+
+private struct EnrollmentCountdownLabel: View {
+    let isRecording: Bool
+    let countdownSeconds: Int
+
+    var body: some View {
+        Text(isRecording ? "Recording... \(countdownSeconds)s" : "Tap to record")
+            .font(DesignTokens.bodyFont(size: 13))
+            .foregroundStyle(DesignTokens.textTertiary)
     }
 }

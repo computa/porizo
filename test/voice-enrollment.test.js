@@ -21,6 +21,7 @@ const { buildServer } = require("../src/server");
 const { createStorageProvider } = require("../src/storage");
 const {
   REQUIRED_CONSENT_SCOPE,
+  runSunoVoicePersonaJob,
 } = require("../src/services/suno-voice-persona-service");
 const {
   markProviderProfileActive,
@@ -625,6 +626,36 @@ describe("Voice Enrollment API", () => {
       assert.strictEqual(body.error, "SESSION_EXPIRED");
     });
 
+    it("should reject notification for finalized session", async () => {
+      await db
+        .prepare("UPDATE enrollment_sessions SET status = ? WHERE id = ?")
+        .run("completed", testSessionId);
+
+      const chunkDir = path.join(
+        storageDir,
+        "enrollment",
+        "raw",
+        testUserId,
+        testSessionId,
+      );
+      fs.mkdirSync(chunkDir, { recursive: true });
+      fs.writeFileSync(path.join(chunkDir, "p1.wav"), createTestWav());
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/voice/enrollment/chunk_uploaded",
+        headers: { "x-user-id": testUserId },
+        payload: {
+          session_id: testSessionId,
+          chunk_id: "p1",
+        },
+      });
+
+      assert.strictEqual(response.statusCode, 409);
+      const body = response.json();
+      assert.strictEqual(body.error, "SESSION_ALREADY_FINALIZED");
+    });
+
     it("should reject notification from different user", async () => {
       const differentUser = uniqueUserId("different");
 
@@ -890,6 +921,49 @@ describe("Voice Enrollment API", () => {
       assert.equal(body.voice_provider_profile.source_audio, "sung_calibration");
       assert.equal(body.voice_provider_profile.source_duration_sec, 16);
 
+      const active = await runSunoVoicePersonaJob({
+        db,
+        jobId: providerJob.id,
+        config: {
+          PUBLIC_BASE_URL: "https://porizo.example",
+          STREAM_BASE_URL: "https://stream.example",
+          SUNO_BASE_URL: "https://api.sunoapi.org",
+          SUNO_FILE_UPLOAD_BASE_URL: "https://files.example",
+          SUNO_API_KEY: "secret",
+          SUNO_MODEL: "V5_5",
+          PROVIDER_TIMEOUT_MS: 30000,
+        },
+        sunoClient: {
+          uploadFileUrl: async () => ({
+            downloadUrl: "https://temp.example/suno-persona.wav",
+            fileName: "suno-persona.wav",
+            mimeType: "audio/wav",
+            fileSize: 1000,
+          }),
+          submitUploadCoverTask: async () => ({
+            taskId: "task_enrollment_persona",
+            model: "V5_5",
+          }),
+          pollUploadCoverForAudio: async () => ({
+            audioId: "audio_enrollment_persona",
+            audioDurationSec: 20,
+            audioTrackIndex: 0,
+            response: { data: { taskId: "task_enrollment_persona" } },
+          }),
+          generatePersona: async () => ({
+            personaId: "persona_enrollment_live",
+            name: "Porizo Voice",
+          }),
+        },
+      });
+
+      assert.equal(active.status, "active");
+      assert.equal(active.provider_profile_id, "persona_enrollment_live");
+      const completedJob = await db
+        .prepare("SELECT status, step FROM voice_provider_jobs WHERE id = ?")
+        .get(providerJob.id);
+      assert.equal(completedJob.status, "completed");
+      assert.equal(completedJob.step, "persona_active");
     });
 
     it("does not queue Suno persona preparation without Suno-specific consent", async () => {

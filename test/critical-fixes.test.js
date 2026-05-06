@@ -12,8 +12,10 @@
 require("dotenv/config");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
+const http = require("node:http");
 const os = require("node:os");
 const path = require("node:path");
+const { once } = require("node:events");
 const {
   test,
   describe,
@@ -26,6 +28,7 @@ const { initDb } = require("../src/db");
 const { buildServer } = require("../src/server");
 const { createStorageProvider } = require("../src/storage");
 const { startJobRunner } = require("../src/workflows/runner");
+const { convertVoice } = require("../src/providers/voice");
 const {
   clearCache: clearFeatureFlagCache,
 } = require("../src/services/feature-flags");
@@ -134,10 +137,15 @@ describe("Stale Job Recovery", () => {
 
     db.prepare(
       `
-      INSERT INTO jobs (id, track_version_id, workflow_type, status, step, step_index, attempts, max_attempts, created_at, updated_at)
-      VALUES (?, 'tv_fake', 'preview', 'running', 'instrumental', 2, 0, 3, ?, ?)
+      INSERT INTO jobs (
+        id, track_version_id, workflow_type, status, step, step_index,
+        attempts, max_attempts, error_code, error_message, locked_by,
+        locked_at, created_at, updated_at
+      )
+      VALUES (?, 'tv_fake', 'preview', 'running', 'instrumental', 2, 0, 3,
+        'E302_PROVIDER_TIMEOUT', 'provider timed out', 'worker_stale', ?, ?, ?)
     `,
-    ).run(jobId, staleTime, staleTime);
+    ).run(jobId, staleTime, staleTime, staleTime);
 
     // Verify job is stuck in 'running'
     const beforeRecovery = db
@@ -157,7 +165,9 @@ describe("Stale Job Recovery", () => {
 
     // Check that job was recovered to 'queued'
     const afterRecovery = db
-      .prepare("SELECT status, attempts FROM jobs WHERE id = ?")
+      .prepare(
+        "SELECT status, attempts, error_code, error_message, locked_by, locked_at FROM jobs WHERE id = ?",
+      )
       .get(jobId);
     assert.equal(
       afterRecovery.status,
@@ -169,6 +179,10 @@ describe("Stale Job Recovery", () => {
       1,
       "Recovery should increment attempt count",
     );
+    assert.equal(afterRecovery.error_code, "E302_PROVIDER_TIMEOUT");
+    assert.equal(afterRecovery.error_message, "provider timed out");
+    assert.equal(afterRecovery.locked_by, null);
+    assert.equal(afterRecovery.locked_at, null);
 
     runner.stop();
   });
@@ -266,14 +280,54 @@ describe("AI Voice Model Configuration", () => {
   });
 
   test("should use configured AI voice model instead of hardcoded Squidward", async () => {
-    // This test verifies the config is respected
-    // The actual conversion would require mocking Replicate
-    const configuredModel = config.DEFAULT_AI_VOICE_MODEL;
-    assert.equal(configuredModel, "custom_model_v1");
-    assert.notEqual(
-      configuredModel,
-      "25a9292ae08d73f5e85b65d9f8a75c0c2f2ef86c06280c3c726ec6eb11a9d570",
-    );
+    let capturedBody = null;
+    const server = http.createServer((req, res) => {
+      if (req.method === "POST" && req.url === "/v1/predictions") {
+        let raw = "";
+        req.setEncoding("utf8");
+        req.on("data", (chunk) => {
+          raw += chunk;
+        });
+        req.on("end", () => {
+          capturedBody = JSON.parse(raw);
+          res.writeHead(500, { "content-type": "application/json" });
+          res.end(JSON.stringify({ error: "stop_after_capture" }));
+        });
+        return;
+      }
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not_found" }));
+    });
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+
+    try {
+      const { port } = server.address();
+      await assert.rejects(
+        convertVoice({
+          storageDir,
+          track: { id: "track_ai_model", user_id: "user_ai_model" },
+          trackVersion: { version_num: 1 },
+          kind: "preview",
+          providerConfig: {
+            live: true,
+            token: "replicate_token",
+            modelVersion: "replicate_model_version",
+            baseUrl: `http://127.0.0.1:${port}`,
+            rvcModel: config.DEFAULT_AI_VOICE_MODEL,
+            timeoutMs: 1000,
+          },
+          inputUrl: "https://example.test/guide.wav",
+        }),
+        /provider_error/,
+      );
+    } finally {
+      server.close();
+      await once(server, "close");
+    }
+
+    assert.equal(capturedBody.input.rvc_model, "custom_model_v1");
+    assert.notEqual(capturedBody.input.rvc_model, "Squidward");
   });
 });
 
@@ -347,12 +401,12 @@ describe("Version Increment Race Condition", () => {
     // Simulate concurrent version creation requests
     const concurrentRequests = Array(5)
       .fill(null)
-      .map(() =>
+      .map((_, index) =>
         app.inject({
           method: "POST",
           url: `/tracks/${trackId}/versions`,
           headers: { "x-user-id": userId },
-          payload: {},
+          payload: { params: { variant_index: index } },
         }),
       );
 
@@ -364,10 +418,27 @@ describe("Version Increment Race Condition", () => {
     const uniqueVersions = [...new Set(versions)];
 
     assert.equal(
+      successResults.length,
+      5,
+      "All concurrent version creation requests should succeed",
+    );
+    assert.equal(
       versions.length,
       uniqueVersions.length,
       `All version numbers should be unique. Got: ${versions.join(", ")}`,
     );
+    assert.deepEqual(
+      versions.slice().sort((a, b) => a - b),
+      [1, 2, 3, 4, 5],
+      "Concurrent inserts should allocate a gap-free sequence",
+    );
+    const versionRows = db
+      .prepare(
+        "SELECT version_num FROM track_versions WHERE track_id = ? ORDER BY version_num ASC",
+      )
+      .all(trackId)
+      .map((row) => row.version_num);
+    assert.deepEqual(versionRows, [1, 2, 3, 4, 5]);
   });
 });
 
@@ -439,7 +510,16 @@ describe("Voice Mode Standardization", () => {
   });
 
   test("should accept user_voice as voice_mode", async () => {
-    const userId = "user_voicemode_test";
+    const userId = "user_voicemode_user_voice_test";
+    const now = new Date().toISOString();
+
+    db.prepare("INSERT INTO users (id, created_at) VALUES (?, ?)").run(
+      userId,
+      now,
+    );
+    db.prepare(
+      "INSERT INTO entitlements (user_id, tier, songs_remaining, updated_at) VALUES (?, 'free', 100, ?)",
+    ).run(userId, now);
 
     // Create voice profile first (required for user_voice mode)
     db.prepare(
@@ -447,7 +527,7 @@ describe("Voice Mode Standardization", () => {
       INSERT OR IGNORE INTO voice_profiles (id, user_id, status, quality_score, model_version, consent_version, created_at)
       VALUES (?, ?, 'active', 85, 'v1', 'v1', ?)
     `,
-    ).run(`vp_${userId}`, userId, new Date().toISOString());
+    ).run(`vp_${userId}`, userId, now);
     insertActiveSunoPersona(userId);
 
     const trackRes = await app.inject({
@@ -752,6 +832,22 @@ describe("Rate Limiting - Lyrics Generation", () => {
       STORAGE_PROVIDER: "local",
       UPLOAD_SIGNING_SECRET: "test-upload-secret",
       UPLOAD_URL_TTL_SEC: 900,
+      generateLyricsFn: async () => ({
+        lyrics: {
+          title: "For Test",
+          anchor_line: "Test, this bright birthday song is for you",
+          sections: [
+            {
+              name: "Verse",
+              lines: ["Test, this bright birthday song is for you"],
+            },
+          ],
+        },
+        lyrics_status: "draft",
+        provider: "stub",
+        model: "test",
+        quality_score: 0.9,
+      }),
     };
     db = await initDb({
       dbPath: ":memory:",
@@ -804,11 +900,13 @@ describe("Rate Limiting - Lyrics Generation", () => {
     });
     assert.equal(versionRes.statusCode, 201, "Version creation should succeed");
 
-    // Make many rapid requests (should eventually hit rate limit)
-    const requests = [];
+    // Make enough sequential requests to prove the successful window and the
+    // blocked window. The generator is stubbed so this test is about rate
+    // limiting, not external LLM availability.
+    const results = [];
     for (let i = 0; i < 35; i++) {
-      requests.push(
-        app.inject({
+      results.push(
+        await app.inject({
           method: "POST",
           url: `/tracks/${track.track_id}/versions/1/lyrics/generate`,
           headers: { "x-user-id": userId },
@@ -817,13 +915,145 @@ describe("Rate Limiting - Lyrics Generation", () => {
       );
     }
 
-    const results = await Promise.all(requests);
-    const rateLimited = results.filter((r) => r.statusCode === 429);
+    const firstWindow = results.slice(0, 30);
+    const overLimit = results.slice(30);
 
     assert.ok(
-      rateLimited.length > 0,
-      "Should eventually hit rate limit on lyrics generation",
+      firstWindow.every((r) => r.statusCode === 200),
+      `Expected first 30 requests to succeed, got ${firstWindow
+        .map((r) => r.statusCode)
+        .join(", ")}`,
     );
+    assert.ok(
+      overLimit.every((r) => r.statusCode === 429),
+      `Expected requests after the quota to be 429, got ${overLimit
+        .map((r) => r.statusCode)
+        .join(", ")}`,
+    );
+  });
+});
+
+// ============================================================================
+// BATCH 4: Voice Provider Lane Tests
+// ============================================================================
+
+describe("Voice Provider Runner Lane", () => {
+  let oldLimit;
+
+  beforeEach(() => {
+    oldLimit = process.env.MAX_CONCURRENT_VOICE_PROVIDER_JOBS;
+  });
+
+  afterEach(() => {
+    if (oldLimit === undefined) {
+      delete process.env.MAX_CONCURRENT_VOICE_PROVIDER_JOBS;
+    } else {
+      process.env.MAX_CONCURRENT_VOICE_PROVIDER_JOBS = oldLimit;
+    }
+  });
+
+  test("should claim no more than MAX_CONCURRENT_VOICE_PROVIDER_JOBS", async () => {
+    process.env.MAX_CONCURRENT_VOICE_PROVIDER_JOBS = "2";
+    const localDb = await initDb({
+      dbPath: ":memory:",
+      migrationsDir: path.join(process.cwd(), "migrations"),
+    });
+    const now = new Date().toISOString();
+    localDb
+      .prepare("INSERT INTO users (id, created_at) VALUES (?, ?)")
+      .run("vp_lane_user", now);
+    for (let i = 1; i <= 3; i++) {
+      localDb
+        .prepare(
+          `INSERT INTO voice_profiles (
+            id, user_id, status, quality_score, model_version, consent_version, created_at
+          ) VALUES (?, ?, 'active', 90, 'test', 'voice_suno_persona_v1', ?)`,
+        )
+        .run(`vp_lane_voice_${i}`, "vp_lane_user", now);
+      localDb
+        .prepare(
+          `INSERT INTO voice_provider_profiles (
+            id, voice_profile_id, user_id, provider, status, consent_scope, created_at, updated_at
+          ) VALUES (?, ?, ?, 'suno', 'pending', 'voice_suno_persona_v1', ?, ?)`,
+        )
+        .run(`vpp_lane_${i}`, `vp_lane_voice_${i}`, "vp_lane_user", now, now);
+      localDb
+        .prepare(
+          `INSERT INTO voice_provider_jobs (
+            id, voice_profile_id, user_id, provider, voice_provider_profile_id,
+            status, step, attempts, max_attempts, step_data, created_at, updated_at
+          ) VALUES (?, ?, ?, 'suno', ?, 'pending', 'prepare_persona', 0, 3, '{}', ?, ?)`,
+        )
+        .run(
+          `vpj_lane_${i}`,
+          `vp_lane_voice_${i}`,
+          "vp_lane_user",
+          `vpp_lane_${i}`,
+          now,
+          now,
+        );
+    }
+
+    const blockers = [];
+    let started = 0;
+    const laneRunner = await startJobRunner({
+      db: localDb,
+      storageDir: os.tmpdir(),
+      streamBaseUrl: "http://stream.local",
+      intervalMs: 1_000_000,
+      recoverStaleJobs: false,
+      voiceProviderJobRunner: async () => {
+        started++;
+        await new Promise((resolve) => blockers.push(resolve));
+      },
+    });
+
+    try {
+      await laneRunner.tickVoiceProviderJobs();
+      assert.equal(started, 2);
+      assert.equal(laneRunner.getActiveVoiceProviderJobs(), 2);
+      assert.equal(laneRunner.getProcessingVoiceProviderJobIds().length, 2);
+      const pending = localDb
+        .prepare(
+          "SELECT COUNT(*) AS count FROM voice_provider_jobs WHERE status = 'pending'",
+        )
+        .get();
+      assert.equal(
+        pending.count,
+        3,
+        "Lane runner should not mark jobs running before the worker claims them",
+      );
+    } finally {
+      blockers.forEach((resolve) => resolve());
+      await new Promise((resolve) => setImmediate(resolve));
+      laneRunner.stop();
+      localDb.close();
+    }
+  });
+
+  test("should disable the voice-provider lane when its table is unavailable", async () => {
+    process.env.MAX_CONCURRENT_VOICE_PROVIDER_JOBS = "1";
+    const localDb = await initDb({
+      dbPath: ":memory:",
+      migrationsDir: path.join(process.cwd(), "migrations"),
+    });
+    localDb.prepare("DROP TABLE voice_provider_jobs").run();
+    const laneRunner = await startJobRunner({
+      db: localDb,
+      storageDir: os.tmpdir(),
+      streamBaseUrl: "http://stream.local",
+      intervalMs: 1_000_000,
+      recoverStaleJobs: false,
+    });
+
+    try {
+      await laneRunner.tickVoiceProviderJobs();
+      assert.equal(laneRunner.isVoiceProviderLaneDisabled(), true);
+      await laneRunner.tickVoiceProviderJobs();
+    } finally {
+      laneRunner.stop();
+      localDb.close();
+    }
   });
 });
 

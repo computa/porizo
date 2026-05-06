@@ -680,6 +680,16 @@ function registerEnrollmentRoutes(app, deps) {
       sendError(reply, 410, "SESSION_EXPIRED", "Enrollment session expired.");
       return;
     }
+    if (session.status !== "recording" && session.status !== "processing") {
+      sendError(
+        reply,
+        409,
+        "SESSION_ALREADY_FINALIZED",
+        "Enrollment session has already been finalized.",
+      );
+      return;
+    }
+
     const storageKey = enrollmentChunkKey({
       userId,
       sessionId: session_id,
@@ -905,6 +915,16 @@ function registerEnrollmentRoutes(app, deps) {
           404,
           "SESSION_NOT_FOUND",
           "Enrollment session not found.",
+        );
+        return;
+      }
+
+      if (session.status !== "recording" && session.status !== "processing") {
+        sendError(
+          reply,
+          409,
+          "SESSION_ALREADY_FINALIZED",
+          "Enrollment session has already been finalized.",
         );
         return;
       }

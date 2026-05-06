@@ -201,12 +201,12 @@ async function markProviderProfilePersonaSubmitted(
             metadata_json = COALESCE(?, metadata_json), last_error = NULL, updated_at = ?
       WHERE id = ?
         AND deleted_at IS NULL
-        AND status IN ('upload_submitted', 'cover_submitted', 'persona_submitted')`,
+        AND status IN ('cover_submitted', 'persona_submitted')`,
     )
     .run(
       STATUS.PERSONA_SUBMITTED,
-      sourceTaskId || null,
-      sourceAudioId || null,
+      requireField(sourceTaskId, "sourceTaskId"),
+      requireField(sourceAudioId, "sourceAudioId"),
       model || null,
       toJson(metadata),
       updatedAt,

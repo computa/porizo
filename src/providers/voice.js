@@ -359,6 +359,7 @@ async function convertAiVoice({
       baseUrl: providerConfig.baseUrl,
       token: providerConfig.token,
       modelVersion: providerConfig.modelVersion,
+      rvcModel: providerConfig.rvcModel,
       storageDir,
       track,
       trackVersion,

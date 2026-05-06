@@ -35,6 +35,17 @@ ALTER TABLE voice_provider_profiles
   ADD CONSTRAINT voice_provider_profiles_provider_check
   CHECK (provider IN ('suno', 'seedvc', 'replicate')) NOT VALID;
 
+ALTER TABLE voice_provider_profiles
+  DROP CONSTRAINT IF EXISTS voice_provider_profiles_status_check;
+
+ALTER TABLE voice_provider_profiles
+  ADD CONSTRAINT voice_provider_profiles_status_check
+  CHECK (status IN (
+    'pending', 'upload_submitted', 'cover_submitted',
+    'persona_submitted', 'active', 'failed', 'cancelled',
+    'manual_cleanup_required', 'deleted'
+  )) NOT VALID;
+
 ALTER TABLE voice_provider_jobs
   DROP CONSTRAINT IF EXISTS voice_provider_jobs_user_fk;
 
