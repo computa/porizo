@@ -120,8 +120,7 @@ struct V1ScreenCatalogView: View {
                                 .environment(apiWrapper)
                         }
                         screenLink("09 - Voice Enrollment") {
-                            VoiceEnrollmentView(completedProfile: .constant(nil))
-                                .environment(apiWrapper)
+                            EnrollmentFlowCatalogPreview(apiClient: apiClient)
                         }
                     }
 
@@ -213,6 +212,20 @@ struct V1ScreenCatalogView: View {
                 .foregroundStyle(DesignTokens.textPrimary)
         }
         .listRowBackground(DesignTokens.surface)
+    }
+}
+
+private struct EnrollmentFlowCatalogPreview: View {
+    let apiClient: APIClient
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        EnrollmentFlowView(
+            apiClient: apiClient,
+            onComplete: {
+                dismiss()
+            }
+        )
     }
 }
 

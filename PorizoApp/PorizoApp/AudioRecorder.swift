@@ -82,7 +82,7 @@ class AudioRecorder: NSObject {
         switch type {
         case .began:
             // Phone call or other interruption started — stop recording.
-            // Observers of `isRecording` (e.g. VoiceEnrollmentView) sync UI state
+            // Observers of `isRecording` sync UI state when interruptions stop recording.
             // automatically via .onChange(of: recorder.isRecording).
             if isRecording {
                 _ = stopRecording()

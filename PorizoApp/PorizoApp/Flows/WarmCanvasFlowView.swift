@@ -46,7 +46,6 @@ struct WarmCanvasFlowView: View {
     // MARK: - Engine + Coordinators
 
     @State private var storyEngine: V2StoryEngine
-    @State private var apiWrapper: APIClientWrapper
     @State private var setup = StorySetup()
     @State private var songFlow = SongFlowCoordinator()
     @State private var selectedType: CreateFlowKind?
@@ -91,7 +90,7 @@ struct WarmCanvasFlowView: View {
     // MARK: - Flow State
 
     @AppStorage("hasCompletedFirstSong") private var hasCompletedFirstSong = false
-    @State private var enrollmentCompletedProfile: VoiceProfile?
+    @State private var didCompleteVoiceEnrollment = false
     @State private var shouldResumeMyVoiceAfterEnrollment = false
     @State private var pendingEntitlementFlowType: CreateFlowKind?
     @State private var myVoiceEnabled = true
@@ -145,7 +144,6 @@ struct WarmCanvasFlowView: View {
         _storyFlowCoordinator = State(initialValue: StoryFlowCoordinator())
         _resumeCoordinator = State(initialValue: CreateFlowResumeCoordinator())
         _storyEngine = State(initialValue: V2StoryEngine(apiClient: apiClient))
-        _apiWrapper = State(initialValue: APIClientWrapper(client: apiClient))
         _selectedType = State(initialValue: preselectedType)
         _trackTitle = State(initialValue: Self.defaultTrackTitle(for: preselectedType ?? .song))
         _trackCreationController = State(initialValue: TrackCreationController(apiClient: apiClient))
@@ -1048,8 +1046,13 @@ struct WarmCanvasFlowView: View {
             SubscriptionView(apiClient: apiClient, storeKit: storeKit)
 
         case .voiceEnrollment:
-            VoiceEnrollmentView(completedProfile: $enrollmentCompletedProfile)
-                .environment(apiWrapper)
+            EnrollmentFlowView(
+                apiClient: apiClient,
+                onComplete: {
+                    didCompleteVoiceEnrollment = true
+                    activeSheet = nil
+                }
+            )
 
         case .editLyrics(let section):
             if let ctrl = lyricsController,
@@ -1681,11 +1684,11 @@ struct WarmCanvasFlowView: View {
     }
 
     private func handleVoiceEnrollmentDismissal() {
-        guard enrollmentCompletedProfile != nil else {
+        guard didCompleteVoiceEnrollment else {
             shouldResumeMyVoiceAfterEnrollment = false
             return
         }
-        enrollmentCompletedProfile = nil
+        didCompleteVoiceEnrollment = false
 
         flowTask?.cancel()
         flowTask = Task { @MainActor in
