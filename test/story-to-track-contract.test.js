@@ -38,6 +38,14 @@ const dbStub = {
         if (sql.includes("SELECT id FROM voice_profiles")) {
           return { id: "voice_profile_1" };
         }
+        if (sql.includes("FROM voice_provider_profiles vpp")) {
+          return {
+            id: "vpp_story_test",
+            provider_profile_id: "persona_live_story_test",
+            consent_scope: "voice_suno_persona_v1",
+            status: "active",
+          };
+        }
         return null;
       },
       all: async () => [],

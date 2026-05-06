@@ -1459,7 +1459,8 @@ function registerEnrollmentRoutes(app, deps) {
       last_verified_at: profile.last_verified_at,
       model_version: profile.model_version,
       requires_reverification: false,
-      my_voice_ready: profile.status === "active",
+      local_voice_ready: profile.status === "active",
+      my_voice_ready: providerProfileReady,
       voice_provider_profile: providerProfile
         ? {
             id: providerProfile.id,

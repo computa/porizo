@@ -156,6 +156,39 @@ describe("Render Endpoints", async () => {
     return { voiceProfileId, providerProfileId };
   }
 
+  async function createPendingSunoPersona({
+    voiceProfileId = `voice_render_pending_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+    providerProfileId = `vpp_render_pending_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+  } = {}) {
+    const now = new Date().toISOString();
+    await db.query(
+      `INSERT INTO voice_profiles (
+        id, user_id, status, quality_score, model_version, consent_version,
+        consent_at, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [voiceProfileId, userId, "active", 0.9, "test", "voice_v1", now, now]
+    );
+    await db.query(
+      `INSERT INTO voice_provider_profiles (
+        id, voice_profile_id, user_id, provider, provider_profile_id, status,
+        model, consent_scope, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        providerProfileId,
+        voiceProfileId,
+        userId,
+        "suno",
+        null,
+        "persona_submitted",
+        "V5_5",
+        "voice_suno_persona_v1",
+        now,
+        now,
+      ]
+    );
+    return { voiceProfileId, providerProfileId };
+  }
+
   beforeEach(async () => {
     process.env.JWT_SECRET = "test-jwt-secret-render-endpoints";
     process.env.ALLOW_ANON_USER_ID = "true";
@@ -275,7 +308,7 @@ describe("Render Endpoints", async () => {
     });
 
     assert.equal(response.statusCode, 422, `Expected 422, got ${response.statusCode}: ${response.body}`);
-    assert.equal(JSON.parse(response.body).error, "SUNO_VOICE_PERSONA_REQUIRED");
+    assert.equal(JSON.parse(response.body).error, "SUNO_VOICE_PERSONA_SETUP_REQUIRED");
     assert.equal(spendCalls, 0, "Should not spend entitlement without Suno persona");
 
     const jobRows = await db.query(
@@ -289,6 +322,34 @@ describe("Render Endpoints", async () => {
     );
     assert.equal(versionRows.rows[0].status, "queued");
     assert.equal(versionRows.rows[0].song_entitlement_consumed_at, null);
+  });
+
+  it("POST /tracks/:id/versions/:version/render_preview reports preparing while Suno persona job is in progress", async () => {
+    const { trackId, trackVersionId } = await createTrackAndVersion();
+    await createPendingSunoPersona();
+    await db.query(
+      "UPDATE tracks SET voice_mode = 'user_voice' WHERE id = ?",
+      [trackId]
+    );
+    await db.query(
+      `UPDATE track_versions
+       SET status = 'queued',
+           lyrics_status = 'approved'
+       WHERE id = ?`,
+      [trackVersionId]
+    );
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/tracks/${trackId}/versions/1/render_preview`,
+      headers: { "x-user-id": userId },
+    });
+
+    const body = JSON.parse(response.body);
+    assert.equal(response.statusCode, 422, `Expected 422, got ${response.statusCode}: ${response.body}`);
+    assert.equal(body.error, "SUNO_VOICE_PERSONA_REQUIRED");
+    assert.equal(body.requires_voice_enrollment, false);
+    assert.equal(spendCalls, 0, "Should not spend entitlement while Suno persona is preparing");
   });
 
   it("POST /tracks/:id/versions/:version/render_preview rejects legacy personalized mode when Suno persona is missing", async () => {
@@ -320,7 +381,7 @@ describe("Render Endpoints", async () => {
     });
 
     assert.equal(response.statusCode, 422, `Expected 422, got ${response.statusCode}: ${response.body}`);
-    assert.equal(JSON.parse(response.body).error, "SUNO_VOICE_PERSONA_REQUIRED");
+    assert.equal(JSON.parse(response.body).error, "SUNO_VOICE_PERSONA_SETUP_REQUIRED");
     assert.equal(spendCalls, 0, "Should not spend entitlement for legacy personalized mode without Suno persona");
 
     const jobs = await db.query("SELECT id FROM jobs WHERE track_version_id = ?", [trackVersionId]);
@@ -390,7 +451,7 @@ describe("Render Endpoints", async () => {
     });
 
     assert.equal(response.statusCode, 422, `Expected 422, got ${response.statusCode}: ${response.body}`);
-    assert.equal(JSON.parse(response.body).error, "SUNO_VOICE_PERSONA_REQUIRED");
+    assert.equal(JSON.parse(response.body).error, "SUNO_VOICE_PERSONA_SETUP_REQUIRED");
     assert.equal(spendCalls, 0, "Should not spend entitlement without Suno persona");
 
     const jobRows = await db.query(
@@ -452,7 +513,7 @@ describe("Render Endpoints", async () => {
     });
 
     assert.equal(response.statusCode, 422, `Expected 422, got ${response.statusCode}: ${response.body}`);
-    assert.equal(JSON.parse(response.body).error, "SUNO_VOICE_PERSONA_REQUIRED");
+    assert.equal(JSON.parse(response.body).error, "SUNO_VOICE_PERSONA_SETUP_REQUIRED");
     assert.equal(spendCalls, 0);
     const jobs = await db.query("SELECT id FROM jobs WHERE track_version_id = ?", [trackVersionId]);
     assert.equal(jobs.rows.length, 0);
@@ -544,7 +605,7 @@ describe("Render Endpoints", async () => {
     });
 
     assert.equal(response.statusCode, 422, `Expected 422, got ${response.statusCode}: ${response.body}`);
-    assert.equal(JSON.parse(response.body).error, "SUNO_VOICE_PERSONA_REQUIRED");
+    assert.equal(JSON.parse(response.body).error, "SUNO_VOICE_PERSONA_SETUP_REQUIRED");
 
     const jobRows = await db.query("SELECT status, attempts, error_code FROM jobs WHERE id = ?", [jobId]);
     assert.equal(jobRows.rows[0].status, "failed");

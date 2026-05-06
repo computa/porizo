@@ -366,12 +366,33 @@ final class ErrorHandler {
         fallbackMessage: String
     ) -> (message: String, category: AppErrorCategory, isRecoverable: Bool, recoveryAction: String?) {
         switch (code ?? "").uppercased() {
-        case "VOICE_PROFILE_REQUIRED":
+        case "NO_VOICE_PROFILE", "VOICE_PROFILE_REQUIRED":
             return (
                 "Please enroll your voice before using My Voice mode.",
                 .validation,
                 true,
                 "Enroll Voice"
+            )
+        case "SUNO_VOICE_PERSONA_REQUIRED":
+            return (
+                "Your voice is still being prepared. Try My Voice again in a moment.",
+                .validation,
+                true,
+                "Try Again"
+            )
+        case "SUNO_VOICE_PERSONA_FAILED":
+            return (
+                "My Voice needs a new voice setup before song generation.",
+                .validation,
+                true,
+                "Set Up My Voice"
+            )
+        case "SUNO_VOICE_PERSONA_SETUP_REQUIRED":
+            return (
+                "Please finish My Voice setup before using My Voice mode.",
+                .validation,
+                true,
+                "Set Up My Voice"
             )
         case "MODERATION_BLOCKED":
             return (

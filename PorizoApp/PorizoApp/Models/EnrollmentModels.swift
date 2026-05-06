@@ -145,10 +145,61 @@ struct VoiceProfileStatus: Codable, Sendable {
     let qualityScore: Double?
     let qualityTier: String?
     let createdAt: String?
+    let myVoiceReady: Bool?
+    let voiceProviderProfile: VoiceProviderProfileStatus?
+
+    init(
+        profileId: String?,
+        status: String?,
+        qualityScore: Double?,
+        qualityTier: String?,
+        createdAt: String?,
+        myVoiceReady: Bool? = nil,
+        voiceProviderProfile: VoiceProviderProfileStatus? = nil
+    ) {
+        self.profileId = profileId
+        self.status = status
+        self.qualityScore = qualityScore
+        self.qualityTier = qualityTier
+        self.createdAt = createdAt
+        self.myVoiceReady = myVoiceReady
+        self.voiceProviderProfile = voiceProviderProfile
+    }
 
     /// Computed property - has active profile if status is "active"
     var hasProfile: Bool {
         status == "active"
+    }
+
+    /// My Voice rendering requires the local voice profile and Suno persona.
+    var isMyVoiceReady: Bool {
+        myVoiceReady ?? (hasProfile && voiceProviderProfile?.ready == true)
+    }
+
+    var isMyVoicePreparing: Bool {
+        guard hasProfile, !isMyVoiceReady else { return false }
+        switch voiceProviderProfile?.status {
+        case "pending", "upload_submitted", "cover_submitted", "persona_submitted":
+            return true
+        default:
+            return false
+        }
+    }
+
+    var isMyVoiceSetupRequired: Bool {
+        guard hasProfile, !isMyVoiceReady, !isMyVoicePreparing, !didMyVoiceSetupFail else {
+            return false
+        }
+        switch voiceProviderProfile?.status {
+        case nil, "consent_required", "source_audio_unavailable":
+            return true
+        default:
+            return voiceProviderProfile?.ready != true
+        }
+    }
+
+    var didMyVoiceSetupFail: Bool {
+        voiceProviderProfile?.status == "failed"
     }
 
     /// Get tier from score if tier not provided
@@ -166,6 +217,28 @@ struct VoiceProfileStatus: Codable, Sendable {
         case qualityScore = "quality_score"
         case qualityTier = "quality_tier"
         case createdAt = "created_at"
+        case myVoiceReady = "my_voice_ready"
+        case voiceProviderProfile = "voice_provider_profile"
+    }
+}
+
+struct VoiceProviderProfileStatus: Codable, Sendable {
+    let id: String?
+    let provider: String?
+    let status: String?
+    let ready: Bool?
+    let hasProviderProfileId: Bool?
+    let updatedAt: String?
+    let lastError: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case provider
+        case status
+        case ready
+        case hasProviderProfileId = "has_provider_profile_id"
+        case updatedAt = "updated_at"
+        case lastError = "last_error"
     }
 }
 

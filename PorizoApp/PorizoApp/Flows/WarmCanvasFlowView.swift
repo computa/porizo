@@ -92,6 +92,7 @@ struct WarmCanvasFlowView: View {
 
     @AppStorage("hasCompletedFirstSong") private var hasCompletedFirstSong = false
     @State private var enrollmentCompletedProfile: VoiceProfile?
+    @State private var shouldResumeMyVoiceAfterEnrollment = false
     @State private var pendingEntitlementFlowType: CreateFlowKind?
     @State private var myVoiceEnabled = true
     @State private var pendingSpeechText: String?
@@ -1336,6 +1337,9 @@ struct WarmCanvasFlowView: View {
                 // User cancelled
             } catch {
                 guard !Task.isCancelled else { return }
+                if handleVoiceEnrollmentRequiredError(error) {
+                    return
+                }
                 presentFlowError(error, context: "Starting track creation")
                 withAnimation { moment = .tell(.confirmed) }
             }
@@ -1629,35 +1633,118 @@ struct WarmCanvasFlowView: View {
     private func handleMyVoiceRequested() {
         flowTask?.cancel()
         flowTask = Task { @MainActor in
-            let profile = try? await apiClient.getVoiceProfile()
-            if profile?.hasProfile == true {
-                songFlow.voiceMode = .myVoice
-                withAnimation { moment = .tell(.voiceSelected) }
-                await applyVoiceAndCreateTrack()
-            } else {
-                activeSheet = .voiceEnrollment
+            do {
+                let profile = try await apiClient.getVoiceProfile()
+                if profile.isMyVoiceReady {
+                    songFlow.voiceMode = .myVoice
+                    withAnimation { moment = .tell(.voiceSelected) }
+                    await applyVoiceAndCreateTrack()
+                } else if profile.isMyVoicePreparing {
+                    activeAlert = .error("Your voice is still being prepared. Try My Voice again in a moment.")
+                } else {
+                    shouldResumeMyVoiceAfterEnrollment = true
+                    activeSheet = .voiceEnrollment
+                }
+            } catch let error as APIClientError {
+                if isVoiceEnrollmentRequired(error) {
+                    shouldResumeMyVoiceAfterEnrollment = true
+                    activeSheet = .voiceEnrollment
+                } else {
+                    activeAlert = .error("We couldn't check your voice setup. Please try My Voice again.")
+                }
+            } catch {
+                activeAlert = .error("We couldn't check your voice setup. Please try My Voice again.")
             }
         }
     }
 
+    private func isVoiceEnrollmentRequired(_ error: APIClientError) -> Bool {
+        switch error {
+        case .serverError(_, let code, _):
+            switch code?.uppercased() {
+            case "NO_VOICE_PROFILE", "VOICE_PROFILE_REQUIRED", "SUNO_VOICE_PERSONA_SETUP_REQUIRED", "SUNO_VOICE_PERSONA_FAILED":
+                return true
+            default:
+                return false
+            }
+        case .httpError(let statusCode, let body):
+            return statusCode == 404 && body.contains("NO_VOICE_PROFILE")
+        default:
+            return false
+        }
+    }
+
+    private func resumeMyVoiceEnrollment() {
+        shouldResumeMyVoiceAfterEnrollment = true
+        activeSheet = .voiceEnrollment
+        withAnimation { moment = .tell(.confirmed) }
+    }
+
     private func handleVoiceEnrollmentDismissal() {
-        guard enrollmentCompletedProfile != nil else { return }
+        guard enrollmentCompletedProfile != nil else {
+            shouldResumeMyVoiceAfterEnrollment = false
+            return
+        }
         enrollmentCompletedProfile = nil
 
         flowTask?.cancel()
         flowTask = Task { @MainActor in
-            do {
-                let profile = try await apiClient.getVoiceProfile()
-                guard profile.hasProfile else {
-                    activeAlert = .error("Voice setup finished, but your voice profile is not ready yet. Try My Voice again in a moment.")
+            guard let profile = await waitForMyVoiceReadiness() else {
+                if shouldResumeMyVoiceAfterEnrollment {
+                    activeAlert = .error("Voice setup finished. I kept your song details on this screen, but your voice is still being prepared. Try My Voice again in a moment.")
+                }
+                shouldResumeMyVoiceAfterEnrollment = false
+                return
+            }
+            guard profile.isMyVoiceReady else {
+                if profile.didMyVoiceSetupFail || profile.isMyVoiceSetupRequired {
+                    shouldResumeMyVoiceAfterEnrollment = true
+                    activeSheet = .voiceEnrollment
+                    return
+                } else {
+                    activeAlert = .error("Voice setup finished. I kept your song details on this screen, but your voice is still being prepared. Try My Voice again in a moment.")
+                    shouldResumeMyVoiceAfterEnrollment = false
                     return
                 }
-                songFlow.voiceMode = .myVoice
-                withAnimation { moment = .tell(.voiceSelected) }
-                await applyVoiceAndCreateTrack()
-            } catch {
-                activeAlert = .error("Voice setup finished, but we couldn't verify your profile. Try My Voice again.")
             }
+            songFlow.voiceMode = .myVoice
+            shouldResumeMyVoiceAfterEnrollment = false
+            withAnimation { moment = .tell(.voiceSelected) }
+            await applyVoiceAndCreateTrack()
+        }
+    }
+
+    private func waitForMyVoiceReadiness() async -> VoiceProfileStatus? {
+        for attempt in 0..<6 {
+            do {
+                let profile = try await apiClient.getVoiceProfile()
+                if profile.isMyVoiceReady || profile.didMyVoiceSetupFail || !profile.isMyVoicePreparing {
+                    return profile
+                }
+            } catch {
+                return nil
+            }
+            if attempt < 5 {
+                try? await Task.sleep(for: .seconds(3))
+            }
+        }
+        return try? await apiClient.getVoiceProfile()
+    }
+
+    private func handleVoiceEnrollmentRequiredError(_ error: Error) -> Bool {
+        guard case APIClientError.serverError(_, let code, _) = error else {
+            return false
+        }
+        switch code?.uppercased() {
+        case "NO_VOICE_PROFILE", "VOICE_PROFILE_REQUIRED", "SUNO_VOICE_PERSONA_SETUP_REQUIRED", "SUNO_VOICE_PERSONA_FAILED":
+            resumeMyVoiceEnrollment()
+            return true
+        case "SUNO_VOICE_PERSONA_REQUIRED":
+            activeAlert = .error("Your voice is still being prepared. Try My Voice again in a moment.")
+            withAnimation { moment = .tell(.confirmed) }
+            return true
+        default:
+            return false
         }
     }
 

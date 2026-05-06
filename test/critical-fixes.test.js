@@ -19,6 +19,7 @@ const { initDb } = require("../src/db");
 const { buildServer } = require("../src/server");
 const { createStorageProvider } = require("../src/storage");
 const { startJobRunner } = require("../src/workflows/runner");
+const { clearCache: clearFeatureFlagCache } = require("../src/services/feature-flags");
 
 // Test fixtures
 let storageDir;
@@ -27,6 +28,28 @@ let app;
 let runner;
 let config;
 let storage;
+
+function insertActiveSunoPersona(userId, voiceProfileId = `vp_${userId}`) {
+  const now = new Date().toISOString();
+  db.prepare(
+    `INSERT OR IGNORE INTO voice_provider_profiles (
+      id, voice_profile_id, user_id, provider, provider_profile_id, status,
+      model, consent_scope, created_at, updated_at, activated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    `vpp_${userId}`,
+    voiceProfileId,
+    userId,
+    "suno",
+    "persona_live_test",
+    "active",
+    "V5_5",
+    "voice_suno_persona_v1",
+    now,
+    now,
+    now,
+  );
+}
 
 function createTestWav(durationSec = 3, filename = null) {
   const sampleRate = 44100;
@@ -359,6 +382,7 @@ describe("Voice Mode Standardization", () => {
       INSERT OR IGNORE INTO voice_profiles (id, user_id, status, quality_score, model_version, consent_version, created_at)
       VALUES (?, ?, 'active', 85, 'v1', 'v1', ?)
     `).run(`vp_${userId}`, userId, new Date().toISOString());
+    insertActiveSunoPersona(userId);
 
     const trackRes = await app.inject({
       method: "POST",
@@ -423,6 +447,83 @@ describe("Voice Mode Standardization", () => {
 
     assert.equal(patchRes.statusCode, 200);
     assert.equal(patchRes.json().voice_mode, "ai_voice");
+  });
+
+  test("should require enrollment when switching an existing track to user_voice without a profile", async () => {
+    const userId = "user_voice_patch_no_profile_test";
+    const now = new Date().toISOString();
+
+    db.prepare(
+      "INSERT OR REPLACE INTO feature_flags (id, value, updated_at, updated_by) VALUES ('my_voice_enabled', ?, ?, 'test')"
+    ).run(JSON.stringify(true), now);
+    clearFeatureFlagCache();
+
+    const createRes = await app.inject({
+      method: "POST",
+      url: "/tracks",
+      headers: { "x-user-id": userId },
+      payload: {
+        title: "Patch Needs Voice",
+        recipient_name: "Test",
+        message: "Should request voice enrollment",
+        occasion: "birthday",
+        style: "pop",
+        voice_mode: "ai_voice",
+      },
+    });
+    assert.equal(createRes.statusCode, 201);
+
+    const patchRes = await app.inject({
+      method: "PATCH",
+      url: `/tracks/${createRes.json().track_id}/voice_mode`,
+      headers: { "x-user-id": userId },
+      payload: { voice_mode: "user_voice" },
+    });
+
+    assert.equal(patchRes.statusCode, 400);
+    assert.equal(patchRes.json().error, "NO_VOICE_PROFILE");
+    assert.equal(patchRes.json().requires_voice_enrollment, true);
+  });
+
+  test("should require voice setup when switching to user_voice with only a legacy local profile", async () => {
+    const userId = "user_voice_patch_legacy_profile_test";
+    const now = new Date().toISOString();
+
+    db.prepare(
+      "INSERT OR REPLACE INTO feature_flags (id, value, updated_at, updated_by) VALUES ('my_voice_enabled', ?, ?, 'test')"
+    ).run(JSON.stringify(true), now);
+    clearFeatureFlagCache();
+
+    db.prepare(`
+      INSERT OR IGNORE INTO voice_profiles (id, user_id, status, quality_score, model_version, consent_version, created_at)
+      VALUES (?, ?, 'active', 85, 'v1', 'v1', ?)
+    `).run(`vp_${userId}`, userId, now);
+
+    const createRes = await app.inject({
+      method: "POST",
+      url: "/tracks",
+      headers: { "x-user-id": userId },
+      payload: {
+        title: "Patch Needs Persona",
+        recipient_name: "Test",
+        message: "Should request voice setup",
+        occasion: "birthday",
+        style: "pop",
+        voice_mode: "ai_voice",
+      },
+    });
+    assert.equal(createRes.statusCode, 201);
+
+    const patchRes = await app.inject({
+      method: "PATCH",
+      url: `/tracks/${createRes.json().track_id}/voice_mode`,
+      headers: { "x-user-id": userId },
+      payload: { voice_mode: "user_voice" },
+    });
+
+    assert.equal(patchRes.statusCode, 409);
+    assert.equal(patchRes.json().error, "SUNO_VOICE_PERSONA_SETUP_REQUIRED");
+    assert.equal(patchRes.json().requires_voice_enrollment, true);
   });
 });
 

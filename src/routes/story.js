@@ -9,6 +9,19 @@ const crypto = require("crypto");
 const writer = require("../writer");
 const { moderationCheck, validateGeneratedLyrics } = require("../providers/moderation");
 const { getFeatureFlag } = require("../services/feature-flags");
+const {
+  findActiveProviderProfileForUser,
+  findLatestProviderProfileForVoiceProfile,
+} = require("../services/voice-provider-profile-service");
+const {
+  hasPersonaConsentScope,
+} = require("../services/suno-voice-persona-service");
+const SUNO_PERSONA_PREPARING_STATUSES = new Set([
+  "pending",
+  "upload_submitted",
+  "cover_submitted",
+  "persona_submitted",
+]);
 const { generatePoemFromStory } = require("../writer/poem");
 const { evaluatePoemReadiness } = require("../writer/v3/quality");
 const { transcribeAudio } = require("../providers/whisper");
@@ -3031,7 +3044,43 @@ function registerStoryRoutes(app, {
           .prepare("SELECT id FROM voice_profiles WHERE user_id = ? AND status = 'active'")
           .get(userId);
         if (!profile) {
-          sendError(reply, 403, "VOICE_PROFILE_REQUIRED", "Voice profile required for user_voice.");
+          sendError(reply, 403, "VOICE_PROFILE_REQUIRED", "Voice profile required for user_voice.", {
+            requires_voice_enrollment: true,
+          });
+          return;
+        }
+        const providerProfile = await findActiveProviderProfileForUser(db, {
+          userId,
+          provider: "suno",
+        });
+        if (
+          !providerProfile ||
+          !providerProfile.provider_profile_id ||
+          !hasPersonaConsentScope(providerProfile.consent_scope)
+        ) {
+          const latestProviderProfile = await findLatestProviderProfileForVoiceProfile(db, {
+            voiceProfileId: profile.id,
+            provider: "suno",
+            includeDeleted: true,
+          });
+          const status = latestProviderProfile?.status;
+          const code =
+            status === "failed"
+              ? "SUNO_VOICE_PERSONA_FAILED"
+              : SUNO_PERSONA_PREPARING_STATUSES.has(status)
+                ? "SUNO_VOICE_PERSONA_REQUIRED"
+                : "SUNO_VOICE_PERSONA_SETUP_REQUIRED";
+          const message =
+            code === "SUNO_VOICE_PERSONA_FAILED"
+              ? "My Voice needs a new Suno voice setup before song generation."
+              : code === "SUNO_VOICE_PERSONA_REQUIRED"
+                ? "My Voice is still being prepared. Please try again shortly."
+                : "My Voice needs voice setup before song generation.";
+          sendError(reply, 409, code, message, {
+            requires_voice_enrollment:
+              code === "SUNO_VOICE_PERSONA_FAILED" ||
+              code === "SUNO_VOICE_PERSONA_SETUP_REQUIRED",
+          });
           return;
         }
       }

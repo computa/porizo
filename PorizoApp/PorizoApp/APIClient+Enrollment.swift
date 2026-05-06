@@ -19,7 +19,9 @@ extension APIClient {
 
         let body: [String: Any] = [
             "consent_accepted": true,
-            "consent_version": "ios_v1"
+            "consent_version": "ios_v1",
+            "consent_scopes": ["voice_suno_persona_v1"],
+            "voice_suno_persona_consent": true
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
@@ -103,7 +105,11 @@ extension APIClient {
 
         var request = try await makeRequest(url: url, method: "POST")
 
-        let body: [String: Any] = ["session_id": sessionId]
+        let body: [String: Any] = [
+            "session_id": sessionId,
+            "consent_scopes": ["voice_suno_persona_v1"],
+            "voice_suno_persona_consent": true
+        ]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         return try await withRetry {

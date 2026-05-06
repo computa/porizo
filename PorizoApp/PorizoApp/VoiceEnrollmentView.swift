@@ -36,6 +36,7 @@ struct VoiceEnrollmentView: View {
     @State private var showErrorAlert: Bool = false
     @State private var isStartingSession: Bool = false
     @State private var isCompletingEnrollment: Bool = false
+    @State private var hasAcceptedPersonaConsent: Bool = false
 
     // MARK: - Timer State
 
@@ -84,7 +85,9 @@ struct VoiceEnrollmentView: View {
                 header
 
                 // Content
-                if isStartingSession {
+                if !hasAcceptedPersonaConsent {
+                    consentIntroView
+                } else if isStartingSession {
                     // Loading state while fetching prompts
                     loadingView
                 } else if prompts.isEmpty {
@@ -97,11 +100,6 @@ struct VoiceEnrollmentView: View {
             }
         }
         .navigationBarHidden(true)
-        .task {
-            await startEnrollmentSession()
-            // Start audio analyzer for real-time feedback
-            audioAnalyzer.tryStart()
-        }
         .fullScreenCover(isPresented: $showCompletionView) {
             if let tier = completedQualityTier {
                 EnrollmentCompletionView(qualityTier: tier) {
@@ -138,6 +136,57 @@ struct VoiceEnrollmentView: View {
     }
 
     // MARK: - Loading View
+
+    private var consentIntroView: some View {
+        VStack(spacing: 20) {
+            Spacer()
+
+            Image(systemName: "mic.badge.plus")
+                .font(.system(size: 44))
+                .foregroundStyle(DesignTokens.gold)
+
+            VStack(spacing: 10) {
+                Text("Set Up My Voice")
+                    .font(DesignTokens.displayFont(size: 26))
+                    .foregroundStyle(DesignTokens.textPrimary)
+
+                Text("Record a few short phrases so Porizo can create a Suno voice persona for your songs.")
+                    .font(.system(size: 15))
+                    .foregroundStyle(DesignTokens.textSecondary)
+                    .multilineTextAlignment(.center)
+                    .lineSpacing(4)
+                    .padding(.horizontal, 20)
+            }
+
+            Text("By continuing, you consent to Porizo processing these recordings and sending them to Suno only to create your My Voice song persona.")
+                .font(.system(size: 12))
+                .foregroundStyle(DesignTokens.textTertiary)
+                .multilineTextAlignment(.center)
+                .lineSpacing(4)
+                .padding(.horizontal, 28)
+
+            Button {
+                hasAcceptedPersonaConsent = true
+                Task {
+                    await startEnrollmentSession()
+                    audioAnalyzer.tryStart()
+                }
+            } label: {
+                Text("Start Voice Setup")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(DesignTokens.background)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 52)
+                    .background(DesignTokens.gold)
+                    .clipShape(.rect(cornerRadius: 26))
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 24)
+            .padding(.top, 4)
+
+            Spacer()
+        }
+    }
 
     private var loadingView: some View {
         VStack(spacing: 16) {

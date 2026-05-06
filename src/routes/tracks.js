@@ -22,6 +22,12 @@ const {
 } = require("../services/suno-voice-persona-service");
 
 const PERSONALIZED_VOICE_MODES = new Set(["user_voice", "personalized"]);
+const SUNO_PERSONA_PREPARING_STATUSES = new Set([
+  "pending",
+  "upload_submitted",
+  "cover_submitted",
+  "persona_submitted",
+]);
 
 function registerTrackRoutes(
   app,
@@ -131,12 +137,22 @@ function registerTrackRoutes(
         code: "SUNO_VOICE_PERSONA_FAILED",
         message:
           "My Voice needs a new Suno voice setup before song generation.",
+        requiresVoiceEnrollment: true,
+      };
+    }
+    if (SUNO_PERSONA_PREPARING_STATUSES.has(latestProviderProfile?.status)) {
+      return {
+        ok: false,
+        code: "SUNO_VOICE_PERSONA_REQUIRED",
+        message: "My Voice is still being prepared. Please try again shortly.",
+        requiresVoiceEnrollment: false,
       };
     }
     return {
       ok: false,
-      code: "SUNO_VOICE_PERSONA_REQUIRED",
-      message: "My Voice is not ready yet. Please finish voice setup first.",
+      code: "SUNO_VOICE_PERSONA_SETUP_REQUIRED",
+      message: "My Voice needs voice setup before song generation.",
+      requiresVoiceEnrollment: true,
     };
   }
 
@@ -323,17 +339,30 @@ function registerTrackRoutes(
           );
           return;
         }
-        const profile = await db
-          .prepare(
-            "SELECT id FROM voice_profiles WHERE user_id = ? AND status = 'active'",
-          )
-          .get(userId);
-        if (!profile) {
+        const voicePreflight = await preflightUserVoiceReadiness({
+          userId,
+          track: { voice_mode: requestedVoiceMode },
+        });
+        if (!voicePreflight.ok) {
+          if (voicePreflight.code === "VOICE_PROFILE_REQUIRED") {
+            sendError(
+              reply,
+              403,
+              "VOICE_PROFILE_REQUIRED",
+              "Voice profile required for user_voice.",
+              { requires_voice_enrollment: true },
+            );
+            return;
+          }
           sendError(
             reply,
-            403,
-            "VOICE_PROFILE_REQUIRED",
-            "Voice profile required for user_voice.",
+            409,
+            voicePreflight.code,
+            voicePreflight.message,
+            {
+              requires_voice_enrollment:
+                voicePreflight.requiresVoiceEnrollment === true,
+            },
           );
           return;
         }
@@ -536,19 +565,31 @@ function registerTrackRoutes(
       effectiveVoiceMode = "ai_voice";
     }
 
-    // Check voice profile exists for user_voice
     if (effectiveVoiceMode === "user_voice") {
-      const profile = await db
-        .prepare(
-          "SELECT id FROM voice_profiles WHERE user_id = ? AND status IN ('active', 'completed')",
-        )
-        .get(userId);
-      if (!profile) {
+      const voicePreflight = await preflightUserVoiceReadiness({
+        userId,
+        track: { ...track, voice_mode: effectiveVoiceMode },
+      });
+      if (!voicePreflight.ok) {
+        if (voicePreflight.code === "VOICE_PROFILE_REQUIRED") {
+          sendError(
+            reply,
+            400,
+            "NO_VOICE_PROFILE",
+            "No completed voice profile found. Please enroll your voice first.",
+            { requires_voice_enrollment: true },
+          );
+          return;
+        }
         sendError(
           reply,
-          400,
-          "NO_VOICE_PROFILE",
-          "No completed voice profile found. Please enroll your voice first.",
+          409,
+          voicePreflight.code,
+          voicePreflight.message,
+          {
+            requires_voice_enrollment:
+              voicePreflight.requiresVoiceEnrollment === true,
+          },
         );
         return;
       }
@@ -785,7 +826,10 @@ function registerTrackRoutes(
         // for unknown E302_ codes returns ("infra_terminal","retry") which is
         // wrong UX for an unrecoverable structural error. 422 surfaces as a
         // form-validation error instead.
-        sendError(reply, 422, personaPreflight.code, personaPreflight.message);
+        sendError(reply, 422, personaPreflight.code, personaPreflight.message, {
+          requires_voice_enrollment:
+            personaPreflight.requiresVoiceEnrollment === true,
+        });
         return;
       }
       const renderRequestStepData =
@@ -1026,7 +1070,10 @@ function registerTrackRoutes(
         // for unknown E302_ codes returns ("infra_terminal","retry") which is
         // wrong UX for an unrecoverable structural error. 422 surfaces as a
         // form-validation error instead.
-        sendError(reply, 422, personaPreflight.code, personaPreflight.message);
+        sendError(reply, 422, personaPreflight.code, personaPreflight.message, {
+          requires_voice_enrollment:
+            personaPreflight.requiresVoiceEnrollment === true,
+        });
         return;
       }
       const renderRequestStepData =
@@ -1190,7 +1237,10 @@ function registerTrackRoutes(
       track,
     });
     if (!personaPreflight.ok) {
-      sendError(reply, 422, personaPreflight.code, personaPreflight.message);
+      sendError(reply, 422, personaPreflight.code, personaPreflight.message, {
+        requires_voice_enrollment:
+          personaPreflight.requiresVoiceEnrollment === true,
+      });
       return;
     }
     // Retries share the same short burst budget as preview starts to prevent spam.

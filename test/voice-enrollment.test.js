@@ -22,6 +22,9 @@ const { createStorageProvider } = require("../src/storage");
 const {
   REQUIRED_CONSENT_SCOPE,
 } = require("../src/services/suno-voice-persona-service");
+const {
+  markProviderProfileActive,
+} = require("../src/services/voice-provider-profile-service");
 
 // ============================================================
 // Test Utilities
@@ -1077,6 +1080,71 @@ describe("Voice Enrollment API", () => {
       assert.ok(body.profile_id, "should have profile_id");
       assert.strictEqual(body.status, "active");
       assert.ok(body.quality_score >= 0, "should have quality_score");
+      assert.strictEqual(body.local_voice_ready, true);
+      assert.strictEqual(body.my_voice_ready, false);
+    });
+
+    it("should report My Voice ready only after Suno persona is active", async () => {
+      const userId = uniqueUserId("profile_persona_ready");
+      const startResponse = await app.inject({
+        method: "POST",
+        url: "/voice/enrollment/start",
+        headers: { "x-user-id": userId },
+        payload: {
+          consent_accepted: true,
+          consent_scopes: [REQUIRED_CONSENT_SCOPE],
+        },
+      });
+      const sessionId = startResponse.json().session_id;
+      const chunkDir = path.join(
+        storageDir,
+        "enrollment",
+        "raw",
+        userId,
+        sessionId,
+      );
+      fs.mkdirSync(chunkDir, { recursive: true });
+      for (let i = 0; i < 4; i++) {
+        fs.writeFileSync(
+          path.join(chunkDir, `p${i + 1}.wav`),
+          createTestWav({ durationSec: 4 }),
+        );
+      }
+
+      const completeResponse = await app.inject({
+        method: "POST",
+        url: "/voice/enrollment/complete",
+        headers: { "x-user-id": userId },
+        payload: { session_id: sessionId },
+      });
+      const providerProfileId =
+        completeResponse.json().voice_provider_profile.id;
+
+      const pendingResponse = await app.inject({
+        method: "GET",
+        url: "/voice/profile",
+        headers: { "x-user-id": userId },
+      });
+      assert.strictEqual(pendingResponse.statusCode, 200);
+      assert.strictEqual(pendingResponse.json().my_voice_ready, false);
+      assert.strictEqual(
+        pendingResponse.json().voice_provider_profile.ready,
+        false,
+      );
+
+      await markProviderProfileActive(db, providerProfileId, {
+        providerProfileId: "persona_live_test_123",
+        model: "voice_persona",
+      });
+
+      const readyResponse = await app.inject({
+        method: "GET",
+        url: "/voice/profile",
+        headers: { "x-user-id": userId },
+      });
+      assert.strictEqual(readyResponse.statusCode, 200);
+      assert.strictEqual(readyResponse.json().my_voice_ready, true);
+      assert.strictEqual(readyResponse.json().voice_provider_profile.ready, true);
     });
 
     it("should return 404 for user without profile", async () => {
