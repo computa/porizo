@@ -103,6 +103,14 @@ function registerInternalSunoCallbackRoutes(
           "SUNO_CALLBACK_HMAC_SECRET is not set; callbacks are disabled.",
         );
       }
+      if (String(secret).length < 32) {
+        return send(
+          reply,
+          503,
+          "CALLBACK_NOT_CONFIGURED",
+          "SUNO_CALLBACK_HMAC_SECRET must be at least 32 characters.",
+        );
+      }
 
       const rawBody = Buffer.isBuffer(request.rawBody)
         ? request.rawBody

@@ -1,4 +1,5 @@
 const { fetchJson } = require("./http");
+const { sanitizeProviderError } = require("../utils/provider-sanitize");
 const {
   classifySunoStatus,
   inspectSunoAudioReadiness,
@@ -45,9 +46,6 @@ function ensureSuccess(response, context) {
   return response.data || {};
 }
 
-// Provider error redaction lives in src/utils/provider-sanitize.js.
-const { sanitizeProviderError } = require("../utils/provider-sanitize");
-
 function normalizeAudioWeight(value, fallback = 0.85) {
   const numeric = Number(value);
   const base = Number.isFinite(numeric) ? numeric : fallback;
@@ -60,6 +58,22 @@ function redactedId(value) {
     return value ? "[redacted]" : null;
   }
   return `${value.slice(0, 4)}…${value.slice(-4)}`;
+}
+
+function describeShape(value) {
+  if (value == null) return "null";
+  if (Array.isArray(value)) return `array[${value.length}]`;
+  if (typeof value === "object") {
+    return `object{${Object.keys(value).slice(0, 8).join(",")}}`;
+  }
+  return typeof value;
+}
+
+function pickAudioIdLike(candidate) {
+  if (!candidate || typeof candidate !== "object") return null;
+  const id = candidate.audioId || candidate.audio_id || candidate.id;
+  if (typeof id === "string" && id.trim()) return id.trim();
+  return null;
 }
 
 /**
@@ -77,22 +91,6 @@ function redactedId(value) {
  *
  * Fixture: test/fixtures/suno-upload-cover-response.json
  */
-function describeShape(value) {
-  if (value == null) return "null";
-  if (Array.isArray(value)) return `array[${value.length}]`;
-  if (typeof value === "object") {
-    return `object{${Object.keys(value).slice(0, 8).join(",")}}`;
-  }
-  return typeof value;
-}
-
-function pickAudioIdLike(candidate) {
-  if (!candidate || typeof candidate !== "object") return null;
-  const id = candidate.audioId || candidate.audio_id || candidate.id;
-  if (typeof id === "string" && id.trim()) return id.trim();
-  return null;
-}
-
 function extractSunoAudioId(statusResponse) {
   // Path 1: pre-extracted by inspectSunoAudioReadiness (the canonical Suno
   // helper for "is this audio ready"). When it surfaces a track object, that
@@ -324,6 +322,11 @@ async function pollUploadCoverForAudio({
       },
     },
   );
+  if (!result?.done || !result.audioId) {
+    throw new Error(
+      "E302_SUNO_PERSONA_AUDIO_NOT_READY: upload-cover polling finished without a ready audioId",
+    );
+  }
   return {
     audioId: result.audioId,
     status: result.status,
@@ -397,89 +400,10 @@ async function generatePersona({
   };
 }
 
-async function createPersonaFromSourceUrl({
-  baseUrl,
-  uploadBaseUrl = DEFAULT_UPLOAD_BASE_URL,
-  apiKey,
-  sourceUrl,
-  uploadPath,
-  fileName,
-  model = "V5_5",
-  audioWeight = 0.85,
-  personaName,
-  personaDescription,
-  style = DEFAULT_PREP_STYLE,
-  callBackUrl,
-  timeoutMs = 30000,
-  fetchJsonFn = fetchJson,
-  pollTaskOnceFn = pollSunoTaskOnce,
-  pollingOptions = null,
-  onCoverSubmitted = null,
-  onFileUploaded = null,
-  onAudioReady = null,
-} = {}) {
-  const uploaded = await uploadFileUrl({
-    uploadBaseUrl,
-    apiKey,
-    fileUrl: sourceUrl,
-    uploadPath,
-    fileName,
-    timeoutMs,
-    fetchJsonFn,
-  });
-  if (typeof onFileUploaded === "function") {
-    await onFileUploaded(uploaded);
-  }
-  const cover = await submitUploadCoverTask({
-    baseUrl,
-    apiKey,
-    uploadUrl: uploaded.downloadUrl,
-    model,
-    style,
-    title: DEFAULT_PREP_TITLE,
-    audioWeight,
-    callBackUrl,
-    timeoutMs,
-    fetchJsonFn,
-  });
-  if (typeof onCoverSubmitted === "function") {
-    await onCoverSubmitted(cover);
-  }
-  const audio = await pollUploadCoverForAudio({
-    baseUrl,
-    apiKey,
-    taskId: cover.taskId,
-    timeoutMs,
-    pollTaskOnceFn,
-    pollingOptions,
-  });
-  if (typeof onAudioReady === "function") {
-    await onAudioReady(audio);
-  }
-  const persona = await generatePersona({
-    baseUrl,
-    apiKey,
-    taskId: cover.taskId,
-    audioId: audio.audioId,
-    name: personaName,
-    description: personaDescription,
-    style,
-    timeoutMs,
-    fetchJsonFn,
-  });
-  return {
-    upload: uploaded,
-    cover,
-    audio,
-    persona,
-  };
-}
-
 module.exports = {
   DEFAULT_UPLOAD_BASE_URL,
   buildGeneratePersonaPayload,
   buildUploadCoverPayload,
-  createPersonaFromSourceUrl,
   extractSunoAudioId,
   generatePersona,
   normalizeAudioWeight,

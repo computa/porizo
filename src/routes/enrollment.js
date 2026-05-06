@@ -89,12 +89,12 @@ function isValidAudioFormat(buffer) {
  * Validation (10-30s duration) is enforced downstream in
  * `buildGeneratePersonaPayload` — this function only proposes a window.
  */
-function deriveVocalWindow(cleanAudioPath) {
+async function deriveVocalWindow(cleanAudioPath) {
   try {
     if (!cleanAudioPath || !fs.existsSync(cleanAudioPath)) {
       return null;
     }
-    const buffer = fs.readFileSync(cleanAudioPath);
+    const buffer = await fs.promises.readFile(cleanAudioPath);
     const wavInfo = parseWavBuffer(buffer);
     if (!wavInfo || !Number.isFinite(wavInfo.durationSec)) {
       return null;
@@ -140,6 +140,59 @@ function buildPersonaJobStepData({
   return base;
 }
 
+function resolvePersonaConsentScopes(body = {}, consentAccepted = false) {
+  const knownScopes = new Set([REQUIRED_CONSENT_SCOPE]);
+  const requestedScopes = Array.isArray(body?.consent_scopes)
+    ? body.consent_scopes
+        .filter((scope) => typeof scope === "string")
+        .filter((scope) => knownScopes.has(scope))
+    : null;
+  const explicitPersonaConsent = body?.voice_suno_persona_consent === true;
+  const legacyPersonaConsent =
+    consentAccepted === true && body?.consent_version === "1.0";
+
+  if (
+    consentAccepted !== true ||
+    (!explicitPersonaConsent &&
+      !legacyPersonaConsent &&
+      !(requestedScopes && requestedScopes.includes(REQUIRED_CONSENT_SCOPE)))
+  ) {
+    return null;
+  }
+
+  return requestedScopes && requestedScopes.length
+    ? requestedScopes.join(" ")
+    : REQUIRED_CONSENT_SCOPE;
+}
+
+function dbFromQuery(query) {
+  return {
+    prepare(sql) {
+      return {
+        get: async (...params) => {
+          const result = await query(sql, params);
+          return result?.rows?.[0] || null;
+        },
+        all: async (...params) => {
+          const result = await query(sql, params);
+          return result?.rows || [];
+        },
+        run: async (...params) => {
+          const result = await query(sql, params);
+          return {
+            changes: Number(result?.rowCount || result?.changes || 0),
+          };
+        },
+      };
+    },
+  };
+}
+
+function parsePorizoBuild(userAgent) {
+  const match = String(userAgent || "").match(/PorizoApp\/[^(]+\((\d+)/i);
+  return match ? Number(match[1]) : null;
+}
+
 function registerEnrollmentRoutes(app, deps) {
   const {
     db,
@@ -172,8 +225,29 @@ function registerEnrollmentRoutes(app, deps) {
     const session = await db
       .prepare("SELECT * FROM enrollment_sessions WHERE id = ?")
       .get(request.params.sessionId);
-    if (!session || session.access_token !== token) {
+    const expected = Buffer.from(String(session?.access_token || ""), "utf8");
+    const actual = Buffer.from(String(token || ""), "utf8");
+    const tokenMatches =
+      expected.length > 0 &&
+      expected.length === actual.length &&
+      crypto.timingSafeEqual(expected, actual);
+    if (!session || !tokenMatches) {
       sendError(reply, 403, "FORBIDDEN", "Invalid enrollment token.");
+      return;
+    }
+    if (
+      session.status === "expired" ||
+      (session.expires_at && new Date(session.expires_at) < new Date())
+    ) {
+      sendError(reply, 403, "SESSION_EXPIRED", "Enrollment session expired.");
+      return;
+    }
+    const tokenIssuedAt = session.completed_at || session.started_at;
+    if (
+      tokenIssuedAt &&
+      Date.now() - new Date(tokenIssuedAt).getTime() > 60 * 60 * 1000
+    ) {
+      sendError(reply, 403, "SESSION_EXPIRED", "Enrollment token expired.");
       return;
     }
     const filePath = path.join(
@@ -397,6 +471,24 @@ function registerEnrollmentRoutes(app, deps) {
         );
         return;
       }
+      const burstLimit = await consumeRateLimit(
+        userId,
+        "voice_enrollment_start_burst",
+        1,
+        60,
+      );
+      if (!burstLimit.allowed) {
+        sendError(
+          reply,
+          429,
+          "RATE_LIMITED",
+          "Please wait before starting another voice enrollment.",
+          {
+            retry_at: burstLimit.reset_at,
+          },
+        );
+        return;
+      }
       const { consent_accepted, consent_version } = request.body || {};
       if (!consent_accepted) {
         sendError(reply, 400, "CONSENT_REQUIRED", "Consent must be accepted.");
@@ -464,38 +556,10 @@ function registerEnrollmentRoutes(app, deps) {
       });
       const expiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString();
 
-      // U2/U17: Persona-specific consent. The general `consent_accepted` flag
-      // covers voice ENROLLMENT consent (recording + processing); it does NOT
-      // imply consent to send the user's voice to a third-party persona service.
-      // The client must EXPLICITLY grant the Suno-persona scope by either
-      //   (a) sending `consent_scopes: ["voice_suno_persona_v1", ...]` (array), or
-      //   (b) sending `voice_suno_persona_consent: true` (boolean shortcut).
-      // Otherwise consent_scopes stays null and the persona path is gated off
-      // by enrollmentSessionHasPersonaConsent (fail-secure).
-      // Allowlist filter: only persist known scope literals so future
-      // consumers of consent_scopes inherit a clean, audit-safe column.
-      // Today the only known scope is REQUIRED_CONSENT_SCOPE; add new scopes
-      // here when they're introduced (and only when their semantics are
-      // intentionally honored by readers of this column).
-      const KNOWN_CONSENT_SCOPES = new Set([REQUIRED_CONSENT_SCOPE]);
-      const requestedScopes = Array.isArray(request.body?.consent_scopes)
-        ? request.body.consent_scopes
-            .filter((s) => typeof s === "string")
-            .filter((s) => KNOWN_CONSENT_SCOPES.has(s))
-        : null;
-      const explicitPersonaConsent =
-        request.body?.voice_suno_persona_consent === true;
-      let consentScopes = null;
-      if (
-        consent_accepted &&
-        (explicitPersonaConsent ||
-          (requestedScopes && requestedScopes.includes(REQUIRED_CONSENT_SCOPE)))
-      ) {
-        consentScopes =
-          requestedScopes && requestedScopes.length
-            ? requestedScopes.join(" ")
-            : REQUIRED_CONSENT_SCOPE;
-      }
+      const consentScopes = resolvePersonaConsentScopes(
+        { ...request.body, consent_version: consent_version || "1.0" },
+        consent_accepted === true,
+      );
       await db
         .prepare(
           "INSERT INTO enrollment_sessions (id, user_id, status, prompt_set_id, prompts_json, chunk_count, quality_metrics, failure_reason, started_at, completed_at, expires_at, consent_version, consent_scopes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -598,7 +662,7 @@ function registerEnrollmentRoutes(app, deps) {
     if (localPath && fs.existsSync(localPath)) {
       if (!resolvedDuration) {
         try {
-          const buffer = fs.readFileSync(localPath);
+          const buffer = await fs.promises.readFile(localPath);
           const wavInfo = parseWavBuffer(buffer);
           resolvedDuration = wavInfo.durationSec;
         } catch (err) {
@@ -891,40 +955,6 @@ function registerEnrollmentRoutes(app, deps) {
         return;
       }
 
-      // Late-grant: a client that didn't include the persona scope at /start
-      // can grant it here. Only writes when the column was previously NULL,
-      // so a prior denial isn't quietly upgraded. Same allowlist as /start.
-      if (!session.consent_scopes) {
-        const KNOWN_CONSENT_SCOPES = new Set([REQUIRED_CONSENT_SCOPE]);
-        const completeScopes = Array.isArray(request.body?.consent_scopes)
-          ? request.body.consent_scopes
-              .filter((s) => typeof s === "string")
-              .filter((s) => KNOWN_CONSENT_SCOPES.has(s))
-          : null;
-        const completePersonaConsent =
-          request.body?.voice_suno_persona_consent === true;
-        let lateScope = null;
-        if (
-          completePersonaConsent ||
-          (completeScopes && completeScopes.includes(REQUIRED_CONSENT_SCOPE))
-        ) {
-          lateScope =
-            completeScopes && completeScopes.length
-              ? completeScopes.join(" ")
-              : REQUIRED_CONSENT_SCOPE;
-        }
-        if (lateScope) {
-          await db
-            .prepare(
-              "UPDATE enrollment_sessions SET consent_scopes = ? WHERE id = ? AND consent_scopes IS NULL",
-            )
-            .run(lateScope, session_id);
-          session = await db
-            .prepare("SELECT * FROM enrollment_sessions WHERE id = ?")
-            .get(session_id);
-        }
-      }
-
       console.log("[Enrollment:complete] START", {
         sessionId: session_id,
         status: session.status,
@@ -937,6 +967,38 @@ function registerEnrollmentRoutes(app, deps) {
           .run("expired", session_id);
         sendError(reply, 410, "SESSION_EXPIRED", "Enrollment session expired.");
         return;
+      }
+      if (session.status !== "recording" && session.status !== "processing") {
+        sendError(
+          reply,
+          409,
+          "SESSION_ALREADY_FINALIZED",
+          "Enrollment session has already been finalized.",
+        );
+        return;
+      }
+
+      // Late-grant: a client that didn't include the persona scope at /start
+      // can grant it here, but only after the session is known valid.
+      if (!session.consent_scopes) {
+        const lateScope = resolvePersonaConsentScopes(
+          {
+            ...request.body,
+            consent_version:
+              request.body?.consent_version || session.consent_version,
+          },
+          true,
+        );
+        if (lateScope) {
+          await db
+            .prepare(
+              "UPDATE enrollment_sessions SET consent_scopes = ? WHERE id = ? AND consent_scopes IS NULL",
+            )
+            .run(lateScope, session_id);
+          session = await db
+            .prepare("SELECT * FROM enrollment_sessions WHERE id = ?")
+            .get(session_id);
+        }
       }
 
       const metrics = parseJson(session.quality_metrics, {});
@@ -1058,10 +1120,12 @@ function registerEnrollmentRoutes(app, deps) {
           Boolean(appConfig.REPLICATE_API_TOKEN) &&
           Boolean(appConfig.REPLICATE_EMBEDDING_MODEL_VERSION);
         const sunoPersonaFlags = await getFeatureFlags(db, [
+          "suno_voice_persona_enabled",
           "suno_voice_persona_model",
           "suno_voice_persona_audio_weight",
         ]);
-        const shouldQueueSunoPersona = true;
+        const shouldQueueSunoPersona =
+          sunoPersonaFlags.suno_voice_persona_enabled !== false;
         // U2: Read consent_scopes (added by migration 098), NOT consent_version
         // (semver). The previous fallback to consent_version was the silent-deny bug.
         const hasProviderConsent = enrollmentSessionHasPersonaConsent(session);
@@ -1095,10 +1159,7 @@ function registerEnrollmentRoutes(app, deps) {
         }
 
         let cleanAudioAccessToken = session.access_token || null;
-        if (
-          (shouldEmbed || (shouldQueueSunoPersona && hasProviderConsent)) &&
-          !cleanAudioAccessToken
-        ) {
+        if (shouldEmbed || (shouldQueueSunoPersona && hasProviderConsent)) {
           cleanAudioAccessToken = crypto.randomBytes(16).toString("hex");
           await db
             .prepare(
@@ -1233,41 +1294,40 @@ function registerEnrollmentRoutes(app, deps) {
           outcome = qualityScore > existingScore ? "upgraded" : "replaced";
         }
 
-        // U14 (review fix): compute vocal window via fs.readFileSync OUTSIDE
-        // the DB transaction. Reading a multi-MB WAV synchronously while
-        // holding a DB connection serializes concurrent enrollment-completes
-        // and adds latency variance to a critical user flow.
+        // Compute vocal window outside the DB transaction so audio parsing does
+        // not hold a transaction open.
+        const shouldEnqueuePersona =
+          shouldQueueSunoPersona && hasProviderConsent && cleanAudioReady;
         const personaVocalWindow =
-          shouldQueueSunoPersona && hasProviderConsent && cleanAudioReady
-            ? deriveVocalWindow(cleanPath)
-            : null;
+          shouldEnqueuePersona ? await deriveVocalWindow(cleanPath) : null;
 
-        await db.transaction(async () => {
-          await db
+        await db.transaction(async (query) => {
+          const txDb = dbFromQuery(query);
+          await txDb
             .prepare(
               "UPDATE enrollment_sessions SET status = ?, completed_at = ? WHERE id = ?",
             )
             .run("completed", nowIso(), session_id);
 
           if (existingProfile) {
-            await cancelVoiceProviderJobsForVoiceProfile(db, {
+            await cancelVoiceProviderJobsForVoiceProfile(txDb, {
               voiceProfileId: existingProfile.id,
               userId,
               reason: "voice_profile_replaced",
             });
-            await softDeleteProviderProfilesForVoiceProfile(db, {
+            await softDeleteProviderProfilesForVoiceProfile(txDb, {
               voiceProfileId: existingProfile.id,
               userId,
               reason: "voice_profile_replaced",
             });
-            await db
+            await txDb
               .prepare(
                 "UPDATE voice_profiles SET status = ?, deleted_at = ? WHERE id = ?",
               )
               .run("deleted", nowIso(), existingProfile.id);
           }
 
-          await db
+          await txDb
             .prepare(
               "INSERT INTO voice_profiles (id, user_id, status, embedding_ref, quality_score, quality_tier, quality_metrics_json, model_version, consent_version, consent_at, last_verified_at, created_at, elevenlabs_voice_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             )
@@ -1289,20 +1349,38 @@ function registerEnrollmentRoutes(app, deps) {
               elevenlabsVoiceId,
             );
 
-          if (
-            shouldQueueSunoPersona &&
-            hasProviderConsent &&
-            !cleanAudioReady
-          ) {
+          if (shouldQueueSunoPersona && hasProviderConsent && !cleanAudioReady) {
+            const providerProfile = await createPendingProviderProfile(txDb, {
+              voiceProfileId: profileId,
+              userId,
+              provider: "suno",
+              consentScope: REQUIRED_CONSENT_SCOPE,
+              metadata: {
+                source: "enrollment",
+                enrollment_session_id: session_id,
+                failure: "source_audio_unavailable",
+              },
+            });
+            await txDb
+              .prepare(
+                "UPDATE voice_provider_profiles SET status = ?, last_error = ?, updated_at = ? WHERE id = ?",
+              )
+              .run(
+                "failed",
+                "source_audio_unavailable",
+                nowIso(),
+                providerProfile.id,
+              );
             providerProfileResult = {
               provider: "suno",
               status: "source_audio_unavailable",
+              id: providerProfile.id,
               job_id: null,
             };
           }
 
-          if (shouldQueueSunoPersona && hasProviderConsent && cleanAudioReady) {
-            const providerProfile = await createPendingProviderProfile(db, {
+          if (shouldEnqueuePersona) {
+            const providerProfile = await createPendingProviderProfile(txDb, {
               voiceProfileId: profileId,
               userId,
               provider: "suno",
@@ -1313,7 +1391,7 @@ function registerEnrollmentRoutes(app, deps) {
                 consent_version: session.consent_version,
               },
             });
-            const providerJob = await createVoiceProviderJob(db, {
+            const providerJob = await createVoiceProviderJob(txDb, {
               voiceProfileId: profileId,
               userId,
               provider: "suno",
@@ -1343,12 +1421,17 @@ function registerEnrollmentRoutes(app, deps) {
             };
           }
 
-          await addAuditEntry({
-            userId,
-            action: "enrollment_completed",
-            resourceType: "voice_profile",
-            resourceId: profileId,
-            metadata: {
+          await txDb
+            .prepare(
+              "INSERT INTO audit_logs (id, user_id, action, resource_type, resource_id, metadata_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            )
+            .run(
+              newUuid(),
+              userId,
+              "enrollment_completed",
+              "voice_profile",
+              profileId,
+              toJson({
               quality_score: qualityScore,
               existing_score: existingProfile ? existingScore : null,
               outcome: outcome,
@@ -1361,8 +1444,9 @@ function registerEnrollmentRoutes(app, deps) {
                     job_id: providerProfileResult.job_id || null,
                   }
                 : null,
-            },
-          });
+              }),
+              nowIso(),
+            );
         });
 
         const tierMeta = getTierMetadata(qualityTier);
@@ -1432,6 +1516,13 @@ function registerEnrollmentRoutes(app, deps) {
     if (!userId) {
       return;
     }
+    const limit = await consumeRateLimit(userId, "voice_profile_delete", 1, 60);
+    if (!limit.allowed) {
+      sendError(reply, 429, "RATE_LIMITED", "Please wait before deleting another voice profile.", {
+        retry_at: limit.reset_at,
+      });
+      return;
+    }
     const profile = await db
       .prepare(
         "SELECT * FROM voice_profiles WHERE user_id = ? AND status != 'deleted' ORDER BY created_at DESC LIMIT 1",
@@ -1451,9 +1542,18 @@ function registerEnrollmentRoutes(app, deps) {
         providerProfile.provider_profile_id &&
         hasPersonaConsentScope(providerProfile.consent_scope),
     );
+    const appBuild = parsePorizoBuild(request.headers["user-agent"]);
+    const legacyClientNeedsPersonaGate =
+      Number.isFinite(appBuild) && appBuild < 110;
+    const responseStatus =
+      legacyClientNeedsPersonaGate &&
+      profile.status === "active" &&
+      !providerProfileReady
+        ? "preparing"
+        : profile.status;
     reply.send({
       profile_id: profile.id,
-      status: profile.status,
+      status: responseStatus,
       quality_score: profile.quality_score,
       created_at: profile.created_at,
       last_verified_at: profile.last_verified_at,

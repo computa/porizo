@@ -127,9 +127,7 @@ function resolveRenderContract({ track, musicPlan, strict = false }) {
   return fallback;
 }
 
-const PERSONALIZED_PIPELINES = new Set([
-  SUNO_VOICE_PERSONA_PIPELINE,
-]);
+const PERSONALIZED_PIPELINES = new Set([SUNO_VOICE_PERSONA_PIPELINE]);
 
 function assertFrozenContract(musicPlan) {
   if (
@@ -323,6 +321,7 @@ function sanitizeLyricsForAllMusicProviders(
 
 module.exports = {
   SUNO_VOICE_PERSONA_PIPELINE,
+  PERSONALIZED_VOICE_MODES,
   normalizeVoiceMode,
   normalizeUserVoiceEngine,
   buildRenderContract,

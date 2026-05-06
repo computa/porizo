@@ -13,11 +13,27 @@ const execFileAsync = promisify(execFile);
 // Never falls back to a public service (httpbin or otherwise).
 // See src/routes/internal-suno-callback.js for the receiving endpoint.
 function resolveSunoCallbackUrl() {
+  const appendToken = (url) => {
+    const secret = String(config.SUNO_CALLBACK_HMAC_SECRET || "");
+    if (!secret) {
+      return url;
+    }
+    if (secret.length < 32) {
+      throw new Error(
+        "E302_SUNO_CALLBACK_NOT_CONFIGURED: SUNO_CALLBACK_HMAC_SECRET must be at least 32 characters",
+      );
+    }
+    const parsed = new URL(url);
+    if (!parsed.searchParams.has("token")) {
+      parsed.searchParams.set("token", secret);
+    }
+    return parsed.toString();
+  };
   if (
     typeof config.SUNO_CALLBACK_URL === "string" &&
     config.SUNO_CALLBACK_URL.trim()
   ) {
-    return config.SUNO_CALLBACK_URL.trim();
+    return appendToken(config.SUNO_CALLBACK_URL.trim());
   }
   const base = (config.PUBLIC_BASE_URL || "").replace(/\/+$/, "");
   if (!base) {
@@ -25,7 +41,7 @@ function resolveSunoCallbackUrl() {
       "E302_SUNO_CALLBACK_NOT_CONFIGURED: SUNO_CALLBACK_URL or PUBLIC_BASE_URL must be set",
     );
   }
-  return `${base}/internal/suno/callback`;
+  return appendToken(`${base}/internal/suno/callback`);
 }
 
 const MERGED_TENS_WORD_REGEX =
@@ -945,6 +961,7 @@ module.exports = {
   normalizeSunoAudioWeight,
   buildSunoPayload,
   generateMusicWithSuno,
+  resolveSunoCallbackUrl,
   submitSunoTask,
   pollSunoTaskOnce,
   downloadSunoAudio,

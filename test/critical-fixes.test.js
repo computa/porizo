@@ -480,7 +480,7 @@ describe("Voice Mode Standardization", () => {
       payload: { voice_mode: "user_voice" },
     });
 
-    assert.equal(patchRes.statusCode, 400);
+    assert.equal(patchRes.statusCode, 422);
     assert.equal(patchRes.json().error, "NO_VOICE_PROFILE");
     assert.equal(patchRes.json().requires_voice_enrollment, true);
   });
@@ -521,7 +521,7 @@ describe("Voice Mode Standardization", () => {
       payload: { voice_mode: "user_voice" },
     });
 
-    assert.equal(patchRes.statusCode, 409);
+    assert.equal(patchRes.statusCode, 422);
     assert.equal(patchRes.json().error, "SUNO_VOICE_PERSONA_SETUP_REQUIRED");
     assert.equal(patchRes.json().requires_voice_enrollment, true);
   });

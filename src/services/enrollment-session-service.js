@@ -12,26 +12,12 @@
  *     revocation behavior is observable.
  */
 
-const crypto = require("node:crypto");
-
 const REVOCATION_EVENT = "enrollment_session_token_revoked";
 
-// Per-process HMAC key for log redaction. When LOG_ID_HMAC_KEY is set, IDs
-// hash consistently across all process instances (good for cross-log
-// forensics). When unset, each process generates its own — IDs hash
-// consistently within a process but rotate on restart, which prevents
-// trivial long-term correlation. NOT a substitute for a real audit log;
-// this is "make IDs unsearchable in journalctl".
-const LOG_ID_HMAC_KEY =
-  process.env.LOG_ID_HMAC_KEY || crypto.randomBytes(16).toString("hex");
-
-function hashIdForLog(id) {
+function redactIdForLog(id) {
   if (typeof id !== "string" || !id) return null;
-  return crypto
-    .createHmac("sha256", LOG_ID_HMAC_KEY)
-    .update(id)
-    .digest("hex")
-    .slice(0, 16);
+  if (id.length <= 8) return "[redacted]";
+  return `${id.slice(0, 4)}…${id.slice(-4)}`;
 }
 
 function logRevocation(scope, sessionId, userId) {
@@ -39,8 +25,8 @@ function logRevocation(scope, sessionId, userId) {
     JSON.stringify({
       event: REVOCATION_EVENT,
       scope,
-      session_id_hmac: hashIdForLog(sessionId),
-      user_id_hmac: hashIdForLog(userId),
+      session_id_redacted: redactIdForLog(sessionId),
+      user_id_redacted: redactIdForLog(userId),
     }),
   );
 }

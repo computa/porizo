@@ -3823,7 +3823,14 @@ function buildServer({
     // variable-length IN clauses (each unique param count creates a new cached entry).
     const placeholders = trackIds.map(() => "?").join(",");
     const { rows: versions } = await db.query(
-      `SELECT * FROM track_versions WHERE track_id IN (${placeholders})`,
+      `SELECT track_id, version_num, cover_image_url, cover_image_small_url, cover_image_large_url
+         FROM track_versions
+        WHERE track_id IN (${placeholders})
+          AND version_num = (
+            SELECT MAX(tv2.version_num)
+              FROM track_versions tv2
+             WHERE tv2.track_id = track_versions.track_id
+          )`,
       trackIds,
     );
 
@@ -4305,14 +4312,14 @@ function buildServer({
           );
           return;
         }
-        // Convert Web ReadableStream to Buffer for Fastify compatibility
-        const buffer = Buffer.from(await r2Response.arrayBuffer());
         reply.status(r2Response.status);
         reply.header(
           "Content-Type",
           r2Response.headers.get("content-type") || contentType || "audio/mp4",
         );
-        reply.header("Content-Length", buffer.length);
+        if (r2Response.headers.get("content-length")) {
+          reply.header("Content-Length", r2Response.headers.get("content-length"));
+        }
         if (r2Response.headers.get("content-range")) {
           reply.header(
             "Content-Range",
@@ -4321,7 +4328,8 @@ function buildServer({
         }
         reply.header("Accept-Ranges", "bytes");
         reply.header("Cache-Control", "public, max-age=3600");
-        reply.send(buffer);
+        const { Readable } = require("node:stream");
+        reply.send(Readable.fromWeb(r2Response.body));
       } catch (err) {
         console.error(
           `[serveTrackAudio] R2 proxy failed for ${s3Key}:`,
@@ -4806,6 +4814,20 @@ async function start() {
   ensureDir(config.STORAGE_DIR);
   // DEV_MODE disables all live providers (uses placeholders instead)
   const liveEnabled = config.LIVE_PROVIDERS && !config.DEV_MODE;
+  if (liveEnabled) {
+    if (!/^https:\/\/(?!localhost|127\.0\.0\.1)/i.test(config.PUBLIC_BASE_URL || "")) {
+      throw new Error(
+        "PUBLIC_BASE_URL must be https and not localhost when LIVE_PROVIDERS=true",
+      );
+    }
+    if (!config.SUNO_CALLBACK_HMAC_SECRET) {
+      console.warn(
+        "SUNO_CALLBACK_HMAC_SECRET is unset; Suno callbacks are disabled.",
+      );
+    } else if (config.SUNO_CALLBACK_HMAC_SECRET.length < 32) {
+      throw new Error("SUNO_CALLBACK_HMAC_SECRET must be at least 32 characters");
+    }
+  }
   // Env fallback default. Runtime default can be changed via admin app_config.
   const musicProvider = config.MUSIC_PROVIDER || "suno";
   const providerConfig = {

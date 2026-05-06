@@ -678,7 +678,7 @@ describe("Suno voice persona service", () => {
         "SELECT status, provider_profile_id, last_error FROM voice_provider_profiles WHERE id = ?",
       )
       .get(providerProfile.id);
-    assert.equal(profile.status, "failed");
+    assert.equal(profile.status, "manual_cleanup_required");
     assert.equal(profile.provider_profile_id, "persona_live_after_delete");
     assert.match(
       profile.last_error,

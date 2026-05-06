@@ -4,7 +4,6 @@ const { describe, test } = require("node:test");
 const {
   buildGeneratePersonaPayload,
   buildUploadCoverPayload,
-  createPersonaFromSourceUrl,
   extractSunoAudioId,
   generatePersona,
   submitUploadCoverTask,
@@ -223,57 +222,6 @@ describe("Suno persona provider", () => {
     assert.equal(result.personaId, "persona_live_789");
   });
 
-  test("orchestrates upload, cover, audio polling, and persona creation with callbacks", async () => {
-    const callbacks = [];
-    const responses = [
-      {
-        success: true,
-        code: 200,
-        data: { downloadUrl: "https://temp.example/clean.wav" },
-      },
-      { code: 200, msg: "success", data: { taskId: "task_123" } },
-      { code: 200, msg: "success", data: { personaId: "persona_live_789" } },
-    ];
-    const result = await createPersonaFromSourceUrl({
-      baseUrl: "https://api.sunoapi.org",
-      uploadBaseUrl: "https://files.example",
-      apiKey: "secret",
-      sourceUrl: "https://porizo.example/clean.wav?token=secret",
-      personaName: "Porizo Voice",
-      personaDescription: "Consented voice persona",
-      callBackUrl: "https://porizo.test/internal/suno/callback",
-      pollingOptions: {
-        maxAttempts: 1,
-        initialIntervalMs: 1,
-        maxIntervalMs: 1,
-        jitterPct: 0,
-      },
-      fetchJsonFn: async () => responses.shift(),
-      pollTaskOnceFn: async () => ({
-        status: "SUCCESS",
-        response: {
-          data: {
-            response: {
-              sunoData: [
-                {
-                  id: "audio_456",
-                  sourceAudioUrl: "https://cdn.example/audio.mp3",
-                },
-              ],
-            },
-          },
-        },
-      }),
-      onFileUploaded: async () => callbacks.push("uploaded"),
-      onCoverSubmitted: async () => callbacks.push("cover"),
-      onAudioReady: async () => callbacks.push("audio"),
-    });
-
-    assert.deepEqual(callbacks, ["uploaded", "cover", "audio"]);
-    assert.equal(result.cover.taskId, "task_123");
-    assert.equal(result.audio.audioId, "audio_456");
-    assert.equal(result.persona.personaId, "persona_live_789");
-  });
 
   test("validates generate-persona time range and required fields", () => {
     const payload = buildGeneratePersonaPayload({

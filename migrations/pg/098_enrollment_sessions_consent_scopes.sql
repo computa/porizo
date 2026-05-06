@@ -6,29 +6,20 @@
 -- silent-deny bug behind the Suno persona consent gate.
 --
 -- This migration adds a dedicated `consent_scopes` column for scope-list storage
--- (e.g. "voice_suno_persona_v1" or a JSON array of scopes), and backfills it for
--- existing rows from the most recent voice_provider_profiles.consent_scope per user.
+-- (e.g. "voice_suno_persona_v1" or a JSON array of scopes).
 --
 -- After this migration, U2's enrollmentSessionHasPersonaConsent reads consent_scopes;
 -- consent_version remains for backward compatibility but is no longer treated as a scope.
+-- Existing rows intentionally remain NULL. Persona consent is granted only by an
+-- enrollment request payload, not by retroactively copying provider rows.
 
 ALTER TABLE enrollment_sessions
   ADD COLUMN IF NOT EXISTS consent_scopes TEXT;
 
--- Backfill: for each enrollment_session with NULL consent_scopes, copy the most
--- recent (and non-null) consent_scope from a matching voice_provider_profiles row
--- for the same user. If the user has no voice_provider_profiles with a non-null
--- scope, consent_scopes stays NULL — fail-secure (U2 will deny consent).
-UPDATE enrollment_sessions es
-SET consent_scopes = sub.consent_scope
-FROM (
-  SELECT DISTINCT ON (vpp.user_id)
-    vpp.user_id,
-    vpp.consent_scope
-  FROM voice_provider_profiles vpp
-  WHERE vpp.consent_scope IS NOT NULL
-    AND vpp.deleted_at IS NULL
-  ORDER BY vpp.user_id, vpp.created_at DESC
-) sub
-WHERE es.user_id = sub.user_id
-  AND es.consent_scopes IS NULL;
+ALTER TABLE enrollment_sessions
+  DROP CONSTRAINT IF EXISTS enrollment_sessions_consent_scopes_format;
+
+ALTER TABLE enrollment_sessions
+  ADD CONSTRAINT enrollment_sessions_consent_scopes_format
+  CHECK (consent_scopes IS NULL OR consent_scopes LIKE '[%' OR consent_scopes = 'voice_suno_persona_v1')
+  NOT VALID;

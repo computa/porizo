@@ -25,10 +25,16 @@ function sanitizeProviderError(input) {
     .replace(/\bpersona[_-][A-Za-z0-9_-]+/gi, "persona_[redacted]")
     .replace(/\btask[_-][A-Za-z0-9_-]+/gi, "task_[redacted]")
     .replace(/\baudio[_-][A-Za-z0-9_-]+/gi, "audio_[redacted]")
+    .replace(/\bsk-[A-Za-z0-9_-]{16,}/g, "sk-[redacted]")
+    .replace(
+      /\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g,
+      "[redacted_jwt]",
+    )
+    .replace(/\b[a-z]+_[A-Za-z0-9]{20,}\b/g, "[redacted_provider_id]")
+    .replace(/\b[A-Fa-f0-9]{32,}\b/g, "[redacted_hex_id]")
     .slice(0, MAX_LENGTH);
 }
 
 module.exports = {
   sanitizeProviderError,
-  MAX_LENGTH,
 };

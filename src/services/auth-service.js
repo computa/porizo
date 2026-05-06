@@ -376,13 +376,16 @@ async function rotateRefreshToken(oldRawToken) {
           // Within grace period but no replacement token - likely a failed/interrupted refresh
           // Allow this token to be reused (un-revoke it and proceed normally)
           // This handles edge cases like server crash during token rotation
-          authLogger.info(
+          authLogger.warn(
             {
+              audit_event: "refresh_token_grace_unrevoke",
+              severity: "HIGH",
               timeSinceRevocation,
               hasReplacement: false,
               tokenId: oldToken.id,
+              tokenFamily: oldToken.token_family,
             },
-            "Token reuse within grace period - no replacement, allowing reuse",
+            "Token reuse within grace period - no replacement, allowing reuse after high-severity audit event",
           );
           await db
             .prepare("UPDATE refresh_tokens SET revoked_at = NULL WHERE id = ?")

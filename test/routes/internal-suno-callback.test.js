@@ -15,7 +15,7 @@ const {
   registerInternalSunoCallbackRoutes,
 } = require("../../src/routes/internal-suno-callback");
 
-const TEST_SECRET = "test_hmac_secret_abc123";
+const TEST_SECRET = "test_hmac_secret_abc123_32_chars_min";
 
 function signBody(secret, body) {
   return crypto
@@ -159,6 +159,49 @@ describe("POST /internal/suno/callback (U18)", () => {
         headers: {
           "content-type": "application/json",
           "x-suno-signature": "abcd", // far too short
+        },
+        payload: body,
+      });
+      assert.equal(res.statusCode, 401);
+    } finally {
+      await app.close();
+    }
+  });
+
+  test("returns 401 when signature is empty or non-hex", async () => {
+    const app = buildApp();
+    await app.ready();
+    try {
+      for (const signature of ["", "not-hex"]) {
+        const body = JSON.stringify({ hello: "world", signature });
+        const res = await app.inject({
+          method: "POST",
+          url: "/internal/suno/callback",
+          headers: {
+            "content-type": "application/json",
+            "x-suno-signature": signature,
+          },
+          payload: body,
+        });
+        assert.equal(res.statusCode, 401);
+      }
+    } finally {
+      await app.close();
+    }
+  });
+
+  test("returns 401 when signature has correct length but wrong bytes", async () => {
+    const app = buildApp();
+    await app.ready();
+    try {
+      const body = JSON.stringify({ hello: "world" });
+      const wrongSig = "f".repeat(64);
+      const res = await app.inject({
+        method: "POST",
+        url: "/internal/suno/callback",
+        headers: {
+          "content-type": "application/json",
+          "x-suno-signature": wrongSig,
         },
         payload: body,
       });

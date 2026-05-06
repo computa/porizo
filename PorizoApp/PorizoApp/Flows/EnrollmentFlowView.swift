@@ -24,14 +24,11 @@ struct EnrollmentFlowView: View {
 
     @State private var currentStep: EnrollmentStep = .welcome
     @State private var sessionId: String?
-    @State private var promptSetId: String?
     @State private var prompts: [EnrollmentPrompt] = []
     @State private var currentPromptIndex: Int = 0
-    @State private var recordingSettings: RecordingSettings?
     @State private var uploadedChunkIds: Set<String> = []
     @State private var uploadUrlsByChunkId: [String: UploadURL] = [:]
     @State private var qualityScore: Int?
-    @State private var consentGranted = false
 
     @State private var isLoading = false
     @State private var showingError = false
@@ -45,6 +42,7 @@ struct EnrollmentFlowView: View {
     @State private var enrollmentTask: Task<Void, Never>?
     @State private var pollingTask: Task<Void, Never>?
     @State private var countdownTask: Task<Void, Never>?
+    @State private var uploadTask: Task<Void, Never>?
 
     // Countdown timer state
     @State private var countdownSeconds: Int = 0
@@ -93,6 +91,7 @@ struct EnrollmentFlowView: View {
             enrollmentTask?.cancel()
             pollingTask?.cancel()
             countdownTask?.cancel()
+            uploadTask?.cancel()
             if recorder.isRecording {
                 _ = recorder.stopRecording()
             }
@@ -180,7 +179,6 @@ struct EnrollmentFlowView: View {
             // CTA
             VStack(spacing: DesignTokens.spacing16) {
                 Button {
-                    consentGranted = true
                     startEnrollment()
                 } label: {
                     Text("Start Recording")
@@ -527,9 +525,7 @@ struct EnrollmentFlowView: View {
                 }
                 await MainActor.run {
                     sessionId = response.sessionId
-                    promptSetId = response.promptSetId
                     prompts = response.prompts ?? []
-                    recordingSettings = response.recordingSettings
                     uploadUrlsByChunkId = Dictionary(
                         uniqueKeysWithValues: (response.uploadUrls ?? []).map { ($0.chunkId, $0) }
                     )
@@ -595,19 +591,23 @@ struct EnrollmentFlowView: View {
 
         let prompt = prompts[currentPromptIndex]
         guard let uploadUrl = uploadUrlsByChunkId[prompt.id] else {
-            errorMessage = "Missing upload URL for this prompt. Please restart enrollment."
-            showingError = true
+            startEnrollment()
             return
         }
 
         isLoading = true
-        Task {
+        uploadTask?.cancel()
+        uploadTask = Task {
             do {
-                let data = try Data(contentsOf: url)
+                let (data, checksum) = try await Task.detached(priority: .userInitiated) {
+                    let data = try Data(contentsOf: url)
+                    let checksum = SHA256.hash(data: data)
+                        .map { String(format: "%02x", $0) }
+                        .joined()
+                    return (data, checksum)
+                }.value
+                guard !Task.isCancelled else { return }
                 let durationSec = recorder.recordingDuration() ?? max(0.1, recorder.duration)
-                let checksum = SHA256.hash(data: data)
-                    .map { String(format: "%02x", $0) }
-                    .joined()
                 let response = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "uploadChunk") {
                     try await apiClient.uploadChunk(
                         sessionId: sessionId,
@@ -619,9 +619,14 @@ struct EnrollmentFlowView: View {
                     )
                 }
 
+                guard !Task.isCancelled else { return }
                 await MainActor.run {
+                    guard !Task.isCancelled else { return }
                     if response.status == "accepted" {
                         uploadedChunkIds.insert(prompt.id)
+                    }
+                    if let nextUploadUrl = response.nextUploadUrl {
+                        uploadUrlsByChunkId[nextUploadUrl.chunkId] = nextUploadUrl
                     }
                     recorder.deleteRecording()
                     isLoading = false
@@ -635,6 +640,7 @@ struct EnrollmentFlowView: View {
                 }
             } catch {
                 await MainActor.run {
+                    guard !Task.isCancelled else { return }
                     errorMessage = error.localizedDescription
                     showingError = true
                     isLoading = false
@@ -650,6 +656,7 @@ struct EnrollmentFlowView: View {
             currentStep = .processing
         }
 
+        pollingTask?.cancel()
         pollingTask = Task {
             do {
                 let result = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "completeEnrollment") {
@@ -676,7 +683,7 @@ struct EnrollmentFlowView: View {
                 }
 
                 // Fallback: poll for profile if score wasn't in the response
-                await pollForVoiceProfile()
+                await pollForVoiceProfile(estimatedCompletionSec: result.estimatedCompletionSec)
             } catch {
                 guard !Task.isCancelled else { return }
                 await MainActor.run {
@@ -688,10 +695,12 @@ struct EnrollmentFlowView: View {
         }
     }
 
-    private func pollForVoiceProfile() async {
+    private func pollForVoiceProfile(estimatedCompletionSec: Int? = nil) async {
         var consecutiveFailures = 0
+        let maxSeconds = max(60, (estimatedCompletionSec ?? 60) * 2)
+        let attempts = max(30, maxSeconds / 2)
 
-        for _ in 0..<60 { // 2 minutes max
+        for _ in 0..<attempts {
             // Check for cancellation before sleeping
             guard !Task.isCancelled else { return }
 
@@ -727,7 +736,7 @@ struct EnrollmentFlowView: View {
                     await MainActor.run {
                         errorMessage = "Unable to verify voice profile. Please check your connection and try again."
                         showingError = true
-                        currentStep = .welcome
+                        dismiss()
                     }
                     return
                 }
@@ -738,9 +747,9 @@ struct EnrollmentFlowView: View {
         // Timeout (only show if not cancelled)
         guard !Task.isCancelled else { return }
         await MainActor.run {
-            errorMessage = "Voice profile processing timed out. Please try again."
+            errorMessage = "Voice profile is still processing. You can check back from Settings."
             showingError = true
-            currentStep = .welcome
+            dismiss()
         }
     }
 }

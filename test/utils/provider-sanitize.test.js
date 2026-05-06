@@ -1,10 +1,7 @@
 const assert = require("node:assert/strict");
 const { describe, test } = require("node:test");
 
-const {
-  sanitizeProviderError,
-  MAX_LENGTH,
-} = require("../../src/utils/provider-sanitize");
+const { sanitizeProviderError } = require("../../src/utils/provider-sanitize");
 
 describe("provider-sanitize (U5)", () => {
   test("redacts Bearer tokens", () => {
@@ -35,8 +32,17 @@ describe("provider-sanitize (U5)", () => {
   test("U5: caps output at 1000 characters (regression guard for missing-cap asymmetry)", () => {
     const longInput = "x".repeat(2500);
     const result = sanitizeProviderError(longInput);
-    assert.equal(result.length, MAX_LENGTH);
-    assert.equal(MAX_LENGTH, 1000);
+    assert.equal(result.length, 1000);
+  });
+
+  test("redacts generic provider IDs, API keys, JWTs, and long hex IDs", () => {
+    const result = sanitizeProviderError(
+      "sk-live_secret1234567890 persona abcdefabcdefabcdefabcdefabcdefab eyJabc.def.ghi task_abcdefghijklmnopqrst",
+    );
+    assert.doesNotMatch(result, /sk-live_secret/);
+    assert.doesNotMatch(result, /abcdefabcdef/);
+    assert.doesNotMatch(result, /eyJabc/);
+    assert.doesNotMatch(result, /task_abcdefghijklmnopqrst/);
   });
 
   test("returns 'unknown_error' for null/undefined input", () => {

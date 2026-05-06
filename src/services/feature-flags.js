@@ -82,6 +82,7 @@ const DEFAULTS = {
   'voice_conversion_provider': 'seedvc',
   'suno_voice_persona_model': 'V5_5',
   'suno_voice_persona_persona_model': 'voice_persona',
+  'suno_voice_persona_enabled': true,
   // Used by the persona preparation cover/upload path, not the final generate request.
   'suno_voice_persona_audio_weight': 0.85,
   // ElevenLabs Voice Changer settings
@@ -421,6 +422,12 @@ const FLAG_METADATA = {
     max: 1.0,
     step: 0.05,
   },
+  'suno_voice_persona_enabled': {
+    category: 'voice_conversion',
+    label: 'Suno Voice Persona Enabled',
+    description: 'Backend kill switch for queueing Suno voice-persona profile creation.',
+    type: 'boolean',
+  },
   'my_voice_enabled': {
     category: 'voice_conversion',
     label: 'My Voice Option Enabled',
@@ -613,9 +620,16 @@ async function getFeatureFlags(db, flagIds, { throwOnError = false } = {}) {
 
   try {
     const placeholders = flagIds.map(() => '?').join(',');
-    const rows = await db.prepare(
+    const statement = db.prepare(
       `SELECT id, value FROM feature_flags WHERE id IN (${placeholders})`
-    ).all(...flagIds);
+    );
+    if (typeof statement.all !== "function") {
+      for (const flagId of flagIds) {
+        result[flagId] = await getFeatureFlag(db, flagId, { throwOnError });
+      }
+      return result;
+    }
+    const rows = await statement.all(...flagIds);
 
     const dbValues = new Map();
     const now = Date.now();

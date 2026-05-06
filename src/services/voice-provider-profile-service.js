@@ -14,6 +14,7 @@ const STATUS = Object.freeze({
   PERSONA_SUBMITTED: "persona_submitted",
   ACTIVE: "active",
   FAILED: "failed",
+  MANUAL_CLEANUP_REQUIRED: "manual_cleanup_required",
   CANCELLED: "cancelled",
   DELETED: "deleted",
 });
@@ -132,12 +133,14 @@ async function markProviderProfileUploadSubmitted(
   { sourceUploadUrl, metadata = null } = {},
 ) {
   const updatedAt = nowIso();
-  await db
+  const result = await db
     .prepare(
       `UPDATE voice_provider_profiles
         SET status = ?, source_upload_url = ?, metadata_json = COALESCE(?, metadata_json),
             last_error = NULL, updated_at = ?
-      WHERE id = ? AND deleted_at IS NULL`,
+      WHERE id = ?
+        AND deleted_at IS NULL
+        AND status IN ('pending', 'upload_submitted')`,
     )
     .run(
       STATUS.UPLOAD_SUBMITTED,
@@ -146,6 +149,9 @@ async function markProviderProfileUploadSubmitted(
       updatedAt,
       requireField(id, "id"),
     );
+  if (!result?.changes) {
+    throw new Error("VOICE_PROVIDER_PROFILE_INVALID_TRANSITION: upload_submitted");
+  }
   return getProviderProfileById(db, id);
 }
 
@@ -155,14 +161,16 @@ async function markProviderProfileCoverSubmitted(
   { sourceTaskId, model = null, metadata = null } = {},
 ) {
   const updatedAt = nowIso();
-  await db
+  const result = await db
     .prepare(
       `UPDATE voice_provider_profiles
-        SET status = ?, source_task_id = ?, source_upload_url = NULL,
+        SET status = ?, source_task_id = ?,
             model = COALESCE(?, model),
             metadata_json = COALESCE(?, metadata_json), last_error = NULL,
             updated_at = ?
-      WHERE id = ? AND deleted_at IS NULL`,
+      WHERE id = ?
+        AND deleted_at IS NULL
+        AND status IN ('upload_submitted', 'cover_submitted')`,
     )
     .run(
       // U9: store COVER_SUBMITTED (was UPLOAD_SUBMITTED — wrong status for
@@ -174,6 +182,9 @@ async function markProviderProfileCoverSubmitted(
       updatedAt,
       requireField(id, "id"),
     );
+  if (!result?.changes) {
+    throw new Error("VOICE_PROVIDER_PROFILE_INVALID_TRANSITION: cover_submitted");
+  }
   return getProviderProfileById(db, id);
 }
 
@@ -183,12 +194,14 @@ async function markProviderProfilePersonaSubmitted(
   { sourceTaskId, sourceAudioId, model = null, metadata = null } = {},
 ) {
   const updatedAt = nowIso();
-  await db
+  const result = await db
     .prepare(
       `UPDATE voice_provider_profiles
         SET status = ?, source_task_id = ?, source_audio_id = ?, source_upload_url = NULL, model = ?,
             metadata_json = COALESCE(?, metadata_json), last_error = NULL, updated_at = ?
-      WHERE id = ? AND deleted_at IS NULL`,
+      WHERE id = ?
+        AND deleted_at IS NULL
+        AND status IN ('upload_submitted', 'cover_submitted', 'persona_submitted')`,
     )
     .run(
       STATUS.PERSONA_SUBMITTED,
@@ -199,6 +212,9 @@ async function markProviderProfilePersonaSubmitted(
       updatedAt,
       requireField(id, "id"),
     );
+  if (!result?.changes) {
+    throw new Error("VOICE_PROVIDER_PROFILE_INVALID_TRANSITION: persona_submitted");
+  }
   return getProviderProfileById(db, id);
 }
 
@@ -208,13 +224,15 @@ async function markProviderProfileActive(
   { providerProfileId, model = null, metadata = null } = {},
 ) {
   const updatedAt = nowIso();
-  await db
+  const result = await db
     .prepare(
       `UPDATE voice_provider_profiles
         SET status = ?, provider_profile_id = ?, model = COALESCE(?, model),
             metadata_json = COALESCE(?, metadata_json), last_error = NULL,
             activated_at = ?, updated_at = ?
-      WHERE id = ? AND deleted_at IS NULL`,
+      WHERE id = ?
+        AND deleted_at IS NULL
+        AND status IN ('persona_submitted', 'active')`,
     )
     .run(
       STATUS.ACTIVE,
@@ -225,6 +243,9 @@ async function markProviderProfileActive(
       updatedAt,
       requireField(id, "id"),
     );
+  if (!result?.changes) {
+    throw new Error("VOICE_PROVIDER_PROFILE_INVALID_TRANSITION: active");
+  }
   return getProviderProfileById(db, id);
 }
 
@@ -232,18 +253,26 @@ async function markProviderProfileFailed(
   db,
   id,
   error,
-  { metadata = null } = {},
+  {
+    metadata = null,
+    providerProfileId = null,
+    includeDeleted = false,
+    status = STATUS.FAILED,
+  } = {},
 ) {
   const updatedAt = nowIso();
+  const deletedClause = includeDeleted ? "" : "AND deleted_at IS NULL";
   await db
     .prepare(
       `UPDATE voice_provider_profiles
-        SET status = ?, last_error = ?, metadata_json = COALESCE(?, metadata_json),
+        SET status = ?, provider_profile_id = COALESCE(?, provider_profile_id),
+            last_error = ?, metadata_json = COALESCE(?, metadata_json),
             updated_at = ?
-      WHERE id = ? AND deleted_at IS NULL`,
+      WHERE id = ? ${deletedClause}`,
     )
     .run(
-      STATUS.FAILED,
+      status,
+      providerProfileId || null,
       sanitizeProviderError(error),
       toJson(metadata),
       updatedAt,
@@ -257,24 +286,44 @@ async function markProviderProfileManualCleanupRequired(
   id,
   { providerProfileId, error, metadata = null } = {},
 ) {
-  const updatedAt = nowIso();
-  await db
-    .prepare(
-      `UPDATE voice_provider_profiles
-        SET status = ?, provider_profile_id = COALESCE(?, provider_profile_id),
-            last_error = ?, metadata_json = COALESCE(?, metadata_json),
-            updated_at = ?
-      WHERE id = ?`,
-    )
-    .run(
-      STATUS.FAILED,
-      providerProfileId || null,
-      sanitizeProviderError(error || "remote_persona_manual_cleanup_required"),
-      toJson(metadata),
-      updatedAt,
-      requireField(id, "id"),
-    );
-  return getProviderProfileById(db, id);
+  const profile = await markProviderProfileFailed(
+    db,
+    id,
+    error || "remote_persona_manual_cleanup_required",
+    {
+      providerProfileId,
+      includeDeleted: true,
+      metadata,
+      status: STATUS.MANUAL_CLEANUP_REQUIRED,
+    },
+  );
+  if (profile) {
+    try {
+      await db
+        .prepare(
+          "INSERT INTO audit_logs (id, user_id, action, resource_type, resource_id, metadata_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        )
+        .run(
+          generatePrefixedId("aud", 12),
+          profile.user_id || null,
+          "voice_provider_manual_cleanup_required",
+          "voice_provider_profile",
+          profile.id,
+          toJson({
+            provider: profile.provider,
+            provider_profile_id: providerProfileId || profile.provider_profile_id,
+            error: sanitizeProviderError(
+              error || "remote_persona_manual_cleanup_required",
+            ),
+            metadata,
+          }),
+          nowIso(),
+        );
+    } catch (_err) {
+      // Best-effort audit trail; the profile status is the source of truth.
+    }
+  }
+  return profile;
 }
 
 async function softDeleteProviderProfilesForVoiceProfile(
@@ -380,6 +429,18 @@ async function markVoiceProviderJobRunning(db, id, { lockedBy = null } = {}) {
     return null;
   }
   return getVoiceProviderJobById(db, id);
+}
+
+async function markVoiceProviderJobStep(db, id, step) {
+  const updatedAt = nowIso();
+  const result = await db
+    .prepare(
+      `UPDATE voice_provider_jobs
+        SET step = ?, updated_at = ?
+      WHERE id = ? AND status = ?`,
+    )
+    .run(step, updatedAt, requireField(id, "id"), "running");
+  return result?.changes ?? result?.rowCount ?? 0;
 }
 
 async function recoverStaleVoiceProviderJobs(
@@ -503,7 +564,7 @@ async function cancelVoiceProviderJobsForVoiceProfile(
     .prepare(
       `UPDATE voice_provider_jobs
         SET status = ?, last_error = ?, locked_at = NULL, locked_by = NULL,
-            cancelled_at = ?, updated_at = ?
+            cancellation_requested_at = ?, cancelled_at = ?, updated_at = ?
       WHERE voice_profile_id = ?
         AND user_id = ?
         AND status IN ('pending', 'running')`,
@@ -511,6 +572,7 @@ async function cancelVoiceProviderJobsForVoiceProfile(
     .run(
       STATUS.CANCELLED,
       sanitizeProviderError(reason),
+      updatedAt,
       updatedAt,
       updatedAt,
       requireField(voiceProfileId, "voiceProfileId"),
@@ -535,6 +597,7 @@ module.exports = {
   createVoiceProviderJob,
   getVoiceProviderJobById,
   markVoiceProviderJobRunning,
+  markVoiceProviderJobStep,
   markVoiceProviderJobCompleted,
   markVoiceProviderJobFailed,
   recoverStaleVoiceProviderJobs,

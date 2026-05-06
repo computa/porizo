@@ -851,8 +851,22 @@ final class RenderController {
         // yet active. Without a dedicated branch this falls through to the
         // catch-all and surfaces as ("infra_terminal","retry") — wrong UX
         // because retrying changes nothing while the persona is preparing.
-        if normalizedCode == "SUNO_PERSONA_NOT_READY" {
+        if normalizedCode == "SUNO_PERSONA_NOT_READY" ||
+            normalizedCode == "E302_SUNO_PERSONA_NOT_READY" ||
+            normalizedCode == "SUNO_VOICE_PERSONA_REQUIRED" {
             return ("input_missing", "wait_for_persona", false, "suno")
+        }
+
+        if normalizedCode == "E302_SUNO_PERSONA_CONSENT_REQUIRED" ||
+            normalizedCode == "E302_SUNO_PERSONA_REQUIRED" ||
+            normalizedCode == "E302_VOICE_PROFILE_REQUIRED" ||
+            normalizedCode == "E302_SUNO_PERSONA_PROFILE_MISSING" {
+            return ("input_missing", "enroll_voice", false, "suno")
+        }
+
+        if normalizedCode == "E302_PERSONALIZED_VOICE_CONVERSION_DISABLED" ||
+            normalizedCode == "E302_SUNO_PERSONA_FAILED" {
+            return ("input_missing", "switch_voice_mode", false, "suno")
         }
 
         if normalizedCode == "DAILY_LIMIT_REACHED" || lowercased.contains("daily preview limit reached") {

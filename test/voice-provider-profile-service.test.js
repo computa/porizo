@@ -95,6 +95,14 @@ describe("voice provider profile service", () => {
       userId: "user_1",
       provider: "suno",
     });
+    await markProviderProfileUploadSubmitted(db, pending.id, {
+      sourceUploadUrl: "https://files.example.com/ref.wav",
+    });
+    await markProviderProfilePersonaSubmitted(db, pending.id, {
+      sourceTaskId: "task_123",
+      sourceAudioId: "audio_456",
+      model: "V5_5",
+    });
     await markProviderProfileActive(db, pending.id, {
       providerProfileId: "persona_live_789",
     });

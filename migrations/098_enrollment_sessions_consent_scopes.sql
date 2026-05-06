@@ -8,18 +8,7 @@
 --     already-applied migrations via `schema_migrations`, so this is safe on first apply.
 --     Manual re-runs against an existing column will fail; that's acceptable per the
 --     migration-runner contract.
---   - SQLite does not support DISTINCT ON; use a correlated subquery instead.
+-- Existing rows intentionally remain NULL. Persona consent is granted only by
+-- an enrollment request payload, not by retroactively copying provider rows.
 
 ALTER TABLE enrollment_sessions ADD COLUMN consent_scopes TEXT;
-
-UPDATE enrollment_sessions
-SET consent_scopes = (
-  SELECT vpp.consent_scope
-  FROM voice_provider_profiles vpp
-  WHERE vpp.user_id = enrollment_sessions.user_id
-    AND vpp.consent_scope IS NOT NULL
-    AND vpp.deleted_at IS NULL
-  ORDER BY vpp.created_at DESC
-  LIMIT 1
-)
-WHERE consent_scopes IS NULL;

@@ -1,5 +1,7 @@
 const fs = require("fs");
 const path = require("path");
+const { Readable } = require("stream");
+const { pipeline } = require("stream/promises");
 
 function ensureDir(dirPath) {
   fs.mkdirSync(dirPath, { recursive: true });
@@ -108,33 +110,43 @@ const MIN_AUDIO_SIZE = {
   default: 100, // Fallback minimum
 };
 
-function validateAudioIntegrity(buffer, outputPath) {
+async function validateDownloadedAudioFile(outputPath) {
+  const stat = await fs.promises.stat(outputPath);
   const ext = path.extname(outputPath).toLowerCase().slice(1);
   const minSize = MIN_AUDIO_SIZE[ext] || MIN_AUDIO_SIZE.default;
-
-  // Check minimum size
-  if (buffer.length < minSize) {
-    throw new Error(`download_error:corrupted:File too small (${buffer.length} bytes, expected >=${minSize})`);
+  if (stat.size < minSize) {
+    throw new Error(
+      `download_error:corrupted:File too small (${stat.size} bytes, expected >=${minSize})`,
+    );
   }
-
-  // Check for HTML error page (common server misconfiguration)
-  const firstBytes = buffer.slice(0, 15).toString("utf8").toLowerCase();
-  if (firstBytes.includes("<!doctype") || firstBytes.includes("<html")) {
-    throw new Error("download_error:corrupted:Server returned HTML instead of audio");
-  }
-
-  // Validate magic bytes for common formats - throw on invalid headers
-  if (ext === "mp3") {
-    const isId3 = buffer[0] === 0x49 && buffer[1] === 0x44 && buffer[2] === 0x33;
-    const isFrame = buffer[0] === 0xff && (buffer[1] & 0xe0) === 0xe0;
-    if (!isId3 && !isFrame) {
-      throw new Error(`download_error:corrupted:MP3 file has invalid header (got 0x${buffer[0].toString(16)} 0x${buffer[1].toString(16)})`);
+  const fd = await fs.promises.open(outputPath, "r");
+  try {
+    const header = Buffer.alloc(15);
+    await fd.read(header, 0, header.length, 0);
+    const firstBytes = header.toString("utf8").toLowerCase();
+    if (firstBytes.includes("<!doctype") || firstBytes.includes("<html")) {
+      throw new Error(
+        "download_error:corrupted:Server returned HTML instead of audio",
+      );
     }
-  } else if (ext === "wav") {
-    const isRiff = buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46;
-    if (!isRiff) {
-      throw new Error(`download_error:corrupted:WAV file missing RIFF header`);
+    if (ext === "mp3") {
+      const isId3 = header[0] === 0x49 && header[1] === 0x44 && header[2] === 0x33;
+      const isFrame = header[0] === 0xff && (header[1] & 0xe0) === 0xe0;
+      if (!isId3 && !isFrame) {
+        throw new Error("download_error:corrupted:MP3 file has invalid header");
+      }
+    } else if (ext === "wav") {
+      const isRiff =
+        header[0] === 0x52 &&
+        header[1] === 0x49 &&
+        header[2] === 0x46 &&
+        header[3] === 0x46;
+      if (!isRiff) {
+        throw new Error("download_error:corrupted:WAV file missing RIFF header");
+      }
     }
+  } finally {
+    await fd.close();
   }
 }
 
@@ -153,13 +165,9 @@ async function downloadToFile(url, outputPath, timeoutMs) {
     const text = await response.text();
     throw new Error(`download_error:${response.status}:${text}`);
   }
-  const buffer = Buffer.from(await response.arrayBuffer());
-
-  // Validate audio integrity before saving
-  validateAudioIntegrity(buffer, outputPath);
-
   ensureDir(path.dirname(outputPath));
-  fs.writeFileSync(outputPath, buffer);
+  await pipeline(Readable.fromWeb(response.body), fs.createWriteStream(outputPath));
+  await validateDownloadedAudioFile(outputPath);
 }
 
 module.exports = {

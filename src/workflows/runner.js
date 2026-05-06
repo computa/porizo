@@ -93,6 +93,7 @@ const {
   isProviderCompleteAudioPipeline,
   isSunoVoicePersonaPipeline,
   shouldSkipStep,
+  PERSONALIZED_VOICE_MODES,
 } = require("./render-contract");
 const {
   classifyError,
@@ -117,7 +118,6 @@ const PROVIDERS = {
   REPLICATE: "replicate",
   SEEDVC: "seedvc",
 };
-const PERSONALIZED_VOICE_MODES = new Set(["user_voice", "personalized"]);
 
 async function ensureRenderSharePreGeneration({
   db,
@@ -519,9 +519,13 @@ async function performVoiceConversion({
       );
     }
 
-    const stability = (await getFeatureFlag(db, "elevenlabs_stability")) ?? 0.4;
+    const voiceChangerFlags = await getFeatureFlags(db, [
+      "elevenlabs_stability",
+      "elevenlabs_similarity_boost",
+    ]);
+    const stability = voiceChangerFlags.elevenlabs_stability ?? 0.4;
     const similarityBoost =
-      (await getFeatureFlag(db, "elevenlabs_similarity_boost")) ?? 0.85;
+      voiceChangerFlags.elevenlabs_similarity_boost ?? 0.85;
 
     console.log(
       `[JobRunner] Using ElevenLabs Voice Changer: voiceId=${voiceProfile.elevenlabs_voice_id}, stability=${stability}, similarityBoost=${similarityBoost}`,
@@ -583,17 +587,23 @@ async function performVoiceConversion({
       : "seedvc_diffusion_steps_preview";
   const diffusionStepsDefault = kind === "full" ? 90 : 60;
 
-  const cfgRate =
-    (await getFeatureFlag(db, "seedvc_cfg_rate")) ?? config.SEEDVC_CFG_RATE;
-  const diffusionSteps =
-    (await getFeatureFlag(db, diffusionStepsFlag)) ?? diffusionStepsDefault;
-  const autoF0Adjust =
-    (await getFeatureFlag(db, "seedvc_auto_f0_adjust")) ?? false;
-  const f0Condition = (await getFeatureFlag(db, "seedvc_f0_condition")) ?? true;
-  const pitchShift = (await getFeatureFlag(db, "seedvc_pitch_shift")) ?? 0;
+  const seedFlags = await getFeatureFlags(db, [
+    "seedvc_cfg_rate",
+    diffusionStepsFlag,
+    "seedvc_auto_f0_adjust",
+    "seedvc_f0_condition",
+    "seedvc_pitch_shift",
+    "timbre_blend_ratio",
+    "timbre_cfg_rate",
+  ]);
+  const cfgRate = seedFlags.seedvc_cfg_rate ?? config.SEEDVC_CFG_RATE;
+  const diffusionSteps = seedFlags[diffusionStepsFlag] ?? diffusionStepsDefault;
+  const autoF0Adjust = seedFlags.seedvc_auto_f0_adjust ?? false;
+  const f0Condition = seedFlags.seedvc_f0_condition ?? true;
+  const pitchShift = seedFlags.seedvc_pitch_shift ?? 0;
 
-  const blendRatio = (await getFeatureFlag(db, "timbre_blend_ratio")) ?? 0.25;
-  const timbreCfgRate = (await getFeatureFlag(db, "timbre_cfg_rate")) ?? 0.35;
+  const blendRatio = seedFlags.timbre_blend_ratio ?? 0.25;
+  const timbreCfgRate = seedFlags.timbre_cfg_rate ?? 0.35;
   const effectiveCfgRate = blendRatio < 1.0 ? timbreCfgRate : cfgRate;
   console.log(
     `[JobRunner] Using Seed-VC (${kind}): cfgRate=${effectiveCfgRate}` +
@@ -1517,17 +1527,15 @@ async function startJobRunner({
     let personaModel = "voice_persona";
     let audioWeight = 0.85;
     try {
-      const personaModelFlag = await getFeatureFlag(
-        db,
+      const personaFlags = await getFeatureFlags(db, [
         "suno_voice_persona_persona_model",
-      );
+        "suno_voice_persona_audio_weight",
+      ]);
+      const personaModelFlag = personaFlags.suno_voice_persona_persona_model;
       if (typeof personaModelFlag === "string" && personaModelFlag.trim()) {
         personaModel = personaModelFlag.trim();
       }
-      const audioWeightFlag = await getFeatureFlag(
-        db,
-        "suno_voice_persona_audio_weight",
-      );
+      const audioWeightFlag = personaFlags.suno_voice_persona_audio_weight;
       if (audioWeightFlag != null) {
         const numeric = Number(audioWeightFlag);
         if (Number.isFinite(numeric)) {
@@ -2034,6 +2042,7 @@ async function startJobRunner({
     WHERE status = 'running'
       AND COALESCE(last_heartbeat_at, locked_at, updated_at) < ?
   `);
+  let cleanOrphanedStepHistory = null;
 
   async function performStaleJobRecovery() {
     if (!recoverStaleJobs) return;
@@ -2057,6 +2066,10 @@ async function startJobRunner({
           }
         }
       }
+      await recoverStaleVoiceProviderJobs(db, {
+        staleBefore: cutoffTime,
+        provider: "suno",
+      });
     } catch (err) {
       console.error(`[JobRunner] Failed to recover stale jobs:`, err.message);
     }
@@ -2261,7 +2274,6 @@ async function startJobRunner({
     "UPDATE job_step_history SET status = ?, error_message = ?, completed_at = ?, duration_ms = ? WHERE id = ?",
   );
   // Orphan cleanup — mark step history entries as failed when their job is no longer running
-  let cleanOrphanedStepHistory = null;
   try {
     cleanOrphanedStepHistory = await db.prepare(
       `UPDATE job_step_history SET status = 'failed', error_message = 'Worker crashed', completed_at = ?, duration_ms = 0
@@ -5348,14 +5360,32 @@ async function startJobRunner({
     // Fetch extra candidates to compensate for user filtering
     const fetchLimit = availableSlots + blockedUserIds.size;
     const candidates = await selectJobs.all(now, fetchLimit);
+    let candidateUsersByJobId = new Map();
+    if (blockedUserIds.size > 0 && candidates.length > 0) {
+      const ids = candidates.map((job) => job.track_version_id).filter(Boolean);
+      if (ids.length > 0) {
+        const placeholders = ids.map(() => "?").join(",");
+        const { rows } = await db.query(
+          `SELECT tv.id AS track_version_id, t.user_id
+             FROM track_versions tv
+             JOIN tracks t ON t.id = tv.track_id
+            WHERE tv.id IN (${placeholders})`,
+          ids,
+        );
+        candidateUsersByJobId = new Map(
+          rows.map((row) => [row.track_version_id, row.user_id]),
+        );
+      }
+    }
 
     const eligibleJobs = [];
     for (const job of candidates) {
       if (processingJobs.has(job.id)) continue;
       if (blockedUserIds.size > 0) {
-        const tv = await getTrackVersion.get(job.track_version_id);
-        const t = tv ? await getTrack.get(tv.track_id) : null;
-        if (t && blockedUserIds.has(t.user_id)) continue;
+        const candidateUserId = candidateUsersByJobId.get(
+          job.track_version_id,
+        );
+        if (candidateUserId && blockedUserIds.has(candidateUserId)) continue;
       }
       eligibleJobs.push(job);
       if (eligibleJobs.length >= availableSlots) break;
@@ -5386,36 +5416,8 @@ async function startJobRunner({
   let voiceProviderLaneDisabled = false;
   let selectVoiceProviderJobs = null;
 
-  const acquireVoiceProviderLock = async ({ now, staleBefore }) => {
-    const lockId = "suno_voice_persona";
-    const result = await db
-      .prepare(
-        `INSERT INTO voice_provider_locks (id, locked_at, locked_by)
-       VALUES (?, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET
-         locked_at = excluded.locked_at,
-         locked_by = excluded.locked_by
-       WHERE voice_provider_locks.locked_at < ?`,
-      )
-      .run(lockId, now, runnerId, staleBefore);
-    return Boolean(result?.changes ?? result?.rowCount ?? 0);
-  };
-
-  const releaseVoiceProviderLock = async () => {
-    await db
-      .prepare(
-        "DELETE FROM voice_provider_locks WHERE id = ? AND locked_by = ?",
-      )
-      .run("suno_voice_persona", runnerId);
-  };
-
-  const heartbeatVoiceProviderLock = async (jobId) => {
+  const heartbeatVoiceProviderJob = async (jobId) => {
     const heartbeatAt = new Date().toISOString();
-    await db
-      .prepare(
-        "UPDATE voice_provider_locks SET locked_at = ? WHERE id = ? AND locked_by = ?",
-      )
-      .run(heartbeatAt, "suno_voice_persona", runnerId);
     await db
       .prepare(
         "UPDATE voice_provider_jobs SET locked_at = ? WHERE id = ? AND locked_by = ? AND status = ?",
@@ -5433,9 +5435,6 @@ async function startJobRunner({
       return;
     }
     const now = new Date().toISOString();
-    const staleBefore = new Date(
-      Date.now() - staleJobTimeoutMinutes * 60_000,
-    ).toISOString();
     try {
       if (!selectVoiceProviderJobs) {
         selectVoiceProviderJobs = db.prepare(
@@ -5449,10 +5448,6 @@ async function startJobRunner({
             LIMIT ?`,
         );
       }
-      await recoverStaleVoiceProviderJobs(db, {
-        staleBefore,
-        provider: "suno",
-      });
     } catch (err) {
       const message = String(err?.message || err || "");
       if (/voice_provider_jobs|no such table|does not exist/i.test(message)) {
@@ -5488,25 +5483,6 @@ async function startJobRunner({
       );
     }
     for (const job of eligibleJobs) {
-      let lockAcquired = false;
-      try {
-        lockAcquired = await acquireVoiceProviderLock({ now, staleBefore });
-      } catch (err) {
-        const message = String(err?.message || err || "");
-        if (
-          /voice_provider_locks|no such table|does not exist/i.test(message)
-        ) {
-          voiceProviderLaneDisabled = true;
-          console.warn(
-            "[JobRunner] Suno voice persona job lane disabled; voice_provider_locks table is unavailable.",
-          );
-          return;
-        }
-        throw err;
-      }
-      if (!lockAcquired) {
-        return;
-      }
       voiceProviderProcessingJobs.add(job.id);
       activeVoiceProviderJobs++;
       const heartbeatEveryMs = Math.max(
@@ -5514,9 +5490,9 @@ async function startJobRunner({
         Math.min(120_000, Math.floor((staleJobTimeoutMinutes * 60_000) / 2)),
       );
       const heartbeatTimer = setInterval(() => {
-        heartbeatVoiceProviderLock(job.id).catch((err) => {
+        heartbeatVoiceProviderJob(job.id).catch((err) => {
           console.warn(
-            "[JobRunner] Failed to heartbeat Suno voice persona provider lock:",
+            "[JobRunner] Failed to heartbeat Suno voice persona job:",
             err.message,
           );
         });
@@ -5537,12 +5513,6 @@ async function startJobRunner({
           clearInterval(heartbeatTimer);
           activeVoiceProviderJobs--;
           voiceProviderProcessingJobs.delete(job.id);
-          releaseVoiceProviderLock().catch((err) => {
-            console.warn(
-              "[JobRunner] Failed to release Suno voice persona provider lock:",
-              err.message,
-            );
-          });
         });
     }
   };

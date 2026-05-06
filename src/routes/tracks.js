@@ -347,7 +347,7 @@ function registerTrackRoutes(
           if (voicePreflight.code === "VOICE_PROFILE_REQUIRED") {
             sendError(
               reply,
-              403,
+              422,
               "VOICE_PROFILE_REQUIRED",
               "Voice profile required for user_voice.",
               { requires_voice_enrollment: true },
@@ -356,7 +356,7 @@ function registerTrackRoutes(
           }
           sendError(
             reply,
-            409,
+            422,
             voicePreflight.code,
             voicePreflight.message,
             {
@@ -440,6 +440,11 @@ function registerTrackRoutes(
     if (!userId) {
       return;
     }
+    const limit = Math.min(
+      100,
+      Math.max(1, Number(request.query?.limit || 50) || 50),
+    );
+    const offset = Math.max(0, Number(request.query?.offset || 0) || 0);
     const tracks = await db
       .prepare(
         `SELECT t.*,
@@ -456,9 +461,10 @@ function registerTrackRoutes(
           AND tle.removed_at IS NULL
          WHERE t.deleted_at IS NULL
            AND NOT (COALESCE(t.funding_source, 'standard') = 'gift_token' AND tle.origin = 'created')
-         ORDER BY tle.added_at DESC`,
+         ORDER BY tle.added_at DESC
+         LIMIT ? OFFSET ?`,
       )
-      .all(userId, userId, userId);
+      .all(userId, userId, userId, limit, offset);
     const hydrated = await hydrateTrackCoverImages(tracks);
     reply.send({ tracks: hydrated.map(withTrackLibraryFlags) });
   });
@@ -574,7 +580,7 @@ function registerTrackRoutes(
         if (voicePreflight.code === "VOICE_PROFILE_REQUIRED") {
           sendError(
             reply,
-            400,
+            422,
             "NO_VOICE_PROFILE",
             "No completed voice profile found. Please enroll your voice first.",
             { requires_voice_enrollment: true },
@@ -583,7 +589,7 @@ function registerTrackRoutes(
         }
         sendError(
           reply,
-          409,
+          422,
           voicePreflight.code,
           voicePreflight.message,
           {
@@ -797,6 +803,17 @@ function registerTrackRoutes(
         });
         return;
       }
+      const personaPreflight = await preflightUserVoiceReadiness({
+        userId,
+        track,
+      });
+      if (!personaPreflight.ok) {
+        sendError(reply, 422, personaPreflight.code, personaPreflight.message, {
+          requires_voice_enrollment:
+            personaPreflight.requiresVoiceEnrollment === true,
+        });
+        return;
+      }
       if (existingJob && isTerminalFailedJobStatus(existingJob.status)) {
         const lyricsUpdatedAt = toTimestamp(trackVersion.lyrics_updated_at);
         const failureAt =
@@ -815,22 +832,6 @@ function registerTrackRoutes(
           });
           return;
         }
-      }
-      const personaPreflight = await preflightUserVoiceReadiness({
-        userId,
-        track,
-      });
-      if (!personaPreflight.ok) {
-        // U4: HTTP 422 (Unprocessable Entity) for missing-profile validation.
-        // 409 was misclassified as Conflict; iOS RenderController.swift catch-all
-        // for unknown E302_ codes returns ("infra_terminal","retry") which is
-        // wrong UX for an unrecoverable structural error. 422 surfaces as a
-        // form-validation error instead.
-        sendError(reply, 422, personaPreflight.code, personaPreflight.message, {
-          requires_voice_enrollment:
-            personaPreflight.requiresVoiceEnrollment === true,
-        });
-        return;
       }
       const renderRequestStepData =
         buildRenderRequestStepData(personaPreflight);

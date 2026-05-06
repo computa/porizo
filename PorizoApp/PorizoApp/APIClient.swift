@@ -252,7 +252,7 @@ actor APIClient {
     static let appVersion: String = {
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
         let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
-        return "PorizoApp/\(version)(\(build))"
+        return "PorizoApp/\(version)(\(build); iOS)"
     }()
 
     /// Applies authorization headers to a request.

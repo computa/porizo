@@ -3076,7 +3076,7 @@ function registerStoryRoutes(app, {
               : code === "SUNO_VOICE_PERSONA_REQUIRED"
                 ? "My Voice is still being prepared. Please try again shortly."
                 : "My Voice needs voice setup before song generation.";
-          sendError(reply, 409, code, message, {
+          sendError(reply, 422, code, message, {
             requires_voice_enrollment:
               code === "SUNO_VOICE_PERSONA_FAILED" ||
               code === "SUNO_VOICE_PERSONA_SETUP_REQUIRED",

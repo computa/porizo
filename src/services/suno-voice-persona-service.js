@@ -5,6 +5,7 @@ const {
   submitUploadCoverTask,
   uploadFileUrl,
 } = require("../providers/suno-persona");
+const { resolveSunoCallbackUrl } = require("../providers/suno");
 const {
   getProviderProfileById,
   getVoiceProviderJobById,
@@ -17,6 +18,7 @@ const {
   markVoiceProviderJobCompleted,
   markVoiceProviderJobFailed,
   markVoiceProviderJobRunning,
+  markVoiceProviderJobStep,
 } = require("./voice-provider-profile-service");
 const { sanitizeProviderError } = require("../utils/provider-sanitize");
 const { parseJson } = require("../utils/common");
@@ -44,7 +46,7 @@ function hasPersonaConsentScope(consentScope) {
   if (typeof consentScope !== "string") {
     return false;
   }
-  const normalized = consentScope.trim().toLowerCase();
+  const normalized = consentScope.trim();
   if (!normalized) {
     return false;
   }
@@ -96,17 +98,6 @@ function buildPersonaDescription() {
   return "User-consented Porizo voice persona seed for personalized original songs.";
 }
 
-async function markPersonaGenerationStarted(db, jobId) {
-  const updatedAt = new Date().toISOString();
-  await db
-    .prepare(
-      `UPDATE voice_provider_jobs
-        SET step = ?, updated_at = ?
-      WHERE id = ? AND status = ?`,
-    )
-    .run("generate_persona", updatedAt, jobId, "running");
-}
-
 async function assertProviderJobReady({ db, job, providerProfile, session }) {
   if (!job) {
     throw new Error("E302_SUNO_PERSONA_JOB_NOT_FOUND");
@@ -115,6 +106,9 @@ async function assertProviderJobReady({ db, job, providerProfile, session }) {
     throw new Error("E302_SUNO_PERSONA_PROFILE_NOT_FOUND");
   }
   if (job.status === "cancelled") {
+    throw new Error("E302_SUNO_PERSONA_JOB_CANCELLED");
+  }
+  if (job.cancellation_requested_at) {
     throw new Error("E302_SUNO_PERSONA_JOB_CANCELLED");
   }
   if (providerProfile.provider !== "suno") {
@@ -126,18 +120,25 @@ async function assertProviderJobReady({ db, job, providerProfile, session }) {
   if (providerProfile.status === "failed") {
     throw new Error("E302_SUNO_PERSONA_PROFILE_FAILED");
   }
+  if (providerProfile.status === "manual_cleanup_required") {
+    throw new Error("E302_SUNO_PERSONA_MANUAL_RECOVERY_REQUIRED");
+  }
   if (
     providerProfile.user_id !== job.user_id ||
     providerProfile.voice_profile_id !== job.voice_profile_id
   ) {
     throw new Error("E302_SUNO_PERSONA_PROFILE_JOB_MISMATCH");
   }
-  const voiceProfile = await db
-    .prepare(
-      "SELECT id, status FROM voice_profiles WHERE id = ? AND user_id = ?",
-    )
-    .get(providerProfile.voice_profile_id, providerProfile.user_id);
-  if (!voiceProfile || voiceProfile.status !== "active") {
+  let voiceProfileStatus = providerProfile.voice_profile_status;
+  if (voiceProfileStatus === undefined) {
+    const voiceProfile = await db
+      .prepare(
+        "SELECT id, status FROM voice_profiles WHERE id = ? AND user_id = ?",
+      )
+      .get(providerProfile.voice_profile_id, providerProfile.user_id);
+    voiceProfileStatus = voiceProfile?.status || null;
+  }
+  if (voiceProfileStatus !== "active") {
     throw new Error("E302_SUNO_PERSONA_VOICE_PROFILE_NOT_ACTIVE");
   }
   // U2: Honest two-arm check — profile scope OR session scope, never falling
@@ -158,10 +159,111 @@ async function assertProviderJobStillAllowed({
   providerProfileId,
   sessionId,
 }) {
-  const currentJob = await getVoiceProviderJobById(db, jobId);
-  const currentProfile = await getProviderProfileById(db, providerProfileId);
-  const currentSession = sessionId
-    ? await getEnrollmentSession(db, sessionId)
+  const row = await db
+    .prepare(
+      `SELECT
+        j.id AS job_id,
+        j.voice_profile_id AS job_voice_profile_id,
+        j.user_id AS job_user_id,
+        j.provider AS job_provider,
+        j.voice_provider_profile_id AS job_voice_provider_profile_id,
+        j.status AS job_status,
+        j.step AS job_step,
+        j.attempts AS job_attempts,
+        j.max_attempts AS job_max_attempts,
+        j.step_data AS job_step_data,
+        j.last_error AS job_last_error,
+        j.next_attempt_at AS job_next_attempt_at,
+        j.created_at AS job_created_at,
+        j.updated_at AS job_updated_at,
+        j.locked_at AS job_locked_at,
+        j.locked_by AS job_locked_by,
+        j.cancellation_requested_at AS job_cancellation_requested_at,
+        j.cancelled_at AS job_cancelled_at,
+        j.completed_at AS job_completed_at,
+        p.id AS profile_id,
+        p.voice_profile_id AS profile_voice_profile_id,
+        p.user_id AS profile_user_id,
+        p.provider AS profile_provider,
+        p.provider_profile_id AS profile_provider_profile_id,
+        p.status AS profile_status,
+        p.source_upload_url AS profile_source_upload_url,
+        p.source_task_id AS profile_source_task_id,
+        p.source_audio_id AS profile_source_audio_id,
+        p.model AS profile_model,
+        p.consent_scope AS profile_consent_scope,
+        p.metadata_json AS profile_metadata_json,
+        p.last_error AS profile_last_error,
+        p.created_at AS profile_created_at,
+        p.updated_at AS profile_updated_at,
+        p.activated_at AS profile_activated_at,
+        p.deleted_at AS profile_deleted_at,
+        vp.status AS voice_profile_status,
+        es.id AS session_id,
+        es.user_id AS session_user_id,
+        es.access_token AS session_access_token,
+        es.consent_version AS session_consent_version,
+        es.consent_scopes AS session_consent_scopes
+      FROM voice_provider_jobs j
+      LEFT JOIN voice_provider_profiles p ON p.id = ?
+      LEFT JOIN voice_profiles vp ON vp.id = p.voice_profile_id AND vp.user_id = p.user_id
+      LEFT JOIN enrollment_sessions es ON es.id = ?
+      WHERE j.id = ?`,
+    )
+    .get(providerProfileId, sessionId || "__missing_session__", jobId);
+  const currentJob = row
+    ? {
+        id: row.job_id,
+        voice_profile_id: row.job_voice_profile_id,
+        user_id: row.job_user_id,
+        provider: row.job_provider,
+        voice_provider_profile_id: row.job_voice_provider_profile_id,
+        status: row.job_status,
+        step: row.job_step,
+        attempts: row.job_attempts,
+        max_attempts: row.job_max_attempts,
+        step_data: row.job_step_data,
+        last_error: row.job_last_error,
+        next_attempt_at: row.job_next_attempt_at,
+        created_at: row.job_created_at,
+        updated_at: row.job_updated_at,
+        locked_at: row.job_locked_at,
+        locked_by: row.job_locked_by,
+        cancellation_requested_at: row.job_cancellation_requested_at,
+        cancelled_at: row.job_cancelled_at,
+        completed_at: row.job_completed_at,
+      }
+    : null;
+  const currentProfile = row?.profile_id
+    ? {
+        id: row.profile_id,
+        voice_profile_id: row.profile_voice_profile_id,
+        user_id: row.profile_user_id,
+        provider: row.profile_provider,
+        provider_profile_id: row.profile_provider_profile_id,
+        status: row.profile_status,
+        source_upload_url: row.profile_source_upload_url,
+        source_task_id: row.profile_source_task_id,
+        source_audio_id: row.profile_source_audio_id,
+        model: row.profile_model,
+        consent_scope: row.profile_consent_scope,
+        metadata_json: row.profile_metadata_json,
+        last_error: row.profile_last_error,
+        created_at: row.profile_created_at,
+        updated_at: row.profile_updated_at,
+        activated_at: row.profile_activated_at,
+        deleted_at: row.profile_deleted_at,
+        voice_profile_status: row.voice_profile_status,
+      }
+    : null;
+  const currentSession = row?.session_id
+    ? {
+        id: row.session_id,
+        user_id: row.session_user_id,
+        access_token: row.session_access_token,
+        consent_version: row.session_consent_version,
+        consent_scopes: row.session_consent_scopes,
+      }
     : null;
   await assertProviderJobReady({
     db,
@@ -314,7 +416,7 @@ async function runSunoVoicePersonaJob({
         sessionId: session?.id,
       }));
       await markProviderProfileUploadSubmitted(db, providerProfile.id, {
-        sourceUploadUrl: null,
+        sourceUploadUrl: upload.downloadUrl,
         metadata: {
           upload_file_name: upload.fileName,
           upload_mime_type: upload.mimeType,
@@ -332,9 +434,10 @@ async function runSunoVoicePersonaJob({
       }));
       // U1: callBackUrl is required. Persona path fails fast when unset
       // (rather than silently leaking task metadata to httpbin.org).
-      const callBackUrl =
-        config.SUNO_CALLBACK_URL && config.SUNO_CALLBACK_URL.trim();
-      if (!callBackUrl) {
+      let callBackUrl = "";
+      try {
+        callBackUrl = resolveSunoCallbackUrl();
+      } catch (_err) {
         throw new Error(
           "E302_SUNO_PERSONA_CALLBACK_NOT_CONFIGURED: SUNO_CALLBACK_URL must be set when persona feature is enabled",
         );
@@ -378,6 +481,11 @@ async function runSunoVoicePersonaJob({
         timeoutMs: config.PROVIDER_TIMEOUT_MS,
         pollingOptions,
       });
+      if (!audio?.audioId) {
+        throw new Error(
+          "E302_SUNO_PERSONA_AUDIO_NOT_READY: upload-cover polling ended without a ready audioId",
+        );
+      }
       sourceAudioId = audio.audioId;
       ({ providerProfile, session } = await assertProviderJobStillAllowed({
         db,
@@ -401,7 +509,16 @@ async function runSunoVoicePersonaJob({
       providerProfileId: providerProfile.id,
       sessionId: session?.id,
     }));
-    await markPersonaGenerationStarted(db, job.id);
+    const stepClaimed = await markVoiceProviderJobStep(
+      db,
+      job.id,
+      "generate_persona",
+    );
+    if (!stepClaimed) {
+      throw new Error(
+        "E302_SUNO_PERSONA_LOST_CLAIM: persona generation step could not be claimed",
+      );
+    }
     generatePersonaRequestStarted = true;
     // U14: vocalStart/vocalEnd thread through from enrollment-route's
     // step_data into the generate-persona payload. Pre-U14 these were

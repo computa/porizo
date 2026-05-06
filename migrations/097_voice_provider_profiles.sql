@@ -1,8 +1,8 @@
 CREATE TABLE IF NOT EXISTS voice_provider_profiles (
   id TEXT PRIMARY KEY,
-  voice_profile_id TEXT NOT NULL,
-  user_id TEXT NOT NULL,
-  provider TEXT NOT NULL,
+  voice_profile_id TEXT NOT NULL REFERENCES voice_profiles(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  provider TEXT NOT NULL CHECK (provider IN ('suno', 'seedvc', 'replicate')),
   provider_profile_id TEXT,
   status TEXT NOT NULL DEFAULT 'pending'
     CHECK (status IN (
@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS voice_provider_profiles (
 );
 
 CREATE INDEX IF NOT EXISTS idx_voice_provider_profiles_user_provider_status
-  ON voice_provider_profiles (user_id, provider, status, created_at);
+  ON voice_provider_profiles (user_id, provider, status, created_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_voice_provider_profiles_voice_profile
   ON voice_provider_profiles (voice_profile_id, provider, status);
@@ -36,11 +36,13 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_voice_provider_profiles_active_unique
 CREATE TABLE IF NOT EXISTS voice_provider_jobs (
   id TEXT PRIMARY KEY,
   voice_profile_id TEXT NOT NULL,
-  user_id TEXT NOT NULL,
-  provider TEXT NOT NULL,
-  voice_provider_profile_id TEXT,
-  status TEXT NOT NULL DEFAULT 'pending',
-  step TEXT NOT NULL DEFAULT 'prepare_persona',
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  provider TEXT NOT NULL CHECK (provider IN ('suno', 'seedvc', 'replicate')),
+  voice_provider_profile_id TEXT REFERENCES voice_provider_profiles(id) ON DELETE SET NULL,
+  status TEXT NOT NULL DEFAULT 'pending'
+    CHECK (status IN ('pending', 'running', 'completed', 'failed', 'cancelled')),
+  step TEXT NOT NULL DEFAULT 'prepare_persona'
+    CHECK (step IN ('prepare_persona', 'generate_persona', 'persona_active', 'completed')),
   attempts INTEGER NOT NULL DEFAULT 0,
   max_attempts INTEGER NOT NULL DEFAULT 3,
   step_data TEXT,
@@ -50,6 +52,7 @@ CREATE TABLE IF NOT EXISTS voice_provider_jobs (
   updated_at TEXT NOT NULL,
   locked_at TEXT,
   locked_by TEXT,
+  cancellation_requested_at TEXT,
   cancelled_at TEXT,
   completed_at TEXT
 );
@@ -57,11 +60,16 @@ CREATE TABLE IF NOT EXISTS voice_provider_jobs (
 CREATE INDEX IF NOT EXISTS idx_voice_provider_jobs_status
   ON voice_provider_jobs (status, provider, updated_at);
 
+CREATE INDEX IF NOT EXISTS idx_voice_provider_jobs_poll
+  ON voice_provider_jobs (status, next_attempt_at)
+  WHERE locked_at IS NULL;
+
 CREATE INDEX IF NOT EXISTS idx_voice_provider_jobs_voice_profile
   ON voice_provider_jobs (voice_profile_id, provider, status);
 
 CREATE TABLE IF NOT EXISTS voice_provider_locks (
   id TEXT PRIMARY KEY,
   locked_at TEXT NOT NULL,
-  locked_by TEXT NOT NULL
+  locked_by TEXT NOT NULL,
+  expires_at TEXT NOT NULL DEFAULT (datetime('now', '+5 minutes'))
 );
