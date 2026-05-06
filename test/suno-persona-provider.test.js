@@ -198,6 +198,39 @@ describe("Suno persona provider", () => {
     assert.equal(selected.index, 1);
   });
 
+  test("skips rejected and failed Suno source tracks", () => {
+    const selected = selectSunoPersonaSourceTrack(
+      {
+        data: {
+          response: {
+            sunoData: [
+              {
+                id: "audio_rejected",
+                sourceAudioUrl: "https://cdn.example/rejected.mp3",
+                duration: 45,
+              },
+              {
+                id: "audio_failed",
+                sourceAudioUrl: "https://cdn.example/failed.mp3",
+                duration: 90,
+                status: "failed",
+              },
+              {
+                id: "audio_usable",
+                sourceAudioUrl: "https://cdn.example/usable.mp3",
+                duration: 35,
+              },
+            ],
+          },
+        },
+      },
+      { vocalStart: 5, vocalEnd: 25, rejectedAudioIds: ["audio_rejected"] },
+    );
+
+    assert.equal(selected.id, "audio_usable");
+    assert.equal(selected.index, 2);
+  });
+
   test("U16/U6: pre-deploy gate — fixture must be live-captured before persona feature flag is flipped", () => {
     // This test only fires when SUNO_PERSONA_PROBE_VERIFIED is set in CI/deploy.
     // Local dev intentionally uses the placeholder shape — that's the documented

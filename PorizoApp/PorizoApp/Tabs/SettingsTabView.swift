@@ -102,8 +102,7 @@ struct SettingsTabView: View {
                     VStack(spacing: 16) {
                         // Voice Banner (promotional - keep from existing)
                         VoiceBanner(
-                            hasProfile: voiceProfileStatus?.hasProfile == true,
-                            qualityScore: voiceProfileStatus?.qualityScore,
+                            profile: voiceProfileStatus,
                             isLoading: isLoadingProfile,
                             onTap: { presentVoiceEnrollment() }
                         )

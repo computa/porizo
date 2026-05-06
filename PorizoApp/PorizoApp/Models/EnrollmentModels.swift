@@ -139,6 +139,14 @@ struct EnrollmentQuality: Codable, Sendable {
 }
 
 /// Response from GET /voice/profile
+enum MyVoiceReadiness: Equatable {
+    case none
+    case ready
+    case preparing
+    case setupRequired
+    case failed
+}
+
 struct VoiceProfileStatus: Codable, Sendable {
     let profileId: String?
     let status: String?
@@ -169,6 +177,14 @@ struct VoiceProfileStatus: Codable, Sendable {
     /// Computed property - has active profile if status is "active"
     var hasProfile: Bool {
         status == "active"
+    }
+
+    var myVoiceReadiness: MyVoiceReadiness {
+        if isMyVoiceReady { return .ready }
+        if isMyVoicePreparing { return .preparing }
+        if didMyVoiceSetupFail { return .failed }
+        if isMyVoiceSetupRequired { return .setupRequired }
+        return hasProfile ? .setupRequired : .none
     }
 
     /// My Voice rendering requires the local voice profile and Suno persona.

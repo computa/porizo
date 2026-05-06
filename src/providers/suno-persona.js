@@ -98,14 +98,24 @@ function selectSunoPersonaSourceTrack(statusResponse, options = {}) {
       ? [readiness.track]
       : [];
   const { start, end } = resolvePersonaWindowBounds(options);
+  const rejectedIds = new Set(
+    Array.isArray(options.rejectedAudioIds)
+      ? options.rejectedAudioIds.filter((id) => typeof id === "string")
+      : [],
+  );
   const candidates = tracks
     .map((track, index) => ({
       track,
       index,
       id: pickAudioIdLike(track),
       durationSec: parseTrackDurationSec(track),
+      status: String(track?.status || track?.state || "").toLowerCase(),
     }))
-    .filter((candidate) => candidate.id);
+    .filter((candidate) => candidate.id && !rejectedIds.has(candidate.id))
+    .filter(
+      (candidate) =>
+        !["error", "failed", "failure"].includes(candidate.status),
+    );
 
   if (candidates.length === 0) {
     return null;
@@ -303,6 +313,7 @@ async function pollUploadCoverForAudio({
   taskId,
   vocalStart = 0,
   vocalEnd = 30,
+  rejectedAudioIds = [],
   timeoutMs = 30000,
   pollTaskOnceFn = pollSunoTaskOnce,
   pollingOptions = null,
@@ -340,6 +351,7 @@ async function pollUploadCoverForAudio({
           selectedTrack = selectSunoPersonaSourceTrack(poll.response, {
             vocalStart,
             vocalEnd,
+            rejectedAudioIds,
           });
           if (!selectedTrack?.id) {
             throw new Error(

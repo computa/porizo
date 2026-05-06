@@ -1045,9 +1045,10 @@ struct WarmCanvasFlowView: View {
         case .upgrade:
             SubscriptionView(apiClient: apiClient, storeKit: storeKit)
 
-        case .voiceEnrollment:
+        case .voiceEnrollment(let existingScore):
             EnrollmentFlowView(
                 apiClient: apiClient,
+                existingScore: existingScore,
                 onComplete: {
                     didCompleteVoiceEnrollment = true
                     activeSheet = nil
@@ -1656,12 +1657,12 @@ struct WarmCanvasFlowView: View {
                     await applyVoiceAndCreateTrack()
                 } else {
                     shouldResumeMyVoiceAfterEnrollment = true
-                    activeSheet = .voiceEnrollment
+                    activeSheet = .voiceEnrollment(existingScore: profile.qualityScore)
                 }
             } catch let error as APIClientError {
                 if isVoiceEnrollmentRequired(error) {
                     shouldResumeMyVoiceAfterEnrollment = true
-                    activeSheet = .voiceEnrollment
+                    activeSheet = .voiceEnrollment(existingScore: nil)
                 } else {
                     activeAlert = .error("We couldn't check your voice setup. Please try My Voice again.")
                 }
@@ -1693,7 +1694,7 @@ struct WarmCanvasFlowView: View {
 
     private func resumeMyVoiceEnrollment() {
         shouldResumeMyVoiceAfterEnrollment = true
-        activeSheet = .voiceEnrollment
+        activeSheet = .voiceEnrollment(existingScore: nil)
         withAnimation { moment = .tell(.confirmed) }
     }
 
@@ -1719,7 +1720,7 @@ struct WarmCanvasFlowView: View {
             guard profile.isMyVoiceReady else {
                 if profile.didMyVoiceSetupFail || profile.isMyVoiceSetupRequired {
                     shouldResumeMyVoiceAfterEnrollment = true
-                    activeSheet = .voiceEnrollment
+                    activeSheet = .voiceEnrollment(existingScore: profile.qualityScore)
                     return
                 } else {
                     activeAlert = .error("Voice setup finished. I kept your song details on this screen, but your voice is still being prepared. Try My Voice again in a moment.")

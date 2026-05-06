@@ -371,6 +371,39 @@ function buildPersonaVocalWindow(stepData = {}, audioDurationSec = null) {
   };
 }
 
+function parseProviderMetadata(providerProfile) {
+  return parseJson(providerProfile?.metadata_json, {}, "metadata_json") || {};
+}
+
+function withProviderMetadata(providerProfile, patch = {}) {
+  return {
+    ...parseProviderMetadata(providerProfile),
+    ...patch,
+  };
+}
+
+function collectRejectedSourceAudioIds(providerProfile) {
+  const metadata = parseProviderMetadata(providerProfile);
+  const ids = new Set();
+  if (Array.isArray(metadata.suno_rejected_source_audio_ids)) {
+    for (const id of metadata.suno_rejected_source_audio_ids) {
+      if (typeof id === "string" && id.trim()) {
+        ids.add(id.trim());
+      }
+    }
+  }
+  if (
+    providerProfile?.status === "failed" &&
+    providerProfile?.source_audio_id &&
+    String(providerProfile?.last_error || "").includes(
+      "Current music failed to generate persona",
+    )
+  ) {
+    ids.add(providerProfile.source_audio_id);
+  }
+  return Array.from(ids);
+}
+
 async function runSunoVoicePersonaJob({
   db,
   jobId,
@@ -507,6 +540,7 @@ async function runSunoVoicePersonaJob({
     }
 
     let sourceAudioId = providerProfile.source_audio_id;
+    const rejectedSourceAudioIds = collectRejectedSourceAudioIds(providerProfile);
     if (!sourceAudioId) {
       ({ providerProfile, session } = await assertProviderJobStillAllowed({
         db,
@@ -520,6 +554,7 @@ async function runSunoVoicePersonaJob({
         taskId: sourceTaskId,
         vocalStart: stepData.vocal_start,
         vocalEnd: stepData.vocal_end,
+        rejectedAudioIds: rejectedSourceAudioIds,
         timeoutMs: config.PROVIDER_TIMEOUT_MS,
         pollingOptions,
       });
@@ -542,13 +577,14 @@ async function runSunoVoicePersonaJob({
           sourceTaskId,
         sourceAudioId,
         model,
-        metadata: {
+        metadata: withProviderMetadata(providerProfile, {
           suno_source_audio_duration_sec: audio.audioDurationSec || null,
           suno_source_audio_track_index:
             typeof audio.audioTrackIndex === "number"
               ? audio.audioTrackIndex
               : null,
-        },
+          suno_rejected_source_audio_ids: rejectedSourceAudioIds,
+        }),
       });
     }
 
@@ -588,10 +624,7 @@ async function runSunoVoicePersonaJob({
     };
     const personaWindow = buildPersonaVocalWindow(
       stepData,
-      providerProfile.metadata_json
-        ? parseJson(providerProfile.metadata_json, {})
-            .suno_source_audio_duration_sec
-        : null,
+      parseProviderMetadata(providerProfile).suno_source_audio_duration_sec,
     );
     if (personaWindow) {
       personaArgs.vocalStart = personaWindow.vocalStart;
@@ -659,8 +692,12 @@ async function runSunoVoicePersonaJob({
     }
     if (generatePersonaRequestStarted) {
       const retryableReadiness = isRetryableGeneratePersonaReadinessError(err);
+      const sanitizedErr = sanitizeProviderError(err);
+      const isBadSourceMusic = String(sanitizedErr).includes(
+        "Current music failed to generate persona",
+      );
       const manualRecoveryError = new Error(
-        `E302_SUNO_PERSONA_MANUAL_RECOVERY_REQUIRED: ${sanitizeProviderError(err)}`,
+        `E302_SUNO_PERSONA_MANUAL_RECOVERY_REQUIRED: ${sanitizedErr}`,
       );
       const failedJob = await markVoiceProviderJobFailed(
         db,
@@ -680,6 +717,19 @@ async function runSunoVoicePersonaJob({
           db,
           providerProfile.id,
           manualRecoveryError,
+          isBadSourceMusic && providerProfile.source_audio_id
+            ? {
+                metadata: withProviderMetadata(providerProfile, {
+                  suno_bad_source_music: true,
+                  suno_rejected_source_audio_ids: Array.from(
+                    new Set([
+                      ...collectRejectedSourceAudioIds(providerProfile),
+                      providerProfile.source_audio_id,
+                    ]),
+                  ),
+                }),
+              }
+            : {},
         );
       }
       if (retryableReadiness) {

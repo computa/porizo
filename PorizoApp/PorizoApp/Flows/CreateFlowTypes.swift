@@ -49,7 +49,7 @@ enum WarmCanvasError: Equatable {
 enum ActiveSheet: Identifiable {
     case upgrade
     case customLyrics
-    case voiceEnrollment
+    case voiceEnrollment(existingScore: Double?)
     case share(ShareSheetPayload)
     case editLyrics(EditingLyricsSection)
     case speechInput(SpeechInputContext)
