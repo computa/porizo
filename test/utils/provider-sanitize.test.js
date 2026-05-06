@@ -58,6 +58,41 @@ describe("provider-sanitize (U5)", () => {
     assert.match(result, /\[redacted_url\]/);
   });
 
+  test("M6: redacts dashed UUIDs (8-4-4-4-12) embedded in error text", () => {
+    const result = sanitizeProviderError(
+      "fetch failed for asset 4f8a2b1e-9c3d-4e5f-9012-abcdef123456 (status=502)",
+    );
+    assert.match(result, /\[redacted_uuid\]/);
+    assert.doesNotMatch(result, /4f8a2b1e-9c3d-4e5f-9012-abcdef123456/);
+  });
+
+  test("S14: redacts multiple Bearer tokens in one message", () => {
+    const result = sanitizeProviderError(
+      "old=Bearer aaaaaaaaaaaaaaaa new=Bearer bbbbbbbbbbbbbbbb",
+    );
+    const matches = result.match(/Bearer \[redacted\]/g) || [];
+    assert.equal(matches.length, 2);
+    assert.doesNotMatch(result, /aaaaaaaa/);
+    assert.doesNotMatch(result, /bbbbbbbb/);
+  });
+
+  test("S14: redacts URL containing a prefixed task id (compound match)", () => {
+    const result = sanitizeProviderError(
+      "GET https://api.suno.ai/v1/tasks/task_abcdefghijklmnopqrst/audio returned 404",
+    );
+    // The whole URL is replaced first; the inner task_ never escapes.
+    assert.match(result, /\[redacted_url\]/);
+    assert.doesNotMatch(result, /task_abcdefghijklmnopqrst/);
+    assert.doesNotMatch(result, /api\.suno\.ai/);
+  });
+
+  test("S14: boundary at exactly MAX_LENGTH does not truncate, MAX_LENGTH+1 does", () => {
+    const exact = sanitizeProviderError("y".repeat(1000));
+    assert.equal(exact.length, 1000);
+    const over = sanitizeProviderError("y".repeat(1001));
+    assert.equal(over.length, 1000);
+  });
+
   test("U5: re-exports retired — both consumer modules now import from the canonical util", () => {
     // After review fix #9: suno-persona and voice-provider-profile-service no
     // longer re-export sanitize under their own names. Callers must import

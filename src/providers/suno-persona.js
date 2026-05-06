@@ -113,8 +113,7 @@ function selectSunoPersonaSourceTrack(statusResponse, options = {}) {
     }))
     .filter((candidate) => candidate.id && !rejectedIds.has(candidate.id))
     .filter(
-      (candidate) =>
-        !["error", "failed", "failure"].includes(candidate.status),
+      (candidate) => !["error", "failed", "failure"].includes(candidate.status),
     );
 
   if (candidates.length === 0) {
@@ -319,6 +318,10 @@ async function pollUploadCoverForAudio({
   pollingOptions = null,
   onHeartbeat = null,
   captureRawResponse = null,
+  // H10: optional async predicate forwarded to pollWithBackoff. The persona
+  // worker uses this to short-circuit polling when cancellation_requested_at
+  // is set on the job mid-call.
+  shouldAbort = null,
 } = {}) {
   const task = requireString(taskId, "taskId");
   const pollingConfig = pollingOptions || createPollingConfig("suno");
@@ -401,6 +404,7 @@ async function pollUploadCoverForAudio({
     },
     {
       ...pollingConfig,
+      shouldAbort,
       onPoll: (attempt, interval) => {
         console.log(
           `[SunoPersona] polling upload-cover task=${redactedId(task)} attempt=${attempt} next=${interval}ms`,

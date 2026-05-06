@@ -12,7 +12,10 @@
  *     revocation behavior is observable.
  */
 
+const crypto = require("node:crypto");
+
 const REVOCATION_EVENT = "enrollment_session_token_revoked";
+const ROTATION_EVENT = "enrollment_session_token_rotated";
 
 function redactIdForLog(id) {
   if (typeof id !== "string" || !id) return null;
@@ -85,8 +88,44 @@ async function revokeAllEnrollmentSessionTokensForUser(db, userId) {
   return { affected: result?.changes ?? result?.rowCount ?? 0 };
 }
 
+/**
+ * Rotate the access_token to a fresh value scoped for a single provider
+ * fetch (e.g., Suno's upload-by-URL fetch). M3 mitigation: the token
+ * embedded in the URL passed to Suno is then decoupled from any token
+ * the client side or earlier provider calls (Replicate embedding) may
+ * have observed. Existing post-fetch revocation in
+ * `revokeEnrollmentSessionToken` still applies and is the upper-bound TTL.
+ *
+ * Returns the new token string. Throws if the session row is not found
+ * so callers fail loudly instead of sending a stale token to Suno.
+ */
+async function rotateAccessTokenForProviderFetch(db, sessionId) {
+  if (typeof sessionId !== "string" || !sessionId.trim()) {
+    throw new Error("rotateAccessTokenForProviderFetch: sessionId required");
+  }
+  const fresh = crypto.randomBytes(16).toString("hex");
+  const result = await db
+    .prepare("UPDATE enrollment_sessions SET access_token = ? WHERE id = ?")
+    .run(fresh, sessionId);
+  const affected = result?.changes ?? result?.rowCount ?? 0;
+  if (!affected) {
+    throw new Error(
+      "rotateAccessTokenForProviderFetch: session not found or already deleted",
+    );
+  }
+  console.log(
+    JSON.stringify({
+      event: ROTATION_EVENT,
+      scope: "provider_fetch",
+      session_id_redacted: redactIdForLog(sessionId),
+    }),
+  );
+  return fresh;
+}
+
 module.exports = {
   getEnrollmentSession,
   revokeEnrollmentSessionToken,
   revokeAllEnrollmentSessionTokensForUser,
+  rotateAccessTokenForProviderFetch,
 };

@@ -111,6 +111,68 @@ const {
   runSunoVoicePersonaJob,
 } = require("../services/suno-voice-persona-service");
 
+/**
+ * Pure-resolution variant of the closure-scoped `resolveSunoPersonaForRender`
+ * helper used by the render-tick path. H22: extracted to module scope so the
+ * 4 guard branches (no profile id, profile mismatch/inactive/deleted, missing
+ * provider_profile_id, missing consent) can be unit-tested without spinning
+ * up a job runner. The closure version inside `startJobRunner` delegates to
+ * this so behavior stays in lockstep.
+ *
+ * @param {object} args
+ * @param {import('better-sqlite3').Database|object} args.db - any object that
+ *   supports `prepare(sql).get(...)`. In production it's the real DB; in
+ *   tests it's a stub returning a fixed providerProfile.
+ * @param {{user_id: string}} args.track
+ * @param {{pipeline?: string, voice_provider_profile_id?: string}} args.renderContract
+ * @param {{suno_voice_persona_persona_model?: string, suno_voice_persona_audio_weight?: number}} args.runtimeConfig
+ * @returns {Promise<{personaId: string, personaModel: string, audioWeight: number}|null>}
+ */
+async function resolveSunoPersonaForRenderImpl({
+  db,
+  track,
+  renderContract,
+  runtimeConfig,
+}) {
+  if (!isSunoVoicePersonaPipeline(renderContract?.pipeline)) {
+    return null;
+  }
+  const localProfileId = renderContract.voice_provider_profile_id;
+  if (!localProfileId) {
+    throw new Error(
+      "E302_SUNO_PERSONA_NOT_READY: Missing frozen voice provider profile.",
+    );
+  }
+  const providerProfile = await getProviderProfileById(db, localProfileId);
+  if (
+    !providerProfile ||
+    providerProfile.user_id !== track.user_id ||
+    providerProfile.provider !== "suno" ||
+    providerProfile.status !== "active" ||
+    providerProfile.deleted_at
+  ) {
+    throw new Error(
+      "E302_SUNO_PERSONA_NOT_READY: Active Suno voice persona profile not found.",
+    );
+  }
+  if (!providerProfile.provider_profile_id) {
+    throw new Error(
+      "E302_SUNO_PERSONA_NOT_READY: Suno voice persona id is not ready.",
+    );
+  }
+  if (!hasPersonaConsentScope(providerProfile.consent_scope)) {
+    throw new Error(
+      "E302_SUNO_PERSONA_CONSENT_REQUIRED: Suno voice persona consent is required.",
+    );
+  }
+  return {
+    personaId: providerProfile.provider_profile_id,
+    personaModel:
+      runtimeConfig?.suno_voice_persona_persona_model || "voice_persona",
+    audioWeight: runtimeConfig?.suno_voice_persona_audio_weight ?? 0.85,
+  };
+}
+
 // Provider identifiers for circuit breaker tracking
 const PROVIDERS = {
   SUNO: "suno",
@@ -1984,49 +2046,15 @@ async function startJobRunner({
   }
 
   async function resolveSunoPersonaForRender({ track, renderContract }) {
-    if (!isSunoVoicePersonaPipeline(renderContract?.pipeline)) {
-      return null;
-    }
-    const localProfileId = renderContract.voice_provider_profile_id;
-    if (!localProfileId) {
-      throw new Error(
-        "E302_SUNO_PERSONA_NOT_READY: Missing frozen voice provider profile.",
-      );
-    }
-    const providerProfile = await getProviderProfileById(db, localProfileId);
-    if (
-      !providerProfile ||
-      providerProfile.user_id !== track.user_id ||
-      providerProfile.provider !== "suno" ||
-      providerProfile.status !== "active" ||
-      providerProfile.deleted_at
-    ) {
-      throw new Error(
-        "E302_SUNO_PERSONA_NOT_READY: Active Suno voice persona profile not found.",
-      );
-    }
-    if (!providerProfile.provider_profile_id) {
-      throw new Error(
-        "E302_SUNO_PERSONA_NOT_READY: Suno voice persona id is not ready.",
-      );
-    }
-    if (!hasPersonaConsentScope(providerProfile.consent_scope)) {
-      throw new Error(
-        "E302_SUNO_PERSONA_CONSENT_REQUIRED: Suno voice persona consent is required.",
-      );
-    }
-    // U8: read persona model + audioWeight from the cached routing config
-    // (1 DB call shared with music_provider_config) instead of 2 extra
-    // getFeatureFlag round-trips per render tick.
+    // U8: cached routing config shared with music_provider_config (1 DB call,
+    // not 2 extra getFeatureFlag round-trips per render tick).
     const runtimeConfig = await getRuntimeMusicRoutingConfig();
-    const personaModel =
-      runtimeConfig.suno_voice_persona_persona_model || "voice_persona";
-    const audioWeight = runtimeConfig.suno_voice_persona_audio_weight ?? 0.85;
-    return {
-      personaId: providerProfile.provider_profile_id,
-      personaModel,
-      audioWeight,
-    };
+    return resolveSunoPersonaForRenderImpl({
+      db,
+      track,
+      renderContract,
+      runtimeConfig,
+    });
   }
 
   // Stale job recovery: reset jobs stuck in 'running' status
@@ -5382,9 +5410,7 @@ async function startJobRunner({
     for (const job of candidates) {
       if (processingJobs.has(job.id)) continue;
       if (blockedUserIds.size > 0) {
-        const candidateUserId = candidateUsersByJobId.get(
-          job.track_version_id,
-        );
+        const candidateUserId = candidateUsersByJobId.get(job.track_version_id);
         if (candidateUserId && blockedUserIds.has(candidateUserId)) continue;
       }
       eligibleJobs.push(job);
@@ -5555,5 +5581,6 @@ module.exports = {
     performVoiceConversion,
     applyVocalPolish,
     ensureRenderSharePreGeneration,
+    resolveSunoPersonaForRenderImpl,
   },
 };

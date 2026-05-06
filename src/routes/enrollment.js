@@ -8,7 +8,7 @@
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
-const { concatWavFiles, parseWavBuffer } = require("../utils/audio");
+const { concatWavFiles, parseWavHeaderFromFile } = require("../utils/audio");
 const { validateEnrollmentWithGrading } = require("../services/enrollment");
 const { getTierMetadata } = require("../services/audio-quality");
 const { generateMemoryQuestions } = require("../services/memory-questions");
@@ -99,7 +99,10 @@ async function buildSunoPersonaCalibration({
     }
     let durationSec = 0;
     try {
-      const info = parseWavBuffer(await fs.promises.readFile(entry.filePath));
+      // M23: read only the WAV header (~64 KiB) instead of the full file
+      // (typically 1–5 MB per chunk). For duration probing the audio body
+      // is irrelevant; this keeps the request hot path off the event loop.
+      const info = await parseWavHeaderFromFile(entry.filePath);
       durationSec = Number(info?.durationSec || 0);
     } catch (_err) {
       continue;
@@ -702,8 +705,8 @@ function registerEnrollmentRoutes(app, deps) {
     if (localPath && fs.existsSync(localPath)) {
       if (!resolvedDuration) {
         try {
-          const buffer = await fs.promises.readFile(localPath);
-          const wavInfo = parseWavBuffer(buffer);
+          // M23: header-only read (see parseWavHeaderFromFile docstring).
+          const wavInfo = await parseWavHeaderFromFile(localPath);
           resolvedDuration = wavInfo.durationSec;
         } catch (err) {
           resolvedDuration = null;
@@ -1506,18 +1509,18 @@ function registerEnrollmentRoutes(app, deps) {
               "voice_profile",
               profileId,
               toJson({
-              quality_score: qualityScore,
-              existing_score: existingProfile ? existingScore : null,
-              outcome: outcome,
-              qc_metrics: qcResult.metrics,
-              voice_provider_profile: providerProfileResult
-                ? {
-                    provider: providerProfileResult.provider,
-                    status: providerProfileResult.status,
-                    id: providerProfileResult.id || null,
-                    job_id: providerProfileResult.job_id || null,
-                  }
-                : null,
+                quality_score: qualityScore,
+                existing_score: existingProfile ? existingScore : null,
+                outcome: outcome,
+                qc_metrics: qcResult.metrics,
+                voice_provider_profile: providerProfileResult
+                  ? {
+                      provider: providerProfileResult.provider,
+                      status: providerProfileResult.status,
+                      id: providerProfileResult.id || null,
+                      job_id: providerProfileResult.job_id || null,
+                    }
+                  : null,
               }),
               nowIso(),
             );
@@ -1618,9 +1621,9 @@ function registerEnrollmentRoutes(app, deps) {
     });
     const providerProfileReady = Boolean(
       providerProfile &&
-        providerProfile.status === "active" &&
-        providerProfile.provider_profile_id &&
-        hasPersonaConsentScope(providerProfile.consent_scope),
+      providerProfile.status === "active" &&
+      providerProfile.provider_profile_id &&
+      hasPersonaConsentScope(providerProfile.consent_scope),
     );
     const appBuild = parsePorizoBuild(request.headers["user-agent"]);
     const legacyClientNeedsPersonaGate =
@@ -1688,6 +1691,28 @@ function registerEnrollmentRoutes(app, deps) {
   app.delete("/voice/profile", async (request, reply) => {
     const userId = await requireUserId(request, reply);
     if (!userId) {
+      return;
+    }
+    // Rate-limit voice-profile deletion to defang an abuse pattern flagged by
+    // the adversarial review (adv-7 / H10): a script that rapidly enrolls then
+    // deletes can leave orphan upload-cover tasks pending at Suno, each of
+    // which we pay for. 1 deletion per minute is well above any legitimate
+    // user flow (re-enrollment after a failure typically takes several
+    // minutes of recording) and stops the cost-amplification window.
+    const deleteLimit = await consumeRateLimit(
+      userId,
+      "voice_profile_delete",
+      1,
+      60,
+    );
+    if (!deleteLimit.allowed) {
+      sendError(
+        reply,
+        429,
+        "RATE_LIMITED",
+        "Voice profile deletion rate limit reached.",
+        { retry_at: deleteLimit.reset_at },
+      );
       return;
     }
     const profile = await db

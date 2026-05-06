@@ -31,6 +31,10 @@ function sanitizeProviderError(input) {
       "[redacted_jwt]",
     )
     .replace(/\b[a-z]+_[A-Za-z0-9]{20,}\b/g, "[redacted_provider_id]")
+    .replace(
+      /\b[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\b/g,
+      "[redacted_uuid]",
+    )
     .replace(/\b[A-Fa-f0-9]{32,}\b/g, "[redacted_hex_id]")
     .slice(0, MAX_LENGTH);
 }

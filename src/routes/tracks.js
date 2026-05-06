@@ -20,8 +20,11 @@ const {
 const {
   hasPersonaConsentScope,
 } = require("../services/suno-voice-persona-service");
+// H3: single source of truth for the personalized voice-mode set lives in
+// render-contract.js; the local copy here was drift-prone when new modes
+// (e.g., a future "personalized_v2") were added.
+const { PERSONALIZED_VOICE_MODES } = require("../workflows/render-contract");
 
-const PERSONALIZED_VOICE_MODES = new Set(["user_voice", "personalized"]);
 const SUNO_PERSONA_PREPARING_STATUSES = new Set([
   "pending",
   "upload_submitted",
@@ -123,14 +126,12 @@ function registerTrackRoutes(
         },
       };
     }
-    const latestProviderProfile = await findLatestProviderProfileForVoiceProfile(
-      db,
-      {
+    const latestProviderProfile =
+      await findLatestProviderProfileForVoiceProfile(db, {
         voiceProfileId: voiceProfile.id,
         provider: "suno",
         includeDeleted: true,
-      },
-    );
+      });
     if (latestProviderProfile?.status === "failed") {
       return {
         ok: false,
@@ -354,16 +355,10 @@ function registerTrackRoutes(
             );
             return;
           }
-          sendError(
-            reply,
-            422,
-            voicePreflight.code,
-            voicePreflight.message,
-            {
-              requires_voice_enrollment:
-                voicePreflight.requiresVoiceEnrollment === true,
-            },
-          );
+          sendError(reply, 422, voicePreflight.code, voicePreflight.message, {
+            requires_voice_enrollment:
+              voicePreflight.requiresVoiceEnrollment === true,
+          });
           return;
         }
       }
@@ -587,16 +582,10 @@ function registerTrackRoutes(
           );
           return;
         }
-        sendError(
-          reply,
-          422,
-          voicePreflight.code,
-          voicePreflight.message,
-          {
-            requires_voice_enrollment:
-              voicePreflight.requiresVoiceEnrollment === true,
-          },
-        );
+        sendError(reply, 422, voicePreflight.code, voicePreflight.message, {
+          requires_voice_enrollment:
+            voicePreflight.requiresVoiceEnrollment === true,
+        });
         return;
       }
     }

@@ -24,9 +24,23 @@ describe("Render Endpoints", async () => {
 
   function createMockSubscriptionManager() {
     return {
-      syncSubscription: async () => ({ subscriptionId: "sub_mock", tier: "free", status: "active", songsGranted: 0 }),
-      syncFromGoogle: async () => ({ id: "sub_mock", tier: "free", status: "active", is_new: false }),
-      activateTrial: async () => ({ songsGranted: 0, durationDays: 0, trialExpiresAt: new Date() }),
+      syncSubscription: async () => ({
+        subscriptionId: "sub_mock",
+        tier: "free",
+        status: "active",
+        songsGranted: 0,
+      }),
+      syncFromGoogle: async () => ({
+        id: "sub_mock",
+        tier: "free",
+        status: "active",
+        is_new: false,
+      }),
+      activateTrial: async () => ({
+        songsGranted: 0,
+        durationDays: 0,
+        trialExpiresAt: new Date(),
+      }),
       handleExpiration: async () => ({}),
       handleGracePeriod: async () => ({}),
       handleRevocation: async () => ({}),
@@ -63,7 +77,11 @@ describe("Render Endpoints", async () => {
         message: "Happy birthday!",
       },
     });
-    assert.equal(createTrack.statusCode, 201, `Track creation failed: ${createTrack.body}`);
+    assert.equal(
+      createTrack.statusCode,
+      201,
+      `Track creation failed: ${createTrack.body}`,
+    );
     const trackId = createTrack.json().track_id;
 
     const createVersion = await app.inject({
@@ -72,11 +90,15 @@ describe("Render Endpoints", async () => {
       headers: { "x-user-id": userId },
       payload: { params: { lyrics_style: "warm" }, render_type: "preview" },
     });
-    assert.equal(createVersion.statusCode, 201, `Version creation failed: ${createVersion.body}`);
+    assert.equal(
+      createVersion.statusCode,
+      201,
+      `Version creation failed: ${createVersion.body}`,
+    );
 
     const versionRow = await db.query(
       "SELECT id FROM track_versions WHERE track_id = ? AND version_num = 1",
-      [trackId]
+      [trackId],
     );
     assert.equal(versionRow.rows.length, 1);
 
@@ -86,7 +108,10 @@ describe("Render Endpoints", async () => {
     };
   }
 
-  async function createFailedRenderJob(trackVersionId, workflowType = "preview_render") {
+  async function createFailedRenderJob(
+    trackVersionId,
+    workflowType = "preview_render",
+  ) {
     const now = new Date().toISOString();
     const jobId = `job_render_ep_${Date.now()}_${Math.random().toString(36).slice(2)}`;
     await db.query(
@@ -112,9 +137,10 @@ describe("Render Endpoints", async () => {
         now,
         now,
         now,
-      ]
+      ],
     );
-    const jobColumn = workflowType === "full_render" ? "full_job_id" : "preview_job_id";
+    const jobColumn =
+      workflowType === "full_render" ? "full_job_id" : "preview_job_id";
     await db.query(`UPDATE track_versions SET ${jobColumn} = ? WHERE id = ?`, [
       jobId,
       trackVersionId,
@@ -132,7 +158,7 @@ describe("Render Endpoints", async () => {
         id, user_id, status, quality_score, model_version, consent_version,
         consent_at, created_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [voiceProfileId, userId, "active", 0.9, "test", "voice_v1", now, now]
+      [voiceProfileId, userId, "active", 0.9, "test", "voice_v1", now, now],
     );
     await db.query(
       `INSERT INTO voice_provider_profiles (
@@ -151,7 +177,7 @@ describe("Render Endpoints", async () => {
         now,
         now,
         now,
-      ]
+      ],
     );
     return { voiceProfileId, providerProfileId };
   }
@@ -166,7 +192,7 @@ describe("Render Endpoints", async () => {
         id, user_id, status, quality_score, model_version, consent_version,
         consent_at, created_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [voiceProfileId, userId, "active", 0.9, "test", "voice_v1", now, now]
+      [voiceProfileId, userId, "active", 0.9, "test", "voice_v1", now, now],
     );
     await db.query(
       `INSERT INTO voice_provider_profiles (
@@ -184,7 +210,7 @@ describe("Render Endpoints", async () => {
         "voice_suno_persona_v1",
         now,
         now,
-      ]
+      ],
     );
     return { voiceProfileId, providerProfileId };
   }
@@ -200,7 +226,7 @@ describe("Render Endpoints", async () => {
 
     await db.query(
       "INSERT INTO users (id, created_at) VALUES (?, datetime('now'))",
-      [userId]
+      [userId],
     );
 
     app = buildServer({
@@ -240,7 +266,7 @@ describe("Render Endpoints", async () => {
        SET status = 'queued',
            lyrics_status = 'approved'
        WHERE id = ?`,
-      [trackVersionId]
+      [trackVersionId],
     );
 
     const response = await app.inject({
@@ -249,18 +275,29 @@ describe("Render Endpoints", async () => {
       headers: { "x-user-id": userId },
     });
 
-    assert.equal(response.statusCode, 202, `Expected 202, got ${response.statusCode}: ${response.body}`);
+    assert.equal(
+      response.statusCode,
+      202,
+      `Expected 202, got ${response.statusCode}: ${response.body}`,
+    );
 
     const body = response.json();
     assert.ok(body.job_id, "Response should contain a job_id");
-    assert.equal(typeof body.estimated_completion_sec, "number", "Should include estimated_completion_sec");
+    assert.equal(
+      typeof body.estimated_completion_sec,
+      "number",
+      "Should include estimated_completion_sec",
+    );
     assert.ok(body.poll_url, "Should include poll_url");
-    assert.ok(body.poll_url.includes(body.job_id), "poll_url should reference the job_id");
+    assert.ok(
+      body.poll_url.includes(body.job_id),
+      "poll_url should reference the job_id",
+    );
 
     // Verify the job was inserted into the database
     const jobRows = await db.query(
       "SELECT id, workflow_type, status FROM jobs WHERE id = ?",
-      [body.job_id]
+      [body.job_id],
     );
     assert.equal(jobRows.rows.length, 1, "Job should exist in database");
     assert.equal(jobRows.rows[0].workflow_type, "preview_render");
@@ -269,12 +306,15 @@ describe("Render Endpoints", async () => {
     // Verify the track version was updated
     const versionRows = await db.query(
       "SELECT status, preview_job_id, song_entitlement_consumed_at FROM track_versions WHERE id = ?",
-      [trackVersionId]
+      [trackVersionId],
     );
     assert.equal(versionRows.rows.length, 1);
     assert.equal(versionRows.rows[0].status, "processing");
     assert.equal(versionRows.rows[0].preview_job_id, body.job_id);
-    assert.ok(versionRows.rows[0].song_entitlement_consumed_at, "Entitlement should be consumed");
+    assert.ok(
+      versionRows.rows[0].song_entitlement_consumed_at,
+      "Entitlement should be consumed",
+    );
 
     // Verify entitlement was spent exactly once
     assert.equal(spendCalls, 1, "Should spend exactly one entitlement");
@@ -288,18 +328,26 @@ describe("Render Endpoints", async () => {
         id, user_id, status, quality_score, model_version, consent_version,
         consent_at, created_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      ["voice_render_persona_missing", userId, "active", 0.9, "test", "voice_v1", now, now]
+      [
+        "voice_render_persona_missing",
+        userId,
+        "active",
+        0.9,
+        "test",
+        "voice_v1",
+        now,
+        now,
+      ],
     );
-    await db.query(
-      "UPDATE tracks SET voice_mode = 'user_voice' WHERE id = ?",
-      [trackId]
-    );
+    await db.query("UPDATE tracks SET voice_mode = 'user_voice' WHERE id = ?", [
+      trackId,
+    ]);
     await db.query(
       `UPDATE track_versions
        SET status = 'queued',
            lyrics_status = 'approved'
        WHERE id = ?`,
-      [trackVersionId]
+      [trackVersionId],
     );
     const response = await app.inject({
       method: "POST",
@@ -307,18 +355,29 @@ describe("Render Endpoints", async () => {
       headers: { "x-user-id": userId },
     });
 
-    assert.equal(response.statusCode, 422, `Expected 422, got ${response.statusCode}: ${response.body}`);
-    assert.equal(JSON.parse(response.body).error, "SUNO_VOICE_PERSONA_SETUP_REQUIRED");
-    assert.equal(spendCalls, 0, "Should not spend entitlement without Suno persona");
+    assert.equal(
+      response.statusCode,
+      422,
+      `Expected 422, got ${response.statusCode}: ${response.body}`,
+    );
+    assert.equal(
+      JSON.parse(response.body).error,
+      "SUNO_VOICE_PERSONA_SETUP_REQUIRED",
+    );
+    assert.equal(
+      spendCalls,
+      0,
+      "Should not spend entitlement without Suno persona",
+    );
 
     const jobRows = await db.query(
       "SELECT id, workflow_type, status, step_data FROM jobs WHERE track_version_id = ?",
-      [trackVersionId]
+      [trackVersionId],
     );
     assert.equal(jobRows.rows.length, 0, "Should not create a render job");
     const versionRows = await db.query(
       "SELECT status, song_entitlement_consumed_at FROM track_versions WHERE id = ?",
-      [trackVersionId]
+      [trackVersionId],
     );
     assert.equal(versionRows.rows[0].status, "queued");
     assert.equal(versionRows.rows[0].song_entitlement_consumed_at, null);
@@ -327,16 +386,15 @@ describe("Render Endpoints", async () => {
   it("POST /tracks/:id/versions/:version/render_preview reports preparing while Suno persona job is in progress", async () => {
     const { trackId, trackVersionId } = await createTrackAndVersion();
     await createPendingSunoPersona();
-    await db.query(
-      "UPDATE tracks SET voice_mode = 'user_voice' WHERE id = ?",
-      [trackId]
-    );
+    await db.query("UPDATE tracks SET voice_mode = 'user_voice' WHERE id = ?", [
+      trackId,
+    ]);
     await db.query(
       `UPDATE track_versions
        SET status = 'queued',
            lyrics_status = 'approved'
        WHERE id = ?`,
-      [trackVersionId]
+      [trackVersionId],
     );
 
     const response = await app.inject({
@@ -346,10 +404,18 @@ describe("Render Endpoints", async () => {
     });
 
     const body = JSON.parse(response.body);
-    assert.equal(response.statusCode, 422, `Expected 422, got ${response.statusCode}: ${response.body}`);
+    assert.equal(
+      response.statusCode,
+      422,
+      `Expected 422, got ${response.statusCode}: ${response.body}`,
+    );
     assert.equal(body.error, "SUNO_VOICE_PERSONA_REQUIRED");
     assert.equal(body.requires_voice_enrollment, false);
-    assert.equal(spendCalls, 0, "Should not spend entitlement while Suno persona is preparing");
+    assert.equal(
+      spendCalls,
+      0,
+      "Should not spend entitlement while Suno persona is preparing",
+    );
   });
 
   it("POST /tracks/:id/versions/:version/render_preview rejects legacy personalized mode when Suno persona is missing", async () => {
@@ -360,18 +426,27 @@ describe("Render Endpoints", async () => {
         id, user_id, status, quality_score, model_version, consent_version,
         consent_at, created_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      ["voice_render_legacy_personalized", userId, "active", 0.9, "test", "voice_v1", now, now]
+      [
+        "voice_render_legacy_personalized",
+        userId,
+        "active",
+        0.9,
+        "test",
+        "voice_v1",
+        now,
+        now,
+      ],
     );
     await db.query(
       "UPDATE tracks SET voice_mode = 'personalized' WHERE id = ?",
-      [trackId]
+      [trackId],
     );
     await db.query(
       `UPDATE track_versions
        SET status = 'queued',
            lyrics_status = 'approved'
        WHERE id = ?`,
-      [trackVersionId]
+      [trackVersionId],
     );
 
     const response = await app.inject({
@@ -380,11 +455,25 @@ describe("Render Endpoints", async () => {
       headers: { "x-user-id": userId },
     });
 
-    assert.equal(response.statusCode, 422, `Expected 422, got ${response.statusCode}: ${response.body}`);
-    assert.equal(JSON.parse(response.body).error, "SUNO_VOICE_PERSONA_SETUP_REQUIRED");
-    assert.equal(spendCalls, 0, "Should not spend entitlement for legacy personalized mode without Suno persona");
+    assert.equal(
+      response.statusCode,
+      422,
+      `Expected 422, got ${response.statusCode}: ${response.body}`,
+    );
+    assert.equal(
+      JSON.parse(response.body).error,
+      "SUNO_VOICE_PERSONA_SETUP_REQUIRED",
+    );
+    assert.equal(
+      spendCalls,
+      0,
+      "Should not spend entitlement for legacy personalized mode without Suno persona",
+    );
 
-    const jobs = await db.query("SELECT id FROM jobs WHERE track_version_id = ?", [trackVersionId]);
+    const jobs = await db.query(
+      "SELECT id FROM jobs WHERE track_version_id = ?",
+      [trackVersionId],
+    );
     assert.equal(jobs.rows.length, 0);
   });
 
@@ -396,14 +485,14 @@ describe("Render Endpoints", async () => {
     });
     await db.query(
       "UPDATE tracks SET voice_mode = 'personalized' WHERE id = ?",
-      [trackId]
+      [trackId],
     );
     await db.query(
       `UPDATE track_versions
        SET status = 'queued',
            lyrics_status = 'approved'
        WHERE id = ?`,
-      [trackVersionId]
+      [trackVersionId],
     );
 
     const response = await app.inject({
@@ -412,10 +501,16 @@ describe("Render Endpoints", async () => {
       headers: { "x-user-id": userId },
     });
 
-    assert.equal(response.statusCode, 202, `Expected 202, got ${response.statusCode}: ${response.body}`);
+    assert.equal(
+      response.statusCode,
+      202,
+      `Expected 202, got ${response.statusCode}: ${response.body}`,
+    );
     assert.equal(spendCalls, 1);
 
-    const jobRows = await db.query("SELECT step_data FROM jobs WHERE id = ?", [response.json().job_id]);
+    const jobRows = await db.query("SELECT step_data FROM jobs WHERE id = ?", [
+      response.json().job_id,
+    ]);
     const renderRequest = JSON.parse(jobRows.rows[0].step_data).render_request;
     assert.equal(renderRequest.user_voice_engine, "suno_voice_persona");
     assert.equal(renderRequest.voice_provider_profile_id, providerProfileId);
@@ -430,19 +525,27 @@ describe("Render Endpoints", async () => {
         id, user_id, status, quality_score, model_version, consent_version,
         consent_at, created_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      ["voice_render_full_persona_missing", userId, "active", 0.9, "test", "voice_v1", now, now]
+      [
+        "voice_render_full_persona_missing",
+        userId,
+        "active",
+        0.9,
+        "test",
+        "voice_v1",
+        now,
+        now,
+      ],
     );
-    await db.query(
-      "UPDATE tracks SET voice_mode = 'user_voice' WHERE id = ?",
-      [trackId]
-    );
+    await db.query("UPDATE tracks SET voice_mode = 'user_voice' WHERE id = ?", [
+      trackId,
+    ]);
     await db.query(
       `UPDATE track_versions
        SET status = 'queued',
            lyrics_status = 'approved',
            song_entitlement_consumed_at = NULL
        WHERE id = ?`,
-      [trackVersionId]
+      [trackVersionId],
     );
     const response = await app.inject({
       method: "POST",
@@ -450,18 +553,29 @@ describe("Render Endpoints", async () => {
       headers: { "x-user-id": userId },
     });
 
-    assert.equal(response.statusCode, 422, `Expected 422, got ${response.statusCode}: ${response.body}`);
-    assert.equal(JSON.parse(response.body).error, "SUNO_VOICE_PERSONA_SETUP_REQUIRED");
-    assert.equal(spendCalls, 0, "Should not spend entitlement without Suno persona");
+    assert.equal(
+      response.statusCode,
+      422,
+      `Expected 422, got ${response.statusCode}: ${response.body}`,
+    );
+    assert.equal(
+      JSON.parse(response.body).error,
+      "SUNO_VOICE_PERSONA_SETUP_REQUIRED",
+    );
+    assert.equal(
+      spendCalls,
+      0,
+      "Should not spend entitlement without Suno persona",
+    );
 
     const jobRows = await db.query(
       "SELECT id, status, step_data FROM jobs WHERE track_version_id = ? AND workflow_type = 'full_render'",
-      [trackVersionId]
+      [trackVersionId],
     );
     assert.equal(jobRows.rows.length, 0, "Should not create a full render job");
     const versionRows = await db.query(
       "SELECT status, full_job_id, song_entitlement_consumed_at FROM track_versions WHERE id = ?",
-      [trackVersionId]
+      [trackVersionId],
     );
     assert.equal(versionRows.rows[0].status, "queued");
     assert.equal(versionRows.rows[0].full_job_id, null);
@@ -476,7 +590,16 @@ describe("Render Endpoints", async () => {
         id, user_id, status, quality_score, model_version, consent_version,
         consent_at, created_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      ["voice_render_bad_consent", userId, "active", 0.9, "test", "voice_v1", now, now]
+      [
+        "voice_render_bad_consent",
+        userId,
+        "active",
+        0.9,
+        "test",
+        "voice_v1",
+        now,
+        now,
+      ],
     );
     await db.query(
       `INSERT INTO voice_provider_profiles (
@@ -495,16 +618,18 @@ describe("Render Endpoints", async () => {
         now,
         now,
         now,
-      ]
+      ],
     );
-    await db.query("UPDATE tracks SET voice_mode = 'user_voice' WHERE id = ?", [trackId]);
+    await db.query("UPDATE tracks SET voice_mode = 'user_voice' WHERE id = ?", [
+      trackId,
+    ]);
     await db.query(
       `UPDATE track_versions
        SET status = 'queued',
            lyrics_status = 'approved',
            song_entitlement_consumed_at = NULL
        WHERE id = ?`,
-      [trackVersionId]
+      [trackVersionId],
     );
     const response = await app.inject({
       method: "POST",
@@ -512,10 +637,20 @@ describe("Render Endpoints", async () => {
       headers: { "x-user-id": userId },
     });
 
-    assert.equal(response.statusCode, 422, `Expected 422, got ${response.statusCode}: ${response.body}`);
-    assert.equal(JSON.parse(response.body).error, "SUNO_VOICE_PERSONA_SETUP_REQUIRED");
+    assert.equal(
+      response.statusCode,
+      422,
+      `Expected 422, got ${response.statusCode}: ${response.body}`,
+    );
+    assert.equal(
+      JSON.parse(response.body).error,
+      "SUNO_VOICE_PERSONA_SETUP_REQUIRED",
+    );
     assert.equal(spendCalls, 0);
-    const jobs = await db.query("SELECT id FROM jobs WHERE track_version_id = ?", [trackVersionId]);
+    const jobs = await db.query(
+      "SELECT id FROM jobs WHERE track_version_id = ?",
+      [trackVersionId],
+    );
     assert.equal(jobs.rows.length, 0);
   });
 
@@ -527,16 +662,27 @@ describe("Render Endpoints", async () => {
         id, user_id, status, quality_score, model_version, consent_version,
         consent_at, created_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      ["voice_render_completed", userId, "completed", 0.9, "test", "voice_v1", now, now]
+      [
+        "voice_render_completed",
+        userId,
+        "completed",
+        0.9,
+        "test",
+        "voice_v1",
+        now,
+        now,
+      ],
     );
-    await db.query("UPDATE tracks SET voice_mode = 'user_voice' WHERE id = ?", [trackId]);
+    await db.query("UPDATE tracks SET voice_mode = 'user_voice' WHERE id = ?", [
+      trackId,
+    ]);
     await db.query(
       `UPDATE track_versions
        SET status = 'queued',
            lyrics_status = 'approved',
            song_entitlement_consumed_at = NULL
        WHERE id = ?`,
-      [trackVersionId]
+      [trackVersionId],
     );
 
     const response = await app.inject({
@@ -545,23 +691,32 @@ describe("Render Endpoints", async () => {
       headers: { "x-user-id": userId },
     });
 
-    assert.equal(response.statusCode, 422, `Expected 422, got ${response.statusCode}: ${response.body}`);
+    assert.equal(
+      response.statusCode,
+      422,
+      `Expected 422, got ${response.statusCode}: ${response.body}`,
+    );
     assert.match(response.body, /VOICE_PROFILE_REQUIRED/);
     assert.equal(spendCalls, 0);
-    const jobs = await db.query("SELECT id FROM jobs WHERE track_version_id = ?", [trackVersionId]);
+    const jobs = await db.query(
+      "SELECT id FROM jobs WHERE track_version_id = ?",
+      [trackVersionId],
+    );
     assert.equal(jobs.rows.length, 0);
   });
 
   it("POST /tracks/:id/versions/:version/render_preview blocks My Voice with no enrolled voice profile", async () => {
     const { trackId, trackVersionId } = await createTrackAndVersion();
-    await db.query("UPDATE tracks SET voice_mode = 'user_voice' WHERE id = ?", [trackId]);
+    await db.query("UPDATE tracks SET voice_mode = 'user_voice' WHERE id = ?", [
+      trackId,
+    ]);
     await db.query(
       `UPDATE track_versions
        SET status = 'queued',
            lyrics_status = 'approved',
            song_entitlement_consumed_at = NULL
        WHERE id = ?`,
-      [trackVersionId]
+      [trackVersionId],
     );
 
     const response = await app.inject({
@@ -570,10 +725,21 @@ describe("Render Endpoints", async () => {
       headers: { "x-user-id": userId },
     });
 
-    assert.equal(response.statusCode, 422, `Expected 422, got ${response.statusCode}: ${response.body}`);
+    assert.equal(
+      response.statusCode,
+      422,
+      `Expected 422, got ${response.statusCode}: ${response.body}`,
+    );
     assert.match(response.body, /VOICE_PROFILE_REQUIRED/);
-    assert.equal(spendCalls, 0, "Should not spend entitlement without an enrolled voice profile");
-    const jobs = await db.query("SELECT id FROM jobs WHERE track_version_id = ?", [trackVersionId]);
+    assert.equal(
+      spendCalls,
+      0,
+      "Should not spend entitlement without an enrolled voice profile",
+    );
+    const jobs = await db.query(
+      "SELECT id FROM jobs WHERE track_version_id = ?",
+      [trackVersionId],
+    );
     assert.equal(jobs.rows.length, 0);
   });
 
@@ -585,16 +751,28 @@ describe("Render Endpoints", async () => {
         id, user_id, status, quality_score, model_version, consent_version,
         consent_at, created_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      ["voice_retry_persona_missing", userId, "active", 0.9, "test", "voice_v1", now, now]
+      [
+        "voice_retry_persona_missing",
+        userId,
+        "active",
+        0.9,
+        "test",
+        "voice_v1",
+        now,
+        now,
+      ],
     );
-    await db.query("UPDATE tracks SET voice_mode = 'user_voice', status = 'failed' WHERE id = ?", [trackId]);
+    await db.query(
+      "UPDATE tracks SET voice_mode = 'user_voice', status = 'failed' WHERE id = ?",
+      [trackId],
+    );
     await db.query(
       `UPDATE track_versions
        SET status = 'failed',
            lyrics_status = 'approved',
            song_entitlement_consumed_at = NULL
        WHERE id = ?`,
-      [trackVersionId]
+      [trackVersionId],
     );
     const jobId = await createFailedRenderJob(trackVersionId);
 
@@ -604,14 +782,27 @@ describe("Render Endpoints", async () => {
       headers: { "x-user-id": userId },
     });
 
-    assert.equal(response.statusCode, 422, `Expected 422, got ${response.statusCode}: ${response.body}`);
-    assert.equal(JSON.parse(response.body).error, "SUNO_VOICE_PERSONA_SETUP_REQUIRED");
+    assert.equal(
+      response.statusCode,
+      422,
+      `Expected 422, got ${response.statusCode}: ${response.body}`,
+    );
+    assert.equal(
+      JSON.parse(response.body).error,
+      "SUNO_VOICE_PERSONA_SETUP_REQUIRED",
+    );
 
-    const jobRows = await db.query("SELECT status, attempts, error_code FROM jobs WHERE id = ?", [jobId]);
+    const jobRows = await db.query(
+      "SELECT status, attempts, error_code FROM jobs WHERE id = ?",
+      [jobId],
+    );
     assert.equal(jobRows.rows[0].status, "failed");
     assert.equal(jobRows.rows[0].attempts, 3);
     assert.equal(jobRows.rows[0].error_code, "R205");
-    const versionRows = await db.query("SELECT status FROM track_versions WHERE id = ?", [trackVersionId]);
+    const versionRows = await db.query(
+      "SELECT status FROM track_versions WHERE id = ?",
+      [trackVersionId],
+    );
     assert.equal(versionRows.rows[0].status, "failed");
   });
 
@@ -621,14 +812,17 @@ describe("Render Endpoints", async () => {
       voiceProfileId: "voice_retry_persona_active",
       providerProfileId: "vpp_retry_persona_active",
     });
-    await db.query("UPDATE tracks SET voice_mode = 'user_voice', status = 'failed' WHERE id = ?", [trackId]);
+    await db.query(
+      "UPDATE tracks SET voice_mode = 'user_voice', status = 'failed' WHERE id = ?",
+      [trackId],
+    );
     await db.query(
       `UPDATE track_versions
        SET status = 'failed',
            lyrics_status = 'approved',
            song_entitlement_consumed_at = NULL
        WHERE id = ?`,
-      [trackVersionId]
+      [trackVersionId],
     );
     const jobId = await createFailedRenderJob(trackVersionId);
 
@@ -638,10 +832,17 @@ describe("Render Endpoints", async () => {
       headers: { "x-user-id": userId },
     });
 
-    assert.equal(response.statusCode, 202, `Expected 202, got ${response.statusCode}: ${response.body}`);
+    assert.equal(
+      response.statusCode,
+      202,
+      `Expected 202, got ${response.statusCode}: ${response.body}`,
+    );
     assert.equal(response.json().job_id, jobId);
 
-    const jobRows = await db.query("SELECT status, attempts, error_code, step_data FROM jobs WHERE id = ?", [jobId]);
+    const jobRows = await db.query(
+      "SELECT status, attempts, error_code, step_data FROM jobs WHERE id = ?",
+      [jobId],
+    );
     assert.equal(jobRows.rows[0].status, "queued");
     assert.equal(jobRows.rows[0].attempts, 0);
     assert.equal(jobRows.rows[0].error_code, null);
@@ -660,7 +861,7 @@ describe("Render Endpoints", async () => {
        SET status = 'queued',
            lyrics_status = 'approved'
        WHERE id = ?`,
-      [trackVersionId]
+      [trackVersionId],
     );
 
     // Configure the mock to reject with insufficient songs
@@ -677,7 +878,11 @@ describe("Render Endpoints", async () => {
       payload: {},
     });
 
-    assert.equal(response.statusCode, 402, `Expected 402, got ${response.statusCode}: ${response.body}`);
+    assert.equal(
+      response.statusCode,
+      402,
+      `Expected 402, got ${response.statusCode}: ${response.body}`,
+    );
 
     const body = response.json();
     assert.equal(body.error, "INSUFFICIENT_CREDITS");
@@ -688,17 +893,29 @@ describe("Render Endpoints", async () => {
     // Verify the version was NOT moved to processing (transaction rolled back)
     const versionRows = await db.query(
       "SELECT status, full_job_id, song_entitlement_consumed_at FROM track_versions WHERE id = ?",
-      [trackVersionId]
+      [trackVersionId],
     );
     assert.equal(versionRows.rows.length, 1);
-    assert.equal(versionRows.rows[0].status, "queued", "Status should remain queued after rollback");
-    assert.equal(versionRows.rows[0].full_job_id, null, "No job should be assigned");
-    assert.equal(versionRows.rows[0].song_entitlement_consumed_at, null, "No entitlement should be consumed");
+    assert.equal(
+      versionRows.rows[0].status,
+      "queued",
+      "Status should remain queued after rollback",
+    );
+    assert.equal(
+      versionRows.rows[0].full_job_id,
+      null,
+      "No job should be assigned",
+    );
+    assert.equal(
+      versionRows.rows[0].song_entitlement_consumed_at,
+      null,
+      "No entitlement should be consumed",
+    );
 
     // Verify no job was created
     const jobRows = await db.query(
       "SELECT id FROM jobs WHERE track_version_id = ? AND workflow_type = 'full_render'",
-      [trackVersionId]
+      [trackVersionId],
     );
     assert.equal(jobRows.rows.length, 0, "No full_render job should exist");
   });
@@ -722,21 +939,21 @@ describe("Render Endpoints", async () => {
         new Date(Date.now() + 60_000).toISOString(),
         new Date().toISOString(),
         new Date().toISOString(),
-      ]
+      ],
     );
     await db.query(
       `UPDATE tracks
        SET funding_source = 'gift_token',
            gift_reservation_id = 'gres_render_gift'
        WHERE id = ?`,
-      [trackId]
+      [trackId],
     );
     await db.query(
       `UPDATE track_versions
        SET status = 'queued',
            lyrics_status = 'approved'
        WHERE id = ?`,
-      [trackVersionId]
+      [trackVersionId],
     );
 
     const response = await app.inject({
@@ -746,17 +963,64 @@ describe("Render Endpoints", async () => {
       payload: {},
     });
 
-    assert.equal(response.statusCode, 202, `Expected 202, got ${response.statusCode}: ${response.body}`);
-    assert.equal(spendCalls, 0, "Gift-funded render should not consume subscription entitlement");
+    assert.equal(
+      response.statusCode,
+      202,
+      `Expected 202, got ${response.statusCode}: ${response.body}`,
+    );
+    assert.equal(
+      spendCalls,
+      0,
+      "Gift-funded render should not consume subscription entitlement",
+    );
 
     const versionRows = await db.query(
       "SELECT status, full_job_id, song_entitlement_consumed_at FROM track_versions WHERE id = ?",
-      [trackVersionId]
+      [trackVersionId],
     );
     assert.equal(versionRows.rows.length, 1);
     assert.equal(versionRows.rows[0].status, "processing");
     assert.ok(versionRows.rows[0].full_job_id);
-    assert.ok(versionRows.rows[0].song_entitlement_consumed_at, "Gift-funded render should still mark version as funded");
+    assert.ok(
+      versionRows.rows[0].song_entitlement_consumed_at,
+      "Gift-funded render should still mark version as funded",
+    );
+
+    // S10: verify the gift reservation is still bound to this track + version
+    // on the funding code path. Per migration 059, the gift status enum is
+    // `reserved | content_ready | finalized | cancelled | expired`. The
+    // render_full endpoint only QUEUES the render; the actual reserved →
+    // content_ready transition fires later when the render completes (in the
+    // workflow runner), so this test only guards the synchronous binding
+    // contract: the version_num is stamped on the reservation, the gift is
+    // not silently cancelled or expired, and the reservation row still
+    // exists. A regression that orphaned the reservation (e.g., overwrote
+    // funding_source after the route resolved the gift) would fail here.
+    const giftRows = await db.query(
+      "SELECT status, version_num, content_id FROM gift_reservations WHERE id = ?",
+      ["gres_render_gift"],
+    );
+    assert.equal(giftRows.rows.length, 1, "Gift reservation row must exist");
+    assert.notEqual(
+      giftRows.rows[0].status,
+      "cancelled",
+      "Gift reservation must not be cancelled by render_full",
+    );
+    assert.notEqual(
+      giftRows.rows[0].status,
+      "expired",
+      "Gift reservation must not be expired by render_full",
+    );
+    assert.equal(
+      Number(giftRows.rows[0].version_num),
+      1,
+      "Gift reservation must remain bound to the version it funded",
+    );
+    assert.equal(
+      giftRows.rows[0].content_id,
+      trackId,
+      "Gift reservation must remain bound to the track it funded",
+    );
   });
 
   it("render-ready share pre-generation works with a query-only adapter", async () => {
@@ -774,7 +1038,7 @@ describe("Render Endpoints", async () => {
     assert.equal(result.ok, true);
     const shareRows = await db.query(
       "SELECT id FROM share_tokens WHERE track_id = ? AND track_version_id = ?",
-      [trackId, trackVersionId]
+      [trackId, trackVersionId],
     );
     assert.equal(shareRows.rows.length, 1);
   });
@@ -796,10 +1060,16 @@ describe("Render Endpoints", async () => {
     assert.equal(result.ok, false);
     const incidentRows = await db.query(
       "SELECT incident_type, detail FROM gift_delivery_incidents WHERE incident_key = ?",
-      [`share_pre_generation:${trackVersionId}`]
+      [`share_pre_generation:${trackVersionId}`],
     );
     assert.equal(incidentRows.rows.length, 1);
-    assert.equal(incidentRows.rows[0].incident_type, "share_pre_generation_failed");
-    assert.match(incidentRows.rows[0].detail, /simulated share generation failure/);
+    assert.equal(
+      incidentRows.rows[0].incident_type,
+      "share_pre_generation_failed",
+    );
+    assert.match(
+      incidentRows.rows[0].detail,
+      /simulated share generation failure/,
+    );
   });
 });

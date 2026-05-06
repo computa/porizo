@@ -18,6 +18,20 @@
  *     is fail-secure (no spoofed callback can drive state).
  *   - Logs are redacted via `sanitizeProviderError`.
  *
+ * !!! BEFORE PROMOTING THIS ROUTE TO STATE MUTATION !!!
+ *   The current handler accepts EITHER a query-string `?token=<secret>` OR an
+ *   `X-Suno-Signature: HMAC-SHA256(rawBody)` header. The token-only path is
+ *   unsafe for state mutation: tokens land in webserver access logs, proxy
+ *   logs, browser referrers, and Suno's own outbound logs — once leaked, they
+ *   replay indefinitely. The handler is currently a no-op so the bypass has no
+ *   impact, but ANY change that makes this route advance `voice_provider_jobs`
+ *   or `voice_provider_profiles` MUST first:
+ *     1. Drop the token-only auth branch — require HMAC-of-rawBody only.
+ *     2. Add an `X-Suno-Timestamp` header included in the HMAC payload.
+ *     3. Reject payloads older than 5 minutes (replay protection).
+ *     4. Add a short-lived dedupe set keyed on (taskId, status).
+ *   See M8 in tasks/codex-review-72h.md and the H10 risk notes.
+ *
  * SUNOAPI CONTRACT:
  *   Public docs describe `callBackUrl` payload delivery but do not document a
  *   provider-signed webhook header. To avoid relying on an invented

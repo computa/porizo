@@ -14,12 +14,22 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { test, describe, after, before, beforeEach, afterEach } = require("node:test");
+const {
+  test,
+  describe,
+  after,
+  before,
+  beforeEach,
+  afterEach,
+} = require("node:test");
 const { initDb } = require("../src/db");
 const { buildServer } = require("../src/server");
 const { createStorageProvider } = require("../src/storage");
 const { startJobRunner } = require("../src/workflows/runner");
-const { clearCache: clearFeatureFlagCache } = require("../src/services/feature-flags");
+const {
+  clearCache: clearFeatureFlagCache,
+} = require("../src/services/feature-flags");
+const { parseJson } = require("../src/utils/common");
 
 // Test fixtures
 let storageDir;
@@ -91,7 +101,10 @@ describe("Stale Job Recovery", () => {
       UPLOAD_SIGNING_SECRET: "test-upload-secret",
       UPLOAD_URL_TTL_SEC: 900,
     };
-    db = await initDb({ dbPath: ":memory:", migrationsDir: path.join(process.cwd(), "migrations") });
+    db = await initDb({
+      dbPath: ":memory:",
+      migrationsDir: path.join(process.cwd(), "migrations"),
+    });
     storage = createStorageProvider(config);
     app = buildServer({ db, config, storage });
   });
@@ -106,25 +119,30 @@ describe("Stale Job Recovery", () => {
 
     // Create a user (schema: id, created_at, risk_level, locale, country)
     db.prepare("INSERT INTO users (id, created_at) VALUES (?, ?)").run(
-      userId, new Date().toISOString()
+      userId,
+      new Date().toISOString(),
     );
 
     // Create entitlements (user_id is primary key)
-    db.prepare("INSERT INTO entitlements (user_id, tier, songs_remaining, updated_at) VALUES (?, 'free', 100, ?)").run(
-      userId, new Date().toISOString()
-    );
+    db.prepare(
+      "INSERT INTO entitlements (user_id, tier, songs_remaining, updated_at) VALUES (?, 'free', 100, ?)",
+    ).run(userId, new Date().toISOString());
 
     // Insert a job that's been stuck in 'running' for 10 minutes
     const staleTime = new Date(Date.now() - 10 * 60 * 1000).toISOString();
     const jobId = `job_stale_${Date.now()}`;
 
-    db.prepare(`
+    db.prepare(
+      `
       INSERT INTO jobs (id, track_version_id, workflow_type, status, step, step_index, attempts, max_attempts, created_at, updated_at)
       VALUES (?, 'tv_fake', 'preview', 'running', 'instrumental', 2, 0, 3, ?, ?)
-    `).run(jobId, staleTime, staleTime);
+    `,
+    ).run(jobId, staleTime, staleTime);
 
     // Verify job is stuck in 'running'
-    const beforeRecovery = db.prepare("SELECT status FROM jobs WHERE id = ?").get(jobId);
+    const beforeRecovery = db
+      .prepare("SELECT status FROM jobs WHERE id = ?")
+      .get(jobId);
     assert.equal(beforeRecovery.status, "running");
 
     // Start runner with recovery enabled
@@ -138,9 +156,19 @@ describe("Stale Job Recovery", () => {
     });
 
     // Check that job was recovered to 'queued'
-    const afterRecovery = db.prepare("SELECT status, attempts FROM jobs WHERE id = ?").get(jobId);
-    assert.equal(afterRecovery.status, "queued", "Stale job should be recovered to queued status");
-    assert.equal(afterRecovery.attempts, 1, "Recovery should increment attempt count");
+    const afterRecovery = db
+      .prepare("SELECT status, attempts FROM jobs WHERE id = ?")
+      .get(jobId);
+    assert.equal(
+      afterRecovery.status,
+      "queued",
+      "Stale job should be recovered to queued status",
+    );
+    assert.equal(
+      afterRecovery.attempts,
+      1,
+      "Recovery should increment attempt count",
+    );
 
     runner.stop();
   });
@@ -149,10 +177,12 @@ describe("Stale Job Recovery", () => {
     const recentTime = new Date().toISOString();
     const jobId = `job_recent_${Date.now()}`;
 
-    db.prepare(`
+    db.prepare(
+      `
       INSERT INTO jobs (id, track_version_id, workflow_type, status, step, step_index, attempts, max_attempts, created_at, updated_at)
       VALUES (?, 'tv_fake2', 'preview', 'running', 'mix', 5, 0, 3, ?, ?)
-    `).run(jobId, recentTime, recentTime);
+    `,
+    ).run(jobId, recentTime, recentTime);
 
     runner = await startJobRunner({
       db,
@@ -165,7 +195,11 @@ describe("Stale Job Recovery", () => {
 
     // Recent job should NOT be recovered
     const job = db.prepare("SELECT status FROM jobs WHERE id = ?").get(jobId);
-    assert.equal(job.status, "running", "Recently-running job should not be recovered");
+    assert.equal(
+      job.status,
+      "running",
+      "Recently-running job should not be recovered",
+    );
 
     runner.stop();
   });
@@ -174,10 +208,12 @@ describe("Stale Job Recovery", () => {
     const now = new Date().toISOString();
     const jobId = `job_terminal_${Date.now()}`;
 
-    db.prepare(`
+    db.prepare(
+      `
       INSERT INTO jobs (id, track_version_id, workflow_type, status, step, step_index, attempts, max_attempts, created_at, updated_at)
       VALUES (?, 'tv_terminal', 'preview_render', 'queued', 'ready', 9, 0, 3, ?, ?)
-    `).run(jobId, now, now);
+    `,
+    ).run(jobId, now, now);
 
     runner = await startJobRunner({
       db,
@@ -190,7 +226,11 @@ describe("Stale Job Recovery", () => {
     await runner.tick();
 
     const job = db.prepare("SELECT status FROM jobs WHERE id = ?").get(jobId);
-    assert.equal(job.status, "completed", "Terminal queued jobs should be finalized");
+    assert.equal(
+      job.status,
+      "completed",
+      "Terminal queued jobs should be finalized",
+    );
 
     runner.stop();
   });
@@ -212,7 +252,10 @@ describe("AI Voice Model Configuration", () => {
       UPLOAD_SIGNING_SECRET: "test-upload-secret",
       UPLOAD_URL_TTL_SEC: 900,
     };
-    db = await initDb({ dbPath: ":memory:", migrationsDir: path.join(process.cwd(), "migrations") });
+    db = await initDb({
+      dbPath: ":memory:",
+      migrationsDir: path.join(process.cwd(), "migrations"),
+    });
     storage = createStorageProvider(config);
     app = buildServer({ db, config, storage });
   });
@@ -227,7 +270,10 @@ describe("AI Voice Model Configuration", () => {
     // The actual conversion would require mocking Replicate
     const configuredModel = config.DEFAULT_AI_VOICE_MODEL;
     assert.equal(configuredModel, "custom_model_v1");
-    assert.notEqual(configuredModel, "25a9292ae08d73f5e85b65d9f8a75c0c2f2ef86c06280c3c726ec6eb11a9d570");
+    assert.notEqual(
+      configuredModel,
+      "25a9292ae08d73f5e85b65d9f8a75c0c2f2ef86c06280c3c726ec6eb11a9d570",
+    );
   });
 });
 
@@ -246,7 +292,10 @@ describe("Version Increment Race Condition", () => {
       UPLOAD_SIGNING_SECRET: "test-upload-secret",
       UPLOAD_URL_TTL_SEC: 900,
     };
-    db = await initDb({ dbPath: ":memory:", migrationsDir: path.join(process.cwd(), "migrations") });
+    db = await initDb({
+      dbPath: ":memory:",
+      migrationsDir: path.join(process.cwd(), "migrations"),
+    });
     storage = createStorageProvider(config);
     app = buildServer({ db, config, storage });
   });
@@ -261,17 +310,20 @@ describe("Version Increment Race Condition", () => {
 
     // Create user and entitlements
     db.prepare("INSERT INTO users (id, created_at) VALUES (?, ?)").run(
-      userId, new Date().toISOString()
+      userId,
+      new Date().toISOString(),
     );
-    db.prepare("INSERT INTO entitlements (user_id, tier, songs_remaining, updated_at) VALUES (?, 'premium', 1000, ?)").run(
-      userId, new Date().toISOString()
-    );
+    db.prepare(
+      "INSERT INTO entitlements (user_id, tier, songs_remaining, updated_at) VALUES (?, 'premium', 1000, ?)",
+    ).run(userId, new Date().toISOString());
 
     // Create voice profile (no updated_at in schema)
-    db.prepare(`
+    db.prepare(
+      `
       INSERT INTO voice_profiles (id, user_id, status, quality_score, model_version, consent_version, created_at)
       VALUES (?, ?, 'active', 85, 'v1', 'v1', ?)
-    `).run(`vp_${userId}`, userId, new Date().toISOString());
+    `,
+    ).run(`vp_${userId}`, userId, new Date().toISOString());
 
     // Create track
     const trackRes = await app.inject({
@@ -293,24 +345,29 @@ describe("Version Increment Race Condition", () => {
     const trackId = track.track_id;
 
     // Simulate concurrent version creation requests
-    const concurrentRequests = Array(5).fill(null).map(() =>
-      app.inject({
-        method: "POST",
-        url: `/tracks/${trackId}/versions`,
-        headers: { "x-user-id": userId },
-        payload: {},
-      })
-    );
+    const concurrentRequests = Array(5)
+      .fill(null)
+      .map(() =>
+        app.inject({
+          method: "POST",
+          url: `/tracks/${trackId}/versions`,
+          headers: { "x-user-id": userId },
+          payload: {},
+        }),
+      );
 
     const results = await Promise.all(concurrentRequests);
 
     // Check that all succeeded and got unique version numbers
-    const successResults = results.filter(r => r.statusCode === 201);
-    const versions = successResults.map(r => r.json().version_num);
+    const successResults = results.filter((r) => r.statusCode === 201);
+    const versions = successResults.map((r) => r.json().version_num);
     const uniqueVersions = [...new Set(versions)];
 
-    assert.equal(versions.length, uniqueVersions.length,
-      `All version numbers should be unique. Got: ${versions.join(", ")}`);
+    assert.equal(
+      versions.length,
+      uniqueVersions.length,
+      `All version numbers should be unique. Got: ${versions.join(", ")}`,
+    );
   });
 });
 
@@ -330,7 +387,10 @@ describe("Voice Mode Standardization", () => {
       UPLOAD_SIGNING_SECRET: "test-upload-secret",
       UPLOAD_URL_TTL_SEC: 900,
     };
-    db = await initDb({ dbPath: ":memory:", migrationsDir: path.join(process.cwd(), "migrations") });
+    db = await initDb({
+      dbPath: ":memory:",
+      migrationsDir: path.join(process.cwd(), "migrations"),
+    });
     storage = createStorageProvider(config);
     app = buildServer({ db, config, storage });
   });
@@ -345,11 +405,12 @@ describe("Voice Mode Standardization", () => {
 
     // Setup user
     db.prepare("INSERT INTO users (id, created_at) VALUES (?, ?)").run(
-      userId, new Date().toISOString()
+      userId,
+      new Date().toISOString(),
     );
-    db.prepare("INSERT INTO entitlements (user_id, tier, songs_remaining, updated_at) VALUES (?, 'free', 100, ?)").run(
-      userId, new Date().toISOString()
-    );
+    db.prepare(
+      "INSERT INTO entitlements (user_id, tier, songs_remaining, updated_at) VALUES (?, 'free', 100, ?)",
+    ).run(userId, new Date().toISOString());
 
     // Create track WITHOUT specifying voice_mode
     const trackRes = await app.inject({
@@ -370,18 +431,23 @@ describe("Voice Mode Standardization", () => {
     const track = trackRes.json();
 
     // Should use config default
-    assert.equal(track.voice_mode, "ai_voice",
-      "Should use DEFAULT_VOICE_MODE from config when not specified");
+    assert.equal(
+      track.voice_mode,
+      "ai_voice",
+      "Should use DEFAULT_VOICE_MODE from config when not specified",
+    );
   });
 
   test("should accept user_voice as voice_mode", async () => {
     const userId = "user_voicemode_test";
 
     // Create voice profile first (required for user_voice mode)
-    db.prepare(`
+    db.prepare(
+      `
       INSERT OR IGNORE INTO voice_profiles (id, user_id, status, quality_score, model_version, consent_version, created_at)
       VALUES (?, ?, 'active', 85, 'v1', 'v1', ?)
-    `).run(`vp_${userId}`, userId, new Date().toISOString());
+    `,
+    ).run(`vp_${userId}`, userId, new Date().toISOString());
     insertActiveSunoPersona(userId);
 
     const trackRes = await app.inject({
@@ -407,17 +473,22 @@ describe("Voice Mode Standardization", () => {
     const userId = "user_voicemode_disabled_test";
     const now = new Date().toISOString();
 
-    db.prepare("INSERT INTO users (id, created_at) VALUES (?, ?)").run(userId, now);
+    db.prepare("INSERT INTO users (id, created_at) VALUES (?, ?)").run(
+      userId,
+      now,
+    );
     db.prepare(
-      "INSERT INTO entitlements (user_id, tier, songs_remaining, updated_at) VALUES (?, 'free', 100, ?)"
+      "INSERT INTO entitlements (user_id, tier, songs_remaining, updated_at) VALUES (?, 'free', 100, ?)",
     ).run(userId, now);
-    db.prepare(`
+    db.prepare(
+      `
       INSERT INTO voice_profiles (id, user_id, status, quality_score, model_version, consent_version, created_at)
       VALUES (?, ?, 'active', 85, 'v1', 'v1', ?)
-    `).run(`vp_${userId}`, userId, now);
+    `,
+    ).run(`vp_${userId}`, userId, now);
 
     db.prepare(
-      "INSERT OR REPLACE INTO feature_flags (id, value, updated_at, updated_by) VALUES ('my_voice_enabled', ?, ?, 'test')"
+      "INSERT OR REPLACE INTO feature_flags (id, value, updated_at, updated_by) VALUES ('my_voice_enabled', ?, ?, 'test')",
     ).run(JSON.stringify(false), now);
 
     const createRes = await app.inject({
@@ -454,7 +525,7 @@ describe("Voice Mode Standardization", () => {
     const now = new Date().toISOString();
 
     db.prepare(
-      "INSERT OR REPLACE INTO feature_flags (id, value, updated_at, updated_by) VALUES ('my_voice_enabled', ?, ?, 'test')"
+      "INSERT OR REPLACE INTO feature_flags (id, value, updated_at, updated_by) VALUES ('my_voice_enabled', ?, ?, 'test')",
     ).run(JSON.stringify(true), now);
     clearFeatureFlagCache();
 
@@ -490,14 +561,16 @@ describe("Voice Mode Standardization", () => {
     const now = new Date().toISOString();
 
     db.prepare(
-      "INSERT OR REPLACE INTO feature_flags (id, value, updated_at, updated_by) VALUES ('my_voice_enabled', ?, ?, 'test')"
+      "INSERT OR REPLACE INTO feature_flags (id, value, updated_at, updated_by) VALUES ('my_voice_enabled', ?, ?, 'test')",
     ).run(JSON.stringify(true), now);
     clearFeatureFlagCache();
 
-    db.prepare(`
+    db.prepare(
+      `
       INSERT OR IGNORE INTO voice_profiles (id, user_id, status, quality_score, model_version, consent_version, created_at)
       VALUES (?, ?, 'active', 85, 'v1', 'v1', ?)
-    `).run(`vp_${userId}`, userId, now);
+    `,
+    ).run(`vp_${userId}`, userId, now);
 
     const createRes = await app.inject({
       method: "POST",
@@ -553,7 +626,10 @@ describe("Error Handling - Lyrics Unavailable", () => {
       UPLOAD_SIGNING_SECRET: "test-upload-secret",
       UPLOAD_URL_TTL_SEC: 900,
     };
-    db = await initDb({ dbPath: ":memory:", migrationsDir: path.join(process.cwd(), "migrations") });
+    db = await initDb({
+      dbPath: ":memory:",
+      migrationsDir: path.join(process.cwd(), "migrations"),
+    });
     storage = createStorageProvider(config);
     app = buildServer({ db, config, storage });
   });
@@ -562,11 +638,14 @@ describe("Error Handling - Lyrics Unavailable", () => {
     await app.close();
     db.close();
     if (savedLlmEnv) {
-      if (savedLlmEnv.GEMINI_API_KEY === undefined) delete process.env.GEMINI_API_KEY;
+      if (savedLlmEnv.GEMINI_API_KEY === undefined)
+        delete process.env.GEMINI_API_KEY;
       else process.env.GEMINI_API_KEY = savedLlmEnv.GEMINI_API_KEY;
-      if (savedLlmEnv.ANTHROPIC_API_KEY === undefined) delete process.env.ANTHROPIC_API_KEY;
+      if (savedLlmEnv.ANTHROPIC_API_KEY === undefined)
+        delete process.env.ANTHROPIC_API_KEY;
       else process.env.ANTHROPIC_API_KEY = savedLlmEnv.ANTHROPIC_API_KEY;
-      if (savedLlmEnv.OPENAI_API_KEY === undefined) delete process.env.OPENAI_API_KEY;
+      if (savedLlmEnv.OPENAI_API_KEY === undefined)
+        delete process.env.OPENAI_API_KEY;
       else process.env.OPENAI_API_KEY = savedLlmEnv.OPENAI_API_KEY;
     }
   });
@@ -576,11 +655,12 @@ describe("Error Handling - Lyrics Unavailable", () => {
 
     // Setup
     db.prepare("INSERT INTO users (id, created_at) VALUES (?, ?)").run(
-      userId, new Date().toISOString()
+      userId,
+      new Date().toISOString(),
     );
-    db.prepare("INSERT INTO entitlements (user_id, tier, songs_remaining, updated_at) VALUES (?, 'free', 100, ?)").run(
-      userId, new Date().toISOString()
-    );
+    db.prepare(
+      "INSERT INTO entitlements (user_id, tier, songs_remaining, updated_at) VALUES (?, 'free', 100, ?)",
+    ).run(userId, new Date().toISOString());
 
     // Create track
     const trackRes = await app.inject({
@@ -627,17 +707,34 @@ describe("Error Handling - Lyrics Unavailable", () => {
 // ============================================================================
 
 describe("parseJson with required mode", () => {
-  test("should throw when required=true and JSON is invalid", () => {
-    // This will be tested via the runner module
-    // For now, just verify the concept
-    const invalidJson = "not valid json";
-    let threw = false;
-    try {
-      JSON.parse(invalidJson);
-    } catch (e) {
-      threw = true;
-    }
-    assert.ok(threw, "Invalid JSON should throw");
+  test("required=true throws on invalid JSON with E501 prefix", () => {
+    assert.throws(
+      () => parseJson("not valid json", null, "test_ctx", { required: true }),
+      /E501_PARSE_ERROR.*test_ctx/,
+    );
+  });
+  test("required=true throws on empty value", () => {
+    assert.throws(
+      () => parseJson("", null, "empty_ctx", { required: true }),
+      /E501_PARSE_ERROR.*empty_ctx.*empty/,
+    );
+    assert.throws(
+      () => parseJson(null, null, "null_ctx", { required: true }),
+      /E501_PARSE_ERROR.*null_ctx.*empty/,
+    );
+  });
+  test("required=false (default) returns fallback on invalid JSON", () => {
+    const fallback = { default: true };
+    assert.deepStrictEqual(
+      parseJson("not valid json", fallback, "lenient"),
+      fallback,
+    );
+  });
+  test("returns parsed value on valid JSON regardless of required flag", () => {
+    assert.deepStrictEqual(parseJson('{"a":1}', {}, "ok"), { a: 1 });
+    assert.deepStrictEqual(parseJson('{"a":1}', {}, "ok", { required: true }), {
+      a: 1,
+    });
   });
 });
 
@@ -656,7 +753,10 @@ describe("Rate Limiting - Lyrics Generation", () => {
       UPLOAD_SIGNING_SECRET: "test-upload-secret",
       UPLOAD_URL_TTL_SEC: 900,
     };
-    db = await initDb({ dbPath: ":memory:", migrationsDir: path.join(process.cwd(), "migrations") });
+    db = await initDb({
+      dbPath: ":memory:",
+      migrationsDir: path.join(process.cwd(), "migrations"),
+    });
     storage = createStorageProvider(config);
     app = buildServer({ db, config, storage });
   });
@@ -671,11 +771,12 @@ describe("Rate Limiting - Lyrics Generation", () => {
 
     // Setup
     db.prepare("INSERT INTO users (id, created_at) VALUES (?, ?)").run(
-      userId, new Date().toISOString()
+      userId,
+      new Date().toISOString(),
     );
-    db.prepare("INSERT INTO entitlements (user_id, tier, songs_remaining, updated_at) VALUES (?, 'free', 100, ?)").run(
-      userId, new Date().toISOString()
-    );
+    db.prepare(
+      "INSERT INTO entitlements (user_id, tier, songs_remaining, updated_at) VALUES (?, 'free', 100, ?)",
+    ).run(userId, new Date().toISOString());
 
     // Create track
     const trackRes = await app.inject({
@@ -712,14 +813,17 @@ describe("Rate Limiting - Lyrics Generation", () => {
           url: `/tracks/${track.track_id}/versions/1/lyrics/generate`,
           headers: { "x-user-id": userId },
           payload: {}, // Empty object body required by schema
-        })
+        }),
       );
     }
 
     const results = await Promise.all(requests);
-    const rateLimited = results.filter(r => r.statusCode === 429);
+    const rateLimited = results.filter((r) => r.statusCode === 429);
 
-    assert.ok(rateLimited.length > 0, "Should eventually hit rate limit on lyrics generation");
+    assert.ok(
+      rateLimited.length > 0,
+      "Should eventually hit rate limit on lyrics generation",
+    );
   });
 });
 

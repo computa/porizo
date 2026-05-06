@@ -387,6 +387,37 @@ async function rotateRefreshToken(oldRawToken) {
             },
             "Token reuse within grace period - no replacement, allowing reuse after high-severity audit event",
           );
+          // Persist a HIGH-severity audit_logs row so SOC review tooling can
+          // detect this defense-in-depth event (it can also be a real reuse
+          // attack that happens to land inside the 30s grace window).
+          try {
+            await db
+              .prepare(
+                "INSERT INTO audit_logs (id, user_id, action, resource_type, resource_id, metadata_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+              )
+              .run(
+                generateId("audit"),
+                oldToken.user_id,
+                "refresh_token_grace_unrevoke",
+                "refresh_token",
+                oldToken.id,
+                JSON.stringify({
+                  severity: "HIGH",
+                  time_since_revocation_ms: timeSinceRevocation,
+                  has_replacement: false,
+                  token_family: oldToken.token_family,
+                  generation: oldToken.generation,
+                }),
+                new Date().toISOString(),
+              );
+          } catch (auditErr) {
+            // Audit-log failures must not block the user's refresh flow,
+            // but they should be loud in logs so monitoring can alert.
+            authLogger.error(
+              { err: auditErr, tokenId: oldToken.id },
+              "Failed to persist refresh_token_grace_unrevoke audit event",
+            );
+          }
           await db
             .prepare("UPDATE refresh_tokens SET revoked_at = NULL WHERE id = ?")
             .run(oldToken.id);

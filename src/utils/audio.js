@@ -14,7 +14,10 @@ function parseWavBuffer(buffer) {
   if (buffer.length < 44) {
     throw new Error("E105_INVALID_WAV: Buffer too small for WAV header");
   }
-  if (buffer.toString("ascii", 0, 4) !== "RIFF" || buffer.toString("ascii", 8, 12) !== "WAVE") {
+  if (
+    buffer.toString("ascii", 0, 4) !== "RIFF" ||
+    buffer.toString("ascii", 8, 12) !== "WAVE"
+  ) {
     throw new Error("E105_INVALID_WAV: Invalid WAV header");
   }
 
@@ -79,7 +82,80 @@ function parseWavBuffer(buffer) {
   };
 }
 
-function writeWav(filePath, { durationSec = 2, frequencyHz = 440, sampleRate = 44100 }) {
+/**
+ * Parse just the WAV header from a file on disk without loading the full
+ * audio body. Returns the same shape as `parseWavBuffer` but only reads up
+ * to `headerWindowBytes` (default 64 KiB) — large enough for any iOS WAV's
+ * RIFF + JUNK/LIST + fmt chunks plus the `data` chunk header (which carries
+ * the size needed for duration), but ~50–500x cheaper than reading a 1–5 MB
+ * recording on the request hot path (M23). Falls back to a full read only
+ * when the header window doesn't reach the `data` chunk header.
+ */
+async function parseWavHeaderFromFile(
+  filePath,
+  { headerWindowBytes = 64 * 1024 } = {},
+) {
+  const handle = await fs.promises.open(filePath, "r");
+  try {
+    const stat = await handle.stat();
+    const fileSize = stat.size;
+    const window = Math.min(headerWindowBytes, fileSize);
+    const buffer = Buffer.alloc(window);
+    await handle.read(buffer, 0, window, 0);
+    if (
+      window >= 12 &&
+      buffer.toString("ascii", 0, 4) === "RIFF" &&
+      buffer.toString("ascii", 8, 12) === "WAVE"
+    ) {
+      // Walk chunks; do not require the body bytes to be present, only
+      // need to reach the `data` chunk header (offset+8 is enough — its
+      // size field gives us duration without reading the audio bytes).
+      let sampleRate = 0;
+      let bitsPerSample = 16;
+      let numChannels = 1;
+      let dataSize = 0;
+      let offset = 12;
+      while (offset < window - 8) {
+        const chunkId = buffer.toString("ascii", offset, offset + 4);
+        if (!/^[\x20-\x7E]{4}$/.test(chunkId)) break;
+        const chunkSize = buffer.readUInt32LE(offset + 4);
+        if (chunkId === "fmt " && offset + 24 <= window) {
+          numChannels = buffer.readUInt16LE(offset + 10);
+          sampleRate = buffer.readUInt32LE(offset + 12);
+          bitsPerSample = buffer.readUInt16LE(offset + 22);
+        } else if (chunkId === "data") {
+          dataSize = chunkSize;
+          if (sampleRate > 0) {
+            const bytesPerSample = (bitsPerSample / 8) * numChannels;
+            return {
+              sampleRate,
+              bitsPerSample,
+              numChannels,
+              dataOffset: offset + 8,
+              dataSize,
+              durationSec: dataSize / bytesPerSample / sampleRate,
+            };
+          }
+          break;
+        }
+        offset += 8 + chunkSize;
+        if (chunkSize % 2 === 1) offset++;
+      }
+    }
+    // Fallback: header window too small or scan path needed — read whole
+    // file and let `parseWavBuffer` handle scan-forward recovery.
+    const full = Buffer.alloc(fileSize);
+    await handle.read(full, 0, fileSize, 0);
+    return parseWavBuffer(full);
+  } finally {
+    await handle.close();
+  }
+}
+
+function writeWav(
+  filePath,
+  { durationSec = 2, frequencyHz = 440, sampleRate = 44100 },
+) {
   const totalSamples = Math.floor(durationSec * sampleRate);
   const buffer = Buffer.alloc(44 + totalSamples * 2);
 
@@ -125,11 +201,17 @@ function concatWavFiles(inputPaths, outputPath) {
       sampleRate = wavInfo.sampleRate;
       channels = wavInfo.numChannels;
       bitsPerSample = wavInfo.bitsPerSample;
-    } else if (sampleRate !== wavInfo.sampleRate || channels !== wavInfo.numChannels || bitsPerSample !== wavInfo.bitsPerSample) {
+    } else if (
+      sampleRate !== wavInfo.sampleRate ||
+      channels !== wavInfo.numChannels ||
+      bitsPerSample !== wavInfo.bitsPerSample
+    ) {
       throw new Error("E105_WAV_MISMATCH: WAV formats differ");
     }
     // Extract actual audio data using parsed offset
-    dataChunks.push(buffer.slice(wavInfo.dataOffset, wavInfo.dataOffset + wavInfo.dataSize));
+    dataChunks.push(
+      buffer.slice(wavInfo.dataOffset, wavInfo.dataOffset + wavInfo.dataSize),
+    );
   }
 
   const dataSize = dataChunks.reduce((sum, chunk) => sum + chunk.length, 0);
@@ -158,4 +240,5 @@ module.exports = {
   writeWav,
   concatWavFiles,
   parseWavBuffer,
+  parseWavHeaderFromFile,
 };

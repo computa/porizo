@@ -55,11 +55,26 @@ async function pollWithBackoff(checkFn, options = {}) {
     backoffFactor = 1.5,
     jitterPct = 0.1,
     onPoll = null,
+    // H10: optional async predicate. Checked before each poll iteration; if
+    // it returns truthy, abort with `E302_POLL_ABORTED`. Used by the persona
+    // worker to honor `voice_provider_jobs.cancellation_requested_at` mid-poll
+    // (otherwise an in-flight poll runs to completion before cancellation
+    // surfaces, billing one extra Suno cover task per re-enrollment burst).
+    shouldAbort = null,
   } = options;
 
   let interval = initialIntervalMs;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    if (typeof shouldAbort === "function") {
+      const aborted = await shouldAbort();
+      if (aborted) {
+        const reason =
+          typeof aborted === "string" ? aborted : "cancellation_requested";
+        throw new Error(`E302_POLL_ABORTED: ${reason}`);
+      }
+    }
+
     const result = await checkFn();
 
     if (result.done) {
@@ -106,7 +121,11 @@ function createPollingConfig(provider, overrides = {}) {
       initialIntervalMs: REPLICATE_POLL_INITIAL_INTERVAL_MS,
       maxIntervalMs: REPLICATE_POLL_MAX_INTERVAL_MS,
     },
-    elevenlabs: { maxAttempts: 30, initialIntervalMs: 1000, maxIntervalMs: 10000 },
+    elevenlabs: {
+      maxAttempts: 30,
+      initialIntervalMs: 1000,
+      maxIntervalMs: 10000,
+    },
   };
 
   const providerDefaults = defaults[provider] || {};

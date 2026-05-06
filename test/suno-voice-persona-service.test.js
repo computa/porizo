@@ -248,10 +248,18 @@ describe("Suno voice persona service", () => {
       },
     });
 
-    assert.equal(
-      sourceUrlUsed,
-      "https://porizo.example/enrollment/sess_1/suno-persona.wav?token=token_123",
+    // M3: Persona service rotates access_token to a fresh ~5-min-scoped value
+    // before sending the URL to Suno (not the original `token_123` the client
+    // saw at enrollment time). Verify (a) the path/origin/audio name match
+    // and (b) the token is a fresh 32-char hex string distinct from the seed.
+    const sourceMatch = String(sourceUrlUsed || "").match(
+      /^https:\/\/porizo\.example\/enrollment\/sess_1\/suno-persona\.wav\?token=([0-9a-f]{32})$/,
     );
+    assert.ok(
+      sourceMatch,
+      `Suno fileUrl should be rotated 32-hex token form, got: ${sourceUrlUsed}`,
+    );
+    assert.notEqual(sourceMatch[1], "token_123");
     assert.equal(active.status, "active");
     assert.equal(active.provider_profile_id, "persona_live_789");
     assert.equal(active.source_task_id, "task_123");

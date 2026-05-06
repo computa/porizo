@@ -1,6 +1,11 @@
 const fs = require("fs");
 const path = require("path");
-const { fetchJson, fetchBinaryWithHeaders, ensureDir } = require("./http");
+const {
+  fetchJson,
+  fetchBinaryWithHeaders,
+  fetchBinaryToFile,
+  ensureDir,
+} = require("./http");
 
 const DEFAULT_MUSIC_MODEL_ID = "music_v1";
 const DEFAULT_COMPOSITION_PLAN_ENDPOINT = "/v1/music/plan";
@@ -25,7 +30,8 @@ function logCreditUsage(operation, headers) {
     return null;
   };
 
-  const creditsRemaining = get("x-credits-remaining") || get("credits-remaining");
+  const creditsRemaining =
+    get("x-credits-remaining") || get("credits-remaining");
   const characterCount = get("x-character-count") || get("character-count");
   const creditsUsed = get("x-credits-used") || get("credits-used");
 
@@ -168,7 +174,10 @@ function resolveCompositionPlan(responseBody) {
     return null;
   }
 
-  if (responseBody.composition_plan && typeof responseBody.composition_plan === "object") {
+  if (
+    responseBody.composition_plan &&
+    typeof responseBody.composition_plan === "object"
+  ) {
     return responseBody.composition_plan;
   }
 
@@ -189,7 +198,9 @@ function sanitizeCompositionPlanForInstrumental(plan) {
   }
 
   const sanitized = cloneJson(plan);
-  const rawSections = Array.isArray(sanitized.sections) ? sanitized.sections : [];
+  const rawSections = Array.isArray(sanitized.sections)
+    ? sanitized.sections
+    : [];
   const sanitizedSections = rawSections
     .slice(0, 24)
     .map((section) => {
@@ -266,20 +277,21 @@ function resolveStyleGuidance(musicPlan) {
   const fallbackStyle = musicPlan?.style
     ? `${String(musicPlan.style).replace(/_/g, " ")} style`
     : "modern pop style";
-  const styleGuide = compactText(
-    musicPlan?.style_prompt_compact ||
-      musicPlan?.style_prompt ||
-      styleIntent?.genre_core ||
-      fallbackStyle,
-    260,
-  ) || fallbackStyle;
+  const styleGuide =
+    compactText(
+      musicPlan?.style_prompt_compact ||
+        musicPlan?.style_prompt ||
+        styleIntent?.genre_core ||
+        fallbackStyle,
+      260,
+    ) || fallbackStyle;
   const styleHint = compactText(
-    musicPlan?.provider_style_hint ||
-      styleIntent?.instruction_override ||
-      null,
+    musicPlan?.provider_style_hint || styleIntent?.instruction_override || null,
     300,
   );
-  const negativeConstraints = Array.isArray(musicPlan?.style_negative_constraints)
+  const negativeConstraints = Array.isArray(
+    musicPlan?.style_negative_constraints,
+  )
     ? musicPlan.style_negative_constraints
     : Array.isArray(styleIntent?.negative_constraints)
       ? styleIntent.negative_constraints
@@ -300,7 +312,11 @@ function summarizeCompositionPlan(plan) {
   }
   const sections = Array.isArray(plan.sections) ? plan.sections : [];
   const sectionSummary = sections.slice(0, 16).map((section) => ({
-    name: section?.section_name || section?.sectionName || section?.name || "section",
+    name:
+      section?.section_name ||
+      section?.sectionName ||
+      section?.name ||
+      "section",
     lines: Array.isArray(section?.lines) ? section.lines.length : 0,
   }));
   return {
@@ -318,17 +334,17 @@ function formatValidationError(error, operation) {
     const status = details.status;
     if (status === "bad_prompt") {
       return new Error(
-        `E301_ELEVENLABS_VALIDATION: ${operation} rejected prompt. Use stricter style constraints and retry.`
+        `E301_ELEVENLABS_VALIDATION: ${operation} rejected prompt. Use stricter style constraints and retry.`,
       );
     }
     if (status === "bad_composition_plan") {
       return new Error(
-        `E301_ELEVENLABS_VALIDATION: ${operation} rejected composition plan. Use provider suggestion or simplify section content.`
+        `E301_ELEVENLABS_VALIDATION: ${operation} rejected composition plan. Use provider suggestion or simplify section content.`,
       );
     }
     const detailMessage = compactText(details.detailMessage, 220);
     return new Error(
-      `E301_ELEVENLABS_VALIDATION: ${operation} validation failed${status ? ` (${status})` : ""}${detailMessage ? `: ${detailMessage}` : ""}.`
+      `E301_ELEVENLABS_VALIDATION: ${operation} validation failed${status ? ` (${status})` : ""}${detailMessage ? `: ${detailMessage}` : ""}.`,
     );
   }
   return error;
@@ -349,7 +365,8 @@ function buildCompositionPlanRequest({ lyrics, musicPlan, kind }) {
     : 60;
   const bpm = musicPlan && musicPlan.bpm ? Number(musicPlan.bpm) : null;
   const key = musicPlan && musicPlan.key ? String(musicPlan.key) : null;
-  const energy = musicPlan && musicPlan.energy ? String(musicPlan.energy) : null;
+  const energy =
+    musicPlan && musicPlan.energy ? String(musicPlan.energy) : null;
   const motif = buildNarrativeMotif(lyrics);
 
   const promptParts = [
@@ -379,7 +396,9 @@ function buildCompositionPlanRequest({ lyrics, musicPlan, kind }) {
     optionalParts.push(`Style fidelity hint: ${styleGuidance.styleHint}.`);
   }
   if (styleGuidance.negativeConstraints.length > 0) {
-    optionalParts.push(`Avoid: ${styleGuidance.negativeConstraints.join(", ")}.`);
+    optionalParts.push(
+      `Avoid: ${styleGuidance.negativeConstraints.join(", ")}.`,
+    );
   }
   if (motif) {
     optionalParts.push(`Narrative motif for melodic mood: ${motif}.`);
@@ -435,16 +454,24 @@ async function createCompositionPlan({
             },
             body: JSON.stringify(body),
           },
-          timeoutMs
+          timeoutMs,
         );
         const plan = resolveCompositionPlan(response);
-        if (!plan || !Array.isArray(plan.sections) || plan.sections.length === 0) {
-          throw new Error("E301_ELEVENLABS_ERROR: Invalid composition plan response");
+        if (
+          !plan ||
+          !Array.isArray(plan.sections) ||
+          plan.sections.length === 0
+        ) {
+          throw new Error(
+            "E301_ELEVENLABS_ERROR: Invalid composition plan response",
+          );
         }
         return { plan, endpoint };
       } catch (error) {
         if (error?.message === "request_timeout") {
-          throw new Error("provider_error:timeout:ElevenLabs composition plan request timed out");
+          throw new Error(
+            "provider_error:timeout:ElevenLabs composition plan request timed out",
+          );
         }
         const details = parseProviderErrorDetails(error);
         const suggestion =
@@ -455,13 +482,13 @@ async function createCompositionPlan({
           const status = details.status || "unknown";
           const detailMessage = compactText(details.detailMessage, 220);
           console.warn(
-            `[ElevenLabs] composition_plan 422 for track ${trackId}: ${status}${detailMessage ? ` | ${detailMessage}` : ""}`
+            `[ElevenLabs] composition_plan 422 for track ${trackId}: ${status}${detailMessage ? ` | ${detailMessage}` : ""}`,
           );
         }
 
         if (suggestion && attempt === 0) {
           console.warn(
-            `[ElevenLabs] bad_prompt for track ${trackId}; retrying composition plan with provider suggestion`
+            `[ElevenLabs] bad_prompt for track ${trackId}; retrying composition plan with provider suggestion`,
           );
           body = {
             ...body,
@@ -497,9 +524,16 @@ async function composeFromPlan({
   respectSectionsDurations = false,
 }) {
   const url = `${baseUrl}${composeEndpoint}`;
-  const normalizedPlan = sanitizeCompositionPlanForInstrumental(compositionPlan);
-  if (!normalizedPlan || !Array.isArray(normalizedPlan.sections) || normalizedPlan.sections.length === 0) {
-    throw new Error("E301_ELEVENLABS_VALIDATION: compose rejected composition plan. Invalid local plan shape.");
+  const normalizedPlan =
+    sanitizeCompositionPlanForInstrumental(compositionPlan);
+  if (
+    !normalizedPlan ||
+    !Array.isArray(normalizedPlan.sections) ||
+    normalizedPlan.sections.length === 0
+  ) {
+    throw new Error(
+      "E301_ELEVENLABS_VALIDATION: compose rejected composition plan. Invalid local plan shape.",
+    );
   }
   let payload = {
     composition_plan: normalizedPlan,
@@ -520,11 +554,13 @@ async function composeFromPlan({
           },
           body: JSON.stringify(payload),
         },
-        timeoutMs
+        timeoutMs,
       );
     } catch (error) {
       if (error?.message === "request_timeout") {
-        throw new Error("provider_error:timeout:ElevenLabs compose request timed out");
+        throw new Error(
+          "provider_error:timeout:ElevenLabs compose request timed out",
+        );
       }
       const details = parseProviderErrorDetails(error);
       const suggestion =
@@ -532,16 +568,16 @@ async function composeFromPlan({
           ? extractCompositionPlanSuggestion(details.body)
           : null;
       if (details && details.statusCode === 422) {
-          const status = details.status || "unknown";
-          const detailMessage = compactText(details.detailMessage, 220);
-          console.warn(
-            `[ElevenLabs] compose 422 for track ${trackId}: ${status}${detailMessage ? ` | ${detailMessage}` : ""}`
-          );
-        }
+        const status = details.status || "unknown";
+        const detailMessage = compactText(details.detailMessage, 220);
+        console.warn(
+          `[ElevenLabs] compose 422 for track ${trackId}: ${status}${detailMessage ? ` | ${detailMessage}` : ""}`,
+        );
+      }
 
       if (suggestion && attempt === 0) {
         console.warn(
-          `[ElevenLabs] bad_composition_plan for track ${trackId}; retrying compose with provider suggestion`
+          `[ElevenLabs] bad_composition_plan for track ${trackId}; retrying compose with provider suggestion`,
         );
         payload = {
           ...payload,
@@ -553,7 +589,9 @@ async function composeFromPlan({
     }
   }
 
-  throw new Error("E301_ELEVENLABS_ERROR: Unable to compose from composition plan");
+  throw new Error(
+    "E301_ELEVENLABS_ERROR: Unable to compose from composition plan",
+  );
 }
 
 async function composeDetailed(params) {
@@ -583,20 +621,25 @@ async function generateMusic({
     throw new Error("E301_ELEVENLABS_ERROR: Base URL is required");
   }
   if (!track || !track.user_id || !track.id) {
-    throw new Error("E301_ELEVENLABS_ERROR: Valid track with user_id and id required");
+    throw new Error(
+      "E301_ELEVENLABS_ERROR: Valid track with user_id and id required",
+    );
   }
   if (!trackVersion || !trackVersion.version_num) {
-    throw new Error("E301_ELEVENLABS_ERROR: Valid trackVersion with version_num required");
+    throw new Error(
+      "E301_ELEVENLABS_ERROR: Valid trackVersion with version_num required",
+    );
   }
 
   const composeEndpoint = endpoint || DEFAULT_MUSIC_COMPOSE_ENDPOINT;
-  const planEndpoint = compositionPlanEndpoint || DEFAULT_COMPOSITION_PLAN_ENDPOINT;
+  const planEndpoint =
+    compositionPlanEndpoint || DEFAULT_COMPOSITION_PLAN_ENDPOINT;
   const requestBody = buildCompositionPlanRequest({ lyrics, musicPlan, kind });
   const generationMode = resolveGenerationMode(musicPlan);
   const modelId = requestBody.model_id || DEFAULT_MUSIC_MODEL_ID;
 
   console.log(
-    `[ElevenLabs] Creating composition plan for track ${track.id}, kind: ${kind}, mode=${generationMode}`
+    `[ElevenLabs] Creating composition plan for track ${track.id}, kind: ${kind}, mode=${generationMode}`,
   );
   const { plan, endpoint: resolvedPlanEndpoint } = await createCompositionPlan({
     baseUrl,
@@ -608,9 +651,12 @@ async function generateMusic({
   });
 
   const instrumentalPlan = sanitizeCompositionPlanForInstrumental(plan);
-  const composeOperation = generationMode === "compose_detailed" ? composeDetailed : composeFromPlan;
+  const composeOperation =
+    generationMode === "compose_detailed" ? composeDetailed : composeFromPlan;
 
-  console.log(`[ElevenLabs] Composing from plan for track ${track.id}, kind: ${kind}, mode=${generationMode}`);
+  console.log(
+    `[ElevenLabs] Composing from plan for track ${track.id}, kind: ${kind}, mode=${generationMode}`,
+  );
   const { buffer: audioBuffer, headers } = await composeOperation({
     baseUrl,
     composeEndpoint,
@@ -627,16 +673,20 @@ async function generateMusic({
     throw new Error("E301_ELEVENLABS_ERROR: Empty audio response from API");
   }
   if (audioBuffer.length < 1000) {
-    console.warn(`[ElevenLabs] Suspiciously small audio response: ${audioBuffer.length} bytes`);
+    console.warn(
+      `[ElevenLabs] Suspiciously small audio response: ${audioBuffer.length} bytes`,
+    );
   }
-  console.log(`[ElevenLabs] Received ${audioBuffer.length} bytes of audio for track ${track.id}`);
+  console.log(
+    `[ElevenLabs] Received ${audioBuffer.length} bytes of audio for track ${track.id}`,
+  );
 
   const versionDir = path.join(
     storageDir,
     "tracks",
     track.user_id,
     track.id,
-    `v${trackVersion.version_num}`
+    `v${trackVersion.version_num}`,
   );
   ensureDir(versionDir);
   const instName = kind === "preview" ? "inst_preview.mp3" : "inst_full.mp3";
@@ -712,7 +762,9 @@ async function generateSpeech({
     throw new Error("E301_TTS_ERROR: Base URL is required");
   }
 
-  console.log(`[ElevenLabs] Generating TTS with voice ${voiceId}, text length: ${text.length}`);
+  console.log(
+    `[ElevenLabs] Generating TTS with voice ${voiceId}, text length: ${text.length}`,
+  );
   const url = `${baseUrl}/v1/text-to-speech/${voiceId}`;
 
   const payload = {
@@ -724,7 +776,9 @@ async function generateSpeech({
     },
   };
 
-  const { buffer: audioBuffer, headers } = await fetchBinaryWithHeaders(
+  // M27: stream the TTS response directly to disk — typical TTS payloads are
+  // 100 KB–2 MB; previously we held the full buffer in heap before writing.
+  const { headers } = await fetchBinaryToFile(
     url,
     {
       method: "POST",
@@ -734,20 +788,20 @@ async function generateSpeech({
       },
       body: JSON.stringify(payload),
     },
-    timeoutMs
+    timeoutMs,
+    outputPath,
   );
 
   // Log credit usage for cost tracking
   logCreditUsage("tts_generation", headers);
 
-  // Response validation
-  if (!audioBuffer || audioBuffer.length === 0) {
+  // Response validation: confirm bytes hit disk (streaming write may
+  // truncate silently if the upstream connection drops mid-stream).
+  const stat = await fs.promises.stat(outputPath);
+  if (!stat.size) {
     throw new Error("E301_TTS_ERROR: Empty audio response from TTS API");
   }
-  console.log(`[ElevenLabs] TTS generated ${audioBuffer.length} bytes`);
-
-  ensureDir(path.dirname(outputPath));
-  fs.writeFileSync(outputPath, audioBuffer);
+  console.log(`[ElevenLabs] TTS generated ${stat.size} bytes`);
 
   return { file: path.basename(outputPath) };
 }

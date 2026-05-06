@@ -231,13 +231,16 @@ describe("Suno persona provider", () => {
     assert.equal(selected.index, 2);
   });
 
-  test("U16/U6: pre-deploy gate — fixture must be live-captured before persona feature flag is flipped", () => {
+  test("U16/U6: pre-deploy gate — fixture must be live-captured before persona feature flag is flipped", (t) => {
     // This test only fires when SUNO_PERSONA_PROBE_VERIFIED is set in CI/deploy.
     // Local dev intentionally uses the placeholder shape — that's the documented
     // R2 procedure (capture real shape via tools/suno-persona-probe.js, then
     // overwrite this fixture). When ops sets the env var pre-deploy, this test
     // hard-fails if the fixture is still the inferred placeholder.
+    // S12: t.skip(...) records this as SKIPPED in the test output instead of
+    // a silent PASS — that way a misspelled env var name in CI is observable.
     if (process.env.SUNO_PERSONA_PROBE_VERIFIED !== "true") {
+      t.skip("SUNO_PERSONA_PROBE_VERIFIED not set; skipping live-fixture gate");
       return;
     }
     const fixture = require("./fixtures/suno-upload-cover-response.json");
@@ -282,7 +285,6 @@ describe("Suno persona provider", () => {
     assert.equal(body.audioId, "audio_456");
     assert.equal(result.personaId, "persona_live_789");
   });
-
 
   test("validates generate-persona time range and required fields", () => {
     const payload = buildGeneratePersonaPayload({

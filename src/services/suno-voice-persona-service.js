@@ -27,6 +27,7 @@ const { sleep } = require("../utils/polling");
 const {
   getEnrollmentSession,
   revokeEnrollmentSessionToken,
+  rotateAccessTokenForProviderFetch,
 } = require("./enrollment-session-service");
 
 const REQUIRED_CONSENT_SCOPE = "voice_suno_persona_v1";
@@ -341,11 +342,13 @@ async function generatePersonaWithReadinessRetry({
 
 function buildPersonaVocalWindow(stepData = {}, audioDurationSec = null) {
   let start =
-    typeof stepData.vocal_start === "number" && Number.isFinite(stepData.vocal_start)
+    typeof stepData.vocal_start === "number" &&
+    Number.isFinite(stepData.vocal_start)
       ? Math.max(0, stepData.vocal_start)
       : 0;
   let end =
-    typeof stepData.vocal_end === "number" && Number.isFinite(stepData.vocal_end)
+    typeof stepData.vocal_end === "number" &&
+    Number.isFinite(stepData.vocal_end)
       ? stepData.vocal_end
       : start + 30;
 
@@ -441,6 +444,19 @@ async function runSunoVoicePersonaJob({
     : null;
   let generatePersonaRequestStarted = false;
 
+  // M16: between every Suno call we re-fetch the job + providerProfile +
+  // session to detect cancellation/state mutations from other actors. The
+  // inline pattern repeated 8 times; this closure captures the common args
+  // and writes back the refreshed locals so each call site is one line.
+  const recheck = async () => {
+    ({ providerProfile, session } = await assertProviderJobStillAllowed({
+      db,
+      jobId: job.id,
+      providerProfileId: providerProfile.id,
+      sessionId: session?.id,
+    }));
+  };
+
   try {
     await assertProviderJobReady({ db, job, providerProfile, session });
     if (
@@ -457,7 +473,12 @@ async function runSunoVoicePersonaJob({
       });
       return providerProfile;
     }
-    const model = stepData.model || config.SUNO_MODEL || "V5_5";
+    // M18: persona model is owned by the `suno_voice_persona_model` feature
+    // flag (default 'V5_5'). The job's stepData.model is stamped from that
+    // flag at enroll time. Do NOT fall back to config.SUNO_MODEL here —
+    // that env var governs music generation and defaults to 'V5', which
+    // would silently downgrade the persona model on a missing stepData.
+    const model = stepData.model || "V5_5";
     const audioWeight = stepData.audio_weight ?? 0.85;
     const sourceKey = stepData.source_audio_key || "";
     const fileName = sourceKey
@@ -466,16 +487,23 @@ async function runSunoVoicePersonaJob({
     let uploadUrl = providerProfile.source_upload_url;
     let sourceTaskId = providerProfile.source_task_id;
     if (!uploadUrl && !sourceTaskId) {
-      ({ providerProfile, session } = await assertProviderJobStillAllowed({
+      await recheck();
+      // M3: Rotate the session access_token to a fresh value RIGHT BEFORE
+      // sending the URL to Suno. This decouples the Suno-fetched token from
+      // any token previously consumed by the Replicate embedding fetch and
+      // narrows the leak window: the only system that ever sees this token
+      // is Suno (during this single fetch). Existing
+      // `revokeEnrollmentSessionToken` post-cover-submit nulls it on the
+      // happy path; failures fall through to session expiry.
+      const sunoFetchToken = await rotateAccessTokenForProviderFetch(
         db,
-        jobId: job.id,
-        providerProfileId: providerProfile.id,
-        sessionId: session?.id,
-      }));
+        session.id,
+      );
+      session = { ...session, access_token: sunoFetchToken };
       const sourceUrl = buildEnrollmentCleanAudioUrl({
         baseUrl: config.PUBLIC_BASE_URL || config.STREAM_BASE_URL,
         sessionId: session?.id,
-        accessToken: session?.access_token,
+        accessToken: sunoFetchToken,
         audioName: stepData.source_audio_name,
       });
       if (!sourceUrl) {
@@ -490,12 +518,7 @@ async function runSunoVoicePersonaJob({
         timeoutMs: config.PROVIDER_TIMEOUT_MS,
       });
       uploadUrl = upload.downloadUrl;
-      ({ providerProfile, session } = await assertProviderJobStillAllowed({
-        db,
-        jobId: job.id,
-        providerProfileId: providerProfile.id,
-        sessionId: session?.id,
-      }));
+      await recheck();
       await markProviderProfileUploadSubmitted(db, providerProfile.id, {
         sourceUploadUrl: upload.downloadUrl,
         metadata: {
@@ -507,12 +530,7 @@ async function runSunoVoicePersonaJob({
     }
 
     if (!sourceTaskId) {
-      ({ providerProfile, session } = await assertProviderJobStillAllowed({
-        db,
-        jobId: job.id,
-        providerProfileId: providerProfile.id,
-        sessionId: session?.id,
-      }));
+      await recheck();
       // U1: callBackUrl is required. Persona path fails fast when unset
       // (rather than silently leaking task metadata to httpbin.org).
       let callBackUrl = "";
@@ -533,12 +551,7 @@ async function runSunoVoicePersonaJob({
         timeoutMs: config.PROVIDER_TIMEOUT_MS,
       });
       sourceTaskId = cover.taskId;
-      ({ providerProfile, session } = await assertProviderJobStillAllowed({
-        db,
-        jobId: job.id,
-        providerProfileId: providerProfile.id,
-        sessionId: session?.id,
-      }));
+      await recheck();
       await markProviderProfileCoverSubmitted(db, providerProfile.id, {
         sourceTaskId,
         model: cover.model,
@@ -548,14 +561,10 @@ async function runSunoVoicePersonaJob({
     }
 
     let sourceAudioId = providerProfile.source_audio_id;
-    const rejectedSourceAudioIds = collectRejectedSourceAudioIds(providerProfile);
+    const rejectedSourceAudioIds =
+      collectRejectedSourceAudioIds(providerProfile);
     if (!sourceAudioId) {
-      ({ providerProfile, session } = await assertProviderJobStillAllowed({
-        db,
-        jobId: job.id,
-        providerProfileId: providerProfile.id,
-        sessionId: session?.id,
-      }));
+      await recheck();
       const audio = await sunoClient.pollUploadCoverForAudio({
         baseUrl: config.SUNO_BASE_URL,
         apiKey: config.SUNO_API_KEY,
@@ -565,6 +574,20 @@ async function runSunoVoicePersonaJob({
         rejectedAudioIds: rejectedSourceAudioIds,
         timeoutMs: config.PROVIDER_TIMEOUT_MS,
         pollingOptions,
+        // H10 (gap 2): mid-poll cancellation. Without this, an in-flight
+        // upload-cover poll runs to completion (up to maxAttempts × interval,
+        // ~minutes) before noticing that voice_provider_jobs has been
+        // cancelled — billing one extra Suno cover task per re-enrollment
+        // burst. Query before each iteration; throw E302_POLL_ABORTED to
+        // exit the polling loop, which the outer catch maps to a retryable
+        // failure (the cancellation itself flips the job to terminal).
+        shouldAbort: async () => {
+          const fresh = await getVoiceProviderJobById(db, job.id);
+          if (!fresh) return "job_missing";
+          if (fresh.cancellation_requested_at) return "cancellation_requested";
+          if (fresh.status === "cancelled") return "job_cancelled";
+          return false;
+        },
       });
       if (!audio?.audioId) {
         throw new Error(
@@ -572,12 +595,7 @@ async function runSunoVoicePersonaJob({
         );
       }
       sourceAudioId = audio.audioId;
-      ({ providerProfile, session } = await assertProviderJobStillAllowed({
-        db,
-        jobId: job.id,
-        providerProfileId: providerProfile.id,
-        sessionId: session?.id,
-      }));
+      await recheck();
       await markProviderProfilePersonaSubmitted(db, providerProfile.id, {
         sourceTaskId:
           audio.response?.data?.taskId ||
@@ -596,12 +614,7 @@ async function runSunoVoicePersonaJob({
       });
     }
 
-    ({ providerProfile, session } = await assertProviderJobStillAllowed({
-      db,
-      jobId: job.id,
-      providerProfileId: providerProfile.id,
-      sessionId: session?.id,
-    }));
+    await recheck();
     const stepClaimed = await markVoiceProviderJobStep(
       db,
       job.id,
@@ -645,12 +658,7 @@ async function runSunoVoicePersonaJob({
       delayMs: config.SUNO_PERSONA_GENERATE_RETRY_DELAY_MS || 15000,
     });
     try {
-      ({ providerProfile, session } = await assertProviderJobStillAllowed({
-        db,
-        jobId: job.id,
-        providerProfileId: providerProfile.id,
-        sessionId: session?.id,
-      }));
+      await recheck();
     } catch (postPersonaErr) {
       await markProviderProfileManualCleanupRequired(db, providerProfile.id, {
         providerProfileId: persona.personaId,
