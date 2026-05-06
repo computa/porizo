@@ -47,6 +47,10 @@ function enrollmentCleanKey({ userId, sessionId }) {
   return `enrollment/clean/${userId}/${sessionId}/clean.wav`;
 }
 
+function enrollmentSunoPersonaKey({ userId, sessionId }) {
+  return `enrollment/clean/${userId}/${sessionId}/suno-persona.wav`;
+}
+
 // Voice profile storage keys
 function voiceEmbeddingKey({ userId, voiceProfileId }) {
   return `voice_profiles/${userId}/${voiceProfileId}/embedding.bin`;
@@ -83,6 +87,7 @@ module.exports = {
   // Key generators
   enrollmentChunkKey,
   enrollmentCleanKey,
+  enrollmentSunoPersonaKey,
   voiceEmbeddingKey,
   trackVersionKey,
   trackMasterKey,

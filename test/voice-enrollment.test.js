@@ -89,6 +89,14 @@ async function clearRateLimits(db, userId) {
   await db.prepare("DELETE FROM rate_limits WHERE user_id = ?").run(userId);
 }
 
+async function clearEnrollmentBurstLimit(db, userId) {
+  await db
+    .prepare(
+      "DELETE FROM rate_limits WHERE user_id = ? AND action_type = 'voice_enrollment_start_burst'",
+    )
+    .run(userId);
+}
+
 // ============================================================
 // Test Suite
 // ============================================================
@@ -260,6 +268,7 @@ describe("Voice Enrollment API", () => {
 
       // Make 10 successful requests
       for (let i = 0; i < 10; i++) {
+        await clearEnrollmentBurstLimit(db, userId);
         const response = await app.inject({
           method: "POST",
           url: "/voice/enrollment/start",
@@ -292,6 +301,7 @@ describe("Voice Enrollment API", () => {
 
       // Exhaust rate limit
       for (let i = 0; i < 10; i++) {
+        await clearEnrollmentBurstLimit(db, userId);
         await app.inject({
           method: "POST",
           url: "/voice/enrollment/start",
@@ -395,6 +405,7 @@ describe("Voice Enrollment API", () => {
       await db
         .prepare("UPDATE users SET risk_level = 'medium' WHERE id = ?")
         .run(userId);
+      await clearEnrollmentBurstLimit(db, userId);
 
       const response = await app.inject({
         method: "POST",
@@ -658,6 +669,7 @@ describe("Voice Enrollment API", () => {
           ? numChunksOrOptions
           : { numChunks: numChunksOrOptions };
       const numChunks = options.numChunks || 4;
+      await clearEnrollmentBurstLimit(db, userId);
       // Start enrollment
       const startResponse = await app.inject({
         method: "POST",
@@ -678,6 +690,7 @@ describe("Voice Enrollment API", () => {
         },
       });
       const sessionId = startResponse.json().session_id;
+      const prompts = startResponse.json().prompts || [];
 
       // Create chunk files
       const chunkDir = path.join(
@@ -689,11 +702,12 @@ describe("Voice Enrollment API", () => {
       );
       fs.mkdirSync(chunkDir, { recursive: true });
 
-      for (let i = 0; i < numChunks; i++) {
-        const chunkId = `p${i + 1}`;
+      for (const prompt of prompts.slice(0, numChunks)) {
+        const durationSec =
+          prompt.type === "sung" ? options.sungDurationSec || 8 : 4;
         fs.writeFileSync(
-          path.join(chunkDir, `${chunkId}.wav`),
-          createTestWav({ durationSec: 4 }),
+          path.join(chunkDir, `${prompt.id}.wav`),
+          createTestWav({ durationSec }),
         );
       }
 
@@ -828,6 +842,7 @@ describe("Voice Enrollment API", () => {
     it("queues Suno persona preparation when consent is Suno-specific", async () => {
       const userId = uniqueUserId("suno_persona");
       const sessionId = await setupEnrollmentWithChunks(userId, {
+        numChunks: 6,
         consentVersion: "1.0",
         // U2: explicit Suno-persona consent grant (the previous behavior of
         // treating REQUIRED_CONSENT_SCOPE as consent_version was a scope/version
@@ -863,6 +878,17 @@ describe("Voice Enrollment API", () => {
         .get(body.voice_provider_profile.job_id);
       assert.equal(providerJob.voice_provider_profile_id, providerProfile.id);
       assert.ok(!String(providerJob.step_data).includes("persona_live_"));
+      const stepData = JSON.parse(providerJob.step_data);
+      assert.equal(stepData.source_audio_name, "suno-persona.wav");
+      assert.ok(
+        stepData.source_audio_key.endsWith(
+          `enrollment/clean/${userId}/${sessionId}/suno-persona.wav`,
+        ),
+      );
+      assert.equal(stepData.vocal_start, 0);
+      assert.equal(stepData.vocal_end, 16);
+      assert.equal(body.voice_provider_profile.source_audio, "sung_calibration");
+      assert.equal(body.voice_provider_profile.source_duration_sec, 16);
 
     });
 
@@ -1341,6 +1367,7 @@ describe("Voice Enrollment API", () => {
       const profile1 = complete1.json().voice_profile_id;
 
       // Second enrollment (should replace first)
+      await clearEnrollmentBurstLimit(db, userId);
       const start2 = await app.inject({
         method: "POST",
         url: "/voice/enrollment/start",

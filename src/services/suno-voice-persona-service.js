@@ -82,12 +82,19 @@ function enrollmentSessionHasPersonaConsent(session) {
   return hasPersonaConsentScope(session.consent_scopes);
 }
 
-function buildEnrollmentCleanAudioUrl({ baseUrl, sessionId, accessToken }) {
+function buildEnrollmentCleanAudioUrl({
+  baseUrl,
+  sessionId,
+  accessToken,
+  audioName = "clean.wav",
+}) {
   const origin = typeof baseUrl === "string" ? baseUrl.replace(/\/+$/, "") : "";
   if (!origin || !sessionId || !accessToken) {
     return null;
   }
-  return `${origin}/enrollment/${encodeURIComponent(sessionId)}/clean.wav?token=${encodeURIComponent(accessToken)}`;
+  const safeAudioName =
+    audioName === "suno-persona.wav" ? "suno-persona.wav" : "clean.wav";
+  return `${origin}/enrollment/${encodeURIComponent(sessionId)}/${safeAudioName}?token=${encodeURIComponent(accessToken)}`;
 }
 
 function buildPersonaName() {
@@ -469,6 +476,7 @@ async function runSunoVoicePersonaJob({
         baseUrl: config.PUBLIC_BASE_URL || config.STREAM_BASE_URL,
         sessionId: session?.id,
         accessToken: session?.access_token,
+        audioName: stepData.source_audio_name,
       });
       if (!sourceUrl) {
         throw new Error("E302_SUNO_PERSONA_SOURCE_URL_MISSING");

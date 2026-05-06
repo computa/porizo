@@ -15,7 +15,11 @@ const { generateMemoryQuestions } = require("../services/memory-questions");
 const { extractEmbedding } = require("../providers/replicate");
 const { downloadToFile } = require("../providers/http");
 const { moderationCheck } = require("../providers/moderation");
-const { enrollmentChunkKey, enrollmentCleanKey } = require("../storage");
+const {
+  enrollmentChunkKey,
+  enrollmentCleanKey,
+  enrollmentSunoPersonaKey,
+} = require("../storage");
 const { newUuid } = require("../utils/ids");
 const { ensureDir, parseJson, toJson, nowIso } = require("../utils/common");
 const {
@@ -77,45 +81,63 @@ function isValidAudioFormat(buffer) {
  * @param {Object} app - Fastify instance
  * @param {Object} deps - Dependencies from server.js closure
  */
-/**
- * U14: Derive a [vocalStart, vocalEnd] window from clean enrollment audio.
- *
- * SunoAPI's generate-persona endpoint accepts a 10-30 second window into the
- * uploaded audio. Pre-U14, vocalStart/vocalEnd were always defaulted to 0/30
- * in `buildGeneratePersonaPayload`. U14 derives a sensible window: skip the
- * first ~5 seconds (typical user warm-up / silence) and use the next ~20
- * seconds. Falls back to defaults (0/30) when audio metadata is unavailable.
- *
- * Validation (10-30s duration) is enforced downstream in
- * `buildGeneratePersonaPayload` — this function only proposes a window.
- */
-async function deriveVocalWindow(cleanAudioPath) {
-  try {
-    if (!cleanAudioPath || !fs.existsSync(cleanAudioPath)) {
-      return null;
+async function buildSunoPersonaCalibration({
+  chunkEntries,
+  outputPath,
+  minDurationSec = 10,
+  maxDurationSec = 30,
+} = {}) {
+  const sungEntries = Array.isArray(chunkEntries)
+    ? chunkEntries.filter((entry) => entry?.prompt?.type === "sung")
+    : [];
+  const selected = [];
+  let totalDurationSec = 0;
+
+  for (const entry of sungEntries) {
+    if (!entry?.filePath || !fs.existsSync(entry.filePath)) {
+      continue;
     }
-    const buffer = await fs.promises.readFile(cleanAudioPath);
-    const wavInfo = parseWavBuffer(buffer);
-    if (!wavInfo || !Number.isFinite(wavInfo.durationSec)) {
-      return null;
+    let durationSec = 0;
+    try {
+      const info = parseWavBuffer(await fs.promises.readFile(entry.filePath));
+      durationSec = Number(info?.durationSec || 0);
+    } catch (_err) {
+      continue;
     }
-    const duration = wavInfo.durationSec;
-    if (duration < 10) {
-      return null;
+    if (!Number.isFinite(durationSec) || durationSec <= 0) {
+      continue;
     }
-    const start = Math.min(5, Math.max(0, duration * 0.1));
-    const idealEnd = start + 20;
-    const end = Math.min(idealEnd, duration);
-    if (end - start < 10) {
-      return null;
+    if (
+      selected.length > 0 &&
+      totalDurationSec + durationSec > maxDurationSec
+    ) {
+      continue;
     }
-    return {
-      vocal_start: Number(start.toFixed(2)),
-      vocal_end: Number(Math.min(end, start + 30).toFixed(2)),
-    };
-  } catch (_err) {
+    selected.push(entry.filePath);
+    totalDurationSec += durationSec;
+    if (totalDurationSec >= minDurationSec) {
+      break;
+    }
+  }
+
+  if (
+    selected.length === 0 ||
+    totalDurationSec < minDurationSec ||
+    totalDurationSec > maxDurationSec
+  ) {
     return null;
   }
+
+  concatWavFiles(selected, outputPath);
+  return {
+    filePath: outputPath,
+    durationSec: Number(totalDurationSec.toFixed(2)),
+    vocalWindow: {
+      vocal_start: 0,
+      vocal_end: Number(Math.min(totalDurationSec, maxDurationSec).toFixed(2)),
+    },
+    chunkCount: selected.length,
+  };
 }
 
 function buildPersonaJobStepData({
@@ -125,11 +147,15 @@ function buildPersonaJobStepData({
   model,
   audioWeight,
   vocalWindow = null,
+  sourceAudioKey = null,
+  sourceAudioName = "clean.wav",
 }) {
   const base = {
     voice_provider_profile_id: providerProfileId,
     enrollment_session_id: sessionId,
-    source_audio_key: enrollmentCleanKey({ userId, sessionId }),
+    source_audio_key:
+      sourceAudioKey || enrollmentCleanKey({ userId, sessionId }),
+    source_audio_name: sourceAudioName,
     model,
     audio_weight: audioWeight,
   };
@@ -216,7 +242,7 @@ function registerEnrollmentRoutes(app, deps) {
 
   // ---- Enrollment clean.wav endpoint ----
 
-  app.get("/enrollment/:sessionId/clean.wav", async (request, reply) => {
+  async function sendEnrollmentAudio(request, reply, audioName) {
     const token = request.query.token;
     if (!token) {
       sendError(reply, 403, "FORBIDDEN", "Missing enrollment token.");
@@ -250,18 +276,24 @@ function registerEnrollmentRoutes(app, deps) {
       sendError(reply, 403, "SESSION_EXPIRED", "Enrollment token expired.");
       return;
     }
+    const key =
+      audioName === "suno-persona.wav"
+        ? enrollmentSunoPersonaKey({
+            userId: session.user_id,
+            sessionId: session.id,
+          })
+        : enrollmentCleanKey({
+            userId: session.user_id,
+            sessionId: session.id,
+          });
     const filePath = path.join(
       appConfig.STORAGE_DIR,
       "enrollment",
       "clean",
       session.user_id,
       session.id,
-      "clean.wav",
+      audioName,
     );
-    const key = enrollmentCleanKey({
-      userId: session.user_id,
-      sessionId: session.id,
-    });
     if (storageProvider.type !== "local") {
       const download = storageProvider.createPresignedDownload({
         key,
@@ -271,6 +303,14 @@ function registerEnrollmentRoutes(app, deps) {
       return;
     }
     sendMediaFile(request, reply, filePath, "audio/wav");
+  }
+
+  app.get("/enrollment/:sessionId/clean.wav", async (request, reply) => {
+    await sendEnrollmentAudio(request, reply, "clean.wav");
+  });
+
+  app.get("/enrollment/:sessionId/suno-persona.wav", async (request, reply) => {
+    await sendEnrollmentAudio(request, reply, "suno-persona.wav");
   });
 
   // ---- Device registration ----
@@ -1004,6 +1044,7 @@ function registerEnrollmentRoutes(app, deps) {
       const metrics = parseJson(session.quality_metrics, {});
       const {
         files: chunkFiles,
+        chunkEntries,
         tempDir,
         missingChunks,
       } = await resolveEnrollmentChunkFiles({
@@ -1142,7 +1183,9 @@ function registerEnrollmentRoutes(app, deps) {
           session_id,
         );
         const cleanPath = path.join(cleanDir, "clean.wav");
+        const sunoPersonaPath = path.join(cleanDir, "suno-persona.wav");
         let cleanAudioReady = false;
+        let sunoPersonaAudio = null;
         try {
           concatWavFiles(chunkFiles, cleanPath);
           await storageProvider.putFile({
@@ -1151,6 +1194,21 @@ function registerEnrollmentRoutes(app, deps) {
             contentType: "audio/wav",
           });
           cleanAudioReady = true;
+          sunoPersonaAudio = await buildSunoPersonaCalibration({
+            chunkEntries,
+            outputPath: sunoPersonaPath,
+          });
+          if (sunoPersonaAudio) {
+            await storageProvider.putFile({
+              key: enrollmentSunoPersonaKey({ userId, sessionId: session_id }),
+              filePath: sunoPersonaPath,
+              contentType: "audio/wav",
+            });
+          } else if (shouldQueueSunoPersona && hasProviderConsent) {
+            console.warn(
+              "[Enrollment:complete] Sung Suno persona calibration unavailable; skipping Suno persona job",
+            );
+          }
         } catch (err) {
           console.warn(
             "[Enrollment:complete] Clean audio concat failed:",
@@ -1297,9 +1355,13 @@ function registerEnrollmentRoutes(app, deps) {
         // Compute vocal window outside the DB transaction so audio parsing does
         // not hold a transaction open.
         const shouldEnqueuePersona =
-          shouldQueueSunoPersona && hasProviderConsent && cleanAudioReady;
-        const personaVocalWindow =
-          shouldEnqueuePersona ? await deriveVocalWindow(cleanPath) : null;
+          shouldQueueSunoPersona &&
+          hasProviderConsent &&
+          cleanAudioReady &&
+          Boolean(sunoPersonaAudio);
+        const personaVocalWindow = shouldEnqueuePersona
+          ? sunoPersonaAudio.vocalWindow
+          : null;
 
         await db.transaction(async (query) => {
           const txDb = dbFromQuery(query);
@@ -1349,7 +1411,11 @@ function registerEnrollmentRoutes(app, deps) {
               elevenlabsVoiceId,
             );
 
-          if (shouldQueueSunoPersona && hasProviderConsent && !cleanAudioReady) {
+          if (
+            shouldQueueSunoPersona &&
+            hasProviderConsent &&
+            (!cleanAudioReady || !sunoPersonaAudio)
+          ) {
             const providerProfile = await createPendingProviderProfile(txDb, {
               voiceProfileId: profileId,
               userId,
@@ -1358,7 +1424,9 @@ function registerEnrollmentRoutes(app, deps) {
               metadata: {
                 source: "enrollment",
                 enrollment_session_id: session_id,
-                failure: "source_audio_unavailable",
+                failure: !cleanAudioReady
+                  ? "source_audio_unavailable"
+                  : "sung_calibration_unavailable",
               },
             });
             await txDb
@@ -1367,13 +1435,17 @@ function registerEnrollmentRoutes(app, deps) {
               )
               .run(
                 "failed",
-                "source_audio_unavailable",
+                !cleanAudioReady
+                  ? "source_audio_unavailable"
+                  : "sung_calibration_unavailable",
                 nowIso(),
                 providerProfile.id,
               );
             providerProfileResult = {
               provider: "suno",
-              status: "source_audio_unavailable",
+              status: !cleanAudioReady
+                ? "source_audio_unavailable"
+                : "sung_calibration_unavailable",
               id: providerProfile.id,
               job_id: null,
             };
@@ -1398,12 +1470,6 @@ function registerEnrollmentRoutes(app, deps) {
               voiceProviderProfileId: providerProfile.id,
               maxAttempts: 8,
               step: "prepare_persona",
-              // U14: derive vocal window from clean audio metadata. Skip the
-              // first ~5s (typical user warm-up / silence) and use the next
-              // ~20s of vocal content. SunoAPI requires a 10-30s window;
-              // buildGeneratePersonaPayload validates this and clamps if needed.
-              // Falls back to defaults (0/30) when audio duration metadata is
-              // not yet available — preserves original behavior.
               stepData: buildPersonaJobStepData({
                 providerProfileId: providerProfile.id,
                 sessionId: session_id,
@@ -1412,6 +1478,11 @@ function registerEnrollmentRoutes(app, deps) {
                 audioWeight:
                   sunoPersonaFlags.suno_voice_persona_audio_weight ?? 0.85,
                 vocalWindow: personaVocalWindow,
+                sourceAudioKey: enrollmentSunoPersonaKey({
+                  userId,
+                  sessionId: session_id,
+                }),
+                sourceAudioName: "suno-persona.wav",
               }),
             });
             providerProfileResult = {
@@ -1419,6 +1490,8 @@ function registerEnrollmentRoutes(app, deps) {
               status: providerProfile.status,
               id: providerProfile.id,
               job_id: providerJob.id,
+              source_audio: "sung_calibration",
+              source_duration_sec: sunoPersonaAudio.durationSec,
             };
           }
 

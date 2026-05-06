@@ -1199,6 +1199,11 @@ function buildServer({
 
   async function resolveEnrollmentChunkFiles({ session, metrics, userId }) {
     const prompts = parseJson(session.prompts_json, [], "prompts_json");
+    const promptById = new Map(
+      Array.isArray(prompts)
+        ? prompts.map((prompt) => [prompt.id, prompt])
+        : [],
+    );
     const orderedPromptIds = Array.isArray(prompts)
       ? prompts.map((prompt) => prompt.id)
       : [];
@@ -1224,6 +1229,7 @@ function buildServer({
     }
 
     const files = [];
+    const chunkEntries = [];
     const missingChunks = [];
     let tempDir = null;
     if (storageProvider.type !== "local") {
@@ -1245,12 +1251,23 @@ function buildServer({
         continue;
       }
       if (storageProvider.resolveLocalPath) {
-        files.push(storageProvider.resolveLocalPath(key));
+        const filePath = storageProvider.resolveLocalPath(key);
+        files.push(filePath);
+        chunkEntries.push({
+          chunkId,
+          filePath,
+          prompt: promptById.get(chunkId) || null,
+        });
         continue;
       }
       const localPath = path.join(tempDir, `${chunkId}.wav`);
       await storageProvider.downloadToFile({ key, filePath: localPath });
       files.push(localPath);
+      chunkEntries.push({
+        chunkId,
+        filePath: localPath,
+        prompt: promptById.get(chunkId) || null,
+      });
     }
 
     if (missingChunks.length > 0) {
@@ -1260,7 +1277,7 @@ function buildServer({
       });
     }
 
-    return { files, tempDir, missingChunks };
+    return { files, chunkEntries, tempDir, missingChunks };
   }
 
   async function ensureShareHls({ share, track, trackVersion }) {

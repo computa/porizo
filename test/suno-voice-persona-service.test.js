@@ -176,6 +176,18 @@ describe("Suno voice persona service", () => {
     );
   });
 
+  test("builds Suno persona calibration audio URL", () => {
+    assert.equal(
+      buildEnrollmentCleanAudioUrl({
+        baseUrl: "https://porizo.example/",
+        sessionId: "sess_1",
+        accessToken: "token_123",
+        audioName: "suno-persona.wav",
+      }),
+      "https://porizo.example/enrollment/sess_1/suno-persona.wav?token=token_123",
+    );
+  });
+
   test("runs a queued provider job to active using a mocked Suno client", async () => {
     const providerProfile = await createPendingProviderProfile(db, {
       voiceProfileId: "voice_1",
@@ -190,7 +202,8 @@ describe("Suno voice persona service", () => {
       voiceProviderProfileId: providerProfile.id,
       stepData: {
         enrollment_session_id: "sess_1",
-        source_audio_key: "enrollment/clean/user_1/sess_1/clean.wav",
+        source_audio_key: "enrollment/clean/user_1/sess_1/suno-persona.wav",
+        source_audio_name: "suno-persona.wav",
         model: "V5_5",
         audio_weight: 0.85,
       },
@@ -237,7 +250,7 @@ describe("Suno voice persona service", () => {
 
     assert.equal(
       sourceUrlUsed,
-      "https://porizo.example/enrollment/sess_1/clean.wav?token=token_123",
+      "https://porizo.example/enrollment/sess_1/suno-persona.wav?token=token_123",
     );
     assert.equal(active.status, "active");
     assert.equal(active.provider_profile_id, "persona_live_789");
