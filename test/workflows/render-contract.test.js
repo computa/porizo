@@ -27,9 +27,9 @@ describe("render contract helpers", () => {
       }
     );
 
-    assert.equal(
-      buildRenderContract({ provider: "suno", voiceMode: "user_voice" }).pipeline,
-      "provider_audio_personalized_convert"
+    assert.throws(
+      () => buildRenderContract({ provider: "suno", voiceMode: "user_voice" }),
+      (err) => err.message.includes("E302_SUNO_PERSONA_REQUIRED")
     );
 
     const personaContract = buildRenderContract({
@@ -43,9 +43,13 @@ describe("render contract helpers", () => {
     assert.equal(personaContract.user_voice_engine, "suno_voice_persona");
     assert.equal(personaContract.voice_provider_profile_id, "vpp_123");
 
-    assert.equal(
-      buildRenderContract({ provider: "elevenlabs", voiceMode: "user_voice" }).pipeline,
-      "guide_tts_and_voice_convert"
+    assert.throws(
+      () =>
+        buildRenderContract({
+          provider: "elevenlabs",
+          voiceMode: "user_voice",
+        }),
+      (err) => err.message.includes("E302_SUNO_PERSONA_REQUIRED")
     );
   });
 
@@ -67,13 +71,14 @@ describe("render contract helpers", () => {
     assert.equal(fromExisting.user_voice_engine, null);
     assert.equal(fromExisting.voice_provider_profile_id, null);
 
-    const built = resolveRenderContract({
-      track: { voice_mode: "personalized" },
-      musicPlan: { provider_resolved: "elevenlabs" },
-    });
-    assert.equal(built.provider_locked, "elevenlabs");
-    assert.equal(built.voice_mode, "user_voice");
-    assert.equal(built.pipeline, "guide_tts_and_voice_convert");
+    assert.throws(
+      () =>
+        resolveRenderContract({
+          track: { voice_mode: "personalized" },
+          musicPlan: { provider_resolved: "elevenlabs" },
+        }),
+      (err) => err.message.includes("E302_SUNO_PERSONA_REQUIRED")
+    );
   });
 
   test("getProviderAudioUrl reads provenance first then instrumental URL", () => {

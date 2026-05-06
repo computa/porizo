@@ -3900,6 +3900,7 @@ function buildServer({
     userId,
     track,
     trackVersion,
+    retryStepData = null,
   }) {
     // 1. Idempotent: if there's already an active job, return it
     const activeJob = await findActiveJobForVersion(
@@ -4014,9 +4015,9 @@ function buildServer({
     const now = nowIso();
     const resetResult = await db
       .prepare(
-        "UPDATE jobs SET status = 'queued', step = 'queued', step_index = 0, attempts = 0, error_code = NULL, error_message = NULL, progress_pct = 0, completed_at = NULL, next_attempt_at = NULL, locked_by = NULL, locked_at = NULL, updated_at = ? WHERE id = ? AND status IN ('failed', 'dead_letter', 'blocked')",
+        "UPDATE jobs SET status = 'queued', step = 'queued', step_index = 0, attempts = 0, error_code = NULL, error_message = NULL, progress_pct = 0, completed_at = NULL, next_attempt_at = NULL, locked_by = NULL, locked_at = NULL, step_data = COALESCE(?, step_data), updated_at = ? WHERE id = ? AND status IN ('failed', 'dead_letter', 'blocked')",
       )
-      .run(now, failedJob.id);
+      .run(retryStepData, now, failedJob.id);
     if (resetResult.changes === 0) {
       // Job status changed between findLatestFailedJobForVersion and this UPDATE — race condition
       return { conflict: true };

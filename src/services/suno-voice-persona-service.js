@@ -21,6 +21,7 @@ const {
 const { sanitizeProviderError } = require("../utils/provider-sanitize");
 const { parseJson } = require("../utils/common");
 const { generatePrefixedId } = require("../utils/ids");
+const { sleep } = require("../utils/polling");
 const {
   getEnrollmentSession,
   revokeEnrollmentSessionToken,
@@ -187,6 +188,45 @@ function isPermanentPersonaError(error) {
     "JOB_CANCELLED",
     "MANUAL_RECOVERY_REQUIRED",
   ].some((code) => message.includes(code));
+}
+
+function isRetryableGeneratePersonaReadinessError(error) {
+  const message = String(error?.message || error || "").toLowerCase();
+  return (
+    message.includes("music does not exist") ||
+    message.includes("music is still generating") ||
+    message.includes("ensure the music generation task is fully completed")
+  );
+}
+
+async function generatePersonaWithReadinessRetry({
+  generatePersonaFn,
+  personaArgs,
+  maxAttempts = 4,
+  delayMs = 5000,
+  sleepFn = sleep,
+} = {}) {
+  const attempts = Math.max(1, Number(maxAttempts) || 1);
+  const waitMs = Math.max(0, Number(delayMs) || 0);
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await generatePersonaFn(personaArgs);
+    } catch (err) {
+      if (
+        attempt >= attempts ||
+        !isRetryableGeneratePersonaReadinessError(err)
+      ) {
+        throw err;
+      }
+      console.warn(
+        `[SunoPersona] generate-persona readiness retry ${attempt}/${attempts}: ${sanitizeProviderError(err)}`,
+      );
+      await sleepFn(waitMs);
+    }
+  }
+
+  throw new Error("E302_SUNO_PERSONA_ERROR: generate-persona retry exhausted");
 }
 
 async function runSunoVoicePersonaJob({
@@ -386,7 +426,12 @@ async function runSunoVoicePersonaJob({
     if (typeof stepData.vocal_end === "number") {
       personaArgs.vocalEnd = stepData.vocal_end;
     }
-    const persona = await sunoClient.generatePersona(personaArgs);
+    const persona = await generatePersonaWithReadinessRetry({
+      generatePersonaFn: sunoClient.generatePersona,
+      personaArgs,
+      maxAttempts: config.SUNO_PERSONA_GENERATE_MAX_ATTEMPTS || 4,
+      delayMs: config.SUNO_PERSONA_GENERATE_RETRY_DELAY_MS || 5000,
+    });
     try {
       ({ providerProfile, session } = await assertProviderJobStillAllowed({
         db,
@@ -442,16 +487,17 @@ async function runSunoVoicePersonaJob({
       return latestProfile;
     }
     if (generatePersonaRequestStarted) {
+      const retryableReadiness = isRetryableGeneratePersonaReadinessError(err);
       const manualRecoveryError = new Error(
         `E302_SUNO_PERSONA_MANUAL_RECOVERY_REQUIRED: ${sanitizeProviderError(err)}`,
       );
       const failedJob = await markVoiceProviderJobFailed(
         db,
         jobId,
-        manualRecoveryError,
+        retryableReadiness ? err : manualRecoveryError,
         {
           step: "generate_persona",
-          retryable: false,
+          retryable: retryableReadiness,
         },
       );
       if (failedJob?.status === "failed" && session?.id) {
@@ -464,6 +510,9 @@ async function runSunoVoicePersonaJob({
           providerProfile.id,
           manualRecoveryError,
         );
+      }
+      if (retryableReadiness) {
+        throw new Error(sanitizeProviderError(err));
       }
       throw manualRecoveryError;
     }
@@ -485,7 +534,9 @@ async function runSunoVoicePersonaJob({
 module.exports = {
   REQUIRED_CONSENT_SCOPE,
   buildEnrollmentCleanAudioUrl,
+  generatePersonaWithReadinessRetry,
   hasPersonaConsentScope,
   enrollmentSessionHasPersonaConsent,
+  isRetryableGeneratePersonaReadinessError,
   runSunoVoicePersonaJob,
 };

@@ -113,17 +113,17 @@ describe("personalized render step guards", () => {
 });
 
 describe("performVoiceConversion contract provider preference", () => {
-  test("uses contract voice_conversion_provider over DB flag", async () => {
+  test("rejects legacy personalized ElevenLabs conversion contract", async () => {
     const db = createMockDb({ voice_conversion_provider: "seedvc" });
     const durabilityService = createMockDurabilityService();
-    const contract = buildRenderContract({
-      provider: "suno",
-      voiceMode: "user_voice",
+    const contract = {
+      provider_locked: "suno",
+      voice_mode: "user_voice",
+      pipeline: "provider_audio_personalized_convert",
       voiceConversionProvider: "elevenlabs",
-    });
+      voice_conversion_provider: "elevenlabs",
+    };
 
-    // performVoiceConversion will throw because we don't have real ElevenLabs config,
-    // but the error message confirms it routed to ElevenLabs (not Seed-VC)
     await assert.rejects(
       () => performVoiceConversion({
         db,
@@ -138,36 +138,40 @@ describe("performVoiceConversion contract provider preference", () => {
         storageProvider: null,
         renderContract: contract,
       }),
-      (err) => err.message.includes("ELEVENLABS")
+      (err) =>
+        err.message.includes("E302_PERSONALIZED_VOICE_CONVERSION_DISABLED")
     );
   });
 
-  test("falls back to DB flag when contract has null voice_conversion_provider", async () => {
+  test("rejects legacy personalized Seed-VC conversion contract", async () => {
     const db = createMockDb({ voice_conversion_provider: "seedvc" });
     const durabilityService = createMockDurabilityService();
-    const contract = buildRenderContract({
-      provider: "suno",
-      voiceMode: "user_voice",
-    });
+    const contract = {
+      provider_locked: "suno",
+      voice_mode: "user_voice",
+      pipeline: "provider_audio_personalized_convert",
+      voice_conversion_provider: null,
+    };
     assert.equal(contract.voice_conversion_provider, null);
 
-    // With null contract provider and DB flag = seedvc, should route to Seed-VC
-    // Seed-VC path calls convertVoice which needs replicate config
-    const result = await performVoiceConversion({
-      db,
-      track: { id: 1, user_id: 1, voice_mode: "user_voice" },
-      trackVersion: { id: 1 },
-      kind: "preview",
-      versionDir: "/tmp/test",
-      conversionSourceUrl: "https://example.com/audio.mp3",
-      providerConfig: { replicate: { live: true } },
-      durabilityService,
-      storageDir: "/tmp",
-      storageProvider: null,
-      renderContract: contract,
-    });
-    // Seed-VC path goes through durabilityService with provider="seedvc"
-    assert.equal(durabilityService.calls.length, 1);
-    assert.equal(durabilityService.calls[0].provider, "seedvc");
+    await assert.rejects(
+      () =>
+        performVoiceConversion({
+          db,
+          track: { id: 1, user_id: 1, voice_mode: "user_voice" },
+          trackVersion: { id: 1 },
+          kind: "preview",
+          versionDir: "/tmp/test",
+          conversionSourceUrl: "https://example.com/audio.mp3",
+          providerConfig: { replicate: { live: true } },
+          durabilityService,
+          storageDir: "/tmp",
+          storageProvider: null,
+          renderContract: contract,
+        }),
+      (err) =>
+        err.message.includes("E302_PERSONALIZED_VOICE_CONVERSION_DISABLED")
+    );
+    assert.equal(durabilityService.calls.length, 0);
   });
 });

@@ -4,11 +4,7 @@ const {
 
 const PERSONALIZED_VOICE_MODES = new Set(["user_voice", "personalized"]);
 const SUNO_VOICE_PERSONA_PIPELINE = "suno_voice_persona_complete_audio";
-const USER_VOICE_ENGINES = new Set([
-  "seedvc",
-  "elevenlabs",
-  "suno_voice_persona",
-]);
+const USER_VOICE_ENGINES = new Set(["suno_voice_persona"]);
 
 function normalizeVoiceMode(rawVoiceMode) {
   return PERSONALIZED_VOICE_MODES.has(rawVoiceMode) ? "user_voice" : "ai_voice";
@@ -60,11 +56,10 @@ function buildRenderContract({
     normalizedUserVoiceEngine === "suno_voice_persona"
   ) {
     pipeline = SUNO_VOICE_PERSONA_PIPELINE;
-  } else if (
-    providerLocked === "suno" &&
-    normalizedVoiceMode === "user_voice"
-  ) {
-    pipeline = "provider_audio_personalized_convert";
+  } else if (normalizedVoiceMode === "user_voice") {
+    throw new Error(
+      "E302_SUNO_PERSONA_REQUIRED: My Voice renders require an active Suno voice persona. Seed-VC voice conversion fallback is disabled.",
+    );
   }
 
   return {
@@ -133,9 +128,7 @@ function resolveRenderContract({ track, musicPlan, strict = false }) {
 }
 
 const PERSONALIZED_PIPELINES = new Set([
-  "provider_audio_personalized_convert",
   SUNO_VOICE_PERSONA_PIPELINE,
-  "guide_tts_and_voice_convert",
 ]);
 
 function assertFrozenContract(musicPlan) {

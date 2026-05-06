@@ -13,7 +13,7 @@ const {
 describe("provider lock integrity", () => {
   test("buildRenderContract always locks provider — never returns null provider_locked", () => {
     const providers = ["suno", "elevenlabs", "unknown", "", null, undefined];
-    const voiceModes = ["ai_voice", "user_voice", "personalized", "unknown", null];
+    const voiceModes = ["ai_voice", "unknown", null];
 
     for (const provider of providers) {
       for (const voiceMode of voiceModes) {
@@ -24,6 +24,13 @@ describe("provider lock integrity", () => {
         );
       }
     }
+  });
+
+  test("buildRenderContract rejects user_voice without Suno persona", () => {
+    assert.throws(
+      () => buildRenderContract({ provider: "suno", voiceMode: "user_voice" }),
+      (err) => err.message.includes("E302_SUNO_PERSONA_REQUIRED")
+    );
   });
 
   test("unknown provider defaults to suno (not elevenlabs)", () => {

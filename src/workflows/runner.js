@@ -117,6 +117,7 @@ const PROVIDERS = {
   REPLICATE: "replicate",
   SEEDVC: "seedvc",
 };
+const PERSONALIZED_VOICE_MODES = new Set(["user_voice", "personalized"]);
 
 async function ensureRenderSharePreGeneration({
   db,
@@ -488,6 +489,11 @@ async function performVoiceConversion({
     renderContract?.voice_conversion_provider ??
     (await getFeatureFlag(db, "voice_conversion_provider")) ??
     "seedvc";
+  if (renderContract?.voice_mode === "user_voice") {
+    throw new Error(
+      `E302_PERSONALIZED_VOICE_CONVERSION_DISABLED: My Voice must use Suno voice persona; ${voiceConversionProvider || "unknown"} voice conversion is disabled.`,
+    );
+  }
   console.log(
     `[JobRunner] Voice conversion provider (${kind}): ${voiceConversionProvider}`,
   );
@@ -2788,7 +2794,7 @@ async function startJobRunner({
       let voiceConversionProvider = null;
       let userVoiceEngine = null;
       let voiceProviderProfileId = null;
-      if (track.voice_mode === "user_voice") {
+      if (PERSONALIZED_VOICE_MODES.has(track.voice_mode)) {
         const activeVoiceProfile = await db
           .prepare(
             "SELECT id FROM voice_profiles WHERE user_id = ? AND status = 'active' ORDER BY created_at DESC LIMIT 1",
@@ -2837,19 +2843,13 @@ async function startJobRunner({
           userVoiceEngine = "suno_voice_persona";
           voiceProviderProfileId = sunoProviderProfile.id;
         } else {
-          if (frozenEngine === "suno_voice_persona") {
+          if (frozenEngine && frozenEngine !== "suno_voice_persona") {
             throw new Error(
-              "E302_SUNO_PERSONA_NOT_READY: Frozen Suno voice persona is not ready.",
+              `E302_PERSONALIZED_VOICE_CONVERSION_DISABLED: My Voice no longer supports '${frozenEngine}' voice conversion. Recreate the render after Suno voice persona is ready.`,
             );
           }
-          voiceConversionProvider =
-            renderRequest.voice_conversion_provider ||
-            frozenEngine ||
-            (await getFeatureFlag(db, "voice_conversion_provider")) ||
-            "seedvc";
-          userVoiceEngine = voiceConversionProvider;
-          console.warn(
-            `[JobRunner] Suno voice persona unavailable for track=${track.id}; using ${voiceConversionProvider} voice conversion`,
+          throw new Error(
+            "E302_SUNO_PERSONA_NOT_READY: Active Suno voice persona is required for My Voice renders.",
           );
         }
       }

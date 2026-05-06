@@ -40,7 +40,7 @@ describe("assertPersonalizedContract", () => {
   test("throws E302 on missing provider_locked", () => {
     const contract = {
       voice_mode: "user_voice",
-      pipeline: "guide_tts_and_voice_convert",
+      pipeline: "suno_voice_persona_complete_audio",
       provider_locked: null,
     };
     assert.throws(
@@ -51,13 +51,18 @@ describe("assertPersonalizedContract", () => {
     );
   });
 
-  test("passes for valid suno personalized contract", () => {
+  test("rejects old Suno voice conversion contract", () => {
     const contract = {
       voice_mode: "user_voice",
       pipeline: "provider_audio_personalized_convert",
       provider_locked: "suno",
     };
-    assert.doesNotThrow(() => assertPersonalizedContract(contract, "instrumental"));
+    assert.throws(
+      () => assertPersonalizedContract(contract, "instrumental"),
+      (err) =>
+        err.message.includes("E302_PERSONALIZED_DIVERSION") &&
+        err.message.includes("provider_audio_personalized_convert")
+    );
   });
 
   test("passes for valid Suno voice persona contract", () => {
@@ -70,13 +75,18 @@ describe("assertPersonalizedContract", () => {
     assert.doesNotThrow(() => assertPersonalizedContract(contract, "mix"));
   });
 
-  test("passes for valid elevenlabs personalized contract", () => {
+  test("rejects old ElevenLabs personalized conversion contract", () => {
     const contract = {
       voice_mode: "user_voice",
       pipeline: "guide_tts_and_voice_convert",
       provider_locked: "elevenlabs",
     };
-    assert.doesNotThrow(() => assertPersonalizedContract(contract, "guide_vocal"));
+    assert.throws(
+      () => assertPersonalizedContract(contract, "guide_vocal"),
+      (err) =>
+        err.message.includes("E302_PERSONALIZED_DIVERSION") &&
+        err.message.includes("guide_tts_and_voice_convert")
+    );
   });
 });
 
@@ -103,14 +113,16 @@ describe("resolveRenderContract strict mode", () => {
     );
   });
 
-  test("strict: false still falls back (backward compat)", () => {
-    const result = resolveRenderContract({
-      track: { voice_mode: "user_voice" },
-      musicPlan: { provider_resolved: "suno" },
-      strict: false,
-    });
-    assert.equal(result.voice_mode, "user_voice");
-    assert.equal(result.pipeline, "provider_audio_personalized_convert");
+  test("strict: false rejects missing persona fallback", () => {
+    assert.throws(
+      () =>
+        resolveRenderContract({
+          track: { voice_mode: "user_voice" },
+          musicPlan: { provider_resolved: "suno" },
+          strict: false,
+        }),
+      (err) => err.message.includes("E302_SUNO_PERSONA_REQUIRED")
+    );
   });
 
   test("forwards voice_conversion_provider from existing contract", () => {
@@ -126,7 +138,7 @@ describe("resolveRenderContract strict mode", () => {
       },
     });
     assert.equal(result.voice_conversion_provider, "elevenlabs");
-    assert.equal(result.user_voice_engine, "elevenlabs");
+    assert.equal(result.user_voice_engine, null);
   });
 
   test("returns voice_conversion_provider: null when field absent in stored contract", () => {
@@ -146,21 +158,28 @@ describe("resolveRenderContract strict mode", () => {
 });
 
 describe("buildRenderContract voiceConversionProvider", () => {
-  test("freezes voiceConversionProvider when provided", () => {
-    const result = buildRenderContract({
-      provider: "suno",
-      voiceMode: "user_voice",
-      voiceConversionProvider: "elevenlabs",
-    });
-    assert.equal(result.voice_conversion_provider, "elevenlabs");
-    assert.equal(result.pipeline, "provider_audio_personalized_convert");
+  test("rejects voiceConversionProvider for user_voice", () => {
+    assert.throws(
+      () =>
+        buildRenderContract({
+          provider: "suno",
+          voiceMode: "user_voice",
+          voiceConversionProvider: "elevenlabs",
+        }),
+      (err) => err.message.includes("E302_SUNO_PERSONA_REQUIRED")
+    );
   });
 
-  test("sets voiceConversionProvider to null when omitted", () => {
+  test("builds Suno persona contract when persona engine is supplied", () => {
     const result = buildRenderContract({
       provider: "suno",
       voiceMode: "user_voice",
+      userVoiceEngine: "suno_voice_persona",
+      voiceProviderProfileId: "vpp_123",
     });
     assert.equal(result.voice_conversion_provider, null);
+    assert.equal(result.pipeline, "suno_voice_persona_complete_audio");
+    assert.equal(result.user_voice_engine, "suno_voice_persona");
+    assert.equal(result.voice_provider_profile_id, "vpp_123");
   });
 });

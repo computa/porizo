@@ -6,8 +6,10 @@ const { initDb } = require("../src/db");
 const {
   REQUIRED_CONSENT_SCOPE,
   buildEnrollmentCleanAudioUrl,
+  generatePersonaWithReadinessRetry,
   hasPersonaConsentScope,
   enrollmentSessionHasPersonaConsent,
+  isRetryableGeneratePersonaReadinessError,
   runSunoVoicePersonaJob,
 } = require("../src/services/suno-voice-persona-service");
 const {
@@ -122,6 +124,37 @@ describe("Suno voice persona service", () => {
     );
     assert.equal(enrollmentSessionHasPersonaConsent(null), false);
     assert.equal(enrollmentSessionHasPersonaConsent(undefined), false);
+  });
+
+  test("retries transient generate-persona music readiness errors", async () => {
+    assert.equal(
+      isRetryableGeneratePersonaReadinessError(
+        new Error(
+          "E302_SUNO_PERSONA_ERROR: generate-persona failed - Music does not exist",
+        ),
+      ),
+      true,
+    );
+
+    let attempts = 0;
+    const persona = await generatePersonaWithReadinessRetry({
+      personaArgs: { taskId: "task_123", audioId: "audio_456" },
+      maxAttempts: 3,
+      delayMs: 0,
+      sleepFn: async () => {},
+      generatePersonaFn: async () => {
+        attempts += 1;
+        if (attempts === 1) {
+          throw new Error(
+            "E302_SUNO_PERSONA_ERROR: generate-persona failed - Music does not exist",
+          );
+        }
+        return { personaId: "persona_live_789" };
+      },
+    });
+
+    assert.equal(attempts, 2);
+    assert.equal(persona.personaId, "persona_live_789");
   });
 
   test("builds clean audio URL without storing the token in job data", () => {

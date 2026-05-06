@@ -15,10 +15,13 @@ const {
 const { getFeatureFlag } = require("../services/feature-flags");
 const {
   findActiveProviderProfileForUser,
+  findLatestProviderProfileForVoiceProfile,
 } = require("../services/voice-provider-profile-service");
 const {
   hasPersonaConsentScope,
 } = require("../services/suno-voice-persona-service");
+
+const PERSONALIZED_VOICE_MODES = new Set(["user_voice", "personalized"]);
 
 function registerTrackRoutes(
   app,
@@ -81,12 +84,12 @@ function registerTrackRoutes(
   }
 
   async function preflightUserVoiceReadiness({ userId, track }) {
-    if (track?.voice_mode !== "user_voice") {
+    if (!PERSONALIZED_VOICE_MODES.has(track?.voice_mode)) {
       return { ok: true };
     }
     const voiceProfile = await db
       .prepare(
-        "SELECT id, elevenlabs_voice_id FROM voice_profiles WHERE user_id = ? AND status = 'active' ORDER BY created_at DESC LIMIT 1",
+        "SELECT id FROM voice_profiles WHERE user_id = ? AND status = 'active' ORDER BY created_at DESC LIMIT 1",
       )
       .get(userId);
     if (!voiceProfile) {
@@ -114,26 +117,26 @@ function registerTrackRoutes(
         },
       };
     }
-    const voiceConversionProvider =
-      (await getFeatureFlag(db, "voice_conversion_provider")) ?? "seedvc";
-    if (
-      voiceConversionProvider === "elevenlabs" &&
-      !voiceProfile.elevenlabs_voice_id
-    ) {
+    const latestProviderProfile = await findLatestProviderProfileForVoiceProfile(
+      db,
+      {
+        voiceProfileId: voiceProfile.id,
+        provider: "suno",
+        includeDeleted: true,
+      },
+    );
+    if (latestProviderProfile?.status === "failed") {
       return {
         ok: false,
-        code: "VOICE_PROVIDER_NOT_READY",
+        code: "SUNO_VOICE_PERSONA_FAILED",
         message:
-          "My Voice is not ready for the selected voice conversion provider.",
+          "My Voice needs a new Suno voice setup before song generation.",
       };
     }
     return {
-      ok: true,
-      renderRequest: {
-        user_voice_engine: voiceConversionProvider,
-        voice_provider_profile_id: null,
-        voice_conversion_provider: voiceConversionProvider,
-      },
+      ok: false,
+      code: "SUNO_VOICE_PERSONA_REQUIRED",
+      message: "My Voice is not ready yet. Please finish voice setup first.",
     };
   }
 
@@ -1179,6 +1182,17 @@ function registerTrackRoutes(
       sendError(reply, 404, "VERSION_NOT_FOUND", "Track version not found.");
       return;
     }
+    const body = request.body || {};
+    const workflowType =
+      body.render_type === "full" ? "full_render" : "preview_render";
+    const personaPreflight = await preflightUserVoiceReadiness({
+      userId,
+      track,
+    });
+    if (!personaPreflight.ok) {
+      sendError(reply, 422, personaPreflight.code, personaPreflight.message);
+      return;
+    }
     // Retries share the same short burst budget as preview starts to prevent spam.
     const limit = await consumeRateLimit(
       userId,
@@ -1192,15 +1206,13 @@ function registerTrackRoutes(
       });
       return;
     }
-    const body = request.body || {};
-    const workflowType =
-      body.render_type === "full" ? "full_render" : "preview_render";
     const result = await retryFailedJob({
       trackVersionId: trackVersion.id,
       workflowType,
       userId,
       track,
       trackVersion,
+      retryStepData: buildRenderRequestStepData(personaPreflight),
     });
     if (!result) {
       sendError(reply, 404, "NO_FAILED_JOB", "No failed job found to retry.");
