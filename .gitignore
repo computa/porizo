@@ -41,6 +41,16 @@ PorizoApp/PorizoApp/CLAUDE*.md
 logs/
 out/
 /marketing/
+!/marketing/
+/marketing/*
+!/marketing/appstore/
+/marketing/appstore/*
+!/marketing/appstore/metadata/
+!/marketing/appstore/metadata/**
+!/marketing/appstore/app-previews/
+!/marketing/appstore/app-previews/README.md
+!/marketing/appstore/app-previews/current/
+!/marketing/appstore/app-previews/current/porizo-app-preview-6.9.mp4
 
 # Duplicate nested admin directory (claude-mem artifact)
 admin/admin/
@@ -84,4 +94,7 @@ PorizoApp/fastlane/screenshots/
 PorizoApp/fastlane/report.xml
 PorizoApp/fastlane/Preview.html
 PorizoApp/fastlane/metadata/
+!PorizoApp/fastlane/metadata/
+!PorizoApp/fastlane/metadata/en-US/
+!PorizoApp/fastlane/metadata/en-US/*.txt
 PorizoApp/fastlane/test_output/

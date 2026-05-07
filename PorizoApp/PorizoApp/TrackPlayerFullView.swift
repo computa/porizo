@@ -116,6 +116,12 @@ struct TrackPlayerFullView: View {
                         occasion: occasion
                     )
                     let activityVC = UIActivityViewController(activityItems: [message], applicationActivities: nil)
+                    activityVC.completionWithItemsHandler = { _, completed, _, _ in
+                        guard completed else { return }
+                        Task { @MainActor in
+                            ReviewManager.shared.recordSuccessfulShare()
+                        }
+                    }
                     if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
                        let root = windowScene.windows.first?.rootViewController {
                         var topVC = root

@@ -19,6 +19,7 @@ final class ReviewManager {
     // UserDefaults keys
     private enum Keys {
         static let successfulPlaysCount = "review_successful_plays"
+        static let successfulSharesCount = "review_successful_shares"
         static let fullRendersCount = "review_full_renders"
         static let lastPromptDate = "review_last_prompt_date"
         static let promptCount = "review_prompt_count"
@@ -28,6 +29,8 @@ final class ReviewManager {
     // Configuration
     private let playsBeforeFirstPrompt = 2      // Prompt after 2nd successful play
     private let playsBetweenPrompts = 5         // Then every 5 plays
+    private let sharesBeforeFirstPrompt = 1     // Sharing is the clearest positive-intent signal
+    private let sharesBetweenPrompts = 3
     private let minDaysBetweenPrompts = 30      // At least 30 days between prompts
     private let maxPromptsPerYear = 3           // Apple's limit
 
@@ -46,14 +49,25 @@ final class ReviewManager {
     /// Call when a full render completes successfully
     func recordFullRenderComplete() {
         let currentCount = defaults.integer(forKey: Keys.fullRendersCount)
+        defaults.set(currentCount + 1, forKey: Keys.fullRendersCount)
+    }
 
-        // First full render is a high-value moment
-        if currentCount == 0 {
-            requestReviewIfAllowed(trigger: "first_full_render")
+    /// Call when the system share sheet reports a completed share.
+    func recordSuccessfulShare() {
+        let count = defaults.integer(forKey: Keys.successfulSharesCount) + 1
+        defaults.set(count, forKey: Keys.successfulSharesCount)
+
+        if count == sharesBeforeFirstPrompt {
+            requestReviewIfAllowed(trigger: "first_successful_share")
+            return
         }
 
-        // Increment after prompt attempt so a failed show doesn't burn the opportunity
-        defaults.set(currentCount + 1, forKey: Keys.fullRendersCount)
+        if count > sharesBeforeFirstPrompt {
+            let sharesSinceThreshold = count - sharesBeforeFirstPrompt
+            if sharesSinceThreshold % sharesBetweenPrompts == 0 {
+                requestReviewIfAllowed(trigger: "successful_share")
+            }
+        }
     }
 
     // MARK: - Prompt Logic
@@ -133,6 +147,7 @@ final class ReviewManager {
     #if DEBUG
     func resetAllTracking() {
         defaults.removeObject(forKey: Keys.successfulPlaysCount)
+        defaults.removeObject(forKey: Keys.successfulSharesCount)
         defaults.removeObject(forKey: Keys.fullRendersCount)
         defaults.removeObject(forKey: Keys.lastPromptDate)
         defaults.removeObject(forKey: Keys.promptCount)
@@ -142,9 +157,10 @@ final class ReviewManager {
 
     var debugStats: String {
         let plays = defaults.integer(forKey: Keys.successfulPlaysCount)
+        let shares = defaults.integer(forKey: Keys.successfulSharesCount)
         let renders = defaults.integer(forKey: Keys.fullRendersCount)
         let prompts = defaults.integer(forKey: Keys.promptCount)
-        return "Plays: \(plays), Full renders: \(renders), Prompts this year: \(prompts)"
+        return "Plays: \(plays), Shares: \(shares), Full renders: \(renders), Prompts this year: \(prompts)"
     }
     #endif
 }
