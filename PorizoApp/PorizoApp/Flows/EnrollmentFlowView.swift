@@ -684,8 +684,14 @@ struct EnrollmentFlowView: View {
 
     private func pollForVoiceProfile(estimatedCompletionSec: Int? = nil) async {
         var consecutiveFailures = 0
-        let maxSeconds = max(60, (estimatedCompletionSec ?? 60) * 2)
-        let attempts = max(30, maxSeconds / 2)
+        // Floor of 180s defends against stale server hints (older deploys
+        // returned 30s, which timed out the polling sheet on the happy path
+        // even though the persona-creation pipeline takes 2–4 minutes wall
+        // clock at Suno). The hint bumps the budget further when the server
+        // signals a longer-than-typical run.
+        let hintSeconds = estimatedCompletionSec ?? 180
+        let maxSeconds = max(180, hintSeconds * 2)
+        let attempts = max(90, maxSeconds / 2)
 
         for _ in 0..<attempts {
             // Check for cancellation before sleeping

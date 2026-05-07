@@ -496,6 +496,16 @@ function registerEnrollmentRoutes(app, deps) {
         );
         return;
       }
+      // Consent gate runs BEFORE the rate-limit consumes (gap 2 fix). Hostile
+      // clients sending no-consent payloads previously burned the user's
+      // 10/24h + 1/min budgets without producing a session — a low-cost DoS
+      // on a victim's enrollment quota. Validating the cheap, request-scoped
+      // input first means only well-formed attempts count against the limit.
+      const { consent_accepted, consent_version } = request.body || {};
+      if (!consent_accepted) {
+        sendError(reply, 400, "CONSENT_REQUIRED", "Consent must be accepted.");
+        return;
+      }
       const limit = await consumeRateLimit(
         userId,
         "enrollment_start",
@@ -530,11 +540,6 @@ function registerEnrollmentRoutes(app, deps) {
             retry_at: burstLimit.reset_at,
           },
         );
-        return;
-      }
-      const { consent_accepted, consent_version } = request.body || {};
-      if (!consent_accepted) {
-        sendError(reply, 400, "CONSENT_REQUIRED", "Consent must be accepted.");
         return;
       }
       const sessionId = newUuid();
@@ -1583,7 +1588,13 @@ function registerEnrollmentRoutes(app, deps) {
             suggestion: c.issues?.[0] || null,
           })),
           voice_provider_profile: providerProfileResult,
-          estimated_completion_sec: 30,
+          // Suno persona generation (uploadFileUrl + cover-poll up to ~6min
+          // + generate-persona) typically takes 2–4 minutes wall clock. The
+          // prior 30s hint caused iOS to time out the polling sheet on the
+          // happy path even though the server-side flow completed normally.
+          // 180s reflects the median observed runtime; iOS clamps to a
+          // generous floor (see EnrollmentFlowView pollForVoiceProfile).
+          estimated_completion_sec: 180,
         });
       } catch (err) {
         request.log.error({ err }, "[Enrollment:complete] Unexpected error");

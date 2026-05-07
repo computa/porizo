@@ -11,6 +11,7 @@ const {
   findActiveProviderProfileForUser,
   getVoiceProviderJobById,
   markProviderProfileActive,
+  markProviderProfileCoverSubmitted,
   markProviderProfileFailed,
   markProviderProfilePersonaSubmitted,
   markProviderProfileUploadSubmitted,
@@ -29,15 +30,17 @@ describe("voice provider profile service", () => {
       migrationsDir: path.join(process.cwd(), "migrations"),
     });
     const now = new Date().toISOString();
-    await db.prepare(
-      "INSERT INTO users (id, created_at) VALUES (?, ?)"
-    ).run("user_1", now);
-    await db.prepare(
-      `INSERT INTO voice_profiles (
+    await db
+      .prepare("INSERT INTO users (id, created_at) VALUES (?, ?)")
+      .run("user_1", now);
+    await db
+      .prepare(
+        `INSERT INTO voice_profiles (
         id, user_id, status, quality_score, model_version, consent_version,
         consent_at, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run("voice_1", "user_1", "active", 0.92, "test", "voice_v1", now, now);
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run("voice_1", "user_1", "active", 0.92, "test", "voice_v1", now, now);
   });
 
   test("tracks Suno provider profile lifecycle without storing raw persona ids in jobs", async () => {
@@ -56,11 +59,24 @@ describe("voice provider profile service", () => {
     });
     assert.equal(uploaded.status, STATUS.UPLOAD_SUBMITTED);
 
-    const submitted = await markProviderProfilePersonaSubmitted(db, pending.id, {
+    // S19: legal lifecycle is upload_submitted → cover_submitted → persona_submitted.
+    // Skipping cover_submitted (as the test originally did) is now blocked by
+    // the state-machine CHECK on markProviderProfilePersonaSubmitted.
+    const cover = await markProviderProfileCoverSubmitted(db, pending.id, {
       sourceTaskId: "task_123",
-      sourceAudioId: "audio_456",
       model: "V5_5",
     });
+    assert.equal(cover.status, STATUS.COVER_SUBMITTED);
+
+    const submitted = await markProviderProfilePersonaSubmitted(
+      db,
+      pending.id,
+      {
+        sourceTaskId: "task_123",
+        sourceAudioId: "audio_456",
+        model: "V5_5",
+      },
+    );
     assert.equal(submitted.status, STATUS.PERSONA_SUBMITTED);
     assert.equal(submitted.provider_profile_id, null);
 
@@ -98,6 +114,11 @@ describe("voice provider profile service", () => {
     await markProviderProfileUploadSubmitted(db, pending.id, {
       sourceUploadUrl: "https://files.example.com/ref.wav",
     });
+    // S19: cover_submitted is required between upload_submitted and persona_submitted.
+    await markProviderProfileCoverSubmitted(db, pending.id, {
+      sourceTaskId: "task_123",
+      model: "V5_5",
+    });
     await markProviderProfilePersonaSubmitted(db, pending.id, {
       sourceTaskId: "task_123",
       sourceAudioId: "audio_456",
@@ -127,7 +148,11 @@ describe("voice provider profile service", () => {
       userId: "user_1",
       provider: "suno",
     });
-    const failed = await markProviderProfileFailed(db, pending.id, new Error("persona rejected"));
+    const failed = await markProviderProfileFailed(
+      db,
+      pending.id,
+      new Error("persona rejected"),
+    );
     assert.equal(failed.status, STATUS.FAILED);
     assert.match(failed.last_error, /persona rejected/);
   });
@@ -145,9 +170,14 @@ describe("voice provider profile service", () => {
       voiceProviderProfileId: pending.id,
     });
     await markVoiceProviderJobRunning(db, job.id, { lockedBy: "test" });
-    const failed = await markVoiceProviderJobFailed(db, job.id, new Error("temporary provider error"), {
-      retryable: true,
-    });
+    const failed = await markVoiceProviderJobFailed(
+      db,
+      job.id,
+      new Error("temporary provider error"),
+      {
+        retryable: true,
+      },
+    );
     assert.equal(failed.status, "pending");
     assert.ok(failed.next_attempt_at);
     assert.ok(Date.parse(failed.next_attempt_at) > Date.now());
@@ -166,7 +196,8 @@ describe("voice provider profile service", () => {
       voiceProviderProfileId: pending.id,
     });
     await markVoiceProviderJobRunning(db, job.id, { lockedBy: "test" });
-    await db.prepare("UPDATE voice_provider_jobs SET locked_at = ? WHERE id = ?")
+    await db
+      .prepare("UPDATE voice_provider_jobs SET locked_at = ? WHERE id = ?")
       .run("2000-01-01T00:00:00.000Z", job.id);
 
     const recovered = await recoverStaleVoiceProviderJobs(db, {
@@ -202,7 +233,8 @@ describe("voice provider profile service", () => {
       maxAttempts: 1,
     });
     await markVoiceProviderJobRunning(db, job.id, { lockedBy: "test" });
-    await db.prepare("UPDATE voice_provider_jobs SET locked_at = ? WHERE id = ?")
+    await db
+      .prepare("UPDATE voice_provider_jobs SET locked_at = ? WHERE id = ?")
       .run("2000-01-01T00:00:00.000Z", job.id);
 
     const recovered = await recoverStaleVoiceProviderJobs(db, {
