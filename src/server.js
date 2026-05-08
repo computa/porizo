@@ -880,9 +880,15 @@ function buildServer({
       kind === "poem"
         ? `porizo:///poem/${shareId}`
         : `porizo:///play/${shareId}`;
+    const refPath = kind === "poem" ? `/poem/${shareId}` : `/play/${shareId}`;
     const query = new URLSearchParams({
       channel: "appstore",
       deep_link: deepLinkPath,
+      ref: refPath,
+      utm_source: "share_player",
+      utm_medium: "recipient_loop",
+      utm_campaign: "shared_song_recipient",
+      utm_content: `${kind}_${shareId}`,
     });
     return `${publicBaseUrl}/download?${query.toString()}`;
   }

@@ -600,6 +600,14 @@ describe("Share Embed Routes", () => {
     assert.equal(shareInfo.status, "claimed");
     assert.ok(shareInfo.web_stream_url, "Claimed share should still advertise a public browser listening surface");
     assert.equal(shareInfo.app_required, false, "Claimed share should not require the app when public listening is still allowed");
+    const downloadUrl = new URL(shareInfo.app_download_url);
+    assert.equal(downloadUrl.pathname, "/download");
+    assert.equal(downloadUrl.searchParams.get("utm_source"), "share_player");
+    assert.equal(downloadUrl.searchParams.get("utm_medium"), "recipient_loop");
+    assert.equal(downloadUrl.searchParams.get("utm_campaign"), "shared_song_recipient");
+    assert.equal(downloadUrl.searchParams.get("utm_content"), `song_${testShareId}`);
+    assert.equal(downloadUrl.searchParams.get("ref"), `/play/${testShareId}`);
+    assert.equal(downloadUrl.searchParams.get("deep_link"), `porizo:///play/${testShareId}`);
 
     await db.query(
       `UPDATE share_tokens SET status = 'unbound', web_stream_allowed = 1 WHERE id = $1`,

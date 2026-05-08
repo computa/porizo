@@ -123,7 +123,45 @@
     return `porizo:///play/${encodeURIComponent(shareId)}`;
   }
 
-  function buildDownloadUrl({ deepLink = null, platform = null } = {}) {
+  function buildShareAttribution(placement) {
+    var slot = placement || 'app_bar';
+    return {
+      ref: shareId ? `/play/${shareId}` : '',
+      utm_source: 'share_player',
+      utm_medium: 'recipient_loop',
+      utm_campaign: 'shared_song_recipient',
+      utm_content: shareId ? `${slot}_${shareId}` : slot
+    };
+  }
+
+  function appendDownloadAttribution(url, { deepLink = null, placement = 'app_bar' } = {}) {
+    var target = url || '/download';
+    var hashIndex = target.indexOf('#');
+    var hash = hashIndex >= 0 ? target.slice(hashIndex) : '';
+    var withoutHash = hashIndex >= 0 ? target.slice(0, hashIndex) : target;
+    var queryIndex = withoutHash.indexOf('?');
+    var path = queryIndex >= 0 ? withoutHash.slice(0, queryIndex) : withoutHash;
+    var query = queryIndex >= 0 ? withoutHash.slice(queryIndex + 1) : '';
+    var params = new URLSearchParams(query);
+    var attribution = buildShareAttribution(placement);
+
+    Object.keys(attribution).forEach(function(key) {
+      if (attribution[key]) {
+        params.set(key, attribution[key]);
+      }
+    });
+    if (deepLink && !params.has('deep_link')) {
+      params.set('deep_link', deepLink);
+    }
+    if (deepLink && !params.has('channel')) {
+      params.set('channel', 'appstore');
+    }
+
+    var nextQuery = params.toString();
+    return nextQuery ? `${path}?${nextQuery}${hash}` : `${path}${hash}`;
+  }
+
+  function buildDownloadUrl({ deepLink = null, platform = null, placement = 'app_bar' } = {}) {
     const params = new URLSearchParams();
     if (platform) {
       params.set('platform', platform);
@@ -134,14 +172,23 @@
     if (deepLink) {
       params.set('deep_link', deepLink);
     }
+    var attribution = buildShareAttribution(placement);
+    Object.keys(attribution).forEach(function(key) {
+      if (attribution[key]) {
+        params.set(key, attribution[key]);
+      }
+    });
     const query = params.toString();
     return query ? `/download?${query}` : '/download';
   }
 
   function updateDownloadLinks() {
     const deepLink = getShareDeepLink();
-    const iosUrl = appDownloadUrl || buildDownloadUrl({ deepLink });
-    const androidUrl = buildDownloadUrl({ platform: 'android' });
+    const iosUrl = appendDownloadAttribution(appDownloadUrl || buildDownloadUrl({ deepLink, placement: 'app_bar' }), {
+      deepLink,
+      placement: 'app_bar'
+    });
+    const androidUrl = buildDownloadUrl({ platform: 'android', placement: 'app_bar_android' });
     if (elements.iosDownloadLink) {
       elements.iosDownloadLink.setAttribute('href', iosUrl);
     }
@@ -873,7 +920,13 @@
     hidePostPlayCta();
     var ctaLink = document.getElementById('cta-download-link');
     if (ctaLink) {
-      ctaLink.href = '/download?utm_source=webplayer&utm_medium=share&utm_campaign=post-play';
+      ctaLink.href = appendDownloadAttribution(appDownloadUrl || buildDownloadUrl({
+        deepLink: getShareDeepLink(),
+        placement: 'post_play'
+      }), {
+        deepLink: getShareDeepLink(),
+        placement: 'post_play'
+      });
     }
     var dismissBtn = document.getElementById('cta-dismiss');
     if (dismissBtn) {
@@ -1016,7 +1069,13 @@
 
     var appLink = document.getElementById('teaser-app-link');
     if (appLink) {
-      appLink.href = appDownloadUrl || '/download?utm_source=webplayer&utm_medium=teaser&utm_campaign=social';
+      appLink.href = appendDownloadAttribution(appDownloadUrl || buildDownloadUrl({
+        deepLink: getShareDeepLink(),
+        placement: 'teaser_unlock'
+      }), {
+        deepLink: getShareDeepLink(),
+        placement: 'teaser_unlock'
+      });
     }
   }
 
