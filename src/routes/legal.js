@@ -61,6 +61,14 @@ const robotsTxt = loadPublicFile("robots.txt", { warnOnMissing: true });
 const sitemapXml = loadPublicFile("sitemap.xml", { warnOnMissing: true });
 const llmsTxt = loadPublicFile("llms.txt", { warnOnMissing: true });
 
+// IndexNow key — same value lives in the filename and the body, per the
+// IndexNow spec. Bing/Yandex/Naver fetch /<key>.txt to verify ownership
+// before accepting URL submissions.
+const INDEXNOW_KEY = "dc6dd831f7b4b07b46d4b1f15bff6e3b";
+const indexNowKeyFile = loadPublicFile(`${INDEXNOW_KEY}.txt`, {
+  warnOnMissing: true,
+});
+
 const appStoreUrl =
   config.APP_STORE_URL || "https://apps.apple.com/app/porizo/id6758205028";
 const playStoreUrl =
@@ -458,6 +466,21 @@ function registerLegalRoutes(app, { db } = {}) {
       reply.code(404).send();
     }
   });
+
+  // IndexNow key verification endpoint. Bing, Yandex, Naver, and Seznam
+  // GET /<key>.txt to verify the domain owns the key before accepting URL
+  // submissions sent to https://api.indexnow.org/indexnow.
+  app.get(`/${INDEXNOW_KEY}.txt`, async (_request, reply) => {
+    if (indexNowKeyFile) {
+      reply
+        .type("text/plain")
+        .header("Cache-Control", "public, max-age=86400")
+        .send(indexNowKeyFile);
+    } else {
+      reply.code(404).send();
+    }
+  });
+
   // Favicon
   app.get("/favicon.ico", async (_request, reply) => {
     if (favicon) {
