@@ -51,6 +51,9 @@ out/
 !/marketing/appstore/app-previews/README.md
 !/marketing/appstore/app-previews/current/
 !/marketing/appstore/app-previews/current/porizo-app-preview-6.9.mp4
+!/marketing/mothers-day-2026/
+!/marketing/mothers-day-2026/**
+!/marketing/tools/generate-mothers-day-pins.js
 
 # Duplicate nested admin directory (claude-mem artifact)
 admin/admin/
