@@ -22,6 +22,21 @@ function isAppleAdsSource(value) {
   return clean(value)?.toLowerCase() === "apple ads";
 }
 
+const APPLE_ADS_DEVELOPER_TEST_ID = 1234567890;
+
+function numeric(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.trunc(parsed) : null;
+}
+
+function isAppleAdsDeveloperTestData(row) {
+  if (!row) return false;
+  return numeric(row.org_id ?? row.orgId ?? row.orgID) === APPLE_ADS_DEVELOPER_TEST_ID
+    && numeric(row.campaign_id ?? row.campaignId ?? row.campaignID) === APPLE_ADS_DEVELOPER_TEST_ID
+    && numeric(row.ad_group_id ?? row.adGroupId ?? row.adGroupID) === APPLE_ADS_DEVELOPER_TEST_ID;
+}
+
 function withinBackfillWindow(userCreatedAt, attributionCreatedAt, maxAgeMs = 48 * 60 * 60 * 1000) {
   if (!userCreatedAt || !attributionCreatedAt) {
     return true;
@@ -119,6 +134,16 @@ class AttributionService {
       };
     }
 
+    if (latestAppleAdsAttribution?.status === "test") {
+      return {
+        ...result,
+        acquisition_source: "Unknown",
+        attribution_status: "ignored",
+        attribution_reason: "Apple Ads returned developer-mode test data, so it was ignored.",
+        attribution_confidence: "apple_ads_test_data",
+      };
+    }
+
     return {
       ...result,
       acquisition_source: "Unknown",
@@ -132,6 +157,12 @@ class AttributionService {
              country_or_region, last_error, created_at, resolved_at
       FROM apple_ads_attribution
       WHERE user_id = ? ${statusClause}
+        AND status <> 'test'
+        AND NOT (
+          COALESCE(org_id, -1) = 1234567890
+          AND COALESCE(campaign_id, -1) = 1234567890
+          AND COALESCE(ad_group_id, -1) = 1234567890
+        )
       ORDER BY created_at DESC
       LIMIT 1
     `).get(userId);
@@ -187,6 +218,11 @@ class AttributionService {
                  ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY created_at DESC) as rn
           FROM apple_ads_attribution
           WHERE status = 'resolved' AND user_id IN (${idsSql})
+            AND NOT (
+              COALESCE(org_id, -1) = 1234567890
+              AND COALESCE(campaign_id, -1) = 1234567890
+              AND COALESCE(ad_group_id, -1) = 1234567890
+            )
         ) ranked_apple_ads
         WHERE rn = 1
       `).all(...userIds),
@@ -196,7 +232,7 @@ class AttributionService {
           SELECT user_id, status, campaign_id, country_or_region, last_error, created_at,
                  ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY created_at DESC) as rn
           FROM apple_ads_attribution
-          WHERE user_id IN (${idsSql})
+          WHERE user_id IN (${idsSql}) AND status <> 'test'
         ) ranked_apple_ads
         WHERE rn = 1
       `).all(...userIds),
@@ -227,7 +263,7 @@ class AttributionService {
   }
 
   async backfillUserAcquisitionFromAppleAds(row) {
-    if (!row || row.status !== "resolved" || !row.user_id) {
+    if (!row || row.status !== "resolved" || !row.user_id || isAppleAdsDeveloperTestData(row)) {
       return;
     }
 
@@ -290,6 +326,7 @@ class AttributionService {
           SUM(CASE WHEN status = 'resolved' THEN 1 ELSE 0 END) as resolved,
           SUM(CASE WHEN status = 'resolved' AND country_or_region IS NOT NULL AND country_or_region <> '' THEN 1 ELSE 0 END) as resolved_with_country,
           SUM(CASE WHEN status = 'not_found' THEN 1 ELSE 0 END) as not_found,
+          SUM(CASE WHEN status = 'test' THEN 1 ELSE 0 END) as test_data,
           SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending,
           SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed
         FROM apple_ads_attribution
@@ -299,6 +336,11 @@ class AttributionService {
         FROM apple_ads_attribution aaa
         JOIN users u ON u.id = aaa.user_id
         WHERE aaa.status = 'resolved'
+          AND NOT (
+            COALESCE(aaa.org_id, -1) = 1234567890
+            AND COALESCE(aaa.campaign_id, -1) = 1234567890
+            AND COALESCE(aaa.ad_group_id, -1) = 1234567890
+          )
           AND (
             u.acquisition_source IS NULL
             OR u.acquisition_country IS NULL
@@ -313,7 +355,7 @@ class AttributionService {
          OR u.acquisition_campaign IS NOT NULL
          OR u.acquisition_country IS NOT NULL
          OR EXISTS (
-           SELECT 1 FROM apple_ads_attribution aaa
+            SELECT 1 FROM apple_ads_attribution aaa
            WHERE aaa.user_id = u.id AND aaa.status IN ('resolved', 'not_found', 'pending', 'failed')
          )
          OR EXISTS (
@@ -338,6 +380,7 @@ class AttributionService {
         resolved: Number(appleAds?.resolved || 0),
         resolvedWithCountry: Number(appleAds?.resolved_with_country || 0),
         notFound: Number(appleAds?.not_found || 0),
+        testData: Number(appleAds?.test_data || 0),
         pending: Number(appleAds?.pending || 0),
         failed: Number(appleAds?.failed || 0),
         resolvedRowsNotBackfilled: Number(backfillMismatch?.resolved_rows_not_backfilled || 0),
@@ -348,4 +391,5 @@ class AttributionService {
 
 module.exports = {
   AttributionService,
+  isAppleAdsDeveloperTestData,
 };

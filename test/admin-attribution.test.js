@@ -232,8 +232,10 @@ describe("admin attribution contract", () => {
   test("admin attribution health reports Apple Ads and display mismatch metrics", async () => {
     const resolvedUserId = "admin_attr_health_resolved";
     const pendingUserId = "admin_attr_health_pending";
+    const testUserId = "admin_attr_health_test";
     await insertUser(db, resolvedUserId);
     await insertUser(db, pendingUserId);
+    await insertUser(db, testUserId);
     await insertAppleAdsAttribution(db, {
       id: "aaa_admin_attr_health_resolved",
       userId: resolvedUserId,
@@ -246,6 +248,13 @@ describe("admin attribution contract", () => {
       userId: pendingUserId,
       status: "pending",
     });
+    await insertAppleAdsAttribution(db, {
+      id: "aaa_admin_attr_health_test",
+      userId: testUserId,
+      status: "test",
+      campaignId: 1234567890,
+      country: "US",
+    });
 
     const response = await app.inject({
       method: "GET",
@@ -254,10 +263,11 @@ describe("admin attribution contract", () => {
     });
     assert.equal(response.statusCode, 200, response.body);
     const health = response.json();
-    assert.equal(health.appleAds.totalTokens, 2);
+    assert.equal(health.appleAds.totalTokens, 3);
     assert.equal(health.appleAds.resolved, 1);
     assert.equal(health.appleAds.resolvedWithCountry, 1);
     assert.equal(health.appleAds.pending, 1);
+    assert.equal(health.appleAds.testData, 1);
     assert.equal(health.appleAds.resolvedRowsNotBackfilled, 1);
     assert.equal(health.users.withAnyAttributionSignal, 2);
   });

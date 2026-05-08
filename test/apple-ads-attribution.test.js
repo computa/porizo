@@ -152,6 +152,50 @@ describe("apple ads attribution route", () => {
     assert.equal(user.acquisition_country, "US");
   });
 
+  test("ignores Apple Ads developer-mode test attribution data", async () => {
+    global.fetch = async () => ({
+      status: 200,
+      async text() {
+        return JSON.stringify({
+          attribution: true,
+          orgId: 1234567890,
+          campaignId: 1234567890,
+          conversionType: "Download",
+          claimType: "Click",
+          adGroupId: 1234567890,
+          countryOrRegion: "US",
+          keywordId: 12323222,
+          adId: 1234567890,
+          supplyPlacement: "APPSTORE_SEARCH_RESULTS",
+        });
+      },
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/analytics/apple-ads-attribution",
+      headers: { "x-user-id": userId },
+      payload: { attributionToken },
+    });
+
+    assert.equal(response.statusCode, 200, response.body);
+    assert.equal(response.json().attribution.status, "test");
+    assert.equal(response.json().attribution.campaign_id ?? response.json().attribution.campaignId, 1234567890);
+
+    const user = await db.prepare(
+      "SELECT acquisition_source, acquisition_campaign, acquisition_country FROM users WHERE id = ?"
+    ).get(userId);
+    assert.equal(user.acquisition_source, null);
+    assert.equal(user.acquisition_campaign, null);
+    assert.equal(user.acquisition_country, null);
+
+    const row = await db.prepare(
+      "SELECT status, last_error FROM apple_ads_attribution WHERE user_id = ?"
+    ).get(userId);
+    assert.equal(row.status, "test");
+    assert.match(row.last_error, /developer-mode test/i);
+  });
+
   test("does not backfill Apple Ads attribution for an existing user captured long after signup", async () => {
     const oldUserId = "old_apple_ads_user";
     await db.prepare(

@@ -3,7 +3,10 @@
 const crypto = require("crypto");
 const { nowIso, toJson } = require("../utils/common");
 const { newUuid } = require("../utils/ids");
-const { AttributionService } = require("../services/attribution-service");
+const {
+  AttributionService,
+  isAppleAdsDeveloperTestData,
+} = require("../services/attribution-service");
 
 function asInteger(value) {
   if (value === null || value === undefined || value === "") {
@@ -107,7 +110,7 @@ function registerAnalyticsRoutes(app, {
       "SELECT * FROM apple_ads_attribution WHERE attribution_token_sha256 = ?"
     ).get(tokenHash);
 
-    if (existing && ["resolved", "not_found"].includes(existing.status)) {
+    if (existing && ["resolved", "not_found", "test"].includes(existing.status)) {
       await attributionService.backfillUserAcquisitionFromAppleAds(existing);
       reply.send({
         attribution: normalizeAppleAdsRow(existing),
@@ -157,10 +160,15 @@ function registerAnalyticsRoutes(app, {
 
     const payload = parseAppleAttributionResponse(responseText);
     const statusCode = Number(response.status);
-    const normalizedStatus = response.status === 200 ? "resolved" : (response.status === 404 ? "not_found" : "failed");
-    const lastError = normalizedStatus === "failed"
-      ? (responseText.trim() || `Apple Ads attribution failed with status ${response.status}`)
-      : null;
+    const isDeveloperTestData = response.status === 200 && isAppleAdsDeveloperTestData(payload);
+    const normalizedStatus = isDeveloperTestData
+      ? "test"
+      : (response.status === 200 ? "resolved" : (response.status === 404 ? "not_found" : "failed"));
+    const lastError = normalizedStatus === "test"
+      ? "Apple Ads returned developer-mode test attribution data - ignored for acquisition reporting."
+      : (normalizedStatus === "failed"
+        ? (responseText.trim() || `Apple Ads attribution failed with status ${response.status}`)
+        : null);
     const resolvedAt = normalizedStatus === "failed" ? null : now;
 
     const persisted = {
