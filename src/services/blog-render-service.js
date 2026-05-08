@@ -1,13 +1,16 @@
 "use strict";
 
-const { buildFormattedArticle, slugifyFragment } = require("./blog-format-service");
+const {
+  buildFormattedArticle,
+  slugifyFragment,
+} = require("./blog-format-service");
 
 function escapeHtml(value) {
   return String(value || "")
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
-    .replaceAll("\"", "&quot;")
+    .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
 }
 
@@ -21,7 +24,9 @@ function safeUrl(rawUrl) {
 }
 
 function parseEmbedDirective(line) {
-  const match = String(line || "").trim().match(/^@\[(youtube|audio)(?:\s+([^\]]+))?\]\(([^)]+)\)$/i);
+  const match = String(line || "")
+    .trim()
+    .match(/^@\[(youtube|audio)(?:\s+([^\]]+))?\]\(([^)]+)\)$/i);
   if (!match) return null;
   return {
     type: match[1].toLowerCase(),
@@ -40,10 +45,16 @@ function resolveYouTubeEmbedUrl(rawUrl) {
 
     if (host === "youtu.be") {
       videoId = parsed.pathname.replace(/^\/+/, "").split("/")[0] || "";
-    } else if (host.endsWith("youtube.com") || host.endsWith("youtube-nocookie.com")) {
+    } else if (
+      host.endsWith("youtube.com") ||
+      host.endsWith("youtube-nocookie.com")
+    ) {
       if (parsed.pathname === "/watch") {
         videoId = parsed.searchParams.get("v") || "";
-      } else if (parsed.pathname.startsWith("/embed/") || parsed.pathname.startsWith("/shorts/")) {
+      } else if (
+        parsed.pathname.startsWith("/embed/") ||
+        parsed.pathname.startsWith("/shorts/")
+      ) {
         videoId = parsed.pathname.split("/")[2] || "";
       }
     }
@@ -117,13 +128,17 @@ function createHeadingIdResolver() {
 }
 
 function renderMarkdownToHtml(markdown, { includeHeadingIds = false } = {}) {
-  const lines = String(markdown || "").replace(/\r\n/g, "\n").split("\n");
+  const lines = String(markdown || "")
+    .replace(/\r\n/g, "\n")
+    .split("\n");
   const output = [];
   let paragraph = [];
   let listType = null;
   let codeFence = false;
   let codeLines = [];
-  const resolveHeadingId = includeHeadingIds ? createHeadingIdResolver() : () => "";
+  const resolveHeadingId = includeHeadingIds
+    ? createHeadingIdResolver()
+    : () => "";
 
   function flushParagraph() {
     if (!paragraph.length) return;
@@ -177,7 +192,9 @@ function renderMarkdownToHtml(markdown, { includeHeadingIds = false } = {}) {
       closeList();
       const level = Math.min(6, headingMatch[1].length);
       const headingId = resolveHeadingId(headingMatch[2]);
-      output.push(`<h${level}${headingId ? ` id="${escapeHtml(headingId)}"` : ""}>${renderInlineMarkdown(headingMatch[2])}</h${level}>`);
+      output.push(
+        `<h${level}${headingId ? ` id="${escapeHtml(headingId)}"` : ""}>${renderInlineMarkdown(headingMatch[2])}</h${level}>`,
+      );
       continue;
     }
 
@@ -185,7 +202,9 @@ function renderMarkdownToHtml(markdown, { includeHeadingIds = false } = {}) {
     if (blockquoteMatch) {
       flushParagraph();
       closeList();
-      output.push(`<blockquote><p>${renderInlineMarkdown(blockquoteMatch[1])}</p></blockquote>`);
+      output.push(
+        `<blockquote><p>${renderInlineMarkdown(blockquoteMatch[1])}</p></blockquote>`,
+      );
       continue;
     }
 
@@ -195,7 +214,9 @@ function renderMarkdownToHtml(markdown, { includeHeadingIds = false } = {}) {
       closeList();
       const src = safeUrl(imageMatch[2]);
       if (src) {
-        output.push(`<img src="${escapeHtml(src)}" alt="${escapeHtml(imageMatch[1])}" />`);
+        output.push(
+          `<img src="${escapeHtml(src)}" alt="${escapeHtml(imageMatch[1])}" />`,
+        );
       }
       continue;
     }
@@ -251,7 +272,10 @@ function renderArticleToc(headings) {
   }
 
   const items = headings
-    .map((heading) => `<li class="toc__item toc__item--h${heading.level}"><a href="#${escapeHtml(heading.id)}">${escapeHtml(heading.text)}</a></li>`)
+    .map(
+      (heading) =>
+        `<li class="toc__item toc__item--h${heading.level}"><a href="#${escapeHtml(heading.id)}">${escapeHtml(heading.text)}</a></li>`,
+    )
     .join("");
 
   return `<nav class="toc" aria-label="Table of contents">
@@ -276,9 +300,23 @@ function formatDate(value) {
 function tagClass(tag) {
   const slug = slugifyFragment(String(tag || ""));
   if (!slug) return "";
-  if (["stories", "story", "spotlight", "journal"].includes(slug)) return "tag--stories";
-  if (["product", "updates", "update", "launch", "release"].includes(slug)) return "tag--product";
-  if (["tips", "tip", "guide", "guides", "playbook", "howto", "how-to", "tutorial"].includes(slug)) return "tag--tips";
+  if (["stories", "story", "spotlight", "journal"].includes(slug))
+    return "tag--stories";
+  if (["product", "updates", "update", "launch", "release"].includes(slug))
+    return "tag--product";
+  if (
+    [
+      "tips",
+      "tip",
+      "guide",
+      "guides",
+      "playbook",
+      "howto",
+      "how-to",
+      "tutorial",
+    ].includes(slug)
+  )
+    return "tag--tips";
   return "";
 }
 
@@ -293,14 +331,18 @@ function renderTagList(tags) {
 }
 
 function renderBlogIndexPage(posts, { siteOrigin = "https://porizo.co" } = {}) {
-  const featuredCards = posts.map((post, index) => `
+  const featuredCards = posts
+    .map(
+      (post, index) => `
     <article class="post-card${index === 0 && posts.length >= 3 ? " post-card--featured" : ""}">
       <div class="post-card__meta">${escapeHtml(formatDate(post.published_at))}</div>
       <h2><a href="/blog/${escapeHtml(post.slug)}">${escapeHtml(post.title)}</a></h2>
       <p class="post-card__excerpt">${escapeHtml(post.excerpt)}</p>
       <div class="post-card__tags">${renderTagList(post.tags)}</div>
     </article>
-  `).join("\n");
+  `,
+    )
+    .join("\n");
 
   return `<!doctype html>
 <html lang="en">
@@ -311,6 +353,66 @@ function renderBlogIndexPage(posts, { siteOrigin = "https://porizo.co" } = {}) {
   <meta name="description" content="Porizo articles about personalized songs, gifting, storytelling, and creating memorable moments.">
   <meta name="theme-color" content="#FBF7F2">
   <link rel="canonical" href="${escapeHtml(siteOrigin)}/blog">
+
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Porizo">
+  <meta property="og:title" content="Porizo Blog — Notes on personalized song gifts">
+  <meta property="og:description" content="Articles about personalized songs, gifting, storytelling, and creating memorable moments.">
+  <meta property="og:url" content="${escapeHtml(siteOrigin)}/blog">
+  <meta property="og:image" content="${escapeHtml(siteOrigin)}/assets/og-song.png">
+
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Porizo Blog — Notes on personalized song gifts">
+  <meta name="twitter:description" content="Articles about personalized songs, gifting, storytelling, and creating memorable moments.">
+  <meta name="twitter:image" content="${escapeHtml(siteOrigin)}/assets/og-song.png">
+
+  <script type="application/ld+json">${JSON.stringify({
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "Blog",
+        "@id": `${siteOrigin}/blog#blog`,
+        url: `${siteOrigin}/blog`,
+        name: "Porizo Blog",
+        description:
+          "Articles about personalized songs, gifting, storytelling, and creating memorable moments.",
+        publisher: {
+          "@type": "Organization",
+          name: "Porizo",
+          url: `${siteOrigin}/`,
+        },
+        inLanguage: "en",
+        blogPost: posts.slice(0, 20).map((p) => ({
+          "@type": "BlogPosting",
+          "@id": `${siteOrigin}/blog/${p.slug}#article`,
+          url: `${siteOrigin}/blog/${p.slug}`,
+          headline: p.title,
+          description: p.excerpt || "",
+          datePublished: p.published_at,
+          dateModified: p.updated_at || p.published_at,
+          author: { "@type": "Organization", name: "Porizo" },
+        })),
+      },
+      {
+        "@type": "BreadcrumbList",
+        itemListElement: [
+          {
+            "@type": "ListItem",
+            position: 1,
+            name: "Home",
+            item: `${siteOrigin}/`,
+          },
+          {
+            "@type": "ListItem",
+            position: 2,
+            name: "Blog",
+            item: `${siteOrigin}/blog`,
+          },
+        ],
+      },
+    ],
+  })}</script>
+
   <link rel="icon" type="image/x-icon" href="/favicon.ico">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -433,8 +535,11 @@ function renderBlogIndexPage(posts, { siteOrigin = "https://porizo.co" } = {}) {
 }
 
 function renderBlogPostPage(post, { siteOrigin = "https://porizo.co" } = {}) {
-  const { formattedMarkdown, headings, readingTimeMinutes } = buildFormattedArticle(post);
-  const bodyHtml = renderMarkdownToHtml(formattedMarkdown, { includeHeadingIds: true });
+  const { formattedMarkdown, headings, readingTimeMinutes } =
+    buildFormattedArticle(post);
+  const bodyHtml = renderMarkdownToHtml(formattedMarkdown, {
+    includeHeadingIds: true,
+  });
   const canonicalUrl = `${siteOrigin}/blog/${post.slug}`;
   const heroImage = safeUrl(post.hero_image_url || "");
   const publishedDate = formatDate(post.published_at);
