@@ -1560,32 +1560,65 @@ class AdminService {
   async getAttribution(days = 30) {
     const daysAgo = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
 
-    // Attribution by source
-    const bySource = await this.db.prepare(`
-      SELECT utm_source, COUNT(*) as count
-      FROM share_tokens
-      WHERE created_at > ? AND utm_source IS NOT NULL
-      GROUP BY utm_source
-      ORDER BY count DESC
-    `).all(daysAgo);
+    const buildBreakdown = async (field) => {
+      const label = field;
+      const shareRows = await this.db.prepare(`
+        SELECT ${field} AS value,
+               COUNT(*) AS share_count,
+               SUM(CASE WHEN status = 'claimed' OR bound_device_id IS NOT NULL OR bound_user_id IS NOT NULL THEN 1 ELSE 0 END) AS claim_count
+        FROM share_tokens
+        WHERE created_at > ? AND ${field} IS NOT NULL
+        GROUP BY ${field}
+      `).all(daysAgo);
 
-    // Attribution by medium
-    const byMedium = await this.db.prepare(`
-      SELECT utm_medium, COUNT(*) as count
-      FROM share_tokens
-      WHERE created_at > ? AND utm_medium IS NOT NULL
-      GROUP BY utm_medium
-      ORDER BY count DESC
-    `).all(daysAgo);
+      const downloadRows = await this.db.prepare(`
+        SELECT ${field} AS value,
+               COUNT(*) AS download_count,
+               COUNT(DISTINCT matched_user_id) AS registration_count
+        FROM download_events
+        WHERE created_at > ? AND ${field} IS NOT NULL
+        GROUP BY ${field}
+      `).all(daysAgo);
 
-    // Attribution by campaign
-    const byCampaign = await this.db.prepare(`
-      SELECT utm_campaign, COUNT(*) as count
-      FROM share_tokens
-      WHERE created_at > ? AND utm_campaign IS NOT NULL
-      GROUP BY utm_campaign
-      ORDER BY count DESC
-    `).all(daysAgo);
+      const merged = new Map();
+      const ensure = (value) => {
+        const key = value || "";
+        if (!merged.has(key)) {
+          merged.set(key, {
+            [label]: value,
+            share_count: 0,
+            claim_count: 0,
+            download_count: 0,
+            registration_count: 0,
+          });
+        }
+        return merged.get(key);
+      };
+
+      for (const row of shareRows) {
+        const item = ensure(row.value);
+        item.share_count = Number(row.share_count || 0);
+        item.claim_count = Number(row.claim_count || 0);
+      }
+
+      for (const row of downloadRows) {
+        const item = ensure(row.value);
+        item.download_count = Number(row.download_count || 0);
+        item.registration_count = Number(row.registration_count || 0);
+      }
+
+      return Array.from(merged.values()).sort((a, b) => (
+        b.download_count - a.download_count
+        || b.registration_count - a.registration_count
+        || b.share_count - a.share_count
+      ));
+    };
+
+    const [bySource, byMedium, byCampaign] = await Promise.all([
+      buildBreakdown("utm_source"),
+      buildBreakdown("utm_medium"),
+      buildBreakdown("utm_campaign"),
+    ]);
 
     // Total shares with attribution
     const withAttribution = (await this.db.prepare(`
@@ -1598,6 +1631,23 @@ class AdminService {
       SELECT COUNT(*) as count FROM share_tokens WHERE created_at > ?
     `).get(daysAgo))?.count ?? 0;
 
+    const downloadsWithAttribution = (await this.db.prepare(`
+      SELECT COUNT(*) as count
+      FROM download_events
+      WHERE created_at > ? AND (utm_source IS NOT NULL OR utm_medium IS NOT NULL OR utm_campaign IS NOT NULL)
+    `).get(daysAgo))?.count ?? 0;
+
+    const totalDownloads = (await this.db.prepare(`
+      SELECT COUNT(*) as count FROM download_events WHERE created_at > ?
+    `).get(daysAgo))?.count ?? 0;
+
+    const attributedRegistrations = (await this.db.prepare(`
+      SELECT COUNT(DISTINCT matched_user_id) as count
+      FROM download_events
+      WHERE created_at > ? AND matched_user_id IS NOT NULL
+        AND (utm_source IS NOT NULL OR utm_medium IS NOT NULL OR utm_campaign IS NOT NULL)
+    `).get(daysAgo))?.count ?? 0;
+
     return {
       bySource,
       byMedium,
@@ -1605,6 +1655,10 @@ class AdminService {
       withAttribution,
       totalShares,
       attributionRate: totalShares > 0 ? ((withAttribution / totalShares) * 100).toFixed(2) : '0.00',
+      downloadsWithAttribution,
+      totalDownloads,
+      attributedRegistrations,
+      downloadAttributionRate: totalDownloads > 0 ? ((downloadsWithAttribution / totalDownloads) * 100).toFixed(2) : '0.00',
     };
   }
 

@@ -21,17 +21,27 @@ interface Attribution {
     utm_source: string | null;
     share_count: number;
     claim_count: number;
+    download_count: number;
+    registration_count: number;
   }>;
   byMedium: Array<{
     utm_medium: string | null;
     share_count: number;
     claim_count: number;
+    download_count: number;
+    registration_count: number;
   }>;
   byCampaign: Array<{
     utm_campaign: string | null;
     share_count: number;
     claim_count: number;
+    download_count: number;
+    registration_count: number;
   }>;
+  downloadsWithAttribution: number;
+  totalDownloads: number;
+  attributedRegistrations: number;
+  downloadAttributionRate: string;
 }
 
 interface TeaserMetrics {
@@ -236,6 +246,7 @@ export function Growth() {
             <div className="space-y-3">
               {attribution.bySource.map((item, idx) => {
                 const conversionRate = formatConversionRate(item.claim_count, item.share_count);
+                const signupRate = formatConversionRate(item.registration_count, item.download_count);
                 return (
                   <div key={idx} className="bg-slate-800/50 rounded-lg p-3">
                     <div className="flex items-center justify-between mb-2">
@@ -243,10 +254,16 @@ export function Growth() {
                         {item.utm_source || 'Direct'}
                       </span>
                       <span className="text-emerald-400 font-data text-sm">
-                        {conversionRate}%
+                        {signupRate}% signup
                       </span>
                     </div>
-                    <div className="flex items-center gap-4 text-sm">
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+                      <span className="text-slate-400">
+                        <span className="font-data text-slate-300">{item.download_count}</span> downloads
+                      </span>
+                      <span className="text-slate-400">
+                        <span className="font-data text-slate-300">{item.registration_count}</span> signups
+                      </span>
                       <span className="text-slate-400">
                         <span className="font-data text-slate-300">{item.share_count}</span> shares
                       </span>
@@ -254,6 +271,9 @@ export function Growth() {
                         <span className="font-data text-slate-300">{item.claim_count}</span> claims
                       </span>
                     </div>
+                    {item.share_count > 0 && (
+                      <p className="text-xs text-slate-500 mt-2">{conversionRate}% share claim rate</p>
+                    )}
                   </div>
                 );
               })}
@@ -273,6 +293,7 @@ export function Growth() {
             <div className="space-y-3">
               {attribution.byMedium.map((item, idx) => {
                 const conversionRate = formatConversionRate(item.claim_count, item.share_count);
+                const signupRate = formatConversionRate(item.registration_count, item.download_count);
                 return (
                   <div key={idx} className="bg-slate-800/50 rounded-lg p-3">
                     <div className="flex items-center justify-between mb-2">
@@ -280,10 +301,16 @@ export function Growth() {
                         {item.utm_medium || 'None'}
                       </span>
                       <span className="text-emerald-400 font-data text-sm">
-                        {conversionRate}%
+                        {signupRate}% signup
                       </span>
                     </div>
-                    <div className="flex items-center gap-4 text-sm">
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+                      <span className="text-slate-400">
+                        <span className="font-data text-slate-300">{item.download_count}</span> downloads
+                      </span>
+                      <span className="text-slate-400">
+                        <span className="font-data text-slate-300">{item.registration_count}</span> signups
+                      </span>
                       <span className="text-slate-400">
                         <span className="font-data text-slate-300">{item.share_count}</span> shares
                       </span>
@@ -291,6 +318,9 @@ export function Growth() {
                         <span className="font-data text-slate-300">{item.claim_count}</span> claims
                       </span>
                     </div>
+                    {item.share_count > 0 && (
+                      <p className="text-xs text-slate-500 mt-2">{conversionRate}% share claim rate</p>
+                    )}
                   </div>
                 );
               })}
@@ -310,6 +340,7 @@ export function Growth() {
             <div className="space-y-3">
               {attribution.byCampaign.map((item, idx) => {
                 const conversionRate = formatConversionRate(item.claim_count, item.share_count);
+                const signupRate = formatConversionRate(item.registration_count, item.download_count);
                 return (
                   <div key={idx} className="bg-slate-800/50 rounded-lg p-3">
                     <div className="flex items-center justify-between mb-2">
@@ -317,10 +348,16 @@ export function Growth() {
                         {item.utm_campaign || 'None'}
                       </span>
                       <span className="text-emerald-400 font-data text-sm">
-                        {conversionRate}%
+                        {signupRate}% signup
                       </span>
                     </div>
-                    <div className="flex items-center gap-4 text-sm">
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+                      <span className="text-slate-400">
+                        <span className="font-data text-slate-300">{item.download_count}</span> downloads
+                      </span>
+                      <span className="text-slate-400">
+                        <span className="font-data text-slate-300">{item.registration_count}</span> signups
+                      </span>
                       <span className="text-slate-400">
                         <span className="font-data text-slate-300">{item.share_count}</span> shares
                       </span>
@@ -328,6 +365,9 @@ export function Growth() {
                         <span className="font-data text-slate-300">{item.claim_count}</span> claims
                       </span>
                     </div>
+                    {item.share_count > 0 && (
+                      <p className="text-xs text-slate-500 mt-2">{conversionRate}% share claim rate</p>
+                    )}
                   </div>
                 );
               })}

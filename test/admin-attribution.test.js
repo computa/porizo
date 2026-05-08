@@ -271,4 +271,92 @@ describe("admin attribution contract", () => {
     assert.equal(health.appleAds.resolvedRowsNotBackfilled, 1);
     assert.equal(health.users.withAnyAttributionSignal, 2);
   });
+
+  test("growth attribution includes SEO download campaigns and matched registrations", async () => {
+    const userId = "admin_attr_seo_signup";
+    await insertUser(db, userId);
+    const now = new Date().toISOString();
+    const old = new Date(Date.now() - 40 * 24 * 60 * 60 * 1000).toISOString();
+
+    await db.prepare(`
+      INSERT INTO download_events (
+        id, ip_address, user_agent, utm_source, utm_medium, utm_campaign,
+        utm_content, country, referrer_url, matched_user_id, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      "dl_seo_mothers_1",
+      "203.0.113.10",
+      "test-agent",
+      "seo",
+      "landing_page",
+      "mothers_day_song",
+      "hero",
+      "AU",
+      "https://porizo.co/mothers-day-song",
+      userId,
+      now
+    );
+
+    await db.prepare(`
+      INSERT INTO download_events (
+        id, ip_address, user_agent, utm_source, utm_medium, utm_campaign,
+        utm_content, country, referrer_url, matched_user_id, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      "dl_seo_mothers_2",
+      "203.0.113.11",
+      "test-agent",
+      "seo",
+      "landing_page",
+      "mothers_day_song",
+      "nav",
+      "AU",
+      "https://porizo.co/mothers-day-song",
+      null,
+      now
+    );
+
+    await db.prepare(`
+      INSERT INTO download_events (
+        id, ip_address, user_agent, utm_source, utm_medium, utm_campaign,
+        utm_content, country, referrer_url, matched_user_id, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      "dl_old_custom",
+      "203.0.113.12",
+      "test-agent",
+      "seo",
+      "landing_page",
+      "custom_song_gift",
+      "hero",
+      "US",
+      "https://porizo.co/custom-song-gift",
+      null,
+      old
+    );
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/admin/dashboard/growth/attribution?days=30",
+      headers: adminHeaders,
+    });
+
+    assert.equal(response.statusCode, 200, response.body);
+    const body = response.json();
+    assert.equal(body.totalDownloads, 2);
+    assert.equal(body.downloadsWithAttribution, 2);
+    assert.equal(body.attributedRegistrations, 1);
+
+    const campaign = body.byCampaign.find((row) => row.utm_campaign === "mothers_day_song");
+    assert.ok(campaign, "expected mothers_day_song campaign row");
+    assert.equal(campaign.download_count, 2);
+    assert.equal(campaign.registration_count, 1);
+    assert.equal(campaign.share_count, 0);
+    assert.equal(campaign.claim_count, 0);
+    assert.equal(
+      body.byCampaign.some((row) => row.utm_campaign === "custom_song_gift"),
+      false,
+      "old download should not be included in a 30-day report"
+    );
+  });
 });
