@@ -8,7 +8,20 @@
 
   <title>Porizo — Your moment, in a song</title>
   <link rel="canonical" href="https://porizo.co/">
+
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Porizo">
+  <meta property="og:title" content="Porizo — Your moment, in a song">
+  <meta property="og:description" content="Turn your most meaningful moments into personalized songs. Original music for birthdays, anniversaries, and special occasions.">
   <meta property="og:url" content="https://porizo.co/">
+  <meta property="og:image" content="https://porizo.co/assets/og-song.png">
+  <meta property="og:image:alt" content="Porizo — personalized song gifts">
+  <meta property="og:locale" content="en_US">
+
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Porizo — Your moment, in a song">
+  <meta name="twitter:description" content="Turn your most meaningful moments into personalized songs. Original music for birthdays, anniversaries, and special occasions.">
+  <meta name="twitter:image" content="https://porizo.co/assets/og-song.png">
 
   <link rel="icon" type="image/x-icon" href="/favicon.ico">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
@@ -18,6 +31,73 @@
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=DM+Sans:wght@400;500&display=swap" rel="stylesheet">
 
   <link rel="stylesheet" href="/styles/main.css">
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "Organization",
+        "@id": "https://porizo.co/#organization",
+        "name": "Porizo",
+        "url": "https://porizo.co/",
+        "logo": "https://porizo.co/assets/brandmark.png",
+        "email": "support@porizo.co",
+        "description": "Porizo creates original personalized songs for birthdays, anniversaries, and special moments — sung in your own voice."
+      },
+      {
+        "@type": "WebSite",
+        "@id": "https://porizo.co/#website",
+        "url": "https://porizo.co/",
+        "name": "Porizo",
+        "description": "Personalized song gifts — original songs for birthdays, anniversaries, and special moments.",
+        "publisher": { "@id": "https://porizo.co/#organization" },
+        "inLanguage": "en"
+      },
+      {
+        "@type": "SoftwareApplication",
+        "@id": "https://porizo.co/#app",
+        "name": "Porizo",
+        "applicationCategory": "MultimediaApplication",
+        "operatingSystem": "iOS 17+",
+        "description": "Create personalized songs from real memories — original lyrics, original music, sung in your own voice.",
+        "url": "https://porizo.co/",
+        "downloadUrl": "https://porizo.co/download",
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "USD",
+          "availability": "https://schema.org/InStock"
+        },
+        "featureList": [
+          "Voice cloning — songs sung in your voice",
+          "Original lyrics built from your real memory",
+          "Original music in the genre you choose",
+          "Shareable playable links",
+          "45–90 second personalized songs",
+          "Preview in under 90 seconds"
+        ]
+      },
+      {
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+          { "@type": "ListItem", "position": 1, "name": "Home", "item": "https://porizo.co/" }
+        ]
+      },
+      {
+        "@type": "HowTo",
+        "name": "How to create a personalized song with Porizo",
+        "description": "Turn a memory into an original song in three taps.",
+        "totalTime": "PT3M",
+        "step": [
+          { "@type": "HowToStep", "position": 1, "name": "Tell your story", "text": "Pick who it's for and share one real memory. That detail becomes the heart of the lyrics." },
+          { "@type": "HowToStep", "position": 2, "name": "We craft the song", "text": "Original lyrics, original music — in the genre you choose. Preview in under 90 seconds." },
+          { "@type": "HowToStep", "position": 3, "name": "Share the moment", "text": "Send a link, play it at dinner, post it to their story. Their reaction is the gift." }
+        ]
+      }
+    ]
+  }
+  </script>
 </head>
 <body>
 

@@ -8,18 +8,53 @@ const publicPages = {
   support: loadPublicFile("support.html", { warnOnMissing: true }),
   about: loadPublicFile("about.html", { warnOnMissing: true }),
   pricing: loadPublicFile("pricing.html", { warnOnMissing: true }),
-  mothersDaySong: loadPublicFile("mothers-day-song.html", { warnOnMissing: true }),
-  birthdaySongMaker: loadPublicFile("birthday-song-maker.html", { warnOnMissing: true }),
-  anniversarySongGift: loadPublicFile("anniversary-song-gift.html", { warnOnMissing: true }),
-  customSongGift: loadPublicFile("custom-song-gift.html", { warnOnMissing: true }),
+  mothersDaySong: loadPublicFile("mothers-day-song.html", {
+    warnOnMissing: true,
+  }),
+  birthdaySongMaker: loadPublicFile("birthday-song-maker.html", {
+    warnOnMissing: true,
+  }),
+  anniversarySongGift: loadPublicFile("anniversary-song-gift.html", {
+    warnOnMissing: true,
+  }),
+  customSongGift: loadPublicFile("custom-song-gift.html", {
+    warnOnMissing: true,
+  }),
+  songfinchAlternative: loadPublicFile("songfinch-alternative.html", {
+    warnOnMissing: true,
+  }),
+  songInYourVoice: loadPublicFile("song-in-your-voice.html", {
+    warnOnMissing: true,
+  }),
+  birthdaySongForMom: loadPublicFile("birthday-song-for-mom.html", {
+    warnOnMissing: true,
+  }),
+  birthdaySongForDad: loadPublicFile("birthday-song-for-dad.html", {
+    warnOnMissing: true,
+  }),
+  fathersDaySong: loadPublicFile("fathers-day-song.html", {
+    warnOnMissing: true,
+  }),
+  graduationSong: loadPublicFile("graduation-song.html", {
+    warnOnMissing: true,
+  }),
+  weddingSongGift: loadPublicFile("wedding-song-gift.html", {
+    warnOnMissing: true,
+  }),
   terms: loadPublicFile("legal/terms.html", { warnOnMissing: true }),
   privacy: loadPublicFile("legal/privacy.html", { warnOnMissing: true }),
 };
 
 const fallbackPage = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Porizo</title></head><body><main><h1>Porizo</h1><p>Page unavailable.</p></main></body></html>`;
 
-const favicon = loadPublicFile("favicon.ico", { encoding: null, warnOnMissing: true });
-const appleTouchIcon = loadPublicFile("apple-touch-icon.png", { encoding: null, warnOnMissing: true });
+const favicon = loadPublicFile("favicon.ico", {
+  encoding: null,
+  warnOnMissing: true,
+});
+const appleTouchIcon = loadPublicFile("apple-touch-icon.png", {
+  encoding: null,
+  warnOnMissing: true,
+});
 
 // Load SEO files
 const robotsTxt = loadPublicFile("robots.txt", { warnOnMissing: true });
@@ -83,7 +118,11 @@ function decodeMaybe(value, log) {
   try {
     return decodeURIComponent(value);
   } catch (err) {
-    if (log) log.debug({ err, raw: value }, "decodeMaybe: malformed percent-encoding, using raw value");
+    if (log)
+      log.debug(
+        { err, raw: value },
+        "decodeMaybe: malformed percent-encoding, using raw value",
+      );
     return value;
   }
 }
@@ -97,11 +136,17 @@ function resolveDeepLink(request) {
   try {
     const parsed = new URL(deepLink);
     if (parsed.protocol !== "porizo:") {
-      request.log?.debug({ deepLink, protocol: parsed.protocol }, "resolveDeepLink: rejected non-porizo: protocol");
+      request.log?.debug(
+        { deepLink, protocol: parsed.protocol },
+        "resolveDeepLink: rejected non-porizo: protocol",
+      );
       return null;
     }
   } catch (err) {
-    request.log?.debug({ err, rawDeepLink }, "resolveDeepLink: URL parse failed");
+    request.log?.debug(
+      { err, rawDeepLink },
+      "resolveDeepLink: URL parse failed",
+    );
     return null;
   }
   return deepLink;
@@ -112,7 +157,7 @@ function escapeHtml(value) {
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
-    .replaceAll("\"", "&quot;")
+    .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
 }
 
@@ -122,7 +167,9 @@ function formatSitemapLastmod(value) {
   }
 
   if (value instanceof Date) {
-    return Number.isNaN(value.getTime()) ? null : value.toISOString().slice(0, 10);
+    return Number.isNaN(value.getTime())
+      ? null
+      : value.toISOString().slice(0, 10);
   }
 
   const text = String(value).trim();
@@ -132,7 +179,9 @@ function formatSitemapLastmod(value) {
   }
 
   const parsed = new Date(text);
-  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString().slice(0, 10);
+  return Number.isNaN(parsed.getTime())
+    ? null
+    : parsed.toISOString().slice(0, 10);
 }
 
 async function withDynamicBlogEntries(sitemap, db) {
@@ -141,34 +190,46 @@ async function withDynamicBlogEntries(sitemap, db) {
   }
 
   try {
-    const posts = await db.prepare(`
+    const posts = await db
+      .prepare(
+        `
       SELECT slug, published_at, updated_at
       FROM blog_posts
       WHERE status = 'published' AND published_at IS NOT NULL
       ORDER BY published_at DESC
-    `).all();
+    `,
+      )
+      .all();
 
     if (!Array.isArray(posts) || posts.length === 0) {
       return sitemap;
     }
 
-    const entries = posts.map((post) => {
-      const lastmod = post.updated_at || post.published_at;
-      const lastmodDate = formatSitemapLastmod(lastmod);
-      return [
-        "  <url>",
-        `    <loc>https://porizo.co/blog/${escapeHtml(post.slug)}</loc>`,
-        lastmodDate ? `    <lastmod>${escapeHtml(lastmodDate)}</lastmod>` : null,
-        "    <priority>0.6</priority>",
-        "  </url>",
-      ].filter(Boolean).join("\n");
-    }).join("\n");
+    const entries = posts
+      .map((post) => {
+        const lastmod = post.updated_at || post.published_at;
+        const lastmodDate = formatSitemapLastmod(lastmod);
+        return [
+          "  <url>",
+          `    <loc>https://porizo.co/blog/${escapeHtml(post.slug)}</loc>`,
+          lastmodDate
+            ? `    <lastmod>${escapeHtml(lastmodDate)}</lastmod>`
+            : null,
+          "    <priority>0.6</priority>",
+          "  </url>",
+        ]
+          .filter(Boolean)
+          .join("\n");
+      })
+      .join("\n");
 
     return sitemap.replace("</urlset>", `${entries}\n</urlset>`);
   } catch (err) {
     // DB read failed — serve the static sitemap so SEO survives, but log so
     // the regression is visible (the silent fallback used to mask schema drift).
-    console.warn(`[legal] withDynamicBlogEntries DB read failed: ${err.message}`);
+    console.warn(
+      `[legal] withDynamicBlogEntries DB read failed: ${err.message}`,
+    );
     return sitemap;
   }
 }
@@ -186,13 +247,17 @@ function buildDownloadBridgePage({ deepLink, fallbackUrl }) {
     if (dlPath.startsWith("/poem/")) {
       contentKind = "poem";
       const shareId = dlPath.slice("/poem/".length);
-      if (shareId) webFallbackUrl = `/poem/${encodeURIComponent(shareId)}?web=1`;
+      if (shareId)
+        webFallbackUrl = `/poem/${encodeURIComponent(shareId)}?web=1`;
     } else if (dlPath.startsWith("/play/")) {
       contentKind = "song";
       const shareId = dlPath.slice("/play/".length);
-      if (shareId) webFallbackUrl = `/play/${encodeURIComponent(shareId)}?web=1`;
+      if (shareId)
+        webFallbackUrl = `/play/${encodeURIComponent(shareId)}?web=1`;
     }
-  } catch (_) { /* use defaults */ }
+  } catch (_) {
+    /* use defaults */
+  }
 
   const contentLabel = contentKind === "poem" ? "poem" : "song";
   const statusText = `If Porizo is installed, this ${contentLabel} opens automatically. Otherwise we will take you to install.`;
@@ -326,13 +391,19 @@ function logDownloadEvent(db, request) {
   try {
     db.prepare(
       `INSERT INTO download_events (id, ip_address, user_agent, utm_source, utm_medium, utm_campaign, utm_content, utm_term, country, referrer_url, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
-      id, ip, ua,
-      q.utm_source || null, q.utm_medium || null, q.utm_campaign || null,
-      q.utm_content || null, q.utm_term || null,
-      country, q.ref || request.headers.referer || null,
-      new Date().toISOString()
+      id,
+      ip,
+      ua,
+      q.utm_source || null,
+      q.utm_medium || null,
+      q.utm_campaign || null,
+      q.utm_content || null,
+      q.utm_term || null,
+      country,
+      q.ref || request.headers.referer || null,
+      new Date().toISOString(),
     );
   } catch (err) {
     request.log
@@ -424,27 +495,68 @@ function registerLegalRoutes(app, { db } = {}) {
   }
 
   // Landing page
-  app.get("/", async (_request, reply) => respondMarketingHtml(reply, publicPages.index));
+  app.get("/", async (_request, reply) =>
+    respondMarketingHtml(reply, publicPages.index),
+  );
 
   // Support page
-  app.get("/support", async (_request, reply) => respondMarketingHtml(reply, publicPages.support));
+  app.get("/support", async (_request, reply) =>
+    respondMarketingHtml(reply, publicPages.support),
+  );
 
   // About page
-  app.get("/about", async (_request, reply) => respondMarketingHtml(reply, publicPages.about));
+  app.get("/about", async (_request, reply) =>
+    respondMarketingHtml(reply, publicPages.about),
+  );
 
   // Pricing page
-  app.get("/pricing", async (_request, reply) => respondMarketingHtml(reply, publicPages.pricing));
+  app.get("/pricing", async (_request, reply) =>
+    respondMarketingHtml(reply, publicPages.pricing),
+  );
 
   // High-intent occasion landing pages for App Store + web acquisition.
-  app.get("/mothers-day-song", async (_request, reply) => respondMarketingHtml(reply, publicPages.mothersDaySong));
-  app.get("/birthday-song-maker", async (_request, reply) => respondMarketingHtml(reply, publicPages.birthdaySongMaker));
-  app.get("/anniversary-song-gift", async (_request, reply) => respondMarketingHtml(reply, publicPages.anniversarySongGift));
-  app.get("/custom-song-gift", async (_request, reply) => respondMarketingHtml(reply, publicPages.customSongGift));
+  app.get("/mothers-day-song", async (_request, reply) =>
+    respondMarketingHtml(reply, publicPages.mothersDaySong),
+  );
+  app.get("/birthday-song-maker", async (_request, reply) =>
+    respondMarketingHtml(reply, publicPages.birthdaySongMaker),
+  );
+  app.get("/anniversary-song-gift", async (_request, reply) =>
+    respondMarketingHtml(reply, publicPages.anniversarySongGift),
+  );
+  app.get("/custom-song-gift", async (_request, reply) =>
+    respondMarketingHtml(reply, publicPages.customSongGift),
+  );
+
+  // SEO long-tail and competitor brand-defense pages.
+  app.get("/songfinch-alternative", async (_request, reply) =>
+    respondMarketingHtml(reply, publicPages.songfinchAlternative),
+  );
+  app.get("/song-in-your-voice", async (_request, reply) =>
+    respondMarketingHtml(reply, publicPages.songInYourVoice),
+  );
+  app.get("/birthday-song-for-mom", async (_request, reply) =>
+    respondMarketingHtml(reply, publicPages.birthdaySongForMom),
+  );
+  app.get("/birthday-song-for-dad", async (_request, reply) =>
+    respondMarketingHtml(reply, publicPages.birthdaySongForDad),
+  );
+  app.get("/fathers-day-song", async (_request, reply) =>
+    respondMarketingHtml(reply, publicPages.fathersDaySong),
+  );
+  app.get("/graduation-song", async (_request, reply) =>
+    respondMarketingHtml(reply, publicPages.graduationSong),
+  );
+  app.get("/wedding-song-gift", async (_request, reply) =>
+    respondMarketingHtml(reply, publicPages.weddingSongGift),
+  );
 
   // App download redirect helper for share flows
   app.get("/download", async (request, reply) => {
     // Log download event for attribution tracking (non-blocking)
-    if (db) { logDownloadEvent(db, request); }
+    if (db) {
+      logDownloadEvent(db, request);
+    }
 
     const deepLink = resolveDeepLink(request);
     const fallbackUrl = resolveDownloadUrl(request);
@@ -468,9 +580,13 @@ function registerLegalRoutes(app, { db } = {}) {
     reply.redirect(301, "/legal/privacy");
   });
 
-  app.get("/legal/terms", async (_request, reply) => respondMarketingHtml(reply, publicPages.terms));
+  app.get("/legal/terms", async (_request, reply) =>
+    respondMarketingHtml(reply, publicPages.terms),
+  );
 
-  app.get("/legal/privacy", async (_request, reply) => respondMarketingHtml(reply, publicPages.privacy));
+  app.get("/legal/privacy", async (_request, reply) =>
+    respondMarketingHtml(reply, publicPages.privacy),
+  );
 }
 
 module.exports = { registerLegalRoutes, formatSitemapLastmod };

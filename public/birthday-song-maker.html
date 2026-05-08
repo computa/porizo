@@ -11,12 +11,92 @@
   <meta property="og:description" content="Turn a birthday message into an original song gift.">
   <meta property="og:url" content="https://porizo.co/birthday-song-maker">
   <meta property="og:image" content="https://porizo.co/assets/og-song.png">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Porizo">
+
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Make a personalized birthday song">
+  <meta name="twitter:description" content="Turn a birthday message into an original song gift.">
+  <meta name="twitter:image" content="https://porizo.co/assets/og-song.png">
+
   <link rel="icon" type="image/x-icon" href="/favicon.ico">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/styles/main.css">
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "Service",
+        "@id": "https://porizo.co/birthday-song-maker#service",
+        "name": "Birthday Song Maker",
+        "serviceType": "Personalized birthday song",
+        "description": "Create an original birthday song from a real memory, message, joke, or moment. Porizo generates personalized lyrics and music — sung in your own voice.",
+        "provider": { "@type": "Organization", "name": "Porizo", "url": "https://porizo.co/" },
+        "areaServed": "Worldwide",
+        "audience": { "@type": "Audience", "audienceType": "Gift givers" },
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD", "availability": "https://schema.org/InStock" }
+      },
+      {
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+          { "@type": "ListItem", "position": 1, "name": "Home", "item": "https://porizo.co/" },
+          { "@type": "ListItem", "position": 2, "name": "Birthday Song Maker", "item": "https://porizo.co/birthday-song-maker" }
+        ]
+      },
+      {
+        "@type": "HowTo",
+        "name": "How to make a personalized birthday song",
+        "description": "Three steps from one moment to a complete personalized birthday song.",
+        "totalTime": "PT3M",
+        "step": [
+          { "@type": "HowToStep", "position": 1, "name": "Tell one moment", "text": "Share an inside joke, a real moment, a phrase only you two say. The lyric grows from that detail." },
+          { "@type": "HowToStep", "position": 2, "name": "Pick a sound", "text": "Choose pop, country, R&B, Afropop, folk, acoustic — whatever fits the person." },
+          { "@type": "HowToStep", "position": 3, "name": "Send the song", "text": "Share a link they can open at the dinner, the party, or quietly later that night." }
+        ]
+      },
+      {
+        "@type": "FAQPage",
+        "mainEntity": [
+          {
+            "@type": "Question",
+            "name": "How fast is fast? I need this for tonight.",
+            "acceptedAnswer": { "@type": "Answer", "text": "Preview in under 90 seconds. Full 45–90 second song in about three minutes. You can have a finished personalized song before the candles are lit." }
+          },
+          {
+            "@type": "Question",
+            "name": "Will the song actually sound like me singing?",
+            "acceptedAnswer": { "@type": "Answer", "text": "Yes — voice cloning is included on the Plus and Pro plans. Record 6–10 short phrases once inside the app and Porizo will sing every future song in your own voice. This is the feature that makes a birthday song land harder than any card." }
+          },
+          {
+            "@type": "Question",
+            "name": "Can I make a birthday song for someone who is not into music?",
+            "acceptedAnswer": { "@type": "Answer", "text": "Yes. The song is short (under 90 seconds), specific to them, and shared as a link they can open once and never feel obligated to revisit. Most not-really-a-music-person recipients keep it anyway." }
+          },
+          {
+            "@type": "Question",
+            "name": "Can I write the lyrics myself?",
+            "acceptedAnswer": { "@type": "Answer", "text": "You can hand Porizo as much detail as you want — a memory, a phrase, a poem you wrote, a bullet list of inside jokes. Porizo turns it into structured verse / chorus / bridge lyrics in the genre you pick." }
+          },
+          {
+            "@type": "Question",
+            "name": "How does this compare to Songfinch for a birthday gift?",
+            "acceptedAnswer": { "@type": "Answer", "text": "Songfinch uses human composers and ships in around 4–7 days for ~$179.99–$199.99 (rush options extra). Excellent if the birthday is two weeks out. Porizo ships in minutes for $9.99/month and adds voice cloning, which Songfinch cannot do. Different tools for different birthdays." }
+          },
+          {
+            "@type": "Question",
+            "name": "Can the recipient share the song with their friends?",
+            "acceptedAnswer": { "@type": "Answer", "text": "Yes — by default. The Pro plan unlocks share with anyone so they can post it to their story, send to friends, or replay it on any device." }
+          }
+        ]
+      }
+    ]
+  }
+  </script>
 </head>
 <body>
   <nav class="nav nav--static">
@@ -52,6 +132,87 @@
             <div class="occasion-card__wave"><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
           </div>
         </div>
+      </div>
+    </section>
+
+    <section class="section section--tight">
+      <div class="container container--narrow">
+        <div class="occasion-steps">
+          <div><strong>1. Tell one moment</strong><span>Share an inside joke, a real moment, a phrase only you two say. The lyric grows from that detail.</span></div>
+          <div><strong>2. Pick a sound</strong><span>Choose pop, country, R&amp;B, Afropop, folk, acoustic — whatever fits the person.</span></div>
+          <div><strong>3. Send the song</strong><span>Share a link they can open at the dinner, the party, or quietly later that night.</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="container container--narrow">
+        <span class="eyebrow">Why Porizo for birthdays</span>
+        <h2 style="margin-top: var(--s-4);">A birthday gift built around <em>them</em>, not a category.</h2>
+        <p class="lede">Most birthday gifts say "I remembered." A Porizo song says "I remembered <em>this</em> about you." That difference is the gift. The funny story everyone retells, the nickname only family uses, the words you never quite say out loud — those become the heart of the lyrics.</p>
+        <p>Porizo is the personalized-song gift app built around <strong>your own voice</strong>. Among the established human-composer marketplaces (Songfinch, Songlorious, Songheart, ForeverSong) none offer voice cloning of the gifter. The recipient hears the song, recognizes your voice, and the moment becomes something neither of you forgets. Available on the Plus and Pro plans after a one-time voice enrollment.</p>
+      </div>
+    </section>
+
+    <section class="section section--tight">
+      <div class="container container--narrow">
+        <span class="eyebrow">Best for</span>
+        <h2 style="margin-top: var(--s-4);">Birthday moments that earn their own song.</h2>
+        <ul style="margin-top: var(--s-4); line-height: 1.8;">
+          <li><strong>Milestone birthdays.</strong> 18, 21, 30, 40, 50, 60, 70 — the years where a card is not enough.</li>
+          <li><strong>Last-minute birthdays.</strong> A finished song in about three minutes, shareable as a link the same hour.</li>
+          <li><strong>First birthdays apart.</strong> A friend who moved cities, a parent overseas, a partner deployed. The song crosses the distance instantly.</li>
+          <li><strong>Surprise birthday songs.</strong> Play it at the dinner. Hand someone the phone before they cut the cake. Their reaction is the gift.</li>
+          <li><strong>Birthdays for kids.</strong> A song with their name, their nickname, the things they love. Lasts longer than any toy.</li>
+          <li><strong>Quiet birthdays.</strong> The friend who hates a fuss but deserves a song they can replay alone.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="container container--narrow">
+        <span class="eyebrow">Example</span>
+        <h2 style="margin-top: var(--s-4);">From one inside joke to a full birthday song.</h2>
+        <div class="testimonial testimonial--featured" style="margin-top: var(--s-4);">
+          <div class="testimonial__stars">For a friend's 30th</div>
+          <blockquote class="testimonial__quote">"You still laugh the loudest at the joke that never lands, you still light every room with the same impossible energy you had at twenty-two — another year brighter, another year you."</blockquote>
+          <div class="testimonial__author">
+            <div class="testimonial__avatar">B</div>
+            <div class="testimonial__meta"><span class="n">Style</span><span class="o">Pop ballad · 75 seconds · sung in the gifter's voice</span></div>
+          </div>
+        </div>
+        <p style="margin-top: var(--s-6);">The lyric above came from one detail: "she always laughs at her own jokes before they land." Porizo expanded that into a verse and a chorus, then sang it back in the gifter's tone. The whole song took under three minutes.</p>
+      </div>
+    </section>
+
+    <section class="section section--tight">
+      <div class="container container--narrow">
+        <span class="eyebrow">FAQ</span>
+        <h2 style="margin-top: var(--s-4);">Birthday song questions.</h2>
+        <div style="margin-top: var(--s-6);">
+          <h3>How fast is "fast"? I need this for tonight.</h3>
+          <p>Preview in under 90 seconds. Full 45–90 second song in about three minutes. You can have a finished personalized song before the candles are lit.</p>
+
+          <h3>Will the song actually sound like me singing?</h3>
+          <p>Yes — voice cloning is included on the Plus and Pro plans. Record 6–10 short phrases once inside the app and Porizo will sing every future song in your own voice. This is the feature that makes a birthday song land harder than any card.</p>
+
+          <h3>Can I make a birthday song for someone who is not into music?</h3>
+          <p>Yes. The song is short (under 90 seconds), specific to them, and shared as a link they can open once and never feel obligated to revisit. Most "not really a music person" recipients keep it anyway.</p>
+
+          <h3>Can I write the lyrics myself?</h3>
+          <p>You can hand Porizo as much detail as you want — a memory, a phrase, a poem you wrote, a bullet list of inside jokes. Porizo turns it into structured verse / chorus / bridge lyrics in the genre you pick.</p>
+
+          <h3>How does this compare to Songfinch for a birthday gift?</h3>
+          <p>Songfinch uses human composers and ships in around 4–7 days for ~$179.99–$199.99 (rush options extra). Excellent if the birthday is two weeks out. Porizo ships in minutes for $9.99/month and adds voice cloning, which Songfinch cannot do. Different tools for different birthdays.</p>
+
+          <h3>Can the recipient share the song with their friends?</h3>
+          <p>Yes — by default. The Pro plan unlocks "share with anyone" so they can post it to their story, send to friends, or replay it on any device.</p>
+        </div>
+        <p style="margin-top: var(--s-6); font-size: 0.95em; color: var(--color-text-secondary, #666);">
+          Read more: <a href="/blog/personalized-song-gift-ideas">personalized song gift ideas that land</a> ·
+          <a href="/blog/how-to-give-personalized-song-gift">how to give a personalized song gift</a> ·
+          <a href="/pricing">pricing and plans</a>
+        </p>
       </div>
     </section>
   </main>
