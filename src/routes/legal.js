@@ -8,6 +8,10 @@ const publicPages = {
   support: loadPublicFile("support.html", { warnOnMissing: true }),
   about: loadPublicFile("about.html", { warnOnMissing: true }),
   pricing: loadPublicFile("pricing.html", { warnOnMissing: true }),
+  mothersDaySong: loadPublicFile("mothers-day-song.html", { warnOnMissing: true }),
+  birthdaySongMaker: loadPublicFile("birthday-song-maker.html", { warnOnMissing: true }),
+  anniversarySongGift: loadPublicFile("anniversary-song-gift.html", { warnOnMissing: true }),
+  customSongGift: loadPublicFile("custom-song-gift.html", { warnOnMissing: true }),
   terms: loadPublicFile("legal/terms.html", { warnOnMissing: true }),
   privacy: loadPublicFile("legal/privacy.html", { warnOnMissing: true }),
 };
@@ -430,6 +434,12 @@ function registerLegalRoutes(app, { db } = {}) {
 
   // Pricing page
   app.get("/pricing", async (_request, reply) => respondMarketingHtml(reply, publicPages.pricing));
+
+  // High-intent occasion landing pages for App Store + web acquisition.
+  app.get("/mothers-day-song", async (_request, reply) => respondMarketingHtml(reply, publicPages.mothersDaySong));
+  app.get("/birthday-song-maker", async (_request, reply) => respondMarketingHtml(reply, publicPages.birthdaySongMaker));
+  app.get("/anniversary-song-gift", async (_request, reply) => respondMarketingHtml(reply, publicPages.anniversarySongGift));
+  app.get("/custom-song-gift", async (_request, reply) => respondMarketingHtml(reply, publicPages.customSongGift));
 
   // App download redirect helper for share flows
   app.get("/download", async (request, reply) => {
