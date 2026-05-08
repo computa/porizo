@@ -69,6 +69,74 @@ const indexNowKeyFile = loadPublicFile(`${INDEXNOW_KEY}.txt`, {
   warnOnMissing: true,
 });
 
+// App Store rating cache for homepage SoftwareApplication aggregateRating.
+// Refreshed every 6 hours. Homepage TTFB never blocks on iTunes — first request
+// after expiry serves the previous cached value while a background refresh runs.
+// On cold start the cache is null until the prewarm fetch lands (~1s after boot).
+const APP_STORE_LOOKUP_URL =
+  "https://itunes.apple.com/lookup?id=6758205028&country=us";
+const RATING_TTL_MS = 6 * 60 * 60 * 1000;
+let cachedAppStoreRating = null;
+let ratingRefreshInFlight = null;
+
+async function fetchAppStoreRating() {
+  try {
+    const res = await fetch(APP_STORE_LOOKUP_URL, {
+      signal: AbortSignal.timeout(3000),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const r = data?.results?.[0];
+    if (
+      !r ||
+      typeof r.averageUserRating !== "number" ||
+      typeof r.userRatingCount !== "number" ||
+      r.userRatingCount < 1
+    ) {
+      return null;
+    }
+    return {
+      value: r.averageUserRating,
+      count: r.userRatingCount,
+      fetchedAt: Date.now(),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function getAppStoreRatingNonBlocking() {
+  const fresh =
+    cachedAppStoreRating &&
+    Date.now() - cachedAppStoreRating.fetchedAt < RATING_TTL_MS;
+  if (!fresh && !ratingRefreshInFlight) {
+    ratingRefreshInFlight = fetchAppStoreRating()
+      .then((next) => {
+        if (next) cachedAppStoreRating = next;
+      })
+      .catch(() => {})
+      .finally(() => {
+        ratingRefreshInFlight = null;
+      });
+  }
+  return cachedAppStoreRating;
+}
+
+function injectAggregateRating(html, rating) {
+  if (!html || !rating || !rating.value || !rating.count) return html;
+  const marker = '"@id": "https://porizo.co/#app",';
+  if (!html.includes(marker)) return html;
+  const replacement = `"@id": "https://porizo.co/#app",
+        "aggregateRating": {
+          "@type": "AggregateRating",
+          "ratingValue": "${rating.value.toFixed(1)}",
+          "ratingCount": ${rating.count},
+          "bestRating": "5",
+          "worstRating": "1"
+        },`;
+  return html.replace(marker, replacement);
+}
+
 const appStoreUrl =
   config.APP_STORE_URL || "https://apps.apple.com/app/porizo/id6758205028";
 const playStoreUrl =
@@ -517,10 +585,26 @@ function registerLegalRoutes(app, { db } = {}) {
       .send(body || fallbackPage);
   }
 
-  // Landing page
-  app.get("/", async (_request, reply) =>
-    respondMarketingHtml(reply, publicPages.index),
-  );
+  // Prewarm App Store rating cache so the first homepage request has a value
+  // to inject. Failure is non-fatal — homepage still renders without
+  // aggregateRating if iTunes is unreachable.
+  setImmediate(() => {
+    fetchAppStoreRating()
+      .then((next) => {
+        if (next) cachedAppStoreRating = next;
+      })
+      .catch(() => {});
+  });
+
+  // Landing page — injects current App Store aggregateRating into the
+  // SoftwareApplication JSON-LD when available.
+  app.get("/", async (_request, reply) => {
+    const rating = getAppStoreRatingNonBlocking();
+    const html = rating
+      ? injectAggregateRating(publicPages.index, rating)
+      : publicPages.index;
+    respondMarketingHtml(reply, html);
+  });
 
   // Support page
   app.get("/support", async (_request, reply) =>
