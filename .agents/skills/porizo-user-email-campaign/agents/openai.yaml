@@ -1,0 +1,3 @@
+display_name: Porizo User Email Campaign
+short_description: Send targeted Porizo user emails
+default_prompt: "Run a targeted Porizo user email campaign: ask for the cohort, shape the message with me, query eligible emails, design the email, send through Resend, and check delivery."
