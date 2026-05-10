@@ -47,6 +47,11 @@ out/
 /marketing/appstore/*
 !/marketing/appstore/metadata/
 !/marketing/appstore/metadata/**
+!/marketing/appstore/aso/
+!/marketing/appstore/aso/**
+/marketing/appstore/aso/inputs/*.csv
+/marketing/appstore/aso/inputs/*.json
+!/marketing/appstore/aso/inputs/.gitkeep
 !/marketing/appstore/app-previews/
 !/marketing/appstore/app-previews/README.md
 !/marketing/appstore/app-previews/current/
@@ -54,6 +59,10 @@ out/
 !/marketing/mothers-day-2026/
 !/marketing/mothers-day-2026/**
 !/marketing/tools/generate-mothers-day-pins.js
+!/marketing/email-templates/
+!/marketing/email-templates/**
+!/marketing/blog/
+!/marketing/blog/**
 
 # Duplicate nested admin directory (claude-mem artifact)
 admin/admin/
@@ -76,6 +85,8 @@ venv/
 .agents/skills/*
 !.agents/skills/porizo-shortform-pipeline/
 !.agents/skills/porizo-shortform-pipeline/**
+!.agents/skills/porizo-user-email-campaign/
+!.agents/skills/porizo-user-email-campaign/**
 .codex/
 .cursor/
 .droid/
@@ -101,3 +112,6 @@ PorizoApp/fastlane/metadata/
 !PorizoApp/fastlane/metadata/en-US/
 !PorizoApp/fastlane/metadata/en-US/*.txt
 PorizoApp/fastlane/test_output/
+
+# Cold-list send state (contains real email addresses)
+marketing/email/.state/
