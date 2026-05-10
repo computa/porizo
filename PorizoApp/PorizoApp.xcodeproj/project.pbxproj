@@ -219,6 +219,7 @@
 				C125A4832F05F57600120F9A /* Sources */,
 				C125A4842F05F57600120F9A /* Frameworks */,
 				C125A4852F05F57600120F9A /* Resources */,
+				C173AAB32F247B0000DAC87C /* Ensure Firebase dSYMs */,
 				C173AAB12F247A0000DAC87A /* Firebase Crashlytics */,
 			);
 			buildRules = (
@@ -349,6 +350,28 @@
 			runOnlyForDeploymentPostprocessing = 1;
 			shellPath = /bin/sh;
 			shellScript = "STAMP_PATH=\"${SCRIPT_OUTPUT_FILE_0}\"\n\n# Skip for simulator builds\nif [ \"$PLATFORM_NAME\" = \"iphonesimulator\" ]; then\n  echo \"Skipping Crashlytics dSYM upload for simulator build\"\n  touch \"$STAMP_PATH\"\n  exit 0\nfi\n\n# Find the Crashlytics run script - works for both regular and archive builds\nFIREBASE_SCRIPT=$(find \"${BUILD_DIR%Build/*}\" -path \"*/SourcePackages/checkouts/firebase-ios-sdk/Crashlytics/run\" 2>/dev/null | head -1)\n\nif [ -z \"$FIREBASE_SCRIPT\" ]; then\n  # Fallback to DerivedData root for archive builds\n  DERIVED_DATA_ROOT=$(echo \"$BUILD_DIR\" | sed 's|/Build/.*||')\n  FIREBASE_SCRIPT=\"${DERIVED_DATA_ROOT}/SourcePackages/checkouts/firebase-ios-sdk/Crashlytics/run\"\nfi\n\nif [ -f \"$FIREBASE_SCRIPT\" ]; then\n  \"$FIREBASE_SCRIPT\"\n  touch \"$STAMP_PATH\"\nelse\n  echo \"warning: Firebase Crashlytics run script not found at $FIREBASE_SCRIPT\"\n  touch \"$STAMP_PATH\"\nfi\n";
+		};
+		C173AAB32F247B0000DAC87C /* Ensure Firebase dSYMs */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(TARGET_BUILD_DIR)/$(FRAMEWORKS_FOLDER_PATH)/FirebaseAnalytics.framework/FirebaseAnalytics",
+				"$(TARGET_BUILD_DIR)/$(FRAMEWORKS_FOLDER_PATH)/GoogleAppMeasurement.framework/GoogleAppMeasurement",
+			);
+			name = "Ensure Firebase dSYMs";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(DWARF_DSYM_FOLDER_PATH)/FirebaseAnalytics.framework.dSYM",
+				"$(DWARF_DSYM_FOLDER_PATH)/GoogleAppMeasurement.framework.dSYM",
+			);
+			runOnlyForDeploymentPostprocessing = 1;
+			shellPath = /bin/sh;
+			shellScript = "/bin/sh \"${PROJECT_DIR}/scripts/ensure-firebase-dsyms.sh\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -551,7 +574,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = PorizoApp/PorizoApp.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 112;
+				CURRENT_PROJECT_VERSION = 113;
 				DEVELOPMENT_TEAM = 5VCH6937XM;
 				ENABLE_PREVIEWS = YES;
 				EXCLUDED_SOURCE_FILE_NAMES = CLAUDE.md;
@@ -593,7 +616,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = PorizoApp/PorizoApp.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 112;
+				CURRENT_PROJECT_VERSION = 113;
 				DEVELOPMENT_TEAM = 5VCH6937XM;
 				ENABLE_PREVIEWS = YES;
 				EXCLUDED_SOURCE_FILE_NAMES = CLAUDE.md;
@@ -649,7 +672,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = PorizoNotificationServiceExtension/PorizoNotificationServiceExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 112;
+				CURRENT_PROJECT_VERSION = 113;
 				DEVELOPMENT_TEAM = 5VCH6937XM;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = PorizoNotificationServiceExtension/Info.plist;
@@ -693,7 +716,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = PorizoNotificationServiceExtension/PorizoNotificationServiceExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 112;
+				CURRENT_PROJECT_VERSION = 113;
 				DEVELOPMENT_TEAM = 5VCH6937XM;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = PorizoNotificationServiceExtension/Info.plist;
