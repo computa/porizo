@@ -1,0 +1,266 @@
+/**
+ * Share Audio Proxy Contract Tests
+ *
+ * Pins the contract that broke silently on 2026-05-10:
+ *   /share/:id/audio MUST return non-zero body bytes when upstream R2 has the file.
+ *
+ * The bug was in src/server.js serveTrackAudio's R2-proxy branch — it shipped
+ * 200 OK with content-length: 0 because Readable.fromWeb(r2Response.body)
+ * silently emitted 0 bytes under Node 20 + Fastify 4.29 + undici. Headers were
+ * correct, body was empty. Web players showed "Unable to play this audio."
+ *
+ * The existing share-flow tests use local storage so they never exercise the
+ * proxy branch. This file spins up a fake R2 over loopback and asserts the
+ * proxy actually forwards bytes.
+ */
+
+require("dotenv/config");
+const { describe, it, before, after } = require("node:test");
+const assert = require("node:assert");
+const http = require("node:http");
+const path = require("node:path");
+
+const { initDb } = require("../src/db");
+const { buildServer } = require("../src/server");
+
+const FAKE_AUDIO = Buffer.concat([
+  Buffer.from("\x00\x00\x00\x18ftypmp42", "binary"),
+  Buffer.alloc(2048, 0x42),
+]);
+const FAKE_CONTENT_TYPE = "audio/mp4";
+
+function makeFakeR2Server() {
+  return new Promise((resolve) => {
+    const server = http.createServer((req, res) => {
+      const range = req.headers.range;
+      if (range) {
+        const match = /bytes=(\d+)-(\d*)/.exec(range);
+        const start = Number(match[1]);
+        const end = match[2] ? Number(match[2]) : FAKE_AUDIO.length - 1;
+        const slice = FAKE_AUDIO.subarray(start, end + 1);
+        res.writeHead(206, {
+          "Content-Type": FAKE_CONTENT_TYPE,
+          "Content-Length": String(slice.length),
+          "Content-Range": `bytes ${start}-${end}/${FAKE_AUDIO.length}`,
+          "Accept-Ranges": "bytes",
+        });
+        res.end(slice);
+        return;
+      }
+      res.writeHead(200, {
+        "Content-Type": FAKE_CONTENT_TYPE,
+        "Content-Length": String(FAKE_AUDIO.length),
+        "Accept-Ranges": "bytes",
+      });
+      res.end(FAKE_AUDIO);
+    });
+    server.listen(0, "127.0.0.1", () => {
+      const { port } = server.address();
+      resolve({ server, baseUrl: `http://127.0.0.1:${port}` });
+    });
+  });
+}
+
+function makeFakeS3Storage(baseUrl) {
+  return {
+    type: "s3",
+    createPresignedDownload({ key }) {
+      return {
+        url: `${baseUrl}/${key}`,
+        method: "GET",
+        headers: {},
+        expiresAt: Date.now() + 300_000,
+      };
+    },
+    async putObject() {},
+    async getObject() {
+      return null;
+    },
+    async deleteObject() {},
+    async objectExists() {
+      return true;
+    },
+    async getObjectStream() {
+      return null;
+    },
+    async copyObject() {},
+    createPresignedUpload() {
+      return {
+        url: `${baseUrl}/upload`,
+        method: "PUT",
+        headers: {},
+        expiresAt: Date.now() + 300_000,
+      };
+    },
+  };
+}
+
+describe("Share audio proxy contract (R2 -> client)", () => {
+  let app;
+  let db;
+  let r2Server;
+  let storage;
+  const testUserId = "share_audio_proxy_user";
+
+  before(async () => {
+    process.env.NODE_ENV = "test";
+    process.env.ALLOW_ANON_USER_ID = "true";
+
+    const { server, baseUrl } = await makeFakeR2Server();
+    r2Server = server;
+    storage = makeFakeS3Storage(baseUrl);
+
+    const config = {
+      NODE_ENV: "test",
+      JWT_SECRET: "test-secret",
+      JWT_REFRESH_SECRET: "test-refresh-secret",
+      PUBLIC_BASE_URL: "http://localhost:3000",
+      STORAGE_DIR: path.join(
+        require("os").tmpdir(),
+        `share-audio-proxy-${Date.now()}`,
+      ),
+      STORAGE_PROVIDER: "s3",
+      UPLOAD_SIGNING_SECRET: "test-upload-secret",
+      UPLOAD_URL_TTL_SEC: 900,
+      ALLOW_DEVICE_TOKEN_FALLBACK: true,
+    };
+    db = await initDb({
+      dbPath: ":memory:",
+      migrationsDir: path.join(process.cwd(), "migrations"),
+    });
+    app = buildServer({ db, config, storage });
+
+    db.prepare(
+      "INSERT OR IGNORE INTO users (id, created_at, risk_level) VALUES (?, ?, ?)",
+    ).run(testUserId, new Date().toISOString(), "low");
+  });
+
+  after(async () => {
+    if (r2Server) await new Promise((r) => r2Server.close(r));
+    if (app) await app.close();
+  });
+
+  async function createUnboundShareWithFullUrl() {
+    const trackRes = await app.inject({
+      method: "POST",
+      url: "/tracks",
+      headers: { "x-user-id": testUserId },
+      payload: {
+        title: "Audio Proxy Contract Song",
+        recipient_name: "Tester",
+        message: "Contract test message",
+        style: "pop",
+        occasion: "birthday",
+      },
+    });
+    const { track_id } = JSON.parse(trackRes.body);
+
+    const verRes = await app.inject({
+      method: "POST",
+      url: `/tracks/${track_id}/versions`,
+      headers: { "x-user-id": testUserId },
+      payload: { style: "pop" },
+    });
+    const { version_num } = JSON.parse(verRes.body);
+
+    db.prepare(
+      "UPDATE track_versions SET full_url = ?, preview_url = NULL, status = 'full_ready' WHERE track_id = ? AND version_num = ?",
+    ).run("https://api.porizo.co/full/x.m4a", track_id, version_num);
+
+    const shareRes = await app.inject({
+      method: "POST",
+      url: `/tracks/${track_id}/share`,
+      headers: { "x-user-id": testUserId },
+      payload: { version_num, expires_in_days: 7, web_stream_allowed: true },
+    });
+    const { share_id } = JSON.parse(shareRes.body);
+    return { share_id, track_id, version_num };
+  }
+
+  it("returns non-zero body bytes for a full-body GET", async () => {
+    const { share_id } = await createUnboundShareWithFullUrl();
+    const res = await app.inject({
+      method: "GET",
+      url: `/share/${share_id}/audio`,
+    });
+    assert.strictEqual(res.statusCode, 200, "should be 200 OK");
+    assert.match(
+      res.headers["content-type"] || "",
+      /^audio\//,
+      "content-type should start with audio/",
+    );
+    const len = Number(res.headers["content-length"]);
+    assert.ok(len > 0, `content-length must be > 0, got ${len}`);
+    assert.ok(
+      res.rawPayload.length > 0,
+      `body bytes must be > 0, got ${res.rawPayload.length}`,
+    );
+    assert.strictEqual(
+      res.rawPayload.length,
+      len,
+      "body bytes must match content-length header",
+    );
+    assert.strictEqual(
+      res.rawPayload.length,
+      FAKE_AUDIO.length,
+      "body bytes must match upstream payload size",
+    );
+  });
+
+  it("forwards Range requests with correct partial bytes", async () => {
+    const { share_id } = await createUnboundShareWithFullUrl();
+    const res = await app.inject({
+      method: "GET",
+      url: `/share/${share_id}/audio`,
+      headers: { Range: "bytes=0-99" },
+    });
+    assert.strictEqual(res.statusCode, 206, "should be 206 Partial Content");
+    assert.strictEqual(
+      res.rawPayload.length,
+      100,
+      "should return exactly 100 bytes for bytes=0-99",
+    );
+    assert.match(
+      res.headers["content-range"] || "",
+      /^bytes 0-99\//,
+      "content-range must reflect requested slice",
+    );
+  });
+
+  it("returns 502 STORAGE_EMPTY when upstream returns zero bytes", async () => {
+    const emptyServer = http.createServer((req, res) => {
+      res.writeHead(200, {
+        "Content-Type": "audio/mp4",
+        "Content-Length": "0",
+      });
+      res.end();
+    });
+    await new Promise((r) => emptyServer.listen(0, "127.0.0.1", r));
+    const { port } = emptyServer.address();
+
+    const original = storage.createPresignedDownload;
+    storage.createPresignedDownload = ({ key }) => ({
+      url: `http://127.0.0.1:${port}/${key}`,
+      method: "GET",
+      headers: {},
+      expiresAt: Date.now() + 300_000,
+    });
+    try {
+      const { share_id } = await createUnboundShareWithFullUrl();
+      const res = await app.inject({
+        method: "GET",
+        url: `/share/${share_id}/audio`,
+      });
+      assert.strictEqual(
+        res.statusCode,
+        502,
+        "must return 502 (not 200) when upstream is empty",
+      );
+      const body = JSON.parse(res.body);
+      assert.strictEqual(body.error, "STORAGE_EMPTY");
+    } finally {
+      storage.createPresignedDownload = original;
+      await new Promise((r) => emptyServer.close(r));
+    }
+  });
+});

@@ -4325,11 +4325,27 @@ function buildServer({
         if (request.headers.range) {
           fetchHeaders.Range = request.headers.range;
         }
+        // HEAD requests never need the body. Probe with HEAD upstream to save
+        // R2 egress; Fastify auto-strips body for HEAD downstream.
+        const upstreamMethod = request.method === "HEAD" ? "HEAD" : "GET";
         const r2Response = await fetch(download.url, {
+          method: upstreamMethod,
           headers: fetchHeaders,
           signal: AbortSignal.timeout(30_000),
         });
         if (!r2Response.ok && r2Response.status !== 206) {
+          // Pass 416 through verbatim so clients can recover from out-of-range
+          // requests instead of seeing a misleading 404.
+          if (r2Response.status === 416) {
+            reply.status(416);
+            reply.header(
+              "Content-Range",
+              r2Response.headers.get("content-range") || "*/0",
+            );
+            reply.header("Cache-Control", "no-store");
+            reply.send();
+            return;
+          }
           sendError(
             reply,
             404,
@@ -4344,6 +4360,40 @@ function buildServer({
         // under Node 20 + Fastify 4.29 + undici, breaking every share player).
         const upstreamLen = r2Response.headers.get("content-length");
         const upstreamRange = r2Response.headers.get("content-range");
+
+        // Cap upstream size so a misuploaded 1 GB file can't OOM the dyno.
+        // 50 MB covers full masters with comfortable headroom.
+        const MAX_PROXY_BYTES = 50 * 1024 * 1024;
+        if (upstreamLen && Number(upstreamLen) > MAX_PROXY_BYTES) {
+          console.error(
+            `[serveTrackAudio] OVERSIZED key=${s3Key} upstream=${upstreamLen} max=${MAX_PROXY_BYTES}`,
+          );
+          sendError(
+            reply,
+            502,
+            "STORAGE_OVERSIZED",
+            "Storage object exceeds proxy size limit.",
+          );
+          return;
+        }
+
+        // HEAD upstream returns no body — short-circuit and forward headers only.
+        if (upstreamMethod === "HEAD") {
+          reply.status(r2Response.status);
+          reply.header(
+            "Content-Type",
+            r2Response.headers.get("content-type") ||
+              contentType ||
+              "audio/mp4",
+          );
+          if (upstreamLen) reply.header("Content-Length", upstreamLen);
+          if (upstreamRange) reply.header("Content-Range", upstreamRange);
+          reply.header("Accept-Ranges", "bytes");
+          reply.header("Cache-Control", "public, max-age=3600");
+          reply.send();
+          return;
+        }
+
         const buf = Buffer.from(await r2Response.arrayBuffer());
 
         // Contract guard: if upstream advertised a length and we got fewer

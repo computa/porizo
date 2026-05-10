@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>co.porizo.audio-probe</string>
+
+  <!-- Hits production /share/:id/audio every 4 hours and exits non-zero
+       on any byte-flow failure. macOS will email the user (if MAILTO is
+       set) or you can wrap this in a shell that POSTs to a Slack webhook
+       on failure. -->
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/node</string>
+    <string>/Users/ao/Documents/projects/porizo/scripts/probe-share-audio.mjs</string>
+  </array>
+
+  <key>StartInterval</key>
+  <integer>14400</integer>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>/Users/ao/Documents/projects/porizo/marketing/email/.state/runs/audio-probe-stdout.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>/Users/ao/Documents/projects/porizo/marketing/email/.state/runs/audio-probe-stderr.log</string>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/ao/Documents/projects/porizo</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
+  </dict>
+</dict>
+</plist>
