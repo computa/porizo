@@ -36,11 +36,13 @@ The proxy sits between R2 (storage) and untrusted browser clients. It's reached 
 
 **Fix shipped:** 50 MB cap on upstream Content-Length. Files larger than 50 MB get rejected with `STORAGE_OVERSIZED` 502 instead of triggering OOM. 50 MB covers the largest plausible full master with 4× headroom — current full m4a outputs are 2-3 MB.
 
-### 3. ✅ FIXED: HEAD requests waste R2 egress
+### 3. 🟡 ATTEMPTED, REVERTED: HEAD upstream optimization
 
 **Mechanism:** Fastify auto-handles HEAD by running the GET handler and stripping the body downstream — but our handler still does a GET upstream and downloads the full body to throw away.
 
-**Fix shipped:** Detect `request.method === "HEAD"` and use HEAD upstream too. Saves R2 egress on social-card crawlers, monitoring probes, and HEAD-first audio elements.
+**Attempted fix (reverted):** Use HEAD upstream for HEAD requests. Failed because R2 presigned URLs are signed for the GET method specifically — sending HEAD against a GET-signed URL returns 403 Forbidden. R2 fell to our 404 AUDIO_NOT_FOUND branch, breaking HEAD entirely.
+
+**Decision:** Keep GET upstream always. HEAD requests are rare from real audio elements (browsers GET first then range). The R2 egress cost on HEAD is acceptable given the rarity. To revisit, we'd need a `createPresignedHead` helper in the storage layer.
 
 ### 4. ✅ FIXED: 416 Range Not Satisfiable was coerced to 404
 

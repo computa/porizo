@@ -4325,11 +4325,11 @@ function buildServer({
         if (request.headers.range) {
           fetchHeaders.Range = request.headers.range;
         }
-        // HEAD requests never need the body. Probe with HEAD upstream to save
-        // R2 egress; Fastify auto-strips body for HEAD downstream.
-        const upstreamMethod = request.method === "HEAD" ? "HEAD" : "GET";
+        // Always GET upstream — the presigned URL is signed for GET, so a
+        // HEAD upstream returns 403. Fastify auto-strips the body for HEAD
+        // downstream, which means HEAD pays the R2 download cost. Acceptable:
+        // HEAD requests are rare from real audio elements (browsers GET).
         const r2Response = await fetch(download.url, {
-          method: upstreamMethod,
           headers: fetchHeaders,
           signal: AbortSignal.timeout(30_000),
         });
@@ -4374,23 +4374,6 @@ function buildServer({
             "STORAGE_OVERSIZED",
             "Storage object exceeds proxy size limit.",
           );
-          return;
-        }
-
-        // HEAD upstream returns no body — short-circuit and forward headers only.
-        if (upstreamMethod === "HEAD") {
-          reply.status(r2Response.status);
-          reply.header(
-            "Content-Type",
-            r2Response.headers.get("content-type") ||
-              contentType ||
-              "audio/mp4",
-          );
-          if (upstreamLen) reply.header("Content-Length", upstreamLen);
-          if (upstreamRange) reply.header("Content-Range", upstreamRange);
-          reply.header("Accept-Ranges", "bytes");
-          reply.header("Cache-Control", "public, max-age=3600");
-          reply.send();
           return;
         }
 
