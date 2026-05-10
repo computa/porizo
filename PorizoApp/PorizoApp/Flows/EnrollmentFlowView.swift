@@ -323,10 +323,10 @@ struct EnrollmentFlowView: View {
     // MARK: - Processing View
 
     private let processingStatuses = [
-        "Analyzing quality...",
-        "Checking clarity...",
-        "Building voice model...",
-        "Almost done..."
+        "Checking recording quality...",
+        "Preparing My Voice...",
+        "Waiting for your voice model...",
+        "We will continue when it is ready..."
     ]
 
     private var processingView: some View {
@@ -337,13 +337,15 @@ struct EnrollmentFlowView: View {
                 .scaleEffect(1.5)
                 .tint(DesignTokens.gold)
 
-            Text("Processing your voice...")
+            Text("Preparing My Voice...")
                 .font(DesignTokens.displayFont(size: 20))
                 .foregroundStyle(DesignTokens.textPrimary)
 
-            Text("This takes about 30 seconds")
+            Text("This can take a few minutes. We will continue when your voice is ready.")
                 .font(DesignTokens.bodyFont(size: 13))
                 .foregroundStyle(DesignTokens.textTertiary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 32)
 
             Text(processingStatuses[processingStatusIndex % processingStatuses.count])
                 .font(DesignTokens.bodyFont(size: 14))
@@ -462,11 +464,11 @@ struct EnrollmentFlowView: View {
 
     private var outcomeTitle: String {
         guard let outcome = enrollmentOutcome else {
-            return "Voice enrolled!"
+            return "My Voice ready!"
         }
         switch outcome {
-        case .new: return "Voice enrolled!"
-        case .upgraded: return "Voice upgraded!"
+        case .new: return "My Voice ready!"
+        case .upgraded: return "My Voice upgraded!"
         case .keptExisting: return "Enrollment complete"
         }
     }
@@ -474,18 +476,18 @@ struct EnrollmentFlowView: View {
     private var outcomeMessage: String {
         guard let outcome = enrollmentOutcome else {
             if let score = qualityScore, score >= 70 {
-                return "Excellent — your songs will sound great"
+                return "Excellent — your songs are ready to use your voice"
             }
-            return "Your songs will now sing in your voice"
+            return "Your songs are ready to use your voice"
         }
         switch outcome {
         case .new:
             if let score = qualityScore, score >= 70 {
-                return "Excellent — your songs will sound great"
+                return "Excellent — your songs are ready to use your voice"
             }
-            return "Your songs will now sing in your voice"
+            return "Your songs are ready to use your voice"
         case .upgraded:
-            return "Nice improvement! Your songs will sound even better"
+            return "Nice improvement! My Voice is ready for new songs"
         case .keptExisting:
             return "Your existing profile was kept because it has better quality"
         }
@@ -496,7 +498,7 @@ struct EnrollmentFlowView: View {
             return "Done"
         }
         switch outcome {
-        case .new, .upgraded: return "Done"
+        case .new, .upgraded: return "Continue"
         case .keptExisting: return "Done"
         }
     }
@@ -661,15 +663,9 @@ struct EnrollmentFlowView: View {
                     }
                 }
 
-                // Server creates profile synchronously — if we have a score, skip polling
-                if qualityScore != nil {
-                    await MainActor.run {
-                        withAnimation { currentStep = .completed }
-                    }
-                    return
-                }
-
-                // Fallback: poll for profile if score wasn't in the response
+                // The server creates the local profile synchronously, but My Voice is not
+                // ready until the provider persona is active. Never show completion from
+                // the local quality score alone.
                 await pollForVoiceProfile(estimatedCompletionSec: result.estimatedCompletionSec)
             } catch {
                 guard !Task.isCancelled else { return }
@@ -708,14 +704,29 @@ struct EnrollmentFlowView: View {
                 }
                 consecutiveFailures = 0  // Reset on any successful response
 
-                if status.hasProfile, let score = status.qualityScore {
+                if let score = status.qualityScore {
                     await MainActor.run {
-                        // Only update qualityScore if not already set from enrollment response
                         if qualityScore == nil {
                             qualityScore = Int(score)
                         }
+                    }
+                }
+
+                if status.isMyVoiceReady {
+                    await MainActor.run {
                         withAnimation {
                             currentStep = .completed
+                        }
+                    }
+                    return
+                }
+
+                if status.didMyVoiceSetupFail || status.isMyVoiceSetupRequired {
+                    await MainActor.run {
+                        errorMessage = "We captured your voice, but My Voice setup needs clearer sung audio. Please try again."
+                        showingError = true
+                        withAnimation {
+                            currentStep = .welcome
                         }
                     }
                     return

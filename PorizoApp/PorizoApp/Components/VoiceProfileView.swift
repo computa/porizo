@@ -24,6 +24,28 @@ struct VoiceProfileView: View {
         return .minimal
     }
 
+    private var readinessMessage: String {
+        switch profile.myVoiceReadiness {
+        case .ready:
+            return qualityTier.completionMessage
+        case .preparing:
+            return "My Voice is still being prepared. You can use it once setup finishes."
+        case .failed, .setupRequired:
+            return "My Voice setup needs clearer sung audio before songs can use your voice."
+        case .none:
+            return "Set up My Voice before using your voice in songs."
+        }
+    }
+
+    private var tryAgainTitle: String {
+        switch profile.myVoiceReadiness {
+        case .ready, .preparing:
+            return "Try Again"
+        case .failed, .setupRequired, .none:
+            return "Set Up My Voice"
+        }
+    }
+
     var body: some View {
         NavigationStack {
             ZStack {
@@ -116,7 +138,7 @@ struct VoiceProfileView: View {
             }
 
             // Disclosure text
-            Text(qualityTier.completionMessage)
+            Text(readinessMessage)
                 .font(.system(size: 15))
                 .foregroundStyle(DesignTokens.textSecondary)
                 .multilineTextAlignment(.center)
@@ -181,7 +203,7 @@ struct VoiceProfileView: View {
             HStack(spacing: 8) {
                 Image(systemName: "arrow.counterclockwise")
                     .font(.system(size: 16, weight: .semibold))
-                Text("Try Again")
+                Text(tryAgainTitle)
                     .font(.system(size: 16, weight: .semibold))
             }
             .foregroundStyle(DesignTokens.background)

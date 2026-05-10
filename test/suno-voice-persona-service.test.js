@@ -144,6 +144,14 @@ describe("Suno voice persona service", () => {
       ),
       true,
     );
+    assert.equal(
+      isRetryableGeneratePersonaReadinessError(
+        new Error(
+          "E302_SUNO_PERSONA_ERROR: generate-persona failed - Current music failed to generate persona",
+        ),
+      ),
+      true,
+    );
 
     let attempts = 0;
     const persona = await generatePersonaWithReadinessRetry({
@@ -680,7 +688,7 @@ describe("Suno voice persona service", () => {
     assert.equal(job.next_attempt_at, null);
   });
 
-  test("records rejected source audio when Suno says current music cannot generate persona", async () => {
+  test("retries with rejected source audio when Suno says current music cannot generate persona", async () => {
     await db
       .prepare(
         "UPDATE enrollment_sessions SET access_token = NULL WHERE id = ?",
@@ -708,7 +716,7 @@ describe("Suno voice persona service", () => {
       userId: "user_1",
       provider: "suno",
       voiceProviderProfileId: providerProfile.id,
-      maxAttempts: 1,
+      maxAttempts: 3,
       stepData: { enrollment_session_id: "sess_1" },
     });
 
@@ -734,17 +742,73 @@ describe("Suno voice persona service", () => {
           },
         },
       }),
-      /MANUAL_RECOVERY_REQUIRED/,
+      /Current music failed to generate persona/,
     );
 
-    const profile = await db
+    let job = await db
       .prepare(
-        "SELECT status, metadata_json FROM voice_provider_profiles WHERE id = ?",
+        "SELECT status, step, attempts, next_attempt_at FROM voice_provider_jobs WHERE id = ?",
+      )
+      .get(providerJob.id);
+    assert.equal(job.status, "pending");
+    assert.equal(job.step, "generate_persona");
+    assert.equal(job.attempts, 1);
+    assert.ok(job.next_attempt_at);
+
+    let profile = await db
+      .prepare(
+        "SELECT status, source_audio_id, metadata_json FROM voice_provider_profiles WHERE id = ?",
       )
       .get(providerProfile.id);
-    assert.equal(profile.status, "failed");
-    const metadata = JSON.parse(profile.metadata_json);
+    assert.equal(profile.status, "cover_submitted");
+    assert.equal(profile.source_audio_id, null);
+    let metadata = JSON.parse(profile.metadata_json);
     assert.equal(metadata.suno_bad_source_music, true);
+    assert.deepEqual(metadata.suno_rejected_source_audio_ids, ["audio_bad"]);
+
+    const active = await runSunoVoicePersonaJob({
+      db,
+      jobId: providerJob.id,
+      config: {
+        PUBLIC_BASE_URL: "https://porizo.example",
+        SUNO_BASE_URL: "https://api.sunoapi.org",
+        SUNO_API_KEY: "secret",
+        SUNO_PERSONA_GENERATE_MAX_ATTEMPTS: 1,
+        SUNO_PERSONA_GENERATE_RETRY_DELAY_MS: 0,
+      },
+      sunoClient: {
+        uploadFileUrl: async () => null,
+        submitUploadCoverTask: async () => null,
+        pollUploadCoverForAudio: async (options) => {
+          assert.deepEqual(options.rejectedAudioIds, ["audio_bad"]);
+          return {
+            audioId: "audio_good",
+            audioDurationSec: 30,
+            response: { data: { taskId: "task_123" } },
+          };
+        },
+        generatePersona: async (options) => {
+          assert.equal(options.audioId, "audio_good");
+          return { personaId: "persona_live_789", name: "Porizo Voice" };
+        },
+      },
+    });
+
+    assert.equal(active.provider_profile_id, "persona_live_789");
+    job = await db
+      .prepare("SELECT status, step, attempts FROM voice_provider_jobs WHERE id = ?")
+      .get(providerJob.id);
+    assert.equal(job.status, "completed");
+    assert.equal(job.step, "persona_active");
+    assert.equal(job.attempts, 2);
+    profile = await db
+      .prepare(
+        "SELECT status, source_audio_id, metadata_json FROM voice_provider_profiles WHERE id = ?",
+      )
+      .get(providerProfile.id);
+    assert.equal(profile.status, "active");
+    assert.equal(profile.source_audio_id, "audio_good");
+    metadata = JSON.parse(profile.metadata_json);
     assert.deepEqual(metadata.suno_rejected_source_audio_ids, ["audio_bad"]);
   });
 

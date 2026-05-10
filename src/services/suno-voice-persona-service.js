@@ -7,6 +7,7 @@ const {
 } = require("../providers/suno-persona");
 const { resolveSunoCallbackUrl } = require("../providers/suno");
 const {
+  STATUS,
   getProviderProfileById,
   getVoiceProviderJobById,
   markProviderProfileActive,
@@ -306,7 +307,8 @@ function isRetryableGeneratePersonaReadinessError(error) {
     message.includes("music does not exist") ||
     message.includes("music is still generating") ||
     message.includes("ensure the music generation task is fully completed") ||
-    message.includes("create persona error")
+    message.includes("create persona error") ||
+    message.includes("current music failed to generate persona")
   );
 }
 
@@ -412,6 +414,37 @@ function collectRejectedSourceAudioIds(providerProfile) {
     ids.add(providerProfile.source_audio_id);
   }
   return Array.from(ids);
+}
+
+async function resetRejectedPersonaSourceAudio(db, providerProfile, error) {
+  if (!providerProfile?.id || !providerProfile.source_audio_id) {
+    return;
+  }
+  const metadata = withProviderMetadata(providerProfile, {
+    suno_bad_source_music: true,
+    suno_rejected_source_audio_ids: Array.from(
+      new Set([
+        ...collectRejectedSourceAudioIds(providerProfile),
+        providerProfile.source_audio_id,
+      ]),
+    ),
+  });
+  await db
+    .prepare(
+      `UPDATE voice_provider_profiles
+          SET status = ?, source_audio_id = NULL, last_error = ?,
+              metadata_json = ?, updated_at = ?
+        WHERE id = ?
+          AND deleted_at IS NULL
+          AND status IN ('persona_submitted', 'failed')`,
+    )
+    .run(
+      STATUS.COVER_SUBMITTED,
+      sanitizeProviderError(error),
+      JSON.stringify(metadata),
+      new Date().toISOString(),
+      providerProfile.id,
+    );
 }
 
 async function runSunoVoicePersonaJob({
@@ -674,10 +707,10 @@ async function runSunoVoicePersonaJob({
     const active = await markProviderProfileActive(db, providerProfile.id, {
       providerProfileId: persona.personaId,
       model,
-      metadata: {
+      metadata: withProviderMetadata(providerProfile, {
         persona_name: persona.name,
         persona_model: "voice_persona",
-      },
+      }),
     });
     await markVoiceProviderJobCompleted(db, job.id, {
       step: "persona_active",
@@ -727,6 +760,9 @@ async function runSunoVoicePersonaJob({
       if (failedJob?.status === "failed" && session?.id) {
         // U3: token revocation on permanent failure (manual-recovery path).
         await revokeEnrollmentSessionToken(db, session.id);
+      }
+      if (retryableReadiness && isBadSourceMusic) {
+        await resetRejectedPersonaSourceAudio(db, providerProfile, sanitizedErr);
       }
       if (providerProfile?.id && failedJob?.status === "failed") {
         await markProviderProfileFailed(

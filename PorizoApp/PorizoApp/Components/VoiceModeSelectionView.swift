@@ -334,7 +334,7 @@ struct VoiceModeSelectionView: View {
                     try await apiClient.getVoiceProfile()
                 }
                 await MainActor.run {
-                    hasVoiceProfile = status.hasProfile
+                    hasVoiceProfile = status.isMyVoiceReady
                     if let score = status.qualityScore {
                         profileQuality = Int(score)
                     }

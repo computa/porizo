@@ -88,7 +88,11 @@ async function buildSunoPersonaCalibration({
   maxDurationSec = 30,
 } = {}) {
   const sungEntries = Array.isArray(chunkEntries)
-    ? chunkEntries.filter((entry) => entry?.prompt?.type === "sung")
+    ? chunkEntries.filter(
+        (entry) =>
+          entry?.prompt?.type === "sung" &&
+          entry?.quality?.metrics?.is_singing === true,
+      )
     : [];
   const selected = [];
   let totalDurationSec = 0;
@@ -141,6 +145,54 @@ async function buildSunoPersonaCalibration({
     },
     chunkCount: selected.length,
   };
+}
+
+function chunkFileStem(filePath) {
+  if (!filePath) {
+    return "";
+  }
+  return path.basename(String(filePath), ".wav");
+}
+
+function attachChunkQualityResults(chunkEntries, qcResult) {
+  if (
+    !Array.isArray(chunkEntries) ||
+    !Array.isArray(qcResult?.metrics?.chunk_results)
+  ) {
+    return;
+  }
+
+  const chunkIdByFileStem = new Map();
+  for (const entry of chunkEntries) {
+    if (!entry?.chunkId) {
+      continue;
+    }
+    chunkIdByFileStem.set(String(entry.chunkId), entry.chunkId);
+    const originalStem = chunkFileStem(entry.filePath);
+    if (originalStem) {
+      chunkIdByFileStem.set(originalStem, entry.chunkId);
+    }
+  }
+
+  for (const result of qcResult.preprocessingResults?.results || []) {
+    const originalChunkId = chunkIdByFileStem.get(chunkFileStem(result.path));
+    const processedStem = chunkFileStem(result.outputPath);
+    if (originalChunkId && processedStem) {
+      chunkIdByFileStem.set(processedStem, originalChunkId);
+    }
+  }
+
+  const qualityByChunkId = new Map();
+  for (const result of qcResult.metrics.chunk_results) {
+    const chunkId = chunkIdByFileStem.get(chunkFileStem(result.file));
+    if (chunkId) {
+      qualityByChunkId.set(chunkId, result);
+    }
+  }
+
+  for (const entry of chunkEntries) {
+    entry.quality = qualityByChunkId.get(entry.chunkId) || null;
+  }
 }
 
 function buildPersonaJobStepData({
@@ -1133,6 +1185,7 @@ function registerEnrollmentRoutes(app, deps) {
               "UPDATE enrollment_sessions SET chunk_quality_json = ? WHERE id = ?",
             )
             .run(JSON.stringify(qcResult.metrics.chunk_results), session_id);
+          attachChunkQualityResults(chunkEntries, qcResult);
         }
 
         const profileId = newUuid();
@@ -1881,4 +1934,10 @@ function registerEnrollmentRoutes(app, deps) {
   );
 }
 
-module.exports = { registerEnrollmentRoutes };
+module.exports = {
+  registerEnrollmentRoutes,
+  __test: {
+    attachChunkQualityResults,
+    buildSunoPersonaCalibration,
+  },
+};

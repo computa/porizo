@@ -20,6 +20,9 @@ const { initDb } = require("../src/db");
 const { buildServer } = require("../src/server");
 const { createStorageProvider } = require("../src/storage");
 const {
+  __test: { attachChunkQualityResults, buildSunoPersonaCalibration },
+} = require("../src/routes/enrollment");
+const {
   REQUIRED_CONSENT_SCOPE,
   runSunoVoicePersonaJob,
 } = require("../src/services/suno-voice-persona-service");
@@ -136,6 +139,124 @@ describe("Voice Enrollment API", () => {
     if (storageDir && fs.existsSync(storageDir)) {
       fs.rmSync(storageDir, { recursive: true, force: true });
     }
+  });
+
+  describe("Suno persona calibration", () => {
+    it("matches processed QC filenames back to original sung chunks", () => {
+      const chunkEntries = [
+        {
+          chunkId: "p5",
+          filePath: "/tmp/session/p5.wav",
+          prompt: { id: "p5", type: "sung" },
+        },
+        {
+          chunkId: "p6",
+          filePath: "/tmp/session/p6.wav",
+          prompt: { id: "p6", type: "sung" },
+        },
+      ];
+
+      attachChunkQualityResults(chunkEntries, {
+        preprocessingResults: {
+          results: [
+            {
+              path: "/tmp/session/p5.wav",
+              outputPath: "/tmp/session/p5_processed.wav",
+            },
+            {
+              path: "/tmp/session/p6.wav",
+              outputPath: "/tmp/session/p6_processed.wav",
+            },
+          ],
+        },
+        metrics: {
+          chunk_results: [
+            {
+              file: "p5_processed.wav",
+              metrics: { is_singing: true },
+            },
+            {
+              file: "p6_processed.wav",
+              metrics: { is_singing: false },
+            },
+          ],
+        },
+      });
+
+      assert.equal(chunkEntries[0].quality.metrics.is_singing, true);
+      assert.equal(chunkEntries[1].quality.metrics.is_singing, false);
+    });
+
+    it("does not build persona calibration from sung prompts that QC did not classify as singing", async () => {
+      const dir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "porizo-suno-calibration-test-"),
+      );
+      try {
+        const p5 = path.join(dir, "p5.wav");
+        const p6 = path.join(dir, "p6.wav");
+        fs.writeFileSync(p5, createTestWav({ durationSec: 6 }));
+        fs.writeFileSync(p6, createTestWav({ durationSec: 6 }));
+
+        const result = await buildSunoPersonaCalibration({
+          outputPath: path.join(dir, "suno-persona.wav"),
+          chunkEntries: [
+            {
+              chunkId: "p5",
+              filePath: p5,
+              prompt: { id: "p5", type: "sung" },
+              quality: { metrics: { is_singing: false } },
+            },
+            {
+              chunkId: "p6",
+              filePath: p6,
+              prompt: { id: "p6", type: "sung" },
+              quality: { metrics: { is_singing: false } },
+            },
+          ],
+        });
+
+        assert.strictEqual(result, null);
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("builds persona calibration when sung prompts are QC-confirmed singing", async () => {
+      const dir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "porizo-suno-calibration-test-"),
+      );
+      try {
+        const p5 = path.join(dir, "p5.wav");
+        const p6 = path.join(dir, "p6.wav");
+        const outputPath = path.join(dir, "suno-persona.wav");
+        fs.writeFileSync(p5, createTestWav({ durationSec: 6 }));
+        fs.writeFileSync(p6, createTestWav({ durationSec: 6 }));
+
+        const result = await buildSunoPersonaCalibration({
+          outputPath,
+          chunkEntries: [
+            {
+              chunkId: "p5",
+              filePath: p5,
+              prompt: { id: "p5", type: "sung" },
+              quality: { metrics: { is_singing: true } },
+            },
+            {
+              chunkId: "p6",
+              filePath: p6,
+              prompt: { id: "p6", type: "sung" },
+              quality: { metrics: { is_singing: true } },
+            },
+          ],
+        });
+
+        assert.ok(result);
+        assert.strictEqual(result.chunkCount, 2);
+        assert.ok(fs.existsSync(outputPath));
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    });
   });
 
   // ============================================================
@@ -870,7 +991,7 @@ describe("Voice Enrollment API", () => {
       );
     });
 
-    it("queues Suno persona preparation when consent is Suno-specific", async () => {
+    it("does not queue Suno persona preparation when sung prompts are not QC-confirmed singing", async () => {
       const userId = uniqueUserId("suno_persona");
       const sessionId = await setupEnrollmentWithChunks(userId, {
         numChunks: 6,
@@ -891,8 +1012,11 @@ describe("Voice Enrollment API", () => {
       assert.strictEqual(response.statusCode, 202);
       const body = response.json();
       assert.equal(body.voice_provider_profile.provider, "suno");
-      assert.equal(body.voice_provider_profile.status, "pending");
-      assert.ok(body.voice_provider_profile.job_id);
+      assert.equal(
+        body.voice_provider_profile.status,
+        "sung_calibration_unavailable",
+      );
+      assert.equal(body.voice_provider_profile.job_id, null);
 
       const providerProfile = await db
         .prepare(
@@ -901,69 +1025,19 @@ describe("Voice Enrollment API", () => {
         .get(body.voice_profile_id);
       assert.ok(providerProfile);
       assert.equal(providerProfile.provider, "suno");
+      assert.equal(providerProfile.status, "failed");
       assert.equal(providerProfile.consent_scope, REQUIRED_CONSENT_SCOPE);
       assert.equal(providerProfile.provider_profile_id, null);
-
-      const providerJob = await db
-        .prepare("SELECT * FROM voice_provider_jobs WHERE id = ?")
-        .get(body.voice_provider_profile.job_id);
-      assert.equal(providerJob.voice_provider_profile_id, providerProfile.id);
-      assert.ok(!String(providerJob.step_data).includes("persona_live_"));
-      const stepData = JSON.parse(providerJob.step_data);
-      assert.equal(stepData.source_audio_name, "suno-persona.wav");
-      assert.ok(
-        stepData.source_audio_key.endsWith(
-          `enrollment/clean/${userId}/${sessionId}/suno-persona.wav`,
-        ),
+      assert.match(
+        providerProfile.last_error,
+        /sung_calibration_unavailable/,
       );
-      assert.equal(stepData.vocal_start, 0);
-      assert.equal(stepData.vocal_end, 16);
-      assert.equal(body.voice_provider_profile.source_audio, "sung_calibration");
-      assert.equal(body.voice_provider_profile.source_duration_sec, 16);
-
-      const active = await runSunoVoicePersonaJob({
-        db,
-        jobId: providerJob.id,
-        config: {
-          PUBLIC_BASE_URL: "https://porizo.example",
-          STREAM_BASE_URL: "https://stream.example",
-          SUNO_BASE_URL: "https://api.sunoapi.org",
-          SUNO_FILE_UPLOAD_BASE_URL: "https://files.example",
-          SUNO_API_KEY: "secret",
-          SUNO_MODEL: "V5_5",
-          PROVIDER_TIMEOUT_MS: 30000,
-        },
-        sunoClient: {
-          uploadFileUrl: async () => ({
-            downloadUrl: "https://temp.example/suno-persona.wav",
-            fileName: "suno-persona.wav",
-            mimeType: "audio/wav",
-            fileSize: 1000,
-          }),
-          submitUploadCoverTask: async () => ({
-            taskId: "task_enrollment_persona",
-            model: "V5_5",
-          }),
-          pollUploadCoverForAudio: async () => ({
-            audioId: "audio_enrollment_persona",
-            audioDurationSec: 20,
-            audioTrackIndex: 0,
-            response: { data: { taskId: "task_enrollment_persona" } },
-          }),
-          generatePersona: async () => ({
-            personaId: "persona_enrollment_live",
-            name: "Porizo Voice",
-          }),
-        },
-      });
-
-      assert.equal(active.status, "active");
-      assert.equal(active.provider_profile_id, "persona_enrollment_live");
-      const completedJob = await db
-        .prepare("SELECT status, step FROM voice_provider_jobs WHERE id = ?")
-        .get(providerJob.id);
-      assert.equal(completedJob.status, "completed");
-      assert.equal(completedJob.step, "persona_active");
+      const count = await db
+        .prepare(
+          "SELECT COUNT(*) AS count FROM voice_provider_jobs WHERE user_id = ?",
+        )
+        .get(userId);
+      assert.equal(count.count, 0);
     });
 
     it("does not queue Suno persona preparation without Suno-specific consent", async () => {
