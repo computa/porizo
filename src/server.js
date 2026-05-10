@@ -4364,7 +4364,12 @@ function buildServer({
         // Cap upstream size so a misuploaded 1 GB file can't OOM the dyno.
         // 50 MB covers full masters with comfortable headroom.
         const MAX_PROXY_BYTES = 50 * 1024 * 1024;
-        if (upstreamLen && Number(upstreamLen) > MAX_PROXY_BYTES) {
+        const parsedUpstreamLen = upstreamLen ? Number(upstreamLen) : null;
+        const expectedLen =
+          parsedUpstreamLen !== null && Number.isFinite(parsedUpstreamLen)
+            ? parsedUpstreamLen
+            : null;
+        if (expectedLen !== null && expectedLen > MAX_PROXY_BYTES) {
           console.error(
             `[serveTrackAudio] OVERSIZED key=${s3Key} upstream=${upstreamLen} max=${MAX_PROXY_BYTES}`,
           );
@@ -4379,13 +4384,31 @@ function buildServer({
 
         const buf = Buffer.from(await r2Response.arrayBuffer());
 
-        // Contract guard: if upstream advertised a length and we got fewer
-        // bytes, the proxy has dropped data. Log loudly so silent failures
-        // become visible in Railway logs instead of arriving as customer reports.
-        if (upstreamLen && Number(upstreamLen) !== buf.length) {
-          console.warn(
+        // Contract guard: if upstream advertised a length and we got a
+        // different number of bytes, do not serve corrupt/truncated audio.
+        if (expectedLen !== null && expectedLen !== buf.length) {
+          console.error(
             `[serveTrackAudio] BYTE_MISMATCH key=${s3Key} upstream=${upstreamLen} actual=${buf.length}`,
           );
+          sendError(
+            reply,
+            502,
+            "STORAGE_TRUNCATED",
+            "Storage returned an incomplete audio response.",
+          );
+          return;
+        }
+        if (buf.length > MAX_PROXY_BYTES) {
+          console.error(
+            `[serveTrackAudio] OVERSIZED_BUFFER key=${s3Key} actual=${buf.length} max=${MAX_PROXY_BYTES}`,
+          );
+          sendError(
+            reply,
+            502,
+            "STORAGE_OVERSIZED",
+            "Storage object exceeds proxy size limit.",
+          );
+          return;
         }
         if (buf.length === 0) {
           console.error(

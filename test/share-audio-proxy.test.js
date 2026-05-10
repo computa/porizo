@@ -35,8 +35,24 @@ function makeFakeR2Server() {
       const range = req.headers.range;
       if (range) {
         const match = /bytes=(\d+)-(\d*)/.exec(range);
+        if (!match) {
+          res.writeHead(416, {
+            "Content-Range": `bytes */${FAKE_AUDIO.length}`,
+            "Cache-Control": "no-store",
+          });
+          res.end();
+          return;
+        }
         const start = Number(match[1]);
         const end = match[2] ? Number(match[2]) : FAKE_AUDIO.length - 1;
+        if (start >= FAKE_AUDIO.length || end < start) {
+          res.writeHead(416, {
+            "Content-Range": `bytes */${FAKE_AUDIO.length}`,
+            "Cache-Control": "no-store",
+          });
+          res.end();
+          return;
+        }
         const slice = FAKE_AUDIO.subarray(start, end + 1);
         res.writeHead(206, {
           "Content-Type": FAKE_CONTENT_TYPE,
@@ -207,6 +223,23 @@ describe("Share audio proxy contract (R2 -> client)", () => {
     );
   });
 
+  it("returns non-zero Content-Length for HEAD without a response body", async () => {
+    const { share_id } = await createUnboundShareWithFullUrl();
+    const res = await app.inject({
+      method: "HEAD",
+      url: `/share/${share_id}/audio`,
+    });
+    assert.strictEqual(res.statusCode, 200, "should be 200 OK");
+    const len = Number(res.headers["content-length"]);
+    assert.ok(len > 0, `content-length must be > 0, got ${len}`);
+    assert.strictEqual(
+      len,
+      FAKE_AUDIO.length,
+      "HEAD content-length must match upstream payload size",
+    );
+    assert.strictEqual(res.rawPayload.length, 0, "HEAD must not return a body");
+  });
+
   it("forwards Range requests with correct partial bytes", async () => {
     const { share_id } = await createUnboundShareWithFullUrl();
     const res = await app.inject({
@@ -225,6 +258,26 @@ describe("Share audio proxy contract (R2 -> client)", () => {
       /^bytes 0-99\//,
       "content-range must reflect requested slice",
     );
+  });
+
+  it("passes unsatisfiable Range requests through as 416", async () => {
+    const { share_id } = await createUnboundShareWithFullUrl();
+    const res = await app.inject({
+      method: "GET",
+      url: `/share/${share_id}/audio`,
+      headers: { Range: `bytes=${FAKE_AUDIO.length + 10}-` },
+    });
+    assert.strictEqual(
+      res.statusCode,
+      416,
+      "should preserve upstream 416 for out-of-range requests",
+    );
+    assert.match(
+      res.headers["content-range"] || "",
+      /^\*\/\d+$|^bytes \*\/\d+$/,
+      "content-range must expose total object length",
+    );
+    assert.strictEqual(res.rawPayload.length, 0, "416 must not return audio");
   });
 
   it("returns 502 STORAGE_EMPTY when upstream returns zero bytes", async () => {
@@ -261,6 +314,39 @@ describe("Share audio proxy contract (R2 -> client)", () => {
     } finally {
       storage.createPresignedDownload = original;
       await new Promise((r) => emptyServer.close(r));
+    }
+  });
+
+  it("returns 502 STORAGE_OVERSIZED before proxying oversized upstream files", async () => {
+    const oversizedServer = http.createServer((req, res) => {
+      res.writeHead(200, {
+        "Content-Type": "audio/mp4",
+        "Content-Length": String(51 * 1024 * 1024),
+      });
+      res.end();
+    });
+    await new Promise((r) => oversizedServer.listen(0, "127.0.0.1", r));
+    const { port } = oversizedServer.address();
+
+    const original = storage.createPresignedDownload;
+    storage.createPresignedDownload = ({ key }) => ({
+      url: `http://127.0.0.1:${port}/${key}`,
+      method: "GET",
+      headers: {},
+      expiresAt: Date.now() + 300_000,
+    });
+    try {
+      const { share_id } = await createUnboundShareWithFullUrl();
+      const res = await app.inject({
+        method: "GET",
+        url: `/share/${share_id}/audio`,
+      });
+      assert.strictEqual(res.statusCode, 502);
+      const body = JSON.parse(res.body);
+      assert.strictEqual(body.error, "STORAGE_OVERSIZED");
+    } finally {
+      storage.createPresignedDownload = original;
+      await new Promise((r) => oversizedServer.close(r));
     }
   });
 });

@@ -21,6 +21,7 @@
     "blog:login": "node tools/blog-publish-production.js login",
     "blog:inspect": "node tools/blog-publish-production.js inspect",
     "blog:publish": "node tools/blog-publish-production.js publish",
+    "verify:share-audio": "node tools/verify-share-audio-contract.js",
     "admin:dev": "cd admin && npm run dev",
     "admin:build": "cd admin && npm run build",
     "db:up": "docker compose up -d postgres",
