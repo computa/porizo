@@ -59,6 +59,7 @@ out/
 !/marketing/mothers-day-2026/
 !/marketing/mothers-day-2026/**
 !/marketing/tools/generate-mothers-day-pins.js
+!/marketing/tools/generate-blog-heroes.js
 !/marketing/email-templates/
 !/marketing/email-templates/**
 !/marketing/blog/
