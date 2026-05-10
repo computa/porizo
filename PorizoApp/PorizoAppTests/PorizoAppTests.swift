@@ -145,6 +145,28 @@ final class CreateDeepLinkTests: XCTestCase {
     }
 }
 
+// MARK: - Share Deep Link Routing Tests
+
+final class ShareDeepLinkRouteTests: XCTestCase {
+
+    func testUnauthenticatedSongShareRequiresAuthBeforeClaim() {
+        let route = resolveShareDeepLinkRoute(isPoem: false, canPresentClaim: false)
+
+        XCTAssertEqual(route, .authenticate(message: "Sign in to listen to your shared song"))
+    }
+
+    func testUnauthenticatedPoemShareRequiresAuthBeforeClaim() {
+        let route = resolveShareDeepLinkRoute(isPoem: true, canPresentClaim: false)
+
+        XCTAssertEqual(route, .authenticate(message: "Sign in to read your shared poem"))
+    }
+
+    func testAuthenticatedSharePresentsClaimFlowImmediately() {
+        XCTAssertEqual(resolveShareDeepLinkRoute(isPoem: false, canPresentClaim: true), .present)
+        XCTAssertEqual(resolveShareDeepLinkRoute(isPoem: true, canPresentClaim: true), .present)
+    }
+}
+
 // MARK: - Style Store Tests
 
 final class StyleStoreTests: XCTestCase {

@@ -23,6 +23,22 @@ struct CreateDeepLinkContext: Equatable, Sendable {
     let recipientName: String?
 }
 
+enum ShareDeepLinkRoute: Equatable {
+    case present
+    case authenticate(message: String)
+}
+
+func resolveShareDeepLinkRoute(isPoem: Bool, canPresentClaim: Bool) -> ShareDeepLinkRoute {
+    if canPresentClaim {
+        return .present
+    }
+    return .authenticate(
+        message: isPoem
+            ? "Sign in to read your shared poem"
+            : "Sign in to listen to your shared song"
+    )
+}
+
 func parseCreateDeepLink(from url: URL) -> CreateDeepLinkContext? {
     guard url.host == "create" || url.pathComponents.contains("create") else {
         return nil
@@ -916,25 +932,16 @@ struct RootView: View {
             apiClient = makeAPIClient(deviceId: deviceId)
             apiClientReady = true
         }
-        if !parsed.isPoem {
-            if appState == .launchFlash {
-                dismissLaunchFlash(reason: "deep_link", routeOverride: routeToMainOrAuth(), shouldLog: true)
-            }
-            pendingShareId = nil
-            pendingShareIsPoem = false
-            authContextMessage = nil
-            shareContext = ShareContext(shareId: parsed.shareId, isPoem: false)
-        } else if authManager.isAuthenticated {
+        switch resolveShareDeepLinkRoute(isPoem: parsed.isPoem, canPresentClaim: skipAuth || authManager.isAuthenticated) {
+        case .present:
             if appState == .launchFlash {
                 dismissLaunchFlash(reason: "deep_link", routeOverride: .main, shouldLog: true)
             }
             shareContext = ShareContext(shareId: parsed.shareId, isPoem: parsed.isPoem)
-        } else {
+        case .authenticate(let message):
             pendingShareId = parsed.shareId
             pendingShareIsPoem = parsed.isPoem
-            authContextMessage = parsed.isPoem
-                ? "Sign in to read your shared poem"
-                : "Sign in to listen to your shared song"
+            authContextMessage = message
             if appState == .launchFlash {
                 dismissLaunchFlash(reason: "deep_link", routeOverride: .auth, shouldLog: true)
             } else {
