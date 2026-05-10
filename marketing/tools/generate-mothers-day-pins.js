@@ -239,7 +239,7 @@ function pin4() {
     <rect x="560" y="380" width="440" height="800" rx="28" fill="url(#accentGradient)" filter="url(#cardShadow)"/>
     ${text(780, 460, "PORIZO", { size: 28, weight: "700", anchor: "middle", fill: B.white, tracking: "3" })}
     ${text(780, 540, "~3 minutes", { size: 44, weight: "700", anchor: "middle", fill: B.white, display: true })}
-    ${text(780, 580, "delivery", { size: 22, anchor: "middle", fill: B.white, fill: "#FFFFFFE0" })}
+    ${text(780, 580, "delivery", { size: 22, anchor: "middle", fill: "#FFFFFFE0" })}
 
     ${text(780, 680, "$9.99/mo", { size: 44, weight: "700", anchor: "middle", fill: B.white, display: true })}
     ${text(780, 720, "(4 songs)", { size: 22, anchor: "middle", fill: "#FFFFFFE0" })}
