@@ -4325,7 +4325,10 @@ function buildServer({
         if (request.headers.range) {
           fetchHeaders.Range = request.headers.range;
         }
-        const r2Response = await fetch(download.url, { headers: fetchHeaders });
+        const r2Response = await fetch(download.url, {
+          headers: fetchHeaders,
+          signal: AbortSignal.timeout(30_000),
+        });
         if (!r2Response.ok && r2Response.status !== 206) {
           sendError(
             reply,
@@ -4335,24 +4338,45 @@ function buildServer({
           );
           return;
         }
+        // Buffer the upstream response. Songs are 1.8-3 MB; loading them in
+        // memory is cheaper and far more reliable than wrapping the web
+        // ReadableStream via Readable.fromWeb (which silently emitted 0 bytes
+        // under Node 20 + Fastify 4.29 + undici, breaking every share player).
+        const upstreamLen = r2Response.headers.get("content-length");
+        const upstreamRange = r2Response.headers.get("content-range");
+        const buf = Buffer.from(await r2Response.arrayBuffer());
+
+        // Contract guard: if upstream advertised a length and we got fewer
+        // bytes, the proxy has dropped data. Log loudly so silent failures
+        // become visible in Railway logs instead of arriving as customer reports.
+        if (upstreamLen && Number(upstreamLen) !== buf.length) {
+          console.warn(
+            `[serveTrackAudio] BYTE_MISMATCH key=${s3Key} upstream=${upstreamLen} actual=${buf.length}`,
+          );
+        }
+        if (buf.length === 0) {
+          console.error(
+            `[serveTrackAudio] EMPTY_BODY key=${s3Key} upstream_status=${r2Response.status}`,
+          );
+          sendError(
+            reply,
+            502,
+            "STORAGE_EMPTY",
+            "Storage returned an empty response.",
+          );
+          return;
+        }
+
         reply.status(r2Response.status);
         reply.header(
           "Content-Type",
           r2Response.headers.get("content-type") || contentType || "audio/mp4",
         );
-        if (r2Response.headers.get("content-length")) {
-          reply.header("Content-Length", r2Response.headers.get("content-length"));
-        }
-        if (r2Response.headers.get("content-range")) {
-          reply.header(
-            "Content-Range",
-            r2Response.headers.get("content-range"),
-          );
-        }
+        reply.header("Content-Length", String(buf.length));
+        if (upstreamRange) reply.header("Content-Range", upstreamRange);
         reply.header("Accept-Ranges", "bytes");
         reply.header("Cache-Control", "public, max-age=3600");
-        const { Readable } = require("node:stream");
-        reply.send(Readable.fromWeb(r2Response.body));
+        reply.send(buf);
       } catch (err) {
         console.error(
           `[serveTrackAudio] R2 proxy failed for ${s3Key}:`,
@@ -4838,7 +4862,11 @@ async function start() {
   // DEV_MODE disables all live providers (uses placeholders instead)
   const liveEnabled = config.LIVE_PROVIDERS && !config.DEV_MODE;
   if (liveEnabled) {
-    if (!/^https:\/\/(?!localhost|127\.0\.0\.1)/i.test(config.PUBLIC_BASE_URL || "")) {
+    if (
+      !/^https:\/\/(?!localhost|127\.0\.0\.1)/i.test(
+        config.PUBLIC_BASE_URL || "",
+      )
+    ) {
       throw new Error(
         "PUBLIC_BASE_URL must be https and not localhost when LIVE_PROVIDERS=true",
       );
@@ -4848,7 +4876,9 @@ async function start() {
         "SUNO_CALLBACK_HMAC_SECRET is unset; Suno callbacks are disabled.",
       );
     } else if (config.SUNO_CALLBACK_HMAC_SECRET.length < 32) {
-      throw new Error("SUNO_CALLBACK_HMAC_SECRET must be at least 32 characters");
+      throw new Error(
+        "SUNO_CALLBACK_HMAC_SECRET must be at least 32 characters",
+      );
     }
   }
   // Env fallback default. Runtime default can be changed via admin app_config.

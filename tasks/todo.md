@@ -1,3 +1,145 @@
+# Share-audio playback regression — fix + harden (ACTIVE — 2026-05-10)
+
+## Context
+
+Share player at `/play/<token>` shows "Unable to play this audio." The proxy at `/share/:id/audio` returns `200 OK` (or `206`) with **content-length: 0** while upstream R2 reports the correct file size (HEAD shows ~2.2 MB for Chioma's song). System-wide regression — every share token tested (May 5 → May 10) returns zero bytes.
+
+**Root cause:** `Readable.fromWeb(r2Response.body)` in `serveTrackAudio` (`src/server.js:~4355` pre-fix) silently emits 0 bytes under Node 20 + Fastify 4.29 + undici. Headers set correctly, but Fastify recomputes `Content-Length` from the (empty) actual byte count.
+
+## Plan
+
+- [x] **1. Apply fix.** Replace `Readable.fromWeb` with `Buffer.from(await arrayBuffer())`. Add 30s fetch timeout, BYTE_MISMATCH warn log, EMPTY_BODY → 502. (`src/server.js:4312`)
+- [ ] **2. Commit + deploy.** Single commit, push to `version3`, watch Railway auto-deploy.
+- [ ] **3. Verify in production.** `curl --range 0-999` against `/share/Rrm8PRM3tlwV/audio` → non-zero body. Browser playback confirmed.
+- [ ] **4. Contract test.** Asserts `/share/:id/audio` returns 200/206, audio content-type, body bytes > 0. The test that would have caught today's bug.
+- [ ] **5. Synthetic probe.** Standalone script hits a canary share URL on prod, alerts on body=0. Document daily run.
+- [ ] **6. Adversarial review.** Pressure-test buffer approach: large files, Range edge cases, concurrency memory, R2 drops, presigned-URL expiry, missing key. Document failure modes.
+- [ ] **7. Capture learning.** Memory entry on byte-flow contract pattern.
+
+## Verify
+
+```bash
+curl -s --range 0-999 https://api.porizo.co/share/Rrm8PRM3tlwV/audio | wc -c   # > 0
+```
+
+---
+
+# ASO scaling actions — 72h experiment (ACTIVE — 2026-05-09)
+
+## Done
+
+- [x] **Step A**: 5 exact-match negatives added to Discovery Keywords ad group:
+      `[gift song]`, `[personalized gift]`, `[birthday gift ideas]`,
+      `[birthday gift]`, `[music gift]`. Stops Discovery broad-matching terms
+      that have dedicated exact-match handling in Category, plus plugs the
+      `music gift` TTR-bleed (88 imp / 0 taps in 30 days).
+
+## In flight
+
+- [ ] **Step B (manual)**: Bid up `birthday gift ideas` in Category US >
+      High-Intent Keywords ad group from $1.80 → $3.00 max CPT bid. Click the
+      `$1.80` value in that row, type `3.00`, Enter. (Bot couldn't trigger the
+      inline editor — manual click required.)
+
+## Queued for next sessions
+
+- [ ] **72h checkpoint (around 2026-05-12)**: Re-run `node scripts/aso/review.mjs --days 7`
+      and check `birthday gift ideas`'s new stats. Watch for:
+  - ✅ Impressions roughly double (was 36/30d; expect ~6-12 in next 72h
+    after bid bump capturing more of available auctions)
+  - ✅ Install rate stays 30%+ on a larger sample → real signal
+  - ⚠️ If install rate craters or impressions don't grow, revert bid
+- [ ] **Music gift TTR fix (separate skill — `porizo:screenshot-export`)**:
+      Audit App Store screenshots/icon/subtitle for "music gift" search intent.
+      Currently 88 imp / 0 taps over 30 days = creative mismatch. Either add
+      a hero card promising "music gift" or change subtitle to land that
+      promise within the first card. The Discovery negative just stops the
+      bleed; the listing still doesn't convert organic "music gift" searchers.
+
+- [ ] **Phase 1 painkiller probe launch (2026-05-12, BLOCKED on 72h checkpoint above)**:
+      Upload 51 broad-match keywords across 7 themed ad groups to a new ASA
+      campaign `Probe US Painkiller`, $0.75 max CPT, $30/day budget, 7-day run.
+      Artifacts ready:
+  - CSV: `marketing/appstore/aso/launches/2026-05-12-phase1-painkiller-probe.csv`
+  - Playbook: `marketing/appstore/aso/launches/2026-05-12-phase1-painkiller-probe.md`
+  - Themes: Pet Songs (8), Baby & Pregnancy (8), Apology (6), Long-Distance (5),
+    Stepfamily (11), Milestone Birthdays (8), Voice-Clone Discovery (5).
+  - Pre-flight: run `node scripts/aso/review.mjs --days 30` first to capture
+    72h checkpoint verdict; only proceed if `birthday gift ideas` impression
+    growth confirms the bid bump worked.
+  - Day-7 evaluation (~2026-05-19): re-run review, recommender will flag
+    MATCH_TYPE_GRADUATION winners for Phase 2 EXACT promotion.
+
+- [ ] **Phase 2 graduation (~2026-05-19, BLOCKED on Phase 1 day-7 data)**:
+      Promote Phase 1 winners (>40% TTR or >10% CR) to EXACT match at
+      $2.50–$3.50 in Category campaign. Add same terms as exact-match
+      negatives in Discovery to prevent split attribution (CONVENTIONS.md
+      cross-campaign rule). Push remaining ~165 painkillers to Phase 3.
+
+- [ ] **Phase 3 floor catch (~2026-05-26, BLOCKED on Phase 2)**: Add remaining
+      ~165 painkillers at $0.30 BROAD in single "Harvest" ad group. Goal:
+      long-tail demand discovery at minimum spend.
+
+## Learnings (now codified in the recommender)
+
+- **The `gift song` misdiagnosis** drove a major rewrite of the recommender.
+  Original logic said "rate ≥30%, low imp → BID_UP". But `gift song` was
+  already exact-match at $1.80 max bid winning at $0.05 (3% of max) —
+  bidding up captures nothing because we're already winning every auction.
+  Now: the recommender checks `avg_cpt / max_cpt_bid` ratio. ≥70% =
+  `BID_UP`, <25% = `VOLUME_CAPPED`. Disambiguation is automatic.
+- **Cross-campaign cannibalization** is now baked into every promotion
+  recipe. Any keyword going to Category exact-match auto-comes with a
+  recipe to add as Discovery exact-match negative. CONVENTIONS.md §7b
+  has the universal rule.
+- **8 distinct labels now** (was 4): BID_UP, BID_UP_OR_VOLUME_CAPPED,
+  MATCH_TYPE_GRADUATION, PROTECT_AND_SCALE, VOLUME_CAPPED, TTR_PROBLEM,
+  DEMOTE, RETIRE. Each maps "what to scale / hold / retire" to a concrete
+  recipe.
+- **Apple's bid-edit UI uses opaque shadow DOM** that resists JS-driven
+  typing. When we build `scripts/aso/promote.mjs` (Phase 2 of the user-
+  approved ASA write API), bid changes go via the ASA API endpoint
+  `POST /api/v5/campaigns/{id}/adgroups/{aid}/targetingkeywords/{kid}`,
+  not browser-harness UI clicks. Same for adding keywords / negatives.
+- **`pull-asa.mjs` now captures `match_type` and `max_cpt`** per keyword
+  from `metadata.matchType` / `metadata.bidAmount` in the ASA reports
+  response. CSV format gained two columns. The recommender uses both
+  to drive the volume-vs-competition disambiguation and the broad→exact
+  graduation suggestion.
+
+---
+
+# ASO Keywords System — single source of truth + review loop (ACTIVE — 2026-05-09)
+
+## Goal
+
+Consolidate all ASO keyword work into one canonical `keywords.json`, seed it
+with ~200 candidates, and stand up a review loop that ranks effectiveness from
+(1) Apple Search Ads exports and (2) App Store Connect organic search-term
+data, until the top 10 emerge for the live App Store `keywords` field.
+
+## Plan
+
+- [ ] Extract every keyword from `marketing/appstore/aso/aso-strategy.md` (Tiers 1-4)
+- [ ] Design `keywords.json` schema (term, tier, status, score, asa snapshot, organic snapshot, history)
+- [ ] Generate ~200 keywords (50 strategy + ~150 occasion × relationship × modifier permutations)
+- [ ] Write `marketing/appstore/aso/keywords.json`
+- [ ] Write `marketing/appstore/aso/snapshots/.gitkeep`
+- [ ] Write `scripts/aso/rerank.mjs` (ASA CSV + ASC CSV → score → snapshot → top-10 string)
+- [ ] Write `marketing/appstore/aso/review-protocol.md`
+- [ ] Update `marketing/appstore/aso/aso-strategy.md` with canonical-source banner
+- [ ] Verify `node scripts/aso/rerank.mjs --dry-run` exits 0
+
+## Done definition
+
+- `keywords.json` exists with ~200 entries and complete schema
+- `rerank.mjs --dry-run` exits 0 on a fresh repo
+- Real ASA CSV produces sorted JSON + dated snapshot + top-10 string
+- `review-protocol.md` documents cadence and exact CLI commands
+- `aso-strategy.md` references `keywords.json` as canonical
+
+---
+
 # Retire `billing_holds` table (ACTIVE — 2026-05-03)
 
 **Trigger:** Code review during the credits_balance retirement (2026-05-02) found `billing_holds` is dead in production: 0 rows ever, no production INSERT path. The cancel-render and hold-expiry "refund" code is unreachable. Doing it now while context is loaded.
@@ -180,6 +322,7 @@ Commit: `Extend song readiness gate to render_preview, reroll, and admin re-rend
 **Final direction:** Recipient-POV Messages thread (direction B). Phone shows a synthesized iMessage conversation, sender POV — the user (Sarah's contact at top) just sent a coral-gradient rich link card "For Sarah / Happy Birthday 🎂 / A song made just for you / porizo.app" with blue bubble "I made you a birthday song 🎂" above it and "Delivered" below. Centered vertically for balance.
 
 **Iteration history (3 Codex review passes):**
+
 - V1 (09-reveal.jpg + FloatingPill): rejected — duplicate of slide 4.
 - V2 (iMessage, receiver POV, "Mom" header + "For Sarah" card): rejected — recipient mismatch.
 - V3 (iMessage, sender POV, "Sarah" everywhere, bottom-anchored): rejected — bottom-heavy composition.
@@ -229,6 +372,7 @@ Three stacked issues:
 3. **Client dismissal is ephemeral.** `hasSkippedProfileCompletionInSession` in `RootView.swift:51` is `@State` — resets on every cold launch. Even dismissing the sheet doesn't help for tomorrow's launch.
 
 ### User's actual state (from screenshot)
+
 - Display name: ✓
 - Email `abcobimma@gmail.com`: unverified (shows "Resend verification email")
 - Phone `+61406371221`: verified (green check)
@@ -238,12 +382,14 @@ Under current policy, `missing: ["verified_email"]` is technically correct — b
 ### Fix plan
 
 **Server — relax policy to "collection, not verification":**
-*(User clarification: email/phone is for marketing, not identity verification. Having any non-relay email OR phone on file is enough — no verification required.)*
+_(User clarification: email/phone is for marketing, not identity verification. Having any non-relay email OR phone on file is enough — no verification required.)_
+
 - [x] `src/services/identity-service.js:computeProfileCompleteness` — changed from "verified email AND phone" to "has non-relay email OR phone on file (verified or not)". Policy v1 doc comment updated.
 - [x] Updated S5b tests: (a) phone on file, (b) unverified real email on file, (c) relay-only still incomplete.
 - [x] Updated S8 skip test to use relay email so the scenario is still "genuinely incomplete".
 
 **Client — persist dismissal for 7 days:**
+
 - [ ] `RootView.swift:51` — replace `@State var hasSkippedProfileCompletionInSession: Bool` with `@AppStorage("profileCompletionSkippedAtEpoch") var profileCompletionSkippedAtEpoch: Double = 0`.
 - [ ] `syncProfileCompletionContext()` (line 697) — guard on `Date().timeIntervalSince1970 - skippedAt < 7*86400`.
 - [ ] Sheet dismiss handler (line 285) — write current epoch to storage.
@@ -262,18 +408,22 @@ Under current policy, `missing: ["verified_email"]` is technically correct — b
 ### Fix plan
 
 **Verify DB state (needs user action — I don't have Railway access for the porizo project):**
+
 - [ ] User runs: `echo "SELECT ios_min_supported_version, ios_recommended_version, ios_auto_recommended_version, ios_last_app_store_version, ios_update_message FROM security_config WHERE id='default';" | railway connect postgres`
 - [ ] Share output so we can confirm and fix any > 1.5.4 value.
 
 **Server — safety clamp to prevent future admin-pre-staging bug:**
+
 - [ ] `src/services/admin-service.js:resolveIOSAppUpdatePolicy` (1147-1178) — if `ios_auto_recommended_version=true` and the App Store Connect sync returns a valid version, ignore the manually-stored `ios_recommended_version` entirely (use only the synced version). Prevents stale overrides.
 
 **Client — persist dismissal across launches:**
+
 - [ ] `RootView.swift:33` — replace `@State var dismissedRecommendedUpdateVersion: String?` with `@AppStorage("dismissedRecommendedUpdateVersion") var dismissedRecommendedUpdateVersion: String = ""`.
 - [ ] Suppression check at `RootView.swift:941-946` — treat empty-string as "no dismissal".
 - [ ] When local version reaches or exceeds the stored dismissed version, clear AppStorage.
 
 **Client — defensive check (zero-effort safety):**
+
 - [ ] `AppUpdatePolicy.evaluate` (line 29) — if `compare(currentVersion, recommended)` returns `.orderedDescending` OR `.orderedSame`, never prompt. Current code already does this, but add an explicit log line in DEBUG so we can diagnose from TestFlight console.
 
 ## Verification plan (before claiming done)
@@ -310,26 +460,31 @@ Under current policy, `missing: ["verified_email"]` is technically correct — b
 ## Phases
 
 ### Phase A — Parallel REVIEW (5 agents)
+
 - [ ] Dispatch 5 parallel `ce:review`-equivalent agents, one per flow group
 - [ ] Each agent identifies CONFIRMED issues only (no speculation)
 - [ ] Aggregate findings into a single severity-sorted list
 
 ### Phase B — Fix confirmed issues (sequential)
+
 - [ ] Triage by severity (P1 ship-blocker, P2 should-fix, P3 polish)
 - [ ] Apply fixes for P1 + P2 only — defer P3
 - [ ] Re-build + smoke test after each fix cluster
 
 ### Phase C — Parallel SIMPLIFY (5 agents)
+
 - [ ] Dispatch 5 parallel simplification agents on the same flow groups
 - [ ] Each agent proposes simplifications that preserve all behavior
 - [ ] Aggregate proposals; reject any that risk regressions
 
 ### Phase D — Apply confirmed simplifications (sequential)
+
 - [ ] Apply low-risk consolidations + dead-code removal
 - [ ] Re-build + smoke test after each simplification cluster
 - [ ] Commit logically grouped changes
 
 ### Phase E — Verify + commit
+
 - [ ] iOS Debug build succeeds
 - [ ] Server tests pass
 - [ ] All commits pushed
@@ -348,6 +503,7 @@ Under current policy, `missing: ["verified_email"]` is technically correct — b
 ## Context
 
 Replace the current 5-step checkout-style `GiftSendFlowView` (Content → Recipient → Delivery → Review → Success) with a single-screen emotional flow that follows YC research design principles:
+
 - One screen, one action, one CTA
 - No progress dots, no step indicators, no "Loading gift wallet..."
 - Internal states stay invisible — just who, when, send
@@ -388,18 +544,21 @@ Replace the current 5-step checkout-style `GiftSendFlowView` (Content → Recipi
 ## Plan
 
 ### Phase 1: Understand
+
 - [ ] Read GiftSendFlowView.swift fully — map all state, backend calls, edge cases
 - [ ] Read GiftModels.swift, APIClient+Gifts.swift — document the API contract
 - [ ] Identify: wallet check, reservation, gift creation, StoreKit sync, delivery dispatch
 - [ ] List every backend call that must survive the redesign
 
 ### Phase 2: Architecture
+
 - [ ] Design flat state model for EnvelopeSendView (no Step enum, no progress tracking)
 - [ ] Define: one `@State` struct for form data, one `submit()` async action
 - [ ] Plan inline sub-sheets: contact method picker, date/time picker, credit resolution
 - [ ] Map wallet/billing to lazy check pattern (check on submit, not on appear)
 
 ### Phase 3: Build
+
 - [ ] Create EnvelopeSendView.swift — single-screen composer
 - [ ] Implement: song hero card with playback state
 - [ ] Implement: recipient section (name + delivery method + destination)
@@ -412,11 +571,13 @@ Replace the current 5-step checkout-style `GiftSendFlowView` (Content → Recipi
 - [ ] Implement: success state (inline confirmation, not a new screen)
 
 ### Phase 4: Wire & Replace
+
 - [ ] Wire EnvelopeSendView into navigation from WarmCanvasFlowView reveal
 - [ ] Deprecate old GiftSendFlowView (keep file, mark deprecated, remove from nav)
 - [ ] Test E2E: create song → reveal → send gift → success
 
 ### Phase 5: QA
+
 - [ ] Visual QA against refined mockup
 - [ ] Test: immediate send path
 - [ ] Test: scheduled send path
@@ -434,6 +595,7 @@ Replace the current 5-step checkout-style `GiftSendFlowView` (Content → Recipi
 **Goal:** Wire up Facebook SDK + SKAdNetwork so Meta Ads App Install campaigns can actually measure and optimize for installs.
 
 ## Phase 1: iOS SDK Wire-Up (Code)
+
 - [x] Add `FacebookAppID`, `FacebookClientToken`, `FacebookDisplayName`, `FacebookAutoLogAppEventsEnabled`, `FacebookAdvertiserIDCollectionEnabled` to `PorizoApp/Info.plist`
 - [x] Add required `fbapi`, `fbauth2`, `fb-messenger-share-api`, `fbshareextension` entries to `LSApplicationQueriesSchemes`
 - [x] Add `SKAdNetworkItems` array with Meta's published ad network IDs
@@ -441,6 +603,7 @@ Replace the current 5-step checkout-style `GiftSendFlowView` (Content → Recipi
 - [ ] Add `AppEvents.shared.activateApp()` call on `scenePhase == .active` (gated behind `#if canImport(FacebookCore)`)
 
 ## Phase 2: Build System (User, in Xcode)
+
 - [ ] Open Xcode → File → Add Package Dependencies → `https://github.com/facebook/facebook-ios-sdk`
 - [ ] Add `FacebookCore` product to `PorizoApp` target
 - [ ] Set `PORIZO_FACEBOOK_CLIENT_TOKEN` env var in .xcconfig (value from Meta App Dashboard → Settings → Advanced → Client Token)
@@ -448,6 +611,7 @@ Replace the current 5-step checkout-style `GiftSendFlowView` (Content → Recipi
 - [ ] Archive → upload to TestFlight
 
 ## Phase 3: Meta Business Manager Setup (User, in browser)
+
 - [ ] Meta App Dashboard: confirm App ID `1984455025792561` is set up as iOS type with correct bundle ID
 - [ ] Copy Client Token from Settings → Advanced
 - [ ] Events Manager → Datasets → Porizo → link to App Store app (Porizo, id6758205028)
@@ -455,6 +619,7 @@ Replace the current 5-step checkout-style `GiftSendFlowView` (Content → Recipi
 - [ ] Confirm red warning triangle disappears from Porizo dataset (status should flip Inactive → Active)
 
 ## Phase 4: Rebuild Campaign (User, in Ads Manager)
+
 - [ ] Delete or archive old `PORIZO_INSTALLS_Women25-45_2026Q2`
 - [ ] Create new App Install campaign
 - [ ] Budget: $50-100/day minimum (learning phase needs ~50 conversions/week)
@@ -466,16 +631,19 @@ Replace the current 5-step checkout-style `GiftSendFlowView` (Content → Recipi
 - [ ] Attribution: 7-day click, 1-day view (default)
 
 ## Phase 5: Interim Traffic Campaign (Optional Stopgap)
+
 - [ ] If app rebuild is delayed, launch the "Porizo to the rescue" Traffic campaign Meta suggested at $20/day (doesn't need SDK, counts link clicks)
 - [ ] Use as bridge for max 2 weeks while SDK integration ships
 
 ## Phase 6: Verify
+
 - [ ] After 48h of new campaign: confirm installs are being attributed in Ads Manager
 - [ ] Confirm CPM is now in expected $15-30 range (tier-1 women 25-45)
 - [ ] Confirm events flowing into Events Manager (not just install — session, signup, render_complete)
 - [ ] Document lesson in `tasks/lessons.md`
 
 ## Artifacts
+
 - Setup checklist: `docs/marketing/meta-ads-setup-checklist.md` (Phase 2+3 detailed walkthrough)
 - Old campaign creative: `marketing/remotion/out/facebook/` (4 video variants, rendered 2026-03-17)
 - Previous ad design brief: `marketing/remotion/2026-03-17-counseling-ad-design.md`
@@ -489,42 +657,48 @@ Replace the current 5-step checkout-style `GiftSendFlowView` (Content → Recipi
 **Status:** In progress — code-side work, user-blocked on platform credentials.
 
 ## Phase 7: TikTok Business SDK
+
 - [x] Add `https://github.com/tiktok/tiktok-business-ios-sdk` v1.6.0 via xcodeproj gem + SPM
 - [x] Add `PORIZO_TIKTOK_BUSINESS_ACCESS_TOKEN`, `PORIZO_TIKTOK_BUSINESS_APP_ID`, `PORIZO_TIKTOK_BUSINESS_TIKTOK_APP_ID` keys to Info.plist
 - [x] Add `TikTokBiz.isConfigured` runtime guard in PorizoAppApp.swift
 - [ ] Wire `TikTokBusiness.initializeSdk(TikTokConfig(...))` call in `AppDelegate.didFinishLaunchingWithOptions`
-- [ ] Get Access Token from TikTok Events Manager → Assets → Events → Web Events → API *(user action)*
-- [ ] Get numeric TikTok App ID from TikTok Events Manager → App registration *(user action)*
-- [ ] Replace `$(PORIZO_TIKTOK_BUSINESS_*)` placeholders in Info.plist with real values *(user action)*
+- [ ] Get Access Token from TikTok Events Manager → Assets → Events → Web Events → API _(user action)_
+- [ ] Get numeric TikTok App ID from TikTok Events Manager → App registration _(user action)_
+- [ ] Replace `$(PORIZO_TIKTOK_BUSINESS_*)` placeholders in Info.plist with real values _(user action)_
 
 ## Phase 8: Apple Search Ads (AdServices.framework)
+
 - [x] Link `AdServices.framework` as weak-linked system framework via xcodeproj gem
 - [x] Add `AppleAdsAttribution.captureTokenIfAvailable()` helper in PorizoAppApp.swift
 - [x] Add `Notification.Name.appleAdsAttributionTokenCaptured` for backend consumption
 - [ ] Wire `AppleAdsAttribution.captureTokenIfAvailable()` in `AppDelegate.didFinishLaunchingWithOptions`
-- [ ] Backend: implement endpoint to receive the token and call `https://api-adservices.apple.com/api/v1/` to resolve campaign metadata *(deferred)*
-- [ ] Apple Search Ads campaign setup in https://searchads.apple.com *(user action, only if running Apple Search Ads)*
+- [ ] Backend: implement endpoint to receive the token and call `https://api-adservices.apple.com/api/v1/` to resolve campaign metadata _(deferred)_
+- [ ] Apple Search Ads campaign setup in https://searchads.apple.com _(user action, only if running Apple Search Ads)_
 
 ## Phase 9: Google Ads (UAC — Universal App Campaigns)
+
 - [x] Verified Firebase Analytics is already integrated (provides Google Ads attribution for UAC)
 - [x] Confirmed GoogleAdsOnDeviceConversion SDK is in Package.resolved as transitive dep (not needed for MVP)
 - [ ] Add Google's SKAdNetwork IDs to Info.plist
-- [ ] Link Firebase Analytics to Google Ads account in Google Ads → Tools → Linked accounts → Firebase *(user action)*
-- [ ] Configure UAC campaign in Google Ads *(user action, only if running Google Ads)*
+- [ ] Link Firebase Analytics to Google Ads account in Google Ads → Tools → Linked accounts → Firebase _(user action)_
+- [ ] Configure UAC campaign in Google Ads _(user action, only if running Google Ads)_
 
 ## Phase 10: Cross-Platform SKAdNetwork IDs
+
 - [x] Meta's 30 IDs added
 - [ ] Add TikTok's ~15 published ad network IDs
 - [ ] Add Google's ~8 published ad network IDs
 - [ ] Dedup against existing entries
 
 ## Phase 11: Multi-SDK Build Verification
+
 - [ ] Build for simulator with all 3 new SDKs
 - [ ] Launch + verify init log lines for each: `[FBSDK] Initialized`, `[TikTokBiz] Initialized` or `Skipped`, `[AppleAds] Captured` or `No token available`
 - [ ] No crashes regardless of which credentials are missing
 - [ ] Release config build + archive verification
 
 ## Phase 12: Docs + Rollout
+
 - [ ] Extend `docs/marketing/meta-ads-setup-checklist.md` with TikTok + Apple Search Ads + Google Ads sections
 - [ ] Document MMP (AppsFlyer/Adjust/Singular) as future option when spend > $10K/month
 - [ ] Ship new TestFlight build (89) once all SDKs are wired
@@ -540,36 +714,42 @@ Replace the current 5-step checkout-style `GiftSendFlowView` (Content → Recipi
 ## Review & plan per task
 
 ### Task #1 — Investigate `trackRenderCompleted` payload ✅ DONE
+
 - `trackRenderCompleted` is a NotificationCenter refresh broadcast with lossy `{trackId}` userInfo
 - Real preview/full distinction lives on `Track.status` field from server: `"full_ready"`, legacy `"ready"`
 - Hook point for #6 confirmed: `MySongsView.swift:209-223` `.onChange(of: tracks)`
 
 ### Task #2 — Add `firstSongCompleted` enum case ✅ DONE
+
 - Added at `AnalyticsService.swift:20` between `createCompleted` and `shareInitiated`
 
 ### Task #3 — Emit `auth_completed` in RootView
+
 - Hook: `RootView.swift:312` `.onChange(of: authManager.isAuthenticated)` `if isAuthenticated` branch
 - Call: `AnalyticsService.shared.log(.authCompleted, properties: ["method": <provider>])`
 - Need to figure out how to surface the auth method (Apple/Google/email) from AuthManager
 
 ### Task #4 — Emit `create_started` in presentCreateFlow
+
 - Hook: `MainTabView.presentCreateFlow` (signature seen near line 358)
 - Call: `AnalyticsService.shared.log(.createStarted, properties: ["type": <song/poem>, "source": <tab/suggestion>])`
 
 ### Task #5 — Emit `create_completed` on successful track creation
+
 - Hook: `MainTabView.handleSongFlowCompletion` at line 367 (already posts `.trackRenderCompleted`)
 - Call: `AnalyticsService.shared.log(.createCompleted, properties: ["trackId": trackId])`
 
 ### Task #6 — Emit `first_song_completed` on first full_ready transition
+
 - Hook: `MySongsView.swift:218` inside the existing `justCompletedIds` loop
 - Guard: `@AppStorage("firstSongCompletedEmitted") var firstSongCompletedEmitted: Bool = false`
 - Trigger: first transition to `track.status == "full_ready" || track.status == "ready"`
 
 ### Task #7 — Self-review + build verification
+
 - Full `xcodebuild` for device; confirm `** BUILD SUCCEEDED **`
 - Manual: sign out, sign back in, start/complete a create flow, confirm all 4 new events appear in `[Analytics]` debug console lines
 - Update tasks/lessons.md if anything surprised us
-
 
 ---
 
@@ -580,6 +760,7 @@ Replace the current 5-step checkout-style `GiftSendFlowView` (Content → Recipi
 **Visual target:** Cal.com App Store listing. ONE massive bold headline (1-3 words), single color, phone shows the proof.
 
 ## Current design sins (identified)
+
 1. Headlines split two-color (dark + coral) — halves visual weight
 2. `fontWeight: 700` — not heavy enough; Cal.com uses ~900 (black)
 3. `fontSize: 104-112` — too small for black text on warm cream BG at thumbnail scale
@@ -587,21 +768,24 @@ Replace the current 5-step checkout-style `GiftSendFlowView` (Content → Recipi
 5. Subtitles + accent bars + 2-color headlines = 4 competing focal points
 
 ## Design system shifts
+
 - [ ] `Headline`: single color (textPrimary), weight **900**, size **180-200**, letter-spacing **-5**
 - [ ] Remove `AccentBar` from slides 1-5, 7 (keep on Slide 6 if desired)
 - [ ] Remove `Subtitle` from all hero slides (let phone show the detail)
 - [ ] Optional eyebrow text above headline (36pt, uppercase, coral, letter-spacing +4) — Cal-style
 
 ## Per-slide headline rewrites (short, bold, scannable)
-- [ ] Slide 1 (Hero):   ~~"Your Moment / in a Song."~~  →  **"Your moment.<br/>In a song."** (single color, 190pt)
-- [ ] Slide 2 (Voice):  ~~"Every Word / In Your Voice."~~ → **"In your<br/>voice."** (190pt)
+
+- [ ] Slide 1 (Hero): ~~"Your Moment / in a Song."~~ → **"Your moment.<br/>In a song."** (single color, 190pt)
+- [ ] Slide 2 (Voice): ~~"Every Word / In Your Voice."~~ → **"In your<br/>voice."** (190pt)
 - [ ] Slide 3 (Create): ~~"Songs & Poems / Made Personal."~~ → **"Made<br/>for them."** (200pt)
-- [ ] Slide 4 (Poems):  ~~"Every Feeling / In Perfect Words."~~ → **"Poems,<br/>too."** (200pt)
+- [ ] Slide 4 (Poems): ~~"Every Feeling / In Perfect Words."~~ → **"Poems,<br/>too."** (200pt)
 - [ ] Slide 5 (Occasion): ~~"The Gift They'll / Never Forget."~~ → **"The gift<br/>they'll keep."** (180pt)
 - [ ] Slide 6 (Features): Tighten headline; keep feature rows (feature-list slide is OK to be denser)
-- [ ] Slide 7 (Share):  ~~"Share the Gift / They'll Treasure."~~ → **"Share it<br/>privately."** (200pt)
+- [ ] Slide 7 (Share): ~~"Share the Gift / They'll Treasure."~~ → **"Share it<br/>privately."** (200pt)
 
 ## Verification
+
 - [ ] Visual preview at localhost:5173 — each headline should be readable at thumbnail scale (~180px wide)
 - [ ] Export all 4 sizes via `capture.mjs`
 - [ ] Compare slide 1 thumbnail with Cal.com "Bookings" slide thumbnail — weight should feel comparable
@@ -613,6 +797,7 @@ Replace the current 5-step checkout-style `GiftSendFlowView` (Content → Recipi
 **Status:** Planning — awaiting user direction on approach.
 
 **Context:**
+
 - Uploaded iPad set on ASC is pre-Warm-Canvas (`current/ipad/01-explore.png`…`05-poems.png`, 2048×2732).
 - iPhone 6.9" set is live (`current/6.9/porizo-{hero,pick,tell,hear,share}.png`, 1320×2868, Cal-AI/Warm Canvas/Fraunces).
 - Generator `marketing/appstore/screenshots/generator/` is Vite+React+Puppeteer. `src/Generator.tsx` hard-codes `W=1320, H=2868` and absolute-positioned floating cards tuned to phone-portrait aspect (0.46:1). iPad target 2048×2732 is 0.75:1 — 60% wider relative to height.
@@ -622,16 +807,20 @@ Replace the current 5-step checkout-style `GiftSendFlowView` (Content → Recipi
 
 ## Three approaches
 
-### A — Phone-centered, iPad-composed  (RECOMMENDED for speed)
+### A — Phone-centered, iPad-composed (RECOMMENDED for speed)
+
 Render at 2048×2732, keep iPhone 16 Pro Max mockup as hero, use the extra width for richer side composition (secondary floating card on opposite side, larger callout pills). New `IpadSlideBase` + iPad-tuned `phoneTop`/`phoneScale` + repositioned `FloatingCard`/`FloatingPill` per slide. Effort: 2–3 hrs. Visual: iPhone-forward but intentionally laid out for tablet.
 
-### B — Native iPad mockup  (BEST long-term polish)
+### B — Native iPad mockup (BEST long-term polish)
+
 Draw iPad Pro 13" frame in CSS (like existing `Phone` component). Inject `current/raw-ipad/*.png` as `screenshot` prop. Redesign layouts for iPad-native feel. Effort: 1–2 days. Needs re-captures if existing raws don't match the 5 story beats.
 
-### C — Phone PNG letterboxed  (QUICK+DIRTY)
+### C — Phone PNG letterboxed (QUICK+DIRTY)
+
 Capture at 1320×2868 as today, pad with Warm Canvas cream `#F5F0EB` to 2048×2732 via `sharp.extend({...})`. Effort: 20 min. Visual: empty side margins signal "this app doesn't think about iPad."
 
 ## Tasks (if Option A approved)
+
 - [ ] Add `IPAD_W = 2048`, `IPAD_H = 2732` constants + `IpadSlideBase` wrapper in `src/Generator.tsx`
 - [ ] Author 5 iPad slide variants (hero / pick / tell / hear / share) reusing existing phone mockup + screenshots, re-laying floating callouts into the extra horizontal space
 - [ ] Add iPad viewport + capture pass in `capture.mjs` (separate `SIZES_IPAD` array, larger Puppeteer viewport)
@@ -642,4 +831,5 @@ Capture at 1320×2868 as today, pad with Warm Canvas cream `#F5F0EB` to 2048×27
 - [ ] Update memory: supersede `project_ipad_screenshots_deferred.md` with a "shipped" note
 
 ## Open question for user
+
 Which approach — A, B, or C?
