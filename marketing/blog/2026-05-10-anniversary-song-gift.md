@@ -17,7 +17,7 @@ PRIMARY_KEYWORD:
 anniversary song gift
 
 HERO_IMAGE:
-/assets/og-song.png
+/assets/blog/anniversary-song-gift.png
 
 ARTICLE CONTENT:
 ## Quick answer

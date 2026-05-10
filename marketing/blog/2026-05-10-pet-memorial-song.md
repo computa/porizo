@@ -17,7 +17,7 @@ PRIMARY_KEYWORD:
 pet memorial song
 
 HERO_IMAGE:
-/assets/og-song.png
+/assets/blog/pet-memorial-song.png
 
 ARTICLE CONTENT:
 ## Quick answer

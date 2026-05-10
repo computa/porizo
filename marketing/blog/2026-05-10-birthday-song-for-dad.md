@@ -17,7 +17,7 @@ PRIMARY_KEYWORD:
 birthday song for dad
 
 HERO_IMAGE:
-/assets/og-song.png
+/assets/blog/birthday-song-for-dad.png
 
 ARTICLE CONTENT:
 A birthday song for dad should focus on one memory that shows who he has been to you. Choose a moment of protection, patience, humor, sacrifice, or ordinary care, then say what you understood later. The strongest song is not "Dad, you're great." It is "I noticed what you did, and I still carry it."

@@ -17,7 +17,7 @@ PRIMARY_KEYWORD:
 baby announcement song
 
 HERO_IMAGE:
-/assets/og-song.png
+/assets/blog/baby-announcement-song.png
 
 ARTICLE CONTENT:
 ## Quick answer

@@ -17,7 +17,7 @@ PRIMARY_KEYWORD:
 long distance song gift
 
 HERO_IMAGE:
-/assets/og-song.png
+/assets/blog/long-distance-song-gift.png
 
 ARTICLE CONTENT:
 ## Quick answer

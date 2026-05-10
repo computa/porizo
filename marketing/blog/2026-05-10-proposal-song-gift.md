@@ -17,7 +17,7 @@ PRIMARY_KEYWORD:
 proposal song gift
 
 HERO_IMAGE:
-/assets/og-song.png
+/assets/blog/proposal-song-gift.png
 
 ARTICLE CONTENT:
 

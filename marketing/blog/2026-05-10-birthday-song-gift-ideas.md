@@ -17,7 +17,7 @@ PRIMARY_KEYWORD:
 birthday song gift ideas
 
 HERO_IMAGE:
-/assets/og-song.png
+/assets/blog/birthday-song-gift-ideas.png
 
 ARTICLE CONTENT:
 The best birthday song gift ideas start with one specific memory, not a generic birthday message. Pick a moment the person would recognize immediately, name why it matters, and turn that into a short song they can replay. A good birthday song gift feels less like a performance and more like a memory made audible.

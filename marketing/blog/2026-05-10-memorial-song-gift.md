@@ -17,7 +17,7 @@ PRIMARY_KEYWORD:
 memorial song gift
 
 HERO_IMAGE:
-/assets/og-song.png
+/assets/blog/memorial-song-gift.png
 
 ARTICLE CONTENT:
 A memorial song gift should honor one true memory of the person who died, not try to summarize an entire life or make grief feel tidy. Choose a story, phrase, place, habit, or small ritual that loved ones would recognize. The best memorial song gives people a gentle way to remember, without pressuring them to feel better.

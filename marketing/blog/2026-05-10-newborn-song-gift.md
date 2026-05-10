@@ -17,7 +17,7 @@ PRIMARY_KEYWORD:
 newborn song gift
 
 HERO_IMAGE:
-/assets/og-song.png
+/assets/blog/newborn-song-gift.png
 
 ARTICLE CONTENT:
 ## Quick answer

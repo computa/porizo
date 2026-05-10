@@ -17,7 +17,7 @@ PRIMARY_KEYWORD:
 wedding song gift
 
 HERO_IMAGE:
-/assets/og-song.png
+/assets/blog/wedding-song-gift.png
 
 ARTICLE CONTENT:
 ## Quick answer

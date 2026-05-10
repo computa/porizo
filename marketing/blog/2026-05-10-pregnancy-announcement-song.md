@@ -17,7 +17,7 @@ PRIMARY_KEYWORD:
 pregnancy announcement song
 
 HERO_IMAGE:
-/assets/og-song.png
+/assets/blog/pregnancy-announcement-song.png
 
 ARTICLE CONTENT:
 ## Quick answer

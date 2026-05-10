@@ -17,7 +17,7 @@ PRIMARY_KEYWORD:
 apology song
 
 HERO_IMAGE:
-/assets/og-song.png
+/assets/blog/apology-song.png
 
 ARTICLE CONTENT:
 

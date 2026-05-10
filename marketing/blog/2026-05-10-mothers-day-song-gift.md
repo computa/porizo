@@ -17,7 +17,7 @@ PRIMARY_KEYWORD:
 mother's day song gift
 
 HERO_IMAGE:
-/assets/og-song.png
+/assets/blog/mothers-day-song-gift.png
 
 ARTICLE CONTENT:
 

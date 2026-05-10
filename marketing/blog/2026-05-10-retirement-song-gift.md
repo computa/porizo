@@ -17,7 +17,7 @@ PRIMARY_KEYWORD:
 retirement song gift
 
 HERO_IMAGE:
-/assets/og-song.png
+/assets/blog/retirement-song-gift.png
 
 ARTICLE CONTENT:
 ## Quick answer

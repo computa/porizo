@@ -17,7 +17,7 @@ PRIMARY_KEYWORD:
 gender reveal song
 
 HERO_IMAGE:
-/assets/og-song.png
+/assets/blog/gender-reveal-song.png
 
 ARTICLE CONTENT:
 ## Quick answer

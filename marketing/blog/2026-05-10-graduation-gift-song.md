@@ -17,7 +17,7 @@ PRIMARY_KEYWORD:
 graduation gift song
 
 HERO_IMAGE:
-/assets/og-song.png
+/assets/blog/graduation-gift-song.png
 
 ARTICLE CONTENT:
 ## Quick answer
