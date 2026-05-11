@@ -712,21 +712,34 @@ struct EnrollmentFlowView: View {
                     }
                 }
 
-                if status.isMyVoiceReady {
+                if status.pendingMyVoiceNeedsRecapture || status.needsVoiceRecapture {
                     await MainActor.run {
+                        errorMessage = "We captured your voice, but My Voice needs clearer sung audio. Please sing the last two prompts slowly and hold the notes."
+                        showingError = true
                         withAnimation {
-                            currentStep = .completed
+                            currentStep = .welcome
                         }
                     }
                     return
                 }
 
-                if status.didMyVoiceSetupFail || status.isMyVoiceSetupRequired {
+                if status.pendingMyVoiceDidFail || status.didMyVoiceSetupFail {
                     await MainActor.run {
-                        errorMessage = "We captured your voice, but My Voice setup needs clearer sung audio. Please try again."
+                        errorMessage = "My Voice setup hit a provider issue. We are checking it in the background."
                         showingError = true
+                        dismiss()
+                    }
+                    return
+                }
+
+                if status.hasPendingMyVoiceSetup {
+                    continue
+                }
+
+                if status.isMyVoiceReady {
+                    await MainActor.run {
                         withAnimation {
-                            currentStep = .welcome
+                            currentStep = .completed
                         }
                     }
                     return

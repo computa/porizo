@@ -15,6 +15,7 @@ const {
 const { getFeatureFlag } = require("../services/feature-flags");
 const {
   findActiveProviderProfileForUser,
+  findLatestPendingProviderProfileForUser,
   findLatestProviderProfileForVoiceProfile,
 } = require("../services/voice-provider-profile-service");
 const {
@@ -30,6 +31,10 @@ const SUNO_PERSONA_PREPARING_STATUSES = new Set([
   "upload_submitted",
   "cover_submitted",
   "persona_submitted",
+]);
+const SUNO_PERSONA_FAILED_STATUSES = new Set([
+  "failed",
+  "manual_cleanup_required",
 ]);
 
 function registerTrackRoutes(
@@ -112,6 +117,14 @@ function registerTrackRoutes(
       userId,
       provider: "suno",
     });
+    const blockingProviderProfile =
+      await findLatestPendingProviderProfileForUser(db, {
+        userId,
+        provider: "suno",
+      });
+    if (isNewerProviderProfile(blockingProviderProfile, providerProfile)) {
+      return sunoPersonaReadinessBlock(blockingProviderProfile);
+    }
     if (
       providerProfile &&
       providerProfile.provider_profile_id &&
@@ -127,27 +140,15 @@ function registerTrackRoutes(
       };
     }
     const latestProviderProfile =
+      blockingProviderProfile ||
       await findLatestProviderProfileForVoiceProfile(db, {
         voiceProfileId: voiceProfile.id,
         provider: "suno",
         includeDeleted: true,
       });
-    if (latestProviderProfile?.status === "failed") {
-      return {
-        ok: false,
-        code: "SUNO_VOICE_PERSONA_FAILED",
-        message:
-          "My Voice needs a new Suno voice setup before song generation.",
-        requiresVoiceEnrollment: true,
-      };
-    }
-    if (SUNO_PERSONA_PREPARING_STATUSES.has(latestProviderProfile?.status)) {
-      return {
-        ok: false,
-        code: "SUNO_VOICE_PERSONA_REQUIRED",
-        message: "My Voice is still being prepared. Please try again shortly.",
-        requiresVoiceEnrollment: false,
-      };
+    const readinessBlock = sunoPersonaReadinessBlock(latestProviderProfile);
+    if (readinessBlock) {
+      return readinessBlock;
     }
     return {
       ok: false,
@@ -155,6 +156,43 @@ function registerTrackRoutes(
       message: "My Voice needs voice setup before song generation.",
       requiresVoiceEnrollment: true,
     };
+  }
+
+  function isNewerProviderProfile(candidate, activeProviderProfile) {
+    if (!candidate) return false;
+    if (!activeProviderProfile) return true;
+    const candidateTs = toTimestamp(candidate.created_at || candidate.updated_at);
+    const activeTs = toTimestamp(
+      activeProviderProfile.activated_at ||
+        activeProviderProfile.created_at ||
+        activeProviderProfile.updated_at,
+    );
+    if (candidateTs !== null && activeTs !== null) {
+      return candidateTs >= activeTs;
+    }
+    return candidate.id !== activeProviderProfile.id;
+  }
+
+  function sunoPersonaReadinessBlock(providerProfile) {
+    const status = providerProfile?.status;
+    if (SUNO_PERSONA_FAILED_STATUSES.has(status)) {
+      return {
+        ok: false,
+        code: "SUNO_VOICE_PERSONA_FAILED",
+        message:
+          "My Voice setup hit a provider issue. Please try again shortly.",
+        requiresVoiceEnrollment: true,
+      };
+    }
+    if (SUNO_PERSONA_PREPARING_STATUSES.has(status)) {
+      return {
+        ok: false,
+        code: "SUNO_VOICE_PERSONA_REQUIRED",
+        message: "My Voice is still being prepared. Please try again shortly.",
+        requiresVoiceEnrollment: false,
+      };
+    }
+    return null;
   }
 
   function buildRenderRequestStepData(preflight) {

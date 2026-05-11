@@ -20,7 +20,11 @@ const {
   markVoiceProviderJobFailed,
   markVoiceProviderJobRunning,
   markVoiceProviderJobStep,
+  patchProviderProfileMetadata,
 } = require("./voice-provider-profile-service");
+const {
+  classifySunoPersonaFailure,
+} = require("./suno-persona-failure-classifier");
 const { sanitizeProviderError } = require("../utils/provider-sanitize");
 const { parseJson } = require("../utils/common");
 const { generatePrefixedId } = require("../utils/ids");
@@ -147,7 +151,10 @@ async function assertProviderJobReady({ db, job, providerProfile, session }) {
       .get(providerProfile.voice_profile_id, providerProfile.user_id);
     voiceProfileStatus = voiceProfile?.status || null;
   }
-  if (voiceProfileStatus !== "active") {
+  if (
+    voiceProfileStatus !== "active" &&
+    voiceProfileStatus !== "pending_provider"
+  ) {
     throw new Error("E302_SUNO_PERSONA_VOICE_PROFILE_NOT_ACTIVE");
   }
   // U2: Honest two-arm check — profile scope OR session scope, never falling
@@ -307,8 +314,7 @@ function isRetryableGeneratePersonaReadinessError(error) {
     message.includes("music does not exist") ||
     message.includes("music is still generating") ||
     message.includes("ensure the music generation task is fully completed") ||
-    message.includes("create persona error") ||
-    message.includes("current music failed to generate persona")
+    message.includes("create persona error")
   );
 }
 
@@ -422,6 +428,10 @@ async function resetRejectedPersonaSourceAudio(db, providerProfile, error) {
   }
   const metadata = withProviderMetadata(providerProfile, {
     suno_bad_source_music: true,
+    last_failure_category: "source_audio_retryable",
+    last_failure_reason: "bad_source_music",
+    last_user_action: "wait",
+    last_recovery_scope: "same_task_audio",
     suno_rejected_source_audio_ids: Array.from(
       new Set([
         ...collectRejectedSourceAudioIds(providerProfile),
@@ -440,6 +450,53 @@ async function resetRejectedPersonaSourceAudio(db, providerProfile, error) {
     )
     .run(
       STATUS.COVER_SUBMITTED,
+      sanitizeProviderError(error),
+      JSON.stringify(metadata),
+      new Date().toISOString(),
+      providerProfile.id,
+    );
+}
+
+function sourceMusicRegenerationCount(providerProfile) {
+  const metadata = parseProviderMetadata(providerProfile);
+  const count = Number(metadata.source_music_regenerations || 0);
+  return Number.isFinite(count) && count > 0 ? count : 0;
+}
+
+async function resetRejectedPersonaSourceForFreshCover(
+  db,
+  providerProfile,
+  error,
+) {
+  if (!providerProfile?.id || !providerProfile.source_audio_id) {
+    return;
+  }
+  const metadata = withProviderMetadata(providerProfile, {
+    suno_bad_source_music: true,
+    source_music_regenerations: sourceMusicRegenerationCount(providerProfile) + 1,
+    suno_rejected_source_audio_ids: Array.from(
+      new Set([
+        ...collectRejectedSourceAudioIds(providerProfile),
+        providerProfile.source_audio_id,
+      ]),
+    ),
+    last_failure_category: "source_audio_retryable",
+    last_failure_reason: "bad_source_music",
+    last_user_action: "wait",
+    last_recovery_scope: "fresh_cover_task",
+  });
+  await db
+    .prepare(
+      `UPDATE voice_provider_profiles
+          SET status = ?, source_task_id = NULL, source_audio_id = NULL,
+              source_upload_url = NULL, last_error = ?, metadata_json = ?,
+              updated_at = ?
+        WHERE id = ?
+          AND deleted_at IS NULL
+          AND status IN ('persona_submitted', 'cover_submitted', 'failed')`,
+    )
+    .run(
+      STATUS.UPLOAD_SUBMITTED,
       sanitizeProviderError(error),
       JSON.stringify(metadata),
       new Date().toISOString(),
@@ -693,15 +750,18 @@ async function runSunoVoicePersonaJob({
     try {
       await recheck();
     } catch (postPersonaErr) {
+      const cleanupError = new Error(
+        `E302_SUNO_PERSONA_MANUAL_CLEANUP_REQUIRED: ${postPersonaErr.message}`,
+      );
       await markProviderProfileManualCleanupRequired(db, providerProfile.id, {
         providerProfileId: persona.personaId,
-        error: `E302_SUNO_PERSONA_MANUAL_CLEANUP_REQUIRED: ${postPersonaErr.message}`,
+        error: cleanupError.message,
         metadata: {
           remote_persona_created_after_cancellation: true,
           persona_model: "voice_persona",
         },
       });
-      throw postPersonaErr;
+      throw cleanupError;
     }
 
     const active = await markProviderProfileActive(db, providerProfile.id, {
@@ -740,39 +800,87 @@ async function runSunoVoicePersonaJob({
       return latestProfile;
     }
     if (generatePersonaRequestStarted) {
-      const retryableReadiness = isRetryableGeneratePersonaReadinessError(err);
       const sanitizedErr = sanitizeProviderError(err);
-      const isBadSourceMusic = String(sanitizedErr).includes(
-        "Current music failed to generate persona",
-      );
+      const classification = classifySunoPersonaFailure(err);
+      const isBadSourceMusic =
+        classification.category === "source_audio_retryable";
+      const rejectedIds = collectRejectedSourceAudioIds(providerProfile);
+      const rejectedCountAfterThis =
+        isBadSourceMusic && providerProfile?.source_audio_id
+          ? new Set([...rejectedIds, providerProfile.source_audio_id]).size
+          : rejectedIds.length;
+      const regenerationCount = sourceMusicRegenerationCount(providerProfile);
+      const canRecoverBadSource =
+        isBadSourceMusic &&
+        providerProfile?.source_audio_id &&
+        (rejectedCountAfterThis < 3 || regenerationCount < 2);
+      const retryable = isBadSourceMusic
+        ? canRecoverBadSource
+        : classification.safeToRetryAfterGenerateRequestStarted;
       const manualRecoveryError = new Error(
         `E302_SUNO_PERSONA_MANUAL_RECOVERY_REQUIRED: ${sanitizedErr}`,
       );
       const failedJob = await markVoiceProviderJobFailed(
         db,
         jobId,
-        retryableReadiness ? err : manualRecoveryError,
+        retryable ? err : manualRecoveryError,
         {
           step: "generate_persona",
-          retryable: retryableReadiness,
+          retryable,
         },
       );
+      if (providerProfile?.id) {
+        await patchProviderProfileMetadata(
+          db,
+          providerProfile.id,
+          {
+            last_failure_category: canRecoverBadSource
+              ? "source_audio_retryable"
+              : classification.category,
+            last_failure_reason: canRecoverBadSource
+              ? "bad_source_music"
+              : classification.reason,
+            last_user_action: canRecoverBadSource
+              ? "wait"
+              : classification.userAction,
+            last_recovery_scope: canRecoverBadSource
+              ? rejectedCountAfterThis < 3
+                ? "same_task_audio"
+                : "fresh_cover_task"
+              : classification.recoveryScope,
+            last_provider_retry_at: failedJob?.next_attempt_at || null,
+          },
+          err,
+        );
+      }
       if (failedJob?.status === "failed" && session?.id) {
         // U3: token revocation on permanent failure (manual-recovery path).
         await revokeEnrollmentSessionToken(db, session.id);
       }
-      if (retryableReadiness && isBadSourceMusic) {
-        await resetRejectedPersonaSourceAudio(db, providerProfile, sanitizedErr);
+      if (failedJob?.status === "pending" && canRecoverBadSource) {
+        if (rejectedCountAfterThis < 3) {
+          await resetRejectedPersonaSourceAudio(
+            db,
+            providerProfile,
+            sanitizedErr,
+          );
+        } else {
+          await resetRejectedPersonaSourceForFreshCover(
+            db,
+            providerProfile,
+            sanitizedErr,
+          );
+        }
       }
       if (providerProfile?.id && failedJob?.status === "failed") {
-        await markProviderProfileFailed(
-          db,
-          providerProfile.id,
-          manualRecoveryError,
+        const exhaustedSourceMetadata =
           isBadSourceMusic && providerProfile.source_audio_id
             ? {
                 metadata: withProviderMetadata(providerProfile, {
                   suno_bad_source_music: true,
+                  last_failure_category: "source_audio_exhausted",
+                  last_failure_reason: "provider_source_recovery_exhausted",
+                  last_user_action: "contact_support",
                   suno_rejected_source_audio_ids: Array.from(
                     new Set([
                       ...collectRejectedSourceAudioIds(providerProfile),
@@ -781,10 +889,22 @@ async function runSunoVoicePersonaJob({
                   ),
                 }),
               }
-            : {},
+            : {
+                metadata: withProviderMetadata(providerProfile, {
+                  last_failure_category: classification.category,
+                  last_failure_reason: classification.reason,
+                  last_user_action: classification.userAction,
+                  last_recovery_scope: classification.recoveryScope,
+                }),
+              };
+        await markProviderProfileFailed(
+          db,
+          providerProfile.id,
+          manualRecoveryError,
+          exhaustedSourceMetadata,
         );
       }
-      if (retryableReadiness) {
+      if (retryable) {
         throw new Error(sanitizeProviderError(err));
       }
       throw manualRecoveryError;

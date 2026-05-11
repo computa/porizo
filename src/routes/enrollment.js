@@ -26,7 +26,9 @@ const {
   cancelVoiceProviderJobsForVoiceProfile,
   createPendingProviderProfile,
   createVoiceProviderJob,
-  findLatestProviderProfileForVoiceProfile,
+  findActiveProviderProfileForUser,
+  findLatestPendingProviderProfileForUser,
+  getLatestVoiceProviderJobForProfile,
   softDeleteProviderProfilesForVoiceProfile,
 } = require("../services/voice-provider-profile-service");
 const { getFeatureFlags } = require("../services/feature-flags");
@@ -73,6 +75,64 @@ function isValidAudioFormat(buffer) {
   )
     return true;
   return false;
+}
+
+function buildVoiceProviderReadiness(providerProfile, providerJob) {
+  if (!providerProfile) {
+    return { readiness: "setup_required", user_action: "recapture" };
+  }
+  const metadata = parseJson(providerProfile.metadata_json, {});
+  if (providerProfile.status === "active" && providerProfile.provider_profile_id) {
+    return { readiness: "ready", user_action: "wait" };
+  }
+  if (
+    providerProfile.status === "failed" ||
+    providerProfile.status === "manual_cleanup_required"
+  ) {
+    const action = metadata.last_user_action || "contact_support";
+    return {
+      readiness: action === "recapture" ? "needs_recapture" : "failed_provider",
+      user_action: action,
+      failure_reason: metadata.last_failure_reason || "unknown",
+    };
+  }
+  if (providerJob?.status === "pending" && providerJob.next_attempt_at) {
+    return {
+      readiness: "retrying_provider",
+      user_action: "wait",
+      next_attempt_at: providerJob.next_attempt_at,
+    };
+  }
+  return { readiness: "preparing", user_action: "wait" };
+}
+
+async function buildVoiceProviderProfileResponse(db, providerProfile) {
+  if (!providerProfile) {
+    return null;
+  }
+  const providerJob = await getLatestVoiceProviderJobForProfile(
+    db,
+    providerProfile.id,
+  );
+  const ready = Boolean(
+    providerProfile.status === "active" &&
+      providerProfile.provider_profile_id &&
+      hasPersonaConsentScope(providerProfile.consent_scope),
+  );
+  return {
+    id: providerProfile.id,
+    provider: providerProfile.provider,
+    provider_profile_id: providerProfile.provider_profile_id || null,
+    status: providerProfile.status,
+    ready,
+    has_provider_profile_id: Boolean(providerProfile.provider_profile_id),
+    consent_scope: providerProfile.consent_scope || null,
+    updated_at: providerProfile.updated_at || null,
+    last_error: providerProfile.last_error || null,
+    job_id: providerJob?.id || null,
+    job_status: providerJob?.status || null,
+    ...buildVoiceProviderReadiness(providerProfile, providerJob),
+  };
 }
 
 /**
@@ -662,7 +722,7 @@ function registerEnrollmentRoutes(app, deps) {
       const expiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString();
 
       const consentScopes = resolvePersonaConsentScopes(
-        { ...request.body, consent_version: consent_version || "1.0" },
+        request.body,
         consent_accepted === true,
       );
       await db
@@ -1102,16 +1162,32 @@ function registerEnrollmentRoutes(app, deps) {
         );
         return;
       }
+      const claimResult = await db
+        .prepare(
+          "UPDATE enrollment_sessions SET status = ? WHERE id = ? AND user_id = ? AND status IN ('recording', 'processing')",
+        )
+        .run("finalizing", session_id, userId);
+      if (!claimResult?.changes) {
+        sendError(
+          reply,
+          409,
+          "SESSION_ALREADY_FINALIZED",
+          "Enrollment session has already been finalized.",
+        );
+        return;
+      }
+      session = await db
+        .prepare("SELECT * FROM enrollment_sessions WHERE id = ?")
+        .get(session_id);
 
       // Late-grant: a client that didn't include the persona scope at /start
       // can grant it here, but only after the session is known valid.
-      if (!session.consent_scopes) {
+      const hasLatePersonaGrant =
+        request.body?.voice_suno_persona_consent === true ||
+        Array.isArray(request.body?.consent_scopes);
+      if (!session.consent_scopes && hasLatePersonaGrant) {
         const lateScope = resolvePersonaConsentScopes(
-          {
-            ...request.body,
-            consent_version:
-              request.body?.consent_version || session.consent_version,
-          },
+          request.body,
           true,
         );
         if (lateScope) {
@@ -1127,22 +1203,52 @@ function registerEnrollmentRoutes(app, deps) {
       }
 
       const metrics = parseJson(session.quality_metrics, {});
+      let chunkResolution;
+      try {
+        chunkResolution = await resolveEnrollmentChunkFiles({
+          session,
+          metrics,
+          userId,
+        });
+      } catch (error) {
+        request.log.error(
+          {
+            sessionId: session_id,
+            err: error?.message || String(error),
+          },
+          "[Enrollment:complete] Failed to resolve uploaded audio files",
+        );
+        await db
+          .prepare(
+            "UPDATE enrollment_sessions SET status = ?, completed_at = ? WHERE id = ?",
+          )
+          .run("failed_internal", nowIso(), session_id);
+        sendError(
+          reply,
+          500,
+          "STORAGE_ERROR",
+          "Failed to retrieve uploaded audio files. Please try again.",
+          { details: { reason: "chunk_resolution_failed" } },
+        );
+        return;
+      }
       const {
         files: chunkFiles,
         chunkEntries,
         tempDir,
         missingChunks,
-      } = await resolveEnrollmentChunkFiles({
-        session,
-        metrics,
-        userId,
-      });
+      } = chunkResolution;
 
       if (chunkFiles.length === 0) {
         request.log.error(
           { sessionId: session_id, missingChunks },
           "[Enrollment:complete] No files found",
         );
+        await db
+          .prepare(
+            "UPDATE enrollment_sessions SET status = ?, completed_at = ? WHERE id = ?",
+          )
+          .run("failed_internal", nowIso(), session_id);
         sendError(
           reply,
           500,
@@ -1272,6 +1378,7 @@ function registerEnrollmentRoutes(app, deps) {
         const sunoPersonaPath = path.join(cleanDir, "suno-persona.wav");
         let cleanAudioReady = false;
         let sunoPersonaAudio = null;
+        let sunoPersonaAudioUploaded = false;
         try {
           concatWavFiles(chunkFiles, cleanPath);
           await storageProvider.putFile({
@@ -1290,6 +1397,7 @@ function registerEnrollmentRoutes(app, deps) {
               filePath: sunoPersonaPath,
               contentType: "audio/wav",
             });
+            sunoPersonaAudioUploaded = true;
           } else if (shouldQueueSunoPersona && hasProviderConsent) {
             console.warn(
               "[Enrollment:complete] Sung Suno persona calibration unavailable; skipping Suno persona job",
@@ -1300,6 +1408,85 @@ function registerEnrollmentRoutes(app, deps) {
             "[Enrollment:complete] Clean audio concat failed:",
             err.message,
           );
+        }
+
+        if (shouldQueueSunoPersona && hasProviderConsent && !cleanAudioReady) {
+          request.log.error(
+            { sessionId: session_id },
+            "[Enrollment:complete] Clean audio unavailable for Suno persona",
+          );
+          await db
+            .prepare(
+              "UPDATE enrollment_sessions SET status = ?, completed_at = ? WHERE id = ?",
+            )
+            .run("failed_internal", nowIso(), session_id);
+          sendError(
+            reply,
+            500,
+            "STORAGE_ERROR",
+            "Failed to prepare your voice recording. Please try again.",
+            {
+              details: { reason: "source_audio_unavailable" },
+            },
+          );
+          return;
+        }
+
+        if (
+          shouldQueueSunoPersona &&
+          hasProviderConsent &&
+          sunoPersonaAudio &&
+          !sunoPersonaAudioUploaded
+        ) {
+          request.log.error(
+            { sessionId: session_id },
+            "[Enrollment:complete] Sung calibration upload failed for Suno persona",
+          );
+          await db
+            .prepare(
+              "UPDATE enrollment_sessions SET status = ?, completed_at = ? WHERE id = ?",
+            )
+            .run("failed_internal", nowIso(), session_id);
+          sendError(
+            reply,
+            500,
+            "STORAGE_ERROR",
+            "Failed to prepare your voice recording. Please try again.",
+            {
+              details: { reason: "sung_calibration_upload_failed" },
+            },
+          );
+          return;
+        }
+
+        if (shouldQueueSunoPersona && hasProviderConsent && !sunoPersonaAudio) {
+          request.log.warn(
+            {
+              sessionId: session_id,
+              score: qualityScore,
+              grade: qcResult.grade,
+            },
+            "[Enrollment:complete] Sung calibration unavailable for Suno persona",
+          );
+          await db
+            .prepare(
+              "UPDATE enrollment_sessions SET status = ?, completed_at = ? WHERE id = ?",
+            )
+            .run("failed_quality", nowIso(), session_id);
+          sendError(
+            reply,
+            422,
+            "E107_SUNG_AUDIO_REQUIRED",
+            "The spoken parts were clear, but the sung parts were too short or too speech-like for My Voice. Please sing the last two prompts slowly and hold the notes.",
+            {
+              details: {
+                reason: "sung_calibration_unavailable",
+                user_action: "recapture",
+                failed_stage: "local_sung_qc",
+              },
+            },
+          );
+          return;
         }
 
         let cleanAudioAccessToken = session.access_token || null;
@@ -1444,10 +1631,14 @@ function registerEnrollmentRoutes(app, deps) {
           shouldQueueSunoPersona &&
           hasProviderConsent &&
           cleanAudioReady &&
-          Boolean(sunoPersonaAudio);
+          Boolean(sunoPersonaAudio) &&
+          sunoPersonaAudioUploaded;
         const personaVocalWindow = shouldEnqueuePersona
           ? sunoPersonaAudio.vocalWindow
           : null;
+        const newVoiceStatus = shouldEnqueuePersona
+          ? "pending_provider"
+          : "active";
 
         await db.transaction(async (query) => {
           const txDb = dbFromQuery(query);
@@ -1458,21 +1649,29 @@ function registerEnrollmentRoutes(app, deps) {
             .run("completed", nowIso(), session_id);
 
           if (existingProfile) {
-            await cancelVoiceProviderJobsForVoiceProfile(txDb, {
-              voiceProfileId: existingProfile.id,
-              userId,
-              reason: "voice_profile_replaced",
-            });
-            await softDeleteProviderProfilesForVoiceProfile(txDb, {
-              voiceProfileId: existingProfile.id,
-              userId,
-              reason: "voice_profile_replaced",
-            });
-            await txDb
-              .prepare(
-                "UPDATE voice_profiles SET status = ?, deleted_at = ? WHERE id = ?",
-              )
-              .run("deleted", nowIso(), existingProfile.id);
+            if (shouldEnqueuePersona) {
+              await cancelVoiceProviderJobsForVoiceProfile(txDb, {
+                voiceProfileId: existingProfile.id,
+                userId,
+                reason: "voice_profile_replacement_pending",
+              });
+            } else {
+              await cancelVoiceProviderJobsForVoiceProfile(txDb, {
+                voiceProfileId: existingProfile.id,
+                userId,
+                reason: "voice_profile_replaced",
+              });
+              await softDeleteProviderProfilesForVoiceProfile(txDb, {
+                voiceProfileId: existingProfile.id,
+                userId,
+                reason: "voice_profile_replaced",
+              });
+              await txDb
+                .prepare(
+                  "UPDATE voice_profiles SET status = ?, deleted_at = ? WHERE id = ?",
+                )
+                .run("deleted", nowIso(), existingProfile.id);
+            }
           }
 
           await txDb
@@ -1482,7 +1681,7 @@ function registerEnrollmentRoutes(app, deps) {
             .run(
               profileId,
               userId,
-              "active",
+              newVoiceStatus,
               embeddingRef,
               qualityScore,
               qualityTier,
@@ -1496,46 +1695,6 @@ function registerEnrollmentRoutes(app, deps) {
               nowIso(),
               elevenlabsVoiceId,
             );
-
-          if (
-            shouldQueueSunoPersona &&
-            hasProviderConsent &&
-            (!cleanAudioReady || !sunoPersonaAudio)
-          ) {
-            const providerProfile = await createPendingProviderProfile(txDb, {
-              voiceProfileId: profileId,
-              userId,
-              provider: "suno",
-              consentScope: REQUIRED_CONSENT_SCOPE,
-              metadata: {
-                source: "enrollment",
-                enrollment_session_id: session_id,
-                failure: !cleanAudioReady
-                  ? "source_audio_unavailable"
-                  : "sung_calibration_unavailable",
-              },
-            });
-            await txDb
-              .prepare(
-                "UPDATE voice_provider_profiles SET status = ?, last_error = ?, updated_at = ? WHERE id = ?",
-              )
-              .run(
-                "failed",
-                !cleanAudioReady
-                  ? "source_audio_unavailable"
-                  : "sung_calibration_unavailable",
-                nowIso(),
-                providerProfile.id,
-              );
-            providerProfileResult = {
-              provider: "suno",
-              status: !cleanAudioReady
-                ? "source_audio_unavailable"
-                : "sung_calibration_unavailable",
-              id: providerProfile.id,
-              job_id: null,
-            };
-          }
 
           if (shouldEnqueuePersona) {
             const providerProfile = await createPendingProviderProfile(txDb, {
@@ -1574,6 +1733,8 @@ function registerEnrollmentRoutes(app, deps) {
             providerProfileResult = {
               provider: "suno",
               status: providerProfile.status,
+              readiness: "preparing",
+              user_action: "wait",
               id: providerProfile.id,
               job_id: providerJob.id,
               source_audio: "sung_calibration",
@@ -1695,24 +1856,38 @@ function registerEnrollmentRoutes(app, deps) {
       );
       return;
     }
-    const profile = await db
+    const activeProfile = await db
       .prepare(
-        "SELECT * FROM voice_profiles WHERE user_id = ? AND status != 'deleted' ORDER BY created_at DESC LIMIT 1",
+        "SELECT * FROM voice_profiles WHERE user_id = ? AND status = 'active' AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 1",
       )
       .get(userId);
+    const profile =
+      activeProfile ||
+      (await db
+        .prepare(
+          "SELECT * FROM voice_profiles WHERE user_id = ? AND status != 'deleted' AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 1",
+        )
+        .get(userId));
     if (!profile) {
       sendError(reply, 404, "NO_VOICE_PROFILE", "Voice profile not found.");
       return;
     }
-    const providerProfile = await findLatestProviderProfileForVoiceProfile(db, {
-      voiceProfileId: profile.id,
+    const activeProviderProfile = await findActiveProviderProfileForUser(db, {
+      userId,
       provider: "suno",
     });
+    const pendingProviderProfile = await findLatestPendingProviderProfileForUser(
+      db,
+      {
+        userId,
+        provider: "suno",
+      },
+    );
     const providerProfileReady = Boolean(
-      providerProfile &&
-      providerProfile.status === "active" &&
-      providerProfile.provider_profile_id &&
-      hasPersonaConsentScope(providerProfile.consent_scope),
+      activeProviderProfile &&
+        activeProviderProfile.status === "active" &&
+        activeProviderProfile.provider_profile_id &&
+        hasPersonaConsentScope(activeProviderProfile.consent_scope),
     );
     const appBuild = parsePorizoBuild(request.headers["user-agent"]);
     const legacyClientNeedsPersonaGate =
@@ -1723,6 +1898,14 @@ function registerEnrollmentRoutes(app, deps) {
       !providerProfileReady
         ? "preparing"
         : profile.status;
+    const currentProviderResponse = await buildVoiceProviderProfileResponse(
+      db,
+      activeProviderProfile,
+    );
+    const pendingProviderResponse = await buildVoiceProviderProfileResponse(
+      db,
+      pendingProviderProfile,
+    );
     reply.send({
       profile_id: profile.id,
       status: responseStatus,
@@ -1731,22 +1914,10 @@ function registerEnrollmentRoutes(app, deps) {
       last_verified_at: profile.last_verified_at,
       model_version: profile.model_version,
       requires_reverification: false,
-      local_voice_ready: profile.status === "active",
+      local_voice_ready: Boolean(activeProfile),
       my_voice_ready: providerProfileReady,
-      voice_provider_profile: providerProfile
-        ? {
-            id: providerProfile.id,
-            provider: providerProfile.provider,
-            status: providerProfile.status,
-            ready: providerProfileReady,
-            has_provider_profile_id: Boolean(
-              providerProfile.provider_profile_id,
-            ),
-            consent_scope: providerProfile.consent_scope || null,
-            updated_at: providerProfile.updated_at || null,
-            last_error: providerProfile.last_error || null,
-          }
-        : null,
+      voice_provider_profile: currentProviderResponse,
+      pending_voice_provider_profile: pendingProviderResponse,
     });
   });
 

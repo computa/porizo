@@ -30,7 +30,12 @@ struct VoiceProfileView: View {
             return qualityTier.completionMessage
         case .preparing:
             return "My Voice is still being prepared. You can use it once setup finishes."
-        case .failed, .setupRequired:
+        case .failed:
+            if profile.needsVoiceRecapture {
+                return "My Voice setup needs clearer sung audio before songs can use your voice."
+            }
+            return "My Voice setup needs support. Your previous voice stays available if you had one."
+        case .setupRequired:
             return "My Voice setup needs clearer sung audio before songs can use your voice."
         case .none:
             return "Set up My Voice before using your voice in songs."

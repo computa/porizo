@@ -11,6 +11,7 @@ const { moderationCheck, validateGeneratedLyrics } = require("../providers/moder
 const { getFeatureFlag } = require("../services/feature-flags");
 const {
   findActiveProviderProfileForUser,
+  findLatestPendingProviderProfileForUser,
   findLatestProviderProfileForVoiceProfile,
 } = require("../services/voice-provider-profile-service");
 const {
@@ -21,6 +22,10 @@ const SUNO_PERSONA_PREPARING_STATUSES = new Set([
   "upload_submitted",
   "cover_submitted",
   "persona_submitted",
+]);
+const SUNO_PERSONA_FAILED_STATUSES = new Set([
+  "failed",
+  "manual_cleanup_required",
 ]);
 const { generatePoemFromStory } = require("../writer/poem");
 const { evaluatePoemReadiness } = require("../writer/v3/quality");
@@ -88,6 +93,47 @@ function extractLyricsText(lyrics) {
     }
   }
   return parts.join(" ");
+}
+
+function toTimestamp(value) {
+  if (!value) return null;
+  const ts = Date.parse(value);
+  return Number.isFinite(ts) ? ts : null;
+}
+
+function isNewerProviderProfile(candidate, activeProviderProfile) {
+  if (!candidate) return false;
+  if (!activeProviderProfile) return true;
+  const candidateTs = toTimestamp(candidate.created_at || candidate.updated_at);
+  const activeTs = toTimestamp(
+    activeProviderProfile.activated_at ||
+      activeProviderProfile.created_at ||
+      activeProviderProfile.updated_at,
+  );
+  if (candidateTs !== null && activeTs !== null) {
+    return candidateTs >= activeTs;
+  }
+  return candidate.id !== activeProviderProfile.id;
+}
+
+function sunoPersonaReadinessError(providerProfile) {
+  const status = providerProfile?.status;
+  if (SUNO_PERSONA_FAILED_STATUSES.has(status)) {
+    return {
+      code: "SUNO_VOICE_PERSONA_FAILED",
+      message:
+        "My Voice setup hit a provider issue. Please try again shortly.",
+      requiresVoiceEnrollment: true,
+    };
+  }
+  if (SUNO_PERSONA_PREPARING_STATUSES.has(status)) {
+    return {
+      code: "SUNO_VOICE_PERSONA_REQUIRED",
+      message: "My Voice is still being prepared. Please try again shortly.",
+      requiresVoiceEnrollment: false,
+    };
+  }
+  return null;
 }
 const V3_ORCHESTRATION_MAX_DEBUG_CHECKS = 12;
 const V3_ORCHESTRATION_MAX_LIST_LIMIT = 100;
@@ -3053,33 +3099,46 @@ function registerStoryRoutes(app, {
           userId,
           provider: "suno",
         });
+        const blockingProviderProfile =
+          await findLatestPendingProviderProfileForUser(db, {
+            userId,
+            provider: "suno",
+          });
+        const blockingError = isNewerProviderProfile(
+          blockingProviderProfile,
+          providerProfile,
+        )
+          ? sunoPersonaReadinessError(blockingProviderProfile)
+          : null;
+        if (blockingError) {
+          sendError(reply, 422, blockingError.code, blockingError.message, {
+            requires_voice_enrollment:
+              blockingError.requiresVoiceEnrollment === true,
+          });
+          return;
+        }
         if (
           !providerProfile ||
           !providerProfile.provider_profile_id ||
           !hasPersonaConsentScope(providerProfile.consent_scope)
         ) {
-          const latestProviderProfile = await findLatestProviderProfileForVoiceProfile(db, {
-            voiceProfileId: profile.id,
-            provider: "suno",
-            includeDeleted: true,
-          });
-          const status = latestProviderProfile?.status;
+          const latestProviderProfile =
+            blockingProviderProfile ||
+            (await findLatestProviderProfileForVoiceProfile(db, {
+              voiceProfileId: profile.id,
+              provider: "suno",
+              includeDeleted: true,
+            }));
+          const readinessError = sunoPersonaReadinessError(latestProviderProfile);
           const code =
-            status === "failed"
-              ? "SUNO_VOICE_PERSONA_FAILED"
-              : SUNO_PERSONA_PREPARING_STATUSES.has(status)
-                ? "SUNO_VOICE_PERSONA_REQUIRED"
-                : "SUNO_VOICE_PERSONA_SETUP_REQUIRED";
+            readinessError?.code || "SUNO_VOICE_PERSONA_SETUP_REQUIRED";
           const message =
-            code === "SUNO_VOICE_PERSONA_FAILED"
-              ? "My Voice needs a new Suno voice setup before song generation."
-              : code === "SUNO_VOICE_PERSONA_REQUIRED"
-                ? "My Voice is still being prepared. Please try again shortly."
-                : "My Voice needs voice setup before song generation.";
+            readinessError?.message ||
+            "My Voice needs voice setup before song generation.";
           sendError(reply, 422, code, message, {
-            requires_voice_enrollment:
-              code === "SUNO_VOICE_PERSONA_FAILED" ||
-              code === "SUNO_VOICE_PERSONA_SETUP_REQUIRED",
+            requires_voice_enrollment: readinessError
+              ? readinessError.requiresVoiceEnrollment === true
+              : true,
           });
           return;
         }

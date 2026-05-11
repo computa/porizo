@@ -1,4 +1,5 @@
 const { generatePrefixedId } = require("../utils/ids");
+const { parseJson } = require("../utils/common");
 
 const DEFAULT_PROVIDER = "suno";
 // U9: COVER_SUBMITTED added to distinguish file-upload submission from
@@ -127,6 +128,103 @@ async function findActiveProviderProfileForUser(
     .get(requireField(userId, "userId"), normalizeProvider(provider));
 }
 
+async function findLatestPendingProviderProfileForUser(
+  db,
+  { userId, provider = DEFAULT_PROVIDER } = {},
+) {
+  return db
+    .prepare(
+      `SELECT vpp.*
+       FROM voice_provider_profiles vpp
+       JOIN voice_profiles vp
+         ON vp.id = vpp.voice_profile_id
+        AND vp.user_id = vpp.user_id
+      WHERE vpp.user_id = ?
+        AND vpp.provider = ?
+        AND vpp.status IN ('pending', 'upload_submitted', 'cover_submitted', 'persona_submitted', 'failed', 'manual_cleanup_required')
+        AND vpp.deleted_at IS NULL
+        AND vp.deleted_at IS NULL
+      ORDER BY vpp.created_at DESC
+      LIMIT 1`,
+    )
+    .get(requireField(userId, "userId"), normalizeProvider(provider));
+}
+
+async function getLatestVoiceProviderJobForProfile(db, providerProfileId) {
+  if (!providerProfileId) {
+    return null;
+  }
+  return db
+    .prepare(
+      `SELECT *
+         FROM voice_provider_jobs
+        WHERE voice_provider_profile_id = ?
+        ORDER BY updated_at DESC, created_at DESC
+        LIMIT 1`,
+    )
+    .get(providerProfileId);
+}
+
+async function patchProviderProfileMetadata(db, id, patch = {}, error = null) {
+  const existing = await getProviderProfileById(db, id);
+  if (!existing) {
+    return null;
+  }
+  const metadata = parseJson(existing.metadata_json, {}, "metadata_json") || {};
+  const updatedAt = nowIso();
+  await db
+    .prepare(
+      `UPDATE voice_provider_profiles
+          SET metadata_json = ?, last_error = COALESCE(?, last_error),
+              updated_at = ?
+        WHERE id = ?`,
+    )
+    .run(
+      JSON.stringify({ ...metadata, ...patch }),
+      error ? sanitizeProviderError(error) : null,
+      updatedAt,
+      requireField(id, "id"),
+    );
+  return getProviderProfileById(db, id);
+}
+
+async function retireOlderActiveVoiceProfilesForUser(
+  db,
+  { userId, activeVoiceProfileId, provider = DEFAULT_PROVIDER } = {},
+) {
+  const normalizedProvider = normalizeProvider(provider);
+  const updatedAt = nowIso();
+  const oldProfiles = await db
+    .prepare(
+      `SELECT id
+         FROM voice_profiles
+        WHERE user_id = ?
+          AND status = 'active'
+          AND id != ?
+          AND deleted_at IS NULL`,
+    )
+    .all(
+      requireField(userId, "userId"),
+      requireField(activeVoiceProfileId, "activeVoiceProfileId"),
+    );
+
+  for (const profile of oldProfiles) {
+    await softDeleteProviderProfilesForVoiceProfile(db, {
+      voiceProfileId: profile.id,
+      userId,
+      provider: normalizedProvider,
+      reason: "voice_profile_replaced",
+    });
+    await db
+      .prepare(
+        "UPDATE voice_profiles SET status = ?, deleted_at = ? WHERE id = ? AND user_id = ?",
+      )
+      .run(STATUS.DELETED, updatedAt, profile.id, userId);
+  }
+
+  return oldProfiles.length;
+}
+
 async function markProviderProfileUploadSubmitted(
   db,
   id,
@@ -245,6 +343,23 @@ async function markProviderProfileActive(
     );
   if (!result?.changes) {
     throw new Error("VOICE_PROVIDER_PROFILE_INVALID_TRANSITION: active");
+  }
+  const active = await getProviderProfileById(db, id);
+  if (active?.voice_profile_id && active?.user_id) {
+    await db
+      .prepare(
+        `UPDATE voice_profiles
+            SET status = 'active', last_verified_at = COALESCE(last_verified_at, ?)
+          WHERE id = ?
+            AND user_id = ?
+            AND status IN ('pending_provider', 'active')`,
+      )
+      .run(updatedAt, active.voice_profile_id, active.user_id);
+    await retireOlderActiveVoiceProfilesForUser(db, {
+      userId: active.user_id,
+      activeVoiceProfileId: active.voice_profile_id,
+      provider: active.provider,
+    });
   }
   return getProviderProfileById(db, id);
 }
@@ -585,8 +700,11 @@ module.exports = {
   STATUS,
   createPendingProviderProfile,
   findLatestProviderProfileForVoiceProfile,
+  findLatestPendingProviderProfileForUser,
   findActiveProviderProfileForUser,
+  getLatestVoiceProviderJobForProfile,
   getProviderProfileById,
+  patchProviderProfileMetadata,
   markProviderProfileUploadSubmitted,
   markProviderProfileCoverSubmitted,
   markProviderProfilePersonaSubmitted,

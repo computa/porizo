@@ -1639,19 +1639,39 @@ struct WarmCanvasFlowView: View {
         flowTask = Task { @MainActor in
             do {
                 let profile = try await apiClient.getVoiceProfile()
-                if profile.isMyVoiceReady {
-                    songFlow.voiceMode = .myVoice
-                    withAnimation { moment = .tell(.voiceSelected) }
-                    await applyVoiceAndCreateTrack()
-                } else if profile.isMyVoicePreparing {
+                if profile.pendingMyVoiceNeedsRecapture {
                     shouldResumeMyVoiceAfterEnrollment = true
-                    guard let readyProfile = await waitForMyVoiceReadiness(),
-                          readyProfile.isMyVoiceReady else {
+                    activeSheet = .voiceEnrollment(existingScore: profile.qualityScore)
+                } else if profile.pendingMyVoiceDidFail {
+                    shouldResumeMyVoiceAfterEnrollment = false
+                    activeAlert = .error("My Voice setup hit a provider issue. We are checking it in the background.")
+                } else if profile.hasPendingMyVoiceSetup || profile.isMyVoicePreparing {
+                    shouldResumeMyVoiceAfterEnrollment = true
+                    guard let readyProfile = await waitForMyVoiceReadiness() else {
+                        shouldResumeMyVoiceAfterEnrollment = false
+                        activeAlert = .error("Your voice is still being prepared. Try My Voice again in a moment.")
+                        return
+                    }
+                    if readyProfile.pendingMyVoiceNeedsRecapture {
+                        shouldResumeMyVoiceAfterEnrollment = true
+                        activeSheet = .voiceEnrollment(existingScore: readyProfile.qualityScore)
+                        return
+                    }
+                    if readyProfile.pendingMyVoiceDidFail {
+                        shouldResumeMyVoiceAfterEnrollment = false
+                        activeAlert = .error("My Voice setup hit a provider issue. We are checking it in the background.")
+                        return
+                    }
+                    guard readyProfile.isMyVoiceReady else {
                         shouldResumeMyVoiceAfterEnrollment = false
                         activeAlert = .error("Your voice is still being prepared. Try My Voice again in a moment.")
                         return
                     }
                     shouldResumeMyVoiceAfterEnrollment = false
+                    songFlow.voiceMode = .myVoice
+                    withAnimation { moment = .tell(.voiceSelected) }
+                    await applyVoiceAndCreateTrack()
+                } else if profile.isMyVoiceReady {
                     songFlow.voiceMode = .myVoice
                     withAnimation { moment = .tell(.voiceSelected) }
                     await applyVoiceAndCreateTrack()
@@ -1717,10 +1737,24 @@ struct WarmCanvasFlowView: View {
                 return
             }
             guard !Task.isCancelled else { return }
+            if profile.pendingMyVoiceNeedsRecapture {
+                shouldResumeMyVoiceAfterEnrollment = true
+                activeSheet = .voiceEnrollment(existingScore: profile.qualityScore)
+                return
+            }
+            if profile.pendingMyVoiceDidFail {
+                activeAlert = .error("My Voice setup hit a provider issue. We are checking it in the background.")
+                shouldResumeMyVoiceAfterEnrollment = false
+                return
+            }
             guard profile.isMyVoiceReady else {
-                if profile.didMyVoiceSetupFail || profile.isMyVoiceSetupRequired {
+                if profile.needsVoiceRecapture || profile.isMyVoiceSetupRequired {
                     shouldResumeMyVoiceAfterEnrollment = true
                     activeSheet = .voiceEnrollment(existingScore: profile.qualityScore)
+                    return
+                } else if profile.didMyVoiceSetupFail {
+                    activeAlert = .error("My Voice setup hit a provider issue. We are checking it in the background.")
+                    shouldResumeMyVoiceAfterEnrollment = false
                     return
                 } else {
                     activeAlert = .error("Voice setup finished. I kept your song details on this screen, but your voice is still being prepared. Try My Voice again in a moment.")
@@ -1740,7 +1774,13 @@ struct WarmCanvasFlowView: View {
         for attempt in 0..<36 {
             do {
                 let profile = try await apiClient.getVoiceProfile()
-                if profile.isMyVoiceReady || profile.didMyVoiceSetupFail || !profile.isMyVoicePreparing {
+                if profile.pendingMyVoiceNeedsRecapture || profile.pendingMyVoiceDidFail {
+                    return profile
+                }
+                if profile.needsVoiceRecapture || profile.didMyVoiceSetupFail {
+                    return profile
+                }
+                if !profile.hasPendingMyVoiceSetup && (profile.isMyVoiceReady || !profile.isMyVoicePreparing) {
                     return profile
                 }
             } catch {
@@ -1751,7 +1791,13 @@ struct WarmCanvasFlowView: View {
                 if Task.isCancelled { return nil }
             }
         }
-        return try? await apiClient.getVoiceProfile()
+        guard let latest = try? await apiClient.getVoiceProfile() else {
+            return nil
+        }
+        if latest.pendingMyVoiceNeedsRecapture || latest.pendingMyVoiceDidFail {
+            return latest
+        }
+        return latest.hasPendingMyVoiceSetup ? nil : latest
     }
 
     private func handleVoiceEnrollmentRequiredError(_ error: Error) -> Bool {

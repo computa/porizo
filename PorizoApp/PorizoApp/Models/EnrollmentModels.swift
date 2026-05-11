@@ -155,6 +155,7 @@ struct VoiceProfileStatus: Codable, Sendable {
     let createdAt: String?
     let myVoiceReady: Bool?
     let voiceProviderProfile: VoiceProviderProfileStatus?
+    let pendingVoiceProviderProfile: VoiceProviderProfileStatus?
 
     init(
         profileId: String?,
@@ -163,7 +164,8 @@ struct VoiceProfileStatus: Codable, Sendable {
         qualityTier: String?,
         createdAt: String?,
         myVoiceReady: Bool? = nil,
-        voiceProviderProfile: VoiceProviderProfileStatus? = nil
+        voiceProviderProfile: VoiceProviderProfileStatus? = nil,
+        pendingVoiceProviderProfile: VoiceProviderProfileStatus? = nil
     ) {
         self.profileId = profileId
         self.status = status
@@ -172,16 +174,19 @@ struct VoiceProfileStatus: Codable, Sendable {
         self.createdAt = createdAt
         self.myVoiceReady = myVoiceReady
         self.voiceProviderProfile = voiceProviderProfile
+        self.pendingVoiceProviderProfile = pendingVoiceProviderProfile
     }
 
     /// Computed property - has active profile if status is "active"
     var hasProfile: Bool {
-        status == "active"
+        status == "active" || status == "pending_provider" || profileId != nil
     }
 
     var myVoiceReadiness: MyVoiceReadiness {
+        if hasPendingMyVoiceSetup { return .preparing }
         if isMyVoiceReady { return .ready }
         if isMyVoicePreparing { return .preparing }
+        if needsVoiceRecapture { return .failed }
         if didMyVoiceSetupFail { return .failed }
         if isMyVoiceSetupRequired { return .setupRequired }
         return hasProfile ? .setupRequired : .none
@@ -189,12 +194,38 @@ struct VoiceProfileStatus: Codable, Sendable {
 
     /// My Voice rendering requires the local voice profile and Suno persona.
     var isMyVoiceReady: Bool {
-        myVoiceReady ?? (hasProfile && voiceProviderProfile?.ready == true)
+        myVoiceReady ?? (voiceProviderProfile?.ready == true)
     }
 
     var isMyVoicePreparing: Bool {
-        guard hasProfile, !isMyVoiceReady else { return false }
-        switch voiceProviderProfile?.status {
+        guard !isMyVoiceReady else { return false }
+        let provider = pendingVoiceProviderProfile ?? voiceProviderProfile
+        switch provider?.readiness {
+        case "preparing", "retrying_provider":
+            return true
+        default:
+            break
+        }
+        switch provider?.status {
+        case "pending", "upload_submitted", "cover_submitted", "persona_submitted":
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// A new or replacement Suno persona is still being prepared. This must
+    /// take priority over an older active persona when an enrollment flow just
+    /// submitted a replacement recording.
+    var hasPendingMyVoiceSetup: Bool {
+        guard let provider = pendingVoiceProviderProfile else { return false }
+        switch provider.readiness {
+        case "preparing", "retrying_provider":
+            return true
+        default:
+            break
+        }
+        switch provider.status {
         case "pending", "upload_submitted", "cover_submitted", "persona_submitted":
             return true
         default:
@@ -203,19 +234,46 @@ struct VoiceProfileStatus: Codable, Sendable {
     }
 
     var isMyVoiceSetupRequired: Bool {
-        guard hasProfile, !isMyVoiceReady, !isMyVoicePreparing, !didMyVoiceSetupFail else {
+        guard hasProfile, !isMyVoiceReady, !isMyVoicePreparing, !hasPendingMyVoiceSetup, !didMyVoiceSetupFail else {
             return false
         }
-        switch voiceProviderProfile?.status {
+        let provider = pendingVoiceProviderProfile ?? voiceProviderProfile
+        switch provider?.status {
         case nil, "consent_required", "source_audio_unavailable":
             return true
         default:
-            return voiceProviderProfile?.ready != true
+            return provider?.ready != true
         }
     }
 
     var didMyVoiceSetupFail: Bool {
-        voiceProviderProfile?.status == "failed"
+        if isMyVoiceReady, pendingMyVoiceDidFail {
+            return false
+        }
+        let provider = pendingVoiceProviderProfile ?? voiceProviderProfile
+        return provider?.readiness == "needs_recapture" ||
+            provider?.readiness == "failed_provider" ||
+            provider?.status == "failed"
+    }
+
+    var needsVoiceRecapture: Bool {
+        if isMyVoiceReady, pendingMyVoiceNeedsRecapture {
+            return false
+        }
+        let provider = pendingVoiceProviderProfile ?? voiceProviderProfile
+        return provider?.userAction == "recapture" ||
+            provider?.readiness == "needs_recapture"
+    }
+
+    var pendingMyVoiceDidFail: Bool {
+        pendingVoiceProviderProfile?.readiness == "needs_recapture" ||
+            pendingVoiceProviderProfile?.readiness == "failed_provider" ||
+            pendingVoiceProviderProfile?.status == "failed"
+    }
+
+    var pendingMyVoiceNeedsRecapture: Bool {
+        pendingVoiceProviderProfile?.userAction == "recapture" ||
+            pendingVoiceProviderProfile?.readiness == "needs_recapture"
     }
 
     /// Get tier from score if tier not provided
@@ -235,6 +293,7 @@ struct VoiceProfileStatus: Codable, Sendable {
         case createdAt = "created_at"
         case myVoiceReady = "my_voice_ready"
         case voiceProviderProfile = "voice_provider_profile"
+        case pendingVoiceProviderProfile = "pending_voice_provider_profile"
     }
 }
 
@@ -246,6 +305,10 @@ struct VoiceProviderProfileStatus: Codable, Sendable {
     let hasProviderProfileId: Bool?
     let updatedAt: String?
     let lastError: String?
+    let readiness: String?
+    let userAction: String?
+    let failureReason: String?
+    let nextAttemptAt: String?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -255,6 +318,10 @@ struct VoiceProviderProfileStatus: Codable, Sendable {
         case hasProviderProfileId = "has_provider_profile_id"
         case updatedAt = "updated_at"
         case lastError = "last_error"
+        case readiness
+        case userAction = "user_action"
+        case failureReason = "failure_reason"
+        case nextAttemptAt = "next_attempt_at"
     }
 }
 

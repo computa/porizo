@@ -418,6 +418,71 @@ describe("Render Endpoints", async () => {
     );
   });
 
+  it("POST /tracks/:id/versions/:version/render_preview blocks old active persona while replacement is pending", async () => {
+    const { trackId, trackVersionId } = await createTrackAndVersion();
+    await createActiveSunoPersona();
+    const replacement = await createPendingSunoPersona();
+    const future = new Date(Date.now() + 10_000).toISOString();
+    await db.query(
+      "UPDATE voice_provider_profiles SET created_at = ?, updated_at = ? WHERE id = ?",
+      [future, future, replacement.providerProfileId],
+    );
+    await db.query("UPDATE tracks SET voice_mode = 'user_voice' WHERE id = ?", [
+      trackId,
+    ]);
+    await db.query(
+      `UPDATE track_versions
+       SET status = 'queued',
+           lyrics_status = 'approved'
+       WHERE id = ?`,
+      [trackVersionId],
+    );
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/tracks/${trackId}/versions/1/render_preview`,
+      headers: { "x-user-id": userId },
+    });
+
+    const body = JSON.parse(response.body);
+    assert.equal(response.statusCode, 422);
+    assert.equal(body.error, "SUNO_VOICE_PERSONA_REQUIRED");
+    assert.equal(body.requires_voice_enrollment, false);
+    assert.equal(spendCalls, 0);
+  });
+
+  it("POST /tracks/:id/versions/:version/render_preview blocks old active persona while replacement has failed", async () => {
+    const { trackId, trackVersionId } = await createTrackAndVersion();
+    await createActiveSunoPersona();
+    const replacement = await createPendingSunoPersona();
+    const future = new Date(Date.now() + 10_000).toISOString();
+    await db.query(
+      "UPDATE voice_provider_profiles SET status = 'failed', created_at = ?, updated_at = ? WHERE id = ?",
+      [future, future, replacement.providerProfileId],
+    );
+    await db.query("UPDATE tracks SET voice_mode = 'user_voice' WHERE id = ?", [
+      trackId,
+    ]);
+    await db.query(
+      `UPDATE track_versions
+       SET status = 'queued',
+           lyrics_status = 'approved'
+       WHERE id = ?`,
+      [trackVersionId],
+    );
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/tracks/${trackId}/versions/1/render_preview`,
+      headers: { "x-user-id": userId },
+    });
+
+    const body = JSON.parse(response.body);
+    assert.equal(response.statusCode, 422);
+    assert.equal(body.error, "SUNO_VOICE_PERSONA_FAILED");
+    assert.equal(spendCalls, 0);
+  });
+
   it("POST /tracks/:id/versions/:version/render_preview rejects legacy personalized mode when Suno persona is missing", async () => {
     const { trackId, trackVersionId } = await createTrackAndVersion();
     const now = new Date().toISOString();

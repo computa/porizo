@@ -231,9 +231,6 @@ function assessAudioQuality(buffer) {
   };
 
   try {
-    // Debug: Check buffer
-    console.log("[AudioQuality] Buffer size:", buffer?.length, "First 12 bytes:", buffer?.slice(0, 12)?.toString("ascii"));
-
     // Core metrics from existing QC
     metrics.snr_db = calculateSNR(buffer);
     metrics.clipping_ratio = calculateClippingRatio(buffer);
@@ -242,6 +239,9 @@ function assessAudioQuality(buffer) {
     metrics.reverb_level = detectReverb(buffer);
     metrics.rms_db = measureRmsDb(buffer);
     metrics.duration_sec = getDuration(buffer);
+    const singing = detectSinging(buffer);
+    metrics.is_singing = singing.isSinging;
+    metrics.singing_confidence = singing.confidence;
 
     // VAD ratio - use parsed dataSize to handle extended WAV headers (iOS adds JUNK/LIST chunks)
     const trimmed = vadTrim(buffer, -40);
@@ -256,8 +256,6 @@ function assessAudioQuality(buffer) {
     }
     const origSize = origWavInfo.dataSize;
     metrics.vad_ratio = origSize > 0 ? trimSize / origSize : 0;
-
-    console.log("[AudioQuality] Assessment success:", { snr: metrics.snr_db.toFixed(1), duration: metrics.duration_sec.toFixed(1) });
   } catch (e) {
     console.warn("[AudioQuality] Assessment error:", e.message, "Stack:", e.stack?.split("\\n")[1]);
     throw e;  // Re-throw so enrollment.js catches and handles properly

@@ -13,6 +13,9 @@ const {
   runSunoVoicePersonaJob,
 } = require("../src/services/suno-voice-persona-service");
 const {
+  classifySunoPersonaFailure,
+} = require("../src/services/suno-persona-failure-classifier");
+const {
   cancelVoiceProviderJobsForVoiceProfile,
   createPendingProviderProfile,
   createVoiceProviderJob,
@@ -128,6 +131,28 @@ describe("Suno voice persona service", () => {
   });
 
   test("retries transient generate-persona music readiness errors", async () => {
+    assert.deepEqual(
+      classifySunoPersonaFailure(new Error("fetch failed")),
+      {
+        category: "transient",
+        safeToRetry: true,
+        safeToRetryAfterGenerateRequestStarted: false,
+        recoveryScope: "manual_review",
+        userAction: "contact_support",
+        reason: "provider_not_ready",
+      },
+    );
+    assert.deepEqual(
+      classifySunoPersonaFailure(new Error("Current music failed to generate persona")),
+      {
+        category: "source_audio_retryable",
+        safeToRetry: true,
+        safeToRetryAfterGenerateRequestStarted: true,
+        recoveryScope: "same_task_audio",
+        userAction: "wait",
+        reason: "bad_source_music",
+      },
+    );
     assert.equal(
       isRetryableGeneratePersonaReadinessError(
         new Error(
@@ -150,7 +175,7 @@ describe("Suno voice persona service", () => {
           "E302_SUNO_PERSONA_ERROR: generate-persona failed - Current music failed to generate persona",
         ),
       ),
-      true,
+      false,
     );
 
     let attempts = 0;
@@ -198,6 +223,9 @@ describe("Suno voice persona service", () => {
   });
 
   test("runs a queued provider job to active using a mocked Suno client", async () => {
+    await db
+      .prepare("UPDATE voice_profiles SET status = ? WHERE id = ?")
+      .run("pending_provider", "voice_1");
     const providerProfile = await createPendingProviderProfile(db, {
       voiceProfileId: "voice_1",
       userId: "user_1",
@@ -273,6 +301,10 @@ describe("Suno voice persona service", () => {
     assert.equal(active.provider_profile_id, "persona_live_789");
     assert.equal(active.source_task_id, "task_123");
     assert.equal(active.source_audio_id, "audio_456");
+    const voiceProfile = await db
+      .prepare("SELECT status FROM voice_profiles WHERE id = ?")
+      .get("voice_1");
+    assert.equal(voiceProfile.status, "active");
 
     const job = await db
       .prepare(
@@ -812,6 +844,91 @@ describe("Suno voice persona service", () => {
     assert.deepEqual(metadata.suno_rejected_source_audio_ids, ["audio_bad"]);
   });
 
+  test("regenerates cover task after repeated bad source music candidates", async () => {
+    await db
+      .prepare("UPDATE enrollment_sessions SET access_token = NULL WHERE id = ?")
+      .run("sess_1");
+    const providerProfile = await createPendingProviderProfile(db, {
+      voiceProfileId: "voice_1",
+      userId: "user_1",
+      provider: "suno",
+      consentScope: REQUIRED_CONSENT_SCOPE,
+    });
+    await db
+      .prepare(
+        "UPDATE voice_provider_profiles SET status = ?, source_task_id = ?, source_audio_id = ?, metadata_json = ? WHERE id = ?",
+      )
+      .run(
+        "persona_submitted",
+        "task_123",
+        "audio_c",
+        JSON.stringify({
+          suno_source_audio_duration_sec: 30,
+          suno_rejected_source_audio_ids: ["audio_a", "audio_b"],
+        }),
+        providerProfile.id,
+      );
+    const providerJob = await createVoiceProviderJob(db, {
+      voiceProfileId: "voice_1",
+      userId: "user_1",
+      provider: "suno",
+      voiceProviderProfileId: providerProfile.id,
+      maxAttempts: 8,
+      stepData: { enrollment_session_id: "sess_1" },
+    });
+
+    await assert.rejects(
+      runSunoVoicePersonaJob({
+        db,
+        jobId: providerJob.id,
+        config: {
+          PUBLIC_BASE_URL: "https://porizo.example",
+          SUNO_BASE_URL: "https://api.sunoapi.org",
+          SUNO_API_KEY: "secret",
+          SUNO_PERSONA_GENERATE_MAX_ATTEMPTS: 1,
+          SUNO_PERSONA_GENERATE_RETRY_DELAY_MS: 0,
+        },
+        sunoClient: {
+          uploadFileUrl: async () => null,
+          submitUploadCoverTask: async () => null,
+          pollUploadCoverForAudio: async () => null,
+          generatePersona: async () => {
+            throw new Error("Current music failed to generate persona");
+          },
+        },
+      }),
+      /Current music failed to generate persona/,
+    );
+
+    const job = await db
+      .prepare(
+        "SELECT status, step, attempts, next_attempt_at FROM voice_provider_jobs WHERE id = ?",
+      )
+      .get(providerJob.id);
+    assert.equal(job.status, "pending");
+    assert.equal(job.step, "generate_persona");
+    assert.equal(job.attempts, 1);
+    assert.ok(job.next_attempt_at);
+
+    const profile = await db
+      .prepare(
+        "SELECT status, source_task_id, source_audio_id, metadata_json FROM voice_provider_profiles WHERE id = ?",
+      )
+      .get(providerProfile.id);
+    assert.equal(profile.status, "upload_submitted");
+    assert.equal(profile.source_task_id, null);
+    assert.equal(profile.source_audio_id, null);
+    const metadata = JSON.parse(profile.metadata_json);
+    assert.deepEqual(metadata.suno_rejected_source_audio_ids, [
+      "audio_a",
+      "audio_b",
+      "audio_c",
+    ]);
+    assert.equal(metadata.source_music_regenerations, 1);
+    assert.equal(metadata.last_user_action, "wait");
+    assert.equal(metadata.last_recovery_scope, "fresh_cover_task");
+  });
+
   test("keeps provider job pending after Suno create-persona readiness errors", async () => {
     await db
       .prepare(
@@ -879,7 +996,7 @@ describe("Suno voice persona service", () => {
       )
       .get(providerProfile.id);
     assert.equal(profile.status, "persona_submitted");
-    assert.match(profile.last_error || "", /^$/);
+    assert.match(profile.last_error || "", /create persona error/);
   });
 
   test("preserves remote persona id for manual cleanup if deletion wins during generate", async () => {

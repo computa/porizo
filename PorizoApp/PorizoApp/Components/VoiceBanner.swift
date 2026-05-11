@@ -148,9 +148,9 @@ private enum VoiceBannerState {
             }
             return "Ready for songs"
         case .preparing:
-            return "Song voice setup in progress"
+            return "Preparing in the background"
         case .failed:
-            return "Tap to set it up again"
+            return "Tap to re-record sung lines"
         case .setupRequired:
             return "Tap to complete setup"
         case .notEnrolled:

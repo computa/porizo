@@ -27,6 +27,7 @@ const {
   runSunoVoicePersonaJob,
 } = require("../src/services/suno-voice-persona-service");
 const {
+  createPendingProviderProfile,
   markProviderProfileActive,
 } = require("../src/services/voice-provider-profile-service");
 
@@ -859,7 +860,13 @@ describe("Voice Enrollment API", () => {
           prompt.type === "sung" ? options.sungDurationSec || 8 : 4;
         fs.writeFileSync(
           path.join(chunkDir, `${prompt.id}.wav`),
-          createTestWav({ durationSec }),
+          createTestWav({
+            durationSec,
+            noiseLevel:
+              prompt.type === "sung"
+                ? options.sungNoiseLevel || 0
+                : options.spokenNoiseLevel || 0,
+          }),
         );
       }
 
@@ -991,11 +998,12 @@ describe("Voice Enrollment API", () => {
       );
     });
 
-    it("does not queue Suno persona preparation when sung prompts are not QC-confirmed singing", async () => {
+    it("rejects My Voice enrollment when sung prompts are not QC-confirmed singing", async () => {
       const userId = uniqueUserId("suno_persona");
       const sessionId = await setupEnrollmentWithChunks(userId, {
         numChunks: 6,
         consentVersion: "1.0",
+        sungNoiseLevel: 0.2,
         // U2: explicit Suno-persona consent grant (the previous behavior of
         // treating REQUIRED_CONSENT_SCOPE as consent_version was a scope/version
         // confusion the U2 split corrects).
@@ -1009,35 +1017,155 @@ describe("Voice Enrollment API", () => {
         payload: { session_id: sessionId },
       });
 
-      assert.strictEqual(response.statusCode, 202);
+      assert.strictEqual(response.statusCode, 422);
       const body = response.json();
-      assert.equal(body.voice_provider_profile.provider, "suno");
-      assert.equal(
-        body.voice_provider_profile.status,
-        "sung_calibration_unavailable",
-      );
-      assert.equal(body.voice_provider_profile.job_id, null);
+      assert.equal(body.error, "E107_SUNG_AUDIO_REQUIRED");
+      assert.match(body.message, /sung parts/);
 
-      const providerProfile = await db
+      const session = await db
         .prepare(
-          "SELECT * FROM voice_provider_profiles WHERE voice_profile_id = ?",
+          "SELECT status FROM enrollment_sessions WHERE id = ?",
         )
-        .get(body.voice_profile_id);
-      assert.ok(providerProfile);
-      assert.equal(providerProfile.provider, "suno");
-      assert.equal(providerProfile.status, "failed");
-      assert.equal(providerProfile.consent_scope, REQUIRED_CONSENT_SCOPE);
-      assert.equal(providerProfile.provider_profile_id, null);
-      assert.match(
-        providerProfile.last_error,
-        /sung_calibration_unavailable/,
-      );
-      const count = await db
+        .get(sessionId);
+      assert.equal(session.status, "failed_quality");
+
+      const voiceProfileCount = await db
+        .prepare(
+          "SELECT COUNT(*) AS count FROM voice_profiles WHERE user_id = ?",
+        )
+        .get(userId);
+      assert.equal(voiceProfileCount.count, 0);
+
+      const providerProfileCount = await db
+        .prepare(
+          "SELECT COUNT(*) AS count FROM voice_provider_profiles WHERE user_id = ?",
+        )
+        .get(userId);
+      assert.equal(providerProfileCount.count, 0);
+
+      const jobCount = await db
         .prepare(
           "SELECT COUNT(*) AS count FROM voice_provider_jobs WHERE user_id = ?",
         )
         .get(userId);
-      assert.equal(count.count, 0);
+      assert.equal(jobCount.count, 0);
+    });
+
+    it("preserves the existing active voice profile when sung My Voice re-enrollment fails", async () => {
+      const userId = uniqueUserId("suno_persona_preserve");
+      const existingSessionId = await setupEnrollmentWithChunks(userId);
+      const existingResponse = await app.inject({
+        method: "POST",
+        url: "/voice/enrollment/complete",
+        headers: { "x-user-id": userId },
+        payload: { session_id: existingSessionId },
+      });
+      assert.strictEqual(existingResponse.statusCode, 202);
+      const existingProfileId = existingResponse.json().voice_profile_id;
+
+      const failedSessionId = await setupEnrollmentWithChunks(userId, {
+        numChunks: 6,
+        consentVersion: "1.0",
+        sungNoiseLevel: 0.2,
+        voiceSunoPersonaConsent: true,
+      });
+      const failedResponse = await app.inject({
+        method: "POST",
+        url: "/voice/enrollment/complete",
+        headers: { "x-user-id": userId },
+        payload: { session_id: failedSessionId },
+      });
+
+      assert.strictEqual(failedResponse.statusCode, 422);
+      assert.equal(failedResponse.json().error, "E107_SUNG_AUDIO_REQUIRED");
+
+      const existingProfile = await db
+        .prepare("SELECT status FROM voice_profiles WHERE id = ?")
+        .get(existingProfileId);
+      assert.equal(existingProfile.status, "active");
+
+      const activeProfileCount = await db
+        .prepare(
+          "SELECT COUNT(*) AS count FROM voice_profiles WHERE user_id = ? AND status = 'active'",
+        )
+        .get(userId);
+      assert.equal(activeProfileCount.count, 1);
+    });
+
+    it("queues Suno persona preparation from uploaded sung calibration when sung prompts pass", async () => {
+      const userId = uniqueUserId("suno_persona_ready");
+      const sessionId = await setupEnrollmentWithChunks(userId, {
+        numChunks: 6,
+        voiceSunoPersonaConsent: true,
+      });
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/voice/enrollment/complete",
+        headers: { "x-user-id": userId },
+        payload: { session_id: sessionId },
+      });
+
+      assert.strictEqual(response.statusCode, 202);
+      const body = response.json();
+      assert.equal(body.voice_provider_profile.provider, "suno");
+      assert.equal(body.voice_provider_profile.status, "pending");
+      assert.ok(body.voice_provider_profile.job_id);
+      assert.equal(body.voice_provider_profile.source_audio, "sung_calibration");
+      assert.ok(body.voice_provider_profile.source_duration_sec >= 10);
+
+      const job = await db
+        .prepare("SELECT step_data FROM voice_provider_jobs WHERE id = ?")
+        .get(body.voice_provider_profile.job_id);
+      assert.ok(job);
+      const stepData = JSON.parse(job.step_data);
+      assert.match(stepData.source_audio_key, /suno-persona\.wav$/);
+      assert.equal(stepData.source_audio_name, "suno-persona.wav");
+    });
+
+    it("does not create or replace a profile when sung calibration upload fails", async () => {
+      const userId = uniqueUserId("suno_persona_upload_fail");
+      const sessionId = await setupEnrollmentWithChunks(userId, {
+        numChunks: 6,
+        voiceSunoPersonaConsent: true,
+      });
+      const originalPutFile = storage.putFile.bind(storage);
+      storage.putFile = async (args) => {
+        if (String(args?.key || "").endsWith("/suno-persona.wav")) {
+          throw new Error("simulated suno-persona upload failure");
+        }
+        return originalPutFile(args);
+      };
+
+      try {
+        const response = await app.inject({
+          method: "POST",
+          url: "/voice/enrollment/complete",
+          headers: { "x-user-id": userId },
+          payload: { session_id: sessionId },
+        });
+
+        assert.strictEqual(response.statusCode, 500);
+        const body = response.json();
+        assert.equal(body.error, "STORAGE_ERROR");
+        assert.equal(body.details.reason, "sung_calibration_upload_failed");
+
+        const voiceProfileCount = await db
+          .prepare(
+            "SELECT COUNT(*) AS count FROM voice_profiles WHERE user_id = ?",
+          )
+          .get(userId);
+        assert.equal(voiceProfileCount.count, 0);
+
+        const jobCount = await db
+          .prepare(
+            "SELECT COUNT(*) AS count FROM voice_provider_jobs WHERE user_id = ?",
+          )
+          .get(userId);
+        assert.equal(jobCount.count, 0);
+      } finally {
+        storage.putFile = originalPutFile;
+      }
     });
 
     it("does not queue Suno persona preparation without Suno-specific consent", async () => {
@@ -1101,6 +1229,83 @@ describe("Voice Enrollment API", () => {
 
       assert.strictEqual(response.statusCode, 410);
       assert.strictEqual(response.json().error, "SESSION_EXPIRED");
+    });
+
+    it("should reject duplicate completion once the session is claimed", async () => {
+      const userId = uniqueUserId("claimed");
+      const sessionId = await setupEnrollmentWithChunks(userId);
+
+      await db
+        .prepare("UPDATE enrollment_sessions SET status = ? WHERE id = ?")
+        .run("finalizing", sessionId);
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/voice/enrollment/complete",
+        headers: { "x-user-id": userId },
+        payload: { session_id: sessionId },
+      });
+
+      assert.strictEqual(response.statusCode, 409);
+      assert.strictEqual(response.json().error, "SESSION_ALREADY_FINALIZED");
+    });
+
+    it("should mark missing uploaded audio as failed instead of leaving finalizing stuck", async () => {
+      const userId = uniqueUserId("missing_audio");
+      const startResponse = await app.inject({
+        method: "POST",
+        url: "/voice/enrollment/start",
+        headers: { "x-user-id": userId },
+        payload: { consent_accepted: true },
+      });
+      const sessionId = startResponse.json().session_id;
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/voice/enrollment/complete",
+        headers: { "x-user-id": userId },
+        payload: { session_id: sessionId },
+      });
+
+      assert.strictEqual(response.statusCode, 500);
+      assert.strictEqual(response.json().error, "STORAGE_ERROR");
+      const session = await db
+        .prepare("SELECT status, completed_at FROM enrollment_sessions WHERE id = ?")
+        .get(sessionId);
+      assert.strictEqual(session.status, "failed_internal");
+      assert.ok(session.completed_at);
+    });
+
+    it("should mark storage resolution errors as failed instead of leaving finalizing stuck", async () => {
+      const userId = uniqueUserId("storage_resolution_error");
+      const sessionId = await setupEnrollmentWithChunks(userId);
+      const originalObjectExists = storage.objectExists.bind(storage);
+      storage.objectExists = async () => {
+        throw new Error("simulated objectExists failure");
+      };
+
+      try {
+        const response = await app.inject({
+          method: "POST",
+          url: "/voice/enrollment/complete",
+          headers: { "x-user-id": userId },
+          payload: { session_id: sessionId },
+        });
+
+        assert.strictEqual(response.statusCode, 500);
+        assert.strictEqual(response.json().error, "STORAGE_ERROR");
+        assert.strictEqual(
+          response.json().details.reason,
+          "chunk_resolution_failed",
+        );
+        const session = await db
+          .prepare("SELECT status, completed_at FROM enrollment_sessions WHERE id = ?")
+          .get(sessionId);
+        assert.strictEqual(session.status, "failed_internal");
+        assert.ok(session.completed_at);
+      } finally {
+        storage.objectExists = originalObjectExists;
+      }
     });
 
     it("should handle silent audio with low quality score", async () => {
@@ -1259,39 +1464,38 @@ describe("Voice Enrollment API", () => {
 
     it("should report My Voice ready only after Suno persona is active", async () => {
       const userId = uniqueUserId("profile_persona_ready");
-      const startResponse = await app.inject({
-        method: "POST",
-        url: "/voice/enrollment/start",
+      await app.inject({
+        method: "GET",
+        url: "/voice/profile",
         headers: { "x-user-id": userId },
-        payload: {
-          consent_accepted: true,
-          consent_scopes: [REQUIRED_CONSENT_SCOPE],
-        },
       });
-      const sessionId = startResponse.json().session_id;
-      const chunkDir = path.join(
-        storageDir,
-        "enrollment",
-        "raw",
-        userId,
-        sessionId,
-      );
-      fs.mkdirSync(chunkDir, { recursive: true });
-      for (let i = 0; i < 4; i++) {
-        fs.writeFileSync(
-          path.join(chunkDir, `p${i + 1}.wav`),
-          createTestWav({ durationSec: 4 }),
+      const voiceProfileId = crypto.randomUUID();
+      await db
+        .prepare(
+          "INSERT INTO voice_profiles (id, user_id, status, embedding_ref, quality_score, quality_tier, quality_metrics_json, model_version, consent_version, consent_at, last_verified_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .run(
+          voiceProfileId,
+          userId,
+          "active",
+          `voice_profiles/${userId}/${voiceProfileId}/embedding.bin`,
+          90,
+          "excellent",
+          JSON.stringify({ average_score: 90 }),
+          "embed_stub",
+          "1.0",
+          new Date().toISOString(),
+          new Date().toISOString(),
+          new Date().toISOString(),
         );
-      }
-
-      const completeResponse = await app.inject({
-        method: "POST",
-        url: "/voice/enrollment/complete",
-        headers: { "x-user-id": userId },
-        payload: { session_id: sessionId },
+      const providerProfile = await createPendingProviderProfile(db, {
+        voiceProfileId,
+        userId,
+        provider: "suno",
+        consentScope: REQUIRED_CONSENT_SCOPE,
+        metadata: { source: "test" },
       });
-      const providerProfileId =
-        completeResponse.json().voice_provider_profile.id;
+      const providerProfileId = providerProfile.id;
 
       const pendingResponse = await app.inject({
         method: "GET",
@@ -1301,8 +1505,12 @@ describe("Voice Enrollment API", () => {
       assert.strictEqual(pendingResponse.statusCode, 200);
       assert.strictEqual(pendingResponse.json().my_voice_ready, false);
       assert.strictEqual(
-        pendingResponse.json().voice_provider_profile.ready,
+        pendingResponse.json().pending_voice_provider_profile.ready,
         false,
+      );
+      assert.strictEqual(
+        pendingResponse.json().pending_voice_provider_profile.readiness,
+        "preparing",
       );
 
       const immediatePollResponse = await app.inject({
@@ -1334,6 +1542,105 @@ describe("Voice Enrollment API", () => {
       assert.strictEqual(readyResponse.statusCode, 200);
       assert.strictEqual(readyResponse.json().my_voice_ready, true);
       assert.strictEqual(readyResponse.json().voice_provider_profile.ready, true);
+      assert.strictEqual(
+        readyResponse.json().voice_provider_profile.readiness,
+        "ready",
+      );
+    });
+
+    it("should keep current active persona visible while replacement is pending", async () => {
+      const userId = uniqueUserId("profile_replacement_pending");
+      const now = new Date().toISOString();
+      const activeVoiceProfileId = crypto.randomUUID();
+      const replacementVoiceProfileId = crypto.randomUUID();
+
+      await db
+        .prepare("INSERT INTO users (id, created_at) VALUES (?, ?)")
+        .run(userId, now);
+      await db
+        .prepare(
+          "INSERT INTO voice_profiles (id, user_id, status, embedding_ref, quality_score, quality_tier, quality_metrics_json, model_version, consent_version, consent_at, last_verified_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .run(
+          activeVoiceProfileId,
+          userId,
+          "active",
+          `voice_profiles/${userId}/${activeVoiceProfileId}/embedding.bin`,
+          91,
+          "excellent",
+          JSON.stringify({ average_score: 91 }),
+          "embed_stub",
+          "ios_v1",
+          now,
+          now,
+          now,
+        );
+      await db
+        .prepare(
+          "INSERT INTO voice_provider_profiles (id, voice_profile_id, user_id, provider, provider_profile_id, status, model, consent_scope, metadata_json, created_at, updated_at, activated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .run(
+          `vpp_active_${Date.now()}`,
+          activeVoiceProfileId,
+          userId,
+          "suno",
+          "persona_live_existing",
+          "active",
+          "V5_5",
+          REQUIRED_CONSENT_SCOPE,
+          "{}",
+          now,
+          now,
+          now,
+        );
+      await db
+        .prepare(
+          "INSERT INTO voice_profiles (id, user_id, status, embedding_ref, quality_score, quality_tier, quality_metrics_json, model_version, consent_version, consent_at, last_verified_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .run(
+          replacementVoiceProfileId,
+          userId,
+          "pending_provider",
+          `voice_profiles/${userId}/${replacementVoiceProfileId}/embedding.bin`,
+          96,
+          "excellent",
+          JSON.stringify({ average_score: 96 }),
+          "embed_stub",
+          "ios_v1",
+          now,
+          now,
+          new Date(Date.now() + 1000).toISOString(),
+        );
+      const replacementProvider = await createPendingProviderProfile(db, {
+        voiceProfileId: replacementVoiceProfileId,
+        userId,
+        provider: "suno",
+        consentScope: REQUIRED_CONSENT_SCOPE,
+        metadata: { source: "replacement_test" },
+      });
+
+      const response = await app.inject({
+        method: "GET",
+        url: "/voice/profile",
+        headers: { "x-user-id": userId },
+      });
+
+      assert.strictEqual(response.statusCode, 200);
+      const body = response.json();
+      assert.strictEqual(body.my_voice_ready, true);
+      assert.strictEqual(
+        body.voice_provider_profile.provider_profile_id,
+        "persona_live_existing",
+      );
+      assert.strictEqual(body.voice_provider_profile.readiness, "ready");
+      assert.strictEqual(
+        body.pending_voice_provider_profile.id,
+        replacementProvider.id,
+      );
+      assert.strictEqual(
+        body.pending_voice_provider_profile.readiness,
+        "preparing",
+      );
     });
 
     it("should return 404 for user without profile", async () => {
