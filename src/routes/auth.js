@@ -482,7 +482,7 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
     try {
       const cutoff = new Date(Date.now() - 72 * 60 * 60 * 1000).toISOString();
       const event = await db.prepare(
-        `SELECT id, utm_source, utm_medium, utm_campaign, country
+        `SELECT id, utm_source, utm_medium, utm_campaign, utm_content, utm_term, country, referrer_url, created_at
          FROM download_events
          WHERE ip_address = ? AND created_at > ? AND matched_user_id IS NULL
          ORDER BY created_at DESC LIMIT 1`

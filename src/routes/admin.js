@@ -1361,6 +1361,28 @@ app.get("/admin/dashboard/growth/attribution", async (request, reply) => {
   reply.send(attribution);
 });
 
+app.get("/admin/dashboard/growth/apple-ads-keyword-map", async (request, reply) => {
+  const admin = await requireAdminSession(request, reply);
+  if (!admin) return;
+  const keywordMap = await adminService.getAppleAdsKeywordMap({
+    limit: request.query.limit,
+    offset: request.query.offset,
+  });
+  reply.send(keywordMap);
+});
+
+app.post("/admin/dashboard/growth/apple-ads-keyword-map", async (request, reply) => {
+  const admin = await requireAdminSession(request, reply);
+  if (!admin) return;
+  try {
+    const rows = request.body?.keywords ?? request.body?.rows;
+    const result = await adminService.upsertAppleAdsKeywordMap(rows, admin.adminId);
+    reply.send(result);
+  } catch (error) {
+    sendError(reply, 400, "INVALID_KEYWORD_MAP", error.message || "Invalid Apple Ads keyword map payload");
+  }
+});
+
 app.get("/admin/dashboard/growth/teasers", async (request, reply) => {
   const admin = await requireAdminSession(request, reply);
   if (!admin) return;

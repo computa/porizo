@@ -205,6 +205,109 @@ extension APIClient {
         }
     }
 
+    /// Resolve an opaque receiver handoff id into a short-lived claim token.
+    /// The response intentionally does not expose the raw share id.
+    func resolveReceiverHandoff(handoffId: String) async throws -> ReceiverHandoffResponse {
+        let encoded = handoffId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? handoffId
+        let url = URL(string: "\(baseURL)/receiver-handoff/\(encoded)")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+
+        let (data, response) = try await Self.session.data(for: request)
+        try validateResponse(response, data: data)
+
+        do {
+            return try Self.jsonDecoder.decode(ReceiverHandoffResponse.self, from: data)
+        } catch {
+            let responseText = String(data: data, encoding: .utf8) ?? "No response"
+            throw APIClientError.decodingError("ReceiverHandoffResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+        }
+    }
+
+    /// Claim a receiver handoff token for the current device. This path is
+    /// intentionally device-token based so recipients can save before signing in.
+    func claimReceiverToken(
+        claimToken: String,
+        pin: String,
+        appVersion: String
+    ) async throws -> ReceiverClaimResponse {
+        let encoded = claimToken.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? claimToken
+        let url = URL(string: "\(baseURL)/receiver-claim/\(encoded)")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        guard let deviceToken = try await ensureDeviceToken() else {
+            throw APIClientError.notAuthenticated
+        }
+        request.setValue(deviceToken, forHTTPHeaderField: "x-device-token")
+
+        var body: [String: String] = [
+            "device_id": deviceUserId,
+            "platform": "ios",
+            "app_version": appVersion,
+        ]
+        let trimmedPin = pin.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedPin.isEmpty {
+            body["pin"] = trimmedPin
+        }
+        request.httpBody = try JSONEncoder().encode(body)
+
+        var (data, response) = try await Self.session.data(for: request)
+        if let httpResponse = response as? HTTPURLResponse,
+           shouldRetryDeviceToken(httpResponse: httpResponse, data: data) {
+            clearDeviceToken()
+            guard let refreshedToken = try await ensureDeviceToken() else {
+                throw APIClientError.notAuthenticated
+            }
+            var retryRequest = request
+            retryRequest.setValue(refreshedToken, forHTTPHeaderField: "x-device-token")
+            (data, response) = try await Self.session.data(for: retryRequest)
+        }
+        try validateResponse(response, data: data)
+
+        do {
+            return try Self.jsonDecoder.decode(ReceiverClaimResponse.self, from: data)
+        } catch {
+            let responseText = String(data: data, encoding: .utf8) ?? "No response"
+            throw APIClientError.decodingError("ReceiverClaimResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+        }
+    }
+
+    /// Fetch a stream for an already-claimed opaque receiver token.
+    func getReceiverClaimStream(claimToken: String) async throws -> ShareStreamResponse {
+        let encoded = claimToken.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? claimToken
+        let url = URL(string: "\(baseURL)/receiver-claim/\(encoded)/stream")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("ios", forHTTPHeaderField: "x-platform")
+
+        guard let deviceToken = try await ensureDeviceToken() else {
+            throw APIClientError.notAuthenticated
+        }
+        request.setValue(deviceToken, forHTTPHeaderField: "x-device-token")
+
+        var (data, response) = try await Self.session.data(for: request)
+        if let httpResponse = response as? HTTPURLResponse,
+           shouldRetryDeviceToken(httpResponse: httpResponse, data: data) {
+            clearDeviceToken()
+            guard let refreshedToken = try await ensureDeviceToken() else {
+                throw APIClientError.notAuthenticated
+            }
+            var retryRequest = request
+            retryRequest.setValue(refreshedToken, forHTTPHeaderField: "x-device-token")
+            (data, response) = try await Self.session.data(for: retryRequest)
+        }
+        try validateResponse(response, data: data)
+
+        do {
+            return try Self.jsonDecoder.decode(ShareStreamResponse.self, from: data)
+        } catch {
+            let responseText = String(data: data, encoding: .utf8) ?? "No response"
+            throw APIClientError.decodingError("ShareStreamResponse: \(error.localizedDescription). Response: \(Self.sanitizeForLogging(responseText))")
+        }
+    }
+
     /// Get streaming URL for a share token (claimed device only)
     /// - Parameters:
     ///   - shareId: The share token ID

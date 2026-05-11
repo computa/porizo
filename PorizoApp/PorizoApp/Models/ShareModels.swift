@@ -219,6 +219,34 @@ struct ShareClaimResponse: Codable, Sendable {
     }
 }
 
+/// Response from GET /receiver-handoff/:handoffId.
+struct ReceiverHandoffResponse: Codable, Sendable {
+    let receiverSessionId: String
+    let contentKind: String
+    let receiverClaimToken: String
+    let receiverClaimExpiresAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case receiverSessionId = "receiver_session_id"
+        case contentKind = "content_kind"
+        case receiverClaimToken = "receiver_claim_token"
+        case receiverClaimExpiresAt = "receiver_claim_expires_at"
+    }
+}
+
+/// Response from POST /receiver-claim/:claimToken.
+struct ReceiverClaimResponse: Codable, Sendable {
+    let status: String
+    let appSaveAllowed: Bool?
+    let expiresAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case status
+        case appSaveAllowed = "app_save_allowed"
+        case expiresAt = "expires_at"
+    }
+}
+
 /// Response from GET /share/:id/stream
 struct ShareStreamResponse: Codable, Sendable {
     let streamUrl: String

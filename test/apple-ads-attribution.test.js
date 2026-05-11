@@ -55,6 +55,18 @@ describe("apple ads attribution route", () => {
   test("resolves Apple Ads attribution and dedupes repeated submissions", async () => {
     let fetchCalls = 0;
     global.fetch = async (url, options) => {
+      if (url !== "https://mock.apple.test/api/v1/") {
+        return {
+          status: 200,
+          ok: true,
+          async json() {
+            return {};
+          },
+          async text() {
+            return "{}";
+          },
+        };
+      }
       fetchCalls += 1;
       assert.equal(url, "https://mock.apple.test/api/v1/");
       assert.equal(options.method, "POST");
@@ -103,11 +115,18 @@ describe("apple ads attribution route", () => {
     assert.ok(row.resolved_at);
 
     const user = await db.prepare(
-      "SELECT acquisition_source, acquisition_campaign, acquisition_country FROM users WHERE id = ?"
+      `SELECT acquisition_source, acquisition_medium, acquisition_campaign,
+              acquisition_content, acquisition_term, acquisition_country,
+              acquisition_at
+       FROM users WHERE id = ?`
     ).get(userId);
     assert.equal(user.acquisition_source, "Apple Ads");
+    assert.equal(user.acquisition_medium, "cpc");
     assert.equal(user.acquisition_campaign, "123");
+    assert.equal(user.acquisition_content, "456");
+    assert.equal(user.acquisition_term, "789");
     assert.equal(user.acquisition_country, "AU");
+    assert.equal(user.acquisition_at, "2026-04-11T10:00:00Z");
 
     const deduped = await app.inject({
       method: "POST",
@@ -240,7 +259,19 @@ describe("apple ads attribution route", () => {
 
   test("stores not_found responses without retrying forever", async () => {
     let fetchCalls = 0;
-    global.fetch = async () => {
+    global.fetch = async (url) => {
+      if (url !== "https://mock.apple.test/api/v1/") {
+        return {
+          status: 200,
+          ok: true,
+          async json() {
+            return {};
+          },
+          async text() {
+            return "{}";
+          },
+        };
+      }
       fetchCalls += 1;
       return {
         status: 404,

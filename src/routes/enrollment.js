@@ -374,59 +374,64 @@ function registerEnrollmentRoutes(app, deps) {
     "/device/register",
     { schema: schemas.deviceRegister },
     async (request, reply) => {
-      const userId = await requireUserId(request, reply);
-      if (!userId) {
-        return;
-      }
+      const authHeader = request.headers.authorization;
+      const hasBearerAuth = typeof authHeader === "string" && authHeader.startsWith("Bearer ");
+      const hasDevAnonUser = process.env.NODE_ENV !== "production" && typeof request.headers["x-user-id"] === "string";
+      const userId = hasBearerAuth || hasDevAnonUser
+        ? await requireUserId(request, reply)
+        : null;
+      if ((hasBearerAuth || hasDevAnonUser) && !userId) return;
 
       const { device_id, platform, app_version, push_token } =
         request.body || {};
       const now = nowIso();
 
-      const existing = await db
-        .prepare("SELECT id FROM devices WHERE user_id = ? AND device_id = ?")
-        .get(userId, device_id);
+      if (userId) {
+        const existing = await db
+          .prepare("SELECT id FROM devices WHERE user_id = ? AND device_id = ?")
+          .get(userId, device_id);
 
-      if (existing) {
-        if (push_token) {
+        if (existing) {
+          if (push_token) {
+            await db
+              .prepare(
+                "UPDATE devices SET platform = ?, app_version = ?, last_seen_at = ?, push_token = ?, push_token_updated_at = ?, updated_at = ? WHERE id = ?",
+              )
+              .run(
+                platform,
+                app_version || null,
+                now,
+                push_token,
+                now,
+                now,
+                existing.id,
+              );
+          } else {
+            await db
+              .prepare(
+                "UPDATE devices SET platform = ?, app_version = ?, last_seen_at = ?, updated_at = ? WHERE id = ?",
+              )
+              .run(platform, app_version || null, now, now, existing.id);
+          }
+        } else {
+          const deviceRecordId = newUuid();
           await db
             .prepare(
-              "UPDATE devices SET platform = ?, app_version = ?, last_seen_at = ?, push_token = ?, push_token_updated_at = ?, updated_at = ? WHERE id = ?",
+              "INSERT INTO devices (id, user_id, device_id, platform, app_version, last_seen_at, push_token, push_token_updated_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             )
             .run(
+              deviceRecordId,
+              userId,
+              device_id,
               platform,
               app_version || null,
               now,
-              push_token,
+              push_token || null,
+              push_token ? now : null,
               now,
               now,
-              existing.id,
             );
-        } else {
-          await db
-            .prepare(
-              "UPDATE devices SET platform = ?, app_version = ?, last_seen_at = ?, updated_at = ? WHERE id = ?",
-            )
-            .run(platform, app_version || null, now, now, existing.id);
         }
-      } else {
-        const deviceRecordId = newUuid();
-        await db
-          .prepare(
-            "INSERT INTO devices (id, user_id, device_id, platform, app_version, last_seen_at, push_token, push_token_updated_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-          )
-          .run(
-            deviceRecordId,
-            userId,
-            device_id,
-            platform,
-            app_version || null,
-            now,
-            push_token || null,
-            push_token ? now : null,
-            now,
-            now,
-          );
       }
 
       const deviceToken = issueDeviceToken({

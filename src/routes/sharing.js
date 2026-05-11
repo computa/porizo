@@ -8,6 +8,15 @@ const { newUuid } = require("../utils/ids");
 const { nowIso, toJson, parseJson, ensureDir } = require("../utils/common");
 const { isShareUsable, healAndCheckShare } = require("../services/share-service");
 
+const CLIENT_RECEIVER_EVENTS = new Set([
+  "receiver_link_opened",
+  "receiver_play_started",
+  "receiver_play_completed",
+  "receiver_save_cta_viewed",
+  "receiver_save_cta_clicked",
+  "receiver_claim_started",
+]);
+
 function registerSharingRoutes(app, {
   db,
   appConfig,
@@ -16,6 +25,8 @@ function registerSharingRoutes(app, {
   sendError,
   addAuditEntry,
   eventsService,
+  receiverSessionService,
+  appLinkService,
   addShareAccessLog,
   schemas,
   getBaseUrl,
@@ -83,6 +94,9 @@ async function resolveValidShare(request, reply) {
     sendError(reply, 410, "SHARE_EXPIRED", "Share token expired.");
     return null;
   }
+  if (!await ensureReceiverShareIsReady(share, reply)) {
+    return null;
+  }
   return share;
 }
 
@@ -90,6 +104,34 @@ async function addPoemShareAccessLog({ poemShareTokenId, eventType, metadata }) 
   await db.prepare(
     "INSERT INTO poem_share_access_log (id, poem_share_token_id, event_type, metadata, created_at) VALUES (?, ?, ?, ?, ?)"
   ).run(newUuid(), poemShareTokenId, eventType, toJson(metadata), nowIso());
+}
+
+async function enforceReceiverRateLimit(request, reply, key, limit = 60, windowSeconds = 60, options = {}) {
+  if (typeof consumeRateLimit !== "function") return true;
+  const ip = request.ip || "unknown";
+  if (options.aggregate) {
+    const scope = options.scope || "all";
+    const coarseLimit = await consumeRateLimit(`receiver:${ip}:${scope}:all`, "receiver_funnel", limit, windowSeconds);
+    if (coarseLimit && !coarseLimit.allowed) {
+      const resetMs = Date.parse(coarseLimit.reset_at || "");
+      const retryAfter = Number.isFinite(resetMs)
+        ? Math.max(1, Math.ceil((resetMs - Date.now()) / 1000))
+        : windowSeconds;
+      reply.header("Retry-After", String(retryAfter));
+      sendError(reply, 429, "RATE_LIMITED", "Too many receiver requests. Please try again shortly.");
+      return false;
+    }
+  }
+  const rateKey = `receiver:${ip}:${key}`;
+  const rateLimit = await consumeRateLimit(rateKey, "receiver_funnel", limit, windowSeconds);
+  if (!rateLimit || rateLimit.allowed) return true;
+  const resetMs = Date.parse(rateLimit.reset_at || "");
+  const retryAfter = Number.isFinite(resetMs)
+    ? Math.max(1, Math.ceil((resetMs - Date.now()) / 1000))
+    : windowSeconds;
+  reply.header("Retry-After", String(retryAfter));
+  sendError(reply, 429, "RATE_LIMITED", "Too many receiver requests. Please try again shortly.");
+  return false;
 }
 
 function resolveGiftReadyAt(shareRow) {
@@ -102,6 +144,36 @@ function resolveGiftReadyAt(shareRow) {
   }
   const sendAt = Date.parse(shareRow.gift_send_at || shareRow.dispatch_at || "");
   return Number.isFinite(sendAt) ? sendAt : null;
+}
+
+async function getShareGiftReadyAt(share) {
+  if (!share || share.delivery_source !== "gift") {
+    return null;
+  }
+  let giftSendAt = null;
+  if (share.gift_order_id) {
+    const gift = await db.prepare("SELECT send_at FROM gift_orders WHERE id = ?").get(share.gift_order_id);
+    giftSendAt = gift?.send_at || null;
+  }
+  return resolveGiftReadyAt({ ...share, gift_send_at: giftSendAt });
+}
+
+async function ensureReceiverShareIsReady(share, reply) {
+  const readyAt = await getShareGiftReadyAt(share);
+  if (Number.isFinite(readyAt) && readyAt > Date.now()) {
+    sendError(reply, 403, "GIFT_NOT_READY", "This gift is not ready yet.");
+    return false;
+  }
+  return true;
+}
+
+async function ensurePoemShareIsReady(share, reply) {
+  const readyAt = resolveGiftReadyAt(share);
+  if (Number.isFinite(readyAt) && readyAt > Date.now()) {
+    sendError(reply, 403, "GIFT_NOT_READY", "This gift is not ready yet.");
+    return false;
+  }
+  return true;
 }
 
 function giftNotReadyHtml(readyAtMs) {
@@ -297,9 +369,22 @@ app.get("/tracks/:id/og-preview/:variant", async (request, reply) => {
 // Supports variant dispatch and disk caching
 app.get("/poem/:shareId/og-image.png", async (request, reply) => {
   const share = await db.prepare(
-    "SELECT p.id AS poem_id, p.user_id, p.title, p.recipient_name, p.occasion, p.verses, p.og_variant FROM poem_share_tokens pst JOIN poems p ON p.id = pst.poem_id WHERE pst.id = ?"
+    `SELECT pst.id, pst.status, pst.expires_at, pst.share_type, pst.delivery_source,
+            pst.dispatch_at, pst.dispatched_at, pst.gift_order_id, go.send_at AS gift_send_at,
+            p.id AS poem_id, p.user_id, p.title, p.recipient_name, p.occasion, p.verses, p.og_variant
+       FROM poem_share_tokens pst
+       JOIN poems p ON p.id = pst.poem_id
+       LEFT JOIN gift_orders go ON go.id = pst.gift_order_id
+      WHERE pst.id = ?`
   ).get(request.params.shareId);
   if (!share) return reply.status(404).send("Not found");
+  if (share.status === "revoked" || !await healAndCheckShare(db, share, "poem_share_tokens", "active")) {
+    sendError(reply, 404, "SHARE_NOT_FOUND", "Share token not found.");
+    return;
+  }
+  if (!await ensurePoemShareIsReady(share, reply)) {
+    return;
+  }
 
   const poemVariant = normalizeVariantName(share.og_variant, POEM_VARIANT_NAMES);
   const variantKey = poemVariant || "default";
@@ -358,10 +443,22 @@ app.get("/poem/:shareId", async (request, reply) => {
 
   // Validate share exists and fetch poem metadata for OG tags
   const share = await db.prepare(
-    "SELECT pst.id, pst.status, pst.expires_at, pst.poem_id, p.title, p.recipient_name, p.occasion, p.verses FROM poem_share_tokens pst LEFT JOIN poems p ON p.id = pst.poem_id WHERE pst.id = ?"
+    `SELECT pst.id, pst.status, pst.expires_at, pst.share_type, pst.delivery_source,
+            pst.dispatch_at, pst.dispatched_at, pst.gift_order_id, go.send_at AS gift_send_at,
+            pst.poem_id, p.title, p.recipient_name, p.occasion, p.verses
+       FROM poem_share_tokens pst
+       LEFT JOIN poems p ON p.id = pst.poem_id
+       LEFT JOIN gift_orders go ON go.id = pst.gift_order_id
+      WHERE pst.id = ?`
   ).get(shareId);
   if (!share) {
     return reply.status(404).type("text/html").send(shareNotFoundHtml("poem"));
+  }
+  if (share.status === "revoked" || !await healAndCheckShare(db, share, "poem_share_tokens", "active")) {
+    return reply.status(404).type("text/html").send(shareNotFoundHtml("poem"));
+  }
+  if (!await ensurePoemShareIsReady(share, reply)) {
+    return;
   }
 
   // Keep poem share links on the web viewer by default.
@@ -422,7 +519,8 @@ app.get("/play/:shareId", async (request, reply) => {
 
   // Validate share exists and fetch track metadata for OG tags
   const share = await db.prepare(
-    `SELECT st.id, st.status, st.expires_at, st.track_id, st.track_version_id, st.gift_order_id,
+    `SELECT st.id, st.status, st.expires_at, st.share_type, st.track_id, st.track_version_id, st.gift_order_id,
+            st.delivery_source, st.dispatch_at, st.dispatched_at,
             t.title, t.recipient_name, t.occasion,
             go.sender_display_name, go.recipient_name AS gift_recipient_name
        FROM share_tokens st
@@ -432,6 +530,15 @@ app.get("/play/:shareId", async (request, reply) => {
   ).get(shareId);
   if (!share) {
     return reply.status(404).type("text/html").send(shareNotFoundHtml("song"));
+  }
+  if (share.status === "revoked") {
+    return reply.status(404).type("text/html").send(shareNotFoundHtml("song"));
+  }
+  if (!await healAndCheckShare(db, share, "share_tokens", "unbound")) {
+    return reply.status(410).type("text/html").send(shareNotFoundHtml("song"));
+  }
+  if (!await ensureReceiverShareIsReady(share, reply)) {
+    return;
   }
 
   // Keep share links on the web player by default.
@@ -557,6 +664,246 @@ app.get("/s/:shareId", async (request, reply) => {
   return reply.redirect(`/play/${request.params.shareId}`);
 });
 
+app.get("/receiver-handoff/:handoffId", async (request, reply) => {
+  if (!await enforceReceiverRateLimit(request, reply, request.params.handoffId, 30, 60, { aggregate: true, scope: "handoff" })) {
+    return;
+  }
+  const resolved = await receiverSessionService.lookupHandoff(request.params.handoffId);
+  if (!resolved || resolved.handoffResolvedAt) {
+    sendError(reply, 404, "HANDOFF_NOT_FOUND", "Receiver handoff not found.");
+    return;
+  }
+
+  const tokenTable = resolved.contentKind === "poem" ? "poem_share_tokens" : "share_tokens";
+  const activeStatus = resolved.contentKind === "poem" ? "active" : "unbound";
+  const token = await db.prepare(
+    `SELECT st.id, st.status, st.expires_at, st.share_type, st.delivery_source,
+            st.dispatch_at, st.dispatched_at, st.gift_order_id, go.send_at AS gift_send_at
+       FROM ${tokenTable} st
+       LEFT JOIN gift_orders go ON go.id = st.gift_order_id
+      WHERE st.id = ?`
+  ).get(resolved.shareId);
+  if (!token || token.status === "revoked" || !await healAndCheckShare(db, token, tokenTable, activeStatus)) {
+    sendError(reply, 404, "HANDOFF_NOT_FOUND", "Receiver handoff not found.");
+    return;
+  }
+  const readyAt = resolveGiftReadyAt(token);
+  if (Number.isFinite(readyAt) && readyAt > Date.now()) {
+    sendError(reply, 403, "GIFT_NOT_READY", "This gift is not ready yet.");
+    return;
+  }
+  try {
+    await receiverSessionService.markAppOpened({
+      receiverSessionId: resolved.receiverSessionId,
+      shareId: resolved.shareId,
+      contentKind: resolved.contentKind,
+      ip: request.ip,
+      userAgent: request.headers["user-agent"] || null,
+    });
+  } catch (err) {
+    request.log.warn({ err, handoff_id: request.params.handoffId }, "receiver app-open event failed");
+  }
+  const claimToken = await receiverSessionService.issueReceiverClaimToken({
+    receiverSessionId: resolved.receiverSessionId,
+    shareId: resolved.shareId,
+    contentKind: resolved.contentKind,
+  });
+  if (!claimToken) {
+    sendError(reply, 500, "RECEIVER_CLAIM_TOKEN_FAILED", "Could not prepare receiver claim.");
+    return;
+  }
+
+  reply.send({
+    receiver_session_id: resolved.receiverSessionId,
+    content_kind: resolved.contentKind,
+    receiver_claim_token: claimToken.receiverClaimToken,
+    receiver_claim_expires_at: claimToken.expiresAt,
+  });
+});
+
+app.post("/receiver-claim/:claimToken", async (request, reply) => {
+  const resolved = await receiverSessionService.lookupReceiverClaimToken(request.params.claimToken, { allowConsumed: true });
+  if (!resolved || resolved.contentKind !== "song") {
+    sendError(reply, 404, "RECEIVER_CLAIM_NOT_FOUND", "Receiver claim token not found.");
+    return;
+  }
+  const body = request.body || {};
+
+  if (resolved.consumedAt) {
+    let deviceToken = getDeviceTokenPayload(request, reply, { required: false });
+    if (!deviceToken && allowDeviceTokenFallback && (process.env.NODE_ENV === "test" || process.env.NODE_ENV === "development")) {
+      const fallbackDeviceId = body.device_id || request.headers["x-device-id"];
+      const fallbackPlatform = body.platform || request.headers["x-platform"];
+      if (fallbackDeviceId && fallbackPlatform) {
+        deviceToken = {
+          device_id: fallbackDeviceId,
+          platform: fallbackPlatform,
+          app_version: body.app_version || request.headers["x-app-version"] || null,
+          sub: null,
+        };
+      }
+    }
+    if (!deviceToken) {
+      sendError(reply, 401, "DEVICE_TOKEN_REQUIRED", "Missing x-device-token header.");
+      return;
+    }
+    const share = await db.prepare("SELECT status, bound_device_id, bound_device_platform, expires_at FROM share_tokens WHERE id = ?")
+      .get(resolved.shareId);
+    if (
+      !share ||
+      share.status !== "claimed" ||
+      share.bound_device_id !== deviceToken.device_id ||
+      share.bound_device_platform !== deviceToken.platform
+    ) {
+      sendError(reply, 409, "TOKEN_ALREADY_BOUND", "Share token already bound to another device.");
+      return;
+    }
+    reply.send({
+      status: "claimed",
+      app_save_allowed: true,
+      expires_at: share.expires_at,
+    });
+    return;
+  }
+
+  const headers = { ...request.headers };
+  delete headers["content-length"];
+  delete headers["content-type"];
+  const claimPayload = {
+    ...(typeof body.device_id === "string" && { device_id: body.device_id }),
+    ...(typeof body.platform === "string" && { platform: body.platform }),
+    ...(typeof body.app_version === "string" && { app_version: body.app_version }),
+    ...(typeof body.pin === "string" && { pin: body.pin }),
+  };
+  const claimResponse = await app.inject({
+    method: "POST",
+    url: `/share/${resolved.shareId}/claim`,
+    headers,
+    payload: claimPayload,
+  });
+  let responseBody = claimResponse.body;
+  let errorCode = null;
+  try {
+    responseBody = JSON.parse(claimResponse.body);
+    errorCode = responseBody.error || responseBody.code || null;
+  } catch (_err) {
+    responseBody = claimResponse.body;
+  }
+
+  try {
+    await receiverSessionService.recordExistingSessionEvent({
+      receiverSessionId: resolved.receiverSessionId,
+      shareId: resolved.shareId,
+      contentKind: "song",
+      eventName: claimResponse.statusCode >= 200 && claimResponse.statusCode < 300
+        ? "receiver_claim_succeeded"
+        : "receiver_claim_failed",
+      metadata: {
+        error_code: errorCode || "",
+        platform: body.platform || request.headers["x-platform"] || "unknown",
+      },
+      ip: request.ip,
+      userAgent: request.headers["user-agent"] || null,
+      trustedReceiverSession: true,
+    });
+  } catch (err) {
+    request.log.warn({ err }, "receiver opaque claim event log failed");
+  }
+
+  if (claimResponse.statusCode >= 200 && claimResponse.statusCode < 300) {
+    try {
+      await receiverSessionService.consumeReceiverClaimToken(request.params.claimToken);
+    } catch (err) {
+      request.log.warn({ err }, "receiver claim token consume failed");
+    }
+  }
+
+  reply.code(claimResponse.statusCode).send(responseBody);
+});
+
+app.get("/receiver-claim/:claimToken/stream", async (request, reply) => {
+  const resolved = await receiverSessionService.lookupReceiverClaimToken(request.params.claimToken, { allowConsumed: true });
+  if (!resolved || resolved.contentKind !== "song") {
+    sendError(reply, 404, "RECEIVER_CLAIM_NOT_FOUND", "Receiver claim token not found.");
+    return;
+  }
+  if (!resolved.consumedAt) {
+    sendError(reply, 409, "RECEIVER_CLAIM_REQUIRED", "Receiver claim must be completed before streaming from the app.");
+    return;
+  }
+  const deviceToken = getDeviceTokenPayload(request, reply, { required: true });
+  if (!deviceToken) return;
+  const share = await db.prepare("SELECT status, bound_device_id, bound_device_platform FROM share_tokens WHERE id = ?")
+    .get(resolved.shareId);
+  if (
+    !share ||
+    share.status !== "claimed" ||
+    share.bound_device_id !== deviceToken.device_id ||
+    share.bound_device_platform !== deviceToken.platform
+  ) {
+    sendError(reply, 409, "TOKEN_ALREADY_BOUND", "Share token already bound to another device.");
+    return;
+  }
+  const headers = { ...request.headers };
+  delete headers["content-length"];
+  delete headers["content-type"];
+  const streamResponse = await app.inject({
+    method: "GET",
+    url: `/share/${resolved.shareId}/stream`,
+    headers,
+  });
+  let responseBody = streamResponse.body;
+  try {
+    responseBody = JSON.parse(streamResponse.body);
+  } catch (_err) {
+    responseBody = streamResponse.body;
+  }
+  reply.code(streamResponse.statusCode).send(responseBody);
+});
+
+app.get("/gift-link/:shareId/resolve", async (request, reply) => {
+  const shareId = request.params.shareId;
+  if (!await enforceReceiverRateLimit(request, reply, shareId, 30, 60, { aggregate: true, scope: "gift-link" })) {
+    return;
+  }
+
+  const song = await db.prepare(
+    `SELECT st.id, st.status, st.expires_at, st.share_type, st.delivery_source,
+            st.dispatch_at, st.dispatched_at, st.gift_order_id, go.send_at AS gift_send_at
+       FROM share_tokens st
+       LEFT JOIN gift_orders go ON go.id = st.gift_order_id
+      WHERE st.id = ?`
+  ).get(shareId);
+  if (song && song.status !== "revoked" && await healAndCheckShare(db, song, "share_tokens", "unbound")) {
+    const readyAt = resolveGiftReadyAt(song);
+    if (Number.isFinite(readyAt) && readyAt > Date.now()) {
+      sendError(reply, 403, "GIFT_NOT_READY", "This gift is not ready yet.");
+      return;
+    }
+    reply.send({ share_id: shareId, content_kind: "song" });
+    return;
+  }
+
+  const poem = await db.prepare(
+    `SELECT pst.id, pst.status, pst.expires_at, pst.share_type, pst.delivery_source,
+            pst.dispatch_at, pst.dispatched_at, pst.gift_order_id, go.send_at AS gift_send_at
+       FROM poem_share_tokens pst
+       LEFT JOIN gift_orders go ON go.id = pst.gift_order_id
+      WHERE pst.id = ?`
+  ).get(shareId);
+  if (poem && poem.status !== "revoked" && await healAndCheckShare(db, poem, "poem_share_tokens", "active")) {
+    const readyAt = resolveGiftReadyAt(poem);
+    if (Number.isFinite(readyAt) && readyAt > Date.now()) {
+      sendError(reply, 403, "GIFT_NOT_READY", "This gift is not ready yet.");
+      return;
+    }
+    reply.send({ share_id: shareId, content_kind: "poem" });
+    return;
+  }
+
+  sendError(reply, 404, "GIFT_LINK_NOT_FOUND", "Gift link not found.");
+});
+
 // Universal gift short link — resolves to /play/ (songs) or /poem/ (poems)
 app.get("/g/:shareId", async (request, reply) => {
   const shareId = request.params.shareId;
@@ -565,13 +912,16 @@ app.get("/g/:shareId", async (request, reply) => {
 
   // Check song share_tokens first (more common)
   const songShare = await db.prepare(
-    `SELECT st.id, st.delivery_source, st.dispatch_at, st.dispatched_at, st.gift_order_id,
+    `SELECT st.id, st.status, st.expires_at, st.share_type, st.delivery_source, st.dispatch_at, st.dispatched_at, st.gift_order_id,
             go.send_at AS gift_send_at
        FROM share_tokens st
        LEFT JOIN gift_orders go ON go.id = st.gift_order_id
       WHERE st.id = ?`
   ).get(shareId);
   if (songShare) {
+    if (songShare.status === "revoked" || !await healAndCheckShare(db, songShare, "share_tokens", "unbound")) {
+      return reply.status(404).type("text/html").send(shareNotFoundHtml("gift"));
+    }
     const readyAt = resolveGiftReadyAt(songShare);
     if (Number.isFinite(readyAt) && readyAt > Date.now()) {
       return reply
@@ -589,13 +939,16 @@ app.get("/g/:shareId", async (request, reply) => {
 
   // Check poem share_tokens
   const poemShare = await db.prepare(
-    `SELECT pst.id, pst.delivery_source, pst.dispatch_at, pst.dispatched_at, pst.gift_order_id,
+    `SELECT pst.id, pst.status, pst.expires_at, pst.share_type, pst.delivery_source, pst.dispatch_at, pst.dispatched_at, pst.gift_order_id,
             go.send_at AS gift_send_at
        FROM poem_share_tokens pst
        LEFT JOIN gift_orders go ON go.id = pst.gift_order_id
       WHERE pst.id = ?`
   ).get(shareId);
   if (poemShare) {
+    if (poemShare.status === "revoked" || !await healAndCheckShare(db, poemShare, "poem_share_tokens", "active")) {
+      return reply.status(404).type("text/html").send(shareNotFoundHtml("gift"));
+    }
     const readyAt = resolveGiftReadyAt(poemShare);
     if (Number.isFinite(readyAt) && readyAt > Date.now()) {
       return reply
@@ -618,10 +971,24 @@ app.get("/g/:shareId", async (request, reply) => {
 app.get("/embed/:shareId", async (request, reply) => {
   const shareId = request.params.shareId;
   const share = await db.prepare(
-    "SELECT st.id, st.status, st.expires_at, st.track_id, st.track_version_id, t.title, t.recipient_name, t.occasion FROM share_tokens st LEFT JOIN tracks t ON t.id = st.track_id WHERE st.id = ?"
+    `SELECT st.id, st.status, st.expires_at, st.share_type, st.track_id, st.track_version_id,
+            st.delivery_source, st.dispatch_at, st.dispatched_at, st.gift_order_id,
+            t.title, t.recipient_name, t.occasion
+       FROM share_tokens st
+       LEFT JOIN tracks t ON t.id = st.track_id
+      WHERE st.id = ?`
   ).get(shareId);
   if (!share) {
     return reply.status(404).type("text/html").send(shareNotFoundHtml("song"));
+  }
+  if (share.status === "revoked") {
+    return reply.status(404).type("text/html").send(shareNotFoundHtml("song"));
+  }
+  if (!await healAndCheckShare(db, share, "share_tokens", "unbound")) {
+    return reply.status(410).type("text/html").send(shareNotFoundHtml("song"));
+  }
+  if (!await ensureReceiverShareIsReady(share, reply)) {
+    return;
   }
 
   const title = share.recipient_name
@@ -677,10 +1044,26 @@ app.get("/oembed", async (request, reply) => {
   const shareId = match[1];
 
   const share = await db.prepare(
-    "SELECT st.id, st.status, st.track_id, st.track_version_id, t.title, t.recipient_name, t.occasion, t.user_id FROM share_tokens st LEFT JOIN tracks t ON t.id = st.track_id WHERE st.id = ?"
+    `SELECT st.id, st.status, st.expires_at, st.share_type, st.track_id, st.track_version_id,
+            st.delivery_source, st.dispatch_at, st.dispatched_at, st.gift_order_id,
+            t.title, t.recipient_name, t.occasion, t.user_id
+       FROM share_tokens st
+       LEFT JOIN tracks t ON t.id = st.track_id
+      WHERE st.id = ?`
   ).get(shareId);
   if (!share) {
     sendError(reply, 404, "SHARE_NOT_FOUND", "Share not found.");
+    return;
+  }
+  if (share.status === "revoked") {
+    sendError(reply, 404, "SHARE_NOT_FOUND", "Share not found.");
+    return;
+  }
+  if (!await healAndCheckShare(db, share, "share_tokens", "unbound")) {
+    sendError(reply, 410, "SHARE_EXPIRED", "Share token expired.");
+    return;
+  }
+  if (!await ensureReceiverShareIsReady(share, reply)) {
     return;
   }
 
@@ -767,6 +1150,9 @@ app.get("/share/:shareId", async (request, reply) => {
       track: trackInfo,
       can_access: canAccess,
       app_required: !canAccess && !publicWebStreamUrl,
+      claim_requires_app: share.claim_policy === "app_only",
+      pin_required_for_claim: Boolean(share.claim_pin),
+      receiver_save_requires_session: true,
       app_download_url: buildShareAppDownloadUrl({ shareId: share.id }),
       ...(publicWebStreamUrl && { web_stream_url: publicWebStreamUrl }),
       ...(lyrics && { lyrics }),
@@ -789,7 +1175,7 @@ app.get("/share/:shareId", async (request, reply) => {
 
   // Public web playback is preview-only for unbound shares.
   // Claim PIN remains an app ownership/binding control, not a web playback gate.
-  const shareStreamUrl = share.web_stream_allowed && !appRequired
+  const shareStreamUrl = share.web_stream_allowed
     ? `${getBaseUrl(request)}/share/${share.id}/audio`
     : null;
 
@@ -802,13 +1188,72 @@ app.get("/share/:shareId", async (request, reply) => {
     track_preview: trackInfo,
     track: trackInfo, // Alias for web player compatibility
     can_access: canAccess,
-    app_required: appRequired,
+    app_required: appRequired && !shareStreamUrl,
+    claim_requires_app: appRequired,
+    pin_required_for_claim: Boolean(share.claim_pin),
+    receiver_save_requires_session: true,
     web_stream_url: shareStreamUrl,
     app_download_url: buildShareAppDownloadUrl({ shareId: share.id }),
     ...(dlToken && { dl_token: dlToken }),
     ...(share.share_type === "demo" && { is_demo: true }),
     ...(lyrics && { lyrics }),
   });
+});
+
+app.post("/share/:shareId/receiver-session", async (request, reply) => {
+  const share = await resolveValidShare(request, reply);
+  if (!share) return;
+  if (!await ensureReceiverShareIsReady(share, reply)) {
+    return;
+  }
+  if (!await enforceReceiverRateLimit(request, reply, share.id, 60, 60)) {
+    return;
+  }
+
+  const body = request.body || {};
+  const contentKind = "song";
+  const eventName = typeof body.event_name === "string" ? body.event_name : "receiver_link_opened";
+  if (!CLIENT_RECEIVER_EVENTS.has(eventName)) {
+    sendError(reply, 400, "INVALID_RECEIVER_EVENT", "Invalid receiver event.");
+    return;
+  }
+  try {
+    const result = await receiverSessionService.recordEvent({
+      receiverSessionId: typeof body.receiver_session_id === "string" ? body.receiver_session_id : null,
+      receiverSessionSecret: typeof body.receiver_session_secret === "string" ? body.receiver_session_secret : null,
+      shareId: share.id,
+      contentKind,
+      eventName,
+      metadata: body.metadata || {},
+      ip: request.ip,
+      userAgent: request.headers["user-agent"] || null,
+    });
+    const receiverSaveUrl = appLinkService.buildReceiverSaveUrl({
+      shareId: share.id,
+      receiverSessionId: result.receiverSessionId,
+      receiverHandoffId: result.receiverHandoffId,
+      contentKind,
+      placement: body.metadata?.placement || "post_play",
+    });
+    reply.send({
+      receiver_session_id: result.receiverSessionId,
+      receiver_session_secret: result.receiverSessionSecret,
+      receiver_handoff_id: result.receiverHandoffId,
+      event_id: result.eventId,
+      receiver_save_url: receiverSaveUrl,
+    });
+  } catch (err) {
+    if (err.code === "INVALID_RECEIVER_EVENT") {
+      sendError(reply, 400, "INVALID_RECEIVER_EVENT", "Invalid receiver event.");
+      return;
+    }
+    if (err.code === "RECEIVER_SESSION_EVENT_LIMIT") {
+      sendError(reply, 429, "RECEIVER_SESSION_EVENT_LIMIT", "Too many receiver events for this session.");
+      return;
+    }
+    request.log.error({ err }, "receiver session event failed");
+    sendError(reply, 500, "RECEIVER_SESSION_FAILED", "Could not record receiver session.");
+  }
 });
 
 app.post("/share/:shareId/claim", { schema: schemas.shareClaim }, async (request, reply) => {
@@ -818,8 +1263,34 @@ app.post("/share/:shareId/claim", { schema: schemas.shareClaim }, async (request
     sendError(reply, 403, "DEMO_SHARE", "Demo shares cannot be claimed.");
     return;
   }
+  if (!await enforceReceiverRateLimit(request, reply, `claim:${share.id}`, 10, 60)) {
+    return;
+  }
   const body = request.body || {};
   const { pin } = body;
+  const receiverSessionId = typeof body.receiver_session_id === "string"
+    ? body.receiver_session_id
+    : null;
+  const receiverSessionSecret = typeof body.receiver_session_secret === "string"
+    ? body.receiver_session_secret
+    : null;
+  async function recordReceiverClaimEvent(eventName, metadata = {}) {
+    if (!receiverSessionService || !receiverSessionId) return;
+    try {
+      await receiverSessionService.recordExistingSessionEvent({
+        receiverSessionId,
+        receiverSessionSecret,
+        shareId: share.id,
+        contentKind: "song",
+        eventName,
+        metadata,
+        ip: request.ip,
+        userAgent: request.headers["user-agent"] || null,
+      });
+    } catch (err) {
+      request.log.warn({ err, share_id: share.id }, "receiver claim event log failed");
+    }
+  }
   let deviceToken = getDeviceTokenPayload(request, reply, { required: false });
   if (!deviceToken && allowDeviceTokenFallback && (process.env.NODE_ENV === 'test' || process.env.NODE_ENV === 'development')) {
     const fallbackDeviceId = body.device_id || request.headers["x-device-id"];
@@ -835,6 +1306,10 @@ app.post("/share/:shareId/claim", { schema: schemas.shareClaim }, async (request
   }
 
   if (!deviceToken) {
+    await recordReceiverClaimEvent("receiver_claim_failed", {
+      error_code: "device_token_required",
+      platform: body.platform || "unknown",
+    });
     if (allowDeviceTokenFallback && (body.device_id || body.platform || body.app_version)) {
       sendError(reply, 400, "INVALID_REQUEST", "device_id and platform are required.");
     } else {
@@ -854,6 +1329,7 @@ app.post("/share/:shareId/claim", { schema: schemas.shareClaim }, async (request
       eventType: "claim_failed",
       metadata: { reason: "web_not_allowed" },
     });
+    await recordReceiverClaimEvent("receiver_claim_failed", { error_code: "web_not_allowed", platform });
     sendError(reply, 400, "WEB_CLAIM_NOT_ALLOWED", "Web claims are not supported.");
     return;
   }
@@ -867,12 +1343,14 @@ app.post("/share/:shareId/claim", { schema: schemas.shareClaim }, async (request
         eventType: "claim_failed",
         metadata: { reason: "too_many_attempts", platform },
       });
+      await recordReceiverClaimEvent("receiver_claim_failed", { error_code: "too_many_attempts", platform });
       sendError(reply, 429, "TOO_MANY_ATTEMPTS", "Too many failed PIN attempts. Contact the sender.");
       return;
     }
 
     if (!pin) {
       // Empty/missing PIN — don't increment lockout counter (not a real guess)
+      await recordReceiverClaimEvent("receiver_claim_failed", { error_code: "invalid_pin", platform });
       sendError(reply, 401, "INVALID_PIN", "Invalid PIN. Please check with the sender.");
       return;
     }
@@ -881,12 +1359,20 @@ app.post("/share/:shareId/claim", { schema: schemas.shareClaim }, async (request
     const pinMatch = pinStr.length === share.claim_pin.length &&
       crypto.timingSafeEqual(Buffer.from(pinStr), Buffer.from(share.claim_pin));
     if (!pinMatch) {
-      await db.prepare("UPDATE share_tokens SET claim_attempts = claim_attempts + 1 WHERE id = ?").run(share.id);
+      const attemptResult = await db.prepare(
+        "UPDATE share_tokens SET claim_attempts = claim_attempts + 1 WHERE id = ? AND claim_attempts < 5 AND status = 'unbound'"
+      ).run(share.id);
       await addShareAccessLog({
         shareTokenId: share.id,
         eventType: "claim_failed",
         metadata: { reason: "invalid_pin", platform },
       });
+      if (!attemptResult || Number(attemptResult.changes || 0) === 0) {
+        await recordReceiverClaimEvent("receiver_claim_failed", { error_code: "too_many_attempts", platform });
+        sendError(reply, 429, "TOO_MANY_ATTEMPTS", "Too many failed PIN attempts. Contact the sender.");
+        return;
+      }
+      await recordReceiverClaimEvent("receiver_claim_failed", { error_code: "invalid_pin", platform });
       sendError(reply, 401, "INVALID_PIN", "Invalid PIN. Please check with the sender.");
       return;
     }
@@ -898,6 +1384,7 @@ app.post("/share/:shareId/claim", { schema: schemas.shareClaim }, async (request
       eventType: "claim_failed",
       metadata: { reason: "token_already_bound", platform },
     });
+    await recordReceiverClaimEvent("receiver_claim_failed", { error_code: "token_already_bound", platform });
     sendError(reply, 409, "TOKEN_ALREADY_BOUND", "Share token already bound to another device.");
     return;
   }
@@ -907,6 +1394,7 @@ app.post("/share/:shareId/claim", { schema: schemas.shareClaim }, async (request
       eventType: "claim_failed",
       metadata: { reason: "token_already_claimed_by_another_user", platform },
     });
+    await recordReceiverClaimEvent("receiver_claim_failed", { error_code: "token_already_claimed_by_another_user", platform });
     sendError(reply, 409, "TOKEN_ALREADY_BOUND", "Share token already bound to another user.");
     return;
   }
@@ -918,6 +1406,7 @@ app.post("/share/:shareId/claim", { schema: schemas.shareClaim }, async (request
   ).run("claimed", deviceId, platform, appVersion, claimUserId, claimAt, share.web_stream_allowed ? 1 : 0, share.id);
   if (claimResult.changes === 0) {
     console.warn("[SecurityGuard:ClaimRace] Concurrent claim rejected for share", share.id);
+    await recordReceiverClaimEvent("receiver_claim_failed", { error_code: "claim_race", platform });
     sendError(reply, 409, "TOKEN_ALREADY_BOUND", "Share token already bound to another device.");
     return;
   }
@@ -935,6 +1424,11 @@ app.post("/share/:shareId/claim", { schema: schemas.shareClaim }, async (request
     shareTokenId: share.id,
     eventType: "claim_success",
     metadata: { platform, app_version: appVersion, user_id: claimUserId },
+  });
+  await recordReceiverClaimEvent("receiver_claim_succeeded", {
+    platform,
+    app_version: appVersion || "",
+    user_id: claimUserId || "",
   });
 
   // Emit share_claim event for analytics
@@ -1388,6 +1882,13 @@ app.get("/share/:shareId/download.mp4", async (request, reply) => {
   }
   if (!isShareUsable(share)) {
     sendError(reply, 410, "SHARE_EXPIRED", "Share token expired.");
+    return;
+  }
+  if (!await ensureReceiverShareIsReady(share, reply)) {
+    return;
+  }
+  if (share.status !== "unbound" || share.claim_pin || share.claim_policy === "app_only") {
+    sendError(reply, 403, "DOWNLOAD_NOT_ALLOWED", "Download is not allowed for this share.");
     return;
   }
 

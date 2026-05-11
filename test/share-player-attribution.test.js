@@ -10,7 +10,10 @@ test("web player download CTAs use recipient-loop attribution", () => {
   assert.match(playerJs, /utm_medium:\s*'recipient_loop'/);
   assert.match(playerJs, /utm_campaign:\s*'shared_song_recipient'/);
   assert.match(playerJs, /placement:\s*'post_play'/);
-  assert.match(playerJs, /placement:\s*'teaser_unlock'/);
-  assert.match(playerJs, /placement:\s*'app_bar_android'/);
+  assert.match(playerJs, /buildReceiverSaveFallbackUrl\('teaser_unlock'\)/);
+  assert.match(playerJs, /receiver_save_cta_clicked/);
+  assert.doesNotMatch(playerJs, /web-verify/);
+  assert.doesNotMatch(playerJs, /requires_pin/);
+  assert.doesNotMatch(playerJs, /porizo:\/\/\/play/);
   assert.doesNotMatch(playerJs, /utm_source=webplayer/);
 });

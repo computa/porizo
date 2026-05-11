@@ -145,6 +145,82 @@ final class CreateDeepLinkTests: XCTestCase {
     }
 }
 
+// MARK: - Receiver Deep Link Tests
+
+final class ReceiverDeepLinkTests: XCTestCase {
+
+    func testParsesCustomSchemeReceiverHandoff() throws {
+        let url = try XCTUnwrap(URL(string: "porizo:///receiver-handoff/rh_abc123"))
+
+        let payload = try XCTUnwrap(parseReceiverHandoffPayload(from: url))
+
+        XCTAssertEqual(payload.receiverHandoffId, "rh_abc123")
+        XCTAssertNil(payload.receiverSessionId)
+        XCTAssertEqual(payload.contentKind, "song")
+    }
+
+    func testParsesHostBasedReceiverHandoff() throws {
+        let url = try XCTUnwrap(URL(string: "porizo://receiver-handoff/rh_def456?receiver_session_id=rs_123&content_kind=poem"))
+
+        let payload = try XCTUnwrap(parseReceiverHandoffPayload(from: url))
+
+        XCTAssertEqual(payload.receiverHandoffId, "rh_def456")
+        XCTAssertEqual(payload.receiverSessionId, "rs_123")
+        XCTAssertEqual(payload.contentKind, "poem")
+    }
+
+    func testParsesAppsFlyerQueryFallback() throws {
+        let url = try XCTUnwrap(URL(string: "porizo://open?deep_link_value=rh_789&deep_link_sub1=rs_456&deep_link_sub2=song"))
+
+        let payload = try XCTUnwrap(parseReceiverHandoffPayload(from: url))
+
+        XCTAssertEqual(payload.receiverHandoffId, "rh_789")
+        XCTAssertEqual(payload.receiverSessionId, "rs_456")
+        XCTAssertEqual(payload.contentKind, "song")
+    }
+
+    func testReceiverDeepLinkServiceIgnoresMissingHandoff() {
+        let payload = ReceiverDeepLinkService.payload(
+            receiverHandoffId: " ",
+            receiverSessionId: "rs_123",
+            contentKind: "song"
+        )
+
+        XCTAssertNil(payload)
+    }
+
+    func testReceiverClaimDraftStoreDropsExpiredDraft() {
+        ReceiverClaimDraftStore.clear()
+        let expired = ReceiverClaimDraft(
+            claimToken: "rct_expired",
+            receiverSessionId: "rs_123",
+            contentKind: "song",
+            expiresAt: "2020-01-01T00:00:00Z"
+        )
+
+        ReceiverClaimDraftStore.save(expired)
+
+        XCTAssertNil(ReceiverClaimDraftStore.load())
+        ReceiverClaimDraftStore.clear()
+    }
+
+    func testReceiverClaimDraftStoreKeepsValidDraft() {
+        ReceiverClaimDraftStore.clear()
+        let future = ISO8601DateFormatter().string(from: Date().addingTimeInterval(600))
+        let draft = ReceiverClaimDraft(
+            claimToken: "rct_valid",
+            receiverSessionId: "rs_123",
+            contentKind: "song",
+            expiresAt: future
+        )
+
+        ReceiverClaimDraftStore.save(draft)
+
+        XCTAssertEqual(ReceiverClaimDraftStore.load(), draft)
+        ReceiverClaimDraftStore.clear()
+    }
+}
+
 // MARK: - Share Deep Link Routing Tests
 
 final class ShareDeepLinkRouteTests: XCTestCase {

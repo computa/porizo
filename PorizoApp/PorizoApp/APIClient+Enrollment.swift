@@ -130,7 +130,7 @@ extension APIClient {
 
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
-        try await applyAuthHeaders(&request)
+        try await applyAuthHeaders(&request, requiresAuth: false)
 
         // Use auth retry wrapper - handles 401 with refresh-and-retry
         let (data, _) = try await executeWithAuthRetry(request: request)
@@ -148,7 +148,7 @@ extension APIClient {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        try await applyAuthHeaders(&request)
+        try await applyAuthHeaders(&request, requiresAuth: false)
 
         // Build request body with optional push token
         var body: [String: String] = [

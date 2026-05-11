@@ -27,13 +27,16 @@ function getSecret() {
 
 function issueDeviceToken({ userId, deviceId, platform, appVersion }) {
   const secret = getSecret();
+  const payload = {
+    device_id: deviceId,
+    platform,
+    app_version: appVersion || null,
+  };
+  if (userId) {
+    payload.sub = userId;
+  }
   return jwt.sign(
-    {
-      sub: userId,
-      device_id: deviceId,
-      platform,
-      app_version: appVersion || null,
-    },
+    payload,
     secret,
     {
       issuer: ISSUER,

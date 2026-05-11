@@ -68,6 +68,39 @@ func parseCreateDeepLink(from url: URL) -> CreateDeepLinkContext? {
     )
 }
 
+func parseReceiverHandoffPayload(from url: URL) -> ReceiverDeepLinkPayload? {
+    let queryItems = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+    func queryValue(_ names: String...) -> String? {
+        for name in names {
+            if let value = queryItems.first(where: { $0.name == name })?.value?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+               !value.isEmpty {
+                return value
+            }
+        }
+        return nil
+    }
+
+    let pathComponents = url.pathComponents.filter { $0 != "/" }
+    let handoffFromHostPath: String? = {
+        if url.host == "receiver-handoff" {
+            return pathComponents.first
+        }
+        if pathComponents.first == "receiver-handoff", pathComponents.count > 1 {
+            return pathComponents[1]
+        }
+        return nil
+    }()
+    let handoffId = handoffFromHostPath
+        ?? queryValue("receiver_handoff_id", "handoff_id", "deep_link_value")
+
+    return ReceiverDeepLinkService.payload(
+        receiverHandoffId: handoffId,
+        receiverSessionId: queryValue("receiver_session_id", "deep_link_sub1"),
+        contentKind: queryValue("content_kind", "deep_link_sub2")
+    )
+}
+
 private func occasionFromDeepLinkValue(_ value: String) -> Occasion? {
     let normalized = value
         .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -131,6 +164,7 @@ struct RootView: View {
     @State private var apiWrapper: APIClientWrapper?
     @State private var sttRouter: STTRouter?
     @State private var shareContext: ShareContext?
+    @State private var receiverClaimContext: ReceiverClaimContext?
     @State private var pendingShareId: String?
     @State private var pendingShareIsPoem: Bool = false
     @State private var apiClientReady: Bool = false
@@ -216,6 +250,13 @@ struct RootView: View {
         let id = UUID()
         let shareId: String
         let isPoem: Bool  // true = poem share, false = track share
+    }
+
+    struct ReceiverClaimContext: Identifiable {
+        let id = UUID()
+        let claimToken: String
+        let receiverSessionId: String?
+        let contentKind: String
     }
 
     struct ProfileCompletionContext: Identifiable {
@@ -375,6 +416,13 @@ struct RootView: View {
             guard let url = userActivity.webpageURL else { return }
             handleIncomingURL(url)
         }
+        .task {
+            if let payload = ReceiverDeepLinkService.consumePendingPayload() {
+                await handleReceiverDeepLink(payload)
+            } else if let draft = ReceiverClaimDraftStore.load() {
+                presentReceiverClaimDraft(draft)
+            }
+        }
         .sheet(item: $shareContext) { context in
             if context.isPoem {
                 PoemClaimView(
@@ -388,6 +436,16 @@ struct RootView: View {
                     deviceId: getOrCreateDeviceId()
                 )
             }
+        }
+        .sheet(item: $receiverClaimContext) { context in
+            ReceiverClaimView(
+                apiClient: shareClient,
+                claimToken: context.claimToken,
+                receiverSessionId: context.receiverSessionId,
+                onClaimed: {
+                    ReceiverClaimDraftStore.clear()
+                }
+            )
         }
         .sheet(item: $profileCompletionContext, onDismiss: {
             if authManager.needsProfileCompletion {
@@ -405,6 +463,12 @@ struct RootView: View {
             print("[RootView] Received trackRenderCompleted notification")
             #endif
         }
+        .onReceive(NotificationCenter.default.publisher(for: .receiverDeepLinkResolved)) { notification in
+            guard let payload = ReceiverDeepLinkService.payload(from: notification.userInfo ?? [:]) else { return }
+            Task { @MainActor in
+                await handleReceiverDeepLink(payload)
+            }
+        }
         .onChange(of: scenePhase) { _, newPhase in
             handleScenePhaseChange(to: newPhase)
         }
@@ -417,6 +481,12 @@ struct RootView: View {
                     .sessionResumed,
                     properties: ["trigger": "auth_change"]
                 )
+                Task {
+                    await AppleAdsAttributionService.submitPendingIfPossible(
+                        using: apiClient,
+                        isAuthenticated: true
+                    )
+                }
                 profileCompletionSkippedAtEpoch = 0
                 syncProfileCompletionContext()
                 authContextMessage = nil
@@ -451,6 +521,12 @@ struct RootView: View {
         }
         .onChange(of: apiClientReady) { _, _ in
             syncProfileCompletionContext()
+            Task {
+                await AppleAdsAttributionService.submitPendingIfPossible(
+                    using: apiClient,
+                    isAuthenticated: authManager.isAuthenticated
+                )
+            }
         }
         .onChange(of: authManager.hasValidatedSession) { _, hasValidated in
             guard hasValidated else { return }
@@ -836,7 +912,8 @@ struct RootView: View {
             && secondsSinceSkip >= 0
             && secondsSinceSkip < skipWindowSeconds
 
-        guard authManager.needsProfileCompletion,
+        guard receiverClaimContext == nil,
+              authManager.needsProfileCompletion,
               !isWithinSkipWindow,
               let client = apiClient else {
             profileCompletionContext = nil
@@ -926,6 +1003,13 @@ struct RootView: View {
             return
         }
 
+        if let receiverPayload = parseReceiverHandoffPayload(from: url) {
+            Task { @MainActor in
+                await handleReceiverDeepLink(receiverPayload)
+            }
+            return
+        }
+
         guard let parsed = parseShareUrl(from: url) else { return }
         let deviceId = getOrCreateDeviceId()
         if apiClient == nil {
@@ -948,6 +1032,72 @@ struct RootView: View {
                 appState = .auth
             }
         }
+    }
+
+    @MainActor
+    private func handleReceiverDeepLink(_ payload: ReceiverDeepLinkPayload) async {
+        let deviceId = getOrCreateDeviceId()
+        if apiClient == nil {
+            apiClient = makeAPIClient(deviceId: deviceId)
+            apiClientReady = true
+        }
+
+        guard let client = apiClient else {
+            ToastService.shared.error("Please reopen the save link after the app finishes loading.")
+            return
+        }
+
+        do {
+            let resolved = try await client.resolveReceiverHandoff(handoffId: payload.receiverHandoffId)
+            guard resolved.contentKind == "song" else {
+                ToastService.shared.error("Poem saving from receiver links is not available yet.")
+                return
+            }
+
+            profileCompletionContext = nil
+            authContextMessage = nil
+            if appState == .launchFlash {
+                dismissLaunchFlash(reason: "receiver_deep_link", routeOverride: routeToMainOrAuth(), shouldLog: true)
+            }
+
+            let draft = ReceiverClaimDraft(
+                claimToken: resolved.receiverClaimToken,
+                receiverSessionId: resolved.receiverSessionId,
+                contentKind: resolved.contentKind,
+                expiresAt: resolved.receiverClaimExpiresAt
+            )
+            ReceiverClaimDraftStore.save(draft)
+            presentReceiverClaimDraft(draft)
+        } catch let error as APIClientError {
+            if let draft = ReceiverClaimDraftStore.load() {
+                presentReceiverClaimDraft(draft)
+                return
+            }
+            switch error {
+            case .serverError(_, let code, _) where code == "GIFT_NOT_READY":
+                ToastService.shared.error("This gift is not ready yet. Open the link again at the scheduled time.")
+            case .httpError(let statusCode, _) where statusCode == 403:
+                ToastService.shared.error("This gift is not ready yet. Open the link again at the scheduled time.")
+            default:
+                ToastService.shared.error("This save link expired. Open the gift link again from the browser.")
+            }
+        } catch {
+            ToastService.shared.error("Could not prepare this gift. Check your connection and try again.")
+        }
+    }
+
+    @MainActor
+    private func presentReceiverClaimDraft(_ draft: ReceiverClaimDraft) {
+        guard draft.contentKind == "song" else {
+            ToastService.shared.error("Poem saving from receiver links is not available yet.")
+            return
+        }
+        profileCompletionContext = nil
+        receiverClaimContext = ReceiverClaimContext(
+            claimToken: draft.claimToken,
+            receiverSessionId: draft.receiverSessionId,
+            contentKind: draft.contentKind
+        )
     }
 
     private func handleCreateDeepLink(_ context: CreateDeepLinkContext) {

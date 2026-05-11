@@ -1,5 +1,6 @@
 "use strict";
 
+const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const { newUuid } = require("../utils/ids");
@@ -34,6 +35,65 @@ function registerPoemRoutes(app, {
   poemAudioGenerationLocks,
   subscriptionManager,
 }) {
+  function resolveGiftReadyAt(shareRow) {
+    if (!shareRow || shareRow.delivery_source !== "gift") {
+      return null;
+    }
+    const dispatchedAt = Date.parse(shareRow.dispatched_at || "");
+    if (Number.isFinite(dispatchedAt)) {
+      return null;
+    }
+    const sendAt = Date.parse(shareRow.gift_send_at || shareRow.dispatch_at || "");
+    return Number.isFinite(sendAt) ? sendAt : null;
+  }
+
+  async function resolveValidPoemShare(shareId, reply) {
+    const share = await db.prepare(
+      `SELECT pst.*, go.send_at AS gift_send_at
+         FROM poem_share_tokens pst
+         LEFT JOIN gift_orders go ON go.id = pst.gift_order_id
+        WHERE pst.id = ?`
+    ).get(shareId);
+    if (!share || share.status === "revoked") {
+      sendError(reply, 404, "SHARE_NOT_FOUND", "Poem share not found.");
+      return null;
+    }
+    if (!await healAndCheckShare(db, share, "poem_share_tokens", "active")) {
+      sendError(reply, 410, "SHARE_EXPIRED", "Poem share expired.");
+      return null;
+    }
+    const readyAt = resolveGiftReadyAt(share);
+    if (Number.isFinite(readyAt) && readyAt > Date.now()) {
+      sendError(reply, 403, "GIFT_NOT_READY", "This gift is not ready yet.");
+      return null;
+    }
+    return share;
+  }
+
+  async function enforcePoemClaimRateLimit(request, reply, shareId) {
+    if (typeof consumeRateLimit !== "function") return true;
+    const ip = request.ip || "unknown";
+    const coarse = await consumeRateLimit(`poem-claim:${ip}:all`, "poem_claim", 30, 60);
+    if (coarse && !coarse.allowed) {
+      if (coarse.reset_at) {
+        const resetMs = Date.parse(coarse.reset_at);
+        reply.header("Retry-After", String(Number.isFinite(resetMs) ? Math.max(1, Math.ceil((resetMs - Date.now()) / 1000)) : 60));
+      }
+      sendError(reply, 429, "RATE_LIMITED", "Too many claim attempts. Please try again shortly.");
+      return false;
+    }
+    const limit = await consumeRateLimit(`poem-claim:${ip}:${shareId}`, "poem_claim", 10, 60);
+    if (limit && !limit.allowed) {
+      if (limit.reset_at) {
+        const resetMs = Date.parse(limit.reset_at);
+        reply.header("Retry-After", String(Number.isFinite(resetMs) ? Math.max(1, Math.ceil((resetMs - Date.now()) / 1000)) : 60));
+      }
+      sendError(reply, 429, "RATE_LIMITED", "Too many claim attempts. Please try again shortly.");
+      return false;
+    }
+    return true;
+  }
+
 
   // ============ Poems ============
 
@@ -594,16 +654,8 @@ function registerPoemRoutes(app, {
    * GET /poem-share/:shareId - Get shared poem details (public)
    */
   app.get("/poem-share/:shareId", async (request, reply) => {
-    const share = await db.prepare("SELECT * FROM poem_share_tokens WHERE id = ?").get(request.params.shareId);
-    if (!share || share.status === "revoked") {
-      sendError(reply, 404, "SHARE_NOT_FOUND", "Poem share not found.");
-      return;
-    }
-
-    if (!await healAndCheckShare(db, share, "poem_share_tokens", "active")) {
-      sendError(reply, 410, "SHARE_EXPIRED", "Poem share expired.");
-      return;
-    }
+    const share = await resolveValidPoemShare(request.params.shareId, reply);
+    if (!share) return;
 
     const { poem, verses } = await resolveGiftPoemContent(share);
     if (!poem) {
@@ -628,17 +680,20 @@ function registerPoemRoutes(app, {
     // Response shape matches iOS PoemShareInfoResponse model
     reply.send({
       status: share.status,
-      can_access: appRequired ? false : true,
+      can_access: true,
       poem: {
         title: poem.title,
         recipient_name: poem.recipient_name,
         occasion: poem.occasion,
         preview_lines: verses.slice(0, 2),
+        verses,
         creator_name: creator ? "A friend" : "Someone special",
       },
       expires_at: share.expires_at,
       requires_pin: !!share.claim_pin && !share.bound_user_id,
-      app_required: appRequired,
+      app_required: false,
+      requires_pin_for_claim: !!share.claim_pin && !share.bound_user_id,
+      app_required_for_claim: appRequired,
       app_download_url: buildShareAppDownloadUrl({ shareId: share.id, kind: "poem" }),
       claim_attempts: share.claim_attempts,
       max_attempts: 5,
@@ -665,18 +720,13 @@ function registerPoemRoutes(app, {
       await ensureUser(userId);
     }
 
-    const share = await db.prepare("SELECT * FROM poem_share_tokens WHERE id = ?").get(request.params.shareId);
-    if (!share || share.status === "revoked") {
-      sendError(reply, 404, "SHARE_NOT_FOUND", "Poem share not found.");
-      return;
-    }
+    const share = await resolveValidPoemShare(request.params.shareId, reply);
+    if (!share) return;
     if (share.share_type === "demo") {
       sendError(reply, 403, "DEMO_SHARE", "Demo shares cannot be claimed.");
       return;
     }
-
-    if (!await healAndCheckShare(db, share, "poem_share_tokens", "active")) {
-      sendError(reply, 410, "SHARE_EXPIRED", "Poem share expired.");
+    if (!await enforcePoemClaimRateLimit(request, reply, share.id)) {
       return;
     }
 
@@ -761,11 +811,20 @@ function registerPoemRoutes(app, {
         return;
       }
 
-      if (pin !== share.claim_pin) {
-        await db.prepare("UPDATE poem_share_tokens SET claim_attempts = claim_attempts + 1 WHERE id = ?").run(share.id);
+      const pinStr = String(pin);
+      const pinMatch = pinStr.length === share.claim_pin.length &&
+        crypto.timingSafeEqual(Buffer.from(pinStr), Buffer.from(share.claim_pin));
+      if (!pinMatch) {
+        const attemptResult = await db.prepare(
+          "UPDATE poem_share_tokens SET claim_attempts = claim_attempts + 1 WHERE id = ? AND claim_attempts < 5 AND status = 'active'"
+        ).run(share.id);
         await db.prepare(
           "INSERT INTO poem_share_access_log (id, poem_share_token_id, event_type, metadata, created_at) VALUES (?, ?, ?, ?, ?)"
         ).run(newUuid(), share.id, "claim_failed", toJson({ reason: "invalid_pin" }), nowIso());
+        if (!attemptResult || Number(attemptResult.changes || 0) === 0) {
+          sendError(reply, 429, "TOO_MANY_ATTEMPTS", "Too many failed PIN attempts.");
+          return;
+        }
         sendError(reply, 401, "INVALID_PIN", "Invalid PIN.");
         return;
       }

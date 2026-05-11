@@ -454,7 +454,42 @@ function buildDownloadBridgePage({ deepLink, fallbackUrl }) {
 </html>`;
 }
 
-function logDownloadEvent(db, request) {
+async function resolveDownloadReceiverSessionId(db, request, deepLink) {
+  const q = request.query || {};
+  const receiverSessionId =
+    typeof q.receiver_session_id === "string" && /^rs_[a-f0-9]{24}$/.test(q.receiver_session_id)
+      ? q.receiver_session_id
+      : null;
+  if (!receiverSessionId) return null;
+
+  if (typeof deepLink !== "string") {
+    return null;
+  }
+  let parsed;
+  try {
+    parsed = new URL(deepLink);
+  } catch (_err) {
+    return null;
+  }
+  if (parsed.protocol !== "porizo:" || parsed.pathname.split("/").length !== 3) {
+    return null;
+  }
+  const handoffMatch = parsed.pathname.match(/^\/receiver-handoff\/(rh_[a-f0-9]{24})$/);
+  if (!handoffMatch) return null;
+
+  const now = new Date().toISOString();
+  const result = await db.prepare(`UPDATE receiver_sessions
+    SET download_attributed_at = ?, updated_at = ?
+    WHERE id = ?
+      AND receiver_handoff_id = ?
+      AND handoff_resolved_at IS NULL
+      AND (handoff_expires_at IS NULL OR handoff_expires_at > ?)
+      AND download_attributed_at IS NULL`)
+    .run(now, now, receiverSessionId, handoffMatch[1], now);
+  return result && Number(result.changes || 0) > 0 ? receiverSessionId : null;
+}
+
+async function logDownloadEvent(db, request, deepLink) {
   const ip = request.ip || "unknown";
   const ua = request.headers["user-agent"] || null;
   const q = request.query || {};
@@ -465,9 +500,10 @@ function logDownloadEvent(db, request) {
   // better-sqlite3 .run() is synchronous and throws — the prior `.catch()`
   // was dead code. A logging-only insert must never crash the route.
   try {
+    const receiverSessionId = await resolveDownloadReceiverSessionId(db, request, deepLink);
     db.prepare(
-      `INSERT INTO download_events (id, ip_address, user_agent, utm_source, utm_medium, utm_campaign, utm_content, utm_term, country, referrer_url, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO download_events (id, ip_address, user_agent, utm_source, utm_medium, utm_campaign, utm_content, utm_term, country, referrer_url, receiver_session_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       id,
       ip,
@@ -479,6 +515,7 @@ function logDownloadEvent(db, request) {
       q.utm_term || null,
       country,
       q.ref || request.headers.referer || null,
+      receiverSessionId,
       new Date().toISOString(),
     );
   } catch (err) {
@@ -660,12 +697,13 @@ function registerLegalRoutes(app, { db } = {}) {
 
   // App download redirect helper for share flows
   app.get("/download", async (request, reply) => {
+    reply.header("Referrer-Policy", "no-referrer");
+    const deepLink = resolveDeepLink(request);
     // Log download event for attribution tracking (non-blocking)
     if (db) {
-      logDownloadEvent(db, request);
+      await logDownloadEvent(db, request, deepLink);
     }
 
-    const deepLink = resolveDeepLink(request);
     const fallbackUrl = resolveDownloadUrl(request);
 
     if (!deepLink) {

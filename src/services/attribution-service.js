@@ -61,14 +61,19 @@ class AttributionService {
   resolveUserAttribution(user, { appleAdsAttribution = null, latestAppleAdsAttribution = null, downloadAttribution = null } = {}) {
     const result = {
       acquisition_source: clean(user?.acquisition_source),
+      acquisition_medium: clean(user?.acquisition_medium),
       acquisition_campaign: clean(user?.acquisition_campaign),
+      acquisition_content: clean(user?.acquisition_content),
+      acquisition_term: clean(user?.acquisition_term),
       acquisition_country: clean(user?.acquisition_country),
+      acquisition_referrer: clean(user?.acquisition_referrer),
+      acquisition_at: clean(user?.acquisition_at),
       attribution_status: "unknown",
       attribution_reason: "No matched download event or resolved Apple Ads attribution.",
       attribution_confidence: "none",
     };
 
-    if (result.acquisition_source || result.acquisition_campaign || result.acquisition_country) {
+    if (result.acquisition_source || result.acquisition_campaign || result.acquisition_country || result.acquisition_medium || result.acquisition_term) {
       result.attribution_status = "attributed";
       result.attribution_reason = "Stored user acquisition fields.";
       result.attribution_confidence = "stored";
@@ -78,8 +83,12 @@ class AttributionService {
 
     if (appleAdsAttribution?.status === "resolved" && !hasStoredNonAppleSource) {
       result.acquisition_source = result.acquisition_source || "Apple Ads";
+      result.acquisition_medium = result.acquisition_medium || "cpc";
       result.acquisition_campaign = result.acquisition_campaign || campaignFromAppleAds(appleAdsAttribution);
+      result.acquisition_content = result.acquisition_content || clean(appleAdsAttribution.ad_group_id);
+      result.acquisition_term = result.acquisition_term || clean(appleAdsAttribution.keyword_id);
       result.acquisition_country = result.acquisition_country || clean(appleAdsAttribution.country_or_region);
+      result.acquisition_at = result.acquisition_at || clean(appleAdsAttribution.click_date) || clean(appleAdsAttribution.resolved_at) || clean(appleAdsAttribution.created_at);
       result.attribution_status = "attributed";
       result.attribution_reason = result.attribution_confidence === "stored"
         ? "Stored user acquisition fields, filled from resolved Apple Ads attribution where blank."
@@ -89,8 +98,13 @@ class AttributionService {
 
     if (downloadAttribution) {
       result.acquisition_source = result.acquisition_source || sourceFromDownload(downloadAttribution);
+      result.acquisition_medium = result.acquisition_medium || clean(downloadAttribution.utm_medium);
       result.acquisition_campaign = result.acquisition_campaign || clean(downloadAttribution.utm_campaign);
+      result.acquisition_content = result.acquisition_content || clean(downloadAttribution.utm_content);
+      result.acquisition_term = result.acquisition_term || clean(downloadAttribution.utm_term);
       result.acquisition_country = result.acquisition_country || clean(downloadAttribution.country);
+      result.acquisition_referrer = result.acquisition_referrer || clean(downloadAttribution.referrer_url);
+      result.acquisition_at = result.acquisition_at || clean(downloadAttribution.created_at);
       result.attribution_status = "attributed";
       result.attribution_reason = result.attribution_confidence === "none"
         ? "Matched recent /download attribution event."
@@ -154,7 +168,7 @@ class AttributionService {
     const statusClause = resolvedOnly ? "AND status = 'resolved'" : "";
     return await this.db.prepare(`
       SELECT id, user_id, status, campaign_id, ad_group_id, keyword_id, org_id, conversion_type,
-             country_or_region, last_error, created_at, resolved_at
+             country_or_region, click_date, last_error, created_at, resolved_at
       FROM apple_ads_attribution
       WHERE user_id = ? ${statusClause}
         AND status <> 'test'
@@ -170,7 +184,7 @@ class AttributionService {
 
   async getLatestDownloadAttributionForUser(userId) {
     return await this.db.prepare(`
-      SELECT id, utm_source, utm_medium, utm_campaign, utm_content, country, referrer_url, created_at
+      SELECT id, utm_source, utm_medium, utm_campaign, utm_content, utm_term, country, referrer_url, created_at
       FROM download_events
       WHERE matched_user_id = ?
       ORDER BY created_at DESC
@@ -212,9 +226,9 @@ class AttributionService {
 
     const [appleRows, latestAppleRows, downloadRows] = await Promise.all([
       this.db.prepare(`
-        SELECT user_id, status, campaign_id, country_or_region, created_at
+        SELECT user_id, status, campaign_id, ad_group_id, keyword_id, country_or_region, click_date, created_at, resolved_at
         FROM (
-          SELECT user_id, status, campaign_id, country_or_region, created_at,
+          SELECT user_id, status, campaign_id, ad_group_id, keyword_id, country_or_region, click_date, created_at, resolved_at,
                  ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY created_at DESC) as rn
           FROM apple_ads_attribution
           WHERE status = 'resolved' AND user_id IN (${idsSql})
@@ -227,9 +241,9 @@ class AttributionService {
         WHERE rn = 1
       `).all(...userIds),
       this.db.prepare(`
-        SELECT user_id, status, campaign_id, country_or_region, last_error, created_at
+        SELECT user_id, status, campaign_id, ad_group_id, keyword_id, country_or_region, click_date, last_error, created_at, resolved_at
         FROM (
-          SELECT user_id, status, campaign_id, country_or_region, last_error, created_at,
+          SELECT user_id, status, campaign_id, ad_group_id, keyword_id, country_or_region, click_date, last_error, created_at, resolved_at,
                  ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY created_at DESC) as rn
           FROM apple_ads_attribution
           WHERE user_id IN (${idsSql}) AND status <> 'test'
@@ -237,9 +251,9 @@ class AttributionService {
         WHERE rn = 1
       `).all(...userIds),
       this.db.prepare(`
-        SELECT matched_user_id as user_id, utm_source, utm_medium, utm_campaign, country, referrer_url, created_at
+        SELECT matched_user_id as user_id, utm_source, utm_medium, utm_campaign, utm_content, utm_term, country, referrer_url, created_at
         FROM (
-          SELECT matched_user_id, utm_source, utm_medium, utm_campaign, country, referrer_url, created_at,
+          SELECT matched_user_id, utm_source, utm_medium, utm_campaign, utm_content, utm_term, country, referrer_url, created_at,
                  ROW_NUMBER() OVER (PARTITION BY matched_user_id ORDER BY created_at DESC) as rn
           FROM download_events
           WHERE matched_user_id IN (${idsSql})
@@ -268,7 +282,8 @@ class AttributionService {
     }
 
     const user = await this.db.prepare(`
-      SELECT id, acquisition_source, acquisition_campaign, acquisition_country, created_at
+      SELECT id, acquisition_source, acquisition_medium, acquisition_campaign, acquisition_content,
+             acquisition_term, acquisition_country, acquisition_referrer, acquisition_at, created_at
       FROM users
       WHERE id = ?
     `).get(row.user_id);
@@ -281,13 +296,21 @@ class AttributionService {
     await this.db.prepare(`
       UPDATE users
       SET acquisition_source = COALESCE(acquisition_source, ?),
+          acquisition_medium = COALESCE(acquisition_medium, ?),
           acquisition_campaign = COALESCE(acquisition_campaign, ?),
-          acquisition_country = COALESCE(acquisition_country, ?)
+          acquisition_content = COALESCE(acquisition_content, ?),
+          acquisition_term = COALESCE(acquisition_term, ?),
+          acquisition_country = COALESCE(acquisition_country, ?),
+          acquisition_at = COALESCE(acquisition_at, ?)
       WHERE id = ?
     `).run(
       "Apple Ads",
+      "cpc",
       campaign,
+      clean(row.ad_group_id),
+      clean(row.keyword_id),
       clean(row.country_or_region),
+      clean(row.click_date) || clean(row.resolved_at) || clean(row.created_at),
       row.user_id
     );
   }
@@ -300,13 +323,23 @@ class AttributionService {
     await this.db.prepare(`
       UPDATE users
       SET acquisition_source = COALESCE(acquisition_source, ?),
+          acquisition_medium = COALESCE(acquisition_medium, ?),
           acquisition_campaign = COALESCE(acquisition_campaign, ?),
-          acquisition_country = COALESCE(acquisition_country, ?)
+          acquisition_content = COALESCE(acquisition_content, ?),
+          acquisition_term = COALESCE(acquisition_term, ?),
+          acquisition_country = COALESCE(acquisition_country, ?),
+          acquisition_referrer = COALESCE(acquisition_referrer, ?),
+          acquisition_at = COALESCE(acquisition_at, ?)
       WHERE id = ?
     `).run(
       sourceFromDownload(row),
+      clean(row.utm_medium),
       clean(row.utm_campaign),
+      clean(row.utm_content),
+      clean(row.utm_term),
       clean(row.country),
+      clean(row.referrer_url),
+      clean(row.created_at),
       userId
     );
   }
@@ -325,6 +358,8 @@ class AttributionService {
           COUNT(*) as total_tokens,
           SUM(CASE WHEN status = 'resolved' THEN 1 ELSE 0 END) as resolved,
           SUM(CASE WHEN status = 'resolved' AND country_or_region IS NOT NULL AND country_or_region <> '' THEN 1 ELSE 0 END) as resolved_with_country,
+          SUM(CASE WHEN status = 'resolved' AND (country_or_region IS NULL OR country_or_region = '') THEN 1 ELSE 0 END) as resolved_missing_country,
+          COUNT(DISTINCT CASE WHEN status = 'resolved' THEN user_id END) as resolved_users,
           SUM(CASE WHEN status = 'not_found' THEN 1 ELSE 0 END) as not_found,
           SUM(CASE WHEN status = 'test' THEN 1 ELSE 0 END) as test_data,
           SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending,
@@ -342,8 +377,11 @@ class AttributionService {
             AND COALESCE(aaa.ad_group_id, -1) = 1234567890
           )
           AND (
-            u.acquisition_source IS NULL
-            OR u.acquisition_country IS NULL
+            (u.acquisition_source IS NULL)
+            OR (aaa.campaign_id IS NOT NULL AND u.acquisition_campaign IS NULL)
+            OR (aaa.ad_group_id IS NOT NULL AND u.acquisition_content IS NULL)
+            OR (aaa.keyword_id IS NOT NULL AND u.acquisition_term IS NULL)
+            OR (aaa.country_or_region IS NOT NULL AND aaa.country_or_region <> '' AND u.acquisition_country IS NULL)
           )
       `).get(),
     ]);
@@ -378,7 +416,9 @@ class AttributionService {
       appleAds: {
         totalTokens: Number(appleAds?.total_tokens || 0),
         resolved: Number(appleAds?.resolved || 0),
+        resolvedUsers: Number(appleAds?.resolved_users || 0),
         resolvedWithCountry: Number(appleAds?.resolved_with_country || 0),
+        resolvedMissingCountry: Number(appleAds?.resolved_missing_country || 0),
         notFound: Number(appleAds?.not_found || 0),
         testData: Number(appleAds?.test_data || 0),
         pending: Number(appleAds?.pending || 0),

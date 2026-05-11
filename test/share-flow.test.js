@@ -1539,8 +1539,14 @@ describe("Share Flow", () => {
       assert.ok(body.poem, "must return poem data");
       assert.ok(body.poem.preview_lines, "must return preview_lines");
       assert.ok(body.poem.preview_lines.length > 0, "preview must have content");
+      assert.ok(body.poem.verses, "must return full verses for web presentation");
+      assert.ok(body.poem.verses.length >= body.poem.preview_lines.length, "full verses must include at least the preview content");
+      assert.strictEqual(body.can_access, true, "web presentation should not be claim-gated");
+      assert.strictEqual(body.app_required, false, "app should be required for claim only, not display");
+      assert.strictEqual(typeof body.app_required_for_claim, "boolean", "app claim gate should remain explicit");
       // PIN is required for claiming, but content is visible
       assert.strictEqual(body.requires_pin, true, "requires_pin should be true (gating claim, not display)");
+      assert.strictEqual(body.requires_pin_for_claim, true, "claim PIN gate should remain explicit");
     });
 
     // Poem lifetime: shares created via service should be lifetime

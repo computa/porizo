@@ -28,8 +28,20 @@
   let streamUrl = null;
   let deviceId = null;
   let isPlaying = false;
-  let appDownloadUrl = '';
+  let receiverSaveUrl = '';
+  let receiverSession = null;
+  let playStartedLogged = false;
+  let playCompletedLogged = false;
+  let postPlayCtaViewed = false;
   let webStreamToken = null;
+  let memoryDeviceId = null;
+  let audioPlayerEventsBound = false;
+  let shareButtonsBound = false;
+  let postPlayCtaBound = false;
+  let postPlayDismissBound = false;
+  let teaserPlayerBound = false;
+  let teaserUnlockCtaBound = false;
+  let teaserShareBound = false;
 
   let teaserAudio = null;
   let teaserPlaying = false;
@@ -64,7 +76,6 @@
     loading: document.getElementById('loading'),
     error: document.getElementById('error'),
     expired: document.getElementById('expired'),
-    pinEntry: document.getElementById('pin-entry'),
     teaser: document.getElementById('teaser'),
     player: document.getElementById('player'),
   };
@@ -72,9 +83,6 @@
   const elements = {
     errorMessage: document.getElementById('error-message'),
     errorAction: document.getElementById('error-action'),
-    pinInput: document.getElementById('pin-input'),
-    pinError: document.getElementById('pin-error'),
-    pinSubmit: document.getElementById('pin-submit'),
     trackTitle: document.getElementById('track-title'),
     trackRecipient: document.getElementById('track-recipient'),
     audioPlayer: document.getElementById('audio-player'),
@@ -85,12 +93,13 @@
     currentTime: document.getElementById('current-time'),
     duration: document.getElementById('duration'),
     iosDownloadLink: document.getElementById('ios-download-link'),
-    androidDownloadLink: document.getElementById('android-download-link'),
   };
 
   // Utilities
   function showScreen(screenName) {
-    Object.values(screens).forEach(screen => screen.classList.remove('active'));
+    Object.values(screens).forEach(screen => {
+      if (screen) screen.classList.remove('active');
+    });
     if (screens[screenName]) {
       screens[screenName].classList.add('active');
     }
@@ -103,12 +112,38 @@
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   }
 
+  function storageGet(key) {
+    try {
+      return window.localStorage.getItem(key);
+    } catch (_e) {
+      return null;
+    }
+  }
+
+  function storageSet(key, value) {
+    try {
+      window.localStorage.setItem(key, value);
+      return true;
+    } catch (_e) {
+      return false;
+    }
+  }
+
+  function storageRemove(key) {
+    try {
+      window.localStorage.removeItem(key);
+    } catch (_e) {
+      // Storage can be blocked in private browsing. Nothing to clean up.
+    }
+  }
+
   function getDeviceId() {
     // Get or create a persistent device ID
-    let id = localStorage.getItem('porizo_device_id');
+    let id = storageGet('porizo_device_id');
     if (!id) {
-      id = 'web_' + crypto.randomUUID();
-      localStorage.setItem('porizo_device_id', id);
+      id = memoryDeviceId || 'web_' + crypto.randomUUID();
+      memoryDeviceId = id;
+      storageSet('porizo_device_id', id);
     }
     return id;
   }
@@ -118,9 +153,35 @@
     return window.PORIZO_API_URL || '';
   }
 
-  function getShareDeepLink() {
-    if (!shareId) return null;
-    return `porizo:///play/${encodeURIComponent(shareId)}`;
+  function getReceiverSessionKey() {
+    return shareId ? `porizo_receiver_session_${shareId}` : null;
+  }
+
+  function loadStoredReceiverSession() {
+    var key = getReceiverSessionKey();
+    if (!key) return null;
+    try {
+      var raw = storageGet(key);
+      if (!raw) return null;
+      var parsed = JSON.parse(raw);
+      if (
+        parsed &&
+        /^rs_[a-f0-9]{24}$/.test(parsed.receiver_session_id || '') &&
+        /^[a-f0-9]{48}$/.test(parsed.receiver_session_secret || '')
+      ) {
+        return parsed;
+      }
+    } catch (_e) {
+      storageRemove(key);
+    }
+    return null;
+  }
+
+  function saveReceiverSession(nextSession) {
+    var key = getReceiverSessionKey();
+    if (!key || !nextSession) return;
+    receiverSession = nextSession;
+    storageSet(key, JSON.stringify(nextSession));
   }
 
   function buildShareAttribution(placement) {
@@ -132,33 +193,6 @@
       utm_campaign: 'shared_song_recipient',
       utm_content: shareId ? `${slot}_${shareId}` : slot
     };
-  }
-
-  function appendDownloadAttribution(url, { deepLink = null, placement = 'app_bar' } = {}) {
-    var target = url || '/download';
-    var hashIndex = target.indexOf('#');
-    var hash = hashIndex >= 0 ? target.slice(hashIndex) : '';
-    var withoutHash = hashIndex >= 0 ? target.slice(0, hashIndex) : target;
-    var queryIndex = withoutHash.indexOf('?');
-    var path = queryIndex >= 0 ? withoutHash.slice(0, queryIndex) : withoutHash;
-    var query = queryIndex >= 0 ? withoutHash.slice(queryIndex + 1) : '';
-    var params = new URLSearchParams(query);
-    var attribution = buildShareAttribution(placement);
-
-    Object.keys(attribution).forEach(function(key) {
-      if (attribution[key]) {
-        params.set(key, attribution[key]);
-      }
-    });
-    if (deepLink && !params.has('deep_link')) {
-      params.set('deep_link', deepLink);
-    }
-    if (deepLink && !params.has('channel')) {
-      params.set('channel', 'appstore');
-    }
-
-    var nextQuery = params.toString();
-    return nextQuery ? `${path}?${nextQuery}${hash}` : `${path}${hash}`;
   }
 
   function buildDownloadUrl({ deepLink = null, platform = null, placement = 'app_bar' } = {}) {
@@ -182,18 +216,14 @@
     return query ? `/download?${query}` : '/download';
   }
 
+  function buildReceiverSaveFallbackUrl(placement) {
+    return buildDownloadUrl({ placement: placement || 'app_bar' });
+  }
+
   function updateDownloadLinks() {
-    const deepLink = getShareDeepLink();
-    const iosUrl = appendDownloadAttribution(appDownloadUrl || buildDownloadUrl({ deepLink, placement: 'app_bar' }), {
-      deepLink,
-      placement: 'app_bar'
-    });
-    const androidUrl = buildDownloadUrl({ platform: 'android', placement: 'app_bar_android' });
+    const iosUrl = receiverSaveUrl || buildReceiverSaveFallbackUrl('app_bar');
     if (elements.iosDownloadLink) {
       elements.iosDownloadLink.setAttribute('href', iosUrl);
-    }
-    if (elements.androidDownloadLink) {
-      elements.androidDownloadLink.setAttribute('href', androidUrl);
     }
   }
 
@@ -432,6 +462,80 @@
     return response.json();
   }
 
+  async function recordReceiverEvent(eventName, metadata, options = {}) {
+    if (!shareId) return null;
+    var payload = {
+      event_name: eventName,
+      metadata: metadata || {}
+    };
+    if (receiverSession && receiverSession.receiver_session_id && receiverSession.receiver_session_secret) {
+      payload.receiver_session_id = receiverSession.receiver_session_id;
+      payload.receiver_session_secret = receiverSession.receiver_session_secret;
+    }
+
+    const response = await fetch(`${getApiBaseUrl()}/share/${encodeURIComponent(shareId)}/receiver-session`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      keepalive: Boolean(options.keepalive),
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.error || `HTTP ${response.status}`);
+    }
+    const data = await response.json();
+    if (data.receiver_session_id && data.receiver_session_secret) {
+      saveReceiverSession({
+        receiver_session_id: data.receiver_session_id,
+        receiver_session_secret: data.receiver_session_secret,
+      });
+    }
+    if (data.receiver_save_url) {
+      receiverSaveUrl = data.receiver_save_url;
+      updateDownloadLinks();
+    }
+    return data;
+  }
+
+  async function safeRecordReceiverEvent(eventName, metadata, options = {}) {
+    try {
+      return await recordReceiverEvent(eventName, metadata, options);
+    } catch (error) {
+      console.warn('[Receiver] event failed:', eventName, error);
+      return null;
+    }
+  }
+
+  function handleReceiverSaveClick(event, placement) {
+    var link = event.currentTarget;
+    if (!link || !link.href) return;
+
+    event.preventDefault();
+    var targetHref = link.href;
+    var navigated = false;
+
+    function navigate(nextUrl) {
+      if (navigated) return;
+      navigated = true;
+      window.location.href = nextUrl || targetHref;
+    }
+
+    recordReceiverEvent('receiver_save_cta_clicked', { placement: placement || 'app_bar' }, { keepalive: true })
+      .then(function(data) {
+        if (data && data.receiver_save_url) {
+          targetHref = data.receiver_save_url;
+        }
+        navigate(targetHref);
+      })
+      .catch(function() {
+        navigate(targetHref);
+      });
+
+    setTimeout(function() {
+      navigate(targetHref);
+    }, receiverSaveUrl ? 350 : 1500);
+  }
+
   // Screen Handlers
   async function initializePlayer() {
     try {
@@ -451,7 +555,8 @@
 
       // Fetch share info
       shareData = await fetchShareInfo(shareId);
-      appDownloadUrl = shareData.app_download_url || buildDownloadUrl({ deepLink: getShareDeepLink() });
+      receiverSession = loadStoredReceiverSession();
+      await safeRecordReceiverEvent('receiver_link_opened', { placement: 'page_load' });
       updateDownloadLinks();
 
       if (shareData.status === 'expired') {
@@ -474,21 +579,8 @@
 
       // For unclaimed shares
       if (shareData.status === 'unbound') {
-        if (shareData.requires_pin) {
-          // Check sessionStorage for a previously verified PIN token
-          const cachedToken = sessionStorage.getItem(`porizo_wst_${shareId}`);
-          if (cachedToken) {
-            webStreamToken = cachedToken;
-            await loadPlayer(false);
-            return;
-          }
-          if (shareData.teaser_url) {
-            await loadTeaser();
-            return;
-          }
-          updateTrackInfo();
-          showScreen('pinEntry');
-          elements.pinInput.focus();
+        if (!shareData.web_stream_url && shareData.teaser_url) {
+          await loadTeaser();
           return;
         }
         await loadPlayer(false);
@@ -499,7 +591,7 @@
         'This link has already been claimed on another device. Ask the sender for a new link.',
         {
           label: 'Get the app',
-          href: appDownloadUrl
+          href: receiverSaveUrl || buildReceiverSaveFallbackUrl('app_bar')
         }
       );
 
@@ -524,51 +616,6 @@
     }
     elements.errorMessage.textContent = message;
     showScreen('error');
-  }
-
-  async function handlePinSubmit() {
-    const pin = elements.pinInput.value.trim();
-    if (pin.length !== 6) return;
-
-    elements.pinSubmit.disabled = true;
-    elements.pinSubmit.textContent = 'Verifying...';
-    elements.pinError.textContent = '';
-
-    try {
-      const response = await fetch(`${getApiBaseUrl()}/share/${shareId}/web-verify`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pin }),
-      });
-
-      const data = await response.json().catch(() => ({}));
-
-      if (!response.ok) {
-        elements.pinSubmit.textContent = 'Unlock';
-        if (data.error === 'INVALID_PIN') {
-          elements.pinError.textContent = 'Incorrect PIN. Please try again.';
-          elements.pinSubmit.disabled = false;
-        } else if (data.error === 'TOO_MANY_ATTEMPTS') {
-          elements.pinError.textContent = 'Too many attempts. Please try later.';
-          elements.pinSubmit.disabled = true;
-        } else {
-          elements.pinError.textContent = data.message || 'Verification failed. Please try again.';
-          elements.pinSubmit.disabled = false;
-        }
-        return;
-      }
-
-      // Success — store token and load player
-      webStreamToken = data.web_stream_token;
-      try { sessionStorage.setItem(`porizo_wst_${shareId}`, webStreamToken); } catch(e) { /* private browsing */ }
-      await loadPlayer(false);
-
-    } catch (error) {
-      console.error('PIN verify error:', error);
-      elements.pinSubmit.textContent = 'Unlock';
-      elements.pinSubmit.disabled = false;
-      elements.pinError.textContent = 'Verification failed. Please try again.';
-    }
   }
 
   async function loadPlayer(claimed = false) {
@@ -607,7 +654,7 @@
           'This link is already claimed on another device.',
           {
             label: 'Get the app',
-            href: appDownloadUrl
+            href: receiverSaveUrl || buildReceiverSaveFallbackUrl('app_bar')
           }
         );
       } else if (error.message === 'WEB_STREAM_NOT_ALLOWED') {
@@ -615,7 +662,7 @@
           'Web playback is disabled for this song. Open the Porizo app to claim and listen.',
           {
             label: 'Get the app',
-            href: appDownloadUrl
+            href: receiverSaveUrl || buildReceiverSaveFallbackUrl('app_bar')
           }
         );
       } else if (error.message === 'RATE_LIMITED') {
@@ -655,9 +702,16 @@
 
     // Event listeners
     // Start/stop atmospheric effects directly from audio events
+    if (audioPlayerEventsBound) return;
+    audioPlayerEventsBound = true;
+
     audio.addEventListener('play', () => {
       hidePostPlayCta();
       startAtmosphere();
+      if (!playStartedLogged) {
+        playStartedLogged = true;
+        safeRecordReceiverEvent('receiver_play_started', { placement: 'player' });
+      }
     });
     audio.addEventListener('pause', () => { stopAtmosphere(); });
 
@@ -698,6 +752,10 @@
       const lyricsScroll = document.getElementById('lyrics-scroll');
       if (lyricsScroll) lyricsScroll.scrollTop = 0;
       showPostPlayCta();
+      if (!playCompletedLogged) {
+        playCompletedLogged = true;
+        safeRecordReceiverEvent('receiver_play_completed', { placement: 'player' });
+      }
     });
 
     audio.addEventListener('error', (e) => {
@@ -863,6 +921,19 @@
     var shareUrl = getShareUrl();
     var shareText = getShareText();
 
+    if (shareButtonsBound) {
+      var existingWaBtn = document.getElementById('btn-share-whatsapp');
+      if (existingWaBtn) {
+        existingWaBtn.href = 'https://wa.me/?text=' + encodeURIComponent(shareText + ' ' + shareUrl);
+      }
+      var existingTwBtn = document.getElementById('btn-share-twitter');
+      if (existingTwBtn) {
+        existingTwBtn.href = 'https://twitter.com/intent/tweet?text=' + encodeURIComponent(shareText) + '&url=' + encodeURIComponent(shareUrl);
+      }
+      return;
+    }
+    shareButtonsBound = true;
+
     var copyBtn = document.getElementById('btn-copy-link');
     if (copyBtn) {
       copyBtn.addEventListener('click', function() {
@@ -907,6 +978,16 @@
     if (!cta) return;
     cta.classList.add('visible');
     cta.setAttribute('aria-hidden', 'false');
+    if (!postPlayCtaViewed) {
+      postPlayCtaViewed = true;
+      safeRecordReceiverEvent('receiver_save_cta_viewed', { placement: 'post_play' })
+        .then(function(data) {
+          if (data && data.receiver_save_url) {
+            var ctaLink = document.getElementById('cta-download-link');
+            if (ctaLink) ctaLink.href = data.receiver_save_url;
+          }
+        });
+    }
   }
 
   function hidePostPlayCta() {
@@ -920,16 +1001,17 @@
     hidePostPlayCta();
     var ctaLink = document.getElementById('cta-download-link');
     if (ctaLink) {
-      ctaLink.href = appendDownloadAttribution(appDownloadUrl || buildDownloadUrl({
-        deepLink: getShareDeepLink(),
-        placement: 'post_play'
-      }), {
-        deepLink: getShareDeepLink(),
-        placement: 'post_play'
-      });
+      ctaLink.href = receiverSaveUrl || buildReceiverSaveFallbackUrl('post_play');
+      if (!postPlayCtaBound) {
+        postPlayCtaBound = true;
+        ctaLink.addEventListener('click', function(event) {
+          handleReceiverSaveClick(event, 'post_play');
+        });
+      }
     }
     var dismissBtn = document.getElementById('cta-dismiss');
-    if (dismissBtn) {
+    if (dismissBtn && !postPlayDismissBound) {
+      postPlayDismissBound = true;
       dismissBtn.addEventListener('click', function() {
         hidePostPlayCta();
       });
@@ -968,6 +1050,9 @@
     if (!teaserAudio) return;
     teaserAudio.preload = 'none';
     teaserAudio.src = url;
+
+    if (teaserPlayerBound) return;
+    teaserPlayerBound = true;
 
     var teaserDuration = TEASER_MAX_SECONDS; // Updated on loadedmetadata if shorter
 
@@ -1042,13 +1127,17 @@
   }
 
   function setupTeaserUnlockCta() {
+    if (teaserUnlockCtaBound) return;
+    teaserUnlockCtaBound = true;
+
     var unlockBtn = document.getElementById('teaser-unlock-btn');
     if (unlockBtn) {
-      unlockBtn.addEventListener('click', function() {
+      unlockBtn.addEventListener('click', function(event) {
         if (teaserAudio) { teaserAudio.pause(); teaserPlaying = false; }
-        updateTrackInfo();
-        showScreen('pinEntry');
-        elements.pinInput.focus();
+        handleReceiverSaveClick({
+          currentTarget: { href: receiverSaveUrl || buildReceiverSaveFallbackUrl('teaser_unlock') },
+          preventDefault: function() { event.preventDefault(); },
+        }, 'teaser_unlock');
       });
     }
 
@@ -1069,17 +1158,17 @@
 
     var appLink = document.getElementById('teaser-app-link');
     if (appLink) {
-      appLink.href = appendDownloadAttribution(appDownloadUrl || buildDownloadUrl({
-        deepLink: getShareDeepLink(),
-        placement: 'teaser_unlock'
-      }), {
-        deepLink: getShareDeepLink(),
-        placement: 'teaser_unlock'
+      appLink.href = receiverSaveUrl || buildReceiverSaveFallbackUrl('teaser_unlock');
+      appLink.addEventListener('click', function(event) {
+        handleReceiverSaveClick(event, 'teaser_unlock');
       });
     }
   }
 
   function setupTeaserShareButton() {
+    if (teaserShareBound) return;
+    teaserShareBound = true;
+
     var copyBtn = document.getElementById('teaser-copy-link');
     if (copyBtn) {
       copyBtn.addEventListener('click', function() {
@@ -1093,24 +1182,14 @@
 
   // Event Bindings
   function bindEvents() {
-    // PIN input
-    elements.pinInput.addEventListener('input', (e) => {
-      // Only allow digits
-      e.target.value = e.target.value.replace(/\D/g, '').slice(0, 6);
-      elements.pinSubmit.disabled = e.target.value.length !== 6;
-      elements.pinError.textContent = '';
-    });
-
-    elements.pinInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && elements.pinInput.value.length === 6) {
-        handlePinSubmit();
-      }
-    });
-
-    elements.pinSubmit.addEventListener('click', handlePinSubmit);
-
     // Play button
     elements.playBtn.addEventListener('click', togglePlay);
+
+    if (elements.iosDownloadLink) {
+      elements.iosDownloadLink.addEventListener('click', function(event) {
+        handleReceiverSaveClick(event, 'app_bar');
+      });
+    }
 
     // Keyboard controls
     document.addEventListener('keydown', (e) => {

@@ -66,7 +66,7 @@ private enum AppsFlyerAnalytics {
         !infoPlistConfig("AppsFlyerDevKey").isEmpty && !infoPlistConfig("AppsFlyerAppleAppID").isEmpty
     }
 
-    static func initialize() {
+    static func initialize(deepLinkDelegate: DeepLinkDelegate? = nil) {
         guard isConfigured else {
             print("[AppsFlyer] Skipped init — AppsFlyerDevKey / AppsFlyerAppleAppID not configured")
             return
@@ -74,6 +74,7 @@ private enum AppsFlyerAnalytics {
         let lib = AppsFlyerLib.shared()
         lib.appsFlyerDevKey = infoPlistConfig("AppsFlyerDevKey")
         lib.appleAppID = infoPlistConfig("AppsFlyerAppleAppID")
+        lib.deepLinkDelegate = deepLinkDelegate
         // Wait up to 60s for the user's ATT decision before firing the install
         // postback. Required on iOS 14.5+ for IDFA-based attribution.
         if #available(iOS 14.5, *) {
@@ -159,7 +160,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         #endif
 
         #if canImport(AppsFlyerLib)
-        AppsFlyerAnalytics.initialize()
+        AppsFlyerAnalytics.initialize(deepLinkDelegate: self)
         #endif
 
         #if canImport(AdServices)
@@ -192,6 +193,25 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         // This can fail in simulators or if push notifications aren't configured
         print("[Push] Failed to register: \(error.localizedDescription)")
     }
+
+    #if canImport(AppsFlyerLib)
+    func application(
+        _ application: UIApplication,
+        open url: URL,
+        options: [UIApplication.OpenURLOptionsKey: Any] = [:]
+    ) -> Bool {
+        AppsFlyerLib.shared().handleOpen(url, options: options)
+        return url.scheme == "porizo"
+    }
+
+    func application(
+        _ application: UIApplication,
+        continue userActivity: NSUserActivity,
+        restorationHandler: @escaping ([UIUserActivityRestoring]?) -> Void
+    ) -> Bool {
+        AppsFlyerLib.shared().continue(userActivity, restorationHandler: nil)
+    }
+    #endif
 
     // MARK: - Push Notification Handling
 
@@ -241,6 +261,33 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         }
     }
 }
+
+#if canImport(AppsFlyerLib)
+extension AppDelegate: DeepLinkDelegate {
+    func didResolveDeepLink(_ result: DeepLinkResult) {
+        guard result.status == .found, let deepLink = result.deepLink else {
+            #if DEBUG
+            print("[AppsFlyer] Deep link not found or failed: \(String(describing: result.error))")
+            #endif
+            return
+        }
+
+        let payload = ReceiverDeepLinkService.payload(
+            receiverHandoffId: deepLink.deeplinkValue,
+            receiverSessionId: deepLink.afSub1 ?? deepLink.clickEvent["deep_link_sub1"] as? String,
+            contentKind: deepLink.afSub2 ?? deepLink.clickEvent["deep_link_sub2"] as? String
+        )
+        guard let payload else {
+            #if DEBUG
+            print("[AppsFlyer] Ignored deep link without receiver handoff id")
+            #endif
+            return
+        }
+
+        ReceiverDeepLinkService.post(payload)
+    }
+}
+#endif
 
 @main
 struct PorizoAppApp: App {

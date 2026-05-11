@@ -48,14 +48,17 @@ async function insertAppleAdsAttribution(db, {
   userId,
   status,
   campaignId = null,
+  adGroupId = null,
+  keywordId = null,
   country = null,
+  clickDate = null,
   createdAt = new Date().toISOString(),
 }) {
   await db.prepare(`
     INSERT INTO apple_ads_attribution (
       id, user_id, attribution_token_sha256, token_length, status, api_status_code,
-      campaign_id, country_or_region, created_at, updated_at, resolved_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      campaign_id, ad_group_id, keyword_id, country_or_region, click_date, created_at, updated_at, resolved_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     id,
     userId,
@@ -64,7 +67,10 @@ async function insertAppleAdsAttribution(db, {
     status,
     status === "resolved" ? 200 : (status === "not_found" ? 404 : null),
     campaignId,
+    adGroupId,
+    keywordId,
     country,
+    clickDate,
     createdAt,
     createdAt,
     status === "pending" ? null : createdAt
@@ -100,7 +106,10 @@ describe("admin attribution contract", () => {
       userId,
       status: "resolved",
       campaignId: 321,
+      adGroupId: 654,
+      keywordId: 987,
       country: "AU",
+      clickDate: "2026-04-11T10:00:00Z",
     });
 
     const listResponse = await app.inject({
@@ -111,8 +120,12 @@ describe("admin attribution contract", () => {
     assert.equal(listResponse.statusCode, 200, listResponse.body);
     const listedUser = listResponse.json().users[0];
     assert.equal(listedUser.acquisition_source, "Apple Ads");
+    assert.equal(listedUser.acquisition_medium, "cpc");
     assert.equal(listedUser.acquisition_campaign, "321");
+    assert.equal(listedUser.acquisition_content, "654");
+    assert.equal(listedUser.acquisition_term, "987");
     assert.equal(listedUser.acquisition_country, "AU");
+    assert.equal(listedUser.acquisition_at, "2026-04-11T10:00:00Z");
     assert.equal(listedUser.attribution_status, "attributed");
     assert.equal(listedUser.attribution_confidence, "apple_ads");
 
@@ -124,8 +137,12 @@ describe("admin attribution contract", () => {
     assert.equal(detailResponse.statusCode, 200, detailResponse.body);
     const detailUser = detailResponse.json().user;
     assert.equal(detailUser.acquisition_source, "Apple Ads");
+    assert.equal(detailUser.acquisition_medium, "cpc");
     assert.equal(detailUser.acquisition_campaign, "321");
+    assert.equal(detailUser.acquisition_content, "654");
+    assert.equal(detailUser.acquisition_term, "987");
     assert.equal(detailUser.acquisition_country, "AU");
+    assert.equal(detailUser.acquisition_at, "2026-04-11T10:00:00Z");
     assert.equal(detailUser.attribution_status, "attributed");
     assert.match(detailUser.attribution_reason, /Apple Ads/);
   });
@@ -198,8 +215,12 @@ describe("admin attribution contract", () => {
       headers: adminHeaders,
       payload: {
         acquisition_source: "Founder outreach",
+        acquisition_medium: "email",
         acquisition_campaign: "friends_test",
+        acquisition_content: "may_followup",
+        acquisition_term: "song_gift",
         acquisition_country: "US",
+        acquisition_referrer: "https://porizo.co/mothers-day-song",
       },
     });
     assert.equal(updateResponse.statusCode, 200, updateResponse.body);
@@ -217,15 +238,27 @@ describe("admin attribution contract", () => {
     const metadata = JSON.parse(auditRow.metadata_json);
     assert.equal(metadata.contract, "attribution-source-precedence-v1");
     assert.equal(metadata.previous.acquisition_source, null);
+    assert.equal(metadata.previous.acquisition_medium, null);
     assert.equal(metadata.previous.acquisition_campaign, null);
+    assert.equal(metadata.previous.acquisition_content, null);
+    assert.equal(metadata.previous.acquisition_term, null);
     assert.equal(metadata.previous.acquisition_country, null);
+    assert.equal(metadata.previous.acquisition_referrer, null);
     assert.equal(metadata.next.acquisition_source, "Founder outreach");
+    assert.equal(metadata.next.acquisition_medium, "email");
     assert.equal(metadata.next.acquisition_campaign, "friends_test");
+    assert.equal(metadata.next.acquisition_content, "may_followup");
+    assert.equal(metadata.next.acquisition_term, "song_gift");
     assert.equal(metadata.next.acquisition_country, "US");
+    assert.equal(metadata.next.acquisition_referrer, "https://porizo.co/mothers-day-song");
     assert.deepEqual(metadata.changedFields, {
       acquisition_source: "Founder outreach",
+      acquisition_medium: "email",
       acquisition_campaign: "friends_test",
+      acquisition_content: "may_followup",
+      acquisition_term: "song_gift",
       acquisition_country: "US",
+      acquisition_referrer: "https://porizo.co/mothers-day-song",
     });
   });
 
@@ -241,6 +274,8 @@ describe("admin attribution contract", () => {
       userId: resolvedUserId,
       status: "resolved",
       campaignId: 456,
+      adGroupId: 789,
+      keywordId: 101,
       country: "US",
     });
     await insertAppleAdsAttribution(db, {
@@ -265,7 +300,9 @@ describe("admin attribution contract", () => {
     const health = response.json();
     assert.equal(health.appleAds.totalTokens, 3);
     assert.equal(health.appleAds.resolved, 1);
+    assert.equal(health.appleAds.resolvedUsers, 1);
     assert.equal(health.appleAds.resolvedWithCountry, 1);
+    assert.equal(health.appleAds.resolvedMissingCountry, 0);
     assert.equal(health.appleAds.pending, 1);
     assert.equal(health.appleAds.testData, 1);
     assert.equal(health.appleAds.resolvedRowsNotBackfilled, 1);
@@ -358,5 +395,64 @@ describe("admin attribution contract", () => {
       false,
       "old download should not be included in a 30-day report"
     );
+  });
+
+  test("growth attribution resolves Apple Ads keyword ids to readable keyword names", async () => {
+    const userId = "admin_attr_keyword_map";
+    await insertUser(db, userId);
+    await insertAppleAdsAttribution(db, {
+      id: "aaa_admin_attr_keyword_map",
+      userId,
+      status: "resolved",
+      campaignId: 321,
+      adGroupId: 654,
+      keywordId: 987,
+      country: "US",
+    });
+
+    const syncResponse = await app.inject({
+      method: "POST",
+      url: "/admin/dashboard/growth/apple-ads-keyword-map",
+      headers: adminHeaders,
+      payload: {
+        keywords: [{
+          keyword_id: "987",
+          campaign_id: "321",
+          campaign_name: "Porizo - Category US",
+          ad_group_id: "654",
+          ad_group_name: "High-Intent Keywords",
+          keyword_text: "gift song",
+          match_type: "EXACT",
+          bid_amount: "1.80",
+          status: "ENABLED",
+        }],
+      },
+    });
+    assert.equal(syncResponse.statusCode, 200, syncResponse.body);
+    assert.equal(syncResponse.json().upserted, 1);
+
+    const mapResponse = await app.inject({
+      method: "GET",
+      url: "/admin/dashboard/growth/apple-ads-keyword-map",
+      headers: adminHeaders,
+    });
+    assert.equal(mapResponse.statusCode, 200, mapResponse.body);
+    assert.equal(mapResponse.json().rows[0].keyword_text, "gift song");
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/admin/dashboard/growth/attribution?days=30",
+      headers: adminHeaders,
+    });
+    assert.equal(response.statusCode, 200, response.body);
+    const row = response.json().appleAdsByCampaign[0];
+    assert.equal(String(row.campaign_id), "321");
+    assert.equal(String(row.ad_group_id), "654");
+    assert.equal(String(row.keyword_id), "987");
+    assert.equal(row.campaign_name, "Porizo - Category US");
+    assert.equal(row.ad_group_name, "High-Intent Keywords");
+    assert.equal(row.keyword_text, "gift song");
+    assert.equal(row.match_type, "EXACT");
+    assert.equal(row.resolved_count, 1);
   });
 });

@@ -16,6 +16,7 @@
 	<array>
 		<string>applinks:porizo.co</string>
 		<string>applinks:*.porizo.co</string>
+		<string>applinks:porizo.onelink.me</string>
 	</array>
 </dict>
 </plist>

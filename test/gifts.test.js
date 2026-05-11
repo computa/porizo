@@ -227,19 +227,17 @@ describe("Gift scheduling and wallet", () => {
     });
     assert.strictEqual(shareInfoRes.statusCode, 200, shareInfoRes.body);
     const shareInfo = JSON.parse(shareInfoRes.body);
-    assert.strictEqual(shareInfo.app_required, true);
-    assert.strictEqual(shareInfo.web_stream_url, null);
+    assert.strictEqual(shareInfo.app_required, false);
+    assert.strictEqual(shareInfo.claim_requires_app, true);
+    assert.strictEqual(typeof shareInfo.web_stream_url, "string");
 
     const streamRes = await app.inject({
       method: "GET",
       url: `/share/${shareId}/stream`,
     });
-    assert.strictEqual(streamRes.statusCode, 403);
-    const streamErr = JSON.parse(streamRes.body);
-    assert.ok(
-      streamErr.error === "APP_CLAIM_REQUIRED" || streamErr.error === "WEB_STREAM_NOT_ALLOWED",
-      `Unexpected stream error code: ${streamErr.error}`
-    );
+    assert.strictEqual(streamRes.statusCode, 200, streamRes.body);
+    const streamBody = JSON.parse(streamRes.body);
+    assert.strictEqual(streamBody.format, "audio");
   });
 
   it("supports scheduled gift cancellation with automatic token refund", async () => {

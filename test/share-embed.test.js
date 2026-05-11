@@ -605,9 +605,9 @@ describe("Share Embed Routes", () => {
     assert.equal(downloadUrl.searchParams.get("utm_source"), "share_player");
     assert.equal(downloadUrl.searchParams.get("utm_medium"), "recipient_loop");
     assert.equal(downloadUrl.searchParams.get("utm_campaign"), "shared_song_recipient");
-    assert.equal(downloadUrl.searchParams.get("utm_content"), `song_${testShareId}`);
-    assert.equal(downloadUrl.searchParams.get("ref"), `/play/${testShareId}`);
-    assert.equal(downloadUrl.searchParams.get("deep_link"), `porizo:///play/${testShareId}`);
+    assert.equal(downloadUrl.searchParams.get("utm_content"), "song_generic_install");
+    assert.equal(downloadUrl.searchParams.has("ref"), false);
+    assert.equal(downloadUrl.searchParams.has("deep_link"), false);
 
     await db.query(
       `UPDATE share_tokens SET status = 'unbound', web_stream_allowed = 1 WHERE id = $1`,

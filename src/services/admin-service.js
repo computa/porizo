@@ -154,8 +154,13 @@ class AdminService {
       SELECT
         u.id, u.email, u.display_name, u.risk_level, u.locked_until, u.created_at,
         u.acquisition_source,
+        u.acquisition_medium,
         u.acquisition_campaign,
+        u.acquisition_content,
+        u.acquisition_term,
         u.acquisition_country,
+        u.acquisition_referrer,
+        u.acquisition_at,
         COALESCE(e.tier, 'free') as tier,
         COALESCE(track_counts.track_count, 0) as track_count,
         COALESCE(vp.status, 'none') as voice_status,
@@ -284,13 +289,13 @@ class AdminService {
          ORDER BY st.created_at DESC LIMIT 10`
       ).all(userId),
       this.db.prepare(
-        `SELECT id, utm_source, utm_medium, utm_campaign, utm_content, country, referrer_url, created_at
+        `SELECT id, utm_source, utm_medium, utm_campaign, utm_content, utm_term, country, referrer_url, created_at
          FROM download_events
          WHERE matched_user_id = ?
          ORDER BY created_at DESC LIMIT 1`
       ).get(userId),
       this.db.prepare(
-        `SELECT id, status, campaign_id, ad_group_id, keyword_id, org_id, conversion_type, country_or_region, created_at, resolved_at
+        `SELECT id, status, campaign_id, ad_group_id, keyword_id, org_id, conversion_type, country_or_region, click_date, created_at, resolved_at
          FROM apple_ads_attribution
          WHERE user_id = ? AND status = 'resolved'
          ORDER BY created_at DESC LIMIT 1`
@@ -397,8 +402,12 @@ class AdminService {
       'email',
       'phone_number',
       'acquisition_source',
+      'acquisition_medium',
       'acquisition_campaign',
+      'acquisition_content',
+      'acquisition_term',
       'acquisition_country',
+      'acquisition_referrer',
     ];
     const updates = {};
     for (const key of allowedFields) {
@@ -411,7 +420,15 @@ class AdminService {
       return { success: false, error: 'No valid fields provided' };
     }
 
-    const attributionFields = ['acquisition_source', 'acquisition_campaign', 'acquisition_country'];
+    const attributionFields = [
+      'acquisition_source',
+      'acquisition_medium',
+      'acquisition_campaign',
+      'acquisition_content',
+      'acquisition_term',
+      'acquisition_country',
+      'acquisition_referrer',
+    ];
     const attributionUpdates = {};
     for (const key of attributionFields) {
       if (Object.prototype.hasOwnProperty.call(updates, key)) {
@@ -421,7 +438,8 @@ class AdminService {
 
     const previousAttribution = Object.keys(attributionUpdates).length > 0
       ? await this.db.prepare(`
-          SELECT acquisition_source, acquisition_campaign, acquisition_country
+          SELECT acquisition_source, acquisition_medium, acquisition_campaign, acquisition_content,
+                 acquisition_term, acquisition_country, acquisition_referrer, acquisition_at
           FROM users
           WHERE id = ?
         `).get(userId)
@@ -440,7 +458,8 @@ class AdminService {
     await this._audit(adminId, 'admin_update_user_profile', 'user', userId, { changedFields: updates });
     if (Object.keys(attributionUpdates).length > 0) {
       const nextAttribution = await this.db.prepare(`
-        SELECT acquisition_source, acquisition_campaign, acquisition_country
+        SELECT acquisition_source, acquisition_medium, acquisition_campaign, acquisition_content,
+               acquisition_term, acquisition_country, acquisition_referrer, acquisition_at
         FROM users
         WHERE id = ?
       `).get(userId);
@@ -448,13 +467,23 @@ class AdminService {
         contract: 'attribution-source-precedence-v1',
         previous: previousAttribution || {
           acquisition_source: null,
+          acquisition_medium: null,
           acquisition_campaign: null,
+          acquisition_content: null,
+          acquisition_term: null,
           acquisition_country: null,
+          acquisition_referrer: null,
+          acquisition_at: null,
         },
         next: nextAttribution || {
           acquisition_source: null,
+          acquisition_medium: null,
           acquisition_campaign: null,
+          acquisition_content: null,
+          acquisition_term: null,
           acquisition_country: null,
+          acquisition_referrer: null,
+          acquisition_at: null,
         },
         changedFields: attributionUpdates,
       });
@@ -1559,17 +1588,20 @@ class AdminService {
    */
   async getAttribution(days = 30) {
     const daysAgo = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+    const shareAttributionFields = new Set(["utm_source", "utm_medium", "utm_campaign"]);
 
     const buildBreakdown = async (field) => {
       const label = field;
-      const shareRows = await this.db.prepare(`
-        SELECT ${field} AS value,
-               COUNT(*) AS share_count,
-               SUM(CASE WHEN status = 'claimed' OR bound_device_id IS NOT NULL OR bound_user_id IS NOT NULL THEN 1 ELSE 0 END) AS claim_count
-        FROM share_tokens
-        WHERE created_at > ? AND ${field} IS NOT NULL
-        GROUP BY ${field}
-      `).all(daysAgo);
+      const shareRows = shareAttributionFields.has(field)
+        ? await this.db.prepare(`
+          SELECT ${field} AS value,
+                 COUNT(*) AS share_count,
+                 SUM(CASE WHEN status = 'claimed' OR bound_device_id IS NOT NULL OR bound_user_id IS NOT NULL THEN 1 ELSE 0 END) AS claim_count
+          FROM share_tokens
+          WHERE created_at > ? AND ${field} IS NOT NULL
+          GROUP BY ${field}
+        `).all(daysAgo)
+        : [];
 
       const downloadRows = await this.db.prepare(`
         SELECT ${field} AS value,
@@ -1614,11 +1646,48 @@ class AdminService {
       ));
     };
 
-    const [bySource, byMedium, byCampaign] = await Promise.all([
+    const [bySource, byMedium, byCampaign, byContent, byTerm] = await Promise.all([
       buildBreakdown("utm_source"),
       buildBreakdown("utm_medium"),
       buildBreakdown("utm_campaign"),
+      buildBreakdown("utm_content"),
+      buildBreakdown("utm_term"),
     ]);
+
+    const appleAdsByCampaign = await this.db.prepare(`
+      SELECT aaa.campaign_id,
+             aaa.ad_group_id,
+             aaa.keyword_id,
+             akm.campaign_name,
+             akm.ad_group_name,
+             akm.keyword_text,
+             akm.match_type,
+             COUNT(*) AS token_count,
+             COUNT(DISTINCT aaa.user_id) AS user_count,
+             SUM(CASE WHEN aaa.status = 'resolved' THEN 1 ELSE 0 END) AS resolved_count,
+             SUM(CASE WHEN aaa.status = 'not_found' THEN 1 ELSE 0 END) AS not_found_count,
+             SUM(CASE WHEN aaa.status = 'failed' THEN 1 ELSE 0 END) AS failed_count,
+             SUM(CASE WHEN aaa.country_or_region IS NOT NULL AND aaa.country_or_region <> '' THEN 1 ELSE 0 END) AS with_country_count
+      FROM apple_ads_attribution aaa
+      LEFT JOIN apple_ads_keyword_map akm
+        ON CAST(aaa.keyword_id AS TEXT) = akm.keyword_id
+      WHERE aaa.created_at > ?
+        AND aaa.status <> 'test'
+        AND NOT (
+          COALESCE(aaa.org_id, -1) = 1234567890
+          AND COALESCE(aaa.campaign_id, -1) = 1234567890
+          AND COALESCE(aaa.ad_group_id, -1) = 1234567890
+        )
+      GROUP BY aaa.campaign_id,
+               aaa.ad_group_id,
+               aaa.keyword_id,
+               akm.campaign_name,
+               akm.ad_group_name,
+               akm.keyword_text,
+               akm.match_type
+      ORDER BY resolved_count DESC, token_count DESC
+      LIMIT 50
+    `).all(daysAgo);
 
     // Total shares with attribution
     const withAttribution = (await this.db.prepare(`
@@ -1652,6 +1721,9 @@ class AdminService {
       bySource,
       byMedium,
       byCampaign,
+      byContent,
+      byTerm,
+      appleAdsByCampaign,
       withAttribution,
       totalShares,
       attributionRate: totalShares > 0 ? ((withAttribution / totalShares) * 100).toFixed(2) : '0.00',
@@ -1660,6 +1732,103 @@ class AdminService {
       attributedRegistrations,
       downloadAttributionRate: totalDownloads > 0 ? ((downloadsWithAttribution / totalDownloads) * 100).toFixed(2) : '0.00',
     };
+  }
+
+  async getAppleAdsKeywordMap({ limit = 500, offset = 0 } = {}) {
+    const bounds = safeBounds(limit, offset, 1000);
+    const rows = await this.db.prepare(`
+      SELECT keyword_id,
+             campaign_id,
+             campaign_name,
+             ad_group_id,
+             ad_group_name,
+             keyword_text,
+             match_type,
+             bid_amount,
+             status,
+             source,
+             last_seen_at,
+             updated_at
+      FROM apple_ads_keyword_map
+      ORDER BY last_seen_at DESC, campaign_name, ad_group_name, keyword_text
+      LIMIT ? OFFSET ?
+    `).all(bounds.limit, bounds.offset);
+
+    const total = (await this.db.prepare(`
+      SELECT COUNT(*) AS count FROM apple_ads_keyword_map
+    `).get())?.count ?? 0;
+
+    return { rows, total: Number(total || 0), limit: bounds.limit, offset: bounds.offset };
+  }
+
+  async upsertAppleAdsKeywordMap(rows, adminId = "system") {
+    if (!Array.isArray(rows)) {
+      throw new Error("keywords must be an array");
+    }
+    if (rows.length > 5000) {
+      throw new Error("keyword map sync is limited to 5000 rows per request");
+    }
+
+    const now = new Date().toISOString();
+    let upserted = 0;
+    for (const row of rows) {
+      const keywordId = String(row.keyword_id ?? row.keywordId ?? row.id ?? "").trim();
+      const keywordText = String(row.keyword_text ?? row.keyword ?? row.text ?? "").trim();
+      if (!keywordId || !keywordText) continue;
+
+      await this.db.prepare(`
+        INSERT INTO apple_ads_keyword_map (
+          keyword_id,
+          campaign_id,
+          campaign_name,
+          ad_group_id,
+          ad_group_name,
+          keyword_text,
+          match_type,
+          bid_amount,
+          status,
+          source,
+          last_seen_at,
+          created_at,
+          updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(keyword_id) DO UPDATE SET
+          campaign_id = excluded.campaign_id,
+          campaign_name = excluded.campaign_name,
+          ad_group_id = excluded.ad_group_id,
+          ad_group_name = excluded.ad_group_name,
+          keyword_text = excluded.keyword_text,
+          match_type = excluded.match_type,
+          bid_amount = excluded.bid_amount,
+          status = excluded.status,
+          source = excluded.source,
+          last_seen_at = excluded.last_seen_at,
+          updated_at = excluded.updated_at
+      `).run(
+        keywordId,
+        row.campaign_id != null ? String(row.campaign_id) : null,
+        row.campaign_name || null,
+        row.ad_group_id != null ? String(row.ad_group_id) : null,
+        row.ad_group_name || null,
+        keywordText,
+        row.match_type || row.matchType || null,
+        row.bid_amount != null ? String(row.bid_amount) : (row.bidAmount != null ? String(row.bidAmount) : null),
+        row.status || null,
+        row.source || "apple_ads_api",
+        row.last_seen_at || now,
+        now,
+        now
+      );
+      upserted += 1;
+    }
+
+    await this._audit(adminId, "admin_sync_apple_ads_keyword_map", "apple_ads_keyword_map", "bulk", {
+      rowCount: rows.length,
+      upserted,
+      contract: "apple-ads-keyword-map-v1",
+    });
+
+    return { upserted, skipped: rows.length - upserted };
   }
 
   /**
