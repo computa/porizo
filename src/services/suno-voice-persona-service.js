@@ -468,18 +468,21 @@ async function resetRejectedPersonaSourceForFreshCover(
   providerProfile,
   error,
 ) {
-  if (!providerProfile?.id || !providerProfile.source_audio_id) {
+  if (!providerProfile?.id) {
     return;
   }
+  const rejectedSourceAudioIds = providerProfile.source_audio_id
+    ? Array.from(
+        new Set([
+          ...collectRejectedSourceAudioIds(providerProfile),
+          providerProfile.source_audio_id,
+        ]),
+      )
+    : collectRejectedSourceAudioIds(providerProfile);
   const metadata = withProviderMetadata(providerProfile, {
     suno_bad_source_music: true,
     source_music_regenerations: sourceMusicRegenerationCount(providerProfile) + 1,
-    suno_rejected_source_audio_ids: Array.from(
-      new Set([
-        ...collectRejectedSourceAudioIds(providerProfile),
-        providerProfile.source_audio_id,
-      ]),
-    ),
+    suno_rejected_source_audio_ids: rejectedSourceAudioIds,
     last_failure_category: "source_audio_retryable",
     last_failure_reason: "bad_source_music",
     last_user_action: "wait",
@@ -641,10 +644,15 @@ async function runSunoVoicePersonaJob({
         timeoutMs: config.PROVIDER_TIMEOUT_MS,
       });
       sourceTaskId = cover.taskId;
+      const coverSubmittedAt = new Date().toISOString();
       await recheck();
-      await markProviderProfileCoverSubmitted(db, providerProfile.id, {
+      providerProfile = await markProviderProfileCoverSubmitted(db, providerProfile.id, {
         sourceTaskId,
         model: cover.model,
+        metadata: withProviderMetadata(providerProfile, {
+          suno_cover_submitted_at: coverSubmittedAt,
+          suno_cover_model: cover.model,
+        }),
       });
       // U3: token revocation post-cover-submit goes through enrollment-domain.
       await revokeEnrollmentSessionToken(db, session.id);
@@ -685,7 +693,15 @@ async function runSunoVoicePersonaJob({
         );
       }
       sourceAudioId = audio.audioId;
+      const coverReadyAt = new Date().toISOString();
       await recheck();
+      const refreshedMetadata = parseProviderMetadata(providerProfile);
+      const firstCoverReadyAt =
+        refreshedMetadata.suno_cover_ready_at || coverReadyAt;
+      const firstCoverSubmittedAt = refreshedMetadata.suno_cover_submitted_at;
+      const firstCoverElapsedMs = firstCoverSubmittedAt
+        ? Date.parse(firstCoverReadyAt) - Date.parse(firstCoverSubmittedAt)
+        : null;
       await markProviderProfilePersonaSubmitted(db, providerProfile.id, {
         sourceTaskId:
           audio.response?.data?.taskId ||
@@ -698,6 +714,13 @@ async function runSunoVoicePersonaJob({
           suno_source_audio_track_index:
             typeof audio.audioTrackIndex === "number"
               ? audio.audioTrackIndex
+              : null,
+          suno_source_audio_status: audio.status || null,
+          suno_cover_ready_at: firstCoverReadyAt,
+          suno_cover_last_polled_ready_at: coverReadyAt,
+          suno_cover_elapsed_ms:
+            Number.isFinite(firstCoverElapsedMs) && firstCoverElapsedMs >= 0
+              ? firstCoverElapsedMs
               : null,
           suno_rejected_source_audio_ids: rejectedSourceAudioIds,
         }),
@@ -908,6 +931,39 @@ async function runSunoVoicePersonaJob({
         throw new Error(sanitizeProviderError(err));
       }
       throw manualRecoveryError;
+    }
+    if (
+      String(err?.message || "").includes(
+        "E302_SUNO_PERSONA_ALL_SOURCE_AUDIO_REJECTED",
+      ) &&
+      providerProfile?.id
+    ) {
+      const failedJob = await markVoiceProviderJobFailed(db, jobId, err, {
+        step: "prepare_persona",
+        retryable: true,
+      });
+      if (failedJob?.status === "pending") {
+        await resetRejectedPersonaSourceForFreshCover(
+          db,
+          providerProfile,
+          err,
+        );
+      } else if (failedJob?.status === "failed") {
+        await markProviderProfileFailed(db, providerProfile.id, err);
+      }
+      await patchProviderProfileMetadata(
+        db,
+        providerProfile.id,
+        {
+          last_failure_category: "source_audio_retryable",
+          last_failure_reason: "all_source_audio_candidates_rejected",
+          last_user_action: "wait",
+          last_recovery_scope: "fresh_cover_task",
+          last_provider_retry_at: failedJob?.next_attempt_at || null,
+        },
+        err,
+      );
+      throw new Error(sanitizeProviderError(err));
     }
     const failedJob = await markVoiceProviderJobFailed(db, jobId, err, {
       step: "prepare_persona",

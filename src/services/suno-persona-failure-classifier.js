@@ -60,7 +60,8 @@ function classifySunoPersonaFailure(error) {
   }
   if (
     message.includes("current music failed to generate persona") ||
-    message.includes("bad source music")
+    message.includes("bad source music") ||
+    message.includes("music does not exist")
   ) {
     return result(
       "source_audio_retryable",
@@ -72,7 +73,6 @@ function classifySunoPersonaFailure(error) {
     );
   }
   if (
-    message.includes("music does not exist") ||
     message.includes("music is still generating") ||
     message.includes("ensure the music generation task is fully completed") ||
     message.includes("create persona error")

@@ -7,6 +7,7 @@ const {
   extractSunoAudioId,
   generatePersona,
   pollUploadCoverForAudio,
+  resolveSunoPersonaTrackAudioUrl,
   selectSunoPersonaSourceTrack,
   submitUploadCoverTask,
   uploadFileUrl,
@@ -115,7 +116,19 @@ describe("Suno persona provider", () => {
         if (calls < 3) {
           return {
             status: "TEXT_SUCCESS",
-            response: { code: 200, data: { response: {} } },
+            response: {
+              code: 200,
+              data: {
+                response: {
+                  sunoData: [
+                    {
+                      id: "audio_too_early",
+                      sourceAudioUrl: "https://cdn.example/early.mp3",
+                    },
+                  ],
+                },
+              },
+            },
           };
         }
         return {
@@ -278,6 +291,71 @@ describe("Suno persona provider", () => {
 
     assert.equal(selected.id, "audio_usable");
     assert.equal(selected.index, 2);
+  });
+
+  test("requires the selected Suno persona source track to have audio URL", () => {
+    const selected = selectSunoPersonaSourceTrack(
+      {
+        data: {
+          response: {
+            sunoData: [
+              {
+                id: "audio_no_url",
+                duration: 50,
+              },
+              {
+                id: "audio_with_url",
+                sourceAudioUrl: "https://cdn.example/usable.mp3",
+                duration: 35,
+              },
+            ],
+          },
+        },
+      },
+      { vocalStart: 0, vocalEnd: 30 },
+    );
+
+    assert.equal(selected.id, "audio_with_url");
+    assert.equal(
+      resolveSunoPersonaTrackAudioUrl(selected.track),
+      "https://cdn.example/usable.mp3",
+    );
+  });
+
+  test("throws a typed error when every ready source track was rejected", async () => {
+    await assert.rejects(
+      pollUploadCoverForAudio({
+        baseUrl: "https://api.sunoapi.org",
+        apiKey: "secret",
+        taskId: "task_123",
+        rejectedAudioIds: ["audio_rejected"],
+        pollingOptions: {
+          maxAttempts: 1,
+          initialIntervalMs: 1,
+          maxIntervalMs: 1,
+          backoffMultiplier: 1,
+          jitter: false,
+        },
+        pollTaskOnceFn: async () => ({
+          status: "AUDIO_SUCCESS",
+          response: {
+            code: 200,
+            data: {
+              response: {
+                sunoData: [
+                  {
+                    id: "audio_rejected",
+                    sourceAudioUrl: "https://cdn.example/rejected.mp3",
+                    duration: 30,
+                  },
+                ],
+              },
+            },
+          },
+        }),
+      }),
+      /E302_SUNO_PERSONA_ALL_SOURCE_AUDIO_REJECTED/,
+    );
   });
 
   test("U16/U6: pre-deploy gate — fixture must be live-captured before persona feature flag is flipped", (t) => {

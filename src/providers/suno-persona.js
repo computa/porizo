@@ -83,6 +83,30 @@ function parseTrackDurationSec(track) {
   return Number.isFinite(value) && value > 0 ? value : null;
 }
 
+function resolveSunoPersonaTrackAudioUrl(track) {
+  if (!track || typeof track !== "object") return null;
+  const candidates = [
+    track.sourceAudioUrl,
+    track.source_audio_url,
+    track.audioUrl,
+    track.audio_url,
+    track.audioURL,
+    track.streamAudioUrl,
+    track.stream_audio_url,
+    track.audio?.url,
+    track.audio?.audioUrl,
+    track.audio?.audio_url,
+    track.sourceAudio?.url,
+    track.source_audio?.url,
+  ];
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.trim()) {
+      return candidate.trim();
+    }
+  }
+  return null;
+}
+
 function resolvePersonaWindowBounds({ vocalStart = 0, vocalEnd = 30 } = {}) {
   const start = Math.max(0, Number(vocalStart) || 0);
   const requestedEnd = Number(vocalEnd);
@@ -90,31 +114,38 @@ function resolvePersonaWindowBounds({ vocalStart = 0, vocalEnd = 30 } = {}) {
   return { start, end, duration: end - start };
 }
 
-function selectSunoPersonaSourceTrack(statusResponse, options = {}) {
+function collectSunoPersonaSourceCandidates(statusResponse) {
   const readiness = inspectSunoAudioReadiness(statusResponse);
   const tracks = readiness.tracks?.length
     ? readiness.tracks
     : readiness.track
       ? [readiness.track]
       : [];
+  return tracks
+    .map((track, index) => ({
+      track,
+      index,
+      id: pickAudioIdLike(track),
+      audioUrl: resolveSunoPersonaTrackAudioUrl(track),
+      durationSec: parseTrackDurationSec(track),
+      status: String(track?.status || track?.state || "").toLowerCase(),
+    }))
+    .filter((candidate) => candidate.id && candidate.audioUrl)
+    .filter(
+      (candidate) => !["error", "failed", "failure"].includes(candidate.status),
+    );
+}
+
+function selectSunoPersonaSourceTrack(statusResponse, options = {}) {
   const { start, end } = resolvePersonaWindowBounds(options);
   const rejectedIds = new Set(
     Array.isArray(options.rejectedAudioIds)
       ? options.rejectedAudioIds.filter((id) => typeof id === "string")
       : [],
   );
-  const candidates = tracks
-    .map((track, index) => ({
-      track,
-      index,
-      id: pickAudioIdLike(track),
-      durationSec: parseTrackDurationSec(track),
-      status: String(track?.status || track?.state || "").toLowerCase(),
-    }))
-    .filter((candidate) => candidate.id && !rejectedIds.has(candidate.id))
-    .filter(
-      (candidate) => !["error", "failed", "failure"].includes(candidate.status),
-    );
+  const candidates = collectSunoPersonaSourceCandidates(statusResponse).filter(
+    (candidate) => !rejectedIds.has(candidate.id),
+  );
 
   if (candidates.length === 0) {
     return null;
@@ -145,6 +176,20 @@ function selectSunoPersonaSourceTrack(statusResponse, options = {}) {
   });
 
   return candidates[0];
+}
+
+function hasOnlyRejectedSunoPersonaSourceTracks(statusResponse, rejectedIds = []) {
+  const rejected = new Set(
+    Array.isArray(rejectedIds)
+      ? rejectedIds.filter((id) => typeof id === "string")
+      : [],
+  );
+  if (rejected.size === 0) return false;
+  const candidates = collectSunoPersonaSourceCandidates(statusResponse);
+  return (
+    candidates.length > 0 &&
+    candidates.every((candidate) => rejected.has(candidate.id))
+  );
 }
 
 /**
@@ -346,35 +391,36 @@ async function pollUploadCoverForAudio({
         // populated. extractSunoAudioId throws E302_SUNO_PERSONA_AUDIO_SHAPE_UNKNOWN
         // when no recognized field path resolves — which happens legitimately
         // mid-poll (provisional state with empty data.response). Treat that as
-        // "not done yet" so the poll loop continues. A genuine shape mismatch
-        // will surface only when the final audio_success state still can't be
-        // extracted, at which point the throw surfaces to the caller.
-        let selectedTrack = null;
-        try {
-          selectedTrack = selectSunoPersonaSourceTrack(poll.response, {
-            vocalStart,
-            vocalEnd,
-            rejectedAudioIds,
-          });
-          if (!selectedTrack?.id) {
-            throw new Error(
-              "E302_SUNO_PERSONA_AUDIO_SHAPE_UNKNOWN: upload-cover response shape did not match any known path",
-            );
-          }
-        } catch (err) {
+        // "not done yet" so the poll loop continues. Persona creation is
+        // stricter than normal audio download: Suno may expose an audio-shaped
+        // ID during TEXT_SUCCESS before generate-persona can use it.
+        // A genuine shape mismatch surfaces only on final audio_success.
+        if (statusInfo.phase === "provisional_success") {
+          return {
+            done: false,
+            status: poll.status,
+            response: poll.response,
+          };
+        }
+        const selectedTrack = selectSunoPersonaSourceTrack(poll.response, {
+          vocalStart,
+          vocalEnd,
+          rejectedAudioIds,
+        });
+        if (!selectedTrack?.id) {
           if (
-            statusInfo.phase === "provisional_success" &&
-            String(err?.message || "").includes(
-              "E302_SUNO_PERSONA_AUDIO_SHAPE_UNKNOWN",
+            hasOnlyRejectedSunoPersonaSourceTracks(
+              poll.response,
+              rejectedAudioIds,
             )
           ) {
-            return {
-              done: false,
-              status: poll.status,
-              response: poll.response,
-            };
+            throw new Error(
+              "E302_SUNO_PERSONA_ALL_SOURCE_AUDIO_REJECTED: all ready upload-cover source tracks were previously rejected",
+            );
           }
-          throw err;
+          throw new Error(
+            "E302_SUNO_PERSONA_AUDIO_SHAPE_UNKNOWN: upload-cover response shape did not match any known path",
+          );
         }
         const readiness = inspectSunoAudioReadiness(poll.response);
         if (selectedTrack?.id && readiness.ready) {
@@ -501,6 +547,7 @@ module.exports = {
   normalizeAudioWeight,
   pollUploadCoverForAudio,
   redactedId,
+  resolveSunoPersonaTrackAudioUrl,
   selectSunoPersonaSourceTrack,
   submitUploadCoverTask,
   uploadFileUrl,
