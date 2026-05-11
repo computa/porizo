@@ -40,6 +40,13 @@
 	<!-- AdServices.framework — Apple Search Ads attribution (iOS 14.3+). -->
 	<!-- No config required in Info.plist; app calls AAAttribution.attributionToken() at launch. -->
 	<!-- The attributionToken must be sent to Apple's API from your backend to get campaign data. -->
+	<!-- AppsFlyer SDK — cross-network attribution aggregator (Apple Ads + Meta + TikTok). -->
+	<!-- Dev Key is per-app (not secret; embedded in binary). Apple App ID is the numeric App Store ID. -->
+	<!-- Real values live in Xcode build settings (APPSFLYER_DEV_KEY / APPSFLYER_APPLE_APP_ID). -->
+	<key>AppsFlyerDevKey</key>
+	<string>$(APPSFLYER_DEV_KEY)</string>
+	<key>AppsFlyerAppleAppID</key>
+	<string>$(APPSFLYER_APPLE_APP_ID)</string>
 	<key>LSApplicationQueriesSchemes</key>
 	<array>
 		<string>instagram-stories</string>

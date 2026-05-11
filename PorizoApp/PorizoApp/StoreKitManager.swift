@@ -387,6 +387,14 @@ final class StoreKitManager {
                     if syncSucceeded {
                         await transaction.finish()
                         await refreshSubscriptionState()
+                        // Ship purchase event to AppsFlyer (AFEventPurchase) + backend +
+                        // Firebase + Amplitude through the unified AnalyticsService pipeline.
+                        // This is the signal ad networks use for ROAS-based optimization.
+                        AnalyticsService.shared.logPurchase(
+                            amount: product.price,
+                            currency: product.priceFormatStyle.currencyCode,
+                            productId: product.id
+                        )
                         purchaseState = .success(transactionId: transaction.id)
                         return true
                     } else {

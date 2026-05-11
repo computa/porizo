@@ -8,9 +8,9 @@
 
 /* Begin PBXBuildFile section */
 		45A2AA8B02C81A1120DD8575 /* PorizoAppTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2091207008B919635E18D36A /* PorizoAppTests.swift */; };
-		5B7D92A10C4E48F4A9C74236 /* AppUpdatePolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C8EA3B21D5F49A5BA185347 /* AppUpdatePolicyTests.swift */; };
 		47A444B550C8A4E76FB4B8B8 /* WarmCanvasFlowRobustnessTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE0CD6A49851A32FDCBA08D8 /* WarmCanvasFlowRobustnessTests.swift */; };
 		48F2C3B4A596877665544332 /* PhoneNumberFormattingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48F2C3B4A596877665544331 /* PhoneNumberFormattingTests.swift */; };
+		5B7D92A10C4E48F4A9C74236 /* AppUpdatePolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C8EA3B21D5F49A5BA185347 /* AppUpdatePolicyTests.swift */; };
 		7C7B0DA6226E8E05B8ACB723 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 26659D1834DD6EF1AEE67805 /* Foundation.framework */; };
 		94F467D80E53413686E7F658 /* BackgroundTaskManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3CC5BD0977E42E99B50ADFF /* BackgroundTaskManagerTests.swift */; };
 		A1B2C3D4E5F60718192A3B4C /* WAVWriterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1E2F3A4B5C60718293A4B5D /* WAVWriterTests.swift */; };
@@ -19,7 +19,8 @@
 		A560F92B3AC8AF9CB7FB056B /* AdServices.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C21605D8656A2E544391B0FD /* AdServices.framework */; settings = {ATTRIBUTES = (Weak, ); }; };
 		B1C2D3E4F5061829A3B4C5D6 /* RenderPollingServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2F3A4B5C6071829D4E5F6A7 /* RenderPollingServiceTests.swift */; };
 		C173AAB02F24754C00DAC87A /* FirebaseCrashlytics in Frameworks */ = {isa = PBXBuildFile; productRef = C173AAAF2F24754C00DAC87A /* FirebaseCrashlytics */; };
-		C173AAB22F24754C00DAC87B /* FirebaseAnalytics in Frameworks */ = {isa = PBXBuildFile; productRef = C173AAB12F24754C00DAC87B /* FirebaseAnalytics */; };
+		C173AAB22F24754C00DAC87B /* FirebaseAnalyticsCore in Frameworks */ = {isa = PBXBuildFile; productRef = C173AAB12F24754C00DAC87B /* FirebaseAnalyticsCore */; };
+		C1E21D1B2FB1620A005FB997 /* AppsFlyerLib in Frameworks */ = {isa = PBXBuildFile; productRef = C1E21D1A2FB1620A005FB997 /* AppsFlyerLib */; };
 		C2D3E4F5A6172839B4C5D6E7 /* LocalNotificationServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3A4B5C6D7182939E5F6A7B8 /* LocalNotificationServiceTests.swift */; };
 		C3D4E5F6A7B8C9D0E1F2A3B4 /* OneSignalExtension in Frameworks */ = {isa = PBXBuildFile; productRef = D4E5F6A7B8C9D0E1F2A3B4C5 /* OneSignalExtension */; };
 		D4E5F6A7B8C9182939F1A2B3 /* BackgroundURLSessionManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5B6C7D8E9F01A2B3C4D5E6F /* BackgroundURLSessionManagerTests.swift */; };
@@ -55,9 +56,9 @@
 
 /* Begin PBXFileReference section */
 		2091207008B919635E18D36A /* PorizoAppTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = PorizoAppTests.swift; path = PorizoAppTests/PorizoAppTests.swift; sourceTree = "<group>"; };
-		6C8EA3B21D5F49A5BA185347 /* AppUpdatePolicyTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = AppUpdatePolicyTests.swift; path = PorizoAppTests/AppUpdatePolicyTests.swift; sourceTree = "<group>"; };
 		26659D1834DD6EF1AEE67805 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
 		48F2C3B4A596877665544331 /* PhoneNumberFormattingTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = PhoneNumberFormattingTests.swift; path = PorizoAppTests/PhoneNumberFormattingTests.swift; sourceTree = "<group>"; };
+		6C8EA3B21D5F49A5BA185347 /* AppUpdatePolicyTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = AppUpdatePolicyTests.swift; path = PorizoAppTests/AppUpdatePolicyTests.swift; sourceTree = "<group>"; };
 		A5B6C7D8E9F01A2B3C4D5E6F /* BackgroundURLSessionManagerTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = BackgroundURLSessionManagerTests.swift; path = PorizoAppTests/BackgroundURLSessionManagerTests.swift; sourceTree = "<group>"; };
 		A7B8C9D0E1F2A3B4C5D6E7F8 /* PorizoNotificationServiceExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = PorizoNotificationServiceExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		C125A4872F05F57600120F9A /* PorizoApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PorizoApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -81,8 +82,6 @@
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		C125A4892F05F57600120F9A /* PorizoApp */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-			);
 			path = PorizoApp;
 			sourceTree = "<group>";
 		};
@@ -102,13 +101,14 @@
 			buildActionMask = 2147483647;
 			files = (
 				C173AAB02F24754C00DAC87A /* FirebaseCrashlytics in Frameworks */,
-				C173AAB22F24754C00DAC87B /* FirebaseAnalytics in Frameworks */,
+				C173AAB22F24754C00DAC87B /* FirebaseAnalyticsCore in Frameworks */,
 				F1A2B3C4D5E6F7089A1B2C3D /* AmplitudeSwift in Frameworks */,
 				E9F14A2F5D7E8B9012345678 /* TikTokOpenSDKCore in Frameworks */,
 				E9F14A305D7E8B9012345678 /* TikTokOpenShareSDK in Frameworks */,
 				A1B2C3D4E5F6A7B8C9D0E1F2 /* OneSignalFramework in Frameworks */,
 				A34F0489F3E9AD9E69473B62 /* FacebookCore in Frameworks */,
 				A560F92B3AC8AF9CB7FB056B /* AdServices.framework in Frameworks */,
+				C1E21D1B2FB1620A005FB997 /* AppsFlyerLib in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -233,6 +233,7 @@
 			name = PorizoApp;
 			packageProductDependencies = (
 				8CBBA884DAF16B77F3B24AFC /* FacebookCore */,
+				C1E21D1A2FB1620A005FB997 /* AppsFlyerLib */,
 			);
 			productName = PorizoApp;
 			productReference = C125A4872F05F57600120F9A /* PorizoApp.app */;
@@ -289,6 +290,7 @@
 				D6E7F8A9B0C1D2E3F4A5B6C7 /* XCRemoteSwiftPackageReference "OneSignal-XCFramework" */,
 				F1A2B3C4D5E6F7089A1B2C30 /* XCRemoteSwiftPackageReference "Amplitude-Swift" */,
 				CC52155D818E6C869F8376D6 /* XCRemoteSwiftPackageReference "facebook-ios-sdk" */,
+				C1E21D192FB1620A005FB997 /* XCRemoteSwiftPackageReference "AppsFlyerFramework" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = C125A4882F05F57600120F9A /* Products */;
@@ -570,6 +572,8 @@
 		C125A4932F05F57800120F9A /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				APPSFLYER_APPLE_APP_ID = 6758205028;
+				APPSFLYER_DEV_KEY = oU9qifzktE3bom9eWBWDTD;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = PorizoApp/PorizoApp.entitlements;
@@ -612,6 +616,8 @@
 		C125A4942F05F57800120F9A /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				APPSFLYER_APPLE_APP_ID = 6758205028;
+				APPSFLYER_DEV_KEY = oU9qifzktE3bom9eWBWDTD;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = PorizoApp/PorizoApp.entitlements;
@@ -788,6 +794,14 @@
 				minimumVersion = 12.8.0;
 			};
 		};
+		C1E21D192FB1620A005FB997 /* XCRemoteSwiftPackageReference "AppsFlyerFramework" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/AppsFlyerSDK/AppsFlyerFramework";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 6.17.0;
+			};
+		};
 		CC52155D818E6C869F8376D6 /* XCRemoteSwiftPackageReference "facebook-ios-sdk" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/facebook/facebook-ios-sdk";
@@ -838,10 +852,15 @@
 			package = C173AAAC2F24754C00DAC87A /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
 			productName = FirebaseCrashlytics;
 		};
-		C173AAB12F24754C00DAC87B /* FirebaseAnalytics */ = {
+		C173AAB12F24754C00DAC87B /* FirebaseAnalyticsCore */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = C173AAAC2F24754C00DAC87A /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
 			productName = FirebaseAnalyticsCore;
+		};
+		C1E21D1A2FB1620A005FB997 /* AppsFlyerLib */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C1E21D192FB1620A005FB997 /* XCRemoteSwiftPackageReference "AppsFlyerFramework" */;
+			productName = AppsFlyerLib;
 		};
 		D4E5F6A7B8C9D0E1F2A3B4C5 /* OneSignalExtension */ = {
 			isa = XCSwiftPackageProductDependency;

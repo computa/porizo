@@ -9,6 +9,9 @@
 import Foundation
 import FirebaseAnalytics
 import AmplitudeSwift
+#if canImport(AppsFlyerLib)
+import AppsFlyerLib
+#endif
 
 // MARK: - Funnel Events
 
@@ -123,6 +126,10 @@ final class AnalyticsService: @unchecked Sendable {
     func identify(userId: String) {
         Analytics.setUserID(userId)
         currentAmplitude()?.setUserId(userId: userId)
+        #if canImport(AppsFlyerLib)
+        // Joins AppsFlyer events across reinstalls and devices for the same user.
+        AppsFlyerLib.shared().customerUserID = userId
+        #endif
     }
 
     func setUserProperty(_ key: String, value: String) {
@@ -141,6 +148,9 @@ final class AnalyticsService: @unchecked Sendable {
         if let amplitude = currentAmplitude() {
             amplitude.track(eventType: event.rawValue, eventProperties: properties)
         }
+
+        // AppsFlyer (no-op until SDK + dev key are configured)
+        forwardToAppsFlyer(event: event, properties: properties)
 
         #if DEBUG
         let propsDesc = properties.map { " \($0)" } ?? ""
@@ -175,6 +185,88 @@ final class AnalyticsService: @unchecked Sendable {
             resourceType: nil,
             resourceId: nil
         )
+    }
+
+    /// AppsFlyer purchase event (`AFEventPurchase`) with revenue + currency.
+    /// Fires alongside the regular `log(...)` pipeline so backend + Firebase +
+    /// Amplitude also receive the event under a stable name.
+    func logPurchase(amount: Decimal, currency: String, productId: String) {
+        let amountString = "\(amount)"
+        let props: [String: String] = [
+            "amount": amountString,
+            "currency": currency,
+            "productId": productId,
+        ]
+        // Firebase / backend / Amplitude — uses the canonical "purchase" event name
+        // so admin queries and funnels stay consistent with web purchases.
+        log("purchase", properties: props)
+
+        #if canImport(AppsFlyerLib)
+        let afValues: [String: Any] = [
+            AFEventParamRevenue: NSDecimalNumber(decimal: amount),
+            AFEventParamCurrency: currency,
+            AFEventParamContentId: productId,
+        ]
+        AppsFlyerLib.shared().logEvent(AFEventPurchase, withValues: afValues)
+        #if DEBUG
+        print("[AppsFlyer] AFEventPurchase amount=\(amountString) currency=\(currency) productId=\(productId)")
+        #endif
+        #endif
+    }
+
+    /// Map a typed `AnalyticsEvent` to the AppsFlyer event name + values payload.
+    /// Returns nil for events that shouldn't ship to AppsFlyer (most onboarding
+    /// micro-events — they belong in Firebase/Amplitude for product analytics,
+    /// not in AppsFlyer where they'd flood the campaign optimization signal).
+    private func forwardToAppsFlyer(event: AnalyticsEvent, properties: [String: String]?) {
+        #if canImport(AppsFlyerLib)
+        let mapping = Self.appsFlyerMapping(for: event, properties: properties)
+        guard let afEventName = mapping.name else { return }
+        let afValues: [String: Any] = mapping.values ?? properties ?? [:]
+        AppsFlyerLib.shared().logEvent(afEventName, withValues: afValues)
+        #if DEBUG
+        print("[AppsFlyer] \(afEventName)")
+        #endif
+        #endif
+    }
+
+    /// AppsFlyer event-name mapping. Conversion events (signup / song created /
+    /// shared) ship under AppsFlyer's standard event names where one exists, or
+    /// a stable custom name otherwise. Everything else is intentionally ignored
+    /// to keep the AppsFlyer dashboard focused on campaign-optimization signal.
+    static func appsFlyerMapping(
+        for event: AnalyticsEvent,
+        properties: [String: String]?
+    ) -> (name: String?, values: [String: Any]?) {
+        #if canImport(AppsFlyerLib)
+        switch event {
+        case .authCompleted:
+            var values: [String: Any] = [AFEventParamRegistrationMethod: properties?["provider"] ?? "unknown"]
+            if let userId = properties?["userId"] {
+                values[AFEventParamContentId] = userId
+            }
+            return (AFEventCompleteRegistration, values)
+        case .createCompleted:
+            if properties?["type"] == "song", let trackId = properties?["trackId"] {
+                return ("song_created", [AFEventParamContentId: trackId])
+            }
+            return (nil, nil)
+        case .firstSongCompleted:
+            if let trackId = properties?["trackId"] {
+                return ("first_song_completed", [AFEventParamContentId: trackId])
+            }
+            return ("first_song_completed", nil)
+        case .shareCompleted:
+            var values: [String: Any] = [:]
+            if let trackId = properties?["trackId"] { values[AFEventParamContentId] = trackId }
+            if let channel = properties?["channel"] { values[AFEventParamDescription] = channel }
+            return ("song_shared", values)
+        default:
+            return (nil, nil)
+        }
+        #else
+        return (nil, nil)
+        #endif
     }
 
     // MARK: - Backend Forward

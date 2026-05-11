@@ -18,6 +18,9 @@ import AdServices
 #if canImport(AppTrackingTransparency)
 import AppTrackingTransparency
 #endif
+#if canImport(AppsFlyerLib)
+import AppsFlyerLib
+#endif
 
 /// Reads a placeholder-safe string from Info.plist. Returns empty string if the
 /// value is missing or still contains an unresolved `$(VAR)` substitution.
@@ -45,6 +48,54 @@ private enum OneSignalMarketing {
 private enum FBSDK {
     static var isConfigured: Bool {
         !infoPlistConfig("FacebookClientToken").isEmpty
+    }
+}
+#endif
+
+#if canImport(AppsFlyerLib)
+/// AppsFlyer cross-network attribution. Aggregates Apple Search Ads + Meta + TikTok +
+/// other paid sources into a single attribution dashboard, while existing per-network
+/// SDKs (FBSDK, AdServices) keep running for direct integrations.
+///
+/// Initialize before scene becomes active. Call `.start()` on every foreground.
+/// `waitForATTUserAuthorization(60)` gives the ATT prompt time to resolve before
+/// AppsFlyer ships the install postback — without this the postback fires with
+/// IDFA=0 and Apple Ads attribution is broken on iOS 14.5+.
+private enum AppsFlyerAnalytics {
+    static var isConfigured: Bool {
+        !infoPlistConfig("AppsFlyerDevKey").isEmpty && !infoPlistConfig("AppsFlyerAppleAppID").isEmpty
+    }
+
+    static func initialize() {
+        guard isConfigured else {
+            print("[AppsFlyer] Skipped init — AppsFlyerDevKey / AppsFlyerAppleAppID not configured")
+            return
+        }
+        let lib = AppsFlyerLib.shared()
+        lib.appsFlyerDevKey = infoPlistConfig("AppsFlyerDevKey")
+        lib.appleAppID = infoPlistConfig("AppsFlyerAppleAppID")
+        // Wait up to 60s for the user's ATT decision before firing the install
+        // postback. Required on iOS 14.5+ for IDFA-based attribution.
+        if #available(iOS 14.5, *) {
+            lib.waitForATTUserAuthorization(timeoutInterval: 60)
+        }
+        #if DEBUG
+        lib.isDebug = true
+        #endif
+        print("[AppsFlyer] Initialized (appId=\(lib.appleAppID), waitForATT=60s)")
+    }
+
+    static func start() {
+        guard isConfigured else { return }
+        AppsFlyerLib.shared().start { _, error in
+            if let error {
+                print("[AppsFlyer] start() error: \(error.localizedDescription)")
+            } else {
+                #if DEBUG
+                print("[AppsFlyer] start() OK")
+                #endif
+            }
+        }
     }
 }
 #endif
@@ -105,6 +156,10 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         } else {
             print("[FBSDK] Skipped init — FacebookClientToken not configured in build settings / Info.plist")
         }
+        #endif
+
+        #if canImport(AppsFlyerLib)
+        AppsFlyerAnalytics.initialize()
         #endif
 
         #if canImport(AdServices)
@@ -242,15 +297,29 @@ struct PorizoAppApp: App {
                     )
                 }
                 .task {
-                    // Request App Tracking Transparency, then propagate the result to FBSDK so
-                    // fb_mobile_activate_app events carry IDFA + campaign attribution. Without
-                    // this, Meta Events Manager flags "not enough events sent with Campaign ID".
-                    #if canImport(AppTrackingTransparency) && canImport(FacebookCore)
-                    if FBSDK.isConfigured, #available(iOS 14.5, *) {
+                    // Request App Tracking Transparency once on first launch. Both FBSDK and
+                    // AppsFlyer need the result: FBSDK uses it to gate IDFA collection (so
+                    // fb_mobile_activate_app events carry IDFA + campaign attribution), and
+                    // AppsFlyer's waitForATTUserAuthorization(60) is waiting on this same
+                    // decision before shipping the install postback. Trigger if either is
+                    // configured — the prompt itself is identical, only the consumers differ.
+                    #if canImport(AppTrackingTransparency)
+                    var attShouldRequest = false
+                    #if canImport(FacebookCore)
+                    if FBSDK.isConfigured { attShouldRequest = true }
+                    #endif
+                    #if canImport(AppsFlyerLib)
+                    if AppsFlyerAnalytics.isConfigured { attShouldRequest = true }
+                    #endif
+                    if attShouldRequest, #available(iOS 14.5, *) {
                         let status = await ATTrackingManager.requestTrackingAuthorization()
                         let granted = status == .authorized
-                        Settings.shared.isAdvertiserIDCollectionEnabled = granted
-                        print("[FBSDK] ATT status raw: \(status.rawValue), tracking enabled: \(granted)")
+                        #if canImport(FacebookCore)
+                        if FBSDK.isConfigured {
+                            Settings.shared.isAdvertiserIDCollectionEnabled = granted
+                        }
+                        #endif
+                        print("[ATT] status raw: \(status.rawValue), tracking enabled: \(granted)")
                     }
                     #endif
                 }
@@ -268,6 +337,12 @@ struct PorizoAppApp: App {
                         if FBSDK.isConfigured {
                             AppEvents.shared.activateApp()
                         }
+                        #endif
+
+                        #if canImport(AppsFlyerLib)
+                        // Required on every foreground — AppsFlyer's session start ships the
+                        // install postback (on first launch) and the session event afterwards.
+                        AppsFlyerAnalytics.start()
                         #endif
 
                         await authManager.refreshTokensIfNeeded()

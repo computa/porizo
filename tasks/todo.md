@@ -1,4 +1,35 @@
-# Share-audio playback regression — fix + harden (ACTIVE — 2026-05-10)
+# Install AppsFlyer iOS SDK in PorizoApp (ACTIVE — 2026-05-11)
+
+## Goal
+
+Add AppsFlyer attribution to Porizo iOS so paid campaign performance (Apple Search Ads, Meta Ads, TikTok Ads) lands in one unified dashboard. Existing attribution (AdServices for Apple Search Ads, FBSDK for Meta) keeps running — AppsFlyer is the cross-network aggregator on top.
+
+## User decisions captured
+
+- **Credentials**: User will paste Dev Key + Apple App ID
+- **Events to track in v1**: sign-up, song_created, song_shared, purchase
+- **Wiring**: Single pipeline — extend `AnalyticsService.shared` to dual-pipe to AppsFlyer (matches existing Firebase + Amplitude pattern)
+
+## Plan
+
+- [ ] **1. Add AppsFlyer SPM dependency.** Xcode UI: File → Add Package Dependencies → `https://github.com/AppsFlyerSDK/AppsFlyerFramework` (latest 6.x). Add to `PorizoApp` target. Add product `AppsFlyerLib`.
+- [ ] **2. Add Info.plist keys.** `AppsFlyerDevKey = $(APPSFLYER_DEV_KEY)`, `AppsFlyerAppleAppID = $(APPSFLYER_APPLE_APP_ID)` — matches the `FacebookClientToken = $(FacebookClientToken)` pattern already used. Build settings get the real values.
+- [ ] **3. Wire AppsFlyer in `AppDelegate`.** Initialize in `application(_:didFinishLaunchingWithOptions:)` alongside FBSDK + Apple AdServices. Set `waitForATTUserAuthorization(60)` so AppsFlyer waits for the ATT decision before firing the install postback. Generalize the ATT gate (currently FB-only) to also trigger for AppsFlyer.
+- [ ] **4. Call `start()` on every foreground.** In the `scenePhase == .active` task, alongside `AppEvents.shared.activateApp()`.
+- [ ] **5. Extend `AnalyticsService`.** Add AppsFlyer as a 4th sink alongside Firebase/Amplitude/backend. Add event-name mapping: `authCompleted → AFEventCompleteRegistration`, `createCompleted(type=song) → song_created`, `shareCompleted → song_shared`. Add new `logPurchase(amount:currency:productId:)` method that emits `AFEventPurchase` with `af_revenue` + `af_currency`.
+- [ ] **6. Wire purchase event.** Find the StoreKit 2 transaction-success callback and call `AnalyticsService.shared.logPurchase(...)`.
+- [ ] **7. Set `customerUserID` on auth.** `AppsFlyerLib.shared().customerUserID = userId` after sign-in so AppsFlyer events join to the same user across reinstalls. Matches the existing `AnalyticsService.identify(userId:)` call site.
+- [ ] **8. Build + verify.** `xcodebuild ... build` to confirm SPM resolves. Install on test device registered in AppsFlyer dashboard. Verify install event arrives + ATT prompt appears + custom events fire.
+
+## Risks / contracts to maintain
+
+- **ATT prompt**: must request authorization BEFORE `start()` completes, otherwise the install postback ships with IDFA=0 and Apple Ads attribution is broken. Use `waitForATTUserAuthorization(60)`.
+- **Privacy manifest**: AppsFlyer SDK ships its own `PrivacyInfo.xcprivacy`. Our app-level privacy manifest already declares audio collection — no new categories needed unless we send user properties (PII).
+- **No hardcoded dev key in source**: matches existing FB pattern. Dev key in Xcode build settings, never in repo.
+
+---
+
+# Share-audio playback regression — fix + harden (RESOLVED — 2026-05-10)
 
 ## Context
 
