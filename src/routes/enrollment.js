@@ -660,10 +660,15 @@ function registerEnrollmentRoutes(app, deps) {
         sendError(reply, 400, "CONSENT_REQUIRED", "Consent must be accepted.");
         return;
       }
+      // Daily budget: 25/24h. The original 10/24h was too tight for users
+      // who hit early enrollment failures (sung_calibration, duration QC) and
+      // legitimately re-tried within the same day. Abuse vector is still
+      // bounded — voice profile creation has its own audit trail and the QC
+      // pipeline costs are gated by chunk-level checks before any compute.
       const limit = await consumeRateLimit(
         userId,
         "enrollment_start",
-        10,
+        25,
         24 * 60 * 60,
       );
       if (!limit.allowed) {
@@ -678,11 +683,15 @@ function registerEnrollmentRoutes(app, deps) {
         );
         return;
       }
+      // Burst window: 1 session per 15s (was 60s). The minute-wide window
+      // prevented same-flow retries when the user hit an immediate failure
+      // and re-tapped. 15s still throttles automated abuse while letting
+      // a human iterate.
       const burstLimit = await consumeRateLimit(
         userId,
         "voice_enrollment_start_burst",
         1,
-        60,
+        15,
       );
       if (!burstLimit.allowed) {
         sendError(
