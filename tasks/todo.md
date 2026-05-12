@@ -55,26 +55,24 @@ curl -s --range 0-999 https://api.porizo.co/share/Rrm8PRM3tlwV/audio | wc -c   #
 
 ---
 
-# ASO scaling actions — 72h experiment (ACTIVE — 2026-05-09)
+# ASO scaling — 72h experiment + Phase 1 launch (DONE — 2026-05-12)
 
 ## Done
 
 - [x] **Step A**: 5 exact-match negatives added to Discovery Keywords ad group:
       `[gift song]`, `[personalized gift]`, `[birthday gift ideas]`,
-      `[birthday gift]`, `[music gift]`. Stops Discovery broad-matching terms
-      that have dedicated exact-match handling in Category, plus plugs the
-      `music gift` TTR-bleed (88 imp / 0 taps in 30 days).
+      `[birthday gift]`, `[music gift]`.
+- [x] **Step B**: `birthday gift ideas` bid bumped $1.80 → $3.00 (manual UI, 2026-05-09).
+- [x] **72h checkpoint (2026-05-12)**: `node scripts/aso/review.mjs --days 30` ran. Verdict: MATCH_TYPE_GRADUATION on `birthday gift ideas` (50% install rate, $3.57 CPI) and `birthday gift` (33%, $4.17 CPI). Both graduated to EXACT @ $3.00 in Category US.
+- [x] **Phase 1 Painkiller Probe launched** in ASA UI (`Probe US Painkiller` campaign, ID `2143835551`, $20/day, 7 ad groups, 51 broad-match keywords @ $0.75). Audit record: `marketing/appstore/aso/launches/2026-05-12-phase1-painkiller-probe-LIVE.md`.
+- [x] **New keywords-field staged** for ASC 1.5.12: `music gift,personalized gift,gift song,birthday gift ideas,mother's day song,birthday gift,song gift` (100/100 chars). File: `marketing/appstore/metadata/version/1.5.12/en-US.json`. Awaiting ASC submission.
+- [x] **TTR_PROBLEM negatives**: `[anniversary gift]` (325 imp / 0 taps), `[personalized gifts]` plural (11 taps / 0 installs), `[meaningful gift]` (5 taps / 0 installs) all added as exact-match negatives in Discovery.
 
-## In flight
+## Queued
 
-- [ ] **Step B (manual)**: Bid up `birthday gift ideas` in Category US >
-      High-Intent Keywords ad group from $1.80 → $3.00 max CPT bid. Click the
-      `$1.80` value in that row, type `3.00`, Enter. (Bot couldn't trigger the
-      inline editor — manual click required.)
-
-## Queued for next sessions
-
-- [ ] **72h checkpoint (around 2026-05-12)**: Re-run `node scripts/aso/review.mjs --days 7`
+- [ ] **Day-7 checkpoint (2026-05-19)**: `node scripts/aso/review.mjs --days 7 --note "Phase 1 day-7"`. Evaluate per-theme demand; graduate winners to Phase 2 EXACT, drop dead themes.
+- [ ] **Audit screenshots for anniversary intent**: `anniversary gift` TTR_PROBLEM root cause is creative mismatch. Schedule a Custom Product Page variant for anniversary or update screenshot hero text before re-enabling that keyword.
+- [ ] **Ship ASC 1.5.12 to App Store Review** with the new painkiller keywords-field. The metadata file is staged; user runs `asc review submit` deliberately.
       and check `birthday gift ideas`'s new stats. Watch for:
   - ✅ Impressions roughly double (was 36/30d; expect ~6-12 in next 72h
     after bid bump capturing more of available auctions)
