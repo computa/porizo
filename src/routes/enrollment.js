@@ -732,18 +732,24 @@ function registerEnrollmentRoutes(app, deps) {
           text: "The five boxing wizards jump quickly.",
           duration_hint_sec: 5,
         },
+        // Sung prompts use universally-recognized public-domain melodies
+        // so Suno's persona-from-cover model has a clear melodic line to
+        // clone the voice from. Open-vowel placeholders ("Ooh ooh", "La la")
+        // failed Suno's generate-persona step with "Current music failed to
+        // generate persona" — Suno's prompt template literally instructs
+        // "[Verse] Sing this clear melody in a natural voice."
         {
           id: "p5",
           type: "sung",
-          text: "La la la, la la la la la, la la la la la la la",
-          pitch_hint: "Start comfortable, go up",
+          text: "Twinkle, twinkle, little star, how I wonder what you are",
+          pitch_hint: "Sing the melody the way you remember it",
           duration_hint_sec: 8,
         },
         {
           id: "p6",
           type: "sung",
-          text: "Ooh ooh ooh, ah ah ah, ooh ooh ooh ah",
-          pitch_hint: "Smooth and flowing",
+          text: "Mary had a little lamb, little lamb, little lamb",
+          pitch_hint: "Sing comfortably and hold the last note",
           duration_hint_sec: 8,
         },
       ];
