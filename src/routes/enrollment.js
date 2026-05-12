@@ -328,10 +328,15 @@ function minimumChunkDurationSec(prompt) {
   if (prompt?.type !== "sung") {
     return 2;
   }
+  // Sung prompts: allow 2s of slack below the hint to absorb the natural
+  // variation between "user sang the line" and "user held the last note for
+  // the full visual timer". The original 0.5s slack was too strict — real
+  // users routinely undershoot the timer by 1-2s. Absolute floor of 5s keeps
+  // total sung calibration above 10s (2 prompts × 5s) so
+  // buildSunoPersonaCalibration's minDurationSec still clears.
   const hintSec = Number(prompt.duration_hint_sec || 0);
-  const hintedFloor =
-    Number.isFinite(hintSec) && hintSec > 0 ? hintSec - 0.5 : 7.5;
-  return Math.max(6, hintedFloor);
+  const hintedFloor = Number.isFinite(hintSec) && hintSec > 0 ? hintSec - 2 : 6;
+  return Math.max(5, hintedFloor);
 }
 
 function dbFromQuery(query) {
