@@ -1,4 +1,39 @@
-# Install AppsFlyer iOS SDK in PorizoApp (ACTIVE — 2026-05-11)
+# Fix voice enrollment sung_calibration_unavailable false-fail (ACTIVE — 2026-05-12)
+
+## Symptom
+
+User completes 6/6 enrollment phrases → server returns 422 `E107_SUNG_AUDIO_REQUIRED` with reason `sung_calibration_unavailable`. Dialog: "spoken parts were clear, but the sung parts were too short or too speech-like".
+
+## Root cause (5-layer trace)
+
+1. **L1**: iOS shows dialog from server error.
+2. **L2**: `src/routes/enrollment.js:1524-1551` hard-fails when `sunoPersonaAudio === null`.
+3. **L3**: `buildSunoPersonaCalibration()` at `enrollment.js:144-208` returns null because the filter requires `entry.quality.metrics.is_singing === true`.
+4. **L4**: `detectSinging()` at `audio-quality.js:98-175` is too strict (`sustainRatio > 0.15 && coeffOfVariation < 0.5`).
+5. **L5 (origin)**: `is_singing` is computed on PREPROCESSED audio — VAD-trimmed at -40dB and noise-suppressed with spoken-target params (preprocessBatch called without `isSung` flag at `services/enrollment.js:198`). Sung notes lose their sustained character before the detector evaluates them. Duration is already contract-enforced at upload (commit 9edd8ae), so `is_singing` is doing redundant + unreliable defensive work.
+
+## Fix
+
+Replace `is_singing === true` gate with `vad_ratio > 0.2` gate in `buildSunoPersonaCalibration` filter. Trust the prompt-type + duration contract for sung selection; require only that the chunk had substantive voiced content (rejects silence).
+
+## Plan
+
+- [ ] **1.** Edit `src/routes/enrollment.js:150-156` — change filter predicate from `is_singing === true` to `(vad_ratio ?? 1) > 0.2`.
+- [ ] **2.** Add regression test in `test/voice-enrollment.test.js` — 2 sung chunks with `is_singing: false` + `vad_ratio: 0.6` + 8s duration each → POST /complete returns 200.
+- [ ] **3.** Add negative test — 2 sung chunks with `vad_ratio: 0.05` (near-silent) → still hard-fails with E107 (preserves defensive rejection).
+- [ ] **4.** Run `npm test -- voice-enrollment` to confirm no regressions.
+- [ ] **5.** Commit.
+
+## Risks / contracts preserved
+
+- Hard-fail E107 path stays for genuine silence/missing sung audio.
+- `suno-persona-failure-classifier.js` classification of `sung_calibration_unavailable` → `recapture` stays correct.
+- iOS recapture state machine untouched.
+- `is_singing` detector itself untouched (still used for scoring at `audio-quality.js:464-465`).
+
+---
+
+# Install AppsFlyer iOS SDK in PorizoApp (COMPLETED — 2026-05-11)
 
 ## Goal
 

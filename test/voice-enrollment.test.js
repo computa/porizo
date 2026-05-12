@@ -188,7 +188,10 @@ describe("Voice Enrollment API", () => {
       assert.equal(chunkEntries[1].quality.metrics.is_singing, false);
     });
 
-    it("does not build persona calibration from sung prompts that QC did not classify as singing", async () => {
+    it("does not build persona calibration from sung prompts whose recordings are near-silent", async () => {
+      // vad_ratio is the content gate (>0.2 required). Sung prompts whose
+      // recordings are mostly silence (e.g. mic dropouts, accidental taps)
+      // must be rejected so the persona job never ships empty audio to Suno.
       const dir = fs.mkdtempSync(
         path.join(os.tmpdir(), "porizo-suno-calibration-test-"),
       );
@@ -205,18 +208,61 @@ describe("Voice Enrollment API", () => {
               chunkId: "p5",
               filePath: p5,
               prompt: { id: "p5", type: "sung" },
-              quality: { metrics: { is_singing: false } },
+              quality: { metrics: { is_singing: false, vad_ratio: 0.05 } },
             },
             {
               chunkId: "p6",
               filePath: p6,
               prompt: { id: "p6", type: "sung" },
-              quality: { metrics: { is_singing: false } },
+              quality: { metrics: { is_singing: false, vad_ratio: 0.05 } },
             },
           ],
         });
 
         assert.strictEqual(result, null);
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("builds persona calibration from sung prompts that QC did not flag as singing, when audio content is substantive", async () => {
+      // Real-world false-negative case: user sings "Ooh ooh ooh" but the
+      // is_singing detector classifies the recording as speech-like (because
+      // preprocessing's VAD trim + spoken-target noise suppression strips
+      // sustained-note envelopes before the detector runs). vad_ratio>0.2
+      // confirms substantive voiced content; the prompt-type + duration
+      // contract carries the rest.
+      const dir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "porizo-suno-calibration-test-"),
+      );
+      try {
+        const p5 = path.join(dir, "p5.wav");
+        const p6 = path.join(dir, "p6.wav");
+        const outputPath = path.join(dir, "suno-persona.wav");
+        fs.writeFileSync(p5, createTestWav({ durationSec: 8 }));
+        fs.writeFileSync(p6, createTestWav({ durationSec: 8 }));
+
+        const result = await buildSunoPersonaCalibration({
+          outputPath,
+          chunkEntries: [
+            {
+              chunkId: "p5",
+              filePath: p5,
+              prompt: { id: "p5", type: "sung" },
+              quality: { metrics: { is_singing: false, vad_ratio: 0.6 } },
+            },
+            {
+              chunkId: "p6",
+              filePath: p6,
+              prompt: { id: "p6", type: "sung" },
+              quality: { metrics: { is_singing: false, vad_ratio: 0.6 } },
+            },
+          ],
+        });
+
+        assert.ok(result, "calibration should be built");
+        assert.strictEqual(result.chunkCount, 2);
+        assert.ok(fs.existsSync(outputPath));
       } finally {
         fs.rmSync(dir, { recursive: true, force: true });
       }
@@ -705,7 +751,10 @@ describe("Voice Enrollment API", () => {
       assert.strictEqual(body.error, "QC_FAILED");
       assert.strictEqual(body.reason, "SUNG_DURATION_TOO_SHORT");
       assert.strictEqual(body.details.reason, "SUNG_DURATION_TOO_SHORT");
-      assert.ok(body.re_record, "should ask the app to re-record this sung line");
+      assert.ok(
+        body.re_record,
+        "should ask the app to re-record this sung line",
+      );
     });
 
     it("should reject chunk notifications that are not in the enrollment prompts", async () => {
@@ -739,7 +788,10 @@ describe("Voice Enrollment API", () => {
       const body = response.json();
       assert.strictEqual(body.error, "QC_FAILED");
       assert.strictEqual(body.reason, "INVALID_PROMPT_CHUNK");
-      assert.ok(body.re_record, "should ask the app to discard the unexpected chunk");
+      assert.ok(
+        body.re_record,
+        "should ask the app to discard the unexpected chunk",
+      );
     });
 
     it("should update session chunk count and quality metrics", async () => {
@@ -926,12 +978,16 @@ describe("Voice Enrollment API", () => {
       for (const prompt of prompts.slice(0, numChunks)) {
         const durationSec =
           prompt.type === "sung" ? options.sungDurationSec || 8 : 4;
+        const isSung = prompt.type === "sung";
+        const silent = isSung && options.sungSilent === true;
         fs.writeFileSync(
           path.join(chunkDir, `${prompt.id}.wav`),
           createTestWav({
             durationSec,
-            noiseLevel:
-              prompt.type === "sung"
+            silent,
+            noiseLevel: silent
+              ? 0
+              : isSung
                 ? options.sungNoiseLevel || 0
                 : options.spokenNoiseLevel || 0,
           }),
@@ -1066,15 +1122,19 @@ describe("Voice Enrollment API", () => {
       );
     });
 
-    it("rejects My Voice enrollment when sung prompts are not QC-confirmed singing", async () => {
+    it("accepts My Voice enrollment when sung prompts have substantive audio even if not QC-confirmed singing", async () => {
+      // Regression: production users who sang "Ooh ooh ooh" got hard-failed
+      // at /complete with E107_SUNG_AUDIO_REQUIRED because the is_singing
+      // detector returned false on their preprocessed audio. The new contract
+      // gates persona calibration on vad_ratio (substantive voiced content),
+      // not the unreliable is_singing classifier. Noisy sung audio (sine +
+      // 20% noise) is exactly the kind of input that flipped is_singing false
+      // historically; under the new contract it must succeed.
       const userId = uniqueUserId("suno_persona");
       const sessionId = await setupEnrollmentWithChunks(userId, {
         numChunks: 6,
         consentVersion: "1.0",
         sungNoiseLevel: 0.2,
-        // U2: explicit Suno-persona consent grant (the previous behavior of
-        // treating REQUIRED_CONSENT_SCOPE as consent_version was a scope/version
-        // confusion the U2 split corrects).
         voiceSunoPersonaConsent: true,
       });
 
@@ -1085,41 +1145,39 @@ describe("Voice Enrollment API", () => {
         payload: { session_id: sessionId },
       });
 
-      assert.strictEqual(response.statusCode, 422);
+      assert.strictEqual(response.statusCode, 202);
       const body = response.json();
-      assert.equal(body.error, "E107_SUNG_AUDIO_REQUIRED");
-      assert.match(body.message, /sung parts/);
+      assert.ok(body.voice_profile_id);
+      assert.equal(body.voice_provider_profile.provider, "suno");
+      assert.equal(
+        body.voice_provider_profile.source_audio,
+        "sung_calibration",
+      );
 
       const session = await db
-        .prepare(
-          "SELECT status FROM enrollment_sessions WHERE id = ?",
-        )
+        .prepare("SELECT status FROM enrollment_sessions WHERE id = ?")
         .get(sessionId);
-      assert.equal(session.status, "failed_quality");
+      assert.equal(session.status, "completed");
 
+      // Profile is created with status=pending_provider when a Suno persona
+      // job is queued (it transitions to active once the persona prepare job
+      // completes — see enrollment.js:1712-1714).
       const voiceProfileCount = await db
         .prepare(
-          "SELECT COUNT(*) AS count FROM voice_profiles WHERE user_id = ?",
+          "SELECT COUNT(*) AS count FROM voice_profiles WHERE user_id = ? AND status = 'pending_provider'",
         )
         .get(userId);
-      assert.equal(voiceProfileCount.count, 0);
-
-      const providerProfileCount = await db
-        .prepare(
-          "SELECT COUNT(*) AS count FROM voice_provider_profiles WHERE user_id = ?",
-        )
-        .get(userId);
-      assert.equal(providerProfileCount.count, 0);
-
-      const jobCount = await db
-        .prepare(
-          "SELECT COUNT(*) AS count FROM voice_provider_jobs WHERE user_id = ?",
-        )
-        .get(userId);
-      assert.equal(jobCount.count, 0);
+      assert.equal(voiceProfileCount.count, 1);
     });
 
-    it("preserves the existing active voice profile when sung My Voice re-enrollment fails", async () => {
+    it("preserves the existing active voice profile when a re-enrollment session fails QC", async () => {
+      // Profile-preservation contract: any QC failure on a re-enrollment
+      // session must leave the previously active profile untouched. Under
+      // the new sung-calibration contract, the realistic failure trigger is
+      // silent sung audio — which fails at the per-chunk grade gate
+      // (overall grade F → 422 E101) before reaching the sung-calibration
+      // path. This test exercises that failure path and verifies the
+      // existing profile is preserved.
       const userId = uniqueUserId("suno_persona_preserve");
       const existingSessionId = await setupEnrollmentWithChunks(userId);
       const existingResponse = await app.inject({
@@ -1134,7 +1192,7 @@ describe("Voice Enrollment API", () => {
       const failedSessionId = await setupEnrollmentWithChunks(userId, {
         numChunks: 6,
         consentVersion: "1.0",
-        sungNoiseLevel: 0.2,
+        sungSilent: true,
         voiceSunoPersonaConsent: true,
       });
       const failedResponse = await app.inject({
@@ -1145,7 +1203,6 @@ describe("Voice Enrollment API", () => {
       });
 
       assert.strictEqual(failedResponse.statusCode, 422);
-      assert.equal(failedResponse.json().error, "E107_SUNG_AUDIO_REQUIRED");
 
       const existingProfile = await db
         .prepare("SELECT status FROM voice_profiles WHERE id = ?")
@@ -1179,7 +1236,10 @@ describe("Voice Enrollment API", () => {
       assert.equal(body.voice_provider_profile.provider, "suno");
       assert.equal(body.voice_provider_profile.status, "pending");
       assert.ok(body.voice_provider_profile.job_id);
-      assert.equal(body.voice_provider_profile.source_audio, "sung_calibration");
+      assert.equal(
+        body.voice_provider_profile.source_audio,
+        "sung_calibration",
+      );
       assert.ok(body.voice_provider_profile.source_duration_sec >= 10);
 
       const job = await db
@@ -1261,7 +1321,6 @@ describe("Voice Enrollment API", () => {
         )
         .get(userId);
       assert.equal(count.count, 0);
-
     });
 
     it("should reject completion for non-existent session", async () => {
@@ -1338,7 +1397,9 @@ describe("Voice Enrollment API", () => {
       assert.strictEqual(response.statusCode, 500);
       assert.strictEqual(response.json().error, "STORAGE_ERROR");
       const session = await db
-        .prepare("SELECT status, completed_at FROM enrollment_sessions WHERE id = ?")
+        .prepare(
+          "SELECT status, completed_at FROM enrollment_sessions WHERE id = ?",
+        )
         .get(sessionId);
       assert.strictEqual(session.status, "failed_internal");
       assert.ok(session.completed_at);
@@ -1367,7 +1428,9 @@ describe("Voice Enrollment API", () => {
           "chunk_resolution_failed",
         );
         const session = await db
-          .prepare("SELECT status, completed_at FROM enrollment_sessions WHERE id = ?")
+          .prepare(
+            "SELECT status, completed_at FROM enrollment_sessions WHERE id = ?",
+          )
           .get(sessionId);
         assert.strictEqual(session.status, "failed_internal");
         assert.ok(session.completed_at);
@@ -1609,7 +1672,10 @@ describe("Voice Enrollment API", () => {
       });
       assert.strictEqual(readyResponse.statusCode, 200);
       assert.strictEqual(readyResponse.json().my_voice_ready, true);
-      assert.strictEqual(readyResponse.json().voice_provider_profile.ready, true);
+      assert.strictEqual(
+        readyResponse.json().voice_provider_profile.ready,
+        true,
+      );
       assert.strictEqual(
         readyResponse.json().voice_provider_profile.readiness,
         "ready",

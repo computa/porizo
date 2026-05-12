@@ -82,7 +82,10 @@ function buildVoiceProviderReadiness(providerProfile, providerJob) {
     return { readiness: "setup_required", user_action: "recapture" };
   }
   const metadata = parseJson(providerProfile.metadata_json, {});
-  if (providerProfile.status === "active" && providerProfile.provider_profile_id) {
+  if (
+    providerProfile.status === "active" &&
+    providerProfile.provider_profile_id
+  ) {
     return { readiness: "ready", user_action: "wait" };
   }
   if (
@@ -116,8 +119,8 @@ async function buildVoiceProviderProfileResponse(db, providerProfile) {
   );
   const ready = Boolean(
     providerProfile.status === "active" &&
-      providerProfile.provider_profile_id &&
-      hasPersonaConsentScope(providerProfile.consent_scope),
+    providerProfile.provider_profile_id &&
+    hasPersonaConsentScope(providerProfile.consent_scope),
   );
   return {
     id: providerProfile.id,
@@ -147,11 +150,18 @@ async function buildSunoPersonaCalibration({
   minDurationSec = 10,
   maxDurationSec = 30,
 } = {}) {
+  // Sung-chunk selection rationale: prompt type is contract (chunk_id binds to
+  // a sung prompt) and minimum duration is enforced at upload time
+  // (minimumChunkDurationSec). `is_singing` was previously gated here but is
+  // unreliable on preprocessed audio — VAD trim @ -40dB and spoken-target
+  // noise suppression strip sustained-note envelopes before the detector runs,
+  // producing false negatives for typical "Ooh ooh" recordings. `vad_ratio`
+  // gates against silence/empty recordings (>20% voiced content required).
   const sungEntries = Array.isArray(chunkEntries)
     ? chunkEntries.filter(
         (entry) =>
           entry?.prompt?.type === "sung" &&
-          entry?.quality?.metrics?.is_singing === true,
+          (entry?.quality?.metrics?.vad_ratio ?? 1) > 0.2,
       )
     : [];
   const selected = [];
@@ -453,11 +463,15 @@ function registerEnrollmentRoutes(app, deps) {
     { schema: schemas.deviceRegister },
     async (request, reply) => {
       const authHeader = request.headers.authorization;
-      const hasBearerAuth = typeof authHeader === "string" && authHeader.startsWith("Bearer ");
-      const hasDevAnonUser = process.env.NODE_ENV !== "production" && typeof request.headers["x-user-id"] === "string";
-      const userId = hasBearerAuth || hasDevAnonUser
-        ? await requireUserId(request, reply)
-        : null;
+      const hasBearerAuth =
+        typeof authHeader === "string" && authHeader.startsWith("Bearer ");
+      const hasDevAnonUser =
+        process.env.NODE_ENV !== "production" &&
+        typeof request.headers["x-user-id"] === "string";
+      const userId =
+        hasBearerAuth || hasDevAnonUser
+          ? await requireUserId(request, reply)
+          : null;
       if ((hasBearerAuth || hasDevAnonUser) && !userId) return;
 
       const { device_id, platform, app_version, push_token } =
@@ -1248,10 +1262,7 @@ function registerEnrollmentRoutes(app, deps) {
         request.body?.voice_suno_persona_consent === true ||
         Array.isArray(request.body?.consent_scopes);
       if (!session.consent_scopes && hasLatePersonaGrant) {
-        const lateScope = resolvePersonaConsentScopes(
-          request.body,
-          true,
-        );
+        const lateScope = resolvePersonaConsentScopes(request.body, true);
         if (lateScope) {
           await db
             .prepare(
@@ -1938,18 +1949,16 @@ function registerEnrollmentRoutes(app, deps) {
       userId,
       provider: "suno",
     });
-    const pendingProviderProfile = await findLatestPendingProviderProfileForUser(
-      db,
-      {
+    const pendingProviderProfile =
+      await findLatestPendingProviderProfileForUser(db, {
         userId,
         provider: "suno",
-      },
-    );
+      });
     const providerProfileReady = Boolean(
       activeProviderProfile &&
-        activeProviderProfile.status === "active" &&
-        activeProviderProfile.provider_profile_id &&
-        hasPersonaConsentScope(activeProviderProfile.consent_scope),
+      activeProviderProfile.status === "active" &&
+      activeProviderProfile.provider_profile_id &&
+      hasPersonaConsentScope(activeProviderProfile.consent_scope),
     );
     const appBuild = parsePorizoBuild(request.headers["user-agent"]);
     const legacyClientNeedsPersonaGate =
