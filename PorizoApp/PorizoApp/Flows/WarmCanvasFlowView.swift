@@ -1318,6 +1318,19 @@ struct WarmCanvasFlowView: View {
                     songFlow.currentTrackId = result.trackId
                     songFlow.currentVersionNum = result.versionNum
 
+                    // Funnel event — fires once the render is kicked off server-side,
+                    // not on flow exit, so users who kill the app after submission still
+                    // count as "created." Routes to Firebase + Amplitude + backend +
+                    // AppsFlyer (as AFEventCompleteRegistration mapped to song_created).
+                    AnalyticsService.shared.log(
+                        .createCompleted,
+                        properties: [
+                            "type": "song",
+                            "trackId": result.trackId,
+                            "versionNum": String(result.versionNum),
+                        ]
+                    )
+
                     makeLyricsController(trackId: result.trackId, versionNum: result.versionNum)
                     lyricsController?.onAppear(
                         initialLyrics: result.lyrics,

@@ -343,33 +343,6 @@ struct PorizoAppApp: App {
                         }
                     )
                 }
-                .task {
-                    // Request App Tracking Transparency once on first launch. Both FBSDK and
-                    // AppsFlyer need the result: FBSDK uses it to gate IDFA collection (so
-                    // fb_mobile_activate_app events carry IDFA + campaign attribution), and
-                    // AppsFlyer's waitForATTUserAuthorization(60) is waiting on this same
-                    // decision before shipping the install postback. Trigger if either is
-                    // configured — the prompt itself is identical, only the consumers differ.
-                    #if canImport(AppTrackingTransparency)
-                    var attShouldRequest = false
-                    #if canImport(FacebookCore)
-                    if FBSDK.isConfigured { attShouldRequest = true }
-                    #endif
-                    #if canImport(AppsFlyerLib)
-                    if AppsFlyerAnalytics.isConfigured { attShouldRequest = true }
-                    #endif
-                    if attShouldRequest, #available(iOS 14.5, *) {
-                        let status = await ATTrackingManager.requestTrackingAuthorization()
-                        let granted = status == .authorized
-                        #if canImport(FacebookCore)
-                        if FBSDK.isConfigured {
-                            Settings.shared.isAdvertiserIDCollectionEnabled = granted
-                        }
-                        #endif
-                        print("[ATT] status raw: \(status.rawValue), tracking enabled: \(granted)")
-                    }
-                    #endif
-                }
                 .task(id: scenePhase) {
                     // When app enters background, schedule background tasks
                     if scenePhase == .background {
@@ -390,6 +363,38 @@ struct PorizoAppApp: App {
                         // Required on every foreground — AppsFlyer's session start ships the
                         // install postback (on first launch) and the session event afterwards.
                         AppsFlyerAnalytics.start()
+                        #endif
+
+                        // Request App Tracking Transparency once per install. Must run with
+                        // scene in .active state (Apple silently returns current status if
+                        // app isn't fully active — e.g. during splash/launch animations).
+                        // Both FBSDK and AppsFlyer need the result: FBSDK gates IDFA
+                        // collection on it; AppsFlyer's waitForATTUserAuthorization(60)
+                        // is blocked waiting on this same decision before shipping the
+                        // install postback.
+                        #if canImport(AppTrackingTransparency)
+                        let attRequestedKey = "att_request_dispatched_v1"
+                        if !UserDefaults.standard.bool(forKey: attRequestedKey) {
+                            var attShouldRequest = false
+                            #if canImport(FacebookCore)
+                            if FBSDK.isConfigured { attShouldRequest = true }
+                            #endif
+                            #if canImport(AppsFlyerLib)
+                            if AppsFlyerAnalytics.isConfigured { attShouldRequest = true }
+                            #endif
+                            if attShouldRequest, #available(iOS 14.5, *) {
+                                print("[ATT] requesting authorization (scene active)")
+                                let status = await ATTrackingManager.requestTrackingAuthorization()
+                                let granted = status == .authorized
+                                #if canImport(FacebookCore)
+                                if FBSDK.isConfigured {
+                                    Settings.shared.isAdvertiserIDCollectionEnabled = granted
+                                }
+                                #endif
+                                UserDefaults.standard.set(true, forKey: attRequestedKey)
+                                print("[ATT] status raw: \(status.rawValue), tracking enabled: \(granted)")
+                            }
+                        }
                         #endif
 
                         await authManager.refreshTokensIfNeeded()

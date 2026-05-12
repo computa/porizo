@@ -241,7 +241,11 @@ final class AnalyticsService: @unchecked Sendable {
         #if canImport(AppsFlyerLib)
         switch event {
         case .authCompleted:
-            var values: [String: Any] = [AFEventParamRegistrationMethod: properties?["provider"] ?? "unknown"]
+            // AuthManager passes the provider under "method" (see AuthManager.swift:1372).
+            // Fall through "provider" first for forward-compatibility if a caller adopts
+            // the more semantic key name later.
+            let method = properties?["provider"] ?? properties?["method"] ?? "unknown"
+            var values: [String: Any] = [AFEventParamRegistrationMethod: method]
             if let userId = properties?["userId"] {
                 values[AFEventParamContentId] = userId
             }
