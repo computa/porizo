@@ -206,30 +206,28 @@ async function buildSunoPersonaCalibration({
     return null;
   }
 
-  // buildPersonaWaveform trims per-chunk silence, crossfades the concat
+  // buildPersonaWaveform trims per-chunk silence (leading, trailing, AND
+  // internal gaps > 100ms via stop_periods=-1), crossfades the concat
   // boundary, and loudnorms to -16 LUFS so Suno's upload-cover + generate-
-  // persona pipeline sees music-grade input. Falls back to naive byte-concat
-  // if ffmpeg fails (e.g., binary missing in dev), since a working but
-  // imperfect persona source beats a hard failure of enrollment completion.
-  try {
-    await buildPersonaWaveform(selected, outputPath);
-  } catch (err) {
-    console.warn(
-      "[Enrollment] buildPersonaWaveform failed, falling back to naive concat:",
-      err.message,
-    );
-    concatWavFiles(selected, outputPath);
-  }
+  // persona pipeline sees music-grade input. We deliberately do NOT silent-
+  // fallback to naive byte-concat on ffmpeg failure: queuing a known-weak
+  // persona source to Suno just defers the failure to the provider and
+  // creates retry/cleanup noise (per adversarial review by Codex). Let
+  // ffmpeg errors propagate so the enrollment caller can fail with an
+  // internal error rather than ship a degraded persona source.
+  await buildPersonaWaveform(selected, outputPath);
 
-  // Re-read the on-disk duration: trimming + crossfade shrinks total length.
-  let finalDurationSec = totalDurationSec;
-  try {
-    const info = await parseWavHeaderFromFile(outputPath);
-    if (Number.isFinite(info?.durationSec) && info.durationSec > 0) {
-      finalDurationSec = info.durationSec;
-    }
-  } catch (_err) {
-    // keep totalDurationSec estimate
+  // Post-trim duration re-gate: silence removal can shrink the output below
+  // the Suno persona window (10-30s). Without this check we'd ship a
+  // too-short calibration source that Suno's generate-persona rejects.
+  const trimmedInfo = await parseWavHeaderFromFile(outputPath);
+  const finalDurationSec = Number(trimmedInfo?.durationSec || 0);
+  if (
+    !Number.isFinite(finalDurationSec) ||
+    finalDurationSec < minDurationSec ||
+    finalDurationSec > maxDurationSec
+  ) {
+    return null;
   }
 
   return {

@@ -304,6 +304,117 @@ describe("Voice Enrollment API", () => {
         fs.rmSync(dir, { recursive: true, force: true });
       }
     });
+
+    it("returns null when post-trim duration falls below the persona minimum window", async () => {
+      // Per Codex adversarial review: silence removal can shrink the
+      // concatenated output below the 10s persona window. Without a
+      // post-trim re-gate we'd ship a too-short calibration source that
+      // Suno's generate-persona rejects. Construct two chunks dominated by
+      // silence (a tone burst surrounded by quiet) so the trim collapses
+      // the total below 10s.
+      const dir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "porizo-suno-calibration-test-"),
+      );
+      try {
+        const p5 = path.join(dir, "p5.wav");
+        const p6 = path.join(dir, "p6.wav");
+        // Each chunk: 7s total with only 2.5s of actual tone at the start.
+        // Tone (2.5s) + silence (4.5s) per chunk → after silenceremove,
+        // ~5s combined → below the 10s minimum.
+        fs.writeFileSync(
+          p5,
+          createTestWav({ durationSec: 2.5, frequencyHz: 440 }),
+        );
+        // Build a 7s file by padding the 2.5s tone with silence:
+        // ffmpeg-free synthesis using the createTestWav helper twice and
+        // truncating is overkill — instead use a manual silent tail.
+        const tonePart = createTestWav({ durationSec: 2.5, frequencyHz: 440 });
+        const silentTail = createTestWav({ durationSec: 4.5, silent: true });
+        // WAV concat at byte level: copy 44-byte header + data from first,
+        // append only the data section of the second (skip its 44-byte
+        // header). This intentionally produces a single-chunk silent-tail
+        // WAV that the test pipeline can feed into the calibration filter.
+        const wav5Combined = Buffer.concat([tonePart, silentTail.subarray(44)]);
+        // Patch RIFF + data chunk sizes so the combined WAV is well-formed.
+        const dataLen = wav5Combined.length - 44;
+        wav5Combined.writeUInt32LE(36 + dataLen, 4);
+        wav5Combined.writeUInt32LE(dataLen, 40);
+        fs.writeFileSync(p5, wav5Combined);
+        fs.writeFileSync(p6, wav5Combined);
+
+        const outputPath = path.join(dir, "suno-persona.wav");
+        const result = await buildSunoPersonaCalibration({
+          outputPath,
+          chunkEntries: [
+            {
+              chunkId: "p5",
+              filePath: p5,
+              prompt: { id: "p5", type: "sung" },
+              quality: { metrics: { is_singing: true, vad_ratio: 0.5 } },
+            },
+            {
+              chunkId: "p6",
+              filePath: p6,
+              prompt: { id: "p6", type: "sung" },
+              quality: { metrics: { is_singing: true, vad_ratio: 0.5 } },
+            },
+          ],
+        });
+
+        assert.strictEqual(
+          result,
+          null,
+          "should reject when trimmed output is below the 10s window",
+        );
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("propagates ffmpeg failure instead of silently falling back to a known-weak persona source", async () => {
+      // Per Codex adversarial review: a silent fallback to naive byte-concat
+      // on ffmpeg failure just defers the failure to Suno and creates
+      // provider retry/cleanup noise. ffmpeg failure must surface as an
+      // internal error so the caller can fail cleanly. Force ffmpeg failure
+      // by passing a directory path as outputPath (ffmpeg cannot write a
+      // file with the same path as an existing directory).
+      const dir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "porizo-suno-calibration-test-"),
+      );
+      try {
+        const p5 = path.join(dir, "p5.wav");
+        const p6 = path.join(dir, "p6.wav");
+        fs.writeFileSync(p5, createTestWav({ durationSec: 8 }));
+        fs.writeFileSync(p6, createTestWav({ durationSec: 8 }));
+        const dirAsOutput = path.join(dir, "is-a-directory");
+        fs.mkdirSync(dirAsOutput);
+
+        await assert.rejects(
+          () =>
+            buildSunoPersonaCalibration({
+              outputPath: dirAsOutput,
+              chunkEntries: [
+                {
+                  chunkId: "p5",
+                  filePath: p5,
+                  prompt: { id: "p5", type: "sung" },
+                  quality: { metrics: { vad_ratio: 0.6 } },
+                },
+                {
+                  chunkId: "p6",
+                  filePath: p6,
+                  prompt: { id: "p6", type: "sung" },
+                  quality: { metrics: { vad_ratio: 0.6 } },
+                },
+              ],
+            }),
+          /FFmpeg/i,
+          "ffmpeg failure must propagate, not silently fall back to naive concat",
+        );
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    });
   });
 
   // ============================================================
