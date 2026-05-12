@@ -671,7 +671,75 @@ describe("Voice Enrollment API", () => {
       assert.strictEqual(response.statusCode, 400);
       const body = response.json();
       assert.strictEqual(body.error, "QC_FAILED");
+      assert.strictEqual(body.reason, "DURATION_OUT_OF_RANGE");
       assert.ok(body.re_record, "should indicate re_record needed");
+    });
+
+    it("should reject sung chunks that are shorter than the prompt contract", async () => {
+      const chunkId = "p5";
+
+      const chunkDir = path.join(
+        storageDir,
+        "enrollment",
+        "raw",
+        testUserId,
+        testSessionId,
+      );
+      fs.mkdirSync(chunkDir, { recursive: true });
+      const chunkPath = path.join(chunkDir, `${chunkId}.wav`);
+      fs.writeFileSync(chunkPath, createTestWav({ durationSec: 5 }));
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/voice/enrollment/chunk_uploaded",
+        headers: { "x-user-id": testUserId },
+        payload: {
+          session_id: testSessionId,
+          chunk_id: chunkId,
+          duration_sec: 5,
+        },
+      });
+
+      assert.strictEqual(response.statusCode, 400);
+      const body = response.json();
+      assert.strictEqual(body.error, "QC_FAILED");
+      assert.strictEqual(body.reason, "SUNG_DURATION_TOO_SHORT");
+      assert.strictEqual(body.details.reason, "SUNG_DURATION_TOO_SHORT");
+      assert.ok(body.re_record, "should ask the app to re-record this sung line");
+    });
+
+    it("should reject chunk notifications that are not in the enrollment prompts", async () => {
+      const chunkId = "unexpected_chunk";
+
+      const chunkDir = path.join(
+        storageDir,
+        "enrollment",
+        "raw",
+        testUserId,
+        testSessionId,
+      );
+      fs.mkdirSync(chunkDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(chunkDir, `${chunkId}.wav`),
+        createTestWav({ durationSec: 5 }),
+      );
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/voice/enrollment/chunk_uploaded",
+        headers: { "x-user-id": testUserId },
+        payload: {
+          session_id: testSessionId,
+          chunk_id: chunkId,
+          duration_sec: 5,
+        },
+      });
+
+      assert.strictEqual(response.statusCode, 400);
+      const body = response.json();
+      assert.strictEqual(body.error, "QC_FAILED");
+      assert.strictEqual(body.reason, "INVALID_PROMPT_CHUNK");
+      assert.ok(body.re_record, "should ask the app to discard the unexpected chunk");
     });
 
     it("should update session chunk count and quality metrics", async () => {

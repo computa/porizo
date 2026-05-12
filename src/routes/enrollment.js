@@ -306,6 +306,24 @@ function resolvePersonaConsentScopes(body = {}, consentAccepted = false) {
     : REQUIRED_CONSENT_SCOPE;
 }
 
+function findEnrollmentPrompt(session, chunkId) {
+  const prompts = parseJson(session?.prompts_json, []);
+  if (!Array.isArray(prompts)) {
+    return null;
+  }
+  return prompts.find((prompt) => prompt?.id === chunkId) || null;
+}
+
+function minimumChunkDurationSec(prompt) {
+  if (prompt?.type !== "sung") {
+    return 2;
+  }
+  const hintSec = Number(prompt.duration_hint_sec || 0);
+  const hintedFloor =
+    Number.isFinite(hintSec) && hintSec > 0 ? hintSec - 0.5 : 7.5;
+  return Math.max(6, hintedFloor);
+}
+
 function dbFromQuery(query) {
   return {
     prepare(sql) {
@@ -850,14 +868,11 @@ function registerEnrollmentRoutes(app, deps) {
       }
     }
     const metrics = parseJson(session.quality_metrics, {});
-    const durationOk =
-      typeof resolvedDuration === "number" &&
-      resolvedDuration >= 2 &&
-      resolvedDuration <= 25;
-    if (!durationOk) {
+    const prompt = findEnrollmentPrompt(session, chunk_id);
+    if (!prompt) {
       metrics[chunk_id] = {
         accepted: false,
-        reason: "DURATION_OUT_OF_RANGE",
+        reason: "INVALID_PROMPT_CHUNK",
         duration_sec: resolvedDuration,
       };
       await db
@@ -866,9 +881,56 @@ function registerEnrollmentRoutes(app, deps) {
         )
         .run(toJson(metrics), session_id);
       sendError(reply, 400, "QC_FAILED", "Audio chunk failed QC.", {
-        reason: "DURATION_OUT_OF_RANGE",
+        reason: "INVALID_PROMPT_CHUNK",
         re_record: true,
+        details: {
+          reason: "INVALID_PROMPT_CHUNK",
+        },
       });
+      return;
+    }
+    const minDurationSec = minimumChunkDurationSec(prompt);
+    const durationOk =
+      typeof resolvedDuration === "number" &&
+      resolvedDuration >= minDurationSec &&
+      resolvedDuration <= 25;
+    if (!durationOk) {
+      const reason =
+        prompt?.type === "sung" &&
+        typeof resolvedDuration === "number" &&
+        resolvedDuration < minDurationSec
+          ? "SUNG_DURATION_TOO_SHORT"
+          : "DURATION_OUT_OF_RANGE";
+      metrics[chunk_id] = {
+        accepted: false,
+        reason,
+        duration_sec: resolvedDuration,
+        min_duration_sec: minDurationSec,
+      };
+      await db
+        .prepare(
+          "UPDATE enrollment_sessions SET quality_metrics = ? WHERE id = ?",
+        )
+        .run(toJson(metrics), session_id);
+      sendError(
+        reply,
+        400,
+        "QC_FAILED",
+        prompt?.type === "sung"
+          ? "The sung line was too short. Please sing until the timer finishes."
+          : "Audio chunk failed QC.",
+        {
+          reason,
+          duration_sec: String(resolvedDuration ?? ""),
+          min_duration_sec: String(minDurationSec),
+          re_record: true,
+          details: {
+            reason,
+            duration_sec: String(resolvedDuration ?? ""),
+            min_duration_sec: String(minDurationSec),
+          },
+        },
+      );
       return;
     }
     if (!checksumMatches) {

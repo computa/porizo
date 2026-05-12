@@ -47,7 +47,6 @@ struct EnrollmentFlowView: View {
     // Countdown timer state
     @State private var countdownSeconds: Int = 0
     @State private var isCountingDown: Bool = false
-    private let recordingDuration: Int = 5  // seconds per recording
 
     // Processing status cycling
     @State private var processingStatusIndex: Int = 0
@@ -241,15 +240,24 @@ struct EnrollmentFlowView: View {
 
                 // Prompt card
                 if currentPromptIndex < prompts.count {
-                    Text(prompts[currentPromptIndex].text)
-                        .font(DesignTokens.displayFont(size: 20))
-                        .foregroundStyle(DesignTokens.textPrimary)
-                        .multilineTextAlignment(.center)
-                        .padding(24)
-                        .frame(maxWidth: .infinity)
-                        .background(DesignTokens.surface)
-                        .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusLarge))
-                        .padding(.horizontal, 20)
+                    VStack(spacing: 12) {
+                        Text(prompts[currentPromptIndex].text)
+                            .font(DesignTokens.displayFont(size: 20))
+                            .foregroundStyle(DesignTokens.textPrimary)
+                            .multilineTextAlignment(.center)
+
+                        if prompts[currentPromptIndex].type == "sung" {
+                            Text(prompts[currentPromptIndex].pitchHint ?? "Sing slowly and hold each note until the timer finishes")
+                                .font(DesignTokens.bodyFont(size: 14, weight: .medium))
+                                .foregroundStyle(DesignTokens.textSecondary)
+                                .multilineTextAlignment(.center)
+                        }
+                    }
+                    .padding(24)
+                    .frame(maxWidth: .infinity)
+                    .background(DesignTokens.surface)
+                    .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusLarge))
+                    .padding(.horizontal, 20)
                 }
 
                 EnrollmentLevelMeter(isRecording: recorder.isRecording)
@@ -503,6 +511,38 @@ struct EnrollmentFlowView: View {
         }
     }
 
+    private var currentPrompt: EnrollmentPrompt? {
+        guard currentPromptIndex < prompts.count else { return nil }
+        return prompts[currentPromptIndex]
+    }
+
+    private var normalizedCurrentPromptDuration: Int {
+        guard let prompt = currentPrompt else { return 5 }
+        let fallback = prompt.type == "sung" ? 8 : 5
+        let hinted = prompt.durationHintSec ?? fallback
+        let minimum = prompt.type == "sung" ? 8 : 5
+        return min(max(hinted, minimum), 20)
+    }
+
+    private var currentPromptRecordingDuration: Int {
+        normalizedCurrentPromptDuration
+    }
+
+    private var currentPromptMinimumDuration: TimeInterval {
+        guard let prompt = currentPrompt else { return 2 }
+        if prompt.type == "sung" {
+            return max(6, TimeInterval(normalizedCurrentPromptDuration) - 0.5)
+        }
+        return 2
+    }
+
+    private var shortRecordingMessage: String {
+        guard currentPrompt?.type == "sung" else {
+            return "That recording was too short. Please record the full prompt."
+        }
+        return "That sung line was too short. Please sing until the timer finishes and hold the notes."
+    }
+
     // MARK: - Actions
 
     private func startEnrollment() {
@@ -537,7 +577,7 @@ struct EnrollmentFlowView: View {
     private func startRecordingWithCountdown() {
         do {
             try recorder.startRecording()
-            countdownSeconds = recordingDuration
+            countdownSeconds = currentPromptRecordingDuration
             isCountingDown = true
 
             // Start countdown timer
@@ -569,6 +609,13 @@ struct EnrollmentFlowView: View {
 
         if recorder.isRecording {
             _ = recorder.stopRecording()
+            let durationSec = recorder.recordingDuration() ?? recorder.duration
+            if durationSec < currentPromptMinimumDuration {
+                recorder.deleteRecording()
+                errorMessage = shortRecordingMessage
+                showingError = true
+                return
+            }
             uploadCurrentRecording()
         }
     }
