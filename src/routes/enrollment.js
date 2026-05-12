@@ -756,24 +756,29 @@ function registerEnrollmentRoutes(app, deps) {
           text: "The five boxing wizards jump quickly.",
           duration_hint_sec: 5,
         },
-        // Sung prompts use universally-recognized public-domain melodies
-        // so Suno's persona-from-cover model has a clear melodic line to
-        // clone the voice from. Open-vowel placeholders ("Ooh ooh", "La la")
-        // failed Suno's generate-persona step with "Current music failed to
-        // generate persona" — Suno's prompt template literally instructs
-        // "[Verse] Sing this clear melody in a natural voice."
+        // Sung prompts need TWO properties:
+        //   1. Open-vowel syllables (NOT recognizable lyrics) so Suno's
+        //      content filter doesn't reject as "copyrighted lyrics" —
+        //      observed with Twinkle/Mary prompts (E302 upload-cover).
+        //   2. Explicit pitch-movement instructions so the audio has the
+        //      melodic contour Suno's generate-persona requires — open
+        //      vowels at a single pitch ("Ooh ooh ooh") previously failed
+        //      generate-persona with "Current music failed to generate
+        //      persona."
+        // Vowel-only ascending/descending lines hit both: lyrics-free for
+        // the upload-cover content filter, melodic for the persona model.
         {
           id: "p5",
           type: "sung",
-          text: "Twinkle, twinkle, little star, how I wonder what you are",
-          pitch_hint: "Sing the melody the way you remember it",
+          text: "La la la la la la la la — start low, climb a little higher with each note",
+          pitch_hint: "Climbing a staircase, one note at a time",
           duration_hint_sec: 8,
         },
         {
           id: "p6",
           type: "sung",
-          text: "Mary had a little lamb, little lamb, little lamb",
-          pitch_hint: "Sing comfortably and hold the last note",
+          text: "Ah ah ah ah ah ah ah ah — start high, step down lower with each note",
+          pitch_hint: "Descending steps, hold the last note steady",
           duration_hint_sec: 8,
         },
       ];
