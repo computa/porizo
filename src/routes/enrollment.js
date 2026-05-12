@@ -11,6 +11,7 @@ const path = require("path");
 const { concatWavFiles, parseWavHeaderFromFile } = require("../utils/audio");
 const { validateEnrollmentWithGrading } = require("../services/enrollment");
 const { getTierMetadata } = require("../services/audio-quality");
+const { buildPersonaWaveform } = require("../services/audio-preprocessing");
 const { generateMemoryQuestions } = require("../services/memory-questions");
 const { extractEmbedding } = require("../providers/replicate");
 const { downloadToFile } = require("../providers/http");
@@ -205,13 +206,38 @@ async function buildSunoPersonaCalibration({
     return null;
   }
 
-  concatWavFiles(selected, outputPath);
+  // buildPersonaWaveform trims per-chunk silence, crossfades the concat
+  // boundary, and loudnorms to -16 LUFS so Suno's upload-cover + generate-
+  // persona pipeline sees music-grade input. Falls back to naive byte-concat
+  // if ffmpeg fails (e.g., binary missing in dev), since a working but
+  // imperfect persona source beats a hard failure of enrollment completion.
+  try {
+    await buildPersonaWaveform(selected, outputPath);
+  } catch (err) {
+    console.warn(
+      "[Enrollment] buildPersonaWaveform failed, falling back to naive concat:",
+      err.message,
+    );
+    concatWavFiles(selected, outputPath);
+  }
+
+  // Re-read the on-disk duration: trimming + crossfade shrinks total length.
+  let finalDurationSec = totalDurationSec;
+  try {
+    const info = await parseWavHeaderFromFile(outputPath);
+    if (Number.isFinite(info?.durationSec) && info.durationSec > 0) {
+      finalDurationSec = info.durationSec;
+    }
+  } catch (_err) {
+    // keep totalDurationSec estimate
+  }
+
   return {
     filePath: outputPath,
-    durationSec: Number(totalDurationSec.toFixed(2)),
+    durationSec: Number(finalDurationSec.toFixed(2)),
     vocalWindow: {
       vocal_start: 0,
-      vocal_end: Number(Math.min(totalDurationSec, maxDurationSec).toFixed(2)),
+      vocal_end: Number(Math.min(finalDurationSec, maxDurationSec).toFixed(2)),
     },
     chunkCount: selected.length,
   };

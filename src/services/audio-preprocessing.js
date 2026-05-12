@@ -7,7 +7,11 @@ const path = require("path");
 const { spawn } = require("child_process");
 const os = require("os");
 const { vadTrim } = require("../utils/qc");
-const { assessAudioQuality, calculateQualityGrade, GRADE_VALUES } = require("./audio-quality");
+const {
+  assessAudioQuality,
+  calculateQualityGrade,
+  GRADE_VALUES,
+} = require("./audio-quality");
 
 const TARGET_LUFS = -20;
 const TARGET_LUFS_SUNG = -18;
@@ -39,7 +43,9 @@ function runFfmpeg(args, timeoutMs = 30000) {
       if (code === 0) {
         resolve();
       } else {
-        reject(new Error(`FFmpeg failed (code ${code}): ${stderr.slice(-500)}`));
+        reject(
+          new Error(`FFmpeg failed (code ${code}): ${stderr.slice(-500)}`),
+        );
       }
     });
 
@@ -63,11 +69,16 @@ async function applyNoiseSuppression(inputPath, outputPath, options = {}) {
 
   const args = [
     "-y",
-    "-i", inputPath,
-    "-af", `afftdn=nr=${nr}:nf=-25:tn=1`,
-    "-ar", "44100",
-    "-ac", "1",
-    "-acodec", "pcm_s16le",
+    "-i",
+    inputPath,
+    "-af",
+    `afftdn=nr=${nr}:nf=-25:tn=1`,
+    "-ar",
+    "44100",
+    "-ac",
+    "1",
+    "-acodec",
+    "pcm_s16le",
     outputPath,
   ];
 
@@ -96,10 +107,10 @@ async function applyEnhancedPreprocessing(inputPath, outputPath, options = {}) {
   filters.push(`highpass=f=${highpassFreq}`);
 
   if (isVeryNoisy) {
-    filters.push('agate=threshold=-40dB:ratio=2:attack=10:release=100');
+    filters.push("agate=threshold=-40dB:ratio=2:attack=10:release=100");
   }
 
-  const noiseReduction = isVeryNoisy ? 20 : (isNoisy ? 15 : 10);
+  const noiseReduction = isVeryNoisy ? 20 : isNoisy ? 15 : 10;
   const noiseFloor = isVeryNoisy ? -30 : -25;
   filters.push(`afftdn=nr=${noiseReduction}:nf=${noiseFloor}:tn=1`);
 
@@ -107,21 +118,28 @@ async function applyEnhancedPreprocessing(inputPath, outputPath, options = {}) {
   const ratio = isSung ? 4 : 3;
   const attack = isSung ? 3 : 5;
   const release = isSung ? 100 : 50;
-  filters.push(`acompressor=threshold=${threshold}dB:ratio=${ratio}:attack=${attack}:release=${release}`);
+  filters.push(
+    `acompressor=threshold=${threshold}dB:ratio=${ratio}:attack=${attack}:release=${release}`,
+  );
 
   const targetLufs = isSung ? TARGET_LUFS_SUNG : TARGET_LUFS;
   const lra = isSung ? 14 : 11;
   filters.push(`loudnorm=I=${targetLufs}:LRA=${lra}:TP=-1.5`);
 
-  const filterChain = filters.join(',');
+  const filterChain = filters.join(",");
 
   const args = [
     "-y",
-    "-i", inputPath,
-    "-af", filterChain,
-    "-ar", "44100",
-    "-ac", "1",
-    "-acodec", "pcm_s16le",
+    "-i",
+    inputPath,
+    "-af",
+    filterChain,
+    "-ar",
+    "44100",
+    "-ac",
+    "1",
+    "-acodec",
+    "pcm_s16le",
     outputPath,
   ];
 
@@ -135,14 +153,23 @@ async function applyEnhancedPreprocessing(inputPath, outputPath, options = {}) {
  * @param {number} targetLufs - Target loudness (default -20)
  * @returns {Promise<void>}
  */
-async function normalizeVolume(inputPath, outputPath, targetLufs = TARGET_LUFS) {
+async function normalizeVolume(
+  inputPath,
+  outputPath,
+  targetLufs = TARGET_LUFS,
+) {
   const args = [
     "-y",
-    "-i", inputPath,
-    "-af", `loudnorm=I=${targetLufs}:LRA=11:TP=-1.5:print_format=summary`,
-    "-ar", "44100",
-    "-ac", "1",
-    "-acodec", "pcm_s16le",
+    "-i",
+    inputPath,
+    "-af",
+    `loudnorm=I=${targetLufs}:LRA=11:TP=-1.5:print_format=summary`,
+    "-ar",
+    "44100",
+    "-ac",
+    "1",
+    "-acodec",
+    "pcm_s16le",
     outputPath,
   ];
 
@@ -203,22 +230,38 @@ async function preprocessAudio(options) {
         currentPath = enhancedPath;
         stages.push("enhanced_pipeline");
       } catch (e) {
-        console.warn("[Preprocessing] Enhanced pipeline failed, falling back:", e.message);
+        console.warn(
+          "[Preprocessing] Enhanced pipeline failed, falling back:",
+          e.message,
+        );
         stages.push("enhanced_pipeline_FAILED");
       }
     }
 
-    if (doNoiseSuppression && originalMetrics.snr_db < 25 && !stages.includes("enhanced_pipeline")) {
+    if (
+      doNoiseSuppression &&
+      originalMetrics.snr_db < 25 &&
+      !stages.includes("enhanced_pipeline")
+    ) {
       const denoisedPath = path.join(tempDir, "denoised.wav");
       try {
         const noiseReduction = isSung
-          ? (originalMetrics.snr_db < 12 ? 20 : 15)
-          : (originalMetrics.snr_db < 15 ? 15 : 10);
-        await applyNoiseSuppression(currentPath, denoisedPath, { noiseReduction });
+          ? originalMetrics.snr_db < 12
+            ? 20
+            : 15
+          : originalMetrics.snr_db < 15
+            ? 15
+            : 10;
+        await applyNoiseSuppression(currentPath, denoisedPath, {
+          noiseReduction,
+        });
         currentPath = denoisedPath;
         stages.push("noise_suppression");
       } catch (e) {
-        console.warn("[Preprocessing] Noise suppression failed, skipping:", e.message);
+        console.warn(
+          "[Preprocessing] Noise suppression failed, skipping:",
+          e.message,
+        );
         stages.push("noise_suppression_FAILED");
       }
     }
@@ -231,7 +274,10 @@ async function preprocessAudio(options) {
         currentPath = normalizedPath;
         stages.push("normalization");
       } catch (e) {
-        console.warn("[Preprocessing] Normalization failed, skipping:", e.message);
+        console.warn(
+          "[Preprocessing] Normalization failed, skipping:",
+          e.message,
+        );
         stages.push("normalization_FAILED");
       }
     }
@@ -247,14 +293,23 @@ async function preprocessAudio(options) {
       }
     }
 
-    const outputPath = customOutputPath || inputPath.replace(".wav", "_processed.wav");
+    const outputPath =
+      customOutputPath || inputPath.replace(".wav", "_processed.wav");
     fs.writeFileSync(outputPath, finalBuffer);
 
     const finalMetrics = assessAudioQuality(finalBuffer);
-    const { grade: finalGrade, tier, score, issues, tips } = calculateQualityGrade(finalMetrics, { isSung });
+    const {
+      grade: finalGrade,
+      tier,
+      score,
+      issues,
+      tips,
+    } = calculateQualityGrade(finalMetrics, { isSung });
 
-    const improved = GRADE_VALUES[finalGrade] < GRADE_VALUES[originalGrade] ||
-      (finalGrade === originalGrade && finalMetrics.snr_db > originalMetrics.snr_db + 3);
+    const improved =
+      GRADE_VALUES[finalGrade] < GRADE_VALUES[originalGrade] ||
+      (finalGrade === originalGrade &&
+        finalMetrics.snr_db > originalMetrics.snr_db + 3);
 
     return {
       outputPath,
@@ -309,13 +364,24 @@ async function preprocessBatch(chunkPaths, options = {}) {
       if (result.improved) totalImproved++;
 
       switch (result.grade) {
-        case "A": totalGradeA++; break;
-        case "B": totalGradeB++; break;
-        case "C": totalGradeC++; break;
-        case "F": totalGradeF++; break;
+        case "A":
+          totalGradeA++;
+          break;
+        case "B":
+          totalGradeB++;
+          break;
+        case "C":
+          totalGradeC++;
+          break;
+        case "F":
+          totalGradeF++;
+          break;
       }
     } catch (e) {
-      console.error(`[Preprocessing] Failed to process ${chunkPath}:`, e.message);
+      console.error(
+        `[Preprocessing] Failed to process ${chunkPath}:`,
+        e.message,
+      );
       results.push({
         path: chunkPath,
         error: e.message,
@@ -330,10 +396,20 @@ async function preprocessBatch(chunkPaths, options = {}) {
     summary: {
       total: chunkPaths.length,
       improved: totalImproved,
-      grades: { A: totalGradeA, B: totalGradeB, C: totalGradeC, F: totalGradeF },
-      overallGrade: totalGradeF > chunkPaths.length / 2 ? "F" :
-        totalGradeC > chunkPaths.length / 2 ? "C" :
-          totalGradeB > chunkPaths.length / 2 ? "B" : "A",
+      grades: {
+        A: totalGradeA,
+        B: totalGradeB,
+        C: totalGradeC,
+        F: totalGradeF,
+      },
+      overallGrade:
+        totalGradeF > chunkPaths.length / 2
+          ? "F"
+          : totalGradeC > chunkPaths.length / 2
+            ? "C"
+            : totalGradeB > chunkPaths.length / 2
+              ? "B"
+              : "A",
     },
   };
 }
@@ -374,6 +450,91 @@ function getAdaptiveConversionParams(grade) {
   }
 }
 
+/**
+ * Concatenate sung-chunk WAVs into a single Suno-grade persona waveform.
+ *
+ * Suno's persona pipeline (upload-cover → generate-persona) expects the input
+ * to look like a coherent music track, not a sequence of stitched voice clips.
+ * Naive byte-concat of two recorded chunks fails because:
+ *   1. Each chunk has ~0.5-0.8s of leading/trailing silence from tap-to-record
+ *      UX, producing 4-5 silent gaps per persona file.
+ *   2. The concat boundary itself is a hard cut — Suno reads this as two
+ *      separate tracks.
+ *   3. Phone-mic recordings land at ~-28 LUFS; Suno expects music-grade input
+ *      closer to -14 to -16 LUFS.
+ *
+ * Pipeline (single ffmpeg invocation, filter_complex):
+ *   1. silenceremove on each input: trim leading + trailing silence at -40dB
+ *   2. acrossfade pairwise: chain inputs with `crossfadeMs` overlap
+ *   3. loudnorm: normalize the concatenated result to `targetLufs`
+ *
+ * @param {string[]} inputs - Absolute paths to input WAVs (≥1)
+ * @param {string} output - Absolute path for the resulting WAV
+ * @param {Object} [opts]
+ * @param {number} [opts.crossfadeMs=200] - Pairwise crossfade duration in ms
+ * @param {number} [opts.targetLufs=-16] - Final integrated loudness target
+ * @param {number} [opts.silenceThresholdDb=-40] - Silence detection threshold
+ * @param {number} [opts.timeoutMs=45000] - ffmpeg timeout
+ * @returns {Promise<void>}
+ */
+async function buildPersonaWaveform(inputs, output, opts = {}) {
+  const crossfadeMs = Number.isFinite(opts.crossfadeMs)
+    ? opts.crossfadeMs
+    : 200;
+  const targetLufs = Number.isFinite(opts.targetLufs) ? opts.targetLufs : -16;
+  const silenceThresholdDb = Number.isFinite(opts.silenceThresholdDb)
+    ? opts.silenceThresholdDb
+    : -40;
+  const timeoutMs = Number.isFinite(opts.timeoutMs) ? opts.timeoutMs : 45000;
+  const crossfadeSec = (crossfadeMs / 1000).toFixed(3);
+
+  if (!Array.isArray(inputs) || inputs.length === 0) {
+    throw new Error("buildPersonaWaveform: at least one input required");
+  }
+
+  const trim = (idx, outLabel) =>
+    `[${idx}:a]silenceremove=start_periods=1:start_silence=0.1:` +
+    `start_threshold=${silenceThresholdDb}dB:detection=peak,` +
+    `silenceremove=stop_periods=-1:stop_silence=0.1:` +
+    `stop_threshold=${silenceThresholdDb}dB:detection=peak[${outLabel}]`;
+
+  const parts = inputs.map((_, idx) => trim(idx, `t${idx}`));
+
+  let lastLabel = "t0";
+  for (let i = 1; i < inputs.length; i += 1) {
+    const out = i === inputs.length - 1 ? "xfade" : `x${i}`;
+    parts.push(
+      `[${lastLabel}][t${i}]acrossfade=d=${crossfadeSec}:c1=tri:c2=tri[${out}]`,
+    );
+    lastLabel = out;
+  }
+
+  const preNormLabel = inputs.length === 1 ? "t0" : "xfade";
+  parts.push(`[${preNormLabel}]loudnorm=I=${targetLufs}:LRA=11:TP=-1.5[out]`);
+
+  const filterComplex = parts.join(";");
+
+  const args = ["-y"];
+  for (const input of inputs) {
+    args.push("-i", input);
+  }
+  args.push(
+    "-filter_complex",
+    filterComplex,
+    "-map",
+    "[out]",
+    "-ar",
+    "44100",
+    "-ac",
+    "1",
+    "-acodec",
+    "pcm_s16le",
+    output,
+  );
+
+  await runFfmpeg(args, timeoutMs);
+}
+
 module.exports = {
   preprocessAudio,
   preprocessBatch,
@@ -381,6 +542,7 @@ module.exports = {
   applyEnhancedPreprocessing,
   normalizeVolume,
   applyVadTrim,
+  buildPersonaWaveform,
   getAdaptiveConversionParams,
   TARGET_LUFS,
   TARGET_LUFS_SUNG,
