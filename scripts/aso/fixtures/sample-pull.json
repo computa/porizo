@@ -1,0 +1,650 @@
+{
+  "pulled_at": "2026-05-13T11:52:00Z",
+  "window": { "startTime": "2026-04-13", "endTime": "2026-05-13", "days": 30 },
+  "campaigns": [
+    {
+      "campaign_id": "2143835551",
+      "name": "Probe US Painkiller",
+      "date": "2026-05-12",
+      "impressions": 1820,
+      "taps": 38,
+      "installs": 2,
+      "spend": 18.4,
+      "avg_cpt": 0.48
+    },
+    {
+      "campaign_id": "2143835551",
+      "name": "Probe US Painkiller",
+      "date": "2026-05-13",
+      "impressions": 0,
+      "taps": 0,
+      "installs": 0,
+      "spend": 0.0,
+      "avg_cpt": 0
+    },
+
+    {
+      "campaign_id": "2143811111",
+      "name": "Porizo - Category US",
+      "date": "2026-04-30",
+      "impressions": 1290,
+      "taps": 12,
+      "installs": 1,
+      "spend": 4.5,
+      "avg_cpt": 0.37
+    },
+    {
+      "campaign_id": "2143811111",
+      "name": "Porizo - Category US",
+      "date": "2026-05-01",
+      "impressions": 1380,
+      "taps": 14,
+      "installs": 1,
+      "spend": 4.95,
+      "avg_cpt": 0.35
+    },
+    {
+      "campaign_id": "2143811111",
+      "name": "Porizo - Category US",
+      "date": "2026-05-02",
+      "impressions": 1410,
+      "taps": 11,
+      "installs": 2,
+      "spend": 4.1,
+      "avg_cpt": 0.37
+    },
+    {
+      "campaign_id": "2143811111",
+      "name": "Porizo - Category US",
+      "date": "2026-05-03",
+      "impressions": 1320,
+      "taps": 13,
+      "installs": 2,
+      "spend": 4.75,
+      "avg_cpt": 0.36
+    },
+    {
+      "campaign_id": "2143811111",
+      "name": "Porizo - Category US",
+      "date": "2026-05-04",
+      "impressions": 1190,
+      "taps": 10,
+      "installs": 1,
+      "spend": 3.8,
+      "avg_cpt": 0.38
+    },
+    {
+      "campaign_id": "2143811111",
+      "name": "Porizo - Category US",
+      "date": "2026-05-05",
+      "impressions": 1305,
+      "taps": 12,
+      "installs": 1,
+      "spend": 4.4,
+      "avg_cpt": 0.37
+    },
+    {
+      "campaign_id": "2143811111",
+      "name": "Porizo - Category US",
+      "date": "2026-05-06",
+      "impressions": 1287,
+      "taps": 11,
+      "installs": 2,
+      "spend": 4.2,
+      "avg_cpt": 0.38
+    },
+    {
+      "campaign_id": "2143811111",
+      "name": "Porizo - Category US",
+      "date": "2026-05-07",
+      "impressions": 1115,
+      "taps": 9,
+      "installs": 1,
+      "spend": 3.55,
+      "avg_cpt": 0.39
+    },
+    {
+      "campaign_id": "2143811111",
+      "name": "Porizo - Category US",
+      "date": "2026-05-08",
+      "impressions": 1290,
+      "taps": 11,
+      "installs": 2,
+      "spend": 4.15,
+      "avg_cpt": 0.38
+    },
+    {
+      "campaign_id": "2143811111",
+      "name": "Porizo - Category US",
+      "date": "2026-05-09",
+      "impressions": 1330,
+      "taps": 12,
+      "installs": 1,
+      "spend": 4.3,
+      "avg_cpt": 0.36
+    },
+    {
+      "campaign_id": "2143811111",
+      "name": "Porizo - Category US",
+      "date": "2026-05-10",
+      "impressions": 1198,
+      "taps": 10,
+      "installs": 1,
+      "spend": 3.65,
+      "avg_cpt": 0.37
+    },
+    {
+      "campaign_id": "2143811111",
+      "name": "Porizo - Category US",
+      "date": "2026-05-11",
+      "impressions": 1340,
+      "taps": 13,
+      "installs": 2,
+      "spend": 4.6,
+      "avg_cpt": 0.35
+    },
+    {
+      "campaign_id": "2143811111",
+      "name": "Porizo - Category US",
+      "date": "2026-05-12",
+      "impressions": 1410,
+      "taps": 14,
+      "installs": 2,
+      "spend": 5.0,
+      "avg_cpt": 0.36
+    },
+    {
+      "campaign_id": "2143811111",
+      "name": "Porizo - Category US",
+      "date": "2026-05-13",
+      "impressions": 415,
+      "taps": 4,
+      "installs": 0,
+      "spend": 1.2,
+      "avg_cpt": 0.3
+    },
+
+    {
+      "campaign_id": "2143822222",
+      "name": "Porizo - Brand US",
+      "date": "2026-04-30",
+      "impressions": 380,
+      "taps": 32,
+      "installs": 8,
+      "spend": 1.08,
+      "avg_cpt": 0.03
+    },
+    {
+      "campaign_id": "2143822222",
+      "name": "Porizo - Brand US",
+      "date": "2026-05-01",
+      "impressions": 410,
+      "taps": 35,
+      "installs": 9,
+      "spend": 1.1,
+      "avg_cpt": 0.03
+    },
+    {
+      "campaign_id": "2143822222",
+      "name": "Porizo - Brand US",
+      "date": "2026-05-02",
+      "impressions": 395,
+      "taps": 30,
+      "installs": 7,
+      "spend": 0.92,
+      "avg_cpt": 0.03
+    },
+    {
+      "campaign_id": "2143822222",
+      "name": "Porizo - Brand US",
+      "date": "2026-05-03",
+      "impressions": 405,
+      "taps": 33,
+      "installs": 9,
+      "spend": 1.02,
+      "avg_cpt": 0.03
+    },
+    {
+      "campaign_id": "2143822222",
+      "name": "Porizo - Brand US",
+      "date": "2026-05-04",
+      "impressions": 360,
+      "taps": 28,
+      "installs": 6,
+      "spend": 0.85,
+      "avg_cpt": 0.03
+    },
+    {
+      "campaign_id": "2143822222",
+      "name": "Porizo - Brand US",
+      "date": "2026-05-05",
+      "impressions": 388,
+      "taps": 31,
+      "installs": 8,
+      "spend": 0.93,
+      "avg_cpt": 0.03
+    },
+    {
+      "campaign_id": "2143822222",
+      "name": "Porizo - Brand US",
+      "date": "2026-05-06",
+      "impressions": 412,
+      "taps": 34,
+      "installs": 9,
+      "spend": 1.05,
+      "avg_cpt": 0.03
+    },
+    {
+      "campaign_id": "2143822222",
+      "name": "Porizo - Brand US",
+      "date": "2026-05-07",
+      "impressions": 376,
+      "taps": 29,
+      "installs": 7,
+      "spend": 0.88,
+      "avg_cpt": 0.03
+    },
+    {
+      "campaign_id": "2143822222",
+      "name": "Porizo - Brand US",
+      "date": "2026-05-08",
+      "impressions": 401,
+      "taps": 33,
+      "installs": 9,
+      "spend": 0.99,
+      "avg_cpt": 0.03
+    },
+    {
+      "campaign_id": "2143822222",
+      "name": "Porizo - Brand US",
+      "date": "2026-05-09",
+      "impressions": 422,
+      "taps": 36,
+      "installs": 10,
+      "spend": 1.12,
+      "avg_cpt": 0.03
+    },
+    {
+      "campaign_id": "2143822222",
+      "name": "Porizo - Brand US",
+      "date": "2026-05-10",
+      "impressions": 369,
+      "taps": 28,
+      "installs": 6,
+      "spend": 0.84,
+      "avg_cpt": 0.03
+    },
+    {
+      "campaign_id": "2143822222",
+      "name": "Porizo - Brand US",
+      "date": "2026-05-11",
+      "impressions": 415,
+      "taps": 34,
+      "installs": 9,
+      "spend": 1.07,
+      "avg_cpt": 0.03
+    },
+    {
+      "campaign_id": "2143822222",
+      "name": "Porizo - Brand US",
+      "date": "2026-05-12",
+      "impressions": 392,
+      "taps": 32,
+      "installs": 8,
+      "spend": 0.95,
+      "avg_cpt": 0.03
+    },
+    {
+      "campaign_id": "2143822222",
+      "name": "Porizo - Brand US",
+      "date": "2026-05-13",
+      "impressions": 144,
+      "taps": 11,
+      "installs": 3,
+      "spend": 0.35,
+      "avg_cpt": 0.03
+    },
+
+    {
+      "campaign_id": "2143833333",
+      "name": "Porizo - Discovery US",
+      "date": "2026-04-30",
+      "impressions": 920,
+      "taps": 6,
+      "installs": 1,
+      "spend": 0.2,
+      "avg_cpt": 0.03
+    },
+    {
+      "campaign_id": "2143833333",
+      "name": "Porizo - Discovery US",
+      "date": "2026-05-01",
+      "impressions": 1010,
+      "taps": 7,
+      "installs": 0,
+      "spend": 0.24,
+      "avg_cpt": 0.03
+    },
+    {
+      "campaign_id": "2143833333",
+      "name": "Porizo - Discovery US",
+      "date": "2026-05-02",
+      "impressions": 1080,
+      "taps": 8,
+      "installs": 1,
+      "spend": 0.27,
+      "avg_cpt": 0.03
+    },
+    {
+      "campaign_id": "2143833333",
+      "name": "Porizo - Discovery US",
+      "date": "2026-05-03",
+      "impressions": 940,
+      "taps": 6,
+      "installs": 1,
+      "spend": 0.21,
+      "avg_cpt": 0.03
+    },
+    {
+      "campaign_id": "2143833333",
+      "name": "Porizo - Discovery US",
+      "date": "2026-05-04",
+      "impressions": 870,
+      "taps": 5,
+      "installs": 0,
+      "spend": 0.17,
+      "avg_cpt": 0.03
+    },
+    {
+      "campaign_id": "2143833333",
+      "name": "Porizo - Discovery US",
+      "date": "2026-05-05",
+      "impressions": 990,
+      "taps": 7,
+      "installs": 1,
+      "spend": 0.22,
+      "avg_cpt": 0.03
+    },
+    {
+      "campaign_id": "2143833333",
+      "name": "Porizo - Discovery US",
+      "date": "2026-05-06",
+      "impressions": 1050,
+      "taps": 8,
+      "installs": 1,
+      "spend": 0.26,
+      "avg_cpt": 0.03
+    },
+    {
+      "campaign_id": "2143833333",
+      "name": "Porizo - Discovery US",
+      "date": "2026-05-07",
+      "impressions": 920,
+      "taps": 6,
+      "installs": 0,
+      "spend": 0.19,
+      "avg_cpt": 0.03
+    },
+    {
+      "campaign_id": "2143833333",
+      "name": "Porizo - Discovery US",
+      "date": "2026-05-08",
+      "impressions": 1030,
+      "taps": 7,
+      "installs": 1,
+      "spend": 0.23,
+      "avg_cpt": 0.03
+    },
+    {
+      "campaign_id": "2143833333",
+      "name": "Porizo - Discovery US",
+      "date": "2026-05-09",
+      "impressions": 1110,
+      "taps": 9,
+      "installs": 1,
+      "spend": 0.3,
+      "avg_cpt": 0.03
+    },
+    {
+      "campaign_id": "2143833333",
+      "name": "Porizo - Discovery US",
+      "date": "2026-05-10",
+      "impressions": 870,
+      "taps": 5,
+      "installs": 0,
+      "spend": 0.16,
+      "avg_cpt": 0.03
+    },
+    {
+      "campaign_id": "2143833333",
+      "name": "Porizo - Discovery US",
+      "date": "2026-05-11",
+      "impressions": 990,
+      "taps": 7,
+      "installs": 1,
+      "spend": 0.22,
+      "avg_cpt": 0.03
+    },
+    {
+      "campaign_id": "2143833333",
+      "name": "Porizo - Discovery US",
+      "date": "2026-05-12",
+      "impressions": 1080,
+      "taps": 8,
+      "installs": 1,
+      "spend": 0.25,
+      "avg_cpt": 0.03
+    },
+    {
+      "campaign_id": "2143833333",
+      "name": "Porizo - Discovery US",
+      "date": "2026-05-13",
+      "impressions": 320,
+      "taps": 2,
+      "installs": 0,
+      "spend": 0.05,
+      "avg_cpt": 0.03
+    },
+
+    {
+      "campaign_id": "2143844444",
+      "name": "Porizo - Mother's Day US",
+      "date": "2026-05-05",
+      "impressions": 80,
+      "taps": 3,
+      "installs": 0,
+      "spend": 0.03,
+      "avg_cpt": 0.01
+    },
+    {
+      "campaign_id": "2143844444",
+      "name": "Porizo - Mother's Day US",
+      "date": "2026-05-06",
+      "impressions": 110,
+      "taps": 4,
+      "installs": 0,
+      "spend": 0.05,
+      "avg_cpt": 0.01
+    },
+    {
+      "campaign_id": "2143844444",
+      "name": "Porizo - Mother's Day US",
+      "date": "2026-05-07",
+      "impressions": 140,
+      "taps": 5,
+      "installs": 1,
+      "spend": 0.07,
+      "avg_cpt": 0.01
+    }
+  ],
+  "keywords": [
+    {
+      "campaign_id": "2143811111",
+      "keyword_id": "511001",
+      "term": "music gift",
+      "match_type": "BROAD",
+      "date": "2026-05-10",
+      "impressions": 92,
+      "taps": 1,
+      "installs": 1,
+      "spend": 0.61,
+      "avg_cpt": 0.61
+    },
+    {
+      "campaign_id": "2143811111",
+      "keyword_id": "511001",
+      "term": "music gift",
+      "match_type": "BROAD",
+      "date": "2026-05-11",
+      "impressions": 85,
+      "taps": 1,
+      "installs": 0,
+      "spend": 0.55,
+      "avg_cpt": 0.55
+    },
+    {
+      "campaign_id": "2143811111",
+      "keyword_id": "511001",
+      "term": "music gift",
+      "match_type": "BROAD",
+      "date": "2026-05-12",
+      "impressions": 110,
+      "taps": 2,
+      "installs": 1,
+      "spend": 0.92,
+      "avg_cpt": 0.46
+    },
+    {
+      "campaign_id": "2143811111",
+      "keyword_id": "511002",
+      "term": "song for mom",
+      "match_type": "EXACT",
+      "date": "2026-05-09",
+      "impressions": 200,
+      "taps": 8,
+      "installs": 1,
+      "spend": 3.2,
+      "avg_cpt": 0.4
+    },
+    {
+      "campaign_id": "2143811111",
+      "keyword_id": "511002",
+      "term": "song for mom",
+      "match_type": "EXACT",
+      "date": "2026-05-10",
+      "impressions": 220,
+      "taps": 9,
+      "installs": 1,
+      "spend": 3.4,
+      "avg_cpt": 0.38
+    },
+    {
+      "campaign_id": "2143811111",
+      "keyword_id": "511002",
+      "term": "song for mom",
+      "match_type": "EXACT",
+      "date": "2026-05-11",
+      "impressions": 240,
+      "taps": 10,
+      "installs": 2,
+      "spend": 3.7,
+      "avg_cpt": 0.37
+    },
+    {
+      "campaign_id": "2143811111",
+      "keyword_id": "511002",
+      "term": "song for mom",
+      "match_type": "EXACT",
+      "date": "2026-05-12",
+      "impressions": 260,
+      "taps": 11,
+      "installs": 2,
+      "spend": 4.0,
+      "avg_cpt": 0.36
+    },
+    {
+      "campaign_id": "2143811111",
+      "keyword_id": "511003",
+      "term": "birthday song gift",
+      "match_type": "BROAD",
+      "date": "2026-05-11",
+      "impressions": 75,
+      "taps": 3,
+      "installs": 0,
+      "spend": 1.1,
+      "avg_cpt": 0.37
+    },
+    {
+      "campaign_id": "2143811111",
+      "keyword_id": "511003",
+      "term": "birthday song gift",
+      "match_type": "BROAD",
+      "date": "2026-05-12",
+      "impressions": 88,
+      "taps": 4,
+      "installs": 1,
+      "spend": 1.45,
+      "avg_cpt": 0.36
+    },
+    {
+      "campaign_id": "2143822222",
+      "keyword_id": "521001",
+      "term": "porizo",
+      "match_type": "EXACT",
+      "date": "2026-05-10",
+      "impressions": 365,
+      "taps": 27,
+      "installs": 6,
+      "spend": 0.82,
+      "avg_cpt": 0.03
+    },
+    {
+      "campaign_id": "2143822222",
+      "keyword_id": "521001",
+      "term": "porizo",
+      "match_type": "EXACT",
+      "date": "2026-05-11",
+      "impressions": 410,
+      "taps": 32,
+      "installs": 8,
+      "spend": 0.99,
+      "avg_cpt": 0.03
+    },
+    {
+      "campaign_id": "2143822222",
+      "keyword_id": "521001",
+      "term": "porizo",
+      "match_type": "EXACT",
+      "date": "2026-05-12",
+      "impressions": 385,
+      "taps": 31,
+      "installs": 8,
+      "spend": 0.93,
+      "avg_cpt": 0.03
+    },
+    {
+      "campaign_id": "2143844444",
+      "keyword_id": "541001",
+      "term": "mothers day song",
+      "match_type": "BROAD",
+      "date": "2026-05-06",
+      "impressions": 110,
+      "taps": 4,
+      "installs": 0,
+      "spend": 0.05,
+      "avg_cpt": 0.01
+    },
+    {
+      "campaign_id": "2143844444",
+      "keyword_id": "541001",
+      "term": "mothers day song",
+      "match_type": "BROAD",
+      "date": "2026-05-07",
+      "impressions": 140,
+      "taps": 5,
+      "installs": 1,
+      "spend": 0.07,
+      "avg_cpt": 0.01
+    }
+  ]
+}

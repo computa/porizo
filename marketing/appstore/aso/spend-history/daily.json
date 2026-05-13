@@ -1,0 +1,735 @@
+{
+  "schema_version": "1.0",
+  "updated_at": "2026-05-13T04:13:22.344Z",
+  "first_observed": "2026-05-07",
+  "campaigns": {
+    "2143696873": {
+      "name": "Porizo - Category US",
+      "first_seen": "2026-05-07",
+      "daily": {
+        "2026-05-07": {
+          "impressions": 106,
+          "taps": 2,
+          "installs": 0,
+          "spend": 2.0059,
+          "avg_cpt": 1.003
+        },
+        "2026-05-08": {
+          "impressions": 113,
+          "taps": 2,
+          "installs": 0,
+          "spend": 1.1412,
+          "avg_cpt": 0.5706
+        },
+        "2026-05-09": {
+          "impressions": 15,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-10": {
+          "impressions": 84,
+          "taps": 8,
+          "installs": 2,
+          "spend": 10.2867,
+          "avg_cpt": 1.2858
+        },
+        "2026-05-11": {
+          "impressions": 61,
+          "taps": 5,
+          "installs": 0,
+          "spend": 5.1917,
+          "avg_cpt": 1.0383
+        },
+        "2026-05-12": {
+          "impressions": 39,
+          "taps": 3,
+          "installs": 0,
+          "spend": 4.6116,
+          "avg_cpt": 1.5372
+        },
+        "2026-05-13": {
+          "impressions": 4,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        }
+      }
+    },
+    "2143698138": {
+      "name": "Porizo - Discovery US",
+      "first_seen": "2026-05-07",
+      "daily": {
+        "2026-05-07": {
+          "impressions": 174,
+          "taps": 1,
+          "installs": 0,
+          "spend": 0.6227,
+          "avg_cpt": 0.6227
+        },
+        "2026-05-08": {
+          "impressions": 86,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-09": {
+          "impressions": 19,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-10": {
+          "impressions": 27,
+          "taps": 1,
+          "installs": 0,
+          "spend": 0.61,
+          "avg_cpt": 0.61
+        },
+        "2026-05-11": {
+          "impressions": 27,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-12": {
+          "impressions": 23,
+          "taps": 1,
+          "installs": 0,
+          "spend": 0.2439,
+          "avg_cpt": 0.2439
+        },
+        "2026-05-13": {
+          "impressions": 7,
+          "taps": 1,
+          "installs": 0,
+          "spend": 0.5327,
+          "avg_cpt": 0.5327
+        }
+      }
+    },
+    "2143756341": {
+      "name": "Porizo - Mother's Day US",
+      "first_seen": "2026-05-07",
+      "daily": {
+        "2026-05-07": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-08": {
+          "impressions": 3,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-09": {
+          "impressions": 3,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-10": {
+          "impressions": 5,
+          "taps": 2,
+          "installs": 1,
+          "spend": 0.1,
+          "avg_cpt": 0.05
+        },
+        "2026-05-11": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        }
+      }
+    },
+    "2143835551": {
+      "name": "Probe US Painkiller",
+      "first_seen": "2026-05-12",
+      "daily": {
+        "2026-05-12": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        }
+      }
+    }
+  },
+  "keywords": {
+    "2143835551:2264549443": {
+      "campaign_id": "2143835551",
+      "keyword_id": "2264549443",
+      "term": "pet tribute song",
+      "match_type": "BROAD",
+      "first_seen": "2026-05-12",
+      "daily": {
+        "2026-05-12": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        }
+      }
+    },
+    "2143756341:2258612715": {
+      "campaign_id": "2143756341",
+      "keyword_id": "2258612715",
+      "term": "mother's day song",
+      "match_type": "EXACT",
+      "first_seen": "2026-05-07",
+      "daily": {
+        "2026-05-07": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-08": {
+          "impressions": 3,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-09": {
+          "impressions": 3,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-10": {
+          "impressions": 5,
+          "taps": 2,
+          "installs": 1,
+          "spend": 0.1,
+          "avg_cpt": 0.05
+        },
+        "2026-05-11": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        }
+      }
+    },
+    "2143698138:2259995379": {
+      "campaign_id": "2143698138",
+      "keyword_id": "2259995379",
+      "term": "music gift",
+      "match_type": "BROAD",
+      "first_seen": "2026-05-07",
+      "daily": {
+        "2026-05-07": {
+          "impressions": 6,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-08": {
+          "impressions": 4,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-09": {
+          "impressions": 2,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-10": {
+          "impressions": 1,
+          "taps": 1,
+          "installs": 0,
+          "spend": 0.61,
+          "avg_cpt": 0.61
+        },
+        "2026-05-11": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        }
+      }
+    },
+    "2143698138:2255067575": {
+      "campaign_id": "2143698138",
+      "keyword_id": "2255067575",
+      "term": "anniversary gift",
+      "match_type": "BROAD",
+      "first_seen": "2026-05-07",
+      "daily": {
+        "2026-05-07": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        }
+      }
+    },
+    "2143698138:2255067569": {
+      "campaign_id": "2143698138",
+      "keyword_id": "2255067569",
+      "term": "personalized gift",
+      "match_type": "BROAD",
+      "first_seen": "2026-05-07",
+      "daily": {
+        "2026-05-07": {
+          "impressions": 11,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-08": {
+          "impressions": 2,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        }
+      }
+    },
+    "2143696873:2255477141": {
+      "campaign_id": "2143696873",
+      "keyword_id": "2255477141",
+      "term": "personalized birthday gift",
+      "match_type": "BROAD",
+      "first_seen": "2026-05-09",
+      "daily": {
+        "2026-05-09": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-10": {
+          "impressions": 9,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-11": {
+          "impressions": 4,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-12": {
+          "impressions": 2,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        }
+      }
+    },
+    "2143696873:2255477140": {
+      "campaign_id": "2143696873",
+      "keyword_id": "2255477140",
+      "term": "birthday gift ideas",
+      "match_type": "BROAD",
+      "first_seen": "2026-05-07",
+      "daily": {
+        "2026-05-07": {
+          "impressions": 12,
+          "taps": 1,
+          "installs": 0,
+          "spend": 1.0827,
+          "avg_cpt": 1.0827
+        },
+        "2026-05-09": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-10": {
+          "impressions": 31,
+          "taps": 1,
+          "installs": 0,
+          "spend": 2.724,
+          "avg_cpt": 2.724
+        },
+        "2026-05-11": {
+          "impressions": 35,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-12": {
+          "impressions": 23,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-13": {
+          "impressions": 2,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        }
+      }
+    },
+    "2143696873:2255477139": {
+      "campaign_id": "2143696873",
+      "keyword_id": "2255477139",
+      "term": "meaningful gift",
+      "match_type": "BROAD",
+      "first_seen": "2026-05-07",
+      "daily": {
+        "2026-05-07": {
+          "impressions": 5,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-08": {
+          "impressions": 3,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-10": {
+          "impressions": 13,
+          "taps": 2,
+          "installs": 0,
+          "spend": 1.8467,
+          "avg_cpt": 0.9234
+        },
+        "2026-05-11": {
+          "impressions": 4,
+          "taps": 1,
+          "installs": 0,
+          "spend": 1.1365,
+          "avg_cpt": 1.1365
+        },
+        "2026-05-12": {
+          "impressions": 1,
+          "taps": 1,
+          "installs": 0,
+          "spend": 1.6193,
+          "avg_cpt": 1.6193
+        }
+      }
+    },
+    "2143696873:2255477138": {
+      "campaign_id": "2143696873",
+      "keyword_id": "2255477138",
+      "term": "sentimental gift",
+      "match_type": "BROAD",
+      "first_seen": "2026-05-07",
+      "daily": {
+        "2026-05-07": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-08": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-09": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        }
+      }
+    },
+    "2143696873:2255477137": {
+      "campaign_id": "2143696873",
+      "keyword_id": "2255477137",
+      "term": "anniversary gift",
+      "match_type": "BROAD",
+      "first_seen": "2026-05-07",
+      "daily": {
+        "2026-05-07": {
+          "impressions": 64,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-08": {
+          "impressions": 71,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-10": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-11": {
+          "impressions": 2,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-12": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        }
+      }
+    },
+    "2143696873:2255477136": {
+      "campaign_id": "2143696873",
+      "keyword_id": "2255477136",
+      "term": "birthday gift",
+      "match_type": "BROAD",
+      "first_seen": "2026-05-07",
+      "daily": {
+        "2026-05-07": {
+          "impressions": 14,
+          "taps": 1,
+          "installs": 0,
+          "spend": 0.9232,
+          "avg_cpt": 0.9232
+        },
+        "2026-05-08": {
+          "impressions": 17,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-09": {
+          "impressions": 4,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-10": {
+          "impressions": 11,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-11": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-12": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        }
+      }
+    },
+    "2143696873:2255477134": {
+      "campaign_id": "2143696873",
+      "keyword_id": "2255477134",
+      "term": "gift for mom",
+      "match_type": "BROAD",
+      "first_seen": "2026-05-11",
+      "daily": {
+        "2026-05-11": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        }
+      }
+    },
+    "2143696873:2255477133": {
+      "campaign_id": "2143696873",
+      "keyword_id": "2255477133",
+      "term": "custom gift",
+      "match_type": "BROAD",
+      "first_seen": "2026-05-08",
+      "daily": {
+        "2026-05-08": {
+          "impressions": 2,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-10": {
+          "impressions": 7,
+          "taps": 0,
+          "installs": 1,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-11": {
+          "impressions": 4,
+          "taps": 1,
+          "installs": 0,
+          "spend": 1.0182,
+          "avg_cpt": 1.0182
+        },
+        "2026-05-12": {
+          "impressions": 8,
+          "taps": 2,
+          "installs": 0,
+          "spend": 2.9924,
+          "avg_cpt": 1.4962
+        },
+        "2026-05-13": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        }
+      }
+    },
+    "2143696873:2255477132": {
+      "campaign_id": "2143696873",
+      "keyword_id": "2255477132",
+      "term": "personalized gifts",
+      "match_type": "BROAD",
+      "first_seen": "2026-05-07",
+      "daily": {
+        "2026-05-07": {
+          "impressions": 10,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-08": {
+          "impressions": 16,
+          "taps": 1,
+          "installs": 0,
+          "spend": 1.0912,
+          "avg_cpt": 1.0912
+        },
+        "2026-05-09": {
+          "impressions": 5,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-10": {
+          "impressions": 7,
+          "taps": 4,
+          "installs": 0,
+          "spend": 4.7034,
+          "avg_cpt": 1.1759
+        },
+        "2026-05-11": {
+          "impressions": 9,
+          "taps": 3,
+          "installs": 0,
+          "spend": 3.037,
+          "avg_cpt": 1.0123
+        },
+        "2026-05-12": {
+          "impressions": 2,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        }
+      }
+    },
+    "2143696873:2255068522": {
+      "campaign_id": "2143696873",
+      "keyword_id": "2255068522",
+      "term": "gift song",
+      "match_type": "EXACT",
+      "first_seen": "2026-05-08",
+      "daily": {
+        "2026-05-08": {
+          "impressions": 3,
+          "taps": 1,
+          "installs": 0,
+          "spend": 0.05,
+          "avg_cpt": 0.05
+        },
+        "2026-05-09": {
+          "impressions": 3,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-10": {
+          "impressions": 5,
+          "taps": 1,
+          "installs": 1,
+          "spend": 1.0126,
+          "avg_cpt": 1.0126
+        },
+        "2026-05-11": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-12": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-13": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        }
+      }
+    }
+  }
+}
