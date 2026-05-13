@@ -32,6 +32,12 @@ struct SettingsTabView: View {
     @State private var showCreationFlowRedesign = false
     @State private var showWarmCanvasScreens = false
     @State private var showDesignScreensFlag = false
+    // Mirror of /app/config flags.my_voice_enabled. Default `true` so the
+    // first paint stays consistent with prior behavior; `loadFeatureFlags`
+    // overwrites once config lands. When admin flips this off, all My Voice
+    // surfaces in this tab disappear and route through the AI-voice pipeline
+    // (matches the server-side coercion of user_voice -> ai_voice).
+    @State private var myVoiceEnabled = true
     @State private var voiceProfileStatus: VoiceProfileStatus?
     @State private var isLoadingProfile = true
 
@@ -100,12 +106,17 @@ struct SettingsTabView: View {
 
                 ScrollView {
                     VStack(spacing: 16) {
-                        // Voice Banner (promotional - keep from existing)
-                        VoiceBanner(
-                            profile: voiceProfileStatus,
-                            isLoading: isLoadingProfile,
-                            onTap: { presentVoiceEnrollment() }
-                        )
+                        // Voice Banner — hidden when /app/config flags.my_voice_enabled
+                        // is false. Server-side already coerces user_voice → ai_voice
+                        // when the flag is off; this gate removes the matching client
+                        // surface so users never see a broken/unsupported entry point.
+                        if myVoiceEnabled {
+                            VoiceBanner(
+                                profile: voiceProfileStatus,
+                                isLoading: isLoadingProfile,
+                                onTap: { presentVoiceEnrollment() }
+                            )
+                        }
 
                         // Main settings card (v1.pen: single container)
                         settingsCard
@@ -947,6 +958,11 @@ struct SettingsTabView: View {
         do {
             let config = try await apiClient.getAppConfig()
             showDesignScreensFlag = config.flags?.showDesignScreens ?? false
+            // Default `true` on missing flag matches the server-side default
+            // in feature-flags.js — fail-open so a transient config fetch
+            // miss doesn't silently hide the feature for users who DO have
+            // it enabled.
+            myVoiceEnabled = config.flags?.myVoiceEnabled ?? true
             if let bundles = config.giftBundles {
                 await MainActor.run {
                     AppConfig.giftBundles = bundles.sorted { $0.sortOrder < $1.sortOrder }
@@ -954,6 +970,9 @@ struct SettingsTabView: View {
             }
         } catch {
             showDesignScreensFlag = false
+            // Leave myVoiceEnabled at its prior value on fetch failure
+            // (rather than forcing it true/false) so a flaky network doesn't
+            // flap the user's view of the feature.
         }
     }
 
