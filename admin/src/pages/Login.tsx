@@ -1,43 +1,47 @@
-import { useState, type FormEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Music, Mail, KeyRound, AlertCircle } from 'lucide-react';
+import { useState, type FormEvent } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { Music, Mail, KeyRound, AlertCircle, CheckCircle2 } from "lucide-react";
 
 export function Login() {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  // `?reset=1` is set by ResetPassword.tsx on success so we can show a
+  // one-time "your password was updated, sign in below" banner here.
+  const [searchParams] = useSearchParams();
+  const justReset = searchParams.get("reset") === "1";
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    setError('');
+    setError("");
     setLoading(true);
 
     try {
-      const res = await fetch('/admin/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      const res = await fetch("/admin/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
       });
 
       if (!res.ok) {
         const data = await res.json();
-        setError(data.error?.message || 'Login failed');
+        setError(data.error?.message || "Login failed");
         setLoading(false);
         return;
       }
 
       const data = await res.json();
-      localStorage.setItem('adminToken', data.token);
-      localStorage.setItem('adminUser', JSON.stringify(data.admin));
-      navigate('/');
+      localStorage.setItem("adminToken", data.token);
+      localStorage.setItem("adminUser", JSON.stringify(data.admin));
+      navigate("/");
     } catch (err) {
-      console.error('Login failed:', err);
+      console.error("Login failed:", err);
       if (err instanceof TypeError) {
-        setError('Network error. Check your connection.');
+        setError("Network error. Check your connection.");
       } else {
-        setError('Failed to connect to server');
+        setError("Failed to connect to server");
       }
       setLoading(false);
     }
@@ -59,17 +63,25 @@ export function Login() {
               <Music className="w-8 h-8 text-rose-400" aria-hidden="true" />
             </div>
             <h1 className="text-2xl font-bold text-white">Porizo Admin</h1>
-            <p className="text-slate-400 mt-1 text-sm">Mission Control Access</p>
+            <p className="text-slate-400 mt-1 text-sm">
+              Mission Control Access
+            </p>
           </div>
 
           {/* Form */}
           <form onSubmit={handleSubmit} className="space-y-5">
             <div>
-              <label htmlFor="email" className="block text-sm font-medium text-slate-300 mb-2">
+              <label
+                htmlFor="email"
+                className="block text-sm font-medium text-slate-300 mb-2"
+              >
                 Email
               </label>
               <div className="relative">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500" aria-hidden="true" />
+                <Mail
+                  className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500"
+                  aria-hidden="true"
+                />
                 <input
                   id="email"
                   type="email"
@@ -84,11 +96,17 @@ export function Login() {
             </div>
 
             <div>
-              <label htmlFor="password" className="block text-sm font-medium text-slate-300 mb-2">
+              <label
+                htmlFor="password"
+                className="block text-sm font-medium text-slate-300 mb-2"
+              >
                 Password
               </label>
               <div className="relative">
-                <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500" aria-hidden="true" />
+                <KeyRound
+                  className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500"
+                  aria-hidden="true"
+                />
                 <input
                   id="password"
                   type="password"
@@ -99,11 +117,38 @@ export function Login() {
                   required
                 />
               </div>
+              <div className="mt-2 text-right">
+                <Link
+                  to="/forgot-password"
+                  className="text-xs text-slate-400 hover:text-rose-300 transition-colors"
+                >
+                  Forgot password?
+                </Link>
+              </div>
             </div>
 
+            {justReset && !error && (
+              <div
+                role="status"
+                className="flex items-center gap-2 text-emerald-300 text-sm bg-emerald-500/10 p-3 rounded-lg border border-emerald-500/20"
+              >
+                <CheckCircle2
+                  className="w-4 h-4 flex-shrink-0"
+                  aria-hidden="true"
+                />
+                Password updated. Sign in with your new password.
+              </div>
+            )}
+
             {error && (
-              <div role="alert" className="flex items-center gap-2 text-rose-400 text-sm bg-rose-500/10 p-3 rounded-lg border border-rose-500/20">
-                <AlertCircle className="w-4 h-4 flex-shrink-0" aria-hidden="true" />
+              <div
+                role="alert"
+                className="flex items-center gap-2 text-rose-400 text-sm bg-rose-500/10 p-3 rounded-lg border border-rose-500/20"
+              >
+                <AlertCircle
+                  className="w-4 h-4 flex-shrink-0"
+                  aria-hidden="true"
+                />
                 {error}
               </div>
             )}
@@ -119,7 +164,7 @@ export function Login() {
                   Authenticating...
                 </span>
               ) : (
-                'Sign In'
+                "Sign In"
               )}
             </button>
           </form>

@@ -14,7 +14,8 @@ const DEFAULT_SESSION_DURATION_HOURS = MAX_SESSION_DURATION_HOURS;
 
 function getSessionDurationMs() {
   const rawHours = process.env.ADMIN_SESSION_DURATION_HOURS;
-  const parsedHours = rawHours === undefined ? DEFAULT_SESSION_DURATION_HOURS : Number(rawHours);
+  const parsedHours =
+    rawHours === undefined ? DEFAULT_SESSION_DURATION_HOURS : Number(rawHours);
   const durationHours = Number.isFinite(parsedHours)
     ? Math.min(Math.max(parsedHours, 1), MAX_SESSION_DURATION_HOURS)
     : DEFAULT_SESSION_DURATION_HOURS;
@@ -120,13 +121,15 @@ async function login(email, password, ip, userAgent) {
     const lockUntil =
       newCount >= config.maxFailedLoginAttempts
         ? new Date(
-            Date.now() + config.lockoutDurationMinutes * 60 * 1000
+            Date.now() + config.lockoutDurationMinutes * 60 * 1000,
           ).toISOString()
         : null;
 
-    await db.prepare(
-      "UPDATE admin_users SET failed_login_count = ?, locked_until = ? WHERE id = ?"
-    ).run(newCount, lockUntil, admin.id);
+    await db
+      .prepare(
+        "UPDATE admin_users SET failed_login_count = ?, locked_until = ? WHERE id = ?",
+      )
+      .run(newCount, lockUntil, admin.id);
 
     const attemptsRemaining = config.maxFailedLoginAttempts - newCount;
     if (attemptsRemaining > 0) {
@@ -150,30 +153,34 @@ async function login(email, password, ip, userAgent) {
   }
 
   // Reset failed count, update last login
-  await db.prepare(
-    "UPDATE admin_users SET failed_login_count = 0, locked_until = NULL, last_login_at = ? WHERE id = ?"
-  ).run(new Date().toISOString(), admin.id);
+  await db
+    .prepare(
+      "UPDATE admin_users SET failed_login_count = 0, locked_until = NULL, last_login_at = ? WHERE id = ?",
+    )
+    .run(new Date().toISOString(), admin.id);
 
   // Create session
   const token = generateSecureToken();
   const tokenHash = hashToken(token);
   const sessionId = generateId("admsess");
-  const expiresAt = new Date(
-    Date.now() + getSessionDurationMs()
-  ).toISOString();
+  const expiresAt = new Date(Date.now() + getSessionDurationMs()).toISOString();
 
-  await db.prepare(`
+  await db
+    .prepare(
+      `
     INSERT INTO admin_sessions (id, admin_id, token_hash, expires_at, created_at, ip_address, user_agent)
     VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    sessionId,
-    admin.id,
-    tokenHash,
-    expiresAt,
-    new Date().toISOString(),
-    ip || null,
-    userAgent || null
-  );
+  `,
+    )
+    .run(
+      sessionId,
+      admin.id,
+      tokenHash,
+      expiresAt,
+      new Date().toISOString(),
+      ip || null,
+      userAgent || null,
+    );
 
   return {
     success: true,
@@ -204,7 +211,7 @@ async function validateSession(token) {
     FROM admin_sessions s
     JOIN admin_users a ON s.admin_id = a.id
     WHERE s.token_hash = ? AND s.expires_at > ?
-  `
+  `,
     )
     .get(tokenHash, new Date().toISOString());
 
@@ -226,7 +233,9 @@ async function logout(token) {
   if (!token) return { success: false };
 
   const tokenHash = hashToken(token);
-  await db.prepare("DELETE FROM admin_sessions WHERE token_hash = ?").run(tokenHash);
+  await db
+    .prepare("DELETE FROM admin_sessions WHERE token_hash = ?")
+    .run(tokenHash);
   return { success: true };
 }
 
@@ -252,12 +261,21 @@ async function createAdmin(email, password, displayName, role = "admin") {
   const id = generateId("adm");
 
   try {
-    await db.prepare(
-      `
+    await db
+      .prepare(
+        `
       INSERT INTO admin_users (id, email, password_hash, display_name, role, created_at)
       VALUES (?, ?, ?, ?, ?, ?)
-    `
-    ).run(id, email.toLowerCase(), hash, displayName, role, new Date().toISOString());
+    `,
+      )
+      .run(
+        id,
+        email.toLowerCase(),
+        hash,
+        displayName,
+        role,
+        new Date().toISOString(),
+      );
     return { success: true, id };
   } catch (err) {
     if (err.message.includes("UNIQUE")) {
@@ -274,12 +292,16 @@ async function changePassword(adminId, newPassword) {
   if (!db) throw new Error("AdminAuthService not initialized");
 
   const hash = await bcrypt.hash(newPassword, config.bcryptCost);
-  await db.prepare(
-    "UPDATE admin_users SET password_hash = ?, updated_at = ? WHERE id = ?"
-  ).run(hash, new Date().toISOString(), adminId);
+  await db
+    .prepare(
+      "UPDATE admin_users SET password_hash = ?, updated_at = ? WHERE id = ?",
+    )
+    .run(hash, new Date().toISOString(), adminId);
 
   // Invalidate all sessions for this admin
-  await db.prepare("DELETE FROM admin_sessions WHERE admin_id = ?").run(adminId);
+  await db
+    .prepare("DELETE FROM admin_sessions WHERE admin_id = ?")
+    .run(adminId);
   return { success: true };
 }
 
@@ -295,7 +317,7 @@ async function listAdmins() {
     SELECT id, email, display_name, role, created_at, last_login_at
     FROM admin_users
     ORDER BY created_at DESC
-  `
+  `,
     )
     .all();
 }
@@ -312,6 +334,163 @@ async function cleanupExpiredSessions() {
   return result.changes;
 }
 
+// ==================== PASSWORD RESET ====================
+
+// Reset tokens are short-lived: 30 minutes between request and use. Long
+// enough for an admin to find the email, short enough that a leaked token
+// is unlikely to outlive the leak.
+const PASSWORD_RESET_TOKEN_TTL_MS = 30 * 60 * 1000;
+
+/**
+ * Look up an admin by their (lowercased) email.
+ *
+ * Returns null when not found; callers must still respond with a generic
+ * "if an account exists..." message to avoid account enumeration.
+ */
+async function findAdminByEmail(email) {
+  if (!db) throw new Error("AdminAuthService not initialized");
+  if (typeof email !== "string" || email.length === 0) return null;
+
+  const normalized = email.toLowerCase().trim();
+  return await db
+    .prepare("SELECT * FROM admin_users WHERE email = ?")
+    .get(normalized);
+}
+
+/**
+ * Look up an admin by id (used after a successful reset to send the
+ * security-alert email).
+ */
+async function findAdminById(adminId) {
+  if (!db) throw new Error("AdminAuthService not initialized");
+  if (typeof adminId !== "string" || adminId.length === 0) return null;
+
+  return await db
+    .prepare("SELECT * FROM admin_users WHERE id = ?")
+    .get(adminId);
+}
+
+/**
+ * Mint a password-reset token for an admin.
+ *
+ * Returns `{ token, expiresAt }`. The raw `token` is the value that goes in
+ * the reset email — we never persist it. Only the SHA-256 hash is stored,
+ * so a DB compromise alone cannot forge resets.
+ *
+ * @param {string} adminId
+ * @param {{ ipAddress?: string|null }} [options]
+ */
+async function createPasswordResetToken(adminId, options = {}) {
+  if (!db) throw new Error("AdminAuthService not initialized");
+
+  const token = generateSecureToken();
+  const tokenHash = hashToken(token);
+  const now = Date.now();
+  const expiresAt = new Date(now + PASSWORD_RESET_TOKEN_TTL_MS).toISOString();
+  const id = generateId("apt"); // admin password token
+
+  await db
+    .prepare(
+      `INSERT INTO admin_password_reset_tokens
+       (id, admin_id, token_hash, expires_at, ip_address, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      id,
+      adminId,
+      tokenHash,
+      expiresAt,
+      options.ipAddress || null,
+      new Date(now).toISOString(),
+    );
+
+  return { token, expiresAt, tokenId: id };
+}
+
+/**
+ * Verify a raw reset token and resolve it to its admin.
+ *
+ * Throws on any failure mode (no match, expired, already used) so the
+ * caller can return a single generic "invalid or expired link" response
+ * without leaking which mode applied.
+ */
+async function verifyPasswordResetToken(rawToken) {
+  if (!db) throw new Error("AdminAuthService not initialized");
+  if (typeof rawToken !== "string" || rawToken.length === 0) {
+    throw new Error("INVALID_TOKEN");
+  }
+
+  const tokenHash = hashToken(rawToken);
+  const row = await db
+    .prepare(
+      `SELECT id, admin_id, expires_at, used_at
+       FROM admin_password_reset_tokens
+       WHERE token_hash = ?`,
+    )
+    .get(tokenHash);
+
+  if (!row) throw new Error("INVALID_TOKEN");
+  if (row.used_at) throw new Error("INVALID_TOKEN");
+  if (new Date(row.expires_at).getTime() <= Date.now()) {
+    throw new Error("INVALID_TOKEN");
+  }
+
+  return { adminId: row.admin_id, tokenId: row.id };
+}
+
+/**
+ * Mark a single reset token as used.
+ */
+async function markPasswordResetTokenUsed(tokenId) {
+  if (!db) throw new Error("AdminAuthService not initialized");
+  if (typeof tokenId !== "string" || tokenId.length === 0) return;
+
+  await db
+    .prepare("UPDATE admin_password_reset_tokens SET used_at = ? WHERE id = ?")
+    .run(new Date().toISOString(), tokenId);
+}
+
+/**
+ * Invalidate every unused reset token belonging to an admin.
+ *
+ * Called after a successful reset so any other still-valid tokens that
+ * leaked alongside the one we just consumed can't be used to re-reset
+ * the password.
+ */
+async function invalidateAllPasswordResetTokens(adminId) {
+  if (!db) throw new Error("AdminAuthService not initialized");
+  if (typeof adminId !== "string" || adminId.length === 0) return;
+
+  await db
+    .prepare(
+      `UPDATE admin_password_reset_tokens
+       SET used_at = ?
+       WHERE admin_id = ? AND used_at IS NULL`,
+    )
+    .run(new Date().toISOString(), adminId);
+}
+
+/**
+ * Clear failed-login counter and any active lockout.
+ *
+ * Used after a successful password reset so an admin who was locked out
+ * (e.g., a brute-force attempt that triggered the threshold) can sign back
+ * in immediately with their new password. Without this, a successful
+ * reset would still leave them locked.
+ */
+async function clearLockout(adminId) {
+  if (!db) throw new Error("AdminAuthService not initialized");
+  if (typeof adminId !== "string" || adminId.length === 0) return;
+
+  await db
+    .prepare(
+      `UPDATE admin_users
+       SET failed_login_count = 0, locked_until = NULL, updated_at = ?
+       WHERE id = ?`,
+    )
+    .run(new Date().toISOString(), adminId);
+}
+
 module.exports = {
   initialize,
   login,
@@ -322,4 +501,12 @@ module.exports = {
   changePassword,
   listAdmins,
   cleanupExpiredSessions,
+  // Password reset
+  findAdminByEmail,
+  findAdminById,
+  createPasswordResetToken,
+  verifyPasswordResetToken,
+  markPasswordResetTokenUsed,
+  invalidateAllPasswordResetTokens,
+  clearLockout,
 };

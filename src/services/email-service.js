@@ -57,7 +57,10 @@ function isConfigured() {
 async function sendPasswordResetEmail(email, token, expiresAt) {
   const resetUrl = `${config.publicBaseUrl}/reset-password?token=${encodeURIComponent(token)}`;
   const expiresDate = new Date(expiresAt);
-  const safeMinutes = Math.max(1, Math.round((expiresDate - new Date()) / (1000 * 60)));
+  const safeMinutes = Math.max(
+    1,
+    Math.round((expiresDate - new Date()) / (1000 * 60)),
+  );
 
   const { data, error } = await getClient().emails.send({
     from: config.fromEmail,
@@ -124,6 +127,170 @@ If you didn't request this reset, you can safely ignore this email.
 
   if (error) {
     throw new Error(`Failed to send password reset email: ${error.message}`);
+  }
+
+  return { messageId: data.id };
+}
+
+/**
+ * Send an admin-portal password reset email.
+ *
+ * Mirrors sendPasswordResetEmail but the link points at the admin SPA
+ * (/admin/reset-password) and the copy makes the audience explicit. Kept
+ * as a separate function — rather than parameterizing the existing one —
+ * so a future copy/branding divergence doesn't risk leaking admin URLs to
+ * end users (or vice versa).
+ *
+ * @param {string} email - Admin's email address
+ * @param {string} token - Raw password reset token
+ * @param {Date|string} expiresAt - Token expiration time
+ */
+async function sendAdminPasswordResetEmail(email, token, expiresAt) {
+  const resetUrl = `${config.publicBaseUrl}/admin/reset-password?token=${encodeURIComponent(token)}`;
+  const expiresDate = new Date(expiresAt);
+  const safeMinutes = Math.max(
+    1,
+    Math.round((expiresDate - new Date()) / (1000 * 60)),
+  );
+
+  const { data, error } = await getClient().emails.send({
+    from: config.fromEmail,
+    to: email,
+    subject: `Reset your ${config.appName} admin password`,
+    html: `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Reset Your Admin Password</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.5; color: #1a1a1a; max-width: 600px; margin: 0 auto; padding: 20px;">
+  <div style="text-align: center; margin-bottom: 30px;">
+    <h1 style="color: #7c3aed; margin: 0;">${config.appName} Admin</h1>
+  </div>
+
+  <h2 style="margin-top: 0;">Reset Your Admin Password</h2>
+
+  <p>We received a request to reset the password on your ${config.appName} admin account. Click the button below to choose a new password:</p>
+
+  <div style="text-align: center; margin: 30px 0;">
+    <a href="${resetUrl}"
+       style="display: inline-block; background-color: #7c3aed; color: white; text-decoration: none;
+              padding: 14px 32px; border-radius: 8px; font-weight: 600; font-size: 16px;">
+      Reset Admin Password
+    </a>
+  </div>
+
+  <p style="color: #666; font-size: 14px;">
+    This link will expire in ${safeMinutes} minutes. If you didn't request this reset,
+    your account is still safe — ignore this email and the link will lapse.
+  </p>
+
+  <p style="color: #666; font-size: 14px;">
+    If the button doesn't work, copy and paste this link into your browser:
+    <br><a href="${resetUrl}" style="color: #7c3aed; word-break: break-all;">${resetUrl}</a>
+  </p>
+
+  <hr style="border: none; border-top: 1px solid #e5e5e5; margin: 30px 0;">
+
+  <p style="color: #999; font-size: 12px; text-align: center;">
+    © ${new Date().getFullYear()} ${config.appName}. Admin access — authorized personnel only.
+  </p>
+</body>
+</html>
+    `.trim(),
+    text: `
+Reset Your ${config.appName} Admin Password
+
+We received a request to reset the password on your ${config.appName} admin account.
+
+Click this link to choose a new password:
+${resetUrl}
+
+This link will expire in ${safeMinutes} minutes.
+
+If you didn't request this reset, your account is still safe — ignore this
+email and the link will lapse.
+
+© ${new Date().getFullYear()} ${config.appName} Admin
+    `.trim(),
+  });
+
+  if (error) {
+    throw new Error(
+      `Failed to send admin password reset email: ${error.message}`,
+    );
+  }
+
+  return { messageId: data.id };
+}
+
+/**
+ * Send a confirmation/security-alert email after an admin password reset
+ * completes. Lightweight by design — we don't want to surface IP or
+ * user-agent details in email since they're easy to spoof and can mislead
+ * the admin. The trigger fact ("your admin password just changed") is the
+ * useful signal.
+ *
+ * @param {string} email
+ * @param {{ event?: string, occurredAt?: Date|string }} [meta]
+ */
+async function sendAdminSecurityAlertEmail(email, meta = {}) {
+  const occurredAt = meta.occurredAt ? new Date(meta.occurredAt) : new Date();
+  const occurredLabel = occurredAt.toUTCString();
+
+  const { data, error } = await getClient().emails.send({
+    from: config.fromEmail,
+    to: email,
+    subject: `[${config.appName}] Your admin password was changed`,
+    html: `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Admin Password Changed</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.5; color: #1a1a1a; max-width: 600px; margin: 0 auto; padding: 20px;">
+  <h2 style="margin-top: 0;">Your admin password was just changed</h2>
+
+  <p>This is a confirmation that the password on your ${config.appName} admin account was just reset.</p>
+
+  <p style="color: #666; font-size: 14px;">When: ${occurredLabel}</p>
+
+  <p>If this was you, no further action is needed.</p>
+
+  <p style="color: #b91c1c;">
+    <strong>If this wasn't you:</strong> contact the ${config.appName} team immediately —
+    your admin account may have been compromised.
+  </p>
+
+  <hr style="border: none; border-top: 1px solid #e5e5e5; margin: 30px 0;">
+
+  <p style="color: #999; font-size: 12px; text-align: center;">
+    © ${new Date().getFullYear()} ${config.appName} Admin.
+  </p>
+</body>
+</html>
+    `.trim(),
+    text: `
+Your ${config.appName} admin password was just changed.
+
+When: ${occurredLabel}
+
+If this was you, no further action is needed.
+
+If this wasn't you, contact the ${config.appName} team immediately — your
+admin account may have been compromised.
+
+© ${new Date().getFullYear()} ${config.appName} Admin
+    `.trim(),
+  });
+
+  if (error) {
+    throw new Error(
+      `Failed to send admin security alert email: ${error.message}`,
+    );
   }
 
   return { messageId: data.id };
@@ -395,14 +562,17 @@ async function sendGiftDeliveryEmail(payload) {
   const ctaLabel = contentType === "poem" ? "Read Your Poem" : "Listen Now";
   const contentIcon = contentType === "poem" ? "&#128214;" : "&#9835;";
   const safeSender = senderName || "A friend";
-  const safeRecipient = typeof recipientName === "string" ? recipientName.trim() : "";
+  const safeRecipient =
+    typeof recipientName === "string" ? recipientName.trim() : "";
   const safeMessage = typeof message === "string" ? message.trim() : "";
   const safeTitle = typeof contentTitle === "string" ? contentTitle.trim() : "";
   const safeOccasion = typeof occasion === "string" ? occasion.trim() : "";
   const safeSenderHtml = escapeHtml(safeSender);
   const safeRecipientHtml = escapeHtml(safeRecipient);
   const safeMessageHtml = escapeHtml(safeMessage);
-  const safeTitleHtml = escapeHtml(safeTitle || `A ${noun} for ${safeRecipient || "you"}`);
+  const safeTitleHtml = escapeHtml(
+    safeTitle || `A ${noun} for ${safeRecipient || "you"}`,
+  );
   const safeOccasionHtml = escapeHtml(safeOccasion);
 
   const subject = safeRecipient
@@ -449,7 +619,9 @@ async function sendGiftDeliveryEmail(payload) {
     <p style="margin:0; font-size: 15px; color: #666666; line-height: 1.5;">${subheading}</p>
   </td></tr>
 
-  ${safeMessage ? `
+  ${
+    safeMessage
+      ? `
   <tr><td style="padding: 0 40px 24px;">
     <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
       <tr><td style="border-left: 3px solid #D4A574; padding: 16px 20px; background: #F8F6F3; border-radius: 0 8px 8px 0;">
@@ -459,7 +631,9 @@ async function sendGiftDeliveryEmail(payload) {
         <p style="margin: 0; font-size: 13px; color: #999999;">&mdash; ${safeSenderHtml}</p>
       </td></tr>
     </table>
-  </td></tr>` : ""}
+  </td></tr>`
+      : ""
+  }
 
   <tr><td style="padding: 0 40px 28px;">
     <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border: 1px solid #E8E0D8; border-radius: 12px; overflow: hidden;">
@@ -531,6 +705,8 @@ You'll need the PIN to unlock your gift in the ${config.appName} app.
 module.exports = {
   isConfigured,
   sendPasswordResetEmail,
+  sendAdminPasswordResetEmail,
+  sendAdminSecurityAlertEmail,
   sendVerificationEmail,
   sendWelcomeEmail,
   sendSecurityAlertEmail,

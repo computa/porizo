@@ -71,7 +71,9 @@ const { createStoryRepository } = require("./database/story-repository");
 const writer = require("./writer");
 const adminAuthService = require("./services/admin-auth-service");
 const { createEventsService } = require("./services/events-service");
-const { createReceiverSessionService } = require("./services/receiver-session-service");
+const {
+  createReceiverSessionService,
+} = require("./services/receiver-session-service");
 const { createAppLinkService } = require("./services/app-link-service");
 const { getFeatureFlag } = require("./services/feature-flags");
 const { generatePoemOgImage } = require("./services/poem-og-generator");
@@ -566,7 +568,10 @@ function buildServer({
           app_version: { type: "string", maxLength: 20 },
           pin: { type: "string", pattern: "^[0-9]{6}$" },
           receiver_session_id: { type: "string", pattern: "^rs_[a-f0-9]{24}$" },
-          receiver_session_secret: { type: "string", pattern: "^[a-f0-9]{48}$" },
+          receiver_session_secret: {
+            type: "string",
+            pattern: "^[a-f0-9]{48}$",
+          },
         },
         additionalProperties: false,
       },
@@ -4881,6 +4886,7 @@ function buildServer({
     adminAuthService,
     subscriptionManager,
     planConfigService,
+    emailService,
     ...(oneSignalService ? { oneSignalService } : {}),
   }));
 

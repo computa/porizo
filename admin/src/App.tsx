@@ -1,33 +1,39 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import { Layout } from './components/Layout';
-import { Login } from './pages/Login';
-import { Overview } from './pages/Overview';
-import { Enrollment } from './pages/Enrollment';
-import { Pipeline } from './pages/Pipeline';
-import { Jobs } from './pages/Jobs';
-import { DLQ } from './pages/DLQ';
-import { Users } from './pages/Users';
-import { Moderation } from './pages/Moderation';
-import { Billing } from './pages/Billing';
-import { Growth } from './pages/Growth';
-import { Shares } from './pages/Shares';
-import { Marketing } from './pages/Marketing';
-import { Blog } from './pages/Blog';
-import { Story } from './pages/Story';
-import { Gifts } from './pages/Gifts';
-import { SystemHealth } from './pages/security/SystemHealth';
-import { SecurityLogs } from './pages/security/SecurityLogs';
-import { AuditLogs } from './pages/security/AuditLogs';
-import { ConsentLogs } from './pages/security/ConsentLogs';
-import { RateLimits } from './pages/security/RateLimits';
-import { SecurityConfig } from './pages/security/SecurityConfig';
-import { FeatureSettings } from './pages/settings/FeatureSettings';
+import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { Layout } from "./components/Layout";
+import { Login } from "./pages/Login";
+import { ForgotPassword } from "./pages/ForgotPassword";
+import { ResetPassword } from "./pages/ResetPassword";
+import { Overview } from "./pages/Overview";
+import { Enrollment } from "./pages/Enrollment";
+import { Pipeline } from "./pages/Pipeline";
+import { Jobs } from "./pages/Jobs";
+import { DLQ } from "./pages/DLQ";
+import { Users } from "./pages/Users";
+import { Moderation } from "./pages/Moderation";
+import { Billing } from "./pages/Billing";
+import { Growth } from "./pages/Growth";
+import { Shares } from "./pages/Shares";
+import { Marketing } from "./pages/Marketing";
+import { Blog } from "./pages/Blog";
+import { Story } from "./pages/Story";
+import { Gifts } from "./pages/Gifts";
+import { SystemHealth } from "./pages/security/SystemHealth";
+import { SecurityLogs } from "./pages/security/SecurityLogs";
+import { AuditLogs } from "./pages/security/AuditLogs";
+import { ConsentLogs } from "./pages/security/ConsentLogs";
+import { RateLimits } from "./pages/security/RateLimits";
+import { SecurityConfig } from "./pages/security/SecurityConfig";
+import { FeatureSettings } from "./pages/settings/FeatureSettings";
 
 function App() {
   return (
     <BrowserRouter basename="/admin">
       <Routes>
         <Route path="/login" element={<Login />} />
+        {/* Public password-recovery routes — must live outside <Layout />
+            so they don't require an authenticated session to reach. */}
+        <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
         <Route element={<Layout />}>
           <Route index element={<Overview />} />
           <Route path="/enrollment" element={<Enrollment />} />

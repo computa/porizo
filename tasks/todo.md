@@ -1,4 +1,78 @@
-# Fix voice enrollment sung_calibration_unavailable false-fail (ACTIVE — 2026-05-12)
+# Admin portal: forgot-password feature (ACTIVE — 2026-05-13)
+
+## Goal
+
+Admins who forget their password currently have no recovery path. Add a
+secure "Forgot password?" flow mirroring the user-side pattern but
+operating on `admin_users` / `admin_sessions` / a new `admin_password_reset_tokens` table.
+
+## Investigation findings
+
+- `admin_users` table exists (migration 023) with TEXT timestamps. UNIQUE email constraint.
+- `admin_sessions` table — sessions revoked by DELETE (no `revoked_at` column).
+- `admin-auth-service.changePassword` already wipes all admin_sessions on success. Reuse.
+- `/admin/auth/change-password` exists for in-session changes (requires current pw).
+- `/admin/*` SPA fallback at admin.js:3163 serves index.html → React Router handles paths.
+- User-side reset (`/auth/forgot-password`, `/auth/reset-password`) is the reference impl: token hash storage, 200-always-to-prevent-enumeration, rate-limit-by-email, invalidate-all-tokens-on-success, revoke-all-sessions-on-success, security-alert-email.
+- Email service: `emailService.sendPasswordResetEmail` exists for user-side; need an admin variant pointing to `/admin/reset-password` URL.
+- No `clearLockout` in admin-auth-service — need to add or inline SQL.
+- 8-char minimum password used in existing admin change-password route.
+
+## Plan
+
+### Server
+
+- [ ] **1.** Migration 105 (parallel files for `migrations/` and `migrations/pg/`): `admin_password_reset_tokens` table — id, admin_id (FK + ON DELETE CASCADE), token_hash, expires_at, used_at, ip_address, created_at. Indexes on token_hash and (admin_id, used_at). Use TEXT timestamps to match admin_users convention.
+- [ ] **2.** `src/services/admin-auth-service.js` additions:
+  - `createPasswordResetToken(adminId, options)` — 32-byte URL-safe random, SHA256 hash storage, 30-min TTL
+  - `verifyPasswordResetToken(rawToken)` — hash lookup, check used_at IS NULL + expires_at > now, return {adminId, tokenId}
+  - `markPasswordResetTokenUsed(tokenId)`
+  - `invalidateAllPasswordResetTokens(adminId)`
+  - `findAdminByEmail(email)` / `findAdminById(id)` helpers
+  - `clearLockout(adminId)` — zero failed_login_count, null locked_until
+- [ ] **3.** `src/routes/admin.js` two new public endpoints:
+  - `POST /admin/auth/forgot-password` — body {email}. Rate limit by email (3/hr) AND IP (10/hr). Always return 200 with generic message. If admin exists + email configured, create token + send email + log.
+  - `POST /admin/auth/reset-password` — body {token, new_password}. Validate token, validate password ≥8 chars, changePassword (wipes sessions), mark token used, invalidate all other tokens, clearLockout, send security alert.
+- [ ] **4.** `src/services/email-service.js`: `sendAdminPasswordResetEmail(email, token, expiresAt)` — clones the user template with admin subject + `/admin/reset-password?token=…` URL.
+
+### Frontend
+
+- [ ] **5.** `admin/src/pages/ForgotPassword.tsx` — email form, submit POST, generic success message.
+- [ ] **6.** `admin/src/pages/ResetPassword.tsx` — reads `?token=` from URL, two-password form, validates match + length, submit POST, redirect to /login on success.
+- [ ] **7.** `admin/src/pages/Login.tsx` — add "Forgot password?" link under password field.
+- [ ] **8.** `admin/src/App.tsx` — register `/forgot-password` and `/reset-password` routes outside Layout (public).
+
+### Adversarial review pass (BLOCKING before implement)
+
+- [x] Email enumeration — always 200 ✓
+- [x] Token reuse — used_at gate + invalidate-all-on-success ✓
+- [x] Token expiry — expires_at gate ✓
+- [x] Rate limit bypass — email + IP rate limits ✓
+- [x] Session invalidation — changePassword already wipes admin_sessions ✓
+- [x] Lockout state preservation — clearLockout after successful reset ✓
+- [x] Email service down — silent 200 + server-side error log ✓
+- [x] SPA routing — /admin/\* fallback handles deep links ✓
+- [x] CSRF — token IS the auth credential, no extra protection needed ✓
+- [x] Password complexity — 8+ chars (matches existing change-password) ✓
+- [x] Migration parity — TEXT timestamps, both PG and SQLite files ✓
+- [x] Cross-account isolation — separate endpoint, separate table, no overlap with user reset ✓
+- [x] Concurrent reset requests — multiple tokens valid until first use ✓
+- [x] Idempotency — POST not idempotent by design (token marked used after first use) ✓
+- [x] Logging — never log raw token, sanitize email ✓
+- [x] Default seeded admin — reset clears default-pw state, login works after ✓
+- [x] HTTPS — production behind Cloudflare ✓
+
+100% confidence: yes. No remaining unmitigated concerns.
+
+### Post-implementation adversarial review
+
+- [ ] Re-run the checklist after code is written, verify each mitigation actually exists in the diff
+- [ ] Run tests
+- [ ] Build admin frontend to confirm no compile errors
+
+---
+
+# Fix voice enrollment sung_calibration_unavailable false-fail (RESOLVED — 2026-05-12)
 
 ## Symptom
 
