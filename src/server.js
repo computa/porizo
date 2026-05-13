@@ -29,6 +29,7 @@ const {
 const { startCleanupJob } = require("./jobs/cleanup");
 const { startSubscriptionSyncJob } = require("./jobs/subscription-sync");
 const { startGiftDispatchJob } = require("./jobs/gift-dispatch");
+const { startColdEmailJob } = require("./jobs/cold-email-daily");
 const { startJobRunner, cleanStaleStepFiles } = require("./workflows/runner");
 // Billing services
 const {
@@ -5237,6 +5238,16 @@ async function start() {
     batchSize: 25,
   });
 
+  // Daily cold-email outbound (ported from marketing/email/cold-daily-send.py).
+  // Polls every 5 min; fires once per UTC day after fire_after_utc_hour for
+  // each active row in cold_email_campaigns.
+  const coldEmailJob = startColdEmailJob({
+    db,
+    apiKey: process.env.RESEND_API_KEY,
+    intervalMs: config.COLD_EMAIL_INTERVAL_MS || 5 * 60 * 1000,
+    log: (msg) => app.log.info(msg),
+  });
+
   // Start OneSignal tag sync job (updates user segments daily)
   const tagSyncJob = startTagSyncJob({
     db,
@@ -5263,6 +5274,7 @@ async function start() {
     fileCleanupJob.stop();
     subscriptionSyncJob.stop();
     giftDispatchJob.stop();
+    coldEmailJob.stop();
     tagSyncJob.stop();
     clearInterval(giftReservationExpiryTimer);
     if (jobRunner) {

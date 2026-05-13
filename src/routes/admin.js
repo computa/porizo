@@ -3851,6 +3851,89 @@ function registerAdminRoutes(
     reply.send({ campaigns });
   });
 
+  // ===== Cold-email campaigns =====
+  // Replaces the old launchd/Python job. Read-only observability + manual
+  // trigger. Trigger requires superadmin because each call schedules real
+  // outbound emails to a cold list — irreversible side effect.
+  const coldEmailSvc = require("../services/cold-email-service");
+  const COLD_EMAIL_ID_PATTERN = /^[a-zA-Z0-9_-]{1,64}$/;
+
+  app.get("/admin/dashboard/marketing/cold-email", async (request, reply) => {
+    const admin = await requireAdminSession(request, reply);
+    if (!admin) return;
+    const active = await coldEmailSvc.listActiveCampaigns(db);
+    const all = await db
+      .prepare("SELECT * FROM cold_email_campaigns ORDER BY created_at DESC")
+      .all();
+    const byId = new Map(active.map((c) => [c.id, c.pending_count]));
+    const campaigns = all.map((c) => ({
+      ...c,
+      pending_count: byId.get(c.id) ?? 0,
+    }));
+    reply.send({ campaigns });
+  });
+
+  app.post(
+    "/admin/dashboard/marketing/cold-email/:id/trigger",
+    async (request, reply) => {
+      const admin = await requireAdminRole(request, reply, ["superadmin"]);
+      if (!admin) return;
+      const id = request.params.id;
+      if (!COLD_EMAIL_ID_PATTERN.test(id)) {
+        return sendError(
+          reply,
+          400,
+          "INVALID_CAMPAIGN_ID",
+          "Campaign id must match [a-zA-Z0-9_-]{1,64}",
+        );
+      }
+      const campaign = await coldEmailSvc.loadCampaign(db, id);
+      if (!campaign) {
+        return sendError(
+          reply,
+          404,
+          "CAMPAIGN_NOT_FOUND",
+          `No cold_email_campaigns row '${id}'`,
+        );
+      }
+      const apiKey = process.env.RESEND_API_KEY;
+      if (!apiKey) {
+        return sendError(
+          reply,
+          503,
+          "RESEND_KEY_MISSING",
+          "RESEND_API_KEY not set",
+        );
+      }
+      try {
+        const result = await coldEmailSvc.processCampaign(db, campaign, {
+          apiKey,
+          now: new Date(),
+          log: (msg) => app.log.info(msg),
+        });
+        if (!result.fired) {
+          return reply.code(409).send({
+            fired: false,
+            reason: result.reason,
+          });
+        }
+        reply.send({
+          fired: true,
+          queued: result.queued,
+          attempted: result.attempted,
+        });
+      } catch (err) {
+        app.log.error(err, "cold-email manual trigger failed");
+        sendError(
+          reply,
+          502,
+          "RESEND_FAILED",
+          "Resend batch submission failed",
+        );
+      }
+    },
+  );
+
   app.post("/admin/dashboard/marketing/campaigns", async (request, reply) => {
     const admin = await requireAdminSession(request, reply);
     if (!admin) return;
