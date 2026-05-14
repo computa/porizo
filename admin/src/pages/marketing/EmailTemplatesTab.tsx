@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react';
-import { Mail, ChevronDown, ChevronRight } from 'lucide-react';
-import { useApi } from '../../hooks/useApi';
-import { LoadingState } from '../../components/LoadingState';
-import { ErrorState } from '../../components/ErrorState';
+import { useEffect, useState } from "react";
+import { Mail, ChevronDown, ChevronRight } from "lucide-react";
+import { useApi } from "../../hooks/useApi";
+import { LoadingState } from "../../components/LoadingState";
+import { ErrorState } from "../../components/ErrorState";
 
 interface EmailTemplate {
   id: string;
@@ -14,55 +14,60 @@ interface EmailTemplate {
   error?: string;
 }
 
-export function EmailTemplatesTab() {
-  const { get, loading, error, setError } = useApi();
-  const [templates, setTemplates] = useState<EmailTemplate[]>([]);
-  const [expanded, setExpanded] = useState<string | null>(null);
+interface TemplatesResponse {
+  templates: EmailTemplate[];
+  cold_email_templates?: EmailTemplate[];
+}
 
-  useEffect(() => {
-    let cancelled = false;
-    setError(null);
-    (async () => {
-      try {
-        const data = await get<{ templates: EmailTemplate[] }>('/marketing/email-templates');
-        if (cancelled) return;
-        setTemplates(data.templates);
-        if (data.templates.length > 0) setExpanded(data.templates[0].id);
-      } catch {
-        if (!cancelled) {
-          setTemplates([]);
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [get, setError]);
-
-  if (loading && templates.length === 0) return <LoadingState message="Loading templates..." />;
-  if (error) return <ErrorState message={`Error: ${error}`} />;
-
+function TemplateGroup({
+  title,
+  blurb,
+  items,
+  expandedId,
+  onToggle,
+}: {
+  title: string;
+  blurb: string;
+  items: EmailTemplate[];
+  expandedId: string | null;
+  onToggle: (id: string) => void;
+}) {
+  if (items.length === 0) return null;
   return (
-    <div className="space-y-4">
-      <p className="text-slate-400 text-sm">
-        Cold outreach email sequence — 3 emails over 8 days. HTML design versions shown below (GMass sends plain-text variants).
-      </p>
-      {templates.map((tpl) => {
-        const isOpen = expanded === tpl.id;
+    <section className="space-y-3">
+      <div>
+        <h2 className="text-white text-sm font-semibold uppercase tracking-wide">
+          {title}
+        </h2>
+        <p className="text-slate-400 text-sm mt-1">{blurb}</p>
+      </div>
+      {items.map((tpl) => {
+        const isOpen = expandedId === tpl.id;
         return (
-          <div key={tpl.id} className="bg-slate-800/50 border border-slate-700/50 rounded-xl overflow-hidden">
+          <div
+            key={tpl.id}
+            className="bg-slate-800/50 border border-slate-700/50 rounded-xl overflow-hidden"
+          >
             <button
-              onClick={() => setExpanded(isOpen ? null : tpl.id)}
+              onClick={() => onToggle(tpl.id)}
               className="w-full flex items-center gap-3 p-4 text-left hover:bg-slate-800/80 transition-colors"
             >
-              {isOpen ? <ChevronDown className="w-4 h-4 text-slate-400" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
+              {isOpen ? (
+                <ChevronDown className="w-4 h-4 text-slate-400" />
+              ) : (
+                <ChevronRight className="w-4 h-4 text-slate-400" />
+              )}
               <Mail className="w-4 h-4 text-rose-400" />
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-3">
                   <span className="text-white font-medium">{tpl.label}</span>
-                  <span className="text-xs text-slate-500 bg-slate-700/50 px-2 py-0.5 rounded">{tpl.day}</span>
+                  <span className="text-xs text-slate-500 bg-slate-700/50 px-2 py-0.5 rounded">
+                    {tpl.day}
+                  </span>
                 </div>
-                <p className="text-slate-400 text-sm truncate mt-0.5">Subject: {tpl.subject}</p>
+                <p className="text-slate-400 text-sm truncate mt-0.5">
+                  Subject: {tpl.subject}
+                </p>
               </div>
             </button>
             {isOpen && (
@@ -72,7 +77,7 @@ export function EmailTemplatesTab() {
                     srcDoc={tpl.html}
                     sandbox=""
                     className="w-full bg-white"
-                    style={{ height: '600px' }}
+                    style={{ height: "600px" }}
                     title={`Preview: ${tpl.label}`}
                   />
                 ) : (
@@ -85,6 +90,62 @@ export function EmailTemplatesTab() {
           </div>
         );
       })}
+    </section>
+  );
+}
+
+export function EmailTemplatesTab() {
+  const { get, loading, error, setError } = useApi();
+  const [nurture, setNurture] = useState<EmailTemplate[]>([]);
+  const [cold, setCold] = useState<EmailTemplate[]>([]);
+  const [expanded, setExpanded] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setError(null);
+    (async () => {
+      try {
+        const data = await get<TemplatesResponse>("/marketing/email-templates");
+        if (cancelled) return;
+        setNurture(data.templates ?? []);
+        setCold(data.cold_email_templates ?? []);
+        const first =
+          data.templates?.[0]?.id ?? data.cold_email_templates?.[0]?.id ?? null;
+        if (first) setExpanded(first);
+      } catch {
+        if (!cancelled) {
+          setNurture([]);
+          setCold([]);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [get, setError]);
+
+  const toggle = (id: string) => setExpanded((cur) => (cur === id ? null : id));
+
+  if (loading && nurture.length === 0 && cold.length === 0)
+    return <LoadingState message="Loading templates..." />;
+  if (error) return <ErrorState message={`Error: ${error}`} />;
+
+  return (
+    <div className="space-y-8">
+      <TemplateGroup
+        title="Nurture Sequence"
+        blurb="3-email cold outreach sent via GMass over 8 days."
+        items={nurture}
+        expandedId={expanded}
+        onToggle={toggle}
+      />
+      <TemplateGroup
+        title="Cold Email Templates"
+        blurb="Templates used by the backend cold-email job (marketing/email/)."
+        items={cold}
+        expandedId={expanded}
+        onToggle={toggle}
+      />
     </div>
   );
 }

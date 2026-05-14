@@ -3619,27 +3619,59 @@ function registerAdminRoutes(
     return 0;
   }
 
+  const COLD_EMAIL_TEMPLATES = [
+    {
+      id: "cold-intro",
+      file: "cold-intro.html",
+      subject: "A song from one memory",
+      label: "Cold Intro",
+      day: "Day 0 (active)",
+    },
+    {
+      id: "completed-before",
+      file: "completed-before.html",
+      subject: "Your song's still here",
+      label: "Completed Before",
+      day: "Re-engagement",
+    },
+    {
+      id: "no-song",
+      file: "no-song.html",
+      subject: "Almost gave you a song",
+      label: "No Song",
+      day: "Re-engagement",
+    },
+  ];
+
   app.get(
     "/admin/dashboard/marketing/email-templates",
     async (request, reply) => {
       const admin = await requireAdminSession(request, reply);
       if (!admin) return;
 
-      const emailsDir = path.join(process.cwd(), "marketing", "emails");
-      const templates = await Promise.all(
-        TEMPLATE_ALLOWLIST.map(async (tpl) => {
-          try {
-            const html = await fs.promises.readFile(
-              path.join(emailsDir, tpl.file),
-              "utf8",
-            );
-            return { ...tpl, html };
-          } catch {
-            return { ...tpl, html: null, error: "File not found" };
-          }
-        }),
-      );
-      reply.send({ templates });
+      const nurtureDir = path.join(process.cwd(), "marketing", "emails");
+      const coldDir = path.join(process.cwd(), "marketing", "email");
+
+      const readGroup = async (dir, list) =>
+        Promise.all(
+          list.map(async (tpl) => {
+            try {
+              const html = await fs.promises.readFile(
+                path.join(dir, tpl.file),
+                "utf8",
+              );
+              return { ...tpl, html };
+            } catch {
+              return { ...tpl, html: null, error: "File not found" };
+            }
+          }),
+        );
+
+      const [templates, cold_email_templates] = await Promise.all([
+        readGroup(nurtureDir, TEMPLATE_ALLOWLIST),
+        readGroup(coldDir, COLD_EMAIL_TEMPLATES),
+      ]);
+      reply.send({ templates, cold_email_templates });
     },
   );
 
@@ -3911,6 +3943,24 @@ function registerAdminRoutes(
           now: new Date(),
           log: (msg) => app.log.info(msg),
         });
+        try {
+          await adminService._audit(
+            admin.adminId,
+            "cold_email_manual_trigger",
+            "cold_email_campaigns",
+            id,
+            {
+              fired: result.fired,
+              queued: result.queued ?? 0,
+              attempted: result.attempted ?? 0,
+              reason: result.reason ?? null,
+              from_address: campaign.from_address,
+              subject: campaign.subject,
+            },
+          );
+        } catch (auditErr) {
+          app.log.error(auditErr, "cold-email trigger audit log failed");
+        }
         if (!result.fired) {
           return reply.code(409).send({
             fired: false,
@@ -3931,6 +3981,184 @@ function registerAdminRoutes(
           "Resend batch submission failed",
         );
       }
+    },
+  );
+
+  app.patch(
+    "/admin/dashboard/marketing/cold-email/:id",
+    async (request, reply) => {
+      const admin = await requireAdminRole(request, reply, ["superadmin"]);
+      if (!admin) return;
+      const id = request.params.id;
+      if (!COLD_EMAIL_ID_PATTERN.test(id)) {
+        return sendError(
+          reply,
+          400,
+          "INVALID_CAMPAIGN_ID",
+          "Campaign id must match [a-zA-Z0-9_-]{1,64}",
+        );
+      }
+      const existing = await coldEmailSvc.loadCampaign(db, id);
+      if (!existing) {
+        return sendError(
+          reply,
+          404,
+          "CAMPAIGN_NOT_FOUND",
+          `No cold_email_campaigns row '${id}'`,
+        );
+      }
+
+      // NOTE: Keep these whitelists in sync with admin/src/pages/marketing/
+      // ColdEmailTab.tsx EDITABLE_FIELDS — frontend renders one form input
+      // per allowed field, server is the authoritative validator.
+      const body = request.body || {};
+      const allowedString = {
+        subject: { maxLen: 200, kind: "text" },
+        campaign_tag: { maxLen: 80, kind: "text" },
+        from_address: { maxLen: 200, kind: "email" },
+        reply_to: { maxLen: 200, kind: "email" },
+      };
+      const allowedInt = {
+        per_day: [1, 100],
+        schedule_pace_seconds: [30, 3600],
+        schedule_offset_minutes: [0, 600],
+        fire_after_utc_hour: [0, 23],
+        active: [0, 1],
+      };
+
+      // RFC 5322 single-mailbox shape, optional display name. Rejects CR/LF
+      // so a wrong-value PATCH can't smuggle headers into the Resend payload.
+      const EMAIL_LIKE_RE =
+        /^([^<>\r\n]{0,80}<)?[^\s@<>"]+@[^\s@<>"]+\.[^\s@<>"]+>?$/;
+
+      const updates = [];
+      const params = [];
+      const changedFields = [];
+
+      for (const [field, spec] of Object.entries(allowedString)) {
+        if (!(field in body)) continue;
+        const raw = body[field];
+        if (typeof raw !== "string" || raw.length > spec.maxLen) {
+          return sendError(
+            reply,
+            400,
+            "INVALID_FIELD",
+            `${field} must be a string up to ${spec.maxLen} chars`,
+          );
+        }
+        const value = raw.trim();
+        if (value.length === 0) {
+          return sendError(
+            reply,
+            400,
+            "INVALID_FIELD",
+            `${field} must not be blank`,
+          );
+        }
+        if (/[\r\n\0]/.test(value)) {
+          return sendError(
+            reply,
+            400,
+            "INVALID_FIELD",
+            `${field} must not contain control characters`,
+          );
+        }
+        if (spec.kind === "email" && !EMAIL_LIKE_RE.test(value)) {
+          return sendError(
+            reply,
+            400,
+            "INVALID_FIELD",
+            `${field} must look like 'name@example.com' or 'Name <name@example.com>'`,
+          );
+        }
+        updates.push(`${field} = ?`);
+        params.push(value);
+        changedFields.push(field);
+      }
+
+      for (const [field, [min, max]] of Object.entries(allowedInt)) {
+        if (!(field in body)) continue;
+        const value = body[field];
+        if (!Number.isInteger(value) || value < min || value > max) {
+          return sendError(
+            reply,
+            400,
+            "INVALID_FIELD",
+            `${field} must be an integer in [${min}, ${max}]`,
+          );
+        }
+        updates.push(`${field} = ?`);
+        params.push(value);
+        changedFields.push(field);
+      }
+
+      if ("earliest_run_date_utc" in body) {
+        const value = body.earliest_run_date_utc;
+        if (value !== null) {
+          if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+            return sendError(
+              reply,
+              400,
+              "INVALID_FIELD",
+              "earliest_run_date_utc must be YYYY-MM-DD or null",
+            );
+          }
+          // Roundtrip check rejects 2026-13-99, 2026-02-31, etc.
+          const dt = new Date(`${value}T00:00:00Z`);
+          if (
+            Number.isNaN(dt.getTime()) ||
+            dt.toISOString().slice(0, 10) !== value
+          ) {
+            return sendError(
+              reply,
+              400,
+              "INVALID_FIELD",
+              "earliest_run_date_utc must be a real calendar date",
+            );
+          }
+        }
+        updates.push("earliest_run_date_utc = ?");
+        params.push(value);
+        changedFields.push("earliest_run_date_utc");
+      }
+
+      if (updates.length === 0) {
+        return sendError(
+          reply,
+          400,
+          "NO_UPDATES",
+          "No editable fields supplied",
+        );
+      }
+
+      params.push(id);
+      await db
+        .prepare(
+          `UPDATE cold_email_campaigns SET ${updates.join(", ")} WHERE id = ?`,
+        )
+        .run(...params);
+
+      const updated = await coldEmailSvc.loadCampaign(db, id);
+
+      try {
+        const before = {};
+        const after = {};
+        for (const f of changedFields) {
+          before[f] = existing[f];
+          after[f] = updated[f];
+        }
+        await adminService._audit(
+          admin.adminId,
+          "cold_email_campaign_update",
+          "cold_email_campaigns",
+          id,
+          { before, after },
+        );
+      } catch (auditErr) {
+        app.log.error(auditErr, "cold-email PATCH audit log failed");
+      }
+
+      reply.send({ campaign: updated });
     },
   );
 
