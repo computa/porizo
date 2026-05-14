@@ -194,12 +194,12 @@ async function claimDailyFireSlot(db, campaignId, todayUtc) {
   const result = await db
     .prepare(
       `UPDATE cold_email_campaigns
-       SET last_run_date_utc = ?
+       SET last_run_date_utc = ?, updated_at = ?
        WHERE id = ?
          AND active = 1
          AND (last_run_date_utc IS NULL OR last_run_date_utc < ?)`,
     )
-    .run(todayUtc, campaignId, todayUtc);
+    .run(todayUtc, new Date().toISOString(), campaignId, todayUtc);
   return (result?.changes ?? 0) > 0;
 }
 
@@ -207,9 +207,9 @@ async function releaseDailyFireSlot(db, campaignId, previousLastRunDateUtc) {
   // Restore previous state if we claimed but couldn't submit.
   await db
     .prepare(
-      "UPDATE cold_email_campaigns SET last_run_date_utc = ? WHERE id = ?",
+      "UPDATE cold_email_campaigns SET last_run_date_utc = ?, updated_at = ? WHERE id = ?",
     )
-    .run(previousLastRunDateUtc, campaignId);
+    .run(previousLastRunDateUtc, new Date().toISOString(), campaignId);
 }
 
 async function markBatchSent(
@@ -243,9 +243,9 @@ async function markBatchSent(
 async function recordRunStats(db, campaignId, nowIso, batchSize) {
   await db
     .prepare(
-      "UPDATE cold_email_campaigns SET last_run_at = ?, last_batch_size = ?, total_queued = total_queued + ?, started_at = COALESCE(started_at, ?) WHERE id = ?",
+      "UPDATE cold_email_campaigns SET last_run_at = ?, last_batch_size = ?, total_queued = total_queued + ?, started_at = COALESCE(started_at, ?), updated_at = ? WHERE id = ?",
     )
-    .run(nowIso, batchSize, batchSize, nowIso, campaignId);
+    .run(nowIso, batchSize, batchSize, nowIso, nowIso, campaignId);
 }
 
 async function processCampaign(db, campaign, options) {

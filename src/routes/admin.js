@@ -3667,11 +3667,42 @@ function registerAdminRoutes(
           }),
         );
 
-      const [templates, cold_email_templates] = await Promise.all([
+      // Any template_html_path referenced by an actual campaign that
+      // ISN'T in the static COLD_EMAIL_TEMPLATES list is surfaced with
+      // {custom: true} so operators see what's actually being sent —
+      // not just what the static list documents.
+      const knownColdPaths = new Set(
+        COLD_EMAIL_TEMPLATES.map((tpl) => `marketing/email/${tpl.file}`),
+      );
+      const referenced = await db
+        .prepare(
+          "SELECT DISTINCT template_html_path AS html_path, template_text_path AS text_path FROM cold_email_campaigns",
+        )
+        .all();
+      const customSpecs = [];
+      for (const row of referenced ?? []) {
+        if (!row?.html_path) continue;
+        if (knownColdPaths.has(row.html_path)) continue;
+        const file = row.html_path.replace(/^marketing\/email\//, "");
+        customSpecs.push({
+          id: `custom:${file}`,
+          file,
+          subject: "(custom template)",
+          label: `Custom · ${file}`,
+          day: "Custom",
+          custom: true,
+        });
+      }
+
+      const [templates, standardCold, customCold] = await Promise.all([
         readGroup(nurtureDir, TEMPLATE_ALLOWLIST),
         readGroup(coldDir, COLD_EMAIL_TEMPLATES),
+        readGroup(coldDir, customSpecs),
       ]);
-      reply.send({ templates, cold_email_templates });
+      reply.send({
+        templates,
+        cold_email_templates: [...standardCold, ...customCold],
+      });
     },
   );
 
@@ -4131,12 +4162,45 @@ function registerAdminRoutes(
         );
       }
 
+      // Optimistic concurrency: require If-Match against current updated_at.
+      // Bypassed if the client doesn't send it (legacy curl callers), but
+      // strongly recommended for the admin UI to surface stale-form-state
+      // conflicts to the operator.
+      const ifMatch =
+        request.headers["if-match"] ??
+        request.headers["If-Match"] ??
+        body.if_match ??
+        body.updated_at;
+      if (ifMatch && ifMatch !== existing.updated_at) {
+        return reply.code(409).send({
+          error: "STALE_UPDATE",
+          message:
+            "Campaign was modified by another writer. Refresh to see the latest state and retry.",
+          current_updated_at: existing.updated_at,
+        });
+      }
+
+      const nowIso = new Date().toISOString();
+      updates.push("updated_at = ?");
+      params.push(nowIso);
       params.push(id);
-      await db
+      params.push(existing.updated_at ?? "");
+      // COALESCE keeps this portable across SQLite + Postgres (neither
+      // supports a plain `= ?` against potential nulls).
+      const result = await db
         .prepare(
-          `UPDATE cold_email_campaigns SET ${updates.join(", ")} WHERE id = ?`,
+          `UPDATE cold_email_campaigns SET ${updates.join(", ")} WHERE id = ? AND COALESCE(updated_at, '') = ?`,
         )
         .run(...params);
+      if ((result?.changes ?? 0) === 0) {
+        // Lost the race after the If-Match check (another PATCH landed
+        // between our load and our UPDATE). Surface the conflict.
+        return reply.code(409).send({
+          error: "STALE_UPDATE",
+          message:
+            "Campaign was modified by another writer between read and write. Refresh and retry.",
+        });
+      }
 
       const updated = await coldEmailSvc.loadCampaign(db, id);
 

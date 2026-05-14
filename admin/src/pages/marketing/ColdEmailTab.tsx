@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Send,
   Play,
@@ -11,29 +11,12 @@ import {
 import { useApi } from "../../hooks/useApi";
 import { LoadingState } from "../../components/LoadingState";
 import { ErrorState } from "../../components/ErrorState";
-
-interface ColdEmailCampaign {
-  id: string;
-  campaign_tag: string;
-  subject: string;
-  template_html_path: string;
-  template_text_path: string;
-  from_address: string;
-  reply_to: string;
-  per_day: number;
-  schedule_pace_seconds: number;
-  schedule_offset_minutes: number;
-  fire_after_utc_hour: number;
-  earliest_run_date_utc: string | null;
-  active: number;
-  started_at: string | null;
-  last_run_at: string | null;
-  last_run_date_utc: string | null;
-  last_batch_size: number | null;
-  total_queued: number;
-  created_at: string;
-  pending_count: number;
-}
+import {
+  ColdEmailEditModal,
+  type ColdEmailCampaign,
+  type ColdEmailPatch,
+} from "./ColdEmailEditModal";
+import { ColdEmailTriggerModal } from "./ColdEmailTriggerModal";
 
 interface TriggerResult {
   fired: boolean;
@@ -47,54 +30,7 @@ interface Banner {
   text: string;
 }
 
-// NOTE: Keep in sync with the server-side allowlist in
-// src/routes/admin.js inside PATCH /admin/dashboard/marketing/cold-email/:id.
-// Adding a new editable field requires updating BOTH sides — the backend
-// is the authoritative validator.
-
-const EDITABLE_FIELDS: Array<{
-  key: keyof ColdEmailCampaign;
-  label: string;
-  type: "text" | "number";
-  min?: number;
-  max?: number;
-  hint?: string;
-}> = [
-  { key: "subject", label: "Subject", type: "text", hint: "Up to 200 chars." },
-  { key: "campaign_tag", label: "Cohort tag (Resend)", type: "text" },
-  {
-    key: "per_day",
-    label: "Per day",
-    type: "number",
-    min: 1,
-    max: 100,
-    hint: "Resend batch limit is 100.",
-  },
-  {
-    key: "schedule_pace_seconds",
-    label: "Pace seconds",
-    type: "number",
-    min: 30,
-    max: 3600,
-  },
-  {
-    key: "schedule_offset_minutes",
-    label: "Offset minutes",
-    type: "number",
-    min: 0,
-    max: 600,
-    hint: "Capped at 600 (10h) to avoid UTC-day overflow.",
-  },
-  {
-    key: "fire_after_utc_hour",
-    label: "Fire after UTC hour",
-    type: "number",
-    min: 0,
-    max: 23,
-  },
-  { key: "from_address", label: "From address", type: "text" },
-  { key: "reply_to", label: "Reply-to", type: "text" },
-];
+const BANNER_AUTO_DISMISS_MS = 6_000;
 
 function fmtDate(iso: string | null): string {
   if (!iso) return "—";
@@ -126,161 +62,16 @@ function StatusBadge({ active }: { active: number }) {
   );
 }
 
-function EditModal({
-  campaign,
-  onSave,
-  onClose,
-  saving,
-}: {
-  campaign: ColdEmailCampaign;
-  onSave: (patch: Partial<ColdEmailCampaign>) => Promise<void>;
-  onClose: () => void;
-  saving: boolean;
-}) {
-  const [form, setForm] = useState<Partial<ColdEmailCampaign>>(() => {
-    const init: Partial<ColdEmailCampaign> = {};
-    for (const f of EDITABLE_FIELDS) {
-      (init as Record<string, unknown>)[f.key] = campaign[f.key];
-    }
-    init.earliest_run_date_utc = campaign.earliest_run_date_utc;
-    return init;
-  });
-  const [submitError, setSubmitError] = useState<string | null>(null);
-
-  const handleSave = async () => {
-    setSubmitError(null);
-    const patch: Partial<ColdEmailCampaign> = {};
-    for (const f of EDITABLE_FIELDS) {
-      const newVal = form[f.key];
-      const oldVal = campaign[f.key];
-      if (newVal !== oldVal && newVal !== undefined && newVal !== "") {
-        (patch as Record<string, unknown>)[f.key] = newVal;
-      }
-    }
-    if (form.earliest_run_date_utc !== campaign.earliest_run_date_utc) {
-      patch.earliest_run_date_utc = form.earliest_run_date_utc;
-    }
-    if (Object.keys(patch).length === 0) {
-      setSubmitError("No changes to save.");
-      return;
-    }
-    if (
-      "per_day" in patch &&
-      !window.confirm(
-        `Change per_day from ${campaign.per_day} to ${patch.per_day}? This affects the next batch size.`,
-      )
-    ) {
-      return;
-    }
-    try {
-      await onSave(patch);
-    } catch (err) {
-      setSubmitError(err instanceof Error ? err.message : "Save failed");
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-      <div className="bg-slate-900 border border-slate-700 rounded-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between p-5 border-b border-slate-700/50">
-          <h2 className="text-white text-lg font-semibold">
-            Edit campaign · <span className="text-rose-400">{campaign.id}</span>
-          </h2>
-          <button
-            onClick={onClose}
-            className="text-slate-400 hover:text-white"
-            aria-label="Close"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-        <div className="p-5 space-y-4">
-          {EDITABLE_FIELDS.map((f) => (
-            <div key={String(f.key)}>
-              <label className="block text-slate-300 text-sm font-medium mb-1">
-                {f.label}
-              </label>
-              <input
-                type={f.type}
-                value={form[f.key] === undefined ? "" : String(form[f.key])}
-                onChange={(e) => {
-                  const raw = e.target.value;
-                  // Cleared number input → undefined (skipped in the diff),
-                  // not 0 — avoids silently PATCHing per_day=0 etc.
-                  let next: unknown;
-                  if (f.type === "number") {
-                    if (raw === "") next = undefined;
-                    else {
-                      const n = Number(raw);
-                      next = Number.isFinite(n) ? n : undefined;
-                    }
-                  } else {
-                    next = raw;
-                  }
-                  setForm((prev) => ({ ...prev, [f.key]: next as never }));
-                }}
-                min={f.min}
-                max={f.max}
-                className="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-rose-500"
-              />
-              {f.hint && (
-                <p className="text-slate-500 text-xs mt-1">{f.hint}</p>
-              )}
-            </div>
-          ))}
-          <div>
-            <label className="block text-slate-300 text-sm font-medium mb-1">
-              Earliest run date (UTC, YYYY-MM-DD)
-            </label>
-            <input
-              type="text"
-              placeholder="2026-05-12"
-              value={form.earliest_run_date_utc ?? ""}
-              onChange={(e) =>
-                setForm((prev) => ({
-                  ...prev,
-                  earliest_run_date_utc: e.target.value || null,
-                }))
-              }
-              className="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-rose-500"
-            />
-          </div>
-          {submitError && (
-            <div className="flex items-start gap-2 p-3 bg-rose-500/10 border border-rose-500/30 rounded text-rose-300 text-sm">
-              <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
-              <span>{submitError}</span>
-            </div>
-          )}
-        </div>
-        <div className="flex justify-end gap-3 p-5 border-t border-slate-700/50">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-slate-300 hover:text-white text-sm"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="px-4 py-2 bg-rose-500 hover:bg-rose-600 disabled:bg-rose-500/40 text-white text-sm font-medium rounded"
-          >
-            {saving ? "Saving…" : "Save changes"}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export function ColdEmailTab() {
   const { get, post, patch, loading, error, setError } = useApi();
   const [campaigns, setCampaigns] = useState<ColdEmailCampaign[]>([]);
   const [editing, setEditing] = useState<ColdEmailCampaign | null>(null);
+  const [triggering, setTriggering] = useState<ColdEmailCampaign | null>(null);
   const [saving, setSaving] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [banner, setBanner] = useState<Banner | null>(null);
 
-  const refresh = async () => {
+  const refresh = useCallback(async () => {
     try {
       const data = await get<{ campaigns: ColdEmailCampaign[] }>(
         "/marketing/cold-email",
@@ -289,34 +80,28 @@ export function ColdEmailTab() {
     } catch {
       setCampaigns([]);
     }
-  };
+  }, [get]);
 
   useEffect(() => {
-    let cancelled = false;
     setError(null);
-    (async () => {
-      try {
-        const data = await get<{ campaigns: ColdEmailCampaign[] }>(
-          "/marketing/cold-email",
-        );
-        if (!cancelled) setCampaigns(data.campaigns);
-      } catch {
-        if (!cancelled) setCampaigns([]);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [get, setError]);
+    void refresh();
+  }, [refresh, setError]);
 
-  const handleTrigger = async (c: ColdEmailCampaign) => {
-    if (
-      !window.confirm(
-        `Trigger ${c.id} now? This will submit up to ${c.per_day} emails to Resend.`,
-      )
-    ) {
-      return;
-    }
+  // Auto-dismiss banner so it doesn't sit on screen forever if the user
+  // ignores it. Errors stay slightly longer.
+  useEffect(() => {
+    if (!banner) return;
+    const ms =
+      banner.kind === "error"
+        ? BANNER_AUTO_DISMISS_MS * 2
+        : BANNER_AUTO_DISMISS_MS;
+    const t = setTimeout(() => setBanner(null), ms);
+    return () => clearTimeout(t);
+  }, [banner]);
+
+  const handleTriggerConfirmed = async () => {
+    if (!triggering) return;
+    const c = triggering;
     setBusyId(c.id);
     setBanner(null);
     try {
@@ -330,11 +115,9 @@ export function ColdEmailTab() {
           text: `Fired ${r.queued}/${r.attempted} emails for ${c.id}.`,
         });
       } else {
-        setBanner({
-          kind: "info",
-          text: `Not fired: ${r.reason}`,
-        });
+        setBanner({ kind: "info", text: `Not fired: ${r.reason}` });
       }
+      setTriggering(null);
       await refresh();
     } catch (err) {
       setBanner({
@@ -361,6 +144,7 @@ export function ColdEmailTab() {
     try {
       await patch(`/marketing/cold-email/${encodeURIComponent(c.id)}`, {
         active: next,
+        if_match: c.updated_at ?? null,
       });
       setBanner({ kind: "success", text: `Campaign ${c.id} ${verb}d.` });
       await refresh();
@@ -374,7 +158,7 @@ export function ColdEmailTab() {
     }
   };
 
-  const handleSave = async (patchBody: Partial<ColdEmailCampaign>) => {
+  const handleSave = async (patchBody: ColdEmailPatch) => {
     if (!editing) return;
     setSaving(true);
     try {
@@ -406,7 +190,9 @@ export function ColdEmailTab() {
 
       {banner && (
         <div
-          className={`flex items-start gap-2 p-3 rounded border text-sm ${
+          role="status"
+          aria-live="polite"
+          className={`flex items-start gap-2 p-3 rounded border text-sm transition-opacity ${
             banner.kind === "success"
               ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-300"
               : banner.kind === "error"
@@ -423,6 +209,7 @@ export function ColdEmailTab() {
           <button
             onClick={() => setBanner(null)}
             className="text-slate-400 hover:text-white"
+            aria-label="Dismiss notification"
           >
             <X className="w-4 h-4" />
           </button>
@@ -456,6 +243,12 @@ export function ColdEmailTab() {
             <tbody>
               {campaigns.map((c) => {
                 const isBusy = busyId === c.id;
+                const triggerReason =
+                  c.active !== 1
+                    ? "Resume the campaign first"
+                    : c.pending_count === 0
+                      ? "No pending recipients"
+                      : "Trigger today’s batch";
                 return (
                   <tr
                     key={c.id}
@@ -492,29 +285,17 @@ export function ColdEmailTab() {
                     </td>
                     <td className="px-4 py-3 text-right">
                       <div className="inline-flex gap-1.5">
-                        {(() => {
-                          const triggerReason =
-                            c.active !== 1
-                              ? "Resume the campaign first"
-                              : c.pending_count === 0
-                                ? "No pending recipients"
-                                : "Trigger today’s batch";
-                          return (
-                            <button
-                              onClick={() => handleTrigger(c)}
-                              disabled={
-                                isBusy ||
-                                c.active !== 1 ||
-                                c.pending_count === 0
-                              }
-                              title={triggerReason}
-                              aria-label={`${triggerReason} for campaign ${c.id}`}
-                              className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded bg-rose-500/10 border border-rose-500/30 text-rose-300 hover:bg-rose-500/20 disabled:opacity-40 disabled:cursor-not-allowed"
-                            >
-                              <Send className="w-3 h-3" /> Trigger
-                            </button>
-                          );
-                        })()}
+                        <button
+                          onClick={() => setTriggering(c)}
+                          disabled={
+                            isBusy || c.active !== 1 || c.pending_count === 0
+                          }
+                          title={triggerReason}
+                          aria-label={`${triggerReason} for campaign ${c.id}`}
+                          className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded bg-rose-500/10 border border-rose-500/30 text-rose-300 hover:bg-rose-500/20 disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                          <Send className="w-3 h-3" /> Trigger
+                        </button>
                         <button
                           onClick={() => handleToggleActive(c)}
                           disabled={isBusy}
@@ -543,6 +324,7 @@ export function ColdEmailTab() {
                         <button
                           onClick={() => setEditing(c)}
                           disabled={isBusy}
+                          aria-label={`Edit campaign ${c.id}`}
                           className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded bg-slate-700/50 border border-slate-600/50 text-slate-300 hover:bg-slate-700 disabled:opacity-40"
                         >
                           <Edit3 className="w-3 h-3" /> Edit
@@ -558,11 +340,20 @@ export function ColdEmailTab() {
       )}
 
       {editing && (
-        <EditModal
+        <ColdEmailEditModal
           campaign={editing}
           onSave={handleSave}
           onClose={() => setEditing(null)}
           saving={saving}
+        />
+      )}
+
+      {triggering && (
+        <ColdEmailTriggerModal
+          campaign={triggering}
+          busy={busyId === triggering.id}
+          onConfirm={handleTriggerConfirmed}
+          onClose={() => setTriggering(null)}
         />
       )}
     </div>
