@@ -41,6 +41,12 @@ marketing/email/.state/
 marketing/email/.test-fixtures/
 marketing/email/launchd/
 marketing/email/*.py
+# Nurture templates (GMass) — admin dashboard preview reads from here.
+# The subdir contains real recipient emails (PII) and sent logs — exclude
+# both so they never reach the container even though they're not in git.
+!marketing/emails/
+marketing/emails/email-addresses/
+marketing/emails/sent/
 
 # Misc build/dev artifacts
 dist/
