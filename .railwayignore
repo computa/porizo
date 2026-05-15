@@ -35,7 +35,12 @@ specs/
 PorizoApp/
 admin/src/
 admin/node_modules/
-marketing/
+marketing/*
+!marketing/email/
+marketing/email/.state/
+marketing/email/.test-fixtures/
+marketing/email/launchd/
+marketing/email/*.py
 
 # Misc build/dev artifacts
 dist/

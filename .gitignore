@@ -64,6 +64,13 @@ out/
 !/marketing/email-templates/**
 !/marketing/blog/
 !/marketing/blog/**
+!/marketing/email/
+!/marketing/email/*.html
+!/marketing/email/*.txt
+!/marketing/email/README.md
+marketing/email/*.py
+marketing/email/launchd/
+marketing/email/.test-fixtures/
 
 # Duplicate nested admin directory (claude-mem artifact)
 admin/admin/
