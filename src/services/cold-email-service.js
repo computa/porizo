@@ -31,7 +31,12 @@ function computeScheduleStart(now, offsetMinutes) {
   return new Date(now.getTime() + offsetMinutes * 60_000);
 }
 
-function shouldFireToday(campaign, now) {
+// Gate the next fire. Replaces the previous "fire once per UTC day"
+// daily-key gate with a time-interval gate plus an upper-hour bound, so
+// campaigns can opt into N fires/day by lowering min_minutes_between_runs.
+// Defaults (min_minutes_between_runs=1440, fire_until_utc_hour=23) preserve
+// the legacy 1×/day behaviour.
+function shouldFireNow(campaign, now) {
   if (!campaign) return { fire: false, reason: "no campaign loaded" };
   if (!campaign.active) return { fire: false, reason: "campaign inactive" };
 
@@ -45,21 +50,49 @@ function shouldFireToday(campaign, now) {
       reason: `too early: today=${todayUtc} < earliest=${campaign.earliest_run_date_utc}`,
     };
   }
-  if (campaign.last_run_date_utc === todayUtc) {
-    return { fire: false, reason: "already ran today" };
-  }
   const hour = now.getUTCHours();
-  if (hour < (campaign.fire_after_utc_hour ?? 9)) {
+  const fireAfter = campaign.fire_after_utc_hour ?? 9;
+  if (hour < fireAfter) {
     return {
       fire: false,
-      reason: `before fire-after hour (utc=${hour} < ${campaign.fire_after_utc_hour})`,
+      reason: `before fire-after hour (utc=${hour} < ${fireAfter})`,
     };
+  }
+  // Default 24 = no upper bound (gate is `hour >= fireUntil`, hour is 0..23).
+  // Pre-migration rows have undefined here; the fallback keeps them firing.
+  const fireUntil = campaign.fire_until_utc_hour ?? 24;
+  if (hour >= fireUntil) {
+    return {
+      fire: false,
+      reason: `after fire-until hour (utc=${hour} >= ${fireUntil})`,
+    };
+  }
+  // Interval gate. last_run_at is an ISO-8601 string (sqlite TEXT, pg TEXT);
+  // Date() parses both forms. A null/missing value means "never fired", which
+  // always satisfies the interval.
+  const minMinutes = campaign.min_minutes_between_runs ?? 1440;
+  if (campaign.last_run_at) {
+    const lastMs = new Date(campaign.last_run_at).getTime();
+    if (Number.isFinite(lastMs)) {
+      const elapsedMin = (now.getTime() - lastMs) / 60_000;
+      if (elapsedMin < minMinutes) {
+        const remaining = Math.ceil(minMinutes - elapsedMin);
+        return {
+          fire: false,
+          reason: `interval not elapsed (${Math.floor(elapsedMin)}min < ${minMinutes}min, ${remaining}min remaining)`,
+        };
+      }
+    }
   }
   if ((campaign.pending_count ?? 0) <= 0) {
     return { fire: false, reason: "no pending recipients" };
   }
   return { fire: true, reason: "ok" };
 }
+
+// Backward-compatible alias. Anything in the codebase still calling
+// shouldFireToday now goes through the new interval-aware gate.
+const shouldFireToday = shouldFireNow;
 
 // Sandbox a campaign-provided template path to the templates root so a
 // DB-write attacker cannot exfiltrate arbitrary repo files (../../.env,
@@ -187,29 +220,54 @@ async function submitToResend(payload, apiKey, fetchImpl = globalThis.fetch) {
   }
 }
 
-// Try to claim today's fire slot atomically. Returns true if we won the race,
-// false otherwise. Prevents two replicas / two boot-time setImmediate calls /
-// admin trigger + scheduled poll from double-sending.
-async function claimDailyFireSlot(db, campaignId, todayUtc) {
+// Try to claim the next fire slot atomically. Returns true if we won the
+// race, false otherwise. The WHERE predicate enforces the interval gate at
+// the DB level so two replicas / two boot-time setImmediate calls / admin
+// trigger + scheduled poll can't double-fire even if they enter
+// processCampaign at the same instant.
+//
+// `nowIso` is the new last_run_at we want to write. `minMinutes` is the
+// configured min_minutes_between_runs. `todayUtc` keeps the legacy
+// last_run_date_utc column up to date for the admin "fired today?" display.
+//
+// The CASE expressions compute "last_run_at + minMinutes minutes" portably:
+// SQLite has datetime() / julianday(), Postgres has interval arithmetic.
+// Comparing ISO-8601 strings lexicographically works for same-timezone
+// values (all our timestamps are UTC ISO with millisecond precision), which
+// lets a single SQL string run on both engines without dialect branching.
+async function claimRunSlot(db, campaignId, nowIso, todayUtc, minMinutes) {
+  const cutoffMs = new Date(nowIso).getTime() - minMinutes * 60_000;
+  const cutoffIso = new Date(cutoffMs).toISOString();
   const result = await db
     .prepare(
       `UPDATE cold_email_campaigns
-       SET last_run_date_utc = ?, updated_at = ?
+       SET last_run_at = ?, last_run_date_utc = ?, updated_at = ?
        WHERE id = ?
          AND active = 1
-         AND (last_run_date_utc IS NULL OR last_run_date_utc < ?)`,
+         AND (last_run_at IS NULL OR last_run_at <= ?)`,
     )
-    .run(todayUtc, new Date().toISOString(), campaignId, todayUtc);
+    .run(nowIso, todayUtc, nowIso, campaignId, cutoffIso);
   return (result?.changes ?? 0) > 0;
 }
 
-async function releaseDailyFireSlot(db, campaignId, previousLastRunDateUtc) {
-  // Restore previous state if we claimed but couldn't submit.
+async function releaseRunSlot(
+  db,
+  campaignId,
+  previousLastRunAt,
+  previousLastRunDateUtc,
+) {
+  // Restore previous state if we claimed but couldn't submit. The next poll
+  // will re-evaluate the interval gate against the restored last_run_at.
   await db
     .prepare(
-      "UPDATE cold_email_campaigns SET last_run_date_utc = ?, updated_at = ? WHERE id = ?",
+      "UPDATE cold_email_campaigns SET last_run_at = ?, last_run_date_utc = ?, updated_at = ? WHERE id = ?",
     )
-    .run(previousLastRunDateUtc, new Date().toISOString(), campaignId);
+    .run(
+      previousLastRunAt,
+      previousLastRunDateUtc,
+      new Date().toISOString(),
+      campaignId,
+    );
 }
 
 async function markBatchSent(
@@ -252,21 +310,31 @@ async function processCampaign(db, campaign, options) {
   const { apiKey, now = new Date(), fetchImpl, log = () => {} } = options;
 
   // Gate first — cheap reads that filter out the obvious skips.
-  const decision = shouldFireToday(campaign, now);
+  const decision = shouldFireNow(campaign, now);
   if (!decision.fire) {
     log(`[cold-email:${campaign.id}] skip: ${decision.reason}`);
     return { fired: false, reason: decision.reason };
   }
 
   const todayUtc = ymd(now);
+  const nowIso = now.toISOString();
+  const previousLastRunAt = campaign.last_run_at ?? null;
   const previousLastRunDateUtc = campaign.last_run_date_utc ?? null;
+  const minMinutes = campaign.min_minutes_between_runs ?? 1440;
 
-  // Atomic claim — only one caller per (campaign, day) wins this. Guards
+  // Atomic claim — the WHERE predicate enforces the interval gate at the
+  // DB level so only one caller per (campaign, interval window) wins. Guards
   // multi-replica races, admin-trigger-vs-scheduler races, and double-clicks.
-  const claimed = await claimDailyFireSlot(db, campaign.id, todayUtc);
+  const claimed = await claimRunSlot(
+    db,
+    campaign.id,
+    nowIso,
+    todayUtc,
+    minMinutes,
+  );
   if (!claimed) {
     log(
-      `[cold-email:${campaign.id}] skip: another caller already claimed today`,
+      `[cold-email:${campaign.id}] skip: another caller already claimed this slot`,
     );
     return { fired: false, reason: "already claimed by another caller" };
   }
@@ -277,7 +345,12 @@ async function processCampaign(db, campaign, options) {
     rows = await listPendingRecipients(db, campaign.id, campaign.per_day);
     if (rows.length === 0) {
       log(`[cold-email:${campaign.id}] skip: no pending rows (post-claim)`);
-      await releaseDailyFireSlot(db, campaign.id, previousLastRunDateUtc);
+      await releaseRunSlot(
+        db,
+        campaign.id,
+        previousLastRunAt,
+        previousLastRunDateUtc,
+      );
       return { fired: false, reason: "no pending" };
     }
 
@@ -301,7 +374,12 @@ async function processCampaign(db, campaign, options) {
 
     if (payload.length === 0) {
       log(`[cold-email:${campaign.id}] skip: payload empty after filtering`);
-      await releaseDailyFireSlot(db, campaign.id, previousLastRunDateUtc);
+      await releaseRunSlot(
+        db,
+        campaign.id,
+        previousLastRunAt,
+        previousLastRunDateUtc,
+      );
       return { fired: false, reason: "payload empty" };
     }
 
@@ -309,7 +387,6 @@ async function processCampaign(db, campaign, options) {
       `[cold-email:${campaign.id}] submitting ${payload.length} emails, scheduleStart=${scheduleStart.toISOString()}`,
     );
     const resp = await submitToResend(payload, apiKey, fetchImpl);
-    const nowIso = now.toISOString();
     const sent = await markBatchSent(
       db,
       campaign.id,
@@ -320,9 +397,14 @@ async function processCampaign(db, campaign, options) {
     );
 
     // If Resend accepted with no usable ids (empty data, all errors), treat as
-    // failure — release the claim so tomorrow's run retries this cohort.
+    // failure — release the claim so the next interval retries this cohort.
     if (sent === 0) {
-      await releaseDailyFireSlot(db, campaign.id, previousLastRunDateUtc);
+      await releaseRunSlot(
+        db,
+        campaign.id,
+        previousLastRunAt,
+        previousLastRunDateUtc,
+      );
       throw new Error(
         `Resend returned no usable email ids for ${payload.length} submitted`,
       );
@@ -332,15 +414,20 @@ async function processCampaign(db, campaign, options) {
     log(`[cold-email:${campaign.id}] queued ${sent}/${payload.length}`);
     if (sent < payload.length) {
       log(
-        `[cold-email:${campaign.id}] WARN partial response: ${payload.length - sent} not acked, will retry next day`,
+        `[cold-email:${campaign.id}] WARN partial response: ${payload.length - sent} not acked, will retry next interval`,
       );
     }
     return { fired: true, queued: sent, attempted: payload.length };
   } catch (err) {
     // Anything between claim and successful submit/mark releases the claim so
-    // tomorrow's run picks up where we left off.
+    // the next interval picks up where we left off.
     try {
-      await releaseDailyFireSlot(db, campaign.id, previousLastRunDateUtc);
+      await releaseRunSlot(
+        db,
+        campaign.id,
+        previousLastRunAt,
+        previousLastRunDateUtc,
+      );
     } catch (relErr) {
       log(
         `[cold-email:${campaign.id}] ERROR releasing claim: ${relErr.message}`,
@@ -355,7 +442,8 @@ module.exports = {
   SCHEMA_VERSION,
   ymd,
   computeScheduleStart,
-  shouldFireToday,
+  shouldFireNow,
+  shouldFireToday, // alias for backwards compat
   buildResendPayload,
   // I/O (the orchestration entry point)
   loadCampaign,

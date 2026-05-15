@@ -1,4 +1,45 @@
-# Admin portal: forgot-password feature (ACTIVE — 2026-05-13)
+# Cold-email: fire ~10×/day instead of 1×/day (ACTIVE — 2026-05-15)
+
+**Goal:** Spread the daily Resend budget (capped at 100/day, budget 90) across 10 batches/day instead of one. Drains the 4,092 backlog in ~46 days at 90/day (down from ~51 at 80/day), and respects Resend's 100/day account cap with a 10-email safety margin.
+
+## Design
+
+Replace the **daily** gate (`last_run_date_utc === today`) with a **time-interval** gate plus a daily upper-hour bound. Reuse the existing `last_run_at` TIMESTAMP — no counter column needed; interval naturally limits N runs/day; upper bound stops late-night UTC fires.
+
+| Knob                                        | Default                     | mothers-day-2026 | Effect                       |
+| ------------------------------------------- | --------------------------- | ---------------- | ---------------------------- |
+| `fire_after_utc_hour` (existing)            | 9                           | 9                | first fire ≥ 09:00 UTC       |
+| `fire_until_utc_hour` (NEW)                 | 23                          | 19               | no fires ≥ 19:00 UTC         |
+| `min_minutes_between_runs` (NEW)            | 1440 (preserves old 1×/day) | 60               | next fire ≥ 60min after last |
+| `per_day` (existing; means "per batch" now) | 80                          | **9**            | 9 emails per fire            |
+
+Window 09:00–18:59 UTC × 60min spacing = **10 fires/day × 9 = 90/day** (Resend account cap 100/day; 10-email safety margin). Each batch schedules over 9×270s = 40.5 min, leaving ~20min gap before next batch. Backlog drains in ~46 days.
+
+Defaults preserve existing 1×/day behavior for any other campaigns.
+
+## Steps
+
+- [ ] **1. Migration** — `migrations/109_cold_email_intraday.sql` + `migrations/pg/109_cold_email_intraday.sql`. Add `fire_until_utc_hour INT NOT NULL DEFAULT 23` and `min_minutes_between_runs INT NOT NULL DEFAULT 1440`.
+- [ ] **2. Service** — `src/services/cold-email-service.js`: rename `shouldFireToday` → `shouldFireNow`, replace daily-key check with interval-elapsed check, add upper-hour bound. Replace `claimDailyFireSlot` with `claimRunSlot` (atomic UPDATE gated by `last_run_at`). Update `releaseDailyFireSlot` → `releaseRunSlot` to restore `last_run_at`.
+- [ ] **3. Tests** — `src/services/cold-email-service.test.js`: new cases for interval gate + upper bound + multiple fires/day.
+- [ ] **4. Admin backend** — `src/routes/admin.js` PATCH validators allow the 2 new fields with bounds.
+- [ ] **5. Admin frontend** — `ColdEmailEditModal.tsx` adds the 2 fields; `ColdEmailTab.tsx` column updates.
+- [ ] **6. Build admin SPA** — `cd admin && npm run build`. New bundle hash in `public/admin/`.
+- [ ] **7. Commit** all of the above.
+- [ ] **8. Deploy** — `railway up`.
+- [ ] **9. Apply migration in prod** — `cat migrations/pg/109_cold_email_intraday.sql | railway connect postgres` + record in `schema_migrations`.
+- [ ] **10. Set mothers-day-2026 values** — `UPDATE cold_email_campaigns SET fire_until_utc_hour=19, min_minutes_between_runs=60, per_day=9 WHERE id='mothers-day-2026';`.
+- [ ] **11. Verify** — next 5-min poll fires; watch logs; re-poll 60min later for batch 2.
+
+## Risks
+
+- **Resend throughput**: 10 overlapping batches × 80 emails. Resend's own rate-limiter applies; pace inside each batch still respected at recipient timeline. If sender reputation suffers, drop to 5×/day via `min_minutes_between_runs=120`.
+- **Admin "Trigger" button**: now gated by interval — clicking twice within 60min gets a skip with reason.
+- **`last_run_date_utc` column**: becomes vestigial. Leaving it (safer than dropping) — admin UI may still surface it.
+
+---
+
+# Admin portal: forgot-password feature (COMPLETED — 2026-05-13)
 
 ## Goal
 

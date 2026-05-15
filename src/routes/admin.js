@@ -4054,6 +4054,8 @@ function registerAdminRoutes(
         schedule_pace_seconds: [30, 3600],
         schedule_offset_minutes: [0, 600],
         fire_after_utc_hour: [0, 23],
+        fire_until_utc_hour: [1, 24],
+        min_minutes_between_runs: [1, 1440],
         active: [0, 1],
       };
 

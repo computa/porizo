@@ -32,64 +32,126 @@ const baseCampaign = (over = {}) => ({
   ...over,
 });
 
-describe("cold-email-service · shouldFireToday", () => {
+describe("cold-email-service · shouldFireNow", () => {
   it("fires when all gates are clear", () => {
     const now = new Date("2026-05-13T09:30:00Z");
-    const r = svc.shouldFireToday(baseCampaign(), now);
+    const r = svc.shouldFireNow(baseCampaign(), now);
     assert.equal(r.fire, true, r.reason);
   });
 
   it("skips when campaign is inactive", () => {
     const now = new Date("2026-05-13T09:30:00Z");
-    const r = svc.shouldFireToday(baseCampaign({ active: 0 }), now);
+    const r = svc.shouldFireNow(baseCampaign({ active: 0 }), now);
     assert.equal(r.fire, false);
     assert.match(r.reason, /inactive/);
   });
 
   it("skips when today is before earliest_run_date_utc", () => {
     const now = new Date("2026-05-10T09:30:00Z");
-    const r = svc.shouldFireToday(baseCampaign(), now);
+    const r = svc.shouldFireNow(baseCampaign(), now);
     assert.equal(r.fire, false);
     assert.match(r.reason, /too early/i);
   });
 
-  it("skips when last_run_date_utc equals today (already ran)", () => {
-    const now = new Date("2026-05-13T15:00:00Z");
-    const r = svc.shouldFireToday(
-      baseCampaign({ last_run_date_utc: "2026-05-13" }),
-      now,
-    );
-    assert.equal(r.fire, false);
-    assert.match(r.reason, /already ran/i);
-  });
-
   it("skips when current hour is before fire_after_utc_hour", () => {
     const now = new Date("2026-05-13T08:30:00Z");
-    const r = svc.shouldFireToday(baseCampaign(), now);
+    const r = svc.shouldFireNow(baseCampaign(), now);
     assert.equal(r.fire, false);
     assert.match(r.reason, /before .* hour/i);
   });
 
+  it("skips when current hour >= fire_until_utc_hour", () => {
+    const now = new Date("2026-05-13T19:00:00Z");
+    const r = svc.shouldFireNow(baseCampaign({ fire_until_utc_hour: 19 }), now);
+    assert.equal(r.fire, false);
+    assert.match(r.reason, /after .* hour/i);
+  });
+
+  it("skips when interval has not elapsed since last_run_at", () => {
+    const now = new Date("2026-05-13T10:00:00Z");
+    const r = svc.shouldFireNow(
+      baseCampaign({
+        last_run_at: "2026-05-13T09:30:00Z",
+        min_minutes_between_runs: 60,
+      }),
+      now,
+    );
+    assert.equal(r.fire, false);
+    assert.match(r.reason, /interval not elapsed/i);
+  });
+
+  it("fires when interval has fully elapsed since last_run_at", () => {
+    const now = new Date("2026-05-13T11:00:00Z");
+    const r = svc.shouldFireNow(
+      baseCampaign({
+        last_run_at: "2026-05-13T09:30:00Z",
+        min_minutes_between_runs: 60,
+      }),
+      now,
+    );
+    assert.equal(r.fire, true, r.reason);
+  });
+
+  it("fires when last_run_at is null (never fired)", () => {
+    const now = new Date("2026-05-13T09:30:00Z");
+    const r = svc.shouldFireNow(
+      baseCampaign({
+        last_run_at: null,
+        last_run_date_utc: null,
+        min_minutes_between_runs: 60,
+      }),
+      now,
+    );
+    assert.equal(r.fire, true, r.reason);
+  });
+
+  it("allows a second fire on the same UTC day once interval has elapsed", () => {
+    // Default 1×/day campaigns have min_minutes_between_runs=1440, which
+    // naturally blocks same-day re-fires. Campaigns that opt into intraday
+    // cadence by setting min_minutes_between_runs=60 fire as soon as the
+    // gap is met, ignoring last_run_date_utc.
+    const now = new Date("2026-05-13T10:30:00Z");
+    const r = svc.shouldFireNow(
+      baseCampaign({
+        last_run_at: "2026-05-13T09:30:00Z",
+        last_run_date_utc: "2026-05-13", // same day as `now`
+        min_minutes_between_runs: 60,
+      }),
+      now,
+    );
+    assert.equal(r.fire, true, r.reason);
+  });
+
   it("skips when no pending recipients", () => {
     const now = new Date("2026-05-13T09:30:00Z");
-    const r = svc.shouldFireToday(baseCampaign({ pending_count: 0 }), now);
+    const r = svc.shouldFireNow(baseCampaign({ pending_count: 0 }), now);
     assert.equal(r.fire, false);
     assert.match(r.reason, /no pending/i);
   });
 
   it("fires exactly at fire_after_utc_hour", () => {
     const now = new Date("2026-05-13T09:00:00Z");
-    const r = svc.shouldFireToday(baseCampaign(), now);
+    const r = svc.shouldFireNow(baseCampaign(), now);
     assert.equal(r.fire, true);
   });
 
-  it("fires when last_run_date_utc is null (never run)", () => {
+  it("default min_minutes_between_runs (1440) blocks a 12h-old fire", () => {
+    // Legacy 1×/day campaigns: with no min_minutes_between_runs override,
+    // a fire that ran 12h ago is still inside the 24h window and gated.
     const now = new Date("2026-05-13T09:30:00Z");
-    const r = svc.shouldFireToday(
-      baseCampaign({ last_run_date_utc: null, total_queued: 0 }),
+    const r = svc.shouldFireNow(
+      baseCampaign({
+        last_run_at: "2026-05-12T21:30:00Z",
+        min_minutes_between_runs: 1440,
+      }),
       now,
     );
-    assert.equal(r.fire, true);
+    assert.equal(r.fire, false);
+    assert.match(r.reason, /interval not elapsed/i);
+  });
+
+  it("shouldFireToday is a backwards-compatible alias for shouldFireNow", () => {
+    assert.equal(svc.shouldFireToday, svc.shouldFireNow);
   });
 });
 

@@ -182,9 +182,13 @@ export function ColdEmailTab() {
     <div className="space-y-4">
       <div className="flex items-start justify-between gap-4">
         <p className="text-slate-400 text-sm">
-          Cold-intro outbound emails. Each active campaign fires one batch per
-          UTC day after{" "}
-          <code className="text-slate-300">fire_after_utc_hour</code>.
+          Cold-intro outbound emails. Each active campaign fires batches inside
+          its daily window (
+          <code className="text-slate-300">fire_after_utc_hour</code> ≤ hour
+          &lt; <code className="text-slate-300">fire_until_utc_hour</code>),
+          spaced at least{" "}
+          <code className="text-slate-300">min_minutes_between_runs</code>{" "}
+          apart.
         </p>
       </div>
 
@@ -231,8 +235,8 @@ export function ColdEmailTab() {
               <tr className="text-slate-400 text-xs uppercase tracking-wide border-b border-slate-700/50">
                 <th className="text-left px-4 py-3 font-medium">Campaign</th>
                 <th className="text-left px-4 py-3 font-medium">Status</th>
-                <th className="text-right px-4 py-3 font-medium">Per day</th>
-                <th className="text-right px-4 py-3 font-medium">Fire after</th>
+                <th className="text-right px-4 py-3 font-medium">Per batch</th>
+                <th className="text-right px-4 py-3 font-medium">Window</th>
                 <th className="text-right px-4 py-3 font-medium">
                   Pending / total queued
                 </th>
@@ -266,8 +270,14 @@ export function ColdEmailTab() {
                     <td className="px-4 py-3 text-right text-slate-200 tabular-nums">
                       {c.per_day}
                     </td>
-                    <td className="px-4 py-3 text-right text-slate-200 tabular-nums">
-                      {c.fire_after_utc_hour}:00 UTC
+                    <td className="px-4 py-3 text-right text-slate-200 tabular-nums text-xs">
+                      <div>
+                        {c.fire_after_utc_hour}–{c.fire_until_utc_hour ?? 24}{" "}
+                        UTC
+                      </div>
+                      <div className="text-slate-400">
+                        every {c.min_minutes_between_runs ?? 1440}min
+                      </div>
                     </td>
                     <td className="px-4 py-3 text-right text-slate-200 tabular-nums">
                       {c.pending_count.toLocaleString()} /{" "}

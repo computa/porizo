@@ -13,6 +13,8 @@ export interface ColdEmailCampaign {
   schedule_pace_seconds: number;
   schedule_offset_minutes: number;
   fire_after_utc_hour: number;
+  fire_until_utc_hour: number;
+  min_minutes_between_runs: number;
   earliest_run_date_utc: string | null;
   active: number;
   started_at: string | null;
@@ -68,6 +70,23 @@ export const EDITABLE_FIELDS: Array<{
     type: "number",
     min: 0,
     max: 23,
+    hint: "First fire of the daily window starts at/after this UTC hour.",
+  },
+  {
+    key: "fire_until_utc_hour",
+    label: "Fire until UTC hour",
+    type: "number",
+    min: 1,
+    max: 24,
+    hint: "No fires at or after this UTC hour. 24 = no upper bound.",
+  },
+  {
+    key: "min_minutes_between_runs",
+    label: "Min minutes between runs",
+    type: "number",
+    min: 1,
+    max: 1440,
+    hint: "1440 = once-per-day. Lower for intraday cadence (60 = up to 10×/day in a 10h window).",
   },
   { key: "from_address", label: "From address", type: "text" },
   { key: "reply_to", label: "Reply-to", type: "text" },

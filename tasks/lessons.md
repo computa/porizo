@@ -6,6 +6,17 @@ Patterns and rules to prevent repeated mistakes. Review at session start.
 
 ## Session Rules
 
+### 2026-05-15 — Audit BOTH `.gitignore` AND `.railwayignore`/`.dockerignore` when porting a script that reads runtime files
+
+**Trigger:** Cold-email daily job was ported from `marketing/email/cold-daily-send.py` (laptop launchd) to a backend Node job (`src/jobs/cold-email-daily.js`). Job runs on Railway, reads templates from `/app/marketing/email/*.html`.
+**Mistake:** Templates lived under `marketing/email/` which was excluded from git (`/marketing/*` with no `email/` allow rule) AND blanket-excluded from Railway upload (`marketing/` in `.railwayignore`). Backend deployed, ran on schedule, threw `ENOENT` on every 5-min poll for 3 days. Zero emails sent. The catch block silently released the daily-fire claim, so the campaign row showed `last_run_date_utc IS NULL` — looked identical to "never tried."
+**Rule:**
+
+1. When porting any local script that reads files at runtime into a deployed service, list every file path it reads and verify each one passes ALL ignore filters: `.gitignore` (so the file is in the repo), `.railwayignore` (so `railway up` uploads it), `.dockerignore` (so the Docker build context includes it).
+2. For Railway specifically: `marketing/`, `docs/`, `tests/`, etc. are commonly blanket-excluded in `.railwayignore`. If new runtime code needs a subdirectory, carve out a `!subdir/` allow rule and re-exclude the noise (state dirs, `*.py` from the old version, fixtures).
+3. After deploy, prove the file is on the container before claiming the fix. If you can't `railway ssh` (no key), hit a route that reads the same file (here: `/admin/dashboard/marketing/email-templates`) or accept that proof comes from the next legitimate scheduler tick.
+4. When a scheduled job's claim/release pattern can silently swallow errors, monitor the LOG for the actual error string — `last_run_date_utc IS NULL` is ambiguous between "didn't try" and "tried and released."
+
 ### 2026-05-05 — Do not invent webhook signatures for vendors that only document callback URLs
 
 **Trigger:** Adding a SunoAPI callback receiver for upload-cover/persona probe tasks.
