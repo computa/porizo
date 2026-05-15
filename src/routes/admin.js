@@ -4164,6 +4164,31 @@ function registerAdminRoutes(
         );
       }
 
+      // Cross-field: fire_until_utc_hour must be strictly greater than
+      // fire_after_utc_hour, else the daily window is empty and the campaign
+      // silently never fires. Resolve effective values against the
+      // patched-or-existing campaign (the patch is partial).
+      const effectiveAfter =
+        "fire_after_utc_hour" in body
+          ? body.fire_after_utc_hour
+          : existing.fire_after_utc_hour;
+      const effectiveUntil =
+        "fire_until_utc_hour" in body
+          ? body.fire_until_utc_hour
+          : existing.fire_until_utc_hour;
+      if (
+        Number.isInteger(effectiveAfter) &&
+        Number.isInteger(effectiveUntil) &&
+        effectiveUntil <= effectiveAfter
+      ) {
+        return sendError(
+          reply,
+          400,
+          "INVALID_WINDOW",
+          `fire_until_utc_hour (${effectiveUntil}) must be greater than fire_after_utc_hour (${effectiveAfter}) — otherwise the daily window is empty.`,
+        );
+      }
+
       // Optimistic concurrency: require If-Match against current updated_at.
       // Bypassed if the client doesn't send it (legacy curl callers), but
       // strongly recommended for the admin UI to surface stale-form-state

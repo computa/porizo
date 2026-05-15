@@ -34,8 +34,9 @@ function computeScheduleStart(now, offsetMinutes) {
 // Gate the next fire. Replaces the previous "fire once per UTC day"
 // daily-key gate with a time-interval gate plus an upper-hour bound, so
 // campaigns can opt into N fires/day by lowering min_minutes_between_runs.
-// Defaults (min_minutes_between_runs=1440, fire_until_utc_hour=23) preserve
-// the legacy 1×/day behaviour.
+// Defaults (min_minutes_between_runs=1440, fire_until_utc_hour=24) preserve
+// the legacy 1×/day behaviour — 24 means "no upper bound" because the
+// gate compares hour >= fireUntil and hour is always 0..23.
 function shouldFireNow(campaign, now) {
   if (!campaign) return { fire: false, reason: "no campaign loaded" };
   if (!campaign.active) return { fire: false, reason: "campaign inactive" };
@@ -230,11 +231,12 @@ async function submitToResend(payload, apiKey, fetchImpl = globalThis.fetch) {
 // configured min_minutes_between_runs. `todayUtc` keeps the legacy
 // last_run_date_utc column up to date for the admin "fired today?" display.
 //
-// The CASE expressions compute "last_run_at + minMinutes minutes" portably:
-// SQLite has datetime() / julianday(), Postgres has interval arithmetic.
-// Comparing ISO-8601 strings lexicographically works for same-timezone
-// values (all our timestamps are UTC ISO with millisecond precision), which
-// lets a single SQL string run on both engines without dialect branching.
+// The interval cutoff is computed in JS (`nowIso - minMinutes`) and bound
+// as a parameter, so the SQL stays dialect-free. Comparing ISO-8601 strings
+// lexicographically works because every timestamp this codebase writes goes
+// through `.toISOString()` (UTC, millisecond precision) — lex order ≡
+// chronological order for that format. Don't change a writer to emit
+// `YYYY-MM-DD HH:MM:SS+00` or this gate breaks.
 async function claimRunSlot(db, campaignId, nowIso, todayUtc, minMinutes) {
   const cutoffMs = new Date(nowIso).getTime() - minMinutes * 60_000;
   const cutoffIso = new Date(cutoffMs).toISOString();
