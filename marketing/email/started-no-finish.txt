@@ -15,7 +15,7 @@ Two taps:
 2. Tap your unfinished song.
 3. Generate it. Send it.
 
-Finish your song: https://apps.apple.com/us/app/porizo-song-gift-maker/id6758205028
+Finish your song: https://porizo.co/download?utm_source=cold-email&utm_medium=email&utm_campaign={{campaign}}&utm_content=started-no-finish-cta
 
 Got stuck? Reply and tell me where — I read every email.
 

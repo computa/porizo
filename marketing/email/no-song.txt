@@ -15,7 +15,7 @@ Three steps:
 2. Tell Porizo what makes them special.
 3. Generate a song you can share.
 
-Create a free song: https://apps.apple.com/us/app/porizo-song-gift-maker/id6758205028
+Create a free song: https://porizo.co/download?utm_source=cold-email&utm_medium=email&utm_campaign={{campaign}}&utm_content=no-song-cta
 
 free · no credit card needed
 

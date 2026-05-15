@@ -37,8 +37,13 @@ const textTpl = fs.readFileSync(
   "utf8",
 );
 
-const html = htmlTpl.replaceAll("{{first_name}}", FIRST_NAME);
-const text = textTpl.replaceAll("{{first_name}}", FIRST_NAME);
+const CAMPAIGN_ID = process.argv[4] || "mothers-day-2026";
+const html = htmlTpl
+  .replaceAll("{{campaign}}", CAMPAIGN_ID)
+  .replaceAll("{{first_name}}", FIRST_NAME);
+const text = textTpl
+  .replaceAll("{{campaign}}", CAMPAIGN_ID)
+  .replaceAll("{{first_name}}", FIRST_NAME);
 
 const payload = {
   from: "Ambrose from Porizo <support@porizo.co>",

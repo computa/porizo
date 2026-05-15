@@ -109,6 +109,12 @@ function safeTemplatePath(rel) {
 function buildResendPayload(rows, options) {
   const { campaign, htmlTemplate, textTemplate, scheduleStart } = options;
   const pace = campaign.schedule_pace_seconds;
+  // Per-campaign substitutions (one pre-pass instead of N×) — `{{campaign}}`
+  // becomes the campaign id so UTM strings in the templates resolve to e.g.
+  // utm_campaign=mothers-day-2026 and the /download endpoint can attribute
+  // the click in download_events.
+  const htmlPre = htmlTemplate.replaceAll("{{campaign}}", campaign.id);
+  const textPre = textTemplate.replaceAll("{{campaign}}", campaign.id);
   const out = [];
   let queueIndex = 0;
   for (const row of rows) {
@@ -123,8 +129,8 @@ function buildResendPayload(rows, options) {
       to: [email],
       reply_to: campaign.reply_to,
       subject: campaign.subject,
-      html: htmlTemplate.replaceAll("{{first_name}}", firstName),
-      text: textTemplate.replaceAll("{{first_name}}", firstName),
+      html: htmlPre.replaceAll("{{first_name}}", firstName),
+      text: textPre.replaceAll("{{first_name}}", firstName),
       scheduled_at: scheduled.toISOString(),
       tags: [
         { name: "campaign", value: campaign.id },

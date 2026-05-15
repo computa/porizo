@@ -224,6 +224,25 @@ describe("cold-email-service · buildResendPayload", () => {
     assert.equal(p[0].reply_to, "support@porizo.co");
   });
 
+  it("substitutes {{campaign}} with campaign.id (UTM attribution)", () => {
+    // /download?utm_campaign={{campaign}} must resolve to the real
+    // campaign id so download_events.utm_campaign correctly attributes
+    // the click.
+    const utmHtml =
+      '<a href="https://porizo.co/download?utm_campaign={{campaign}}&utm_content=cold-intro">Get it</a>';
+    const utmText =
+      "Get it: https://porizo.co/download?utm_campaign={{campaign}}&utm_content=cold-intro";
+    const p = svc.buildResendPayload(fixtureRows, {
+      ...opts,
+      htmlTemplate: utmHtml,
+      textTemplate: utmText,
+    });
+    assert.match(p[0].html, /utm_campaign=mothers-day-2026/);
+    assert.match(p[0].text, /utm_campaign=mothers-day-2026/);
+    assert.doesNotMatch(p[0].html, /\{\{campaign\}\}/);
+    assert.doesNotMatch(p[0].text, /\{\{campaign\}\}/);
+  });
+
   it("skips rows with missing or invalid email", () => {
     const rows = [
       {
