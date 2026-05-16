@@ -3897,15 +3897,22 @@ function buildServer({
       // Re-sign artwork_url for every response so iOS AsyncImage / iMessage
       // crawlers can fetch without an Authorization header. The DB stores the
       // raw unsigned path (`/tracks/<id>/artwork.jpg?v=<ms>`); we extract the
-      // cache-bust stamp and rebuild a signed URL with a fresh expiry. Pairs
-      // share_token when one exists so revocation also invalidates the link.
+      // cache-bust stamp and rebuild a signed URL with a fresh expiry.
+      //
+      // We deliberately DO NOT bind to share_token here. The route accepts a
+      // bare-HMAC capability URL (sig + exp without share_token) for any
+      // caller, which covers owner playback uniformly. Binding owner-context
+      // URLs to share_token state means revoking the share also kills the
+      // owner's own playback — the route has no fallback when the paired
+      // share check fails. Share-bound URLs (long-lived iMessage / WhatsApp
+      // unfurls where revocation coupling is desired) should be minted at
+      // the share-page boundary, not here.
       let signedArtworkUrl = row.artwork_url ?? null;
       if (signedArtworkUrl && row.id) {
         const cacheBustMatch = String(row.artwork_url).match(/[?&]v=(\d+)/);
         try {
           signedArtworkUrl = buildSignedArtworkUrl({
             trackId: row.id,
-            shareTokenId: row.share_token_id || null,
             versionStamp: cacheBustMatch ? cacheBustMatch[1] : Date.now(),
           });
         } catch (err) {

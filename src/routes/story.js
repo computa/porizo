@@ -46,7 +46,7 @@ const { runHttpChecks } = require("../writer/v3/orchestration/http-debugger");
 const { newUuid } = require("../utils/ids");
 const { generateElementGuidance } = require("../writer/v3/guidance");
 const { normalizeStyle } = require("../providers/style-registry");
-const { buildSongTitle } = require("./onboarding");
+const { buildSongTitle, firstName } = require("./onboarding");
 const { formatOccasion } = require("../utils/og-text-utils");
 const {
   findGiftFundingContent,
@@ -4121,10 +4121,7 @@ function registerStoryRoutes(
         const composedTitle = buildSongTitle({
           recipientName: storyContext.recipientName,
           occasionLabel,
-          senderFirstName: (() => {
-            const trimmed = String(trackOwner?.display_name || "").trim();
-            return trimmed ? trimmed.split(/\s+/)[0] : "";
-          })(),
+          senderFirstName: firstName(trackOwner?.display_name),
         });
 
         await db

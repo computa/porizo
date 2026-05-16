@@ -80,14 +80,28 @@ function signArtworkUrl({ trackId, expiryUnix, kid = DEFAULT_KID } = {}) {
  * @returns {string} Path with query string, e.g.
  *                   `/tracks/<id>/artwork.jpg?v=<ms>&sig=<base64url>&exp=<unix>&kid=v1`
  */
+const DEFAULT_ARTWORK_TTL_SECONDS = 90 * 24 * 60 * 60; // 90 days
+const ONE_DAY_SECONDS = 24 * 60 * 60;
+
 function buildSignedArtworkUrl({
   trackId,
-  ttlSeconds = 90 * 24 * 60 * 60, // 90 days
+  ttlSeconds = DEFAULT_ARTWORK_TTL_SECONDS,
   shareTokenId = null,
   versionStamp = Date.now(),
 } = {}) {
   if (!trackId) throw new Error("buildSignedArtworkUrl: trackId is required");
-  const expiryUnix = Math.floor(Date.now() / 1000) + Number(ttlSeconds);
+  const ttlNum = Number(ttlSeconds);
+  if (!Number.isFinite(ttlNum) || ttlNum <= 0) {
+    throw new Error(
+      `buildSignedArtworkUrl: ttlSeconds must be a positive number, got ${ttlSeconds}`,
+    );
+  }
+  // Round `exp` UP to the next day boundary so the URL is stable within a day.
+  // Without this, every API call re-signs with a fresh epoch, busting iOS
+  // NSURLCache (which keys on the full URL including query) and forcing a
+  // redownload of an immutable JPG on every NowPlaying refresh.
+  const rawExp = Math.floor(Date.now() / 1000) + ttlNum;
+  const expiryUnix = Math.ceil(rawExp / ONE_DAY_SECONDS) * ONE_DAY_SECONDS;
   const sig = signArtworkUrl({ trackId, expiryUnix, kid: DEFAULT_KID });
   const params = new URLSearchParams();
   params.set("v", String(versionStamp));
