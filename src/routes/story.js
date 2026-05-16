@@ -7,7 +7,10 @@
 
 const crypto = require("crypto");
 const writer = require("../writer");
-const { moderationCheck, validateGeneratedLyrics } = require("../providers/moderation");
+const {
+  moderationCheck,
+  validateGeneratedLyrics,
+} = require("../providers/moderation");
 const { getFeatureFlag } = require("../services/feature-flags");
 const {
   findActiveProviderProfileForUser,
@@ -47,7 +50,9 @@ const {
   findGiftFundingContent,
   validateGiftFundingReservation,
 } = require("../services/gift-funding");
-const { buildTrackStoryContextPayload } = require("../writer/story-context-serialization");
+const {
+  buildTrackStoryContextPayload,
+} = require("../writer/story-context-serialization");
 
 const STORY_INITIAL_PROMPT_WARNING_THRESHOLD = 8000;
 const STORY_INITIAL_PROMPT_MAX_LENGTH = 12000;
@@ -63,10 +68,14 @@ function spreadStoryAnalysisFields(result) {
     slot_guidance: result.slot_guidance || null,
     missing_slots: result.missing_slots || [],
     weak_slots: result.weak_slots || [],
-    readiness_score: typeof result.readiness_score === "number" ? result.readiness_score : 0,
+    readiness_score:
+      typeof result.readiness_score === "number" ? result.readiness_score : 0,
     is_story_ready: Boolean(result.is_story_ready),
     can_proceed_anyway: Boolean(result.can_proceed_anyway),
-    narrative_version: typeof result.narrative_version === "number" ? result.narrative_version : 0,
+    narrative_version:
+      typeof result.narrative_version === "number"
+        ? result.narrative_version
+        : 0,
     integration_delta: result.integration_delta || null,
     draft_lifecycle: result.draft_lifecycle || null,
     fact_inventory: result.fact_inventory || [],
@@ -121,8 +130,7 @@ function sunoPersonaReadinessError(providerProfile) {
   if (SUNO_PERSONA_FAILED_STATUSES.has(status)) {
     return {
       code: "SUNO_VOICE_PERSONA_FAILED",
-      message:
-        "My Voice setup hit a provider issue. Please try again shortly.",
+      message: "My Voice setup hit a provider issue. Please try again shortly.",
       requiresVoiceEnrollment: true,
     };
   }
@@ -173,10 +181,16 @@ function mapGiftFundingError(reply, err) {
 function sanitizeSongReadinessForClient(readiness) {
   if (!readiness || typeof readiness !== "object") return null;
   const safeBlockers = Array.isArray(readiness.blockers)
-    ? readiness.blockers.map((b) => ({ code: b?.code || null, message: b?.message || null }))
+    ? readiness.blockers.map((b) => ({
+        code: b?.code || null,
+        message: b?.message || null,
+      }))
     : [];
   const safeWarnings = Array.isArray(readiness.warnings)
-    ? readiness.warnings.map((w) => ({ code: w?.code || null, message: w?.message || null }))
+    ? readiness.warnings.map((w) => ({
+        code: w?.code || null,
+        message: w?.message || null,
+      }))
     : [];
   return {
     ready: Boolean(readiness.ready),
@@ -186,7 +200,9 @@ function sanitizeSongReadinessForClient(readiness) {
     required_detail_count: Number.isFinite(readiness.required_detail_count)
       ? readiness.required_detail_count
       : null,
-    canonical_required_detail_count: Number.isFinite(readiness.canonical_required_detail_count)
+    canonical_required_detail_count: Number.isFinite(
+      readiness.canonical_required_detail_count,
+    )
       ? readiness.canonical_required_detail_count
       : null,
   };
@@ -243,22 +259,33 @@ async function verifyStoryOwnership(storyId, userId, sendError, reply, db) {
       return null;
     }
     if (!state.userId && db) {
-      const claimResult = await db.prepare(
-        "UPDATE story_sessions SET user_id = ? WHERE id = ? AND user_id IS NULL"
-      ).run(userId, storyId);
+      const claimResult = await db
+        .prepare(
+          "UPDATE story_sessions SET user_id = ? WHERE id = ? AND user_id IS NULL",
+        )
+        .run(userId, storyId);
       if (claimResult.changes > 0) {
         state.userId = userId;
         console.warn("[Story] Claimed unowned session:", { storyId, userId });
       } else if (claimResult.changes === 0 && !state.userId) {
-        const fresh = await db.prepare(
-          "SELECT user_id FROM story_sessions WHERE id = ?"
-        ).get(storyId);
+        const fresh = await db
+          .prepare("SELECT user_id FROM story_sessions WHERE id = ?")
+          .get(storyId);
         state.userId = fresh?.user_id;
       }
     }
     if (state.userId !== userId) {
-      console.warn("[Story] Authorization denied:", { storyId, requestingUserId: userId, ownerUserId: state.userId });
-      sendError(reply, 403, "UNAUTHORIZED", "You don't own this story session.");
+      console.warn("[Story] Authorization denied:", {
+        storyId,
+        requestingUserId: userId,
+        ownerUserId: state.userId,
+      });
+      sendError(
+        reply,
+        403,
+        "UNAUTHORIZED",
+        "You don't own this story session.",
+      );
       return null;
     }
     return state;
@@ -266,8 +293,17 @@ async function verifyStoryOwnership(storyId, userId, sendError, reply, db) {
     if (err.message && err.message.includes("not found")) {
       sendError(reply, 404, "STORY_NOT_FOUND", "Story session not found.");
     } else {
-      console.error("[Story] Ownership verification failed:", { storyId, userId, error: err.message });
-      sendError(reply, 500, "STORY_STATE_FAILED", "Something went wrong loading your story. Please try again.");
+      console.error("[Story] Ownership verification failed:", {
+        storyId,
+        userId,
+        error: err.message,
+      });
+      sendError(
+        reply,
+        500,
+        "STORY_STATE_FAILED",
+        "Something went wrong loading your story. Please try again.",
+      );
     }
     return null;
   }
@@ -282,7 +318,11 @@ const schemas = {
       type: "object",
       required: ["initial_prompt", "recipient_name"],
       properties: {
-        initial_prompt: { type: "string", minLength: 1, maxLength: STORY_INITIAL_PROMPT_ACCEPT_MAX_LENGTH },
+        initial_prompt: {
+          type: "string",
+          minLength: 1,
+          maxLength: STORY_INITIAL_PROMPT_ACCEPT_MAX_LENGTH,
+        },
         occasion: { type: "string", maxLength: 50 },
         recipient_name: { type: "string", minLength: 1, maxLength: 100 },
         style: { type: "string", maxLength: 50 },
@@ -296,7 +336,11 @@ const schemas = {
       type: "object",
       required: ["answer"],
       properties: {
-        answer: { type: "string", minLength: 2, maxLength: STORY_CONTINUE_ANSWER_MAX_LENGTH },
+        answer: {
+          type: "string",
+          minLength: 2,
+          maxLength: STORY_CONTINUE_ANSWER_MAX_LENGTH,
+        },
         expected_session_version: { type: "integer", minimum: 0 },
       },
       additionalProperties: false,
@@ -308,10 +352,7 @@ const schemas = {
       required: ["style"],
       properties: {
         style: {
-          anyOf: [
-            { type: "string", maxLength: 50 },
-            { type: "null" },
-          ],
+          anyOf: [{ type: "string", maxLength: 50 }, { type: "null" }],
         },
       },
       additionalProperties: false,
@@ -344,12 +385,27 @@ const schemas = {
       required: ["revision_request"],
       properties: {
         revision_request: { type: "string", minLength: 2, maxLength: 600 },
-        source: { type: "string", enum: ["review_edit", "confirm_notes", "reopen_edit"] },
+        source: {
+          type: "string",
+          enum: ["review_edit", "confirm_notes", "reopen_edit"],
+        },
         operation: {
           type: "object",
           properties: {
-            type: { type: "string", enum: ["append", "replace", "remove", "resolve_conflict", "final_notes"] },
-            target_type: { type: "string", enum: ["narrative", "fact", "beat", "section", "conflict"] },
+            type: {
+              type: "string",
+              enum: [
+                "append",
+                "replace",
+                "remove",
+                "resolve_conflict",
+                "final_notes",
+              ],
+            },
+            target_type: {
+              type: "string",
+              enum: ["narrative", "fact", "beat", "section", "conflict"],
+            },
             target_id: { type: "string", minLength: 1, maxLength: 200 },
             target_text: { type: "string", minLength: 1, maxLength: 500 },
             replacement_text: { type: "string", minLength: 1, maxLength: 800 },
@@ -491,7 +547,11 @@ const schemas = {
             additionalProperties: true,
           },
         },
-        max_attempts: { type: "integer", minimum: 1, maximum: V3_ORCHESTRATION_MAX_DEBUG_ATTEMPTS },
+        max_attempts: {
+          type: "integer",
+          minimum: 1,
+          maximum: V3_ORCHESTRATION_MAX_DEBUG_ATTEMPTS,
+        },
         debug_user_id: { type: "string", minLength: 1, maxLength: 200 },
       },
       additionalProperties: true,
@@ -564,7 +624,11 @@ const schemas = {
             additionalProperties: true,
           },
         },
-        max_attempts: { type: "integer", minimum: 1, maximum: V3_ORCHESTRATION_MAX_DEBUG_ATTEMPTS },
+        max_attempts: {
+          type: "integer",
+          minimum: 1,
+          maximum: V3_ORCHESTRATION_MAX_DEBUG_ATTEMPTS,
+        },
         debug_user_id: { type: "string", minLength: 1, maxLength: 200 },
       },
       additionalProperties: false,
@@ -638,7 +702,11 @@ const schemas = {
     querystring: {
       type: "object",
       properties: {
-        limit: { type: "integer", minimum: 1, maximum: V3_ORCHESTRATION_MAX_LIST_LIMIT },
+        limit: {
+          type: "integer",
+          minimum: 1,
+          maximum: V3_ORCHESTRATION_MAX_LIST_LIMIT,
+        },
         offset: { type: "integer", minimum: 0, maximum: 1000000 },
         status: { type: "string", minLength: 1, maxLength: 80 },
       },
@@ -668,7 +736,11 @@ const schemas = {
       type: "object",
       properties: {
         include_events: { type: "boolean" },
-        event_limit: { type: "integer", minimum: 1, maximum: V3_ORCHESTRATION_MAX_EVENT_LIST_LIMIT },
+        event_limit: {
+          type: "integer",
+          minimum: 1,
+          maximum: V3_ORCHESTRATION_MAX_EVENT_LIST_LIMIT,
+        },
         event_offset: { type: "integer", minimum: 0, maximum: 1000000 },
       },
       additionalProperties: false,
@@ -686,7 +758,11 @@ const schemas = {
     querystring: {
       type: "object",
       properties: {
-        limit: { type: "integer", minimum: 1, maximum: V3_ORCHESTRATION_MAX_EVENT_LIST_LIMIT },
+        limit: {
+          type: "integer",
+          minimum: 1,
+          maximum: V3_ORCHESTRATION_MAX_EVENT_LIST_LIMIT,
+        },
         offset: { type: "integer", minimum: 0, maximum: 1000000 },
       },
       additionalProperties: false,
@@ -738,7 +814,11 @@ const schemas = {
             additionalProperties: true,
           },
         },
-        max_attempts: { type: "integer", minimum: 1, maximum: V3_ORCHESTRATION_MAX_DEBUG_ATTEMPTS },
+        max_attempts: {
+          type: "integer",
+          minimum: 1,
+          maximum: V3_ORCHESTRATION_MAX_DEBUG_ATTEMPTS,
+        },
         debug_user_id: { type: "string", minLength: 1, maxLength: 200 },
       },
       additionalProperties: false,
@@ -747,9 +827,16 @@ const schemas = {
 };
 
 function normalizeStoryInitialPrompt(initialPrompt, occasion, recipientName) {
-  const trimmedPrompt = typeof initialPrompt === "string" ? initialPrompt.trim() : "";
-  const safeOccasion = typeof occasion === "string" && occasion.trim() ? occasion.trim() : "celebration";
-  const safeRecipient = typeof recipientName === "string" && recipientName.trim() ? recipientName.trim() : "someone special";
+  const trimmedPrompt =
+    typeof initialPrompt === "string" ? initialPrompt.trim() : "";
+  const safeOccasion =
+    typeof occasion === "string" && occasion.trim()
+      ? occasion.trim()
+      : "celebration";
+  const safeRecipient =
+    typeof recipientName === "string" && recipientName.trim()
+      ? recipientName.trim()
+      : "someone special";
   const fallback = `A heartfelt ${safeOccasion} story for ${safeRecipient}.`;
   const basePrompt = trimmedPrompt || fallback;
   return {
@@ -773,7 +860,9 @@ function normalizeDebugCheckPayloads(rawChecks) {
     throw new Error("checks must be a non-empty array.");
   }
   if (rawChecks.length > V3_ORCHESTRATION_MAX_DEBUG_CHECKS) {
-    throw new Error(`checks cannot exceed ${V3_ORCHESTRATION_MAX_DEBUG_CHECKS}.`);
+    throw new Error(
+      `checks cannot exceed ${V3_ORCHESTRATION_MAX_DEBUG_CHECKS}.`,
+    );
   }
 
   return rawChecks.map((check, index) => {
@@ -783,17 +872,25 @@ function normalizeDebugCheckPayloads(rawChecks) {
 
     const path = typeof check.path === "string" ? check.path.trim() : "";
     if (!path.startsWith("/") || path.includes("://")) {
-      throw new Error(`checks[${index}].path must be an internal route path starting with '/'.`);
+      throw new Error(
+        `checks[${index}].path must be an internal route path starting with '/'.`,
+      );
     }
     if (path.startsWith("/story/v3/orchestration/debug-loop")) {
-      throw new Error("debug-loop checks cannot target /story/v3/orchestration/debug-loop.");
+      throw new Error(
+        "debug-loop checks cannot target /story/v3/orchestration/debug-loop.",
+      );
     }
 
     return {
       ...check,
       path,
-      method: typeof check.method === "string" ? check.method.toUpperCase() : "GET",
-      name: typeof check.name === "string" && check.name.trim() ? check.name.trim() : undefined,
+      method:
+        typeof check.method === "string" ? check.method.toUpperCase() : "GET",
+      name:
+        typeof check.name === "string" && check.name.trim()
+          ? check.name.trim()
+          : undefined,
     };
   });
 }
@@ -826,9 +923,10 @@ function parseBoolean(value, fallback = false) {
 }
 
 function resolveRuntimeMode(requestedMode, defaultMode) {
-  const mode = typeof requestedMode === "string" && requestedMode.trim()
-    ? requestedMode.trim().toLowerCase()
-    : String(defaultMode || "local").toLowerCase();
+  const mode =
+    typeof requestedMode === "string" && requestedMode.trim()
+      ? requestedMode.trim().toLowerCase()
+      : String(defaultMode || "local").toLowerCase();
 
   if (mode !== "local" && mode !== "external") {
     throw new Error("runtime_mode must be 'local' or 'external'.");
@@ -861,22 +959,25 @@ function createInternalInjectFetch(app, defaultHeaders = {}) {
  * @param {Object} app - Fastify instance
  * @param {Object} options - Options object with db, helpers, etc.
  */
-function registerStoryRoutes(app, {
-  db,
-  requireUserId,
-  requireAdminRole = null,
-  sendError,
-  consumeRateLimit,
-  addAuditEntry,
-  eventsService,
-  getUserRiskLevel = async () => "low",
-  subscriptionManager = null,
-  enableV3OrchestrationRoutes = false,
-  orchestrationExecutorMode = "local",
-  orchestrationExternalCommandJson = "",
-  orchestrationExternalTimeoutMs = 120000,
-  storyEngineDefault: _storyEngineDefault = "v3",
-}) {
+function registerStoryRoutes(
+  app,
+  {
+    db,
+    requireUserId,
+    requireAdminRole = null,
+    sendError,
+    consumeRateLimit,
+    addAuditEntry,
+    eventsService,
+    getUserRiskLevel = async () => "low",
+    subscriptionManager = null,
+    enableV3OrchestrationRoutes = false,
+    orchestrationExecutorMode = "local",
+    orchestrationExternalCommandJson = "",
+    orchestrationExternalTimeoutMs = 120000,
+    storyEngineDefault: _storyEngineDefault = "v3",
+  },
+) {
   const normalizedStoryEngineDefault = "v3";
 
   async function upsertTrackLibraryEntry({
@@ -887,24 +988,28 @@ function registerStoryRoutes(app, {
     addedAt = new Date().toISOString(),
   }) {
     const now = new Date().toISOString();
-    const updateResult = await db.prepare(
-      `UPDATE track_library_entries
+    const updateResult = await db
+      .prepare(
+        `UPDATE track_library_entries
        SET origin = CASE WHEN origin = 'created' THEN origin ELSE ? END,
            share_token_id = COALESCE(?, share_token_id),
            added_at = CASE WHEN removed_at IS NOT NULL THEN ? ELSE added_at END,
            removed_at = NULL, updated_at = ?
-       WHERE user_id = ? AND track_id = ?`
-    ).run(origin, shareTokenId, addedAt, now, userId, trackId);
+       WHERE user_id = ? AND track_id = ?`,
+      )
+      .run(origin, shareTokenId, addedAt, now, userId, trackId);
 
     if (updateResult.changes > 0) {
       return;
     }
 
-    await db.prepare(
-      `INSERT INTO track_library_entries
+    await db
+      .prepare(
+        `INSERT INTO track_library_entries
        (user_id, track_id, origin, share_token_id, added_at, removed_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, NULL, ?)`
-    ).run(userId, trackId, origin, shareTokenId, addedAt, now);
+       VALUES (?, ?, ?, ?, ?, NULL, ?)`,
+      )
+      .run(userId, trackId, origin, shareTokenId, addedAt, now);
   }
 
   async function upsertPoemLibraryEntry({
@@ -915,24 +1020,28 @@ function registerStoryRoutes(app, {
     addedAt = new Date().toISOString(),
   }) {
     const now = new Date().toISOString();
-    const updateResult = await db.prepare(
-      `UPDATE poem_library_entries
+    const updateResult = await db
+      .prepare(
+        `UPDATE poem_library_entries
        SET origin = CASE WHEN origin = 'created' THEN origin ELSE ? END,
            share_token_id = COALESCE(?, share_token_id),
            added_at = CASE WHEN removed_at IS NOT NULL THEN ? ELSE added_at END,
            removed_at = NULL, updated_at = ?
-       WHERE user_id = ? AND poem_id = ?`
-    ).run(origin, shareTokenId, addedAt, now, userId, poemId);
+       WHERE user_id = ? AND poem_id = ?`,
+      )
+      .run(origin, shareTokenId, addedAt, now, userId, poemId);
 
     if (updateResult.changes > 0) {
       return;
     }
 
-    await db.prepare(
-      `INSERT INTO poem_library_entries
+    await db
+      .prepare(
+        `INSERT INTO poem_library_entries
        (user_id, poem_id, origin, share_token_id, added_at, removed_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, NULL, ?)`
-    ).run(userId, poemId, origin, shareTokenId, addedAt, now);
+       VALUES (?, ?, ?, ?, ?, NULL, ?)`,
+      )
+      .run(userId, poemId, origin, shareTokenId, addedAt, now);
   }
 
   async function removeTrackLibraryEntry({
@@ -940,11 +1049,13 @@ function registerStoryRoutes(app, {
     trackId,
     removedAt = new Date().toISOString(),
   }) {
-    await db.prepare(
-      `UPDATE track_library_entries
+    await db
+      .prepare(
+        `UPDATE track_library_entries
        SET removed_at = COALESCE(removed_at, ?), updated_at = ?
-       WHERE user_id = ? AND track_id = ? AND removed_at IS NULL`
-    ).run(removedAt, removedAt, userId, trackId);
+       WHERE user_id = ? AND track_id = ? AND removed_at IS NULL`,
+      )
+      .run(removedAt, removedAt, userId, trackId);
   }
 
   async function removePoemLibraryEntry({
@@ -952,16 +1063,23 @@ function registerStoryRoutes(app, {
     poemId,
     removedAt = new Date().toISOString(),
   }) {
-    await db.prepare(
-      `UPDATE poem_library_entries
+    await db
+      .prepare(
+        `UPDATE poem_library_entries
        SET removed_at = COALESCE(removed_at, ?), updated_at = ?
-       WHERE user_id = ? AND poem_id = ? AND removed_at IS NULL`
-    ).run(removedAt, removedAt, userId, poemId);
+       WHERE user_id = ? AND poem_id = ? AND removed_at IS NULL`,
+      )
+      .run(removedAt, removedAt, userId, poemId);
   }
 
   async function requireV3OrchestrationAdmin(request, reply) {
     if (typeof requireAdminRole !== "function") {
-      sendError(reply, 503, "ADMIN_AUTH_UNAVAILABLE", "Admin auth is required for orchestration routes.");
+      sendError(
+        reply,
+        503,
+        "ADMIN_AUTH_UNAVAILABLE",
+        "Admin auth is required for orchestration routes.",
+      );
       return null;
     }
     return requireAdminRole(request, reply, ["admin", "superadmin"]);
@@ -977,21 +1095,23 @@ function registerStoryRoutes(app, {
     replayOf = null,
   }) {
     const now = new Date().toISOString();
-    await db.prepare(
-      `INSERT INTO orchestration_executions
+    await db
+      .prepare(
+        `INSERT INTO orchestration_executions
        (id, admin_id, status, endpoint, runtime_mode, request_json, result_json, debug_json, error_json, replay_of, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?, ?)`
-    ).run(
-      executionId,
-      adminId,
-      status,
-      endpoint,
-      runtimeMode,
-      JSON.stringify(requestPayload || {}),
-      replayOf,
-      now,
-      now
-    );
+       VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?, ?)`,
+      )
+      .run(
+        executionId,
+        adminId,
+        status,
+        endpoint,
+        runtimeMode,
+        JSON.stringify(requestPayload || {}),
+        replayOf,
+        now,
+        now,
+      );
   }
 
   async function updateOrchestrationExecutionRecord({
@@ -1001,18 +1121,20 @@ function registerStoryRoutes(app, {
     debug = null,
     error = null,
   }) {
-    await db.prepare(
-      `UPDATE orchestration_executions
+    await db
+      .prepare(
+        `UPDATE orchestration_executions
        SET status = ?, result_json = ?, debug_json = ?, error_json = ?, updated_at = ?
-       WHERE id = ?`
-    ).run(
-      status,
-      result ? JSON.stringify(result) : null,
-      debug ? JSON.stringify(debug) : null,
-      error ? JSON.stringify(error) : null,
-      new Date().toISOString(),
-      executionId
-    );
+       WHERE id = ?`,
+      )
+      .run(
+        status,
+        result ? JSON.stringify(result) : null,
+        debug ? JSON.stringify(debug) : null,
+        error ? JSON.stringify(error) : null,
+        new Date().toISOString(),
+        executionId,
+      );
   }
 
   async function appendOrchestrationExecutionEvent({
@@ -1024,27 +1146,32 @@ function registerStoryRoutes(app, {
     payload = null,
   }) {
     try {
-      await db.prepare(
-        `INSERT INTO orchestration_execution_events
+      await db
+        .prepare(
+          `INSERT INTO orchestration_execution_events
          (id, execution_id, sequence, event_type, level, message, payload_json, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-      ).run(
-        crypto.randomUUID(),
-        executionId,
-        sequence,
-        eventType,
-        level,
-        message || null,
-        payload ? JSON.stringify(payload) : null,
-        new Date().toISOString()
-      );
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          crypto.randomUUID(),
+          executionId,
+          sequence,
+          eventType,
+          level,
+          message || null,
+          payload ? JSON.stringify(payload) : null,
+          new Date().toISOString(),
+        );
     } catch (err) {
-      console.warn("[Story V3 Orchestration] failed to persist execution event:", {
-        executionId,
-        sequence,
-        eventType,
-        error: err.message,
-      });
+      console.warn(
+        "[Story V3 Orchestration] failed to persist execution event:",
+        {
+          executionId,
+          sequence,
+          eventType,
+          error: err.message,
+        },
+      );
     }
   }
 
@@ -1067,20 +1194,29 @@ function registerStoryRoutes(app, {
     limit = 100,
     offset = 0,
   }) {
-    const safeLimit = clampInt(limit, 1, V3_ORCHESTRATION_MAX_EVENT_LIST_LIMIT, 100);
+    const safeLimit = clampInt(
+      limit,
+      1,
+      V3_ORCHESTRATION_MAX_EVENT_LIST_LIMIT,
+      100,
+    );
     const safeOffset = clampInt(offset, 0, 1000000, 0);
 
-    const countRow = await db.prepare(
-      "SELECT COUNT(*) as total FROM orchestration_execution_events WHERE execution_id = ?"
-    ).get(executionId);
+    const countRow = await db
+      .prepare(
+        "SELECT COUNT(*) as total FROM orchestration_execution_events WHERE execution_id = ?",
+      )
+      .get(executionId);
 
-    const rows = await db.prepare(
-      `SELECT id, execution_id, sequence, event_type, level, message, payload_json, created_at
+    const rows = await db
+      .prepare(
+        `SELECT id, execution_id, sequence, event_type, level, message, payload_json, created_at
        FROM orchestration_execution_events
        WHERE execution_id = ?
        ORDER BY sequence ASC, created_at ASC
-       LIMIT ? OFFSET ?`
-    ).all(executionId, safeLimit, safeOffset);
+       LIMIT ? OFFSET ?`,
+      )
+      .all(executionId, safeLimit, safeOffset);
 
     return {
       items: rows.map(toExecutionEventResponseRecord),
@@ -1110,14 +1246,13 @@ function registerStoryRoutes(app, {
     };
   }
 
-  async function fetchOrchestrationExecutionRecord(executionId, {
-    includeEvents = false,
-    eventLimit = 100,
-    eventOffset = 0,
-  } = {}) {
-    const row = await db.prepare(
-      "SELECT * FROM orchestration_executions WHERE id = ?"
-    ).get(executionId);
+  async function fetchOrchestrationExecutionRecord(
+    executionId,
+    { includeEvents = false, eventLimit = 100, eventOffset = 0 } = {},
+  ) {
+    const row = await db
+      .prepare("SELECT * FROM orchestration_executions WHERE id = ?")
+      .get(executionId);
     const record = toExecutionResponseRecord(row);
     if (!record || !includeEvents) {
       return record;
@@ -1135,14 +1270,20 @@ function registerStoryRoutes(app, {
     };
   }
 
-  function buildInternalDebugFetchOptions(requestHeaders, debugUserId, adminId) {
+  function buildInternalDebugFetchOptions(
+    requestHeaders,
+    debugUserId,
+    adminId,
+  ) {
     const defaultHeaders = {};
     if (requestHeaders.authorization) {
       defaultHeaders.authorization = requestHeaders.authorization;
     }
     if (debugUserId) {
       defaultHeaders["x-user-id"] = debugUserId;
-      console.warn(`[Security] Admin ${adminId || "unknown"} impersonating user ${debugUserId}`);
+      console.warn(
+        `[Security] Admin ${adminId || "unknown"} impersonating user ${debugUserId}`,
+      );
       try {
         addAuditEntry({
           userId: adminId || "unknown",
@@ -1156,7 +1297,10 @@ function registerStoryRoutes(app, {
           },
         });
       } catch (auditErr) {
-        console.error("[Security] Failed to write impersonation audit log:", auditErr.message);
+        console.error(
+          "[Security] Failed to write impersonation audit log:",
+          auditErr.message,
+        );
       }
     }
     return defaultHeaders;
@@ -1173,7 +1317,10 @@ function registerStoryRoutes(app, {
       design_refs: payload.design_refs,
       target_files: payload.target_files,
     });
-    const runtimeMode = resolveRuntimeMode(payload.runtime_mode, orchestrationExecutorMode);
+    const runtimeMode = resolveRuntimeMode(
+      payload.runtime_mode,
+      orchestrationExecutorMode,
+    );
     const executionId = crypto.randomUUID();
     const requestPayload = {
       milestone: backendTask.milestone,
@@ -1182,11 +1329,18 @@ function registerStoryRoutes(app, {
       objective: payload.objective || `Implement ${backendTask.milestone}`,
       repository: payload.repository || "porizo",
       plan: payload.plan || {},
-      reconstruction_steps: Array.isArray(payload.reconstruction_steps) ? payload.reconstruction_steps : [],
+      reconstruction_steps: Array.isArray(payload.reconstruction_steps)
+        ? payload.reconstruction_steps
+        : [],
       runtime_mode: runtimeMode,
-      debug_checks: Array.isArray(payload.debug_checks) ? payload.debug_checks : [],
+      debug_checks: Array.isArray(payload.debug_checks)
+        ? payload.debug_checks
+        : [],
       max_attempts: payload.max_attempts,
-      debug_user_id: typeof payload.debug_user_id === "string" ? payload.debug_user_id.trim() : "",
+      debug_user_id:
+        typeof payload.debug_user_id === "string"
+          ? payload.debug_user_id.trim()
+          : "",
     };
     let eventSequence = 0;
     const writeEvent = async ({
@@ -1256,7 +1410,12 @@ function registerStoryRoutes(app, {
         runtime: {
           mode: runtimeMode,
           commandJson: orchestrationExternalCommandJson,
-          timeoutMs: clampInt(orchestrationExternalTimeoutMs, 1000, 600000, 120000),
+          timeoutMs: clampInt(
+            orchestrationExternalTimeoutMs,
+            1000,
+            600000,
+            120000,
+          ),
         },
       });
       await writeEvent({
@@ -1265,15 +1424,24 @@ function registerStoryRoutes(app, {
         message: "Backend task execution completed.",
         payload: {
           status: execution.status,
-          files_changed_count: Array.isArray(execution.files_changed) ? execution.files_changed.length : 0,
-          tests_added_count: Array.isArray(execution.tests_added) ? execution.tests_added.length : 0,
-          missing_target_count: Array.isArray(execution.missing_targets) ? execution.missing_targets.length : 0,
+          files_changed_count: Array.isArray(execution.files_changed)
+            ? execution.files_changed.length
+            : 0,
+          tests_added_count: Array.isArray(execution.tests_added)
+            ? execution.tests_added.length
+            : 0,
+          missing_target_count: Array.isArray(execution.missing_targets)
+            ? execution.missing_targets.length
+            : 0,
           runtime: execution.runtime || null,
         },
       });
 
       let debug = null;
-      if (Array.isArray(requestPayload.debug_checks) && requestPayload.debug_checks.length > 0) {
+      if (
+        Array.isArray(requestPayload.debug_checks) &&
+        requestPayload.debug_checks.length > 0
+      ) {
         const checks = normalizeDebugCheckPayloads(requestPayload.debug_checks);
         const maxAttempts = parseMaxDebugAttempts(requestPayload.max_attempts);
         await writeEvent({
@@ -1286,7 +1454,10 @@ function registerStoryRoutes(app, {
         });
         const fetchImpl = createInternalInjectFetch(
           app,
-          buildInternalDebugFetchOptions(requestHeaders, requestPayload.debug_user_id)
+          buildInternalDebugFetchOptions(
+            requestHeaders,
+            requestPayload.debug_user_id,
+          ),
         );
         debug = await runDebugFeedbackLoop({
           baseUrl: "http://porizo.internal",
@@ -1309,8 +1480,12 @@ function registerStoryRoutes(app, {
               payload: {
                 attempt,
                 passed: report.passed,
-                check_count: Array.isArray(report.checks) ? report.checks.length : 0,
-                failure_count: Array.isArray(report.failures) ? report.failures.length : 0,
+                check_count: Array.isArray(report.checks)
+                  ? report.checks.length
+                  : 0,
+                failure_count: Array.isArray(report.failures)
+                  ? report.failures.length
+                  : 0,
               },
             });
           },
@@ -1328,9 +1503,10 @@ function registerStoryRoutes(app, {
         });
       }
 
-      const finalStatus = debug && !debug.passed && execution.status === "implemented"
-        ? "needs_debug"
-        : execution.status;
+      const finalStatus =
+        debug && !debug.passed && execution.status === "implemented"
+          ? "needs_debug"
+          : execution.status;
       const executionPayload = { ...execution, status: finalStatus };
 
       await updateOrchestrationExecutionRecord({
@@ -1421,9 +1597,14 @@ function registerStoryRoutes(app, {
             adminId: admin.adminId,
             error: err.message,
           });
-          sendError(reply, 400, "V3_ORCHESTRATION_PLANNING_ENVELOPE_FAILED", err.message);
+          sendError(
+            reply,
+            400,
+            "V3_ORCHESTRATION_PLANNING_ENVELOPE_FAILED",
+            err.message,
+          );
         }
-      }
+      },
     );
 
     app.post(
@@ -1442,9 +1623,14 @@ function registerStoryRoutes(app, {
             adminId: admin.adminId,
             error: err.message,
           });
-          sendError(reply, 400, "V3_ORCHESTRATION_PLANNING_NORMALIZE_FAILED", err.message);
+          sendError(
+            reply,
+            400,
+            "V3_ORCHESTRATION_PLANNING_NORMALIZE_FAILED",
+            err.message,
+          );
         }
-      }
+      },
     );
 
     app.post(
@@ -1458,13 +1644,21 @@ function registerStoryRoutes(app, {
           const backendTask = buildBackendTaskEnvelope(request.body || {});
           reply.send({ backend_task: backendTask });
         } catch (err) {
-          console.error("[Story V3 Orchestration] backend task envelope failed:", {
-            adminId: admin.adminId,
-            error: err.message,
-          });
-          sendError(reply, 400, "V3_ORCHESTRATION_BACKEND_TASK_FAILED", err.message);
+          console.error(
+            "[Story V3 Orchestration] backend task envelope failed:",
+            {
+              adminId: admin.adminId,
+              error: err.message,
+            },
+          );
+          sendError(
+            reply,
+            400,
+            "V3_ORCHESTRATION_BACKEND_TASK_FAILED",
+            err.message,
+          );
         }
-      }
+      },
     );
 
     app.post(
@@ -1489,14 +1683,23 @@ function registerStoryRoutes(app, {
             event_count: result.event_count,
           });
         } catch (err) {
-          console.error("[Story V3 Orchestration] backend task execute failed:", {
-            adminId: admin.adminId,
-            error: err.message,
-          });
-          const statusCode = err.code === "EXTERNAL_EXECUTOR_FAILED" ? 502 : 400;
-          sendError(reply, statusCode, "V3_ORCHESTRATION_BACKEND_TASK_EXECUTE_FAILED", err.message);
+          console.error(
+            "[Story V3 Orchestration] backend task execute failed:",
+            {
+              adminId: admin.adminId,
+              error: err.message,
+            },
+          );
+          const statusCode =
+            err.code === "EXTERNAL_EXECUTOR_FAILED" ? 502 : 400;
+          sendError(
+            reply,
+            statusCode,
+            "V3_ORCHESTRATION_BACKEND_TASK_EXECUTE_FAILED",
+            err.message,
+          );
         }
-      }
+      },
     );
 
     app.get(
@@ -1507,30 +1710,49 @@ function registerStoryRoutes(app, {
         if (!admin) return;
 
         try {
-          const limit = clampInt(request.query?.limit, 1, V3_ORCHESTRATION_MAX_LIST_LIMIT, 20);
+          const limit = clampInt(
+            request.query?.limit,
+            1,
+            V3_ORCHESTRATION_MAX_LIST_LIMIT,
+            20,
+          );
           const offset = clampInt(request.query?.offset, 0, 1000000, 0);
-          const statusFilter = typeof request.query?.status === "string" && request.query.status.trim()
-            ? request.query.status.trim()
-            : null;
+          const statusFilter =
+            typeof request.query?.status === "string" &&
+            request.query.status.trim()
+              ? request.query.status.trim()
+              : null;
 
           const whereSql = statusFilter ? "WHERE status = ?" : "";
           const countRow = statusFilter
-            ? await db.prepare(`SELECT COUNT(*) as total FROM orchestration_executions ${whereSql}`).get(statusFilter)
-            : await db.prepare("SELECT COUNT(*) as total FROM orchestration_executions").get();
+            ? await db
+                .prepare(
+                  `SELECT COUNT(*) as total FROM orchestration_executions ${whereSql}`,
+                )
+                .get(statusFilter)
+            : await db
+                .prepare(
+                  "SELECT COUNT(*) as total FROM orchestration_executions",
+                )
+                .get();
 
           const rows = statusFilter
-            ? await db.prepare(
-              `SELECT id, admin_id, status, endpoint, runtime_mode, replay_of, created_at, updated_at
+            ? await db
+                .prepare(
+                  `SELECT id, admin_id, status, endpoint, runtime_mode, replay_of, created_at, updated_at
                FROM orchestration_executions ${whereSql}
                ORDER BY created_at DESC
-               LIMIT ? OFFSET ?`
-            ).all(statusFilter, limit, offset)
-            : await db.prepare(
-              `SELECT id, admin_id, status, endpoint, runtime_mode, replay_of, created_at, updated_at
+               LIMIT ? OFFSET ?`,
+                )
+                .all(statusFilter, limit, offset)
+            : await db
+                .prepare(
+                  `SELECT id, admin_id, status, endpoint, runtime_mode, replay_of, created_at, updated_at
                FROM orchestration_executions
                ORDER BY created_at DESC
-               LIMIT ? OFFSET ?`
-            ).all(limit, offset);
+               LIMIT ? OFFSET ?`,
+                )
+                .all(limit, offset);
 
           reply.send({
             items: rows,
@@ -1545,9 +1767,14 @@ function registerStoryRoutes(app, {
             adminId: admin.adminId,
             error: err.message,
           });
-          sendError(reply, 500, "V3_ORCHESTRATION_EXECUTION_LIST_FAILED", err.message);
+          sendError(
+            reply,
+            500,
+            "V3_ORCHESTRATION_EXECUTION_LIST_FAILED",
+            err.message,
+          );
         }
-      }
+      },
     );
 
     app.get(
@@ -1558,21 +1785,37 @@ function registerStoryRoutes(app, {
         if (!admin) return;
 
         try {
-          const includeEvents = parseBoolean(request.query?.include_events, false);
+          const includeEvents = parseBoolean(
+            request.query?.include_events,
+            false,
+          );
           const eventLimit = clampInt(
             request.query?.event_limit,
             1,
             V3_ORCHESTRATION_MAX_EVENT_LIST_LIMIT,
-            100
+            100,
           );
-          const eventOffset = clampInt(request.query?.event_offset, 0, 1000000, 0);
-          const record = await fetchOrchestrationExecutionRecord(request.params.execution_id, {
-            includeEvents,
-            eventLimit,
-            eventOffset,
-          });
+          const eventOffset = clampInt(
+            request.query?.event_offset,
+            0,
+            1000000,
+            0,
+          );
+          const record = await fetchOrchestrationExecutionRecord(
+            request.params.execution_id,
+            {
+              includeEvents,
+              eventLimit,
+              eventOffset,
+            },
+          );
           if (!record) {
-            sendError(reply, 404, "V3_ORCHESTRATION_EXECUTION_NOT_FOUND", "Execution record not found.");
+            sendError(
+              reply,
+              404,
+              "V3_ORCHESTRATION_EXECUTION_NOT_FOUND",
+              "Execution record not found.",
+            );
             return;
           }
           reply.send({ execution: record });
@@ -1582,9 +1825,14 @@ function registerStoryRoutes(app, {
             executionId: request.params.execution_id,
             error: err.message,
           });
-          sendError(reply, 500, "V3_ORCHESTRATION_EXECUTION_GET_FAILED", err.message);
+          sendError(
+            reply,
+            500,
+            "V3_ORCHESTRATION_EXECUTION_GET_FAILED",
+            err.message,
+          );
         }
-      }
+      },
     );
 
     app.get(
@@ -1595,9 +1843,16 @@ function registerStoryRoutes(app, {
         if (!admin) return;
 
         try {
-          const existing = await fetchOrchestrationExecutionRecord(request.params.execution_id);
+          const existing = await fetchOrchestrationExecutionRecord(
+            request.params.execution_id,
+          );
           if (!existing) {
-            sendError(reply, 404, "V3_ORCHESTRATION_EXECUTION_NOT_FOUND", "Execution record not found.");
+            sendError(
+              reply,
+              404,
+              "V3_ORCHESTRATION_EXECUTION_NOT_FOUND",
+              "Execution record not found.",
+            );
             return;
           }
 
@@ -1605,7 +1860,7 @@ function registerStoryRoutes(app, {
             request.query?.limit,
             1,
             V3_ORCHESTRATION_MAX_EVENT_LIST_LIMIT,
-            100
+            100,
           );
           const offset = clampInt(request.query?.offset, 0, 1000000, 0);
           const timeline = await listOrchestrationExecutionEvents({
@@ -1620,14 +1875,22 @@ function registerStoryRoutes(app, {
             pagination: timeline.pagination,
           });
         } catch (err) {
-          console.error("[Story V3 Orchestration] execution events list failed:", {
-            adminId: admin.adminId,
-            executionId: request.params.execution_id,
-            error: err.message,
-          });
-          sendError(reply, 500, "V3_ORCHESTRATION_EXECUTION_EVENTS_LIST_FAILED", err.message);
+          console.error(
+            "[Story V3 Orchestration] execution events list failed:",
+            {
+              adminId: admin.adminId,
+              executionId: request.params.execution_id,
+              error: err.message,
+            },
+          );
+          sendError(
+            reply,
+            500,
+            "V3_ORCHESTRATION_EXECUTION_EVENTS_LIST_FAILED",
+            err.message,
+          );
         }
-      }
+      },
     );
 
     app.post(
@@ -1638,9 +1901,16 @@ function registerStoryRoutes(app, {
         if (!admin) return;
 
         try {
-          const existing = await fetchOrchestrationExecutionRecord(request.params.execution_id);
+          const existing = await fetchOrchestrationExecutionRecord(
+            request.params.execution_id,
+          );
           if (!existing) {
-            sendError(reply, 404, "V3_ORCHESTRATION_EXECUTION_NOT_FOUND", "Execution record not found.");
+            sendError(
+              reply,
+              404,
+              "V3_ORCHESTRATION_EXECUTION_NOT_FOUND",
+              "Execution record not found.",
+            );
             return;
           }
 
@@ -1651,8 +1921,10 @@ function registerStoryRoutes(app, {
             debug_checks: Array.isArray(request.body?.debug_checks)
               ? request.body.debug_checks
               : priorPayload.debug_checks,
-            max_attempts: request.body?.max_attempts ?? priorPayload.max_attempts,
-            debug_user_id: request.body?.debug_user_id ?? priorPayload.debug_user_id,
+            max_attempts:
+              request.body?.max_attempts ?? priorPayload.max_attempts,
+            debug_user_id:
+              request.body?.debug_user_id ?? priorPayload.debug_user_id,
           };
 
           const result = await runV3BackendTaskExecution({
@@ -1676,10 +1948,16 @@ function registerStoryRoutes(app, {
             executionId: request.params.execution_id,
             error: err.message,
           });
-          const statusCode = err.code === "EXTERNAL_EXECUTOR_FAILED" ? 502 : 400;
-          sendError(reply, statusCode, "V3_ORCHESTRATION_EXECUTION_REPLAY_FAILED", err.message);
+          const statusCode =
+            err.code === "EXTERNAL_EXECUTOR_FAILED" ? 502 : 400;
+          sendError(
+            reply,
+            statusCode,
+            "V3_ORCHESTRATION_EXECUTION_REPLAY_FAILED",
+            err.message,
+          );
         }
-      }
+      },
     );
 
     app.post(
@@ -1692,16 +1970,19 @@ function registerStoryRoutes(app, {
         try {
           const checks = normalizeDebugCheckPayloads(request.body?.checks);
           const maxAttempts = parseMaxDebugAttempts(request.body?.max_attempts);
-          const debugUserId = typeof request.body?.debug_user_id === "string"
-            ? request.body.debug_user_id.trim()
-            : "";
+          const debugUserId =
+            typeof request.body?.debug_user_id === "string"
+              ? request.body.debug_user_id.trim()
+              : "";
           const defaultHeaders = {};
           if (request.headers.authorization) {
             defaultHeaders.authorization = request.headers.authorization;
           }
           if (debugUserId) {
             defaultHeaders["x-user-id"] = debugUserId;
-            console.warn(`[Security] Admin ${admin.adminId} impersonating user ${debugUserId} in debug-loop`);
+            console.warn(
+              `[Security] Admin ${admin.adminId} impersonating user ${debugUserId} in debug-loop`,
+            );
           }
           const fetchImpl = createInternalInjectFetch(app, defaultHeaders);
 
@@ -1729,9 +2010,14 @@ function registerStoryRoutes(app, {
             adminId: admin.adminId,
             error: err.message,
           });
-          sendError(reply, 400, "V3_ORCHESTRATION_DEBUG_LOOP_FAILED", err.message);
+          sendError(
+            reply,
+            400,
+            "V3_ORCHESTRATION_DEBUG_LOOP_FAILED",
+            err.message,
+          );
         }
-      }
+      },
     );
 
     app.post(
@@ -1752,9 +2038,14 @@ function registerStoryRoutes(app, {
             adminId: admin.adminId,
             error: err.message,
           });
-          sendError(reply, 400, "V3_ORCHESTRATION_PATTERN_EXTRACT_FAILED", err.message);
+          sendError(
+            reply,
+            400,
+            "V3_ORCHESTRATION_PATTERN_EXTRACT_FAILED",
+            err.message,
+          );
         }
-      }
+      },
     );
 
     app.post(
@@ -1769,7 +2060,9 @@ function registerStoryRoutes(app, {
             request.body.pattern_extraction ||
             extractPatternEnvelope({
               repository: request.body.repository || "porizo",
-              files: Array.isArray(request.body.files) ? request.body.files : [],
+              files: Array.isArray(request.body.files)
+                ? request.body.files
+                : [],
             });
 
           const trajectoryExample = buildTrajectoryEnvelope({
@@ -1785,9 +2078,14 @@ function registerStoryRoutes(app, {
             adminId: admin.adminId,
             error: err.message,
           });
-          sendError(reply, 400, "V3_ORCHESTRATION_TRAJECTORY_BUILD_FAILED", err.message);
+          sendError(
+            reply,
+            400,
+            "V3_ORCHESTRATION_TRAJECTORY_BUILD_FAILED",
+            err.message,
+          );
         }
-      }
+      },
     );
   }
 
@@ -1812,137 +2110,174 @@ function registerStoryRoutes(app, {
    * POST /story/start
    * Start a new story extraction session
    */
-  app.post("/story/start", { schema: schemas.startStory }, async (request, reply) => {
-    const userId = await requireUserId(request, reply);
-    if (!userId) return;
+  app.post(
+    "/story/start",
+    { schema: schemas.startStory },
+    async (request, reply) => {
+      const userId = await requireUserId(request, reply);
+      if (!userId) return;
 
-    // Rate limit: 20 story starts per hour
-    const limit = await consumeRateLimit(userId, "story_start", 20, 60 * 60);
-    if (!limit.allowed) {
-      sendError(reply, 429, "RATE_LIMITED", "Story creation rate limit reached.", {
-        retry_after: limit.reset_at,
-      });
-      return;
-    }
-
-    const body = request.body || {};
-    const normalizedPromptInfo = normalizeStoryInitialPrompt(
-      body.initial_prompt,
-      body.occasion,
-      body.recipient_name
-    );
-    const normalizedInitialPrompt = normalizedPromptInfo.prompt;
-
-    // Moderate user input before processing
-    try {
-      const modResult = moderationCheck({
-        recipient_name: body.recipient_name,
-        story_context: normalizedInitialPrompt,
-        occasion: body.occasion,
-      });
-      if (!modResult.allowed) {
-        sendError(reply, 400, "CONTENT_BLOCKED", modResult.reason || "Content not allowed", {
-          category: modResult.category,
-          severity: modResult.severity,
-        });
-        return;
-      }
-    } catch (modErr) {
-      console.error("[Story] Moderation check failed:", { userId, error: modErr.message });
-      sendError(reply, 500, "MODERATION_FAILED", "We're having trouble checking your content right now. Please try again in a moment.");
-      return;
-    }
-
-    try {
-      const requestedEngineVersionRaw =
-        typeof body.engine_version === "string" && body.engine_version.trim()
-          ? body.engine_version.trim().toLowerCase()
-          : normalizedStoryEngineDefault;
-
-      if (requestedEngineVersionRaw !== "v3") {
+      // Rate limit: 20 story starts per hour
+      const limit = await consumeRateLimit(userId, "story_start", 20, 60 * 60);
+      if (!limit.allowed) {
         sendError(
           reply,
-          400,
-          "STORY_ENGINE_UNSUPPORTED",
-          "Only story engine 'v3' is supported.",
+          429,
+          "RATE_LIMITED",
+          "Story creation rate limit reached.",
           {
-            requested_engine_version: requestedEngineVersionRaw,
-            supported_engine_versions: ["v3"],
-          }
+            retry_after: limit.reset_at,
+          },
         );
         return;
       }
-      const requestedEngineVersion = "v3";
 
-      const result = await writer.startStory({
-        initial_prompt: normalizedInitialPrompt,
-        occasion: body.occasion || "custom",
-        recipient_name: body.recipient_name,
-        style: body.style || null,
-        engine_version: requestedEngineVersion,
-        user_id: userId,
-      });
+      const body = request.body || {};
+      const normalizedPromptInfo = normalizeStoryInitialPrompt(
+        body.initial_prompt,
+        body.occasion,
+        body.recipient_name,
+      );
+      const normalizedInitialPrompt = normalizedPromptInfo.prompt;
 
-      // Log the story start
-      addAuditEntry({
-        userId,
-        action: "story_started",
-        resourceType: "story",
-        resourceId: result.story_id,
-        metadata: {
+      // Moderate user input before processing
+      try {
+        const modResult = moderationCheck({
+          recipient_name: body.recipient_name,
+          story_context: normalizedInitialPrompt,
           occasion: body.occasion,
-          arc: result.arc,
-          initial_prompt_truncated: normalizedPromptInfo.truncated,
-          initial_prompt_original_length: normalizedPromptInfo.originalLength,
-          initial_prompt_used_length: normalizedPromptInfo.usedLength,
-          engine_version: result.engine_version || requestedEngineVersion,
-        },
-      });
-
-      // Emit story_start event for analytics
-      if (eventsService) {
-        eventsService.emit("story_start", {
+        });
+        if (!modResult.allowed) {
+          sendError(
+            reply,
+            400,
+            "CONTENT_BLOCKED",
+            modResult.reason || "Content not allowed",
+            {
+              category: modResult.category,
+              severity: modResult.severity,
+            },
+          );
+          return;
+        }
+      } catch (modErr) {
+        console.error("[Story] Moderation check failed:", {
           userId,
+          error: modErr.message,
+        });
+        sendError(
+          reply,
+          500,
+          "MODERATION_FAILED",
+          "We're having trouble checking your content right now. Please try again in a moment.",
+        );
+        return;
+      }
+
+      try {
+        const requestedEngineVersionRaw =
+          typeof body.engine_version === "string" && body.engine_version.trim()
+            ? body.engine_version.trim().toLowerCase()
+            : normalizedStoryEngineDefault;
+
+        if (requestedEngineVersionRaw !== "v3") {
+          sendError(
+            reply,
+            400,
+            "STORY_ENGINE_UNSUPPORTED",
+            "Only story engine 'v3' is supported.",
+            {
+              requested_engine_version: requestedEngineVersionRaw,
+              supported_engine_versions: ["v3"],
+            },
+          );
+          return;
+        }
+        const requestedEngineVersion = "v3";
+
+        const result = await writer.startStory({
+          initial_prompt: normalizedInitialPrompt,
+          occasion: body.occasion || "custom",
+          recipient_name: body.recipient_name,
+          style: body.style || null,
+          engine_version: requestedEngineVersion,
+          user_id: userId,
+        });
+
+        // Log the story start
+        addAuditEntry({
+          userId,
+          action: "story_started",
           resourceType: "story",
           resourceId: result.story_id,
           metadata: {
             occasion: body.occasion,
             arc: result.arc,
-            style: body.style || null,
             initial_prompt_truncated: normalizedPromptInfo.truncated,
             initial_prompt_original_length: normalizedPromptInfo.originalLength,
             initial_prompt_used_length: normalizedPromptInfo.usedLength,
             engine_version: result.engine_version || requestedEngineVersion,
           },
-          ip: request.ip,
-          userAgent: request.headers["user-agent"],
         });
-      }
 
-      reply.send({
-        story_id: result.story_id,
-        first_question: result.first_question,
-        complete: Boolean(result.complete),
-        ready_for_confirmation: Boolean(result.ready_for_confirmation),
-        action: result.action || null,
-        confirmation_message: result.confirmation_message || null,
-        narrative: result.narrative || null,
-        arc: result.arc,
-        arc_display_name: result.arc_display_name,
-        recipient_name: result.recipient_name,
-        progress: typeof result.completion_score === "number" ? result.completion_score : 0,
-        engine_version: result.engine_version,
-        suggestions: result.suggestions || [],
-        ...spreadStoryAnalysisFields(result),
-        initial_prompt_truncated: normalizedPromptInfo.truncated,
-        initial_prompt_original_length: normalizedPromptInfo.originalLength,
-        initial_prompt_used_length: normalizedPromptInfo.usedLength,
-      });
-    } catch (err) {
-      console.error("[Story] Start failed:", { userId, occasion: body.occasion, error: err.message });
-      sendError(reply, 500, "STORY_START_FAILED", "Something went wrong starting your story. Nothing was lost — please try again.");
-    }
-  });
+        // Emit story_start event for analytics
+        if (eventsService) {
+          eventsService.emit("story_start", {
+            userId,
+            resourceType: "story",
+            resourceId: result.story_id,
+            metadata: {
+              occasion: body.occasion,
+              arc: result.arc,
+              style: body.style || null,
+              initial_prompt_truncated: normalizedPromptInfo.truncated,
+              initial_prompt_original_length:
+                normalizedPromptInfo.originalLength,
+              initial_prompt_used_length: normalizedPromptInfo.usedLength,
+              engine_version: result.engine_version || requestedEngineVersion,
+            },
+            ip: request.ip,
+            userAgent: request.headers["user-agent"],
+          });
+        }
+
+        reply.send({
+          story_id: result.story_id,
+          first_question: result.first_question,
+          complete: Boolean(result.complete),
+          ready_for_confirmation: Boolean(result.ready_for_confirmation),
+          action: result.action || null,
+          confirmation_message: result.confirmation_message || null,
+          narrative: result.narrative || null,
+          arc: result.arc,
+          arc_display_name: result.arc_display_name,
+          recipient_name: result.recipient_name,
+          progress:
+            typeof result.completion_score === "number"
+              ? result.completion_score
+              : 0,
+          engine_version: result.engine_version,
+          suggestions: result.suggestions || [],
+          ...spreadStoryAnalysisFields(result),
+          initial_prompt_truncated: normalizedPromptInfo.truncated,
+          initial_prompt_original_length: normalizedPromptInfo.originalLength,
+          initial_prompt_used_length: normalizedPromptInfo.usedLength,
+        });
+      } catch (err) {
+        console.error("[Story] Start failed:", {
+          userId,
+          occasion: body.occasion,
+          error: err.message,
+        });
+        sendError(
+          reply,
+          500,
+          "STORY_START_FAILED",
+          "Something went wrong starting your story. Nothing was lost — please try again.",
+        );
+      }
+    },
+  );
 
   /**
    * GET /story/:story_id
@@ -1955,7 +2290,13 @@ function registerStoryRoutes(app, {
     const { story_id } = request.params;
 
     // Verify ownership (returns state if authorized, sends error otherwise)
-    const state = await verifyStoryOwnership(story_id, userId, sendError, reply, db);
+    const state = await verifyStoryOwnership(
+      story_id,
+      userId,
+      sendError,
+      reply,
+      db,
+    );
     if (!state) return;
 
     reply.send(sanitizeStoryStateForClient(state));
@@ -1965,126 +2306,201 @@ function registerStoryRoutes(app, {
    * POST /story/:story_id/style
    * Persist a mid-story style change so resume/to-track stay in sync.
    */
-  app.post("/story/:story_id/style", { schema: schemas.updateStoryStyle }, async (request, reply) => {
-    const userId = await requireUserId(request, reply);
-    if (!userId) return;
+  app.post(
+    "/story/:story_id/style",
+    { schema: schemas.updateStoryStyle },
+    async (request, reply) => {
+      const userId = await requireUserId(request, reply);
+      if (!userId) return;
 
-    const { story_id } = request.params;
+      const { story_id } = request.params;
 
-    const state = await verifyStoryOwnership(story_id, userId, sendError, reply, db);
-    if (!state) return;
-
-    try {
-      const requestedStyle = typeof request.body?.style === "string"
-        ? request.body.style.trim() || null
-        : null;
-      const result = await writer.updateStoryStyle(story_id, requestedStyle);
-      reply.send({
+      const state = await verifyStoryOwnership(
         story_id,
-        style: result.style ?? null,
-      });
-    } catch (err) {
-      console.error("[Story] Style update failed:", { story_id, userId, error: err.message });
-      sendError(reply, 500, "STYLE_UPDATE_FAILED", "Something went wrong updating the style. Your story is saved — please try again.");
-    }
-  });
+        userId,
+        sendError,
+        reply,
+        db,
+      );
+      if (!state) return;
+
+      try {
+        const requestedStyle =
+          typeof request.body?.style === "string"
+            ? request.body.style.trim() || null
+            : null;
+        const result = await writer.updateStoryStyle(story_id, requestedStyle);
+        reply.send({
+          story_id,
+          style: result.style ?? null,
+        });
+      } catch (err) {
+        console.error("[Story] Style update failed:", {
+          story_id,
+          userId,
+          error: err.message,
+        });
+        sendError(
+          reply,
+          500,
+          "STYLE_UPDATE_FAILED",
+          "Something went wrong updating the style. Your story is saved — please try again.",
+        );
+      }
+    },
+  );
 
   /**
    * POST /story/:story_id/continue
    * Submit an answer and get the next question (or completion status)
    */
-  app.post("/story/:story_id/continue", { schema: schemas.continueStory }, async (request, reply) => {
-    const userId = await requireUserId(request, reply);
-    if (!userId) return;
+  app.post(
+    "/story/:story_id/continue",
+    { schema: schemas.continueStory },
+    async (request, reply) => {
+      const userId = await requireUserId(request, reply);
+      if (!userId) return;
 
-    // Rate limit: 60 answers per hour (allows for rapid Q&A)
-    const limit = await consumeRateLimit(userId, "story_continue", 60, 60 * 60);
-    if (!limit.allowed) {
-      sendError(reply, 429, "RATE_LIMITED", "Story answer rate limit reached.", {
-        retry_after: limit.reset_at,
-      });
-      return;
-    }
-
-    const { story_id } = request.params;
-    const { answer, expected_session_version } = request.body;
-
-    // Verify ownership
-    const state = await verifyStoryOwnership(story_id, userId, sendError, reply, db);
-    if (!state) return;
-
-    // Moderate answer content
-    try {
-      const modResult = moderationCheck({ story_context: answer });
-      if (!modResult.allowed) {
-        sendError(reply, 400, "CONTENT_BLOCKED", modResult.reason || "Content not allowed", {
-          category: modResult.category,
-          severity: modResult.severity,
-        });
-        return;
-      }
-    } catch (modErr) {
-      console.error("[Story] Moderation check failed:", { story_id, userId, error: modErr.message });
-      sendError(reply, 500, "MODERATION_FAILED", "We're having trouble checking your content right now. Your story is saved — please try again in a moment.");
-      return;
-    }
-
-    try {
-      const result = await writer.continueStory({ story_id, answer, expected_session_version });
-
-      if (result.error) {
-        reply.send({
-          complete: false,
-          ready_for_confirmation: false,
-          action: "ASK",
-          error: result.error,
-          next_question: result.current_question || null,
-          current_question: result.current_question,
-          narrative: result.narrative || null,
-          progress: typeof result.progress === "number" ? result.progress : 0,
-          questions_asked: result.questions_asked || 0,
-          suggestions: [],
-          ...spreadStoryAnalysisFields(result),
-        });
+      // Rate limit: 60 answers per hour (allows for rapid Q&A)
+      const limit = await consumeRateLimit(
+        userId,
+        "story_continue",
+        60,
+        60 * 60,
+      );
+      if (!limit.allowed) {
+        sendError(
+          reply,
+          429,
+          "RATE_LIMITED",
+          "Story answer rate limit reached.",
+          {
+            retry_after: limit.reset_at,
+          },
+        );
         return;
       }
 
-      if (result.complete) {
-        reply.send({
-          complete: true,
-          action: "CONFIRM",
-          story_summary: result.story_summary,
-          narrative: result.narrative || result.story_summary,
-          soul_of_story: result.soul_of_story,
-          progress: result.progress,
-          ready_for_confirmation: true,
-          suggestions: [],
-          ...spreadStoryAnalysisFields(result),
+      const { story_id } = request.params;
+      const { answer, expected_session_version } = request.body;
+
+      // Verify ownership
+      const state = await verifyStoryOwnership(
+        story_id,
+        userId,
+        sendError,
+        reply,
+        db,
+      );
+      if (!state) return;
+
+      // Moderate answer content
+      try {
+        const modResult = moderationCheck({ story_context: answer });
+        if (!modResult.allowed) {
+          sendError(
+            reply,
+            400,
+            "CONTENT_BLOCKED",
+            modResult.reason || "Content not allowed",
+            {
+              category: modResult.category,
+              severity: modResult.severity,
+            },
+          );
+          return;
+        }
+      } catch (modErr) {
+        console.error("[Story] Moderation check failed:", {
+          story_id,
+          userId,
+          error: modErr.message,
         });
-      } else {
-        reply.send({
-          complete: false,
-          action: result.action || "ASK",
-          next_question: result.next_question,
-          narrative: result.narrative,
-          progress: result.progress,
-          questions_asked: result.questions_asked,
-          ready_for_confirmation: false,
-          suggestions: result.suggestions || [],
-          ...spreadStoryAnalysisFields(result),
-        });
-      }
-    } catch (err) {
-      if (err.name === "StoryVersionConflictError") {
-        sendError(reply, 409, "STORY_VERSION_CONFLICT", "Session was modified by another request. Please retry.");
+        sendError(
+          reply,
+          500,
+          "MODERATION_FAILED",
+          "We're having trouble checking your content right now. Your story is saved — please try again in a moment.",
+        );
         return;
       }
-      console.error("[Story] Continue failed:", { story_id, userId, error: err.message });
-      sendError(reply, 500, "STORY_CONTINUE_FAILED", "Something went wrong processing your answer. Your story is saved — please try again.", {
-        retryable: true,
-      });
-    }
-  });
+
+      try {
+        const result = await writer.continueStory({
+          story_id,
+          answer,
+          expected_session_version,
+        });
+
+        if (result.error) {
+          reply.send({
+            complete: false,
+            ready_for_confirmation: false,
+            action: "ASK",
+            error: result.error,
+            next_question: result.current_question || null,
+            current_question: result.current_question,
+            narrative: result.narrative || null,
+            progress: typeof result.progress === "number" ? result.progress : 0,
+            questions_asked: result.questions_asked || 0,
+            suggestions: [],
+            ...spreadStoryAnalysisFields(result),
+          });
+          return;
+        }
+
+        if (result.complete) {
+          reply.send({
+            complete: true,
+            action: "CONFIRM",
+            story_summary: result.story_summary,
+            narrative: result.narrative || result.story_summary,
+            soul_of_story: result.soul_of_story,
+            progress: result.progress,
+            ready_for_confirmation: true,
+            suggestions: [],
+            ...spreadStoryAnalysisFields(result),
+          });
+        } else {
+          reply.send({
+            complete: false,
+            action: result.action || "ASK",
+            next_question: result.next_question,
+            narrative: result.narrative,
+            progress: result.progress,
+            questions_asked: result.questions_asked,
+            ready_for_confirmation: false,
+            suggestions: result.suggestions || [],
+            ...spreadStoryAnalysisFields(result),
+          });
+        }
+      } catch (err) {
+        if (err.name === "StoryVersionConflictError") {
+          sendError(
+            reply,
+            409,
+            "STORY_VERSION_CONFLICT",
+            "Session was modified by another request. Please retry.",
+          );
+          return;
+        }
+        console.error("[Story] Continue failed:", {
+          story_id,
+          userId,
+          error: err.message,
+        });
+        sendError(
+          reply,
+          500,
+          "STORY_CONTINUE_FAILED",
+          "Something went wrong processing your answer. Your story is saved — please try again.",
+          {
+            retryable: true,
+          },
+        );
+      }
+    },
+  );
 
   /**
    * GET /story/:story_id/summary
@@ -2097,7 +2513,13 @@ function registerStoryRoutes(app, {
     const { story_id } = request.params;
 
     // Verify ownership
-    const state = await verifyStoryOwnership(story_id, userId, sendError, reply, db);
+    const state = await verifyStoryOwnership(
+      story_id,
+      userId,
+      sendError,
+      reply,
+      db,
+    );
     if (!state) return;
 
     try {
@@ -2105,7 +2527,12 @@ function registerStoryRoutes(app, {
       reply.send(summary);
     } catch (err) {
       console.error("[Story] Summary failed:", err);
-      sendError(reply, 500, "STORY_SUMMARY_FAILED", "Something went wrong loading your story summary. Please try again.");
+      sendError(
+        reply,
+        500,
+        "STORY_SUMMARY_FAILED",
+        "Something went wrong loading your story summary. Please try again.",
+      );
     }
   });
 
@@ -2113,271 +2540,457 @@ function registerStoryRoutes(app, {
    * POST /story/:story_id/confirm
    * Confirm the story and mark ready for lyrics generation
    */
-  app.post("/story/:story_id/confirm", { schema: schemas.confirmStory }, async (request, reply) => {
-    const userId = await requireUserId(request, reply);
-    if (!userId) return;
+  app.post(
+    "/story/:story_id/confirm",
+    { schema: schemas.confirmStory },
+    async (request, reply) => {
+      const userId = await requireUserId(request, reply);
+      if (!userId) return;
 
-    const { story_id } = request.params;
-    const { additional_notes, force_confirm, target_content_type } = request.body || {};
+      const { story_id } = request.params;
+      const { additional_notes, force_confirm, target_content_type } =
+        request.body || {};
 
-    // Rate limit confirm attempts (prevents guidance loop abuse)
-    const confirmLimit = await consumeRateLimit(userId, "story_confirm", 20, 60 * 60);
-    if (!confirmLimit.allowed) {
-      sendError(reply, 429, "RATE_LIMITED", "Too many confirmation attempts. Please wait a moment.", {
-        retry_at: confirmLimit.reset_at,
-      });
-      return;
-    }
-
-    // Verify ownership
-    const state = await verifyStoryOwnership(story_id, userId, sendError, reply, db);
-    if (!state) return;
-
-    // Moderate additional notes if provided
-    if (additional_notes) {
-      try {
-        const modResult = moderationCheck({ story_context: additional_notes });
-        if (!modResult.allowed) {
-          sendError(reply, 400, "CONTENT_BLOCKED", modResult.reason || "Content not allowed", {
-            category: modResult.category,
-            severity: modResult.severity,
-          });
-          return;
-        }
-      } catch (modErr) {
-        console.error("[Story] Moderation check failed:", { story_id, userId, error: modErr.message });
-        sendError(reply, 500, "MODERATION_FAILED", "We're having trouble checking your content right now. Your story is saved — please try again in a moment.");
-        return;
-      }
-    }
-
-    try {
-      const result = await writer.confirmStory(story_id, {
-        additionalNotes: additional_notes,
-        forceConfirm: force_confirm === true,
-        targetContentType: target_content_type,
-      });
-
-      addAuditEntry({
+      // Rate limit confirm attempts (prevents guidance loop abuse)
+      const confirmLimit = await consumeRateLimit(
         userId,
-        action: "story_confirmed",
-        resourceType: "story",
-        resourceId: story_id,
-      });
-
-      // Emit story_confirm event for analytics
-      if (eventsService) {
-        eventsService.emit("story_confirm", {
-          userId,
-          resourceType: "story",
-          resourceId: story_id,
-          metadata: {
-            has_additional_notes: Boolean(additional_notes),
-            force_confirm: force_confirm === true,
-            target_content_type: target_content_type || null,
-          },
-          ip: request.ip,
-          userAgent: request.headers["user-agent"],
-        });
-      }
-
-      reply.send(result);
-    } catch (err) {
-      if (err.name === "StoryVersionConflictError") {
-        sendError(reply, 409, "STORY_VERSION_CONFLICT", "Session was modified by another request. Please retry.");
-        return;
-      }
-      console.error("[Story] Confirm failed:", { story_id, userId, error: err.message });
-      if (err.code === "STORY_NEEDS_INPUT") {
-        const recoveryQuestion = err.question || err.message ||
-          "Before I lock this in, give me one more line about what changed or what this story means to you.";
-        const recoveryPayload = {
-          question: recoveryQuestion,
-          suggestions: Array.isArray(err.suggestions) ? err.suggestions : [],
-          missing_blocks: Array.isArray(err.missingBlocks) ? err.missingBlocks : [],
-        };
-        if (Number.isFinite(Number(err.sessionVersion))) {
-          recoveryPayload.session_version = Number(err.sessionVersion);
-        }
+        "story_confirm",
+        20,
+        60 * 60,
+      );
+      if (!confirmLimit.allowed) {
         sendError(
           reply,
-          422,
-          "STORY_NEEDS_INPUT",
-          recoveryQuestion,
+          429,
+          "RATE_LIMITED",
+          "Too many confirmation attempts. Please wait a moment.",
           {
-            recovery: recoveryPayload,
-            song_readiness: sanitizeSongReadinessForClient(err.songReadiness),
-          }
+            retry_at: confirmLimit.reset_at,
+          },
         );
         return;
       }
-      if (err.code === "STORY_REVISION_CLARIFY_REQUIRED") {
-        sendError(reply, 409, "STORY_REVISION_CLARIFY_REQUIRED", "Story revision needs clarification before confirmation.", {
-          follow_up_question: err.message,
-        });
-        return;
-      }
-      const retryable = !additional_notes && force_confirm !== true;
-      sendError(
+
+      // Verify ownership
+      const state = await verifyStoryOwnership(
+        story_id,
+        userId,
+        sendError,
         reply,
-        500,
-        "STORY_CONFIRM_FAILED",
-        retryable
-          ? "Something went wrong confirming your story. Your story is saved. Please try again."
-          : "Something went wrong confirming your story after applying your latest notes. Your story is saved. Please review the draft and try again.",
-        { retryable }
+        db,
       );
-    }
-  });
+      if (!state) return;
+
+      // Moderate additional notes if provided
+      if (additional_notes) {
+        try {
+          const modResult = moderationCheck({
+            story_context: additional_notes,
+          });
+          if (!modResult.allowed) {
+            sendError(
+              reply,
+              400,
+              "CONTENT_BLOCKED",
+              modResult.reason || "Content not allowed",
+              {
+                category: modResult.category,
+                severity: modResult.severity,
+              },
+            );
+            return;
+          }
+        } catch (modErr) {
+          console.error("[Story] Moderation check failed:", {
+            story_id,
+            userId,
+            error: modErr.message,
+          });
+          sendError(
+            reply,
+            500,
+            "MODERATION_FAILED",
+            "We're having trouble checking your content right now. Your story is saved — please try again in a moment.",
+          );
+          return;
+        }
+      }
+
+      try {
+        const result = await writer.confirmStory(story_id, {
+          additionalNotes: additional_notes,
+          forceConfirm: force_confirm === true,
+          targetContentType: target_content_type,
+        });
+
+        addAuditEntry({
+          userId,
+          action: "story_confirmed",
+          resourceType: "story",
+          resourceId: story_id,
+        });
+
+        // Emit story_confirm event for analytics
+        if (eventsService) {
+          eventsService.emit("story_confirm", {
+            userId,
+            resourceType: "story",
+            resourceId: story_id,
+            metadata: {
+              has_additional_notes: Boolean(additional_notes),
+              force_confirm: force_confirm === true,
+              target_content_type: target_content_type || null,
+            },
+            ip: request.ip,
+            userAgent: request.headers["user-agent"],
+          });
+        }
+
+        reply.send(result);
+      } catch (err) {
+        if (err.name === "StoryVersionConflictError") {
+          sendError(
+            reply,
+            409,
+            "STORY_VERSION_CONFLICT",
+            "Session was modified by another request. Please retry.",
+          );
+          return;
+        }
+        console.error("[Story] Confirm failed:", {
+          story_id,
+          userId,
+          error: err.message,
+        });
+        if (err.code === "STORY_NEEDS_INPUT") {
+          const recoveryQuestion =
+            err.question ||
+            err.message ||
+            "Before I lock this in, give me one more line about what changed or what this story means to you.";
+          const recoveryPayload = {
+            question: recoveryQuestion,
+            suggestions: Array.isArray(err.suggestions) ? err.suggestions : [],
+            missing_blocks: Array.isArray(err.missingBlocks)
+              ? err.missingBlocks
+              : [],
+          };
+          if (Number.isFinite(Number(err.sessionVersion))) {
+            recoveryPayload.session_version = Number(err.sessionVersion);
+          }
+          sendError(reply, 422, "STORY_NEEDS_INPUT", recoveryQuestion, {
+            recovery: recoveryPayload,
+            song_readiness: sanitizeSongReadinessForClient(err.songReadiness),
+          });
+          return;
+        }
+        if (err.code === "STORY_REVISION_CLARIFY_REQUIRED") {
+          sendError(
+            reply,
+            409,
+            "STORY_REVISION_CLARIFY_REQUIRED",
+            "Story revision needs clarification before confirmation.",
+            {
+              follow_up_question: err.message,
+            },
+          );
+          return;
+        }
+        const retryable = !additional_notes && force_confirm !== true;
+        sendError(
+          reply,
+          500,
+          "STORY_CONFIRM_FAILED",
+          retryable
+            ? "Something went wrong confirming your story. Your story is saved. Please try again."
+            : "Something went wrong confirming your story after applying your latest notes. Your story is saved. Please review the draft and try again.",
+          { retryable },
+        );
+      }
+    },
+  );
 
   /**
    * POST /story/:story_id/add-details
    * Add more details to a story (after seeing summary)
    */
-  app.post("/story/:story_id/add-details", { schema: schemas.addDetails }, async (request, reply) => {
-    const userId = await requireUserId(request, reply);
-    if (!userId) return;
+  app.post(
+    "/story/:story_id/add-details",
+    { schema: schemas.addDetails },
+    async (request, reply) => {
+      const userId = await requireUserId(request, reply);
+      if (!userId) return;
 
-    const { story_id } = request.params;
-    const { detail } = request.body;
+      const { story_id } = request.params;
+      const { detail } = request.body;
 
-    // Verify ownership
-    const state = await verifyStoryOwnership(story_id, userId, sendError, reply, db);
-    if (!state) return;
+      // Verify ownership
+      const state = await verifyStoryOwnership(
+        story_id,
+        userId,
+        sendError,
+        reply,
+        db,
+      );
+      if (!state) return;
 
-    // Moderate detail content
-    try {
-      const modResult = moderationCheck({ story_context: detail });
-      if (!modResult.allowed) {
-        sendError(reply, 400, "CONTENT_BLOCKED", modResult.reason || "Content not allowed", {
-          category: modResult.category,
-          severity: modResult.severity,
+      // Moderate detail content
+      try {
+        const modResult = moderationCheck({ story_context: detail });
+        if (!modResult.allowed) {
+          sendError(
+            reply,
+            400,
+            "CONTENT_BLOCKED",
+            modResult.reason || "Content not allowed",
+            {
+              category: modResult.category,
+              severity: modResult.severity,
+            },
+          );
+          return;
+        }
+      } catch (modErr) {
+        console.error("[Story] Moderation check failed:", {
+          story_id,
+          userId,
+          error: modErr.message,
         });
+        sendError(
+          reply,
+          500,
+          "MODERATION_FAILED",
+          "We're having trouble checking your content right now. Your story is saved — please try again in a moment.",
+        );
         return;
       }
-    } catch (modErr) {
-      console.error("[Story] Moderation check failed:", { story_id, userId, error: modErr.message });
-      sendError(reply, 500, "MODERATION_FAILED", "We're having trouble checking your content right now. Your story is saved — please try again in a moment.");
-      return;
-    }
 
-    try {
-      const result = await writer.addMoreDetails(story_id, detail);
-      reply.send(result);
-    } catch (err) {
-      console.error("[Story] Add details failed:", { story_id, userId, error: err.message });
-      sendError(reply, 500, "STORY_ADD_DETAILS_FAILED", "Something went wrong adding details. Your story is saved — please try again.");
-    }
-  });
+      try {
+        const result = await writer.addMoreDetails(story_id, detail);
+        reply.send(result);
+      } catch (err) {
+        console.error("[Story] Add details failed:", {
+          story_id,
+          userId,
+          error: err.message,
+        });
+        sendError(
+          reply,
+          500,
+          "STORY_ADD_DETAILS_FAILED",
+          "Something went wrong adding details. Your story is saved — please try again.",
+        );
+      }
+    },
+  );
 
   /**
    * POST /story/:story_id/revise
    * Apply an explicit revision request to the current story draft.
    */
-  app.post("/story/:story_id/revise", { schema: schemas.reviseStory }, async (request, reply) => {
-    const userId = await requireUserId(request, reply);
-    if (!userId) return;
+  app.post(
+    "/story/:story_id/revise",
+    { schema: schemas.reviseStory },
+    async (request, reply) => {
+      const userId = await requireUserId(request, reply);
+      if (!userId) return;
 
-    const limit = await consumeRateLimit(userId, "story_continue", 60, 60 * 60);
-    if (!limit.allowed) {
-      sendError(reply, 429, "RATE_LIMITED", "Story answer rate limit reached.", {
-        retry_after: limit.reset_at,
-      });
-      return;
-    }
+      const limit = await consumeRateLimit(
+        userId,
+        "story_continue",
+        60,
+        60 * 60,
+      );
+      if (!limit.allowed) {
+        sendError(
+          reply,
+          429,
+          "RATE_LIMITED",
+          "Story answer rate limit reached.",
+          {
+            retry_after: limit.reset_at,
+          },
+        );
+        return;
+      }
 
-    const { story_id } = request.params;
-    const { revision_request, source, operation } = request.body;
+      const { story_id } = request.params;
+      const { revision_request, source, operation } = request.body;
 
-    const state = await verifyStoryOwnership(story_id, userId, sendError, reply, db);
-    if (!state) return;
+      const state = await verifyStoryOwnership(
+        story_id,
+        userId,
+        sendError,
+        reply,
+        db,
+      );
+      if (!state) return;
 
-    try {
-      const modResult = moderationCheck({ story_context: revision_request });
-      if (!modResult.allowed) {
-        sendError(reply, 400, "CONTENT_BLOCKED", modResult.reason || "Content not allowed", {
-          category: modResult.category,
-          severity: modResult.severity,
+      try {
+        const modResult = moderationCheck({ story_context: revision_request });
+        if (!modResult.allowed) {
+          sendError(
+            reply,
+            400,
+            "CONTENT_BLOCKED",
+            modResult.reason || "Content not allowed",
+            {
+              category: modResult.category,
+              severity: modResult.severity,
+            },
+          );
+          return;
+        }
+      } catch (modErr) {
+        console.error("[Story] Revision moderation failed:", {
+          story_id,
+          userId,
+          error: modErr.message,
         });
+        sendError(
+          reply,
+          500,
+          "MODERATION_FAILED",
+          "We're having trouble checking your content right now. Your story is saved — please try again in a moment.",
+        );
         return;
       }
-    } catch (modErr) {
-      console.error("[Story] Revision moderation failed:", { story_id, userId, error: modErr.message });
-      sendError(reply, 500, "MODERATION_FAILED", "We're having trouble checking your content right now. Your story is saved — please try again in a moment.");
-      return;
-    }
 
-    try {
-      const result = await writer.reviseStory(story_id, revision_request, {
-        source: source || "review_edit",
-        operation,
-      });
-      reply.send(result);
-    } catch (err) {
-      if (err.name === "StoryVersionConflictError") {
-        sendError(reply, 409, "STORY_VERSION_CONFLICT", "Session was modified by another request. Please retry.");
-        return;
+      try {
+        const result = await writer.reviseStory(story_id, revision_request, {
+          source: source || "review_edit",
+          operation,
+        });
+        reply.send(result);
+      } catch (err) {
+        if (err.name === "StoryVersionConflictError") {
+          sendError(
+            reply,
+            409,
+            "STORY_VERSION_CONFLICT",
+            "Session was modified by another request. Please retry.",
+          );
+          return;
+        }
+        console.error("[Story] Revision failed:", {
+          story_id,
+          userId,
+          error: err.message,
+        });
+        sendError(
+          reply,
+          500,
+          "STORY_REVISE_FAILED",
+          "Something went wrong with the revision. Your story is saved — please try again.",
+        );
       }
-      console.error("[Story] Revision failed:", { story_id, userId, error: err.message });
-      sendError(reply, 500, "STORY_REVISE_FAILED", "Something went wrong with the revision. Your story is saved — please try again.");
-    }
-  });
+    },
+  );
 
   /**
    * GET /story/:story_id/element-guidance/:element_id
    * Fetch LLM-generated guidance for a weak story element.
    */
-  app.get("/story/:story_id/element-guidance/:element_id", { schema: schemas.elementGuidance }, async (request, reply) => {
-    const userId = await requireUserId(request, reply);
-    if (!userId) return;
+  app.get(
+    "/story/:story_id/element-guidance/:element_id",
+    { schema: schemas.elementGuidance },
+    async (request, reply) => {
+      const userId = await requireUserId(request, reply);
+      if (!userId) return;
 
-    const limit = await consumeRateLimit(userId, "element_guidance", 20, 60);
-    if (!limit.allowed) {
-      sendError(reply, 429, "RATE_LIMITED", "Element guidance rate limit reached.", {
-        retry_after: limit.reset_at,
-      });
-      return;
-    }
-
-    const { story_id, element_id } = request.params;
-
-    const state = await verifyStoryOwnership(story_id, userId, sendError, reply, db);
-    if (!state) return;
-
-    try {
-      const guidance = await generateElementGuidance(state, element_id);
-      if (!guidance) {
-        sendError(reply, 404, "ELEMENT_NOT_FOUND", `Element "${element_id}" not found.`);
+      const limit = await consumeRateLimit(userId, "element_guidance", 20, 60);
+      if (!limit.allowed) {
+        sendError(
+          reply,
+          429,
+          "RATE_LIMITED",
+          "Element guidance rate limit reached.",
+          {
+            retry_after: limit.reset_at,
+          },
+        );
         return;
       }
-      reply.send(guidance);
-    } catch (err) {
-      console.error("[Story] Element guidance failed:", { story_id, element_id, userId, error: err.message });
-      sendError(reply, 500, "GUIDANCE_FAILED", "Something went wrong generating guidance. Your story is saved — please try again.");
-    }
-  });
+
+      const { story_id, element_id } = request.params;
+
+      const state = await verifyStoryOwnership(
+        story_id,
+        userId,
+        sendError,
+        reply,
+        db,
+      );
+      if (!state) return;
+
+      try {
+        const guidance = await generateElementGuidance(state, element_id);
+        if (!guidance) {
+          sendError(
+            reply,
+            404,
+            "ELEMENT_NOT_FOUND",
+            `Element "${element_id}" not found.`,
+          );
+          return;
+        }
+        reply.send(guidance);
+      } catch (err) {
+        console.error("[Story] Element guidance failed:", {
+          story_id,
+          element_id,
+          userId,
+          error: err.message,
+        });
+        sendError(
+          reply,
+          500,
+          "GUIDANCE_FAILED",
+          "Something went wrong generating guidance. Your story is saved — please try again.",
+        );
+      }
+    },
+  );
 
   /**
    * POST /story/:story_id/review
    * Canonically mark the draft ready for review without confirming it.
    */
-  app.post("/story/:story_id/review", { schema: schemas.reviewStory }, async (request, reply) => {
-    const userId = await requireUserId(request, reply);
-    if (!userId) return;
+  app.post(
+    "/story/:story_id/review",
+    { schema: schemas.reviewStory },
+    async (request, reply) => {
+      const userId = await requireUserId(request, reply);
+      if (!userId) return;
 
-    const { story_id } = request.params;
+      const { story_id } = request.params;
 
-    const state = await verifyStoryOwnership(story_id, userId, sendError, reply, db);
-    if (!state) return;
+      const state = await verifyStoryOwnership(
+        story_id,
+        userId,
+        sendError,
+        reply,
+        db,
+      );
+      if (!state) return;
 
-    try {
-      const result = await writer.prepareStoryReview(story_id);
-      reply.send(result);
-    } catch (err) {
-      console.error("[Story] Review-ready transition failed:", { story_id, userId, error: err.message });
-      sendError(reply, 500, "STORY_REVIEW_PREP_FAILED", "Something went wrong preparing your review. Your story is saved — please try again.");
-    }
-  });
+      try {
+        const result = await writer.prepareStoryReview(story_id);
+        reply.send(result);
+      } catch (err) {
+        console.error("[Story] Review-ready transition failed:", {
+          story_id,
+          userId,
+          error: err.message,
+        });
+        sendError(
+          reply,
+          500,
+          "STORY_REVIEW_PREP_FAILED",
+          "Something went wrong preparing your review. Your story is saved — please try again.",
+        );
+      }
+    },
+  );
 
   /**
    * POST /story/:story_id/lyrics
@@ -2390,16 +3003,28 @@ function registerStoryRoutes(app, {
     // Rate limit: 30 lyrics generations per hour
     const limit = await consumeRateLimit(userId, "story_lyrics", 30, 60 * 60);
     if (!limit.allowed) {
-      sendError(reply, 429, "RATE_LIMITED", "Lyrics generation rate limit reached.", {
-        retry_after: limit.reset_at,
-      });
+      sendError(
+        reply,
+        429,
+        "RATE_LIMITED",
+        "Lyrics generation rate limit reached.",
+        {
+          retry_after: limit.reset_at,
+        },
+      );
       return;
     }
 
     const { story_id } = request.params;
 
     // Verify ownership
-    const state = await verifyStoryOwnership(story_id, userId, sendError, reply, db);
+    const state = await verifyStoryOwnership(
+      story_id,
+      userId,
+      sendError,
+      reply,
+      db,
+    );
     if (!state) return;
 
     try {
@@ -2410,7 +3035,10 @@ function registerStoryRoutes(app, {
 
       const result = await writer.writeSong(story_id);
       const lyricsText = extractLyricsText(result.lyrics);
-      const validation = validateGeneratedLyrics(lyricsText, state.recipient_name);
+      const validation = validateGeneratedLyrics(
+        lyricsText,
+        state.recipient_name,
+      );
 
       if (!validation.allowed) {
         console.error("[Story] Generated story lyrics failed moderation:", {
@@ -2428,9 +3056,15 @@ function registerStoryRoutes(app, {
             reason: validation.reason,
           },
         });
-        sendError(reply, 422, "GENERATION_BLOCKED", "Generated lyrics failed moderation.", {
-          reason: validation.reason,
-        });
+        sendError(
+          reply,
+          422,
+          "GENERATION_BLOCKED",
+          "Generated lyrics failed moderation.",
+          {
+            reason: validation.reason,
+          },
+        );
         return;
       }
 
@@ -2453,26 +3087,64 @@ function registerStoryRoutes(app, {
         has_anchor: validation.hasAnchor,
       });
     } catch (err) {
-      console.error("[Story] Lyrics generation failed:", { story_id, userId, error: err.message });
+      console.error("[Story] Lyrics generation failed:", {
+        story_id,
+        userId,
+        error: err.message,
+      });
       if (err.code === "STORY_NEEDS_INPUT") {
-        sendError(reply, 422, "STORY_NEEDS_INPUT", err.question || err.message, {
-          recovery: {
-            question: err.question || err.message,
-            suggestions: Array.isArray(err.suggestions) ? err.suggestions : [],
-            missing_blocks: Array.isArray(err.missingBlocks) ? err.missingBlocks : [],
+        sendError(
+          reply,
+          422,
+          "STORY_NEEDS_INPUT",
+          err.question || err.message,
+          {
+            recovery: {
+              question: err.question || err.message,
+              suggestions: Array.isArray(err.suggestions)
+                ? err.suggestions
+                : [],
+              missing_blocks: Array.isArray(err.missingBlocks)
+                ? err.missingBlocks
+                : [],
+            },
+            song_readiness: sanitizeSongReadinessForClient(err.songReadiness),
           },
-          song_readiness: sanitizeSongReadinessForClient(err.songReadiness),
-        });
+        );
       } else if (err.message && err.message.includes("must be confirmed")) {
-        sendError(reply, 400, "STORY_NOT_CONFIRMED", "Story must be confirmed before generating lyrics.");
-      } else if (err.code === "AI_UNAVAILABLE" || err.message === "AI_UNAVAILABLE") {
-        sendError(reply, 503, "AI_UNAVAILABLE", "Lyrics generation is temporarily unavailable.");
+        sendError(
+          reply,
+          400,
+          "STORY_NOT_CONFIRMED",
+          "Story must be confirmed before generating lyrics.",
+        );
+      } else if (
+        err.code === "AI_UNAVAILABLE" ||
+        err.message === "AI_UNAVAILABLE"
+      ) {
+        sendError(
+          reply,
+          503,
+          "AI_UNAVAILABLE",
+          "Lyrics generation is temporarily unavailable.",
+        );
       } else if (err.code === "LYRICS_FIDELITY_LOW") {
-        sendError(reply, 422, "STORY_NEEDS_REPAIR", "Your story needs one more pass before it can become a song.", {
-          fidelity: err.fidelity || null,
-        });
+        sendError(
+          reply,
+          422,
+          "STORY_NEEDS_REPAIR",
+          "Your story needs one more pass before it can become a song.",
+          {
+            fidelity: err.fidelity || null,
+          },
+        );
       } else {
-        sendError(reply, 500, "LYRICS_GENERATION_FAILED", "Something went wrong creating your lyrics. Your story is saved — please try again.");
+        sendError(
+          reply,
+          500,
+          "LYRICS_GENERATION_FAILED",
+          "Something went wrong creating your lyrics. Your story is saved — please try again.",
+        );
       }
     }
   });
@@ -2481,230 +3153,317 @@ function registerStoryRoutes(app, {
    * POST /story/:story_id/to-poem
    * Generate a poem from a confirmed story
    */
-  app.post("/story/:story_id/to-poem", { schema: schemas.toPoem }, async (request, reply) => {
-    const userId = await requireUserId(request, reply);
-    if (!userId) return;
+  app.post(
+    "/story/:story_id/to-poem",
+    { schema: schemas.toPoem },
+    async (request, reply) => {
+      const userId = await requireUserId(request, reply);
+      if (!userId) return;
 
-    // Rate limit: 20 poem generations per hour
-    const limit = await consumeRateLimit(userId, "story_poem", 20, 60 * 60);
-    if (!limit.allowed) {
-      sendError(reply, 429, "RATE_LIMITED", "Poem generation rate limit reached.", {
-        retry_after: limit.reset_at,
-      });
-      return;
-    }
-
-    const { story_id } = request.params;
-    const { tone, style, gift_reservation_id: giftReservationId, force } = request.body || {};
-    const existingGiftPoem = giftReservationId
-      ? await findGiftFundingContent(db, {
-        reservationId: giftReservationId,
-        contentType: "poem",
-      })
-      : null;
-    if (existingGiftPoem?.contentType === "poem") {
-      const existingPoem = await db.prepare(
-        `SELECT id, user_id, title, recipient_name, occasion, tone, verses, status, created_at, updated_at
-         FROM poems
-         WHERE id = ? AND deleted_at IS NULL`
-      ).get(existingGiftPoem.contentId);
-      if (existingPoem && existingPoem.user_id === userId) {
-        await removePoemLibraryEntry({
-          userId,
-          poemId: existingPoem.id,
-        });
-        reply.send({
-          poem: {
-            id: existingPoem.id,
-            user_id: existingPoem.user_id,
-            title: existingPoem.title,
-            recipient_name: existingPoem.recipient_name,
-            occasion: existingPoem.occasion,
-            tone: existingPoem.tone,
-            verses: JSON.parse(existingPoem.verses || "[]"),
-            status: existingPoem.status,
-            created_at: existingPoem.created_at,
-            updated_at: existingPoem.updated_at,
+      // Rate limit: 20 poem generations per hour
+      const limit = await consumeRateLimit(userId, "story_poem", 20, 60 * 60);
+      if (!limit.allowed) {
+        sendError(
+          reply,
+          429,
+          "RATE_LIMITED",
+          "Poem generation rate limit reached.",
+          {
+            retry_after: limit.reset_at,
           },
-          provider: null,
-          model: null,
-          idempotent: true,
-        });
-        return;
-      }
-    }
-    const giftFundingReservation = giftReservationId
-      ? await validateGiftFundingReservation(db, {
-        userId,
-        reservationId: giftReservationId,
-        contentType: "poem",
-      }).catch((err) => {
-        if (mapGiftFundingError(reply, err)) {
-          return "__handled__";
-        }
-        throw err;
-      })
-      : null;
-    if (giftFundingReservation === "__handled__") {
-      return;
-    }
-
-    // C1: Read-only poem credit check BEFORE the LLM call
-    if (subscriptionManager && !giftFundingReservation) {
-      try {
-        const entitlements = await subscriptionManager.getEntitlements(userId);
-        if (!entitlements || entitlements.poemsRemaining <= 0) {
-          console.warn("[SecurityGuard:CreditCheck] Poem credit check blocked request for user", userId);
-          sendError(reply, 402, "INSUFFICIENT_POEM_CREDITS", "No poem credits remaining.");
-          return;
-        }
-      } catch (creditErr) {
-        console.warn("[SecurityGuard:CreditCheck] Poem credit check blocked request for user", userId);
-        sendError(reply, 402, "INSUFFICIENT_POEM_CREDITS", "No poem credits remaining.");
-        return;
-      }
-    }
-
-    // Verify ownership
-    const state = await verifyStoryOwnership(story_id, userId, sendError, reply, db);
-    if (!state) return;
-
-    try {
-      const context = await writer.getStoryContext(story_id, { includeReadiness: false, includeMetadata: false });
-      if (context.status !== "confirmed") {
-        sendError(reply, 400, "STORY_NOT_CONFIRMED", "Story must be confirmed before generating a poem.");
+        );
         return;
       }
 
-      if (force !== true) {
-        const readiness = evaluatePoemReadiness(context);
-        if (!readiness.is_complete) {
-          sendError(reply, 422, "STORY_INCOMPLETE", "Story is missing required details.", {
-            gaps: readiness.gaps,
-            suggested_question: readiness.suggested_question,
+      const { story_id } = request.params;
+      const {
+        tone,
+        style,
+        gift_reservation_id: giftReservationId,
+        force,
+      } = request.body || {};
+      const existingGiftPoem = giftReservationId
+        ? await findGiftFundingContent(db, {
+            reservationId: giftReservationId,
+            contentType: "poem",
+          })
+        : null;
+      if (existingGiftPoem?.contentType === "poem") {
+        const existingPoem = await db
+          .prepare(
+            `SELECT id, user_id, title, recipient_name, occasion, tone, verses, status, created_at, updated_at
+         FROM poems
+         WHERE id = ? AND deleted_at IS NULL`,
+          )
+          .get(existingGiftPoem.contentId);
+        if (existingPoem && existingPoem.user_id === userId) {
+          await removePoemLibraryEntry({
+            userId,
+            poemId: existingPoem.id,
+          });
+          reply.send({
+            poem: {
+              id: existingPoem.id,
+              user_id: existingPoem.user_id,
+              title: existingPoem.title,
+              recipient_name: existingPoem.recipient_name,
+              occasion: existingPoem.occasion,
+              tone: existingPoem.tone,
+              verses: JSON.parse(existingPoem.verses || "[]"),
+              status: existingPoem.status,
+              created_at: existingPoem.created_at,
+              updated_at: existingPoem.updated_at,
+            },
+            provider: null,
+            model: null,
+            idempotent: true,
           });
           return;
         }
       }
-
-      const finalTone = tone || context.dials?.tone || "heartfelt";
-      const finalStyle = style || context.dials?.style || "free verse";
-
-      const result = await generatePoemFromStory({
-        narrative: context.narrative,
-        primitives: context.primitives,
-        motifs: context.motifs,
-        recipient_name: context.recipientName,
-        occasion: context.occasion,
-        tone: finalTone,
-        style: finalStyle,
-      });
-
-      const poemId = crypto.randomUUID();
-      const now = new Date().toISOString();
-      const provenance = {
-        source: "story_v2",
-        story_id,
-        narrative: context.narrative,
-        primitives: context.primitives,
-        atoms: context.atoms,
-        motifs: context.motifs,
-        tone: finalTone,
-        style: finalStyle,
-      };
-
-      await db.prepare(
-        `INSERT INTO poems (id, user_id, title, recipient_name, occasion, tone, verses, message, status, funding_source, gift_reservation_id, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      ).run(
-        poemId,
-        userId,
-        result.title || `For ${context.recipientName || "you"}`,
-        context.recipientName,
-        context.occasion,
-        finalTone,
-        JSON.stringify(result.lines),
-        JSON.stringify(provenance),
-        "generated",
-        giftFundingReservation ? "gift_token" : "standard",
-        giftFundingReservation?.id || null,
-        now,
-        now
-      );
-      if (giftFundingReservation) {
-        await removePoemLibraryEntry({
-          userId,
-          poemId,
-          removedAt: now,
-        });
-      } else {
-        await upsertPoemLibraryEntry({
-          userId,
-          poemId,
-          origin: "created",
-          shareTokenId: null,
-          addedAt: now,
-        });
+      const giftFundingReservation = giftReservationId
+        ? await validateGiftFundingReservation(db, {
+            userId,
+            reservationId: giftReservationId,
+            contentType: "poem",
+          }).catch((err) => {
+            if (mapGiftFundingError(reply, err)) {
+              return "__handled__";
+            }
+            throw err;
+          })
+        : null;
+      if (giftFundingReservation === "__handled__") {
+        return;
       }
 
-      // Spend poem credit after successful generation (mirrors poems.js pattern)
+      // C1: Read-only poem credit check BEFORE the LLM call
       if (subscriptionManager && !giftFundingReservation) {
         try {
-          await subscriptionManager.spendPoem(userId, poemId);
-        } catch (spendErr) {
-          // Generation succeeded but credit spend failed — don't give away free content
-          await db.prepare("UPDATE poems SET status = 'generation_failed' WHERE id = ?").run(poemId);
-          sendError(reply, 503, "CREDIT_ERROR", "Unable to process credit. Please try again.");
+          const entitlements =
+            await subscriptionManager.getEntitlements(userId);
+          if (!entitlements || entitlements.poemsRemaining <= 0) {
+            console.warn(
+              "[SecurityGuard:CreditCheck] Poem credit check blocked request for user",
+              userId,
+            );
+            sendError(
+              reply,
+              402,
+              "INSUFFICIENT_POEM_CREDITS",
+              "No poem credits remaining.",
+            );
+            return;
+          }
+        } catch (creditErr) {
+          console.warn(
+            "[SecurityGuard:CreditCheck] Poem credit check blocked request for user",
+            userId,
+          );
+          sendError(
+            reply,
+            402,
+            "INSUFFICIENT_POEM_CREDITS",
+            "No poem credits remaining.",
+          );
           return;
         }
       }
 
-      addAuditEntry({
+      // Verify ownership
+      const state = await verifyStoryOwnership(
+        story_id,
         userId,
-        action: "poem_generated_from_story",
-        resourceType: "poem",
-        resourceId: poemId,
-        metadata: { story_id, tone: finalTone, style: finalStyle },
-      });
+        sendError,
+        reply,
+        db,
+      );
+      if (!state) return;
 
-      if (eventsService) {
-        eventsService.emit("poem_generated", {
-          userId,
-          resourceType: "poem",
-          resourceId: poemId,
-          metadata: { story_id, tone: finalTone, style: finalStyle },
-          ip: request.ip,
-          userAgent: request.headers["user-agent"],
+      try {
+        const context = await writer.getStoryContext(story_id, {
+          includeReadiness: false,
+          includeMetadata: false,
         });
-      }
+        if (context.status !== "confirmed") {
+          sendError(
+            reply,
+            400,
+            "STORY_NOT_CONFIRMED",
+            "Story must be confirmed before generating a poem.",
+          );
+          return;
+        }
 
-      reply.send({
-        poem: {
-          id: poemId,
-          user_id: userId,
-          title: result.title || `For ${context.recipientName || "you"}`,
+        if (force !== true) {
+          const readiness = evaluatePoemReadiness(context);
+          if (!readiness.is_complete) {
+            sendError(
+              reply,
+              422,
+              "STORY_INCOMPLETE",
+              "Story is missing required details.",
+              {
+                gaps: readiness.gaps,
+                suggested_question: readiness.suggested_question,
+              },
+            );
+            return;
+          }
+        }
+
+        const finalTone = tone || context.dials?.tone || "heartfelt";
+        const finalStyle = style || context.dials?.style || "free verse";
+
+        const result = await generatePoemFromStory({
+          narrative: context.narrative,
+          primitives: context.primitives,
+          motifs: context.motifs,
           recipient_name: context.recipientName,
           occasion: context.occasion,
           tone: finalTone,
-          verses: result.lines,
-          status: "generated",
-          created_at: now,
-          updated_at: now,
-        },
-        provider: result.provider,
-        model: result.model,
-      });
-    } catch (err) {
-      console.error("[Story] Poem generation failed:", { story_id, userId, error: err.message });
-      if (err.code === "AI_UNAVAILABLE" || err.message === "AI_UNAVAILABLE") {
-        sendError(reply, 503, "AI_UNAVAILABLE", "Poem generation is temporarily unavailable.");
-      } else if (err.message && err.message.includes("STORY_NARRATIVE_MISSING")) {
-        sendError(reply, 400, "STORY_INCOMPLETE", "Story narrative is missing.");
-      } else {
-        sendError(reply, 500, "POEM_GENERATION_FAILED", "Something went wrong creating your poem. Your story is saved — please try again.");
+          style: finalStyle,
+        });
+
+        const poemId = crypto.randomUUID();
+        const now = new Date().toISOString();
+        const provenance = {
+          source: "story_v2",
+          story_id,
+          narrative: context.narrative,
+          primitives: context.primitives,
+          atoms: context.atoms,
+          motifs: context.motifs,
+          tone: finalTone,
+          style: finalStyle,
+        };
+
+        await db
+          .prepare(
+            `INSERT INTO poems (id, user_id, title, recipient_name, occasion, tone, verses, message, status, funding_source, gift_reservation_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .run(
+            poemId,
+            userId,
+            result.title || `For ${context.recipientName || "you"}`,
+            context.recipientName,
+            context.occasion,
+            finalTone,
+            JSON.stringify(result.lines),
+            JSON.stringify(provenance),
+            "generated",
+            giftFundingReservation ? "gift_token" : "standard",
+            giftFundingReservation?.id || null,
+            now,
+            now,
+          );
+        if (giftFundingReservation) {
+          await removePoemLibraryEntry({
+            userId,
+            poemId,
+            removedAt: now,
+          });
+        } else {
+          await upsertPoemLibraryEntry({
+            userId,
+            poemId,
+            origin: "created",
+            shareTokenId: null,
+            addedAt: now,
+          });
+        }
+
+        // Spend poem credit after successful generation (mirrors poems.js pattern)
+        if (subscriptionManager && !giftFundingReservation) {
+          try {
+            await subscriptionManager.spendPoem(userId, poemId);
+          } catch (spendErr) {
+            // Generation succeeded but credit spend failed — don't give away free content
+            await db
+              .prepare(
+                "UPDATE poems SET status = 'generation_failed' WHERE id = ?",
+              )
+              .run(poemId);
+            sendError(
+              reply,
+              503,
+              "CREDIT_ERROR",
+              "Unable to process credit. Please try again.",
+            );
+            return;
+          }
+        }
+
+        addAuditEntry({
+          userId,
+          action: "poem_generated_from_story",
+          resourceType: "poem",
+          resourceId: poemId,
+          metadata: { story_id, tone: finalTone, style: finalStyle },
+        });
+
+        if (eventsService) {
+          eventsService.emit("poem_generated", {
+            userId,
+            resourceType: "poem",
+            resourceId: poemId,
+            metadata: { story_id, tone: finalTone, style: finalStyle },
+            ip: request.ip,
+            userAgent: request.headers["user-agent"],
+          });
+        }
+
+        reply.send({
+          poem: {
+            id: poemId,
+            user_id: userId,
+            title: result.title || `For ${context.recipientName || "you"}`,
+            recipient_name: context.recipientName,
+            occasion: context.occasion,
+            tone: finalTone,
+            verses: result.lines,
+            status: "generated",
+            created_at: now,
+            updated_at: now,
+          },
+          provider: result.provider,
+          model: result.model,
+        });
+      } catch (err) {
+        console.error("[Story] Poem generation failed:", {
+          story_id,
+          userId,
+          error: err.message,
+        });
+        if (err.code === "AI_UNAVAILABLE" || err.message === "AI_UNAVAILABLE") {
+          sendError(
+            reply,
+            503,
+            "AI_UNAVAILABLE",
+            "Poem generation is temporarily unavailable.",
+          );
+        } else if (
+          err.message &&
+          err.message.includes("STORY_NARRATIVE_MISSING")
+        ) {
+          sendError(
+            reply,
+            400,
+            "STORY_INCOMPLETE",
+            "Story narrative is missing.",
+          );
+        } else {
+          sendError(
+            reply,
+            500,
+            "POEM_GENERATION_FAILED",
+            "Something went wrong creating your poem. Your story is saved — please try again.",
+          );
+        }
       }
-    }
-  });
+    },
+  );
 
   /**
    * POST /v2/story/:id/audio
@@ -2713,113 +3472,175 @@ function registerStoryRoutes(app, {
   const SUPPORTED_AUDIO_FORMATS = ["m4a", "mp3", "wav", "webm", "ogg"];
   const MAX_AUDIO_SIZE = 10 * 1024 * 1024; // 10MB
 
-  app.post("/v2/story/:id/audio", { schema: schemas.audioTranscribe }, async (request, reply) => {
-    const userId = await requireUserId(request, reply);
-    if (!userId) return;
+  app.post(
+    "/v2/story/:id/audio",
+    { schema: schemas.audioTranscribe },
+    async (request, reply) => {
+      const userId = await requireUserId(request, reply);
+      if (!userId) return;
 
-    // H7: Rate limit audio transcription (Whisper API cost protection)
-    const audioLimit = await consumeRateLimit(userId, "audio_transcribe", 10, 60 * 60);
-    if (!audioLimit.allowed) {
-      console.warn("[SecurityGuard:RateLimit] Audio transcription rate limit blocked user", userId);
-      sendError(reply, 429, "RATE_LIMITED", "Audio transcription rate limit reached.", {
-        retry_after: audioLimit.reset_at,
-      });
-      return;
-    }
-
-    const { id: storyId } = request.params;
-
-    // Verify ownership
-    const state = await verifyStoryOwnership(storyId, userId, sendError, reply, db);
-    if (!state) return;
-
-    // Parse multipart file upload
-    let fileData;
-    try {
-      fileData = await request.file();
-    } catch (err) {
-      console.error("[Story Audio] Multipart parse error:", { storyId, userId, error: err.message });
-      sendError(reply, 400, "INVALID_REQUEST", "Invalid multipart request.");
-      return;
-    }
-
-    if (!fileData) {
-      sendError(reply, 400, "NO_FILE", "No audio file uploaded.");
-      return;
-    }
-
-    // Validate file format
-    const filename = fileData.filename || "audio.m4a";
-    const ext = filename.split(".").pop()?.toLowerCase();
-    if (!ext || !SUPPORTED_AUDIO_FORMATS.includes(ext)) {
-      sendError(reply, 415, "UNSUPPORTED_FORMAT", `Unsupported audio format. Supported: ${SUPPORTED_AUDIO_FORMATS.join(", ")}`);
-      return;
-    }
-
-    // Read file stream into buffer with size limit check
-    const chunks = [];
-    let totalSize = 0;
-    try {
-      for await (const chunk of fileData.file) {
-        totalSize += chunk.length;
-        if (totalSize > MAX_AUDIO_SIZE) {
-          sendError(reply, 413, "FILE_TOO_LARGE", `Audio file exceeds maximum size of ${MAX_AUDIO_SIZE / (1024 * 1024)}MB.`);
-          return;
-        }
-        chunks.push(chunk);
+      // H7: Rate limit audio transcription (Whisper API cost protection)
+      const audioLimit = await consumeRateLimit(
+        userId,
+        "audio_transcribe",
+        10,
+        60 * 60,
+      );
+      if (!audioLimit.allowed) {
+        console.warn(
+          "[SecurityGuard:RateLimit] Audio transcription rate limit blocked user",
+          userId,
+        );
+        sendError(
+          reply,
+          429,
+          "RATE_LIMITED",
+          "Audio transcription rate limit reached.",
+          {
+            retry_after: audioLimit.reset_at,
+          },
+        );
+        return;
       }
-    } catch (err) {
-      console.error("[Story Audio] File read error:", { storyId, userId, error: err.message });
-      sendError(reply, 500, "FILE_READ_ERROR", "Something went wrong reading your audio file. Please try recording again.");
-      return;
-    }
 
-    const audioBuffer = Buffer.concat(chunks);
+      const { id: storyId } = request.params;
 
-    if (audioBuffer.length === 0) {
-      sendError(reply, 400, "EMPTY_FILE", "Uploaded audio file is empty.");
-      return;
-    }
+      // Verify ownership
+      const state = await verifyStoryOwnership(
+        storyId,
+        userId,
+        sendError,
+        reply,
+        db,
+      );
+      if (!state) return;
 
-    // Transcribe audio using Whisper
-    let transcription;
-    try {
-      console.log("[Story Audio] Starting transcription:", { storyId, userId, size: audioBuffer.length, format: ext });
-      transcription = await transcribeAudio(audioBuffer, { filename });
-    } catch (err) {
-      console.error("[Story Audio] Transcription failed:", { storyId, userId, error: err.message });
-      sendError(reply, 500, "TRANSCRIPTION_FAILED", "Something went wrong transcribing your audio. Please try recording again.");
-      return;
-    }
+      // Parse multipart file upload
+      let fileData;
+      try {
+        fileData = await request.file();
+      } catch (err) {
+        console.error("[Story Audio] Multipart parse error:", {
+          storyId,
+          userId,
+          error: err.message,
+        });
+        sendError(reply, 400, "INVALID_REQUEST", "Invalid multipart request.");
+        return;
+      }
 
-    // Log successful transcription
-    const transcriptionText = transcription.text || "";
-    const transcriptionLength = transcriptionText.length;
-    const exceedsStoryStartLimit = transcriptionLength > STORY_INITIAL_PROMPT_MAX_LENGTH;
-    addAuditEntry({
-      userId,
-      action: "story_audio_transcribed",
-      resourceType: "story",
-      resourceId: storyId,
-      metadata: {
-        duration: transcription.duration,
+      if (!fileData) {
+        sendError(reply, 400, "NO_FILE", "No audio file uploaded.");
+        return;
+      }
+
+      // Validate file format
+      const filename = fileData.filename || "audio.m4a";
+      const ext = filename.split(".").pop()?.toLowerCase();
+      if (!ext || !SUPPORTED_AUDIO_FORMATS.includes(ext)) {
+        sendError(
+          reply,
+          415,
+          "UNSUPPORTED_FORMAT",
+          `Unsupported audio format. Supported: ${SUPPORTED_AUDIO_FORMATS.join(", ")}`,
+        );
+        return;
+      }
+
+      // Read file stream into buffer with size limit check
+      const chunks = [];
+      let totalSize = 0;
+      try {
+        for await (const chunk of fileData.file) {
+          totalSize += chunk.length;
+          if (totalSize > MAX_AUDIO_SIZE) {
+            sendError(
+              reply,
+              413,
+              "FILE_TOO_LARGE",
+              `Audio file exceeds maximum size of ${MAX_AUDIO_SIZE / (1024 * 1024)}MB.`,
+            );
+            return;
+          }
+          chunks.push(chunk);
+        }
+      } catch (err) {
+        console.error("[Story Audio] File read error:", {
+          storyId,
+          userId,
+          error: err.message,
+        });
+        sendError(
+          reply,
+          500,
+          "FILE_READ_ERROR",
+          "Something went wrong reading your audio file. Please try recording again.",
+        );
+        return;
+      }
+
+      const audioBuffer = Buffer.concat(chunks);
+
+      if (audioBuffer.length === 0) {
+        sendError(reply, 400, "EMPTY_FILE", "Uploaded audio file is empty.");
+        return;
+      }
+
+      // Transcribe audio using Whisper
+      let transcription;
+      try {
+        console.log("[Story Audio] Starting transcription:", {
+          storyId,
+          userId,
+          size: audioBuffer.length,
+          format: ext,
+        });
+        transcription = await transcribeAudio(audioBuffer, { filename });
+      } catch (err) {
+        console.error("[Story Audio] Transcription failed:", {
+          storyId,
+          userId,
+          error: err.message,
+        });
+        sendError(
+          reply,
+          500,
+          "TRANSCRIPTION_FAILED",
+          "Something went wrong transcribing your audio. Please try recording again.",
+        );
+        return;
+      }
+
+      // Log successful transcription
+      const transcriptionText = transcription.text || "";
+      const transcriptionLength = transcriptionText.length;
+      const exceedsStoryStartLimit =
+        transcriptionLength > STORY_INITIAL_PROMPT_MAX_LENGTH;
+      addAuditEntry({
+        userId,
+        action: "story_audio_transcribed",
+        resourceType: "story",
+        resourceId: storyId,
+        metadata: {
+          duration: transcription.duration,
+          language: transcription.language,
+          text_length: transcriptionLength,
+          exceeds_story_start_limit: exceedsStoryStartLimit,
+        },
+      });
+
+      reply.send({
+        success: true,
+        transcription: transcriptionText,
         language: transcription.language,
+        duration: transcription.duration,
         text_length: transcriptionLength,
+        story_start_warning_threshold: STORY_INITIAL_PROMPT_WARNING_THRESHOLD,
+        story_start_limit: STORY_INITIAL_PROMPT_MAX_LENGTH,
         exceeds_story_start_limit: exceedsStoryStartLimit,
-      },
-    });
-
-    reply.send({
-      success: true,
-      transcription: transcriptionText,
-      language: transcription.language,
-      duration: transcription.duration,
-      text_length: transcriptionLength,
-      story_start_warning_threshold: STORY_INITIAL_PROMPT_WARNING_THRESHOLD,
-      story_start_limit: STORY_INITIAL_PROMPT_MAX_LENGTH,
-      exceeds_story_start_limit: exceedsStoryStartLimit,
-    });
-  });
+      });
+    },
+  );
 
   /**
    * POST /v2/audio/transcribe
@@ -2831,12 +3652,26 @@ function registerStoryRoutes(app, {
     if (!userId) return;
 
     // H7: Rate limit audio transcription (Whisper API cost protection)
-    const audioLimit = await consumeRateLimit(userId, "audio_transcribe", 10, 60 * 60);
+    const audioLimit = await consumeRateLimit(
+      userId,
+      "audio_transcribe",
+      10,
+      60 * 60,
+    );
     if (!audioLimit.allowed) {
-      console.warn("[SecurityGuard:RateLimit] Audio transcription rate limit blocked user", userId);
-      sendError(reply, 429, "RATE_LIMITED", "Audio transcription rate limit reached.", {
-        retry_after: audioLimit.reset_at,
-      });
+      console.warn(
+        "[SecurityGuard:RateLimit] Audio transcription rate limit blocked user",
+        userId,
+      );
+      sendError(
+        reply,
+        429,
+        "RATE_LIMITED",
+        "Audio transcription rate limit reached.",
+        {
+          retry_after: audioLimit.reset_at,
+        },
+      );
       return;
     }
 
@@ -2845,7 +3680,10 @@ function registerStoryRoutes(app, {
     try {
       fileData = await request.file();
     } catch (err) {
-      console.error("[Audio Transcribe] Multipart parse error:", { userId, error: err.message });
+      console.error("[Audio Transcribe] Multipart parse error:", {
+        userId,
+        error: err.message,
+      });
       sendError(reply, 400, "INVALID_REQUEST", "Invalid multipart request.");
       return;
     }
@@ -2859,7 +3697,12 @@ function registerStoryRoutes(app, {
     const filename = fileData.filename || "audio.m4a";
     const ext = filename.split(".").pop()?.toLowerCase();
     if (!ext || !SUPPORTED_AUDIO_FORMATS.includes(ext)) {
-      sendError(reply, 415, "UNSUPPORTED_FORMAT", `Unsupported audio format. Supported: ${SUPPORTED_AUDIO_FORMATS.join(", ")}`);
+      sendError(
+        reply,
+        415,
+        "UNSUPPORTED_FORMAT",
+        `Unsupported audio format. Supported: ${SUPPORTED_AUDIO_FORMATS.join(", ")}`,
+      );
       return;
     }
 
@@ -2870,14 +3713,27 @@ function registerStoryRoutes(app, {
       for await (const chunk of fileData.file) {
         totalSize += chunk.length;
         if (totalSize > MAX_AUDIO_SIZE) {
-          sendError(reply, 413, "FILE_TOO_LARGE", `Audio file exceeds maximum size of ${MAX_AUDIO_SIZE / (1024 * 1024)}MB.`);
+          sendError(
+            reply,
+            413,
+            "FILE_TOO_LARGE",
+            `Audio file exceeds maximum size of ${MAX_AUDIO_SIZE / (1024 * 1024)}MB.`,
+          );
           return;
         }
         chunks.push(chunk);
       }
     } catch (err) {
-      console.error("[Audio Transcribe] File read error:", { userId, error: err.message });
-      sendError(reply, 500, "FILE_READ_ERROR", "Something went wrong reading your audio file. Please try recording again.");
+      console.error("[Audio Transcribe] File read error:", {
+        userId,
+        error: err.message,
+      });
+      sendError(
+        reply,
+        500,
+        "FILE_READ_ERROR",
+        "Something went wrong reading your audio file. Please try recording again.",
+      );
       return;
     }
 
@@ -2891,18 +3747,31 @@ function registerStoryRoutes(app, {
     // Transcribe audio using Whisper
     let transcription;
     try {
-      console.log("[Audio Transcribe] Starting transcription:", { userId, size: audioBuffer.length, format: ext });
+      console.log("[Audio Transcribe] Starting transcription:", {
+        userId,
+        size: audioBuffer.length,
+        format: ext,
+      });
       transcription = await transcribeAudio(audioBuffer, { filename });
     } catch (err) {
-      console.error("[Audio Transcribe] Transcription failed:", { userId, error: err.message });
-      sendError(reply, 500, "TRANSCRIPTION_FAILED", "Something went wrong transcribing your audio. Please try recording again.");
+      console.error("[Audio Transcribe] Transcription failed:", {
+        userId,
+        error: err.message,
+      });
+      sendError(
+        reply,
+        500,
+        "TRANSCRIPTION_FAILED",
+        "Something went wrong transcribing your audio. Please try recording again.",
+      );
       return;
     }
 
     // Log successful transcription (no story context)
     const transcriptionText = transcription.text || "";
     const transcriptionLength = transcriptionText.length;
-    const exceedsStoryStartLimit = transcriptionLength > STORY_INITIAL_PROMPT_MAX_LENGTH;
+    const exceedsStoryStartLimit =
+      transcriptionLength > STORY_INITIAL_PROMPT_MAX_LENGTH;
     addAuditEntry({
       userId,
       action: "audio_transcribed",
@@ -2942,13 +3811,22 @@ function registerStoryRoutes(app, {
     try {
       const state = await writer.getStoryState(story_id);
       if (state && state.userId !== userId) {
-        sendError(reply, 403, "UNAUTHORIZED", "You don't own this story session.");
+        sendError(
+          reply,
+          403,
+          "UNAUTHORIZED",
+          "You don't own this story session.",
+        );
         return;
       }
     } catch (err) {
       // Only ignore "not found" errors - log other issues
       if (!err.message || !err.message.includes("not found")) {
-        console.error("[Story] Cancel ownership check failed:", { story_id, userId, error: err.message });
+        console.error("[Story] Cancel ownership check failed:", {
+          story_id,
+          userId,
+          error: err.message,
+        });
       }
       // Continue to cancellation attempt (idempotent)
     }
@@ -2958,7 +3836,11 @@ function registerStoryRoutes(app, {
       reply.send({ cancelled: true });
     } catch (err) {
       // Log but return success for idempotency
-      console.warn("[Story] Cancel error (returning success anyway):", { story_id, userId, error: err.message });
+      console.warn("[Story] Cancel error (returning success anyway):", {
+        story_id,
+        userId,
+        error: err.message,
+      });
       reply.send({ cancelled: true });
     }
   });
@@ -2968,266 +3850,354 @@ function registerStoryRoutes(app, {
    * Create a track from a confirmed story
    * This bridges the story flow to the existing track/render flow
    */
-  app.post("/story/:story_id/to-track", { schema: schemas.toTrack }, async (request, reply) => {
-    const userId = await requireUserId(request, reply);
-    if (!userId) return;
+  app.post(
+    "/story/:story_id/to-track",
+    { schema: schemas.toTrack },
+    async (request, reply) => {
+      const userId = await requireUserId(request, reply);
+      if (!userId) return;
 
-    // H3: Rate limit track creation (mirrors tracks.js pattern)
-    const limit = await consumeRateLimit(userId, "track_create", 20, 60 * 60);
-    if (!limit.allowed) {
-      console.warn("[SecurityGuard:RateLimit] Track creation rate limit blocked user", userId);
-      sendError(reply, 429, "RATE_LIMITED", "Track creation rate limit reached.", {
-        retry_after: limit.reset_at,
-      });
-      return;
-    }
+      // H3: Rate limit track creation (mirrors tracks.js pattern)
+      const limit = await consumeRateLimit(userId, "track_create", 20, 60 * 60);
+      if (!limit.allowed) {
+        console.warn(
+          "[SecurityGuard:RateLimit] Track creation rate limit blocked user",
+          userId,
+        );
+        sendError(
+          reply,
+          429,
+          "RATE_LIMITED",
+          "Track creation rate limit reached.",
+          {
+            retry_after: limit.reset_at,
+          },
+        );
+        return;
+      }
 
-    const { story_id } = request.params;
-    const requestedVoiceModeRaw = request.body?.voice_mode;
-    const giftReservationId = request.body?.gift_reservation_id || null;
-    const existingGiftTrack = giftReservationId
-      ? await findGiftFundingContent(db, {
-        reservationId: giftReservationId,
-        contentType: "song",
-      })
-      : null;
-    if (existingGiftTrack?.contentType === "song") {
-      const existingVersion = await db.prepare(
-        `SELECT id, version_num
+      const { story_id } = request.params;
+      const requestedVoiceModeRaw = request.body?.voice_mode;
+      const giftReservationId = request.body?.gift_reservation_id || null;
+      const existingGiftTrack = giftReservationId
+        ? await findGiftFundingContent(db, {
+            reservationId: giftReservationId,
+            contentType: "song",
+          })
+        : null;
+      if (existingGiftTrack?.contentType === "song") {
+        const existingVersion = await db
+          .prepare(
+            `SELECT id, version_num
          FROM track_versions
          WHERE track_id = ? AND version_num = ?
-         LIMIT 1`
-      ).get(existingGiftTrack.contentId, existingGiftTrack.versionNum || 1);
-      if (existingVersion) {
-        await removeTrackLibraryEntry({
-          userId,
-          trackId: existingGiftTrack.contentId,
-        });
-        reply.send({
-          track_id: existingGiftTrack.contentId,
-          version_id: existingVersion.id,
-          version_num: Number(existingVersion.version_num || 1),
-          idempotent: true,
-        });
+         LIMIT 1`,
+          )
+          .get(existingGiftTrack.contentId, existingGiftTrack.versionNum || 1);
+        if (existingVersion) {
+          await removeTrackLibraryEntry({
+            userId,
+            trackId: existingGiftTrack.contentId,
+          });
+          reply.send({
+            track_id: existingGiftTrack.contentId,
+            version_id: existingVersion.id,
+            version_num: Number(existingVersion.version_num || 1),
+            idempotent: true,
+          });
+          return;
+        }
+      }
+      const giftFundingReservation = giftReservationId
+        ? await validateGiftFundingReservation(db, {
+            userId,
+            reservationId: giftReservationId,
+            contentType: "song",
+          }).catch((err) => {
+            if (mapGiftFundingError(reply, err)) {
+              return "__handled__";
+            }
+            throw err;
+          })
+        : null;
+      if (giftFundingReservation === "__handled__") {
         return;
       }
-    }
-    const giftFundingReservation = giftReservationId
-      ? await validateGiftFundingReservation(db, {
+
+      // Verify ownership
+      const state = await verifyStoryOwnership(
+        story_id,
         userId,
-        reservationId: giftReservationId,
-        contentType: "song",
-      }).catch((err) => {
-        if (mapGiftFundingError(reply, err)) {
-          return "__handled__";
-        }
-        throw err;
-      })
-      : null;
-    if (giftFundingReservation === "__handled__") {
-      return;
-    }
+        sendError,
+        reply,
+        db,
+      );
+      if (!state) return;
 
-    // Verify ownership
-    const state = await verifyStoryOwnership(story_id, userId, sendError, reply, db);
-    if (!state) return;
-
-    try {
-      // Style resolution (three-layer priority):
-      //   1. request.body.style  — explicit override at track-creation time,
-      //      run through normalizeStyle() which lowercases, normalizes separators,
-      //      and resolves aliases (e.g. "R&B" -> "rnb")
-      //   2. storyContext.style   — captured during story collection
-      //      (v2State.dials?.style || session.style, see writer/v3/index.js)
-      //   3. null                 — no style; downstream picks server default
-      const storyContext = await writer.getStoryContext(story_id, { includeReadiness: false, includeMetadata: false });
-      const requestedStyle = normalizeStyle(request.body?.style) || null;
-      const effectiveStyle = requestedStyle || storyContext.style || null;
-
-      if (storyContext.status !== "confirmed") {
-        sendError(reply, 400, "STORY_NOT_CONFIRMED", "Story must be confirmed first.");
-        return;
-      }
-
-      // Re-run song readiness gate so the user cannot bypass preflight by
-      // confirming as poem (or via a legacy client) and then calling /to-track.
       try {
-        await writer.assertSongReadiness(story_id);
-      } catch (readinessErr) {
-        if (readinessErr?.code === "STORY_NEEDS_INPUT") {
-          sendError(reply, 422, "STORY_NEEDS_INPUT", readinessErr.question || readinessErr.message, {
-            recovery: {
-              question: readinessErr.question || readinessErr.message,
-              suggestions: Array.isArray(readinessErr.suggestions) ? readinessErr.suggestions : [],
-              missing_blocks: Array.isArray(readinessErr.missingBlocks) ? readinessErr.missingBlocks : [],
-            },
-            song_readiness: sanitizeSongReadinessForClient(readinessErr.songReadiness),
-          });
-          return;
-        }
-        throw readinessErr;
-      }
-
-      const riskLevel = await getUserRiskLevel(userId);
-      if (riskLevel === "blocked") {
-        sendError(reply, 403, "ACCOUNT_BLOCKED", "Account is blocked.");
-        return;
-      }
-
-      const myVoiceEnabled = await getFeatureFlag(db, "my_voice_enabled");
-      let requestedVoiceMode = requestedVoiceModeRaw === "user_voice" ? "user_voice" : "ai_voice";
-      if (!myVoiceEnabled && requestedVoiceMode === "user_voice") {
-        requestedVoiceMode = "ai_voice";
-      }
-
-      if (requestedVoiceMode === "user_voice") {
-        if (riskLevel === "high") {
-          sendError(reply, 403, "VOICE_MODE_DISABLED", "Voice mode disabled for high-risk accounts.");
-          return;
-        }
-
-        const profile = await db
-          .prepare("SELECT id FROM voice_profiles WHERE user_id = ? AND status = 'active'")
-          .get(userId);
-        if (!profile) {
-          sendError(reply, 403, "VOICE_PROFILE_REQUIRED", "Voice profile required for user_voice.", {
-            requires_voice_enrollment: true,
-          });
-          return;
-        }
-        const providerProfile = await findActiveProviderProfileForUser(db, {
-          userId,
-          provider: "suno",
+        // Style resolution (three-layer priority):
+        //   1. request.body.style  — explicit override at track-creation time,
+        //      run through normalizeStyle() which lowercases, normalizes separators,
+        //      and resolves aliases (e.g. "R&B" -> "rnb")
+        //   2. storyContext.style   — captured during story collection
+        //      (v2State.dials?.style || session.style, see writer/v3/index.js)
+        //   3. null                 — no style; downstream picks server default
+        const storyContext = await writer.getStoryContext(story_id, {
+          includeReadiness: false,
+          includeMetadata: false,
         });
-        const blockingProviderProfile =
-          await findLatestPendingProviderProfileForUser(db, {
+        const requestedStyle = normalizeStyle(request.body?.style) || null;
+        const effectiveStyle = requestedStyle || storyContext.style || null;
+
+        if (storyContext.status !== "confirmed") {
+          sendError(
+            reply,
+            400,
+            "STORY_NOT_CONFIRMED",
+            "Story must be confirmed first.",
+          );
+          return;
+        }
+
+        // Re-run song readiness gate so the user cannot bypass preflight by
+        // confirming as poem (or via a legacy client) and then calling /to-track.
+        try {
+          await writer.assertSongReadiness(story_id);
+        } catch (readinessErr) {
+          if (readinessErr?.code === "STORY_NEEDS_INPUT") {
+            sendError(
+              reply,
+              422,
+              "STORY_NEEDS_INPUT",
+              readinessErr.question || readinessErr.message,
+              {
+                recovery: {
+                  question: readinessErr.question || readinessErr.message,
+                  suggestions: Array.isArray(readinessErr.suggestions)
+                    ? readinessErr.suggestions
+                    : [],
+                  missing_blocks: Array.isArray(readinessErr.missingBlocks)
+                    ? readinessErr.missingBlocks
+                    : [],
+                },
+                song_readiness: sanitizeSongReadinessForClient(
+                  readinessErr.songReadiness,
+                ),
+              },
+            );
+            return;
+          }
+          throw readinessErr;
+        }
+
+        const riskLevel = await getUserRiskLevel(userId);
+        if (riskLevel === "blocked") {
+          sendError(reply, 403, "ACCOUNT_BLOCKED", "Account is blocked.");
+          return;
+        }
+
+        const myVoiceEnabled = await getFeatureFlag(db, "my_voice_enabled");
+        let requestedVoiceMode =
+          requestedVoiceModeRaw === "user_voice" ? "user_voice" : "ai_voice";
+        if (!myVoiceEnabled && requestedVoiceMode === "user_voice") {
+          requestedVoiceMode = "ai_voice";
+        }
+
+        if (requestedVoiceMode === "user_voice") {
+          if (riskLevel === "high") {
+            sendError(
+              reply,
+              403,
+              "VOICE_MODE_DISABLED",
+              "Voice mode disabled for high-risk accounts.",
+            );
+            return;
+          }
+
+          const profile = await db
+            .prepare(
+              "SELECT id FROM voice_profiles WHERE user_id = ? AND status = 'active'",
+            )
+            .get(userId);
+          if (!profile) {
+            sendError(
+              reply,
+              403,
+              "VOICE_PROFILE_REQUIRED",
+              "Voice profile required for user_voice.",
+              {
+                requires_voice_enrollment: true,
+              },
+            );
+            return;
+          }
+          const providerProfile = await findActiveProviderProfileForUser(db, {
             userId,
             provider: "suno",
           });
-        const blockingError = isNewerProviderProfile(
-          blockingProviderProfile,
-          providerProfile,
-        )
-          ? sunoPersonaReadinessError(blockingProviderProfile)
-          : null;
-        if (blockingError) {
-          sendError(reply, 422, blockingError.code, blockingError.message, {
-            requires_voice_enrollment:
-              blockingError.requiresVoiceEnrollment === true,
-          });
-          return;
-        }
-        if (
-          !providerProfile ||
-          !providerProfile.provider_profile_id ||
-          !hasPersonaConsentScope(providerProfile.consent_scope)
-        ) {
-          const latestProviderProfile =
-            blockingProviderProfile ||
-            (await findLatestProviderProfileForVoiceProfile(db, {
-              voiceProfileId: profile.id,
+          const blockingProviderProfile =
+            await findLatestPendingProviderProfileForUser(db, {
+              userId,
               provider: "suno",
-              includeDeleted: true,
-            }));
-          const readinessError = sunoPersonaReadinessError(latestProviderProfile);
-          const code =
-            readinessError?.code || "SUNO_VOICE_PERSONA_SETUP_REQUIRED";
-          const message =
-            readinessError?.message ||
-            "My Voice needs voice setup before song generation.";
-          sendError(reply, 422, code, message, {
-            requires_voice_enrollment: readinessError
-              ? readinessError.requiresVoiceEnrollment === true
-              : true,
-          });
-          return;
+            });
+          const blockingError = isNewerProviderProfile(
+            blockingProviderProfile,
+            providerProfile,
+          )
+            ? sunoPersonaReadinessError(blockingProviderProfile)
+            : null;
+          if (blockingError) {
+            sendError(reply, 422, blockingError.code, blockingError.message, {
+              requires_voice_enrollment:
+                blockingError.requiresVoiceEnrollment === true,
+            });
+            return;
+          }
+          if (
+            !providerProfile ||
+            !providerProfile.provider_profile_id ||
+            !hasPersonaConsentScope(providerProfile.consent_scope)
+          ) {
+            const latestProviderProfile =
+              blockingProviderProfile ||
+              (await findLatestProviderProfileForVoiceProfile(db, {
+                voiceProfileId: profile.id,
+                provider: "suno",
+                includeDeleted: true,
+              }));
+            const readinessError = sunoPersonaReadinessError(
+              latestProviderProfile,
+            );
+            const code =
+              readinessError?.code || "SUNO_VOICE_PERSONA_SETUP_REQUIRED";
+            const message =
+              readinessError?.message ||
+              "My Voice needs voice setup before song generation.";
+            sendError(reply, 422, code, message, {
+              requires_voice_enrollment: readinessError
+                ? readinessError.requiresVoiceEnrollment === true
+                : true,
+            });
+            return;
+          }
         }
-      }
 
-      // Create a track with the story context
-      const trackId = newUuid();
-      const now = new Date().toISOString();
+        // Create a track with the story context
+        const trackId = newUuid();
+        const now = new Date().toISOString();
 
-      // Compute params_hash for version reproducibility
-      const paramsJson = JSON.stringify({
-        story_id,
-        occasion: storyContext.occasion,
-        style: effectiveStyle,
-        voice_mode: requestedVoiceMode,
-        voice_gender: request.body?.voice_gender || null,
-        arc: storyContext.eventType || "unified",
-        narrative_version: typeof storyContext.narrativeVersion === "number" ? storyContext.narrativeVersion : 0,
-      });
-      const paramsHash = crypto.createHash("sha256").update(paramsJson).digest("hex").slice(0, 16);
+        // Compute params_hash for version reproducibility
+        const paramsJson = JSON.stringify({
+          story_id,
+          occasion: storyContext.occasion,
+          style: effectiveStyle,
+          voice_mode: requestedVoiceMode,
+          voice_gender: request.body?.voice_gender || null,
+          arc: storyContext.eventType || "unified",
+          narrative_version:
+            typeof storyContext.narrativeVersion === "number"
+              ? storyContext.narrativeVersion
+              : 0,
+        });
+        const paramsHash = crypto
+          .createHash("sha256")
+          .update(paramsJson)
+          .digest("hex")
+          .slice(0, 16);
 
-      await db.prepare(`
+        await db
+          .prepare(
+            `
         INSERT INTO tracks (id, user_id, status, title, occasion, recipient_name, style, message, story_context_json, voice_mode, voice_gender, funding_source, gift_reservation_id, latest_version, created_at, updated_at)
         VALUES (?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
-      `).run(
-        trackId,
-        userId,
-        `Song for ${storyContext.recipientName}`,
-        storyContext.occasion,
-        storyContext.recipientName,
-        effectiveStyle,
-        storyContext.initialPrompt,
-        JSON.stringify(buildTrackStoryContextPayload(storyContext, { storyId: story_id })),
-        requestedVoiceMode,
-        request.body?.voice_gender || null,
-        giftFundingReservation ? "gift_token" : "standard",
-        giftFundingReservation?.id || null,
-        now,
-        now
-      );
-      if (giftFundingReservation) {
-        await removeTrackLibraryEntry({
-          userId,
-          trackId,
-          removedAt: now,
-        });
-      } else {
-        await upsertTrackLibraryEntry({
-          userId,
-          trackId,
-          origin: "created",
-          shareTokenId: null,
-          addedAt: now,
-        });
-      }
+      `,
+          )
+          .run(
+            trackId,
+            userId,
+            `Song for ${storyContext.recipientName}`,
+            storyContext.occasion,
+            storyContext.recipientName,
+            effectiveStyle,
+            storyContext.initialPrompt,
+            JSON.stringify(
+              buildTrackStoryContextPayload(storyContext, {
+                storyId: story_id,
+              }),
+            ),
+            requestedVoiceMode,
+            request.body?.voice_gender || null,
+            giftFundingReservation ? "gift_token" : "standard",
+            giftFundingReservation?.id || null,
+            now,
+            now,
+          );
+        if (giftFundingReservation) {
+          await removeTrackLibraryEntry({
+            userId,
+            trackId,
+            removedAt: now,
+          });
+        } else {
+          await upsertTrackLibraryEntry({
+            userId,
+            trackId,
+            origin: "created",
+            shareTokenId: null,
+            addedAt: now,
+          });
+        }
 
-      // Create initial version with all required fields
-      const versionId = newUuid();
-      await db.prepare(`
+        // Create initial version with all required fields
+        const versionId = newUuid();
+        await db
+          .prepare(
+            `
         INSERT INTO track_versions (id, track_id, version_num, status, render_type, params_json, params_hash, created_at)
         VALUES (?, ?, 1, 'draft', 'preview', ?, ?, ?)
-      `).run(versionId, trackId, paramsJson, paramsHash, now);
+      `,
+          )
+          .run(versionId, trackId, paramsJson, paramsHash, now);
 
-      addAuditEntry({
-        userId,
-        action: "story_to_track",
-        resourceType: "track",
-        resourceId: trackId,
-        metadata: { story_id },
-      });
+        addAuditEntry({
+          userId,
+          action: "story_to_track",
+          resourceType: "track",
+          resourceId: trackId,
+          metadata: { story_id },
+        });
 
-      reply.send({
-        track_id: trackId,
-        version_id: versionId,
-        version_num: 1,
-        voice_mode: requestedVoiceMode,
-      });
-    } catch (err) {
-      console.error("[Story] To-track failed:", { story_id, userId, error: err.message });
-      sendError(reply, 500, "STORY_TO_TRACK_FAILED", "Something went wrong creating your song. Your story is saved — please try again.");
-    }
-  });
+        reply.send({
+          track_id: trackId,
+          version_id: versionId,
+          version_num: 1,
+          voice_mode: requestedVoiceMode,
+        });
+      } catch (err) {
+        console.error("[Story] To-track failed:", {
+          story_id,
+          userId,
+          error: err.message,
+        });
+        sendError(
+          reply,
+          500,
+          "STORY_TO_TRACK_FAILED",
+          "Something went wrong creating your song. Your story is saved — please try again.",
+        );
+      }
+    },
+  );
 
   // ═══════════════════════════════════════════════════════════════════
   // DEBUG ENDPOINTS — dev-mode only, for story algorithm tuning
   // Remove these when autoresearch optimization is complete.
   // ═══════════════════════════════════════════════════════════════════
 
-  if (process.env.NODE_ENV === "development" || process.env.NODE_ENV === "test") {
+  if (
+    process.env.NODE_ENV === "development" ||
+    process.env.NODE_ENV === "test"
+  ) {
     const {
       computeLabovGapAnalysis,
       computeStoryGapAnalysis,
@@ -3248,10 +4218,14 @@ function registerStoryRoutes(app, {
           return;
         }
 
-        const occasion = state.event?.occasion || state.occasion || "celebration";
+        const occasion =
+          state.event?.occasion || state.occasion || "celebration";
         const turnCount = state.turn_count || 0;
 
-        const labovAnalysis = computeLabovGapAnalysis(state, { occasion, turnCount });
+        const labovAnalysis = computeLabovGapAnalysis(state, {
+          occasion,
+          turnCount,
+        });
         const legacyAnalysis = computeStoryGapAnalysis(state);
         const storyState = extractStoryState(state);
         const elements = computeStoryElements(labovAnalysis);
@@ -3294,7 +4268,8 @@ function registerStoryRoutes(app, {
 
     // POST /debug/story/simulate — Run one round through the algorithm without DB write
     app.post("/debug/story/simulate", async (request, reply) => {
-      const { message, occasion, recipient_name, prior_state } = request.body || {};
+      const { message, occasion, recipient_name, prior_state } =
+        request.body || {};
 
       if (!message) {
         sendError(reply, 400, "MISSING_INPUT", "message is required.");
@@ -3432,7 +4407,8 @@ function registerStoryRoutes(app, {
     // Tests the complete algorithm: scoring + fact extraction + anti-repetition + tone + question targeting
     // This creates a real DB session. Use for testing the full guidance experience.
     app.post("/debug/story/full-round", async (request, reply) => {
-      const { message, occasion, recipient_name, session_id } = request.body || {};
+      const { message, occasion, recipient_name, session_id } =
+        request.body || {};
 
       if (!message) {
         sendError(reply, 400, "MISSING_INPUT", "message is required.");
@@ -3473,8 +4449,12 @@ function registerStoryRoutes(app, {
             })
           : null;
         const storyState = state ? extractStoryState(state) : null;
-        const elements = labovAnalysis ? computeStoryElements(labovAnalysis) : [];
-        const questionPriority = labovAnalysis ? computeQuestionPriority(labovAnalysis) : null;
+        const elements = labovAnalysis
+          ? computeStoryElements(labovAnalysis)
+          : [];
+        const questionPriority = labovAnalysis
+          ? computeQuestionPriority(labovAnalysis)
+          : null;
         const questionStage = getQuestionStage(state?.turn_count || 1);
 
         reply.send({
@@ -3482,7 +4462,11 @@ function registerStoryRoutes(app, {
           turn_count: state?.turn_count || 1,
           // The AI's actual response (the guidance the user sees)
           ai_response: {
-            question: result.next_question || result.question || result.first_question || null,
+            question:
+              result.next_question ||
+              result.question ||
+              result.first_question ||
+              null,
             narrative: result.narrative || null,
             action: result.action || null,
             complete: result.complete || false,
@@ -3491,12 +4475,14 @@ function registerStoryRoutes(app, {
             suggestions: result.suggestions || [],
           },
           // Labov scoring
-          labov: labovAnalysis ? {
-            elements: labovAnalysis.labov?.elements || [],
-            weighted_score: labovAnalysis.labov?.weightedScore || 0,
-            is_ready: labovAnalysis.isStoryReady,
-            can_proceed_anyway: labovAnalysis.canProceedAnyway || false,
-          } : null,
+          labov: labovAnalysis
+            ? {
+                elements: labovAnalysis.labov?.elements || [],
+                weighted_score: labovAnalysis.labov?.weightedScore || 0,
+                is_ready: labovAnalysis.isStoryReady,
+                can_proceed_anyway: labovAnalysis.canProceedAnyway || false,
+              }
+            : null,
           display_elements: elements,
           // Question targeting (what the algo decided to ask about)
           question_targeting: {
@@ -3517,7 +4503,9 @@ function registerStoryRoutes(app, {
       }
     });
 
-    console.log("[Debug] Story debug endpoints registered: /debug/story/:id/state, /debug/story/simulate, /debug/story/full-round, /debug/story/:id/transcript");
+    console.log(
+      "[Debug] Story debug endpoints registered: /debug/story/:id/state, /debug/story/simulate, /debug/story/full-round, /debug/story/:id/transcript",
+    );
   }
 }
 
