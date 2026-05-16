@@ -227,6 +227,11 @@ struct NowPlayingView: View {
             // emoji while the artwork loads (or if it's missing — e.g. older tracks
             // generated before the artwork pipeline shipped, or the artwork job
             // failed and the READY barrier released the track with artwork_url=NULL).
+            //
+            // Frame is locked to the artwork's native 2:3 aspect (1024×1536) and
+            // the image is .fit (not .fill) so the whole composition shows —
+            // including the bottom safe-zone where recipient + occasion + sender
+            // text live. Capping max height at 360pt keeps the lyrics area usable.
             ZStack {
                 if let urlString = playerState.currentTrack?.artworkUrl,
                    let url = URL(string: urlString) {
@@ -237,7 +242,7 @@ struct NowPlayingView: View {
                         case .success(let image):
                             image
                                 .resizable()
-                                .aspectRatio(contentMode: .fill)
+                                .aspectRatio(contentMode: .fit)
                                 .transition(.opacity.animation(.easeOut(duration: 0.2)))
                         case .failure:
                             albumArtPlaceholder(occasionEmoji: occasionEmoji)
@@ -249,7 +254,8 @@ struct NowPlayingView: View {
                     albumArtPlaceholder(occasionEmoji: occasionEmoji)
                 }
             }
-            .frame(height: 280)
+            .aspectRatio(2.0 / 3.0, contentMode: .fit)
+            .frame(maxHeight: 360)
             .clipShape(RoundedRectangle(cornerRadius: 20))
 
             VStack(spacing: 4) {

@@ -76,6 +76,10 @@ struct OnboardingV2View: View {
     let onComplete: (OnboardingResult) -> Void
     let onSkip: (PartialOnboardingResult?) -> Void
 
+    // Optional — onboarding can run pre-auth (no signed-in user yet); the
+    // sender attribution simply omits "by {Sender}" in that case.
+    @Environment(AuthManager.self) private var authManager
+
     @State private var engine: QuestionGraphEngine?
     @State private var resolvedGraph: OnboardingGraph?
     @State private var screen: OnboardingScreen = .splash
@@ -397,7 +401,14 @@ struct OnboardingV2View: View {
         suggestionLoading = true
         transitionTo(.payoff)
 
-        let payload = engine.suggestionPayload
+        let basePayload = engine.suggestionPayload
+        let payload = OnboardingSuggestionRequest(
+            recipientName: basePayload.recipientName,
+            relationshipType: basePayload.relationshipType,
+            emotionalSeed: basePayload.emotionalSeed,
+            occasion: basePayload.occasion,
+            senderName: authManager.currentUser?.displayName
+        )
         let generationStart = Date()
 
         AnalyticsService.shared.log(.onboardingV2SuggestionShown, properties: [

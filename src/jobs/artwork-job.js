@@ -7,9 +7,13 @@ const BACKOFF_MS = [5_000, 15_000, 45_000]; // matches existing API retry policy
 const STALE_RUNNING_MS = 5 * 60 * 1000; // a row stuck in 'running' for 5min is dead
 
 const SQL_GET_TRACK = `
-  SELECT id, user_id, occasion, recipient_name, style, artwork_content_hash, latest_version
-  FROM tracks
-  WHERE id = ?
+  SELECT
+    t.id, t.user_id, t.occasion, t.recipient_name, t.style,
+    t.artwork_content_hash, t.latest_version,
+    u.display_name AS sender_display_name
+  FROM tracks t
+  LEFT JOIN users u ON u.id = t.user_id
+  WHERE t.id = ?
 `;
 
 const SQL_GET_LATEST_VERSION = `
@@ -246,6 +250,7 @@ async function runArtworkJobInner({
       trackId: track.id,
       occasion: track.occasion,
       recipientName: track.recipient_name,
+      senderName: track.sender_display_name || null,
       tier: tier || "free",
       previousContentHash: track.artwork_content_hash || null,
       dependencies: generateDependencies,

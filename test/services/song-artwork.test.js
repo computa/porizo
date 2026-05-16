@@ -480,6 +480,93 @@ test("buildOverlaySvg keeps LTR by default", () => {
   assert.ok(!/direction="rtl"/.test(svg));
 });
 
+// ---------- buildOverlaySvg sender attribution ----------
+
+test("buildOverlaySvg renders 'by {FirstName}' when senderName provided", () => {
+  const svg = buildOverlaySvg({
+    width: 1024,
+    height: 1536,
+    recipientName: "Chioma",
+    occasion: "birthday",
+    senderName: "Ambrose Obimma",
+  });
+  // Sender line uses only the first whitespace-delimited token.
+  assert.match(svg, /by Ambrose/);
+  assert.ok(!/Obimma/.test(svg), "last name should be dropped");
+  // With a sender, the occasion subtitle reads as a full phrase rather than
+  // just the bare occasion word.
+  assert.match(svg, /A Birthday Song/);
+});
+
+test("buildOverlaySvg falls back to legacy 2-tier layout without senderName", () => {
+  const svg = buildOverlaySvg({
+    width: 1024,
+    height: 1536,
+    recipientName: "Sarah",
+    occasion: "birthday",
+  });
+  assert.ok(!/by /.test(svg), "no attribution line when sender absent");
+  // Legacy layout shows just the occasion word (parity with pre-sender artwork).
+  assert.match(svg, /Birthday/);
+});
+
+test("buildOverlaySvg treats blank/whitespace senderName as absent", () => {
+  const svg = buildOverlaySvg({
+    width: 1024,
+    height: 1536,
+    recipientName: "Sarah",
+    occasion: "birthday",
+    senderName: "   ",
+  });
+  assert.ok(!/by /.test(svg));
+});
+
+test("generateSongArtwork plumbs senderName through to compositeFn", async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "porizo-artwork-"));
+  const fakeBase = path.join(tmp, "base.jpg");
+  fs.writeFileSync(fakeBase, Buffer.alloc(8));
+  let captured = null;
+
+  const result = await generateSongArtwork({
+    userId: "u-sender",
+    trackId: "t-sender",
+    occasion: "birthday",
+    recipientName: "Chioma",
+    senderName: "Ambrose Obimma",
+    tier: "free",
+    dependencies: {
+      libraryPathFn: () => fakeBase,
+      compositeFn: async (args) => {
+        captured = args;
+        const out = path.join(args.outputDir, "artwork.jpg");
+        fs.writeFileSync(out, Buffer.alloc(8));
+        return out;
+      },
+    },
+  });
+
+  assert.equal(result.skipped, false);
+  assert.equal(captured.senderName, "Ambrose Obimma");
+});
+
+test("generateSongArtwork content hash ignores senderName (legacy tracks not force-regenerated)", () => {
+  const a = computeContentHash({
+    recipientName: "Chioma",
+    occasion: "birthday",
+    style: "paper-art",
+  });
+  // computeContentHash doesn't accept senderName — extra fields ignored,
+  // so the hash is stable. This pins the contract: adding sender_display_name
+  // to the JOIN must not invalidate previously-computed hashes.
+  const b = computeContentHash({
+    recipientName: "Chioma",
+    occasion: "birthday",
+    style: "paper-art",
+    senderName: "Ambrose",
+  });
+  assert.equal(a, b);
+});
+
 // ---------- buildPrompt allowlist + content invariants ----------
 
 const {

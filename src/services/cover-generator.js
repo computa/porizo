@@ -367,26 +367,61 @@ function fitName(name) {
 
 /**
  * Build the SVG name + occasion overlay sized to the target frame.
+ *
+ * Layout tiers (top → bottom in the lower safe zone):
+ *   1. "For {Name}"           — Fraunces 700, large (the emotional anchor)
+ *   2. "A {Occasion} Song"    — Fraunces italic, mid
+ *   3. "by {SenderFirstName}" — Fraunces italic, smaller, lower opacity (omitted when no sender)
+ *   4. "porizo"               — branding, very small at the very bottom
+ *
+ * When `senderName` is omitted we render the legacy 2-tier layout
+ * ("For X" + "{Occasion}") to keep parity with pre-sender artwork.
  */
-function buildOverlaySvg({ width, height, recipientName, occasion }) {
+function buildOverlaySvg({
+  width,
+  height,
+  recipientName,
+  occasion,
+  senderName,
+}) {
   const colors = OCCASION_COLORS[occasion] || OCCASION_COLORS.custom;
-  const occasionDisplay = formatOccasion(occasion, "A Song");
   const direction = detectDirection(recipientName);
   const prefix = localizedForPrefix(recipientName);
   const { lines, fontSizeFraction } = fitName(recipientName);
 
+  const senderFirst = (() => {
+    const trimmed = String(senderName || "").trim();
+    if (!trimmed) return "";
+    return trimmed.split(/\s+/)[0];
+  })();
+  const hasSender = senderFirst.length > 0;
+
+  // Tier 2 reads as a proper subtitle when a sender is attached, just the
+  // occasion word when the sender is absent (legacy parity with the screenshot).
+  const occasionWord = formatOccasion(occasion, "A Song");
+  const occasionDisplay = hasSender ? `A ${occasionWord} Song` : occasionWord;
+  const senderDisplay = hasSender ? `by ${senderFirst}` : "";
+
   const nameSize = Math.round(width * fontSizeFraction);
   const occasionSize = Math.round(width * 0.034);
+  const senderSize = Math.round(width * 0.028);
   const brandingSize = Math.round(width * 0.018);
 
   const safeOccasion = escapeXml(occasionDisplay);
-  // Bottom safe zone: text vertically centered around 84% of frame height for portrait;
-  // for landscape (1.91:1) we shift left third, so we keep y central.
+  const safeSender = escapeXml(senderDisplay);
+  // Bottom safe zone: text vertically centered around 84% of frame height for portrait
+  // (legacy 2-tier); shift up to 80% when sender is present so the third line clears
+  // the porizo branding mark without crowding. For landscape (1.91:1) we shift left
+  // third, so we keep y central.
   const isLandscape = width / height > 1.5;
   const isSquare = Math.abs(width / height - 1) < 0.1;
   const textAnchor = isLandscape ? "start" : "middle";
   const baseX = isLandscape ? Math.round(width * 0.06) : width / 2;
-  const baseY = Math.round(height * (isSquare ? 0.82 : 0.84));
+  const portraitBaseFraction = hasSender ? 0.8 : 0.84;
+  const squareBaseFraction = hasSender ? 0.78 : 0.82;
+  const baseY = Math.round(
+    height * (isSquare ? squareBaseFraction : portraitBaseFraction),
+  );
   const lineSpacing = Math.round(nameSize * 1.05);
 
   const directionAttr =
@@ -404,12 +439,17 @@ function buildOverlaySvg({ width, height, recipientName, occasion }) {
     lines.length * lineSpacing -
     (lines.length - 1) * (lineSpacing / 2) +
     Math.round(nameSize * 0.4);
+  const senderY = occasionY + Math.round(occasionSize * 1.6);
   const brandingY = height - Math.round(height * 0.025);
+
+  const senderSvg = hasSender
+    ? `\n  <text x="${baseX}" y="${senderY}" font-family="${FRAUNCES_FAMILY}" font-size="${senderSize}" font-style="italic" font-weight="400" fill="${colors.primary}" fill-opacity="0.7" text-anchor="${textAnchor}"${directionAttr}>${safeSender}</text>`
+    : "";
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
   ${nameLineSvgs.join("\n  ")}
-  <text x="${baseX}" y="${occasionY}" font-family="${FRAUNCES_FAMILY}" font-size="${occasionSize}" font-style="italic" font-weight="400" fill="${colors.primary}" fill-opacity="0.85" text-anchor="${textAnchor}"${directionAttr}>${safeOccasion}</text>
+  <text x="${baseX}" y="${occasionY}" font-family="${FRAUNCES_FAMILY}" font-size="${occasionSize}" font-style="italic" font-weight="400" fill="${colors.primary}" fill-opacity="0.85" text-anchor="${textAnchor}"${directionAttr}>${safeOccasion}</text>${senderSvg}
   <text x="${width / 2}" y="${brandingY}" font-family="${FRAUNCES_FAMILY}" font-size="${brandingSize}" font-weight="400" fill="#6b6f7a" fill-opacity="0.45" text-anchor="middle">porizo</text>
 </svg>`;
 }
@@ -425,6 +465,9 @@ function buildOverlaySvg({ width, height, recipientName, occasion }) {
  * @param {string} params.recipientName  Name to render — composited via SVG, never sent to AI
  * @param {string} params.occasion       Occasion key (for color + label)
  * @param {string} params.outputDir      Directory to write outputs
+ * @param {string} [params.senderName]   Sender's display name. First token is used as
+ *                                       "by {First}" attribution. Omit to render the
+ *                                       legacy 2-tier overlay (recipient + occasion only).
  * @param {string} [params.targetAspect] '9:16' | '1.91:1' | '1:1' (default: '9:16')
  * @returns {Promise<string>} Path to the generated composite
  */
@@ -433,6 +476,7 @@ async function compositeArtworkWithText({
   recipientName,
   occasion,
   outputDir,
+  senderName,
   targetAspect = "9:16",
 }) {
   let sharp;
@@ -525,6 +569,7 @@ async function compositeArtworkWithText({
     height: dims.height,
     recipientName,
     occasion,
+    senderName,
   });
 
   await baseLayer

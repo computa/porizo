@@ -46,6 +46,7 @@ const { runHttpChecks } = require("../writer/v3/orchestration/http-debugger");
 const { newUuid } = require("../utils/ids");
 const { generateElementGuidance } = require("../writer/v3/guidance");
 const { normalizeStyle } = require("../providers/style-registry");
+const { buildSongTitle } = require("./onboarding");
 const {
   findGiftFundingContent,
   validateGiftFundingReservation,
@@ -4105,6 +4106,25 @@ function registerStoryRoutes(
           .digest("hex")
           .slice(0, 16);
 
+        // Match the onboarding title format: "A {Occasion} Song for {Name} by {Sender}".
+        // One extra single-row read; runs once per track creation.
+        const trackOwner = await db
+          .prepare("SELECT display_name FROM users WHERE id = ?")
+          .get(userId);
+        const occasionLabel = storyContext.occasion
+          ? String(storyContext.occasion)
+              .replace(/_/g, " ")
+              .replace(/\b\w/g, (c) => c.toUpperCase())
+          : null;
+        const composedTitle = buildSongTitle({
+          recipientName: storyContext.recipientName,
+          occasionLabel,
+          senderFirstName: (() => {
+            const trimmed = String(trackOwner?.display_name || "").trim();
+            return trimmed ? trimmed.split(/\s+/)[0] : "";
+          })(),
+        });
+
         await db
           .prepare(
             `
@@ -4115,7 +4135,7 @@ function registerStoryRoutes(
           .run(
             trackId,
             userId,
-            `Song for ${storyContext.recipientName}`,
+            composedTitle,
             storyContext.occasion,
             storyContext.recipientName,
             effectiveStyle,

@@ -84,12 +84,32 @@ struct OnboardingSuggestionRequest: Codable, Sendable {
     let relationshipType: String
     let emotionalSeed: String
     let occasion: String?
+    /// Authenticated user's display name (full). Backend extracts the first
+    /// token for the "by {First}" attribution in the title. Optional so the
+    /// public endpoint still works for not-yet-signed-in callers.
+    let senderName: String?
+
+    // Explicit init keeps existing call sites compiling while making `senderName` optional.
+    init(
+        recipientName: String,
+        relationshipType: String,
+        emotionalSeed: String,
+        occasion: String?,
+        senderName: String? = nil
+    ) {
+        self.recipientName = recipientName
+        self.relationshipType = relationshipType
+        self.emotionalSeed = emotionalSeed
+        self.occasion = occasion
+        self.senderName = senderName
+    }
 
     enum CodingKeys: String, CodingKey {
         case recipientName = "recipient_name"
         case relationshipType = "relationship_type"
         case emotionalSeed = "emotional_seed"
         case occasion
+        case senderName = "sender_name"
     }
 }
 

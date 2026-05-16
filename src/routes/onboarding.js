@@ -67,23 +67,49 @@ const SEED_PREVIEW_MAP = {
   },
 };
 
-function generateTemplateSuggestion({ recipient_name, relationship_type, emotional_seed, occasion }) {
+// Pull the first whitespace-delimited token off a display name.
+// Splits on any whitespace (incl. tabs / nbsp). Empty/null in → empty out.
+function firstName(displayName) {
+  const trimmed = String(displayName || "").trim();
+  if (!trimmed) return "";
+  return trimmed.split(/\s+/)[0];
+}
+
+function buildSongTitle({ recipientName, occasionLabel, senderFirstName }) {
+  const name = recipientName || "them";
+  const base = occasionLabel
+    ? `A ${occasionLabel} Song for ${name}`
+    : `A Song for ${name}`;
+  return senderFirstName ? `${base} by ${senderFirstName}` : base;
+}
+
+function generateTemplateSuggestion({
+  recipient_name,
+  relationship_type,
+  emotional_seed,
+  occasion,
+  sender_name,
+}) {
   const name = recipient_name || "them";
   const seedKey = emotional_seed || "";
   const occasionLabel = occasion
     ? occasion.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
-    : "Special";
+    : null;
+  const senderFirstName = firstName(sender_name);
 
-  const title = occasion
-    ? `${occasionLabel} Song for ${name}`
-    : `A Song for ${name}`;
+  const title = buildSongTitle({
+    recipientName: name,
+    occasionLabel,
+    senderFirstName,
+  });
 
   const seedLabel = seedKey
     .replace(/_/g, " ")
     .replace(/\b\w/g, (c) => c.toUpperCase());
 
-  const emotionalAngle = occasion
-    ? `A ${occasionLabel.toLowerCase()} song for ${name} about ${seedLabel.toLowerCase()}`
+  const occasionPhrase = occasionLabel ? occasionLabel.toLowerCase() : null;
+  const emotionalAngle = occasionPhrase
+    ? `A ${occasionPhrase} song for ${name} about ${seedLabel.toLowerCase()}`
     : `A song for ${name} about ${seedLabel.toLowerCase()}`;
 
   // Look up preview line from map, falling back to generic
@@ -106,15 +132,25 @@ function getOnboardingGraphPathCandidates() {
   return [
     path.join(__dirname, "..", "resources", "onboarding-graph.json"),
     path.join(process.cwd(), "src", "resources", "onboarding-graph.json"),
-    path.join(process.cwd(), "PorizoApp", "PorizoApp", "Resources", "onboarding-graph.json"),
+    path.join(
+      process.cwd(),
+      "PorizoApp",
+      "PorizoApp",
+      "Resources",
+      "onboarding-graph.json",
+    ),
   ];
 }
 
 async function loadOnboardingGraph() {
   const candidates = getOnboardingGraphPathCandidates();
-  const graphPath = candidates.find((candidate) => fsSync.existsSync(candidate));
+  const graphPath = candidates.find((candidate) =>
+    fsSync.existsSync(candidate),
+  );
   if (!graphPath) {
-    const error = new Error(`onboarding graph not found in any known path: ${candidates.join(", ")}`);
+    const error = new Error(
+      `onboarding graph not found in any known path: ${candidates.join(", ")}`,
+    );
     error.code = "ONBOARDING_GRAPH_MISSING";
     throw error;
   }
@@ -140,44 +176,76 @@ function registerOnboardingRoutes(app, { sendError }) {
    * Generate a personalized song suggestion from onboarding answers.
    * Returns a deterministic template immediately. LLM enhancement is a future upgrade.
    */
-  app.post("/api/onboarding/suggest", {
-    config: { rateLimit: { max: 30, timeWindow: '1 minute' } }
-  }, async (request, reply) => {
-    try {
-      const { recipient_name, relationship_type, emotional_seed, occasion } = request.body || {};
+  app.post(
+    "/api/onboarding/suggest",
+    {
+      config: { rateLimit: { max: 30, timeWindow: "1 minute" } },
+    },
+    async (request, reply) => {
+      try {
+        const {
+          recipient_name,
+          relationship_type,
+          emotional_seed,
+          occasion,
+          sender_name,
+        } = request.body || {};
 
-      if (!recipient_name || !relationship_type || !emotional_seed) {
-        return sendError(reply, 400, "Missing required fields: recipient_name, relationship_type, emotional_seed");
+        if (!recipient_name || !relationship_type || !emotional_seed) {
+          return sendError(
+            reply,
+            400,
+            "Missing required fields: recipient_name, relationship_type, emotional_seed",
+          );
+        }
+
+        // Input length validation — prevent abuse on public endpoint
+        const MAX_FIELD_LEN = 200;
+        if (
+          typeof recipient_name !== "string" ||
+          recipient_name.length > MAX_FIELD_LEN ||
+          typeof relationship_type !== "string" ||
+          relationship_type.length > MAX_FIELD_LEN ||
+          typeof emotional_seed !== "string" ||
+          emotional_seed.length > MAX_FIELD_LEN ||
+          (occasion &&
+            (typeof occasion !== "string" ||
+              occasion.length > MAX_FIELD_LEN)) ||
+          (sender_name !== undefined &&
+            sender_name !== null &&
+            (typeof sender_name !== "string" ||
+              sender_name.length > MAX_FIELD_LEN))
+        ) {
+          return sendError(
+            reply,
+            400,
+            "Invalid input: fields must be strings under 200 characters",
+          );
+        }
+
+        const suggestion = generateTemplateSuggestion({
+          recipient_name,
+          relationship_type,
+          emotional_seed,
+          occasion: occasion || null,
+          sender_name: sender_name || null,
+        });
+
+        return reply.send(suggestion);
+      } catch (err) {
+        if (reply.sent) return;
+        request.log.error({ err }, "[Onboarding] Suggest error");
+        return sendError(reply, 500, "Failed to generate suggestion");
       }
-
-      // Input length validation — prevent abuse on public endpoint
-      const MAX_FIELD_LEN = 200;
-      if (typeof recipient_name !== 'string' || recipient_name.length > MAX_FIELD_LEN
-          || typeof relationship_type !== 'string' || relationship_type.length > MAX_FIELD_LEN
-          || typeof emotional_seed !== 'string' || emotional_seed.length > MAX_FIELD_LEN
-          || (occasion && (typeof occasion !== 'string' || occasion.length > MAX_FIELD_LEN))) {
-        return sendError(reply, 400, "Invalid input: fields must be strings under 200 characters");
-      }
-
-      const suggestion = generateTemplateSuggestion({
-        recipient_name,
-        relationship_type,
-        emotional_seed,
-        occasion: occasion || null,
-      });
-
-      return reply.send(suggestion);
-    } catch (err) {
-      if (reply.sent) return;
-      request.log.error({ err }, "[Onboarding] Suggest error");
-      return sendError(reply, 500, "Failed to generate suggestion");
-    }
-  });
+    },
+  );
 }
 
 module.exports = {
   registerOnboardingRoutes,
   generateTemplateSuggestion,
+  buildSongTitle,
+  firstName,
   getOnboardingGraphPathCandidates,
   loadOnboardingGraph,
 };

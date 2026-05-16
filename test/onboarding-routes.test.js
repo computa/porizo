@@ -22,7 +22,14 @@ describe("onboarding routes", () => {
 
     assert.equal(
       candidates[0],
-      path.join(process.cwd(), "src", "routes", "..", "resources", "onboarding-graph.json")
+      path.join(
+        process.cwd(),
+        "src",
+        "routes",
+        "..",
+        "resources",
+        "onboarding-graph.json",
+      ),
     );
   });
 
@@ -34,8 +41,49 @@ describe("onboarding routes", () => {
       occasion: "birthday",
     });
 
-    assert.equal(suggestion.title, "Birthday Song for Sarah");
+    assert.equal(suggestion.title, "A Birthday Song for Sarah");
     assert.equal(suggestion.source, "template");
     assert.match(suggestion.preview_line, /Sarah/);
+  });
+
+  it("appends 'by {FirstName}' when sender_name is provided", () => {
+    const suggestion = generateTemplateSuggestion({
+      recipient_name: "Chioma",
+      relationship_type: "partner",
+      emotional_seed: "first_met",
+      occasion: "birthday",
+      sender_name: "Ambrose Obimma",
+    });
+    assert.equal(suggestion.title, "A Birthday Song for Chioma by Ambrose");
+  });
+
+  it("omits the 'by' attribution when sender_name is missing or blank", () => {
+    const noSender = generateTemplateSuggestion({
+      recipient_name: "Chioma",
+      relationship_type: "partner",
+      emotional_seed: "first_met",
+      occasion: "birthday",
+    });
+    assert.equal(noSender.title, "A Birthday Song for Chioma");
+
+    const blankSender = generateTemplateSuggestion({
+      recipient_name: "Chioma",
+      relationship_type: "partner",
+      emotional_seed: "first_met",
+      occasion: "birthday",
+      sender_name: "   ",
+    });
+    assert.equal(blankSender.title, "A Birthday Song for Chioma");
+  });
+
+  it("drops the occasion phrase when no occasion is provided", () => {
+    const suggestion = generateTemplateSuggestion({
+      recipient_name: "Chioma",
+      relationship_type: "partner",
+      emotional_seed: "first_met",
+      occasion: null,
+      sender_name: "Ambrose",
+    });
+    assert.equal(suggestion.title, "A Song for Chioma by Ambrose");
   });
 });

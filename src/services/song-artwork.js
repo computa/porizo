@@ -54,6 +54,11 @@ function computeContentHash({ recipientName, occasion, style }) {
  * @param {string} args.occasion         Must be a member of VALID_OCCASIONS
  * @param {string} args.recipientName    Composited locally; never sent to AI
  * @param {string} args.tier             'free' | 'plus' | 'pro'
+ * @param {string} [args.senderName]     Track owner's display name. First token is composited
+ *                                       locally as the "by {First}" attribution on the artwork.
+ *                                       Never sent to the AI provider. Intentionally excluded
+ *                                       from the content hash so existing tracks aren't force-
+ *                                       regenerated when the field is added.
  * @param {string} [args.previousContentHash]  From tracks.artwork_content_hash; skip if matches
  * @param {boolean} [args.forceRegenerate]     Skip the idempotency check (admin/debug only)
  * @param {Object} [args.dependencies]
@@ -70,6 +75,7 @@ async function generateSongArtwork({
   trackId,
   occasion,
   recipientName,
+  senderName,
   tier,
   previousContentHash,
   forceRegenerate = false,
@@ -179,6 +185,7 @@ async function generateSongArtwork({
   const artworkPath = await compositeFn({
     baseImagePath,
     recipientName,
+    senderName,
     occasion,
     outputDir: outDir,
     targetAspect: "9:16",
