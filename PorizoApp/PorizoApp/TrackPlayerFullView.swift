@@ -109,6 +109,7 @@ struct TrackPlayerFullView: View {
                 occasion: occasion.isEmpty ? nil : occasion,
                 shareURL: shareUrl,
                 claimPIN: claimPin,
+                artworkURL: artworkUrl,
                 onSend: {
                     guard let urlString = shareUrl,
                           let claimPin,

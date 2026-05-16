@@ -141,6 +141,7 @@ struct MySongsView: View {
                 occasion: track.occasion,
                 shareURL: track.shareUrl,
                 claimPIN: track.claimPin,
+                artworkURL: track.artworkUrl,
                 onSend: {
                     // Fast path: pre-generated URL available
                     if let urlString = track.shareUrl,

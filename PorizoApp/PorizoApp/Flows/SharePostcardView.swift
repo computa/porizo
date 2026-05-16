@@ -2,9 +2,10 @@
 //  SharePostcardView.swift
 //  PorizoApp
 //
-//  Postcard share screen with social media preview mockups.
-//  Shows what the shared link will look like on iMessage, WhatsApp,
-//  and Instagram DM — giving users confidence before sending.
+//  Share screen with the per-song artwork as the hero and a 6-tile grid
+//  of platform targets. The image travels with every share — the artwork
+//  attaches as a UIImage in the activity payload so iMessage, WhatsApp,
+//  Instagram Stories, TikTok, etc. all carry the same paper-art card.
 //
 
 import SwiftUI
@@ -16,11 +17,14 @@ struct SharePostcardView: View {
     let occasion: String?
     var shareURL: String? = nil
     var claimPIN: String? = nil
+    var artworkURL: String? = nil
     let onSend: () -> Void
     let onSaveToPhotos: () -> Void
     let onCopyLink: () -> Void
     let onSkip: () -> Void
 
+    @State private var artworkImage: UIImage? = nil
+    @State private var showHowItWorks = false
     @State private var saveToPhotosStatus: SaveStatus = .idle
 
     private enum SaveStatus: Equatable {
@@ -32,25 +36,17 @@ struct SharePostcardView: View {
             DesignTokens.background.ignoresSafeArea()
 
             VStack(spacing: 0) {
-                // MARK: - Navigation Bar
-
                 navigationBar
-
-                // MARK: - Scrollable Content
 
                 ScrollView {
                     VStack(spacing: DesignTokens.spacing20) {
-                        postcardCard
+                        heroArtwork
+                        metaCaption
                         howItWorksSection
-                        sectionHeader
-                            .accessibilityHidden(true)
-                        iMessagePreview
-                            .accessibilityHidden(true)
-                        whatsAppPreview
-                            .accessibilityHidden(true)
-                        instagramDMPreview
-                            .accessibilityHidden(true)
-                        ctaSection
+                        sectionLabel("SHARE TO")
+                        targetsGrid
+                        primaryCTA
+                        skipLink
                     }
                     .padding(.horizontal, DesignTokens.spacing20)
                     .padding(.bottom, 32)
@@ -58,6 +54,7 @@ struct SharePostcardView: View {
                 .scrollIndicators(.hidden)
             }
         }
+        .task(id: artworkURL) { await loadArtworkImage() }
     }
 
     // MARK: - Navigation Bar
@@ -69,7 +66,6 @@ struct SharePostcardView: View {
                     Circle()
                         .fill(Color.black.opacity(0.05))
                         .frame(width: 44, height: 44)
-
                     Image(systemName: "arrow.left")
                         .font(.system(size: 18))
                         .foregroundStyle(DesignTokens.textPrimary)
@@ -85,332 +81,97 @@ struct SharePostcardView: View {
 
             Spacer()
 
-            // Spacer to balance the back button
-            Color.clear
-                .frame(width: 44, height: 44)
+            Color.clear.frame(width: 44, height: 44)
         }
         .padding(.horizontal, DesignTokens.spacing20)
         .padding(.vertical, DesignTokens.spacing12)
     }
 
-    // MARK: - Postcard Card
+    // MARK: - Hero Artwork
 
-    private var postcardCard: some View {
-        ZStack(alignment: .bottomTrailing) {
-            VStack(alignment: .leading, spacing: 0) {
-                // "For {name}" in Fraunces
-                Text("For \(recipientName)")
-                    .font(DesignTokens.displayFont(size: 28))
-                    .foregroundStyle(.white)
-
-                // Waveform bars
-                StaticWaveformBars()
-                    .padding(.top, DesignTokens.spacing16)
-
-                // Occasion subtitle
-                if let subtitle = occasion.flatMap({ Occasion(rawValue: $0)?.greeting }) {
-                    Text(subtitle)
-                        .font(DesignTokens.bodyFont(size: 16))
-                        .foregroundStyle(.white.opacity(0.9))
-                        .padding(.top, DesignTokens.spacing12)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(32)
-
-            // "porizo" attribution
-            Text("porizo")
-                .font(DesignTokens.bodyFont(size: 11))
-                .foregroundStyle(.white.opacity(0.5))
-                .padding(.trailing, 16)
-                .padding(.bottom, 12)
-        }
-        .background(
-            LinearGradient(
-                colors: [DesignTokens.gold, DesignTokens.roseGold],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-    }
-
-    // MARK: - Section Header
-
-    private var sectionHeader: some View {
-        Text("HOW IT LOOKS WHEN SHARED")
-            .font(DesignTokens.bodyFont(size: 13, weight: .semibold))
-            .foregroundStyle(DesignTokens.textSecondary)
-            .tracking(0.5)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.top, DesignTokens.spacing4)
-    }
-
-    // MARK: - iMessage Preview
-
-    private var iMessagePreview: some View {
-        socialPreviewCard(platform: "iMessage") {
-            VStack(alignment: .trailing, spacing: 0) {
-                // Blue bubble with sender text
-                Text("I made you something special \u{1F382}")
-                    .font(.system(size: 14))
-                    .foregroundStyle(Color(hex: "#1A1A1A"))
-                    .padding(12)
-                    .background(Color(hex: "#E8F0FE"))
-                    .clipShape(RoundedRectangle(cornerRadius: 14))
-                    .frame(maxWidth: 260, alignment: .trailing)
-                    .padding(.bottom, DesignTokens.spacing8)
-
-                // Rich link card
-                VStack(spacing: 0) {
-                    // Coral-amber gradient header
-                    richLinkGradientHeader(
-                        title: "For \(recipientName)",
-                        subtitle: occasion.flatMap { Occasion(rawValue: $0)?.greeting },
-                        showMiniWaveform: true,
-                        height: 120
-                    )
-
-                    // Link details
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("A song made just for you")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(Color(hex: "#1A1A1A"))
-                        Text("porizo.app")
-                            .font(.system(size: 11))
-                            .foregroundStyle(Color(hex: "#999999"))
+    /// Real per-song artwork from the API. Falls back to a coral gradient
+    /// placeholder when the URL is missing (legacy tracks) or while loading.
+    private var heroArtwork: some View {
+        ZStack {
+            if let image = artworkImage {
+                Image(uiImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .transition(.opacity.animation(.easeOut(duration: 0.2)))
+            } else if let urlString = artworkURL, let url = URL(string: urlString) {
+                AsyncImage(url: url) { phase in
+                    switch phase {
+                    case .empty:
+                        artworkPlaceholder
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                    case .failure:
+                        artworkPlaceholder
+                    @unknown default:
+                        artworkPlaceholder
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 8)
                 }
-                .background(Color.white)
-                .clipShape(RoundedRectangle(cornerRadius: 10))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10)
-                        .stroke(Color(hex: "#E0E0E0"), lineWidth: 1)
+            } else {
+                artworkPlaceholder
+            }
+        }
+        .aspectRatio(2.0 / 3.0, contentMode: .fit)
+        .frame(maxHeight: 380)
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .shadow(color: DesignTokens.gold.opacity(0.20), radius: 32, y: 8)
+        .shadow(color: Color.black.opacity(0.06), radius: 8, y: 2)
+        .frame(maxWidth: .infinity, alignment: .center)
+    }
+
+    private var artworkPlaceholder: some View {
+        RoundedRectangle(cornerRadius: 24, style: .continuous)
+            .fill(
+                LinearGradient(
+                    colors: [DesignTokens.gold, DesignTokens.roseGold],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
                 )
-                .frame(maxWidth: 260, alignment: .trailing)
-            }
-            .frame(maxWidth: .infinity, alignment: .trailing)
-        }
+            )
+            .overlay(
+                Text(occasion.flatMap { Occasion(rawValue: $0)?.emoji } ?? "🎵")
+                    .font(.system(size: 48))
+            )
     }
 
-    // MARK: - WhatsApp Preview
+    // MARK: - Meta Caption
 
-    private var whatsAppPreview: some View {
-        socialPreviewCard(platform: "WhatsApp") {
-            VStack(alignment: .trailing, spacing: 0) {
-                // Green bubble
-                VStack(alignment: .leading, spacing: 0) {
-                    // Link card inside bubble
-                    HStack(alignment: .top, spacing: 10) {
-                        // Thumbnail
-                        ZStack {
-                            RoundedRectangle(cornerRadius: 6)
-                                .fill(
-                                    LinearGradient(
-                                        colors: [DesignTokens.gold, DesignTokens.roseGold],
-                                        startPoint: .topLeading,
-                                        endPoint: .bottomTrailing
-                                    )
-                                )
-                                .frame(width: 56, height: 56)
-
-                            VStack(spacing: 0) {
-                                Text("For")
-                                    .font(DesignTokens.displayFont(size: 11))
-                                    .foregroundStyle(.white)
-                                Text(recipientName)
-                                    .font(DesignTokens.displayFont(size: 11))
-                                    .foregroundStyle(.white)
-                            }
-                            .lineSpacing(0)
-                        }
-
-                        // Text content
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("A song made just for you")
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(Color(hex: "#1A1A1A"))
-                                .lineLimit(2)
-
-                            Text("Someone special created a personalized \(occasion.flatMap { Occasion(rawValue: $0)?.displayName.lowercased() } ?? "personal") song for \(recipientName)")
-                                .font(.system(size: 11))
-                                .foregroundStyle(Color(hex: "#666666"))
-                                .lineLimit(2)
-
-                            Text("porizo.app")
-                                .font(.system(size: 10))
-                                .foregroundStyle(Color(hex: "#999999"))
-                                .padding(.top, 2)
-                        }
-                    }
-                    .padding(8)
-                    .background(Color.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 6)
-                            .stroke(Color(hex: "#E8E8E8"), lineWidth: 1)
-                    )
-
-                    // Message text
-                    Text("Listen to this! \u{1F3B5}\u{1F495}")
-                        .font(.system(size: 13))
-                        .foregroundStyle(Color(hex: "#303030"))
-                        .padding(.horizontal, 4)
-                        .padding(.top, 6)
-                        .padding(.bottom, 2)
-
-                    // Timestamp
-                    Text("10:42 AM \u{2713}\u{2713}")
-                        .font(.system(size: 10))
-                        .foregroundStyle(Color(hex: "#667781"))
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                        .padding(.horizontal, 4)
-                        .padding(.bottom, 2)
-                }
-                .padding(6)
-                .background(Color(hex: "#DCF8C6"))
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-                .frame(maxWidth: 270, alignment: .trailing)
-            }
-            .frame(maxWidth: .infinity, alignment: .trailing)
-        }
-    }
-
-    // MARK: - Instagram DM Preview
-
-    private var instagramDMPreview: some View {
-        socialPreviewCard(platform: "Instagram DM") {
-            VStack(alignment: .trailing, spacing: 4) {
-                // IG gradient bubble with message
-                Text("I made you something \u{1F495}")
-                    .font(.system(size: 13))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .background(
-                        LinearGradient(
-                            colors: [
-                                Color(hex: "#405DE6"),
-                                Color(hex: "#833AB4"),
-                                Color(hex: "#C13584")
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    .clipShape(RoundedRectangle(cornerRadius: 18))
-                    .frame(maxWidth: 240, alignment: .trailing)
-
-                // Dark card with coral-amber header
-                VStack(spacing: 0) {
-                    // Gradient header
-                    richLinkGradientHeader(
-                        title: "For \(recipientName)",
-                        subtitle: occasion.flatMap { Occasion(rawValue: $0)?.songLabel },
-                        showMiniWaveform: false,
-                        height: 100
-                    )
-
-                    // Link details on dark background
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text("A song made just for you")
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(.white)
-                        Text("porizo.app")
-                            .font(.system(size: 10))
-                            .foregroundStyle(Color(hex: "#8E8E8E"))
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 8)
-                    .background(Color(hex: "#262626"))
-                }
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-                .frame(maxWidth: 220, alignment: .trailing)
-            }
-            .frame(maxWidth: .infinity, alignment: .trailing)
-        }
-    }
-
-    // MARK: - CTAs
-
-    private var ctaSection: some View {
-        VStack(spacing: DesignTokens.spacing12) {
-            // Primary: "Send this postcard"
-            Button(action: onSend) {
-                Text("Send this postcard")
-                    .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 16)
-                    .background(DesignTokens.gold)
-                    .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusCTA))
-            }
-            .accessibilityLabel("Send this postcard to \(recipientName)")
-
-            // Secondary row: "Save to Photos" | "Copy Link"
-            HStack(spacing: DesignTokens.spacing12) {
-                Button {
-                    savePostcardToPhotos()
-                } label: {
-                    HStack(spacing: 4) {
-                        switch saveToPhotosStatus {
-                        case .idle:
-                            Text("Save to Photos")
-                        case .saving:
-                            ProgressView()
-                                .controlSize(.mini)
-                            Text("Saving...")
-                        case .saved:
-                            Image(systemName: "checkmark")
-                                .font(.system(size: 12, weight: .bold))
-                            Text("Saved!")
-                        case .failed:
-                            Text("Save to Photos")
-                        }
-                    }
-                    .font(DesignTokens.bodyFont(size: 14, weight: .medium))
-                    .foregroundStyle(saveToPhotosStatus == .saved ? DesignTokens.successDark : DesignTokens.goldDark)
-                }
-                .disabled(saveToPhotosStatus == .saving || saveToPhotosStatus == .saved)
-                .accessibilityLabel("Save postcard to Photos")
-
-                Text("\u{2022}")
-                    .foregroundStyle(DesignTokens.textTertiary)
-
-                Button(action: onCopyLink) {
-                    Text("Copy Link")
-                        .font(DesignTokens.bodyFont(size: 14, weight: .medium))
-                        .foregroundStyle(DesignTokens.goldDark)
-                }
-                .accessibilityLabel("Copy share link")
-            }
-            .padding(.vertical, DesignTokens.spacing4)
-
-            // Tertiary: "Skip sharing"
-            Button(action: onSkip) {
-                Text("Skip sharing")
-                    .font(DesignTokens.bodyFont(size: 14, weight: .medium))
+    /// Quiet attribution line under the artwork. The image itself carries
+    /// "For {Name} / A {Occasion} Song / by {Sender}" so we don't repeat it
+    /// with the same visual weight.
+    private var metaCaption: some View {
+        VStack(spacing: 4) {
+            Text("For \(recipientName)")
+                .font(DesignTokens.displayFont(size: 22))
+                .foregroundStyle(DesignTokens.textPrimary)
+            if let phrase = occasionDisplay {
+                Text(phrase)
+                    .font(DesignTokens.bodyFont(size: 13))
                     .foregroundStyle(DesignTokens.textSecondary)
+                    .italic()
             }
-            .accessibilityLabel("Skip sharing and go home")
         }
-        .padding(.top, DesignTokens.spacing4)
+        .frame(maxWidth: .infinity)
     }
 
-    // MARK: - How It Works (Collapsed Disclosure)
+    private var occasionDisplay: String? {
+        guard let raw = occasion,
+              let occ = Occasion(rawValue: raw) else { return nil }
+        return "\(occ.displayName) Song"
+    }
 
-    @State private var showHowItWorks = false
+    // MARK: - Privacy Chip (kept from original, collapsed by default)
 
     private var howItWorksSection: some View {
         VStack(alignment: .leading, spacing: 0) {
             Button {
-                withAnimation(.easeInOut(duration: 0.25)) {
-                    showHowItWorks.toggle()
-                }
+                withAnimation(.easeInOut(duration: 0.25)) { showHowItWorks.toggle() }
             } label: {
                 HStack(spacing: DesignTokens.spacing8) {
                     Image(systemName: "lock.shield")
@@ -463,146 +224,329 @@ struct SharePostcardView: View {
         )
     }
 
-    // MARK: - Save to Photos
+    // MARK: - Section Label
 
-    private func savePostcardToPhotos() {
-        saveToPhotosStatus = .saving
+    private func sectionLabel(_ text: String) -> some View {
+        Text(text)
+            .font(DesignTokens.bodyFont(size: 11, weight: .medium))
+            .foregroundStyle(DesignTokens.textTertiary)
+            .tracking(1.5)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
 
+    // MARK: - Targets Grid (3×2)
+
+    private var targetsGrid: some View {
+        let cols = [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())]
+        return LazyVGrid(columns: cols, spacing: 10) {
+            targetTile(.messages)
+            targetTile(.whatsapp)
+            targetTile(.instagram)
+            targetTile(.tiktok)
+            targetTile(.twitter)
+            targetTile(.copyLink)
+        }
+    }
+
+    private func targetTile(_ target: ShareTarget) -> some View {
+        Button {
+            handleTargetTap(target)
+        } label: {
+            VStack(spacing: 8) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(target.iconBackground)
+                        .frame(width: 40, height: 40)
+                    Image(systemName: target.symbol)
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(target.iconForeground)
+                }
+                Text(target.label)
+                    .font(DesignTokens.bodyFont(size: 11, weight: .medium))
+                    .foregroundStyle(DesignTokens.textSecondary)
+            }
+            .frame(maxWidth: .infinity)
+            .aspectRatio(1, contentMode: .fit)
+            .background(DesignTokens.surface)
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(DesignTokens.border, lineWidth: 0.5)
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Share to \(target.label)")
+    }
+
+    // MARK: - Primary CTA + Skip
+
+    private var primaryCTA: some View {
+        Button {
+            presentUniversalShareSheet()
+            onSend()
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "arrow.up.right")
+                    .font(.system(size: 16, weight: .semibold))
+                Text("Share via…")
+                    .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
+            }
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 16)
+            .background(DesignTokens.gold)
+            .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusCTA))
+            .shadow(color: DesignTokens.gold.opacity(0.30), radius: 12, y: 6)
+        }
+        .accessibilityLabel("Share via system share sheet")
+    }
+
+    private var skipLink: some View {
+        Button(action: onSkip) {
+            Text("Skip sharing")
+                .font(DesignTokens.bodyFont(size: 13, weight: .medium))
+                .foregroundStyle(DesignTokens.textSecondary)
+        }
+        .accessibilityLabel("Skip sharing and go home")
+    }
+
+    // MARK: - Artwork download
+
+    private func loadArtworkImage() async {
+        guard artworkImage == nil,
+              let urlString = artworkURL,
+              let url = URL(string: urlString) else { return }
+        do {
+            var request = URLRequest(url: url)
+            request.cachePolicy = .returnCacheDataElseLoad
+            request.timeoutInterval = 10
+            let (data, _) = try await URLSession.shared.data(for: request)
+            if let image = UIImage(data: data) {
+                await MainActor.run { self.artworkImage = image }
+            }
+        } catch {
+            #if DEBUG
+            print("[SharePostcardView] artwork download failed: \(error.localizedDescription)")
+            #endif
+        }
+    }
+
+    // MARK: - Target Routing
+
+    private func handleTargetTap(_ target: ShareTarget) {
+        guard let urlString = shareURL, let url = URL(string: urlString) else {
+            // No share URL yet — present the universal sheet which will
+            // surface the same error path the legacy onSend handler uses.
+            presentUniversalShareSheet()
+            return
+        }
+        let body = shareBodyText(url: url)
+
+        switch target {
+        case .messages:
+            // iMessage attaches images natively from UIActivityVC payload.
+            presentActivitySheet(filter: .none)
+        case .whatsapp:
+            // WhatsApp deep-link only carries text. Image won't travel via
+            // the URL scheme — fall back to UIActivityVC so the user can
+            // pick WhatsApp from the sheet and the image attaches.
+            if openExternalURL("whatsapp://send?text=\(percentEncode(body))") {
+                onSend()
+            } else {
+                presentActivitySheet(filter: .none)
+            }
+        case .instagram:
+            // Instagram Stories accepts a sticker via UIPasteboard +
+            // ig:// scheme. We save the image, open IG, and toast guidance.
+            shareToInstagramStories()
+        case .tiktok:
+            shareToTikTok(url: url)
+        case .twitter:
+            // X URL scheme; fall back to web intent so this never silently
+            // fails on devices without the app.
+            if !openExternalURL("twitter://post?message=\(percentEncode(body))") {
+                _ = openExternalURL(
+                    "https://twitter.com/intent/tweet?text=\(percentEncode(body))"
+                )
+            }
+            onSend()
+        case .copyLink:
+            UIPasteboard.general.string = url.absoluteString
+            let toast = claimPIN.map { "Link copied · PIN \($0)" } ?? "Link copied"
+            ToastService.shared.success(toast)
+            onCopyLink()
+        }
+    }
+
+    /// Universal "Share via…" — opens UIActivityViewController with the image,
+    /// text, and URL all in the payload. iOS routes to whichever app the user picks.
+    private func presentUniversalShareSheet() {
+        presentActivitySheet(filter: .none)
+    }
+
+    private func presentActivitySheet(filter _: Any?) {
+        var items: [Any] = []
+        if let image = artworkImage { items.append(image) }
+        if let urlString = shareURL, let url = URL(string: urlString) {
+            items.append(shareBodyText(url: url))
+            items.append(url)
+        }
+        guard !items.isEmpty else { return }
+
+        let activityVC = UIActivityViewController(activityItems: items, applicationActivities: nil)
+        activityVC.completionWithItemsHandler = { _, completed, _, _ in
+            guard completed else { return }
+            Task { @MainActor in ReviewManager.shared.recordSuccessfulShare() }
+        }
+        presentFromTopViewController(activityVC)
+    }
+
+    private func shareToInstagramStories() {
+        guard let image = artworkImage else {
+            // Image not loaded yet — universal sheet is the safe fallback.
+            presentActivitySheet(filter: .none)
+            return
+        }
+        // Best-effort: copy the image to the pasteboard so the user can paste
+        // it into a new Story, then open Instagram. If IG isn't installed,
+        // fall back to the universal sheet.
+        UIPasteboard.general.image = image
+        if openExternalURL("instagram://") {
+            ToastService.shared.show("Image copied — open a new Story and paste", type: .info)
+            onSend()
+        } else {
+            presentActivitySheet(filter: .none)
+        }
+    }
+
+    private func shareToTikTok(url: URL) {
+        guard let image = artworkImage else {
+            presentActivitySheet(filter: .none)
+            return
+        }
         Task { @MainActor in
-            let renderer = ImageRenderer(content:
-                postcardCard
-                    .frame(width: 360)
-                    .padding(16)
-                    .background(DesignTokens.background)
+            let result = await TikTokShareService.shared.shareCardImage(image, shareURL: url)
+            switch result {
+            case .launched:
+                onSend()
+            case .fallback(let reason):
+                #if DEBUG
+                print("[SharePostcardView] TikTok fallback: \(reason)")
+                #endif
+                presentActivitySheet(filter: .none)
+            }
+        }
+    }
+
+    private func shareBodyText(url: URL) -> String {
+        ShareMessageContent.activityMessage(
+            shareURL: url.absoluteString,
+            claimPin: claimPIN ?? "",
+            recipientName: recipientName,
+            occasion: occasion
+        )
+    }
+
+    @discardableResult
+    private func openExternalURL(_ string: String) -> Bool {
+        guard let url = URL(string: string) else { return false }
+        guard UIApplication.shared.canOpenURL(url) else { return false }
+        UIApplication.shared.open(url)
+        return true
+    }
+
+    private func percentEncode(_ s: String) -> String {
+        s.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? s
+    }
+
+    private func presentFromTopViewController(_ vc: UIViewController) {
+        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+              let root = windowScene.windows.first?.rootViewController else { return }
+        var topVC = root
+        while let presented = topVC.presentedViewController { topVC = presented }
+        vc.popoverPresentationController?.sourceView = topVC.view
+        topVC.present(vc, animated: true)
+    }
+}
+
+// MARK: - Share targets
+
+private enum ShareTarget {
+    case messages, whatsapp, instagram, tiktok, twitter, copyLink
+
+    var label: String {
+        switch self {
+        case .messages: return "Messages"
+        case .whatsapp: return "WhatsApp"
+        case .instagram: return "Instagram"
+        case .tiktok: return "TikTok"
+        case .twitter: return "X"
+        case .copyLink: return "Copy Link"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .messages: return "message.fill"
+        case .whatsapp: return "phone.fill"
+        case .instagram: return "camera.fill"
+        case .tiktok: return "music.note"
+        case .twitter: return "xmark"
+        case .copyLink: return "link"
+        }
+    }
+
+    var iconBackground: AnyShapeStyle {
+        switch self {
+        case .messages:
+            return AnyShapeStyle(
+                LinearGradient(
+                    colors: [Color(red: 0.31, green: 0.80, blue: 0.33),
+                             Color(red: 0.18, green: 0.71, blue: 0.29)],
+                    startPoint: .top, endPoint: .bottom
+                )
             )
-            renderer.scale = UIScreen.main.scale
-
-            guard let image = renderer.uiImage else {
-                saveToPhotosStatus = .failed("Could not render postcard")
-                return
-            }
-
-            // Use PHPhotoLibrary so we can detect denied permission and
-            // actual write failures. UIImageWriteToSavedPhotosAlbum with a
-            // nil completion selector reports nothing back, so the previous
-            // code falsely flipped to .saved even when the write failed.
-            saveImageToPhotos(image)
-        }
-    }
-
-    private func saveImageToPhotos(_ image: UIImage) {
-        let attemptSave: () -> Void = {
-            PHPhotoLibrary.shared().performChanges {
-                PHAssetCreationRequest.creationRequestForAsset(from: image)
-            } completionHandler: { success, error in
-                Task { @MainActor in
-                    if success {
-                        saveToPhotosStatus = .saved
-                        onSaveToPhotos()
-                    } else {
-                        saveToPhotosStatus = .failed(error?.localizedDescription ?? "Could not save to Photos")
-                    }
-                }
-            }
-        }
-
-        let status = PHPhotoLibrary.authorizationStatus(for: .addOnly)
-        switch status {
-        case .authorized, .limited:
-            attemptSave()
-        case .notDetermined:
-            PHPhotoLibrary.requestAuthorization(for: .addOnly) { newStatus in
-                Task { @MainActor in
-                    if newStatus == .authorized || newStatus == .limited {
-                        attemptSave()
-                    } else {
-                        saveToPhotosStatus = .failed("Photos access denied")
-                    }
-                }
-            }
-        case .denied, .restricted:
-            saveToPhotosStatus = .failed("Photos access denied. Enable in Settings to save.")
-        @unknown default:
-            saveToPhotosStatus = .failed("Photos access unavailable")
-        }
-    }
-
-    // MARK: - Reusable Components
-
-    /// Wraps a social preview in a white card with platform label.
-    private func socialPreviewCard<Content: View>(
-        platform: String,
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        VStack(alignment: .leading, spacing: DesignTokens.spacing8) {
-            Text(platform)
-                .font(.system(size: 11))
-                .foregroundStyle(DesignTokens.textTertiary)
-
-            content()
-        }
-        .padding(14)
-        .background(DesignTokens.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 16))
-        .overlay(
-            RoundedRectangle(cornerRadius: 16)
-                .stroke(DesignTokens.border, lineWidth: 1)
-        )
-    }
-
-    /// Coral-to-amber gradient header used inside rich link cards.
-    private func richLinkGradientHeader(
-        title: String,
-        subtitle: String?,
-        showMiniWaveform: Bool,
-        height: CGFloat
-    ) -> some View {
-        VStack(spacing: 4) {
-            Text(title)
-                .font(DesignTokens.displayFont(size: height > 100 ? 18 : 16))
-                .foregroundStyle(.white)
-                .shadow(color: .black.opacity(0.15), radius: 8, y: 1)
-
-            if let subtitle = subtitle {
-                Text(subtitle)
-                    .font(.system(size: height > 100 ? 12 : 11))
-                    .foregroundStyle(.white.opacity(height > 100 ? 0.8 : 0.7))
-            }
-
-            if showMiniWaveform {
-                miniWaveform
-                    .padding(.top, 2)
-            }
-        }
-        .frame(maxWidth: .infinity)
-        .frame(height: height)
-        .background(
-            LinearGradient(
-                colors: [DesignTokens.gold, DesignTokens.roseGold],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
+        case .whatsapp:
+            return AnyShapeStyle(Color(red: 0.14, green: 0.83, blue: 0.40))
+        case .instagram:
+            return AnyShapeStyle(
+                LinearGradient(
+                    colors: [
+                        Color(red: 0.99, green: 0.85, blue: 0.46),
+                        Color(red: 0.98, green: 0.49, blue: 0.12),
+                        Color(red: 0.84, green: 0.16, blue: 0.46),
+                        Color(red: 0.59, green: 0.18, blue: 0.75),
+                        Color(red: 0.31, green: 0.36, blue: 0.84),
+                    ],
+                    startPoint: .topLeading, endPoint: .bottomTrailing
+                )
             )
-        )
+        case .tiktok:
+            return AnyShapeStyle(Color.black)
+        case .twitter:
+            return AnyShapeStyle(Color.black)
+        case .copyLink:
+            return AnyShapeStyle(DesignTokens.surfaceMuted)
+        }
     }
 
-    /// Small waveform for rich link card headers.
-    private var miniWaveform: some View {
-        StaticWaveformBars(
-            heights: [8, 12, 6, 14, 8],
-            barWidth: 2,
-            spacing: 2,
-            cornerRadius: 1,
-            color: .white.opacity(0.5)
-        )
+    var iconForeground: Color {
+        switch self {
+        case .copyLink: return DesignTokens.textSecondary
+        default: return .white
+        }
     }
 }
 
 // MARK: - Preview
 
-#Preview("Birthday") {
+#Preview("Birthday with artwork") {
     SharePostcardView(
         recipientName: "Sarah",
         occasion: "birthday",
+        shareURL: "https://porizo.app/s/abc123",
+        claimPIN: "4827",
+        artworkURL: nil,
         onSend: {},
         onSaveToPhotos: {},
         onCopyLink: {},
@@ -610,21 +554,13 @@ struct SharePostcardView: View {
     )
 }
 
-#Preview("No Occasion") {
+#Preview("Mother's Day") {
     SharePostcardView(
-        recipientName: "Mom",
-        occasion: nil,
-        onSend: {},
-        onSaveToPhotos: {},
-        onCopyLink: {},
-        onSkip: {}
-    )
-}
-
-#Preview("Long Name") {
-    SharePostcardView(
-        recipientName: "Alexandra",
-        occasion: "anniversary",
+        recipientName: "Chioma",
+        occasion: "mothers_day",
+        shareURL: "https://porizo.app/s/xyz789",
+        claimPIN: "1234",
+        artworkURL: nil,
         onSend: {},
         onSaveToPhotos: {},
         onCopyLink: {},
