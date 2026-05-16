@@ -1,3 +1,91 @@
+# Per-Song Occasion Artwork System (DONE — 2026-05-16)
+
+> Plan: `/Users/ao/.claude/plans/during-the-design-phase-resilient-pony.md`
+> Status: **All 8 batches complete. 72/72 artwork tests passing. Full suite 513/513 (0 regressions).**
+> Full multi-agent code review pass: 10 reviewers, 24 findings resolved (P0×3, P1×8, P2×13). One false positive dropped (CORR-001).
+
+## Batch 1 — Foundation
+
+- [x] Migration 109 PG (`migrations/pg/109_add_artwork_columns.sql`)
+- [x] Migration 109 SQLite (`migrations/109_add_artwork_columns.sql`)
+- [x] `src/storage/index.js` — `trackArtworkKey`, `trackArtworkSurfaceKey`
+- [x] `src/services/artwork-prompts.js` — 15 occasions × 3 styles
+- [x] `src/services/image-providers/openai-image.js` — `gpt-image-2` adapter
+- [x] `src/services/image-providers/index.js` — provider registry
+- [x] `src/utils/og-text-utils.js` — `detectDirection`, `localizedForPrefix`
+
+## Batch 2 — Core service
+
+- [x] `src/services/cover-generator.js` — `compositeArtworkWithText` with Fraunces, fitName tiers, RTL, 3 aspects
+- [x] `src/services/song-artwork.js` — orchestrator + content-hash idempotency
+- [x] `src/services/fonts/Fraunces-VariableFont.ttf` — embedded font (OFL, with LICENSE.txt)
+
+## Batch 3 — Jobs + workflow
+
+- [x] `src/jobs/artwork-job.js` — job handler with tier branching
+- [x] `src/workflows/runner.js` + `src/workflows/artwork-barrier.js` + `src/routes/tracks.js` — enqueue artwork on render start, READY barrier check
+
+## Batch 4 — Routes
+
+- [x] `src/routes/artwork.js` + `src/server.js` — `GET /tracks/:trackId/artwork.jpg` with HMAC + share-token + owner auth
+- [x] `src/routes/sharing.js` + `web-player/index.html` — prefer artwork_url, `?av=` artwork cache busting, LPLinkMetadata, dark mode chrome
+
+## Batch 5 — Bootstrap
+
+- [x] `scripts/build-artwork-library.mjs` — generate 45 base images
+
+## Batch 6 — iOS
+
+- [x] `Models/TrackModels.swift` — `artworkUrl: String?` + `artworkStyleVariant: String?`
+- [x] `NowPlayingView.swift` — AsyncImage with phase-aware placeholder + 200ms cross-fade
+- [x] `Controllers/PlaybackController.swift` — two-phase MPNowPlayingInfoCenter push; cleanup() cancels fetch + nils cached image; weak-self capture; URL-equality guard
+- [x] `TrackPlayerFullView.swift` — wires `track.artworkUrl` → `playbackController.artworkUrl`
+
+## Batch 7 — Tests (now at `test/` — CI runs them)
+
+- [x] `test/fixtures/recipient-names.json`
+- [x] `test/services/song-artwork.test.js` — 40 tests (style picker, content hash, idempotency, tier branching, moderation fallback, fitName tiers + boundaries, RTL detection, SVG generation, buildPrompt allowlist + PII containment, LIBRARY_NOT_BOOTSTRAPPED permanent error)
+- [x] `test/jobs/artwork-job.test.js` — 23 tests (DB I/O, retry semantics, permanent-error fast-fail, tier resolver, admin_upgrade rollup, effectiveTierFromRow)
+- [x] `test/workflows/artwork-barrier.test.js` — 9 tests
+- [x] **72/72 artwork tests passing; full project 513/513 (0 regressions)**
+
+## Batch 8 — Code review pass (10 reviewers, 24 findings resolved)
+
+- [x] **P0.1** ARTWORK_HMAC_SECRET hardening — production boot refuses to start without env var
+- [x] **P0.2** Move `tests/` → `test/` so CI actually runs the suite (verified: 72 tests now picked up)
+- [x] **P0.3** `SQL_MARK_ARTWORK_READY` scoped to `track_version_id`, not `track_id` — preview/full no longer cross-contaminate
+- [x] **P1.1** Anonymous unfurl 401 fix — only invoke `requireUserId` when Authorization header present, no more double-send 500s
+- [x] **P1.2** Tier resolution via injected `subscriptionManager.getEffectiveTier` — honors expired subs + admin_upgrade
+- [x] **P1.3** Path-traversal defense-in-depth — UUID-pattern regex + prefix check
+- [x] **P1.4** S3 upload after composite + `ensureLocalFileFromStorage` on read — production fetches no longer 404
+- [x] **P1.5** OCCASION_COLORS + formatOccasion add `mothers_day`, `friendship`, `get_well`
+- [x] **P1.6** AbortController + 120s clamped timeout on OpenAI fetch — no more hung promises
+- [x] **P1.8** Entitlements DB error retries instead of silent free-tier demotion
+- [x] **P2.1** STYLE_LIST sourced from VALID_STYLES (single source of truth) + comment documenting order is load-bearing
+- [x] **P2.3** Permanent-error fast-fail — LIBRARY_NOT_BOOTSTRAPPED skips the 65s retry chain
+- [x] **P2.4** Barrier env vars clamped to safe ranges with NaN guard
+- [x] **P2.5** Exponential polling backoff in the barrier
+- [x] **P2.6** Error response shape uses sendError (UPPER_SNAKE, message) — matches project standard
+- [x] **P2.7** `share_token` lookup matches `id` only (decoupled from HLS stream_key)
+- [x] **P2.8** PlaybackController.cleanup() cancels artworkFetchTask + nils cachedArtworkImage
+- [x] **P2.9** HMAC drops slice(0,16) — full 256-bit tag, base64url
+- [x] **P2.10** moderationPassed accurately reflects state: true on success, false on moderation refusal, **null** on non-moderation errors
+- [x] **P2.11** Backoff mutation in tests wrapped in try/finally restore helper
+- [x] **P2.12** Added boundary tests for fitName (12/13/18/19/28/29) + buildPrompt validation + permanent-error contract
+- [x] **P2.13** `signArtworkUrl` wired into `buildSignedArtworkUrl` on server.js — capability surface no longer dead
+- [x] **maint cleanup** — removed unused exports (`trackArtworkSurfaceKey`, `FRAUNCES_FONT_PATH`, `listProviders`)
+- [x] **CORR-001 false positive** dropped after empirical verification — Hebrew regex correctly excludes Arabic
+
+## Remaining residuals (acknowledged, non-blocking)
+
+- **adv-006 / P1.7 (deferred)** artwork-job uses `setImmediate` not a `jobs` table row — SIGTERM mid-render drops work. Durable queue is a follow-up; the current best-effort path is documented in the file header.
+- **adv-005 (acknowledged)** gpt-image-2 may leak text despite "no text" prompts. Mitigation: manual human review of the 45 library images during bootstrap (see plan §Acceptance criteria). 2× re-roll budget in cost model.
+- **DM-002 (acknowledged)** historical READY tracks don't have `audio_ready=true` backfilled — audit-only impact; new tracks set the flag correctly.
+- **CORR-005** filename mismatch `artwork_1.91x1.jpg` vs surface key — unreachable today (1.91:1 OG composite is generated lazily; not yet wired to a caller).
+- **CORR-007** 65s retry chain vs 60s barrier — attempt 3 always lands after release. Acceptable: barrier releases READY with `artwork_url=NULL`, artwork populates on the retry.
+
+---
+
 # Cold-email: fire ~10×/day instead of 1×/day (ACTIVE — 2026-05-15)
 
 **Goal:** Spread the daily Resend budget (capped at 100/day, budget 90) across 10 batches/day instead of one. Drains the 4,092 backlog in ~46 days at 90/day (down from ~51 at 80/day), and respects Resend's 100/day account cap with a 10-email safety margin.
@@ -221,6 +309,13 @@ curl -s --range 0-999 https://api.porizo.co/share/Rrm8PRM3tlwV/audio | wc -c   #
 ## Queued
 
 - [ ] **Day-7 checkpoint (2026-05-19)**: `node scripts/aso/review.mjs --days 7 --note "Phase 1 day-7"`. Evaluate per-theme demand; graduate winners to Phase 2 EXACT, drop dead themes.
+- [ ] **Painkiller bid escalation (blocked on ASA write permission)**:
+      `node scripts/aso/apply-painkiller-actions.mjs --execute` should raise
+      the 51 active Probe keywords to $1.50 max CPT, add exact negatives for
+      `[anniversary gift]`, `[personalized gifts]`, `[meaningful gift]`, and
+      raise one Category exact winner to $3.00. Dry-run passed on 2026-05-15;
+      execute failed with Apple Ads `403 FORBIDDEN` because the configured API
+      credentials lack campaign-management write permission.
 - [ ] **Audit screenshots for anniversary intent**: `anniversary gift` TTR_PROBLEM root cause is creative mismatch. Schedule a Custom Product Page variant for anniversary or update screenshot hero text before re-enabling that keyword.
 - [ ] **Ship ASC 1.5.12 to App Store Review** with the new painkiller keywords-field. The metadata file is staged; user runs `asc review submit` deliberately.
       and check `birthday gift ideas`'s new stats. Watch for:
@@ -823,7 +918,7 @@ Replace the current 5-step checkout-style `GiftSendFlowView` (Content → Recipi
 
 ## Artifacts
 
-- Setup checklist: `docs/marketing/meta-ads-setup-checklist.md` (Phase 2+3 detailed walkthrough)
+- Setup checklist: `marketing/channels/paid-social/meta-ads-setup-checklist.md` (Phase 2+3 detailed walkthrough)
 - Old campaign creative: `marketing/remotion/out/facebook/` (4 video variants, rendered 2026-03-17)
 - Previous ad design brief: `marketing/remotion/2026-03-17-counseling-ad-design.md`
 
@@ -878,7 +973,7 @@ Replace the current 5-step checkout-style `GiftSendFlowView` (Content → Recipi
 
 ## Phase 12: Docs + Rollout
 
-- [ ] Extend `docs/marketing/meta-ads-setup-checklist.md` with TikTok + Apple Search Ads + Google Ads sections
+- [ ] Extend `marketing/channels/paid-social/meta-ads-setup-checklist.md` with TikTok + Apple Search Ads + Google Ads sections
 - [ ] Document MMP (AppsFlyer/Adjust/Singular) as future option when spend > $10K/month
 - [ ] Ship new TestFlight build (89) once all SDKs are wired
 
@@ -1012,3 +1107,59 @@ Capture at 1320×2868 as today, pad with Warm Canvas cream `#F5F0EB` to 2048×27
 ## Open question for user
 
 Which approach — A, B, or C?
+
+---
+
+# Artwork System — Deferred Tasks Pass (2026-05-16)
+
+> Sequential implementation of the 5 deferred items from the artwork ship.
+> Plan reference: `/Users/ao/.claude/plans/during-the-design-phase-resilient-pony.md`
+> Sample artwork rendered: `storage/samples/chioma-birthday/` (3 styles × gpt-image-2 high)
+
+## Task 1 — Bump OPENAI_IMAGE_TIMEOUT_MS default to 180s — DONE
+
+- [x] `src/services/image-providers/openai-image.js` — default 120000 → 180000
+
+## Task 2 — Drop audio_ready column — DONE
+
+- [x] `migrations/110_drop_audio_ready.sql` (SQLite)
+- [x] `migrations/pg/110_drop_audio_ready.sql` (PG)
+- [x] Deleted `markAudioReady` + `SQL_MARK_AUDIO_READY` from `artwork-barrier.js`
+- [x] Removed `markAudioReady` call + import from `runner.js`
+- [x] Updated `artwork-barrier.test.js`
+
+## Task 3 — Durable jobs-table queue — DONE
+
+- [x] `enqueueArtworkJob` INSERTs `jobs` row (`workflow_type='artwork_render'`, status='queued')
+- [x] `runArtworkJob` accepts `jobId`; transitions row through running → completed / failed / queued
+- [x] `recoverOrphanedArtworkJobs` scans for queued past `next_attempt_at` + stale-running and re-fires
+- [x] Runner's claim query excludes `artwork_render` so the audio pipeline doesn't pull artwork rows
+- [x] Runner calls `recoverOrphanedArtworkJobs` at startup + every 60s; timer cleaned up on stop()
+- [x] 9 new tests in `artwork-job.test.js` covering insert, running→completed, permanent failure, orphan recovery + edge cases
+
+## Task 4 — PG LISTEN/NOTIFY (with SQLite fallback) — DONE
+
+- [x] Singleton listener per process via shared pool client + `EventEmitter` fan-out
+- [x] `waitForArtworkReady` race-covered: initial check, LISTEN registration, deadline recheck
+- [x] SQLite path keeps polling (unit-tested mock has no `isPostgres` flag)
+- [x] `notifyArtworkReady` runs `SELECT pg_notify('artwork_ready', $1)` on PG, no-op on SQLite
+- [x] `markArtworkReady` calls `notifyArtworkReady` on every ready=true transition
+- [x] `_resetListenerForTests` helper for test isolation
+- [x] 6 new tests in `artwork-barrier.test.js`: PG ready-on-entry, NOTIFY wakeup, wrong-vid ignored, deadline recheck, PG/SQLite notify no-op + error swallow
+
+## Task 5 — Library curation script — DONE (code shipped; operational run pending)
+
+- [x] `scripts/curate-artwork-library.mjs` — HTTP review UI on :8765, accept/reject/reason per tile
+- [x] `--report-only` mode: prints summary + rejection list to stdout (CI-friendly)
+- [x] Path-traversal protection via `listAllPrompts` whitelist
+- [x] Persists to `storage/artwork-library/curation.json`
+- [ ] Bootstrap the 45 images (operational, ~30min + ~$2.40)
+- [ ] Manual curation pass
+
+## Verification gates
+
+- [x] All artwork tests pass (85/85 — 38 song-artwork + 32 artwork-job + 12 barrier-tests + 3 fixtures-loaded)
+- [x] Full project suite passes (526/526 + 6 skipped, was 513/513 — +13 new tests, 0 regressions)
+- [x] ESLint clean on all changed JS/MJS files
+- [ ] Apply migration 110 to production via `cat migrations/pg/110_drop_audio_ready.sql | railway connect postgres`
+- [ ] Commit

@@ -2,7 +2,8 @@ const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const config = require("../config");
-const { markAudioReady, waitForArtworkReady } = require("./artwork-barrier");
+const { waitForArtworkReady } = require("./artwork-barrier");
+const { recoverOrphanedArtworkJobs } = require("../jobs/artwork-job");
 const {
   generateLyrics,
   assessRequiredDetailCoverage,
@@ -2220,13 +2221,30 @@ async function startJobRunner({
   const dlqReprocessTimer = setInterval(performDLQAutoReprocess, 5 * 60 * 1000);
   setTimeout(performDLQAutoReprocess, 30000); // Run once at startup after 30s
 
+  // Durable artwork-job orphan recovery. Sweeps the `jobs` table for any
+  // workflow_type='artwork_render' rows stuck queued past their next_attempt_at
+  // or running without a heartbeat — restart-survival for the artwork pipeline.
+  const artworkRecoverySweep = () => {
+    recoverOrphanedArtworkJobs({ db }).catch((err) => {
+      console.warn(
+        `[JobRunner] artwork orphan recovery failed: ${err.message}`,
+      );
+    });
+  };
+  const artworkRecoveryTimer = setInterval(artworkRecoverySweep, 60 * 1000);
+  setTimeout(artworkRecoverySweep, 5000); // Run shortly after startup
+
   // FOR UPDATE SKIP LOCKED prevents race conditions between workers:
   // - Locks selected rows so other workers won't select them
   // - SKIP LOCKED means workers don't block, they just skip locked rows
   // - LIMIT ensures we only lock what we need (availableSlots)
+  // Exclude artwork_render — those jobs are owned by src/jobs/artwork-job.js
+  // and dispatched via recoverOrphanedArtworkJobs() / enqueueArtworkJob().
+  // Leaving them in this claim query would pull them into the audio pipeline
+  // which has no artwork step handler.
   const selectJobsQuery = db.isPostgres
-    ? "SELECT * FROM jobs WHERE status = 'queued' AND (next_attempt_at IS NULL OR next_attempt_at <= $1) ORDER BY created_at ASC LIMIT $2 FOR UPDATE SKIP LOCKED"
-    : "SELECT * FROM jobs WHERE status = 'queued' AND (next_attempt_at IS NULL OR next_attempt_at <= $1) ORDER BY created_at ASC LIMIT $2";
+    ? "SELECT * FROM jobs WHERE status = 'queued' AND workflow_type <> 'artwork_render' AND (next_attempt_at IS NULL OR next_attempt_at <= $1) ORDER BY created_at ASC LIMIT $2 FOR UPDATE SKIP LOCKED"
+    : "SELECT * FROM jobs WHERE status = 'queued' AND workflow_type <> 'artwork_render' AND (next_attempt_at IS NULL OR next_attempt_at <= $1) ORDER BY created_at ASC LIMIT $2";
   const selectJobs = await db.prepare(selectJobsQuery);
   const claimJob = await db.prepare(
     "UPDATE jobs SET status = 'running', locked_by = ?, locked_at = ?, started_at = COALESCE(started_at, ?), last_heartbeat_at = ?, progress_pct = ?, updated_at = ? WHERE id = ? AND status = 'queued' AND (next_attempt_at IS NULL OR next_attempt_at <= ?)",
@@ -5230,13 +5248,10 @@ async function startJobRunner({
         },
       );
 
-      // Artwork ↔ audio coordination barrier: mark audio_ready and wait briefly
-      // for the parallel artwork job to finish. If artwork isn't ready within
-      // ARTWORK_BARRIER_TIMEOUT_MS (default 60s), release the track READY anyway
+      // Wait briefly for parallel artwork to finish. If artwork isn't ready
+      // within ARTWORK_BARRIER_TIMEOUT_MS (default 60s), release READY anyway
       // with artwork_url=NULL — audio is the product, artwork is enhancement.
-      // See plan §Failure policy.
       try {
-        await markAudioReady({ db, trackVersionId: trackVersionReady.id });
         await waitForArtworkReady({ db, trackVersionId: trackVersionReady.id });
       } catch (barrierErr) {
         console.warn(
@@ -5573,6 +5588,7 @@ async function startJobRunner({
       clearInterval(timer);
       clearInterval(recoveryTimer);
       clearInterval(dlqReprocessTimer);
+      clearInterval(artworkRecoveryTimer);
     },
     tickVoiceProviderJobs,
     // Expose concurrent job stats for health checks

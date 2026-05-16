@@ -12,6 +12,7 @@ const assert = require("node:assert/strict");
 const {
   runArtworkJob,
   enqueueArtworkJob,
+  recoverOrphanedArtworkJobs,
   effectiveTierFromRow,
   MAX_ATTEMPTS,
   BACKOFF_MS,
@@ -20,6 +21,12 @@ const {
   SQL_GET_ENTITLEMENT,
   SQL_UPDATE_ARTWORK,
   SQL_MARK_ARTWORK_READY,
+  SQL_INSERT_ARTWORK_JOB,
+  SQL_MARK_JOB_RUNNING,
+  SQL_MARK_JOB_COMPLETED,
+  SQL_MARK_JOB_FAILED,
+  SQL_REQUEUE_JOB,
+  SQL_SELECT_ORPHANED_ARTWORK_JOBS,
 } = require("../../src/jobs/artwork-job");
 
 // ---------- Mock DB ----------
@@ -28,6 +35,7 @@ function makeDb({
   track = null,
   version = { id: "tv-1" },
   entitlement = null,
+  orphans = [],
   throwOn = {},
 } = {}) {
   const calls = {
@@ -36,6 +44,12 @@ function makeDb({
     getEntitlement: [],
     updateArtwork: [],
     markReady: [],
+    insertJob: [],
+    markJobRunning: [],
+    markJobCompleted: [],
+    markJobFailed: [],
+    requeueJob: [],
+    selectOrphans: [],
   };
 
   const db = {
@@ -54,6 +68,16 @@ function makeDb({
           if (sql === SQL_GET_ENTITLEMENT) return entitlement;
           throw new Error(`Unexpected get() for sql: ${sql.slice(0, 60)}`);
         },
+        async all(...args) {
+          if (sql === SQL_SELECT_ORPHANED_ARTWORK_JOBS) {
+            calls.selectOrphans.push(args);
+            if (throwOn.sql === sql) {
+              throw new Error(throwOn.error || "db error");
+            }
+            return orphans;
+          }
+          throw new Error(`Unexpected all() for sql: ${sql.slice(0, 60)}`);
+        },
         async run(...args) {
           if (throwOn.sql === sql) throw new Error(throwOn.error || "db error");
           if (sql === SQL_UPDATE_ARTWORK) {
@@ -62,6 +86,26 @@ function makeDb({
           }
           if (sql === SQL_MARK_ARTWORK_READY) {
             calls.markReady.push(args);
+            return { changes: 1 };
+          }
+          if (sql === SQL_INSERT_ARTWORK_JOB) {
+            calls.insertJob.push(args);
+            return { changes: 1 };
+          }
+          if (sql === SQL_MARK_JOB_RUNNING) {
+            calls.markJobRunning.push(args);
+            return { changes: 1 };
+          }
+          if (sql === SQL_MARK_JOB_COMPLETED) {
+            calls.markJobCompleted.push(args);
+            return { changes: 1 };
+          }
+          if (sql === SQL_MARK_JOB_FAILED) {
+            calls.markJobFailed.push(args);
+            return { changes: 1 };
+          }
+          if (sql === SQL_REQUEUE_JOB) {
+            calls.requeueJob.push(args);
             return { changes: 1 };
           }
           throw new Error(`Unexpected run() for sql: ${sql.slice(0, 60)}`);
@@ -479,6 +523,7 @@ test("enqueueArtworkJob returns synchronously and isolates errors", async () => 
   enqueueArtworkJob({
     db: fakeDb,
     trackId: "t-1",
+    trackVersionId: "tv-1",
     logger: SILENT_LOGGER,
   });
   const elapsed = Date.now() - before;
@@ -488,6 +533,153 @@ test("enqueueArtworkJob returns synchronously and isolates errors", async () => 
   );
   await new Promise((r) => setImmediate(r));
   await new Promise((r) => setTimeout(r, 10));
+});
+
+test("enqueueArtworkJob is a no-op when trackVersionId is missing", async () => {
+  const calls = [];
+  const fakeDb = {
+    prepare: () => ({
+      get: async () => null,
+      run: async (...args) => {
+        calls.push(args);
+        return {};
+      },
+    }),
+  };
+  enqueueArtworkJob({
+    db: fakeDb,
+    trackId: "t-1",
+    logger: SILENT_LOGGER,
+  });
+  await new Promise((r) => setImmediate(r));
+  await new Promise((r) => setTimeout(r, 10));
+  assert.equal(calls.length, 0, "no DB writes when trackVersionId missing");
+});
+
+// ---------- Durable queue (jobs-table) ----------
+
+test("runArtworkJob with jobId persists running → completed on success", async () => {
+  const { db, calls } = makeDb({
+    track: SAMPLE_TRACK,
+    entitlement: { tier: "free" },
+  });
+  const generateFn = async () => SAMPLE_RESULT;
+  const result = await runArtworkJob({
+    db,
+    trackId: SAMPLE_TRACK.id,
+    trackVersionId: "tv-1",
+    jobId: "job-1",
+    generateFn,
+    logger: SILENT_LOGGER,
+  });
+  assert.equal(result.ok, true);
+  assert.equal(calls.markJobRunning.length, 1, "job marked running");
+  assert.equal(calls.markJobRunning[0][2], "job-1");
+  assert.equal(calls.markJobCompleted.length, 1, "job marked completed");
+  assert.equal(calls.markJobCompleted[0][2], "job-1");
+  assert.equal(calls.markJobFailed.length, 0);
+});
+
+test("runArtworkJob with jobId persists failed on permanent error", async () => {
+  const { db, calls } = makeDb({
+    track: SAMPLE_TRACK,
+    entitlement: { tier: "pro" },
+  });
+  const permErr = new Error("library not bootstrapped");
+  permErr.permanent = true;
+  permErr.code = "LIBRARY_NOT_BOOTSTRAPPED";
+  const generateFn = async () => {
+    throw permErr;
+  };
+  const result = await runArtworkJob({
+    db,
+    trackId: SAMPLE_TRACK.id,
+    trackVersionId: "tv-1",
+    jobId: "job-2",
+    generateFn,
+    logger: SILENT_LOGGER,
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.permanent, true);
+  assert.equal(calls.markJobFailed.length, 1);
+  assert.equal(calls.markJobFailed[0][0], "LIBRARY_NOT_BOOTSTRAPPED");
+  assert.equal(calls.markJobCompleted.length, 0);
+});
+
+test("runArtworkJob without jobId does NOT touch the jobs table", async () => {
+  const { db, calls } = makeDb({
+    track: SAMPLE_TRACK,
+    entitlement: { tier: "free" },
+  });
+  const generateFn = async () => SAMPLE_RESULT;
+  await runArtworkJob({
+    db,
+    trackId: SAMPLE_TRACK.id,
+    trackVersionId: "tv-1",
+    generateFn,
+    logger: SILENT_LOGGER,
+  });
+  assert.equal(calls.markJobRunning.length, 0);
+  assert.equal(calls.markJobCompleted.length, 0);
+  assert.equal(calls.markJobFailed.length, 0);
+});
+
+test("recoverOrphanedArtworkJobs scans and re-fires queued + stale rows", async () => {
+  const orphans = [
+    { id: "job-A", track_version_id: "tv-1", track_id: "t-1", attempts: 1 },
+    { id: "job-B", track_version_id: "tv-2", track_id: "t-2", attempts: 0 },
+  ];
+  const { db, calls } = makeDb({ orphans });
+  const result = await recoverOrphanedArtworkJobs({
+    db,
+    logger: SILENT_LOGGER,
+  });
+  assert.equal(result.recovered, 2);
+  assert.equal(calls.selectOrphans.length, 1);
+  // Two args: nowIso, staleCutoff
+  assert.equal(calls.selectOrphans[0].length, 2);
+});
+
+test("recoverOrphanedArtworkJobs fails orphan rows whose track is missing", async () => {
+  const orphans = [
+    { id: "job-X", track_version_id: "tv-gone", track_id: null, attempts: 0 },
+  ];
+  const { db, calls } = makeDb({ orphans });
+  const result = await recoverOrphanedArtworkJobs({
+    db,
+    logger: SILENT_LOGGER,
+  });
+  assert.equal(result.recovered, 1);
+  assert.equal(calls.markJobFailed.length, 1);
+  assert.equal(calls.markJobFailed[0][0], "ORPHAN_NO_TRACK");
+});
+
+test("recoverOrphanedArtworkJobs no-ops when no orphans", async () => {
+  const { db, calls } = makeDb({ orphans: [] });
+  const result = await recoverOrphanedArtworkJobs({
+    db,
+    logger: SILENT_LOGGER,
+  });
+  assert.equal(result.recovered, 0);
+  assert.equal(calls.selectOrphans.length, 1);
+});
+
+test("recoverOrphanedArtworkJobs handles scan-query failure gracefully", async () => {
+  const { db } = makeDb({
+    throwOn: { sql: SQL_SELECT_ORPHANED_ARTWORK_JOBS, error: "db down" },
+  });
+  const result = await recoverOrphanedArtworkJobs({
+    db,
+    logger: SILENT_LOGGER,
+  });
+  assert.equal(result.recovered, 0);
+});
+
+test("recoverOrphanedArtworkJobs requires db", async () => {
+  await assert.rejects(
+    () => recoverOrphanedArtworkJobs({ logger: SILENT_LOGGER }),
+    /requires db/,
+  );
 });
 
 // ---------- effectiveTierFromRow ----------

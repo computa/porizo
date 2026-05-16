@@ -18,12 +18,13 @@ const MODEL = "gpt-image-2";
 const VALID_SIZES = new Set(["1024x1024", "1024x1536", "1536x1024"]);
 const VALID_QUALITIES = new Set(["low", "medium", "high"]);
 
-// Hard timeout for the OpenAI fetch. Anything longer than 120s on gpt-image-2
-// is almost certainly hung (high-quality 1024x1536 typically returns in 20-40s).
+// Hard timeout for the OpenAI fetch. Empirically gpt-image-2 high-quality
+// 1024x1536 lands at 108-115s with occasional spillover, so 180s gives one
+// retry's worth of headroom before the typed retry policy kicks in.
 // Configurable via env so ops can tune without a code change.
 const OPENAI_TIMEOUT_MS = (() => {
-  const raw = parseInt(process.env.OPENAI_IMAGE_TIMEOUT_MS || "120000", 10);
-  if (!Number.isFinite(raw) || raw < 5000 || raw > 600000) return 120000;
+  const raw = parseInt(process.env.OPENAI_IMAGE_TIMEOUT_MS || "180000", 10);
+  if (!Number.isFinite(raw) || raw < 5000 || raw > 600000) return 180000;
   return raw;
 })();
 

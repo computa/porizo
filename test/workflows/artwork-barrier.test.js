@@ -6,15 +6,16 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 const {
-  markAudioReady,
   waitForArtworkReady,
-  SQL_MARK_AUDIO_READY,
+  notifyArtworkReady,
   SQL_CHECK_ARTWORK_READY,
+  _resetListenerForTests,
 } = require("../../src/workflows/artwork-barrier");
+const { EventEmitter } = require("events");
 
 function makeDb({ artworkReadySequence = [false], throwOnCheck = false } = {}) {
   let checkCallIndex = 0;
-  const calls = { markAudio: [], check: [] };
+  const calls = { check: [] };
   return {
     db: {
       prepare(sql) {
@@ -31,12 +32,6 @@ function makeDb({ artworkReadySequence = [false], throwOnCheck = false } = {}) {
             calls.check.push(v);
             return { artwork_ready: v ? 1 : 0 };
           },
-          async run(...args) {
-            if (sql !== SQL_MARK_AUDIO_READY)
-              throw new Error(`unexpected sql: ${sql}`);
-            calls.markAudio.push(args);
-            return { changes: 1 };
-          },
         };
       },
     },
@@ -45,22 +40,6 @@ function makeDb({ artworkReadySequence = [false], throwOnCheck = false } = {}) {
 }
 
 const SILENT = { info() {}, warn() {}, error() {} };
-
-test("markAudioReady writes audio_ready=1 to the specified track_version", async () => {
-  const { db, calls } = makeDb();
-  await markAudioReady({ db, trackVersionId: "tv-1" });
-  assert.equal(calls.markAudio.length, 1);
-  assert.equal(calls.markAudio[0][0], 1);
-  assert.equal(calls.markAudio[0][1], "tv-1");
-});
-
-test("markAudioReady validates inputs", async () => {
-  await assert.rejects(
-    () => markAudioReady({ trackVersionId: "tv-1" }),
-    /requires db/,
-  );
-  await assert.rejects(() => markAudioReady({ db: {} }), /requires db/);
-});
 
 test("waitForArtworkReady returns true immediately when artwork is already ready", async () => {
   const { db, calls } = makeDb({ artworkReadySequence: [true] });
@@ -125,6 +104,213 @@ test("waitForArtworkReady requires db and trackVersionId", async () => {
     /requires db/,
   );
   await assert.rejects(() => waitForArtworkReady({ db: {} }), /requires db/);
+});
+
+// ---------- PG LISTEN/NOTIFY path ----------
+
+function makePgDb({ initialReady = false } = {}) {
+  // Fake pg pool: connect() returns a client that records LISTEN and supports
+  // emitting notifications via the returned `emit` helper.
+  const client = new EventEmitter();
+  client.queries = [];
+  client.released = false;
+  client.query = async (sql, params) => {
+    client.queries.push({ sql, params });
+    return { rows: [] };
+  };
+  client.release = () => {
+    client.released = true;
+  };
+  const pool = {
+    connect: async () => client,
+  };
+  let ready = initialReady;
+  const db = {
+    isPostgres: true,
+    _pool: pool,
+    prepare(sql) {
+      return {
+        async get() {
+          if (sql === SQL_CHECK_ARTWORK_READY) {
+            return { artwork_ready: ready ? 1 : 0 };
+          }
+          // notifyArtworkReady() runs `SELECT pg_notify('artwork_ready', ?)`
+          if (sql.includes("pg_notify")) {
+            return { notified: 1 };
+          }
+          throw new Error(`unexpected sql: ${sql}`);
+        },
+      };
+    },
+  };
+  return {
+    db,
+    client,
+    setReady(v) {
+      ready = v;
+    },
+  };
+}
+
+test("waitForArtworkReady (PG path) returns true immediately when row is already ready", async () => {
+  _resetListenerForTests();
+  const { db } = makePgDb({ initialReady: true });
+  const got = await waitForArtworkReady({
+    db,
+    trackVersionId: "tv-pg-1",
+    timeoutMs: 5_000,
+    logger: SILENT,
+  });
+  assert.equal(got, true);
+  _resetListenerForTests();
+});
+
+test("waitForArtworkReady (PG path) wakes on NOTIFY before timeout", async () => {
+  _resetListenerForTests();
+  const { db, client } = makePgDb({ initialReady: false });
+  const promise = waitForArtworkReady({
+    db,
+    trackVersionId: "tv-pg-2",
+    timeoutMs: 5_000,
+    logger: SILENT,
+  });
+  // Give ensureListener a microtask to wire up before firing the NOTIFY.
+  await new Promise((r) => setImmediate(r));
+  await new Promise((r) => setImmediate(r));
+  client.emit("notification", {
+    channel: "artwork_ready",
+    payload: "tv-pg-2",
+  });
+  const got = await promise;
+  assert.equal(got, true);
+  _resetListenerForTests();
+});
+
+test("waitForArtworkReady (PG path) ignores NOTIFY for a different track_version_id", async () => {
+  _resetListenerForTests();
+  const { db, client } = makePgDb({ initialReady: false });
+  const promise = waitForArtworkReady({
+    db,
+    trackVersionId: "tv-pg-mine",
+    timeoutMs: 100,
+    logger: SILENT,
+  });
+  await new Promise((r) => setImmediate(r));
+  await new Promise((r) => setImmediate(r));
+  client.emit("notification", {
+    channel: "artwork_ready",
+    payload: "tv-pg-other",
+  });
+  const got = await promise;
+  assert.equal(got, false, "should timeout — NOTIFY was for a different vid");
+  _resetListenerForTests();
+});
+
+test("waitForArtworkReady (PG path) resolves false even if the deadline DB recheck throws", async () => {
+  _resetListenerForTests();
+  // PG db whose check query throws — exercises the try/catch around the
+  // deadline recheck so the outer promise still resolves (regression: a
+  // throw here previously left waitForArtworkReady hung forever).
+  const client = new EventEmitter();
+  client.queries = [];
+  client.query = async () => ({ rows: [] });
+  client.release = () => {};
+  const db = {
+    isPostgres: true,
+    _pool: { connect: async () => client },
+    prepare(sql) {
+      return {
+        async get() {
+          if (sql === SQL_CHECK_ARTWORK_READY) throw new Error("db down");
+          throw new Error(`unexpected sql ${sql}`);
+        },
+      };
+    },
+  };
+  const got = await waitForArtworkReady({
+    db,
+    trackVersionId: "tv-pg-throw",
+    timeoutMs: 30,
+    logger: SILENT,
+  });
+  assert.equal(got, false, "must still resolve after deadline-recheck throw");
+  _resetListenerForTests();
+});
+
+test("waitForArtworkReady (PG path) does a final DB check at deadline (covers dropped NOTIFY)", async () => {
+  _resetListenerForTests();
+  const ctx = makePgDb({ initialReady: false });
+  const promise = waitForArtworkReady({
+    db: ctx.db,
+    trackVersionId: "tv-pg-3",
+    timeoutMs: 50,
+    logger: SILENT,
+  });
+  // Flip ready AFTER timeout starts but never emit NOTIFY — the deadline
+  // recheck should catch it.
+  setTimeout(() => ctx.setReady(true), 20);
+  const got = await promise;
+  assert.equal(got, true, "deadline recheck should find ready=true");
+  _resetListenerForTests();
+});
+
+test("notifyArtworkReady is a no-op on non-Postgres db", async () => {
+  let called = false;
+  const db = {
+    isPostgres: false,
+    prepare() {
+      return {
+        async get() {
+          called = true;
+          return {};
+        },
+      };
+    },
+  };
+  await notifyArtworkReady({ db, trackVersionId: "tv-sqlite", logger: SILENT });
+  assert.equal(called, false, "no SQL executed when not PG");
+});
+
+test("notifyArtworkReady issues pg_notify on PG and swallows errors", async () => {
+  let queryArg = null;
+  const dbOk = {
+    isPostgres: true,
+    prepare(sql) {
+      return {
+        async get(arg) {
+          queryArg = { sql, arg };
+          return { notified: 1 };
+        },
+      };
+    },
+  };
+  await notifyArtworkReady({
+    db: dbOk,
+    trackVersionId: "tv-pg-notify",
+    logger: SILENT,
+  });
+  assert.ok(queryArg, "pg_notify should be invoked");
+  assert.ok(queryArg.sql.includes("pg_notify"));
+  assert.equal(queryArg.arg, "tv-pg-notify");
+
+  // Errors must not throw — the row update is the source of truth.
+  const dbFail = {
+    isPostgres: true,
+    prepare() {
+      return {
+        async get() {
+          throw new Error("pg down");
+        },
+      };
+    },
+  };
+  await assert.doesNotReject(() =>
+    notifyArtworkReady({
+      db: dbFail,
+      trackVersionId: "tv-pg-fail",
+      logger: SILENT,
+    }),
+  );
 });
 
 test("waitForArtworkReady treats boolean true, integer 1, string '1', 't', 'true' as ready", async () => {
