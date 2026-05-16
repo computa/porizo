@@ -1451,15 +1451,26 @@ function buildServer({
       return null;
     }
 
-    // Prefer local cover art; if missing, recover from object storage, then fall back to default OG image.
-    const artworkPath = path.join(versionDir, "cover_1024.jpg");
+    // Prefer per-song occasion artwork (track-level), fall back to the legacy
+    // version-level gradient cover, then to the default OG asset. Mirrors the
+    // OG /share/:shareId/cover.jpg precedence so unfurl previews and the
+    // share MP4 thumbnail show the same image.
+    const trackArtworkPath = path.join(
+      process.env.STORAGE_ROOT || path.resolve(process.cwd(), "storage"),
+      trackArtworkKey({ userId: track.user_id, trackId: track.id }),
+    );
+    const legacyCoverPath = path.join(versionDir, "cover_1024.jpg");
     const fallbackArtwork = path.join(
       process.cwd(),
       "public",
       "assets",
       "og-song.png",
     );
-    if (!fs.existsSync(artworkPath) && storageProvider.type !== "local") {
+    if (
+      !fs.existsSync(trackArtworkPath) &&
+      !fs.existsSync(legacyCoverPath) &&
+      storageProvider.type !== "local"
+    ) {
       const coverKey = `${trackVersionKey({
         userId: track.user_id,
         trackId: track.id,
@@ -1467,13 +1478,15 @@ function buildServer({
       })}/cover_1024.jpg`;
       await ensureLocalFileFromStorage({
         key: coverKey,
-        localPath: artworkPath,
+        localPath: legacyCoverPath,
       });
     }
 
-    const resolvedArtwork = fs.existsSync(artworkPath)
-      ? artworkPath
-      : fallbackArtwork;
+    const resolvedArtwork = fs.existsSync(trackArtworkPath)
+      ? trackArtworkPath
+      : fs.existsSync(legacyCoverPath)
+        ? legacyCoverPath
+        : fallbackArtwork;
     if (!fs.existsSync(resolvedArtwork)) {
       return null;
     }

@@ -5,38 +5,69 @@ const { trackArtworkKey } = require("../storage");
 
 const TRACK_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 
-function resolveHmacSecret() {
-  const explicit =
-    process.env.ARTWORK_HMAC_SECRET ||
-    process.env.SHARE_HMAC_SECRET ||
-    process.env.SHARE_TOKEN_SECRET;
-  if (explicit) return explicit;
-  if (process.env.NODE_ENV === "production") {
-    throw new Error(
-      "ARTWORK_HMAC_SECRET (or SHARE_HMAC_SECRET / SHARE_TOKEN_SECRET) must be set in production. " +
-        "Refusing to boot with the dev fallback — artwork signature forgery would be trivial.",
-    );
+// Key-versioned HMAC. `kid` identifies which secret produced a signature so we
+// can rotate the live key while still accepting in-the-wild signed URLs
+// (iMessage / WhatsApp link previews) until they age out.
+//
+// Production MUST set ARTWORK_HMAC_SECRET as a dedicated key (no fallback to
+// share-token secrets — coupling them means rotating share secrets nukes every
+// artwork URL embedded in any link preview).
+//
+// To rotate: set ARTWORK_HMAC_SECRET=<new> and ARTWORK_HMAC_SECRET_PREV=<old>
+// for one signed-URL TTL (default 14d). Then remove the PREV.
+const DEFAULT_KID = "v1";
+const LEGACY_KID = "v0";
+
+function resolveHmacKeys() {
+  const current = process.env.ARTWORK_HMAC_SECRET;
+  const previous = process.env.ARTWORK_HMAC_SECRET_PREV;
+  if (!current) {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error(
+        "ARTWORK_HMAC_SECRET must be set in production (no fallback to share secrets — " +
+          "coupling them means rotating share secrets nukes every signed artwork URL). " +
+          "Refusing to boot.",
+      );
+    }
+    // Local dev only — deterministic so tests are reproducible.
+    return {
+      [DEFAULT_KID]: ["dev", "artwork", "hmac", "local-only"].join("-"),
+    };
   }
-  // Local dev only — deterministic so tests are reproducible.
-  return ["dev", "artwork", "hmac", "local-only"].join("-");
+  const keys = { [DEFAULT_KID]: current };
+  if (previous) keys[LEGACY_KID] = previous;
+  return keys;
 }
 
-const ARTWORK_HMAC_SECRET = resolveHmacSecret();
+const HMAC_KEYS = resolveHmacKeys();
 const STORAGE_ROOT =
   process.env.STORAGE_ROOT || path.resolve(process.cwd(), "storage");
 
-function signArtworkUrl({ trackId, expiryUnix }) {
+function signArtworkUrl({ trackId, expiryUnix, kid = DEFAULT_KID } = {}) {
+  const secret = HMAC_KEYS[kid];
+  if (!secret) {
+    throw new Error(`Unknown HMAC kid: ${kid}`);
+  }
   return crypto
-    .createHmac("sha256", ARTWORK_HMAC_SECRET)
-    .update(`${trackId}:${expiryUnix}`)
+    .createHmac("sha256", secret)
+    .update(`${kid}:${trackId}:${expiryUnix}`)
     .digest("base64url");
 }
 
-function verifyArtworkSignature({ trackId, expiryUnix, sig }) {
+function verifyArtworkSignature({ trackId, expiryUnix, sig, kid } = {}) {
   if (!sig || !expiryUnix) return false;
   const now = Math.floor(Date.now() / 1000);
   if (expiryUnix < now) return false;
-  const expected = signArtworkUrl({ trackId, expiryUnix });
+  // Default kid keeps old (pre-rotation) signed URLs validating during the
+  // migration window — those were issued without a kid param so they map to v1.
+  const tryKid = kid || DEFAULT_KID;
+  if (!HMAC_KEYS[tryKid]) return false;
+  let expected;
+  try {
+    expected = signArtworkUrl({ trackId, expiryUnix, kid: tryKid });
+  } catch {
+    return false;
+  }
   if (sig.length !== expected.length) return false;
   return crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected));
 }
@@ -74,23 +105,53 @@ function registerArtworkRoutes(
         "Invalid track identifier.",
       );
     }
-    const { share_token: shareToken, sig, exp, v } = request.query || {};
+    const { share_token: shareToken, sig, exp, kid, v } = request.query || {};
 
-    // Auth path 1: signed anonymous unfurl (capability URL).
+    // Auth path 1: signed anonymous unfurl (capability URL). When a
+    // share_token is also present, require it to be non-revoked — otherwise
+    // revoking a share would not invalidate already-issued HMAC URLs.
     let authorized = false;
     if (sig && exp) {
       const expiryUnix = parseInt(exp, 10);
       if (
         Number.isFinite(expiryUnix) &&
-        verifyArtworkSignature({ trackId, expiryUnix, sig })
+        verifyArtworkSignature({ trackId, expiryUnix, sig, kid })
       ) {
-        authorized = true;
+        if (shareToken) {
+          try {
+            const share = await db
+              .prepare(
+                "SELECT track_id, status, expires_at FROM share_tokens WHERE id = ?",
+              )
+              .get(shareToken);
+            if (
+              share &&
+              share.track_id === trackId &&
+              share.status !== "revoked" &&
+              (!share.expires_at || new Date(share.expires_at) > new Date())
+            ) {
+              authorized = true;
+            }
+          } catch (err) {
+            request.log &&
+              request.log.warn(
+                { err },
+                "[Artwork] share_token coupling check failed",
+              );
+          }
+        } else {
+          // Bare HMAC capability — accepted for back-compat with already-
+          // distributed unfurl URLs that pre-date share-token coupling. Issuers
+          // SHOULD include share_token going forward (see buildSignedArtworkUrl).
+          authorized = true;
+        }
       }
     }
 
-    // Auth path 2: share_token still active. Match on `id` only (not stream_key)
-    // so artwork-serving and audio-streaming capabilities stay decoupled.
-    if (!authorized && shareToken) {
+    // Auth path 2: share_token alone (no HMAC). Mirrors the legacy path used
+    // by share-landing-page clients. Decoupled from HLS stream_key so artwork
+    // and audio capabilities can be revoked separately.
+    if (!authorized && shareToken && !sig) {
       try {
         const share = await db
           .prepare(
@@ -247,5 +308,4 @@ module.exports = {
   registerArtworkRoutes,
   signArtworkUrl,
   verifyArtworkSignature,
-  resolveHmacSecret,
 };

@@ -90,6 +90,27 @@ function registerSharingRoutes(
     consumeRateLimit,
   },
 ) {
+  // Pick the best cover image: track-level artwork.jpg first, then legacy
+  // version-level cover_1024.jpg. Returns null if neither exists (caller's
+  // generator handles a null coverPath).
+  function pickCoverPath(track, trackVersion) {
+    if (track && track.user_id && track.id) {
+      const storageRoot =
+        process.env.STORAGE_ROOT || path.resolve(process.cwd(), "storage");
+      const trackArtworkPath = path.join(
+        storageRoot,
+        trackArtworkKey({ userId: track.user_id, trackId: track.id }),
+      );
+      if (fs.existsSync(trackArtworkPath)) return trackArtworkPath;
+    }
+    if (trackVersion) {
+      const versionDir = getVersionDir(track, trackVersion);
+      const legacyCover = path.join(versionDir, "cover_1024.jpg");
+      if (fs.existsSync(legacyCover)) return legacyCover;
+    }
+    return null;
+  }
+
   // Shared guard: lookup share token + reject revoked/expired. Returns share or null (error already sent).
   async function resolveValidShare(request, reply) {
     const share = await db
@@ -386,12 +407,7 @@ function registerSharingRoutes(
     }
 
     const trackVersion = await findTrackVersion(track.id, track.latest_version);
-    let coverPath = null;
-    if (trackVersion) {
-      const versionDir = getVersionDir(track, trackVersion);
-      const candidateCover = path.join(versionDir, "cover_1024.jpg");
-      if (fs.existsSync(candidateCover)) coverPath = candidateCover;
-    }
+    let coverPath = pickCoverPath(track, trackVersion);
 
     const params = {
       title: track.title,
@@ -455,12 +471,7 @@ function registerSharingRoutes(
     }
 
     const trackVersion = await findTrackVersion(track.id, track.latest_version);
-    let coverPath = null;
-    if (trackVersion) {
-      const versionDir = getVersionDir(track, trackVersion);
-      const candidateCover = path.join(versionDir, "cover_1024.jpg");
-      if (fs.existsSync(candidateCover)) coverPath = candidateCover;
-    }
+    let coverPath = pickCoverPath(track, trackVersion);
 
     const buf = await generateSongOgPreview(request.params.variant, {
       title: track.title,

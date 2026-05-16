@@ -77,13 +77,33 @@ function registerTrackRoutes(
     subscriptionManager,
   },
 ) {
-  function kickArtworkJob(trackId, trackVersionId) {
+  async function kickArtworkJob(trackId, trackVersionId, userId) {
+    // Defense-in-depth rate limit. The render_preview / render_full endpoints
+    // already cap at 20/day (free) and 50/day (paid), so the worst-case paid
+    // spend is bounded. This belt-and-suspenders cap catches any future code
+    // path that adds an artwork-regen trigger outside the render endpoints.
+    if (userId && consumeRateLimit) {
+      try {
+        const ok = await consumeRateLimit(userId, "artwork_regen", 30, 3600);
+        if (!ok) {
+          console.warn(
+            `[ArtworkJob] artwork_regen rate limit exceeded for user ${userId}; skipping.`,
+          );
+          return;
+        }
+      } catch (rateErr) {
+        // Never block artwork on rate-limit infra failure.
+        console.warn(
+          `[ArtworkJob] artwork_regen rate-limit check failed: ${rateErr.message}. Proceeding.`,
+        );
+      }
+    }
     enqueueArtworkJob({
       db,
       trackId,
       trackVersionId,
       tierResolver: subscriptionManager
-        ? (userId) => subscriptionManager.getEffectiveTier(userId)
+        ? (uid) => subscriptionManager.getEffectiveTier(uid)
         : undefined,
       generateDependencies: { storageProvider },
     });
@@ -950,7 +970,11 @@ function registerTrackRoutes(
 
         // Kick off per-song occasion artwork in parallel. Fire-and-forget;
         // the render runner's READY barrier waits for completion.
-        kickArtworkJob(track.id, trackVersion.id);
+        kickArtworkJob(track.id, trackVersion.id, userId).catch((err) => {
+          console.warn(
+            `[ArtworkJob] kick failed for ${track.id}: ${err.message}`,
+          );
+        });
       } catch (txError) {
         if (
           txError.code === "INSUFFICIENT_SONGS" ||
@@ -1189,7 +1213,11 @@ function registerTrackRoutes(
 
         // Re-run for full render — occasion/recipient may have been edited
         // since preview. Content-hash idempotency makes it free if unchanged.
-        kickArtworkJob(track.id, trackVersion.id);
+        kickArtworkJob(track.id, trackVersion.id, userId).catch((err) => {
+          console.warn(
+            `[ArtworkJob] kick failed for ${track.id}: ${err.message}`,
+          );
+        });
       } catch (txError) {
         if (
           txError.code === "INSUFFICIENT_SONGS" ||

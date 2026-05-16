@@ -124,6 +124,11 @@ async function runArtworkJob({
     throw new Error("runArtworkJob requires db and trackId");
   }
 
+  // Periodic heartbeat: a paid-tier OpenAI call can take >100s, well under
+  // STALE_RUNNING_MS (5min) but enough that a slow downstream + a slow DB
+  // could brush the threshold. Pulse every 30s so the orphan sweep doesn't
+  // start a duplicate run mid-flight.
+  let heartbeatTimer = null;
   if (jobId) {
     await safeJobUpdate(
       db,
@@ -131,8 +136,52 @@ async function runArtworkJob({
       [nowIso(), nowIso(), jobId],
       logger,
     );
+    heartbeatTimer = setInterval(() => {
+      safeJobUpdate(
+        db,
+        SQL_MARK_JOB_RUNNING,
+        [nowIso(), nowIso(), jobId],
+        logger,
+      ).catch(() => {});
+    }, 30_000);
+    // Don't keep the process alive solely for this timer.
+    if (typeof heartbeatTimer.unref === "function") heartbeatTimer.unref();
   }
+  const stopHeartbeat = () => {
+    if (heartbeatTimer) {
+      clearInterval(heartbeatTimer);
+      heartbeatTimer = null;
+    }
+  };
 
+  try {
+    return await runArtworkJobInner({
+      db,
+      trackId,
+      trackVersionId,
+      jobId,
+      attempt,
+      logger,
+      generateFn,
+      tierResolver,
+      generateDependencies,
+    });
+  } finally {
+    stopHeartbeat();
+  }
+}
+
+async function runArtworkJobInner({
+  db,
+  trackId,
+  trackVersionId,
+  jobId,
+  attempt,
+  logger,
+  generateFn,
+  tierResolver,
+  generateDependencies,
+}) {
   let track;
   try {
     track = await db.prepare(SQL_GET_TRACK).get(trackId);

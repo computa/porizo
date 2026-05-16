@@ -465,9 +465,10 @@ test("runArtworkJob persists moderation_passed=false from result (fallback path)
   assert.equal(args[6], 0);
 });
 
-test("runArtworkJob persists moderation_passed=null on non-moderation provider error", async () => {
-  // A timeout or 5xx is NOT a moderation refusal — audit column should show
-  // "unknown" rather than lying with true or implying false.
+test("runArtworkJob persists moderation_passed=false on non-moderation provider error", async () => {
+  // Per migration 111, artwork_moderation_passed is NOT NULL. Non-moderation
+  // failures (timeout, 5xx) now record false — `source='fallback'` plus the
+  // provider/prompt audit columns capture the "didn't actually run" context.
   const { db, calls } = makeDb({
     track: SAMPLE_TRACK,
     entitlement: { tier: "pro" },
@@ -479,12 +480,12 @@ test("runArtworkJob persists moderation_passed=null on non-moderation provider e
     generateFn: async () => ({
       ...SAMPLE_RESULT,
       source: "fallback",
-      moderationPassed: null,
+      moderationPassed: false,
       provider: "openai",
       prompt: "a peony",
     }),
   });
-  assert.equal(calls.updateArtwork[0][6], null);
+  assert.equal(calls.updateArtwork[0][6], 0);
 });
 
 test("runArtworkJob requires db and trackId", async () => {

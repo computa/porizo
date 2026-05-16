@@ -125,6 +125,17 @@ async function generateSongArtwork({
     prompt = buildPrompt({ occasion, style });
     try {
       const adapter = providerFactory(providerName);
+      // Pre-flight moderation — cheap pre-check before burning a $0.21 gen.
+      // Soft-fail on infra issues so we don't gate on the moderation endpoint.
+      if (typeof adapter.moderationCheck === "function") {
+        const mod = await adapter.moderationCheck({ prompt });
+        if (mod && mod.flagged) {
+          moderationPassed = false;
+          throw new ModerationRefusalError(
+            `Pre-flight moderation flagged prompt for track ${trackId}`,
+          );
+        }
+      }
       const buf = await adapter.generate({
         prompt,
         size: "1024x1536",
@@ -136,12 +147,13 @@ async function generateSongArtwork({
       source = "generated";
       moderationPassed = true;
     } catch (err) {
-      // moderationPassed stays null on non-moderation failures so the audit
-      // column doesn't claim a check it never made.
+      // Audit column is NOT NULL (migration 111). Conservative default: false
+      // when a check never definitively passed. The `source` column ('fallback'
+      // vs 'generated') distinguishes refusal from infra failure.
       if (err instanceof ModerationRefusalError) {
         moderationPassed = false;
       } else {
-        moderationPassed = null;
+        moderationPassed = false;
         logger.warn(
           `[song-artwork] Provider ${providerName} failed for track ${trackId}; ` +
             `falling back to library. reason=${err && err.message}`,

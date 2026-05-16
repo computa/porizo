@@ -14,7 +14,9 @@
 
 const NAME = "openai";
 const ENDPOINT = "https://api.openai.com/v1/images/generations";
+const MODERATION_ENDPOINT = "https://api.openai.com/v1/moderations";
 const MODEL = "gpt-image-2";
+const MODERATION_MODEL = "omni-moderation-latest";
 const VALID_SIZES = new Set(["1024x1024", "1024x1536", "1536x1024"]);
 const VALID_QUALITIES = new Set(["low", "medium", "high"]);
 
@@ -157,11 +159,53 @@ async function generate({
   return Buffer.from(b64, "base64");
 }
 
+/**
+ * Pre-flight prompt moderation. Cheaper than burning a $0.21 generation just
+ * to discover the prompt was refused. Returns `{flagged: bool, categories}`.
+ * On network/API failure we return `{flagged: false}` and let the output-side
+ * moderation gate catch anything that slipped through — better than failing
+ * closed on a transient hiccup.
+ */
+async function moderationCheck({ prompt, apiKey } = {}) {
+  if (!prompt || typeof prompt !== "string") {
+    throw new ImageGenerationError("moderationCheck requires a prompt");
+  }
+  const key = apiKey || process.env.OPENAI_API_KEY;
+  if (!key) return { flagged: false, skipped: true };
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 10_000);
+  try {
+    const response = await fetch(MODERATION_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${key}`,
+      },
+      body: JSON.stringify({ model: MODERATION_MODEL, input: prompt }),
+      signal: controller.signal,
+    });
+    if (!response.ok) return { flagged: false, skipped: true };
+    const data = await response.json();
+    const result = data && data.results && data.results[0];
+    if (!result) return { flagged: false, skipped: true };
+    return {
+      flagged: !!result.flagged,
+      categories: result.categories || null,
+    };
+  } catch {
+    return { flagged: false, skipped: true };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 module.exports = {
   name: NAME,
   model: MODEL,
   dataHandling,
   generate,
+  moderationCheck,
   ModerationRefusalError,
   ImageGenerationError,
 };

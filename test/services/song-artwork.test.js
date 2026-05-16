@@ -278,6 +278,51 @@ test("generateSongArtwork falls back to library on moderation refusal", async ()
   assert.ok(result.prompt);
 });
 
+test("generateSongArtwork pre-flight moderation gate blocks before generation", async () => {
+  // The moderation endpoint flags the prompt — we should short-circuit BEFORE
+  // calling generate() (saving the $0.21) and fall through to the library.
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "porizo-artwork-"));
+  const fakeBase = path.join(tmp, "base.jpg");
+  fs.writeFileSync(fakeBase, Buffer.alloc(8));
+  let generateCalled = false;
+  let modCalled = false;
+
+  const result = await generateSongArtwork({
+    userId: "u-preflight",
+    trackId: "t-preflight",
+    occasion: "birthday",
+    recipientName: "Sarah",
+    tier: "plus",
+    dependencies: {
+      libraryPathFn: () => fakeBase,
+      providerFactory: () => ({
+        moderationCheck: async () => {
+          modCalled = true;
+          return { flagged: true, categories: { violence: true } };
+        },
+        generate: async () => {
+          generateCalled = true;
+          return Buffer.alloc(8);
+        },
+      }),
+      compositeFn: async ({ outputDir }) => {
+        const out = path.join(outputDir, "artwork.jpg");
+        fs.writeFileSync(out, Buffer.alloc(8));
+        return out;
+      },
+    },
+  });
+
+  assert.equal(modCalled, true, "pre-flight moderation should have run");
+  assert.equal(
+    generateCalled,
+    false,
+    "generate() should NOT run when pre-flight flags the prompt",
+  );
+  assert.equal(result.source, "fallback");
+  assert.equal(result.moderationPassed, false);
+});
+
 // ---------- fitName tiers ----------
 
 test("fitName T1: short name → standard size, single line", () => {
