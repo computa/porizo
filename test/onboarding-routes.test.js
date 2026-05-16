@@ -46,6 +46,19 @@ describe("onboarding routes", () => {
     assert.match(suggestion.preview_line, /Sarah/);
   });
 
+  it("renders mothers_day with proper apostrophe + casing", () => {
+    const suggestion = generateTemplateSuggestion({
+      recipient_name: "Chioma",
+      relationship_type: "partner",
+      emotional_seed: "first_met",
+      occasion: "mothers_day",
+      sender_name: "Ambrose",
+    });
+    assert.equal(suggestion.title, "A Mother's Day Song for Chioma by Ambrose");
+    assert.equal(suggestion.source, "template");
+    assert.match(suggestion.preview_line, /Chioma/);
+  });
+
   it("appends 'by {FirstName}' when sender_name is provided", () => {
     const suggestion = generateTemplateSuggestion({
       recipient_name: "Chioma",

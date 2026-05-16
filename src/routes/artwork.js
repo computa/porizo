@@ -54,6 +54,50 @@ function signArtworkUrl({ trackId, expiryUnix, kid = DEFAULT_KID } = {}) {
     .digest("base64url");
 }
 
+/**
+ * Build a fully-formed signed artwork URL for a given track.
+ *
+ * Use the returned URL anywhere the iOS app, web share page, or external crawler
+ * needs to fetch the artwork without an Authorization header: it carries its own
+ * HMAC credential via `sig` + `exp`. The route accepts the signature alone
+ * (path 1, "bare HMAC capability"), or paired with a share_token for revocation
+ * coupling (path 1, share-bound) — pass `shareTokenId` to enable the latter.
+ *
+ * `versionStamp` is the cache-bust value that mirrors what gets persisted into
+ * `tracks.artwork_url` (`?v=...`). Keep it in sync so client-side caches see the
+ * same URL the API returns.
+ *
+ * @param {Object} args
+ * @param {string} args.trackId
+ * @param {number} [args.ttlSeconds] How long the signature stays valid. Default 90d
+ *                                   so iMessage / WhatsApp / Twitter link previews
+ *                                   keep working through their cache lifetimes.
+ * @param {string} [args.shareTokenId] When present, the URL also includes
+ *                                     `share_token=...` — revoking the share
+ *                                     also invalidates the signed URL.
+ * @param {number|string} [args.versionStamp] Cache-bust value appended as `?v=...`.
+ *                                            Defaults to current epoch ms.
+ * @returns {string} Path with query string, e.g.
+ *                   `/tracks/<id>/artwork.jpg?v=<ms>&sig=<base64url>&exp=<unix>&kid=v1`
+ */
+function buildSignedArtworkUrl({
+  trackId,
+  ttlSeconds = 90 * 24 * 60 * 60, // 90 days
+  shareTokenId = null,
+  versionStamp = Date.now(),
+} = {}) {
+  if (!trackId) throw new Error("buildSignedArtworkUrl: trackId is required");
+  const expiryUnix = Math.floor(Date.now() / 1000) + Number(ttlSeconds);
+  const sig = signArtworkUrl({ trackId, expiryUnix, kid: DEFAULT_KID });
+  const params = new URLSearchParams();
+  params.set("v", String(versionStamp));
+  if (shareTokenId) params.set("share_token", shareTokenId);
+  params.set("sig", sig);
+  params.set("exp", String(expiryUnix));
+  params.set("kid", DEFAULT_KID);
+  return `/tracks/${trackId}/artwork.jpg?${params.toString()}`;
+}
+
 function verifyArtworkSignature({ trackId, expiryUnix, sig, kid } = {}) {
   if (!sig || !expiryUnix) return false;
   const now = Math.floor(Date.now() / 1000);
@@ -307,5 +351,6 @@ function defaultSendError(reply, status, code, message) {
 module.exports = {
   registerArtworkRoutes,
   signArtworkUrl,
+  buildSignedArtworkUrl,
   verifyArtworkSignature,
 };

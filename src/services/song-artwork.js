@@ -199,11 +199,15 @@ async function generateSongArtwork({
     typeof storageProvider.putFile === "function"
   ) {
     try {
+      const remoteKey = trackArtworkKey({ userId, trackId });
       await storageProvider.putFile({
-        key: trackArtworkKey({ userId, trackId }),
+        key: remoteKey,
         filePath: artworkPath,
         contentType: "image/jpeg",
       });
+      logger.info(
+        `[song-artwork] Uploaded artwork to ${storageProvider.type} key=${remoteKey} (track=${trackId})`,
+      );
     } catch (uploadErr) {
       logger.warn(
         `[song-artwork] S3 upload failed for track ${trackId}: ${uploadErr.message}. ` +

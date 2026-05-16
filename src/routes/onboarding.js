@@ -3,6 +3,7 @@
 const fs = require("fs/promises");
 const fsSync = require("fs");
 const path = require("path");
+const { formatOccasion } = require("../utils/og-text-utils");
 
 /**
  * Onboarding Routes
@@ -92,9 +93,10 @@ function generateTemplateSuggestion({
 }) {
   const name = recipient_name || "them";
   const seedKey = emotional_seed || "";
-  const occasionLabel = occasion
-    ? occasion.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
-    : null;
+  // Use the canonical formatOccasion mapping so "mothers_day" → "Mother's Day"
+  // (apostrophe + casing). Inline string transform misses these.
+  // Pass `null` as fallback so we can distinguish "no occasion" cleanly.
+  const occasionLabel = occasion ? formatOccasion(occasion, null) : null;
   const senderFirstName = firstName(sender_name);
 
   const title = buildSongTitle({

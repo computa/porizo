@@ -66,7 +66,10 @@ const { registerPoemRoutes } = require("./routes/poems");
 const { registerGiftRoutes } = require("./routes/gifts");
 const { registerTrackRoutes } = require("./routes/tracks");
 const { registerSharingRoutes } = require("./routes/sharing");
-const { registerArtworkRoutes } = require("./routes/artwork");
+const {
+  registerArtworkRoutes,
+  buildSignedArtworkUrl,
+} = require("./routes/artwork");
 const { registerBillingRoutes } = require("./routes/billing");
 const { registerOnboardingRoutes } = require("./routes/onboarding");
 const { registerAdminRoutes } = require("./routes/admin");
@@ -3891,8 +3894,33 @@ function buildServer({
       const latestVersionNum = Number(row.latest_version || 0);
       const latestVersion = byTrackVersion.get(`${row.id}:${latestVersionNum}`);
 
+      // Re-sign artwork_url for every response so iOS AsyncImage / iMessage
+      // crawlers can fetch without an Authorization header. The DB stores the
+      // raw unsigned path (`/tracks/<id>/artwork.jpg?v=<ms>`); we extract the
+      // cache-bust stamp and rebuild a signed URL with a fresh expiry. Pairs
+      // share_token when one exists so revocation also invalidates the link.
+      let signedArtworkUrl = row.artwork_url ?? null;
+      if (signedArtworkUrl && row.id) {
+        const cacheBustMatch = String(row.artwork_url).match(/[?&]v=(\d+)/);
+        try {
+          signedArtworkUrl = buildSignedArtworkUrl({
+            trackId: row.id,
+            shareTokenId: row.share_token_id || null,
+            versionStamp: cacheBustMatch ? cacheBustMatch[1] : Date.now(),
+          });
+        } catch (err) {
+          // Refuse to leak an unsigned URL — clients would see a guaranteed 401.
+          // Better to omit so iOS falls through to the gradient placeholder.
+          console.warn(
+            `[hydrateTrackCoverImages] sign failed for track ${row.id}: ${err.message}; dropping artwork_url`,
+          );
+          signedArtworkUrl = null;
+        }
+      }
+
       return {
         ...row,
+        artwork_url: signedArtworkUrl,
         cover_image_url:
           latestVersion?.cover_image_url ?? row.cover_image_url ?? null,
         cover_image_small_url:

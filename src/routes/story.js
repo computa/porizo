@@ -47,6 +47,7 @@ const { newUuid } = require("../utils/ids");
 const { generateElementGuidance } = require("../writer/v3/guidance");
 const { normalizeStyle } = require("../providers/style-registry");
 const { buildSongTitle } = require("./onboarding");
+const { formatOccasion } = require("../utils/og-text-utils");
 const {
   findGiftFundingContent,
   validateGiftFundingReservation,
@@ -4111,10 +4112,11 @@ function registerStoryRoutes(
         const trackOwner = await db
           .prepare("SELECT display_name FROM users WHERE id = ?")
           .get(userId);
+        // Canonical mapping handles apostrophes + multi-word occasions
+        // ("mothers_day" → "Mother's Day"). null fallback so we can omit
+        // the occasion clause when there's no real one.
         const occasionLabel = storyContext.occasion
-          ? String(storyContext.occasion)
-              .replace(/_/g, " ")
-              .replace(/\b\w/g, (c) => c.toUpperCase())
+          ? formatOccasion(storyContext.occasion, null)
           : null;
         const composedTitle = buildSongTitle({
           recipientName: storyContext.recipientName,
