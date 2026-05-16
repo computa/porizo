@@ -25,6 +25,7 @@ const {
 // render-contract.js; the local copy here was drift-prone when new modes
 // (e.g., a future "personalized_v2") were added.
 const { PERSONALIZED_VOICE_MODES } = require("../workflows/render-contract");
+const { enqueueArtworkJob } = require("../jobs/artwork-job");
 
 const SUNO_PERSONA_PREPARING_STATUSES = new Set([
   "pending",
@@ -43,6 +44,7 @@ function registerTrackRoutes(
     db,
     config,
     appConfig,
+    storageProvider,
     requireUserId,
     sendError,
     consumeRateLimit,
@@ -75,6 +77,18 @@ function registerTrackRoutes(
     subscriptionManager,
   },
 ) {
+  function kickArtworkJob(trackId, trackVersionId) {
+    enqueueArtworkJob({
+      db,
+      trackId,
+      trackVersionId,
+      tierResolver: subscriptionManager
+        ? (userId) => subscriptionManager.getEffectiveTier(userId)
+        : undefined,
+      generateDependencies: { storageProvider },
+    });
+  }
+
   function mergeProvenanceJson(existingJson, patch) {
     const current = parseJson(existingJson, {}, "provenance_json") || {};
     return toJson({
@@ -141,11 +155,11 @@ function registerTrackRoutes(
     }
     const latestProviderProfile =
       blockingProviderProfile ||
-      await findLatestProviderProfileForVoiceProfile(db, {
+      (await findLatestProviderProfileForVoiceProfile(db, {
         voiceProfileId: voiceProfile.id,
         provider: "suno",
         includeDeleted: true,
-      });
+      }));
     const readinessBlock = sunoPersonaReadinessBlock(latestProviderProfile);
     if (readinessBlock) {
       return readinessBlock;
@@ -161,7 +175,9 @@ function registerTrackRoutes(
   function isNewerProviderProfile(candidate, activeProviderProfile) {
     if (!candidate) return false;
     if (!activeProviderProfile) return true;
-    const candidateTs = toTimestamp(candidate.created_at || candidate.updated_at);
+    const candidateTs = toTimestamp(
+      candidate.created_at || candidate.updated_at,
+    );
     const activeTs = toTimestamp(
       activeProviderProfile.activated_at ||
         activeProviderProfile.created_at ||
@@ -931,6 +947,10 @@ function registerTrackRoutes(
           );
           return { jobId };
         });
+
+        // Kick off per-song occasion artwork in parallel. Fire-and-forget;
+        // the render runner's READY barrier waits for completion.
+        kickArtworkJob(track.id, trackVersion.id);
       } catch (txError) {
         if (
           txError.code === "INSUFFICIENT_SONGS" ||
@@ -1166,6 +1186,10 @@ function registerTrackRoutes(
 
           return { success: true, jobId };
         });
+
+        // Re-run for full render — occasion/recipient may have been edited
+        // since preview. Content-hash idempotency makes it free if unchanged.
+        kickArtworkJob(track.id, trackVersion.id);
       } catch (txError) {
         if (
           txError.code === "INSUFFICIENT_SONGS" ||

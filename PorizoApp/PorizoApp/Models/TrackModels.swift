@@ -109,6 +109,10 @@ struct Track: Codable, Sendable, Identifiable, Equatable {
     let coverImageUrl: String?
     let coverImageSmallUrl: String?
     let coverImageLargeUrl: String?
+    // Per-song occasion artwork (NEW — Warm Canvas paper-art per-song asset)
+    // Lives at the track level (not per-version) and travels across share / NowPlaying / lockscreen.
+    let artworkUrl: String?
+    let artworkStyleVariant: String?
     // Pre-generated share data (populated when share token exists)
     var shareUrl: String? = nil
     var claimPin: String? = nil
@@ -133,6 +137,8 @@ struct Track: Codable, Sendable, Identifiable, Equatable {
         case coverImageUrl = "cover_image_url"
         case coverImageSmallUrl = "cover_image_small_url"
         case coverImageLargeUrl = "cover_image_large_url"
+        case artworkUrl = "artwork_url"
+        case artworkStyleVariant = "artwork_style_variant"
         case shareUrl = "share_url"
         case claimPin = "claim_pin"
         case shareExpiresAt = "share_expires_at"

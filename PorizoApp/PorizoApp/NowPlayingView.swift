@@ -223,14 +223,34 @@ struct NowPlayingView: View {
                 return "🎵"
             }()
 
-            RoundedRectangle(cornerRadius: 20)
-                .fill(LinearGradient(
-                    colors: [DesignTokens.gold, DesignTokens.goldGradientEnd],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                ))
-                .frame(height: 280)
-                .overlay(Text(occasionEmoji).font(.system(size: 48)))
+            // Per-song occasion artwork. Falls back to coral-gradient + occasion
+            // emoji while the artwork loads (or if it's missing — e.g. older tracks
+            // generated before the artwork pipeline shipped, or the artwork job
+            // failed and the READY barrier released the track with artwork_url=NULL).
+            ZStack {
+                if let urlString = playerState.currentTrack?.artworkUrl,
+                   let url = URL(string: urlString) {
+                    AsyncImage(url: url) { phase in
+                        switch phase {
+                        case .empty:
+                            albumArtPlaceholder(occasionEmoji: occasionEmoji)
+                        case .success(let image):
+                            image
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                                .transition(.opacity.animation(.easeOut(duration: 0.2)))
+                        case .failure:
+                            albumArtPlaceholder(occasionEmoji: occasionEmoji)
+                        @unknown default:
+                            albumArtPlaceholder(occasionEmoji: occasionEmoji)
+                        }
+                    }
+                } else {
+                    albumArtPlaceholder(occasionEmoji: occasionEmoji)
+                }
+            }
+            .frame(height: 280)
+            .clipShape(RoundedRectangle(cornerRadius: 20))
 
             VStack(spacing: 4) {
                 Text("For \(playerState.currentTrack?.recipientName ?? "You")")
@@ -242,6 +262,16 @@ struct NowPlayingView: View {
                     .foregroundStyle(DesignTokens.textSecondary)
             }
         }
+    }
+
+    private func albumArtPlaceholder(occasionEmoji: String) -> some View {
+        RoundedRectangle(cornerRadius: 20)
+            .fill(LinearGradient(
+                colors: [DesignTokens.gold, DesignTokens.goldGradientEnd],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            ))
+            .overlay(Text(occasionEmoji).font(.system(size: 48)))
     }
 
     private var albumArtSubtitle: String {

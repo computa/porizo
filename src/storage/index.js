@@ -61,7 +61,7 @@ function trackVersionKey({ userId, trackId, versionNum }) {
   return `tracks/${userId}/${trackId}/v${versionNum}`;
 }
 
-function trackMasterKey({ userId, trackId, versionNum, format = 'aac' }) {
+function trackMasterKey({ userId, trackId, versionNum, format = "aac" }) {
   return `${trackVersionKey({ userId, trackId, versionNum })}/master.${format}`;
 }
 
@@ -75,6 +75,12 @@ function trackStemsKey({ userId, trackId, versionNum }) {
 
 function trackHLSKey({ userId, trackId, versionNum }) {
   return `${trackVersionKey({ userId, trackId, versionNum })}/hls/`;
+}
+
+// Per-song occasion artwork. Lives at the TRACK root (not v{n}/) so it survives
+// audio retries — its identity is (occasion + recipient), not the audio bytes.
+function trackArtworkKey({ userId, trackId }) {
+  return `tracks/${userId}/${trackId}/artwork.jpg`;
 }
 
 module.exports = {
@@ -94,6 +100,7 @@ module.exports = {
   trackPreviewKey,
   trackStemsKey,
   trackHLSKey,
+  trackArtworkKey,
   // Lifecycle policies
   ...lifecycle,
   // KMS encryption

@@ -39,6 +39,10 @@ struct TrackPlayerFullView: View {
     @State private var coverImageSmallUrl: String?
     @State private var coverImageLargeUrl: String?
 
+    // Per-song occasion artwork — drives both the album art on this view (via NowPlayingView)
+    // and the MPNowPlayingInfoCenter / lockscreen artwork (via playbackController.artworkUrl).
+    @State private var artworkUrl: String?
+
     // Audio URLs for playback retry
     @State private var previewUrl: String?
     @State private var fullUrl: String?
@@ -146,6 +150,10 @@ struct TrackPlayerFullView: View {
                     let track = resp.track
                         shareUrl = track.shareUrl
                         claimPin = track.claimPin
+                        if let url = track.artworkUrl {
+                            artworkUrl = url
+                            playbackController.artworkUrl = url
+                        }
                     }
                 }
             }
@@ -167,6 +175,9 @@ struct TrackPlayerFullView: View {
         // Playback controller metadata
         playbackController.trackTitle = trackTitle
         playbackController.artistName = recipientName
+        if let url = artworkUrl {
+            playbackController.artworkUrl = url
+        }
 
         playbackController.onPlaybackFinished = {
             currentLyricIndex = 0

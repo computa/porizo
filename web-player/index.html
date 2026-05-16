@@ -3,9 +3,13 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <meta name="theme-color" content="#0a0a0a">
+  <!-- Theme: warm cream on light, warm-toned dark on dark. Matches the paper-art canvas. -->
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#FFF8F0" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#1A0F08" media="(prefers-color-scheme: dark)">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="{{OG_TITLE}}">
   <title>{{OG_TITLE}} | Porizo</title>
   <!-- Open Graph -->
   <meta property="og:title" content="{{OG_TITLE}}">
@@ -27,8 +31,26 @@
   <meta name="twitter:description" content="{{OG_DESCRIPTION}}">
   <meta name="twitter:image" content="{{OG_IMAGE}}">
   {{TWITTER_PLAYER_META}}
+  <!-- LPLinkMetadata: iMessage's rich-link card uses apple-touch-icon as the
+       bubble thumbnail. Point at the same artwork the OG image uses so the
+       iMessage thumbnail matches the unfurl preview. -->
+  <link rel="apple-touch-icon" sizes="180x180" href="{{OG_IMAGE}}">
   <!-- iOS Smart App Banner — install-only. Receiver save uses the in-page handoff CTA. -->
   <meta name="apple-itunes-app" content="app-id=6758205028">
+  <!-- Dark-mode chrome — overrides the styles.css palette where prefers-color-scheme:dark.
+       The artwork's cream background glows against the dark canvas. -->
+  <style>
+    @media (prefers-color-scheme: dark) {
+      :root, html, body {
+        background: #1A0F08;
+        color: #F5E6D3;
+      }
+      .container { background: #1A0F08; color: #F5E6D3; }
+      .btn-primary, .teaser-play-btn { background: #E07A4B; color: #1A0F08; }
+      .btn-secondary { background: transparent; color: #F5E6D3; border-color: #F5E6D3; }
+      .loading-text, .teaser-subtitle, .expired-message, .error-message { color: #C8B7A3; }
+    }
+  </style>
   <!-- oEmbed discovery -->
   <link rel="alternate" type="application/json+oembed"
     href="{{OEMBED_URL}}" title="{{OG_TITLE}}">

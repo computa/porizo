@@ -1,0 +1,50 @@
+{
+  "ltr": [
+    { "name": "Sarah", "tier": "T1", "note": "standard size, no wrap" },
+    {
+      "name": "Bartholomew",
+      "tier": "T2",
+      "note": "shrink-to-fit single line"
+    },
+    {
+      "name": "Maria Fernanda",
+      "tier": "T3",
+      "note": "two-line break on space"
+    },
+    {
+      "name": "Maximilliananerex",
+      "tier": "T5",
+      "note": "no space, truncate at 16 + ellipsis"
+    },
+    { "name": "Ada", "tier": "T1", "note": "shortest realistic name" },
+    {
+      "name": "Anne-Marie de la Croix",
+      "tier": "T4",
+      "note": ">28 chars total, truncate at 26"
+    }
+  ],
+  "rtl": [
+    {
+      "name": "سارة",
+      "script": "arabic",
+      "note": "right-anchored, لـ prefix, image unmirrored"
+    },
+    {
+      "name": "شاهنامه",
+      "script": "farsi",
+      "note": "Farsi name with Arabic-shaped chars"
+    },
+    { "name": "שרה", "script": "hebrew", "note": "right-anchored, לְ prefix" },
+    { "name": "סאם בעל הזכרון", "script": "hebrew", "note": "two-word Hebrew" }
+  ],
+  "edge": [
+    { "name": "", "note": "empty — composite renders without prefix or name" },
+    { "name": "   ", "note": "whitespace only — treated as empty" },
+    {
+      "name": "Mom 💖",
+      "note": "emoji in name — must not crash; SVG should render or strip gracefully"
+    },
+    { "name": "M&M's", "note": "ampersand — must be escaped" },
+    { "name": "<script>", "note": "XML escape coverage" }
+  ]
+}

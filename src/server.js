@@ -25,6 +25,7 @@ const {
   trackPreviewKey,
   trackMasterKey,
   trackVersionKey,
+  trackArtworkKey,
 } = require("./storage");
 const { startCleanupJob } = require("./jobs/cleanup");
 const { startSubscriptionSyncJob } = require("./jobs/subscription-sync");
@@ -65,6 +66,7 @@ const { registerPoemRoutes } = require("./routes/poems");
 const { registerGiftRoutes } = require("./routes/gifts");
 const { registerTrackRoutes } = require("./routes/tracks");
 const { registerSharingRoutes } = require("./routes/sharing");
+const { registerArtworkRoutes } = require("./routes/artwork");
 const { registerBillingRoutes } = require("./routes/billing");
 const { registerOnboardingRoutes } = require("./routes/onboarding");
 const { registerAdminRoutes } = require("./routes/admin");
@@ -970,13 +972,22 @@ function buildServer({
     return null;
   }
 
-  function buildShareCoverUrl(shareId, { socialCacheToken } = {}) {
+  function buildShareCoverUrl(
+    shareId,
+    { socialCacheToken, artworkVersion } = {},
+  ) {
     const params = new URLSearchParams();
     if (shareCoverVersion) {
       params.set("v", String(shareCoverVersion));
     }
     if (socialCacheToken) {
       params.set("smv", String(socialCacheToken));
+    }
+    // Artwork generated_at as a separate cache-bust token. When recipient name
+    // or occasion changes, artwork is regenerated and this timestamp shifts,
+    // forcing WhatsApp/iMessage crawlers to re-fetch the OG card.
+    if (artworkVersion) {
+      params.set("av", String(artworkVersion));
     }
     const query = params.toString();
     const suffix = query ? `?${query}` : "";
@@ -4805,6 +4816,14 @@ function buildServer({
       null,
   });
 
+  registerArtworkRoutes(app, {
+    db,
+    requireUserId,
+    sendError,
+    storageProvider,
+    ensureLocalFileFromStorage,
+  });
+
   registerSharingRoutes(app, {
     db,
     appConfig,
@@ -4868,6 +4887,7 @@ function buildServer({
     trackMasterKey,
     trackPreviewKey,
     trackVersionKey,
+    trackArtworkKey,
     serveTrackAudio,
     getUserRiskLevel,
     consumeRateLimit,

@@ -2,6 +2,7 @@ const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const config = require("../config");
+const { markAudioReady, waitForArtworkReady } = require("./artwork-barrier");
 const {
   generateLyrics,
   assessRequiredDetailCoverage,
@@ -5228,6 +5229,21 @@ async function startJobRunner({
           ],
         },
       );
+
+      // Artwork ↔ audio coordination barrier: mark audio_ready and wait briefly
+      // for the parallel artwork job to finish. If artwork isn't ready within
+      // ARTWORK_BARRIER_TIMEOUT_MS (default 60s), release the track READY anyway
+      // with artwork_url=NULL — audio is the product, artwork is enhancement.
+      // See plan §Failure policy.
+      try {
+        await markAudioReady({ db, trackVersionId: trackVersionReady.id });
+        await waitForArtworkReady({ db, trackVersionId: trackVersionReady.id });
+      } catch (barrierErr) {
+        console.warn(
+          `[JobRunner] Artwork barrier error for ${trackVersionReady.id}:`,
+          barrierErr.message,
+        );
+      }
 
       // Commit ready-state only after upload success (or dev-mode local fallback).
       await updateTrackVersion.run(
