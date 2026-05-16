@@ -9,6 +9,11 @@ node_modules/
 
 # Local storage (production uses S3)
 storage/
+# Carve-out: artwork-library is a deployed asset (per-occasion fallback for
+# free-tier songs). Bootstrapped via scripts/build-artwork-library.mjs and
+# committed so it rides every container build. Must stay in sync with the
+# matching carve-outs in .gitignore and .railwayignore.
+!storage/artwork-library/
 *.db
 porizo.db
 

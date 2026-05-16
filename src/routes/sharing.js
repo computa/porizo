@@ -93,21 +93,46 @@ function registerSharingRoutes(
   // Pick the best cover image: track-level artwork.jpg first, then legacy
   // version-level cover_1024.jpg. Returns null if neither exists (caller's
   // generator handles a null coverPath).
-  function pickCoverPath(track, trackVersion) {
+  //
+  // Async because the container filesystem is ephemeral on Railway — after a
+  // redeploy, local artwork/cover JPGs are wiped even though the DB still
+  // points at them. We hydrate from S3 on miss so OG image generation keeps
+  // working across deploys instead of silently producing coverless previews
+  // (which then get cached by iMessage / WhatsApp crawlers for weeks).
+  async function pickCoverPath(track, trackVersion) {
+    const storageRoot =
+      process.env.STORAGE_ROOT || path.resolve(process.cwd(), "storage");
+
     if (track && track.user_id && track.id) {
-      const storageRoot =
-        process.env.STORAGE_ROOT || path.resolve(process.cwd(), "storage");
-      const trackArtworkPath = path.join(
-        storageRoot,
-        trackArtworkKey({ userId: track.user_id, trackId: track.id }),
-      );
+      const artworkKey = trackArtworkKey({
+        userId: track.user_id,
+        trackId: track.id,
+      });
+      const trackArtworkPath = path.join(storageRoot, artworkKey);
       if (fs.existsSync(trackArtworkPath)) return trackArtworkPath;
+      // Local miss — try S3 hydration. ensureLocalFileFromStorage no-ops
+      // when storageProvider.type === 'local', so this stays cheap in dev.
+      const hydrated = await ensureLocalFileFromStorage({
+        key: artworkKey,
+        localPath: trackArtworkPath,
+      });
+      if (hydrated) return trackArtworkPath;
     }
+
     if (trackVersion) {
       const versionDir = getVersionDir(track, trackVersion);
       const legacyCover = path.join(versionDir, "cover_1024.jpg");
       if (fs.existsSync(legacyCover)) return legacyCover;
+      // Hydrate legacy cover from S3 too. The key is the relative version
+      // path under storage root (storage-key convention used elsewhere).
+      const legacyKey = path.relative(storageRoot, legacyCover);
+      const hydrated = await ensureLocalFileFromStorage({
+        key: legacyKey,
+        localPath: legacyCover,
+      });
+      if (hydrated) return legacyCover;
     }
+
     return null;
   }
 
@@ -407,7 +432,7 @@ function registerSharingRoutes(
     }
 
     const trackVersion = await findTrackVersion(track.id, track.latest_version);
-    let coverPath = pickCoverPath(track, trackVersion);
+    let coverPath = await pickCoverPath(track, trackVersion);
 
     const params = {
       title: track.title,
@@ -471,7 +496,7 @@ function registerSharingRoutes(
     }
 
     const trackVersion = await findTrackVersion(track.id, track.latest_version);
-    let coverPath = pickCoverPath(track, trackVersion);
+    let coverPath = await pickCoverPath(track, trackVersion);
 
     const buf = await generateSongOgPreview(request.params.variant, {
       title: track.title,
