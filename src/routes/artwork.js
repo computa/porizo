@@ -88,6 +88,7 @@ function buildSignedArtworkUrl({
   ttlSeconds = DEFAULT_ARTWORK_TTL_SECONDS,
   shareTokenId = null,
   versionStamp = Date.now(),
+  baseUrl = null,
 } = {}) {
   if (!trackId) throw new Error("buildSignedArtworkUrl: trackId is required");
   const ttlNum = Number(ttlSeconds);
@@ -109,7 +110,17 @@ function buildSignedArtworkUrl({
   params.set("sig", sig);
   params.set("exp", String(expiryUnix));
   params.set("kid", DEFAULT_KID);
-  return `/tracks/${trackId}/artwork.jpg?${params.toString()}`;
+  // Absolute URL when baseUrl provided (or PUBLIC_BASE_URL set in env) so iOS
+  // AsyncImage / iMessage crawlers / WhatsApp unfurl all get a fetchable URL.
+  // Relative path is a legal alternative for same-origin web clients only.
+  const path = `/tracks/${trackId}/artwork.jpg?${params.toString()}`;
+  const resolvedBase =
+    baseUrl ||
+    process.env.PUBLIC_BASE_URL ||
+    process.env.STREAM_BASE_URL ||
+    null;
+  if (!resolvedBase) return path;
+  return `${String(resolvedBase).replace(/\/$/, "")}${path}`;
 }
 
 function verifyArtworkSignature({ trackId, expiryUnix, sig, kid } = {}) {

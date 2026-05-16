@@ -2378,7 +2378,6 @@ function registerSharingRoutes(
       trackId: track.id,
       versionNum: trackVersion.version_num,
     });
-    const coverKey = `${versionStoragePrefix}/cover_1024.jpg`;
     const ogCardKey = `${versionStoragePrefix}/share_og_1200x630${ogCardVersionSuffix}${variantSuffix}.jpg`;
 
     // Cover hydration already handled by pickCoverPath above. Only the

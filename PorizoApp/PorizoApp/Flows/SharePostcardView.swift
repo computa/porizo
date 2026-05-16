@@ -282,8 +282,10 @@ struct SharePostcardView: View {
 
     private var primaryCTA: some View {
         Button {
-            presentUniversalShareSheet()
-            onSend()
+            // Self-contained — opens the universal sheet with image + text + URL.
+            // We do NOT call onSend() here; that callback fires the parent's
+            // legacy presentation path which would race this sheet.
+            presentActivitySheet()
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: "arrow.up.right")
@@ -335,41 +337,37 @@ struct SharePostcardView: View {
 
     private func handleTargetTap(_ target: ShareTarget) {
         guard let urlString = shareURL, let url = URL(string: urlString) else {
-            // No share URL yet — present the universal sheet which will
-            // surface the same error path the legacy onSend handler uses.
-            presentUniversalShareSheet()
+            // No share URL yet — fall back to the universal sheet so the user
+            // gets the same surface as the "Share via…" CTA.
+            presentActivitySheet()
             return
         }
         let body = shareBodyText(url: url)
 
+        // Each tile is self-contained. We deliberately do NOT call onSend() —
+        // that callback fires the parent (MySongsView / TrackPlayerFullView)
+        // to pop another UIActivityViewController, which races the deep-link
+        // / sheet here and causes both to silently fail.
+
         switch target {
         case .messages:
-            // iMessage attaches images natively from UIActivityVC payload.
-            presentActivitySheet(filter: .none)
+            // iMessage gets a dedicated path: try sms:&body= first so iOS
+            // opens straight into the compose sheet with the text + URL.
+            // Falls back to the universal share sheet (which also includes
+            // Messages as a top option and attaches the image natively).
+            openOrFallback("sms:&body=\(percentEncode(body))")
         case .whatsapp:
-            // WhatsApp deep-link only carries text. Image won't travel via
-            // the URL scheme — fall back to UIActivityVC so the user can
-            // pick WhatsApp from the sheet and the image attaches.
-            if openExternalURL("whatsapp://send?text=\(percentEncode(body))") {
-                onSend()
-            } else {
-                presentActivitySheet(filter: .none)
-            }
+            openOrFallback("whatsapp://send?text=\(percentEncode(body))")
         case .instagram:
-            // Instagram Stories accepts a sticker via UIPasteboard +
-            // ig:// scheme. We save the image, open IG, and toast guidance.
             shareToInstagramStories()
         case .tiktok:
             shareToTikTok(url: url)
         case .twitter:
-            // X URL scheme; fall back to web intent so this never silently
-            // fails on devices without the app.
-            if !openExternalURL("twitter://post?message=\(percentEncode(body))") {
-                _ = openExternalURL(
+            openOrFallback(
+                "twitter://post?message=\(percentEncode(body))",
+                webFallback:
                     "https://twitter.com/intent/tweet?text=\(percentEncode(body))"
-                )
-            }
-            onSend()
+            )
         case .copyLink:
             UIPasteboard.general.string = url.absoluteString
             let toast = claimPIN.map { "Link copied · PIN \($0)" } ?? "Link copied"
@@ -378,13 +376,32 @@ struct SharePostcardView: View {
         }
     }
 
-    /// Universal "Share via…" — opens UIActivityViewController with the image,
-    /// text, and URL all in the payload. iOS routes to whichever app the user picks.
-    private func presentUniversalShareSheet() {
-        presentActivitySheet(filter: .none)
+    /// Try the native app URL scheme; if the user doesn't have the app
+    /// installed (or iOS reports `success=false` from the async open),
+    /// fall back to the universal share sheet so the user still has a way
+    /// to send it — with the image attached.
+    private func openOrFallback(_ scheme: String, webFallback: String? = nil) {
+        guard let url = URL(string: scheme) else {
+            presentActivitySheet()
+            return
+        }
+        UIApplication.shared.open(url, options: [:]) { success in
+            guard !success else { return }
+            Task { @MainActor in
+                if let webFallback,
+                   let web = URL(string: webFallback),
+                   UIApplication.shared.canOpenURL(web) {
+                    UIApplication.shared.open(web)
+                } else {
+                    self.presentActivitySheet()
+                }
+            }
+        }
     }
 
-    private func presentActivitySheet(filter _: Any?) {
+    /// Universal "Share via…" — opens UIActivityViewController with the image,
+    /// text, and URL all in the payload. iOS routes to whichever app the user picks.
+    private func presentActivitySheet() {
         var items: [Any] = []
         if let image = artworkImage { items.append(image) }
         if let urlString = shareURL, let url = URL(string: urlString) {
@@ -403,37 +420,43 @@ struct SharePostcardView: View {
 
     private func shareToInstagramStories() {
         guard let image = artworkImage else {
-            // Image not loaded yet — universal sheet is the safe fallback.
-            presentActivitySheet(filter: .none)
+            presentActivitySheet()
+            return
+        }
+        guard let igURL = URL(string: "instagram://"),
+              UIApplication.shared.canOpenURL(igURL) else {
+            presentActivitySheet()
             return
         }
         // Best-effort: copy the image to the pasteboard so the user can paste
-        // it into a new Story, then open Instagram. If IG isn't installed,
-        // fall back to the universal sheet.
+        // it into a new Story, then open Instagram.
         UIPasteboard.general.image = image
-        if openExternalURL("instagram://") {
-            ToastService.shared.show("Image copied — open a new Story and paste", type: .info)
-            onSend()
-        } else {
-            presentActivitySheet(filter: .none)
+        UIApplication.shared.open(igURL) { success in
+            Task { @MainActor in
+                if success {
+                    ToastService.shared.show("Image copied — open a new Story and paste", type: .info)
+                } else {
+                    self.presentActivitySheet()
+                }
+            }
         }
     }
 
     private func shareToTikTok(url: URL) {
         guard let image = artworkImage else {
-            presentActivitySheet(filter: .none)
+            presentActivitySheet()
             return
         }
         Task { @MainActor in
             let result = await TikTokShareService.shared.shareCardImage(image, shareURL: url)
             switch result {
             case .launched:
-                onSend()
+                break
             case .fallback(let reason):
                 #if DEBUG
                 print("[SharePostcardView] TikTok fallback: \(reason)")
                 #endif
-                presentActivitySheet(filter: .none)
+                presentActivitySheet()
             }
         }
     }
