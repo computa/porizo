@@ -1458,10 +1458,18 @@ function buildServer({
     // version-level gradient cover, then to the default OG asset. Mirrors the
     // OG /share/:shareId/cover.jpg precedence so unfurl previews and the
     // share MP4 thumbnail show the same image.
-    const trackArtworkPath = path.join(
-      process.env.STORAGE_ROOT || path.resolve(process.cwd(), "storage"),
-      trackArtworkKey({ userId: track.user_id, trackId: track.id }),
-    );
+    //
+    // On fresh containers (Railway redeploy) neither file exists locally —
+    // we must try BOTH S3 keys, not just the legacy cover. Hydrating only
+    // cover_1024.jpg silently downgrades paid-tier per-song artwork to the
+    // generic fallback in the share-MP4 thumbnail.
+    const storageRoot =
+      process.env.STORAGE_ROOT || path.resolve(process.cwd(), "storage");
+    const artworkKey = trackArtworkKey({
+      userId: track.user_id,
+      trackId: track.id,
+    });
+    const trackArtworkPath = path.join(storageRoot, artworkKey);
     const legacyCoverPath = path.join(versionDir, "cover_1024.jpg");
     const fallbackArtwork = path.join(
       process.cwd(),
@@ -1469,6 +1477,12 @@ function buildServer({
       "assets",
       "og-song.png",
     );
+    if (!fs.existsSync(trackArtworkPath) && storageProvider.type !== "local") {
+      await ensureLocalFileFromStorage({
+        key: artworkKey,
+        localPath: trackArtworkPath,
+      });
+    }
     if (
       !fs.existsSync(trackArtworkPath) &&
       !fs.existsSync(legacyCoverPath) &&

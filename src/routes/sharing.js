@@ -2322,16 +2322,9 @@ function registerSharingRoutes(
     const versionDir = getVersionDir(track, trackVersion);
     // Prefer per-song occasion artwork (track-level) over the legacy
     // version-level gradient cover. Older tracks have only cover_1024.jpg.
-    const storageRoot =
-      process.env.STORAGE_ROOT || path.resolve(process.cwd(), "storage");
-    const trackArtworkPath = path.join(
-      storageRoot,
-      trackArtworkKey({ userId: track.user_id, trackId: track.id }),
-    );
-    const legacyCoverPath = path.join(versionDir, "cover_1024.jpg");
-    const localCoverPath = fs.existsSync(trackArtworkPath)
-      ? trackArtworkPath
-      : legacyCoverPath;
+    // Centralized via pickCoverPath which S3-hydrates both candidates on
+    // local-miss — same source of truth as the rest of the share pipeline.
+    const localCoverPath = (await pickCoverPath(track, trackVersion)) || null;
 
     // WhatsApp square variant — 1200x1200 image to avoid letterboxing
     if (request.query.variant === "whatsapp") {
@@ -2340,21 +2333,11 @@ function registerSharingRoutes(
         "share_og_1200x1200_whatsapp.jpg",
       );
       if (!fs.existsSync(squarePath)) {
-        // Ensure cover art is available locally for the generator
-        let hasCover = fs.existsSync(localCoverPath);
-        if (!hasCover && storageProvider.type !== "local") {
-          const coverKey = `${trackVersionKey({ userId: track.user_id, trackId: track.id, versionNum: trackVersion.version_num })}/cover_1024.jpg`;
-          await ensureLocalFileFromStorage({
-            key: coverKey,
-            localPath: localCoverPath,
-          });
-          hasCover = fs.existsSync(localCoverPath);
-        }
         const squareBuffer = await generateSongOgImageSquare({
           title: track.title,
           recipientName: track.recipient_name,
           occasion: track.occasion,
-          coverPath: hasCover ? localCoverPath : null,
+          coverPath: localCoverPath,
           brandName: "Porizo",
         });
         if (squareBuffer) {
@@ -2398,19 +2381,13 @@ function registerSharingRoutes(
     const coverKey = `${versionStoragePrefix}/cover_1024.jpg`;
     const ogCardKey = `${versionStoragePrefix}/share_og_1200x630${ogCardVersionSuffix}${variantSuffix}.jpg`;
 
-    if (storageProvider.type !== "local") {
-      if (!fs.existsSync(localCoverPath)) {
-        await ensureLocalFileFromStorage({
-          key: coverKey,
-          localPath: localCoverPath,
-        });
-      }
-      if (!fs.existsSync(localOgCardPath)) {
-        await ensureLocalFileFromStorage({
-          key: ogCardKey,
-          localPath: localOgCardPath,
-        });
-      }
+    // Cover hydration already handled by pickCoverPath above. Only the
+    // pre-rendered OG card itself still needs an S3 hydrate attempt.
+    if (storageProvider.type !== "local" && !fs.existsSync(localOgCardPath)) {
+      await ensureLocalFileFromStorage({
+        key: ogCardKey,
+        localPath: localOgCardPath,
+      });
     }
 
     if (!fs.existsSync(localOgCardPath)) {
@@ -2420,7 +2397,7 @@ function registerSharingRoutes(
         title: track.title,
         recipientName: track.recipient_name,
         occasion: track.occasion,
-        coverPath: fs.existsSync(localCoverPath) ? localCoverPath : null,
+        coverPath: localCoverPath,
         brandName: "Porizo",
       });
 
@@ -2453,6 +2430,7 @@ function registerSharingRoutes(
       fs.unlinkSync(localOgCardPath);
     }
     if (
+      localCoverPath &&
       fs.existsSync(localCoverPath) &&
       fs.statSync(localCoverPath).size === 0
     ) {
@@ -2460,7 +2438,7 @@ function registerSharingRoutes(
     }
 
     const hasOgCard = fs.existsSync(localOgCardPath);
-    const hasNativeCover = fs.existsSync(localCoverPath);
+    const hasNativeCover = !!localCoverPath && fs.existsSync(localCoverPath);
     const imagePath = hasOgCard
       ? localOgCardPath
       : hasNativeCover
