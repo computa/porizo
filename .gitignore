@@ -12,7 +12,9 @@ node_modules/
 
 # Local runtime data
 /data/
-/storage/
+/storage/*
+# Carve-out: per-occasion artwork library is a checked-in deploy asset.
+!/storage/artwork-library/
 test-output/
 *.log
 .DS_Store
@@ -43,6 +45,8 @@ out/
 /marketing/
 !/marketing/
 /marketing/*
+!/marketing/README.md
+!/marketing/current-push.md
 !/marketing/appstore/
 /marketing/appstore/*
 !/marketing/appstore/metadata/
@@ -58,6 +62,27 @@ out/
 !/marketing/appstore/app-previews/current/porizo-app-preview-6.9.mp4
 !/marketing/mothers-day-2026/
 !/marketing/mothers-day-2026/**
+!/marketing/archive/
+!/marketing/archive/README.md
+!/marketing/archive/campaign-packs/
+!/marketing/archive/campaign-packs/README.md
+/marketing/archive/campaign-packs/mother-s-day-early-assets/
+!/marketing/archive/campaign-packs/mothers-day-2026-plan-pack/
+!/marketing/archive/campaign-packs/mothers-day-2026-plan-pack/**
+!/marketing/channels/
+!/marketing/channels/**/*.md
+!/marketing/channels/creators/creator-outreach.csv
+!/marketing/creative/
+!/marketing/creative/README.md
+!/marketing/funnels/
+!/marketing/funnels/**
+!/marketing/operations/
+!/marketing/operations/**/*.md
+!/marketing/research/
+/marketing/research/*
+!/marketing/research/README.md
+!/marketing/strategy/
+!/marketing/strategy/**/*.md
 !/marketing/tools/generate-mothers-day-pins.js
 !/marketing/tools/generate-blog-heroes.js
 !/marketing/email-templates/

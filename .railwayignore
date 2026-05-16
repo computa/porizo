@@ -15,6 +15,11 @@ docker-compose.yml
 
 # Local storage and outputs
 /storage/
+# Carve-out: artwork-library is a deployed asset (per-occasion fallback artwork
+# for free-tier songs). Bootstrapped once via scripts/build-artwork-library.mjs
+# and committed so it rides every deploy.
+!/storage/artwork-library/
+!/storage/artwork-library/**
 *.db
 porizo.db
 logs/
