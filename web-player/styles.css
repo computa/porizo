@@ -289,6 +289,9 @@ body {
   overflow: hidden;
   opacity: 0;
   background: #160f08;
+  background-image: var(--player-artwork-url);
+  background-size: cover;
+  background-position: center;
   transition: opacity 0.45s ease;
   pointer-events: none;
 }
@@ -302,6 +305,7 @@ body {
 }
 
 .player-artwork-image {
+  display: block;
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -1090,8 +1094,47 @@ body {
     padding: 5px 12px;
   }
 
+  #player.has-player-artwork .player-bg {
+    opacity: 0.04;
+  }
+
+  .player-artwork-image {
+    height: 34vh;
+    min-height: 220px;
+    object-fit: contain;
+    object-position: top center;
+    transform: none;
+    filter: saturate(1.08) brightness(0.92) contrast(1.02);
+  }
+
+  .player-artwork-backdrop::before {
+    background:
+      linear-gradient(to bottom, rgba(8, 6, 4, 0.04) 0%, rgba(8, 6, 4, 0.10) 28%, rgba(8, 6, 4, 0.62) 48%, rgba(8, 6, 4, 0.92) 100%),
+      radial-gradient(ellipse 82% 44% at 50% 42%, rgba(0, 0, 0, 0.12) 0%, rgba(0, 0, 0, 0.44) 72%, rgba(0, 0, 0, 0.72) 100%);
+  }
+
+  .player-artwork-backdrop::after {
+    background:
+      linear-gradient(90deg, rgba(10, 8, 5, 0.22) 0%, transparent 24%, transparent 76%, rgba(10, 8, 5, 0.22) 100%),
+      radial-gradient(ellipse 80% 42% at 50% 52%, rgba(8, 6, 4, 0.58) 0%, rgba(8, 6, 4, 0.38) 56%, transparent 82%);
+  }
+
   .lyrics-stage {
+    top: 30vh;
     bottom: 200px;
+    align-items: flex-start;
+  }
+
+  .lyrics-stage::before {
+    top: 0;
+    width: calc(100vw - 20px);
+    height: min(40vh, 340px);
+    border-radius: 22px;
+  }
+
+  .lyrics-scroll {
+    max-width: 350px;
+    padding: 38px 18px 28vh;
   }
 
   .player-chrome {

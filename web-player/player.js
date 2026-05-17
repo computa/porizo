@@ -283,15 +283,20 @@
     const trackInfo = getTrackInfo();
     const artworkUrl = getPlayerArtworkUrl(trackInfo);
     if (!elements.player || !elements.playerArtworkImage || !artworkUrl) {
-      if (elements.player) elements.player.classList.remove('has-player-artwork');
+      if (elements.player) {
+        elements.player.classList.remove('has-player-artwork');
+        elements.player.style.removeProperty('--player-artwork-url');
+      }
       return;
     }
 
+    elements.player.style.setProperty('--player-artwork-url', `url(${JSON.stringify(artworkUrl)})`);
     elements.playerArtworkImage.onload = function() {
       elements.player.classList.add('has-player-artwork');
     };
     elements.playerArtworkImage.onerror = function() {
       elements.player.classList.remove('has-player-artwork');
+      elements.player.style.removeProperty('--player-artwork-url');
       elements.playerArtworkImage.removeAttribute('src');
     };
     if (elements.playerArtworkImage.getAttribute('src') !== artworkUrl) {
