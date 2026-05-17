@@ -378,9 +378,6 @@ private enum NowPlayingArtworkRenderer {
         context.fill(targetRect)
         context.interpolationQuality = .high
 
-        context.translateBy(x: 0, y: targetSize.height)
-        context.scaleBy(x: 1, y: -1)
-
         let imageSize = CGSize(width: cgImage.width, height: cgImage.height)
         let progress = frameCount > 1 ? CGFloat(frameIndex) / CGFloat(frameCount - 1) : 0
         let zoom = 1.04 + 0.045 * sin(progress * .pi)
@@ -425,7 +422,7 @@ private final class NowPlayingAnimatedArtworkCache {
     static func artworkID(sourceURL: URL?, image: UIImage, aspect: NowPlayingArtworkAspect) -> String {
         let source = sourceURL?.absoluteString
             ?? "embedded-\(Int(image.size.width.rounded()))x\(Int(image.size.height.rounded()))-\(image.scale)"
-        let hash = SHA256.hash(data: Data("\(source)-\(aspect.id)".utf8))
+        let hash = SHA256.hash(data: Data("v2-\(source)-\(aspect.id)".utf8))
             .map { String(format: "%02x", $0) }
             .joined()
         return "porizo-\(aspect.id)-\(hash)"
