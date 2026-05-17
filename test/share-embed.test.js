@@ -587,6 +587,25 @@ describe("Share Embed Routes", () => {
     );
   });
 
+  test("/share/:shareId exposes artwork-first image for the web player", async (t) => {
+    if (!postgresAvailable) { t.skip("PostgreSQL not available"); return; }
+    const response = await app.inject({
+      method: "GET",
+      url: `/share/${testShareId}`,
+    });
+
+    assert.equal(response.statusCode, 200);
+    const body = JSON.parse(response.body);
+    assert.ok(
+      body.track.player_artwork_url.includes(`/share/${testShareId}/cover.jpg`),
+      "Web player should receive the same public artwork-first image endpoint used for social previews"
+    );
+    assert.ok(
+      body.track.player_artwork_url.includes("smv="),
+      "Web player artwork URL should be cache-busted so regenerated artwork appears after sharing"
+    );
+  });
+
   test("/share/:shareId/cover.jpg falls back to default cover when track version is missing", async (t) => {
     if (!postgresAvailable) { t.skip("PostgreSQL not available"); return; }
     const response = await app.inject({

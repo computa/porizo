@@ -194,6 +194,12 @@ function registerSharingRoutes(
     return null;
   }
 
+  function getTrackArtworkVersion(track) {
+    if (!track || !track.artwork_generated_at) return null;
+    const ts = new Date(track.artwork_generated_at).getTime();
+    return Number.isFinite(ts) ? Math.floor(ts / 1000) : null;
+  }
+
   // Shared guard: lookup share token + reject revoked/expired. Returns share or null (error already sent).
   async function resolveValidShare(request, reply) {
     const share = await db
@@ -912,11 +918,7 @@ function registerSharingRoutes(
     // generated_at epoch in the OG URL so WhatsApp/iMessage re-fetch when
     // artwork is regenerated (e.g., user edited recipient_name after first share).
     // See plan §Failure policy.
-    const artworkVersion = (() => {
-      if (!track || !track.artwork_generated_at) return null;
-      const ts = new Date(track.artwork_generated_at).getTime();
-      return Number.isFinite(ts) ? Math.floor(ts / 1000) : null;
-    })();
+    const artworkVersion = getTrackArtworkVersion(track);
 
     // WhatsApp letterboxes 1200x630 images badly — serve a 1200x1200 square variant
     let ogImage, ogImageWidth, ogImageHeight;
@@ -1591,6 +1593,10 @@ function registerSharingRoutes(
         hydratedSharedTrack?.cover_image_large_url ||
         null,
       artwork_url: hydratedSharedTrack?.artwork_url || null,
+      player_artwork_url: buildShareCoverUrl(share.id, {
+        socialCacheToken: Date.now(),
+        artworkVersion: getTrackArtworkVersion(track),
+      }),
     };
     const lyricsData = parseJson(
       trackVersion.lyrics_json,

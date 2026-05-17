@@ -93,6 +93,9 @@
     currentTime: document.getElementById('current-time'),
     duration: document.getElementById('duration'),
     iosDownloadLink: document.getElementById('ios-download-link'),
+    player: document.getElementById('player'),
+    playerArtworkBackdrop: document.getElementById('player-artwork-backdrop'),
+    playerArtworkImage: document.getElementById('player-artwork-image'),
   };
 
   // Utilities
@@ -261,6 +264,40 @@
     if (trackInfo) {
       elements.trackTitle.textContent = getExperienceHeading(trackInfo);
       elements.trackRecipient.textContent = getExperienceSubtitle(trackInfo);
+    }
+  }
+
+  function getPlayerArtworkUrl(trackInfo) {
+    if (!trackInfo) return '';
+    return (
+      trackInfo.player_artwork_url ||
+      trackInfo.artwork_url ||
+      trackInfo.cover_image_large_url ||
+      trackInfo.cover_image_url ||
+      trackInfo.cover_image_small_url ||
+      ''
+    );
+  }
+
+  function applyPlayerArtwork() {
+    const trackInfo = getTrackInfo();
+    const artworkUrl = getPlayerArtworkUrl(trackInfo);
+    if (!elements.player || !elements.playerArtworkImage || !artworkUrl) {
+      if (elements.player) elements.player.classList.remove('has-player-artwork');
+      return;
+    }
+
+    elements.playerArtworkImage.onload = function() {
+      elements.player.classList.add('has-player-artwork');
+    };
+    elements.playerArtworkImage.onerror = function() {
+      elements.player.classList.remove('has-player-artwork');
+      elements.playerArtworkImage.removeAttribute('src');
+    };
+    if (elements.playerArtworkImage.getAttribute('src') !== artworkUrl) {
+      elements.playerArtworkImage.src = artworkUrl;
+    } else if (elements.playerArtworkImage.complete) {
+      elements.player.classList.add('has-player-artwork');
     }
   }
 
@@ -634,6 +671,7 @@
       }
 
       updateTrackInfo();
+      applyPlayerArtwork();
 
       // Render lyrics if available
       if (shareData.lyrics && shareData.lyrics.length > 0) {
