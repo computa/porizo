@@ -11,6 +11,7 @@
 //
 
 import AVFoundation
+import MediaPlayer
 import Observation
 import UIKit
 
@@ -78,6 +79,7 @@ final class PlaybackController {
     // MARK: - Private State
 
     private var player: AVPlayer?
+    private var nowPlayingSession: MPNowPlayingSession?
     private var timeObserverToken: Any?
     private var playbackEndObserver: NSObjectProtocol?
     private var playerItemStatusObserver: NSKeyValueObservation?
@@ -120,8 +122,10 @@ final class PlaybackController {
         tearDownObservers()
 
         let playerItem = AVPlayerItem(url: audioUrl)
-        player = AVPlayer(playerItem: playerItem)
+        let avPlayer = AVPlayer(playerItem: playerItem)
+        player = avPlayer
         loadedURL = url
+        nowPlayingSession = MPNowPlayingSession(players: [avPlayer])
 
         // Reset playback state.
         currentTime = 0
@@ -130,6 +134,9 @@ final class PlaybackController {
         playbackError = nil
 
         configureNowPlaying()
+        if let nowPlayingSession {
+            NowPlayingManager.shared.activateSession(nowPlayingSession)
+        }
         pushNowPlayingMetadata()
 
         observePlayerItemStatus(playerItem)
@@ -237,6 +244,10 @@ final class PlaybackController {
         artworkFetchTask?.cancel()
         artworkFetchTask = nil
         cachedArtworkImage = nil
+        if let nowPlayingSession {
+            NowPlayingManager.shared.deactivateSession(nowPlayingSession)
+        }
+        nowPlayingSession = nil
         NowPlayingManager.shared.updatePlaybackState(
             isPlaying: false, elapsed: 0, duration: nil
         )
@@ -303,7 +314,8 @@ final class PlaybackController {
         let metadata = NowPlayingMetadata(
             title: trackTitle,
             artist: effectiveArtist,
-            artwork: cachedArtworkImage
+            artwork: cachedArtworkImage,
+            artworkURL: artworkUrl.flatMap(URL.init(string:))
         )
         NowPlayingManager.shared.updateMetadata(
             metadata, duration: duration > 0 ? duration : nil

@@ -461,7 +461,8 @@ struct ShareClaimView: View {
                 guard !Task.isCancelled else { return }
                 let metadata = NowPlayingMetadata(
                     title: trackInfo?.title ?? "Shared Song",
-                    artist: trackInfo?.recipientName
+                    artist: trackInfo?.recipientName,
+                    artworkURLString: trackInfo?.nowPlayingArtworkUrl
                 )
                 audioPlayer.play(url: stream.streamUrl, headers: headers, metadata: metadata)
                 state = .playing
@@ -481,7 +482,8 @@ struct ShareClaimView: View {
         await MainActor.run {
             let metadata = NowPlayingMetadata(
                 title: trackInfo?.title ?? "Shared Song",
-                artist: trackInfo?.recipientName
+                artist: trackInfo?.recipientName,
+                artworkURLString: trackInfo?.nowPlayingArtworkUrl
             )
             audioPlayer.play(url: streamUrl, headers: nil, metadata: metadata)
             state = claimAllowed ? .previewClaimable : .previewReadOnly

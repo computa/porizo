@@ -67,6 +67,7 @@ struct WarmCanvasFlowView: View {
 
     @State private var trackTitle: String
     @State private var coverImageUrl: String?
+    @State private var artworkUrl: String?
 
     // MARK: - Task Handles
 
@@ -729,6 +730,7 @@ struct WarmCanvasFlowView: View {
                 occasion: setup.occasion?.rawValue,
                 shareURL: shareController?.shareURLString,
                 claimPIN: shareController?.claimPin,
+                artworkURL: artworkUrl ?? coverImageUrl,
                 onSend: {
                     guard let (trackId, versionNum) = ensureShareControllerAndTrackIds() else {
                         ToastService.shared.show("Song not ready to share yet", type: .warning)
@@ -1190,7 +1192,14 @@ struct WarmCanvasFlowView: View {
 
     /// Apply track metadata and playback info from a render result.
     private func applyRenderResult(_ result: RenderResult) {
-        applyTrackMetadata(title: result.trackTitle, coverUrl: result.coverImageUrl)
+        applyTrackMetadata(
+            title: result.trackTitle,
+            coverUrl: result.coverImageUrl,
+            artworkUrl: result.artworkUrl
+                ?? result.coverImageLargeUrl
+                ?? result.coverImageUrl
+                ?? result.coverImageSmallUrl
+        )
         if !result.recipientName.isEmpty { setup.recipientName = result.recipientName }
         playbackController.trackTitle = result.trackTitle
         playbackController.artistName = setup.recipientName
@@ -1845,9 +1854,11 @@ struct WarmCanvasFlowView: View {
         // Note: InlineLyricsCard.onApproved calls startFullRender() directly — no callback wiring needed.
     }
 
-    private func applyTrackMetadata(title: String, coverUrl: String?) {
+    private func applyTrackMetadata(title: String, coverUrl: String?, artworkUrl: String? = nil) {
         trackTitle = title
         coverImageUrl = coverUrl
+        self.artworkUrl = artworkUrl ?? coverUrl
+        playbackController.artworkUrl = self.artworkUrl
     }
 
     private func presentFlowMessage(_ message: String) {
@@ -2118,7 +2129,11 @@ struct WarmCanvasFlowView: View {
             let response = try await apiClient.getTrack(trackId: trackId)
             let track = response.track
 
-            applyTrackMetadata(title: track.title, coverUrl: track.coverImageUrl)
+            applyTrackMetadata(
+                title: track.title,
+                coverUrl: track.coverImageUrl,
+                artworkUrl: track.nowPlayingArtworkUrl
+            )
             if let name = track.recipientName, !name.isEmpty {
                 setup.recipientName = name
             }

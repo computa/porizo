@@ -1529,6 +1529,7 @@ function registerSharingRoutes(
         hydratedSharedTrack?.cover_image_url ||
         hydratedSharedTrack?.cover_image_large_url ||
         null,
+      artwork_url: hydratedSharedTrack?.artwork_url || null,
     };
     const lyricsData = parseJson(
       trackVersion.lyrics_json,

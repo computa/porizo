@@ -117,10 +117,9 @@ function wrapText(value, maxCharsPerLine, maxLines) {
  */
 function detectDirection(value) {
   const text = String(value || "");
-  // Arabic (؀-ۿ), Arabic Supplement (ݐ-ݿ), Hebrew (֐-׿),
-  // Arabic Extended-A (ࢠ-ࣿ), Arabic Presentation Forms-A (ﭐ-﷿),
-  // Arabic Presentation Forms-B (ﹰ-﻿).
-  const rtlRegex = /[֐-׿؀-ۿݐ-ݿࢠ-ࣿﭐ-﷿ﹰ-﻿]/;
+  // Arabic, Arabic Supplement, Hebrew, Arabic Extended-A, and Arabic
+  // Presentation Forms-A/B.
+  const rtlRegex = /[\u0590-\u05FF\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/;
   return rtlRegex.test(text) ? "rtl" : "ltr";
 }
 
@@ -139,7 +138,7 @@ function localizedForPrefix(value) {
   if (/[֐-׿יִ-ﭏ]/.test(text)) {
     return "לְ "; // "לְ " — Hebrew "to/for" preposition
   }
-  if (/[؀-ۿݐ-ݿࢠ-ࣿﭐ-﷿ﹰ-﻿]/.test(text)) {
+  if (/[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/.test(text)) {
     return "لـ "; // "لـ " — Arabic "for" with tatweel
   }
   return "For ";

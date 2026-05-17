@@ -196,6 +196,7 @@ struct ShareTrackInfo: Codable, Sendable {
     let senderName: String?
     let durationSec: Int?
     let coverImageUrl: String?
+    let artworkUrl: String?
 
     enum CodingKeys: String, CodingKey {
         case title
@@ -203,6 +204,11 @@ struct ShareTrackInfo: Codable, Sendable {
         case senderName = "sender_name"
         case durationSec = "duration_sec"
         case coverImageUrl = "cover_image_url"
+        case artworkUrl = "artwork_url"
+    }
+
+    var nowPlayingArtworkUrl: String? {
+        artworkUrl ?? coverImageUrl
     }
 }
 

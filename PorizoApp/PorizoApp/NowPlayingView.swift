@@ -13,6 +13,7 @@ struct NowPlayingView: View {
     @State private var dragProgress: Double = 0
     @GestureState private var dragOffset: CGFloat = 0
     @State private var hapticTrigger = false
+    @State private var isFetchingArtworkForExport = false
 
     var body: some View {
         ZStack {
@@ -228,10 +229,12 @@ struct NowPlayingView: View {
             // generated before the artwork pipeline shipped, or the artwork job
             // failed and the READY barrier released the track with artwork_url=NULL).
             //
-            // Frame is locked to the artwork's native 2:3 aspect (1024×1536) and
-            // the image is .fit (not .fill) so the whole composition shows —
-            // including the bottom safe-zone where recipient + occasion + sender
-            // text live. Capping max height at 360pt keeps the lyrics area usable.
+            // Sizing: fixed 480pt height to match the design mock. The 2:3
+            // aspectRatio (matching the native 1024×1536 source) drives width so
+            // the whole composition is visible, including the bottom safe-zone
+            // (recipient + occasion + sender baked into the artwork). Using a
+            // fixed frame instead of maxHeight prevents the lyrics view from
+            // squeezing the artwork below the design target.
             ZStack {
                 if let urlString = playerState.currentTrack?.artworkUrl,
                    let url = URL(string: urlString) {
@@ -255,8 +258,25 @@ struct NowPlayingView: View {
                 }
             }
             .aspectRatio(2.0 / 3.0, contentMode: .fit)
-            .frame(maxHeight: 360)
+            .frame(height: 480)
             .clipShape(RoundedRectangle(cornerRadius: 20))
+            .contextMenu {
+                Button {
+                    Task { await presentArtworkShareSheet() }
+                } label: {
+                    Label("Use as Wallpaper", systemImage: "photo.on.rectangle.angled")
+                }
+                Button {
+                    Task { await presentArtworkShareSheet() }
+                } label: {
+                    Label("Save to Photos", systemImage: "square.and.arrow.down")
+                }
+                Button {
+                    onShare?()
+                } label: {
+                    Label("Share Song", systemImage: "square.and.arrow.up")
+                }
+            }
 
             VStack(spacing: 4) {
                 Text("For \(playerState.currentTrack?.recipientName ?? "You")")
@@ -434,7 +454,7 @@ struct NowPlayingView: View {
     // MARK: - Bottom Actions
 
     private var bottomActionsSection: some View {
-        HStack {
+        HStack(spacing: 12) {
             VStack(spacing: 4) {
                 Image(systemName: "waveform")
                     .font(.system(size: 14))
@@ -447,6 +467,33 @@ struct NowPlayingView: View {
             Spacer()
 
             Button {
+                Task { await presentArtworkShareSheet() }
+            } label: {
+                HStack(spacing: 6) {
+                    if isFetchingArtworkForExport {
+                        ProgressView()
+                            .scaleEffect(0.7)
+                            .tint(DesignTokens.gold)
+                    } else {
+                        Image(systemName: "photo.on.rectangle.angled")
+                            .font(.system(size: 14))
+                    }
+                    Text("Lockscreen")
+                        .font(DesignTokens.bodyFont(size: 14, weight: .medium))
+                }
+                .foregroundStyle(DesignTokens.gold)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 22)
+                        .stroke(DesignTokens.gold.opacity(0.5), lineWidth: 1)
+                )
+            }
+            .buttonStyle(.plain)
+            .disabled(isFetchingArtworkForExport)
+            .accessibilityHint("Save the artwork and choose Use as Wallpaper")
+
+            Button {
                 onShare?()
             } label: {
                 HStack(spacing: 6) {
@@ -456,7 +503,7 @@ struct NowPlayingView: View {
                         .font(DesignTokens.bodyFont(size: 14, weight: .medium))
                 }
                 .foregroundStyle(DesignTokens.gold)
-                .padding(.horizontal, 20)
+                .padding(.horizontal, 16)
                 .padding(.vertical, 10)
                 .overlay(
                     RoundedRectangle(cornerRadius: 22)
@@ -464,6 +511,53 @@ struct NowPlayingView: View {
                 )
             }
             .buttonStyle(.plain)
+        }
+    }
+
+    // MARK: - Lockscreen / Wallpaper Export
+    //
+    // iOS does NOT let third-party apps set the lockscreen wallpaper
+    // programmatically. The closest legitimate path is to surface the artwork
+    // in the system share sheet, which offers two single-tap options:
+    //   • "Use as Wallpaper" — iOS jumps straight into the wallpaper editor
+    //     with the artwork pre-loaded; user picks Lock Screen and crops.
+    //   • "Save Image" — drops the artwork into Photos, where the user can
+    //     long-press → Use as Wallpaper. Costs one extra hop but useful if
+    //     the user wants to keep the artwork standalone.
+    //
+    // This is the same UIActivityViewController shape used elsewhere in the
+    // app — see TrackPlayerFullView for the song-link share sheet pattern.
+    @MainActor
+    private func presentArtworkShareSheet() async {
+        guard !isFetchingArtworkForExport else { return }
+        guard let urlString = playerState.currentTrack?.artworkUrl,
+              let url = URL(string: urlString) else {
+            ToastService.shared.error("No artwork available for this song yet")
+            return
+        }
+        isFetchingArtworkForExport = true
+        defer { isFetchingArtworkForExport = false }
+        do {
+            let (data, _) = try await URLSession.shared.data(from: url)
+            guard let image = UIImage(data: data) else {
+                ToastService.shared.error("Could not load artwork")
+                return
+            }
+            let activityVC = UIActivityViewController(
+                activityItems: [image],
+                applicationActivities: nil
+            )
+            guard let windowScene = UIApplication.shared.connectedScenes
+                    .first(where: { $0.activationState == .foregroundActive }) as? UIWindowScene,
+                  let root = windowScene.windows.first?.rootViewController else {
+                return
+            }
+            var topVC = root
+            while let presented = topVC.presentedViewController { topVC = presented }
+            activityVC.popoverPresentationController?.sourceView = topVC.view
+            topVC.present(activityVC, animated: true)
+        } catch {
+            ToastService.shared.error("Could not fetch artwork")
         }
     }
 
@@ -657,7 +751,9 @@ struct NowPlayingView: View {
         updatedAt: "2025-01-01",
         coverImageUrl: nil,
         coverImageSmallUrl: nil,
-        coverImageLargeUrl: nil
+        coverImageLargeUrl: nil,
+        artworkUrl: nil,
+        artworkStyleVariant: nil
     )
     state.isPlaying = true
     state.currentTime = 23

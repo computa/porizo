@@ -1,6 +1,7 @@
 import SwiftUI
 import AVFoundation
 import Observation
+import UIKit
 
 @MainActor
 @Observable
@@ -24,6 +25,12 @@ class PlayerState {
     // Audio player (managed internally)
     @ObservationIgnored private var audioPlayer: AVAudioPlayer?
     @ObservationIgnored private var playbackTimer: Timer?
+
+    // Lockscreen / MPNowPlayingInfoCenter artwork (fetched async from the best
+    // available per-song image URL).
+    @ObservationIgnored private var artworkFetchTask: Task<Void, Never>?
+    @ObservationIgnored private var cachedArtworkUrl: String?
+    @ObservationIgnored private var cachedArtworkImage: UIImage?
 
     var progress: Double {
         guard duration > 0 else { return 0 }
@@ -76,6 +83,14 @@ class PlayerState {
                 isPlaying = true
                 startPlaybackTimer()
                 print("[PlayerState] Playback started")
+                configureRemoteCommands()
+                pushNowPlayingMetadata()
+                NowPlayingManager.shared.updatePlaybackState(
+                    isPlaying: true,
+                    elapsed: 0,
+                    duration: duration > 0 ? duration : nil
+                )
+                fetchArtworkIfNeeded()
             } else {
                 print("[PlayerState] play() returned false")
                 Task { @MainActor in
@@ -109,17 +124,33 @@ class PlayerState {
                 print("[PlayerState] Resumed")
             }
         }
+        NowPlayingManager.shared.updatePlaybackState(
+            isPlaying: isPlaying,
+            elapsed: currentTime,
+            duration: duration > 0 ? duration : nil
+        )
     }
 
     func seekTo(time: TimeInterval) {
         audioPlayer?.currentTime = time
         currentTime = time
+        NowPlayingManager.shared.updatePlaybackState(
+            isPlaying: isPlaying,
+            elapsed: time,
+            duration: duration > 0 ? duration : nil
+        )
     }
 
     func stopPlayback() {
         audioPlayer?.stop()
         audioPlayer = nil
         stopPlaybackTimer()
+
+        artworkFetchTask?.cancel()
+        artworkFetchTask = nil
+        cachedArtworkUrl = nil
+        cachedArtworkImage = nil
+        NowPlayingManager.shared.clear()
 
         currentTrack = nil
         currentVersion = nil
@@ -157,8 +188,107 @@ class PlayerState {
                     self.currentTime = 0
                     self.stopPlaybackTimer()
                 }
+
+                NowPlayingManager.shared.updatePlaybackState(
+                    isPlaying: self.isPlaying,
+                    elapsed: self.currentTime,
+                    duration: self.duration > 0 ? self.duration : nil
+                )
             }
         }
+    }
+
+    // MARK: - Now Playing (Lockscreen) Wiring
+
+    /// Push current track metadata to MPNowPlayingInfoCenter. Artwork is whatever
+    /// we have cached so far (nil until fetchArtworkIfNeeded resolves), and the
+    /// underlying updateMetadata leaves the existing artwork field intact when
+    /// metadata.artwork is nil so the placeholder push doesn't clobber a later
+    /// image push.
+    private func pushNowPlayingMetadata() {
+        guard let track = currentTrack else { return }
+        let recipient = track.recipientName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let artist: String? = recipient.isEmpty ? nil : "For \(recipient)"
+        let metadata = NowPlayingMetadata(
+            title: track.title,
+            artist: artist,
+            artwork: cachedArtworkImage,
+            artworkURL: currentNowPlayingArtworkURL()
+        )
+        NowPlayingManager.shared.updateMetadata(
+            metadata,
+            duration: duration > 0 ? duration : nil
+        )
+    }
+
+    /// Fetch the per-song artwork bitmap on a background task and re-push
+    /// MPNowPlayingInfoCenter metadata once it arrives. Cancels any in-flight
+    /// fetch from a prior track.
+    private func fetchArtworkIfNeeded() {
+        artworkFetchTask?.cancel()
+        guard let urlString = currentNowPlayingArtworkURLString(),
+              let url = URL(string: urlString) else {
+            cachedArtworkUrl = nil
+            cachedArtworkImage = nil
+            return
+        }
+        if cachedArtworkUrl == urlString, cachedArtworkImage != nil {
+            // Already loaded for this URL — just re-push to ensure it's live.
+            pushNowPlayingMetadata()
+            return
+        }
+        cachedArtworkUrl = urlString
+        cachedArtworkImage = nil
+        artworkFetchTask = Task { [weak self] in
+            do {
+                var request = URLRequest(url: url)
+                request.cachePolicy = .returnCacheDataElseLoad
+                request.timeoutInterval = 10
+                let (data, _) = try await URLSession.shared.data(for: request)
+                if Task.isCancelled { return }
+                guard let image = UIImage(data: data) else { return }
+                guard let self else { return }
+                // Drop the result if the user switched tracks while we were fetching.
+                guard self.cachedArtworkUrl == urlString else { return }
+                self.cachedArtworkImage = image
+                self.pushNowPlayingMetadata()
+            } catch {
+                // Quietly fall through — title/artist already pushed
+            }
+        }
+    }
+
+    private func currentNowPlayingArtworkURLString() -> String? {
+        currentTrack?.artworkUrl
+            ?? currentVersion?.nowPlayingArtworkUrl
+            ?? currentTrack?.nowPlayingArtworkUrl
+    }
+
+    private func currentNowPlayingArtworkURL() -> URL? {
+        currentNowPlayingArtworkURLString().flatMap(URL.init(string:))
+    }
+
+    private func configureRemoteCommands() {
+        NowPlayingManager.shared.configureRemoteCommands(
+            onPlay: { [weak self] in
+                Task { @MainActor [weak self] in
+                    guard let self, !self.isPlaying else { return }
+                    self.togglePlayback()
+                }
+            },
+            onPause: { [weak self] in
+                Task { @MainActor [weak self] in
+                    guard let self, self.isPlaying else { return }
+                    self.togglePlayback()
+                }
+            },
+            onToggle: { [weak self] in
+                Task { @MainActor [weak self] in self?.togglePlayback() }
+            },
+            onSeek: { [weak self] time in
+                Task { @MainActor [weak self] in self?.seekTo(time: time) }
+            }
+        )
     }
 
     private func stopPlaybackTimer() {
@@ -234,6 +364,11 @@ class PlayerState {
         audioPlayer?.pause()
         isPlaying = false
         stopPlaybackTimer()
+        NowPlayingManager.shared.updatePlaybackState(
+            isPlaying: false,
+            elapsed: currentTime,
+            duration: duration > 0 ? duration : nil
+        )
     }
 
     nonisolated deinit {

@@ -9,6 +9,7 @@
 
 import SwiftUI
 import AVFoundation
+import MediaPlayer
 
 /// Observable audio player service for centralized playback management
 ///
@@ -63,6 +64,7 @@ final class AudioPlayerService {
     // MARK: - Private Properties
 
     @ObservationIgnored private var player: AVPlayer?
+    @ObservationIgnored private var nowPlayingSession: MPNowPlayingSession?
     @ObservationIgnored private var timeObserverToken: Any?
     @ObservationIgnored private var endObserver: NSObjectProtocol?
     @ObservationIgnored private var statusObserver: NSKeyValueObservation?
@@ -129,7 +131,12 @@ final class AudioPlayerService {
             asset = AVURLAsset(url: audioURL)
         }
         let playerItem = AVPlayerItem(asset: asset)
-        player = AVPlayer(playerItem: playerItem)
+        let avPlayer = AVPlayer(playerItem: playerItem)
+        player = avPlayer
+        nowPlayingSession = MPNowPlayingSession(players: [avPlayer])
+        if let nowPlayingSession {
+            NowPlayingManager.shared.activateSession(nowPlayingSession)
+        }
 
         // Observe status changes
         statusObserver = playerItem.observe(\.status, options: [.new]) { [weak self] item, _ in
@@ -272,6 +279,10 @@ final class AudioPlayerService {
         // Stop and release player
         player?.pause()
         player = nil
+        if let nowPlayingSession {
+            NowPlayingManager.shared.deactivateSession(nowPlayingSession)
+        }
+        nowPlayingSession = nil
         updateNowPlayingState()
     }
 

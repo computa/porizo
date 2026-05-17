@@ -106,7 +106,9 @@ class LyricsPreviewState {
         updatedAt: "2026-01-01",
         coverImageUrl: nil,
         coverImageSmallUrl: nil,
-        coverImageLargeUrl: nil
+        coverImageLargeUrl: nil,
+        artworkUrl: nil,
+        artworkStyleVariant: nil
     )
 
     let lyrics: Lyrics = {

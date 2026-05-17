@@ -572,7 +572,9 @@ struct V1NowPlayingPreviewView: View {
         updatedAt: "2026-01-01",
         coverImageUrl: nil,
         coverImageSmallUrl: nil,
-        coverImageLargeUrl: nil
+        coverImageLargeUrl: nil,
+        artworkUrl: nil,
+        artworkStyleVariant: nil
     )
 
     private static let sampleVersion = TrackVersion(

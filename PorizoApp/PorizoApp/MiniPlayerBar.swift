@@ -130,7 +130,9 @@ struct MiniPlayerBar: View {
         updatedAt: "2025-01-01",
         coverImageUrl: nil,
         coverImageSmallUrl: nil,
-        coverImageLargeUrl: nil
+        coverImageLargeUrl: nil,
+        artworkUrl: nil,
+        artworkStyleVariant: nil
     )
     state.isPlaying = true
     state.currentTime = 15

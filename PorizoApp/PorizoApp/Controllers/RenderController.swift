@@ -69,6 +69,7 @@ struct RenderResult: Sendable {
     let coverImageUrl: String?
     let coverImageSmallUrl: String?
     let coverImageLargeUrl: String?
+    let artworkUrl: String?
 }
 
 // MARK: - Render Error Detail
@@ -757,7 +758,8 @@ final class RenderController {
             lyrics: lyrics,
             coverImageUrl: version.coverImageUrl ?? response.track.coverImageUrl,
             coverImageSmallUrl: version.coverImageSmallUrl ?? response.track.coverImageSmallUrl,
-            coverImageLargeUrl: version.coverImageLargeUrl ?? response.track.coverImageLargeUrl
+            coverImageLargeUrl: version.coverImageLargeUrl ?? response.track.coverImageLargeUrl,
+            artworkUrl: response.track.artworkUrl
         )
     }
 

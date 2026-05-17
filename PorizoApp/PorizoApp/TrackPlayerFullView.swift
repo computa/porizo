@@ -151,7 +151,7 @@ struct TrackPlayerFullView: View {
                     let track = resp.track
                         shareUrl = track.shareUrl
                         claimPin = track.claimPin
-                        if let url = track.artworkUrl {
+                        if let url = track.nowPlayingArtworkUrl {
                             artworkUrl = url
                             playbackController.artworkUrl = url
                         }
@@ -204,6 +204,11 @@ struct TrackPlayerFullView: View {
             // Update playback controller metadata
             playbackController.trackTitle = result.trackTitle
             playbackController.artistName = result.recipientName
+            // Per-song artwork drives lockscreen MPNowPlayingInfoCenter tile.
+            if let url = result.artworkUrl ?? result.coverImageLargeUrl ?? result.coverImageUrl ?? result.coverImageSmallUrl {
+                artworkUrl = url
+                playbackController.artworkUrl = url
+            }
 
             // Start playback
             playbackController.setupPlayer(url: result.audioURL)
@@ -216,6 +221,10 @@ struct TrackPlayerFullView: View {
             coverImageUrl = result.coverImageUrl
             coverImageSmallUrl = result.coverImageSmallUrl
             coverImageLargeUrl = result.coverImageLargeUrl
+            if let url = result.artworkUrl ?? result.coverImageLargeUrl ?? result.coverImageUrl ?? result.coverImageSmallUrl {
+                artworkUrl = url
+                playbackController.artworkUrl = url
+            }
 
             // Switch to full audio
             playbackController.switchAudio(url: result.audioURL)

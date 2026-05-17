@@ -249,7 +249,9 @@ private enum V1MockData {
         updatedAt: "2026-01-01",
         coverImageUrl: nil,
         coverImageSmallUrl: nil,
-        coverImageLargeUrl: nil
+        coverImageLargeUrl: nil,
+        artworkUrl: nil,
+        artworkStyleVariant: nil
     )
 
     static let version = TrackVersion(

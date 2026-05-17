@@ -306,7 +306,9 @@ extension View {
                 updatedAt: "2026-01-27T00:00:00Z",
                 coverImageUrl: nil,
                 coverImageSmallUrl: nil,
-                coverImageLargeUrl: nil
+                coverImageLargeUrl: nil,
+                artworkUrl: nil,
+                artworkStyleVariant: nil
             ),
             onPlay: { print("Play") },
             onShare: { print("Share") },

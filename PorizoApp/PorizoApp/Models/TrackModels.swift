@@ -147,6 +147,10 @@ struct Track: Codable, Sendable, Identifiable, Equatable {
     var isReceived: Bool {
         libraryOrigin == "received"
     }
+
+    var nowPlayingArtworkUrl: String? {
+        artworkUrl ?? coverImageLargeUrl ?? coverImageUrl ?? coverImageSmallUrl
+    }
 }
 
 // MARK: - Track Version
@@ -205,6 +209,12 @@ struct TrackVersion: Codable, Sendable {
         case coverImageUrl = "cover_image_url"
         case coverImageSmallUrl = "cover_image_small_url"
         case coverImageLargeUrl = "cover_image_large_url"
+    }
+}
+
+extension TrackVersion {
+    var nowPlayingArtworkUrl: String? {
+        coverImageLargeUrl ?? coverImageUrl ?? coverImageSmallUrl
     }
 }
 
