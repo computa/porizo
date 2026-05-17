@@ -1123,7 +1123,7 @@ body {
 
   .lyrics-stage {
     top: 30vh;
-    bottom: 200px;
+    bottom: 300px;
     align-items: flex-start;
   }
 
@@ -1136,7 +1136,7 @@ body {
 
   .lyrics-scroll {
     max-width: 350px;
-    padding: 38px 18px 28vh;
+    padding: 38px 18px 120px;
   }
 
   .player-chrome {
