@@ -91,6 +91,59 @@ function registerSharingRoutes(
     consumeRateLimit,
   },
 ) {
+  let sharpForImageValidation = null;
+  function getSharpForImageValidation() {
+    if (sharpForImageValidation !== null) return sharpForImageValidation;
+    try {
+      sharpForImageValidation = require("sharp");
+    } catch {
+      sharpForImageValidation = false;
+    }
+    return sharpForImageValidation;
+  }
+
+  async function isReadableImage(filePath) {
+    if (!filePath || !fs.existsSync(filePath)) return false;
+    const stat = fs.statSync(filePath);
+    if (!stat.isFile() || stat.size === 0) return false;
+
+    const sharp = getSharpForImageValidation();
+    if (!sharp) return true;
+
+    try {
+      const metadata = await sharp(filePath).metadata();
+      return Number.isFinite(metadata.width) && Number.isFinite(metadata.height);
+    } catch (err) {
+      console.warn(
+        `[share-cover] Ignoring unreadable image ${filePath}:`,
+        err.message,
+      );
+      return false;
+    }
+  }
+
+  async function writeJpegIfReadable(filePath, imageBuffer) {
+    if (!imageBuffer) return false;
+    ensureDir(path.dirname(filePath));
+    fs.writeFileSync(filePath, imageBuffer);
+    if (await isReadableImage(filePath)) return true;
+    fs.unlinkSync(filePath);
+    return false;
+  }
+
+  async function removeUnreadableFile(filePath) {
+    if (fs.existsSync(filePath) && !(await isReadableImage(filePath))) {
+      fs.unlinkSync(filePath);
+    }
+  }
+
+  async function firstReadableImagePath(paths) {
+    for (const candidatePath of paths) {
+      if (await isReadableImage(candidatePath)) return candidatePath;
+    }
+    return null;
+  }
+
   // Pick the best cover image: track-level artwork.jpg first, then legacy
   // version-level cover_1024.jpg. Returns null if neither exists (caller's
   // generator handles a null coverPath).
@@ -110,20 +163,24 @@ function registerSharingRoutes(
         trackId: track.id,
       });
       const trackArtworkPath = path.join(storageRoot, artworkKey);
-      if (fs.existsSync(trackArtworkPath)) return trackArtworkPath;
+      if (await isReadableImage(trackArtworkPath)) return trackArtworkPath;
+      if (fs.existsSync(trackArtworkPath)) fs.unlinkSync(trackArtworkPath);
       // Local miss — try S3 hydration. ensureLocalFileFromStorage no-ops
       // when storageProvider.type === 'local', so this stays cheap in dev.
       const hydrated = await ensureLocalFileFromStorage({
         key: artworkKey,
         localPath: trackArtworkPath,
       });
-      if (hydrated) return trackArtworkPath;
+      if (hydrated && (await isReadableImage(trackArtworkPath))) {
+        return trackArtworkPath;
+      }
     }
 
     if (trackVersion) {
       const versionDir = getVersionDir(track, trackVersion);
       const legacyCover = path.join(versionDir, "cover_1024.jpg");
-      if (fs.existsSync(legacyCover)) return legacyCover;
+      if (await isReadableImage(legacyCover)) return legacyCover;
+      if (fs.existsSync(legacyCover)) fs.unlinkSync(legacyCover);
       // Hydrate legacy cover from S3 too. The key is the relative version
       // path under storage root (storage-key convention used elsewhere).
       const legacyKey = path.relative(storageRoot, legacyCover);
@@ -131,7 +188,7 @@ function registerSharingRoutes(
         key: legacyKey,
         localPath: legacyCover,
       });
-      if (hydrated) return legacyCover;
+      if (hydrated && (await isReadableImage(legacyCover))) return legacyCover;
     }
 
     return null;
@@ -2336,16 +2393,14 @@ function registerSharingRoutes(
         versionDir,
         "share_artwork_1200x1200_whatsapp.jpg",
       );
+      await removeUnreadableFile(squarePath);
       if (!fs.existsSync(squarePath)) {
         const squareBuffer = await generateSongArtworkPreviewImage({
           coverPath: localCoverPath,
           width: 1200,
           height: 1200,
         });
-        if (squareBuffer) {
-          ensureDir(versionDir);
-          fs.writeFileSync(squarePath, squareBuffer);
-        }
+        await writeJpegIfReadable(squarePath, squareBuffer);
       }
       if (fs.existsSync(squarePath)) {
         await addShareAccessLog({
@@ -2365,6 +2420,7 @@ function registerSharingRoutes(
         versionDir,
         "share_og_1200x1200_whatsapp.jpg",
       );
+      await removeUnreadableFile(brandedSquarePath);
       if (!fs.existsSync(brandedSquarePath)) {
         const brandedSquareBuffer = await generateSongOgImageSquare({
           title: track.title,
@@ -2373,10 +2429,7 @@ function registerSharingRoutes(
           coverPath: localCoverPath,
           brandName: "Porizo",
         });
-        if (brandedSquareBuffer) {
-          ensureDir(versionDir);
-          fs.writeFileSync(brandedSquarePath, brandedSquareBuffer);
-        }
+        await writeJpegIfReadable(brandedSquarePath, brandedSquareBuffer);
       }
       if (fs.existsSync(brandedSquarePath)) {
         await addShareAccessLog({
@@ -2420,16 +2473,15 @@ function registerSharingRoutes(
     // Current shares should use the real generated artwork as the default
     // social card. The old branded card remains as a fallback for legacy/no-art
     // shares or if Sharp fails to process the artwork.
+    await removeUnreadableFile(localArtworkCardPath);
+    await removeUnreadableFile(localOgCardPath);
     if (localCoverPath && !fs.existsSync(localArtworkCardPath)) {
       const artworkPreviewImage = await generateSongArtworkPreviewImage({
         coverPath: localCoverPath,
         width: 1200,
         height: 630,
       });
-      if (artworkPreviewImage) {
-        ensureDir(versionDir);
-        fs.writeFileSync(localArtworkCardPath, artworkPreviewImage);
-      }
+      await writeJpegIfReadable(localArtworkCardPath, artworkPreviewImage);
     }
 
     // Cover hydration already handled by pickCoverPath above. Only the
@@ -2457,10 +2509,12 @@ function registerSharingRoutes(
       });
 
       if (generatedOgImage) {
-        ensureDir(versionDir);
-        fs.writeFileSync(localOgCardPath, generatedOgImage);
+        const wroteOgCard = await writeJpegIfReadable(
+          localOgCardPath,
+          generatedOgImage,
+        );
 
-        if (storageProvider.type !== "local") {
+        if (wroteOgCard && storageProvider.type !== "local") {
           try {
             await storageProvider.putFile({
               key: ogCardKey,
@@ -2477,54 +2531,30 @@ function registerSharingRoutes(
       }
     }
 
-    // Purge 0-byte OG cards left by previous "stream closed prematurely" bug
-    if (
-      fs.existsSync(localArtworkCardPath) &&
-      fs.statSync(localArtworkCardPath).size === 0
-    ) {
-      fs.unlinkSync(localArtworkCardPath);
-    }
-    if (
-      fs.existsSync(localOgCardPath) &&
-      fs.statSync(localOgCardPath).size === 0
-    ) {
-      fs.unlinkSync(localOgCardPath);
-    }
-    if (
-      localCoverPath &&
-      fs.existsSync(localCoverPath) &&
-      fs.statSync(localCoverPath).size === 0
-    ) {
-      fs.unlinkSync(localCoverPath);
-    }
-
-    const hasArtworkCard = fs.existsSync(localArtworkCardPath);
-    const hasOgCard = fs.existsSync(localOgCardPath);
-    const hasNativeCover = !!localCoverPath && fs.existsSync(localCoverPath);
-    const imagePath = hasArtworkCard
-      ? localArtworkCardPath
-      : hasOgCard
-      ? localOgCardPath
-      : hasNativeCover
-        ? localCoverPath
-        : fallbackPath;
-    if (!fs.existsSync(imagePath)) {
+    const imagePath = await firstReadableImagePath([
+      localArtworkCardPath,
+      localOgCardPath,
+      localCoverPath,
+      fallbackPath,
+    ]);
+    if (!imagePath) {
       sendError(reply, 404, "COVER_NOT_FOUND", "Cover image not available.");
       return;
     }
 
-    const reason = hasArtworkCard
+    const reason =
+      imagePath === localArtworkCardPath
       ? "artwork_preview_available"
-      : hasOgCard
+      : imagePath === localOgCardPath
       ? "generated_og_available"
-      : hasNativeCover
+      : imagePath === localCoverPath
         ? "cover_available"
         : "cover_missing";
 
     await addShareAccessLog({
       shareTokenId: share.id,
       eventType:
-        hasArtworkCard || hasOgCard || hasNativeCover
+        imagePath !== fallbackPath
           ? "share_cover_served"
           : "share_cover_fallback_served",
       metadata: {

@@ -236,9 +236,22 @@ describe("Share Embed Routes", () => {
       [testPoemShareId, testPoemId, testUserId, futureExpiry, now]
     );
 
-    // Seed a track cover so /share/:id/cover.jpg can prove it returns
-    // the generated social card instead of the raw 1024x1024 cover file.
+    // Seed a corrupt track-level artwork plus a valid legacy cover. Production
+    // can have bad hydrated artwork files; social sharing must fall through to
+    // the valid cover instead of returning a broken preview.
     fs.mkdirSync(testVersionDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(
+        __dirname,
+        "..",
+        "storage",
+        "tracks",
+        testUserId,
+        testTrackId,
+        "artwork.jpg"
+      ),
+      "not an image"
+    );
     const ffmpegPath = getFFmpegPath();
     execFileSync(ffmpegPath, [
       "-y",
