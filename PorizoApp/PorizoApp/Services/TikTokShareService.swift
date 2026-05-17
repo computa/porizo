@@ -55,7 +55,7 @@ final class TikTokShareService {
         TikTokURLHandler.handleOpenURL(url)
     }
 
-    func shareCardImage(_ image: UIImage, shareURL: URL) async -> TikTokShareLaunchResult {
+    func shareCardImage(_ image: UIImage, shareURL: URL, message: String? = nil) async -> TikTokShareLaunchResult {
         do {
             guard let clientKey = AppConfig.tikTokClientKey, !clientKey.isEmpty else {
                 throw ShareError.missingClientKey
@@ -81,9 +81,10 @@ final class TikTokShareService {
                 )
             }
 
-            // TikTok Share Kit cannot prefill clickable link metadata.
-            // Copy link so the sender can paste it in caption/comment if needed.
-            UIPasteboard.general.string = shareURL.absoluteString
+            // TikTok Share Kit cannot prefill captions or clickable link
+            // metadata. Copy the full share message, not only the URL, so the
+            // recipient still gets the access PIN when the sender pastes.
+            UIPasteboard.general.string = message ?? shareURL.absoluteString
 
             let requestID = request.requestID
             inFlightRequests[requestID] = request
@@ -101,7 +102,7 @@ final class TikTokShareService {
                 throw ShareError.requestRejected
             }
 
-            ToastService.shared.info("TikTok opened. Link copied to clipboard.")
+            ToastService.shared.info("TikTok opened. Share message copied.")
             return .launched
         } catch {
             return .fallback(reason: error.localizedDescription)

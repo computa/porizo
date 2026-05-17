@@ -200,6 +200,56 @@ final class ShareControllerTests: XCTestCase {
                      "prepareShareData should return nil when no share exists")
     }
 
+    // MARK: - Song Share Payload Contract
+
+    func testSongShareMessage_containsUrlAndPin() {
+        let message = SongSharePayloadBuilder.message(
+            shareURL: "https://porizo.app/play/sh_123",
+            claimPin: "246810",
+            recipientName: "Chioma",
+            occasion: "mothers_day"
+        )
+
+        XCTAssertTrue(message.contains("https://porizo.app/play/sh_123"))
+        XCTAssertTrue(message.contains("PIN: 246810"))
+        XCTAssertTrue(message.contains("Chioma"))
+        XCTAssertTrue(message.lowercased().contains("mother"))
+    }
+
+    func testNativeShareURLs_preserveFullMessageAsSingleTextValue() throws {
+        let body = SongSharePayloadBuilder.message(
+            shareURL: "https://porizo.app/play/sh_123?gift=1&recipient=Chioma",
+            claimPin: "246810",
+            recipientName: "Chioma",
+            occasion: "birthday"
+        )
+
+        let whatsapp = SongSharePayloadBuilder.nativeURL(for: .whatsapp, body: body)
+        let whatsappText = URLComponents(
+            url: try XCTUnwrap(whatsapp),
+            resolvingAgainstBaseURL: false
+        )?.queryItems?.first(where: { $0.name == "text" })?.value
+        XCTAssertEqual(whatsappText, body)
+
+        let x = SongSharePayloadBuilder.nativeURL(for: .x, body: body)
+        let xText = URLComponents(
+            url: try XCTUnwrap(x),
+            resolvingAgainstBaseURL: false
+        )?.queryItems?.first(where: { $0.name == "message" })?.value
+        XCTAssertEqual(xText, body)
+
+        let messages = try XCTUnwrap(SongSharePayloadBuilder.nativeURL(for: .messages, body: body))
+        XCTAssertTrue(messages.absoluteString.hasPrefix("sms:&body="))
+        XCTAssertFalse(
+            messages.absoluteString.contains("&recipient=Chioma"),
+            "Nested ampersands from the share URL must be encoded inside the SMS body value"
+        )
+        XCTAssertTrue(messages.absoluteString.removingPercentEncoding?.contains("PIN: 246810") == true)
+        XCTAssertTrue(
+            messages.absoluteString.removingPercentEncoding?.contains("https://porizo.app/play/sh_123?gift=1&recipient=Chioma") == true
+        )
+    }
+
     #if DEBUG
     @MainActor
     func testSeedDebugShare_marksShareAsReady() {

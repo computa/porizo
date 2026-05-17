@@ -541,6 +541,7 @@ struct V1NowPlayingPreviewView: View {
 
     var body: some View {
         NowPlayingView(
+            apiClient: APIClient(baseURL: AppConfig.apiBaseURL),
             playerState: playerState,
             onDismiss: {},
             onPlayPause: {},

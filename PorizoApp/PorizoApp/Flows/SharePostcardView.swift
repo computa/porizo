@@ -3,9 +3,9 @@
 //  PorizoApp
 //
 //  Share screen with the per-song artwork as the hero and a 6-tile grid
-//  of platform targets. The image travels with every share — the artwork
-//  attaches as a UIImage in the activity payload so iMessage, WhatsApp,
-//  Instagram Stories, TikTok, etc. all carry the same paper-art card.
+//  of platform targets. The share URL + PIN are the hard contract for every
+//  target; artwork is secondary and only travels on paths that cannot silently
+//  drop that text payload.
 //
 
 import SwiftUI
@@ -336,13 +336,11 @@ struct SharePostcardView: View {
     // MARK: - Target Routing
 
     private func handleTargetTap(_ target: ShareTarget) {
-        guard let urlString = shareURL, let url = URL(string: urlString) else {
-            // No share URL yet — fall back to the universal sheet so the user
-            // gets the same surface as the "Share via…" CTA.
-            presentActivitySheet()
+        guard let (url, pin) = resolvedAccessPayload() else {
+            onSend()
             return
         }
-        let body = shareBodyText(url: url)
+        let body = shareBodyText(url: url, claimPIN: pin)
 
         // Each tile is self-contained. We deliberately do NOT call onSend() —
         // that callback fires the parent (MySongsView / TrackPlayerFullView)
@@ -351,66 +349,67 @@ struct SharePostcardView: View {
 
         switch target {
         case .messages:
-            // iMessage gets a dedicated path: try sms:&body= first so iOS
-            // opens straight into the compose sheet with the text + URL.
-            // Falls back to the universal share sheet (which also includes
-            // Messages as a top option and attaches the image natively).
-            openOrFallback("sms:&body=\(percentEncode(body))")
+            openOrFallback(
+                SongSharePayloadBuilder.nativeURL(for: .messages, body: body),
+                textFallback: body
+            )
         case .whatsapp:
-            openOrFallback("whatsapp://send?text=\(percentEncode(body))")
+            openOrFallback(
+                SongSharePayloadBuilder.nativeURL(for: .whatsapp, body: body),
+                textFallback: body
+            )
         case .instagram:
-            shareToInstagramStories()
+            shareToInstagram(body: body)
         case .tiktok:
-            shareToTikTok(url: url)
+            shareToTikTok(url: url, body: body)
         case .twitter:
             openOrFallback(
-                "twitter://post?message=\(percentEncode(body))",
-                webFallback:
-                    "https://twitter.com/intent/tweet?text=\(percentEncode(body))"
+                SongSharePayloadBuilder.nativeURL(for: .x, body: body),
+                textFallback: body,
+                webFallback: SongSharePayloadBuilder.webURL(for: .x, body: body)
             )
         case .copyLink:
-            UIPasteboard.general.string = url.absoluteString
-            let toast = claimPIN.map { "Link copied · PIN \($0)" } ?? "Link copied"
+            UIPasteboard.general.string = body
+            let toast = "Share message copied · PIN \(pin)"
             ToastService.shared.success(toast)
-            onCopyLink()
         }
     }
 
     /// Try the native app URL scheme; if the user doesn't have the app
     /// installed (or iOS reports `success=false` from the async open),
-    /// fall back to the universal share sheet so the user still has a way
-    /// to send it — with the image attached.
-    private func openOrFallback(_ scheme: String, webFallback: String? = nil) {
-        guard let url = URL(string: scheme) else {
-            presentActivitySheet()
+    /// fall back to a text-only share sheet so URL + PIN still travel together.
+    private func openOrFallback(_ url: URL?, textFallback body: String, webFallback: URL? = nil) {
+        guard let url else {
+            presentTextActivitySheet(body)
             return
         }
         UIApplication.shared.open(url, options: [:]) { success in
             guard !success else { return }
             Task { @MainActor in
-                if let webFallback,
-                   let web = URL(string: webFallback),
+                if let web = webFallback,
                    UIApplication.shared.canOpenURL(web) {
                     UIApplication.shared.open(web)
                 } else {
-                    self.presentActivitySheet()
+                    self.presentTextActivitySheet(body)
                 }
             }
         }
     }
 
-    /// Universal "Share via…" — opens UIActivityViewController with the image,
-    /// text, and URL all in the payload. iOS routes to whichever app the user picks.
+    /// Universal "Share via…" path. Keep this as a single text item so iOS
+    /// share extensions and contact suggestions cannot pick the image and drop
+    /// the URL/PIN. The URL inside the text still renders as a rich preview in
+    /// apps that support it.
     private func presentActivitySheet() {
-        var items: [Any] = []
-        if let image = artworkImage { items.append(image) }
-        if let urlString = shareURL, let url = URL(string: urlString) {
-            items.append(shareBodyText(url: url))
-            items.append(url)
+        guard let (url, pin) = resolvedAccessPayload() else {
+            onSend()
+            return
         }
-        guard !items.isEmpty else { return }
+        presentTextActivitySheet(shareBodyText(url: url, claimPIN: pin))
+    }
 
-        let activityVC = UIActivityViewController(activityItems: items, applicationActivities: nil)
+    private func presentTextActivitySheet(_ body: String) {
+        let activityVC = UIActivityViewController(activityItems: [body], applicationActivities: nil)
         activityVC.completionWithItemsHandler = { _, completed, _, _ in
             guard completed else { return }
             Task { @MainActor in ReviewManager.shared.recordSuccessfulShare() }
@@ -418,37 +417,36 @@ struct SharePostcardView: View {
         presentFromTopViewController(activityVC)
     }
 
-    private func shareToInstagramStories() {
-        guard let image = artworkImage else {
-            presentActivitySheet()
-            return
-        }
+    private func shareToInstagram(body: String) {
+        UIPasteboard.general.string = body
         guard let igURL = URL(string: "instagram://"),
               UIApplication.shared.canOpenURL(igURL) else {
-            presentActivitySheet()
+            presentTextActivitySheet(body)
             return
         }
-        // Best-effort: copy the image to the pasteboard so the user can paste
-        // it into a new Story, then open Instagram.
-        UIPasteboard.general.image = image
         UIApplication.shared.open(igURL) { success in
             Task { @MainActor in
                 if success {
-                    ToastService.shared.show("Image copied — open a new Story and paste", type: .info)
+                    ToastService.shared.show("Share message copied — paste it into Instagram", type: .info)
                 } else {
-                    self.presentActivitySheet()
+                    self.presentTextActivitySheet(body)
                 }
             }
         }
     }
 
-    private func shareToTikTok(url: URL) {
+    private func shareToTikTok(url: URL, body: String) {
         guard let image = artworkImage else {
-            presentActivitySheet()
+            UIPasteboard.general.string = body
+            presentTextActivitySheet(body)
             return
         }
         Task { @MainActor in
-            let result = await TikTokShareService.shared.shareCardImage(image, shareURL: url)
+            let result = await TikTokShareService.shared.shareCardImage(
+                image,
+                shareURL: url,
+                message: body
+            )
             switch result {
             case .launched:
                 break
@@ -456,15 +454,23 @@ struct SharePostcardView: View {
                 #if DEBUG
                 print("[SharePostcardView] TikTok fallback: \(reason)")
                 #endif
-                presentActivitySheet()
+                presentTextActivitySheet(body)
             }
         }
     }
 
-    private func shareBodyText(url: URL) -> String {
-        ShareMessageContent.activityMessage(
+    private func resolvedAccessPayload() -> (url: URL, pin: String)? {
+        guard let urlString = shareURL,
+              let url = URL(string: urlString) else { return nil }
+        let pin = claimPIN?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !pin.isEmpty else { return nil }
+        return (url, pin)
+    }
+
+    private func shareBodyText(url: URL, claimPIN: String) -> String {
+        SongSharePayloadBuilder.message(
             shareURL: url.absoluteString,
-            claimPin: claimPIN ?? "",
+            claimPin: claimPIN,
             recipientName: recipientName,
             occasion: occasion
         )
@@ -476,10 +482,6 @@ struct SharePostcardView: View {
         guard UIApplication.shared.canOpenURL(url) else { return false }
         UIApplication.shared.open(url)
         return true
-    }
-
-    private func percentEncode(_ s: String) -> String {
-        s.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? s
     }
 
     private func presentFromTopViewController(_ vc: UIViewController) {
@@ -504,7 +506,7 @@ private enum ShareTarget {
         case .instagram: return "Instagram"
         case .tiktok: return "TikTok"
         case .twitter: return "X"
-        case .copyLink: return "Copy Link"
+        case .copyLink: return "Copy Text"
         }
     }
 

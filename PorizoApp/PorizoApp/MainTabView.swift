@@ -229,18 +229,11 @@ struct MainTabView: View {
         }
         .fullScreenCover(isPresented: $showNowPlaying) {
             NowPlayingView(
+                apiClient: apiClient,
                 playerState: playerState,
                 onDismiss: { showNowPlaying = false },
                 onPlayPause: { playerState.togglePlayback() },
-                onSeek: { time in playerState.seekTo(time: time) },
-                onShare: {
-                    guard let track = playerState.currentTrack else { return }
-                    let text = "Listen to \"\(track.title)\" on Porizo\nhttps://apps.apple.com/app/porizo/id6741440378"
-                    let activityVC = UIActivityViewController(activityItems: [text], applicationActivities: nil)
-                    guard let scene = UIApplication.shared.connectedScenes.first(where: { $0.activationState == .foregroundActive }) as? UIWindowScene,
-                          let rootVC = scene.windows.first?.rootViewController else { return }
-                    rootVC.present(activityVC, animated: true)
-                }
+                onSeek: { time in playerState.seekTo(time: time) }
             )
         }
         // Paywall sheet removed — entitlement check is inside WarmCanvasFlowView

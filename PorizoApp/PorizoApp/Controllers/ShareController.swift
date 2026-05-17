@@ -450,3 +450,69 @@ struct ShareMessageContent: Sendable {
             .lowercased()
     }
 }
+
+// MARK: - Share Payload Routing
+
+/// Canonical routing helpers for song-share text payloads.
+///
+/// The share URL and PIN are the product contract: without both, the recipient
+/// may not be able to open the gift. Keep target-specific share paths centered
+/// on this single text body; artwork can be attached only on paths that do not
+/// risk dropping the text.
+enum SongShareTextDestination {
+    case messages
+    case whatsapp
+    case x
+}
+
+enum SongSharePayloadBuilder {
+    static func message(
+        shareURL: String,
+        claimPin: String,
+        recipientName: String? = nil,
+        occasion: String? = nil
+    ) -> String {
+        ShareMessageContent.activityMessage(
+            shareURL: shareURL,
+            claimPin: claimPin,
+            recipientName: recipientName,
+            occasion: occasion
+        )
+    }
+
+    static func nativeURL(for destination: SongShareTextDestination, body: String) -> URL? {
+        switch destination {
+        case .messages:
+            return URL(string: "sms:&body=\(queryValueEncode(body))")
+        case .whatsapp:
+            var components = URLComponents()
+            components.scheme = "whatsapp"
+            components.host = "send"
+            components.queryItems = [URLQueryItem(name: "text", value: body)]
+            return components.url
+        case .x:
+            var components = URLComponents()
+            components.scheme = "twitter"
+            components.host = "post"
+            components.queryItems = [URLQueryItem(name: "message", value: body)]
+            return components.url
+        }
+    }
+
+    static func webURL(for destination: SongShareTextDestination, body: String) -> URL? {
+        switch destination {
+        case .x:
+            var components = URLComponents(string: "https://twitter.com/intent/tweet")
+            components?.queryItems = [URLQueryItem(name: "text", value: body)]
+            return components?.url
+        case .messages, .whatsapp:
+            return nil
+        }
+    }
+
+    static func queryValueEncode(_ value: String) -> String {
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "&+=?")
+        return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
+    }
+}

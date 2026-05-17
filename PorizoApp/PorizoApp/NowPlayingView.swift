@@ -1,11 +1,11 @@
 import SwiftUI
 
 struct NowPlayingView: View {
+    let apiClient: APIClient
     var playerState: PlayerState
     let onDismiss: () -> Void
     let onPlayPause: () -> Void
     let onSeek: (TimeInterval) -> Void
-    var onShare: (() -> Void)?
 
     @Environment(StyleStore.self) private var styleStore
     @AppStorage("lyricsStyle") private var lyricsStyle: LyricsDesignStyle = .karaokeSweep
@@ -15,10 +15,22 @@ struct NowPlayingView: View {
     @State private var hapticTrigger = false
     @State private var isFetchingArtworkForExport = false
 
+    // Share-postcard state. Loaded on-demand via getTrack so the songs-list
+    // path gets the same per-song share URL + PIN + artwork-traveling payload
+    // as the create-flow path uses through TrackPlayerFullView.
+    @State private var showingShareSheet = false
+    @State private var cachedShareUrl: String? = nil
+    @State private var cachedClaimPin: String? = nil
+    @State private var isLoadingShareData = false
+
     var body: some View {
         ZStack {
-            // Warm canvas background
-            DesignTokens.background.ignoresSafeArea()
+            // Layered backdrop: blurred per-song artwork tinted with warm canvas
+            // so the song's color bleeds through the screen (the in-app version
+            // of the lockscreen ambient experience Apple Music gets via private
+            // APIs we can't access). Falls back to flat warm canvas if no
+            // artwork URL yet.
+            artworkBackdrop
 
             VStack(spacing: 0) {
                 // Drag handle
@@ -69,6 +81,94 @@ struct NowPlayingView: View {
         .offset(y: dragOffset * 0.5)
         .animation(.interactiveSpring(), value: dragOffset)
         .sensoryFeedback(.impact(weight: .medium), trigger: hapticTrigger)
+        .sheet(isPresented: $showingShareSheet) {
+            SharePostcardView(
+                recipientName: playerState.currentTrack?.recipientName ?? "Friend",
+                occasion: playerState.currentTrack?.occasion,
+                shareURL: cachedShareUrl,
+                claimPIN: cachedClaimPin,
+                artworkURL: playerState.currentTrack?.artworkUrl,
+                onSend: {},
+                onSaveToPhotos: {},
+                onCopyLink: {
+                    if let url = cachedShareUrl {
+                        UIPasteboard.general.string = url
+                        ToastService.shared.success("Link copied!")
+                    }
+                },
+                onSkip: { showingShareSheet = false }
+            )
+        }
+    }
+
+    // MARK: - Share Sheet Wiring
+
+    @MainActor
+    private func openShareSheet() async {
+        guard !isLoadingShareData else { return }
+        guard let trackId = playerState.currentTrack?.id else { return }
+        // If we already have the share data cached for this track, just show.
+        if cachedShareUrl != nil {
+            showingShareSheet = true
+            return
+        }
+        isLoadingShareData = true
+        defer { isLoadingShareData = false }
+        do {
+            let resp = try await apiClient.getTrack(trackId: trackId)
+            if let shareUrl = resp.track.shareUrl,
+               let claimPin = resp.track.claimPin,
+               !claimPin.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                cachedShareUrl = shareUrl
+                cachedClaimPin = claimPin
+            } else {
+                let response = try await apiClient.createShare(
+                    trackId: trackId,
+                    versionNum: resp.track.latestVersion
+                )
+                cachedShareUrl = response.shareUrl
+                cachedClaimPin = response.claimPin
+            }
+            showingShareSheet = true
+        } catch {
+            ToastService.shared.error("Could not load share data")
+        }
+    }
+
+    // MARK: - Artwork Backdrop
+
+    private var artworkBackdrop: some View {
+        ZStack {
+            DesignTokens.background
+
+            if let urlString = playerState.currentTrack?.artworkUrl,
+               let url = URL(string: urlString) {
+                AsyncImage(url: url) { phase in
+                    if case .success(let image) = phase {
+                        image
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                            .scaleEffect(1.25)
+                            .blur(radius: 80)
+                            .transition(.opacity.animation(.easeOut(duration: 0.4)))
+                    }
+                }
+                .clipped()
+                // Warm wash on top so text contrast stays readable and the
+                // overall palette stays in the Warm Canvas family even when
+                // the artwork is dark or high-saturation.
+                LinearGradient(
+                    colors: [
+                        DesignTokens.background.opacity(0.55),
+                        DesignTokens.background.opacity(0.30),
+                        DesignTokens.background.opacity(0.65),
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            }
+        }
+        .ignoresSafeArea()
     }
 
     // MARK: - Selected Lyrics View
@@ -264,15 +364,10 @@ struct NowPlayingView: View {
                 Button {
                     Task { await presentArtworkShareSheet() }
                 } label: {
-                    Label("Use as Wallpaper", systemImage: "photo.on.rectangle.angled")
+                    Label("Save Artwork…", systemImage: "photo.on.rectangle.angled")
                 }
                 Button {
-                    Task { await presentArtworkShareSheet() }
-                } label: {
-                    Label("Save to Photos", systemImage: "square.and.arrow.down")
-                }
-                Button {
-                    onShare?()
+                    Task { await openShareSheet() }
                 } label: {
                     Label("Share Song", systemImage: "square.and.arrow.up")
                 }
@@ -494,11 +589,17 @@ struct NowPlayingView: View {
             .accessibilityHint("Save the artwork and choose Use as Wallpaper")
 
             Button {
-                onShare?()
+                Task { await openShareSheet() }
             } label: {
                 HStack(spacing: 6) {
-                    Image(systemName: "square.and.arrow.up")
-                        .font(.system(size: 14))
+                    if isLoadingShareData {
+                        ProgressView()
+                            .scaleEffect(0.7)
+                            .tint(DesignTokens.gold)
+                    } else {
+                        Image(systemName: "square.and.arrow.up")
+                            .font(.system(size: 14))
+                    }
                     Text("Share")
                         .font(DesignTokens.bodyFont(size: 14, weight: .medium))
                 }
@@ -511,6 +612,7 @@ struct NowPlayingView: View {
                 )
             }
             .buttonStyle(.plain)
+            .disabled(isLoadingShareData)
         }
     }
 
@@ -779,6 +881,7 @@ struct NowPlayingView: View {
     )
 
     return NowPlayingView(
+        apiClient: APIClient(baseURL: AppConfig.apiBaseURL),
         playerState: state,
         onDismiss: { },
         onPlayPause: { },

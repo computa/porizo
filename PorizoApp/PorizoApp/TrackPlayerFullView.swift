@@ -111,29 +111,7 @@ struct TrackPlayerFullView: View {
                 claimPIN: claimPin,
                 artworkURL: artworkUrl,
                 onSend: {
-                    guard let urlString = shareUrl,
-                          let claimPin,
-                          !claimPin.isEmpty else { return }
-                    let message = ShareMessageContent.activityMessage(
-                        shareURL: urlString,
-                        claimPin: claimPin,
-                        recipientName: recipientName,
-                        occasion: occasion
-                    )
-                    let activityVC = UIActivityViewController(activityItems: [message], applicationActivities: nil)
-                    activityVC.completionWithItemsHandler = { _, completed, _, _ in
-                        guard completed else { return }
-                        Task { @MainActor in
-                            ReviewManager.shared.recordSuccessfulShare()
-                        }
-                    }
-                    if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-                       let root = windowScene.windows.first?.rootViewController {
-                        var topVC = root
-                        while let presented = topVC.presentedViewController { topVC = presented }
-                        activityVC.popoverPresentationController?.sourceView = topVC.view
-                        topVC.present(activityVC, animated: true)
-                    }
+                    Task { @MainActor in await ensureShareAndPresentTextSheet() }
                 },
                 onSaveToPhotos: {},
                 onCopyLink: {
@@ -170,6 +148,52 @@ struct TrackPlayerFullView: View {
         }
     }
 
+    // MARK: - Share Presentation
+
+    @MainActor
+    private func ensureShareAndPresentTextSheet() async {
+        if let urlString = shareUrl,
+           let pin = claimPin?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !pin.isEmpty {
+            presentShareTextSheet(urlString: urlString, claimPin: pin)
+            return
+        }
+
+        ToastService.shared.show("Creating share link...", type: .info)
+        do {
+            let response = try await apiClient.createShare(trackId: trackId, versionNum: versionNum)
+            shareUrl = response.shareUrl
+            claimPin = response.claimPin
+            presentShareTextSheet(urlString: response.shareUrl, claimPin: response.claimPin)
+        } catch {
+            ToastService.shared.show("Could not create share link. Try again.", type: .error)
+        }
+    }
+
+    @MainActor
+    private func presentShareTextSheet(urlString: String, claimPin: String) {
+        let message = SongSharePayloadBuilder.message(
+            shareURL: urlString,
+            claimPin: claimPin,
+            recipientName: recipientName,
+            occasion: occasion
+        )
+        let activityVC = UIActivityViewController(activityItems: [message], applicationActivities: nil)
+        activityVC.completionWithItemsHandler = { _, completed, _, _ in
+            guard completed else { return }
+            Task { @MainActor in
+                ReviewManager.shared.recordSuccessfulShare()
+            }
+        }
+        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+           let root = windowScene.windows.first?.rootViewController {
+            var topVC = root
+            while let presented = topVC.presentedViewController { topVC = presented }
+            activityVC.popoverPresentationController?.sourceView = topVC.view
+            topVC.present(activityVC, animated: true)
+        }
+    }
+
     // MARK: - Controller Wiring
 
     private func wireControllerCallbacks() {
@@ -201,16 +225,10 @@ struct TrackPlayerFullView: View {
             coverImageLargeUrl = result.coverImageLargeUrl
             previewUrl = result.audioURL
 
-            // Update playback controller metadata
             playbackController.trackTitle = result.trackTitle
             playbackController.artistName = result.recipientName
-            // Per-song artwork drives lockscreen MPNowPlayingInfoCenter tile.
-            if let url = result.artworkUrl ?? result.coverImageLargeUrl ?? result.coverImageUrl ?? result.coverImageSmallUrl {
-                artworkUrl = url
-                playbackController.artworkUrl = url
-            }
+            applyArtwork(from: result)
 
-            // Start playback
             playbackController.setupPlayer(url: result.audioURL)
         }
 
@@ -221,14 +239,19 @@ struct TrackPlayerFullView: View {
             coverImageUrl = result.coverImageUrl
             coverImageSmallUrl = result.coverImageSmallUrl
             coverImageLargeUrl = result.coverImageLargeUrl
-            if let url = result.artworkUrl ?? result.coverImageLargeUrl ?? result.coverImageUrl ?? result.coverImageSmallUrl {
-                artworkUrl = url
-                playbackController.artworkUrl = url
-            }
+            applyArtwork(from: result)
 
-            // Switch to full audio
             playbackController.switchAudio(url: result.audioURL)
         }
+    }
+
+    private func applyArtwork(from result: RenderResult) {
+        guard let url = result.artworkUrl
+            ?? result.coverImageLargeUrl
+            ?? result.coverImageUrl
+            ?? result.coverImageSmallUrl else { return }
+        artworkUrl = url
+        playbackController.artworkUrl = url
     }
 
     // MARK: - Player Content (v1.pen "19 - Now Playing")
