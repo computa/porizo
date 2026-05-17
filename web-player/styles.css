@@ -490,7 +490,7 @@ body {
   font-weight: 600;
   letter-spacing: 0.15em;
   text-transform: uppercase;
-  color: rgba(212, 180, 140, 0.35);
+  color: rgba(230, 205, 170, 0.56);
   text-align: center;
   padding: 24px 0 10px;
   transition: color 0.8s cubic-bezier(0.25, 0.1, 0.25, 1), opacity 0.8s ease;
@@ -498,7 +498,7 @@ body {
 }
 
 .lyrics-section-label.active-section {
-  color: rgba(224, 184, 138, 0.7);
+  color: rgba(240, 205, 160, 0.82);
   opacity: 1;
 }
 
@@ -510,11 +510,11 @@ body {
   line-height: 1.75;
   text-align: center;
   padding: 7px 18px;
-  color: rgba(238, 222, 200, 0.54);
+  color: rgba(246, 228, 205, 0.70);
   transform: scale(0.97) translateY(0);
   text-shadow:
-    0 2px 3px rgba(0, 0, 0, 0.76),
-    0 0 22px rgba(0, 0, 0, 0.68);
+    0 2px 4px rgba(0, 0, 0, 0.84),
+    0 0 28px rgba(0, 0, 0, 0.76);
   filter: blur(0px);
   /* Staggered transitions: color leads, scale follows, glow trails */
   transition:
@@ -528,7 +528,7 @@ body {
 
 /* Upcoming line near the active — warm proximity glow */
 .lyric-line.near {
-  color: rgba(255, 238, 216, 0.78);
+  color: rgba(255, 240, 220, 0.88);
   transform: scale(0.99);
 }
 
@@ -544,7 +544,7 @@ body {
 
 /* Sung line — warm fade, not cold grey */
 .lyric-line.sung {
-  color: rgba(230, 205, 175, 0.48);
+  color: rgba(238, 212, 180, 0.62);
   transform: scale(0.97);
   transition:
     color 1.2s cubic-bezier(0.25, 0.1, 0.25, 1),
