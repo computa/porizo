@@ -294,7 +294,7 @@ body {
 }
 
 #player.has-player-artwork .player-bg {
-  opacity: 0.32;
+  opacity: 0.08;
 }
 
 #player.has-player-artwork .player-artwork-backdrop {
@@ -306,8 +306,8 @@ body {
   height: 100%;
   object-fit: cover;
   object-position: center;
-  transform: scale(1.03);
-  filter: saturate(0.95) brightness(0.58) contrast(0.96);
+  transform: scale(1.015);
+  filter: saturate(1.06) brightness(0.84) contrast(1.02);
 }
 
 .player-artwork-backdrop::before,
@@ -320,14 +320,14 @@ body {
 
 .player-artwork-backdrop::before {
   background:
-    radial-gradient(ellipse 72% 50% at 50% 35%, rgba(0, 0, 0, 0.20) 0%, rgba(0, 0, 0, 0.56) 72%, rgba(0, 0, 0, 0.78) 100%),
-    linear-gradient(to bottom, rgba(10, 8, 5, 0.36) 0%, rgba(10, 8, 5, 0.12) 32%, rgba(10, 8, 5, 0.44) 72%, rgba(10, 8, 5, 0.92) 100%);
+    linear-gradient(to bottom, rgba(8, 6, 4, 0.18) 0%, rgba(8, 6, 4, 0.04) 28%, rgba(8, 6, 4, 0.34) 68%, rgba(8, 6, 4, 0.86) 100%),
+    radial-gradient(ellipse 72% 46% at 50% 48%, rgba(0, 0, 0, 0.10) 0%, rgba(0, 0, 0, 0.36) 80%, rgba(0, 0, 0, 0.62) 100%);
 }
 
 .player-artwork-backdrop::after {
   background:
-    linear-gradient(90deg, rgba(10, 8, 5, 0.42) 0%, transparent 20%, transparent 80%, rgba(10, 8, 5, 0.42) 100%),
-    radial-gradient(ellipse 55% 44% at 50% 50%, transparent 0%, rgba(16, 10, 6, 0.26) 100%);
+    linear-gradient(90deg, rgba(10, 8, 5, 0.18) 0%, transparent 18%, transparent 82%, rgba(10, 8, 5, 0.18) 100%),
+    radial-gradient(ellipse 48% 34% at 50% 52%, rgba(10, 7, 4, 0.42) 0%, rgba(10, 7, 4, 0.22) 48%, transparent 74%);
 }
 
 .bg-grain {
@@ -423,16 +423,36 @@ body {
   position: absolute;
   inset: 0;
   bottom: 220px;
-  z-index: 3;
+  z-index: 4;
   display: flex;
   align-items: center;
   justify-content: center;
   overflow: hidden;
+  isolation: isolate;
+}
+
+.lyrics-stage::before {
+  content: "";
+  position: absolute;
+  top: 12vh;
+  left: 50%;
+  width: min(760px, calc(100vw - 32px));
+  height: min(50vh, 460px);
+  transform: translateX(-50%);
+  border-radius: 28px;
+  background:
+    radial-gradient(ellipse 60% 48% at 50% 50%, rgba(8, 6, 4, 0.62) 0%, rgba(8, 6, 4, 0.46) 48%, transparent 76%),
+    linear-gradient(90deg, transparent 0%, rgba(8, 6, 4, 0.32) 18%, rgba(8, 6, 4, 0.32) 82%, transparent 100%);
+  filter: blur(10px);
+  pointer-events: none;
+  z-index: 0;
 }
 
 .lyrics-scroll {
+  position: relative;
+  z-index: 1;
   width: 100%;
-  max-width: 480px;
+  max-width: 620px;
   height: 100%;
   overflow-y: auto;
   scroll-behavior: smooth;
@@ -485,14 +505,16 @@ body {
 /* Individual lyric line — staggered multi-property transitions */
 .lyric-line {
   font-family: 'Crimson Pro', Georgia, 'Times New Roman', serif;
-  font-size: 22px;
-  font-weight: 400;
+  font-size: 24px;
+  font-weight: 500;
   line-height: 1.75;
   text-align: center;
-  padding: 6px 16px;
-  color: rgba(230, 210, 185, 0.35);
+  padding: 7px 18px;
+  color: rgba(238, 222, 200, 0.54);
   transform: scale(0.97) translateY(0);
-  text-shadow: 0 2px 14px rgba(0, 0, 0, 0.45);
+  text-shadow:
+    0 2px 3px rgba(0, 0, 0, 0.76),
+    0 0 22px rgba(0, 0, 0, 0.68);
   filter: blur(0px);
   /* Staggered transitions: color leads, scale follows, glow trails */
   transition:
@@ -506,7 +528,7 @@ body {
 
 /* Upcoming line near the active — warm proximity glow */
 .lyric-line.near {
-  color: rgba(246, 228, 205, 0.64);
+  color: rgba(255, 238, 216, 0.78);
   transform: scale(0.99);
 }
 
@@ -515,14 +537,14 @@ body {
   color: #fff8f0;
   transform: scale(1.05);
   text-shadow:
-    0 0 24px rgba(212, 175, 120, 0.35),
-    0 0 60px rgba(180, 140, 80, 0.12),
-    0 1px 2px rgba(0, 0, 0, 0.25);
+    0 2px 4px rgba(0, 0, 0, 0.86),
+    0 0 24px rgba(0, 0, 0, 0.72),
+    0 0 28px rgba(212, 175, 120, 0.28);
 }
 
 /* Sung line — warm fade, not cold grey */
 .lyric-line.sung {
-  color: rgba(220, 195, 165, 0.40);
+  color: rgba(230, 205, 175, 0.48);
   transform: scale(0.97);
   transition:
     color 1.2s cubic-bezier(0.25, 0.1, 0.25, 1),
