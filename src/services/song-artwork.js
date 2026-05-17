@@ -15,6 +15,11 @@ const { compositeArtworkWithText } = require("./cover-generator");
 const { trackArtworkKey } = require("../storage");
 
 const PAID_TIERS = new Set(["plus", "pro"]);
+const GENERATED_IMAGE_WIDTH = 1024;
+const GENERATED_IMAGE_HEIGHT = 1536;
+const MIN_PROVIDER_IMAGE_BYTES = 1024;
+const MIN_PROVIDER_IMAGE_WIDTH = 640;
+const MIN_PROVIDER_IMAGE_HEIGHT = 960;
 
 // Order is load-bearing — pickStyleVariant indexes n % STYLE_LIST.length.
 // Reordering or inserting would re-bucket every existing track. Append-only.
@@ -45,6 +50,51 @@ function computeContentHash({ recipientName, occasion, style }) {
   return crypto.createHash("sha1").update(normalized).digest("hex");
 }
 
+async function prepareGeneratedBaseImage(buffer) {
+  if (!Buffer.isBuffer(buffer) || buffer.length < MIN_PROVIDER_IMAGE_BYTES) {
+    throw new Error(
+      `Image provider returned an invalid artwork buffer (${buffer && buffer.length} bytes)`,
+    );
+  }
+
+  let sharp;
+  try {
+    sharp = require("sharp");
+  } catch {
+    throw new Error("sharp is required to validate generated artwork images");
+  }
+
+  const metadata = await sharp(buffer, { failOn: "error" }).metadata();
+  const width = Number(metadata.width || 0);
+  const height = Number(metadata.height || 0);
+  if (width < MIN_PROVIDER_IMAGE_WIDTH || height < MIN_PROVIDER_IMAGE_HEIGHT) {
+    throw new Error(
+      `Image provider returned undersized artwork (${width}x${height})`,
+    );
+  }
+
+  const normalized = await sharp(buffer, { failOn: "error" })
+    .rotate()
+    .resize(GENERATED_IMAGE_WIDTH, GENERATED_IMAGE_HEIGHT, {
+      fit: "cover",
+      position: "center",
+    })
+    .jpeg({
+      quality: 92,
+      progressive: true,
+      mozjpeg: true,
+    })
+    .toBuffer();
+
+  if (
+    !Buffer.isBuffer(normalized) ||
+    normalized.length < MIN_PROVIDER_IMAGE_BYTES
+  ) {
+    throw new Error("Generated artwork normalization produced an empty image");
+  }
+  return normalized;
+}
+
 /**
  * Generate (or reuse) song artwork.
  *
@@ -52,11 +102,11 @@ function computeContentHash({ recipientName, occasion, style }) {
  * @param {string} args.userId
  * @param {string} args.trackId
  * @param {string} args.occasion         Must be a member of VALID_OCCASIONS
- * @param {string} args.recipientName    Composited locally; never sent to AI
+ * @param {string} args.recipientName    Composited locally; never sent to provider
  * @param {string} args.tier             'free' | 'plus' | 'pro'
  * @param {string} [args.senderName]     Track owner's display name. First token is composited
  *                                       locally as the "by {First}" attribution on the artwork.
- *                                       Never sent to the AI provider. Intentionally excluded
+ *                                       Never sent to the image provider. Intentionally excluded
  *                                       from the content hash so existing tracks aren't force-
  *                                       regenerated when the field is added.
  * @param {string} [args.previousContentHash]  From tracks.artwork_content_hash; skip if matches
@@ -64,6 +114,7 @@ function computeContentHash({ recipientName, occasion, style }) {
  * @param {Object} [args.dependencies]
  * @param {Function} [args.dependencies.providerFactory]  Override getImageProvider (testing)
  * @param {Function} [args.dependencies.compositeFn]      Override compositeArtworkWithText (testing)
+ * @param {Function} [args.dependencies.prepareGeneratedImageFn] Override provider image validation/normalization (testing)
  * @param {Function} [args.dependencies.libraryPathFn]    Override libraryPath (testing)
  * @param {Object}   [args.dependencies.storageProvider]  Optional S3 uploader
  * @param {Object}   [args.dependencies.logger]           { info, warn, error }
@@ -90,6 +141,8 @@ async function generateSongArtwork({
 
   const providerFactory = dependencies.providerFactory || getImageProvider;
   const compositeFn = dependencies.compositeFn || compositeArtworkWithText;
+  const prepareGeneratedImageFn =
+    dependencies.prepareGeneratedImageFn || prepareGeneratedBaseImage;
   const libraryPathFn = dependencies.libraryPathFn || libraryPath;
   const storageProvider = dependencies.storageProvider || null;
   const logger = dependencies.logger || console;
@@ -144,11 +197,12 @@ async function generateSongArtwork({
       }
       const buf = await adapter.generate({
         prompt,
-        size: "1024x1536",
+        size: `${GENERATED_IMAGE_WIDTH}x${GENERATED_IMAGE_HEIGHT}`,
         quality: "high",
       });
+      const normalizedBuf = await prepareGeneratedImageFn(buf);
       const generatedPath = path.join(outDir, "artwork_base.jpg");
-      await fs.promises.writeFile(generatedPath, buf);
+      await fs.promises.writeFile(generatedPath, normalizedBuf);
       baseImagePath = generatedPath;
       source = "generated";
       moderationPassed = true;
@@ -236,6 +290,7 @@ module.exports = {
   generateSongArtwork,
   pickStyleVariant,
   computeContentHash,
+  prepareGeneratedBaseImage,
   libraryPath,
   STYLE_LIST,
 };

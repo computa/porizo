@@ -20,6 +20,7 @@ const {
   generateSongArtwork,
   pickStyleVariant,
   computeContentHash,
+  prepareGeneratedBaseImage,
   STYLE_LIST,
 } = require("../../src/services/song-artwork");
 const {
@@ -231,6 +232,10 @@ test("generateSongArtwork calls provider for paid tier (pro)", async () => {
           return Buffer.alloc(16); // pretend png
         },
       }),
+      prepareGeneratedImageFn: async (buf) => {
+        assert.equal(buf.length, 16);
+        return Buffer.alloc(32);
+      },
       compositeFn: async ({ outputDir }) => {
         const out = path.join(outputDir, "artwork.jpg");
         fs.writeFileSync(out, Buffer.alloc(8));
@@ -243,6 +248,75 @@ test("generateSongArtwork calls provider for paid tier (pro)", async () => {
   assert.equal(providerCalls, 1);
   assert.equal(result.provider, "openai");
   assert.ok(result.prompt && result.prompt.length > 50);
+});
+
+test("generateSongArtwork falls back to library when provider image validation fails", async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "porizo-artwork-"));
+  const fakeBase = path.join(tmp, "base.jpg");
+  fs.writeFileSync(fakeBase, Buffer.alloc(8));
+  const warnings = [];
+
+  const result = await generateSongArtwork({
+    userId: "u-invalid-image",
+    trackId: "t-invalid-image",
+    occasion: "birthday",
+    recipientName: "Sarah",
+    tier: "pro",
+    dependencies: {
+      libraryPathFn: () => fakeBase,
+      providerFactory: () => ({
+        generate: async () => Buffer.alloc(16),
+      }),
+      prepareGeneratedImageFn: async () => {
+        throw new Error("corrupt provider image");
+      },
+      compositeFn: async ({ baseImagePath, outputDir }) => {
+        assert.equal(baseImagePath, fakeBase);
+        const out = path.join(outputDir, "artwork.jpg");
+        fs.writeFileSync(out, Buffer.alloc(8));
+        return out;
+      },
+      logger: {
+        info() {},
+        warn(message) {
+          warnings.push(message);
+        },
+        error() {},
+      },
+    },
+  });
+
+  assert.equal(result.source, "fallback");
+  assert.equal(result.moderationPassed, false);
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0], /corrupt provider image/);
+});
+
+test("prepareGeneratedBaseImage normalizes valid provider output to 9:16 JPEG", async () => {
+  const sharp = require("sharp");
+  const input = await sharp({
+    create: {
+      width: 900,
+      height: 1200,
+      channels: 3,
+      background: { r: 224, g: 190, b: 174 },
+    },
+  })
+    .png()
+    .toBuffer();
+
+  const output = await prepareGeneratedBaseImage(input);
+  const metadata = await sharp(output).metadata();
+  assert.equal(metadata.format, "jpeg");
+  assert.equal(metadata.width, 1024);
+  assert.equal(metadata.height, 1536);
+});
+
+test("prepareGeneratedBaseImage rejects corrupt or tiny provider output", async () => {
+  await assert.rejects(
+    () => prepareGeneratedBaseImage(Buffer.alloc(16)),
+    /invalid artwork buffer/,
+  );
 });
 
 test("generateSongArtwork falls back to library on moderation refusal", async () => {
@@ -445,7 +519,9 @@ test("buildOverlaySvg renders valid-ish XML containing the name", () => {
   assert.match(svg, /<svg[^>]*width="1024"/);
   assert.match(svg, /For Sarah/);
   assert.match(svg, /Birthday/);
-  assert.match(svg, /porizo/);
+  assert.doesNotMatch(svg, /porizo/i);
+  assert.doesNotMatch(svg, /made with/i);
+  assert.doesNotMatch(svg, /watermark/i);
 });
 
 test("buildOverlaySvg escapes XML-special chars in recipient name", () => {
@@ -604,8 +680,41 @@ test("buildPrompt never includes recipient name (PII containment)", () => {
       assert.match(prompt, /no text/);
       assert.match(prompt, /no people, no faces/);
       assert.match(prompt, /no logos/);
+      assert.match(prompt, /real physical still-life/);
+      assert.match(prompt, /no signatures, no watermarks/);
+      assert.match(prompt, /no app names, no personal names/);
     }
   }
+});
+
+test("buildPrompt avoids visible identifiers and generated-looking style directions", () => {
+  for (const occasion of VALID_OCCASIONS) {
+    for (const style of VALID_STYLES) {
+      const prompt = buildPrompt({ occasion, style });
+      assert.doesNotMatch(prompt, /\bPorizo\b/i);
+      assert.doesNotMatch(prompt, /\bmade with\b/i);
+      assert.doesNotMatch(prompt, /\bbrand name\b/i);
+      assert.match(prompt, /no synthetic smoothness/);
+      assert.match(prompt, /no warped geometry/);
+      assert.match(prompt, /no plastic rendered look/);
+      assert.match(prompt, /photograph/i);
+    }
+  }
+});
+
+test("buildPrompt keeps occasion-specific visual subjects", () => {
+  assert.match(
+    buildPrompt({ occasion: "mothers_day", style: "photographic" }),
+    /mother's day bouquet.*ranunculus.*lavender/i,
+  );
+  assert.match(
+    buildPrompt({ occasion: "graduation", style: "photographic" }),
+    /graduation laurel wreath.*achievement/i,
+  );
+  assert.match(
+    buildPrompt({ occasion: "get_well", style: "photographic" }),
+    /ceramic teacup.*chamomile.*lemon/i,
+  );
 });
 
 test("buildPrompt ignores extraneous recipientName arg if a caller wires it incorrectly", () => {

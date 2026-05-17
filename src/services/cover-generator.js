@@ -291,10 +291,6 @@ function generateSVG({
     ${safeOccasion}
   </text>
 
-  <!-- Porizo branding (subtle) -->
-  <text x="50%" y="${height * 0.96}" font-family="SF Pro Display, -apple-system, Helvetica Neue, Arial, sans-serif" font-size="${Math.floor(width * 0.02)}" font-weight="400" fill="rgba(255,255,255,0.4)" text-anchor="middle">
-    Made with Porizo
-  </text>
 </svg>`;
 }
 
@@ -312,7 +308,7 @@ function isSharpAvailable() {
 
 // ---------------------------------------------------------------------------
 // Per-song occasion artwork composite (modeled on the "For Sarah" mock).
-// Lays Fraunces typography over an AI-generated or library base image.
+// Lays Fraunces typography over a generated or library base image.
 // ---------------------------------------------------------------------------
 
 const TARGET_DIMENSIONS = {
@@ -372,7 +368,6 @@ function fitName(name) {
  *   1. "For {Name}"           — Fraunces 700, large (the emotional anchor)
  *   2. "A {Occasion} Song"    — Fraunces italic, mid
  *   3. "by {SenderFirstName}" — Fraunces italic, smaller, lower opacity (omitted when no sender)
- *   4. "porizo"               — branding, very small at the very bottom
  *
  * When `senderName` is omitted we render the legacy 2-tier layout
  * ("For X" + "{Occasion}") to keep parity with pre-sender artwork.
@@ -405,14 +400,13 @@ function buildOverlaySvg({
   const nameSize = Math.round(width * fontSizeFraction);
   const occasionSize = Math.round(width * 0.034);
   const senderSize = Math.round(width * 0.028);
-  const brandingSize = Math.round(width * 0.018);
 
   const safeOccasion = escapeXml(occasionDisplay);
   const safeSender = escapeXml(senderDisplay);
   // Bottom safe zone: text vertically centered around 84% of frame height for portrait
   // (legacy 2-tier); shift up to 80% when sender is present so the third line clears
-  // the porizo branding mark without crowding. For landscape (1.91:1) we shift left
-  // third, so we keep y central.
+  // the lower safe area without crowding. For landscape (1.91:1) we shift left
+  // third, so y stays central.
   const isLandscape = width / height > 1.5;
   const isSquare = Math.abs(width / height - 1) < 0.1;
   const textAnchor = isLandscape ? "start" : "middle";
@@ -440,7 +434,6 @@ function buildOverlaySvg({
     (lines.length - 1) * (lineSpacing / 2) +
     Math.round(nameSize * 0.4);
   const senderY = occasionY + Math.round(occasionSize * 1.6);
-  const brandingY = height - Math.round(height * 0.025);
 
   const senderSvg = hasSender
     ? `\n  <text x="${baseX}" y="${senderY}" font-family="${FRAUNCES_FAMILY}" font-size="${senderSize}" font-style="italic" font-weight="400" fill="${colors.primary}" fill-opacity="0.7" text-anchor="${textAnchor}"${directionAttr}>${safeSender}</text>`
@@ -450,7 +443,6 @@ function buildOverlaySvg({
 <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
   ${nameLineSvgs.join("\n  ")}
   <text x="${baseX}" y="${occasionY}" font-family="${FRAUNCES_FAMILY}" font-size="${occasionSize}" font-style="italic" font-weight="400" fill="${colors.primary}" fill-opacity="0.85" text-anchor="${textAnchor}"${directionAttr}>${safeOccasion}</text>${senderSvg}
-  <text x="${width / 2}" y="${brandingY}" font-family="${FRAUNCES_FAMILY}" font-size="${brandingSize}" font-weight="400" fill="#6b6f7a" fill-opacity="0.45" text-anchor="middle">porizo</text>
 </svg>`;
 }
 
@@ -462,7 +454,7 @@ function buildOverlaySvg({
  *
  * @param {Object} params
  * @param {string} params.baseImagePath  Path to the source artwork (typically 1024×1536 9:16)
- * @param {string} params.recipientName  Name to render — composited via SVG, never sent to AI
+ * @param {string} params.recipientName  Name to render via SVG, never sent to provider
  * @param {string} params.occasion       Occasion key (for color + label)
  * @param {string} params.outputDir      Directory to write outputs
  * @param {string} [params.senderName]   Sender's display name. First token is used as

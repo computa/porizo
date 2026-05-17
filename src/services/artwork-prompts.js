@@ -19,43 +19,48 @@ const VALID_OCCASIONS = new Set([
 const VALID_STYLES = new Set(["paper-art", "watercolor", "photographic"]);
 
 const FRAME_CONTRACT = [
+  "real physical still-life photographed in camera, not a digital illustration",
   "cream ivory background with subtle warm radial glow",
-  "single centered emotional subject occupying the upper 60% of frame",
+  "single centered occasion-specific subject occupying the upper 60% of frame",
   "bottom 25% reserved as soft low-detail negative space for text overlay",
   "warm directional studio light from upper-left casting soft natural shadows",
+  "natural material imperfections, asymmetry, dust, fiber, glaze, or petal texture visible",
   "9:16 portrait aspect ratio",
-  "no text, no letters, no numbers, no signage",
+  "no text, no letters, no numbers, no handwriting, no glyphs, no signage",
+  "no signatures, no watermarks, no captions, no labels, no UI elements, no QR codes, no barcodes",
   "no people, no faces, no hands",
   "no logos, no brand marks, no trademarks",
-  "no scenes, no landscapes, no environments — single subject only",
+  "no app names, no personal names, no dedication text",
+  "no synthetic smoothness, no warped geometry, no impossible shadows, no duplicated petals, no plastic rendered look",
+  "no scenes, no landscapes, no environments; single subject only",
 ].join(", ");
 
 const STYLES = {
   "paper-art":
-    "intricate paper-craft sculpture, hand-cut layered cardstock with visible grain and small asymmetries, multiple paper depths casting real soft shadows, dimensional construction like a luxury greeting card, premium handmade craft feel",
+    "macro product photograph of a real handmade paper sculpture, hand-cut layered cotton cardstock with visible fibers, tiny knife-cut irregularities, slight glue shadows, and dimensional paper depths like a luxury greeting card photographed in a studio",
   watercolor:
-    "loose hand-painted watercolor on textured cold-press paper, organic pigment bleed at edges, subtle granulation in mid-tones, restrained brushwork suggesting a hand-painted card rather than an illustration",
+    "photograph of a real hand-painted watercolor card on textured cold-press paper, organic pigment bleed, granulation, paper buckling at the wet edges, and restrained brushwork visible as physical paint on paper",
   photographic:
-    "editorial still-life photograph, shallow depth of field with subject sharply in focus, soft window light, minimal composition styled by a gift-product art director, real physical objects with material texture",
+    "editorial still-life photograph with real objects, shallow depth of field, natural lens falloff, soft window light, tactile material texture, and minimal composition styled by a premium gift-product art director",
 };
 
 const OCCASION_SUBJECTS = {
   birthday:
-    "a single oversized blooming peony with layered petals opening from the center, in warm coral and peach tones graduating to pale cream at the petal tips, a few small scattered blossoms and delicate fern fronds around the base",
+    "a single oversized blooming peony arranged like a birthday keepsake, layered petals opening from the center in warm coral and peach tones graduating to pale cream at the tips, a few tiny preserved blossoms and fern fronds around the base",
   mothers_day:
-    "a gathered nosegay of mixed garden flowers — pale pink ranunculus, dusty miller, small sprigs of lavender — bound with cream linen ribbon, palette of soft blush pink, sage green, and ivory",
+    "a compact mother's day bouquet of pale pink ranunculus, dusty miller, tiny chamomile, and lavender sprigs, bound by hand with cream linen ribbon, soft blush pink, sage green, and ivory palette",
   anniversary:
     "two slender flowering branches gently intertwined at the stems, covered in tiny white five-petaled blossoms, deep rose and burgundy tones in the leaves, suggesting two lives twined together",
   thank_you:
-    "a small handmade gift parcel wrapped in unbleached natural paper, tied with twine, a single fresh eucalyptus sprig tucked under the bow, palette of warm cream, kraft brown, and muted sage",
+    "a small thank-you gift parcel wrapped in unbleached natural paper, tied with cotton twine, a single fresh eucalyptus sprig tucked under the bow, warm cream, kraft brown, and muted sage palette",
   i_love_you:
-    "an organic heart shape composed entirely of fallen rose petals in graduating crimson and dusty rose tones, individual petals visible at the edges, deeply emotional and intimate",
+    "an organic heart shape carefully assembled from real fallen rose petals in graduating crimson and dusty rose tones, individual curled petal edges visible, intimate and restrained",
   wedding:
     "a small bridal bouquet of white garden roses and seeded eucalyptus, ivory ranunculus, wrapped in silk ribbon, palette of pure white, cream, and soft sage, classic and timeless",
   graduation:
-    "a circular laurel wreath of olive leaves with subtle golden highlights on the tips, suggesting achievement and honor without being literal, palette of warm olive green and antique gold on cream",
+    "a circular graduation laurel wreath of olive leaves with a narrow cream ribbon and subtle antique-gold highlights on the leaf tips, suggesting achievement and honor without using a cap or diploma",
   celebration:
-    "a cluster of softly curling paper streamers and small confetti pieces in warm metallic gold, blush, and cream, frozen mid-fall, joyful but refined — not loud",
+    "a refined cluster of softly curling paper streamers and small matte confetti pieces in warm metallic gold, blush, and cream, arranged mid-fall, joyful but quiet",
   apology:
     "a single fresh white tulip with a slight bend in the stem, leaves visible, set against a soft cool grey backdrop with the warm ivory base showing through, palette of pure white, cool grey, and pale jade",
   encouragement:
@@ -69,7 +74,7 @@ const OCCASION_SUBJECTS = {
   get_well:
     "a single handcrafted ceramic teacup with visible glaze texture, steam rising in soft delicate curls, a sprig of fresh chamomile and a slice of lemon resting on the saucer, palette of warm honey, cream, and pale yellow",
   custom:
-    "an abstract organic arrangement of layered paper leaves and a single small unspecified bloom at the center, in universally warm tones of peach, cream, and soft gold",
+    "a neutral personalized-gift still-life with one small cream bloom, a folded linen ribbon, and a smooth river stone arranged in warm peach, ivory, sage, and soft gold tones",
 };
 
 function buildPrompt({ occasion, style }) {
