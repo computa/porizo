@@ -50,22 +50,14 @@ final class PlaybackController {
         didSet { pushNowPlayingMetadata() }
     }
 
-    /// Per-song occasion artwork URL. When set, triggers a two-phase
-    /// MPNowPlayingInfoCenter push: placeholder immediately, real image
-    /// once the URL is fetched. Setting to nil clears the cached artwork.
+    /// Per-song occasion artwork URL. NowPlayingManager owns the fetch + cache
+    /// downstream — see Services/NowPlayingManager.swift's applyArtwork.
     var artworkUrl: String? {
         didSet {
             guard oldValue != artworkUrl else { return }
-            cachedArtworkImage = nil
             pushNowPlayingMetadata()
-            fetchArtworkIfNeeded()
         }
     }
-
-    /// Cached fetched artwork — used by pushNowPlayingMetadata as soon as
-    /// the URLSession finishes. Cleared when artworkUrl changes.
-    private var cachedArtworkImage: UIImage?
-    private var artworkFetchTask: Task<Void, Never>?
 
     // MARK: - Callbacks
 
@@ -239,11 +231,6 @@ final class PlaybackController {
         duration = 0
         playbackError = nil
         loadedURL = nil
-        // Release the artwork fetch and decoded UIImage so a torn-down
-        // controller doesn't retain ~MBs of bitmap across sessions.
-        artworkFetchTask?.cancel()
-        artworkFetchTask = nil
-        cachedArtworkImage = nil
         if let nowPlayingSession {
             NowPlayingManager.shared.deactivateSession(nowPlayingSession)
         }
@@ -309,48 +296,14 @@ final class PlaybackController {
             let trimmed = (artistName ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             return trimmed.isEmpty ? "Porizo" : trimmed
         }()
-        // Phase 1: push immediately with whatever artwork we have cached (may be nil).
-        // Phase 2: when fetchArtworkIfNeeded() completes, it re-invokes us with cachedArtworkImage set.
         let metadata = NowPlayingMetadata(
             title: trackTitle,
             artist: effectiveArtist,
-            artwork: cachedArtworkImage,
-            artworkURL: artworkUrl.flatMap(URL.init(string:))
+            artworkURLString: artworkUrl
         )
         NowPlayingManager.shared.updateMetadata(
             metadata, duration: duration > 0 ? duration : nil
         )
-    }
-
-    /// Fetch the artwork bitmap on a background task and re-push metadata
-    /// once it arrives. Cancels any in-flight fetch from a prior URL.
-    private func fetchArtworkIfNeeded() {
-        artworkFetchTask?.cancel()
-        guard let urlString = artworkUrl,
-              let url = URL(string: urlString) else {
-            return
-        }
-        // Task created from a @MainActor context inherits that isolation, so
-        // the body runs on the main actor by default. No explicit MainActor.run
-        // hop is needed for the cache write or the re-push.
-        artworkFetchTask = Task { [weak self] in
-            do {
-                var request = URLRequest(url: url)
-                request.cachePolicy = .returnCacheDataElseLoad
-                request.timeoutInterval = 10
-                let (data, _) = try await URLSession.shared.data(for: request)
-                if Task.isCancelled { return }
-                guard let image = UIImage(data: data) else { return }
-                guard let self else { return }
-                // Confirm URL didn't change while we were fetching — drop the
-                // result if it did, so a stale fetch can't overwrite the newer one.
-                guard self.artworkUrl == urlString else { return }
-                self.cachedArtworkImage = image
-                self.pushNowPlayingMetadata()
-            } catch {
-                // Quietly fall through — placeholder stays in place
-            }
-        }
     }
 
     // MARK: - Observer Setup
