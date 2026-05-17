@@ -524,6 +524,57 @@ test("buildOverlaySvg renders valid-ish XML containing the name", () => {
   assert.doesNotMatch(svg, /watermark/i);
 });
 
+test("buildOverlaySvg centers no-sender typography inside bottom quarter", () => {
+  const height = 1536;
+  const svg = buildOverlaySvg({
+    width: 1024,
+    height,
+    recipientName: "Sarah",
+    occasion: "birthday",
+  });
+  const yValues = [...svg.matchAll(/ y="(\d+)"/g)].map((m) =>
+    Number(m[1]),
+  );
+
+  assert.equal(yValues.length, 2);
+  assert.ok(yValues[0] > height * 0.8, `name y too high: ${yValues[0]}`);
+  assert.ok(
+    yValues[yValues.length - 1] < height * 0.94,
+    `occasion y too low: ${yValues[yValues.length - 1]}`,
+  );
+  assert.ok(
+    Math.abs((yValues[0] + yValues[yValues.length - 1]) / 2 - height * 0.875) <
+      65,
+    `typography midpoint not centered in bottom band: ${yValues.join(", ")}`,
+  );
+});
+
+test("buildOverlaySvg centers sender typography inside bottom quarter", () => {
+  const height = 1536;
+  const svg = buildOverlaySvg({
+    width: 1024,
+    height,
+    recipientName: "Chioma",
+    occasion: "birthday",
+    senderName: "Ambrose Obimma",
+  });
+  const yValues = [...svg.matchAll(/ y="(\d+)"/g)].map((m) =>
+    Number(m[1]),
+  );
+
+  assert.equal(yValues.length, 3);
+  assert.ok(yValues[0] > height * 0.8, `name y too high: ${yValues[0]}`);
+  assert.ok(
+    yValues[yValues.length - 1] < height * 0.94,
+    `sender y too low: ${yValues[yValues.length - 1]}`,
+  );
+  assert.ok(
+    Math.abs((yValues[0] + yValues[yValues.length - 1]) / 2 - height * 0.875) <
+      65,
+    `typography midpoint not centered in bottom band: ${yValues.join(", ")}`,
+  );
+});
+
 test("buildOverlaySvg escapes XML-special chars in recipient name", () => {
   const svg = buildOverlaySvg({
     width: 1024,
@@ -651,6 +702,8 @@ const {
   VALID_STYLES,
 } = require("../../src/services/artwork-prompts");
 
+const PROMPT_INTERNAL_CHAR_CAP = 2200;
+
 test("buildPrompt rejects unknown occasion", () => {
   assert.throws(
     () => buildPrompt({ occasion: "haxx", style: "paper-art" }),
@@ -673,6 +726,10 @@ test("buildPrompt never includes recipient name (PII containment)", () => {
   for (const occasion of VALID_OCCASIONS) {
     for (const style of VALID_STYLES) {
       const prompt = buildPrompt({ occasion, style });
+      assert.ok(
+        prompt.length <= PROMPT_INTERNAL_CHAR_CAP,
+        `${occasion}/${style} prompt too long: ${prompt.length}`,
+      );
       assert.ok(
         !/\brecipient(_name|Name)?\b/i.test(prompt),
         `${occasion}/${style} leaked recipient token`,

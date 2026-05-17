@@ -488,6 +488,32 @@ test("runArtworkJob persists moderation_passed=false on non-moderation provider 
   assert.equal(calls.updateArtwork[0][6], 0);
 });
 
+test("runArtworkJob persists artwork_source=fallback for validation fallback", async () => {
+  const { db, calls } = makeDb({
+    track: SAMPLE_TRACK,
+    entitlement: { tier: "pro" },
+  });
+
+  await runArtworkJob({
+    db,
+    trackId: "t-1",
+    logger: SILENT_LOGGER,
+    generateFn: async () => ({
+      ...SAMPLE_RESULT,
+      source: "fallback",
+      moderationPassed: false,
+      provider: "openai",
+      prompt: "provider returned invalid artwork bytes",
+    }),
+  });
+
+  const args = calls.updateArtwork[0];
+  assert.equal(args[2], "fallback");
+  assert.equal(args[3], "openai");
+  assert.equal(args[4], "provider returned invalid artwork bytes");
+  assert.equal(args[6], 0);
+});
+
 test("runArtworkJob requires db and trackId", async () => {
   await assert.rejects(
     () => runArtworkJob({ trackId: "t-1" }),

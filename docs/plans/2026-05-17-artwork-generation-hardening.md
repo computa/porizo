@@ -18,6 +18,9 @@ The working behavior is visible by running the focused artwork tests and by gene
 - [x] (2026-05-17) Added provider-image validation and normalization before accepting generated artwork.
 - [x] (2026-05-17) Removed local watermark-style identifier from the artwork overlay.
 - [x] (2026-05-17) Added focused regression tests and ran validation.
+- [x] (2026-05-17) Added prompt-length and must-have-ban regression coverage.
+- [x] (2026-05-17) Recentered sender/no-sender typography inside the bottom 25% text band and visually checked sample composites.
+- [x] (2026-05-17) Added job-level persistence coverage for validation fallback storing `artwork_source='fallback'`.
 
 ## Surprises & Discoveries
 
@@ -29,6 +32,8 @@ The working behavior is visible by running the focused artwork tests and by gene
   Evidence: `src/services/cover-generator.js` renders a bottom `<text>porizo</text>` element in `buildOverlaySvg`.
 - Observation: The focused `npm test -- test/services/song-artwork.test.js` command still expands through the package script's full `test/**/*.test.js` glob.
   Evidence: It executed 559 tests before failing on the focused prompt regression. Direct `node --test --test-concurrency=1 test/services/song-artwork.test.js` is the precise focused command.
+- Observation: The earlier watermark removal left hardcoded baseline positions that could make sender typography feel top-heavy within the reserved lower band.
+  Evidence: `buildOverlaySvg` used fixed `0.80` and `0.84` height fractions before the follow-up patch.
 
 ## Decision Log
 
@@ -49,6 +54,8 @@ Implemented and validated. Paid-tier generated artwork now goes through `prepare
 The prompt registry now points every style toward real photographed physical still-life work, with occasion-specific subjects and explicit constraints against text, signatures, watermarks, app names, personal names, labels, UI marks, synthetic smoothness, warped geometry, duplicated petals, and rendered-looking artefacts.
 
 The artwork compositor no longer adds a `porizo` or `Made with Porizo` watermark to final artwork images.
+
+Follow-up refinements added prompt length regression coverage at a 2200-character internal ceiling, kept assertions for the load-bearing visible-identifier bans, centered the full typography block inside the prompt's reserved bottom 25% band, and pinned job persistence of validation fallback as `artwork_source='fallback'`.
 
 ## Context and Orientation
 
@@ -71,6 +78,7 @@ Fourth, add tests in `test/services/song-artwork.test.js` proving the prompt con
 Run from `/Users/ao/Documents/projects/porizo`:
 
     NODE_ENV=test ALLOW_ANON_USER_ID=true ALLOW_DEVICE_TOKEN_FALLBACK=true node --test --test-concurrency=1 test/services/song-artwork.test.js
+    NODE_ENV=test ALLOW_ANON_USER_ID=true ALLOW_DEVICE_TOKEN_FALLBACK=true node --test --test-concurrency=1 test/services/song-artwork.test.js test/jobs/artwork-job.test.js
     npm run lint
 
 If the full test command is needed after focused validation, run:
@@ -93,6 +101,9 @@ Validation evidence:
 
     NODE_ENV=test ALLOW_ANON_USER_ID=true ALLOW_DEVICE_TOKEN_FALLBACK=true node --test --test-concurrency=1 test/services/song-artwork.test.js
     # tests 52, pass 52, fail 0
+
+    NODE_ENV=test ALLOW_ANON_USER_ID=true ALLOW_DEVICE_TOKEN_FALLBACK=true node --test --test-concurrency=1 test/services/song-artwork.test.js test/jobs/artwork-job.test.js
+    # tests 87, pass 87, fail 0
 
     npm run lint
     # eslint . passed

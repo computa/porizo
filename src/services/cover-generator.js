@@ -400,40 +400,53 @@ function buildOverlaySvg({
   const nameSize = Math.round(width * fontSizeFraction);
   const occasionSize = Math.round(width * 0.034);
   const senderSize = Math.round(width * 0.028);
+  const lineSpacing = Math.round(nameSize * 1.05);
 
   const safeOccasion = escapeXml(occasionDisplay);
   const safeSender = escapeXml(senderDisplay);
-  // Bottom safe zone: text vertically centered around 84% of frame height for portrait
-  // (legacy 2-tier); shift up to 80% when sender is present so the third line clears
-  // the lower safe area without crowding. For landscape (1.91:1) we shift left
-  // third, so y stays central.
   const isLandscape = width / height > 1.5;
-  const isSquare = Math.abs(width / height - 1) < 0.1;
   const textAnchor = isLandscape ? "start" : "middle";
   const baseX = isLandscape ? Math.round(width * 0.06) : width / 2;
-  const portraitBaseFraction = hasSender ? 0.8 : 0.84;
-  const squareBaseFraction = hasSender ? 0.78 : 0.82;
-  const baseY = Math.round(
-    height * (isSquare ? squareBaseFraction : portraitBaseFraction),
-  );
-  const lineSpacing = Math.round(nameSize * 1.05);
+
+  // The base-art prompt reserves the bottom 25% as low-detail negative space.
+  // Center the complete typography block inside that band so sender/no-sender
+  // layouts keep balanced breathing room after removing the watermark.
+  const bandTop = height * 0.75;
+  const bandHeight = height * 0.25;
+  const nameBlockHeight =
+    lines.length > 0 ? nameSize + (lines.length - 1) * lineSpacing : 0;
+  const occasionGap = lines.length > 0 ? Math.round(nameSize * 0.22) : 0;
+  const senderGap = hasSender ? Math.round(occasionSize * 0.35) : 0;
+  const blockHeight =
+    nameBlockHeight +
+    occasionGap +
+    occasionSize +
+    (hasSender ? senderGap + senderSize : 0);
+  const blockTop = Math.round(bandTop + (bandHeight - blockHeight) / 2);
+  const firstNameY = blockTop + Math.round(nameSize * 0.78);
 
   const directionAttr =
     direction === "rtl" ? ` direction="rtl" unicode-bidi="embed"` : "";
 
   // Two-line layout: stack lines vertically with the prefix on the first line.
   const nameLineSvgs = lines.map((line, i) => {
-    const y = baseY + i * lineSpacing - (lines.length - 1) * (lineSpacing / 2);
+    const y = firstNameY + i * lineSpacing;
     const display = i === 0 ? `${prefix}${escapeXml(line)}` : escapeXml(line);
     return `<text x="${baseX}" y="${y}" font-family="${FRAUNCES_FAMILY}" font-size="${nameSize}" font-weight="700" fill="${colors.secondary}" text-anchor="${textAnchor}"${directionAttr}>${display}</text>`;
   });
 
   const occasionY =
-    baseY +
-    lines.length * lineSpacing -
-    (lines.length - 1) * (lineSpacing / 2) +
-    Math.round(nameSize * 0.4);
-  const senderY = occasionY + Math.round(occasionSize * 1.6);
+    blockTop +
+    nameBlockHeight +
+    occasionGap +
+    Math.round(occasionSize * 0.78);
+  const senderY =
+    blockTop +
+    nameBlockHeight +
+    occasionGap +
+    occasionSize +
+    senderGap +
+    Math.round(senderSize * 0.78);
 
   const senderSvg = hasSender
     ? `\n  <text x="${baseX}" y="${senderY}" font-family="${FRAUNCES_FAMILY}" font-size="${senderSize}" font-style="italic" font-weight="400" fill="${colors.primary}" fill-opacity="0.7" text-anchor="${textAnchor}"${directionAttr}>${safeSender}</text>`
