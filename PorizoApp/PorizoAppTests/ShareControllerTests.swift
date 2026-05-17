@@ -207,13 +207,26 @@ final class ShareControllerTests: XCTestCase {
             shareURL: "https://porizo.app/play/sh_123",
             claimPin: "246810",
             recipientName: "Chioma",
-            occasion: "mothers_day"
+            occasion: "mothers_day",
+            socialPreviewToken: "test-preview"
         )
 
-        XCTAssertTrue(message.contains("https://porizo.app/play/sh_123"))
+        XCTAssertTrue(message.contains("https://porizo.app/play/sh_123?smv=test-preview"))
         XCTAssertTrue(message.contains("PIN: 246810"))
         XCTAssertTrue(message.contains("Chioma"))
         XCTAssertTrue(message.lowercased().contains("mother"))
+    }
+
+    func testSongShareMessage_addsSocialPreviewTokenForFreshImageUnfurl() {
+        let previewURL = SongSharePayloadBuilder.socialPreviewURL(
+            shareURL: "https://api.porizo.co/play/sh_123?sv=20260319a&smv=old",
+            cacheToken: "fresh-card"
+        )
+
+        let components = URLComponents(string: previewURL)
+        XCTAssertEqual(components?.queryItems?.first(where: { $0.name == "sv" })?.value, "20260319a")
+        XCTAssertEqual(components?.queryItems?.first(where: { $0.name == "smv" })?.value, "fresh-card")
+        XCTAssertEqual(components?.queryItems?.filter { $0.name == "smv" }.count, 1)
     }
 
     func testNativeShareURLs_preserveFullMessageAsSingleTextValue() throws {
@@ -221,7 +234,8 @@ final class ShareControllerTests: XCTestCase {
             shareURL: "https://porizo.app/play/sh_123?gift=1&recipient=Chioma",
             claimPin: "246810",
             recipientName: "Chioma",
-            occasion: "birthday"
+            occasion: "birthday",
+            socialPreviewToken: "native-route"
         )
 
         let whatsapp = SongSharePayloadBuilder.nativeURL(for: .whatsapp, body: body)
@@ -248,6 +262,7 @@ final class ShareControllerTests: XCTestCase {
         XCTAssertTrue(
             messages.absoluteString.removingPercentEncoding?.contains("https://porizo.app/play/sh_123?gift=1&recipient=Chioma") == true
         )
+        XCTAssertTrue(messages.absoluteString.removingPercentEncoding?.contains("smv=native-route") == true)
     }
 
     #if DEBUG

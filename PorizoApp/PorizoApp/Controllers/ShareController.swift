@@ -470,14 +470,33 @@ enum SongSharePayloadBuilder {
         shareURL: String,
         claimPin: String,
         recipientName: String? = nil,
-        occasion: String? = nil
+        occasion: String? = nil,
+        socialPreviewToken: String = String(Int(Date().timeIntervalSince1970))
     ) -> String {
-        ShareMessageContent.activityMessage(
+        let previewURL = socialPreviewURL(
             shareURL: shareURL,
+            cacheToken: socialPreviewToken
+        )
+        return ShareMessageContent.activityMessage(
+            shareURL: previewURL,
             claimPin: claimPin,
             recipientName: recipientName,
             occasion: occasion
         )
+    }
+
+    static func socialPreviewURL(shareURL: String, cacheToken: String) -> String {
+        guard var components = URLComponents(string: shareURL) else {
+            return shareURL
+        }
+        var items = components.queryItems ?? []
+        items.removeAll { $0.name.lowercased() == "smv" }
+        let trimmedToken = cacheToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedToken.isEmpty {
+            items.append(URLQueryItem(name: "smv", value: String(trimmedToken.prefix(64))))
+        }
+        components.queryItems = items.isEmpty ? nil : items
+        return components.url?.absoluteString ?? shareURL
     }
 
     static func nativeURL(for destination: SongShareTextDestination, body: String) -> URL? {
