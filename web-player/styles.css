@@ -1099,6 +1099,8 @@ body {
   }
 
   .player-artwork-image {
+    position: relative;
+    z-index: 2;
     height: 34vh;
     min-height: 220px;
     object-fit: contain;
