@@ -422,12 +422,12 @@ describe("Share Embed Routes", () => {
     });
     assert.equal(coverResponse.statusCode, 200);
 
-    const cachedVariantCards = fs
+    const cachedArtworkCards = fs
       .readdirSync(testVersionDir)
-      .filter((name) => /^share_og_1200x630_v.+_spotlight\.jpg$/.test(name));
+      .filter((name) => /^share_artwork_1200x630_v.+\.jpg$/.test(name));
     assert.ok(
-      cachedVariantCards.length > 0,
-      "Variant song card should be cached with variant suffix in filename"
+      cachedArtworkCards.length > 0,
+      "Default share card should use the artwork-first social preview even when an OG variant is selected"
     );
   });
 
@@ -534,12 +534,12 @@ describe("Share Embed Routes", () => {
     assert.equal(metadata.width, 1200, "OG cover width should be 1200");
     assert.equal(metadata.height, 630, "OG cover height should be 630");
 
-    const generatedVersionedCards = fs
+    const generatedArtworkCards = fs
       .readdirSync(testVersionDir)
-      .filter((name) => /^share_og_1200x630_v.+\.jpg$/.test(name));
+      .filter((name) => /^share_artwork_1200x630_v.+\.jpg$/.test(name));
     assert.ok(
-      generatedVersionedCards.length > 0,
-      "Should cache generated OG cards with a versioned filename to avoid stale legacy card reuse"
+      generatedArtworkCards.length > 0,
+      "Should cache artwork-first social cards with a versioned filename to avoid stale legacy card reuse"
     );
   });
 

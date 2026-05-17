@@ -45,6 +45,7 @@ function registerSharingRoutes(
     generateSongOgPreview,
     generateSongOgImage,
     generateSongOgImageSquare,
+    generateSongArtworkPreviewImage,
     getSongOgGenerator,
     generatePoemOgImage,
     getPoemOgGenerator,
@@ -2327,19 +2328,19 @@ function registerSharingRoutes(
     // local-miss — same source of truth as the rest of the share pipeline.
     const localCoverPath = (await pickCoverPath(track, trackVersion)) || null;
 
-    // WhatsApp square variant — 1200x1200 image to avoid letterboxing
+    // WhatsApp square variant — 1200x1200 image to avoid letterboxing.
+    // Prefer the real generated song artwork over branded/text-heavy OG cards;
+    // the art is what makes the share feel personal and safe to click.
     if (request.query.variant === "whatsapp") {
       const squarePath = path.join(
         versionDir,
-        "share_og_1200x1200_whatsapp.jpg",
+        "share_artwork_1200x1200_whatsapp.jpg",
       );
       if (!fs.existsSync(squarePath)) {
-        const squareBuffer = await generateSongOgImageSquare({
-          title: track.title,
-          recipientName: track.recipient_name,
-          occasion: track.occasion,
+        const squareBuffer = await generateSongArtworkPreviewImage({
           coverPath: localCoverPath,
-          brandName: "Porizo",
+          width: 1200,
+          height: 1200,
         });
         if (squareBuffer) {
           ensureDir(versionDir);
@@ -2359,7 +2360,38 @@ function registerSharingRoutes(
           cacheControl: "public, max-age=14400",
         });
       }
-      // Fall through to standard OG card if square generation failed
+      // Fall through to branded square/standard OG card if artwork generation failed.
+      const brandedSquarePath = path.join(
+        versionDir,
+        "share_og_1200x1200_whatsapp.jpg",
+      );
+      if (!fs.existsSync(brandedSquarePath)) {
+        const brandedSquareBuffer = await generateSongOgImageSquare({
+          title: track.title,
+          recipientName: track.recipient_name,
+          occasion: track.occasion,
+          coverPath: localCoverPath,
+          brandName: "Porizo",
+        });
+        if (brandedSquareBuffer) {
+          ensureDir(versionDir);
+          fs.writeFileSync(brandedSquarePath, brandedSquareBuffer);
+        }
+      }
+      if (fs.existsSync(brandedSquarePath)) {
+        await addShareAccessLog({
+          shareTokenId: share.id,
+          eventType: "share_cover_served",
+          metadata: {
+            reason: "whatsapp_square_branded_fallback",
+            user_agent: request.headers["user-agent"] || null,
+          },
+        });
+        return sendMediaFile(request, reply, brandedSquarePath, "image/jpeg", {
+          cacheControl: "public, max-age=14400",
+        });
+      }
+      // Fall through to standard OG card if square generation failed.
     }
 
     const ogCardVersionSuffix = shareCoverVersion
@@ -2374,6 +2406,10 @@ function registerSharingRoutes(
       versionDir,
       `share_og_1200x630${ogCardVersionSuffix}${variantSuffix}.jpg`,
     );
+    const localArtworkCardPath = path.join(
+      versionDir,
+      `share_artwork_1200x630${ogCardVersionSuffix}.jpg`,
+    );
     const versionStoragePrefix = trackVersionKey({
       userId: track.user_id,
       trackId: track.id,
@@ -2381,16 +2417,35 @@ function registerSharingRoutes(
     });
     const ogCardKey = `${versionStoragePrefix}/share_og_1200x630${ogCardVersionSuffix}${variantSuffix}.jpg`;
 
+    // Current shares should use the real generated artwork as the default
+    // social card. The old branded card remains as a fallback for legacy/no-art
+    // shares or if Sharp fails to process the artwork.
+    if (localCoverPath && !fs.existsSync(localArtworkCardPath)) {
+      const artworkPreviewImage = await generateSongArtworkPreviewImage({
+        coverPath: localCoverPath,
+        width: 1200,
+        height: 630,
+      });
+      if (artworkPreviewImage) {
+        ensureDir(versionDir);
+        fs.writeFileSync(localArtworkCardPath, artworkPreviewImage);
+      }
+    }
+
     // Cover hydration already handled by pickCoverPath above. Only the
-    // pre-rendered OG card itself still needs an S3 hydrate attempt.
-    if (storageProvider.type !== "local" && !fs.existsSync(localOgCardPath)) {
+    // pre-rendered branded OG card itself still needs an S3 hydrate attempt.
+    if (
+      !fs.existsSync(localArtworkCardPath) &&
+      storageProvider.type !== "local" &&
+      !fs.existsSync(localOgCardPath)
+    ) {
       await ensureLocalFileFromStorage({
         key: ogCardKey,
         localPath: localOgCardPath,
       });
     }
 
-    if (!fs.existsSync(localOgCardPath)) {
+    if (!fs.existsSync(localArtworkCardPath) && !fs.existsSync(localOgCardPath)) {
       const ogGenerator =
         getSongOgGenerator(songVariant) || generateSongOgImage;
       const generatedOgImage = await ogGenerator({
@@ -2424,6 +2479,12 @@ function registerSharingRoutes(
 
     // Purge 0-byte OG cards left by previous "stream closed prematurely" bug
     if (
+      fs.existsSync(localArtworkCardPath) &&
+      fs.statSync(localArtworkCardPath).size === 0
+    ) {
+      fs.unlinkSync(localArtworkCardPath);
+    }
+    if (
       fs.existsSync(localOgCardPath) &&
       fs.statSync(localOgCardPath).size === 0
     ) {
@@ -2437,9 +2498,12 @@ function registerSharingRoutes(
       fs.unlinkSync(localCoverPath);
     }
 
+    const hasArtworkCard = fs.existsSync(localArtworkCardPath);
     const hasOgCard = fs.existsSync(localOgCardPath);
     const hasNativeCover = !!localCoverPath && fs.existsSync(localCoverPath);
-    const imagePath = hasOgCard
+    const imagePath = hasArtworkCard
+      ? localArtworkCardPath
+      : hasOgCard
       ? localOgCardPath
       : hasNativeCover
         ? localCoverPath
@@ -2449,7 +2513,9 @@ function registerSharingRoutes(
       return;
     }
 
-    const reason = hasOgCard
+    const reason = hasArtworkCard
+      ? "artwork_preview_available"
+      : hasOgCard
       ? "generated_og_available"
       : hasNativeCover
         ? "cover_available"
@@ -2458,7 +2524,7 @@ function registerSharingRoutes(
     await addShareAccessLog({
       shareTokenId: share.id,
       eventType:
-        hasOgCard || hasNativeCover
+        hasArtworkCard || hasOgCard || hasNativeCover
           ? "share_cover_served"
           : "share_cover_fallback_served",
       metadata: {

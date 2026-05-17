@@ -269,7 +269,39 @@ async function generateSongOgImageSquare({ title, recipientName, occasion, cover
   return finalBuffer;
 }
 
+/**
+ * Generate an artwork-first social preview image.
+ *
+ * This is the default for current song shares because the per-song artwork is
+ * the emotional conversion asset. Branded/text-heavy OG cards are useful as a
+ * fallback, but they make Facebook/WhatsApp shares look generic and less
+ * trustworthy than the actual gift image.
+ */
+async function generateSongArtworkPreviewImage({ coverPath, width = WIDTH, height = HEIGHT }) {
+  if (!coverPath) return null;
+
+  let sharp;
+  try {
+    sharp = require("sharp");
+  } catch (err) {
+    console.warn("[SongOgGenerator] sharp not installed, skipping artwork preview generation");
+    return null;
+  }
+
+  try {
+    return await sharp(coverPath)
+      .rotate()
+      .resize(width, height, { fit: "cover", position: "center" })
+      .jpeg({ quality: 92 })
+      .toBuffer();
+  } catch (err) {
+    console.warn(`[SongOgGenerator] Failed to generate artwork preview from ${coverPath}:`, err.message);
+    return null;
+  }
+}
+
 module.exports = {
   generateSongOgImage,
   generateSongOgImageSquare,
+  generateSongArtworkPreviewImage,
 };

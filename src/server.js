@@ -86,6 +86,7 @@ const { generatePoemOgImage } = require("./services/poem-og-generator");
 const {
   generateSongOgImage,
   generateSongOgImageSquare,
+  generateSongArtworkPreviewImage,
 } = require("./services/song-og-generator");
 const {
   getSongOgGenerator,
@@ -4909,6 +4910,7 @@ function buildServer({
     generateSongOgPreview,
     generateSongOgImage,
     generateSongOgImageSquare,
+    generateSongArtworkPreviewImage,
     getSongOgGenerator,
     generatePoemOgImage,
     getPoemOgGenerator,
