@@ -921,8 +921,11 @@ function registerSharingRoutes(
     // WhatsApp letterboxes 1200x630 images badly — serve a 1200x1200 square variant
     let ogImage, ogImageWidth, ogImageHeight;
     if (isWhatsApp) {
-      const avSuffix = artworkVersion ? `&av=${artworkVersion}` : "";
-      ogImage = `${publicBaseUrl}/share/${shareId}/cover.jpg?variant=whatsapp&_sc=${socialCacheToken || ""}${avSuffix}`;
+      ogImage = buildShareCoverUrl(shareId, {
+        socialCacheToken,
+        artworkVersion,
+        variant: "whatsapp",
+      });
       ogImageWidth = 1200;
       ogImageHeight = 1200;
     } else {
@@ -2977,7 +2980,7 @@ function registerSharingRoutes(
 
     reply.send({
       share_id: share.id,
-      share_url: buildPlayShareUrl(share.id),
+      share_url: buildPlayShareUrl(share.id, { socialCacheToken: Date.now() }),
       claim_pin: share.claim_pin,
       status: share.status,
       created_at: share.created_at,

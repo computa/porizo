@@ -902,11 +902,25 @@ function buildServer({
     return `${publicBaseUrl}/download?${query.toString()}`;
   }
 
-  function buildPlayShareUrl(shareId, { versioned = true } = {}) {
-    if (!versioned || !shareCoverVersion) {
-      return `${publicBaseUrl}/play/${shareId}`;
+  function buildPlayShareUrl(
+    shareId,
+    { versioned = true, socialCacheToken = null } = {},
+  ) {
+    const params = new URLSearchParams();
+    if (versioned && shareCoverVersion) {
+      params.set("sv", String(shareCoverVersion));
     }
-    return `${publicBaseUrl}/play/${shareId}?sv=${encodeURIComponent(String(shareCoverVersion))}`;
+    if (socialCacheToken) {
+      params.set("smv", String(socialCacheToken).slice(0, 64));
+    }
+    const query = params.toString();
+    return `${publicBaseUrl}/play/${shareId}${query ? `?${query}` : ""}`;
+  }
+
+  function buildFreshPlayShareUrl(shareId) {
+    return buildPlayShareUrl(shareId, {
+      socialCacheToken: Date.now(),
+    });
   }
 
   function buildPoemShareUrl(shareId, { versioned = true } = {}) {
@@ -978,7 +992,7 @@ function buildServer({
 
   function buildShareCoverUrl(
     shareId,
-    { socialCacheToken, artworkVersion } = {},
+    { socialCacheToken, artworkVersion, variant } = {},
   ) {
     const params = new URLSearchParams();
     if (shareCoverVersion) {
@@ -992,6 +1006,9 @@ function buildServer({
     // forcing WhatsApp/iMessage crawlers to re-fetch the OG card.
     if (artworkVersion) {
       params.set("av", String(artworkVersion));
+    }
+    if (variant) {
+      params.set("variant", String(variant));
     }
     const query = params.toString();
     const suffix = query ? `?${query}` : "";
@@ -3975,7 +3992,7 @@ function buildServer({
       can_edit: asBool(trackRow.can_edit),
       can_share: asBool(trackRow.can_share),
       can_delete: asBool(trackRow.can_delete),
-      share_url: hasShare ? buildPlayShareUrl(rest.share_token_id) : null,
+      share_url: hasShare ? buildFreshPlayShareUrl(rest.share_token_id) : null,
       claim_pin:
         hasShare && asBool(trackRow.can_edit) ? rest.share_claim_pin : null,
       share_expires_at: hasShare ? rest.share_expires_at : null,

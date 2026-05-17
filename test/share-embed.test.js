@@ -355,6 +355,33 @@ describe("Share Embed Routes", () => {
     );
   });
 
+  test("/play/:shareId gives WhatsApp a fresh square artwork preview", async (t) => {
+    if (!postgresAvailable) { t.skip("PostgreSQL not available"); return; }
+    const response = await app.inject({
+      method: "GET",
+      url: `/play/${testShareId}?sv=2&smv=whatsappfresh123`,
+      headers: {
+        "user-agent": "WhatsApp/2.24.1 i",
+      },
+    });
+
+    assert.equal(response.statusCode, 200);
+    const body = response.body;
+    assert.ok(
+      body.includes(`og:url" content="http://localhost:3999/play/${testShareId}?sv=2&amp;smv=whatsappfresh123"`),
+      "WhatsApp og:url should preserve the share URL cache token"
+    );
+    assert.ok(
+      body.includes(`/share/${testShareId}/cover.jpg?v=2&amp;smv=whatsappfresh123&amp;variant=whatsapp`),
+      "WhatsApp og:image should use the square variant while keeping the fresh social cache token"
+    );
+    assert.ok(
+      body.includes('og:image:width" content="1200') &&
+        body.includes('og:image:height" content="1200'),
+      "WhatsApp preview should declare the square 1200x1200 image dimensions"
+    );
+  });
+
   test("/poem/:shareId preserves request query params in og:url for social cache busting", async (t) => {
     if (!postgresAvailable) { t.skip("PostgreSQL not available"); return; }
     const response = await app.inject({
@@ -425,6 +452,10 @@ describe("Share Embed Routes", () => {
     assert.equal(body.share_id, testShareId);
     assert.equal(body.existing, true);
     assert.ok(body.share_url.includes(`/play/${testShareId}`));
+    assert.ok(
+      body.share_url.includes("smv="),
+      "API share payloads should include a fresh social preview token so app shares do not reuse stale unfurl cards"
+    );
 
     const variantRow = await db.query("SELECT og_variant FROM tracks WHERE id = $1", [testTrackId]);
     assert.equal(variantRow.rows[0].og_variant, "spotlight");

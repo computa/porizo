@@ -798,7 +798,7 @@ struct WarmCanvasFlowView: View {
     }
 
     private func presentShareSheet(url: URL, claimPin: String) {
-        let message = ShareMessageContent.activityMessage(
+        let message = SongSharePayloadBuilder.message(
             shareURL: url.absoluteString,
             claimPin: claimPin,
             recipientName: setup.recipientName,

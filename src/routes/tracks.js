@@ -1900,7 +1900,9 @@ function registerTrackRoutes(
     if (existingShare) {
       reply.send({
         share_id: existingShare.id,
-        share_url: buildPlayShareUrl(existingShare.id),
+        share_url: buildPlayShareUrl(existingShare.id, {
+          socialCacheToken: Date.now(),
+        }),
         qr_code_url: `https://cdn.porizo.local/qr/${existingShare.id}.png`,
         expires_at: existingShare.expires_at,
         claim_pin: existingShare.claim_pin,
@@ -1931,7 +1933,8 @@ function registerTrackRoutes(
       trackId: track.id,
       trackVersionId: trackVersion.id,
       userId,
-      buildShareUrl: buildPlayShareUrl,
+      buildShareUrl: (shareId) =>
+        buildPlayShareUrl(shareId, { socialCacheToken: Date.now() }),
       ensureShareMp4: () => ensureShareMp4({ track, trackVersion }),
       attribution: {
         utmSource: request.query.utm_source || body.utm_source || null,

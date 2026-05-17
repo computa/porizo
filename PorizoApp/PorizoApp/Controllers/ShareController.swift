@@ -412,7 +412,7 @@ struct ShareMessageContent: Sendable {
 
     /// Default message body for Messages, WhatsApp, system share sheet.
     var defaultMessage: String {
-        Self.activityMessage(
+        SongSharePayloadBuilder.message(
             shareURL: shareURL,
             claimPin: claimPin,
             recipientName: recipientName
