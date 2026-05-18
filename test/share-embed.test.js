@@ -16,6 +16,7 @@ const fs = require("fs");
 const path = require("path");
 const { execFileSync } = require("child_process");
 const crypto = require("crypto");
+const vm = require("vm");
 
 // --- Unit tests for generateShareMp4 ---
 
@@ -23,6 +24,14 @@ const { generateShareMp4, getFFmpegPath } = require("../src/utils/ffmpeg");
 const { writeWav } = require("../src/utils/audio");
 
 const TEST_DIR = path.join(__dirname, "..", "storage", "test-share-embed");
+const WEB_PLAYER_SCRIPT = path.join(__dirname, "..", "web-player", "player.js");
+
+function extractWebPlayerFunction(name) {
+  const source = fs.readFileSync(WEB_PLAYER_SCRIPT, "utf8");
+  const match = source.match(new RegExp(`  function ${name}\\([^)]*\\) \\{[\\s\\S]*?\\n  \\}`));
+  assert.ok(match, `Expected to find ${name} in web-player/player.js`);
+  return vm.runInNewContext(`${match[0]}\n${name};`);
+}
 
 function probeStreams(filePath) {
   const ffmpegPath = getFFmpegPath();
@@ -115,6 +124,24 @@ describe("generateShareMp4", () => {
       }),
       /Audio file not found/
     );
+  });
+});
+
+describe("letterbox web-player helpers", () => {
+  test("hashToPercent is deterministic for rollout bucketing", () => {
+    const hashToPercent = extractWebPlayerFunction("hashToPercent");
+    assert.equal(hashToPercent("Rrm8PRM3tlwV"), 99);
+    assert.equal(hashToPercent("Rrm8PRM3tlwV"), hashToPercent("Rrm8PRM3tlwV"));
+    assert.ok(hashToPercent("another-share-id") >= 0);
+    assert.ok(hashToPercent("another-share-id") < 100);
+  });
+
+  test("normalizeOccasionShort maps occasion slates", () => {
+    const normalizeOccasionShort = extractWebPlayerFunction("normalizeOccasionShort");
+    assert.equal(normalizeOccasionShort("mothers_day"), "M.DAY");
+    assert.equal(normalizeOccasionShort("Mother Day"), "M.DAY");
+    assert.equal(normalizeOccasionShort("birthday"), "B.DAY");
+    assert.equal(normalizeOccasionShort("unknown_custom"), "ORIG");
   });
 });
 
@@ -625,6 +652,104 @@ describe("Share Embed Routes", () => {
     assert.equal(typeof body.chapter_markers[0].label, "string");
     assert.equal(typeof body.chapter_markers[0].t_ms, "number");
     assert.equal(body.feature_flags.web_player_letterbox_enabled, false);
+  });
+
+  test("/share/:shareId derives chapter markers from lyrics sections", async (t) => {
+    if (!postgresAvailable) { t.skip("PostgreSQL not available"); return; }
+    const lyricsJson = {
+      sections: [
+        { name: "intro", startTime: 0, lines: ["A"] },
+        { name: "verse_one", startTime: 12.5, lines: ["B", "C"] },
+        { name: "chorus", startTime: 34, lines: ["D"] },
+      ],
+    };
+    await db.query(
+      `UPDATE track_versions SET lyrics_json = $1 WHERE id = $2`,
+      [JSON.stringify(lyricsJson), testVersionId]
+    );
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/share/${testShareId}`,
+    });
+
+    assert.equal(response.statusCode, 200);
+    const body = JSON.parse(response.body);
+    assert.deepEqual(
+      body.chapter_markers.map((marker) => marker.label),
+      ["Intro", "Verse One", "Chorus"]
+    );
+    assert.equal(body.chapter_markers[1].t_ms, 12500);
+    assert.equal(body.chapter_markers[2].t_ms, 34000);
+  });
+
+  test("/share/:shareId dedupes nearby same-label sections and caps chapters at six", async (t) => {
+    if (!postgresAvailable) { t.skip("PostgreSQL not available"); return; }
+    const lyricsJson = {
+      sections: [
+        { name: "intro", startTime: 0, lines: ["A"] },
+        { name: "intro", startTime: 2, lines: ["B"] },
+        { name: "verse", startTime: 8, lines: ["C"] },
+        { name: "pre_chorus", startTime: 16, lines: ["D"] },
+        { name: "chorus", startTime: 24, lines: ["E"] },
+        { name: "bridge", startTime: 36, lines: ["F"] },
+        { name: "final_chorus", startTime: 48, lines: ["G"] },
+        { name: "outro", startTime: 56, lines: ["H"] },
+      ],
+    };
+    await db.query(
+      `UPDATE track_versions SET lyrics_json = $1 WHERE id = $2`,
+      [JSON.stringify(lyricsJson), testVersionId]
+    );
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/share/${testShareId}`,
+    });
+
+    assert.equal(response.statusCode, 200);
+    const body = JSON.parse(response.body);
+    assert.equal(body.chapter_markers.length, 6);
+    assert.deepEqual(
+      body.chapter_markers.map((marker) => marker.label),
+      ["Intro", "Verse", "Pre Chorus", "Chorus", "Bridge", "Final Chorus"]
+    );
+  });
+
+  test("/share/:shareId exposes enabled letterbox flag payload", async (t) => {
+    if (!postgresAvailable) { t.skip("PostgreSQL not available"); return; }
+    await db.query(
+      `UPDATE feature_flags SET value = $1, updated_at = CURRENT_TIMESTAMP, updated_by = 'test'
+       WHERE id = 'web_player_letterbox_enabled'`,
+      ["true"]
+    );
+    await db.query(
+      `UPDATE feature_flags SET value = $1, updated_at = CURRENT_TIMESTAMP, updated_by = 'test'
+       WHERE id = 'web_player_letterbox_rollout_percent'`,
+      ["25"]
+    );
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/share/${testShareId}`,
+    });
+
+    assert.equal(response.statusCode, 200);
+    const body = JSON.parse(response.body);
+    assert.equal(body.feature_flags.web_player_letterbox_enabled, true);
+    assert.equal(body.feature_flags.web_player_letterbox_rollout_percent, 25);
+    assert.deepEqual(body.track.chapter_markers, body.chapter_markers);
+
+    await db.query(
+      `UPDATE feature_flags SET value = $1, updated_at = CURRENT_TIMESTAMP, updated_by = 'test'
+       WHERE id = 'web_player_letterbox_enabled'`,
+      ["false"]
+    );
+    await db.query(
+      `UPDATE feature_flags SET value = $1, updated_at = CURRENT_TIMESTAMP, updated_by = 'test'
+       WHERE id = 'web_player_letterbox_rollout_percent'`,
+      ["0"]
+    );
   });
 
   test("/share/:shareId/cover.jpg falls back to default cover when track version is missing", async (t) => {

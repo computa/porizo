@@ -4,8 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <!-- Theme: warm cream on light, warm-toned dark on dark. Matches the paper-art canvas. -->
-  <meta name="color-scheme" content="dark">
-  <meta name="theme-color" content="#000000">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#FFF8F0" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#1A0F08" media="(prefers-color-scheme: dark)">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="{{OG_TITLE}}">
@@ -56,7 +57,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&family=Crimson+Pro:ital,wght@0,400;0,500;0,600;1,400&family=Playfair+Display:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/web-player/styles.css?v=20260518-letterbox3">
+  <link rel="stylesheet" href="/web-player/styles.css?v=20260518-letterbox4">
 </head>
 <body>
   <div class="container">
@@ -204,6 +205,12 @@
         <span class="letterbox-burn-in" id="letterbox-burn-in"><span>TC</span> 01:00:00:00</span>
       </div>
 
+      <div class="letterbox-title-block" id="letterbox-title-block" aria-hidden="true">
+        <p class="letterbox-title-kicker" id="letterbox-title-kicker">A song for</p>
+        <p class="letterbox-title-main" id="letterbox-title-main">Someone</p>
+        <p class="letterbox-title-credit" id="letterbox-title-credit">An original song</p>
+      </div>
+
       <!-- Lyrics stage — full viewport, center-locked scrolling -->
       <div class="lyrics-stage" id="lyrics-container">
         <div class="lyrics-scroll" id="lyrics-scroll">
@@ -315,6 +322,6 @@
   <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.7/dist/hls.min.js"
           integrity="sha384-1B+J55elPxu+trIhW7QThjZg3evX8C5P6zjB82Xnn46RKPAXpL+vkanRSjCidsJv"
           crossorigin="anonymous"></script>
-  <script src="/web-player/player.js?v=20260518-letterbox3"></script>
+  <script src="/web-player/player.js?v=20260518-letterbox4"></script>
 </body>
 </html>

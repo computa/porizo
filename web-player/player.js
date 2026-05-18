@@ -106,6 +106,10 @@
     letterboxVoice: document.getElementById('letterbox-voice'),
     letterboxFrameCounter: document.getElementById('letterbox-frame-counter'),
     letterboxBurnIn: document.getElementById('letterbox-burn-in'),
+    letterboxTitleBlock: document.getElementById('letterbox-title-block'),
+    letterboxTitleKicker: document.getElementById('letterbox-title-kicker'),
+    letterboxTitleMain: document.getElementById('letterbox-title-main'),
+    letterboxTitleCredit: document.getElementById('letterbox-title-credit'),
     letterboxSubtitlePrev: document.getElementById('letterbox-subtitle-prev'),
     letterboxSubtitleActive: document.getElementById('letterbox-subtitle-active'),
     letterboxWaveform: document.getElementById('letterbox-waveform'),
@@ -292,6 +296,17 @@
     return Math.abs(hash >>> 0) % 100;
   }
 
+  function hashToNumber(value, modulo) {
+    var input = String(value || '');
+    var hash = 2166136261;
+    for (var i = 0; i < input.length; i++) {
+      hash ^= input.charCodeAt(i);
+      hash = Math.imul(hash, 16777619);
+    }
+    const size = Number(modulo);
+    return Math.abs(hash >>> 0) % (Number.isFinite(size) && size > 0 ? size : 1000);
+  }
+
   function shouldUseLetterbox() {
     const override = getLetterboxOverride();
     if (override !== null) return override;
@@ -318,6 +333,12 @@
       thank_you: 'THX',
     };
     return map[normalized] || 'ORIG';
+  }
+
+  function getOccasionLabel(value) {
+    const normalized = String(value || '').trim();
+    if (!normalized) return 'Original Song';
+    return capitalizeOccasion(normalized);
   }
 
   function formatYear(value) {
@@ -357,9 +378,11 @@
     const trackInfo = getTrackInfo();
     if (!trackInfo) return;
     const trackId = String(trackInfo.id || shareId || '000');
-    const trackSuffix = trackId.replace(/[^a-zA-Z0-9]/g, '').slice(-3).toUpperCase().padStart(3, '0');
+    const trackSuffix = String(hashToNumber(trackId, 1000)).padStart(3, '0');
     const senderName = (trackInfo.sender_name || '').trim();
     const recipientName = (trackInfo.recipient_name || '').trim();
+    const year = formatYear(trackInfo.created_at);
+    const occasionLabel = getOccasionLabel(trackInfo.occasion);
 
     if (elements.letterboxSlateOccasion) {
       elements.letterboxSlateOccasion.textContent = normalizeOccasionShort(trackInfo.occasion);
@@ -368,7 +391,7 @@
       elements.letterboxSlateTrack.textContent = `TRACK ${trackSuffix}`;
     }
     if (elements.letterboxSlateYear) {
-      elements.letterboxSlateYear.textContent = `REL. ${formatYear(trackInfo.created_at)}`;
+      elements.letterboxSlateYear.textContent = `REL. ${year}`;
     }
     if (elements.letterboxVoice) {
       if (senderName) {
@@ -378,6 +401,22 @@
       } else {
         elements.letterboxVoice.textContent = 'An original song';
       }
+    }
+    if (elements.letterboxTitleKicker) {
+      elements.letterboxTitleKicker.textContent = recipientName ? 'A song for' : 'An original song';
+    }
+    if (elements.letterboxTitleMain) {
+      elements.letterboxTitleMain.textContent = recipientName || 'Someone';
+    }
+    if (elements.letterboxTitleCredit) {
+      const credit = senderName ? `Composed by ${senderName}` : 'Made with Porizo';
+      elements.letterboxTitleCredit.textContent = `${credit} · ${occasionLabel} ${year}`;
+    }
+  }
+
+  function syncDocumentChrome() {
+    if (document.documentElement) {
+      document.documentElement.style.colorScheme = letterboxEnabled ? 'dark' : '';
     }
   }
 
@@ -506,7 +545,8 @@
     if (clipRect) clipRect.setAttribute('width', String((pct / 100) * 220));
     if (elements.letterboxProgressDot) elements.letterboxProgressDot.style.left = `${pct}%`;
     if (elements.letterboxFrameCounter) {
-      elements.letterboxFrameCounter.textContent = `${formatTimecode(safeCurrent, false)}/${formatTimecode(safeDuration, false)}`;
+      elements.letterboxFrameCounter.textContent =
+        `${formatTimecode(3600 + safeCurrent, true)}/${formatTimecode(3600 + safeDuration, true)}`;
     }
     if (elements.letterboxBurnIn) {
       elements.letterboxBurnIn.textContent = `TC ${formatTimecode(3600 + safeCurrent, true)}`;
@@ -520,15 +560,18 @@
     if (elements.letterboxSubtitlePrev) {
       elements.letterboxSubtitlePrev.textContent = previous ? previous.text : '';
     }
-    elements.letterboxSubtitleActive.textContent = active ? active.text : 'Press play to hear the song';
+    elements.letterboxSubtitleActive.classList.toggle('is-placeholder', !active);
+    elements.letterboxSubtitleActive.textContent = active ? active.text : 'Press play to begin';
   }
 
   function applyLetterboxMode() {
     letterboxEnabled = shouldUseLetterbox();
     if (!elements.player) return;
     elements.player.classList.toggle('letterbox', letterboxEnabled);
+    syncDocumentChrome();
     if (!letterboxEnabled) {
       elements.player.classList.remove('letterbox-opened');
+      elements.player.classList.remove('letterbox-playing');
       return;
     }
     setLetterboxMeta();
@@ -1121,6 +1164,9 @@
       elements.playIcon.style.display = 'block';
       elements.pauseIcon.style.display = 'none';
       if (elements.playBtn) elements.playBtn.setAttribute('aria-label', 'Play');
+    }
+    if (elements.player) {
+      elements.player.classList.toggle('letterbox-playing', letterboxEnabled && isPlaying);
     }
   }
 

@@ -841,10 +841,12 @@ body {
 
 .letterbox-top,
 .letterbox-reticles,
+.letterbox-title-block,
 .letterbox-subtitle,
 .letterbox-waveform,
 .letterbox-chapters,
 .letterbox-progress-dot {
+  /* Letterbox helpers default to hidden; #player.letterbox reveals them. */
   display: none;
 }
 
@@ -987,14 +989,20 @@ body {
 
 #player.letterbox .player-artwork-image {
   position: absolute;
-  inset: 13vh 0 14vh;
+  top: 13vh;
+  bottom: 14vh;
+  left: 50%;
+  right: auto;
   z-index: 1;
-  width: 100%;
+  width: auto;
+  max-width: 100%;
   height: calc(100% - 27vh);
   object-fit: contain;
   object-position: center;
-  transform: none;
+  transform: translateX(-50%);
   filter: saturate(1.02) brightness(0.98) contrast(1.02);
+  -webkit-mask-image: radial-gradient(ellipse 49% 64% at 50% 50%, #000 67%, rgba(0, 0, 0, 0.82) 82%, transparent 100%);
+  mask-image: radial-gradient(ellipse 49% 64% at 50% 50%, #000 67%, rgba(0, 0, 0, 0.82) 82%, transparent 100%);
 }
 
 #player.letterbox .player-artwork-backdrop::before {
@@ -1002,7 +1010,7 @@ body {
   background-image: var(--player-artwork-url);
   background-size: cover;
   background-position: center;
-  filter: blur(34px) saturate(0.8) brightness(0.58);
+  filter: blur(34px) saturate(0.88) brightness(0.78);
   transform: scale(1.08);
 }
 
@@ -1057,6 +1065,9 @@ body {
   background: rgba(212, 165, 116, 0.92);
   box-shadow: 0 0 16px rgba(212, 165, 116, 0.55), inset 0 0 4px rgba(255, 228, 180, 0.5);
   opacity: 0;
+}
+
+#player.letterbox.letterbox-playing .letterbox-cue-dot {
   animation: letterboxCue 14s 4s infinite ease-out;
 }
 
@@ -1078,6 +1089,51 @@ body {
   color: rgba(245, 245, 240, 0.52);
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.95);
   font-variant-numeric: tabular-nums;
+}
+
+#player.letterbox .letterbox-title-block {
+  position: absolute;
+  left: clamp(32px, 5vw, 78px);
+  bottom: calc(14vh + 94px);
+  z-index: 13;
+  display: block;
+  max-width: min(540px, 42vw);
+  color: rgba(245, 245, 240, 0.92);
+  text-shadow:
+    0 2px 22px rgba(0, 0, 0, 0.95),
+    0 1px 4px rgba(0, 0, 0, 0.9);
+  pointer-events: none;
+}
+
+.letterbox-title-kicker,
+.letterbox-title-main,
+.letterbox-title-credit {
+  margin: 0;
+}
+
+.letterbox-title-kicker {
+  font-family: var(--letterbox-mono);
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: rgba(212, 165, 116, 0.68);
+}
+
+.letterbox-title-main {
+  margin-top: 4px;
+  font-family: var(--letterbox-serif);
+  font-size: clamp(42px, 5.3vw, 82px);
+  font-style: italic;
+  line-height: 0.95;
+  color: var(--letterbox-ivory);
+}
+
+.letterbox-title-credit {
+  margin-top: 16px;
+  font-family: 'DM Sans', system-ui, sans-serif;
+  font-size: clamp(14px, 1.35vw, 19px);
+  line-height: 1.4;
+  color: rgba(245, 245, 240, 0.68);
 }
 
 #player.letterbox .lyrics-stage {
@@ -1134,6 +1190,14 @@ body {
   font-size: 27px;
   line-height: 1.38;
   color: var(--letterbox-ivory);
+}
+
+.letterbox-subtitle-active.is-placeholder {
+  font-family: var(--letterbox-mono);
+  font-size: 14px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(245, 245, 240, 0.56);
 }
 
 .letterbox-subtitle-active::after {
@@ -1206,12 +1270,35 @@ body {
 }
 
 #player.letterbox .play-button {
+  position: relative;
   width: 44px;
   height: 44px;
   border: 1px solid rgba(212, 165, 116, 0.72);
-  background: transparent;
+  background:
+    radial-gradient(circle at center, rgba(212, 165, 116, 0.16) 0 24%, transparent 25% 42%, rgba(212, 165, 116, 0.14) 43% 45%, transparent 46%);
   color: var(--letterbox-gold);
   box-shadow: none;
+  overflow: hidden;
+}
+
+#player.letterbox .play-button::before,
+#player.letterbox .play-button::after {
+  content: "";
+  position: absolute;
+  inset: 7px;
+  border: 1px solid rgba(212, 165, 116, 0.32);
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+#player.letterbox .play-button::after {
+  inset: 14px;
+  border-color: rgba(212, 165, 116, 0.45);
+}
+
+#player.letterbox .play-button svg {
+  position: relative;
+  z-index: 1;
 }
 
 #player.letterbox .play-button:hover {
@@ -1357,6 +1444,22 @@ body {
   text-align: right;
 }
 
+#player.letterbox .post-play-cta {
+  position: absolute;
+  inset: 13vh 0 14vh;
+  z-index: 30;
+  min-height: 0;
+}
+
+#player.letterbox .post-play-cta .cta-headline {
+  color: var(--letterbox-ivory);
+}
+
+#player.letterbox .post-play-cta .cta-button {
+  background: var(--letterbox-gold);
+  color: #090604;
+}
+
 @media (max-width: 768px) {
   #player.letterbox .letterbox-top {
     height: 56px;
@@ -1395,11 +1498,19 @@ body {
   }
 
   #player.letterbox .player-artwork-image {
-    inset: 56px 0 300px;
+    top: 56px;
+    bottom: 300px;
+    left: 50%;
+    right: auto;
+    width: auto;
+    max-width: 100%;
     height: calc(100% - 356px);
     object-fit: contain;
     object-position: center top;
-    filter: saturate(0.98) brightness(0.9) contrast(1.02);
+    transform: translateX(-50%);
+    filter: saturate(0.98) brightness(0.92) contrast(1.02);
+    -webkit-mask-image: linear-gradient(180deg, #000 0%, #000 82%, transparent 100%);
+    mask-image: linear-gradient(180deg, #000 0%, #000 82%, transparent 100%);
   }
 
   #player.letterbox .letterbox-reticles {
@@ -1422,6 +1533,10 @@ body {
     bottom: 18px;
     font-size: 9px;
     letter-spacing: 0.14em;
+  }
+
+  #player.letterbox .letterbox-title-block {
+    display: none;
   }
 
   #player.letterbox .lyrics-stage {
@@ -1463,6 +1578,10 @@ body {
     justify-content: flex-start;
     gap: 12px;
     padding: 16px 20px max(16px, env(safe-area-inset-bottom));
+  }
+
+  #player.letterbox .post-play-cta {
+    inset: 56px 0 300px;
   }
 
   #player.letterbox .track-info {
@@ -2045,7 +2164,6 @@ body {
     opacity: 0.8;
   }
 
-  #player.letterbox .player-artwork-image,
   #player.letterbox .play-button:hover {
     transform: none !important;
   }
