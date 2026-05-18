@@ -1,4 +1,8 @@
 const { generateSongArtwork } = require("../services/song-artwork");
+const { extractArtworkVars } = require("../services/artwork-vars-extractor");
+const {
+  getDefault: getArtworkVarsDefault,
+} = require("../services/artwork-vocab");
 const { notifyArtworkReady } = require("../workflows/artwork-barrier");
 const { newUuid } = require("../utils/ids");
 
@@ -23,6 +27,11 @@ const SQL_GET_LATEST_VERSION = `
   LIMIT 1
 `;
 
+const SQL_GET_VERSION_LYRICS = `
+  SELECT lyrics_json FROM track_versions
+  WHERE id = ?
+`;
+
 const SQL_GET_ENTITLEMENT = `
   SELECT tier, admin_upgrade_tier, admin_upgrade_expires_at
   FROM entitlements
@@ -39,6 +48,17 @@ const SQL_UPDATE_ARTWORK = `
     artwork_content_hash = ?,
     artwork_moderation_passed = ?,
     artwork_generated_at = ?
+  WHERE id = ?
+`;
+
+// Persists the picked vars + provenance to the per-version row. Lives on
+// track_versions (not tracks) so preview and full each carry their own
+// extractor output — see migration 113.
+const SQL_UPDATE_ARTWORK_VARS = `
+  UPDATE track_versions SET
+    artwork_vars_json = ?,
+    artwork_provider = ?,
+    artwork_prompt_version = ?
   WHERE id = ?
 `;
 
@@ -121,6 +141,7 @@ async function runArtworkJob({
   attempt = 1,
   logger = console,
   generateFn = generateSongArtwork,
+  extractVarsFn = extractArtworkVars,
   tierResolver,
   generateDependencies = {},
 }) {
@@ -167,6 +188,7 @@ async function runArtworkJob({
       attempt,
       logger,
       generateFn,
+      extractVarsFn,
       tierResolver,
       generateDependencies,
     });
@@ -183,6 +205,7 @@ async function runArtworkJobInner({
   attempt,
   logger,
   generateFn,
+  extractVarsFn,
   tierResolver,
   generateDependencies,
 }) {
@@ -239,10 +262,24 @@ async function runArtworkJobInner({
       err,
       logger,
       generateFn,
+      extractVarsFn,
       generateDependencies,
       tierResolver,
     });
   }
+
+  // Lyrics → bounded-vocab vars must run BEFORE generateFn so paid renders
+  // get the Haiku-picked artwork variables instead of occasion defaults.
+  // Extraction is best-effort: any failure collapses to the occasion default
+  // so a flaky Haiku call never blocks the render.
+  const artworkVars = await resolveArtworkVars({
+    db,
+    trackId,
+    versionId,
+    occasion: track.occasion,
+    extractVarsFn,
+    logger,
+  });
 
   try {
     const result = await generateFn({
@@ -252,6 +289,7 @@ async function runArtworkJobInner({
       recipientName: track.recipient_name,
       senderName: track.sender_display_name || null,
       tier: tier || "free",
+      artworkVars,
       previousContentHash: track.artwork_content_hash || null,
       dependencies: generateDependencies,
     });
@@ -260,18 +298,25 @@ async function runArtworkJobInner({
       logger.info(
         `[ArtworkJob] Track ${trackId} unchanged (content_hash match) — skipped.`,
       );
-      if (versionId) await markArtworkReady(db, versionId, true, logger);
+      if (versionId) {
+        await persistArtworkVars(db, versionId, result, artworkVars, logger);
+        await markArtworkReady(db, versionId, true, logger);
+      }
       if (jobId) await completeJob(db, jobId, logger);
       return { ok: true, skipped: true, result };
     }
 
     await persistArtwork(db, trackId, result);
-    if (versionId) await markArtworkReady(db, versionId, true, logger);
+    if (versionId) {
+      await persistArtworkVars(db, versionId, result, artworkVars, logger);
+      await markArtworkReady(db, versionId, true, logger);
+    }
     if (jobId) await completeJob(db, jobId, logger);
 
     logger.info(
       `[ArtworkJob] Track ${trackId} artwork ready ` +
-        `(source=${result.source}, style=${result.styleVariant})`,
+        `(source=${result.source}, provider=${result.provider || "n/a"}, ` +
+        `species=${(result.artworkVars && result.artworkVars.species) || artworkVars.species})`,
     );
     return { ok: true, result };
   } catch (err) {
@@ -302,6 +347,7 @@ async function runArtworkJobInner({
       err,
       logger,
       generateFn,
+      extractVarsFn,
       generateDependencies,
       tierResolver,
     });
@@ -317,6 +363,7 @@ async function scheduleRetry({
   err,
   logger,
   generateFn,
+  extractVarsFn,
   generateDependencies,
   tierResolver,
 }) {
@@ -350,6 +397,7 @@ async function scheduleRetry({
       attempt: attempt + 1,
       logger,
       generateFn,
+      extractVarsFn,
       generateDependencies,
       tierResolver,
     });
@@ -386,11 +434,14 @@ function effectiveTierFromRow(entitlement) {
 
 async function persistArtwork(db, trackId, result) {
   const moderationFlag = boolToDbValue(result.moderationPassed);
+  // artwork_style_variant column lives on `tracks` (migration 109) but the
+  // post-Task-7 generate shape no longer emits styleVariant — vars+provenance
+  // are now per-version in artwork_vars_json. Keep the column slot, write null.
   await db
     .prepare(SQL_UPDATE_ARTWORK)
     .run(
       result.artworkUrl,
-      result.styleVariant,
+      null,
       result.source,
       result.provider,
       result.prompt,
@@ -399,6 +450,76 @@ async function persistArtwork(db, trackId, result) {
       toIsoString(result.generatedAt),
       trackId,
     );
+}
+
+async function persistArtworkVars(
+  db,
+  trackVersionId,
+  result,
+  fallbackVars,
+  logger,
+) {
+  if (!trackVersionId) return;
+  const vars = (result && result.artworkVars) || fallbackVars || null;
+  const provider = (result && result.provider) || null;
+  const promptVersion = (result && result.promptVersion) || null;
+  try {
+    await db
+      .prepare(SQL_UPDATE_ARTWORK_VARS)
+      .run(
+        vars ? JSON.stringify(vars) : null,
+        provider,
+        promptVersion,
+        trackVersionId,
+      );
+  } catch (err) {
+    // The vars columns are new (migration 113). Test schemas may not have
+    // them — fail-soft, matching how the job already treats jobs-row
+    // updates. The core artwork URL was already persisted above.
+    (logger || console).warn(
+      `[ArtworkJob] Failed to persist artwork vars on track_version ${trackVersionId}: ${err.message}`,
+    );
+  }
+}
+
+async function resolveArtworkVars({
+  db,
+  trackId,
+  versionId,
+  occasion,
+  extractVarsFn,
+  logger,
+}) {
+  const fallback = () => ({
+    ...getArtworkVarsDefault(occasion),
+    picked_by: "fallback_extractor_error",
+    picked_at: new Date().toISOString(),
+  });
+  if (typeof extractVarsFn !== "function") return fallback();
+  try {
+    let lyrics = "";
+    if (versionId) {
+      const row = await db.prepare(SQL_GET_VERSION_LYRICS).get(versionId);
+      const lyricsJson = row && row.lyrics_json;
+      if (lyricsJson) {
+        try {
+          const parsed =
+            typeof lyricsJson === "string"
+              ? JSON.parse(lyricsJson)
+              : lyricsJson;
+          lyrics = parsed.text || parsed.lyrics || JSON.stringify(parsed);
+        } catch {
+          lyrics = String(lyricsJson);
+        }
+      }
+    }
+    return await extractVarsFn({ lyrics, occasion, logger });
+  } catch (err) {
+    (logger || console).warn(
+      `[artwork-job] vars extraction failed for track ${trackId}: ${err.message}; using occasion defaults`,
+    );
+    return fallback();
+  }
 }
 
 async function markArtworkReady(db, trackVersionId, ready, logger) {
@@ -450,6 +571,7 @@ function enqueueArtworkJob({
   trackVersionId,
   logger = console,
   tierResolver,
+  extractVarsFn,
   generateDependencies,
 }) {
   if (!db || !trackId || !trackVersionId) {
@@ -480,6 +602,7 @@ function enqueueArtworkJob({
       jobId,
       logger,
       tierResolver,
+      extractVarsFn,
       generateDependencies,
     }).catch((err) => {
       logger.error(
@@ -501,6 +624,7 @@ async function recoverOrphanedArtworkJobs({
   db,
   logger = console,
   tierResolver,
+  extractVarsFn,
   generateDependencies,
 } = {}) {
   if (!db) {
@@ -546,6 +670,7 @@ async function recoverOrphanedArtworkJobs({
         attempt: Math.min((row.attempts || 0) + 1, MAX_ATTEMPTS),
         logger,
         tierResolver,
+        extractVarsFn,
         generateDependencies,
       }).catch((err) => {
         logger.error(
@@ -591,8 +716,10 @@ module.exports = {
   // Exposed for tests
   SQL_GET_TRACK,
   SQL_GET_LATEST_VERSION,
+  SQL_GET_VERSION_LYRICS,
   SQL_GET_ENTITLEMENT,
   SQL_UPDATE_ARTWORK,
+  SQL_UPDATE_ARTWORK_VARS,
   SQL_MARK_ARTWORK_READY,
   SQL_INSERT_ARTWORK_JOB,
   SQL_MARK_JOB_RUNNING,
