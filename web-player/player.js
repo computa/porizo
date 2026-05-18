@@ -42,6 +42,9 @@
   let teaserPlayerBound = false;
   let teaserUnlockCtaBound = false;
   let teaserShareBound = false;
+  let letterboxEnabled = false;
+  let letterboxWaveformBuilt = false;
+  let letterboxChaptersBuilt = false;
 
   let teaserAudio = null;
   let teaserPlaying = false;
@@ -96,6 +99,18 @@
     player: document.getElementById('player'),
     playerArtworkBackdrop: document.getElementById('player-artwork-backdrop'),
     playerArtworkImage: document.getElementById('player-artwork-image'),
+    letterboxTop: document.getElementById('letterbox-top'),
+    letterboxSlateOccasion: document.getElementById('letterbox-slate-occasion'),
+    letterboxSlateTrack: document.getElementById('letterbox-slate-track'),
+    letterboxSlateYear: document.getElementById('letterbox-slate-year'),
+    letterboxVoice: document.getElementById('letterbox-voice'),
+    letterboxFrameCounter: document.getElementById('letterbox-frame-counter'),
+    letterboxBurnIn: document.getElementById('letterbox-burn-in'),
+    letterboxSubtitlePrev: document.getElementById('letterbox-subtitle-prev'),
+    letterboxSubtitleActive: document.getElementById('letterbox-subtitle-active'),
+    letterboxWaveform: document.getElementById('letterbox-waveform'),
+    letterboxChapters: document.getElementById('letterbox-chapters'),
+    letterboxProgressDot: document.getElementById('letterbox-progress-dot'),
   };
 
   // Utilities
@@ -257,6 +272,271 @@
     if (senderName) return `From ${senderName}`;
     if (recipientName) return `Made for ${recipientName}`;
     return 'Open the gift and listen.';
+  }
+
+  function getLetterboxOverride() {
+    const params = new URLSearchParams(window.location.search);
+    const value = params.get('letterbox');
+    if (value === '1' || value === 'true') return true;
+    if (value === '0' || value === 'false') return false;
+    return null;
+  }
+
+  function hashToPercent(value) {
+    var input = String(value || '');
+    var hash = 2166136261;
+    for (var i = 0; i < input.length; i++) {
+      hash ^= input.charCodeAt(i);
+      hash = Math.imul(hash, 16777619);
+    }
+    return Math.abs(hash >>> 0) % 100;
+  }
+
+  function shouldUseLetterbox() {
+    const override = getLetterboxOverride();
+    if (override !== null) return override;
+    const flags = shareData && shareData.feature_flags ? shareData.feature_flags : {};
+    if (!flags.web_player_letterbox_enabled) return false;
+    const rollout = Number(flags.web_player_letterbox_rollout_percent || 0);
+    if (!Number.isFinite(rollout) || rollout <= 0) return false;
+    if (rollout >= 100) return true;
+    return hashToPercent(shareId) < rollout;
+  }
+
+  function normalizeOccasionShort(value) {
+    const normalized = String(value || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+    const map = {
+      mothers_day: 'M.DAY',
+      mother_day: 'M.DAY',
+      birthday: 'B.DAY',
+      anniversary: 'A.DAY',
+      valentines: 'V.DAY',
+      valentine: 'V.DAY',
+      christmas: 'XMAS',
+      wedding: 'WED.',
+      friendship: 'FRND',
+      thank_you: 'THX',
+    };
+    return map[normalized] || 'ORIG';
+  }
+
+  function formatYear(value) {
+    const date = value ? new Date(value) : new Date();
+    const year = date.getFullYear();
+    return Number.isFinite(year) ? String(year) : String(new Date().getFullYear());
+  }
+
+  function formatTimecode(seconds, includeHour) {
+    const fps = 24;
+    const safe = Number.isFinite(seconds) && seconds > 0 ? seconds : 0;
+    const totalFrames = Math.floor(safe * fps);
+    const frames = totalFrames % fps;
+    const totalSeconds = Math.floor(totalFrames / fps);
+    const secs = totalSeconds % 60;
+    const mins = Math.floor(totalSeconds / 60) % 60;
+    const hours = Math.floor(totalSeconds / 3600);
+    const mm = String(mins).padStart(2, '0');
+    const ss = String(secs).padStart(2, '0');
+    const ff = String(frames).padStart(2, '0');
+    if (includeHour) {
+      return `${String(hours).padStart(2, '0')}:${mm}:${ss}:${ff}`;
+    }
+    return `${mm}:${ss}:${ff}`;
+  }
+
+  function getDurationSeconds(trackInfo) {
+    const audio = elements.audioPlayer;
+    if (audio && Number.isFinite(audio.duration) && audio.duration > 0) return audio.duration;
+    const ms = Number(trackInfo && trackInfo.duration_ms);
+    if (Number.isFinite(ms) && ms > 0) return ms / 1000;
+    const seconds = Number(trackInfo && trackInfo.duration_sec);
+    return Number.isFinite(seconds) && seconds > 0 ? seconds : 60;
+  }
+
+  function setLetterboxMeta() {
+    const trackInfo = getTrackInfo();
+    if (!trackInfo) return;
+    const trackId = String(trackInfo.id || shareId || '000');
+    const trackSuffix = trackId.replace(/[^a-zA-Z0-9]/g, '').slice(-3).toUpperCase().padStart(3, '0');
+    const senderName = (trackInfo.sender_name || '').trim();
+    const recipientName = (trackInfo.recipient_name || '').trim();
+
+    if (elements.letterboxSlateOccasion) {
+      elements.letterboxSlateOccasion.textContent = normalizeOccasionShort(trackInfo.occasion);
+    }
+    if (elements.letterboxSlateTrack) {
+      elements.letterboxSlateTrack.textContent = `TRACK ${trackSuffix}`;
+    }
+    if (elements.letterboxSlateYear) {
+      elements.letterboxSlateYear.textContent = `REL. ${formatYear(trackInfo.created_at)}`;
+    }
+    if (elements.letterboxVoice) {
+      if (senderName) {
+        elements.letterboxVoice.textContent = `In ${senderName}'s voice`;
+      } else if (recipientName) {
+        elements.letterboxVoice.textContent = `A song for ${recipientName}`;
+      } else {
+        elements.letterboxVoice.textContent = 'An original song';
+      }
+    }
+  }
+
+  function markLetterboxCurtainOpened() {
+    if (!elements.player || prefersReducedMotion) {
+      if (elements.player) elements.player.classList.add('letterbox-opened');
+      return;
+    }
+    const key = shareId ? `porizo_letterbox_opened_${shareId}` : 'porizo_letterbox_opened';
+    let alreadyOpened = false;
+    try {
+      alreadyOpened = window.sessionStorage.getItem(key) === '1';
+      window.sessionStorage.setItem(key, '1');
+    } catch (_e) {
+      alreadyOpened = false;
+    }
+    if (alreadyOpened) {
+      elements.player.classList.add('letterbox-opened');
+      return;
+    }
+    requestAnimationFrame(function() {
+      requestAnimationFrame(function() {
+        elements.player.classList.add('letterbox-opened');
+      });
+    });
+  }
+
+  function buildLetterboxWaveform() {
+    if (!elements.letterboxWaveform || letterboxWaveformBuilt) return;
+    letterboxWaveformBuilt = true;
+    const svgNs = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(svgNs, 'svg');
+    svg.setAttribute('viewBox', '0 0 220 40');
+    svg.setAttribute('preserveAspectRatio', 'none');
+    const baseGroup = document.createElementNS(svgNs, 'g');
+    baseGroup.setAttribute('class', 'wf-base');
+    const playedGroup = document.createElementNS(svgNs, 'g');
+    playedGroup.setAttribute('class', 'wf-played');
+    const clip = document.createElementNS(svgNs, 'clipPath');
+    clip.setAttribute('id', 'letterbox-waveform-clip');
+    const clipRect = document.createElementNS(svgNs, 'rect');
+    clipRect.setAttribute('id', 'letterbox-waveform-clip-rect');
+    clipRect.setAttribute('x', '0');
+    clipRect.setAttribute('y', '0');
+    clipRect.setAttribute('width', '0');
+    clipRect.setAttribute('height', '40');
+    clip.appendChild(clipRect);
+    const defs = document.createElementNS(svgNs, 'defs');
+    defs.appendChild(clip);
+    playedGroup.setAttribute('clip-path', 'url(#letterbox-waveform-clip)');
+
+    for (let i = 0; i < 220; i++) {
+      const phase = i / 219;
+      const verseShape = 0.36 + 0.42 * Math.sin(phase * Math.PI);
+      const texture = 0.18 * Math.sin(i * 0.61) + 0.12 * Math.sin(i * 1.73);
+      const height = Math.max(4, Math.min(34, 8 + (verseShape + texture) * 24));
+      const y = 20 - height / 2;
+      const x = i;
+      const makeRect = function(className) {
+        const rect = document.createElementNS(svgNs, 'rect');
+        rect.setAttribute('class', className);
+        rect.setAttribute('x', String(x));
+        rect.setAttribute('y', y.toFixed(2));
+        rect.setAttribute('width', '0.55');
+        rect.setAttribute('height', height.toFixed(2));
+        rect.setAttribute('rx', '0.35');
+        return rect;
+      };
+      baseGroup.appendChild(makeRect('wf-bar'));
+      playedGroup.appendChild(makeRect('wf-bar'));
+    }
+    svg.appendChild(defs);
+    svg.appendChild(baseGroup);
+    svg.appendChild(playedGroup);
+    elements.letterboxWaveform.textContent = '';
+    elements.letterboxWaveform.appendChild(svg);
+  }
+
+  function getChapterMarkers(trackInfo) {
+    const raw = (shareData && shareData.chapter_markers) ||
+      (trackInfo && trackInfo.chapter_markers) ||
+      [];
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .map(function(marker) {
+        return {
+          label: String(marker.label || 'Chapter').slice(0, 24),
+          tMs: Number(marker.t_ms || marker.tMs || 0),
+        };
+      })
+      .filter(function(marker) { return Number.isFinite(marker.tMs) && marker.tMs >= 0; })
+      .slice(0, 6);
+  }
+
+  function buildLetterboxChapters() {
+    if (!elements.letterboxChapters || letterboxChaptersBuilt) return;
+    const trackInfo = getTrackInfo();
+    const durationSeconds = getDurationSeconds(trackInfo);
+    const durationMs = Math.max(1000, durationSeconds * 1000);
+    const markers = getChapterMarkers(trackInfo);
+    elements.letterboxChapters.textContent = '';
+    markers.forEach(function(marker) {
+      const tick = document.createElement('button');
+      tick.type = 'button';
+      tick.className = 'letterbox-chapter';
+      tick.dataset.label = marker.label;
+      tick.setAttribute('aria-label', `Jump to ${marker.label}`);
+      tick.style.left = `${Math.min(98, Math.max(0, (marker.tMs / durationMs) * 100))}%`;
+      tick.addEventListener('click', function(event) {
+        event.stopPropagation();
+        if (elements.audioPlayer && Number.isFinite(elements.audioPlayer.duration)) {
+          elements.audioPlayer.currentTime = Math.min(elements.audioPlayer.duration - 0.2, marker.tMs / 1000);
+        }
+      });
+      elements.letterboxChapters.appendChild(tick);
+    });
+    letterboxChaptersBuilt = true;
+  }
+
+  function updateLetterboxProgress(currentSeconds, durationSeconds) {
+    if (!letterboxEnabled) return;
+    const safeDuration = Number.isFinite(durationSeconds) && durationSeconds > 0 ? durationSeconds : getDurationSeconds(getTrackInfo());
+    const safeCurrent = Number.isFinite(currentSeconds) && currentSeconds > 0 ? currentSeconds : 0;
+    const pct = Math.min(100, Math.max(0, (safeCurrent / safeDuration) * 100));
+    const clipRect = document.getElementById('letterbox-waveform-clip-rect');
+    if (clipRect) clipRect.setAttribute('width', String((pct / 100) * 220));
+    if (elements.letterboxProgressDot) elements.letterboxProgressDot.style.left = `${pct}%`;
+    if (elements.letterboxFrameCounter) {
+      elements.letterboxFrameCounter.textContent = `${formatTimecode(safeCurrent, false)}/${formatTimecode(safeDuration, false)}`;
+    }
+    if (elements.letterboxBurnIn) {
+      elements.letterboxBurnIn.textContent = `TC ${formatTimecode(3600 + safeCurrent, true)}`;
+    }
+  }
+
+  function updateLetterboxSubtitle(currentIndex) {
+    if (!letterboxEnabled || !elements.letterboxSubtitleActive) return;
+    const active = currentIndex >= 0 ? lineTimings[currentIndex] : null;
+    const previous = currentIndex > 0 ? lineTimings[currentIndex - 1] : null;
+    if (elements.letterboxSubtitlePrev) {
+      elements.letterboxSubtitlePrev.textContent = previous ? previous.text : '';
+    }
+    elements.letterboxSubtitleActive.textContent = active ? active.text : 'Press play to hear the song';
+  }
+
+  function applyLetterboxMode() {
+    letterboxEnabled = shouldUseLetterbox();
+    if (!elements.player) return;
+    elements.player.classList.toggle('letterbox', letterboxEnabled);
+    if (!letterboxEnabled) {
+      elements.player.classList.remove('letterbox-opened');
+      return;
+    }
+    setLetterboxMeta();
+    buildLetterboxWaveform();
+    buildLetterboxChapters();
+    updateLetterboxSubtitle(activeLineIndex);
+    updateLetterboxProgress(0, getDurationSeconds(getTrackInfo()));
+    markLetterboxCurtainOpened();
   }
 
   function updateTrackInfo() {
@@ -445,6 +725,7 @@
 
     if (newIndex === activeLineIndex) return;
     activeLineIndex = newIndex;
+    updateLetterboxSubtitle(newIndex);
 
     // Update line classes with proximity awareness
     var activeSectionName = newIndex >= 0 ? lineTimings[newIndex].sectionName : null;
@@ -677,10 +958,12 @@
 
       updateTrackInfo();
       applyPlayerArtwork();
+      applyLetterboxMode();
 
       // Render lyrics if available
       if (shareData.lyrics && shareData.lyrics.length > 0) {
         renderLyrics(shareData.lyrics);
+        updateLetterboxSubtitle(-1);
       }
 
       // Set up audio player with format hint
@@ -760,6 +1043,8 @@
 
     audio.addEventListener('loadedmetadata', () => {
       elements.duration.textContent = formatTime(audio.duration);
+      buildLetterboxChapters();
+      updateLetterboxProgress(audio.currentTime, audio.duration);
       // Build line-level timing: server timestamps or client estimation
       if (shareData.lyrics && shareData.lyrics.length > 0) {
         var hasServerTiming = shareData.lyrics[0].startTime !== undefined ||
@@ -781,6 +1066,7 @@
       elements.progressFill.style.width = `${progress}%`;
       elements.currentTime.textContent = formatTime(audio.currentTime);
       updateActiveLine(audio.currentTime);
+      updateLetterboxProgress(audio.currentTime, audio.duration);
     });
 
     audio.addEventListener('ended', () => {
@@ -788,8 +1074,10 @@
       updatePlayButton();
       stopAtmosphere();
       elements.progressFill.style.width = '0%';
+      updateLetterboxProgress(0, audio.duration);
       audio.currentTime = 0;
       activeLineIndex = -1;
+      updateLetterboxSubtitle(-1);
       cachedLineEls.forEach(el => { el.classList.remove('active'); el.classList.remove('sung'); });
       cachedLabelEls.forEach(el => el.classList.remove('active-section'));
       const lyricsScroll = document.getElementById('lyrics-scroll');
@@ -896,6 +1184,7 @@
   }
 
   function startAtmosphere() {
+    if (letterboxEnabled || prefersReducedMotion) return;
     if (flowerInterval) return;
     function safeSpawnFlower() { try { spawnFlower(); } catch(e) { console.warn('[Atmos] flower error:', e); } }
     function safeSpawnBokeh() { try { spawnBokeh(); } catch(e) { console.warn('[Atmos] bokeh error:', e); } }
@@ -960,9 +1249,31 @@
     setTimeout(function() { toast.classList.remove('visible'); }, 2500);
   }
 
+  function shouldUseNativeMobileShare() {
+    return letterboxEnabled && window.matchMedia('(max-width: 768px)').matches && typeof navigator.share === 'function';
+  }
+
+  async function shareViaNativeSheet() {
+    const trackInfo = getTrackInfo();
+    const shareUrl = getShareUrl();
+    const shareText = getShareText();
+    await navigator.share({
+      title: trackInfo ? getExperienceHeading(trackInfo) : 'Porizo song',
+      text: shareText,
+      url: shareUrl,
+    });
+  }
+
   function setupShareButtons() {
     var shareUrl = getShareUrl();
     var shareText = getShareText();
+    var copyBtn = document.getElementById('btn-copy-link');
+    if (copyBtn) {
+      copyBtn.classList.toggle('letterbox-native-share', shouldUseNativeMobileShare());
+      var label = copyBtn.querySelector('span');
+      if (label) label.textContent = shouldUseNativeMobileShare() ? 'Share' : 'Copy Link';
+      copyBtn.setAttribute('aria-label', shouldUseNativeMobileShare() ? 'Share song' : 'Copy link');
+    }
 
     if (shareButtonsBound) {
       var existingWaBtn = document.getElementById('btn-share-whatsapp');
@@ -977,9 +1288,18 @@
     }
     shareButtonsBound = true;
 
-    var copyBtn = document.getElementById('btn-copy-link');
     if (copyBtn) {
       copyBtn.addEventListener('click', function() {
+        if (shouldUseNativeMobileShare()) {
+          shareViaNativeSheet()
+            .then(function() { showToast('Share sheet opened'); })
+            .catch(function(error) {
+              if (!error || error.name !== 'AbortError') {
+                showToast('Could not open share sheet');
+              }
+            });
+          return;
+        }
         navigator.clipboard.writeText(shareUrl).then(function() {
           showToast('Link copied!');
         }).catch(function() {
@@ -1240,6 +1560,15 @@
         if (e.code === 'Space') {
           e.preventDefault();
           togglePlay();
+        } else if (e.code === 'ArrowRight' && elements.audioPlayer) {
+          elements.audioPlayer.currentTime = Math.min(
+            elements.audioPlayer.duration || elements.audioPlayer.currentTime,
+            elements.audioPlayer.currentTime + 5,
+          );
+        } else if (e.code === 'ArrowLeft' && elements.audioPlayer) {
+          elements.audioPlayer.currentTime = Math.max(0, elements.audioPlayer.currentTime - 5);
+        } else if (e.code === 'Escape') {
+          hidePostPlayCta();
         }
       }
     });

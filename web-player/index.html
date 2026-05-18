@@ -4,9 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <!-- Theme: warm cream on light, warm-toned dark on dark. Matches the paper-art canvas. -->
-  <meta name="color-scheme" content="light dark">
-  <meta name="theme-color" content="#FFF8F0" media="(prefers-color-scheme: light)">
-  <meta name="theme-color" content="#1A0F08" media="(prefers-color-scheme: dark)">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#000000">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="{{OG_TITLE}}">
@@ -56,8 +55,8 @@
     href="{{OEMBED_URL}}" title="{{OG_TITLE}}">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Crimson+Pro:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/web-player/styles.css?v=20260517-artwork6">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&family=Crimson+Pro:ital,wght@0,400;0,500;0,600;1,400&family=Playfair+Display:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/web-player/styles.css?v=20260518-letterbox1">
 </head>
 <body>
   <div class="container">
@@ -173,10 +172,46 @@
       <div class="bokeh-layer" id="bokeh-layer"></div>
       <div class="petal-layer" id="petal-layer"></div>
 
+      <!-- Letterbox mode: additive cinema chrome on the same player/audio/share pipeline -->
+      <div class="letterbox-top" id="letterbox-top" aria-hidden="true">
+        <div class="letterbox-slate" id="letterbox-slate">
+          <span class="letterbox-slate-block letterbox-slate-id">POR</span>
+          <span class="letterbox-slate-block" id="letterbox-slate-occasion">ORIG</span>
+          <span class="letterbox-slate-block" id="letterbox-slate-track">TRACK 000</span>
+          <span class="letterbox-slate-block letterbox-slate-dim" id="letterbox-slate-year">REL. 2026</span>
+          <span class="letterbox-slate-block letterbox-slate-dim">24 FPS</span>
+          <span class="letterbox-slate-block letterbox-slate-dim">STEREO</span>
+        </div>
+        <div class="letterbox-indicator">
+          <span class="letterbox-play-marker" aria-hidden="true"></span>
+          <span class="letterbox-voice" id="letterbox-voice">In their voice</span>
+          <span class="letterbox-separator" aria-hidden="true"></span>
+          <span class="letterbox-frame-counter" id="letterbox-frame-counter">00:00:00<span>/00:00:00</span></span>
+          <span class="letterbox-smpte" aria-hidden="true">
+            <i class="w"></i><i class="y"></i><i class="c"></i><i class="g"></i><i class="m"></i><i class="r"></i><i class="b"></i>
+          </span>
+        </div>
+      </div>
+
+      <div class="letterbox-reticles" aria-hidden="true">
+        <span class="letterbox-corner tl"></span>
+        <span class="letterbox-corner tr"></span>
+        <span class="letterbox-corner bl"></span>
+        <span class="letterbox-corner br"></span>
+        <span class="letterbox-anamorphic">ANAMORPHIC GIFT</span>
+        <span class="letterbox-cue-dot one"></span>
+        <span class="letterbox-cue-dot two"></span>
+        <span class="letterbox-burn-in" id="letterbox-burn-in"><span>TC</span> 01:00:00:00</span>
+      </div>
+
       <!-- Lyrics stage — full viewport, center-locked scrolling -->
       <div class="lyrics-stage" id="lyrics-container">
         <div class="lyrics-scroll" id="lyrics-scroll">
           <!-- Populated by JS: individual .lyric-line elements -->
+        </div>
+        <div class="letterbox-subtitle" id="letterbox-subtitle" aria-live="polite">
+          <span class="letterbox-subtitle-prev" id="letterbox-subtitle-prev"></span>
+          <span class="letterbox-subtitle-active" id="letterbox-subtitle-active"></span>
         </div>
       </div>
 
@@ -190,7 +225,10 @@
         <div class="player-controls">
           <div class="progress-container">
             <div class="progress-bar">
+              <div class="letterbox-waveform" id="letterbox-waveform" aria-hidden="true"></div>
+              <div class="letterbox-chapters" id="letterbox-chapters" aria-hidden="true"></div>
               <div class="progress-fill" id="progress-fill"></div>
+              <div class="letterbox-progress-dot" id="letterbox-progress-dot"></div>
             </div>
             <div class="time-display">
               <span id="current-time">0:00</span>
@@ -277,6 +315,6 @@
   <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.7/dist/hls.min.js"
           integrity="sha384-1B+J55elPxu+trIhW7QThjZg3evX8C5P6zjB82Xnn46RKPAXpL+vkanRSjCidsJv"
           crossorigin="anonymous"></script>
-  <script src="/web-player/player.js?v=20260517-artwork6"></script>
+  <script src="/web-player/player.js?v=20260518-letterbox1"></script>
 </body>
 </html>

@@ -6,6 +6,7 @@ const path = require("path");
 const QRCode = require("qrcode");
 const { newUuid } = require("../utils/ids");
 const { nowIso, toJson, parseJson, ensureDir } = require("../utils/common");
+const { getFeatureFlags } = require("../services/feature-flags");
 const {
   isShareUsable,
   healAndCheckShare,
@@ -198,6 +199,74 @@ function registerSharingRoutes(
     if (!track || !track.artwork_generated_at) return null;
     const ts = new Date(track.artwork_generated_at).getTime();
     return Number.isFinite(ts) ? Math.floor(ts / 1000) : null;
+  }
+
+  function normalizeDurationMs(track, trackVersion) {
+    const candidates = [
+      trackVersion?.duration_ms,
+      trackVersion?.duration_sec ? Number(trackVersion.duration_sec) * 1000 : null,
+      track?.duration_ms,
+      track?.duration_sec ? Number(track.duration_sec) * 1000 : null,
+      track?.duration_target ? Number(track.duration_target) * 1000 : null,
+    ];
+    for (const candidate of candidates) {
+      const duration = Number(candidate);
+      if (Number.isFinite(duration) && duration > 0) return Math.round(duration);
+    }
+    return 60000;
+  }
+
+  function getSectionLabel(section, index) {
+    const raw = String(section?.name || section?.section || "").trim();
+    if (raw) {
+      return raw
+        .replace(/[_-]+/g, " ")
+        .replace(/\b\w/g, (char) => char.toUpperCase())
+        .slice(0, 24);
+    }
+    return ["Intro", "Verse", "Chorus", "Bridge", "Outro"][index] || `Part ${index + 1}`;
+  }
+
+  function deriveChapterMarkers(lyricsData, durationMs) {
+    const duration = Number(durationMs);
+    const safeDurationMs = Number.isFinite(duration) && duration > 0 ? duration : 60000;
+    const sections = Array.isArray(lyricsData?.sections) ? lyricsData.sections : [];
+
+    if (sections.length > 0) {
+      const totalLines = sections.reduce((sum, section) => {
+        return sum + (Array.isArray(section.lines) ? section.lines.length : 0);
+      }, 0);
+      const lineCount = Math.max(totalLines, sections.length);
+      let elapsedLines = 0;
+      const markers = [];
+
+      sections.forEach((section, index) => {
+        const explicitStart = Number(section?.startTime ?? section?.start_time);
+        const tMs = Number.isFinite(explicitStart) && explicitStart >= 0
+          ? explicitStart * 1000
+          : (elapsedLines / lineCount) * safeDurationMs;
+        markers.push({
+          label: getSectionLabel(section, index),
+          t_ms: Math.max(0, Math.min(safeDurationMs - 1000, Math.round(tMs))),
+        });
+        elapsedLines += Math.max(1, Array.isArray(section.lines) ? section.lines.length : 1);
+      });
+
+      const deduped = [];
+      for (const marker of markers) {
+        const previous = deduped[deduped.length - 1];
+        if (!previous || previous.label !== marker.label || marker.t_ms - previous.t_ms > 4000) {
+          deduped.push(marker);
+        }
+      }
+      return deduped.slice(0, 6);
+    }
+
+    const fallbackLabels = ["Intro", "Verse", "Chorus", "Verse", "Outro"];
+    return fallbackLabels.map((label, index) => ({
+      label,
+      t_ms: Math.round((index / fallbackLabels.length) * safeDurationMs),
+    }));
   }
 
   // Shared guard: lookup share token + reject revoked/expired. Returns share or null (error already sent).
@@ -1576,7 +1645,20 @@ function registerSharingRoutes(
     const [hydratedSharedTrack] = await hydrateTrackCoverImages(
       track ? [track] : [],
     );
+    const durationMs = normalizeDurationMs(hydratedSharedTrack || track, trackVersion);
+    const lyricsData = parseJson(
+      trackVersion.lyrics_json,
+      null,
+      "share_lyrics",
+    );
+    const lyrics = lyricsData?.sections || null;
+    const chapterMarkers = deriveChapterMarkers(lyricsData, durationMs);
+    const webPlayerFlags = await getFeatureFlags(db, [
+      "web_player_letterbox_enabled",
+      "web_player_letterbox_rollout_percent",
+    ]);
     const trackInfo = {
+      id: track.id,
       title: hydratedSharedTrack?.title ?? track.title,
       recipient_name:
         hydratedSharedTrack?.recipient_name ??
@@ -1585,8 +1667,10 @@ function registerSharingRoutes(
         null,
       sender_name: giftOrder?.sender_display_name?.trim() || null,
       occasion: track.occasion || null,
+      created_at: track.created_at || null,
       duration_sec:
         hydratedSharedTrack?.duration_target || track.duration_target || 60,
+      duration_ms: durationMs,
       cover_image_url:
         hydratedSharedTrack?.cover_image_small_url ||
         hydratedSharedTrack?.cover_image_url ||
@@ -1597,13 +1681,8 @@ function registerSharingRoutes(
         socialCacheToken: Date.now(),
         artworkVersion: getTrackArtworkVersion(track),
       }),
+      chapter_markers: chapterMarkers,
     };
-    const lyricsData = parseJson(
-      trackVersion.lyrics_json,
-      null,
-      "share_lyrics",
-    );
-    const lyrics = lyricsData?.sections || null;
     const publicWebStreamUrl = share.web_stream_allowed
       ? `${getBaseUrl(request)}/share/${share.id}/audio`
       : null;
@@ -1625,6 +1704,8 @@ function registerSharingRoutes(
         receiver_save_requires_session: true,
         app_download_url: buildShareAppDownloadUrl({ shareId: share.id }),
         ...(publicWebStreamUrl && { web_stream_url: publicWebStreamUrl }),
+        feature_flags: webPlayerFlags,
+        chapter_markers: chapterMarkers,
         ...(lyrics && { lyrics }),
       });
       return;
@@ -1664,6 +1745,8 @@ function registerSharingRoutes(
       app_download_url: buildShareAppDownloadUrl({ shareId: share.id }),
       ...(dlToken && { dl_token: dlToken }),
       ...(share.share_type === "demo" && { is_demo: true }),
+      feature_flags: webPlayerFlags,
+      chapter_markers: chapterMarkers,
       ...(lyrics && { lyrics }),
     });
   });

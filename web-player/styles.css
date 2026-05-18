@@ -793,6 +793,727 @@ body {
   border-color: rgba(255, 255, 255, 0.2);
 }
 
+/* ============ Letterbox Player Mode ============ */
+#player.letterbox {
+  --letterbox-bg: #000000;
+  --letterbox-ivory: #f5f5f0;
+  --letterbox-gold: #d4a574;
+  --letterbox-gold-soft: rgba(212, 165, 116, 0.62);
+  --letterbox-mono: 'DM Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --letterbox-serif: 'Playfair Display', Georgia, serif;
+  background: var(--letterbox-bg);
+  color: var(--letterbox-ivory);
+}
+
+#player.letterbox::before,
+#player.letterbox::after {
+  content: "";
+  position: fixed;
+  left: 0;
+  right: 0;
+  height: 50vh;
+  background: #000;
+  z-index: 60;
+  pointer-events: none;
+  transition: transform 720ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+#player.letterbox::before {
+  top: 0;
+}
+
+#player.letterbox::after {
+  bottom: 0;
+}
+
+#player.letterbox.letterbox-opened::before {
+  transform: translateY(-100%);
+}
+
+#player.letterbox.letterbox-opened::after {
+  transform: translateY(100%);
+}
+
+#player.letterbox .bokeh-layer,
+#player.letterbox .petal-layer {
+  display: none;
+}
+
+.letterbox-top,
+.letterbox-reticles,
+.letterbox-subtitle,
+.letterbox-waveform,
+.letterbox-chapters,
+.letterbox-progress-dot {
+  display: none;
+}
+
+#player.letterbox .letterbox-top {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  height: 13vh;
+  min-height: 86px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: max(18px, env(safe-area-inset-top)) 56px 18px;
+  background: #000;
+  border-bottom: 1px solid rgba(212, 165, 116, 0.12);
+}
+
+.letterbox-slate {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  border: 1px solid rgba(212, 165, 116, 0.24);
+  font-family: var(--letterbox-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: rgba(245, 245, 240, 0.82);
+}
+
+.letterbox-slate-block {
+  padding: 5px 11px;
+  border-right: 1px solid rgba(212, 165, 116, 0.22);
+  white-space: nowrap;
+}
+
+.letterbox-slate-block:last-child {
+  border-right: 0;
+}
+
+.letterbox-slate-id {
+  color: var(--letterbox-gold);
+  background: rgba(212, 165, 116, 0.06);
+  font-weight: 600;
+}
+
+.letterbox-slate-dim {
+  color: rgba(245, 245, 240, 0.52);
+}
+
+.letterbox-indicator {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-shrink: 0;
+  font-family: var(--letterbox-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.18em;
+  color: var(--letterbox-gold);
+}
+
+.letterbox-play-marker {
+  width: 0;
+  height: 0;
+  border-left: 8px solid var(--letterbox-gold);
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+  filter: drop-shadow(0 0 6px rgba(212, 165, 116, 0.45));
+  animation: letterboxPulse 2.4s ease-in-out infinite;
+}
+
+@keyframes letterboxPulse {
+  0%, 100% { opacity: 0.65; }
+  50% { opacity: 1; }
+}
+
+.letterbox-voice {
+  color: rgba(245, 245, 240, 0.78);
+  font-family: 'DM Sans', system-ui, sans-serif;
+  font-style: italic;
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+
+.letterbox-separator {
+  width: 1px;
+  height: 12px;
+  background: rgba(212, 165, 116, 0.35);
+}
+
+.letterbox-frame-counter {
+  color: var(--letterbox-gold);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.letterbox-smpte {
+  position: relative;
+  display: flex;
+  width: 84px;
+  height: 18px;
+  border: 1px solid rgba(212, 165, 116, 0.3);
+}
+
+.letterbox-smpte::after {
+  content: "75%";
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  font-size: 7.5px;
+  letter-spacing: 0.28em;
+  color: rgba(212, 165, 116, 0.55);
+}
+
+.letterbox-smpte i {
+  flex: 1;
+}
+
+.letterbox-smpte .w { background: #bfbfbf; }
+.letterbox-smpte .y { background: #bfbf00; }
+.letterbox-smpte .c { background: #00bfbf; }
+.letterbox-smpte .g { background: #00bf00; }
+.letterbox-smpte .m { background: #bf00bf; }
+.letterbox-smpte .r { background: #bf0000; }
+.letterbox-smpte .b { background: #0000bf; }
+
+#player.letterbox .player-bg {
+  opacity: 0;
+}
+
+#player.letterbox .player-artwork-backdrop {
+  opacity: 1;
+  background: #000;
+  background-image: var(--player-artwork-url);
+  background-size: cover;
+  background-position: center;
+  filter: blur(34px) saturate(0.7) brightness(0.48);
+  transform: scale(1.08);
+}
+
+#player.letterbox .player-artwork-image {
+  position: absolute;
+  inset: 13vh 0 14vh;
+  width: 100%;
+  height: calc(100% - 27vh);
+  object-fit: contain;
+  object-position: center;
+  transform: none;
+  filter: saturate(0.92) brightness(0.88) contrast(1.03);
+}
+
+#player.letterbox .player-artwork-backdrop::before {
+  z-index: 2;
+  background:
+    radial-gradient(ellipse 74% 52% at 50% 62%, rgba(0, 0, 0, 0.06), rgba(0, 0, 0, 0.52) 78%, rgba(0, 0, 0, 0.76) 100%),
+    linear-gradient(180deg, #000 0%, rgba(0, 0, 0, 0.18) 18%, rgba(0, 0, 0, 0.20) 58%, rgba(0, 0, 0, 0.84) 100%);
+}
+
+#player.letterbox .player-artwork-backdrop::after {
+  z-index: 3;
+  background:
+    linear-gradient(90deg, rgba(0, 0, 0, 0.62), transparent 19%, transparent 81%, rgba(0, 0, 0, 0.62)),
+    radial-gradient(ellipse 60% 25% at 50% 80%, rgba(0, 0, 0, 0.56), transparent 76%);
+}
+
+#player.letterbox .letterbox-reticles {
+  display: block;
+  position: absolute;
+  inset: 13vh 0 14vh;
+  z-index: 12;
+  pointer-events: none;
+}
+
+.letterbox-corner {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border-color: rgba(212, 165, 116, 0.55);
+}
+
+.letterbox-corner.tl { top: 24px; left: 24px; border-top: 1px solid; border-left: 1px solid; }
+.letterbox-corner.tr { top: 24px; right: 24px; border-top: 1px solid; border-right: 1px solid; }
+.letterbox-corner.bl { bottom: 24px; left: 24px; border-bottom: 1px solid; border-left: 1px solid; }
+.letterbox-corner.br { bottom: 24px; right: 24px; border-bottom: 1px solid; border-right: 1px solid; }
+
+.letterbox-anamorphic {
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  transform: translateY(-50%) rotate(-90deg);
+  transform-origin: center;
+  font-family: var(--letterbox-mono);
+  font-size: 9px;
+  letter-spacing: 0.36em;
+  color: rgba(212, 165, 116, 0.55);
+  white-space: nowrap;
+}
+
+.letterbox-cue-dot {
+  position: absolute;
+  top: 54px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: rgba(212, 165, 116, 0.92);
+  box-shadow: 0 0 16px rgba(212, 165, 116, 0.55), inset 0 0 4px rgba(255, 228, 180, 0.5);
+  opacity: 0;
+  animation: letterboxCue 14s 4s infinite ease-out;
+}
+
+.letterbox-cue-dot.one { right: 56px; }
+.letterbox-cue-dot.two { right: 86px; animation-delay: 4.12s; }
+
+@keyframes letterboxCue {
+  0%, 96%, 100% { opacity: 0; }
+  97%, 99% { opacity: 1; }
+}
+
+.letterbox-burn-in {
+  position: absolute;
+  right: 48px;
+  bottom: 32px;
+  font-family: var(--letterbox-mono);
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  color: rgba(245, 245, 240, 0.52);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.95);
+  font-variant-numeric: tabular-nums;
+}
+
+#player.letterbox .lyrics-stage {
+  top: 13vh;
+  bottom: 14vh;
+  z-index: 15;
+  align-items: flex-end;
+  padding-bottom: 58px;
+}
+
+#player.letterbox .lyrics-stage::before,
+#player.letterbox .lyrics-scroll {
+  display: none;
+}
+
+#player.letterbox .letterbox-subtitle {
+  position: relative;
+  display: block;
+  width: min(76ch, 78vw);
+  text-align: center;
+  pointer-events: none;
+}
+
+#player.letterbox .letterbox-subtitle::before {
+  content: "";
+  position: absolute;
+  inset: -44px -120px -36px;
+  z-index: -1;
+  border-radius: 999px;
+  background: radial-gradient(ellipse 68% 110% at center, rgba(0, 0, 0, 0.70) 0%, rgba(0, 0, 0, 0.36) 54%, transparent 80%);
+  filter: blur(8px);
+}
+
+.letterbox-subtitle-prev,
+.letterbox-subtitle-active {
+  display: block;
+  text-shadow:
+    0 2px 22px rgba(0, 0, 0, 0.98),
+    0 1px 4px rgba(0, 0, 0, 0.95),
+    0 0 1px rgba(0, 0, 0, 1);
+}
+
+.letterbox-subtitle-prev {
+  min-height: 27px;
+  margin-bottom: 12px;
+  font-size: 19px;
+  line-height: 1.42;
+  color: rgba(245, 245, 240, 0.78);
+}
+
+.letterbox-subtitle-active {
+  position: relative;
+  min-height: 38px;
+  font-size: 27px;
+  line-height: 1.38;
+  color: var(--letterbox-ivory);
+}
+
+.letterbox-subtitle-active::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -12px;
+  width: 64px;
+  height: 1px;
+  transform: translateX(-50%);
+  background: linear-gradient(90deg, transparent, var(--letterbox-gold), transparent);
+  opacity: 0.62;
+}
+
+#player.letterbox .player-chrome {
+  min-height: 14vh;
+  display: grid;
+  grid-template-columns: minmax(180px, 360px) minmax(260px, 1fr) auto auto;
+  align-items: center;
+  gap: 22px;
+  padding: 16px 56px max(16px, env(safe-area-inset-bottom));
+  background: #000;
+  border-top: 1px solid rgba(212, 165, 116, 0.12);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+#player.letterbox .track-info {
+  margin: 0;
+  text-align: left;
+  min-width: 0;
+}
+
+#player.letterbox .track-title {
+  font-family: var(--letterbox-serif);
+  font-size: clamp(22px, 2.6vw, 40px);
+  font-style: italic;
+  font-weight: 400;
+  line-height: 1.05;
+  color: var(--letterbox-ivory);
+}
+
+#player.letterbox .track-recipient {
+  margin-top: 6px;
+  font-size: 12px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(245, 245, 240, 0.64);
+}
+
+#player.letterbox .player-controls {
+  display: grid;
+  grid-template-columns: 48px minmax(180px, 1fr);
+  align-items: center;
+  gap: 18px;
+  max-width: none;
+  margin: 0;
+}
+
+#player.letterbox .control-buttons {
+  grid-column: 1;
+  grid-row: 1;
+  margin: 0;
+}
+
+#player.letterbox .progress-container {
+  grid-column: 2;
+  grid-row: 1;
+  margin: 0;
+}
+
+#player.letterbox .play-button {
+  width: 44px;
+  height: 44px;
+  border: 1px solid rgba(212, 165, 116, 0.72);
+  background: transparent;
+  color: var(--letterbox-gold);
+  box-shadow: none;
+}
+
+#player.letterbox .play-button:hover {
+  background: rgba(212, 165, 116, 0.10);
+  color: var(--letterbox-ivory);
+  transform: rotate(45deg);
+}
+
+#player.letterbox .progress-bar {
+  position: relative;
+  height: 1px;
+  overflow: visible;
+  background: rgba(212, 165, 116, 0.2);
+}
+
+#player.letterbox .progress-bar:hover {
+  height: 1px;
+}
+
+#player.letterbox .progress-fill {
+  position: relative;
+  z-index: 3;
+  background: var(--letterbox-gold);
+  box-shadow: none;
+}
+
+#player.letterbox .letterbox-waveform {
+  position: absolute;
+  left: 0;
+  top: -18px;
+  z-index: 1;
+  display: block;
+  width: 100%;
+  height: 37px;
+  pointer-events: none;
+}
+
+#player.letterbox .letterbox-waveform svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+#player.letterbox .letterbox-waveform .wf-bar {
+  fill: var(--letterbox-gold);
+}
+
+#player.letterbox .letterbox-waveform .wf-base {
+  opacity: 0.20;
+}
+
+#player.letterbox .letterbox-waveform .wf-played {
+  opacity: 0.62;
+}
+
+#player.letterbox .letterbox-chapters {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: block;
+}
+
+#player.letterbox .letterbox-chapter {
+  position: absolute;
+  top: -6px;
+  width: 2px;
+  height: 13px;
+  padding: 0;
+  border: 0;
+  background: rgba(212, 165, 116, 0.70);
+  cursor: pointer;
+}
+
+#player.letterbox .letterbox-chapter::after {
+  content: attr(data-label);
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  padding: 4px 7px;
+  border: 1px solid rgba(212, 165, 116, 0.24);
+  border-radius: 2px;
+  background: rgba(0, 0, 0, 0.92);
+  color: var(--letterbox-gold);
+  font-family: var(--letterbox-mono);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.18s;
+}
+
+#player.letterbox .letterbox-chapter:hover::after {
+  opacity: 1;
+}
+
+#player.letterbox .letterbox-progress-dot {
+  position: absolute;
+  left: 0%;
+  top: 50%;
+  z-index: 5;
+  display: block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  background: var(--letterbox-gold);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.75);
+}
+
+#player.letterbox .time-display {
+  margin-top: 16px;
+  color: rgba(212, 165, 116, 0.82);
+  font-family: var(--letterbox-mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+}
+
+#player.letterbox .share-bar {
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 0;
+}
+
+#player.letterbox .share-btn,
+#player.letterbox .app-btn {
+  border-color: rgba(212, 165, 116, 0.22);
+  background: rgba(255, 255, 255, 0.045);
+  color: rgba(245, 245, 240, 0.74);
+  font-size: 12px;
+}
+
+#player.letterbox .share-btn:hover,
+#player.letterbox .app-btn:hover {
+  border-color: rgba(212, 165, 116, 0.42);
+  color: var(--letterbox-ivory);
+  background: rgba(212, 165, 116, 0.10);
+}
+
+#player.letterbox .app-promo {
+  text-align: right;
+}
+
+@media (max-width: 768px) {
+  #player.letterbox .letterbox-top {
+    height: 56px;
+    min-height: 56px;
+    padding: max(10px, env(safe-area-inset-top)) 18px 10px;
+  }
+
+  #player.letterbox .letterbox-slate {
+    font-size: 8.5px;
+    letter-spacing: 0.22em;
+  }
+
+  #player.letterbox .letterbox-slate-block {
+    padding: 4px 8px;
+  }
+
+  #player.letterbox .letterbox-slate-block:nth-child(n+3),
+  #player.letterbox .letterbox-smpte,
+  #player.letterbox .letterbox-separator,
+  #player.letterbox .letterbox-frame-counter,
+  #player.letterbox .letterbox-anamorphic {
+    display: none;
+  }
+
+  #player.letterbox .letterbox-indicator {
+    gap: 9px;
+    font-size: 9px;
+    letter-spacing: 0.08em;
+  }
+
+  #player.letterbox .letterbox-voice {
+    max-width: 126px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  #player.letterbox .player-artwork-image {
+    inset: 56px 0 300px;
+    height: calc(100% - 356px);
+    object-fit: contain;
+    object-position: center top;
+    filter: saturate(0.98) brightness(0.9) contrast(1.02);
+  }
+
+  #player.letterbox .letterbox-reticles {
+    inset: 56px 0 300px;
+  }
+
+  #player.letterbox .letterbox-corner {
+    display: none;
+  }
+
+  #player.letterbox .letterbox-cue-dot {
+    top: 24px;
+  }
+
+  #player.letterbox .letterbox-cue-dot.one { right: 24px; }
+  #player.letterbox .letterbox-cue-dot.two { right: 48px; }
+
+  #player.letterbox .letterbox-burn-in {
+    right: 20px;
+    bottom: 18px;
+    font-size: 9px;
+    letter-spacing: 0.14em;
+  }
+
+  #player.letterbox .lyrics-stage {
+    top: 50vh;
+    bottom: 300px;
+    align-items: flex-start;
+    padding: 16px 18px 0;
+  }
+
+  #player.letterbox .letterbox-subtitle {
+    width: min(360px, calc(100vw - 32px));
+    margin: 0 auto;
+  }
+
+  #player.letterbox .letterbox-subtitle::before {
+    inset: -26px -34px -28px;
+    border-radius: 28px;
+    background: radial-gradient(ellipse 86% 110% at center, rgba(0, 0, 0, 0.82) 0%, rgba(0, 0, 0, 0.56) 58%, transparent 84%);
+  }
+
+  #player.letterbox .letterbox-subtitle-prev {
+    min-height: 21px;
+    margin-bottom: 7px;
+    font-size: 14px;
+    line-height: 1.34;
+  }
+
+  #player.letterbox .letterbox-subtitle-active {
+    min-height: 58px;
+    font-size: 21px;
+    line-height: 1.32;
+  }
+
+  #player.letterbox .player-chrome {
+    min-height: 300px;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+    gap: 12px;
+    padding: 16px 20px max(16px, env(safe-area-inset-bottom));
+  }
+
+  #player.letterbox .track-info {
+    text-align: center;
+  }
+
+  #player.letterbox .track-title {
+    font-size: 24px;
+  }
+
+  #player.letterbox .track-recipient {
+    font-size: 11px;
+    letter-spacing: 0.12em;
+  }
+
+  #player.letterbox .player-controls {
+    grid-template-columns: 52px 1fr;
+    gap: 14px;
+  }
+
+  #player.letterbox .play-button {
+    width: 52px;
+    height: 52px;
+    background: rgba(212, 165, 116, 0.12);
+  }
+
+  #player.letterbox .share-bar {
+    justify-content: center;
+    flex-wrap: nowrap;
+    gap: 10px;
+  }
+
+  #player.letterbox .share-btn:not(.letterbox-native-share),
+  #player.letterbox #btn-download-audiogram {
+    display: none;
+  }
+
+  #player.letterbox .letterbox-native-share span {
+    display: inline;
+  }
+
+  #player.letterbox .share-btn,
+  #player.letterbox .app-btn {
+    padding: 10px 16px;
+    font-size: 13px;
+  }
+
+  #player.letterbox .app-promo,
+  #player.letterbox .app-buttons {
+    text-align: center;
+    justify-content: center;
+  }
+}
+
 /* Toast notification */
 .toast {
   position: fixed;
@@ -1308,5 +2029,21 @@ body {
 
   .teaser-play-btn:active {
     transform: none;
+  }
+
+  #player.letterbox::before,
+  #player.letterbox::after {
+    display: none !important;
+  }
+
+  #player.letterbox .letterbox-play-marker,
+  #player.letterbox .letterbox-cue-dot {
+    animation: none !important;
+    opacity: 0.8;
+  }
+
+  #player.letterbox .player-artwork-image,
+  #player.letterbox .play-button:hover {
+    transform: none !important;
   }
 }

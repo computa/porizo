@@ -606,6 +606,27 @@ describe("Share Embed Routes", () => {
     );
   });
 
+  test("/share/:shareId exposes chapter markers for letterbox player", async (t) => {
+    if (!postgresAvailable) { t.skip("PostgreSQL not available"); return; }
+    const response = await app.inject({
+      method: "GET",
+      url: `/share/${testShareId}`,
+    });
+
+    assert.equal(response.statusCode, 200);
+    const body = JSON.parse(response.body);
+    assert.ok(Array.isArray(body.chapter_markers), "Top-level chapter_markers should be present");
+    assert.ok(body.chapter_markers.length > 0, "Chapter markers should fall back when lyrics sections are absent");
+    assert.deepEqual(
+      body.track.chapter_markers,
+      body.chapter_markers,
+      "Track payload should mirror top-level chapter markers for client compatibility"
+    );
+    assert.equal(typeof body.chapter_markers[0].label, "string");
+    assert.equal(typeof body.chapter_markers[0].t_ms, "number");
+    assert.equal(body.feature_flags.web_player_letterbox_enabled, false);
+  });
+
   test("/share/:shareId/cover.jpg falls back to default cover when track version is missing", async (t) => {
     if (!postgresAvailable) { t.skip("PostgreSQL not available"); return; }
     const response = await app.inject({

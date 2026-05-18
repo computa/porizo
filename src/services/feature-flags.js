@@ -18,6 +18,10 @@ const DEFAULTS = {
   voice_enrollment_ios_realtime_feedback: true,
   // Developer flags
   show_design_screens: false,
+  // Web player redesign rollout. Keep default off; /play QA can opt in with
+  // ?letterbox=1 without changing the production rollout flag.
+  web_player_letterbox_enabled: false,
+  web_player_letterbox_rollout_percent: 0,
   // Global My Voice visibility toggle for clients and backend routing.
   // When false, clients hide the option and backend coerces user_voice -> ai_voice.
   my_voice_enabled: true,
