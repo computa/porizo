@@ -7,11 +7,11 @@
  */
 
 const openai = require("./openai-image");
+const flux = require("./flux-image");
 
 const PROVIDERS = {
   openai,
-  // 'gemini': require('./gemini-image'),  // Nano Banana / Gemini 2.5 Flash Image — defer until needed
-  // 'xai':    require('./xai-image'),     // Grok Image — defer until needed
+  flux,
 };
 
 function getImageProvider(name = process.env.IMAGE_PROVIDER || "openai") {
@@ -26,9 +26,11 @@ function getImageProvider(name = process.env.IMAGE_PROVIDER || "openai") {
 
 module.exports = {
   getImageProvider,
-  // Re-export error classes from the default provider for convenient catch blocks.
-  // ModerationRefusalError is used by song-artwork.js to decide the fallback path.
-  // ImageGenerationError is the generic envelope tests assert against.
+  // Re-export error classes from the OpenAI adapter. Each adapter defines its
+  // own error classes (Flux's extend Error directly, not openai.ModerationRefusalError),
+  // so this re-export only covers the OpenAI-routed path today. Task 7 rewires
+  // song-artwork.js to handle both adapters' refusals — likely via `err.name ===
+  // "ModerationRefusalError"` duck-typing rather than a sibling instanceof check.
   ModerationRefusalError: openai.ModerationRefusalError,
   ImageGenerationError: openai.ImageGenerationError,
 };
