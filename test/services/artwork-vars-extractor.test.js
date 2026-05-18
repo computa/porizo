@@ -1,11 +1,10 @@
 // test/services/artwork-vars-extractor.test.js
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { extractArtworkVars, parseHaikuResponse, IMPERFECTION } = (() => {
-  const m = require("../../src/services/artwork-vars-extractor");
-  const { IMPERFECTION } = require("../../src/services/artwork-vocab");
-  return { ...m, IMPERFECTION };
-})();
+const {
+  extractArtworkVars,
+  parseHaikuResponse,
+} = require("../../src/services/artwork-vars-extractor");
 
 test("parseHaikuResponse parses valid JSON with all slots", () => {
   const raw = JSON.stringify({
