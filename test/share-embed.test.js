@@ -28,7 +28,9 @@ const WEB_PLAYER_SCRIPT = path.join(__dirname, "..", "web-player", "player.js");
 
 function extractWebPlayerFunction(name) {
   const source = fs.readFileSync(WEB_PLAYER_SCRIPT, "utf8");
-  const match = source.match(new RegExp(`  function ${name}\\([^)]*\\) \\{[\\s\\S]*?\\n  \\}`));
+  const match = source.match(
+    new RegExp(`  function ${name}\\([^)]*\\) \\{[\\s\\S]*?\\n  \\}`),
+  );
   assert.ok(match, `Expected to find ${name} in web-player/player.js`);
   return vm.runInNewContext(`${match[0]}\n${name};`);
 }
@@ -36,13 +38,22 @@ function extractWebPlayerFunction(name) {
 function probeStreams(filePath) {
   const ffmpegPath = getFFmpegPath();
   const ffprobeCandidate = ffmpegPath.replace(/ffmpeg$/, "ffprobe");
-  const ffprobePath = fs.existsSync(ffprobeCandidate) ? ffprobeCandidate : "ffprobe";
-  const probe = execFileSync(ffprobePath, [
-    "-v", "error",
-    "-show_entries", "format=duration:stream=codec_type,codec_name,width,height",
-    "-of", "json",
-    filePath,
-  ], { encoding: "utf-8" });
+  const ffprobePath = fs.existsSync(ffprobeCandidate)
+    ? ffprobeCandidate
+    : "ffprobe";
+  const probe = execFileSync(
+    ffprobePath,
+    [
+      "-v",
+      "error",
+      "-show_entries",
+      "format=duration:stream=codec_type,codec_name,width,height",
+      "-of",
+      "json",
+      filePath,
+    ],
+    { encoding: "utf-8" },
+  );
   return JSON.parse(probe);
 }
 
@@ -57,8 +68,14 @@ describe("generateShareMp4", () => {
     // Generate a minimal JPEG artwork (1x1 red pixel)
     const ffmpegPath = getFFmpegPath();
     execFileSync(ffmpegPath, [
-      "-y", "-f", "lavfi", "-i", "color=c=red:s=100x100:d=1",
-      "-frames:v", "1", artworkPath,
+      "-y",
+      "-f",
+      "lavfi",
+      "-i",
+      "color=c=red:s=100x100:d=1",
+      "-frames:v",
+      "1",
+      artworkPath,
     ]);
   });
 
@@ -101,28 +118,33 @@ describe("generateShareMp4", () => {
 
     const info = probeStreams(outputPath);
     const duration = parseFloat(info.format.duration);
-    assert.ok(duration <= 2, "Duration should be capped (audio is 2s, cap at 1s)");
+    assert.ok(
+      duration <= 2,
+      "Duration should be capped (audio is 2s, cap at 1s)",
+    );
   });
 
   test("throws on missing artwork", async () => {
     await assert.rejects(
-      () => generateShareMp4({
-        artworkPath: "/nonexistent/art.jpg",
-        audioPath,
-        outputPath: path.join(TEST_DIR, "fail.mp4"),
-      }),
-      /Artwork file not found/
+      () =>
+        generateShareMp4({
+          artworkPath: "/nonexistent/art.jpg",
+          audioPath,
+          outputPath: path.join(TEST_DIR, "fail.mp4"),
+        }),
+      /Artwork file not found/,
     );
   });
 
   test("throws on missing audio", async () => {
     await assert.rejects(
-      () => generateShareMp4({
-        artworkPath,
-        audioPath: "/nonexistent/audio.wav",
-        outputPath: path.join(TEST_DIR, "fail.mp4"),
-      }),
-      /Audio file not found/
+      () =>
+        generateShareMp4({
+          artworkPath,
+          audioPath: "/nonexistent/audio.wav",
+          outputPath: path.join(TEST_DIR, "fail.mp4"),
+        }),
+      /Audio file not found/,
     );
   });
 });
@@ -137,7 +159,9 @@ describe("letterbox web-player helpers", () => {
   });
 
   test("normalizeOccasionShort maps occasion slates", () => {
-    const normalizeOccasionShort = extractWebPlayerFunction("normalizeOccasionShort");
+    const normalizeOccasionShort = extractWebPlayerFunction(
+      "normalizeOccasionShort",
+    );
     assert.equal(normalizeOccasionShort("mothers_day"), "M.DAY");
     assert.equal(normalizeOccasionShort("Mother Day"), "M.DAY");
     assert.equal(normalizeOccasionShort("birthday"), "B.DAY");
@@ -186,13 +210,15 @@ describe("Share Embed Routes", () => {
     "tracks",
     testUserId,
     testTrackId,
-    "v1"
+    "v1",
   );
 
   before(async () => {
     postgresAvailable = await isPostgresAvailable();
     if (!postgresAvailable) {
-      console.log("[Share Embed Tests] PostgreSQL not available, skipping integration tests");
+      console.log(
+        "[Share Embed Tests] PostgreSQL not available, skipping integration tests",
+      );
       return;
     }
 
@@ -200,7 +226,10 @@ describe("Share Embed Routes", () => {
       process.env.JWT_SECRET || "test-jwt-secret-share-embed-0123456789abcdef";
     process.env.ALLOW_ANON_USER_ID = process.env.ALLOW_ANON_USER_ID || "true";
 
-    const { createPool, runMigrations } = require("../src/database/postgres.js");
+    const {
+      createPool,
+      runMigrations,
+    } = require("../src/database/postgres.js");
     const { buildServer } = require("../src/server.js");
     const { createStorageProvider } = require("../src/storage");
 
@@ -225,49 +254,62 @@ describe("Share Embed Routes", () => {
 
     // Seed test data
     testShareId = "sh_test_embed_" + crypto.randomBytes(4).toString("hex");
-    testCrawlerFallbackShareId = "sh_test_crawler_" + crypto.randomBytes(4).toString("hex");
+    testCrawlerFallbackShareId =
+      "sh_test_crawler_" + crypto.randomBytes(4).toString("hex");
     const now = new Date().toISOString();
     const futureExpiry = new Date(Date.now() + 86400000).toISOString();
 
     await db.query(
       `INSERT INTO users (id, created_at, risk_level) VALUES ($1, $2, 'low')`,
-      [testUserId, now]
+      [testUserId, now],
     );
     await db.query(
       `INSERT INTO entitlements (user_id, tier, songs_remaining, preview_count_today, preview_count_reset_at, updated_at) VALUES ($1, 'free', 1, 0, $2, $2)`,
-      [testUserId, now]
+      [testUserId, now],
     );
     await db.query(
       `INSERT INTO tracks (id, user_id, title, recipient_name, occasion, status, created_at, updated_at) VALUES ($1, $2, 'Test Song', 'Maria', 'birthday', 'completed', $3, $3)`,
-      [testTrackId, testUserId, now]
+      [testTrackId, testUserId, now],
     );
     await db.query(
       `INSERT INTO tracks (id, user_id, title, recipient_name, occasion, status, created_at, updated_at) VALUES ($1, $2, 'Fallback Song', 'Chioma', 'celebration', 'completed', $3, $3)`,
-      [testCrawlerFallbackTrackId, testUserId, now]
+      [testCrawlerFallbackTrackId, testUserId, now],
     );
     await db.query(
       `INSERT INTO track_versions (id, track_id, version_num, params_json, params_hash, status, render_type, created_at) VALUES ($1, $2, 1, '{}', 'hash123', 'completed', 'preview', $3)`,
-      [testVersionId, testTrackId, now]
+      [testVersionId, testTrackId, now],
     );
     await db.query(
       `INSERT INTO poems (id, user_id, title, recipient_name, occasion, tone, verses, message, status, created_at, updated_at)
        VALUES ($1, $2, 'Poem Title', 'Ada', 'birthday', 'heartfelt', $3, 'Gift poem', 'generated', $4, $4)`,
-      [testPoemId, testUserId, JSON.stringify([["Line one"], ["Line two"]]), now]
+      [
+        testPoemId,
+        testUserId,
+        JSON.stringify([["Line one"], ["Line two"]]),
+        now,
+      ],
     );
     await db.query(
       `INSERT INTO share_tokens (id, track_id, track_version_id, creator_id, status, expires_at, web_stream_allowed, created_at) VALUES ($1, $2, $3, $4, 'unbound', $5, 1, $6)`,
-      [testShareId, testTrackId, testVersionId, testUserId, futureExpiry, now]
+      [testShareId, testTrackId, testVersionId, testUserId, futureExpiry, now],
     );
     // Seed a share that points to a non-existent track version to simulate "video not ready" crawler path.
     await db.query(
       `INSERT INTO share_tokens (id, track_id, track_version_id, creator_id, status, expires_at, web_stream_allowed, created_at) VALUES ($1, $2, $3, $4, 'unbound', $5, 1, $6)`,
-      [testCrawlerFallbackShareId, testCrawlerFallbackTrackId, `missing_${testVersionId}`, testUserId, futureExpiry, now]
+      [
+        testCrawlerFallbackShareId,
+        testCrawlerFallbackTrackId,
+        `missing_${testVersionId}`,
+        testUserId,
+        futureExpiry,
+        now,
+      ],
     );
     testPoemShareId = "psh_test_embed_" + crypto.randomBytes(4).toString("hex");
     await db.query(
       `INSERT INTO poem_share_tokens (id, poem_id, creator_id, status, claim_pin, claim_attempts, allow_save, expires_at, created_at, access_count)
        VALUES ($1, $2, $3, 'active', '123456', 0, true, $4, $5, 0)`,
-      [testPoemShareId, testPoemId, testUserId, futureExpiry, now]
+      [testPoemShareId, testPoemId, testUserId, futureExpiry, now],
     );
 
     // Seed a corrupt track-level artwork plus a valid legacy cover. Production
@@ -282,9 +324,9 @@ describe("Share Embed Routes", () => {
         "tracks",
         testUserId,
         testTrackId,
-        "artwork.jpg"
+        "artwork.jpg",
       ),
-      "not an image"
+      "not an image",
     );
     const ffmpegPath = getFFmpegPath();
     execFileSync(ffmpegPath, [
@@ -305,11 +347,17 @@ describe("Share Embed Routes", () => {
       await db.query(`DROP SCHEMA IF EXISTS "${testSchema}" CASCADE`);
       await db.close();
     }
-    fs.rmSync(path.join(__dirname, "..", "storage", "tracks", testUserId), { recursive: true, force: true });
+    fs.rmSync(path.join(__dirname, "..", "storage", "tracks", testUserId), {
+      recursive: true,
+      force: true,
+    });
   });
 
   test("/play/:shareId includes og:video meta tags", async (t) => {
-    if (!postgresAvailable) { t.skip("PostgreSQL not available"); return; }
+    if (!postgresAvailable) {
+      t.skip("PostgreSQL not available");
+      return;
+    }
     const response = await app.inject({
       method: "GET",
       url: `/play/${testShareId}`,
@@ -318,20 +366,50 @@ describe("Share Embed Routes", () => {
     assert.equal(response.statusCode, 200);
     const body = response.body;
     assert.ok(body.includes("og:video"), "Should contain og:video meta tag");
-    assert.ok(body.includes("og:video:url"), "Should include structured og:video:url tag");
-    assert.ok(body.includes("share.mp4"), "og:video should reference share.mp4");
-    assert.ok(body.includes(`/share/${testShareId}/cover.jpg`), "Should use stable crawler-safe cover endpoint");
-    assert.ok(body.includes(`cover.jpg?v=`), "Should append cover version query to bust stale social caches");
-    assert.ok(body.includes('og:image:width" content="1200'), "Should declare 1200px OG image width");
-    assert.ok(body.includes('og:image:height" content="630'), "Should declare 630px OG image height");
-    assert.ok(body.includes('twitter:card" content="player'), "Should have twitter player card");
-    assert.ok(body.includes('twitter:player:stream'), "Should include twitter player stream tag");
-    assert.ok(body.includes(`/embed/${testShareId}`), "Should reference embed URL");
+    assert.ok(
+      body.includes("og:video:url"),
+      "Should include structured og:video:url tag",
+    );
+    assert.ok(
+      body.includes("share.mp4"),
+      "og:video should reference share.mp4",
+    );
+    assert.ok(
+      body.includes(`/share/${testShareId}/cover.jpg`),
+      "Should use stable crawler-safe cover endpoint",
+    );
+    assert.ok(
+      body.includes(`cover.jpg?v=`),
+      "Should append cover version query to bust stale social caches",
+    );
+    assert.ok(
+      body.includes('og:image:width" content="1200'),
+      "Should declare 1200px OG image width",
+    );
+    assert.ok(
+      body.includes('og:image:height" content="630'),
+      "Should declare 630px OG image height",
+    );
+    assert.ok(
+      body.includes('twitter:card" content="player'),
+      "Should have twitter player card",
+    );
+    assert.ok(
+      body.includes("twitter:player:stream"),
+      "Should include twitter player stream tag",
+    );
+    assert.ok(
+      body.includes(`/embed/${testShareId}`),
+      "Should reference embed URL",
+    );
     assert.ok(body.includes("oembed"), "Should have oEmbed discovery link");
   });
 
   test("/play/:shareId falls back to image-only card for crawler when teaser video is unavailable", async (t) => {
-    if (!postgresAvailable) { t.skip("PostgreSQL not available"); return; }
+    if (!postgresAvailable) {
+      t.skip("PostgreSQL not available");
+      return;
+    }
     const response = await app.inject({
       method: "GET",
       url: `/play/${testCrawlerFallbackShareId}`,
@@ -342,15 +420,33 @@ describe("Share Embed Routes", () => {
 
     assert.equal(response.statusCode, 200);
     const body = response.body;
-    assert.ok(body.includes('og:type" content="website'), "Crawler fallback should use og:type=website");
-    assert.ok(body.includes('twitter:card" content="summary_large_image'), "Crawler fallback should use summary card");
-    assert.ok(!body.includes("og:video"), "Crawler fallback should not include og:video tags");
-    assert.ok(!body.includes("twitter:player"), "Crawler fallback should not include twitter player tags");
-    assert.ok(body.includes(`/share/${testCrawlerFallbackShareId}/cover.jpg`), "Crawler fallback should still provide a cover image");
+    assert.ok(
+      body.includes('og:type" content="website'),
+      "Crawler fallback should use og:type=website",
+    );
+    assert.ok(
+      body.includes('twitter:card" content="summary_large_image'),
+      "Crawler fallback should use summary card",
+    );
+    assert.ok(
+      !body.includes("og:video"),
+      "Crawler fallback should not include og:video tags",
+    );
+    assert.ok(
+      !body.includes("twitter:player"),
+      "Crawler fallback should not include twitter player tags",
+    );
+    assert.ok(
+      body.includes(`/share/${testCrawlerFallbackShareId}/cover.jpg`),
+      "Crawler fallback should still provide a cover image",
+    );
   });
 
   test("/play/:shareId omits og:video for Facebook crawler even when video is available", async (t) => {
-    if (!postgresAvailable) { t.skip("PostgreSQL not available"); return; }
+    if (!postgresAvailable) {
+      t.skip("PostgreSQL not available");
+      return;
+    }
     const response = await app.inject({
       method: "GET",
       url: `/play/${testShareId}`,
@@ -361,14 +457,29 @@ describe("Share Embed Routes", () => {
 
     assert.equal(response.statusCode, 200);
     const body = response.body;
-    assert.ok(body.includes('og:type" content="website'), "Facebook crawler should get image card type");
-    assert.ok(body.includes('twitter:card" content="summary_large_image'), "Facebook crawler should use summary card");
-    assert.ok(!body.includes("og:video"), "Facebook crawler response should omit og:video tags");
-    assert.ok(!body.includes("twitter:player"), "Facebook crawler response should omit twitter player tags");
+    assert.ok(
+      body.includes('og:type" content="website'),
+      "Facebook crawler should get image card type",
+    );
+    assert.ok(
+      body.includes('twitter:card" content="summary_large_image'),
+      "Facebook crawler should use summary card",
+    );
+    assert.ok(
+      !body.includes("og:video"),
+      "Facebook crawler response should omit og:video tags",
+    );
+    assert.ok(
+      !body.includes("twitter:player"),
+      "Facebook crawler response should omit twitter player tags",
+    );
   });
 
   test("/play/:shareId preserves request query params in og:url for social cache busting", async (t) => {
-    if (!postgresAvailable) { t.skip("PostgreSQL not available"); return; }
+    if (!postgresAvailable) {
+      t.skip("PostgreSQL not available");
+      return;
+    }
     const response = await app.inject({
       method: "GET",
       url: `/play/${testShareId}?sv=2&fbv=cache123`,
@@ -380,17 +491,22 @@ describe("Share Embed Routes", () => {
     assert.equal(response.statusCode, 200);
     const body = response.body;
     assert.ok(
-      body.includes(`og:url" content="http://localhost:3999/play/${testShareId}?sv=2&amp;fbv=cache123"`),
-      "og:url should preserve request query params so social cache-busted links remain distinct"
+      body.includes(
+        `og:url" content="http://localhost:3999/play/${testShareId}?sv=2&amp;fbv=cache123"`,
+      ),
+      "og:url should preserve request query params so social cache-busted links remain distinct",
     );
     assert.ok(
       body.includes(`/share/${testShareId}/cover.jpg?v=2&amp;smv=cache123`),
-      "og:image should carry social cache token so crawlers fetch a fresh card variant"
+      "og:image should carry social cache token so crawlers fetch a fresh card variant",
     );
   });
 
   test("/play/:shareId gives WhatsApp a fresh square artwork preview", async (t) => {
-    if (!postgresAvailable) { t.skip("PostgreSQL not available"); return; }
+    if (!postgresAvailable) {
+      t.skip("PostgreSQL not available");
+      return;
+    }
     const response = await app.inject({
       method: "GET",
       url: `/play/${testShareId}?sv=2&smv=whatsappfresh123`,
@@ -402,22 +518,29 @@ describe("Share Embed Routes", () => {
     assert.equal(response.statusCode, 200);
     const body = response.body;
     assert.ok(
-      body.includes(`og:url" content="http://localhost:3999/play/${testShareId}?sv=2&amp;smv=whatsappfresh123"`),
-      "WhatsApp og:url should preserve the share URL cache token"
+      body.includes(
+        `og:url" content="http://localhost:3999/play/${testShareId}?sv=2&amp;smv=whatsappfresh123"`,
+      ),
+      "WhatsApp og:url should preserve the share URL cache token",
     );
     assert.ok(
-      body.includes(`/share/${testShareId}/cover.jpg?v=2&amp;smv=whatsappfresh123&amp;variant=whatsapp`),
-      "WhatsApp og:image should use the square variant while keeping the fresh social cache token"
+      body.includes(
+        `/share/${testShareId}/cover.jpg?v=2&amp;smv=whatsappfresh123&amp;variant=whatsapp`,
+      ),
+      "WhatsApp og:image should use the square variant while keeping the fresh social cache token",
     );
     assert.ok(
       body.includes('og:image:width" content="1200') &&
         body.includes('og:image:height" content="1200'),
-      "WhatsApp preview should declare the square 1200x1200 image dimensions"
+      "WhatsApp preview should declare the square 1200x1200 image dimensions",
     );
   });
 
   test("/poem/:shareId preserves request query params in og:url for social cache busting", async (t) => {
-    if (!postgresAvailable) { t.skip("PostgreSQL not available"); return; }
+    if (!postgresAvailable) {
+      t.skip("PostgreSQL not available");
+      return;
+    }
     const response = await app.inject({
       method: "GET",
       url: `/poem/${testPoemShareId}?sv=2&smv=poemcache999`,
@@ -429,21 +552,28 @@ describe("Share Embed Routes", () => {
     assert.equal(response.statusCode, 200);
     const body = response.body;
     assert.ok(
-      body.includes(`og:url" content="http://localhost:3999/poem/${testPoemShareId}?sv=2&amp;smv=poemcache999"`),
-      "Poem og:url should preserve request query params so social cache-busted links remain distinct"
+      body.includes(
+        `og:url" content="http://localhost:3999/poem/${testPoemShareId}?sv=2&amp;smv=poemcache999"`,
+      ),
+      "Poem og:url should preserve request query params so social cache-busted links remain distinct",
     );
     assert.ok(
-      body.includes(`poem/${testPoemShareId}/og-image.png?v=2&amp;smv=poemcache999`),
-      "Poem og:image should include version + social cache token"
+      body.includes(
+        `poem/${testPoemShareId}/og-image.png?v=2&amp;smv=poemcache999`,
+      ),
+      "Poem og:image should include version + social cache token",
     );
     assert.ok(
       body.includes('meta property="fb:app_id"'),
-      "Poem cards should include Facebook app metadata for consistent crawler treatment"
+      "Poem cards should include Facebook app metadata for consistent crawler treatment",
     );
   });
 
   test("/tracks/:id/og-previews returns all variants for owner with no-store cache", async (t) => {
-    if (!postgresAvailable) { t.skip("PostgreSQL not available"); return; }
+    if (!postgresAvailable) {
+      t.skip("PostgreSQL not available");
+      return;
+    }
     const response = await app.inject({
       method: "GET",
       url: `/tracks/${testTrackId}/og-previews`,
@@ -459,16 +589,21 @@ describe("Share Embed Routes", () => {
     assert.equal(body.variants.length, 3);
     assert.deepEqual(
       body.variants.map((item) => item.name),
-      ["spotlight", "envelope", "greeting_card"]
+      ["spotlight", "envelope", "greeting_card"],
     );
     assert.ok(
-      body.variants.every((item) => item.preview.startsWith("data:image/jpeg;base64,")),
-      "All song previews should return base64 JPEG data URLs"
+      body.variants.every((item) =>
+        item.preview.startsWith("data:image/jpeg;base64,"),
+      ),
+      "All song previews should return base64 JPEG data URLs",
     );
   });
 
   test("/tracks/:id/share updates og_variant and returns existing active share payload", async (t) => {
-    if (!postgresAvailable) { t.skip("PostgreSQL not available"); return; }
+    if (!postgresAvailable) {
+      t.skip("PostgreSQL not available");
+      return;
+    }
     const response = await app.inject({
       method: "POST",
       url: `/tracks/${testTrackId}/share`,
@@ -488,10 +623,13 @@ describe("Share Embed Routes", () => {
     assert.ok(body.share_url.includes(`/play/${testShareId}`));
     assert.ok(
       body.share_url.includes("smv="),
-      "API share payloads should include a fresh social preview token so app shares do not reuse stale unfurl cards"
+      "API share payloads should include a fresh social preview token so app shares do not reuse stale unfurl cards",
     );
 
-    const variantRow = await db.query("SELECT og_variant FROM tracks WHERE id = $1", [testTrackId]);
+    const variantRow = await db.query(
+      "SELECT og_variant FROM tracks WHERE id = $1",
+      [testTrackId],
+    );
     assert.equal(variantRow.rows[0].og_variant, "spotlight");
 
     const coverResponse = await app.inject({
@@ -505,12 +643,15 @@ describe("Share Embed Routes", () => {
       .filter((name) => /^share_artwork_1200x630_v.+\.jpg$/.test(name));
     assert.ok(
       cachedArtworkCards.length > 0,
-      "Default share card should use the artwork-first social preview even when an OG variant is selected"
+      "Default share card should use the artwork-first social preview even when an OG variant is selected",
     );
   });
 
   test("/tracks/:id/share rejects invalid og_variant", async (t) => {
-    if (!postgresAvailable) { t.skip("PostgreSQL not available"); return; }
+    if (!postgresAvailable) {
+      t.skip("PostgreSQL not available");
+      return;
+    }
     const response = await app.inject({
       method: "POST",
       url: `/tracks/${testTrackId}/share`,
@@ -529,7 +670,10 @@ describe("Share Embed Routes", () => {
   });
 
   test("/poems/:id/og-previews returns all variants for owner with no-store cache", async (t) => {
-    if (!postgresAvailable) { t.skip("PostgreSQL not available"); return; }
+    if (!postgresAvailable) {
+      t.skip("PostgreSQL not available");
+      return;
+    }
     const response = await app.inject({
       method: "GET",
       url: `/poems/${testPoemId}/og-previews`,
@@ -545,16 +689,21 @@ describe("Share Embed Routes", () => {
     assert.equal(body.variants.length, 3);
     assert.deepEqual(
       body.variants.map((item) => item.name),
-      ["open_book", "verse_window", "whisper"]
+      ["open_book", "verse_window", "whisper"],
     );
     assert.ok(
-      body.variants.every((item) => item.preview.startsWith("data:image/png;base64,")),
-      "All poem previews should return base64 PNG data URLs"
+      body.variants.every((item) =>
+        item.preview.startsWith("data:image/png;base64,"),
+      ),
+      "All poem previews should return base64 PNG data URLs",
     );
   });
 
   test("/poems/:id/share sets og_variant and poem OG cache uses versioned variant filename", async (t) => {
-    if (!postgresAvailable) { t.skip("PostgreSQL not available"); return; }
+    if (!postgresAvailable) {
+      t.skip("PostgreSQL not available");
+      return;
+    }
     const shareResponse = await app.inject({
       method: "POST",
       url: `/poems/${testPoemId}/share`,
@@ -578,7 +727,7 @@ describe("Share Embed Routes", () => {
     assert.equal(imageResponse.statusCode, 200);
     assert.ok(
       (imageResponse.headers["content-type"] || "").startsWith("image/png"),
-      "Poem OG endpoint should return PNG content type"
+      "Poem OG endpoint should return PNG content type",
     );
 
     const poemOgPath = path.join(
@@ -588,13 +737,19 @@ describe("Share Embed Routes", () => {
       "poems",
       testUserId,
       testPoemId,
-      "og_1200x630_v2_whisper.png"
+      "og_1200x630_v2_whisper.png",
     );
-    assert.ok(fs.existsSync(poemOgPath), "Poem OG image should be cached with version + variant filename");
+    assert.ok(
+      fs.existsSync(poemOgPath),
+      "Poem OG image should be cached with version + variant filename",
+    );
   });
 
   test("/share/:shareId/cover.jpg returns a stable social image", async (t) => {
-    if (!postgresAvailable) { t.skip("PostgreSQL not available"); return; }
+    if (!postgresAvailable) {
+      t.skip("PostgreSQL not available");
+      return;
+    }
     const response = await app.inject({
       method: "GET",
       url: `/share/${testShareId}/cover.jpg`,
@@ -603,7 +758,7 @@ describe("Share Embed Routes", () => {
     assert.equal(response.statusCode, 200);
     assert.ok(
       (response.headers["content-type"] || "").startsWith("image/"),
-      "Cover endpoint should return an image content type"
+      "Cover endpoint should return an image content type",
     );
 
     // The social card should be landscape OG dimensions, not the raw square cover.
@@ -617,12 +772,15 @@ describe("Share Embed Routes", () => {
       .filter((name) => /^share_artwork_1200x630_v.+\.jpg$/.test(name));
     assert.ok(
       generatedArtworkCards.length > 0,
-      "Should cache artwork-first social cards with a versioned filename to avoid stale legacy card reuse"
+      "Should cache artwork-first social cards with a versioned filename to avoid stale legacy card reuse",
     );
   });
 
   test("/share/:shareId exposes artwork-first image for the web player", async (t) => {
-    if (!postgresAvailable) { t.skip("PostgreSQL not available"); return; }
+    if (!postgresAvailable) {
+      t.skip("PostgreSQL not available");
+      return;
+    }
     const response = await app.inject({
       method: "GET",
       url: `/share/${testShareId}`,
@@ -632,16 +790,19 @@ describe("Share Embed Routes", () => {
     const body = JSON.parse(response.body);
     assert.ok(
       body.track.player_artwork_url.includes(`/share/${testShareId}/cover.jpg`),
-      "Web player should receive the same public artwork-first image endpoint used for social previews"
+      "Web player should receive the same public artwork-first image endpoint used for social previews",
     );
     assert.ok(
       body.track.player_artwork_url.includes("smv="),
-      "Web player artwork URL should be cache-busted so regenerated artwork appears after sharing"
+      "Web player artwork URL should be cache-busted so regenerated artwork appears after sharing",
     );
   });
 
   test("/share/:shareId exposes chapter markers for letterbox player", async (t) => {
-    if (!postgresAvailable) { t.skip("PostgreSQL not available"); return; }
+    if (!postgresAvailable) {
+      t.skip("PostgreSQL not available");
+      return;
+    }
     const response = await app.inject({
       method: "GET",
       url: `/share/${testShareId}`,
@@ -649,12 +810,18 @@ describe("Share Embed Routes", () => {
 
     assert.equal(response.statusCode, 200);
     const body = JSON.parse(response.body);
-    assert.ok(Array.isArray(body.chapter_markers), "Top-level chapter_markers should be present");
-    assert.ok(body.chapter_markers.length > 0, "Chapter markers should fall back when lyrics sections are absent");
+    assert.ok(
+      Array.isArray(body.chapter_markers),
+      "Top-level chapter_markers should be present",
+    );
+    assert.ok(
+      body.chapter_markers.length > 0,
+      "Chapter markers should fall back when lyrics sections are absent",
+    );
     assert.deepEqual(
       body.track.chapter_markers,
       body.chapter_markers,
-      "Track payload should mirror top-level chapter markers for client compatibility"
+      "Track payload should mirror top-level chapter markers for client compatibility",
     );
     assert.equal(typeof body.chapter_markers[0].label, "string");
     assert.equal(typeof body.chapter_markers[0].t_ms, "number");
@@ -662,7 +829,10 @@ describe("Share Embed Routes", () => {
   });
 
   test("/share/:shareId derives chapter markers from lyrics sections", async (t) => {
-    if (!postgresAvailable) { t.skip("PostgreSQL not available"); return; }
+    if (!postgresAvailable) {
+      t.skip("PostgreSQL not available");
+      return;
+    }
     const lyricsJson = {
       sections: [
         { name: "intro", startTime: 0, lines: ["A"] },
@@ -670,10 +840,10 @@ describe("Share Embed Routes", () => {
         { name: "chorus", startTime: 34, lines: ["D"] },
       ],
     };
-    await db.query(
-      `UPDATE track_versions SET lyrics_json = $1 WHERE id = $2`,
-      [JSON.stringify(lyricsJson), testVersionId]
-    );
+    await db.query(`UPDATE track_versions SET lyrics_json = $1 WHERE id = $2`, [
+      JSON.stringify(lyricsJson),
+      testVersionId,
+    ]);
 
     const response = await app.inject({
       method: "GET",
@@ -684,14 +854,17 @@ describe("Share Embed Routes", () => {
     const body = JSON.parse(response.body);
     assert.deepEqual(
       body.chapter_markers.map((marker) => marker.label),
-      ["Intro", "Verse One", "Chorus"]
+      ["Intro", "Verse One", "Chorus"],
     );
     assert.equal(body.chapter_markers[1].t_ms, 12500);
     assert.equal(body.chapter_markers[2].t_ms, 34000);
   });
 
   test("/share/:shareId dedupes nearby same-label sections and caps chapters at six", async (t) => {
-    if (!postgresAvailable) { t.skip("PostgreSQL not available"); return; }
+    if (!postgresAvailable) {
+      t.skip("PostgreSQL not available");
+      return;
+    }
     const lyricsJson = {
       sections: [
         { name: "intro", startTime: 0, lines: ["A"] },
@@ -704,10 +877,10 @@ describe("Share Embed Routes", () => {
         { name: "outro", startTime: 56, lines: ["H"] },
       ],
     };
-    await db.query(
-      `UPDATE track_versions SET lyrics_json = $1 WHERE id = $2`,
-      [JSON.stringify(lyricsJson), testVersionId]
-    );
+    await db.query(`UPDATE track_versions SET lyrics_json = $1 WHERE id = $2`, [
+      JSON.stringify(lyricsJson),
+      testVersionId,
+    ]);
 
     const response = await app.inject({
       method: "GET",
@@ -719,21 +892,24 @@ describe("Share Embed Routes", () => {
     assert.equal(body.chapter_markers.length, 6);
     assert.deepEqual(
       body.chapter_markers.map((marker) => marker.label),
-      ["Intro", "Verse", "Pre Chorus", "Chorus", "Bridge", "Final Chorus"]
+      ["Intro", "Verse", "Pre Chorus", "Chorus", "Bridge", "Final Chorus"],
     );
   });
 
   test("/share/:shareId exposes enabled letterbox flag payload", async (t) => {
-    if (!postgresAvailable) { t.skip("PostgreSQL not available"); return; }
+    if (!postgresAvailable) {
+      t.skip("PostgreSQL not available");
+      return;
+    }
     await db.query(
       `UPDATE feature_flags SET value = $1, updated_at = CURRENT_TIMESTAMP, updated_by = 'test'
        WHERE id = 'web_player_letterbox_enabled'`,
-      ["true"]
+      ["true"],
     );
     await db.query(
       `UPDATE feature_flags SET value = $1, updated_at = CURRENT_TIMESTAMP, updated_by = 'test'
        WHERE id = 'web_player_letterbox_rollout_percent'`,
-      ["25"]
+      ["25"],
     );
 
     const response = await app.inject({
@@ -750,17 +926,51 @@ describe("Share Embed Routes", () => {
     await db.query(
       `UPDATE feature_flags SET value = $1, updated_at = CURRENT_TIMESTAMP, updated_by = 'test'
        WHERE id = 'web_player_letterbox_enabled'`,
-      ["false"]
+      ["false"],
     );
     await db.query(
       `UPDATE feature_flags SET value = $1, updated_at = CURRENT_TIMESTAMP, updated_by = 'test'
        WHERE id = 'web_player_letterbox_rollout_percent'`,
-      ["0"]
+      ["0"],
     );
   });
 
+  test("/share/:shareId falls back to track owner's display_name when no gift order", async (t) => {
+    if (!postgresAvailable) {
+      t.skip("PostgreSQL not available");
+      return;
+    }
+    // V4: legacy direct shares have no gift_order. Surface users.display_name
+    // so the letterbox indicator can render "In {name}'s voice".
+    await db.query(`UPDATE users SET display_name = $1 WHERE id = $2`, [
+      "Sarah Obimma",
+      testUserId,
+    ]);
+    try {
+      const response = await app.inject({
+        method: "GET",
+        url: `/share/${testShareId}`,
+      });
+
+      assert.equal(response.statusCode, 200);
+      const body = JSON.parse(response.body);
+      assert.equal(
+        body.track.sender_name,
+        "Sarah Obimma",
+        "sender_name should fall back to track owner display_name when gift_order is absent",
+      );
+    } finally {
+      await db.query(`UPDATE users SET display_name = NULL WHERE id = $1`, [
+        testUserId,
+      ]);
+    }
+  });
+
   test("/share/:shareId/cover.jpg falls back to default cover when track version is missing", async (t) => {
-    if (!postgresAvailable) { t.skip("PostgreSQL not available"); return; }
+    if (!postgresAvailable) {
+      t.skip("PostgreSQL not available");
+      return;
+    }
     const response = await app.inject({
       method: "GET",
       url: `/share/${testCrawlerFallbackShareId}/cover.jpg`,
@@ -769,32 +979,48 @@ describe("Share Embed Routes", () => {
     assert.equal(response.statusCode, 200);
     assert.ok(
       (response.headers["content-type"] || "").startsWith("image/"),
-      "Fallback cover endpoint should still return an image content type"
+      "Fallback cover endpoint should still return an image content type",
     );
   });
 
   test("/embed/:shareId returns embeddable HTML player", async (t) => {
-    if (!postgresAvailable) { t.skip("PostgreSQL not available"); return; }
+    if (!postgresAvailable) {
+      t.skip("PostgreSQL not available");
+      return;
+    }
     const response = await app.inject({
       method: "GET",
       url: `/embed/${testShareId}`,
     });
 
     assert.equal(response.statusCode, 200);
-    assert.ok(response.headers["content-type"].includes("text/html"), "Should be HTML");
-    assert.equal(response.headers["content-security-policy"], "frame-ancestors *", "CSP should allow framing");
+    assert.ok(
+      response.headers["content-type"].includes("text/html"),
+      "Should be HTML",
+    );
+    assert.equal(
+      response.headers["content-security-policy"],
+      "frame-ancestors *",
+      "CSP should allow framing",
+    );
     const body = response.body;
     assert.ok(body.includes("A song for Maria"), "Should have title");
     assert.ok(body.includes(testShareId), "Should have share ID in body");
-    assert.ok(body.includes(`/share/${testShareId}/share.mp4`), "Should use share.mp4 teaser media");
+    assert.ok(
+      body.includes(`/share/${testShareId}/share.mp4`),
+      "Should use share.mp4 teaser media",
+    );
     assert.ok(body.includes("embed.js"), "Should load embed player JS");
   });
 
   test("/embed/:shareId remains playable after claim by using teaser media and preserving public web metadata", async (t) => {
-    if (!postgresAvailable) { t.skip("PostgreSQL not available"); return; }
+    if (!postgresAvailable) {
+      t.skip("PostgreSQL not available");
+      return;
+    }
     await db.query(
       `UPDATE share_tokens SET status = 'claimed', web_stream_allowed = 1 WHERE id = $1`,
-      [testShareId]
+      [testShareId],
     );
 
     const embedResponse = await app.inject({
@@ -804,35 +1030,55 @@ describe("Share Embed Routes", () => {
     assert.equal(embedResponse.statusCode, 200);
     assert.ok(
       embedResponse.body.includes(`/share/${testShareId}/share.mp4`),
-      "Embed should use claim-independent teaser media"
+      "Embed should use claim-independent teaser media",
     );
 
     const shareInfoResponse = await app.inject({
       method: "GET",
       url: `/share/${testShareId}`,
     });
-    assert.equal(shareInfoResponse.statusCode, 200, "Claimed share metadata should still load");
+    assert.equal(
+      shareInfoResponse.statusCode,
+      200,
+      "Claimed share metadata should still load",
+    );
     const shareInfo = JSON.parse(shareInfoResponse.body);
     assert.equal(shareInfo.status, "claimed");
-    assert.ok(shareInfo.web_stream_url, "Claimed share should still advertise a public browser listening surface");
-    assert.equal(shareInfo.app_required, false, "Claimed share should not require the app when public listening is still allowed");
+    assert.ok(
+      shareInfo.web_stream_url,
+      "Claimed share should still advertise a public browser listening surface",
+    );
+    assert.equal(
+      shareInfo.app_required,
+      false,
+      "Claimed share should not require the app when public listening is still allowed",
+    );
     const downloadUrl = new URL(shareInfo.app_download_url);
     assert.equal(downloadUrl.pathname, "/download");
     assert.equal(downloadUrl.searchParams.get("utm_source"), "share_player");
     assert.equal(downloadUrl.searchParams.get("utm_medium"), "recipient_loop");
-    assert.equal(downloadUrl.searchParams.get("utm_campaign"), "shared_song_recipient");
-    assert.equal(downloadUrl.searchParams.get("utm_content"), "song_generic_install");
+    assert.equal(
+      downloadUrl.searchParams.get("utm_campaign"),
+      "shared_song_recipient",
+    );
+    assert.equal(
+      downloadUrl.searchParams.get("utm_content"),
+      "song_generic_install",
+    );
     assert.equal(downloadUrl.searchParams.has("ref"), false);
     assert.equal(downloadUrl.searchParams.has("deep_link"), false);
 
     await db.query(
       `UPDATE share_tokens SET status = 'unbound', web_stream_allowed = 1 WHERE id = $1`,
-      [testShareId]
+      [testShareId],
     );
   });
 
   test("/embed/:shareId returns 404 for nonexistent share", async (t) => {
-    if (!postgresAvailable) { t.skip("PostgreSQL not available"); return; }
+    if (!postgresAvailable) {
+      t.skip("PostgreSQL not available");
+      return;
+    }
     const response = await app.inject({
       method: "GET",
       url: "/embed/nonexistent_share_id",
@@ -841,7 +1087,10 @@ describe("Share Embed Routes", () => {
   });
 
   test("/oembed returns valid JSON response", async (t) => {
-    if (!postgresAvailable) { t.skip("PostgreSQL not available"); return; }
+    if (!postgresAvailable) {
+      t.skip("PostgreSQL not available");
+      return;
+    }
     const response = await app.inject({
       method: "GET",
       url: `/oembed?url=${encodeURIComponent(`http://localhost:3999/play/${testShareId}`)}&format=json`,
@@ -853,18 +1102,27 @@ describe("Share Embed Routes", () => {
     assert.equal(body.version, "1.0");
     assert.equal(body.provider_name, "Porizo");
     assert.equal(body.title, "A song for Maria");
-    assert.ok(body.thumbnail_url.includes("cover.jpg?v="), "thumbnail_url should include cover version query");
+    assert.ok(
+      body.thumbnail_url.includes("cover.jpg?v="),
+      "thumbnail_url should include cover version query",
+    );
     assert.equal(body.thumbnail_width, 1200);
     assert.equal(body.thumbnail_height, 630);
     assert.equal(body.width, 480);
     assert.equal(body.height, 180);
     assert.ok(body.html.includes("iframe"), "Should contain iframe HTML");
-    assert.ok(body.html.includes(`/embed/${testShareId}`), "iframe should reference embed URL");
+    assert.ok(
+      body.html.includes(`/embed/${testShareId}`),
+      "iframe should reference embed URL",
+    );
     assert.equal(body.cache_age, 86400);
   });
 
   test("/oembed returns 400 without url param", async (t) => {
-    if (!postgresAvailable) { t.skip("PostgreSQL not available"); return; }
+    if (!postgresAvailable) {
+      t.skip("PostgreSQL not available");
+      return;
+    }
     const response = await app.inject({
       method: "GET",
       url: "/oembed",
@@ -873,7 +1131,10 @@ describe("Share Embed Routes", () => {
   });
 
   test("/oembed returns 404 for invalid URL pattern", async (t) => {
-    if (!postgresAvailable) { t.skip("PostgreSQL not available"); return; }
+    if (!postgresAvailable) {
+      t.skip("PostgreSQL not available");
+      return;
+    }
     const response = await app.inject({
       method: "GET",
       url: `/oembed?url=${encodeURIComponent("http://example.com/not-a-share")}`,
@@ -882,7 +1143,10 @@ describe("Share Embed Routes", () => {
   });
 
   test("/oembed returns 501 for non-JSON format", async (t) => {
-    if (!postgresAvailable) { t.skip("PostgreSQL not available"); return; }
+    if (!postgresAvailable) {
+      t.skip("PostgreSQL not available");
+      return;
+    }
     const response = await app.inject({
       method: "GET",
       url: `/oembed?url=${encodeURIComponent(`http://localhost:3999/play/${testShareId}`)}&format=xml`,

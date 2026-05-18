@@ -113,7 +113,9 @@ function registerSharingRoutes(
 
     try {
       const metadata = await sharp(filePath).metadata();
-      return Number.isFinite(metadata.width) && Number.isFinite(metadata.height);
+      return (
+        Number.isFinite(metadata.width) && Number.isFinite(metadata.height)
+      );
     } catch (err) {
       console.warn(
         `[share-cover] Ignoring unreadable image ${filePath}:`,
@@ -204,14 +206,17 @@ function registerSharingRoutes(
   function normalizeDurationMs(track, trackVersion) {
     const candidates = [
       trackVersion?.duration_ms,
-      trackVersion?.duration_sec ? Number(trackVersion.duration_sec) * 1000 : null,
+      trackVersion?.duration_sec
+        ? Number(trackVersion.duration_sec) * 1000
+        : null,
       track?.duration_ms,
       track?.duration_sec ? Number(track.duration_sec) * 1000 : null,
       track?.duration_target ? Number(track.duration_target) * 1000 : null,
     ];
     for (const candidate of candidates) {
       const duration = Number(candidate);
-      if (Number.isFinite(duration) && duration > 0) return Math.round(duration);
+      if (Number.isFinite(duration) && duration > 0)
+        return Math.round(duration);
     }
     return 60000;
   }
@@ -224,13 +229,19 @@ function registerSharingRoutes(
         .replace(/\b\w/g, (char) => char.toUpperCase())
         .slice(0, 24);
     }
-    return ["Intro", "Verse", "Chorus", "Bridge", "Outro"][index] || `Part ${index + 1}`;
+    return (
+      ["Intro", "Verse", "Chorus", "Bridge", "Outro"][index] ||
+      `Part ${index + 1}`
+    );
   }
 
   function deriveChapterMarkers(lyricsData, durationMs) {
     const duration = Number(durationMs);
-    const safeDurationMs = Number.isFinite(duration) && duration > 0 ? duration : 60000;
-    const sections = Array.isArray(lyricsData?.sections) ? lyricsData.sections : [];
+    const safeDurationMs =
+      Number.isFinite(duration) && duration > 0 ? duration : 60000;
+    const sections = Array.isArray(lyricsData?.sections)
+      ? lyricsData.sections
+      : [];
 
     if (sections.length > 0) {
       const totalLines = sections.reduce((sum, section) => {
@@ -242,20 +253,28 @@ function registerSharingRoutes(
 
       sections.forEach((section, index) => {
         const explicitStart = Number(section?.startTime ?? section?.start_time);
-        const tMs = Number.isFinite(explicitStart) && explicitStart >= 0
-          ? explicitStart * 1000
-          : (elapsedLines / lineCount) * safeDurationMs;
+        const tMs =
+          Number.isFinite(explicitStart) && explicitStart >= 0
+            ? explicitStart * 1000
+            : (elapsedLines / lineCount) * safeDurationMs;
         markers.push({
           label: getSectionLabel(section, index),
           t_ms: Math.max(0, Math.min(safeDurationMs - 1000, Math.round(tMs))),
         });
-        elapsedLines += Math.max(1, Array.isArray(section.lines) ? section.lines.length : 1);
+        elapsedLines += Math.max(
+          1,
+          Array.isArray(section.lines) ? section.lines.length : 1,
+        );
       });
 
       const deduped = [];
       for (const marker of markers) {
         const previous = deduped[deduped.length - 1];
-        if (!previous || previous.label !== marker.label || marker.t_ms - previous.t_ms > 4000) {
+        if (
+          !previous ||
+          previous.label !== marker.label ||
+          marker.t_ms - previous.t_ms > 4000
+        ) {
           deduped.push(marker);
         }
       }
@@ -1642,10 +1661,23 @@ function registerSharingRoutes(
           )
           .get(share.gift_order_id)
       : null;
+    // V4 fallback: when there's no gift order (legacy direct shares), surface
+    // the track owner's display_name so the letterbox indicator can render
+    // "In {name}'s voice" instead of dropping to the recipient-only fallback.
+    let trackOwnerDisplayName = null;
+    if (!giftOrder?.sender_display_name && track?.user_id) {
+      const owner = await db
+        .prepare("SELECT display_name FROM users WHERE id = ?")
+        .get(track.user_id);
+      trackOwnerDisplayName = owner?.display_name?.trim() || null;
+    }
     const [hydratedSharedTrack] = await hydrateTrackCoverImages(
       track ? [track] : [],
     );
-    const durationMs = normalizeDurationMs(hydratedSharedTrack || track, trackVersion);
+    const durationMs = normalizeDurationMs(
+      hydratedSharedTrack || track,
+      trackVersion,
+    );
     const lyricsData = parseJson(
       trackVersion.lyrics_json,
       null,
@@ -1665,7 +1697,8 @@ function registerSharingRoutes(
         track.recipient_name ??
         giftOrder?.recipient_name ??
         null,
-      sender_name: giftOrder?.sender_display_name?.trim() || null,
+      sender_name:
+        giftOrder?.sender_display_name?.trim() || trackOwnerDisplayName || null,
       occasion: track.occasion || null,
       created_at: track.created_at || null,
       duration_sec:
@@ -2589,7 +2622,10 @@ function registerSharingRoutes(
       });
     }
 
-    if (!fs.existsSync(localArtworkCardPath) && !fs.existsSync(localOgCardPath)) {
+    if (
+      !fs.existsSync(localArtworkCardPath) &&
+      !fs.existsSync(localOgCardPath)
+    ) {
       const ogGenerator =
         getSongOgGenerator(songVariant) || generateSongOgImage;
       const generatedOgImage = await ogGenerator({
@@ -2636,12 +2672,12 @@ function registerSharingRoutes(
 
     const reason =
       imagePath === localArtworkCardPath
-      ? "artwork_preview_available"
-      : imagePath === localOgCardPath
-      ? "generated_og_available"
-      : imagePath === localCoverPath
-        ? "cover_available"
-        : "cover_missing";
+        ? "artwork_preview_available"
+        : imagePath === localOgCardPath
+          ? "generated_og_available"
+          : imagePath === localCoverPath
+            ? "cover_available"
+            : "cover_missing";
 
     await addShareAccessLog({
       shareTokenId: share.id,
