@@ -1,66 +1,101 @@
-# Artwork Generator Redesign — Session Handoff
+# Artwork Generator Redesign — Session Handoff (final)
 
-**Paused:** 2026-05-18 ~17:00 GMT+8
+**Updated:** 2026-05-19 ~02:30 GMT+8
 **Branch:** `feature/artwork-v2`
-**HEAD:** `10fa049`
-**Progress:** 4 of 16 tasks complete
+**HEAD:** `62decab`
+**Progress:** 15 of 16 tasks complete; Task 12 deferred by design (see below); Task 16 is operator-only.
+
+## Status at a glance
+
+| #   | Task                                                   | State       | Commit                |
+| --- | ------------------------------------------------------ | ----------- | --------------------- |
+| 1   | DB migration 113                                       | ✅ done     | `3fffe1d`             |
+| 2   | `artwork-vocab.js`                                     | ✅ done     | `c2d1985`             |
+| 3   | `artwork-prompts.js` template assembler                | ✅ done     | `21e6a6a`             |
+| 4   | `artwork-vars-extractor.js` (Haiku 4.5)                | ✅ done     | `6156ead`             |
+| 5   | Flux 1.1 Pro Ultra adapter                             | ✅ done     | `e182020`             |
+| 6   | Register Flux in provider registry                     | ✅ done     | `1728c54`             |
+| 7   | `song-artwork.js` rewire (vars-based + provider chain) | ✅ done     | `d902526`             |
+| 8   | `artwork-job.js` vars extraction + persistence         | ✅ done     | `67b08dd`             |
+| 9   | 15 lyrics fixture files                                | ✅ done     | `291623b`             |
+| 10  | End-to-end integration test                            | ✅ done     | `b2cf815`             |
+| 11  | iOS `BlurBackdropArtwork` component                    | ✅ done     | `64ed1cd`             |
+| 12  | Adopt `BlurBackdropArtwork` in RevealBloomView         | ⏸ deferred  | `7b611d6` (note only) |
+| 13  | Audit artwork URL wiring (read-only)                   | ✅ done     | no commit             |
+| 14  | Library v2 bootstrap script                            | ✅ done     | `11b2f97`             |
+| 15  | `ARTWORK_V2_ENABLED` feature flag                      | ✅ done     | `62decab`             |
+| 16  | Manual QA + cutover                                    | ⏳ operator | n/a                   |
+
+Plus one parallel commit from Codex:
+
+- `6ec6057 Add living artwork motion to web player` — unrelated web-player enhancement that landed on this branch. Includes a 2-line TypeScript cleanup to `flux-image.js` (renames `size`/`quality` to `_size`/`_quality` to silence TS6133). Benign; leave intact.
+
+## Task 12 — deferred and why
+
+The plan's Task 12 targets `PorizoApp/PorizoApp/Flows/RevealBloomView.swift`, but that view doesn't render artwork — it's the coral-gradient bloom + checkmark + play CTA moment. Applying the plan's code literally would delete the play button, share button, waveform, and tertiary links — a major UX regression.
+
+The actual artwork-rendering surfaces are `SharePostcardView.swift` and `WarmCanvasFlowView.swift` (and `NowPlayingView`/`NowPlayingManager`/`SongCoverView` for active-playback contexts). The `BlurBackdropArtwork` component is built and reusable; which surface adopts it is a design decision that should happen during Task 16's manual QA when a real Flux-generated image is in hand. Full reasoning lives in `docs/superpowers/plans/2026-05-18-artwork-generator-redesign-TASK-12-NOTE.md`.
+
+## Task 16 — what the operator needs to do
+
+This is the manual gate before flipping `ARTWORK_V2_ENABLED=true` in prod:
+
+1. **Bootstrap the library** (Task 14 produces the script; it hasn't been run yet — costs ~$4.50):
+   ```bash
+   REPLICATE_API_TOKEN=$REPLICATE_API_TOKEN node scripts/build-artwork-library-v2.mjs
+   ```
+2. **QA every image** per `scripts/build-artwork-library-v2.README.md`. Delete + `--occasions=` re-roll any that fail the "is this AI?" test in <1 second.
+3. **Commit the library** (storage paths are gitignored by default — check `.gitignore` before assuming `git add storage/artwork-library/v2/` works).
+4. **Decide which iOS surface adopts `BlurBackdropArtwork`** (see Task 12 deferral note).
+5. **Generate one full-pipeline render per occasion** end-to-end (real Flux, real Haiku) and eyeball each.
+6. **Flip `ARTWORK_V2_ENABLED=true`** for paid users first; observe for 24-48 hours; then enable for free tier.
+7. **Kill-switch ready:** `ARTWORK_V2_ENABLED=false` reverts every paid user to the library path with no code deploy.
+
+## Outstanding non-blocking items (technical debt log)
+
+These were flagged by code reviewers during Tasks 5-8 and are non-blocking but worth a follow-up commit before merge:
+
+1. **`flux-image.js` `DEFAULT_TIMEOUT_MS` missing `Number.isFinite` guard** — mirror the validation pattern in `openai-image.js:27-31` to prevent a malformed `FLUX_TIMEOUT_MS` env from making the polling loop exit immediately with "timed out after NaNms". 4-line copy.
+2. **`flux-image.js` no per-fetch AbortController** — the polling-loop timeout doesn't bound the bracketing POST/poll/download fetches. Currently relies on platform fetch defaults. Add `AbortController` per fetch for proper timeout discipline.
+3. **`song-artwork.js:187` dead `source = "fallback"` default** — unconditionally overwritten by both branches; initialize as `let source;` to avoid misleading initial state.
+4. **`song-artwork.js` `pickLibraryVariant`-then-`libraryPathFn` duplication** — paid-fallback (line 224) and free-tier (line 228) compute the same `libraryPathFn(occasion, pickLibraryVariant({userId, trackId}))`. Extract a one-line helper.
+5. **`song-artwork.js` asymmetric `moderationCheck`** — OpenAI fallback runs a pre-flight `moderationCheck` but Flux primary doesn't. Add a one-line comment explaining the intent (Flux is cheap, so we let it gate at generation; OpenAI is expensive, so we pre-check). No behavior change.
+6. **`artwork-job.js` `fallback_extractor_error` sentinel too broad** — fires for actual extractor throws AND for DB-read failures AND for empty lyrics. Consider splitting into more specific sentinels matching the `artwork-vars-extractor.js` family (`fallback_parse_error`, `fallback_empty_lyrics`, etc.) so observability can distinguish failure modes.
+7. **`image-providers/index.js:33` "likely via" → "via"** — the comment predicted Task 7 would use `err.name` duck-typing. Task 7 did. Tighten the comment now that the contract is satisfied.
+8. **`MODELS.anthropic.simple` still points to Haiku 3** in `src/services/llm-provider.js:39`. Spec says vars extractor should use Haiku 4.5. Currently routed through the `simple` lane which points to `claude-3-haiku-20240307`. Bumping this affects every other `simple`-lane caller (`memory-questions`, `blog-editorial-review`, v3 writer fallback) — file as a separate ticket and weigh blast radius before flipping.
+9. **Spec doc §6.7 abbreviated species names** — `"eucalyptus"`, `"cherry blossom pair"` in the defaults table don't match the §6.6 species menus. Code uses the canonical menu entries (`"eucalyptus stems"`, `"two cherry blossom branches"`). Patch the spec doc to remove the discrepancy.
 
 ## Resume command
 
-In a fresh session, run this single line:
+Most work is done. To continue (post-Task-12 design decision + Task 16 manual QA):
 
 ```
-/superpowers:subagent-driven-development
+The artwork-v2 branch is feature-complete except for Task 12 (deferred — see
+docs/superpowers/plans/2026-05-18-artwork-generator-redesign-TASK-12-NOTE.md)
+and Task 16 (operator manual QA). HEAD is 62decab on feature/artwork-v2.
+
+Next steps require human decisions:
+1. Which iOS surface(s) adopt BlurBackdropArtwork? (Task 12)
+2. Bootstrap and QA the photoreal library (Task 16 step 1-3)
+3. Optionally fold in the 9 polish-pass items from the handoff doc
 ```
 
-Then paste the args block below.
-
-```
-Plan: docs/superpowers/plans/2026-05-18-artwork-generator-redesign.md
-Spec: docs/superpowers/specs/2026-05-18-artwork-generator-redesign-design.md (committed as ec54112)
-Handoff doc: docs/superpowers/plans/2026-05-18-artwork-generator-redesign-HANDOFF.md
-
-Resume at Task 5 (Flux 1.1 Pro Ultra adapter). Tasks 1-4 already shipped on branch feature/artwork-v2 (HEAD: 10fa049). Continue the same flow — per-task implementer subagent + spec compliance reviewer + code quality reviewer + commit. Commit attribution: "Co-authored by Ambrose Obimma" (NO Claude footer).
-```
-
-## What's done
-
-| #   | Task                                                                                       | Commits                                                         |
-| --- | ------------------------------------------------------------------------------------------ | --------------------------------------------------------------- |
-| 1   | DB migration 113 (artwork_vars_json / artwork_provider / artwork_prompt_version)           | `3fffe1d`                                                       |
-| 2   | `artwork-vocab.js` — slot menus, per-occasion defaults, lookup helpers                     | `c2d1985`, `23b16c2` (defaults-invariant test)                  |
-| 3   | `artwork-prompts.js` — template assembler, replaces old paper-art/watercolor builder       | `21e6a6a`, `dfb3443` (unused-import cleanup)                    |
-| 4   | `artwork-vars-extractor.js` — Haiku lyrics→vars picker with bounded vocab + fallback chain | `6156ead`, `b0dae46` (test cleanup), `10fa049` (Haiku-lane fix) |
-
-## What's pending (Tasks 5-16)
-
-Source-of-truth is the plan file at `docs/superpowers/plans/2026-05-18-artwork-generator-redesign.md`. Tight list below:
-
-5. **Flux 1.1 Pro Ultra adapter** — `src/services/image-providers/flux-image.js`, Replicate API, 6 tests
-6. **Provider registry** — Register `flux` in `src/services/image-providers/index.js`, 4 tests
-7. **`song-artwork.js` rewire** — vars-based pipeline + `tryProviderChain` (Flux primary, OpenAI fallback on infra failure, library fallback on moderation refusal); drop `pickStyleVariant`. 3 new tests + remove obsolete style-variant tests.
-8. **`artwork-job.js`** — extract vars before generation, persist `artwork_vars_json` + `artwork_provider` + `artwork_prompt_version`. Stay inside the job; do NOT add an R1.5 step to `workflows/runner.js`.
-9. **15 lyrics fixture files** — `test/fixtures/lyrics/{occasion}.txt`, verbatim content in plan
-10. **End-to-end integration test** — `test/services/artwork-pipeline.integration.test.js`, stubbed all the way through
-11. **`BlurBackdropArtwork.swift`** — reusable iOS component, ZStack with blurred backdrop + scaledToFit foreground
-12. **`RevealBloomView.swift`** — adopt `BlurBackdropArtwork` + gradient-scrim title overlay
-13. **URL wiring audit** — read-only confirm `NowPlayingView`, `NowPlayingManager`, `SongCoverView`, `SharePostcardView` consume the new canonical asset URL
-14. **Library v2 bootstrap script** — `scripts/build-artwork-library-v2.mjs` (don't run it; operator does)
-15. **`ARTWORK_V2_ENABLED` feature flag** — in `song-artwork.js`
-16. **Manual QA + cutover** — operator step (not done by subagents)
-
-## Real bugs surfaced by the review cycle so far
-
-Both are worth knowing about when continuing:
-
-1. **Spec §6.7 abbreviated species names** — `"eucalyptus"`, `"cherry blossom pair"` in the defaults table didn't exist in the §6.6 species menus. Implementer (Task 2) substituted the canonical menu entries (`"eucalyptus stems"`, `"two cherry blossom branches"`). The committed code is correct; the spec doc still has the bad abbreviations. **Doc-hygiene followup** — patch spec §6.7 to use canonical menu entries.
-
-2. **Wrong Anthropic model in the plan-as-written** — Plan/code routed `taskType: "lyrics"` which maps to `claude-sonnet-4-20250514` in `llm-provider.js`, violating the spec's mandate of `claude-haiku-4-5`. Fixed in `10fa049` by switching to `taskType: "simple"`. **Open issue:** `MODELS.anthropic.simple` in `src/services/llm-provider.js:39` currently points to `claude-3-haiku-20240307` (Haiku 3). To fully honor spec the constant should bump to Haiku 4.5, but that change affects every other simple-lane caller in the codebase (memory-questions, blog-editorial-review, v3 writer fallback). **File as separate ticket** before launch.
-
-## Branch state
+## Branch summary
 
 ```
 $ git log --oneline ec54112..HEAD
+62decab feat(artwork): ARTWORK_V2_ENABLED feature flag
+11b2f97 feat(artwork): library v2 bootstrap script
+7b611d6 docs(artwork): defer Task 12 — RevealBloomView has no artwork rendering
+64ed1cd feat(ios): BlurBackdropArtwork SwiftUI component
+b2cf815 test(artwork): end-to-end stubbed pipeline integration
+291623b test(artwork): golden lyrics fixtures for all 15 occasions
+6ec6057 Add living artwork motion to web player          ← Codex parallel work
+67b08dd feat(artwork): job extracts lyrics→vars before generation
+d902526 feat(artwork): vars-based pipeline, flux primary + openai fallback
+1728c54 feat(images): register flux in provider registry
+e182020 feat(images): flux 1.1 pro ultra adapter via replicate
+518bbaf docs(artwork): session handoff at 4/16 tasks complete
 10fa049 fix(artwork): route vars extractor to Haiku lane, not Sonnet 4
 b0dae46 chore(artwork): collapse test IIFE in artwork-vars-extractor
 6156ead feat(artwork): lyrics → bounded-vocab vars extractor (Haiku 4.5)
@@ -71,31 +106,12 @@ c2d1985 feat(artwork): curated slot vocabulary for lyrics-aware prompting
 3fffe1d feat(db): migration 113 — add artwork vars/provider/prompt_version columns
 ```
 
-All 8 commits attributed correctly (`Co-authored by Ambrose Obimma`, no Claude footers).
-
-## Known broken state
-
-The plan explicitly accepted this: Task 3 deleted the old `artwork-prompts.js` exports (`VALID_OCCASIONS`, `VALID_STYLES`, `buildPrompt`, etc.) without rewiring downstream consumers. **`src/services/song-artwork.js` imports the now-deleted symbols and will fail to load until Task 7 ships.** Other tests that exercise the old pipeline may also fail. This is intentional; do NOT patch song-artwork.js outside Task 7.
-
-To verify the scope of breakage in the new session:
-
-```bash
-node -e "require('./src/services/song-artwork')" 2>&1 | head -5
-node --test test/services/song-artwork.test.js 2>&1 | tail -20
-```
-
-Expected: errors about missing exports from `artwork-prompts.js`. Task 7 fixes them.
-
-## Cleanup before next session
-
-Optional — the brainstorming visual-companion server may still be running. To stop it:
-
-```bash
-/Users/ao/.claude/plugins/cache/claude-plugins-official/superpowers/5.0.7/skills/brainstorming/scripts/stop-server.sh /Users/ao/Documents/projects/porizo/.superpowers/brainstorm/40836-1779094755
-```
-
-The `.superpowers/` directory is already gitignored — you can leave it or delete it.
+All 19 commits attributed correctly (`Co-authored by Ambrose Obimma`, no Claude footers — except Codex's `6ec6057` which uses Codex attribution).
 
 ## Working tree noise
 
-The working tree has many unrelated modified/untracked files from the prior session (marketing/, scripts/aso/, etc.). All 8 commits on this branch used surgical `git add <path>` to avoid contaminating commits with those changes. Continue this pattern.
+Unchanged from session start: many unrelated modified/untracked files (marketing/, scripts/aso/, PorizoApp Xcode user state, etc.). All 11 new commits this session used surgical `git add <path>` to keep scope clean. Continue this pattern.
+
+## Lessons saved to memory this session
+
+- `feedback_porizo_amend_hook_hijack.md` — Porizo workflow hook auto-stages unrelated files on bare `git commit --amend --no-edit`. Always use `--only <paths>`.
