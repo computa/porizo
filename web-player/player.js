@@ -598,9 +598,10 @@
       "is-placeholder",
       !active,
     );
-    elements.letterboxSubtitleActive.textContent = active
-      ? active.text
-      : "Press play to begin";
+    // Empty subtitle pre-play: the placeholder text was overlapping the
+    // recipient watermark composited into the cover artwork. The play
+    // button in the bottom bar already signals the affordance.
+    elements.letterboxSubtitleActive.textContent = active ? active.text : "";
   }
 
   function applyLetterboxMode() {
