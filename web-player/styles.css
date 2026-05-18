@@ -1023,6 +1023,57 @@ body {
   }
 }
 
+@keyframes artworkSoftBreathe {
+  0%,
+  100% {
+    transform: translateX(-50%) scale(1);
+  }
+  50% {
+    transform: translateX(-50%) translate3d(0, -0.25%, 0) scale(1.008);
+  }
+}
+
+@keyframes artworkWarmPulse {
+  0%,
+  100% {
+    transform: translateX(-50%) scale(1);
+  }
+  45% {
+    transform: translateX(-50%) translate3d(0, -0.25%, 0) scale(1.01);
+  }
+}
+
+@keyframes artworkCinematicDrift {
+  0% {
+    transform: translateX(-50%) translate3d(0, 0.18%, 0) scale(1.002);
+  }
+  100% {
+    transform: translateX(-50%) translate3d(0, -0.35%, 0) scale(1.012);
+  }
+}
+
+@keyframes artworkNearStill {
+  0%,
+  100% {
+    transform: translateX(-50%) scale(1);
+  }
+  50% {
+    transform: translateX(-50%) translate3d(0, -0.12%, 0) scale(1.004);
+  }
+}
+
+@keyframes artworkAuraBreathe {
+  0%,
+  100% {
+    opacity: 0.055;
+    transform: scale(1.06);
+  }
+  50% {
+    opacity: 0.085;
+    transform: scale(1.08);
+  }
+}
+
 .letterbox-voice {
   color: rgba(245, 245, 240, 0.78);
   font-family: "DM Sans", system-ui, sans-serif;
@@ -1140,6 +1191,36 @@ body {
     rgba(0, 0, 0, 0.25) 96%,
     rgba(0, 0, 0, 0.55) 100%
   );
+}
+
+#player.letterbox.letterbox-playing.artwork-motion .player-artwork-image {
+  will-change: transform;
+}
+
+#player.letterbox.letterbox-playing.artwork-motion
+  .player-artwork-backdrop::before {
+  animation: artworkAuraBreathe 34s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+#player.letterbox.letterbox-playing.artwork-motion-soft-breathe
+  .player-artwork-image {
+  animation: artworkSoftBreathe 38s ease-in-out infinite;
+}
+
+#player.letterbox.letterbox-playing.artwork-motion-warm-pulse
+  .player-artwork-image {
+  animation: artworkWarmPulse 30s ease-in-out infinite;
+}
+
+#player.letterbox.letterbox-playing.artwork-motion-cinematic-drift
+  .player-artwork-image {
+  animation: artworkCinematicDrift 46s ease-in-out alternate infinite;
+}
+
+#player.letterbox.letterbox-playing.artwork-motion-near-still
+  .player-artwork-image {
+  animation: artworkNearStill 52s ease-in-out infinite;
 }
 
 #player.letterbox .lyrics-stage::after {
@@ -1645,6 +1726,12 @@ body {
     filter: saturate(1.04) brightness(1.03) contrast(1.02);
     -webkit-mask-image: none;
     mask-image: none;
+  }
+
+  #player.letterbox.letterbox-playing.artwork-motion
+    .player-artwork-backdrop::before {
+    animation: none;
+    will-change: auto;
   }
 
   #player.letterbox .letterbox-reticles {
@@ -2328,5 +2415,18 @@ body {
 
   #player.letterbox .play-button:hover {
     transform: none !important;
+  }
+
+  #player.letterbox.artwork-motion .player-artwork-image {
+    animation: none !important;
+    transform: translateX(-50%) !important;
+    will-change: auto !important;
+  }
+
+  #player.letterbox.artwork-motion .player-artwork-backdrop::before {
+    animation: none !important;
+    transform: scale(1.08) !important;
+    opacity: 0.07 !important;
+    will-change: auto !important;
   }
 }

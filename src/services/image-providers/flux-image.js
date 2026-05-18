@@ -60,8 +60,8 @@ async function generate({
   prompt,
   negativePrompt,
   apiKey,
-  size, // ignored — Flux Pro Ultra is fixed at 2048×2048
-  quality, // ignored — single quality tier
+  size: _size, // ignored — Flux Pro Ultra is fixed at 2048×2048
+  quality: _quality, // ignored — single quality tier
   fetchFn = fetch,
   sleepFn = (ms) => new Promise((r) => setTimeout(r, ms)),
 } = {}) {
