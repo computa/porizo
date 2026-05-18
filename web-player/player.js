@@ -338,7 +338,7 @@
   function getOccasionLabel(value) {
     const normalized = String(value || '').trim();
     if (!normalized) return 'Original Song';
-    return capitalizeOccasion(normalized);
+    return capitalizeOccasion(normalized.replace(/[_-]+/g, ' '));
   }
 
   function formatYear(value) {
