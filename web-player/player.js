@@ -549,6 +549,16 @@
 
   function getPlayerArtworkUrl(trackInfo) {
     if (!trackInfo) return '';
+    if (letterboxEnabled) {
+      return (
+        trackInfo.artwork_url ||
+        trackInfo.cover_image_large_url ||
+        trackInfo.cover_image_url ||
+        trackInfo.player_artwork_url ||
+        trackInfo.cover_image_small_url ||
+        ''
+      );
+    }
     return (
       trackInfo.player_artwork_url ||
       trackInfo.artwork_url ||
@@ -957,8 +967,8 @@
       }
 
       updateTrackInfo();
-      applyPlayerArtwork();
       applyLetterboxMode();
+      applyPlayerArtwork();
 
       // Render lyrics if available
       if (shareData.lyrics && shareData.lyrics.length > 0) {
