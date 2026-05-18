@@ -14,7 +14,6 @@ const {
   LIGHTING,
   PALETTE,
   DENSITY,
-  IMPERFECTION,
   BACKDROP,
   OCCASIONS,
   isValidSlot,
