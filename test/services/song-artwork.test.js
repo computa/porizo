@@ -736,3 +736,35 @@ test("generateSongArtwork surfaces LIBRARY_NOT_BOOTSTRAPPED as permanent", async
     }
   }, /Artwork base missing/);
 });
+
+test("generateSongArtwork respects ARTWORK_V2_ENABLED flag — disabled means library fallback for paid too", async () => {
+  const tmpFlag = fs.mkdtempSync(path.join(os.tmpdir(), "artwork-flag-"));
+  const fakeBase = path.join(tmpFlag, "lib.jpg");
+  fs.writeFileSync(fakeBase, Buffer.alloc(8));
+  process.env.ARTWORK_V2_ENABLED = "false";
+  try {
+    const result = await generateSongArtwork({
+      userId: "u-flag",
+      trackId: "t-flag",
+      occasion: "birthday",
+      recipientName: "X",
+      tier: "plus",
+      artworkVars: {
+        ...require("../../src/services/artwork-vocab").getDefault("birthday"),
+        picked_by: "x",
+        picked_at: "now",
+      },
+      dependencies: {
+        providerFactory: () => {
+          throw new Error("must not call provider when flag off");
+        },
+        prepareGeneratedImageFn: async (b) => b,
+        compositeFn: async ({ baseImagePath }) => baseImagePath,
+        libraryPathFn: () => fakeBase,
+      },
+    });
+    assert.equal(result.source, "library");
+  } finally {
+    delete process.env.ARTWORK_V2_ENABLED;
+  }
+});

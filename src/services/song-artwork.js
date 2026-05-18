@@ -182,6 +182,9 @@ async function generateSongArtwork({
   const outDir = trackDir({ userId, trackId });
   ensureDir(outDir);
   const isPaid = PAID_TIERS.has(String(tier || "").toLowerCase());
+  const v2Enabled =
+    String(process.env.ARTWORK_V2_ENABLED || "true").toLowerCase() !== "false";
+  const useGenerator = isPaid && v2Enabled;
 
   let baseImagePath;
   let source = "fallback";
@@ -189,7 +192,7 @@ async function generateSongArtwork({
   let prompt = null;
   let moderationPassed = true;
 
-  if (isPaid) {
+  if (useGenerator) {
     prompt = assemblePrompt({ occasion, vars });
     const negativePrompt = assembleNegativePrompt();
     try {
