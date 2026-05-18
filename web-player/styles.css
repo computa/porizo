@@ -980,16 +980,15 @@ body {
 #player.letterbox .player-artwork-backdrop {
   opacity: 1;
   background: #000;
-  background-image: var(--player-artwork-url);
-  background-size: cover;
-  background-position: center;
-  filter: blur(34px) saturate(0.8) brightness(0.58);
-  transform: scale(1.08);
+  background-image: none;
+  filter: none;
+  transform: none;
 }
 
 #player.letterbox .player-artwork-image {
   position: absolute;
   inset: 13vh 0 14vh;
+  z-index: 1;
   width: 100%;
   height: calc(100% - 27vh);
   object-fit: contain;
@@ -999,15 +998,19 @@ body {
 }
 
 #player.letterbox .player-artwork-backdrop::before {
-  z-index: 2;
-  background:
-    radial-gradient(ellipse 74% 52% at 50% 62%, rgba(0, 0, 0, 0.02), rgba(0, 0, 0, 0.34) 78%, rgba(0, 0, 0, 0.68) 100%),
-    linear-gradient(180deg, #000 0%, rgba(0, 0, 0, 0.10) 18%, rgba(0, 0, 0, 0.14) 58%, rgba(0, 0, 0, 0.76) 100%);
+  z-index: 0;
+  background-image: var(--player-artwork-url);
+  background-size: cover;
+  background-position: center;
+  filter: blur(34px) saturate(0.8) brightness(0.58);
+  transform: scale(1.08);
 }
 
 #player.letterbox .player-artwork-backdrop::after {
-  z-index: 3;
+  z-index: 2;
   background:
+    radial-gradient(ellipse 74% 52% at 50% 62%, rgba(0, 0, 0, 0.02), rgba(0, 0, 0, 0.34) 78%, rgba(0, 0, 0, 0.68) 100%),
+    linear-gradient(180deg, #000 0%, rgba(0, 0, 0, 0.10) 18%, rgba(0, 0, 0, 0.14) 58%, rgba(0, 0, 0, 0.76) 100%),
     linear-gradient(90deg, rgba(0, 0, 0, 0.62), transparent 19%, transparent 81%, rgba(0, 0, 0, 0.62)),
     radial-gradient(ellipse 60% 25% at 50% 80%, rgba(0, 0, 0, 0.56), transparent 76%);
 }
