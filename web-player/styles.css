@@ -935,7 +935,6 @@ body {
 
 .letterbox-top,
 .letterbox-reticles,
-.letterbox-title-block,
 .letterbox-subtitle,
 .letterbox-waveform,
 .letterbox-chapters,
@@ -1113,19 +1112,9 @@ body {
   object-fit: contain;
   object-position: center;
   transform: translateX(-50%);
-  filter: saturate(1.02) brightness(0.98) contrast(1.02);
-  -webkit-mask-image: radial-gradient(
-    ellipse 49% 64% at 50% 50%,
-    #000 67%,
-    rgba(0, 0, 0, 0.82) 82%,
-    transparent 100%
-  );
-  mask-image: radial-gradient(
-    ellipse 49% 64% at 50% 50%,
-    #000 67%,
-    rgba(0, 0, 0, 0.82) 82%,
-    transparent 100%
-  );
+  filter: saturate(1.04) brightness(1.04) contrast(1.02);
+  -webkit-mask-image: none;
+  mask-image: none;
 }
 
 #player.letterbox .player-artwork-backdrop::before {
@@ -1133,43 +1122,46 @@ body {
   background-image: var(--player-artwork-url);
   background-size: cover;
   background-position: center;
-  filter: blur(34px) saturate(0.88) brightness(0.78);
+  opacity: 0.22;
+  filter: blur(40px) saturate(0.75) brightness(0.72);
   transform: scale(1.08);
 }
 
 #player.letterbox .player-artwork-backdrop::after {
   z-index: 2;
-  background:
-    radial-gradient(
-      ellipse 74% 52% at 50% 62%,
-      rgba(0, 0, 0, 0.02),
-      rgba(0, 0, 0, 0.34) 78%,
-      rgba(0, 0, 0, 0.68) 100%
-    ),
-    linear-gradient(
-      180deg,
-      #000 0%,
-      rgba(0, 0, 0, 0.1) 18%,
-      rgba(0, 0, 0, 0.14) 58%,
-      rgba(0, 0, 0, 0.82) 92%,
-      rgba(0, 0, 0, 0.94) 100%
-    ),
-    linear-gradient(
-      90deg,
-      rgba(0, 0, 0, 0.62),
-      transparent 19%,
-      transparent 81%,
-      rgba(0, 0, 0, 0.62)
-    ),
-    /* V5: stronger bottom vignette to obscure the recipient-name watermark
-       composited into the generated cover art. The title block now carries
-       the recipient label, so the embedded text is visual redundancy. */
-    radial-gradient(
-        ellipse 78% 32% at 50% 85%,
-        rgba(0, 0, 0, 0.86) 0%,
-        rgba(0, 0, 0, 0.62) 55%,
-        transparent 84%
-      );
+  /* Let the bouquet breathe. Only fade into the letterbox bars top/bottom
+     for a clean chrome seam — no heavy bottom vignette over the artwork. */
+  background: linear-gradient(
+    180deg,
+    rgba(0, 0, 0, 0.55) 0%,
+    rgba(0, 0, 0, 0.04) 12%,
+    rgba(0, 0, 0, 0) 50%,
+    rgba(0, 0, 0, 0) 78%,
+    rgba(0, 0, 0, 0.25) 96%,
+    rgba(0, 0, 0, 0.55) 100%
+  );
+}
+
+#player.letterbox .lyrics-stage::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  right: auto;
+  bottom: 0;
+  width: min(52vw, 640px);
+  height: 22%;
+  transform: translateX(-50%);
+  z-index: -1;
+  pointer-events: none;
+  /* Tight reading veil — sits only behind the subtitle line, leaves the
+     bouquet uncovered. Cinema-subtitle contrast trick. */
+  background: radial-gradient(
+    ellipse 70% 80% at 50% 90%,
+    rgba(0, 0, 0, 0.45) 0%,
+    rgba(0, 0, 0, 0.18) 50%,
+    transparent 82%
+  );
+  filter: blur(6px);
 }
 
 #player.letterbox .letterbox-reticles {
@@ -1274,51 +1266,6 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-#player.letterbox .letterbox-title-block {
-  position: absolute;
-  left: clamp(32px, 5vw, 78px);
-  bottom: calc(14vh + 94px);
-  z-index: 13;
-  display: block;
-  max-width: min(540px, 42vw);
-  color: rgba(245, 245, 240, 0.92);
-  text-shadow:
-    0 2px 22px rgba(0, 0, 0, 0.95),
-    0 1px 4px rgba(0, 0, 0, 0.9);
-  pointer-events: none;
-}
-
-.letterbox-title-kicker,
-.letterbox-title-main,
-.letterbox-title-credit {
-  margin: 0;
-}
-
-.letterbox-title-kicker {
-  font-family: var(--letterbox-mono);
-  font-size: 10px;
-  letter-spacing: 0.22em;
-  text-transform: uppercase;
-  color: rgba(212, 165, 116, 0.68);
-}
-
-.letterbox-title-main {
-  margin-top: 4px;
-  font-family: var(--letterbox-serif);
-  font-size: clamp(42px, 5.3vw, 82px);
-  font-style: italic;
-  line-height: 0.95;
-  color: var(--letterbox-ivory);
-}
-
-.letterbox-title-credit {
-  margin-top: 16px;
-  font-family: "DM Sans", system-ui, sans-serif;
-  font-size: clamp(14px, 1.35vw, 19px);
-  line-height: 1.4;
-  color: rgba(245, 245, 240, 0.68);
-}
-
 #player.letterbox .lyrics-stage {
   top: 13vh;
   bottom: 14vh;
@@ -1341,18 +1288,7 @@ body {
 }
 
 #player.letterbox .letterbox-subtitle::before {
-  content: "";
-  position: absolute;
-  inset: -44px -120px -36px;
-  z-index: -1;
-  border-radius: 999px;
-  background: radial-gradient(
-    ellipse 68% 110% at center,
-    rgba(0, 0, 0, 0.7) 0%,
-    rgba(0, 0, 0, 0.36) 54%,
-    transparent 80%
-  );
-  filter: blur(8px);
+  display: none;
 }
 
 .letterbox-subtitle-prev,
@@ -1706,14 +1642,9 @@ body {
     object-fit: contain;
     object-position: center top;
     transform: translateX(-50%);
-    filter: saturate(0.98) brightness(0.92) contrast(1.02);
-    -webkit-mask-image: linear-gradient(
-      180deg,
-      #000 0%,
-      #000 82%,
-      transparent 100%
-    );
-    mask-image: linear-gradient(180deg, #000 0%, #000 82%, transparent 100%);
+    filter: saturate(1.04) brightness(1.03) contrast(1.02);
+    -webkit-mask-image: none;
+    mask-image: none;
   }
 
   #player.letterbox .letterbox-reticles {
@@ -1742,10 +1673,6 @@ body {
     letter-spacing: 0.14em;
   }
 
-  #player.letterbox .letterbox-title-block {
-    display: none;
-  }
-
   #player.letterbox .lyrics-stage {
     top: 50vh;
     bottom: 300px;
@@ -1759,14 +1686,7 @@ body {
   }
 
   #player.letterbox .letterbox-subtitle::before {
-    inset: -26px -34px -28px;
-    border-radius: 28px;
-    background: radial-gradient(
-      ellipse 86% 110% at center,
-      rgba(0, 0, 0, 0.82) 0%,
-      rgba(0, 0, 0, 0.56) 58%,
-      transparent 84%
-    );
+    display: none;
   }
 
   #player.letterbox .letterbox-subtitle-prev {
