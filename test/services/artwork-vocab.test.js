@@ -137,3 +137,22 @@ test("getDefault returns default vars for a known occasion", () => {
   assert.equal(d.density, "intimate_cluster");
   assert.equal(d.backdrop, "cream_cloud");
 });
+
+test("every default value passes isValidSlot for its occasion", () => {
+  for (const occ of OCCASIONS) {
+    const d = getDefault(occ);
+    for (const slot of [
+      "species",
+      "lighting",
+      "palette",
+      "density",
+      "backdrop",
+      "imperfection",
+    ]) {
+      assert.ok(
+        isValidSlot(slot, d[slot], occ),
+        `${occ}.${slot}=${d[slot]} not in menu`,
+      );
+    }
+  }
+});
