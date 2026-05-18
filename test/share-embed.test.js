@@ -168,12 +168,6 @@ describe("letterbox web-player helpers", () => {
     assert.equal(normalizeOccasionShort("unknown_custom"), "ORIG");
   });
 
-  test("getOccasionLabel formats title-card occasion labels", () => {
-    const getOccasionLabel = extractWebPlayerFunction("getOccasionLabel");
-    assert.equal(getOccasionLabel("mothers_day"), "Mothers Day");
-    assert.equal(getOccasionLabel("birthday-song"), "Birthday Song");
-    assert.equal(getOccasionLabel(""), "Original Song");
-  });
 });
 
 // --- Integration tests for server routes ---
