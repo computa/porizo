@@ -342,13 +342,108 @@ test("generateSongArtwork falls back to library on Flux moderation refusal (no O
     "must not retry OpenAI on moderation refusal",
   );
   assert.equal(result.source, "fallback");
+  // Moderation refusal IS a moderation event — moderation_passed must be false
+  // so the operator can SELECT WHERE source='fallback' AND moderation_passed=false
+  // to find rows needing prompt review (distinct from infra failures).
+  assert.equal(result.moderationPassed, false);
+});
+
+test("generateSongArtwork sets uploadFailed:true when S3 putFile throws", async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "porizo-artwork-"));
+  const fakeBase = path.join(tmp, "base.jpg");
+  fs.writeFileSync(fakeBase, Buffer.alloc(8));
+  const fakeFlux = {
+    name: "flux",
+    generate: async () => Buffer.alloc(8192, "x"),
+  };
+  const errors = [];
+  const result = await generateSongArtwork({
+    userId: "u-upload",
+    trackId: "t-upload",
+    occasion: "birthday",
+    recipientName: "X",
+    tier: "plus",
+    artworkVars: defaultsFor("birthday"),
+    dependencies: {
+      providerFactory: () => fakeFlux,
+      prepareGeneratedImageFn: async (b) => b,
+      compositeFn: async ({ outputDir }) => {
+        const out = path.join(outputDir, "artwork.jpg");
+        fs.writeFileSync(out, Buffer.alloc(8));
+        return out;
+      },
+      libraryPathFn: () => fakeBase,
+      storageProvider: {
+        type: "s3",
+        putFile: async () => {
+          throw new Error("S3 putObject denied");
+        },
+      },
+      logger: {
+        info() {},
+        warn() {},
+        error(message) {
+          errors.push(message);
+        },
+      },
+    },
+  });
+
+  assert.equal(result.skipped, false);
+  assert.equal(result.source, "generated");
+  assert.equal(result.provider, "flux");
+  // Render proceeded artistically — but uploadFailed flag warns the caller
+  // that the canonical URL won't serve from a different instance.
+  assert.equal(result.uploadFailed, true);
+  assert.ok(
+    errors.some((m) => m.includes("S3 upload failed")),
+    "expected an error-level log about S3 upload failure",
+  );
+});
+
+test("generateSongArtwork sets uploadFailed:false when S3 succeeds", async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "porizo-artwork-"));
+  const fakeBase = path.join(tmp, "base.jpg");
+  fs.writeFileSync(fakeBase, Buffer.alloc(8));
+  const fakeFlux = {
+    name: "flux",
+    generate: async () => Buffer.alloc(8192, "x"),
+  };
+  let uploaded = false;
+  const result = await generateSongArtwork({
+    userId: "u-upload-ok",
+    trackId: "t-upload-ok",
+    occasion: "birthday",
+    recipientName: "X",
+    tier: "plus",
+    artworkVars: defaultsFor("birthday"),
+    dependencies: {
+      providerFactory: () => fakeFlux,
+      prepareGeneratedImageFn: async (b) => b,
+      compositeFn: async ({ outputDir }) => {
+        const out = path.join(outputDir, "artwork.jpg");
+        fs.writeFileSync(out, Buffer.alloc(8));
+        return out;
+      },
+      libraryPathFn: () => fakeBase,
+      storageProvider: {
+        type: "s3",
+        putFile: async () => {
+          uploaded = true;
+        },
+      },
+    },
+  });
+
+  assert.equal(uploaded, true);
+  assert.equal(result.uploadFailed, false);
 });
 
 test("generateSongArtwork falls back to library when provider image validation fails", async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "porizo-artwork-"));
   const fakeBase = path.join(tmp, "base.jpg");
   fs.writeFileSync(fakeBase, Buffer.alloc(8));
-  const warnings = [];
+  const errors = [];
   // Both providers will be tried; both will fail validation.
   const fakeProvider = {
     name: "flux",
@@ -381,17 +476,21 @@ test("generateSongArtwork falls back to library when provider image validation f
       },
       logger: {
         info() {},
-        warn(message) {
-          warnings.push(message);
+        warn() {},
+        error(message) {
+          errors.push(message);
         },
-        error() {},
       },
     },
   });
 
   assert.equal(result.source, "fallback");
-  assert.equal(result.moderationPassed, false);
-  assert.ok(warnings.length >= 1);
+  // Infra failure (corrupt image) is NOT a moderation event — moderation_passed
+  // stays true so operators can SELECT WHERE source='fallback' AND moderation_passed=true
+  // to find "infra failed" rows distinct from moderation refusals.
+  assert.equal(result.moderationPassed, true);
+  // Logged at error level (pages ops), not warn.
+  assert.ok(errors.length >= 1, "infra failure should log at error level");
 });
 
 test("prepareGeneratedBaseImage normalizes valid provider output to 2048x2048 JPEG", async () => {

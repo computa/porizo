@@ -11,6 +11,7 @@ const {
 const {
   getImageProvider,
   ModerationRefusalError,
+  ImageGenerationError,
 } = require("./image-providers");
 const { compositeArtworkWithText } = require("./cover-generator");
 const { trackArtworkKey } = require("../storage");
@@ -102,6 +103,7 @@ async function tryProviderChain({
   logger,
 }) {
   // 1. Try primary (Flux by default)
+  let primaryError = null;
   try {
     const primary = providerFactory(PRIMARY_PROVIDER);
     const buf = await primary.generate({ prompt, negativePrompt });
@@ -121,24 +123,48 @@ async function tryProviderChain({
       // non-moderation infra failures.
       throw err;
     }
+    primaryError = err;
     logger.warn(
       `[song-artwork] primary ${PRIMARY_PROVIDER} failed: ${err.message}; retrying on ${FALLBACK_PROVIDER}`,
     );
   }
-  // 2. Try fallback (OpenAI)
-  const fallback = providerFactory(FALLBACK_PROVIDER);
-  if (typeof fallback.moderationCheck === "function") {
-    const mod = await fallback.moderationCheck({ prompt });
-    if (mod && mod.flagged) {
-      throw new ModerationRefusalError("fallback moderation refused prompt");
+  // 2. Try fallback (OpenAI). If it ALSO fails, wrap both errors so the
+  // outer caller can log the full failure surface instead of dropping the
+  // primary error on the floor.
+  try {
+    const fallback = providerFactory(FALLBACK_PROVIDER);
+    if (typeof fallback.moderationCheck === "function") {
+      const mod = await fallback.moderationCheck({ prompt });
+      if (mod && mod.flagged) {
+        throw new ModerationRefusalError("fallback moderation refused prompt");
+      }
     }
+    const buf = await fallback.generate({
+      prompt,
+      size: "1024x1024",
+      quality: "high",
+    });
+    return { buf, provider: FALLBACK_PROVIDER };
+  } catch (fallbackErr) {
+    if (
+      fallbackErr instanceof ModerationRefusalError ||
+      (fallbackErr && fallbackErr.name === "ModerationRefusalError")
+    ) {
+      // Fallback's pre-flight moderation refused — propagate as a moderation
+      // event (the prompt itself is the problem). The primary error context
+      // is irrelevant here.
+      throw fallbackErr;
+    }
+    // Both providers had infra failures. Re-throw a wrapped error carrying
+    // both contexts so the outer logger sees Flux+OpenAI in one line.
+    const wrapped = new ImageGenerationError(
+      `both providers failed — primary(${PRIMARY_PROVIDER})=${primaryError ? primaryError.message : "n/a"}; fallback(${FALLBACK_PROVIDER})=${fallbackErr.message}`,
+      { primary: primaryError, fallback: fallbackErr },
+    );
+    wrapped.primaryError = primaryError;
+    wrapped.fallbackError = fallbackErr;
+    throw wrapped;
   }
-  const buf = await fallback.generate({
-    prompt,
-    size: "1024x1024",
-    quality: "high",
-  });
-  return { buf, provider: FALLBACK_PROVIDER };
 }
 
 async function generateSongArtwork({
@@ -204,6 +230,7 @@ async function generateSongArtwork({
   let provider = null;
   let prompt = null;
   let moderationPassed = true;
+  let uploadFailed = false;
 
   if (useGenerator) {
     prompt = assemblePrompt({ occasion, vars });
@@ -226,14 +253,23 @@ async function generateSongArtwork({
         err instanceof ModerationRefusalError ||
         (err && err.name === "ModerationRefusalError")
       ) {
+        // Real moderation event — the prompt was refused. moderation_passed=false
+        // is the operator's signal that this row needs content review, not ops.
         moderationPassed = false;
         logger.warn(
           `[song-artwork] moderation refusal for track ${trackId}; using library`,
         );
       } else {
-        moderationPassed = false;
-        logger.warn(
-          `[song-artwork] all providers failed for track ${trackId}: ${err.message}; using library`,
+        // Infrastructure failure — keep moderation_passed=true so the row's
+        // (source=fallback, moderation_passed=true) combination identifies
+        // "infra failed" without a schema change. Log at error level so this
+        // pages ops, not just shows up as a warn in info-volume logs.
+        const primaryMsg =
+          err && err.primaryError ? err.primaryError.message : null;
+        const fallbackMsg =
+          err && err.fallbackError ? err.fallbackError.message : err.message;
+        logger.error(
+          `[song-artwork] all providers failed for track ${trackId}; using library — primary=${primaryMsg || "n/a"}; fallback=${fallbackMsg}`,
         );
       }
       source = "fallback";
@@ -278,8 +314,15 @@ async function generateSongArtwork({
         contentType: "image/jpeg",
       });
     } catch (uploadErr) {
-      logger.warn(
-        `[song-artwork] S3 upload failed for track ${trackId}: ${uploadErr.message}`,
+      // Remote upload failed but the local file landed — render is artistically
+      // complete. We must NOT silently return success: the caller persists
+      // artworkUrl as the canonical pointer, and any cross-instance reader
+      // (redeployed worker, share-link service on a different box) will 404
+      // because the file lives only on this box's disk. Surface uploadFailed
+      // so the caller can re-attempt or flag the row for ops attention.
+      uploadFailed = true;
+      logger.error(
+        `[song-artwork] S3 upload failed for track ${trackId}: ${uploadErr.message} — local file persists, but cross-instance reads will 404 until reuploaded`,
       );
     }
   }
@@ -293,6 +336,7 @@ async function generateSongArtwork({
     provider,
     prompt,
     moderationPassed,
+    uploadFailed,
     promptVersion,
     artworkVars: vars,
     contentHash,

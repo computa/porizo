@@ -598,25 +598,34 @@ function enqueueArtworkJob({
     return;
   }
   const jobId = newUuid();
-  // Best-effort jobs-row insert. If the insert fails (e.g. test DB without the
-  // jobs table), we still fall back to in-process execution — the production
-  // schema always has the jobs table, so this is purely a safety net.
+  // Best-effort jobs-row insert. The insert is wrapped in a microtask so its
+  // success/failure resolves BEFORE the setImmediate fires — that lets us
+  // null out the jobId on failure so we don't spawn an orphan run that
+  // forever fails to update a non-existent jobs row (and that the orphan-
+  // recovery sweep would never re-find).
   const stepData = JSON.stringify({ trackId });
-  Promise.resolve(
-    db
-      .prepare(SQL_INSERT_ARTWORK_JOB)
-      .run(jobId, trackVersionId, 3, stepData, nowIso(), nowIso()),
-  ).catch((err) => {
-    (logger || console).warn(
-      `[ArtworkJob] enqueue insert failed: ${err.message}. Falling back to in-process only.`,
-    );
-  });
+  let effectiveJobId = jobId;
+  Promise.resolve()
+    .then(() =>
+      db
+        .prepare(SQL_INSERT_ARTWORK_JOB)
+        .run(jobId, trackVersionId, 3, stepData, nowIso(), nowIso()),
+    )
+    .catch((err) => {
+      // Sync .run throws (sql.js test path) and async insert failures both
+      // land here. Null out the jobId so runArtworkJob's safeJobUpdate skips
+      // the missing-row UPDATE silently instead of repeatedly warning.
+      effectiveJobId = null;
+      (logger || console).warn(
+        `[ArtworkJob] enqueue insert failed: ${err.message}. Continuing in-process without jobs-row tracking.`,
+      );
+    });
   setImmediate(() => {
     runArtworkJob({
       db,
       trackId,
       trackVersionId,
-      jobId,
+      jobId: effectiveJobId,
       logger,
       tierResolver,
       extractVarsFn,
