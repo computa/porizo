@@ -893,3 +893,67 @@ test("runArtworkJob falls back to occasion defaults when extractor throws", asyn
   // The render still proceeded — vars row written.
   assert.equal(calls.updateArtworkVars.length, 1);
 });
+
+test("runArtworkJob flattens sections-based lyrics_json into readable text for the extractor", async () => {
+  // Regression for the bug where parsed.text || parsed.lyrics would fall through
+  // to JSON.stringify, sending Haiku a structured blob instead of readable lyrics.
+  // buildLyrics in src/writer/songwriter.js actually emits the sections shape below.
+  const sectionsShape = {
+    title: "For Chioma",
+    style: "pop",
+    sections: [
+      {
+        name: "verse1",
+        lines: ["I knew you as a young girl", "but I watched you grow"],
+      },
+      {
+        name: "chorus",
+        lines: ["You carried us through", "mama, the brave one"],
+      },
+    ],
+    anchor_line: "Chioma, this song's for you",
+  };
+  const { db } = makeDb({
+    track: { ...SAMPLE_TRACK, occasion: "mothers_day" },
+    entitlement: { tier: "plus" },
+    versionLyrics: { lyrics_json: JSON.stringify(sectionsShape) },
+  });
+
+  let lyricsSeen = null;
+  await runArtworkJob({
+    db,
+    trackId: "t-1",
+    trackVersionId: "tv-sections-1",
+    logger: SILENT_LOGGER,
+    extractVarsFn: async ({ lyrics }) => {
+      lyricsSeen = lyrics;
+      return {
+        species: "ranunculus",
+        lighting: "morning_window",
+        palette: "dusty_rose",
+        density: "intimate_cluster",
+        imperfection: "one outer petal slightly bruised at the tip",
+        backdrop: "cream_cloud",
+        picked_by: "haiku",
+        picked_at: "2026-05-18T12:00:00Z",
+      };
+    },
+    generateFn: async (args) => ({
+      ...SAMPLE_RESULT,
+      artworkVars: args.artworkVars,
+      promptVersion: "v2.1.0-photoreal-flora",
+    }),
+    tierResolver: async () => "plus",
+  });
+
+  assert.ok(lyricsSeen, "extractor must be called");
+  // Critical: extractor receives newline-joined readable lyrics, not a JSON blob.
+  assert.ok(
+    !lyricsSeen.startsWith("{"),
+    `lyrics must be flattened text, not JSON (got: ${lyricsSeen.slice(0, 40)}…)`,
+  );
+  assert.ok(lyricsSeen.includes("I knew you as a young girl"));
+  assert.ok(lyricsSeen.includes("mama, the brave one"));
+  // Lines from different sections are separated.
+  assert.ok(lyricsSeen.includes("\n"));
+});

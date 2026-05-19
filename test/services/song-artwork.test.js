@@ -421,6 +421,28 @@ test("prepareGeneratedBaseImage rejects corrupt or tiny provider output", async 
   );
 });
 
+test("prepareGeneratedBaseImage accepts 1024×1024 (the OpenAI fallback dimension)", async () => {
+  // Regression: floor was 1280, but OpenAI's gpt-image-2 max square is 1024².
+  // The fallback path would have thrown "undersized image (1024x1024)" 100% of
+  // the time, leaving Flux failures with no real fallback before library.
+  const sharp = require("sharp");
+  const input = await sharp({
+    create: {
+      width: 1024,
+      height: 1024,
+      channels: 3,
+      background: { r: 230, g: 200, b: 180 },
+    },
+  })
+    .png()
+    .toBuffer();
+
+  const output = await prepareGeneratedBaseImage(input);
+  const metadata = await sharp(output).metadata();
+  assert.equal(metadata.width, 2048);
+  assert.equal(metadata.height, 2048);
+});
+
 // ---------- fitName tiers ----------
 
 test("fitName T1: short name → standard size, single line", () => {

@@ -507,7 +507,24 @@ async function resolveArtworkVars({
             typeof lyricsJson === "string"
               ? JSON.parse(lyricsJson)
               : lyricsJson;
-          lyrics = parsed.text || parsed.lyrics || JSON.stringify(parsed);
+          // Shape produced by buildLyrics/writeSongFromContext:
+          //   { title, style, sections: [{ name, lines: [...] }], anchor_line }
+          // Fall back to legacy/alternate shapes (.text, .lyrics) for safety,
+          // then to the sections flatten, then to a JSON dump as last resort.
+          if (typeof parsed.text === "string" && parsed.text.trim()) {
+            lyrics = parsed.text;
+          } else if (
+            typeof parsed.lyrics === "string" &&
+            parsed.lyrics.trim()
+          ) {
+            lyrics = parsed.lyrics;
+          } else if (Array.isArray(parsed.sections)) {
+            lyrics = parsed.sections
+              .flatMap((s) => (Array.isArray(s.lines) ? s.lines : []))
+              .join("\n");
+          } else {
+            lyrics = JSON.stringify(parsed);
+          }
         } catch {
           lyrics = String(lyricsJson);
         }

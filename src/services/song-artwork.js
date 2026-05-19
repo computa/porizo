@@ -19,8 +19,11 @@ const PAID_TIERS = new Set(["plus", "pro"]);
 const FREE_LIBRARY_VARIANT_COUNT = 5;
 const GENERATED_IMAGE_DIM = 2048;
 const MIN_PROVIDER_IMAGE_BYTES = 1024;
-const MIN_PROVIDER_IMAGE_WIDTH = 1280;
-const MIN_PROVIDER_IMAGE_HEIGHT = 1280;
+// Floor matches OpenAI's max square (1024×1024 from gpt-image-2) so the OpenAI
+// fallback path is reachable. Flux returns 2048×2048; both pass and get
+// resized up to GENERATED_IMAGE_DIM via the sharp pipeline below.
+const MIN_PROVIDER_IMAGE_WIDTH = 1024;
+const MIN_PROVIDER_IMAGE_HEIGHT = 1024;
 
 const STORAGE_ROOT =
   process.env.STORAGE_ROOT || path.resolve(process.cwd(), "storage");
