@@ -16,11 +16,16 @@ const NAME = "flux";
 const MODEL = "black-forest-labs/flux-1.1-pro-ultra";
 const BASE_URL = "https://api.replicate.com";
 const PREDICTIONS_URL = `${BASE_URL}/v1/predictions`;
-const DEFAULT_TIMEOUT_MS = parseInt(
-  process.env.FLUX_TIMEOUT_MS || "120000",
-  10,
-);
+const DEFAULT_TIMEOUT_MS = (() => {
+  const raw = parseInt(process.env.FLUX_TIMEOUT_MS || "120000", 10);
+  // Mirrors openai-image.js: clamp to sane bounds, fall back to the default
+  // on malformed input so a typo in env doesn't make the polling loop exit
+  // immediately with "timed out after NaNms".
+  if (!Number.isFinite(raw) || raw < 5_000 || raw > 600_000) return 120_000;
+  return raw;
+})();
 const POLL_INTERVAL_MS = 2000;
+const DOWNLOAD_TIMEOUT_MS = 30_000;
 
 const dataHandling = {
   processorLocation: "US (Replicate)",
@@ -179,14 +184,34 @@ async function generate({
   }
 
   // 4. Download image bytes
+  // Bound the download so a stuck Replicate CDN can't hang the whole job
+  // until the surrounding 5/15/45s retry policy kicks in. `fetchFn` is
+  // injectable for tests; we attempt to pass `signal` but fall back silently
+  // if the injected fake doesn't honor it.
   let downloadResp;
+  const dlController =
+    typeof AbortController !== "undefined" ? new AbortController() : null;
+  const dlTimer = dlController
+    ? setTimeout(() => dlController.abort(), DOWNLOAD_TIMEOUT_MS)
+    : null;
   try {
-    downloadResp = await fetchFn(outputUrl);
+    downloadResp = await fetchFn(
+      outputUrl,
+      dlController ? { signal: dlController.signal } : undefined,
+    );
   } catch (err) {
+    if (err && err.name === "AbortError") {
+      throw new ImageGenerationError(
+        `Flux output download timed out after ${DOWNLOAD_TIMEOUT_MS}ms`,
+        err,
+      );
+    }
     throw new ImageGenerationError(
       `Failed to download Flux output: ${err.message}`,
       err,
     );
+  } finally {
+    if (dlTimer) clearTimeout(dlTimer);
   }
   if (!downloadResp.ok) {
     throw new ImageGenerationError(

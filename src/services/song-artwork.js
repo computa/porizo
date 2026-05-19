@@ -54,8 +54,11 @@ function trackDir({ userId, trackId }) {
 }
 
 function computeContentHash({ occasion, artworkVars, promptVersion }) {
-  // recipient_name is excluded — it's never in the prompt.
-  // imperfection IS included because it changes the image.
+  // recipient_name is excluded — it's PII and is composited as overlay text
+  // AFTER generation (see cover-generator.js), never passed to the image
+  // model. Keeping it out of the hash also means two recipients with the same
+  // vars share a cache slot.
+  // imperfection IS included because it changes the generated image.
   const normalized = JSON.stringify({
     occasion,
     species: artworkVars.species,
@@ -108,7 +111,14 @@ async function tryProviderChain({
       err instanceof ModerationRefusalError ||
       (err && err.name === "ModerationRefusalError")
     ) {
-      // No retry on moderation — same prompt will refuse on OpenAI too.
+      // Treat a moderation refusal as authoritative — surface it to the
+      // outer handler so the caller drops to the library fallback. We don't
+      // retry on OpenAI here because the policy contract is "one provider's
+      // refusal ends the attempt"; we don't want to burn a second API call
+      // (and quota, and latency) on a prompt the system has already deemed
+      // unsafe. The fallback path below DOES still run OpenAI's pre-flight
+      // moderationCheck — that's a different code path triggered only by
+      // non-moderation infra failures.
       throw err;
     }
     logger.warn(

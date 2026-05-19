@@ -26,11 +26,15 @@ function getImageProvider(name = process.env.IMAGE_PROVIDER || "openai") {
 
 module.exports = {
   getImageProvider,
-  // Re-export error classes from the OpenAI adapter. Each adapter defines its
-  // own error classes (Flux's extend Error directly, not openai.ModerationRefusalError),
-  // so this re-export only covers the OpenAI-routed path today. Task 7 rewires
-  // song-artwork.js to handle both adapters' refusals — likely via `err.name ===
-  // "ModerationRefusalError"` duck-typing rather than a sibling instanceof check.
+  // Re-export OpenAI's error classes for legacy callers that import error
+  // shapes directly from the registry. Each adapter defines its OWN classes
+  // (Flux's `ModerationRefusalError` extends `Error` directly — it is NOT a
+  // subclass of openai.ModerationRefusalError), so any consumer that may
+  // receive errors from EITHER adapter must duck-type via
+  //   err instanceof ModerationRefusalError || err?.name === "ModerationRefusalError"
+  // See `tryProviderChain` in src/services/song-artwork.js for the canonical
+  // dual-check; never use bare `instanceof` against this re-export when the
+  // primary provider might be Flux.
   ModerationRefusalError: openai.ModerationRefusalError,
   ImageGenerationError: openai.ImageGenerationError,
 };
