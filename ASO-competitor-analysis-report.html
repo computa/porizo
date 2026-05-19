@@ -1,0 +1,490 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Competitor Analysis — Porizo · 2026-05-19</title>
+  <style>
+    :root {
+      --bg:#FFF8F0; --ink:#1A0F08; --muted:#6B5544; --accent:#C0582A; --accent-soft:#E07A4B;
+      --good:#2E7D32; --warn:#B26B00; --bad:#B12B2B; --line:#E8DDD0;
+      --suno:#1E1E1E; --donna:#7B3A8C; --muzio:#2563EB; --banger:#DC2626; --porizo:#C0582A;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg:#1A0F08; --ink:#FFF8F0; --muted:#A3927F; --line:#3A2B1F; }
+    }
+    * { box-sizing:border-box; }
+    html,body { margin:0; padding:0; background:var(--bg); color:var(--ink);
+                font:16px/1.55 -apple-system,BlinkMacSystemFont,"SF Pro Text",Inter,system-ui,sans-serif; }
+    .wrap { max-width:1100px; margin:0 auto; padding:48px 32px 96px; }
+    header { border-bottom:1px solid var(--line); padding-bottom:24px; margin-bottom:32px; }
+    .pretitle { font-size:13px; letter-spacing:.12em; text-transform:uppercase; color:var(--muted); }
+    h1 { font-size:42px; line-height:1.1; margin:6px 0 4px; font-weight:700; letter-spacing:-.02em; }
+    .meta { color:var(--muted); font-size:14px; }
+    h2 { font-size:24px; margin:48px 0 12px; letter-spacing:-.01em; }
+    h2 .badge { font-size:13px; padding:3px 12px; vertical-align:middle; margin-left:10px; font-weight:600; }
+    h3 { font-size:17px; margin:20px 0 8px; }
+    p { margin:8px 0 12px; }
+    .lede { font-size:18px; color:var(--ink); line-height:1.6; max-width:72ch; }
+
+    code, pre { font-family:"SF Mono",ui-monospace,Menlo,monospace; }
+    code { background:rgba(192,88,42,.08); padding:1px 6px; border-radius:4px; font-size:.9em; }
+    pre { background:rgba(0,0,0,.04); padding:14px 18px; border-radius:8px; border:1px solid var(--line);
+          overflow-x:auto; font-size:13px; line-height:1.5; }
+    @media (prefers-color-scheme: dark) { pre { background:rgba(255,255,255,.04); } }
+
+    .insight { background:rgba(192,88,42,.06); border-left:3px solid var(--accent);
+               padding:14px 18px; border-radius:0 8px 8px 0; margin:16px 0; font-size:14.5px; line-height:1.65; }
+    .insight strong { color:var(--accent); }
+
+    table { width:100%; border-collapse:collapse; margin:8px 0 16px; font-size:14px; }
+    th,td { padding:10px 12px; text-align:left; border-bottom:1px solid var(--line); vertical-align:top; }
+    th { font-weight:600; color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.06em; }
+    td.num, th.num { text-align:right; font-variant-numeric:tabular-nums; }
+    tr:hover td { background:rgba(192,88,42,.04); }
+    @media (prefers-color-scheme: dark) { tr:hover td { background:rgba(255,248,240,.03); } }
+
+    .badge { display:inline-block; padding:2px 10px; border-radius:999px; font-size:11px; font-weight:600;
+             vertical-align:middle; letter-spacing:.04em; }
+    .badge.good { color:var(--good); background:rgba(46,125,50,.12); }
+    .badge.warn { color:var(--warn); background:rgba(178,107,0,.12); }
+    .badge.bad  { color:var(--bad);  background:rgba(177,43,43,.12); }
+    .badge.info { color:var(--accent); background:rgba(192,88,42,.12); }
+
+    .summary-grid { display:grid; grid-template-columns:repeat(5,1fr); gap:14px; margin:24px 0; }
+    .summary-card { padding:18px 16px; border:1px solid var(--line); border-radius:10px;
+                    background:rgba(255,255,255,.02); }
+    .summary-card .num { font-size:28px; font-weight:700; line-height:1; margin:6px 0; letter-spacing:-.02em; }
+    .summary-card .label { font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); }
+    .summary-card .name { font-size:13px; font-weight:600; margin-top:4px; }
+    .summary-card.porizo { border-color:var(--porizo); background:rgba(192,88,42,.06); }
+
+    /* Per-competitor card */
+    .comp-card { border:1px solid var(--line); border-radius:14px; padding:24px 26px; margin:20px 0;
+                 background:rgba(255,255,255,.02); position:relative; }
+    .comp-card.suno   { border-left:4px solid var(--suno); }
+    .comp-card.donna  { border-left:4px solid var(--donna); }
+    .comp-card.muzio  { border-left:4px solid var(--muzio); }
+    .comp-card.banger { border-left:4px solid var(--banger); }
+    .comp-card .row { display:grid; grid-template-columns:120px 1fr; gap:14px; margin:6px 0; font-size:14px; }
+    .comp-card .row .k { color:var(--muted); font-size:13px; font-weight:500; }
+    .comp-card h3 { display:flex; align-items:baseline; gap:12px; margin:0 0 12px; font-size:22px; }
+    .comp-card h3 .reviews { color:var(--muted); font-size:14px; font-weight:500; }
+    .comp-card .swot { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-top:14px; }
+    .comp-card .swot div { padding:14px 16px; border-radius:8px; }
+    .comp-card .swot .strength { background:rgba(46,125,50,.08); }
+    .comp-card .swot .weakness { background:rgba(177,43,43,.08); }
+    .comp-card .swot .tactic { background:rgba(192,88,42,.08); grid-column:1/-1; }
+    .comp-card .swot h4 { margin:0 0 6px; font-size:12px; text-transform:uppercase; letter-spacing:.06em; }
+    .comp-card .swot p { margin:0; font-size:14px; line-height:1.55; }
+
+    /* Position map */
+    .position-map { font-family:"SF Mono",ui-monospace,Menlo,monospace; font-size:13px; line-height:1.45;
+                    white-space:pre; padding:24px 28px; border:1px solid var(--line); border-radius:10px;
+                    background:rgba(0,0,0,.03); overflow-x:auto; }
+    @media (prefers-color-scheme: dark) { .position-map { background:rgba(255,255,255,.03); } }
+
+    /* Move cards */
+    .move-card { border:1px solid var(--line); border-radius:12px; padding:22px 24px; margin:14px 0;
+                 background:rgba(255,255,255,.02); }
+    .move-card .move-header { display:flex; align-items:baseline; gap:14px; margin-bottom:10px; }
+    .move-card .move-num { font-size:22px; font-weight:700; color:var(--accent); line-height:1; }
+    .move-card .move-title { font-size:18px; font-weight:600; }
+    .move-card .move-why { font-size:13.5px; color:var(--muted); font-style:italic; margin-bottom:10px; }
+
+    .footer { margin-top:64px; padding-top:24px; border-top:1px solid var(--line); color:var(--muted); font-size:13px; }
+    .footer a { color:var(--accent); }
+
+    @media print {
+      .wrap { padding:0; max-width:100%; }
+      body { background:white; color:black; }
+      .comp-card, .insight, .summary-card, .move-card { break-inside:avoid; }
+    }
+  </style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="pretitle">Competitor Analysis</div>
+  <h1>Porizo vs the AI-Music top tier</h1>
+  <div class="meta">
+    App ID <code>6758205028</code> · US market · iOS · 2026-05-19 ·
+    Live data via iTunes Lookup API · Eronred <code>competitor-analysis</code> framework
+  </div>
+</header>
+
+<p class="lede">
+  Live App Store data on Suno, Donna, Muzio, Banger pulled today via iTunes Lookup. Goal: find Porizo's
+  defensible quadrant in a market where competitors have 16k–255k reviews and Porizo has 1.
+</p>
+
+<!-- Summary cards -->
+<div class="summary-grid">
+  <div class="summary-card">
+    <div class="label">Suno</div>
+    <div class="num">254,674</div>
+    <div class="meta">reviews · 4.89★</div>
+    <div class="name">Incumbent</div>
+  </div>
+  <div class="summary-card">
+    <div class="label">Donna</div>
+    <div class="num">85,308</div>
+    <div class="meta">reviews · 4.74★</div>
+    <div class="name">Pro-musician</div>
+  </div>
+  <div class="summary-card">
+    <div class="label">Banger</div>
+    <div class="num">39,700</div>
+    <div class="meta">reviews · 4.37★</div>
+    <div class="name">Voice-swap</div>
+  </div>
+  <div class="summary-card">
+    <div class="label">Muzio</div>
+    <div class="num">16,236</div>
+    <div class="meta">reviews · 4.77★</div>
+    <div class="name">Dark horse</div>
+  </div>
+  <div class="summary-card porizo">
+    <div class="label">Porizo</div>
+    <div class="num">1</div>
+    <div class="meta">review · 5.00★</div>
+    <div class="name">Pre-launch reality</div>
+  </div>
+</div>
+
+<div class="insight">
+  <strong>Critical correction to today's competitor research:</strong> Muzio's own listing explicitly
+  advertises voice cloning ("YOUR OWN VOCAL — Choose your voice and generate songs sung in your own vocal tone").
+  So 2 of the 4 competitors offer voice cloning, not 1. That tightens Porizo's moat from "voice cloning" to
+  <strong>voice cloning + gift-occasion-first UX flow</strong>. Three competitors mention music creation only;
+  Muzio drops a single line about "musical greeting for a special occasion" and never returns to it.
+  <strong>None of them position around gifting.</strong> Porizo's unique territory: the only app whose flow
+  starts with <em>"who is this for?"</em> instead of <em>"what kind of song do you want?"</em>
+</div>
+
+<div class="insight" style="border-left-color:var(--bad); background:rgba(177,43,43,.06);">
+  <strong>Bigger threat than any keyword gap: the 255k → 1 reviews gap.</strong> Apple ranks heavily on
+  rating count. Even if Porizo wins the metadata battle, search ranking algorithms won't surface a
+  1-review app over a 16k+ one. Until Porizo crosses ~500 reviews, any keyword-only strategy is incomplete.
+  Move #1 in the action plan is to install an in-app rating prompt at the moment of magic.
+</div>
+
+<!-- ============ PER-COMPETITOR ============ -->
+<h2>Per-competitor profile</h2>
+
+<div class="comp-card suno">
+  <h3>🥇 Suno — the incumbent <span class="reviews">· 254,674 reviews · 4.89★ · v1.71.0</span></h3>
+  <div class="row"><div class="k">Title</div><div><code>Suno - AI Songs &amp; Music</code></div></div>
+  <div class="row"><div class="k">Hook</div><div>"Suno is the AI music generator that turns any idea into a real, full song — instantly."</div></div>
+  <div class="row"><div class="k">Positioning</div><div>Creator/community first — "publish and share your songs with other creators"</div></div>
+  <div class="row"><div class="k">Pricing</div><div>Subscription with free trial</div></div>
+  <div class="row"><div class="k">Unique features</div><div>Suno Studio (full DAW), social/community layer, network-effect community</div></div>
+
+  <div class="swot">
+    <div class="strength">
+      <h4>Strength</h4>
+      <p>Title owns <code>ai music generator</code> · 255k reviews creates social-proof gravity · community layer creates network effects you can't match.</p>
+    </div>
+    <div class="weakness">
+      <h4>Weakness</h4>
+      <p><strong>Zero gift positioning.</strong> No voice cloning. Community angle <em>excludes</em> people who want a private gift for one specific person — they don't want to "go viral, connect with others."</p>
+    </div>
+    <div class="tactic">
+      <h4>Exploitation tactic</h4>
+      <p>Never compete on Suno's terms. Position Porizo as the opposite end of the spectrum:
+      <em>"Suno is for creators. Porizo is for gifters."</em>
+      One private song, for one person, in your voice.</p>
+    </div>
+  </div>
+</div>
+
+<div class="comp-card donna">
+  <h3>🥈 Donna — the artist's tool <span class="reviews">· 85,308 reviews · 4.74★ · v1.0.88</span></h3>
+  <div class="row"><div class="k">Title</div><div><code>Donna AI Song &amp; Music Maker</code></div></div>
+  <div class="row"><div class="k">Hook</div><div>"Discover the future of music creation with Donna – where AI meets artistry to empower anyone to become a music maker."</div></div>
+  <div class="row"><div class="k">Positioning</div><div>"Pro musician" framing, STEM Separation as a power-user feature</div></div>
+  <div class="row"><div class="k">Pricing</div><div><strong>Hard paywall</strong> — "Pro subscription required to create"; Extend/STEM/Proof-of-Creation sold separately</div></div>
+  <div class="row"><div class="k">Unique features</div><div>STEM Separation, Extend Your Tracks</div></div>
+
+  <div class="swot">
+    <div class="strength">
+      <h4>Strength</h4>
+      <p>Premium creator positioning · 85k reviews · STEM separation is unique technical moat against amateur tools.</p>
+    </div>
+    <div class="weakness">
+      <h4>Weakness</h4>
+      <p><strong>Brutal hard paywall in the description itself</strong> — "To create music, you'll need a Donna pro subscription." Guarantees high install→churn rates. Zero gift positioning. STEM is irrelevant to gift buyers.</p>
+    </div>
+    <div class="tactic">
+      <h4>Exploitation tactic</h4>
+      <p>Screenshot Donna's "subscription required" gate and contrast with Porizo's free-preview-before-paywall in your own creatives. The "make and preview before you pay" angle is your wedge against Donna's audience defections.</p>
+    </div>
+  </div>
+</div>
+
+<div class="comp-card muzio">
+  <h3>🥉 Muzio — the dark horse <span class="reviews">· 16,236 reviews · 4.77★ · v3.34</span></h3>
+  <div class="row"><div class="k">Title</div><div><code>AI Song Music Generator: Muzio</code></div></div>
+  <div class="row"><div class="k">Hook</div><div>"Create songs with AI Song Generator Muzio in just seconds."</div></div>
+  <div class="row"><div class="k">Positioning</div><div>Feature-rich consumer generator (lyrics, voice, genre, music reference)</div></div>
+  <div class="row"><div class="k">Pricing</div><div>"Premium subscriptions"</div></div>
+  <div class="row"><div class="k">Unique features</div><div><strong>YOUR OWN VOCAL (voice cloning)</strong> + Music Reference (upload song to generate similar). Rated <strong>4+</strong> (broader reach than Porizo's 12+).</div></div>
+
+  <div class="swot">
+    <div class="strength">
+      <h4>Strength</h4>
+      <p><strong>Direct voice-cloning competitor.</strong> Title contains <code>AI Song Music Generator</code>. Mentions "musical greeting for a special occasion" — they're aware of the gift use case. Most active dev pace (updated today).</p>
+    </div>
+    <div class="weakness">
+      <h4>Weakness</h4>
+      <p>Zero gift-first UX. Voice is just one feature among 10 bullets. The "special occasion" line is buried mid-description — it's not their positioning.</p>
+    </div>
+    <div class="tactic">
+      <h4>Exploitation tactic — the competitor to actually watch</h4>
+      <p>Muzio could pivot into gift territory at any time. <strong>Move fast on owning gift-occasion phrases</strong> (anniversary, wedding, proposal) before Muzio notices. Also: <strong>audit Porizo's 12+ content rating</strong> — getting to 4+ would match Muzio's broader reach.</p>
+    </div>
+  </div>
+</div>
+
+<div class="comp-card banger">
+  <h3>🏅 Banger — the voice-swap specialist <span class="reviews">· 39,700 reviews · 4.37★ · v9.7</span></h3>
+  <div class="row"><div class="k">Title</div><div><code>Banger: AI Music Generator</code></div></div>
+  <div class="row"><div class="k">Hook</div><div>"Transform your musical ideas into reality with Banger, the revolutionary AI music generator that creates songs, covers, and voices in seconds."</div></div>
+  <div class="row"><div class="k">Positioning</div><div>Voice cloning + AI covers (remix existing songs with new voices)</div></div>
+  <div class="row"><div class="k">Pricing</div><div>Subscription with auto-renew</div></div>
+  <div class="row"><div class="k">Unique features</div><div>AI Cover Creator — swap vocals in existing songs</div></div>
+
+  <div class="swot">
+    <div class="strength">
+      <h4>Strength</h4>
+      <p>Owns "AI voice" and "AI cover" phrases. Voice cloning is core to positioning, not buried.</p>
+    </div>
+    <div class="weakness">
+      <h4>Weakness</h4>
+      <p><strong>Lowest rating of the four (4.37)</strong> — users dissatisfied. Voice/cover focus is about remixing <em>existing</em> music for TikTok/social, not creating <em>new</em> songs for someone. No gift framing.</p>
+    </div>
+    <div class="tactic">
+      <h4>Exploitation tactic</h4>
+      <p>Banger's 4.37 rating + voice-cover positioning means dissatisfied users + wrong-use-case audience. Your line: <em>"Banger lets you swap voices in songs that already exist. Porizo makes a new song that's only for one person."</em></p>
+    </div>
+  </div>
+</div>
+
+<!-- ============ POSITIONING MAP ============ -->
+<h2>Positioning map</h2>
+<p>Two-axis model: vertical = does the app offer voice cloning (yes / no); horizontal = is the
+core UX flow oriented around general music creation, or around <em>making a gift for a specific person</em>.</p>
+
+<div class="position-map">
+                            VOICE CLONING
+                                  │
+                                  │
+                        Banger ●  │  ● Muzio
+                       (covers)   │  (multi-feature)
+                                  │
+                                  │     ● Porizo
+                                  │     (gift-first ← uncontested)
+                                  │
+   GENERAL ──────────────────────┼────────────────────── GIFT-OCCASION
+   MUSIC                          │                         FIRST
+   CREATION                       │                         (one private song,
+                                  │                          one person, one moment)
+                       Suno ●     │
+                    (community)   │
+                                  │
+                            Donna ●
+                          (pro-musician)
+                                  │
+                                  │
+                            TEXT-ONLY
+                          (no voice cloning)
+</div>
+
+<div class="insight">
+  Porizo holds a quadrant no one else does: <strong>voice cloning × gift-occasion-first UX</strong>.
+  Defensible because the others would need to redesign their <em>entire flow</em> (not just add a feature)
+  to copy it.
+</div>
+
+<!-- ============ KEYWORD GAP ============ -->
+<h2>Keyword gap (live state)</h2>
+<p style="color:var(--muted); font-size:14px;">
+  Compares competitor title/description indexing against Porizo's <em>current live</em> (v1.5.11)
+  and <em>staged</em> (v1.5.12, locally edited but not yet shipped to ASC) metadata.
+</p>
+<table>
+  <thead>
+    <tr>
+      <th>Keyword</th><th>Suno</th><th>Donna</th><th>Muzio</th><th>Banger</th>
+      <th>Porizo (live 1.5.11)</th><th>Porizo (staged 1.5.12)</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr><td><code>ai music generator</code></td><td><strong>TITLE</strong></td><td>indexed</td><td><strong>TITLE</strong></td><td><strong>TITLE</strong></td><td>—</td><td>ranks via field</td></tr>
+    <tr><td><code>ai song generator</code></td><td>indexed</td><td>indexed</td><td><strong>TITLE</strong></td><td>indexed</td><td>—</td><td>ranks via title+field</td></tr>
+    <tr><td><code>ai song maker</code></td><td>indexed</td><td><strong>TITLE</strong></td><td>indexed</td><td>indexed</td><td>—</td><td>ranks via title+field</td></tr>
+    <tr><td><code>ai voice cover</code></td><td>—</td><td>—</td><td>indexed</td><td>TITLE-adjacent</td><td>—</td><td>—</td></tr>
+    <tr><td><code>voice clone song</code></td><td>—</td><td>—</td><td>indexed</td><td>indexed</td><td>—</td><td>via subtitle</td></tr>
+    <tr style="background:rgba(46,125,50,.06);"><td><code>gift song</code></td><td>—</td><td>—</td><td>—</td><td>—</td><td>indexed (ASA paid)</td><td>indexed</td></tr>
+    <tr style="background:rgba(46,125,50,.06);"><td><code>song gift</code></td><td>—</td><td>—</td><td>—</td><td>—</td><td><strong>TITLE</strong></td><td><strong>TITLE</strong></td></tr>
+    <tr style="background:rgba(46,125,50,.06);"><td><code>personalized song gift</code></td><td>—</td><td>—</td><td>—</td><td>—</td><td>indexed</td><td>indexed</td></tr>
+    <tr style="background:rgba(46,125,50,.06);"><td><code>voice song gift</code></td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td><strong>NEW — uncontested</strong></td></tr>
+    <tr style="background:rgba(46,125,50,.06);"><td><code>anniversary song</code></td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td><strong>NEW — uncontested</strong></td></tr>
+    <tr style="background:rgba(46,125,50,.06);"><td><code>proposal song</code></td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td><strong>NEW — uncontested</strong></td></tr>
+    <tr><td><code>mother's day song</code></td><td>—</td><td>—</td><td>mentioned</td><td>—</td><td>indexed (ASA $0.05 CPT)</td><td>indexed</td></tr>
+  </tbody>
+</table>
+<p style="font-size:14px;">
+  <strong>Your unique territory</strong> (green rows) covers 6 keywords none of the four target.
+  After v1.5.12 ships, you'll add 3 more (<code>voice song gift</code>, <code>anniversary song</code>,
+  <code>proposal song</code>).
+</p>
+
+<!-- ============ FEATURE GAP ============ -->
+<h2>Feature gap — what users want that competitors don't offer</h2>
+<table>
+  <thead><tr><th>Gap</th><th>Why nobody else does it</th><th>Porizo angle</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>Recipient-naming</strong></td>
+      <td>None of the four ask "who is this song for?" first. Their flow is: prompt → generic song.</td>
+      <td>Porizo's flow: recipient → memory → song-for-that-person.</td>
+    </tr>
+    <tr>
+      <td><strong>Occasion-anchored templates</strong></td>
+      <td>None have an occasion picker on the home screen.</td>
+      <td>Birthday, anniversary, wedding, proposal, Mother's/Father's Day, "I miss you," "thank you" should be first-class objects.</td>
+    </tr>
+    <tr>
+      <td><strong>Private-share workflow</strong></td>
+      <td>Suno is community-first. Donna and Muzio are creator-first. Banger is TikTok-share-first.</td>
+      <td><em>"Send a private link to one person"</em> is your wedge in description hook + screenshot #1.</td>
+    </tr>
+    <tr>
+      <td><strong>Voice clone of the GIFTER, not just any voice</strong></td>
+      <td>Muzio's voice = "your own vocal." Banger's voice = swap on covers. None offer "your voice → song-for-someone-else."</td>
+      <td>"Make Mom a song in Dad's voice, for her birthday" is uniquely Porizo's: a gift in someone <em>specific's</em> voice, for someone <em>specific else</em>.</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ============ 5 MOVES ============ -->
+<h2>5 specific moves for this month</h2>
+
+<div class="move-card">
+  <div class="move-header">
+    <div class="move-num">1</div>
+    <div class="move-title">Fix the rating gap <span class="badge bad">week-1 blocker</span></div>
+  </div>
+  <div class="move-why">1 review vs 16K–255K is the single biggest threat to any ASO win. Apple ranks heavily on rating count. Even perfect metadata can't fix this.</div>
+  <p>Install <code>/rating-prompt-strategy</code> skill. Trigger the in-app rating prompt <strong>only after</strong> a user has (a) created their first song, (b) shared it, AND (c) the recipient has opened the share link — that's the moment of magic. Target: 100 reviews by end of month.</p>
+</div>
+
+<div class="move-card">
+  <div class="move-header">
+    <div class="move-num">2</div>
+    <div class="move-title">Drop content rating from 12+ to 4+ <span class="badge warn">if possible</span></div>
+  </div>
+  <div class="move-why">Muzio and Banger are rated 4+. Porizo at 12+ excludes the largest single addressable category in App Store search.</div>
+  <p>Review your age-rating questionnaire submissions in App Store Connect. Common 12+ triggers: AI-generated content disclaimer, unrestricted web access, user-generated content. If your share-link page is sanitized, most 12+ flags can be dropped.</p>
+</div>
+
+<div class="move-card">
+  <div class="move-header">
+    <div class="move-num">3</div>
+    <div class="move-title">Lead with gift framing in screenshots 1-3 <span class="badge info">week 2</span></div>
+  </div>
+  <div class="move-why">Apple shows first 3 screenshots in search results. Suno, Donna, Muzio, Banger all show AI generator UI first. Porizo should be the only app whose screenshot #1 shows the moment of <em>receiving</em> the gift, not creating it.</div>
+  <p>Use <code>/screenshot-optimization</code>:</p>
+  <ul style="margin:6px 0; font-size:14px;">
+    <li>Slide 1: <em>"What if you could send her a song?"</em> — recipient's hands holding a phone</li>
+    <li>Slide 2: <em>"Made for her. In your voice."</em> — voice-cloning callout</li>
+    <li>Slide 3: <em>"Birthdays, anniversaries, weddings, just-because"</em> — occasion grid</li>
+  </ul>
+</div>
+
+<div class="move-card">
+  <div class="move-header">
+    <div class="move-num">4</div>
+    <div class="move-title">Run AI-generator EXACT-match ASA probe <span class="badge info">week 2</span></div>
+  </div>
+  <div class="move-why">Already queued as task #13. Competitor analysis sharpens the bid policy.</div>
+  <p><strong>Probe order:</strong></p>
+  <ul style="margin:6px 0; font-size:14px;">
+    <li><strong>First (cheapest auction, highest moat fit):</strong> <code>ai voice song generator</code>, <code>ai song generator with my voice</code> — Muzio + Banger territory but neither owns them in title.</li>
+    <li><strong>Last (most expensive, lowest moat fit):</strong> <code>ai music generator</code> — Suno has title-presence, Donna/Muzio index strongly.</li>
+  </ul>
+  <p>Goal isn't installs — it's real ASA conversion data for the AI lane. Kill or scale after 8 taps per term.</p>
+</div>
+
+<div class="move-card">
+  <div class="move-header">
+    <div class="move-num">5</div>
+    <div class="move-title">Ship v1.5.12 metadata + Father's Day IAE in one ASC submission <span class="badge good">deadline 2026-06-15</span></div>
+  </div>
+  <div class="move-why">Father's Day is your seasonal Black Friday. Bundling metadata + IAE in one Review cycle is faster than 2 separate ones.</div>
+  <p><strong>Sequence:</strong></p>
+  <ol style="margin:6px 0; font-size:14px;">
+    <li>Resolve TestFlight blocker (Apple Distribution cert) — task #9.</li>
+    <li>Build 124 → TestFlight (validates 1.5.12 binary).</li>
+    <li>Submit v1.5.12 to ASC with new title, subtitle, keywords, whatsNew, promotionalText (all staged locally today).</li>
+    <li>Concurrently create Father's Day IAE: hero "Make Dad his song," 2026-05-26 → 2026-06-15.</li>
+    <li>Submit together. Review typically clears metadata+IAE bundles in 24–72h.</li>
+  </ol>
+</div>
+
+<!-- ============ THREATS ============ -->
+<h2>Threats to monitor</h2>
+<table>
+  <thead><tr><th>Threat</th><th>Signal to watch</th><th>Trigger response</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>Muzio adds gift positioning</strong></td>
+      <td>Description rewrite or screenshot update mentioning "gift"/"occasion"/"for her/him"</td>
+      <td>Within 2 weeks: launch CPP + IAE leaning <em>harder</em> into gift framing before Muzio cements that position.</td>
+    </tr>
+    <tr>
+      <td><strong>Suno launches voice cloning</strong></td>
+      <td>Patch notes mentioning "your voice"/"voice clone"/"personalized vocals"</td>
+      <td>Pivot wedge to occasion-flow (recipient → memory) rather than voice.</td>
+    </tr>
+    <tr>
+      <td><strong>New AI-music app launches with gift positioning</strong></td>
+      <td>App Store chart appearance with "gift" in name/subtitle</td>
+      <td>Defensive: trademark "Porizo" + dominant occasion phrases (proposal, anniversary) in subtitle.</td>
+    </tr>
+    <tr>
+      <td><strong>Apple's AI guidelines change</strong></td>
+      <td>App Store Notice about AI content disclosures</td>
+      <td>Audit Porizo's 12+ rating + AI disclaimer copy.</td>
+    </tr>
+    <tr>
+      <td><strong>ASA CPT inflation on AI-generator lane</strong></td>
+      <td>Costs rise above $2.50/tap on <code>ai music generator</code></td>
+      <td>Pull back, double down on unique gift-occasion phrases where competition is zero.</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ============ SUGGESTED NEXT SKILLS ============ -->
+<h2>Suggested next skills</h2>
+<table>
+  <thead><tr><th>Priority</th><th>Skill</th><th>Why</th></tr></thead>
+  <tbody>
+    <tr><td>1</td><td><code>/rating-prompt-strategy</code></td><td>Move 1 above. Blocks every other ASO gain.</td></tr>
+    <tr><td>2</td><td><code>/screenshot-optimization</code></td><td>Move 3 above. ~2-3h with your visual designer.</td></tr>
+    <tr><td>3</td><td><code>/in-app-events</code></td><td>Move 5 above. Father's Day timing.</td></tr>
+    <tr><td>4</td><td><code>/asc-metrics</code></td><td>Pull actual ASC numbers (downloads, conversion, search impressions) to scoreboard gains in 30 days.</td></tr>
+  </tbody>
+</table>
+
+<p class="footer">
+  Generated by <a href="https://github.com/Eronred/aso-skills"><code>eronred/aso-skills</code></a>
+  · <code>/competitor-analysis</code> · iTunes Lookup API live data 2026-05-19.
+  Sister reports: <code>ASO-audit-report.html</code> · <code>ASO-keyword-research-report.html</code>.
+</p>
+
+</div>
+</body>
+</html>

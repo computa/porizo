@@ -1,0 +1,423 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ASO Audit — Porizo · 2026-05-19</title>
+  <style>
+    :root {
+      --bg:#FFF8F0; --ink:#1A0F08; --muted:#6B5544; --accent:#C0582A; --accent-soft:#E07A4B;
+      --good:#2E7D32; --warn:#B26B00; --bad:#B12B2B; --line:#E8DDD0;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg:#1A0F08; --ink:#FFF8F0; --muted:#A3927F; --line:#3A2B1F; }
+    }
+    * { box-sizing:border-box; }
+    html,body { margin:0; padding:0; background:var(--bg); color:var(--ink);
+                font:16px/1.55 -apple-system,BlinkMacSystemFont,"SF Pro Text",Inter,system-ui,sans-serif; }
+    .wrap { max-width:980px; margin:0 auto; padding:48px 32px 96px; }
+    header { border-bottom:1px solid var(--line); padding-bottom:24px; margin-bottom:32px; }
+    .pretitle { font-size:13px; letter-spacing:.12em; text-transform:uppercase; color:var(--muted); }
+    h1 { font-size:42px; line-height:1.1; margin:6px 0 4px; font-weight:700; letter-spacing:-.02em; }
+    .meta { color:var(--muted); font-size:14px; }
+    h2 { font-size:24px; margin:48px 0 16px; letter-spacing:-.01em; border-bottom:1px solid var(--line); padding-bottom:8px; }
+    h3 { font-size:18px; margin:28px 0 8px; }
+    p { margin:8px 0 12px; }
+    .lede { font-size:18px; color:var(--ink); line-height:1.6; max-width:64ch; }
+
+    .score-hero { display:grid; grid-template-columns:200px 1fr; gap:32px; align-items:center;
+                  margin:24px 0 8px; padding:24px; background:rgba(192,88,42,.04);
+                  border:1px solid var(--line); border-radius:14px; }
+    .donut { position:relative; width:200px; height:200px; }
+    .donut svg { transform:rotate(-90deg); }
+    .donut .pct { position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+                  flex-direction:column; font-weight:700; }
+    .donut .pct .big { font-size:54px; line-height:1; letter-spacing:-.03em; }
+    .donut .pct .of  { font-size:13px; color:var(--muted); font-weight:500; }
+
+    table { width:100%; border-collapse:collapse; margin:8px 0 16px; font-size:14.5px; }
+    th,td { padding:10px 12px; text-align:left; border-bottom:1px solid var(--line); vertical-align:top; }
+    th { font-weight:600; color:var(--muted); font-size:13px; text-transform:uppercase; letter-spacing:.06em; }
+    td.num { text-align:right; font-variant-numeric:tabular-nums; }
+    tr:hover td { background:rgba(192,88,42,.03); }
+
+    .bars td.bar { width:160px; }
+    .bar-track { height:8px; background:var(--line); border-radius:4px; overflow:hidden; }
+    .bar-fill { height:100%; background:var(--accent); border-radius:4px; }
+    .bar-fill.lo { background:var(--bad); }
+    .bar-fill.mid { background:var(--warn); }
+    .bar-fill.hi { background:var(--good); }
+    .factor-name { width:200px; }
+    .score-cell { text-align:right; font-weight:600; width:60px; font-variant-numeric:tabular-nums; }
+    .weight { color:var(--muted); width:80px; text-align:right; }
+
+    .grid-2 { display:grid; grid-template-columns:1fr 1fr; gap:24px; margin:16px 0; }
+    .card { padding:20px 22px; border:1px solid var(--line); border-radius:12px; background:rgba(255,255,255,.02); }
+    .card h3 { margin-top:0; }
+    .badge { display:inline-block; padding:2px 10px; border-radius:999px; font-size:12px; font-weight:600;
+             border:1px solid currentColor; vertical-align:middle; margin-left:8px; }
+    .badge.good { color:var(--good); }
+    .badge.warn { color:var(--warn); }
+    .badge.bad  { color:var(--bad); }
+    .badge.info { color:var(--accent); }
+
+    .checkbox-list { list-style:none; padding:0; margin:0; }
+    .checkbox-list li { padding:8px 0 8px 30px; position:relative; border-bottom:1px dashed var(--line); }
+    .checkbox-list li:last-child { border-bottom:none; }
+    .checkbox-list li::before { content:""; position:absolute; left:0; top:11px; width:18px; height:18px;
+                                border:2px solid var(--accent); border-radius:4px; background:transparent; }
+    .checkbox-list li strong { display:block; font-size:15px; margin-bottom:2px; }
+    .checkbox-list li .note { color:var(--muted); font-size:13.5px; }
+
+    code, pre { font-family:"SF Mono",ui-monospace,Menlo,monospace; }
+    code { background:rgba(192,88,42,.08); padding:1px 6px; border-radius:4px; font-size:.9em; }
+    pre { background:rgba(0,0,0,.04); padding:14px 18px; border-radius:8px; border:1px solid var(--line);
+          overflow-x:auto; font-size:13px; line-height:1.5; }
+    @media (prefers-color-scheme: dark) { pre { background:rgba(255,255,255,.04); } }
+
+    .insight { background:rgba(192,88,42,.06); border-left:3px solid var(--accent);
+               padding:14px 18px; border-radius:0 8px 8px 0; margin:16px 0; font-size:14.5px; line-height:1.6; }
+    .insight strong { color:var(--accent); }
+
+    .footer { margin-top:64px; padding-top:24px; border-top:1px solid var(--line); color:var(--muted); font-size:13px; }
+    .footer a { color:var(--accent); }
+
+    @media print {
+      .wrap { padding:0; max-width:100%; }
+      body { background:white; color:black; }
+      .card, .insight, .score-hero { break-inside:avoid; }
+    }
+  </style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="pretitle">ASO Audit Report</div>
+  <h1>Porizo — Song Gift Maker</h1>
+  <div class="meta">
+    App ID <code>6758205028</code> · <code>apps.apple.com/au/app/porizo/id6758205028</code> ·
+    iOS · Generated 2026-05-19 · Eronred <code>aso-audit</code> framework
+  </div>
+</header>
+
+<p class="lede">
+  Porizo is in transition from a niche "gift song" positioning (US popularity ~5) to a
+  much broader "AI song generator" lane (popularity 50–57). The live title
+  <code>"Porizo: AI Song Gift Maker"</code> already spans both — but subtitle, keyword field,
+  and <em>What&apos;s New</em> haven&apos;t caught up to the strategic shift. Closing those three
+  gaps alone is worth an estimated +15 points on the score.
+</p>
+
+<!-- HERO SCORE -->
+<div class="score-hero">
+  <div class="donut">
+    <svg width="200" height="200" viewBox="0 0 200 200">
+      <circle cx="100" cy="100" r="84" fill="none" stroke="rgba(192,88,42,.15)" stroke-width="22"/>
+      <!-- 70% of circumference (2*π*84 ≈ 527.79) = 369.4 -->
+      <circle cx="100" cy="100" r="84" fill="none" stroke="#C0582A" stroke-width="22"
+              stroke-dasharray="369.4 527.79" stroke-linecap="round"/>
+    </svg>
+    <div class="pct">
+      <div class="big">70</div>
+      <div class="of">/ 100</div>
+    </div>
+  </div>
+  <div>
+    <h3 style="margin-top:0; font-size:22px;">Overall ASO Health</h3>
+    <p style="margin:6px 0;">Solid foundation, three high-leverage misses. Biggest wins are in the
+    last 30% (conversion signals, subtitle expansion, keyword defragmentation) and don&apos;t require
+    a binary resubmission — they&apos;re metadata-only changes.</p>
+    <p style="margin:6px 0; color:var(--muted); font-size:14px;">
+      Projected score after the 30-day plan: <strong style="color:var(--good)">85–90/100</strong>.
+    </p>
+  </div>
+</div>
+
+<!-- 10-FACTOR BREAKDOWN -->
+<h2>10-Factor Breakdown</h2>
+<table class="bars">
+  <thead>
+    <tr>
+      <th class="factor-name">Factor</th>
+      <th class="weight">Weight</th>
+      <th>Score</th>
+      <th class="score-cell">/ 10</th>
+      <th>Why this score</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td class="factor-name">Title</td>
+      <td class="weight">20%</td>
+      <td class="bar"><div class="bar-track"><div class="bar-fill hi" style="width:90%"></div></div></td>
+      <td class="score-cell">9</td>
+      <td>30/30 chars, brand + AI Song + Gift Maker. Apple forms "ai song generator", "song gift maker", "ai gift" naturally.</td>
+    </tr>
+    <tr>
+      <td class="factor-name">Subtitle</td>
+      <td class="weight">15%</td>
+      <td class="bar"><div class="bar-track"><div class="bar-fill mid" style="width:50%"></div></div></td>
+      <td class="score-cell">5</td>
+      <td>Only 18/30 chars used. "Custom music gifts" doesn&apos;t carry your differentiator (voice cloning) or hit any high-volume term.</td>
+    </tr>
+    <tr>
+      <td class="factor-name">Keyword Field</td>
+      <td class="weight">15%</td>
+      <td class="bar"><div class="bar-track"><div class="bar-fill hi" style="width:80%"></div></div></td>
+      <td class="score-cell">8</td>
+      <td>94/100 chars but ≈19 chars wasted on title-duplicates (<code>ai</code>, <code>song</code>, <code>maker</code>, <code>gift</code>).</td>
+    </tr>
+    <tr>
+      <td class="factor-name">Description</td>
+      <td class="weight">5%</td>
+      <td class="bar"><div class="bar-track"><div class="bar-fill hi" style="width:70%"></div></div></td>
+      <td class="score-cell">7</td>
+      <td>Strong hook, clear HOW IT WORKS structure. Missing: social proof in the first 3 lines, emoji visual anchors.</td>
+    </tr>
+    <tr>
+      <td class="factor-name">Screenshots</td>
+      <td class="weight">15%</td>
+      <td class="bar"><div class="bar-track"><div class="bar-fill mid" style="width:60%"></div></div></td>
+      <td class="score-cell">6</td>
+      <td>5 of 10 slots used (Warm Canvas set). Slots 6–10 are dead real estate that compete in carousels.</td>
+    </tr>
+    <tr>
+      <td class="factor-name">Preview Video</td>
+      <td class="weight">5%</td>
+      <td class="bar"><div class="bar-track"><div class="bar-fill mid" style="width:50%"></div></div></td>
+      <td class="score-cell">5</td>
+      <td>Status unknown to audit. Even a 15s autoplay video can lift conversion 5–25%.</td>
+    </tr>
+    <tr>
+      <td class="factor-name">Ratings &amp; Reviews</td>
+      <td class="weight">15%</td>
+      <td class="bar"><div class="bar-track"><div class="bar-fill mid" style="width:50%"></div></div></td>
+      <td class="score-cell">5</td>
+      <td>Live rating not pulled in this run. Run <code>/asc-metrics</code> to refine.</td>
+    </tr>
+    <tr>
+      <td class="factor-name">Icon</td>
+      <td class="weight">5%</td>
+      <td class="bar"><div class="bar-track"><div class="bar-fill hi" style="width:70%"></div></div></td>
+      <td class="score-cell">7</td>
+      <td>Assumed competent (couldn&apos;t fetch live); ripe for A/B testing regardless.</td>
+    </tr>
+    <tr>
+      <td class="factor-name">Keyword Rankings</td>
+      <td class="weight">10%</td>
+      <td class="bar"><div class="bar-track"><div class="bar-fill mid" style="width:50%"></div></div></td>
+      <td class="score-cell">5</td>
+      <td>Strong on gift-song long-tail (low volume), unranked on AI-generator lane (high volume). Transition just started.</td>
+    </tr>
+    <tr>
+      <td class="factor-name">Conversion Signals</td>
+      <td class="weight">5%</td>
+      <td class="bar"><div class="bar-track"><div class="bar-fill lo" style="width:30%"></div></div></td>
+      <td class="score-cell">3</td>
+      <td><em>What&apos;s New</em> = "App improvements". No promotional text. No In-App Events. No Custom Product Pages. <strong>Highest ROI fix on the page.</strong></td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="insight">
+  <strong>Where the score actually sits today: in transition.</strong> Per
+  <code>marketing/appstore/aso/competitor-keyword-research-2026-05-19.md</code>, the recent pivot
+  from gift-song niche to AI-generator lane is captured in your title but not yet in your subtitle
+  or keyword field. The strategy is sound — execution is mid-flight.
+</div>
+
+<!-- QUICK WINS -->
+<h2>Quick Wins <span class="badge good">do today · &lt;30 min total</span></h2>
+<ul class="checkbox-list">
+  <li>
+    <strong>Rewrite <em>What&apos;s New</em> from "App improvements" to a Father&apos;s Day pitch</strong>
+    <div class="note">
+      Highest single-action ROI. Current text is invisible; Apple shows <em>What&apos;s New</em>
+      right under the install button.<br>
+      <strong>Suggested:</strong> <code>"🎁 New: Father&apos;s Day song gifts. Your voice + their name + a memory = a 1-minute custom song. Try it for Dad before June 15."</code> (137/170 chars)
+    </div>
+  </li>
+  <li>
+    <strong>Expand subtitle 18 → 30 chars to include "voice"</strong>
+    <div class="note">
+      Current: <code>"Custom music gifts"</code> (18 chars). Voice cloning is your single biggest moat
+      vs Suno/Donna/Muzio — surface it.<br>
+      <strong>Recommended:</strong> <code>"Personal AI Song &amp; Voice Gifts"</code> (30 chars). Lets Apple
+      form <code>ai voice song</code> and <code>voice song gift</code> — terms competitors don&apos;t claim.
+    </div>
+  </li>
+  <li>
+    <strong>Defragment keyword field — remove title-duplicates, add anniversary/wedding/couple</strong>
+    <div class="note">
+      Current (94/100, 19 wasted): <code>ai,song,generator,music,maker,gift,birthday,personalized,custom,voice,text,lyrics,mom,dad,love</code><br>
+      <strong>Refined</strong> (99/100, 0 wasted on duplicates):
+      <pre>generator,music,birthday,personalized,custom,text,lyrics,mom,dad,love,anniversary,wedding,couple</pre>
+      Removes redundant tokens that Apple already indexes from title/subtitle; adds three new gift-occasion expansions.
+    </div>
+  </li>
+  <li>
+    <strong>Set promotional text — your free, no-resubmit-needed ad slot</strong>
+    <div class="note">
+      Currently empty. 170 chars, updateable without binary resubmission.<br>
+      <strong>Suggested:</strong> <code>"✨ Make a 1-minute song for Dad in his voice or yours. Father&apos;s Day is June 15 — start now and have it ready to send."</code>
+    </div>
+  </li>
+</ul>
+
+<!-- HIGH IMPACT -->
+<h2>High-Impact Changes <span class="badge warn">this week · 1–3h each</span></h2>
+<ul class="checkbox-list">
+  <li>
+    <strong>Fill screenshot slots 6–10</strong>
+    <div class="note">
+      Current 5/10. Slot ideas: real reaction shot (Mother&apos;s Day 2026 if you have any),
+      voice-cloning side-by-side, "songs that sound like <em>you</em>" social proof frame,
+      receipt-style stats card, CTA close-out.
+    </div>
+  </li>
+  <li>
+    <strong>Submit Father&apos;s Day In-App Event</strong>
+    <div class="note">
+      Father&apos;s Day = 2026-06-15 (~4 weeks). IAEs run up to 31 days and surface in search and on
+      product pages.<br>
+      <strong>Action:</strong> invoke <code>/in-app-events</code> with hero CTA "Make Dad his song".
+    </div>
+  </li>
+  <li>
+    <strong>Add social proof to description&apos;s opening 3 lines</strong>
+    <div class="note">
+      Apple users skim the first 3 lines before tapping install. Even soft proof works:
+      "Used to make &lt;N&gt; songs for Mother&apos;s Day 2026" or category position if applicable.
+    </div>
+  </li>
+</ul>
+
+<!-- STRATEGIC -->
+<h2>Strategic <span class="badge info">this month · multi-day</span></h2>
+<ul class="checkbox-list">
+  <li>
+    <strong>Switch ASA bidding on AI-generator lane from BROAD to EXACT</strong>
+    <div class="note">
+      Per today&apos;s competitor research, broad probes on this lane were "matching poorly."
+      EXACT match gives clean signal on the high-volume terms.<br>
+      <code>node scripts/aso/apply-ai-generator-actions.mjs --dry-run</code>
+    </div>
+  </li>
+  <li>
+    <strong>Build 3 Custom Product Pages</strong>
+    <div class="note">
+      One per audience — mom/dad gifters, anniversary/couple, wedding. Use
+      <code>/custom-product-pages</code> skill. Each CPP gets its own URL for paid traffic without
+      changing the default listing.
+    </div>
+  </li>
+  <li>
+    <strong>Launch icon A/B test via Product Page Optimization</strong>
+    <div class="note">
+      Apple&apos;s built-in PPO gives 90-day reads at zero ad spend. Use <code>/ab-test-store-listing</code>.
+    </div>
+  </li>
+</ul>
+
+<!-- COMPETITOR -->
+<h2>Competitor Snapshot</h2>
+<p>Source: <code>marketing/appstore/aso/competitor-keyword-research-2026-05-19.md</code></p>
+<table>
+  <thead>
+    <tr>
+      <th>App</th>
+      <th>Title</th>
+      <th>High-volume strength</th>
+      <th>Voice cloning?</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr><td>Suno</td><td><code>AI Songs &amp; Music</code></td><td>All AI-generator terms</td><td>No</td></tr>
+    <tr><td>Muzio</td><td><code>AI Song Music Generator</code></td><td><code>ai song generator</code>, <code>ai music generator</code></td><td>No</td></tr>
+    <tr><td>Donna</td><td><code>AI Song &amp; Music Maker</code></td><td><code>ai music maker</code>, <code>ai song maker</code></td><td>No</td></tr>
+    <tr><td>Banger</td><td><code>AI Music Generator</code></td><td><code>ai music generator</code>, <code>ai voice song generator</code></td><td>Some</td></tr>
+    <tr style="background:rgba(192,88,42,.08);">
+      <td><strong>Porizo</strong> ←</td>
+      <td><code>AI Song Gift Maker</code></td>
+      <td>Gift-song long-tail (low vol), AI lane (testing)</td>
+      <td><strong>Yes — your moat</strong></td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="insight">
+  <strong>Your unclaimed territory:</strong> none of the top-volume competitors offer voice cloning.
+  After Quick Win #2 (subtitle includes "voice"), Apple will start forming
+  <code>ai voice song</code>, <code>voice song gift</code>, and <code>personal voice ai</code> for
+  you — terms with no competition because no rival app is positioned to claim them.
+</div>
+
+<!-- 30-DAY PLAN -->
+<h2>30-Day Action Plan</h2>
+<table>
+  <thead>
+    <tr>
+      <th>Week</th>
+      <th>Action</th>
+      <th>Tool</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Today</strong></td>
+      <td>Quick Wins #1–4 (whatsNew, subtitle, keyword field, promo text)</td>
+      <td>ASC metadata-only update</td>
+    </tr>
+    <tr>
+      <td><strong>Week 1</strong></td>
+      <td>Generate + submit screenshot slots 6–10</td>
+      <td><code>/screenshot-optimization</code></td>
+    </tr>
+    <tr>
+      <td><strong>Week 1</strong></td>
+      <td>Plan Father&apos;s Day In-App Event</td>
+      <td><code>/in-app-events</code></td>
+    </tr>
+    <tr>
+      <td><strong>Week 2</strong></td>
+      <td>Submit IAE + write CPP copy for 3 audiences</td>
+      <td><code>/custom-product-pages</code></td>
+    </tr>
+    <tr>
+      <td><strong>Week 2</strong></td>
+      <td>Convert AI-generator ASA terms to EXACT match</td>
+      <td><code>scripts/aso/apply-ai-generator-actions.mjs</code></td>
+    </tr>
+    <tr>
+      <td><strong>Week 3</strong></td>
+      <td>Launch icon A/B test</td>
+      <td><code>/ab-test-store-listing</code></td>
+    </tr>
+    <tr>
+      <td><strong>Week 4</strong></td>
+      <td>Re-audit + compare to baseline</td>
+      <td><code>/aso-audit</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Score Components — Sources</h2>
+<p style="color:var(--muted); font-size:14px;">
+  <strong>Data pulled from:</strong>
+  <code>marketing/appstore/metadata/app-info/en-US.json</code> ·
+  <code>marketing/appstore/metadata/version/1.5.12/en-US.json</code> ·
+  <code>marketing/appstore/aso/keywords.json</code> (315 entries, last reviewed via <code>scripts/aso/rerank.mjs</code>) ·
+  <code>marketing/appstore/aso/competitor-keyword-research-2026-05-19.md</code> ·
+  <code>marketing/appstore/aso/snapshots/2026-05-19T0803.json</code> (latest snapshot).
+</p>
+
+<p class="footer">
+  Generated by <a href="https://github.com/Eronred/aso-skills"><code>eronred/aso-skills</code></a>
+  · <code>/aso-audit</code> · weighted ASO score model.
+  Next recommended skill: <code>/keyword-research</code> for quantitative volume × difficulty on the AI-generator lane.
+</p>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,431 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Keyword Research — Porizo · 2026-05-19</title>
+  <style>
+    :root {
+      --bg:#FFF8F0; --ink:#1A0F08; --muted:#6B5544; --accent:#C0582A; --accent-soft:#E07A4B;
+      --good:#2E7D32; --warn:#B26B00; --bad:#B12B2B; --line:#E8DDD0;
+      --primary-bg:rgba(46,125,50,.06); --secondary-bg:rgba(178,107,0,.06);
+      --longtail-bg:rgba(192,88,42,.05); --kill-bg:rgba(177,43,43,.06);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg:#1A0F08; --ink:#FFF8F0; --muted:#A3927F; --line:#3A2B1F;
+              --primary-bg:rgba(46,125,50,.12); --secondary-bg:rgba(178,107,0,.12);
+              --longtail-bg:rgba(192,88,42,.12); --kill-bg:rgba(177,43,43,.14); }
+    }
+    * { box-sizing:border-box; }
+    html,body { margin:0; padding:0; background:var(--bg); color:var(--ink);
+                font:16px/1.55 -apple-system,BlinkMacSystemFont,"SF Pro Text",Inter,system-ui,sans-serif; }
+    .wrap { max-width:1100px; margin:0 auto; padding:48px 32px 96px; }
+    header { border-bottom:1px solid var(--line); padding-bottom:24px; margin-bottom:32px; }
+    .pretitle { font-size:13px; letter-spacing:.12em; text-transform:uppercase; color:var(--muted); }
+    h1 { font-size:42px; line-height:1.1; margin:6px 0 4px; font-weight:700; letter-spacing:-.02em; }
+    .meta { color:var(--muted); font-size:14px; }
+    h2 { font-size:24px; margin:48px 0 12px; letter-spacing:-.01em; }
+    h2 .badge { font-size:13px; padding:3px 12px; vertical-align:middle; margin-left:10px; font-weight:600; }
+    h3 { font-size:17px; margin:20px 0 8px; }
+    p { margin:8px 0 12px; }
+    .lede { font-size:18px; color:var(--ink); line-height:1.6; max-width:72ch; }
+
+    .section { border-radius:12px; padding:24px 28px; margin:16px 0 32px; border:1px solid var(--line); }
+    .section.primary { background:var(--primary-bg); border-color:rgba(46,125,50,.25); }
+    .section.secondary { background:var(--secondary-bg); border-color:rgba(178,107,0,.25); }
+    .section.longtail { background:var(--longtail-bg); border-color:rgba(192,88,42,.25); }
+    .section.kill { background:var(--kill-bg); border-color:rgba(177,43,43,.25); }
+    .section .lead { color:var(--muted); font-size:14.5px; margin:-4px 0 14px; max-width:72ch; }
+
+    table { width:100%; border-collapse:collapse; margin:8px 0 16px; font-size:14px; }
+    th,td { padding:10px 12px; text-align:left; border-bottom:1px solid var(--line); vertical-align:top; }
+    th { font-weight:600; color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.06em; }
+    td.num, th.num { text-align:right; font-variant-numeric:tabular-nums; }
+    .opp { font-weight:700; font-variant-numeric:tabular-nums; }
+    .opp.high { color:var(--good); } .opp.mid { color:var(--warn); } .opp.low { color:var(--muted); }
+    tr:hover td { background:rgba(192,88,42,.04); }
+    @media (prefers-color-scheme: dark) { tr:hover td { background:rgba(255,248,240,.03); } }
+
+    .badge { display:inline-block; padding:2px 10px; border-radius:999px; font-size:11px; font-weight:600;
+             border:1px solid currentColor; vertical-align:middle; letter-spacing:.04em; }
+    .badge.good { color:var(--good); background:rgba(46,125,50,.1); border:none; }
+    .badge.warn { color:var(--warn); background:rgba(178,107,0,.1); border:none; }
+    .badge.bad  { color:var(--bad);  background:rgba(177,43,43,.1); border:none; }
+    .badge.info { color:var(--accent); background:rgba(192,88,42,.1); border:none; }
+
+    code, pre { font-family:"SF Mono",ui-monospace,Menlo,monospace; }
+    code { background:rgba(192,88,42,.08); padding:1px 6px; border-radius:4px; font-size:.9em; }
+    pre { background:rgba(0,0,0,.04); padding:14px 18px; border-radius:8px; border:1px solid var(--line);
+          overflow-x:auto; font-size:13px; line-height:1.5; }
+    @media (prefers-color-scheme: dark) { pre { background:rgba(255,255,255,.04); } }
+
+    .insight { background:rgba(192,88,42,.06); border-left:3px solid var(--accent);
+               padding:14px 18px; border-radius:0 8px 8px 0; margin:16px 0; font-size:14.5px; line-height:1.6; }
+    .insight strong { color:var(--accent); }
+
+    .formula { font-family:"SF Mono",ui-monospace,Menlo,monospace; font-size:13.5px; line-height:1.6;
+               color:var(--muted); background:rgba(0,0,0,.03); padding:10px 14px; border-radius:6px; }
+    @media (prefers-color-scheme: dark) { .formula { background:rgba(255,255,255,.03); } }
+
+    .summary-cards { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin:16px 0 24px; }
+    .summary-card { padding:18px; border:1px solid var(--line); border-radius:10px;
+                    background:rgba(255,255,255,.02); }
+    .summary-card .num { font-size:32px; font-weight:700; line-height:1; letter-spacing:-.02em; margin:4px 0; }
+    .summary-card .label { font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); }
+
+    .competitor-grid { display:grid; grid-template-columns:1fr 1fr; gap:20px; }
+    .competitor-grid .card { padding:16px; border:1px solid var(--line); border-radius:10px;
+                              background:rgba(255,255,255,.02); }
+
+    .footer { margin-top:64px; padding-top:24px; border-top:1px solid var(--line); color:var(--muted); font-size:13px; }
+    .footer a { color:var(--accent); }
+
+    @media print {
+      .wrap { padding:0; max-width:100%; }
+      body { background:white; color:black; }
+      .section, .insight, .summary-card { break-inside:avoid; }
+    }
+  </style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="pretitle">Keyword Research Report</div>
+  <h1>Porizo · AI-generator lane probe</h1>
+  <div class="meta">
+    App ID <code>6758205028</code> · US market · iOS · 2026-05-19 · Eronred <code>keyword-research</code> framework
+  </div>
+</header>
+
+<p class="lede">
+  Backed by <strong>315 terms</strong> in your bank with effectiveness scores, plus <strong>30 days of real ASA paid data</strong>,
+  plus competitor research from today. Grouped into 4 action buckets + a kill list. Every score is from
+  actuals — no estimates where measurement existed.
+</p>
+
+<div class="summary-cards">
+  <div class="summary-card">
+    <div class="label">Analyzed</div>
+    <div class="num">315</div>
+    <div class="meta">keywords in bank</div>
+  </div>
+  <div class="summary-card">
+    <div class="label">Proven</div>
+    <div class="num" style="color:var(--good)">6</div>
+    <div class="meta">painkillers with ASA conversion ≥ 30%</div>
+  </div>
+  <div class="summary-card">
+    <div class="label">High-volume aspirational</div>
+    <div class="num" style="color:var(--warn)">8</div>
+    <div class="meta">AI-generator lane, unranked</div>
+  </div>
+  <div class="summary-card">
+    <div class="label">Kill list</div>
+    <div class="num" style="color:var(--bad)">4–5</div>
+    <div class="meta">paid losers · ≈$50/mo savings</div>
+  </div>
+</div>
+
+<div class="insight">
+  <strong>Critical drift surfaced during research:</strong> the bank's
+  <code>live_surfaces</code> field was tracking the <em>old</em> listing
+  (<code>"Your moment in a song"</code> / <code>"Your voice, their song"</code>) — meaning every effectiveness score was
+  optimizing for a listing that no longer exists. Sync to deployed metadata applied as task #11
+  alongside this research.
+</div>
+
+<h3>Opportunity scoring formula</h3>
+<div class="formula">
+  Opportunity = (Volume × 0.40) + ((100 − Difficulty) × 0.30) + (Relevance × 0.30)<br>
+  &nbsp; · Volume:&nbsp; <code>log₁₀(impressions+1) × 25</code> &nbsp;|&nbsp; or OpenASO US popularity for untested<br>
+  &nbsp; · Difficulty:&nbsp; <code>(CPT/$3) × 100</code> &nbsp;|&nbsp; or estimated from competitive density<br>
+  &nbsp; · Relevance:&nbsp; <code>install-rate × 100</code> &nbsp;|&nbsp; or manual assessment for untested
+</div>
+
+<!-- ============ BUCKET A — PRIMARY ============ -->
+<div class="section primary">
+  <h2>Bucket A — Primary <span class="badge good">top-10 keyword-field</span></h2>
+  <div class="lead">
+    Battle-tested through ASA paid spend. Install rates 33–100%, CPT $0.05–$1.85. These earn slots in
+    the live keyword field today. The defragged keyword field already covers 5 of 6.
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th>Rank</th><th>Term</th>
+        <th class="num">Vol</th><th class="num">Diff</th><th class="num">Rel</th><th class="num">Opp</th>
+        <th>ASA proof</th><th>Action</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td>1</td><td><code>personalized gift</code></td>
+        <td class="num">20</td><td class="num">15</td><td class="num">100</td>
+        <td class="num opp high">63.5</td><td>1/1 inst, $0.45 CPT, 100% CR</td>
+        <td><span class="badge good">Primary</span></td></tr>
+      <tr><td>2</td><td><code>mother's day song</code></td>
+        <td class="num">20</td><td class="num">5</td><td class="num">67</td>
+        <td class="num opp high">56.6</td><td>2/3 inst, $0.05 CPT (!), 67% CR</td>
+        <td><span class="badge info">Seasonal</span></td></tr>
+      <tr><td>3</td><td><code>music gift</code></td>
+        <td class="num">40</td><td class="num">21</td><td class="num">50</td>
+        <td class="num opp high">54.7</td><td>1/2 inst, $0.62 CPT, 50% CR</td>
+        <td><span class="badge good">Primary</span></td></tr>
+      <tr><td>4</td><td><code>gift song</code></td>
+        <td class="num">30</td><td class="num">10</td><td class="num">43</td>
+        <td class="num opp high">51.9</td><td>3/7 inst, $0.29 CPT, EXACT match graduated</td>
+        <td><span class="badge good">Protect &amp; scale</span></td></tr>
+      <tr><td>5</td><td><code>birthday gift ideas</code></td>
+        <td class="num">50</td><td class="num">62</td><td class="num">60</td>
+        <td class="num opp mid">49.4</td><td>3/5 inst, $1.85 CPT, 60% CR</td>
+        <td><span class="badge good">Primary</span></td></tr>
+      <tr><td>6</td><td><code>birthday gift</code></td>
+        <td class="num">40</td><td class="num">46</td><td class="num">33</td>
+        <td class="num opp mid">42.1</td><td>1/3 inst, $1.39 CPT, 33% CR</td>
+        <td><span class="badge warn">Secondary</span></td></tr>
+    </tbody>
+  </table>
+  <p style="font-size:13.5px; color:var(--muted);">
+    <strong>Bank tie-in:</strong> these correspond to effectiveness scores 89–187 — the top of your bank by
+    a wide margin. The bank's <code>tested_formula</code> (installs/taps × log10(imp+1) × 100 × intent_multiplier)
+    has been correctly identifying them; this research validates the formula.
+  </p>
+</div>
+
+<!-- ============ BUCKET B — SECONDARY ============ -->
+<div class="section secondary">
+  <h2>Bucket B — Secondary <span class="badge warn">EXACT-match ASA probes · this week</span></h2>
+  <div class="lead">
+    High-volume AI-generator lane terms competitor research flagged as worth probing. These need
+    paid testing <em>before</em> they go in the keyword field — broad-match probes already failed,
+    so EXACT-match is mandatory.
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th>Term</th>
+        <th class="num">US Pop.</th><th class="num">Diff</th><th class="num">Rel</th><th class="num">Opp</th>
+        <th>Why probe</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td><code>ai voice song generator</code></td>
+        <td class="num">5</td><td class="num">40</td><td class="num">95</td>
+        <td class="num opp high">48.5</td>
+        <td>Thinnest competition (Banger/VocalMe only). Voice = your moat.</td></tr>
+      <tr><td><code>ai song generator with my voice</code></td>
+        <td class="num">5</td><td class="num">40</td><td class="num">95</td>
+        <td class="num opp high">48.5</td>
+        <td>Direct match for your differentiator.</td></tr>
+      <tr><td><code>ai music generator</code></td>
+        <td class="num">57</td><td class="num">85</td><td class="num">50</td>
+        <td class="num opp mid">42.3</td>
+        <td>Highest volume but most contested (Suno/Donna/Muzio/Banger).</td></tr>
+      <tr><td><code>ai song generator</code></td>
+        <td class="num">53</td><td class="num">85</td><td class="num">50</td>
+        <td class="num opp mid">40.7</td>
+        <td>Same lane, slightly lower volume.</td></tr>
+      <tr><td><code>ai song maker</code></td>
+        <td class="num">50</td><td class="num">75</td><td class="num">55</td>
+        <td class="num opp mid">41.0</td>
+        <td>"Maker" framing — slightly less Suno-overlap.</td></tr>
+      <tr><td><code>ai music maker</code></td>
+        <td class="num">50</td><td class="num">75</td><td class="num">55</td>
+        <td class="num opp mid">41.0</td>
+        <td>Same as above, music variant.</td></tr>
+      <tr><td><code>text to song ai</code></td>
+        <td class="num">5</td><td class="num">35</td><td class="num">60</td>
+        <td class="num opp mid">40.5</td>
+        <td>Low volume, low competition. Intent match for your text→song pipeline.</td></tr>
+      <tr><td><code>lyrics to song ai</code></td>
+        <td class="num">5</td><td class="num">35</td><td class="num">55</td>
+        <td class="num opp mid">38.0</td>
+        <td>Exact-match on "lyrics" lane.</td></tr>
+    </tbody>
+  </table>
+  <p style="font-size:13.5px; color:var(--muted); margin-top:14px;">
+    <strong>Bidding policy:</strong> separate ad group from gift campaigns, $1.50–2.00 CPT, daily cap independent.
+    Kill after 8+ taps and 0 installs. Promote to keyword field only after install conversion ≥ 20%
+    AND at least one downstream song-start event.
+  </p>
+</div>
+
+<!-- ============ BUCKET C — LONG-TAIL ============ -->
+<div class="section longtail">
+  <h2>Bucket C — Long-tail <span class="badge info">CPP / In-App Event / SEO hooks</span></h2>
+  <div class="lead">
+    Specific, high-intent occasion terms. Low volume each, but they lock in qualified buyers and feed
+    Custom Product Pages and In-App Events.
+  </div>
+
+  <h3>Voice-cloning niche <span class="badge info">your moat — competition is thin</span></h3>
+  <table>
+    <thead><tr><th>Term</th><th>Use</th></tr></thead>
+    <tbody>
+      <tr><td><code>voice song for dad</code></td><td>Father's Day 2026-06-15 — IAE hook, load now.</td></tr>
+      <tr><td><code>voice song for mom</code></td><td>Mother's Day next year + always-on. IAE hook.</td></tr>
+      <tr><td><code>clone my voice song</code></td><td>Direct match for the magic moment. CPP hero.</td></tr>
+      <tr><td><code>make a song with my voice</code></td><td>Long-tail, intent-perfect.</td></tr>
+      <tr><td><code>personal voice ai</code></td><td>Aspirational — no app owns this phrase. CPP candidate.</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Anniversary / wedding <span class="badge warn">currently TTR_PROBLEM</span></h3>
+  <table>
+    <thead><tr><th>Term</th><th>Use</th></tr></thead>
+    <tbody>
+      <tr><td><code>anniversary song for husband</code></td><td>Pair with <code>anniversary song for wife</code> in an IAE.</td></tr>
+      <tr><td><code>anniversary song for wife</code></td><td>Same.</td></tr>
+      <tr><td><code>1st / 10th / 25th anniversary song</code></td><td>Milestones convert disproportionately well. Apple indexes numerals.</td></tr>
+      <tr><td><code>custom anniversary song</code></td><td>Tight phrase, low competition.</td></tr>
+      <tr><td><code>wedding song gift</code></td><td>Father-of-the-bride / first-dance buyer intent.</td></tr>
+    </tbody>
+  </table>
+  <p style="font-size:13.5px; color:var(--muted);">
+    <strong>Note on bare <code>anniversary gift</code>:</strong> 286 ASA impressions, <strong>zero taps</strong>
+    in your 30-day pull. That's a TTR problem (creative-to-search mismatch), not a relevance problem. A CPP
+    variant targeting anniversaries or a screenshot tweak fixes this.
+  </p>
+
+  <h3>Specific occasions <span class="badge info">build IAE / blog post per bundle</span></h3>
+  <table>
+    <thead><tr><th>Term</th><th class="num">Imp</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr><td><code>apology song</code></td><td class="num">718</td><td>Surprising volume. 0 installs to date — needs creative test.</td></tr>
+      <tr><td><code>i miss you song</code></td><td class="num">931</td><td>Highest unconverted volume. Targets LDR buyers.</td></tr>
+      <tr><td><code>long distance relationship gift</code></td><td class="num">348</td><td>Pair with <code>i miss you song</code>.</td></tr>
+      <tr><td><code>1st birthday song</code> · <code>50th birthday song</code> · <code>baby first birthday song</code></td><td class="num">low</td><td>Milestone bundle — single IAE covers all.</td></tr>
+      <tr><td><code>dog memorial song</code> · <code>pet memorial song</code></td><td class="num">low</td><td>Emotional, high-conversion with right creative.</td></tr>
+      <tr><td><code>gender reveal song</code> · <code>newborn song gift</code></td><td class="num">low</td><td>Pre-birth / new-parent niche.</td></tr>
+      <tr><td><code>proposal song</code></td><td class="num">—</td><td><strong>Add to bank.</strong> Proposals are $200+ AOV use case.</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ============ BUCKET D — KILL ============ -->
+<div class="section kill">
+  <h2>Bucket E — Kill list <span class="badge bad">stop paying immediately</span></h2>
+  <div class="lead">
+    Meaningful ASA spend, zero installs. ≈$50/month savings from killing these four.
+  </div>
+  <table>
+    <thead>
+      <tr><th>Term</th><th class="num">Imp</th><th class="num">Taps</th><th class="num">Spend</th><th>Action</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>my voice song app</code></td>
+        <td class="num">1,913</td><td class="num">9</td><td class="num">$11.01</td>
+        <td><span class="badge bad">DEMOTE</span> Broad probe poorly matched. Bank already flagged.</td></tr>
+      <tr><td><code>i miss you song</code></td>
+        <td class="num">931</td><td class="num">6</td><td class="num">$7.64</td>
+        <td><span class="badge bad">DEMOTE</span> unless you build LDR creative. High volume, wrong landing.</td></tr>
+      <tr><td><code>meaningful gift</code></td>
+        <td class="num">56</td><td class="num">13</td><td class="num">$15.96</td>
+        <td><span class="badge bad">DEMOTE</span> 13 taps · 0 installs = creative-to-page mismatch.</td></tr>
+      <tr><td><code>personalized gifts</code> <em>(plural)</em></td>
+        <td class="num">110</td><td class="num">13</td><td class="num">$15.60</td>
+        <td><span class="badge bad">DEMOTE</span> Apple indexes singular; plural variant wastes budget.</td></tr>
+      <tr><td><code>apology song</code></td>
+        <td class="num">718</td><td class="num">3</td><td class="num">$4.06</td>
+        <td><span class="badge warn">MONITOR</span> Keep $1 budget; demote if creative tests don't move it.</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ============ DEPLOYED CHANGES ============ -->
+<h2>Deployed metadata changes (applied 2026-05-19)</h2>
+
+<table>
+  <thead><tr><th>Field</th><th>Before</th><th>After</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>Subtitle</strong><br><span style="font-size:12px; color:var(--muted);">app-info/en-US.json</span></td>
+      <td><code>Custom music gifts</code> <span style="color:var(--muted);">(18/30)</span></td>
+      <td><code>Personal AI Song &amp; Voice Gifts</code> <span style="color:var(--good); font-weight:600;">(30/30)</span></td>
+    </tr>
+    <tr>
+      <td><strong>Keywords</strong><br><span style="font-size:12px; color:var(--muted);">version/1.5.12/en-US.json</span></td>
+      <td><code style="font-size:11px;">ai,song,generator,music,maker,gift,birthday,personalized,custom,voice,text,lyrics,mom,dad,love</code><br><span style="color:var(--muted); font-size:12px;">(94/100, ~19 wasted on title-duplicates)</span></td>
+      <td><code style="font-size:11px;">generator,music,birthday,personalized,custom,text,lyrics,mom,dad,anniversary,wedding,proposal,couple</code><br><span style="color:var(--good); font-weight:600; font-size:12px;">(100/100, zero wasted)</span></td>
+    </tr>
+    <tr>
+      <td><strong>What's New</strong></td>
+      <td><code>App improvements</code></td>
+      <td><code>🎁 New: Father's Day song gifts. Your voice + their name + a memory = a 1-minute custom song. Try it for Dad before June 15.</code></td>
+    </tr>
+    <tr>
+      <td><strong>Promotional Text</strong></td>
+      <td><em>(unset)</em></td>
+      <td><code>✨ Make a 1-minute song for Dad in his voice or yours. Father's Day is June 15 — start now and have it ready to send.</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Phrase coverage (combinations Apple will now form)</h2>
+<p>
+  From title (30 chars) + subtitle (30 chars) + keyword field (100 chars), Apple automatically forms search phrases.
+  After these changes, 10 high-leverage phrases are covered:
+</p>
+<table>
+  <thead><tr><th>Phrase</th><th>Source</th></tr></thead>
+  <tbody>
+    <tr><td><code>ai song generator</code></td><td>title (ai+song) + field (generator)</td></tr>
+    <tr><td><code>ai music generator</code></td><td>title (ai) + field (music+generator)</td></tr>
+    <tr><td><code>ai voice song</code></td><td>title (ai+song) + subtitle (voice)</td></tr>
+    <tr><td><code>voice song gift</code></td><td>subtitle (voice) + title (song+gift) — <strong>unclaimed by competitors</strong></td></tr>
+    <tr><td><code>personal ai song</code></td><td>subtitle (personal+ai) + title (song)</td></tr>
+    <tr><td><code>personalized song gift</code></td><td>field (personalized) + title (song+gift)</td></tr>
+    <tr><td><code>anniversary song</code></td><td>field (anniversary) + title (song)</td></tr>
+    <tr><td><code>wedding song gift</code></td><td>field (wedding) + title (song+gift)</td></tr>
+    <tr><td><code>couple song</code></td><td>field (couple) + title (song)</td></tr>
+    <tr><td><code>proposal song</code></td><td>field (proposal) + title (song)</td></tr>
+  </tbody>
+</table>
+
+<h2>Competitor gap</h2>
+<table>
+  <thead>
+    <tr><th>Term</th><th>Porizo</th><th>Suno</th><th>Donna</th><th>Muzio</th><th>Banger</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><code>ai music generator</code></td><td>—</td><td>✓</td><td>✓</td><td>✓</td><td><strong>TITLE</strong></td></tr>
+    <tr><td><code>ai voice song generator</code></td><td>—</td><td>ranked</td><td>—</td><td>—</td><td>ranked</td></tr>
+    <tr style="background:rgba(46,125,50,.08);">
+      <td><code>voice song gift</code></td><td><strong>← yours after deploy</strong></td>
+      <td>—</td><td>—</td><td>—</td><td>—</td></tr>
+    <tr style="background:rgba(46,125,50,.08);">
+      <td><code>anniversary song</code></td><td><strong>← yours after deploy</strong></td>
+      <td>—</td><td>—</td><td>—</td><td>—</td></tr>
+    <tr style="background:rgba(46,125,50,.08);">
+      <td><code>proposal song</code></td><td><strong>← yours after deploy</strong></td>
+      <td>—</td><td>—</td><td>—</td><td>—</td></tr>
+  </tbody>
+</table>
+
+<div class="insight">
+  <strong>Strategic posture:</strong> chase volume in the AI generator lane via paid ASA (Bucket B), own
+  the voice + gift + occasion phrases via metadata (Buckets A &amp; C). Don't try to out-Suno Suno on
+  <code>ai music generator</code> — instead, claim what no one else is positioned to claim.
+</div>
+
+<!-- ============ FOLLOW-UP ============ -->
+<h2>Open follow-up tasks</h2>
+<table>
+  <thead><tr><th>Task</th><th>Status</th><th>Tool</th></tr></thead>
+  <tbody>
+    <tr><td>#11 Sync keyword bank live_surfaces</td><td><span class="badge good">✓ Applied</span></td><td>Edit on <code>keywords.json</code></td></tr>
+    <tr><td>#12 Apply Quick Wins #1–4 metadata</td><td><span class="badge good">✓ Local</span></td><td>Edit on metadata JSONs. Still needs ASC push.</td></tr>
+    <tr><td>#13 Launch AI-generator EXACT-match ASA</td><td><span class="badge warn">Pending</span></td><td><code>scripts/aso/apply-ai-generator-actions.mjs</code></td></tr>
+    <tr><td>#14 DEMOTE 4 paid losers</td><td><span class="badge warn">Pending</span></td><td>ASA UI or <code>scripts/aso/apply-painkiller-actions.mjs</code></td></tr>
+  </tbody>
+</table>
+
+<p class="footer">
+  Generated by <a href="https://github.com/Eronred/aso-skills"><code>eronred/aso-skills</code></a>
+  · <code>/keyword-research</code> · backed by <code>scripts/aso/rerank-core.mjs</code> formula + 30-day ASA data.
+  Next: <code>/competitor-analysis</code> deep-dive on Suno, Donna, Muzio, Banger.
+</p>
+
+</div>
+</body>
+</html>
