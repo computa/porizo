@@ -312,6 +312,29 @@
     <audio id="audio-player" crossorigin="anonymous"></audio>
   </div>
 
+  <footer class="ai-disclosure" aria-label="AI content disclosure">
+    <p>
+      🎵 Song generated with AI by Porizo. Vocals are voice-converted from a real recording.
+      <a href="https://porizo.co/legal/terms#ai-content" rel="noopener">Learn more</a>
+    </p>
+  </footer>
+  <style>
+    .ai-disclosure {
+      max-width: 480px;
+      margin: 24px auto 32px;
+      padding: 0 24px;
+      text-align: center;
+      font-family: 'DM Sans', system-ui, sans-serif;
+      font-size: 12px;
+      line-height: 1.5;
+      color: rgba(245, 230, 211, 0.55);
+    }
+    .ai-disclosure a {
+      color: rgba(245, 230, 211, 0.75);
+      text-decoration: underline;
+    }
+  </style>
+
   <!-- HLS.js v1.5.7 for non-Safari browsers (Safari has native HLS support) -->
   <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.7/dist/hls.min.js"
           integrity="sha384-1B+J55elPxu+trIhW7QThjZg3evX8C5P6zjB82Xnn46RKPAXpL+vkanRSjCidsJv"
