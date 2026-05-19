@@ -150,12 +150,15 @@ describe("generateShareMp4", () => {
 });
 
 describe("letterbox web-player helpers", () => {
-  test("hashToPercent is deterministic for rollout bucketing", () => {
-    const hashToPercent = extractWebPlayerFunction("hashToPercent");
-    assert.equal(hashToPercent("Rrm8PRM3tlwV"), 99);
-    assert.equal(hashToPercent("Rrm8PRM3tlwV"), hashToPercent("Rrm8PRM3tlwV"));
-    assert.ok(hashToPercent("another-share-id") >= 0);
-    assert.ok(hashToPercent("another-share-id") < 100);
+  test("hashToNumber is deterministic for stable artwork variation", () => {
+    const hashToNumber = extractWebPlayerFunction("hashToNumber");
+    assert.equal(hashToNumber("Rrm8PRM3tlwV", 100), 99);
+    assert.equal(
+      hashToNumber("Rrm8PRM3tlwV", 100),
+      hashToNumber("Rrm8PRM3tlwV", 100),
+    );
+    assert.ok(hashToNumber("another-share-id", 100) >= 0);
+    assert.ok(hashToNumber("another-share-id", 100) < 100);
   });
 
   test("normalizeOccasionShort maps occasion slates", () => {
@@ -466,6 +469,36 @@ describe("Share Embed Routes", () => {
     assert.ok(
       !body.includes("twitter:player"),
       "Facebook crawler response should omit twitter player tags",
+    );
+  });
+
+  test("/play/:shareId treats Meta external crawler as a Facebook-style image crawler", async (t) => {
+    if (!postgresAvailable) {
+      t.skip("PostgreSQL not available");
+      return;
+    }
+    const response = await app.inject({
+      method: "GET",
+      url: `/play/${testShareId}?sv=2&fbv=meta123`,
+      headers: {
+        "user-agent":
+          "meta-externalagent/1.1 (+https://developers.facebook.com/docs/sharing/webmasters/crawler)",
+      },
+    });
+
+    assert.equal(response.statusCode, 200);
+    const body = response.body;
+    assert.ok(
+      body.includes('og:type" content="website'),
+      "Meta external crawler should get the image-card type",
+    );
+    assert.ok(
+      !body.includes("og:video"),
+      "Meta external crawler response should omit og:video tags",
+    );
+    assert.ok(
+      body.includes(`/share/${testShareId}/cover.jpg?v=2&amp;smv=meta123`),
+      "Meta external crawler should receive a cache-busted cover image",
     );
   });
 

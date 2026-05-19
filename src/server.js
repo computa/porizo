@@ -659,7 +659,7 @@ function buildServer({
   }
 
   const SOCIAL_CRAWLER_UA_REGEX =
-    /(facebookexternalhit|facebot|twitterbot|slackbot|discordbot|linkedinbot|whatsapp|telegrambot|pinterest|skypeuripreview)/i;
+    /(facebookexternalhit|facebot|meta-externalagent|meta-externalfetcher|twitterbot|slackbot|discordbot|linkedinbot|whatsapp|telegrambot|pinterest|skypeuripreview)/i;
 
   function isSocialCrawlerUserAgent(userAgent) {
     if (!userAgent || typeof userAgent !== "string") {
@@ -672,7 +672,9 @@ function buildServer({
     if (!userAgent || typeof userAgent !== "string") {
       return false;
     }
-    return /(facebookexternalhit|facebot)/i.test(userAgent);
+    return /(facebookexternalhit|facebot|meta-externalagent|meta-externalfetcher)/i.test(
+      userAgent,
+    );
   }
 
   function isWhatsAppCrawlerUserAgent(userAgent) {

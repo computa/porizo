@@ -1,3 +1,13 @@
+User-agent: meta-externalagent
+Allow: /play/
+Allow: /share/
+Allow: /oembed
+Allow: /tracks/
+Allow: /web-player/
+Disallow: /admin/
+Disallow: /debug.html
+Disallow: /api/
+
 User-agent: *
 Allow: /
 Disallow: /admin/
