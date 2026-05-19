@@ -1023,42 +1023,47 @@ body {
   }
 }
 
+/* Motion keyframes no longer carry the `translateX(-50%)` anchor that the
+   earlier centered-square layout required (image was positioned at left:50%
+   and translated -50% to center). With the full-bleed cover treatment the
+   image already fills the canvas at left:0, so applying translateX(-50%)
+   would push the whole image half a screen to the left. */
 @keyframes artworkSoftBreathe {
   0%,
   100% {
-    transform: translateX(-50%) scale(1);
+    transform: scale(1);
   }
   50% {
-    transform: translateX(-50%) scale(1.07);
+    transform: scale(1.07);
   }
 }
 
 @keyframes artworkWarmPulse {
   0%,
   100% {
-    transform: translateX(-50%) scale(1);
+    transform: scale(1);
   }
   45% {
-    transform: translateX(-50%) scale(1.08);
+    transform: scale(1.08);
   }
 }
 
 @keyframes artworkCinematicDrift {
   0% {
-    transform: translateX(-50%) translate3d(-0.65%, 0.2%, 0) scale(1.025);
+    transform: translate3d(-0.65%, 0.2%, 0) scale(1.025);
   }
   100% {
-    transform: translateX(-50%) translate3d(0.65%, -0.7%, 0) scale(1.075);
+    transform: translate3d(0.65%, -0.7%, 0) scale(1.075);
   }
 }
 
 @keyframes artworkNearStill {
   0%,
   100% {
-    transform: translateX(-50%) scale(1);
+    transform: scale(1);
   }
   50% {
-    transform: translateX(-50%) scale(1.035);
+    transform: scale(1.035);
   }
 }
 
@@ -2429,8 +2434,11 @@ body {
   }
 
   #player.letterbox.artwork-motion .player-artwork-image {
+    /* Reduced-motion / etc. — kill the breathing animation but DON'T
+       re-anchor with translateX(-50%); the image is full-bleed at left:0
+       since the v2.2 cinema layout. */
     animation: none !important;
-    transform: translateX(-50%) !important;
+    transform: none !important;
     will-change: auto !important;
   }
 
