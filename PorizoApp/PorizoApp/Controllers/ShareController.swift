@@ -471,7 +471,7 @@ enum SongSharePayloadBuilder {
         claimPin: String,
         recipientName: String? = nil,
         occasion: String? = nil,
-        socialPreviewToken: String = String(Int(Date().timeIntervalSince1970))
+        socialPreviewToken: String? = nil
     ) -> String {
         let previewURL = socialPreviewURL(
             shareURL: shareURL,
@@ -485,13 +485,17 @@ enum SongSharePayloadBuilder {
         )
     }
 
-    static func socialPreviewURL(shareURL: String, cacheToken: String) -> String {
+    static func freshSocialPreviewToken() -> String {
+        String(Int(Date().timeIntervalSince1970))
+    }
+
+    static func socialPreviewURL(shareURL: String, cacheToken: String?) -> String {
         guard var components = URLComponents(string: shareURL) else {
             return shareURL
         }
         var items = components.queryItems ?? []
         items.removeAll { $0.name.lowercased() == "smv" }
-        let trimmedToken = cacheToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedToken = cacheToken?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !trimmedToken.isEmpty {
             items.append(URLQueryItem(name: "smv", value: String(trimmedToken.prefix(64))))
         }

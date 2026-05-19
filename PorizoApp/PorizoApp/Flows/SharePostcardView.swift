@@ -340,8 +340,6 @@ struct SharePostcardView: View {
             onSend()
             return
         }
-        let body = shareBodyText(url: url, claimPIN: pin)
-
         // Each tile is self-contained. We deliberately do NOT call onSend() —
         // that callback fires the parent (MySongsView / TrackPlayerFullView)
         // to pop another UIActivityViewController, which races the deep-link
@@ -349,26 +347,32 @@ struct SharePostcardView: View {
 
         switch target {
         case .messages:
+            let body = shareBodyText(url: url, claimPIN: pin, useFreshSocialPreview: true)
             openOrFallback(
                 SongSharePayloadBuilder.nativeURL(for: .messages, body: body),
                 textFallback: body
             )
         case .whatsapp:
+            let body = shareBodyText(url: url, claimPIN: pin, useFreshSocialPreview: true)
             openOrFallback(
                 SongSharePayloadBuilder.nativeURL(for: .whatsapp, body: body),
                 textFallback: body
             )
         case .instagram:
+            let body = shareBodyText(url: url, claimPIN: pin)
             shareToInstagram(body: body)
         case .tiktok:
+            let body = shareBodyText(url: url, claimPIN: pin)
             shareToTikTok(url: url, body: body)
         case .twitter:
+            let body = shareBodyText(url: url, claimPIN: pin)
             openOrFallback(
                 SongSharePayloadBuilder.nativeURL(for: .x, body: body),
                 textFallback: body,
                 webFallback: SongSharePayloadBuilder.webURL(for: .x, body: body)
             )
         case .copyLink:
+            let body = shareBodyText(url: url, claimPIN: pin)
             UIPasteboard.general.string = body
             let toast = "Share message copied · PIN \(pin)"
             ToastService.shared.success(toast)
@@ -467,12 +471,19 @@ struct SharePostcardView: View {
         return (url, pin)
     }
 
-    private func shareBodyText(url: URL, claimPIN: String) -> String {
+    private func shareBodyText(
+        url: URL,
+        claimPIN: String,
+        useFreshSocialPreview: Bool = false
+    ) -> String {
         SongSharePayloadBuilder.message(
             shareURL: url.absoluteString,
             claimPin: claimPIN,
             recipientName: recipientName,
-            occasion: occasion
+            occasion: occasion,
+            socialPreviewToken: useFreshSocialPreview
+                ? SongSharePayloadBuilder.freshSocialPreviewToken()
+                : nil
         )
     }
 
