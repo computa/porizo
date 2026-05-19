@@ -1143,24 +1143,36 @@ body {
 }
 
 #player.letterbox .player-artwork-backdrop {
+  /* Keep the basic-mode full-bleed background-image treatment. The earlier
+     `background-image: none; background: #000` override was what created
+     the centered-square look. Now the backdrop itself shows the full-bleed
+     bouquet (background-size: cover from the base rule), and the cinema
+     chrome (top strip, corner brackets, side label, timecode, color bars)
+     layers on top via separate positioned siblings. */
   opacity: 1;
-  background: #000;
-  background-image: none;
   filter: none;
   transform: none;
 }
 
 #player.letterbox .player-artwork-image {
-  /* Full-bleed like basic mode — the cinema chrome (top metadata strip,
-     corner brackets, side label, timecode, color bars) layers on top via
-     separate absolute-positioned elements. Borrowing the basic-mode's
-     edge-to-edge artwork presence so the bouquet owns the canvas, instead
-     of being contained as a centered square with black bars around it. */
+  /* Full-bleed cover treatment over the same backdrop. Both layers render
+     the same artwork at the same size; the motion classes (soft-breathe,
+     warm-pulse, cinematic-drift, near-still) animate this <img> via
+     transform, which is hardware-accelerated and free over the static
+     backdrop bg-image. */
+  display: block;
   position: absolute;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   z-index: 1;
   width: 100%;
   height: 100%;
+  min-width: 100%;
+  min-height: 100%;
+  max-width: none;
+  max-height: none;
   object-fit: cover;
   object-position: center;
   filter: saturate(1.04) brightness(1.04) contrast(1.02);
@@ -1713,16 +1725,15 @@ body {
   }
 
   #player.letterbox .player-artwork-image {
-    top: 56px;
-    bottom: 300px;
-    left: 50%;
-    right: auto;
-    width: auto;
-    max-width: 100%;
-    height: calc(100% - 356px);
-    object-fit: contain;
-    object-position: center top;
-    transform: translateX(-50%);
+    /* Mobile/portrait viewport — same full-bleed treatment as the desktop
+       letterbox rule. Chrome elements (top strip / corner brackets / timecode
+       / side label / color bars) layer on top via separate elements. */
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: center;
     filter: saturate(1.04) brightness(1.03) contrast(1.02);
     -webkit-mask-image: none;
     mask-image: none;
