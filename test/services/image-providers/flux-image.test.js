@@ -104,3 +104,53 @@ test("generate() maps other failures to ImageGenerationError", async () => {
     flux.ImageGenerationError,
   );
 });
+
+test("generate() raises a timeout ImageGenerationError when prediction never reaches succeeded", async () => {
+  // Replicate stays in "processing" forever; the polling loop must exit
+  // via the deadline branch and surface "timed out" rather than spin forever.
+  process.env.FLUX_TIMEOUT_MS = "5000";
+  // Re-require with the lowered env so the module-level DEFAULT_TIMEOUT_MS picks it up.
+  delete require.cache[
+    require.resolve("../../../src/services/image-providers/flux-image")
+  ];
+  const fluxFresh = require("../../../src/services/image-providers/flux-image");
+  // Virtual clock: advance Date.now via the injected sleepFn so we don't burn 5 real seconds.
+  const realDateNow = Date.now;
+  let virtualNow = realDateNow();
+  Date.now = () => virtualNow;
+  const sleepFn = async (ms) => {
+    virtualNow += ms;
+  };
+  const fakeFetch = async (url) => {
+    if (url.endsWith("/predictions")) {
+      return new Response(
+        JSON.stringify({ id: "pred_t", status: "starting" }),
+        { status: 201 },
+      );
+    }
+    return new Response(
+      JSON.stringify({ id: "pred_t", status: "processing" }),
+      { status: 200 },
+    );
+  };
+  try {
+    await assert.rejects(
+      () =>
+        fluxFresh.generate({
+          prompt: "x",
+          apiKey: "t",
+          fetchFn: fakeFetch,
+          sleepFn,
+        }),
+      (err) =>
+        err instanceof fluxFresh.ImageGenerationError &&
+        /timed out/i.test(err.message),
+    );
+  } finally {
+    Date.now = realDateNow;
+    delete process.env.FLUX_TIMEOUT_MS;
+    delete require.cache[
+      require.resolve("../../../src/services/image-providers/flux-image")
+    ];
+  }
+});
