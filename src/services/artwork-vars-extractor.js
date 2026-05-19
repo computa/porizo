@@ -138,11 +138,15 @@ async function extractArtworkVars({
         prompt,
         systemPrompt,
         providers: ["anthropic"],
-        // taskType "simple" routes to the Haiku lane in llm-provider; "lyrics"
-        // routes to Sonnet 4 which is wrong for this slot-classifier call.
-        // See spec §10 line 305 — extractor MUST run on Haiku for the latency
-        // budget (preview p95 < 90s assumes parallel-with-MUSIC_PLAN).
-        taskType: "simple",
+        // taskType "vars_extractor" routes to the dedicated Haiku 4.5 lane in
+        // llm-provider (claude-haiku-4-5-20251001). "simple" still points at
+        // Haiku 3 for other callers (memory-questions, blog-editorial-review,
+        // v3 writer fallback). Spec §6.4 mandates Haiku 4.5 here for the
+        // emotion → bounded-vocab slot picking; "lyrics" routes to Sonnet 4
+        // which is wrong (too slow, too expensive for a slot classifier).
+        // See spec §10 line 305 — extractor MUST stay in a Haiku lane for the
+        // latency budget (preview p95 < 90s assumes parallel-with-MUSIC_PLAN).
+        taskType: "vars_extractor",
         temperature: 0.4,
         maxOutputTokens: 400,
         responseMimeType: "application/json",

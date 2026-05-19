@@ -103,3 +103,23 @@ test("extractArtworkVars falls back on Haiku timeout", async () => {
   });
   assert.equal(result.picked_by, "fallback_occasion_default");
 });
+
+test("vars_extractor lane routes to Haiku 4.5, distinct from simple lane (spec §6.4)", () => {
+  // Regression guard: a prior session shipped this on taskType:"simple"
+  // (Haiku 3) by accident — fixed in commit 10fa049. Lock both the lane
+  // resolution AND its distinctness from the simple lane so the bug can't
+  // come back via either route.
+  const { resolveProviderModel } = require("../../src/services/llm-provider");
+  const varsLane = resolveProviderModel("anthropic", "vars_extractor");
+  const simpleLane = resolveProviderModel("anthropic", "simple");
+  assert.equal(
+    varsLane,
+    "claude-haiku-4-5-20251001",
+    "vars extractor must run on Haiku 4.5",
+  );
+  assert.notEqual(
+    varsLane,
+    simpleLane,
+    "vars_extractor must stay distinct from simple lane (other callers may be Haiku-3-tuned)",
+  );
+});
