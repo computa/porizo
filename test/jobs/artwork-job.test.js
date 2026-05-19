@@ -815,7 +815,7 @@ test("runArtworkJob calls vars extractor and persists artwork_vars_json", async 
         source: "generated",
         provider: "flux",
         prompt: "p",
-        promptVersion: "v2.1.0-photoreal-flora",
+        promptVersion: "v2.2.0-photoreal-flora-rich",
         artworkVars: args.artworkVars,
         contentHash: "h",
         moderationPassed: true,
@@ -853,7 +853,7 @@ test("runArtworkJob calls vars extractor and persists artwork_vars_json", async 
   assert.equal(persisted.species, "ranunculus");
   assert.equal(persisted.lighting, "morning_window");
   assert.equal(providerArg, "flux");
-  assert.equal(promptVersionArg, "v2.1.0-photoreal-flora");
+  assert.equal(promptVersionArg, "v2.2.0-photoreal-flora-rich");
   assert.equal(versionIdArg, "tv-vars-1");
 });
 
@@ -880,7 +880,7 @@ test("runArtworkJob falls back to occasion defaults when extractor throws", asyn
       return {
         ...SAMPLE_RESULT,
         artworkVars: args.artworkVars,
-        promptVersion: "v2.1.0-photoreal-flora",
+        promptVersion: "v2.2.0-photoreal-flora-rich",
       };
     },
     tierResolver: async () => "plus",
@@ -941,7 +941,7 @@ test("runArtworkJob flattens sections-based lyrics_json into readable text for t
     generateFn: async (args) => ({
       ...SAMPLE_RESULT,
       artworkVars: args.artworkVars,
-      promptVersion: "v2.1.0-photoreal-flora",
+      promptVersion: "v2.2.0-photoreal-flora-rich",
     }),
     tierResolver: async () => "plus",
   });

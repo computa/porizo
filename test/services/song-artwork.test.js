@@ -264,7 +264,7 @@ test("generateSongArtwork builds prompt from artwork_vars and calls primary prov
   });
   assert.equal(result.skipped, false);
   assert.equal(result.provider, "flux");
-  assert.equal(result.promptVersion, "v2.1.0-photoreal-flora");
+  assert.equal(result.promptVersion, "v2.2.0-photoreal-flora-rich");
   assert.ok(calls.generate.prompt.includes("ranunculus"));
   assert.ok(calls.generate.negativePrompt.includes("no text"));
 });

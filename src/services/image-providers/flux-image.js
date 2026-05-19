@@ -15,7 +15,12 @@
 const NAME = "flux";
 const MODEL = "black-forest-labs/flux-1.1-pro-ultra";
 const BASE_URL = "https://api.replicate.com";
-const PREDICTIONS_URL = `${BASE_URL}/v1/predictions`;
+// Use the model-specific predictions endpoint so we don't have to pin a
+// version SHA. `/v1/predictions` itself requires `version` and rejects a
+// `model` field in the body (HTTP 422). The model-namespaced endpoint
+// auto-pins to the latest version and accepts `{input}` directly.
+const CREATE_PREDICTION_URL = `${BASE_URL}/v1/models/${MODEL}/predictions`;
+const POLL_PREDICTION_URL = (id) => `${BASE_URL}/v1/predictions/${id}`;
 const DEFAULT_TIMEOUT_MS = (() => {
   const raw = parseInt(process.env.FLUX_TIMEOUT_MS || "120000", 10);
   // Mirrors openai-image.js: clamp to sane bounds, fall back to the default
@@ -83,21 +88,24 @@ async function generate({
   // 1. POST to create prediction
   let createResp;
   try {
-    createResp = await fetchFn(PREDICTIONS_URL, {
+    createResp = await fetchFn(CREATE_PREDICTION_URL, {
       method: "POST",
       headers: {
         "content-type": "application/json",
         Authorization: `Token ${token}`,
+        // Wait up to 60s for the prediction to complete on the server side
+        // so simple paths don't have to poll. We still poll as a fallback
+        // for any predictions that take longer.
+        Prefer: "wait=60",
       },
       body: JSON.stringify({
-        model: MODEL,
         input: {
           prompt,
           negative_prompt: negativePrompt || "",
           aspect_ratio: "1:1",
           output_format: "jpg",
           output_quality: 92,
-          safety_tolerance: 2, // default; lower number = stricter
+          safety_tolerance: 2, // 1=strictest, 6=loosest; 2 is Replicate's default
         },
       }),
     });
@@ -106,6 +114,42 @@ async function generate({
       `Network error contacting Replicate: ${err.message}`,
       err,
     );
+  }
+  // 429 — rate-limited. Respect Replicate's Retry-After hint (or x-ratelimit-reset)
+  // and retry ONCE. Below-$5 credit accounts get throttled to "6 req/min, burst 1",
+  // so bootstrap-style scripts that fire faster than that need a polite back-off.
+  if (createResp.status === 429) {
+    const retryAfter = parseInt(
+      createResp.headers.get("retry-after") ||
+        createResp.headers.get("x-ratelimit-reset") ||
+        "12",
+      10,
+    );
+    const waitMs = Math.min(
+      Math.max(Number.isFinite(retryAfter) ? retryAfter * 1000 : 12_000, 1_000),
+      60_000,
+    );
+    await sleepFn(waitMs);
+    // One retry. If it 429s again, propagate as ImageGenerationError so the
+    // caller's retry policy (5/15/45s) can take over.
+    createResp = await fetchFn(CREATE_PREDICTION_URL, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        Authorization: `Token ${token}`,
+        Prefer: "wait=60",
+      },
+      body: JSON.stringify({
+        input: {
+          prompt,
+          negative_prompt: negativePrompt || "",
+          aspect_ratio: "1:1",
+          output_format: "jpg",
+          output_quality: 92,
+          safety_tolerance: 2,
+        },
+      }),
+    });
   }
   if (!createResp.ok && createResp.status !== 201) {
     let payload = null;
@@ -153,7 +197,7 @@ async function generate({
     await sleepFn(POLL_INTERVAL_MS);
     let pollResp;
     try {
-      pollResp = await fetchFn(`${PREDICTIONS_URL}/${predictionId}`, {
+      pollResp = await fetchFn(POLL_PREDICTION_URL(predictionId), {
         headers: { Authorization: `Token ${token}` },
       });
     } catch (err) {

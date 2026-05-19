@@ -23,7 +23,10 @@ test("assemblePrompt produces a deterministic string from valid vars", () => {
   };
   const out = assemblePrompt({ occasion: "mothers_day", vars });
   assert.ok(out.includes("ranunculus"), "missing species");
-  assert.ok(out.includes("small loose cluster"), "missing density phrase");
+  assert.ok(
+    out.includes("hand-gathered cluster"),
+    "missing v2.2 density phrase",
+  );
   assert.ok(out.includes("north-facing window"), "missing lighting phrase");
   assert.ok(out.includes("#F2D7D5"), "missing palette hex");
   assert.ok(out.includes("Fuji X-T5"), "missing camera language");

@@ -21,12 +21,15 @@ const {
 
 // Bump this whenever the template structure changes. params_hash incorporates
 // this so re-renders under a new template don't hit stale caches.
-const PROMPT_TEMPLATE_VERSION = "v2.1.0-photoreal-flora";
+const PROMPT_TEMPLATE_VERSION = "v2.2.0-photoreal-flora-rich";
 
 const CAMERA =
   "Photographed on Fuji X-T5 with 90mm macro at f/2.8, ISO 200, 1/250s.";
+// Wider lens framing in v2.2 to accommodate the denser arrangements without
+// cropping the bouquet edges. Lower negative space now anchors the bundle's
+// weight rather than dominating the frame.
 const COMPOSITION =
-  "Composition: subject occupies upper 65% of frame, lower 30% reserved as soft out-of-focus negative space.";
+  "Composition: lush arrangement fills the upper 75% of frame; remaining 25% is soft out-of-focus negative space at the bottom anchoring the bundle.";
 
 const NEGATIVE = [
   "no text",
@@ -77,8 +80,12 @@ function assemblePrompt({ occasion, vars }) {
   const backdropPhrase = BACKDROP[vars.backdrop];
   const imperfectionPhrase = vars.imperfection;
 
+  // v2.2 phrasing — density leads, species is the subject of the cluster.
+  // Previous "{species} in {density} composition" let Flux anchor on a singular
+  // species noun and treat the density as background flavor; the new shape
+  // commits to the bundle up front and pluralizes naturally.
   return [
-    `${speciesPhrase} in ${densityPhrase} composition, ${lightingPhrase}, ${palettePhrase}.`,
+    `A photorealistic close-up of ${densityPhrase} — the subject is ${speciesPhrase} blooms and stems, ${lightingPhrase}, in a ${palettePhrase}.`,
     CAMERA,
     `Natural asymmetry: ${imperfectionPhrase}.`,
     `${backdropPhrase}.`,

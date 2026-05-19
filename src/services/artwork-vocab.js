@@ -30,9 +30,14 @@ const PALETTE = {
 };
 
 const DENSITY = {
-  single_bloom: "a single isolated stem, intimate scale",
-  intimate_cluster: "a small loose cluster of 3-5 stems, hand-gathered",
-  full_bouquet: "a generous bouquet, multiple stems flowing outward",
+  // Even the "minimal" tier now reads as substantial — Flux interprets sparse
+  // language as literal sparseness, and the product brief is richness as a floor.
+  single_bloom:
+    "one prominent substantial bloom centered and filling much of the frame, with a few supporting leaves and stem details around it",
+  intimate_cluster:
+    "a lush hand-gathered cluster of roughly 7-10 stems bundled close together, with abundant foliage, partly overflowing the frame edges",
+  full_bouquet:
+    "an overflowing abundant bouquet of 12-18 stems and branches bundled tightly together, with rich layered foliage in the background and stems extending past the frame edges, generous and full",
 };
 
 const IMPERFECTION = [
@@ -177,39 +182,43 @@ const SPECIES_BY_OCCASION = {
 const OCCASIONS = Object.keys(SPECIES_BY_OCCASION);
 
 const DEFAULTS_BY_OCCASION = {
+  // Defaults bumped 2026-05-19: product feedback was that single-bloom and
+  // intimate-cluster reads as too sparse; richness is now the floor.
+  // Reserved single_bloom for occasions where visual restraint is emotionally
+  // correct (apology, bereavement). Everything else leans full_bouquet.
   birthday: {
     species: "ranunculus",
     lighting: "morning_window",
     palette: "warm_cream",
-    density: "intimate_cluster",
+    density: "full_bouquet",
     backdrop: "cream_cloud",
   },
   mothers_day: {
     species: "ranunculus",
     lighting: "morning_window",
     palette: "dusty_rose",
-    density: "intimate_cluster",
+    density: "full_bouquet",
     backdrop: "cream_cloud",
   },
   anniversary: {
     species: "garden rose pair",
     lighting: "golden_hour",
     palette: "warm_cream",
-    density: "intimate_cluster",
+    density: "full_bouquet",
     backdrop: "cream_cloud",
   },
   thank_you: {
     species: "eucalyptus stems",
     lighting: "morning_window",
     palette: "sage_ivory",
-    density: "intimate_cluster",
+    density: "full_bouquet",
     backdrop: "cream_cloud",
   },
   i_love_you: {
     species: "red garden rose",
     lighting: "golden_hour",
     palette: "dusty_rose",
-    density: "single_bloom",
+    density: "full_bouquet",
     backdrop: "cream_cloud",
   },
   wedding: {
@@ -223,7 +232,7 @@ const DEFAULTS_BY_OCCASION = {
     species: "olive branch",
     lighting: "golden_hour",
     palette: "bruised_gold",
-    density: "single_bloom",
+    density: "intimate_cluster",
     backdrop: "cream_cloud",
   },
   celebration: {
@@ -234,6 +243,7 @@ const DEFAULTS_BY_OCCASION = {
     backdrop: "cream_cloud",
   },
   apology: {
+    // Keep single_bloom — restraint reads as sincere here.
     species: "white tulip",
     lighting: "overcast_soft",
     palette: "cool_grey_blue",
@@ -244,17 +254,18 @@ const DEFAULTS_BY_OCCASION = {
     species: "sunflower",
     lighting: "morning_window",
     palette: "bruised_gold",
-    density: "single_bloom",
+    density: "intimate_cluster",
     backdrop: "cream_cloud",
   },
   advice: {
     species: "olive branch",
     lighting: "late_afternoon_warm",
     palette: "sage_ivory",
-    density: "single_bloom",
+    density: "intimate_cluster",
     backdrop: "bare_wood_grain",
   },
   bereavement: {
+    // Keep single_bloom — a single white calla on its own carries the grief.
     species: "white calla lily",
     lighting: "overcast_soft",
     palette: "cool_grey_blue",
@@ -265,21 +276,21 @@ const DEFAULTS_BY_OCCASION = {
     species: "two cherry blossom branches",
     lighting: "morning_window",
     palette: "warm_cream",
-    density: "intimate_cluster",
+    density: "full_bouquet",
     backdrop: "cream_cloud",
   },
   get_well: {
     species: "chamomile",
     lighting: "morning_window",
     palette: "sage_ivory",
-    density: "intimate_cluster",
+    density: "full_bouquet",
     backdrop: "cream_cloud",
   },
   custom: {
     species: "peony",
     lighting: "morning_window",
     palette: "warm_cream",
-    density: "intimate_cluster",
+    density: "full_bouquet",
     backdrop: "cream_cloud",
   },
 };

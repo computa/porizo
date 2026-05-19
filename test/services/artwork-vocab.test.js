@@ -134,7 +134,7 @@ test("getDefault returns default vars for a known occasion", () => {
   assert.equal(d.species, "ranunculus");
   assert.equal(d.lighting, "morning_window");
   assert.equal(d.palette, "dusty_rose");
-  assert.equal(d.density, "intimate_cluster");
+  assert.equal(d.density, "full_bouquet");
   assert.equal(d.backdrop, "cream_cloud");
 });
 
