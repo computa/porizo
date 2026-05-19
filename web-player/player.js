@@ -11,22 +11,36 @@
   // Accessibility: detect reduced motion preference (reactive to mid-session changes)
   const motionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
   let prefersReducedMotion = motionQuery.matches;
-  motionQuery.addEventListener("change", function (e) {
+
+  function clearLegacyAtmosphereLayers() {
+    var petalLayer = document.getElementById("petal-layer");
+    var bokehLayer = document.getElementById("bokeh-layer");
+    if (petalLayer) {
+      while (petalLayer.firstChild) {
+        petalLayer.removeChild(petalLayer.firstChild);
+      }
+    }
+    if (bokehLayer) {
+      while (bokehLayer.firstChild) {
+        bokehLayer.removeChild(bokehLayer.firstChild);
+      }
+    }
+  }
+
+  function handleReducedMotionChange(e) {
     prefersReducedMotion = e.matches;
     if (e.matches) {
       stopAtmosphere();
-      var petalLayer = document.getElementById("petal-layer");
-      var bokehLayer = document.getElementById("bokeh-layer");
-      if (petalLayer) {
-        while (petalLayer.firstChild)
-          petalLayer.removeChild(petalLayer.firstChild);
-      }
-      if (bokehLayer) {
-        while (bokehLayer.firstChild)
-          bokehLayer.removeChild(bokehLayer.firstChild);
-      }
+      clearLegacyAtmosphereLayers();
     }
-  });
+    updateArtworkMotionState();
+  }
+
+  if (motionQuery.addEventListener) {
+    motionQuery.addEventListener("change", handleReducedMotionChange);
+  } else if (motionQuery.addListener) {
+    motionQuery.addListener(handleReducedMotionChange);
+  }
 
   // State
   let shareId = null;
@@ -51,6 +65,8 @@
   let letterboxEnabled = false;
   let letterboxWaveformBuilt = false;
   let letterboxChaptersBuilt = false;
+  let artworkMotionProfile = "soft-breathe";
+  let documentHidden = document.hidden;
 
   let teaserAudio = null;
   let teaserPlaying = false;
@@ -305,6 +321,14 @@
     return null;
   }
 
+  function getArtworkMotionOverride() {
+    const params = new URLSearchParams(window.location.search);
+    const value = params.get("artwork_motion");
+    if (value === "1" || value === "true") return true;
+    if (value === "0" || value === "false") return false;
+    return null;
+  }
+
   function hashToPercent(value) {
     var input = String(value || "");
     var hash = 2166136261;
@@ -360,6 +384,45 @@
     return map[normalized] || "ORIG";
   }
 
+  function normalizeArtworkMotionProfile(value) {
+    const normalized = String(value || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[\u2019']/g, "")
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
+    const map = {
+      mothers_day: "soft-breathe",
+      mother_day: "soft-breathe",
+      birthday: "warm-pulse",
+      anniversary: "cinematic-drift",
+      valentines: "cinematic-drift",
+      valentines_day: "cinematic-drift",
+      valentine: "cinematic-drift",
+      valentine_day: "cinematic-drift",
+      wedding: "cinematic-drift",
+      memorial: "near-still",
+      sympathy: "near-still",
+      apology: "near-still",
+    };
+    return map[normalized] || "soft-breathe";
+  }
+
+  function shouldEnableArtworkMotion(state) {
+    return Boolean(
+      state &&
+        state.letterboxEnabled &&
+        state.isPlaying &&
+        state.hasArtwork &&
+        !state.prefersReducedMotion &&
+        !state.documentHidden,
+    );
+  }
+
+  function shouldAllowArtworkMotionByRollout(override) {
+    return override === true;
+  }
+
   function formatYear(value) {
     const date = value ? new Date(value) : new Date();
     const year = date.getFullYear();
@@ -404,6 +467,7 @@
     const senderName = (trackInfo.sender_name || "").trim();
     const recipientName = (trackInfo.recipient_name || "").trim();
     const year = formatYear(trackInfo.created_at);
+    artworkMotionProfile = normalizeArtworkMotionProfile(trackInfo.occasion);
 
     if (elements.letterboxSlateOccasion) {
       elements.letterboxSlateOccasion.textContent = normalizeOccasionShort(
@@ -612,6 +676,7 @@
     if (!letterboxEnabled) {
       elements.player.classList.remove("letterbox-opened");
       elements.player.classList.remove("letterbox-playing");
+      updateArtworkMotionState();
       return;
     }
     setLetterboxMeta();
@@ -620,6 +685,49 @@
     updateLetterboxSubtitle(activeLineIndex);
     updateLetterboxProgress(0, getDurationSeconds(getTrackInfo()));
     markLetterboxCurtainOpened();
+    updateArtworkMotionState();
+  }
+
+  function setPlayerArtworkAvailable(available) {
+    if (!elements.player) return;
+    elements.player.classList.toggle("has-player-artwork", Boolean(available));
+    if (!available) {
+      elements.player.style.removeProperty("--player-artwork-url");
+    }
+    updateArtworkMotionState();
+  }
+
+  function updateArtworkMotionState() {
+    if (!elements.player) return;
+
+    const override = getArtworkMotionOverride();
+    const hasArtwork = elements.player.classList.contains("has-player-artwork");
+    const eligible = shouldEnableArtworkMotion({
+      letterboxEnabled,
+      isPlaying,
+      hasArtwork,
+      prefersReducedMotion,
+      documentHidden,
+    });
+    const enabled = shouldAllowArtworkMotionByRollout(override) && eligible;
+
+    elements.player.classList.toggle("artwork-motion", enabled);
+    elements.player.classList.toggle(
+      "artwork-motion-soft-breathe",
+      enabled && artworkMotionProfile === "soft-breathe",
+    );
+    elements.player.classList.toggle(
+      "artwork-motion-warm-pulse",
+      enabled && artworkMotionProfile === "warm-pulse",
+    );
+    elements.player.classList.toggle(
+      "artwork-motion-cinematic-drift",
+      enabled && artworkMotionProfile === "cinematic-drift",
+    );
+    elements.player.classList.toggle(
+      "artwork-motion-near-still",
+      enabled && artworkMotionProfile === "near-still",
+    );
   }
 
   function updateTrackInfo() {
@@ -656,10 +764,7 @@
     const trackInfo = getTrackInfo();
     const artworkUrl = getPlayerArtworkUrl(trackInfo);
     if (!elements.player || !elements.playerArtworkImage || !artworkUrl) {
-      if (elements.player) {
-        elements.player.classList.remove("has-player-artwork");
-        elements.player.style.removeProperty("--player-artwork-url");
-      }
+      setPlayerArtworkAvailable(false);
       return;
     }
 
@@ -668,17 +773,19 @@
       `url(${JSON.stringify(artworkUrl)})`,
     );
     elements.playerArtworkImage.onload = function () {
-      elements.player.classList.add("has-player-artwork");
+      setPlayerArtworkAvailable(true);
     };
     elements.playerArtworkImage.onerror = function () {
-      elements.player.classList.remove("has-player-artwork");
-      elements.player.style.removeProperty("--player-artwork-url");
       elements.playerArtworkImage.removeAttribute("src");
+      setPlayerArtworkAvailable(false);
     };
     if (elements.playerArtworkImage.getAttribute("src") !== artworkUrl) {
       elements.playerArtworkImage.src = artworkUrl;
-    } else if (elements.playerArtworkImage.complete) {
-      elements.player.classList.add("has-player-artwork");
+    } else {
+      setPlayerArtworkAvailable(
+        elements.playerArtworkImage.complete &&
+          elements.playerArtworkImage.naturalWidth > 0,
+      );
     }
   }
 
@@ -1184,9 +1291,10 @@
     if (audioPlayerEventsBound) return;
     audioPlayerEventsBound = true;
 
-    audio.addEventListener("play", () => {
+    audio.addEventListener("playing", () => {
+      setMainPlaybackState(true);
       hidePostPlayCta();
-      startAtmosphere();
+      if (!letterboxEnabled) startAtmosphere();
       if (!playStartedLogged) {
         playStartedLogged = true;
         safeRecordReceiverEvent("receiver_play_started", {
@@ -1194,7 +1302,9 @@
         });
       }
     });
+
     audio.addEventListener("pause", () => {
+      setMainPlaybackState(false);
       stopAtmosphere();
     });
 
@@ -1230,8 +1340,7 @@
     });
 
     audio.addEventListener("ended", () => {
-      isPlaying = false;
-      updatePlayButton();
+      setMainPlaybackState(false);
       stopAtmosphere();
       elements.progressFill.style.width = "0%";
       updateLetterboxProgress(0, audio.duration);
@@ -1256,6 +1365,8 @@
 
     audio.addEventListener("error", (e) => {
       console.error("Audio error:", e);
+      setMainPlaybackState(false);
+      stopAtmosphere();
       showError("Unable to play this audio. Please try again.");
     });
 
@@ -1284,6 +1395,7 @@
         letterboxEnabled && isPlaying,
       );
     }
+    updateArtworkMotionState();
   }
 
   // Atmospheric effects — flowers and bokeh
@@ -1404,19 +1516,25 @@
     bokehInterval = null;
   }
 
+  function setMainPlaybackState(nextIsPlaying) {
+    isPlaying = Boolean(nextIsPlaying);
+    updatePlayButton();
+  }
+
   function togglePlay() {
     const audio = elements.audioPlayer;
-    if (isPlaying) {
+    if (!audio) return;
+
+    if (!audio.paused && !audio.ended) {
       audio.pause();
-      stopAtmosphere();
-    } else {
-      audio.play().catch((e) => {
-        console.error("Playback error:", e);
-      });
-      startAtmosphere();
+      return;
     }
-    isPlaying = !isPlaying;
-    updatePlayButton();
+
+    audio.play().catch((e) => {
+      console.error("Playback error:", e);
+      setMainPlaybackState(false);
+      stopAtmosphere();
+    });
   }
 
   // Share actions
@@ -1833,6 +1951,13 @@
     }
   }
 
+  function bindVisibilityEvents() {
+    document.addEventListener("visibilitychange", function () {
+      documentHidden = document.hidden;
+      updateArtworkMotionState();
+    });
+  }
+
   // Event Bindings
   function bindEvents() {
     // Play button
@@ -1870,6 +1995,7 @@
   // Initialize
   function init() {
     bindEvents();
+    bindVisibilityEvents();
     initializePlayer();
   }
 
