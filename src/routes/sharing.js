@@ -1001,7 +1001,7 @@ function registerSharingRoutes(
     }
     const socialCacheToken = extractSocialCacheToken(request);
     if (isFacebookCrawler && !socialCacheToken) {
-      const freshUrl = new URL(request.raw.url, publicBaseUrl);
+      const freshUrl = new URL(buildRequestedPlayShareUrl(request, shareId));
       freshUrl.searchParams.set("fbv", String(Date.now()));
       return reply.redirect(freshUrl.toString(), 302);
     }

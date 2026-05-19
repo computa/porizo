@@ -15,6 +15,7 @@ const STREAM_BASE_URL =
 // Public-facing URL for share links (can differ from internal STREAM_BASE_URL in production)
 const PUBLIC_BASE_URL =
   process.env.PUBLIC_BASE_URL || `http://localhost:${PORT}`;
+const SHARE_PUBLIC_BASE_URL = process.env.SHARE_PUBLIC_BASE_URL || "";
 const APP_STORE_URL =
   process.env.APP_STORE_URL || "https://apps.apple.com/app/porizo/id6758205028";
 const PLAY_STORE_URL =
@@ -238,6 +239,7 @@ module.exports = {
   PREVIEW_ONLY,
   STREAM_BASE_URL,
   PUBLIC_BASE_URL,
+  SHARE_PUBLIC_BASE_URL,
   APP_STORE_URL,
   PLAY_STORE_URL,
   IOS_TESTFLIGHT_URL,

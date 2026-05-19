@@ -165,6 +165,19 @@ function deriveRetrySanitizerProvider({ trackVersion, classification }) {
   return null;
 }
 
+function deriveSharePublicBaseUrl(publicBaseUrl) {
+  try {
+    const parsed = new URL(publicBaseUrl);
+    if (parsed.hostname === "api.porizo.co") {
+      parsed.hostname = "porizo.co";
+      return parsed.origin;
+    }
+  } catch (_) {
+    // Fall through to the configured base URL for local/dev values.
+  }
+  return publicBaseUrl;
+}
+
 function buildServer({
   db,
   config: appConfig,
@@ -202,6 +215,10 @@ function buildServer({
     appConfig.STREAM_BASE_URL ||
     config.PUBLIC_BASE_URL ||
     config.STREAM_BASE_URL;
+  const sharePublicBaseUrl =
+    appConfig.SHARE_PUBLIC_BASE_URL ||
+    config.SHARE_PUBLIC_BASE_URL ||
+    deriveSharePublicBaseUrl(publicBaseUrl);
   const twilioStatusCallbackBaseUrl =
     appConfig.TWILIO_STATUS_CALLBACK_BASE_URL ||
     config.TWILIO_STATUS_CALLBACK_BASE_URL ||
@@ -916,7 +933,7 @@ function buildServer({
       params.set("smv", String(socialCacheToken).slice(0, 64));
     }
     const query = params.toString();
-    return `${publicBaseUrl}/play/${shareId}${query ? `?${query}` : ""}`;
+    return `${sharePublicBaseUrl}/play/${shareId}${query ? `?${query}` : ""}`;
   }
 
   function buildFreshPlayShareUrl(shareId) {
@@ -927,16 +944,16 @@ function buildServer({
 
   function buildPoemShareUrl(shareId, { versioned = true } = {}) {
     if (!versioned || !shareCoverVersion) {
-      return `${publicBaseUrl}/poem/${shareId}`;
+      return `${sharePublicBaseUrl}/poem/${shareId}`;
     }
-    return `${publicBaseUrl}/poem/${shareId}?sv=${encodeURIComponent(String(shareCoverVersion))}`;
+    return `${sharePublicBaseUrl}/poem/${shareId}?sv=${encodeURIComponent(String(shareCoverVersion))}`;
   }
 
   function buildGiftShareUrl(shareId, { versioned = true } = {}) {
     if (!versioned || !shareCoverVersion) {
-      return `${publicBaseUrl}/g/${shareId}`;
+      return `${sharePublicBaseUrl}/g/${shareId}`;
     }
-    return `${publicBaseUrl}/g/${shareId}?sv=${encodeURIComponent(String(shareCoverVersion))}`;
+    return `${sharePublicBaseUrl}/g/${shareId}?sv=${encodeURIComponent(String(shareCoverVersion))}`;
   }
 
   function buildRequestedShareUrl(request, expectedPath, fallbackUrl) {
@@ -946,7 +963,7 @@ function buildServer({
       return fallback;
     }
     try {
-      const parsed = new URL(rawUrl, publicBaseUrl);
+      const parsed = new URL(rawUrl, sharePublicBaseUrl);
       if (parsed.pathname !== expectedPath) {
         return fallback;
       }
@@ -1014,7 +1031,7 @@ function buildServer({
     }
     const query = params.toString();
     const suffix = query ? `?${query}` : "";
-    return `${publicBaseUrl}/share/${shareId}/cover.jpg${suffix}`;
+    return `${sharePublicBaseUrl}/share/${shareId}/cover.jpg${suffix}`;
   }
 
   function buildPoemOgImageUrl(shareId, { socialCacheToken } = {}) {
@@ -1027,7 +1044,7 @@ function buildServer({
     }
     const query = params.toString();
     const suffix = query ? `?${query}` : "";
-    return `${publicBaseUrl}/poem/${shareId}/og-image.png${suffix}`;
+    return `${sharePublicBaseUrl}/poem/${shareId}/og-image.png${suffix}`;
   }
 
   function normalizeVariantName(value, allowedVariants) {
