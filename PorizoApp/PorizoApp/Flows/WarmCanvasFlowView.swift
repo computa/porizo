@@ -691,6 +691,7 @@ struct WarmCanvasFlowView: View {
             RevealBloomView(
                 recipientName: setup.recipientName,
                 occasion: setup.occasion?.rawValue,
+                artworkURL: (artworkUrl ?? coverImageUrl).flatMap { URL(string: $0) },
                 isPlaying: playbackController.isPlaying,
                 hasSavedToLibrary: didAcknowledgeLibrarySave,
                 shareDebugStatusLabel: shareLinkDebugStatusLabel,

@@ -12,6 +12,11 @@ import SwiftUI
 struct RevealBloomView: View {
     let recipientName: String
     let occasion: String?
+    /// Optional canonical 2048² artwork URL. When present, replaces the coral
+    /// bloom gradient with the actual generated bouquet (blurred + dimmed so
+    /// the white reveal text stays readable). Falls back to the gradient when
+    /// nil (free tier without library v2, or library_not_bootstrapped errors).
+    var artworkURL: URL? = nil
     var isPlaying: Bool = false
     var hasSavedToLibrary: Bool = false
     var shareDebugStatusLabel: String? = nil
@@ -141,7 +146,25 @@ struct RevealBloomView: View {
 
     // MARK: - Bloom Background
 
+    /// When an artwork URL is available, render the generated bouquet as a
+    /// blurred, dimmed backdrop that tints the screen with its colors. The
+    /// existing reveal UI (checkmark, title, play CTA, share) overlays it.
+    /// The bloomScale breathing animation still applies so the screen still
+    /// pulses subtly.
+    ///
+    /// Falls back to the original coral RadialGradient when artworkURL is
+    /// nil (e.g. free tier without library_v2, library-not-bootstrapped
+    /// errors, share-link recipient on a model that hasn't generated yet).
+    @ViewBuilder
     private var bloomBackground: some View {
+        if let artworkURL = artworkURL {
+            artworkBackdrop(url: artworkURL)
+        } else {
+            gradientBloom
+        }
+    }
+
+    private var gradientBloom: some View {
         GeometryReader { geometry in
             RadialGradient(
                 stops: [
@@ -157,6 +180,41 @@ struct RevealBloomView: View {
             .ignoresSafeArea()
             .onAppear { cachedBloomSize = geometry.size }
             .onChange(of: geometry.size) { _, newSize in cachedBloomSize = newSize }
+        }
+    }
+
+    private func artworkBackdrop(url: URL) -> some View {
+        ZStack {
+            // Layer 1: warm cream base so AsyncImage `.empty` doesn't flash black.
+            DesignTokens.background
+                .ignoresSafeArea()
+            // Layer 2: artwork — full-bleed, scaled to fill, with a subtle
+            // scale breathing animation to preserve the original bloom-pulse feel.
+            AsyncImage(url: url) { phase in
+                switch phase {
+                case .success(let image):
+                    image
+                        .resizable()
+                        .scaledToFill()
+                        .scaleEffect(bloomScale)
+                        .ignoresSafeArea()
+                default:
+                    EmptyView()
+                }
+            }
+            // Layer 3: warm coral wash to keep the brand identity + ensure
+            // the white reveal text always passes contrast. 0.45 opacity is
+            // enough to dim a bright photo without losing the bouquet underneath.
+            LinearGradient(
+                colors: [
+                    DesignTokens.gold.opacity(0.55),
+                    Color(hex: "#C45A32").opacity(0.45),
+                    Color(hex: "#C45A32").opacity(0.65)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea()
         }
     }
 
