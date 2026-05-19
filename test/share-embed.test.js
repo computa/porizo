@@ -409,7 +409,7 @@ describe("Share Embed Routes", () => {
     }
     const response = await app.inject({
       method: "GET",
-      url: `/play/${testCrawlerFallbackShareId}`,
+      url: `/play/${testCrawlerFallbackShareId}?fbv=fallback-test`,
       headers: {
         "user-agent": "facebookexternalhit/1.1",
       },
@@ -446,7 +446,7 @@ describe("Share Embed Routes", () => {
     }
     const response = await app.inject({
       method: "GET",
-      url: `/play/${testShareId}`,
+      url: `/play/${testShareId}?fbv=facebook-test`,
       headers: {
         "user-agent": "facebookexternalhit/1.1",
       },
@@ -500,6 +500,23 @@ describe("Share Embed Routes", () => {
       body.includes(`/share/${testShareId}/cover.jpg?v=2&amp;smv=meta123`),
       "Meta external crawler should receive a cache-busted cover image",
     );
+  });
+
+  test("/play/:shareId redirects Facebook crawler to a fresh cache key when missing one", async (t) => {
+    if (!postgresAvailable) {
+      t.skip("PostgreSQL not available");
+      return;
+    }
+    const response = await app.inject({
+      method: "GET",
+      url: `/play/${testShareId}?sv=2`,
+      headers: {
+        "user-agent": "facebookexternalhit/1.1",
+      },
+    });
+
+    assert.equal(response.statusCode, 302);
+    assert.match(response.headers.location, /\/play\/[^?]+\?sv=2&fbv=\d+/);
   });
 
   test("/play/:shareId preserves request query params in og:url for social cache busting", async (t) => {

@@ -1000,6 +1000,11 @@ function registerSharingRoutes(
       ogDescription = `Open the song made for ${recipientName} and listen in your browser.`;
     }
     const socialCacheToken = extractSocialCacheToken(request);
+    if (isFacebookCrawler && !socialCacheToken) {
+      const freshUrl = new URL(request.raw.url, publicBaseUrl);
+      freshUrl.searchParams.set("fbv", String(Date.now()));
+      return reply.redirect(freshUrl.toString(), 302);
+    }
     const ogUrl = buildRequestedPlayShareUrl(request, shareId);
 
     // Artwork cache-bust: if track has per-song occasion artwork, include its
