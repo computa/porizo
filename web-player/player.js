@@ -391,19 +391,42 @@
       .replace(/[\u2019']/g, "")
       .replace(/[^a-z0-9]+/g, "_")
       .replace(/^_+|_+$/g, "");
+    // Map keyed by the backend's tracks.occasion slug (see
+    // src/services/artwork-vocab.js OCCASIONS list). Every backend occasion
+    // is explicitly mapped so a future addition forces a deliberate motion
+    // choice instead of silently defaulting. The lock test at
+    // test/web-player-motion-helpers.test.js asserts this coverage.
+    //
+    // Legacy/aliased keys (mother_day, valentines*, memorial, sympathy) are
+    // kept for resilience against display labels and historical slugs even
+    // though they aren't in the current backend vocab.
     const map = {
+      // \u2014 Soft-breathe: warm-but-restrained tribute songs \u2014
       mothers_day: "soft-breathe",
       mother_day: "soft-breathe",
+      thank_you: "soft-breathe",
+      friendship: "soft-breathe",
+      encouragement: "soft-breathe",
+      custom: "soft-breathe",
+      // \u2014 Warm-pulse: celebratory, lively songs \u2014
       birthday: "warm-pulse",
+      celebration: "warm-pulse",
+      graduation: "warm-pulse",
+      // \u2014 Cinematic-drift: romantic, sweeping songs \u2014
       anniversary: "cinematic-drift",
+      wedding: "cinematic-drift",
+      i_love_you: "cinematic-drift",
       valentines: "cinematic-drift",
       valentines_day: "cinematic-drift",
       valentine: "cinematic-drift",
       valentine_day: "cinematic-drift",
-      wedding: "cinematic-drift",
+      // \u2014 Near-still: somber, reflective, recovery \u2014
+      bereavement: "near-still",
+      apology: "near-still",
+      get_well: "near-still",
+      advice: "near-still",
       memorial: "near-still",
       sympathy: "near-still",
-      apology: "near-still",
     };
     return map[normalized] || "soft-breathe";
   }
@@ -411,11 +434,11 @@
   function shouldEnableArtworkMotion(state) {
     return Boolean(
       state &&
-        state.letterboxEnabled &&
-        state.isPlaying &&
-        state.hasArtwork &&
-        !state.prefersReducedMotion &&
-        !state.documentHidden,
+      state.letterboxEnabled &&
+      state.isPlaying &&
+      state.hasArtwork &&
+      !state.prefersReducedMotion &&
+      !state.documentHidden,
     );
   }
 
