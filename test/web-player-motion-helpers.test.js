@@ -104,14 +104,19 @@ describe("web player artwork motion helpers", () => {
     );
   });
 
-  test("shouldAllowArtworkMotionByRollout is default-off unless overridden on", () => {
+  test("shouldAllowArtworkMotionByRollout is default-on unless explicitly disabled", () => {
+    // v2.2 cutover: motion is now default-on for every share. Only an
+    // explicit `?artwork_motion=0` URL override turns it off. The other
+    // motion gates (playback, artwork loaded, reduced-motion, hidden tab,
+    // letterbox enabled) still apply at the outer eligibility layer.
     const shouldAllowArtworkMotionByRollout = extractWebPlayerFunction(
       "shouldAllowArtworkMotionByRollout",
     );
 
-    assert.equal(shouldAllowArtworkMotionByRollout(null), false);
-    assert.equal(shouldAllowArtworkMotionByRollout(false), false);
+    assert.equal(shouldAllowArtworkMotionByRollout(null), true);
+    assert.equal(shouldAllowArtworkMotionByRollout(undefined), true);
     assert.equal(shouldAllowArtworkMotionByRollout(true), true);
+    assert.equal(shouldAllowArtworkMotionByRollout(false), false);
   });
 
   test("every backend occasion has a non-default motion mapping (synergy lock)", () => {

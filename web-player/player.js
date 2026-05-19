@@ -329,16 +329,6 @@
     return null;
   }
 
-  function hashToPercent(value) {
-    var input = String(value || "");
-    var hash = 2166136261;
-    for (var i = 0; i < input.length; i++) {
-      hash ^= input.charCodeAt(i);
-      hash = Math.imul(hash, 16777619);
-    }
-    return Math.abs(hash >>> 0) % 100;
-  }
-
   function hashToNumber(value, modulo) {
     var input = String(value || "");
     var hash = 2166136261;
@@ -353,15 +343,14 @@
   }
 
   function shouldUseLetterbox() {
+    // Anamorphic cinema chrome is now the default presentation for every
+    // share player. The previous server-flag + rollout-percentage gating was
+    // for the gradual launch; with the v2.2 artwork pipeline shipping the
+    // full design lands for everyone. Explicit `?letterbox=0` still opts
+    // out (debug / fallback / external embed contexts).
     const override = getLetterboxOverride();
     if (override !== null) return override;
-    const flags =
-      shareData && shareData.feature_flags ? shareData.feature_flags : {};
-    if (!flags.web_player_letterbox_enabled) return false;
-    const rollout = Number(flags.web_player_letterbox_rollout_percent || 0);
-    if (!Number.isFinite(rollout) || rollout <= 0) return false;
-    if (rollout >= 100) return true;
-    return hashToPercent(shareId) < rollout;
+    return true;
   }
 
   function normalizeOccasionShort(value) {
@@ -443,7 +432,13 @@
   }
 
   function shouldAllowArtworkMotionByRollout(override) {
-    return override === true;
+    // Living artwork motion is now default-on for every share player. The
+    // gates that still block motion (no playback, no artwork loaded, prefers-
+    // reduced-motion, hidden tab, letterbox off) remain — this only flips the
+    // rollout default from opt-in to opt-out. Explicit `?artwork_motion=0`
+    // still disables it.
+    if (override === false) return false;
+    return true;
   }
 
   function formatYear(value) {
