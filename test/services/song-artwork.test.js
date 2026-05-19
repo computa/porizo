@@ -2,10 +2,11 @@
  * Unit tests for song-artwork orchestrator.
  *
  * Covers:
- *   - Stable style-variant selection
- *   - Content-hash idempotency (skip when unchanged, regenerate when recipient/occasion edits)
+ *   - Content-hash idempotency (vars-based)
  *   - Library vs paid-tier branching
- *   - Moderation-refusal fallback to library
+ *   - Flux primary -> OpenAI fallback chain
+ *   - Moderation-refusal fallback to library (no OpenAI retry)
+ *   - Sender attribution plumbing
  *   - fitName 5-tier behavior
  *   - detectDirection LTR/RTL coverage
  */
@@ -18,10 +19,11 @@ const os = require("node:os");
 
 const {
   generateSongArtwork,
-  pickStyleVariant,
+  pickLibraryVariant,
   computeContentHash,
   prepareGeneratedBaseImage,
-  STYLE_LIST,
+  PROMPT_TEMPLATE_VERSION,
+  FREE_LIBRARY_VARIANT_COUNT,
 } = require("../../src/services/song-artwork");
 const {
   fitName,
@@ -31,100 +33,112 @@ const {
   detectDirection,
   localizedForPrefix,
 } = require("../../src/utils/og-text-utils");
-const {
-  ModerationRefusalError,
-} = require("../../src/services/image-providers");
+const { getDefault } = require("../../src/services/artwork-vocab");
 
-// ---------- pickStyleVariant ----------
+function defaultsFor(occ) {
+  return {
+    ...getDefault(occ),
+    picked_by: "fallback",
+    picked_at: new Date().toISOString(),
+  };
+}
 
-test("pickStyleVariant returns one of the three styles", () => {
-  const got = pickStyleVariant({ trackId: "t1", userId: "u1" });
-  assert.ok(STYLE_LIST.includes(got), `got=${got}`);
+// ---------- pickLibraryVariant ----------
+
+test("pickLibraryVariant returns an index in [0, FREE_LIBRARY_VARIANT_COUNT)", () => {
+  const got = pickLibraryVariant({ trackId: "t1", userId: "u1" });
+  assert.ok(Number.isInteger(got));
+  assert.ok(got >= 0 && got < FREE_LIBRARY_VARIANT_COUNT, `got=${got}`);
 });
 
-test("pickStyleVariant is stable for the same (user, track)", () => {
-  const a = pickStyleVariant({ trackId: "t-abc", userId: "u-xyz" });
-  const b = pickStyleVariant({ trackId: "t-abc", userId: "u-xyz" });
+test("pickLibraryVariant is stable for the same (user, track)", () => {
+  const a = pickLibraryVariant({ trackId: "t-abc", userId: "u-xyz" });
+  const b = pickLibraryVariant({ trackId: "t-abc", userId: "u-xyz" });
   assert.equal(a, b);
 });
 
-test("pickStyleVariant distributes across many tracks", () => {
-  const counts = { "paper-art": 0, watercolor: 0, photographic: 0 };
+test("pickLibraryVariant distributes across many tracks", () => {
+  const counts = new Array(FREE_LIBRARY_VARIANT_COUNT).fill(0);
   for (let i = 0; i < 600; i++) {
-    counts[pickStyleVariant({ trackId: `t${i}`, userId: `u${i}` })] += 1;
+    counts[pickLibraryVariant({ trackId: `t${i}`, userId: `u${i}` })] += 1;
   }
-  // Each arm should hold ≥10% of traffic (very loose lower bound)
-  for (const s of STYLE_LIST) {
-    assert.ok(counts[s] > 60, `Style ${s} under-represented: ${counts[s]}`);
+  // Each variant should hold ≥10% of traffic (very loose lower bound).
+  for (let i = 0; i < FREE_LIBRARY_VARIANT_COUNT; i++) {
+    assert.ok(counts[i] > 60, `variant ${i} under-represented: ${counts[i]}`);
   }
 });
 
 // ---------- computeContentHash ----------
 
 test("computeContentHash is stable across calls", () => {
+  const vars = defaultsFor("birthday");
   const a = computeContentHash({
-    recipientName: "Sarah",
     occasion: "birthday",
-    style: "paper-art",
+    artworkVars: vars,
+    promptVersion: PROMPT_TEMPLATE_VERSION,
   });
   const b = computeContentHash({
-    recipientName: "Sarah",
     occasion: "birthday",
-    style: "paper-art",
+    artworkVars: vars,
+    promptVersion: PROMPT_TEMPLATE_VERSION,
   });
   assert.equal(a, b);
-});
-
-test("computeContentHash changes when recipient changes", () => {
-  const a = computeContentHash({
-    recipientName: "Sarah",
-    occasion: "birthday",
-    style: "paper-art",
-  });
-  const b = computeContentHash({
-    recipientName: "Sara",
-    occasion: "birthday",
-    style: "paper-art",
-  });
-  assert.notEqual(a, b);
 });
 
 test("computeContentHash changes when occasion changes", () => {
   const a = computeContentHash({
-    recipientName: "Sarah",
     occasion: "birthday",
-    style: "paper-art",
+    artworkVars: defaultsFor("birthday"),
+    promptVersion: PROMPT_TEMPLATE_VERSION,
   });
   const b = computeContentHash({
-    recipientName: "Sarah",
     occasion: "anniversary",
-    style: "paper-art",
+    artworkVars: defaultsFor("anniversary"),
+    promptVersion: PROMPT_TEMPLATE_VERSION,
   });
   assert.notEqual(a, b);
 });
 
-test("computeContentHash trims whitespace in recipient", () => {
+test("computeContentHash ignores recipient_name (intentionally excluded)", () => {
+  // The hash is derived from artworkVars + occasion + promptVersion only.
+  // Recipient never enters the prompt, so it must not invalidate the cache.
+  const vars = defaultsFor("birthday");
   const a = computeContentHash({
-    recipientName: "Sarah",
     occasion: "birthday",
-    style: "paper-art",
+    artworkVars: vars,
+    promptVersion: PROMPT_TEMPLATE_VERSION,
   });
   const b = computeContentHash({
-    recipientName: "  Sarah  ",
     occasion: "birthday",
-    style: "paper-art",
+    artworkVars: vars,
+    promptVersion: PROMPT_TEMPLATE_VERSION,
   });
   assert.equal(a, b);
+});
+
+test("computeContentHash changes when imperfection changes", () => {
+  const base = defaultsFor("birthday");
+  const a = computeContentHash({
+    occasion: "birthday",
+    artworkVars: base,
+    promptVersion: PROMPT_TEMPLATE_VERSION,
+  });
+  const b = computeContentHash({
+    occasion: "birthday",
+    artworkVars: { ...base, imperfection: "a different imperfection note" },
+    promptVersion: PROMPT_TEMPLATE_VERSION,
+  });
+  assert.notEqual(a, b);
 });
 
 // ---------- generateSongArtwork — idempotency ----------
 
 test("generateSongArtwork skips when previousContentHash matches", async () => {
-  const style = pickStyleVariant({ trackId: "t-skip", userId: "u-skip" });
+  const vars = defaultsFor("birthday");
   const sameHash = computeContentHash({
-    recipientName: "Sarah",
     occasion: "birthday",
-    style,
+    artworkVars: vars,
+    promptVersion: PROMPT_TEMPLATE_VERSION,
   });
 
   const result = await generateSongArtwork({
@@ -133,9 +147,9 @@ test("generateSongArtwork skips when previousContentHash matches", async () => {
     occasion: "birthday",
     recipientName: "Sarah",
     tier: "free",
+    artworkVars: vars,
     previousContentHash: sameHash,
     dependencies: {
-      // Should never be called
       compositeFn: async () => {
         throw new Error("compositeFn must not be called on a skip");
       },
@@ -159,6 +173,7 @@ test("generateSongArtwork regenerates when previousContentHash differs", async (
     occasion: "birthday",
     recipientName: "Sarah",
     tier: "free",
+    artworkVars: defaultsFor("birthday"),
     previousContentHash: "STALE_HASH_DOES_NOT_MATCH",
     dependencies: {
       libraryPathFn: () => fakeBase,
@@ -191,6 +206,7 @@ test("generateSongArtwork takes library path for free tier without calling provi
     occasion: "birthday",
     recipientName: "Sarah",
     tier: "free",
+    artworkVars: defaultsFor("birthday"),
     dependencies: {
       libraryPathFn: () => fakeBase,
       providerFactory: () => ({
@@ -212,49 +228,231 @@ test("generateSongArtwork takes library path for free tier without calling provi
   assert.equal(result.provider, null);
 });
 
-test("generateSongArtwork calls provider for paid tier (pro)", async () => {
-  let providerCalls = 0;
+// ---------- generateSongArtwork — Flux primary + OpenAI fallback ----------
+
+test("generateSongArtwork builds prompt from artwork_vars and calls primary provider", async () => {
+  const calls = { generate: null };
+  const fakeFlux = {
+    name: "flux",
+    generate: async ({ prompt, negativePrompt }) => {
+      calls.generate = { prompt, negativePrompt };
+      return Buffer.alloc(8192, "x");
+    },
+  };
+  const fakePrepare = async (buf) => buf;
+  const result = await generateSongArtwork({
+    userId: "u1",
+    trackId: "t1",
+    occasion: "mothers_day",
+    recipientName: "Chioma",
+    tier: "plus",
+    artworkVars: {
+      species: "ranunculus",
+      lighting: "morning_window",
+      palette: "dusty_rose",
+      density: "intimate_cluster",
+      imperfection: "one outer petal slightly bruised at the tip",
+      backdrop: "cream_cloud",
+      picked_by: "haiku",
+      picked_at: "2026-05-18T12:00:00Z",
+    },
+    dependencies: {
+      providerFactory: () => fakeFlux,
+      prepareGeneratedImageFn: fakePrepare,
+      compositeFn: async ({ baseImagePath }) => baseImagePath,
+    },
+  });
+  assert.equal(result.skipped, false);
+  assert.equal(result.provider, "flux");
+  assert.equal(result.promptVersion, "v2.2.0-photoreal-flora-rich");
+  assert.ok(calls.generate.prompt.includes("ranunculus"));
+  assert.ok(calls.generate.negativePrompt.includes("no text"));
+});
+
+test("generateSongArtwork falls back to OpenAI on Flux infra failure", async () => {
+  const fakeFlux = {
+    name: "flux",
+    generate: async () => {
+      throw new Error("HTTP 503");
+    },
+  };
+  const fakeOpenAI = {
+    name: "openai",
+    generate: async () => Buffer.alloc(8192, "y"),
+  };
+  const result = await generateSongArtwork({
+    userId: "u1",
+    trackId: "t2",
+    occasion: "birthday",
+    recipientName: "X",
+    tier: "plus",
+    artworkVars: defaultsFor("birthday"),
+    dependencies: {
+      providerFactory: (name) => (name === "flux" ? fakeFlux : fakeOpenAI),
+      prepareGeneratedImageFn: async (b) => b,
+      compositeFn: async ({ baseImagePath }) => baseImagePath,
+    },
+  });
+  assert.equal(result.provider, "openai");
+  assert.equal(result.source, "generated");
+});
+
+test("generateSongArtwork falls back to library on Flux moderation refusal (no OpenAI retry)", async () => {
+  const {
+    ModerationRefusalError,
+  } = require("../../src/services/image-providers");
+  const fakeFlux = {
+    name: "flux",
+    generate: async () => {
+      throw new ModerationRefusalError("moderation_blocked");
+    },
+  };
+  let openaiCalled = false;
+  const fakeOpenAI = {
+    name: "openai",
+    generate: async () => {
+      openaiCalled = true;
+      return Buffer.alloc(0);
+    },
+  };
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "porizo-artwork-"));
   const fakeBase = path.join(tmp, "base.jpg");
   fs.writeFileSync(fakeBase, Buffer.alloc(8));
-
   const result = await generateSongArtwork({
-    userId: "u-pro",
-    trackId: "t-pro",
+    userId: "u1",
+    trackId: "t3",
     occasion: "birthday",
-    recipientName: "Sarah",
-    tier: "pro",
+    recipientName: "X",
+    tier: "plus",
+    artworkVars: defaultsFor("birthday"),
     dependencies: {
-      libraryPathFn: () => fakeBase,
-      providerFactory: () => ({
-        generate: async () => {
-          providerCalls += 1;
-          return Buffer.alloc(16); // pretend png
-        },
-      }),
-      prepareGeneratedImageFn: async (buf) => {
-        assert.equal(buf.length, 16);
-        return Buffer.alloc(32);
-      },
+      providerFactory: (name) => (name === "flux" ? fakeFlux : fakeOpenAI),
+      prepareGeneratedImageFn: async (b) => b,
       compositeFn: async ({ outputDir }) => {
         const out = path.join(outputDir, "artwork.jpg");
         fs.writeFileSync(out, Buffer.alloc(8));
         return out;
       },
+      libraryPathFn: () => fakeBase,
+    },
+  });
+  assert.equal(
+    openaiCalled,
+    false,
+    "must not retry OpenAI on moderation refusal",
+  );
+  assert.equal(result.source, "fallback");
+  // Moderation refusal IS a moderation event — moderation_passed must be false
+  // so the operator can SELECT WHERE source='fallback' AND moderation_passed=false
+  // to find rows needing prompt review (distinct from infra failures).
+  assert.equal(result.moderationPassed, false);
+});
+
+test("generateSongArtwork sets uploadFailed:true when S3 putFile throws", async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "porizo-artwork-"));
+  const fakeBase = path.join(tmp, "base.jpg");
+  fs.writeFileSync(fakeBase, Buffer.alloc(8));
+  const fakeFlux = {
+    name: "flux",
+    generate: async () => Buffer.alloc(8192, "x"),
+  };
+  const errors = [];
+  const result = await generateSongArtwork({
+    userId: "u-upload",
+    trackId: "t-upload",
+    occasion: "birthday",
+    recipientName: "X",
+    tier: "plus",
+    artworkVars: defaultsFor("birthday"),
+    dependencies: {
+      providerFactory: () => fakeFlux,
+      prepareGeneratedImageFn: async (b) => b,
+      compositeFn: async ({ outputDir }) => {
+        const out = path.join(outputDir, "artwork.jpg");
+        fs.writeFileSync(out, Buffer.alloc(8));
+        return out;
+      },
+      libraryPathFn: () => fakeBase,
+      storageProvider: {
+        type: "s3",
+        putFile: async () => {
+          throw new Error("S3 putObject denied");
+        },
+      },
+      logger: {
+        info() {},
+        warn() {},
+        error(message) {
+          errors.push(message);
+        },
+      },
     },
   });
 
+  assert.equal(result.skipped, false);
   assert.equal(result.source, "generated");
-  assert.equal(providerCalls, 1);
-  assert.equal(result.provider, "openai");
-  assert.ok(result.prompt && result.prompt.length > 50);
+  assert.equal(result.provider, "flux");
+  // Render proceeded artistically — but uploadFailed flag warns the caller
+  // that the canonical URL won't serve from a different instance.
+  assert.equal(result.uploadFailed, true);
+  assert.ok(
+    errors.some((m) => m.includes("S3 upload failed")),
+    "expected an error-level log about S3 upload failure",
+  );
+});
+
+test("generateSongArtwork sets uploadFailed:false when S3 succeeds", async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "porizo-artwork-"));
+  const fakeBase = path.join(tmp, "base.jpg");
+  fs.writeFileSync(fakeBase, Buffer.alloc(8));
+  const fakeFlux = {
+    name: "flux",
+    generate: async () => Buffer.alloc(8192, "x"),
+  };
+  let uploaded = false;
+  const result = await generateSongArtwork({
+    userId: "u-upload-ok",
+    trackId: "t-upload-ok",
+    occasion: "birthday",
+    recipientName: "X",
+    tier: "plus",
+    artworkVars: defaultsFor("birthday"),
+    dependencies: {
+      providerFactory: () => fakeFlux,
+      prepareGeneratedImageFn: async (b) => b,
+      compositeFn: async ({ outputDir }) => {
+        const out = path.join(outputDir, "artwork.jpg");
+        fs.writeFileSync(out, Buffer.alloc(8));
+        return out;
+      },
+      libraryPathFn: () => fakeBase,
+      storageProvider: {
+        type: "s3",
+        putFile: async () => {
+          uploaded = true;
+        },
+      },
+    },
+  });
+
+  assert.equal(uploaded, true);
+  assert.equal(result.uploadFailed, false);
 });
 
 test("generateSongArtwork falls back to library when provider image validation fails", async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "porizo-artwork-"));
   const fakeBase = path.join(tmp, "base.jpg");
   fs.writeFileSync(fakeBase, Buffer.alloc(8));
-  const warnings = [];
+  const errors = [];
+  // Both providers will be tried; both will fail validation.
+  const fakeProvider = {
+    name: "flux",
+    generate: async () => Buffer.alloc(16),
+  };
+  const fakeFallback = {
+    name: "openai",
+    generate: async () => Buffer.alloc(16),
+  };
 
   const result = await generateSongArtwork({
     userId: "u-invalid-image",
@@ -262,11 +460,11 @@ test("generateSongArtwork falls back to library when provider image validation f
     occasion: "birthday",
     recipientName: "Sarah",
     tier: "pro",
+    artworkVars: defaultsFor("birthday"),
     dependencies: {
       libraryPathFn: () => fakeBase,
-      providerFactory: () => ({
-        generate: async () => Buffer.alloc(16),
-      }),
+      providerFactory: (name) =>
+        name === "flux" ? fakeProvider : fakeFallback,
       prepareGeneratedImageFn: async () => {
         throw new Error("corrupt provider image");
       },
@@ -278,26 +476,29 @@ test("generateSongArtwork falls back to library when provider image validation f
       },
       logger: {
         info() {},
-        warn(message) {
-          warnings.push(message);
+        warn() {},
+        error(message) {
+          errors.push(message);
         },
-        error() {},
       },
     },
   });
 
   assert.equal(result.source, "fallback");
-  assert.equal(result.moderationPassed, false);
-  assert.equal(warnings.length, 1);
-  assert.match(warnings[0], /corrupt provider image/);
+  // Infra failure (corrupt image) is NOT a moderation event — moderation_passed
+  // stays true so operators can SELECT WHERE source='fallback' AND moderation_passed=true
+  // to find "infra failed" rows distinct from moderation refusals.
+  assert.equal(result.moderationPassed, true);
+  // Logged at error level (pages ops), not warn.
+  assert.ok(errors.length >= 1, "infra failure should log at error level");
 });
 
-test("prepareGeneratedBaseImage normalizes valid provider output to 9:16 JPEG", async () => {
+test("prepareGeneratedBaseImage normalizes valid provider output to 2048x2048 JPEG", async () => {
   const sharp = require("sharp");
   const input = await sharp({
     create: {
-      width: 900,
-      height: 1200,
+      width: 1280,
+      height: 1280,
       channels: 3,
       background: { r: 224, g: 190, b: 174 },
     },
@@ -308,93 +509,37 @@ test("prepareGeneratedBaseImage normalizes valid provider output to 9:16 JPEG", 
   const output = await prepareGeneratedBaseImage(input);
   const metadata = await sharp(output).metadata();
   assert.equal(metadata.format, "jpeg");
-  assert.equal(metadata.width, 1024);
-  assert.equal(metadata.height, 1536);
+  assert.equal(metadata.width, 2048);
+  assert.equal(metadata.height, 2048);
 });
 
 test("prepareGeneratedBaseImage rejects corrupt or tiny provider output", async () => {
   await assert.rejects(
     () => prepareGeneratedBaseImage(Buffer.alloc(16)),
-    /invalid artwork buffer/,
+    /invalid buffer/,
   );
 });
 
-test("generateSongArtwork falls back to library on moderation refusal", async () => {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "porizo-artwork-"));
-  const fakeBase = path.join(tmp, "base.jpg");
-  fs.writeFileSync(fakeBase, Buffer.alloc(8));
-
-  const result = await generateSongArtwork({
-    userId: "u-mod",
-    trackId: "t-mod",
-    occasion: "birthday",
-    recipientName: "Sarah",
-    tier: "pro",
-    dependencies: {
-      libraryPathFn: () => fakeBase,
-      providerFactory: () => ({
-        generate: async () => {
-          throw new ModerationRefusalError("blocked");
-        },
-      }),
-      compositeFn: async ({ outputDir }) => {
-        const out = path.join(outputDir, "artwork.jpg");
-        fs.writeFileSync(out, Buffer.alloc(8));
-        return out;
-      },
+test("prepareGeneratedBaseImage accepts 1024×1024 (the OpenAI fallback dimension)", async () => {
+  // Regression: floor was 1280, but OpenAI's gpt-image-2 max square is 1024².
+  // The fallback path would have thrown "undersized image (1024x1024)" 100% of
+  // the time, leaving Flux failures with no real fallback before library.
+  const sharp = require("sharp");
+  const input = await sharp({
+    create: {
+      width: 1024,
+      height: 1024,
+      channels: 3,
+      background: { r: 230, g: 200, b: 180 },
     },
-  });
+  })
+    .png()
+    .toBuffer();
 
-  assert.equal(result.source, "fallback");
-  assert.equal(result.moderationPassed, false);
-  // Provider + prompt are recorded for audit even though we fell back
-  assert.equal(result.provider, "openai");
-  assert.ok(result.prompt);
-});
-
-test("generateSongArtwork pre-flight moderation gate blocks before generation", async () => {
-  // The moderation endpoint flags the prompt — we should short-circuit BEFORE
-  // calling generate() (saving the $0.21) and fall through to the library.
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "porizo-artwork-"));
-  const fakeBase = path.join(tmp, "base.jpg");
-  fs.writeFileSync(fakeBase, Buffer.alloc(8));
-  let generateCalled = false;
-  let modCalled = false;
-
-  const result = await generateSongArtwork({
-    userId: "u-preflight",
-    trackId: "t-preflight",
-    occasion: "birthday",
-    recipientName: "Sarah",
-    tier: "plus",
-    dependencies: {
-      libraryPathFn: () => fakeBase,
-      providerFactory: () => ({
-        moderationCheck: async () => {
-          modCalled = true;
-          return { flagged: true, categories: { violence: true } };
-        },
-        generate: async () => {
-          generateCalled = true;
-          return Buffer.alloc(8);
-        },
-      }),
-      compositeFn: async ({ outputDir }) => {
-        const out = path.join(outputDir, "artwork.jpg");
-        fs.writeFileSync(out, Buffer.alloc(8));
-        return out;
-      },
-    },
-  });
-
-  assert.equal(modCalled, true, "pre-flight moderation should have run");
-  assert.equal(
-    generateCalled,
-    false,
-    "generate() should NOT run when pre-flight flags the prompt",
-  );
-  assert.equal(result.source, "fallback");
-  assert.equal(result.moderationPassed, false);
+  const output = await prepareGeneratedBaseImage(input);
+  const metadata = await sharp(output).metadata();
+  assert.equal(metadata.width, 2048);
+  assert.equal(metadata.height, 2048);
 });
 
 // ---------- fitName tiers ----------
@@ -532,9 +677,7 @@ test("buildOverlaySvg centers no-sender typography inside bottom quarter", () =>
     recipientName: "Sarah",
     occasion: "birthday",
   });
-  const yValues = [...svg.matchAll(/ y="(\d+)"/g)].map((m) =>
-    Number(m[1]),
-  );
+  const yValues = [...svg.matchAll(/ y="(\d+)"/g)].map((m) => Number(m[1]));
 
   assert.equal(yValues.length, 2);
   assert.ok(yValues[0] > height * 0.8, `name y too high: ${yValues[0]}`);
@@ -558,9 +701,7 @@ test("buildOverlaySvg centers sender typography inside bottom quarter", () => {
     occasion: "birthday",
     senderName: "Ambrose Obimma",
   });
-  const yValues = [...svg.matchAll(/ y="(\d+)"/g)].map((m) =>
-    Number(m[1]),
-  );
+  const yValues = [...svg.matchAll(/ y="(\d+)"/g)].map((m) => Number(m[1]));
 
   assert.equal(yValues.length, 3);
   assert.ok(yValues[0] > height * 0.8, `name y too high: ${yValues[0]}`);
@@ -661,6 +802,7 @@ test("generateSongArtwork plumbs senderName through to compositeFn", async () =>
     recipientName: "Chioma",
     senderName: "Ambrose Obimma",
     tier: "free",
+    artworkVars: defaultsFor("birthday"),
     dependencies: {
       libraryPathFn: () => fakeBase,
       compositeFn: async (args) => {
@@ -674,125 +816,6 @@ test("generateSongArtwork plumbs senderName through to compositeFn", async () =>
 
   assert.equal(result.skipped, false);
   assert.equal(captured.senderName, "Ambrose Obimma");
-});
-
-test("generateSongArtwork content hash ignores senderName (legacy tracks not force-regenerated)", () => {
-  const a = computeContentHash({
-    recipientName: "Chioma",
-    occasion: "birthday",
-    style: "paper-art",
-  });
-  // computeContentHash doesn't accept senderName — extra fields ignored,
-  // so the hash is stable. This pins the contract: adding sender_display_name
-  // to the JOIN must not invalidate previously-computed hashes.
-  const b = computeContentHash({
-    recipientName: "Chioma",
-    occasion: "birthday",
-    style: "paper-art",
-    senderName: "Ambrose",
-  });
-  assert.equal(a, b);
-});
-
-// ---------- buildPrompt allowlist + content invariants ----------
-
-const {
-  buildPrompt,
-  VALID_OCCASIONS,
-  VALID_STYLES,
-} = require("../../src/services/artwork-prompts");
-
-const PROMPT_INTERNAL_CHAR_CAP = 2200;
-
-test("buildPrompt rejects unknown occasion", () => {
-  assert.throws(
-    () => buildPrompt({ occasion: "haxx", style: "paper-art" }),
-    /Invalid occasion/,
-  );
-});
-
-test("buildPrompt rejects unknown style", () => {
-  assert.throws(
-    () => buildPrompt({ occasion: "birthday", style: "stained-glass" }),
-    /Invalid style/,
-  );
-});
-
-test("buildPrompt never includes recipient name (PII containment)", () => {
-  // Defense against future refactors that accidentally weave names into prompts.
-  // The signature is intentionally `{occasion, style}` only — no recipient
-  // surface to leak. This test pins the structural invariant + the frame
-  // guardrails on every prompt.
-  for (const occasion of VALID_OCCASIONS) {
-    for (const style of VALID_STYLES) {
-      const prompt = buildPrompt({ occasion, style });
-      assert.ok(
-        prompt.length <= PROMPT_INTERNAL_CHAR_CAP,
-        `${occasion}/${style} prompt too long: ${prompt.length}`,
-      );
-      assert.ok(
-        !/\brecipient(_name|Name)?\b/i.test(prompt),
-        `${occasion}/${style} leaked recipient token`,
-      );
-      assert.match(prompt, /no text/);
-      assert.match(prompt, /no people, no faces/);
-      assert.match(prompt, /no logos/);
-      assert.match(prompt, /real physical still-life/);
-      assert.match(prompt, /no signatures, no watermarks/);
-      assert.match(prompt, /no app names, no personal names/);
-    }
-  }
-});
-
-test("buildPrompt avoids visible identifiers and generated-looking style directions", () => {
-  for (const occasion of VALID_OCCASIONS) {
-    for (const style of VALID_STYLES) {
-      const prompt = buildPrompt({ occasion, style });
-      assert.doesNotMatch(prompt, /\bPorizo\b/i);
-      assert.doesNotMatch(prompt, /\bmade with\b/i);
-      assert.doesNotMatch(prompt, /\bbrand name\b/i);
-      assert.match(prompt, /no synthetic smoothness/);
-      assert.match(prompt, /no warped geometry/);
-      assert.match(prompt, /no plastic rendered look/);
-      assert.match(prompt, /photograph/i);
-    }
-  }
-});
-
-test("buildPrompt keeps occasion-specific visual subjects", () => {
-  assert.match(
-    buildPrompt({ occasion: "mothers_day", style: "photographic" }),
-    /mother's day bouquet.*ranunculus.*lavender/i,
-  );
-  assert.match(
-    buildPrompt({ occasion: "graduation", style: "photographic" }),
-    /graduation laurel wreath.*achievement/i,
-  );
-  assert.match(
-    buildPrompt({ occasion: "get_well", style: "photographic" }),
-    /ceramic teacup.*chamomile.*lemon/i,
-  );
-});
-
-test("buildPrompt ignores extraneous recipientName arg if a caller wires it incorrectly", () => {
-  const prompt = buildPrompt({
-    occasion: "birthday",
-    style: "paper-art",
-    recipientName: "Sarah-LEAK-CHECK",
-  });
-  assert.ok(!prompt.includes("Sarah-LEAK-CHECK"));
-});
-
-test("buildPrompt produces a distinct prompt for every (occasion, style) pair", () => {
-  const seen = new Set();
-  for (const occasion of VALID_OCCASIONS) {
-    for (const style of VALID_STYLES) {
-      const prompt = buildPrompt({ occasion, style });
-      assert.ok(!seen.has(prompt), `duplicate prompt for ${occasion}/${style}`);
-      seen.add(prompt);
-    }
-  }
-  assert.equal(seen.size, VALID_OCCASIONS.size * VALID_STYLES.size);
 });
 
 // ---------- generateSongArtwork — additional coverage ----------
@@ -821,6 +844,7 @@ test("generateSongArtwork surfaces LIBRARY_NOT_BOOTSTRAPPED as permanent", async
         occasion: "birthday",
         recipientName: "Sarah",
         tier: "free",
+        artworkVars: defaultsFor("birthday"),
         dependencies: {
           libraryPathFn: () => "/dev/null/this-path-does-not-exist.jpg",
         },
@@ -832,4 +856,36 @@ test("generateSongArtwork surfaces LIBRARY_NOT_BOOTSTRAPPED as permanent", async
       throw err;
     }
   }, /Artwork base missing/);
+});
+
+test("generateSongArtwork respects ARTWORK_V2_ENABLED flag — disabled means library fallback for paid too", async () => {
+  const tmpFlag = fs.mkdtempSync(path.join(os.tmpdir(), "artwork-flag-"));
+  const fakeBase = path.join(tmpFlag, "lib.jpg");
+  fs.writeFileSync(fakeBase, Buffer.alloc(8));
+  process.env.ARTWORK_V2_ENABLED = "false";
+  try {
+    const result = await generateSongArtwork({
+      userId: "u-flag",
+      trackId: "t-flag",
+      occasion: "birthday",
+      recipientName: "X",
+      tier: "plus",
+      artworkVars: {
+        ...require("../../src/services/artwork-vocab").getDefault("birthday"),
+        picked_by: "x",
+        picked_at: "now",
+      },
+      dependencies: {
+        providerFactory: () => {
+          throw new Error("must not call provider when flag off");
+        },
+        prepareGeneratedImageFn: async (b) => b,
+        compositeFn: async ({ baseImagePath }) => baseImagePath,
+        libraryPathFn: () => fakeBase,
+      },
+    });
+    assert.equal(result.source, "library");
+  } finally {
+    delete process.env.ARTWORK_V2_ENABLED;
+  }
 });

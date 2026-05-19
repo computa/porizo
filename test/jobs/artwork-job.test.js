@@ -18,8 +18,10 @@ const {
   BACKOFF_MS,
   SQL_GET_TRACK,
   SQL_GET_LATEST_VERSION,
+  SQL_GET_VERSION_LYRICS,
   SQL_GET_ENTITLEMENT,
   SQL_UPDATE_ARTWORK,
+  SQL_UPDATE_ARTWORK_VARS,
   SQL_MARK_ARTWORK_READY,
   SQL_INSERT_ARTWORK_JOB,
   SQL_MARK_JOB_RUNNING,
@@ -34,6 +36,7 @@ const {
 function makeDb({
   track = null,
   version = { id: "tv-1" },
+  versionLyrics = null,
   entitlement = null,
   orphans = [],
   throwOn = {},
@@ -41,8 +44,10 @@ function makeDb({
   const calls = {
     getTrack: [],
     getLatestVersion: [],
+    getVersionLyrics: [],
     getEntitlement: [],
     updateArtwork: [],
+    updateArtworkVars: [],
     markReady: [],
     insertJob: [],
     markJobRunning: [],
@@ -61,10 +66,13 @@ function makeDb({
           if (sql === SQL_GET_TRACK) calls.getTrack.push(args);
           else if (sql === SQL_GET_LATEST_VERSION)
             calls.getLatestVersion.push(args);
+          else if (sql === SQL_GET_VERSION_LYRICS)
+            calls.getVersionLyrics.push(args);
           else if (sql === SQL_GET_ENTITLEMENT) calls.getEntitlement.push(args);
           if (throwOn.sql === sql) throw new Error(throwOn.error || "db error");
           if (sql === SQL_GET_TRACK) return track;
           if (sql === SQL_GET_LATEST_VERSION) return version;
+          if (sql === SQL_GET_VERSION_LYRICS) return versionLyrics;
           if (sql === SQL_GET_ENTITLEMENT) return entitlement;
           throw new Error(`Unexpected get() for sql: ${sql.slice(0, 60)}`);
         },
@@ -82,6 +90,10 @@ function makeDb({
           if (throwOn.sql === sql) throw new Error(throwOn.error || "db error");
           if (sql === SQL_UPDATE_ARTWORK) {
             calls.updateArtwork.push(args);
+            return { changes: 1 };
+          }
+          if (sql === SQL_UPDATE_ARTWORK_VARS) {
+            calls.updateArtworkVars.push(args);
             return { changes: 1 };
           }
           if (sql === SQL_MARK_ARTWORK_READY) {
@@ -132,7 +144,6 @@ const SAMPLE_RESULT = {
   skipped: false,
   artworkPath: "/tmp/artwork.jpg",
   artworkUrl: "/tracks/t-1/artwork.jpg?v=1700000000000",
-  styleVariant: "paper-art",
   source: "library",
   provider: null,
   prompt: null,
@@ -187,7 +198,9 @@ test("runArtworkJob persists result and marks artwork_ready on success", async (
   assert.equal(calls.updateArtwork.length, 1);
   const updateArgs = calls.updateArtwork[0];
   assert.equal(updateArgs[0], SAMPLE_RESULT.artworkUrl);
-  assert.equal(updateArgs[1], "paper-art");
+  // artwork_style_variant slot is null post-Task-7 (replaced by per-version
+  // artwork_vars_json on track_versions).
+  assert.equal(updateArgs[1], null);
   assert.equal(updateArgs[2], "library");
   assert.equal(updateArgs[5], "deadbeef");
   assert.equal(updateArgs[6], 1);
@@ -754,4 +767,193 @@ test("effectiveTierFromRow: admin_upgrade with null expiry is treated as permane
     }),
     "pro",
   );
+});
+
+// ---------- Lyrics → artwork vars extraction (Task 8) ----------
+
+test("runArtworkJob calls vars extractor and persists artwork_vars_json", async () => {
+  const mothersDayTrack = {
+    ...SAMPLE_TRACK,
+    occasion: "mothers_day",
+  };
+  const { db, calls } = makeDb({
+    track: mothersDayTrack,
+    entitlement: { tier: "plus" },
+    versionLyrics: {
+      lyrics_json: JSON.stringify({ text: "I knew you as a young girl..." }),
+    },
+  });
+
+  let extractorCalled = null;
+  const fakeExtract = async ({ lyrics, occasion }) => {
+    extractorCalled = { lyrics, occasion };
+    return {
+      species: "ranunculus",
+      lighting: "morning_window",
+      palette: "dusty_rose",
+      density: "intimate_cluster",
+      imperfection: "one outer petal slightly bruised at the tip",
+      backdrop: "cream_cloud",
+      picked_by: "haiku",
+      picked_at: "2026-05-18T12:00:00Z",
+    };
+  };
+
+  let generateArgs = null;
+  const result = await runArtworkJob({
+    db,
+    trackId: "t-1",
+    trackVersionId: "tv-vars-1",
+    jobId: "job-vars-1",
+    logger: SILENT_LOGGER,
+    generateFn: async (args) => {
+      generateArgs = args;
+      return {
+        skipped: false,
+        artworkPath: "/tmp/x.jpg",
+        artworkUrl: "/u/x.jpg",
+        source: "generated",
+        provider: "flux",
+        prompt: "p",
+        promptVersion: "v2.2.0-photoreal-flora-rich",
+        artworkVars: args.artworkVars,
+        contentHash: "h",
+        moderationPassed: true,
+        generatedAt: new Date("2026-05-18T12:00:00Z"),
+      };
+    },
+    extractVarsFn: fakeExtract,
+    tierResolver: async () => "plus",
+  });
+
+  assert.equal(result.ok, true);
+  // Extractor invoked with lyrics + occasion from the version row.
+  assert.ok(extractorCalled, "extractor should have been called");
+  assert.equal(extractorCalled.occasion, "mothers_day");
+  assert.ok(
+    extractorCalled.lyrics.includes("young girl"),
+    `lyrics passed to extractor (got: ${extractorCalled.lyrics})`,
+  );
+
+  // generateFn receives artworkVars (not style).
+  assert.equal(generateArgs.artworkVars.species, "ranunculus");
+  assert.equal(generateArgs.artworkVars.lighting, "morning_window");
+  assert.equal(generateArgs.artworkVars.picked_by, "haiku");
+  assert.equal(
+    generateArgs.style,
+    undefined,
+    "post-Task-7 generate shape no longer takes style",
+  );
+
+  // artwork_vars_json + artwork_provider + artwork_prompt_version persisted.
+  assert.equal(calls.updateArtworkVars.length, 1);
+  const [varsJsonArg, providerArg, promptVersionArg, versionIdArg] =
+    calls.updateArtworkVars[0];
+  const persisted = JSON.parse(varsJsonArg);
+  assert.equal(persisted.species, "ranunculus");
+  assert.equal(persisted.lighting, "morning_window");
+  assert.equal(providerArg, "flux");
+  assert.equal(promptVersionArg, "v2.2.0-photoreal-flora-rich");
+  assert.equal(versionIdArg, "tv-vars-1");
+});
+
+test("runArtworkJob falls back to occasion defaults when extractor throws", async () => {
+  const { db, calls } = makeDb({
+    track: { ...SAMPLE_TRACK, occasion: "birthday" },
+    entitlement: { tier: "plus" },
+    versionLyrics: {
+      lyrics_json: JSON.stringify({ text: "happy day to you" }),
+    },
+  });
+
+  let generateArgs = null;
+  await runArtworkJob({
+    db,
+    trackId: "t-1",
+    trackVersionId: "tv-fallback-1",
+    logger: SILENT_LOGGER,
+    extractVarsFn: async () => {
+      throw new Error("haiku exploded");
+    },
+    generateFn: async (args) => {
+      generateArgs = args;
+      return {
+        ...SAMPLE_RESULT,
+        artworkVars: args.artworkVars,
+        promptVersion: "v2.2.0-photoreal-flora-rich",
+      };
+    },
+    tierResolver: async () => "plus",
+  });
+
+  // Fallback marker on the picked_by slot tells us the catch-block ran.
+  assert.equal(generateArgs.artworkVars.picked_by, "fallback_extractor_error");
+  // Defaults are still a valid bounded-vocab pick (non-empty species).
+  assert.ok(generateArgs.artworkVars.species);
+  // The render still proceeded — vars row written.
+  assert.equal(calls.updateArtworkVars.length, 1);
+});
+
+test("runArtworkJob flattens sections-based lyrics_json into readable text for the extractor", async () => {
+  // Regression for the bug where parsed.text || parsed.lyrics would fall through
+  // to JSON.stringify, sending Haiku a structured blob instead of readable lyrics.
+  // buildLyrics in src/writer/songwriter.js actually emits the sections shape below.
+  const sectionsShape = {
+    title: "For Chioma",
+    style: "pop",
+    sections: [
+      {
+        name: "verse1",
+        lines: ["I knew you as a young girl", "but I watched you grow"],
+      },
+      {
+        name: "chorus",
+        lines: ["You carried us through", "mama, the brave one"],
+      },
+    ],
+    anchor_line: "Chioma, this song's for you",
+  };
+  const { db } = makeDb({
+    track: { ...SAMPLE_TRACK, occasion: "mothers_day" },
+    entitlement: { tier: "plus" },
+    versionLyrics: { lyrics_json: JSON.stringify(sectionsShape) },
+  });
+
+  let lyricsSeen = null;
+  await runArtworkJob({
+    db,
+    trackId: "t-1",
+    trackVersionId: "tv-sections-1",
+    logger: SILENT_LOGGER,
+    extractVarsFn: async ({ lyrics }) => {
+      lyricsSeen = lyrics;
+      return {
+        species: "ranunculus",
+        lighting: "morning_window",
+        palette: "dusty_rose",
+        density: "intimate_cluster",
+        imperfection: "one outer petal slightly bruised at the tip",
+        backdrop: "cream_cloud",
+        picked_by: "haiku",
+        picked_at: "2026-05-18T12:00:00Z",
+      };
+    },
+    generateFn: async (args) => ({
+      ...SAMPLE_RESULT,
+      artworkVars: args.artworkVars,
+      promptVersion: "v2.2.0-photoreal-flora-rich",
+    }),
+    tierResolver: async () => "plus",
+  });
+
+  assert.ok(lyricsSeen, "extractor must be called");
+  // Critical: extractor receives newline-joined readable lyrics, not a JSON blob.
+  assert.ok(
+    !lyricsSeen.startsWith("{"),
+    `lyrics must be flattened text, not JSON (got: ${lyricsSeen.slice(0, 40)}…)`,
+  );
+  assert.ok(lyricsSeen.includes("I knew you as a young girl"));
+  assert.ok(lyricsSeen.includes("mama, the brave one"));
+  // Lines from different sections are separated.
+  assert.ok(lyricsSeen.includes("\n"));
 });

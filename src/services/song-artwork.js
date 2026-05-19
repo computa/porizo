@@ -2,125 +2,171 @@ const crypto = require("crypto");
 const path = require("path");
 const fs = require("fs");
 const { ensureDir } = require("../utils/common");
+const { OCCASIONS, getDefault } = require("./artwork-vocab");
 const {
-  VALID_OCCASIONS,
-  VALID_STYLES,
-  buildPrompt,
+  PROMPT_TEMPLATE_VERSION,
+  assemblePrompt,
+  assembleNegativePrompt,
 } = require("./artwork-prompts");
 const {
   getImageProvider,
   ModerationRefusalError,
+  ImageGenerationError,
 } = require("./image-providers");
 const { compositeArtworkWithText } = require("./cover-generator");
 const { trackArtworkKey } = require("../storage");
 
 const PAID_TIERS = new Set(["plus", "pro"]);
-const GENERATED_IMAGE_WIDTH = 1024;
-const GENERATED_IMAGE_HEIGHT = 1536;
+const FREE_LIBRARY_VARIANT_COUNT = 5;
+const GENERATED_IMAGE_DIM = 2048;
 const MIN_PROVIDER_IMAGE_BYTES = 1024;
-const MIN_PROVIDER_IMAGE_WIDTH = 640;
-const MIN_PROVIDER_IMAGE_HEIGHT = 960;
-
-// Order is load-bearing — pickStyleVariant indexes n % STYLE_LIST.length.
-// Reordering or inserting would re-bucket every existing track. Append-only.
-const STYLE_LIST = Array.from(VALID_STYLES);
+// Floor matches OpenAI's max square (1024×1024 from gpt-image-2) so the OpenAI
+// fallback path is reachable. Flux returns 2048×2048; both pass and get
+// resized up to GENERATED_IMAGE_DIM via the sharp pipeline below.
+const MIN_PROVIDER_IMAGE_WIDTH = 1024;
+const MIN_PROVIDER_IMAGE_HEIGHT = 1024;
 
 const STORAGE_ROOT =
   process.env.STORAGE_ROOT || path.resolve(process.cwd(), "storage");
+const PRIMARY_PROVIDER = process.env.IMAGE_PROVIDER || "flux";
+const FALLBACK_PROVIDER = "openai";
 
-function libraryPath(occasion, style) {
-  return path.join(STORAGE_ROOT, "artwork-library", occasion, style, "v1.jpg");
+function libraryPath(occasion, variantIndex) {
+  return path.join(
+    STORAGE_ROOT,
+    "artwork-library",
+    "v2",
+    occasion,
+    `${variantIndex}.jpg`,
+  );
+}
+
+function pickLibraryVariant({ trackId, userId }) {
+  const h = crypto
+    .createHash("sha1")
+    .update(`${userId}:${trackId}`)
+    .digest("hex");
+  const n = parseInt(h.slice(0, 8), 16);
+  return n % FREE_LIBRARY_VARIANT_COUNT;
 }
 
 function trackDir({ userId, trackId }) {
   return path.join(STORAGE_ROOT, "tracks", userId, trackId);
 }
 
-function pickStyleVariant({ trackId, userId }) {
-  const h = crypto
-    .createHash("sha1")
-    .update(`${userId}:${trackId}`)
-    .digest("hex");
-  const n = parseInt(h.slice(0, 8), 16);
-  return STYLE_LIST[n % STYLE_LIST.length];
-}
-
-function computeContentHash({ recipientName, occasion, style }) {
-  const normalized = `${String(recipientName || "").trim()}|${occasion}|${style}`;
+function computeContentHash({ occasion, artworkVars, promptVersion }) {
+  // recipient_name is excluded — it's PII and is composited as overlay text
+  // AFTER generation (see cover-generator.js), never passed to the image
+  // model. Keeping it out of the hash also means two recipients with the same
+  // vars share a cache slot.
+  // imperfection IS included because it changes the generated image.
+  const normalized = JSON.stringify({
+    occasion,
+    species: artworkVars.species,
+    lighting: artworkVars.lighting,
+    palette: artworkVars.palette,
+    density: artworkVars.density,
+    imperfection: artworkVars.imperfection,
+    backdrop: artworkVars.backdrop,
+    promptVersion,
+  });
   return crypto.createHash("sha1").update(normalized).digest("hex");
 }
 
 async function prepareGeneratedBaseImage(buffer) {
   if (!Buffer.isBuffer(buffer) || buffer.length < MIN_PROVIDER_IMAGE_BYTES) {
     throw new Error(
-      `Image provider returned an invalid artwork buffer (${buffer && buffer.length} bytes)`,
+      `Image provider returned invalid buffer (${buffer && buffer.length} bytes)`,
     );
   }
-
-  let sharp;
-  try {
-    sharp = require("sharp");
-  } catch {
-    throw new Error("sharp is required to validate generated artwork images");
-  }
-
+  const sharp = require("sharp");
   const metadata = await sharp(buffer, { failOn: "error" }).metadata();
-  const width = Number(metadata.width || 0);
-  const height = Number(metadata.height || 0);
-  if (width < MIN_PROVIDER_IMAGE_WIDTH || height < MIN_PROVIDER_IMAGE_HEIGHT) {
-    throw new Error(
-      `Image provider returned undersized artwork (${width}x${height})`,
-    );
+  const w = Number(metadata.width || 0);
+  const h = Number(metadata.height || 0);
+  if (w < MIN_PROVIDER_IMAGE_WIDTH || h < MIN_PROVIDER_IMAGE_HEIGHT) {
+    throw new Error(`Provider returned undersized image (${w}x${h})`);
   }
-
-  const normalized = await sharp(buffer, { failOn: "error" })
+  return sharp(buffer, { failOn: "error" })
     .rotate()
-    .resize(GENERATED_IMAGE_WIDTH, GENERATED_IMAGE_HEIGHT, {
+    .resize(GENERATED_IMAGE_DIM, GENERATED_IMAGE_DIM, {
       fit: "cover",
       position: "center",
     })
-    .jpeg({
-      quality: 92,
-      progressive: true,
-      mozjpeg: true,
-    })
+    .jpeg({ quality: 92, progressive: true, mozjpeg: true })
     .toBuffer();
-
-  if (
-    !Buffer.isBuffer(normalized) ||
-    normalized.length < MIN_PROVIDER_IMAGE_BYTES
-  ) {
-    throw new Error("Generated artwork normalization produced an empty image");
-  }
-  return normalized;
 }
 
-/**
- * Generate (or reuse) song artwork.
- *
- * @param {Object} args
- * @param {string} args.userId
- * @param {string} args.trackId
- * @param {string} args.occasion         Must be a member of VALID_OCCASIONS
- * @param {string} args.recipientName    Composited locally; never sent to provider
- * @param {string} args.tier             'free' | 'plus' | 'pro'
- * @param {string} [args.senderName]     Track owner's display name. First token is composited
- *                                       locally as the "by {First}" attribution on the artwork.
- *                                       Never sent to the image provider. Intentionally excluded
- *                                       from the content hash so existing tracks aren't force-
- *                                       regenerated when the field is added.
- * @param {string} [args.previousContentHash]  From tracks.artwork_content_hash; skip if matches
- * @param {boolean} [args.forceRegenerate]     Skip the idempotency check (admin/debug only)
- * @param {Object} [args.dependencies]
- * @param {Function} [args.dependencies.providerFactory]  Override getImageProvider (testing)
- * @param {Function} [args.dependencies.compositeFn]      Override compositeArtworkWithText (testing)
- * @param {Function} [args.dependencies.prepareGeneratedImageFn] Override provider image validation/normalization (testing)
- * @param {Function} [args.dependencies.libraryPathFn]    Override libraryPath (testing)
- * @param {Object}   [args.dependencies.storageProvider]  Optional S3 uploader
- * @param {Object}   [args.dependencies.logger]           { info, warn, error }
- *
- * @returns {Promise<Object>} {skipped, artworkPath, artworkUrl, styleVariant, source, contentHash, provider, prompt, moderationPassed}
- */
+async function tryProviderChain({
+  prompt,
+  negativePrompt,
+  providerFactory,
+  logger,
+}) {
+  // 1. Try primary (Flux by default)
+  let primaryError = null;
+  try {
+    const primary = providerFactory(PRIMARY_PROVIDER);
+    const buf = await primary.generate({ prompt, negativePrompt });
+    return { buf, provider: PRIMARY_PROVIDER };
+  } catch (err) {
+    if (
+      err instanceof ModerationRefusalError ||
+      (err && err.name === "ModerationRefusalError")
+    ) {
+      // Treat a moderation refusal as authoritative — surface it to the
+      // outer handler so the caller drops to the library fallback. We don't
+      // retry on OpenAI here because the policy contract is "one provider's
+      // refusal ends the attempt"; we don't want to burn a second API call
+      // (and quota, and latency) on a prompt the system has already deemed
+      // unsafe. The fallback path below DOES still run OpenAI's pre-flight
+      // moderationCheck — that's a different code path triggered only by
+      // non-moderation infra failures.
+      throw err;
+    }
+    primaryError = err;
+    logger.warn(
+      `[song-artwork] primary ${PRIMARY_PROVIDER} failed: ${err.message}; retrying on ${FALLBACK_PROVIDER}`,
+    );
+  }
+  // 2. Try fallback (OpenAI). If it ALSO fails, wrap both errors so the
+  // outer caller can log the full failure surface instead of dropping the
+  // primary error on the floor.
+  try {
+    const fallback = providerFactory(FALLBACK_PROVIDER);
+    if (typeof fallback.moderationCheck === "function") {
+      const mod = await fallback.moderationCheck({ prompt });
+      if (mod && mod.flagged) {
+        throw new ModerationRefusalError("fallback moderation refused prompt");
+      }
+    }
+    const buf = await fallback.generate({
+      prompt,
+      size: "1024x1024",
+      quality: "high",
+    });
+    return { buf, provider: FALLBACK_PROVIDER };
+  } catch (fallbackErr) {
+    if (
+      fallbackErr instanceof ModerationRefusalError ||
+      (fallbackErr && fallbackErr.name === "ModerationRefusalError")
+    ) {
+      // Fallback's pre-flight moderation refused — propagate as a moderation
+      // event (the prompt itself is the problem). The primary error context
+      // is irrelevant here.
+      throw fallbackErr;
+    }
+    // Both providers had infra failures. Re-throw a wrapped error carrying
+    // both contexts so the outer logger sees Flux+OpenAI in one line.
+    const wrapped = new ImageGenerationError(
+      `both providers failed — primary(${PRIMARY_PROVIDER})=${primaryError ? primaryError.message : "n/a"}; fallback(${FALLBACK_PROVIDER})=${fallbackErr.message}`,
+      { primary: primaryError, fallback: fallbackErr },
+    );
+    wrapped.primaryError = primaryError;
+    wrapped.fallbackError = fallbackErr;
+    throw wrapped;
+  }
+}
+
 async function generateSongArtwork({
   userId,
   trackId,
@@ -128,16 +174,15 @@ async function generateSongArtwork({
   recipientName,
   senderName,
   tier,
+  artworkVars,
   previousContentHash,
   forceRegenerate = false,
   dependencies = {},
 }) {
-  if (!userId || !trackId) {
+  if (!userId || !trackId)
     throw new Error("generateSongArtwork requires userId and trackId");
-  }
-  if (!VALID_OCCASIONS.has(occasion)) {
+  if (!OCCASIONS.includes(occasion))
     throw new Error(`Invalid occasion: ${occasion}`);
-  }
 
   const providerFactory = dependencies.providerFactory || getImageProvider;
   const compositeFn = dependencies.compositeFn || compositeArtworkWithText;
@@ -147,12 +192,17 @@ async function generateSongArtwork({
   const storageProvider = dependencies.storageProvider || null;
   const logger = dependencies.logger || console;
 
-  const style = pickStyleVariant({ trackId, userId });
-  if (!VALID_STYLES.has(style)) {
-    // Defense-in-depth — STYLE_LIST is the source of truth and must stay in sync.
-    throw new Error(`pickStyleVariant returned invalid style: ${style}`);
-  }
-  const contentHash = computeContentHash({ recipientName, occasion, style });
+  const vars = artworkVars || {
+    ...getDefault(occasion),
+    picked_by: "fallback_no_extractor",
+    picked_at: new Date().toISOString(),
+  };
+  const promptVersion = PROMPT_TEMPLATE_VERSION;
+  const contentHash = computeContentHash({
+    occasion,
+    artworkVars: vars,
+    promptVersion,
+  });
 
   if (
     !forceRegenerate &&
@@ -163,73 +213,79 @@ async function generateSongArtwork({
       skipped: true,
       reason: "unchanged",
       contentHash,
-      styleVariant: style,
+      artworkVars: vars,
+      promptVersion,
     };
   }
 
   const outDir = trackDir({ userId, trackId });
   ensureDir(outDir);
-
   const isPaid = PAID_TIERS.has(String(tier || "").toLowerCase());
+  const v2Enabled =
+    String(process.env.ARTWORK_V2_ENABLED || "true").toLowerCase() !== "false";
+  const useGenerator = isPaid && v2Enabled;
 
-  let baseImagePath = libraryPathFn(occasion, style);
-  let source = "library";
-  let prompt = null;
+  let baseImagePath;
+  let source = "fallback";
   let provider = null;
+  let prompt = null;
   let moderationPassed = true;
+  let uploadFailed = false;
 
-  if (isPaid) {
-    const providerName = process.env.IMAGE_PROVIDER || "openai";
-    provider = providerName;
-    prompt = buildPrompt({ occasion, style });
+  if (useGenerator) {
+    prompt = assemblePrompt({ occasion, vars });
+    const negativePrompt = assembleNegativePrompt();
     try {
-      const adapter = providerFactory(providerName);
-      // Pre-flight moderation — cheap pre-check before burning a $0.21 gen.
-      // Soft-fail on infra issues so we don't gate on the moderation endpoint.
-      if (typeof adapter.moderationCheck === "function") {
-        const mod = await adapter.moderationCheck({ prompt });
-        if (mod && mod.flagged) {
-          moderationPassed = false;
-          throw new ModerationRefusalError(
-            `Pre-flight moderation flagged prompt for track ${trackId}`,
-          );
-        }
-      }
-      const buf = await adapter.generate({
+      const { buf, provider: usedProvider } = await tryProviderChain({
         prompt,
-        size: `${GENERATED_IMAGE_WIDTH}x${GENERATED_IMAGE_HEIGHT}`,
-        quality: "high",
+        negativePrompt,
+        providerFactory,
+        logger,
       });
-      const normalizedBuf = await prepareGeneratedImageFn(buf);
+      const normalized = await prepareGeneratedImageFn(buf);
       const generatedPath = path.join(outDir, "artwork_base.jpg");
-      await fs.promises.writeFile(generatedPath, normalizedBuf);
+      await fs.promises.writeFile(generatedPath, normalized);
       baseImagePath = generatedPath;
       source = "generated";
-      moderationPassed = true;
+      provider = usedProvider;
     } catch (err) {
-      // Audit column is NOT NULL (migration 111). Conservative default: false
-      // when a check never definitively passed. The `source` column ('fallback'
-      // vs 'generated') distinguishes refusal from infra failure.
-      if (err instanceof ModerationRefusalError) {
-        moderationPassed = false;
-      } else {
+      if (
+        err instanceof ModerationRefusalError ||
+        (err && err.name === "ModerationRefusalError")
+      ) {
+        // Real moderation event — the prompt was refused. moderation_passed=false
+        // is the operator's signal that this row needs content review, not ops.
         moderationPassed = false;
         logger.warn(
-          `[song-artwork] Provider ${providerName} failed for track ${trackId}; ` +
-            `falling back to library. reason=${err && err.message}`,
+          `[song-artwork] moderation refusal for track ${trackId}; using library`,
+        );
+      } else {
+        // Infrastructure failure — keep moderation_passed=true so the row's
+        // (source=fallback, moderation_passed=true) combination identifies
+        // "infra failed" without a schema change. Log at error level so this
+        // pages ops, not just shows up as a warn in info-volume logs.
+        const primaryMsg =
+          err && err.primaryError ? err.primaryError.message : null;
+        const fallbackMsg =
+          err && err.fallbackError ? err.fallbackError.message : err.message;
+        logger.error(
+          `[song-artwork] all providers failed for track ${trackId}; using library — primary=${primaryMsg || "n/a"}; fallback=${fallbackMsg}`,
         );
       }
       source = "fallback";
-      baseImagePath = libraryPathFn(occasion, style);
+      const variant = pickLibraryVariant({ userId, trackId });
+      baseImagePath = libraryPathFn(occasion, variant);
     }
+  } else {
+    const variant = pickLibraryVariant({ userId, trackId });
+    baseImagePath = libraryPathFn(occasion, variant);
+    source = "library";
   }
 
   if (!fs.existsSync(baseImagePath)) {
-    // Permanent config error — the library hasn't been bootstrapped. Mark as
-    // non-transient so artwork-job's retry loop skips the 5/15/45s backoff.
     const err = new Error(
-      `Artwork base missing — library not bootstrapped? Expected: ${baseImagePath}. ` +
-        `Run scripts/build-artwork-library.mjs.`,
+      `Artwork base missing — library v2 not bootstrapped? Expected: ${baseImagePath}. ` +
+        `Run scripts/build-artwork-library-v2.mjs.`,
     );
     err.code = "LIBRARY_NOT_BOOTSTRAPPED";
     err.permanent = true;
@@ -242,11 +298,9 @@ async function generateSongArtwork({
     senderName,
     occasion,
     outputDir: outDir,
-    targetAspect: "9:16",
+    targetAspect: "1:1",
   });
 
-  // Upload to remote storage when configured (S3 in production). Local dev
-  // skips this since artworkPath is already at the served location.
   if (
     storageProvider &&
     storageProvider.type !== "local" &&
@@ -259,38 +313,43 @@ async function generateSongArtwork({
         filePath: artworkPath,
         contentType: "image/jpeg",
       });
-      logger.info(
-        `[song-artwork] Uploaded artwork to ${storageProvider.type} key=${remoteKey} (track=${trackId})`,
-      );
     } catch (uploadErr) {
-      logger.warn(
-        `[song-artwork] S3 upload failed for track ${trackId}: ${uploadErr.message}. ` +
-          `Artwork stays available locally; cross-instance fetches will 404 until regenerate.`,
+      // Remote upload failed but the local file landed — render is artistically
+      // complete. We must NOT silently return success: the caller persists
+      // artworkUrl as the canonical pointer, and any cross-instance reader
+      // (redeployed worker, share-link service on a different box) will 404
+      // because the file lives only on this box's disk. Surface uploadFailed
+      // so the caller can re-attempt or flag the row for ops attention.
+      uploadFailed = true;
+      logger.error(
+        `[song-artwork] S3 upload failed for track ${trackId}: ${uploadErr.message} — local file persists, but cross-instance reads will 404 until reuploaded`,
       );
     }
   }
 
   const versionStamp = Date.now();
-
   return {
     skipped: false,
     artworkPath,
     artworkUrl: `/tracks/${trackId}/artwork.jpg?v=${versionStamp}`,
-    styleVariant: style,
     source,
-    contentHash,
     provider,
     prompt,
     moderationPassed,
+    uploadFailed,
+    promptVersion,
+    artworkVars: vars,
+    contentHash,
     generatedAt: new Date(versionStamp),
   };
 }
 
 module.exports = {
   generateSongArtwork,
-  pickStyleVariant,
+  pickLibraryVariant,
   computeContentHash,
   prepareGeneratedBaseImage,
   libraryPath,
-  STYLE_LIST,
+  PROMPT_TEMPLATE_VERSION,
+  FREE_LIBRARY_VARIANT_COUNT,
 };

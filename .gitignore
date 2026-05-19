@@ -148,3 +148,6 @@ PorizoApp/fastlane/test_output/
 
 # Cold-list send state (contains real email addresses)
 marketing/email/.state/
+
+# Superpowers brainstorming session artifacts
+.superpowers/

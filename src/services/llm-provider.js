@@ -37,6 +37,13 @@ const MODELS = {
   anthropic: {
     lyrics: "claude-sonnet-4-20250514", // Higher quality for creative tasks
     simple: "claude-3-haiku-20240307", // Faster/cheaper for simple tasks
+    // Dedicated lane for the artwork-vars-extractor: bounded-vocab JSON
+    // emission needs Haiku 4.5's instruction-following without the cost of
+    // Sonnet. Keeping it separate from `simple` so memory-questions,
+    // blog-editorial-review, and v3 writer fallback (all on Haiku 3 today)
+    // aren't silently bumped to 4.5 here — those callers may have been
+    // tuned against Haiku 3's specific quirks. See spec §6.4.
+    vars_extractor: "claude-haiku-4-5-20251001",
   },
   openai: {
     lyrics: "gpt-4o", // Fallback for creative tasks
@@ -59,7 +66,9 @@ let cachedGeminiClient = null;
 let cachedGeminiApiKey = null;
 
 function getGeminiModel(taskType = "lyrics") {
-  const normalizedTask = String(taskType || "lyrics").trim().toUpperCase();
+  const normalizedTask = String(taskType || "lyrics")
+    .trim()
+    .toUpperCase();
   const taskOverride = process.env[`GEMINI_MODEL_${normalizedTask}`];
   if (taskOverride && taskOverride.trim()) {
     return taskOverride.trim();
@@ -83,7 +92,11 @@ function resolveProviderModel(providerName, taskType = "lyrics") {
   if (providerName === "gemini") {
     return getGeminiModel(taskType);
   }
-  return MODELS[providerName]?.[taskType] || MODELS[providerName]?.lyrics || "unknown";
+  return (
+    MODELS[providerName]?.[taskType] ||
+    MODELS[providerName]?.lyrics ||
+    "unknown"
+  );
 }
 
 function buildGeminiGenerationConfig({
@@ -135,7 +148,7 @@ function estimateTokens(text) {
   // CJK characters (U+4E00-U+9FFF) count as ~2 tokens each
   const cjkCount = (text.match(/[\u4E00-\u9FFF]/g) || []).length;
   const nonCjk = text.length - cjkCount;
-  return Math.ceil(nonCjk / 4) + (cjkCount * 2);
+  return Math.ceil(nonCjk / 4) + cjkCount * 2;
 }
 
 /**
@@ -147,7 +160,7 @@ function validateInputTokens(prompt) {
   const estimated = estimateTokens(prompt);
   if (estimated > CONFIG.maxInputTokens) {
     const error = new Error(
-      `Input exceeds token limit: ~${estimated} tokens (max: ${CONFIG.maxInputTokens})`
+      `Input exceeds token limit: ~${estimated} tokens (max: ${CONFIG.maxInputTokens})`,
     );
     error.code = ERROR_CODES.TOKEN_LIMIT;
     throw error;
@@ -190,7 +203,11 @@ function tryParseJsonText(rawText) {
 
     const firstBracket = text.indexOf("[");
     const lastBracket = text.lastIndexOf("]");
-    if (firstBracket !== -1 && lastBracket !== -1 && lastBracket > firstBracket) {
+    if (
+      firstBracket !== -1 &&
+      lastBracket !== -1 &&
+      lastBracket > firstBracket
+    ) {
       try {
         return JSON.parse(text.slice(firstBracket, lastBracket + 1));
       } catch (_innerErr) {
@@ -209,7 +226,9 @@ function normalizeStructuredResult(result, responseMimeType) {
 
   const parsed = tryParseJsonText(result?.text);
   if (parsed === null) {
-    const error = new Error(`Structured JSON response could not be parsed: ${String(result?.text || "").slice(0, 120)}`);
+    const error = new Error(
+      `Structured JSON response could not be parsed: ${String(result?.text || "").slice(0, 120)}`,
+    );
     error.code = ERROR_CODES.API_ERROR;
     throw error;
   }
@@ -221,11 +240,15 @@ function normalizeStructuredResult(result, responseMimeType) {
 }
 
 function isOutputTruncatedFinishReason(finishReason) {
-  const normalized = String(finishReason || "").trim().toUpperCase();
-  return normalized === "MAX_TOKENS" ||
+  const normalized = String(finishReason || "")
+    .trim()
+    .toUpperCase();
+  return (
+    normalized === "MAX_TOKENS" ||
     normalized === "MAX_TOKEN" ||
     normalized === "MAX_TOKENS_REACHED" ||
-    normalized === "LENGTH";
+    normalized === "LENGTH"
+  );
 }
 
 /**
@@ -289,14 +312,14 @@ function sanitizeSchemaForGemini(schema, visited = new WeakSet()) {
       Object.entries(sanitized.properties).map(([key, value]) => [
         key,
         sanitizeSchemaForGemini(value, visited),
-      ])
+      ]),
     );
   }
   if (sanitized.items) {
     // Handle both single schema and tuple array forms
     if (Array.isArray(sanitized.items)) {
       sanitized.items = sanitized.items.map((item) =>
-        sanitizeSchemaForGemini(item, visited)
+        sanitizeSchemaForGemini(item, visited),
       );
     } else {
       sanitized.items = sanitizeSchemaForGemini(sanitized.items, visited);
@@ -367,7 +390,8 @@ async function generateWithGemini({
     const message = err?.message || String(err);
     const isSchemaError =
       statusCode === 400 &&
-      (message.includes("response_schema") || message.includes("responseSchema"));
+      (message.includes("response_schema") ||
+        message.includes("responseSchema"));
 
     if (isSchemaError && config.responseSchema) {
       const retryConfig = { ...config };
@@ -389,7 +413,9 @@ async function generateWithGemini({
         try {
           JSON.parse(text);
         } catch {
-          const parseError = new Error("Gemini schema retry returned non-JSON response");
+          const parseError = new Error(
+            "Gemini schema retry returned non-JSON response",
+          );
           parseError.code = ERROR_CODES.API_ERROR;
           throw parseError;
         }
@@ -407,7 +433,9 @@ async function generateWithGemini({
       };
     }
 
-    const error = new Error(`Gemini API error: ${statusCode || "unknown"} ${message}`);
+    const error = new Error(
+      `Gemini API error: ${statusCode || "unknown"} ${message}`,
+    );
     error.code =
       statusCode === 429 || message.includes("RESOURCE_EXHAUSTED")
         ? ERROR_CODES.RATE_LIMIT
@@ -491,7 +519,10 @@ async function generateWithOpenAI({
       max_tokens: maxOutputTokens || CONFIG.maxOutputTokens,
       temperature,
       messages: [
-        { role: "system", content: systemPrompt || "You are a helpful assistant." },
+        {
+          role: "system",
+          content: systemPrompt || "You are a helpful assistant.",
+        },
         { role: "user", content: prompt },
       ],
     }),
@@ -500,7 +531,8 @@ async function generateWithOpenAI({
   if (!response.ok) {
     const body = await response.text();
     const error = new Error(`OpenAI API error: ${response.status} ${body}`);
-    error.code = response.status === 429 ? ERROR_CODES.RATE_LIMIT : ERROR_CODES.API_ERROR;
+    error.code =
+      response.status === 429 ? ERROR_CODES.RATE_LIMIT : ERROR_CODES.API_ERROR;
     error.statusCode = response.status;
     throw error;
   }
@@ -547,18 +579,20 @@ async function generateText({
   // Validate input
   validateInputTokens(prompt);
   const promptTokens = estimateTokens(prompt);
-  const label = typeof logLabel === "string" && logLabel.trim()
-    ? logLabel.trim()
-    : taskType;
+  const label =
+    typeof logLabel === "string" && logLabel.trim()
+      ? logLabel.trim()
+      : taskType;
 
   const availableProviders = [
     { name: "gemini", fn: generateWithGemini },
     { name: "anthropic", fn: generateWithAnthropic },
     { name: "openai", fn: generateWithOpenAI },
   ];
-  const providerSet = Array.isArray(providers) && providers.length > 0
-    ? new Set(providers)
-    : null;
+  const providerSet =
+    Array.isArray(providers) && providers.length > 0
+      ? new Set(providers)
+      : null;
   const orderedProviders = providerSet
     ? availableProviders.filter((provider) => providerSet.has(provider.name))
     : availableProviders;
@@ -570,7 +604,7 @@ async function generateText({
       try {
         const model = resolveProviderModel(provider.name, taskType);
         console.log(
-          `[LLM] Attempting ${provider.name} model=${model} taskType=${taskType} label=${label} promptTokens=${promptTokens} maxOutputTokens=${maxOutputTokens || CONFIG.maxOutputTokens} (attempt ${attempt + 1}/${CONFIG.maxRetries + 1})`
+          `[LLM] Attempting ${provider.name} model=${model} taskType=${taskType} label=${label} promptTokens=${promptTokens} maxOutputTokens=${maxOutputTokens || CONFIG.maxOutputTokens} (attempt ${attempt + 1}/${CONFIG.maxRetries + 1})`,
         );
 
         let timeoutId;
@@ -596,25 +630,28 @@ async function generateText({
 
         if (isOutputTruncatedFinishReason(result.finishReason)) {
           const error = new Error(
-            `${provider.name} output truncated before completion: finishReason=${result.finishReason}`
+            `${provider.name} output truncated before completion: finishReason=${result.finishReason}`,
           );
           error.code = ERROR_CODES.OUTPUT_TRUNCATED;
           throw error;
         }
 
         console.log(
-          `[LLM] Success with ${provider.name} model=${result.model || model} label=${label}: outputTokens=${result.usage.outputTokens} promptTokens=${promptTokens}${result.finishReason ? ` (finishReason=${result.finishReason})` : ""}${provider.name !== "gemini" ? " fallbackUsed=true" : ""}`
+          `[LLM] Success with ${provider.name} model=${result.model || model} label=${label}: outputTokens=${result.usage.outputTokens} promptTokens=${promptTokens}${result.finishReason ? ` (finishReason=${result.finishReason})` : ""}${provider.name !== "gemini" ? " fallbackUsed=true" : ""}`,
         );
 
-        return normalizeStructuredResult({
-          ...result,
-          fallbackUsed: provider.name !== "gemini",
-          attempts: attempt + 1,
-        }, responseMimeType);
+        return normalizeStructuredResult(
+          {
+            ...result,
+            fallbackUsed: provider.name !== "gemini",
+            attempts: attempt + 1,
+          },
+          responseMimeType,
+        );
       } catch (err) {
         const model = resolveProviderModel(provider.name, taskType);
         console.error(
-          `[LLM] ${provider.name} model=${model} label=${label} attempt ${attempt + 1} failed: code=${err.code || "unknown"} status=${err.statusCode || "n/a"} promptTokens=${promptTokens} message=${err.message}`
+          `[LLM] ${provider.name} model=${model} label=${label} attempt ${attempt + 1} failed: code=${err.code || "unknown"} status=${err.statusCode || "n/a"} promptTokens=${promptTokens} message=${err.message}`,
         );
         errors.push({ provider: provider.name, attempt, error: err.message });
 
@@ -633,18 +670,40 @@ async function generateText({
 
   // All providers failed
   const error = new Error(
-    `All LLM providers failed after ${errors.length} attempts`
+    `All LLM providers failed after ${errors.length} attempts`,
   );
   error.code = ERROR_CODES.ALL_PROVIDERS_FAILED;
-  error.errors = errors.map(e => ({ provider: e.provider, attempt: e.attempt }));
+  error.errors = errors.map((e) => ({
+    provider: e.provider,
+    attempt: e.attempt,
+  }));
   throw error;
 }
 
 // Whitelist of valid music styles accepted by the LLM/music provider
 const VALID_STYLES = new Set([
-  'pop', 'rock', 'hip-hop', 'r&b', 'country', 'jazz', 'classical', 'folk',
-  'electronic', 'dance', 'reggae', 'blues', 'soul', 'indie', 'alternative',
-  'metal', 'punk', 'latin', 'gospel', 'acoustic', 'ambient', 'cinematic',
+  "pop",
+  "rock",
+  "hip-hop",
+  "r&b",
+  "country",
+  "jazz",
+  "classical",
+  "folk",
+  "electronic",
+  "dance",
+  "reggae",
+  "blues",
+  "soul",
+  "indie",
+  "alternative",
+  "metal",
+  "punk",
+  "latin",
+  "gospel",
+  "acoustic",
+  "ambient",
+  "cinematic",
 ]);
 
 /**
@@ -657,10 +716,12 @@ const VALID_STYLES = new Set([
  */
 async function generateLyricsWithLLM({ songwriterPrompt, style }) {
   // SVC-06: Validate style against whitelist to prevent prompt injection via style param
-  const normalizedStyle = (style || 'pop').toLowerCase().trim();
+  const normalizedStyle = (style || "pop").toLowerCase().trim();
   if (!VALID_STYLES.has(normalizedStyle)) {
-    const error = new Error(`Invalid style: "${style}". Must be one of: ${[...VALID_STYLES].join(', ')}`);
-    error.code = 'E306_INVALID_STYLE';
+    const error = new Error(
+      `Invalid style: "${style}". Must be one of: ${[...VALID_STYLES].join(", ")}`,
+    );
+    error.code = "E306_INVALID_STYLE";
     throw error;
   }
   const safeStyle = normalizedStyle;
@@ -707,7 +768,11 @@ Only output valid JSON, no markdown code blocks or explanations.`;
  * @returns {boolean} True if at least one provider is configured
  */
 function isAvailable() {
-  return !!(process.env.GEMINI_API_KEY || process.env.ANTHROPIC_API_KEY || process.env.OPENAI_API_KEY);
+  return !!(
+    process.env.GEMINI_API_KEY ||
+    process.env.ANTHROPIC_API_KEY ||
+    process.env.OPENAI_API_KEY
+  );
 }
 
 /**
