@@ -56,6 +56,13 @@ function registerAdminRoutes(
     ".svg": "image/svg+xml",
     ".html": "text/html; charset=utf-8",
   };
+  const adminUiMode = String(appConfig.ADMIN_UI_MODE || "public").toLowerCase();
+  const adminUiAllowedEmails = new Set(
+    String(appConfig.ADMIN_UI_ALLOWED_EMAILS || "")
+      .split(",")
+      .map((email) => email.trim().toLowerCase())
+      .filter(Boolean),
+  );
   const GIFT_OPS_READ_ROLES = ["admin", "superadmin"];
 
   /**
@@ -295,6 +302,38 @@ function registerAdminRoutes(
       .type(getAdminStaticContentType(resolvedPath))
       .header("Cache-Control", "public, max-age=14400")
       .send(content);
+  }
+
+  function getCloudflareAccessEmail(request) {
+    return String(request.headers["cf-access-authenticated-user-email"] || "")
+      .trim()
+      .toLowerCase();
+  }
+
+  async function requireAdminUiAccess(request, reply) {
+    if (adminUiMode === "public") return true;
+
+    if (adminUiMode === "off") {
+      reply.code(404).type("text/plain").send("Not Found");
+      return false;
+    }
+
+    if (adminUiMode === "cloudflare_access") {
+      const email = getCloudflareAccessEmail(request);
+      if (!email) {
+        reply.code(403).type("text/plain").send("Admin access required");
+        return false;
+      }
+      if (adminUiAllowedEmails.size > 0 && !adminUiAllowedEmails.has(email)) {
+        reply.code(403).type("text/plain").send("Admin access denied");
+        return false;
+      }
+      return true;
+    }
+
+    app.log.warn({ adminUiMode }, "Unknown ADMIN_UI_MODE; hiding admin UI");
+    reply.code(404).type("text/plain").send("Not Found");
+    return false;
   }
 
   // --- Admin Authentication ---
@@ -5258,6 +5297,7 @@ function registerAdminRoutes(
   const adminStaticRoot = path.join(process.cwd(), "public/admin");
 
   app.get("/admin/assets/*", async (request, reply) => {
+    if (!(await requireAdminUiAccess(request, reply))) return;
     const assetPath = request.params["*"];
     return sendAdminStaticFile(
       reply,
@@ -5267,15 +5307,28 @@ function registerAdminRoutes(
   });
 
   app.get("/admin", async (request, reply) => {
-    const fs = require("fs").promises;
-    const content = await fs.readFile(adminIndexPath, "utf8");
+    if (!(await requireAdminUiAccess(request, reply))) return;
+    const content = await fs.promises.readFile(adminIndexPath, "utf8");
     return reply.type("text/html").send(content);
   });
 
   app.get("/admin/*", async (request, reply) => {
+    if (!(await requireAdminUiAccess(request, reply))) return;
     // Handles client-side routes: /admin/login, /admin/users, /admin/jobs, etc.
-    const fs = require("fs").promises;
-    const content = await fs.readFile(adminIndexPath, "utf8");
+    const relativePath = request.params["*"];
+    if (relativePath) {
+      const resolvedPath = path.resolve(adminStaticRoot, relativePath);
+      const relativeToRoot = path.relative(adminStaticRoot, resolvedPath);
+      if (
+        !relativeToRoot.startsWith("..") &&
+        !path.isAbsolute(relativeToRoot) &&
+        fs.existsSync(resolvedPath) &&
+        fs.statSync(resolvedPath).isFile()
+      ) {
+        return sendAdminStaticFile(reply, adminStaticRoot, relativePath);
+      }
+    }
+    const content = await fs.promises.readFile(adminIndexPath, "utf8");
     return reply.type("text/html").send(content);
   });
 

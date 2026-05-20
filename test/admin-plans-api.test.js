@@ -4,6 +4,8 @@
  * Tests for the POST /admin/plans create endpoint.
  */
 
+process.env.NODE_ENV = "test";
+
 const { describe, it, beforeEach } = require("node:test");
 const assert = require("node:assert/strict");
 const { getDatabase } = require("../src/database");

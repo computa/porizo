@@ -178,6 +178,100 @@ function deriveSharePublicBaseUrl(publicBaseUrl) {
   return publicBaseUrl;
 }
 
+function normalizeHostForSecurity(host) {
+  const raw = String(host || "")
+    .split(",")[0]
+    .trim()
+    .toLowerCase();
+  if (raw.startsWith("[")) {
+    const closeBracket = raw.indexOf("]");
+    if (closeBracket > 0) return raw.slice(1, closeBracket);
+  }
+  const colonCount = (raw.match(/:/g) || []).length;
+  if (colonCount === 1) return raw.replace(/:\d+$/, "");
+  return raw;
+}
+
+function hostFromUrl(value) {
+  try {
+    return normalizeHostForSecurity(new URL(value).hostname);
+  } catch (_) {
+    return "";
+  }
+}
+
+function csvToLowerSet(value) {
+  return new Set(
+    String(value || "")
+      .split(",")
+      .map((entry) => normalizeHostForSecurity(entry))
+      .filter(Boolean),
+  );
+}
+
+function buildAllowedHostSet({
+  appConfig,
+  publicBaseUrl,
+  sharePublicBaseUrl,
+  twilioStatusCallbackBaseUrl,
+}) {
+  const hosts = csvToLowerSet(appConfig.HOST_ALLOWLIST || "");
+  for (const value of [
+    publicBaseUrl,
+    sharePublicBaseUrl,
+    twilioStatusCallbackBaseUrl,
+    appConfig.STREAM_BASE_URL,
+    appConfig.PUBLIC_BASE_URL,
+    appConfig.SHARE_PUBLIC_BASE_URL,
+  ]) {
+    const host = hostFromUrl(value);
+    if (host) hosts.add(host);
+  }
+
+  // Local development and Fastify injection defaults.
+  for (const host of ["localhost", "127.0.0.1", "::1"]) {
+    hosts.add(host);
+  }
+
+  return hosts;
+}
+
+function getHostAllowlistMode(appConfig) {
+  const mode = String(appConfig.HOST_ALLOWLIST_MODE || "off").toLowerCase();
+  if (["off", "report", "enforce"].includes(mode)) return mode;
+  return "off";
+}
+
+function registerHostAllowlist(app, { appConfig, allowedHosts }) {
+  const mode = getHostAllowlistMode(appConfig);
+  if (mode === "off") return;
+
+  app.addHook("onRequest", async (request, reply) => {
+    const host = normalizeHostForSecurity(request.headers.host);
+    if (!host || allowedHosts.has(host)) return;
+
+    request.log.warn(
+      {
+        host,
+        mode,
+        url: request.url,
+        method: request.method,
+      },
+      "Blocked or observed request for untrusted host",
+    );
+
+    if (mode === "enforce") {
+      return reply
+        .code(421)
+        .type("application/json")
+        .send({
+          error: "MISDIRECTED_REQUEST",
+          message: "Host is not configured for this service",
+        });
+    }
+  });
+}
+
 function buildServer({
   db,
   config: appConfig,
@@ -223,6 +317,13 @@ function buildServer({
     appConfig.TWILIO_STATUS_CALLBACK_BASE_URL ||
     config.TWILIO_STATUS_CALLBACK_BASE_URL ||
     publicBaseUrl;
+  const allowedHosts = buildAllowedHostSet({
+    appConfig,
+    publicBaseUrl,
+    sharePublicBaseUrl,
+    twilioStatusCallbackBaseUrl,
+  });
+  registerHostAllowlist(app, { appConfig, allowedHosts });
 
   // Cache HTML templates at startup to avoid readFileSync on every request
   const webPlayerTemplate = fs.readFileSync(
@@ -381,16 +482,6 @@ function buildServer({
     root: path.join(process.cwd(), "embed-player"),
     prefix: "/embed-player/",
     decorateReply: false,
-  });
-
-  // Register admin dashboard static files (always enabled, independent of debug routes)
-  // wildcard: false prevents @fastify/static from registering its own /admin/* handler,
-  // allowing our SPA catch-all route to handle client-side routing
-  app.register(require("@fastify/static"), {
-    root: path.join(process.cwd(), "public/admin"),
-    prefix: "/admin/",
-    decorateReply: false, // Avoid decorator conflict
-    wildcard: false, // Disable automatic wildcard - we handle SPA routing manually
   });
 
   // Register public assets for landing page (CSS, images, favicon)

@@ -133,7 +133,7 @@ describe("web player artwork motion helpers", () => {
     // not "the function happens to return something."
     const source = fs.readFileSync(WEB_PLAYER_SCRIPT, "utf8");
     const fnMatch = source.match(
-      /function normalizeArtworkMotionProfile\([^)]*\) \{[\s\S]*?\n  \}/,
+      /function normalizeArtworkMotionProfile\([^)]*\) \{[\s\S]*?\n {2}\}/,
     );
     assert.ok(fnMatch, "function block must exist");
     const fnBody = fnMatch[0];
