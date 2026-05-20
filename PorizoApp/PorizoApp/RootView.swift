@@ -199,6 +199,7 @@ struct RootView: View {
     // instead of re-firing every app start. Stored as Unix epoch; 0 means never skipped.
     @AppStorage("profileCompletionSkippedAtEpoch") private var profileCompletionSkippedAtEpoch: Double = 0
     @State private var appConfigState = RootAppConfigState()
+    @State private var showReviewPrePrompt = false
 
     // Configuration
     // Auth is required in all builds to avoid showing main tabs when logged out.
@@ -462,6 +463,18 @@ struct RootView: View {
             #if DEBUG
             print("[RootView] Received trackRenderCompleted notification")
             #endif
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .reviewShouldShowPrePrompt)) { _ in
+            // Only surface when the app is the topmost view; the sheet itself
+            // is harmless if presented over a sheet, but we want the success
+            // moment to remain the foreground experience.
+            showReviewPrePrompt = true
+        }
+        .sheet(isPresented: $showReviewPrePrompt) {
+            ReviewPrePromptSheet(
+                onYes: { ReviewManager.shared.userSaidEnjoyingApp() },
+                onNotReally: { ReviewManager.shared.userSaidNotEnjoyingApp() }
+            )
         }
         .onReceive(NotificationCenter.default.publisher(for: .receiverDeepLinkResolved)) { notification in
             guard let payload = ReceiverDeepLinkService.payload(from: notification.userInfo ?? [:]) else { return }
