@@ -1,3 +1,50 @@
+# Active Plan — Father's Day v1.5.12 path-to-submit (2026-05-20)
+
+User: "proceed sequentially and complete all" — audit verdict NO-GO (3 blockers + 7 warnings).
+
+## Phase 1 — Quick audit fixes (DONE — commit a99d328)
+
+- [x] B1 — drop "1-minute" claim from v1.5.12 promotionalText + whatsNew
+- [x] W1 — align privacy.html IP-hashing wording to backend reality
+- [x] W4 — add AI-content disclosure footer to shared web-player + anchor in terms.html
+
+## Phase 2 — B2 voice consent UI (IN PROGRESS)
+
+- [x] APIClient+Enrollment.swift — `startEnrollment(consentAccepted:)` requires explicit consent
+- [ ] EnrollmentFlowView.swift — `@State consentChecked = false`
+- [ ] EnrollmentFlowView.swift — consent Toggle row above CTAs with terms + privacy links
+- [ ] EnrollmentFlowView.swift — disable Start Recording until consentChecked
+- [ ] EnrollmentFlowView.swift — pass consentChecked into apiClient.startEnrollment
+- [ ] Build verify + commit
+
+## Phase 3 — #15 pre-prompt rating sheet
+
+- [ ] ReviewPrePromptSheet.swift (yes/no survey)
+- [ ] ReviewManager: showPrePrompt notifier + suppression after "no"
+- [ ] Wire NotificationCenter listener in RootView
+- [ ] Commit
+
+## Phase 4 — #16 recipient-played APNs
+
+- [ ] Backend: APNs push in receiver_play_completed path
+- [ ] iOS: PushPayloadParser.parseRecipientPlayed
+- [ ] iOS: didReceiveRemoteNotification handler + NotificationCenter event
+- [ ] ReviewManager: recordRecipientPlayed primary trigger
+- [ ] Commit
+
+## Phase 5 — #17 ReviewManager threshold tuning
+
+- [ ] playsBeforeFirstPrompt → 5
+- [ ] sharesBeforeFirstPrompt → 2
+- [ ] Commit
+
+## Out of scope this session (need user action)
+
+- B3 — Apple Distribution cert install (Xcode → Settings → Accounts)
+- #13/#14 — ASA campaign moves (requires ASA UI access)
+
+---
+
 # Per-Song Occasion Artwork System (DONE — 2026-05-16)
 
 > Plan: `/Users/ao/.claude/plans/during-the-design-phase-resilient-pony.md`

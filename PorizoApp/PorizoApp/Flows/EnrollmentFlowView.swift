@@ -51,6 +51,10 @@ struct EnrollmentFlowView: View {
     // Processing status cycling
     @State private var processingStatusIndex: Int = 0
 
+    // Apple 5.1.1 / 5.6: voice biometric consent must be an explicit user opt-in
+    // before any recording begins. Captured here and forwarded to the backend.
+    @State private var consentChecked: Bool = false
+
 
     enum EnrollmentStep {
         case welcome
@@ -175,6 +179,9 @@ struct EnrollmentFlowView: View {
 
             Spacer()
 
+            // Consent (Apple 5.1.1 / 5.6 — explicit opt-in before biometric capture)
+            consentRow
+
             // CTA
             VStack(spacing: DesignTokens.spacing16) {
                 Button {
@@ -185,10 +192,13 @@ struct EnrollmentFlowView: View {
                         .foregroundStyle(.white)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 16)
-                        .background(DesignTokens.gold)
+                        .background(consentChecked ? DesignTokens.gold : DesignTokens.gold.opacity(0.4))
                         .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusCTA))
                 }
-                .disabled(isLoading)
+                .disabled(isLoading || !consentChecked)
+                .accessibilityHint(consentChecked
+                                   ? "Begins voice enrollment recording"
+                                   : "Disabled until you accept the voice consent above")
 
                 Button { dismiss() } label: {
                     Text("Maybe later")
@@ -199,6 +209,43 @@ struct EnrollmentFlowView: View {
             .padding(.horizontal, 20)
             .padding(.bottom, 40)
         }
+    }
+
+    // MARK: - Consent Row
+
+    private var consentRow: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Button {
+                consentChecked.toggle()
+            } label: {
+                Image(systemName: consentChecked ? "checkmark.square.fill" : "square")
+                    .font(.system(size: 22))
+                    .foregroundStyle(consentChecked ? DesignTokens.gold : DesignTokens.textTertiary)
+            }
+            .accessibilityLabel(consentChecked ? "Consent accepted" : "Tap to accept voice consent")
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("I confirm this is my own voice and I agree to Porizo creating a voice embedding to generate personalized songs.")
+                    .font(DesignTokens.bodyFont(size: 13))
+                    .foregroundStyle(DesignTokens.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                HStack(spacing: 14) {
+                    Link("Privacy Policy",
+                         destination: URL(string: "https://porizo.co/legal/privacy")!)
+                    Link("Terms",
+                         destination: URL(string: "https://porizo.co/legal/terms#ai-content")!)
+                }
+                .font(DesignTokens.bodyFont(size: 12, weight: .medium))
+                .foregroundStyle(DesignTokens.gold)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 20)
+        .padding(.bottom, DesignTokens.spacing16)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(consentChecked ? .isSelected : [])
     }
 
     // MARK: - Recording View
@@ -546,11 +593,20 @@ struct EnrollmentFlowView: View {
     // MARK: - Actions
 
     private func startEnrollment() {
+        // Defense in depth: the CTA is already disabled when consent is missing,
+        // but never call the API without an explicit user opt-in.
+        guard consentChecked else {
+            errorMessage = "Please accept the voice consent above before recording."
+            showingError = true
+            return
+        }
+
         isLoading = true
+        let capturedConsent = consentChecked
         enrollmentTask = Task {
             do {
                 let response = try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "startEnrollment") {
-                    try await apiClient.startEnrollment()
+                    try await apiClient.startEnrollment(consentAccepted: capturedConsent)
                 }
                 await MainActor.run {
                     sessionId = response.sessionId

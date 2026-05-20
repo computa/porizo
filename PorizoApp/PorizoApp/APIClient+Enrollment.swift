@@ -12,16 +12,20 @@ extension APIClient {
 
     // MARK: - Enrollment API
 
-    /// Start a new voice enrollment session
-    func startEnrollment() async throws -> EnrollmentSession {
+    /// Start a new voice enrollment session.
+    ///
+    /// `consentAccepted` MUST reflect an explicit user opt-in captured at the call site.
+    /// Apple Guideline 5.1.1 requires the user to grant consent before collecting biometric
+    /// data; passing `false` here will cause the backend to reject the request.
+    func startEnrollment(consentAccepted: Bool) async throws -> EnrollmentSession {
         let url = URL(string: "\(baseURL)/voice/enrollment/start")!
         var request = try await makeRequest(url: url, method: "POST")
 
         let body: [String: Any] = [
-            "consent_accepted": true,
+            "consent_accepted": consentAccepted,
             "consent_version": "ios_v1",
-            "consent_scopes": ["voice_suno_persona_v1"],
-            "voice_suno_persona_consent": true
+            "consent_scopes": consentAccepted ? ["voice_suno_persona_v1"] : [],
+            "voice_suno_persona_consent": consentAccepted
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
