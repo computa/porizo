@@ -2,6 +2,8 @@
 
 const fs = require("fs");
 const path = require("path");
+const jwt = require("jsonwebtoken");
+const jwksRsa = require("jwks-rsa");
 const {
   AdminService,
   escapeLikePattern,
@@ -23,6 +25,65 @@ const { newUuid } = require("../utils/ids");
 const { nowIso } = require("../utils/common");
 const { acknowledgeGiftIncident } = require("../services/gift-delivery-ops");
 const defaultOneSignalService = require("../services/onesignal");
+
+const cloudflareAccessJwksClients = new Map();
+
+function getCloudflareAccessJwksClient(certsUrl) {
+  if (!cloudflareAccessJwksClients.has(certsUrl)) {
+    cloudflareAccessJwksClients.set(
+      certsUrl,
+      jwksRsa({
+        jwksUri: certsUrl,
+        cache: true,
+        cacheMaxEntries: 5,
+        cacheMaxAge: 10 * 60 * 1000,
+        rateLimit: true,
+        jwksRequestsPerMinute: 10,
+      }),
+    );
+  }
+  return cloudflareAccessJwksClients.get(certsUrl);
+}
+
+async function verifyCloudflareAccessJwt(token, appConfig) {
+  const audience = appConfig.CLOUDFLARE_ACCESS_AUD;
+  const issuer = appConfig.CLOUDFLARE_ACCESS_ISSUER;
+  const certsUrl = appConfig.CLOUDFLARE_ACCESS_CERTS_URL;
+
+  if (!audience || !issuer || !certsUrl) {
+    return null;
+  }
+
+  const client = getCloudflareAccessJwksClient(certsUrl);
+  const getKey = (header, callback) => {
+    client.getSigningKey(header.kid, (err, key) => {
+      if (err) {
+        callback(err);
+        return;
+      }
+      callback(null, key.getPublicKey());
+    });
+  };
+
+  return new Promise((resolve, reject) => {
+    jwt.verify(
+      token,
+      getKey,
+      {
+        algorithms: ["RS256"],
+        audience,
+        issuer: issuer.replace(/\/$/, ""),
+      },
+      (err, decoded) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+        resolve(decoded);
+      },
+    );
+  });
+}
 
 function registerAdminRoutes(
   app,
@@ -310,6 +371,24 @@ function registerAdminRoutes(
       .toLowerCase();
   }
 
+  async function getVerifiedCloudflareAccessEmail(request) {
+    const assertion = String(
+      request.headers["cf-access-jwt-assertion"] || "",
+    ).trim();
+
+    if (
+      appConfig.CLOUDFLARE_ACCESS_AUD &&
+      appConfig.CLOUDFLARE_ACCESS_ISSUER &&
+      appConfig.CLOUDFLARE_ACCESS_CERTS_URL
+    ) {
+      if (!assertion) return "";
+      const decoded = await verifyCloudflareAccessJwt(assertion, appConfig);
+      return String(decoded?.email || "").trim().toLowerCase();
+    }
+
+    return getCloudflareAccessEmail(request);
+  }
+
   async function requireAdminUiAccess(request, reply) {
     if (adminUiMode === "public") return true;
 
@@ -319,7 +398,15 @@ function registerAdminRoutes(
     }
 
     if (adminUiMode === "cloudflare_access") {
-      const email = getCloudflareAccessEmail(request);
+      let email = "";
+      try {
+        email = await getVerifiedCloudflareAccessEmail(request);
+      } catch (err) {
+        request.log.warn(
+          { err: err?.message },
+          "Cloudflare Access JWT verification failed",
+        );
+      }
       if (!email) {
         reply.code(403).type("text/plain").send("Admin access required");
         return false;

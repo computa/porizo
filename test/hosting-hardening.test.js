@@ -144,7 +144,7 @@ describe("production hosting hardening controls", () => {
   test("admin UI cloudflare_access mode allows configured Access identity", async () => {
     app = buildTestApp(db, {
       ADMIN_UI_MODE: "cloudflare_access",
-      ADMIN_UI_ALLOWED_EMAILS: "ambrose@example.com",
+      ADMIN_UI_ALLOWED_EMAILS: "acuoos1@gmail.com",
     });
 
     const response = await app.inject({
@@ -152,12 +152,34 @@ describe("production hosting hardening controls", () => {
       url: "/admin",
       headers: {
         host: "api.porizo.co",
-        "cf-access-authenticated-user-email": "Ambrose@Example.com",
+        "cf-access-authenticated-user-email": "Acuoos1@Gmail.com",
       },
     });
 
     assert.equal(response.statusCode, 200);
     assert.match(response.headers["content-type"], /text\/html/);
+  });
+
+  test("admin UI cloudflare_access mode rejects spoofed email when JWT verification is configured", async () => {
+    app = buildTestApp(db, {
+      ADMIN_UI_MODE: "cloudflare_access",
+      ADMIN_UI_ALLOWED_EMAILS: "acuoos1@gmail.com",
+      CLOUDFLARE_ACCESS_AUD: "test-aud",
+      CLOUDFLARE_ACCESS_ISSUER: "https://porizo.cloudflareaccess.com",
+      CLOUDFLARE_ACCESS_CERTS_URL:
+        "https://porizo.cloudflareaccess.com/cdn-cgi/access/certs",
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/admin",
+      headers: {
+        host: "api.porizo.co",
+        "cf-access-authenticated-user-email": "acuoos1@gmail.com",
+      },
+    });
+
+    assert.equal(response.statusCode, 403);
   });
 
   test("admin UI off mode hides the SPA without disabling admin API auth", async () => {
