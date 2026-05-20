@@ -100,12 +100,17 @@ async function sendSilentPush(pushToken, payload) {
   }
 
   if (!APNS_TOKEN_RE.test(pushToken)) {
-    console.warn('[PushNotification] Invalid APNs token format:', pushToken?.slice(0, 8));
+    console.warn(
+      "[PushNotification] Invalid APNs token format:",
+      pushToken?.slice(0, 8),
+    );
     return { success: false, error: "INVALID_PUSH_TOKEN" };
   }
 
   if (!isConfigured()) {
-    console.warn("[PushNotification] APNs not configured - skipping notification");
+    console.warn(
+      "[PushNotification] APNs not configured - skipping notification",
+    );
     return { success: false, error: "APNS_NOT_CONFIGURED" };
   }
 
@@ -137,7 +142,8 @@ async function sendSilentPush(pushToken, payload) {
       const failure = result.failed[0];
       console.error("[PushNotification] Failed to send:", {
         pushToken: pushToken.substring(0, 8) + "...",
-        error: failure.response?.reason || failure.error?.message || "Unknown error",
+        error:
+          failure.response?.reason || failure.error?.message || "Unknown error",
         status: failure.status,
       });
       return {
@@ -180,12 +186,14 @@ async function sendRenderComplete(pushToken, trackId, trackTitle) {
   }
 
   if (!isConfigured()) {
-    console.warn("[PushNotification] APNs not configured - skipping render_complete notification");
+    console.warn(
+      "[PushNotification] APNs not configured - skipping render_complete notification",
+    );
     return { success: false, error: "APNS_NOT_CONFIGURED" };
   }
 
   // SVC-10: Truncate title to stay within APNs payload size limits
-  const safeTitle = (trackTitle || '').slice(0, 100);
+  const safeTitle = (trackTitle || "").slice(0, 100);
 
   const payload = {
     type: "render_complete",
@@ -203,6 +211,109 @@ async function sendRenderComplete(pushToken, trackId, trackTitle) {
 }
 
 /**
+ * Send recipient-played notification (visible alert)
+ *
+ * Fires when the share recipient finishes listening to the song. This is
+ * Porizo's "moment of magic" — the gift landed. The push includes an alert
+ * payload so the device shows a user-visible notification, and the iOS
+ * client treats it as the primary trigger for the rating pre-prompt.
+ *
+ * @param {string} pushToken - Sender's device push token
+ * @param {string} trackId - Track ID that was played
+ * @param {string} trackTitle - Track title
+ * @param {string} [recipientName] - Optional recipient first name for the alert body
+ * @returns {Promise<{success: boolean, error?: string}>}
+ */
+async function sendRecipientPlayed(
+  pushToken,
+  trackId,
+  trackTitle,
+  recipientName,
+) {
+  if (!pushToken) {
+    return { success: false, error: "MISSING_PUSH_TOKEN" };
+  }
+
+  if (!APNS_TOKEN_RE.test(pushToken)) {
+    return { success: false, error: "INVALID_PUSH_TOKEN" };
+  }
+
+  if (!trackId) {
+    return { success: false, error: "MISSING_TRACK_ID" };
+  }
+
+  if (!isConfigured()) {
+    console.warn(
+      "[PushNotification] APNs not configured - skipping recipient_played notification",
+    );
+    return { success: false, error: "APNS_NOT_CONFIGURED" };
+  }
+
+  const provider = getProvider();
+  if (!provider) {
+    return { success: false, error: "APNS_NOT_CONFIGURED" };
+  }
+
+  const { bundleId } = getConfig();
+
+  // SVC-10: clamp before composing the user-visible alert
+  const safeTitle = (trackTitle || "").slice(0, 80);
+  const safeRecipient = (recipientName || "").slice(0, 40).trim();
+
+  const alertBody = safeRecipient
+    ? `${safeRecipient} just finished listening to "${safeTitle}"`
+    : `Your recipient just finished listening to "${safeTitle}"`;
+
+  try {
+    const notification = new apn.Notification();
+    notification.topic = bundleId;
+    notification.pushType = "alert"; // iOS 13+ requires explicit push type
+    notification.priority = 10; // user-facing alert
+    notification.expiry = Math.floor(Date.now() / 1000) + 24 * 60 * 60;
+    notification.sound = "default";
+    notification.alert = {
+      title: "🎵 They played your song",
+      body: alertBody,
+    };
+    notification.payload = {
+      type: "recipient_played",
+      trackId: trackId,
+      trackTitle: safeTitle,
+      recipientName: safeRecipient || null,
+      timestamp: new Date().toISOString(),
+    };
+
+    const result = await provider.send(notification, pushToken);
+
+    if (result.failed && result.failed.length > 0) {
+      const failure = result.failed[0];
+      console.error("[PushNotification] recipient_played failed:", {
+        pushToken: pushToken.substring(0, 8) + "...",
+        error:
+          failure.response?.reason || failure.error?.message || "Unknown error",
+      });
+      return {
+        success: false,
+        error: failure.response?.reason || "APNS_SEND_FAILED",
+      };
+    }
+
+    console.log("[PushNotification] Sent recipient_played:", {
+      trackId,
+      recipient: safeRecipient || "(unknown)",
+    });
+
+    return { success: true };
+  } catch (error) {
+    console.error(
+      "[PushNotification] recipient_played exception:",
+      error.message,
+    );
+    return { success: false, error: error.message };
+  }
+}
+
+/**
  * Shutdown the APNs provider (for graceful shutdown)
  */
 function shutdown() {
@@ -217,5 +328,6 @@ module.exports = {
   getConfig,
   sendSilentPush,
   sendRenderComplete,
+  sendRecipientPlayed,
   shutdown,
 };

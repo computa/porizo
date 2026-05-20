@@ -14,6 +14,14 @@ struct RenderCompletePayload {
     let trackTitle: String
 }
 
+/// Parsed recipient-played push notification — the recipient finished
+/// listening to a shared song.
+struct RecipientPlayedPayload {
+    let trackId: String
+    let trackTitle: String
+    let recipientName: String?
+}
+
 /// Parses push notification payloads from the Porizo server.
 ///
 /// Expected payload format for render_complete:
@@ -25,11 +33,23 @@ struct RenderCompletePayload {
 ///   "trackTitle": "Happy Birthday Song"
 /// }
 /// ```
+///
+/// Expected payload format for recipient_played:
+/// ```json
+/// {
+///   "aps": { "alert": { "title": "...", "body": "..." }, "sound": "default" },
+///   "type": "recipient_played",
+///   "trackId": "track-123",
+///   "trackTitle": "Happy Birthday Sarah",
+///   "recipientName": "Sarah"
+/// }
+/// ```
 enum PushPayloadParser {
 
     // MARK: - Notification Types
 
     private static let typeRenderComplete = "render_complete"
+    private static let typeRecipientPlayed = "recipient_played"
 
     // MARK: - Parsing
 
@@ -53,5 +73,29 @@ enum PushPayloadParser {
         }
 
         return RenderCompletePayload(trackId: trackId, trackTitle: trackTitle)
+    }
+
+    /// Parses a recipient-played notification from the push payload.
+    ///
+    /// Recipient name is optional — for older shares or anonymous flows the
+    /// backend may omit it; the UI must fall back gracefully.
+    static func parseRecipientPlayed(from userInfo: [AnyHashable: Any]) -> RecipientPlayedPayload? {
+        guard let type = userInfo["type"] as? String,
+              type == typeRecipientPlayed else {
+            return nil
+        }
+
+        guard let trackId = userInfo["trackId"] as? String,
+              let trackTitle = userInfo["trackTitle"] as? String else {
+            print("[Push] recipient_played notification missing required fields: \(userInfo)")
+            return nil
+        }
+
+        let recipientName = userInfo["recipientName"] as? String
+        return RecipientPlayedPayload(
+            trackId: trackId,
+            trackTitle: trackTitle,
+            recipientName: recipientName
+        )
     }
 }

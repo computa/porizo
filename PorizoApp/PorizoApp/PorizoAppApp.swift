@@ -242,6 +242,30 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             )
 
             completionHandler(.newData)
+        } else if let payload = PushPayloadParser.parseRecipientPlayed(from: userInfo) {
+            // Moment of magic — the recipient finished listening. APNs already
+            // shows the visible alert from the `aps.alert` field, so we just
+            // forward the event to listeners and treat it as a review-prompt
+            // trigger.
+            print("[Push] Recipient played track: \(payload.trackId)")
+
+            var info: [AnyHashable: Any] = [
+                "trackId": payload.trackId,
+                "trackTitle": payload.trackTitle,
+            ]
+            if let name = payload.recipientName { info["recipientName"] = name }
+
+            NotificationCenter.default.post(
+                name: .recipientPlayedShare,
+                object: nil,
+                userInfo: info
+            )
+
+            Task { @MainActor in
+                ReviewManager.shared.recordRecipientPlayed()
+            }
+
+            completionHandler(.newData)
         } else {
             completionHandler(.noData)
         }

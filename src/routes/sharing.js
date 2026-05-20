@@ -11,6 +11,7 @@ const {
   isShareUsable,
   healAndCheckShare,
 } = require("../services/share-service");
+const pushNotification = require("../services/push-notification");
 
 const CLIENT_RECEIVER_EVENTS = new Set([
   "receiver_link_opened",
@@ -1845,6 +1846,59 @@ function registerSharingRoutes(
         event_id: result.eventId,
         receiver_save_url: receiverSaveUrl,
       });
+
+      // Fire-and-forget: notify the sender that the recipient finished playing.
+      // This is the "moment of magic" — the gift landed. iOS uses this push
+      // as the primary trigger for the rating pre-prompt.
+      if (
+        eventName === "receiver_play_completed" &&
+        pushNotification.isConfigured() &&
+        share.creator_id
+      ) {
+        (async () => {
+          try {
+            const devices = await db
+              .prepare(
+                "SELECT push_token FROM devices WHERE user_id = ? AND push_token IS NOT NULL",
+              )
+              .all(share.creator_id);
+            if (!devices || devices.length === 0) return;
+
+            const track = share.track_id
+              ? await db
+                  .prepare(
+                    "SELECT title, recipient_name FROM tracks WHERE id = ?",
+                  )
+                  .get(share.track_id)
+              : null;
+
+            const trackTitle = track?.title || "your song";
+            const recipientName = track?.recipient_name || null;
+
+            for (const device of devices) {
+              if (!device.push_token) continue;
+              pushNotification
+                .sendRecipientPlayed(
+                  device.push_token,
+                  share.track_id,
+                  trackTitle,
+                  recipientName,
+                )
+                .catch((pushErr) => {
+                  request.log.warn(
+                    { err: pushErr, shareId: share.id },
+                    "[sharing] recipient_played push failed",
+                  );
+                });
+            }
+          } catch (lookupErr) {
+            request.log.warn(
+              { err: lookupErr, shareId: share.id },
+              "[sharing] recipient_played push lookup failed",
+            );
+          }
+        })();
+      }
     } catch (err) {
       if (err.code === "INVALID_RECEIVER_EVENT") {
         sendError(

@@ -21,6 +21,10 @@ extension Notification.Name {
     /// Posted by ReviewManager when an in-app pre-prompt sheet should be shown.
     /// Listeners present the survey; ReviewManager itself does not own UI.
     static let reviewShouldShowPrePrompt = Notification.Name("reviewShouldShowPrePrompt")
+
+    /// Posted when an APNs push tells us a share recipient finished playing
+    /// the song. UserInfo: `trackId`, `trackTitle`, optionally `recipientName`.
+    static let recipientPlayedShare = Notification.Name("recipientPlayedShare")
 }
 
 /// Manages when to prompt users for App Store reviews
@@ -66,6 +70,14 @@ final class ReviewManager {
     func recordFullRenderComplete() {
         let currentCount = defaults.integer(forKey: Keys.fullRendersCount)
         defaults.set(currentCount + 1, forKey: Keys.fullRendersCount)
+    }
+
+    /// Call when an APNs push tells us a share recipient finished playing
+    /// the song. This is Porizo's strongest positive signal — the gift landed
+    /// — so we always attempt the pre-prompt (still gated by Apple's yearly
+    /// cap, min-days-between-prompts, and post-decline silence window).
+    func recordRecipientPlayed() {
+        triggerPrePromptIfAllowed(trigger: "recipient_played")
     }
 
     /// Call when the system share sheet reports a completed share.
