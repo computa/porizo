@@ -46,9 +46,18 @@ final class ReviewManager {
     }
 
     // Configuration
-    private let playsBeforeFirstPrompt = 2      // Prompt after 2nd successful play
-    private let playsBetweenPrompts = 5         // Then every 5 plays
-    private let sharesBeforeFirstPrompt = 1     // Sharing is the clearest positive-intent signal
+    //
+    // Tuning rationale (post recipient-played-push landing):
+    //   - Recipient-played is now the primary success trigger; play/share
+    //     events are secondary. We can safely raise the play/share thresholds
+    //     to filter out users who haven't actually shipped a song to anyone.
+    //   - 5 plays = user has heard at least 2-3 of their own renders, more
+    //     likely a returning user than a one-shot tryout.
+    //   - 2 shares = at least one share landed AND the user came back to
+    //     share again, a much stronger positive-intent signal than 1.
+    private let playsBeforeFirstPrompt = 5
+    private let playsBetweenPrompts = 5
+    private let sharesBeforeFirstPrompt = 2
     private let sharesBetweenPrompts = 3
     private let minDaysBetweenPrompts = 30      // At least 30 days between prompts
     private let maxPromptsPerYear = 3           // Apple's limit
