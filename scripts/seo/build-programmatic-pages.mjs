@@ -1117,6 +1117,722 @@ const CELLS = [
     ],
     utmCampaign: "graduation_for_daughter",
   },
+
+  // ============================================================
+  // RELATIONSHIP-SPECIFIC PAGES — capture queries App Store can't
+  // reach without metadata words we don't have (boyfriend, girlfriend,
+  // friend, long-distance, etc.). Google long-tail capture.
+  // ============================================================
+
+  {
+    slug: "love-song-for-boyfriend",
+    metaTitle: "Love Song for Boyfriend | Porizo",
+    metaDescription:
+      "Make a personalized love song for your boyfriend — original lyrics from a real shared moment, sung in your own voice. Finished in about three minutes.",
+    eyebrow: "Love song for boyfriend",
+    h1: "Make him a love song he'll save.",
+    lede:
+      "A love song for your boyfriend doesn't need to be loud. It needs to be specific — the way he says your name when he's tired, the joke from your first month together, the morning he made you laugh in the kitchen. Porizo turns that one detail into a song, sung in your voice. Finished in about three minutes.",
+    cardTag: "Love song for him",
+    cardTitle: "The Quiet One",
+    cardLyric:
+      `"You said my name like a quiet question / and I have spent every morning since / trying to be the answer."`,
+    whyEyebrow: "Why Porizo for a love song",
+    whyHeadline: "A love song for boyfriends, built around the one thing only you would write.",
+    whyBody:
+      "Most love songs sound like other love songs. The pop hits, the playlist staples, the lines everyone has heard. A Porizo song is the opposite — it's built around a memory only you two would recognize. The joke from a third date, the way he holds your hand when he is nervous, the song he plays when he drives. Sung in your own voice via voice cloning, which means when he plays it on his phone he hears <em>you</em> singing him lyrics nobody else has ever written. Among the established personalized-song gift services (Songfinch, Songlorious, Songheart, ForeverSong) none combine AI generation with voice cloning of the gifter. Porizo is built for this exact moment.",
+    bestForEyebrow: "Best for",
+    bestForHeadline: "Love-song moments boyfriends actually keep.",
+    bestForMoments: [
+      "<strong>Your anniversary.</strong> A song specific to the year — not a generic love anthem.",
+      "<strong>Valentine's Day.</strong> The card-replacement that outlives February.",
+      "<strong>His birthday.</strong> A love song doubling as a birthday gift; he plays it twice.",
+      "<strong>The first holiday apart.</strong> Travel, family, work. The song crosses the distance instantly.",
+      "<strong>A just-because Tuesday.</strong> No occasion, no warning. A song that arrives on a random day.",
+      "<strong>The 'we don't really do gifts' phase.</strong> Two minutes of effort, sized exactly to a no-pressure relationship.",
+    ],
+    exampleEyebrow: "Example",
+    exampleHeadline: "From one inside joke to a finished love song.",
+    exampleStarRow: "For a boyfriend — year three",
+    exampleLyric:
+      `"You text 'on my way' from two blocks out / you laugh at the joke before I land it / and three years in I still don't know how / something this small became this whole."`,
+    exampleStyle: "Acoustic · 75 seconds · sung in the gifter's voice",
+    exampleNote:
+      "The lyric came from one detail: he texts 'on my way' from two blocks away. Porizo built a verse around the ritual and a chorus about how three years made small things bigger.",
+    faqEyebrow: "FAQ",
+    faqHeadline: "Love-song-for-boyfriend questions.",
+    faqs: [
+      {
+        q: "What if we've only been together a few months?",
+        a: "Porizo works for any stage. Give it one specific moment from those months — a first impression that stuck, an early inside joke. The lyric grows from that detail. Short relationships are some of the best song subjects because the details are fresh.",
+      },
+      {
+        q: "Can he hear it sounding like me singing?",
+        a: "Yes — voice cloning is included on Plus and Pro. Record 6–10 short phrases once inside the app and every song is sung in your own voice. For a love song to a partner, your voice is half the gift.",
+      },
+      {
+        q: "What if he's not really 'into' love songs?",
+        a: "Most boyfriends who 'don't really listen to that stuff' play these anyway. The reason is the specificity. It's not a love song — it's a song about him.",
+      },
+      {
+        q: "Can I make it funny or playful instead of romantic?",
+        a: "Yes. Porizo lets you pick the genre and tone — country, pop, R&B, indie folk, even something more upbeat. The lyric tone follows your direction.",
+      },
+      {
+        q: "Should I share it on social or send it privately?",
+        a: "Most people send it privately first. He gets to hear it alone, react alone, and decide if he wants to share. Some couples post it later as their anniversary post — that part is his call.",
+      },
+      {
+        q: "How is this different from a Spotify playlist for him?",
+        a: "A playlist says 'I curated these.' A Porizo song says 'this exists nowhere else — it was written for you, sung by me, three minutes ago.' Different category of gift entirely.",
+      },
+    ],
+    internalLinks: [
+      { url: "/gifts/love-song-for-girlfriend", text: "Love song for girlfriend" },
+      { url: "/gifts/long-distance-song-gift", text: "Long-distance song gift" },
+      { url: "/custom-song-gift", text: "Custom song gift" },
+    ],
+    utmCampaign: "love_song_boyfriend",
+  },
+
+  {
+    slug: "love-song-for-girlfriend",
+    metaTitle: "Love Song for Girlfriend | Porizo",
+    metaDescription:
+      "Make a personalized love song for your girlfriend — original lyrics from a real shared moment, sung in your own voice. Finished in about three minutes.",
+    eyebrow: "Love song for girlfriend",
+    h1: "Make her a love song that's actually about her.",
+    lede:
+      "Most love songs are about a feeling. A Porizo love song is about a person — the way she laughs at her own jokes before they land, the song she always sings off-key in the car, the way she says 'one more episode' at 2am. Sung in your own voice. Finished in about three minutes.",
+    cardTag: "Love song for her",
+    cardTitle: "One More Episode",
+    cardLyric:
+      `"You said 'one more episode' three episodes ago / and I have been writing love songs about you in my head / longer than the show has been on."`,
+    whyEyebrow: "Why Porizo for a love song",
+    whyHeadline: "A love song for girlfriends, built around the one detail only you noticed.",
+    whyBody:
+      "Pop love songs are written for everyone, which means they're written for no one in particular. A Porizo love song is written for one person — about her name, the way she laughs at her own jokes, the morning she said the thing you still think about. Sung in your own voice via voice cloning, which means she doesn't hear a singer. She hears <em>you</em>. None of the established human-composer gift services (Songfinch, Songlorious, Songheart, ForeverSong) offer this. Porizo is the personalized-song app built for the exact gift moment when a card isn't enough and a playlist isn't yours.",
+    bestForEyebrow: "Best for",
+    bestForHeadline: "Love-song moments girlfriends actually keep.",
+    bestForMoments: [
+      "<strong>Your anniversary.</strong> A song specific to the year — not the relationship in general.",
+      "<strong>Valentine's Day.</strong> The card-replacement she'll play in April.",
+      "<strong>Her birthday.</strong> A love song doubling as a birthday gift; she plays it on her drive home.",
+      "<strong>The first holiday apart.</strong> Family, travel, exams. The song crosses the distance instantly.",
+      "<strong>The morning after a fight.</strong> Not an apology song — a love song that says 'I still saw you yesterday'.",
+      "<strong>A just-because Tuesday.</strong> No card, no excuse, no occasion. Just a song that arrives.",
+    ],
+    exampleEyebrow: "Example",
+    exampleHeadline: "From one specific morning to a finished love song.",
+    exampleStarRow: "For a girlfriend — year two",
+    exampleLyric:
+      `"You laugh at the joke before I land it / you hum a different song every time you make coffee / and two years of small Tuesdays / has somehow turned into the love song I was trying to write all along."`,
+    exampleStyle: "Indie folk · 80 seconds · sung in the gifter's voice",
+    exampleNote:
+      "The lyric came from one detail: she hums a different song every morning while making coffee, never the same one twice. Porizo built a verse around the ritual and a chorus about ordinary days becoming the love story.",
+    faqEyebrow: "FAQ",
+    faqHeadline: "Love-song-for-girlfriend questions.",
+    faqs: [
+      {
+        q: "What if we just started dating?",
+        a: "Porizo works for any stage of relationship. New relationships often produce the strongest songs because the details are fresh. Give it one specific moment from your first weeks — a first impression, a first laugh — and the lyric grows from there.",
+      },
+      {
+        q: "Can she hear it sounding like me singing?",
+        a: "Yes — voice cloning is on Plus and Pro. Record 6–10 short phrases once inside the app and every song is sung in your own voice. For a love song from boyfriend to girlfriend, your voice is the part she'll replay.",
+      },
+      {
+        q: "What if I'm bad at writing love songs?",
+        a: "You don't write it. You give Porizo one specific memory or detail about her — the way she does a particular thing — and Porizo builds the verse and chorus around that. You provide the moment; the lyric grows from it.",
+      },
+      {
+        q: "How is this different from a custom song from Songfinch or Songlorious?",
+        a: "Songfinch and Songlorious use human composers and ship in 4–7 days for $179.99–$199.99. Porizo ships in minutes for $9.99/month and sings the song in your own voice, which neither offers.",
+      },
+      {
+        q: "Can I make multiple songs over time?",
+        a: "Yes. Plus is 4 songs/month and Pro is 10 songs/month — many couples make a new song for each anniversary, each Valentine's Day, each surprise moment.",
+      },
+      {
+        q: "Should I send it privately or play it for her?",
+        a: "Send privately first. Let her hear it alone, react alone, decide if she wants to share. Playing it for her in person works best later, when she's already heard it once.",
+      },
+    ],
+    internalLinks: [
+      { url: "/gifts/love-song-for-boyfriend", text: "Love song for boyfriend" },
+      { url: "/gifts/long-distance-song-gift", text: "Long-distance song gift" },
+      { url: "/custom-song-gift", text: "Custom song gift" },
+    ],
+    utmCampaign: "love_song_girlfriend",
+  },
+
+  {
+    slug: "long-distance-song-gift",
+    metaTitle: "Long Distance Song Gift | Porizo",
+    metaDescription:
+      "A personalized song gift for long distance — original lyrics about the specific distance, sung in your own voice. The link crosses everything instantly.",
+    eyebrow: "Long distance song gift",
+    h1: "A long-distance song that crosses the distance instantly.",
+    lede:
+      "Cards take a week. Flowers wilt. Letters get lost. A Porizo long-distance song gift travels at the speed of a text message — original lyrics about the specific distance you two are managing, sung in your own voice, opened in any browser. Finished in about three minutes.",
+    cardTag: "Long distance song",
+    cardTitle: "Three Time Zones",
+    cardLyric:
+      `"Three time zones / and you still wake up earlier to text me / and I still stay up later to answer / and somehow the math of us still works."`,
+    whyEyebrow: "Why Porizo for long distance",
+    whyHeadline: "The gift built for the relationship that lives on a phone.",
+    whyBody:
+      "Long-distance relationships and friendships make gifts harder. You can't show up at the door. Shipping takes a week. Cards arrive late. A Porizo song gift solves the format problem — it ships in minutes as a web link that plays in any browser, no install, no account required to listen. And the lyric is built around the <em>specific</em> distance: the time zone, the missed dinners, the running joke about who calls first. Sung in your own voice via voice cloning, which means when they play the song at their desk they hear <em>you</em>, not a stranger. Among the established personalized-song marketplaces (Songfinch, Songlorious, Songheart, ForeverSong) none combine AI generation with voice cloning of the gifter.",
+    bestForEyebrow: "Best for",
+    bestForHeadline: "Long-distance moments that earn their own song.",
+    bestForMoments: [
+      "<strong>A long-distance anniversary.</strong> Different cities, same date. A song that lands on both phones at once.",
+      "<strong>A long-distance birthday.</strong> When you can't be there for the candles.",
+      "<strong>Military deployment or international assignment.</strong> Months apart. A song that holds the distance.",
+      "<strong>A long-distance Mother's Day or Father's Day.</strong> The parent in a different country who answers the phone surprised.",
+      "<strong>A friend who moved away.</strong> The decade of friendship that became a series of texts. A song that names what stayed.",
+      "<strong>Study abroad / a semester away.</strong> A song from family or partner that travels with them.",
+    ],
+    exampleEyebrow: "Example",
+    exampleHeadline: "From three time zones to one shared song.",
+    exampleStarRow: "For a partner overseas — year two of long distance",
+    exampleLyric:
+      `"Three time zones away you eat dinner when I eat breakfast / and we have learned the math of saying goodnight in the morning / and you have not let me forget once / what your laugh sounds like at 6am your time."`,
+    exampleStyle: "Acoustic · 75 seconds · sung in the gifter's voice",
+    exampleNote:
+      "The lyric came from one detail: 'We FaceTime when she's eating dinner and I'm eating breakfast.' Porizo built a verse around the time-zone math and a chorus about the way distance changes the rituals.",
+    faqEyebrow: "FAQ",
+    faqHeadline: "Long-distance song gift questions.",
+    faqs: [
+      {
+        q: "How do I get the song to them across the world?",
+        a: "Send a web link by text, email, WhatsApp, or any messaging app. The song plays in any browser on any device. No app install required for the recipient.",
+      },
+      {
+        q: "Will the song sound like me singing?",
+        a: "Yes — voice cloning is on Plus and Pro. Record 6–10 short phrases once and every song is in your own voice. For a long-distance gift, hearing your voice is the part that lands hardest.",
+      },
+      {
+        q: "What if my time zone is twelve hours ahead?",
+        a: "Doesn't matter. The link works at any time. They can open it when they wake up and you can be asleep. The song waits.",
+      },
+      {
+        q: "Can I include specific details about where we live?",
+        a: "Yes. Mention the cities, the time difference, the way you do video calls, anything specific. The lyric weaves those details in.",
+      },
+      {
+        q: "What if the recipient's internet is slow?",
+        a: "The song is a short audio file (45–90 seconds). It loads fast even on a phone connection. The link also includes a low-bandwidth fallback.",
+      },
+      {
+        q: "Can multiple people contribute to the same song for someone long-distance?",
+        a: "Yes. Common pattern: one family member enrolls their voice and includes everyone's name in the lyric. Or each family member enrolls separately and makes their own version.",
+      },
+    ],
+    internalLinks: [
+      { url: "/gifts/love-song-for-boyfriend", text: "Love song for boyfriend" },
+      { url: "/gifts/love-song-for-girlfriend", text: "Love song for girlfriend" },
+      { url: "/blog/long-distance-song-gift", text: "Long-distance song gift ideas" },
+    ],
+    utmCampaign: "long_distance_song",
+  },
+
+  {
+    slug: "apology-song-for-boyfriend",
+    metaTitle: "Apology Song for Boyfriend | Porizo",
+    metaDescription:
+      "A personalized apology song for your boyfriend — original lyrics built around what actually happened, sung in your own voice. Honest, specific, finished in minutes.",
+    eyebrow: "Apology song for boyfriend",
+    h1: "Say sorry in a song he'll keep.",
+    lede:
+      "A text feels too small. A long apology feels like more about you than him. A Porizo apology song lands somewhere in between — short, specific to what happened, in your own voice. Original lyrics, finished in about three minutes.",
+    cardTag: "Apology — for him",
+    cardTitle: "The Honest Part",
+    cardLyric:
+      `"I was wrong about Thursday / I was wrong about the way I said it / and I am trying to be the kind of person / who can say that without making it about me."`,
+    whyEyebrow: "Why a song apology works",
+    whyHeadline: "An apology that does the work a text can't.",
+    whyBody:
+      "A text apology says 'sorry.' A long-form apology says 'sorry, but here is my side.' A Porizo apology song does something a text can't — it gives the apology shape and lets you say the harder thing without it sounding like a speech. The lyric is built around what specifically happened, what you would do differently, and the part you're owning. Sung in your own voice via voice cloning, which means he hears <em>you</em> saying it, not a singer. None of the established personalized-song gift services (Songfinch, Songlorious, Songheart, ForeverSong) offer voice cloning of the gifter — that's the part that makes an apology song land.",
+    bestForEyebrow: "When this works",
+    bestForHeadline: "Apology-song moments worth doing this for.",
+    bestForMoments: [
+      "<strong>An argument that ended badly the night before.</strong> The morning-after gesture.",
+      "<strong>A pattern you're trying to break.</strong> Naming the thing out loud, in a song he can replay when he forgets you said it.",
+      "<strong>Missed a moment that mattered.</strong> A birthday you forgot, an event you skipped, a call you didn't return.",
+      "<strong>Long-distance fight.</strong> The argument that's been hanging over two cities for a week.",
+      "<strong>An anniversary you didn't acknowledge.</strong> The repair before the next anniversary.",
+      "<strong>The slow-burn 'I haven't been showing up for you'.</strong> The relationship audit that needed a quieter format.",
+    ],
+    exampleEyebrow: "Example",
+    exampleHeadline: "From one honest sentence to a finished song.",
+    exampleStarRow: "After a Thursday fight",
+    exampleLyric:
+      `"I was wrong about Thursday / I was wrong about how I said it / and I have been thinking about your face for two days / which is the part I want you to know I noticed."`,
+    exampleStyle: "Acoustic · 70 seconds · sung in the gifter's voice",
+    exampleNote:
+      "The lyric came from one honest sentence: 'I was wrong about Thursday.' Porizo built a song around naming the specific moment instead of generalizing.",
+    faqEyebrow: "FAQ",
+    faqHeadline: "Apology song questions.",
+    faqs: [
+      {
+        q: "Isn't an apology song kind of dramatic?",
+        a: "Only if the song is dramatic. Porizo lets you pick the genre and tone — an acoustic, quiet, 60-second song often lands much better than a long text. The brevity is part of why it works.",
+      },
+      {
+        q: "What if he thinks I'm trying to skip the real conversation?",
+        a: "The song should not replace the real conversation. It works best as the prelude — something he can hear before the in-person talk, so he knows you've thought about it. Then have the conversation. The song earns you the conversation.",
+      },
+      {
+        q: "Will the song be in my voice?",
+        a: "Yes — voice cloning is on Plus and Pro. Hearing your own voice say the apology is what makes it land. A stranger singing your apology defeats the purpose.",
+      },
+      {
+        q: "What should I include in the lyric?",
+        a: "Three things: what specifically happened, what you would do differently, and the part you are owning. Avoid generalizations like 'sorry I've been off lately' — name the actual moment.",
+      },
+      {
+        q: "How long should an apology song be?",
+        a: "Short. 60–75 seconds. Long apology songs sound performative. Short ones sound real.",
+      },
+      {
+        q: "What if he doesn't accept it?",
+        a: "Then the song wasn't the problem; the situation needs more than music. A song apology is the right format only when both of you are already on the way back to each other.",
+      },
+    ],
+    internalLinks: [
+      { url: "/gifts/apology-song-for-girlfriend", text: "Apology song for girlfriend" },
+      { url: "/blog/apology-song", text: "Apology song ideas" },
+      { url: "/gifts/love-song-for-boyfriend", text: "Love song for boyfriend" },
+    ],
+    utmCampaign: "apology_song_boyfriend",
+  },
+
+  {
+    slug: "apology-song-for-girlfriend",
+    metaTitle: "Apology Song for Girlfriend | Porizo",
+    metaDescription:
+      "A personalized apology song for your girlfriend — original lyrics about what actually happened, sung in your own voice. Honest, specific, finished in minutes.",
+    eyebrow: "Apology song for girlfriend",
+    h1: "Say sorry in a song she'll listen to twice.",
+    lede:
+      "A long text reads defensive. Flowers feel like a deflection. A Porizo apology song does the harder work — naming the specific moment, owning the specific part, and arriving in your own voice. Finished in about three minutes.",
+    cardTag: "Apology — for her",
+    cardTitle: "The Sentence I Should Have Used",
+    cardLyric:
+      `"I should have used a different sentence / the one I rehearsed and then didn't say / and I want you to hear me say it now / so we can be done with the wrong one."`,
+    whyEyebrow: "Why a song apology works",
+    whyHeadline: "An apology built for women who can read between the lines.",
+    whyBody:
+      "A long apology text gets re-read and dissected. A flowers-only apology feels like an attempt to skip the conversation. A Porizo apology song is the format that does the real work: it names the specific moment, owns the specific part, and arrives in your own voice via voice cloning. She hears <em>you</em> say the harder sentence — the one you rehearsed and didn't quite get out. Among the established personalized-song marketplaces (Songfinch, Songlorious, Songheart, ForeverSong) none offer voice cloning of the gifter. Porizo is the AI song app built for the gift moment when nothing else fits.",
+    bestForEyebrow: "When this works",
+    bestForHeadline: "Apology moments worth doing this for.",
+    bestForMoments: [
+      "<strong>An argument that ended bad the night before.</strong> The morning-after gesture, before the next conversation.",
+      "<strong>A pattern you're trying to break.</strong> A song that says it out loud so you can't pretend you didn't.",
+      "<strong>Missed a moment that mattered.</strong> The birthday, the event, the call. The acknowledgment.",
+      "<strong>Long-distance argument.</strong> The fight that's been hanging in different time zones for a week.",
+      "<strong>The slow-burn 'I haven't been present'.</strong> The relationship audit that needed a different format.",
+      "<strong>An anniversary you didn't honor.</strong> The repair before the next one.",
+    ],
+    exampleEyebrow: "Example",
+    exampleHeadline: "From one rehearsed sentence to a finished song.",
+    exampleStarRow: "After a Sunday-night fight",
+    exampleLyric:
+      `"I should have used a different sentence on Sunday / the one I rehearsed in the shower / and then said the loud one instead / and I want you to hear me say the rehearsed one now."`,
+    exampleStyle: "Acoustic · 70 seconds · sung in the gifter's voice",
+    exampleNote:
+      "The lyric came from one honest beat: 'I rehearsed the right sentence and then said the wrong one anyway.' Porizo built the song around that exact dynamic.",
+    faqEyebrow: "FAQ",
+    faqHeadline: "Apology song questions.",
+    faqs: [
+      {
+        q: "Is an apology song too much?",
+        a: "Depends on the tone. A short, quiet, 60-second acoustic apology often does what a 300-word text cannot. The format does work that the medium of text can't.",
+      },
+      {
+        q: "Should this replace the actual conversation?",
+        a: "No. It's the prelude. Send the song before you call her or before you see her in person, so the conversation starts from a different place.",
+      },
+      {
+        q: "Will the song be in my voice?",
+        a: "Yes — voice cloning is on Plus and Pro. Hearing you say the apology is what makes the song work. A stranger's voice on an apology song defeats the purpose.",
+      },
+      {
+        q: "What should the lyric say?",
+        a: "Three things: what specifically happened, what you'd do differently, what part you're owning. Avoid words like 'just' or 'I guess.' Name the moment.",
+      },
+      {
+        q: "How long should it be?",
+        a: "60–75 seconds. Brief songs sound real. Long apology songs sound rehearsed.",
+      },
+      {
+        q: "What if she doesn't reply?",
+        a: "A song apology earns the conversation, not the resolution. If she doesn't reply, the song wasn't the wrong tool — the timing might have been. Wait and ask in person.",
+      },
+    ],
+    internalLinks: [
+      { url: "/gifts/apology-song-for-boyfriend", text: "Apology song for boyfriend" },
+      { url: "/blog/apology-song", text: "Apology song ideas" },
+      { url: "/gifts/love-song-for-girlfriend", text: "Love song for girlfriend" },
+    ],
+    utmCampaign: "apology_song_girlfriend",
+  },
+
+  {
+    slug: "valentines-song-for-her",
+    metaTitle: "Valentine's Day Song for Her | Porizo",
+    metaDescription:
+      "Make a personalized Valentine's song for her — original lyrics built around your specific story, sung in your own voice. Finished in about three minutes.",
+    eyebrow: "Valentine's song for her",
+    h1: "A Valentine's song made for her, not the holiday.",
+    lede:
+      "Most Valentine's gifts are about the holiday. A Porizo Valentine's song is about <em>her</em> — the laugh, the joke from the first month, the way she says your name when she's running late. Original lyrics, sung in your own voice, finished in about three minutes.",
+    cardTag: "Valentine's — for her",
+    cardTitle: "Better Than February",
+    cardLyric:
+      `"You laugh like the year just opened a window / and February doesn't get the credit / I should have written this in March / and again in July."`,
+    whyEyebrow: "Why Porizo for Valentine's",
+    whyHeadline: "A Valentine's gift that doesn't smell like Valentine's.",
+    whyBody:
+      "Valentine's Day gifts default to roses, chocolates, jewelry — the same things everyone else is buying. A Porizo Valentine's song breaks out of that by being specific: about her name, the way she does a particular thing, the moment from your relationship that defines what Valentine's actually means for you two. Sung in your own voice via voice cloning, which means when she plays the song she hears <em>you</em>, not a stranger. None of the established human-composer gift services (Songfinch, Songlorious, Songheart, ForeverSong) offer this. Porizo is the personalized-song app built for the gift moment when the holiday gift category isn't enough.",
+    bestForEyebrow: "Best for",
+    bestForHeadline: "Valentine's moments that earn their own song.",
+    bestForMoments: [
+      "<strong>The first Valentine's together.</strong> A song that names the early-relationship details before they become old.",
+      "<strong>The tenth Valentine's together.</strong> The card-stack year. The year a different gift earns a different reaction.",
+      "<strong>A long-distance Valentine's.</strong> The song crosses the distance instantly.",
+      "<strong>The 'we don't do Valentine's' Valentine's.</strong> A surprise that doesn't violate the rule because it's not a thing.",
+      "<strong>A surprise after a hard year.</strong> The Valentine's where the song says you noticed everything.",
+      "<strong>A second-chance Valentine's.</strong> The repair after a Valentine's that didn't land last year.",
+    ],
+    exampleEyebrow: "Example",
+    exampleHeadline: "From one detail to a finished Valentine's song.",
+    exampleStarRow: "For a girlfriend — third Valentine's",
+    exampleLyric:
+      `"You laugh like the year just opened a window / you make Tuesday feel like a holiday / and February doesn't get to take credit / for what you do to every other month."`,
+    exampleStyle: "Indie folk · 75 seconds · sung in the gifter's voice",
+    exampleNote:
+      "The lyric came from one detail: 'She laughs in a way that makes any random Tuesday feel like a small holiday.' Porizo built the song around that and pointed it back at Valentine's.",
+    faqEyebrow: "FAQ",
+    faqHeadline: "Valentine's song questions.",
+    faqs: [
+      {
+        q: "How is this different from a Valentine's card?",
+        a: "A card delivers a sentence; the card itself is the gift. A Porizo Valentine's song delivers a 75-second original song built around her specifically, in your own voice. Different format, different staying power.",
+      },
+      {
+        q: "Will the song sound like me singing?",
+        a: "Yes — voice cloning is on Plus and Pro. Record 6–10 short phrases once and every song is in your own voice. For a Valentine's song, hearing your voice is half the gift.",
+      },
+      {
+        q: "What if Valentine's is tomorrow?",
+        a: "Preview in under 90 seconds. Full song in about three minutes. You can finish the song this morning and send it tonight.",
+      },
+      {
+        q: "Can I include our specific dates or the year?",
+        a: "Yes. Include them in the memory you describe. The lyric weaves dates and year-counts in naturally.",
+      },
+      {
+        q: "How is this priced vs Songfinch for a Valentine's gift?",
+        a: "Songfinch is $179.99+ and ships in 4–7 days. Porizo is $9.99/month and ships in minutes, with voice cloning of the gifter — which Songfinch doesn't offer.",
+      },
+      {
+        q: "Should I play it for her or send the link?",
+        a: "Send the link first. Let her hear it alone. Then play it together later if the moment fits.",
+      },
+    ],
+    internalLinks: [
+      { url: "/gifts/valentines-song-for-him", text: "Valentine's song for him" },
+      { url: "/gifts/love-song-for-girlfriend", text: "Love song for girlfriend" },
+      { url: "/custom-song-gift", text: "Custom song gift" },
+    ],
+    utmCampaign: "valentines_song_her",
+  },
+
+  {
+    slug: "valentines-song-for-him",
+    metaTitle: "Valentine's Day Song for Him | Porizo",
+    metaDescription:
+      "Make a personalized Valentine's song for him — original lyrics built around your shared story, sung in your own voice. Finished in about three minutes.",
+    eyebrow: "Valentine's song for him",
+    h1: "A Valentine's song he'll actually keep.",
+    lede:
+      "Men's Valentine's gifts default to socks, cologne, or 'just dinner.' A Porizo Valentine's song works because it's about him — the way he says your name when he's tired, the joke from the third week, the song he refuses to skip in the car. Original lyrics, in your own voice, finished in about three minutes.",
+    cardTag: "Valentine's — for him",
+    cardTitle: "The Song He Won't Skip",
+    cardLyric:
+      `"You refuse to skip the same one song every drive / and now I am hoping this is the second one / and that the next two years sound like both of us."`,
+    whyEyebrow: "Why Porizo for Valentine's",
+    whyHeadline: "A Valentine's gift built for the man who hates Valentine's gifts.",
+    whyBody:
+      "Most men's Valentine's gifts are either too small (a card) or too generic (cologne, socks, a watch). A Porizo Valentine's song is specific to him — about his name, his ritual, the song he refuses to skip, the joke from a date you remember — and short enough that it doesn't feel like a performance. Sung in your own voice via voice cloning, which means he hears <em>you</em> singing him a song he can replay on his commute. Among the established human-composer marketplaces (Songfinch, Songlorious, Songheart, ForeverSong) none offer voice cloning of the gifter.",
+    bestForEyebrow: "Best for",
+    bestForHeadline: "Valentine's moments boyfriends and husbands actually keep.",
+    bestForMoments: [
+      "<strong>The first Valentine's together.</strong> Naming the early-relationship details before they fade.",
+      "<strong>A Valentine's after a hard year.</strong> The repair year. The year a song does what a card can't.",
+      "<strong>The 'we said no gifts' Valentine's.</strong> A surprise that lands because it's not a thing.",
+      "<strong>A long-distance Valentine's.</strong> The link crosses everything instantly.",
+      "<strong>A milestone Valentine's — 5, 10, 20 years.</strong> The year a song outlives the dinner.",
+      "<strong>A Valentine's where you forgot last year.</strong> The acknowledgment without the apology.",
+    ],
+    exampleEyebrow: "Example",
+    exampleHeadline: "From one car ritual to a finished Valentine's song.",
+    exampleStarRow: "For a husband — fifth Valentine's",
+    exampleLyric:
+      `"You refuse to skip the same one song every drive / and five years in I still don't ask why / I just hope this song earns the same protection / when it comes on at the end of February."`,
+    exampleStyle: "Country · 75 seconds · sung in the gifter's voice",
+    exampleNote:
+      "The lyric came from one detail: 'He never skips one specific song on the radio — same one for five years.' Porizo built the song around that ritual and pointed it forward.",
+    faqEyebrow: "FAQ",
+    faqHeadline: "Valentine's song questions.",
+    faqs: [
+      {
+        q: "What if he doesn't really like Valentine's Day?",
+        a: "Most men who 'don't really do Valentine's' play these anyway. The reason is it's not a Valentine's gift — it's a song about him that happened to arrive on February 14. Different category.",
+      },
+      {
+        q: "Will the song sound like me singing?",
+        a: "Yes — voice cloning is on Plus and Pro. Record 6–10 short phrases once and every song is in your own voice. For a Valentine's song to a husband or boyfriend, your voice is what makes it land.",
+      },
+      {
+        q: "What if Valentine's is today?",
+        a: "Preview in under 90 seconds. Full song in about three minutes. You can finish the song this morning and send it before dinner.",
+      },
+      {
+        q: "Can I include our anniversary or specific dates?",
+        a: "Yes. Mention them in the memory you describe. The lyric weaves them in.",
+      },
+      {
+        q: "How does this compare to a Songfinch Valentine's song?",
+        a: "Songfinch is $179.99+ and ships in 4–7 days. Porizo is $9.99/month and ships in minutes, with voice cloning of the gifter — which Songfinch doesn't offer.",
+      },
+      {
+        q: "Should I send the song privately or do something with it?",
+        a: "Send it privately first. Most husbands play it once alone, then ask to listen with you. Let him hear it alone the first time.",
+      },
+    ],
+    internalLinks: [
+      { url: "/gifts/valentines-song-for-her", text: "Valentine's song for her" },
+      { url: "/gifts/love-song-for-boyfriend", text: "Love song for boyfriend" },
+      { url: "/custom-song-gift", text: "Custom song gift" },
+    ],
+    utmCampaign: "valentines_song_him",
+  },
+
+  {
+    slug: "song-for-husband-birthday",
+    metaTitle: "Birthday Song for Husband | Porizo",
+    metaDescription:
+      "A personalized birthday song for your husband — original lyrics built around who he is, sung in your own voice. Finished in about three minutes.",
+    eyebrow: "Birthday song for husband",
+    h1: "Make him a birthday song that's actually about him.",
+    lede:
+      "Husbands are notoriously hard to shop for on their birthday. Another tie, another watch, another 'I don't really need anything.' A Porizo birthday song fixes the format problem by being specific — the way he makes coffee, the line he says when you're running late, the joke that has lasted ten years. Original lyrics, in your voice, finished in about three minutes.",
+    cardTag: "Birthday — for him",
+    cardTitle: "The Same Coffee for a Decade",
+    cardLyric:
+      `"You make coffee like the kitchen is yours alone / you have done it the same way for a decade / and I have been writing this song in my head / for at least nine of them."`,
+    whyEyebrow: "Why Porizo for husband's birthday",
+    whyHeadline: "A husband's birthday gift built for a man who doesn't want stuff.",
+    whyBody:
+      "Husbands often say 'don't get me anything' for their birthdays. A Porizo birthday song slips past that defense because it isn't a thing — it's a 75-second song about him, in your voice. The way he makes coffee. The thing he says when you're tired. The joke from the third year. Those become the lyric. Sung in your own voice via voice cloning, which he plays on his commute, on his morning run, in the car alone. Among the established human-composer gift services (Songfinch, Songlorious, Songheart, ForeverSong) none offer voice cloning of the gifter.",
+    bestForEyebrow: "Best for",
+    bestForHeadline: "Husband birthdays that earn their own song.",
+    bestForMoments: [
+      "<strong>A milestone birthday.</strong> 30, 40, 50, 60, 70 — the years that quietly mark a chapter.",
+      "<strong>A first birthday married.</strong> The first one where the gift comes from inside the relationship.",
+      "<strong>The 'we said no gifts' birthday.</strong> A surprise that lands because it's not a thing.",
+      "<strong>A long-distance birthday.</strong> Travel, deployment, work. The link crosses the distance instantly.",
+      "<strong>A surprise after a hard year.</strong> The year you got through. The song that says you noticed.",
+      "<strong>A retirement-era birthday.</strong> A song about the decades that came before this chapter.",
+    ],
+    exampleEyebrow: "Example",
+    exampleHeadline: "From one ritual to a finished birthday song.",
+    exampleStarRow: "For a husband's 50th birthday",
+    exampleLyric:
+      `"Fifty years of you / and you still make coffee like the kitchen is yours alone / you still text 'on my way' from two blocks out / and I am hoping the next fifty / sound exactly like the last."`,
+    exampleStyle: "Acoustic · 80 seconds · sung in the gifter's voice",
+    exampleNote:
+      "The lyric came from one detail: 'He texts \"on my way\" from two blocks from home, every single day.' Porizo built a verse around the ritual and a chorus about fifty years of small loyalties.",
+    faqEyebrow: "FAQ",
+    faqHeadline: "Husband birthday song questions.",
+    faqs: [
+      {
+        q: "What if his birthday is today?",
+        a: "Preview in under 90 seconds. Full song in about three minutes. You can finish the song in the time it takes him to find his keys.",
+      },
+      {
+        q: "Will the song be in my voice?",
+        a: "Yes — voice cloning is on Plus and Pro. Record 6–10 short phrases once and every song is in your voice. For a husband's birthday song, your voice is the part that makes it stick.",
+      },
+      {
+        q: "He says he doesn't want gifts. Will he like this?",
+        a: "Yes. Husbands who refuse gifts almost always keep these songs. The reason is it's not a thing — it's a moment. He's not turning down a moment.",
+      },
+      {
+        q: "Can I include our kids' names or our pets?",
+        a: "Yes. Mention them in the memory you describe. The lyric weaves them in naturally.",
+      },
+      {
+        q: "How does this compare to Songfinch for a husband's birthday?",
+        a: "Songfinch is $179.99+ and ships in 4–7 days for a song from a human composer. Porizo is $9.99/month and ships in minutes with voice cloning — your own voice singing — which Songfinch doesn't offer.",
+      },
+      {
+        q: "Should I give it at the party or privately?",
+        a: "Send it privately the morning of his birthday. Let him hear it alone first. Then maybe play it together at dinner if he wants.",
+      },
+    ],
+    internalLinks: [
+      { url: "/gifts/song-for-wife-birthday", text: "Birthday song for wife" },
+      { url: "/gifts/anniversary-song-for-husband", text: "Anniversary song for husband" },
+      { url: "/birthday-song-maker", text: "Birthday song maker" },
+    ],
+    utmCampaign: "song_for_husband_birthday",
+  },
+
+  {
+    slug: "song-for-wife-birthday",
+    metaTitle: "Birthday Song for Wife | Porizo",
+    metaDescription:
+      "A personalized birthday song for your wife — original lyrics built around who she is, sung in your own voice. Finished in about three minutes.",
+    eyebrow: "Birthday song for wife",
+    h1: "Make her a birthday song that's actually about her.",
+    lede:
+      "Roses are easy. Reservations are easy. A song that names the specific thing about your wife — the laugh, the way she pours coffee, the joke from the third year — is harder, and that's why it lands. Porizo turns that one detail into a song, sung in your voice. Finished in about three minutes.",
+    cardTag: "Birthday — for her",
+    cardTitle: "Her Specific Tuesday",
+    cardLyric:
+      `"You pour coffee like every cup is the first one / you hum a different song every morning / and every birthday I have meant to say it / and only this year remembered how."`,
+    whyEyebrow: "Why Porizo for wife's birthday",
+    whyHeadline: "A wife's birthday gift that finally catches up with how you actually feel.",
+    whyBody:
+      "Wife birthday gifts blur together. Flowers, jewelry, dinner reservation, weekend trip. A Porizo birthday song flips the format by being specific — about her name, her ritual, the joke from the third year, the laugh you fell for. Those become the lyric. Sung in your own voice via voice cloning, which means when she plays it on the morning of her birthday she hears <em>you</em> — not a stranger, not a singer. Among the established human-composer gift services (Songfinch, Songlorious, Songheart, ForeverSong) none combine AI generation with voice cloning of the gifter. Porizo is the personalized-song app built for this exact moment.",
+    bestForEyebrow: "Best for",
+    bestForHeadline: "Wife birthdays that earn their own song.",
+    bestForMoments: [
+      "<strong>A milestone birthday.</strong> 30, 40, 50, 60, 70 — the years that quietly mark something.",
+      "<strong>A first birthday married.</strong> The first one where the gift comes from inside the relationship.",
+      "<strong>A long-distance birthday.</strong> Travel, work, family. The link crosses everything.",
+      "<strong>A surprise after a hard year.</strong> The year that asked something of her. The song that names it.",
+      "<strong>The 'I forgot last year' birthday.</strong> The repair. The 'making it up' song.",
+      "<strong>A birthday during a new chapter.</strong> A new baby, a new house, a new job. The song marks the transition.",
+    ],
+    exampleEyebrow: "Example",
+    exampleHeadline: "From one morning ritual to a finished birthday song.",
+    exampleStarRow: "For a wife's 40th birthday",
+    exampleLyric:
+      `"Forty years of you / and you still pour coffee like every cup is the first one / you still hum a different song every morning / and I have been hoping for forty more / the same way I hoped for the first ten."`,
+    exampleStyle: "Acoustic · 80 seconds · sung in the gifter's voice",
+    exampleNote:
+      "The lyric came from one detail: 'She hums a different song every morning while making coffee, never the same one twice.' Porizo built a verse around the ritual and a chorus about forty years of small surprises.",
+    faqEyebrow: "FAQ",
+    faqHeadline: "Wife birthday song questions.",
+    faqs: [
+      {
+        q: "What if her birthday is tonight?",
+        a: "Preview in under 90 seconds. Full song in about three minutes. You can finish the song in the time it takes her to get ready.",
+      },
+      {
+        q: "Will the song be in my voice?",
+        a: "Yes — voice cloning is on Plus and Pro. Record 6–10 short phrases once and every song is in your voice. For a wife's birthday, your voice is what makes the song land.",
+      },
+      {
+        q: "What if I don't know what to write?",
+        a: "You don't write the song. You give Porizo one specific moment or detail about her — a memory, a ritual, an inside joke — and Porizo builds the verse and chorus around that. You provide the moment; the lyric grows.",
+      },
+      {
+        q: "Can I include the kids' names?",
+        a: "Yes. Mention them in the memory or message you describe. The lyric weaves them in.",
+      },
+      {
+        q: "How does this compare to Songfinch for a wife's birthday?",
+        a: "Songfinch is $179.99+ and ships in 4–7 days. Porizo is $9.99/month and ships in minutes with voice cloning — your own voice singing — which Songfinch doesn't offer.",
+      },
+      {
+        q: "Should I send the link or play it for her?",
+        a: "Send the link the morning of her birthday so she can hear it alone first. Then play it together at dinner if the moment fits.",
+      },
+    ],
+    internalLinks: [
+      { url: "/gifts/song-for-husband-birthday", text: "Birthday song for husband" },
+      { url: "/gifts/anniversary-song-for-wife", text: "Anniversary song for wife" },
+      { url: "/birthday-song-maker", text: "Birthday song maker" },
+    ],
+    utmCampaign: "song_for_wife_birthday",
+  },
+
+  {
+    slug: "best-friend-birthday-song",
+    metaTitle: "Birthday Song for Best Friend | Porizo",
+    metaDescription:
+      "A personalized birthday song for your best friend — original lyrics about the friendship only you two have, sung in your own voice. Finished in minutes.",
+    eyebrow: "Birthday song for best friend",
+    h1: "Make your best friend a birthday song.",
+    lede:
+      "The best friend birthday gift is the hardest category. They already know everything about you. They've seen every gift idea you've had. A Porizo birthday song works because it's about the specific friendship you two have — the joke that has lasted a decade, the road trip that changed everything, the way only they laugh at your worst impression. Sung in your voice. Finished in three minutes.",
+    cardTag: "Best friend birthday",
+    cardTitle: "The Decade-Long Joke",
+    cardLyric:
+      `"You have laughed at the same one joke for ten years / and I have not figured out why it still works / so I wrote a song about you and the joke / and it is the closest I have come to saying thank-you."`,
+    whyEyebrow: "Why Porizo for best-friend birthdays",
+    whyHeadline: "A best-friend birthday gift that doesn't sound like a brand sent it.",
+    whyBody:
+      "Best friend birthday gifts default to two failure modes: too generic (a candle, a mug, a book they didn't want) or too inside-joke (a thing only they know about, which is sweet but doesn't last). A Porizo birthday song hits the middle — it names the specific friendship in lyric, sung in your voice, in a format they can replay. The decade-long inside joke. The trip you took at 23. The way they answer the phone every time. Those become the lyric. Among the established human-composer marketplaces (Songfinch, Songlorious, Songheart, ForeverSong) none offer voice cloning of the gifter — for a best-friend song, hearing <em>your</em> voice is the part that makes it real.",
+    bestForEyebrow: "Best for",
+    bestForHeadline: "Best-friend birthdays that earn their own song.",
+    bestForMoments: [
+      "<strong>A milestone birthday — 30, 40, 50.</strong> The years where 'happy birthday' on Instagram isn't enough.",
+      "<strong>A friend who moved away.</strong> The decade of friendship that became a series of texts. A song that names what stayed.",
+      "<strong>A best friend's first birthday married.</strong> The shift in the friendship. The song that says you noticed.",
+      "<strong>A surprise birthday song from across the country.</strong> The link crosses anywhere.",
+      "<strong>A best friend birthday after a hard year for them.</strong> The year you can't be there for in person. The song you can.",
+      "<strong>The friend who 'hates a fuss.'</strong> A 60-second song they can play alone — sized exactly for the friend who hates parties.",
+    ],
+    exampleEyebrow: "Example",
+    exampleHeadline: "From one decade-old joke to a finished birthday song.",
+    exampleStarRow: "For a best friend's 35th",
+    exampleLyric:
+      `"You have laughed at the same one joke for ten years / and I have not figured out why it still works / I have been your worst impression / and your favorite excuse to leave the party / and now I want you to be the song you do not skip."`,
+    exampleStyle: "Indie folk · 75 seconds · sung in the gifter's voice",
+    exampleNote:
+      "The lyric came from one detail: 'We have one joke from college that we have been telling for ten years, and neither of us can explain why it still works.' Porizo built the song around that.",
+    faqEyebrow: "FAQ",
+    faqHeadline: "Best-friend birthday song questions.",
+    faqs: [
+      {
+        q: "What if my best friend isn't into emotional gifts?",
+        a: "Porizo lets you pick the tone. A funny, upbeat 60-second song about your worst inside joke lands better for many friendships than a serious ballad. The genre and tone follow your lead.",
+      },
+      {
+        q: "Will the song be in my voice?",
+        a: "Yes — voice cloning is on Plus and Pro. Hearing your voice is what makes a best-friend song work — they recognize you the second they press play.",
+      },
+      {
+        q: "Can I make it funny instead of sentimental?",
+        a: "Absolutely. Pick a genre that fits the friendship — country storytelling, pop, hip-hop, indie. The lyric tone follows.",
+      },
+      {
+        q: "What if we live in different countries?",
+        a: "Send the link by text or any messaging app. The song plays in any browser. No install required. The link crosses time zones and country codes instantly.",
+      },
+      {
+        q: "What if multiple friends want to give the same song together?",
+        a: "Easy. Either one friend enrolls their voice and names everyone in the lyric, or each friend records a separate verse and you stitch them. Many group friends do the second.",
+      },
+      {
+        q: "What if I want to play it at the party?",
+        a: "Send the link by text to your phone, hand them the phone before they cut the cake, hit play. The song plays in any browser. No app required for them to listen.",
+      },
+    ],
+    internalLinks: [
+      { url: "/birthday-song-maker", text: "Birthday song maker" },
+      { url: "/blog/birthday-song-gift-ideas", text: "Birthday song gift ideas" },
+      { url: "/gifts/long-distance-song-gift", text: "Long-distance song gift" },
+    ],
+    utmCampaign: "best_friend_birthday_song",
+  },
 ];
 
 // ---------------------------------------------------------------------------

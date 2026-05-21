@@ -13,11 +13,13 @@ Keep these files aligned before every App Store submission. Fastlane reads the
 
 Current positioning:
 
-- Name: `Porizo: Song Gift Maker`
-- Subtitle: `Personalized songs in minutes`
-- Primary promise: personalized song gifts from memories and messages
-- Avoid making "your voice" the main App Store promise until live enrollment and
-  Suno persona creation are consistently verified in production.
+- Name: `Porizo: AI Song Gift Maker`
+- Subtitle: `Personal AI Song & Voice Gifts`
+- Primary promise: personalized AI song gifts from memories, messages, and
+  specific occasions.
+- Keep gift/occasion intent as the main App Store promise. Use AI generator
+  terms such as generator, music, text, lyrics, and voice as supporting ASO
+  discovery terms rather than the main positioning.
 
 Pre-submission checks:
 
