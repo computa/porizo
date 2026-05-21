@@ -457,7 +457,8 @@ function buildDownloadBridgePage({ deepLink, fallbackUrl }) {
 async function resolveDownloadReceiverSessionId(db, request, deepLink) {
   const q = request.query || {};
   const receiverSessionId =
-    typeof q.receiver_session_id === "string" && /^rs_[a-f0-9]{24}$/.test(q.receiver_session_id)
+    typeof q.receiver_session_id === "string" &&
+    /^rs_[a-f0-9]{24}$/.test(q.receiver_session_id)
       ? q.receiver_session_id
       : null;
   if (!receiverSessionId) return null;
@@ -471,20 +472,28 @@ async function resolveDownloadReceiverSessionId(db, request, deepLink) {
   } catch (_err) {
     return null;
   }
-  if (parsed.protocol !== "porizo:" || parsed.pathname.split("/").length !== 3) {
+  if (
+    parsed.protocol !== "porizo:" ||
+    parsed.pathname.split("/").length !== 3
+  ) {
     return null;
   }
-  const handoffMatch = parsed.pathname.match(/^\/receiver-handoff\/(rh_[a-f0-9]{24})$/);
+  const handoffMatch = parsed.pathname.match(
+    /^\/receiver-handoff\/(rh_[a-f0-9]{24})$/,
+  );
   if (!handoffMatch) return null;
 
   const now = new Date().toISOString();
-  const result = await db.prepare(`UPDATE receiver_sessions
+  const result = await db
+    .prepare(
+      `UPDATE receiver_sessions
     SET download_attributed_at = ?, updated_at = ?
     WHERE id = ?
       AND receiver_handoff_id = ?
       AND handoff_resolved_at IS NULL
       AND (handoff_expires_at IS NULL OR handoff_expires_at > ?)
-      AND download_attributed_at IS NULL`)
+      AND download_attributed_at IS NULL`,
+    )
     .run(now, now, receiverSessionId, handoffMatch[1], now);
   return result && Number(result.changes || 0) > 0 ? receiverSessionId : null;
 }
@@ -500,7 +509,11 @@ async function logDownloadEvent(db, request, deepLink) {
   // better-sqlite3 .run() is synchronous and throws — the prior `.catch()`
   // was dead code. A logging-only insert must never crash the route.
   try {
-    const receiverSessionId = await resolveDownloadReceiverSessionId(db, request, deepLink);
+    const receiverSessionId = await resolveDownloadReceiverSessionId(
+      db,
+      request,
+      deepLink,
+    );
     db.prepare(
       `INSERT INTO download_events (id, ip_address, user_agent, utm_source, utm_medium, utm_campaign, utm_content, utm_term, country, referrer_url, receiver_session_id, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -732,6 +745,36 @@ function registerLegalRoutes(app, { db } = {}) {
   app.get("/legal/privacy", async (_request, reply) =>
     respondMarketingHtml(reply, publicPages.privacy),
   );
+
+  // Programmatic SEO pages — /gifts/[slug].
+  // Slug is whitelisted to [a-z0-9-]+ so this can't traverse the filesystem.
+  // Files are loaded on first request and cached in-memory for the process
+  // lifetime (loadPublicFile reads sync); add a new HTML to public/gifts/ to
+  // expose a new URL — no code change needed.
+  const giftPagesCache = new Map();
+  app.get("/gifts/:slug", async (request, reply) => {
+    const slug = request.params.slug;
+    if (!/^[a-z0-9-]+$/.test(slug) || slug.length > 80) {
+      return reply
+        .status(404)
+        .type("text/html; charset=utf-8")
+        .send(fallbackPage);
+    }
+    if (!giftPagesCache.has(slug)) {
+      const html = loadPublicFile(`gifts/${slug}.html`, {
+        warnOnMissing: false,
+      });
+      giftPagesCache.set(slug, html);
+    }
+    const html = giftPagesCache.get(slug);
+    if (!html) {
+      return reply
+        .status(404)
+        .type("text/html; charset=utf-8")
+        .send(fallbackPage);
+    }
+    return respondMarketingHtml(reply, html);
+  });
 }
 
 module.exports = { registerLegalRoutes, formatSitemapLastmod };
