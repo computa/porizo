@@ -6,6 +6,8 @@
 **Constraint:** Zero paid spend. Keywords + content only.
 **Confidence:** High after 31-pass adversarial review (see Appendix A).
 
+**CORE POSITION (2026-05-21 clarification):** Porizo is a **song-gifting app — turning moments and occasions into song gifts.** That is the brand, the product, the messaging. The "AI song generator" lane is **SEO surface area only** — we add AI-generator keywords to capture broader search traffic, then funnel that traffic into our gift-occasion core. We do NOT pivot the brand to "AI generator." Every page (programmatic, blog, landing) that uses AI-generator language must position the content around gift-occasion use cases. See `marketing/strategy/current/2026-05-21-organic-content-calendar.md` for the keyword lanes (Lane 2 is core, Lane 6 was deferred for organic visibility only).
+
 ---
 
 ## Headline

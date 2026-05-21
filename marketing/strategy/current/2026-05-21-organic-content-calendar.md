@@ -94,18 +94,33 @@ These rank well and convert reliably; user reads the article and naturally trial
 | how to make a song for mom               |      480 | MED             |
 | how to make a song for dad               |      410 | MED             |
 
-### Lane 6: AI-generator vertical (broad — long-term play)
+### Lane 6: AI-generator vertical (organic visibility, NOT a brand pivot)
 
-Don't target organically yet. Porizo can't compete with Suno (257k reviews) on these.
-Defer until review count hits 1000+.
+**Reframed 2026-05-21 per user clarification.** Porizo's core position remains
+**song-gifting** — turning moments and occasions into song gifts. The
+AI-generator lane is **SEO surface area only**: we use these keywords to
+capture broader search demand (volume is 10-100× higher than gift-occasion
+terms), then every page that ranks for them positions the _content_ around
+gift-occasion use cases. The reader who searches "ai song generator" lands
+on a page titled "The AI song generator built for song gifts" and is funneled
+into the gift-occasion core, not toward an AI-generator brand identity.
 
-| Keyword            | Why to wait                          |
-| ------------------ | ------------------------------------ |
-| ai song generator  | Suno dominates; can't rank in top 10 |
-| ai music generator | Same                                 |
-| ai song maker      | Same                                 |
+Bridge pages built and live in `/gifts/` as of 2026-05-21:
 
-Re-enter this lane on Day 60 with review count update.
+| URL                                     | Captures                            | Funnels to             |
+| --------------------------------------- | ----------------------------------- | ---------------------- |
+| `/gifts/ai-song-generator-for-gifts`    | "ai song generator"                 | gift-occasion broad    |
+| `/gifts/ai-song-maker-for-birthday`     | "ai song maker", "ai birthday song" | `/birthday-song-maker` |
+| `/gifts/ai-song-for-mom`                | "ai song for mom"                   | `/mothers-day-song`    |
+| `/gifts/ai-song-for-dad`                | "ai song for dad"                   | `/fathers-day-song`    |
+| `/gifts/personalized-ai-song-generator` | "personalized ai song"              | `/custom-song-gift`    |
+
+Realistic ranking expectation: top-30 for broad terms in 30-90 days; top-10
+for long-tail variants (e.g., "ai song for mom") in 60-120 days. The traffic
+that does arrive lands on a gift-occasion page, which is the conversion event
+we care about. Until App Store reviews cross ~500, we cannot rank top-10 for
+the broadest AI-vertical terms organically; the bridge pages target the
+adjacent long-tail terms where competition is thinner.
 
 ---
 
