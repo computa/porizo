@@ -53,6 +53,11 @@
   let playStartedLogged = false;
   let playCompletedLogged = false;
   let postPlayCtaViewed = false;
+  let ratingCtaViewed = false;
+  let ratingCtaBound = false;
+  let ratingCtaDismissBound = false;
+  const RATING_CTA_STORAGE_KEY = "porizo_rating_cta_seen_at";
+  const RATING_CTA_SUPPRESS_DAYS = 7;
   let webStreamToken = null;
   let memoryDeviceId = null;
   let audioPlayerEventsBound = false;
@@ -1765,6 +1770,85 @@
       postPlayDismissBound = true;
       dismissBtn.addEventListener("click", function () {
         hidePostPlayCta();
+        // After dismissing the install CTA, surface the lighter rating prompt.
+        // Brief delay so the user perceives the dismiss before the next overlay.
+        setTimeout(maybeShowRatingCta, 350);
+      });
+    }
+    setupRatingCta();
+  }
+
+  // ============ Rating CTA ============
+
+  function ratingCtaSuppressed() {
+    try {
+      var stored = window.localStorage.getItem(RATING_CTA_STORAGE_KEY);
+      if (!stored) return false;
+      var seenAt = parseInt(stored, 10);
+      if (!seenAt) return false;
+      var ageMs = Date.now() - seenAt;
+      var maxAgeMs = RATING_CTA_SUPPRESS_DAYS * 24 * 60 * 60 * 1000;
+      return ageMs < maxAgeMs;
+    } catch (_e) {
+      return false;
+    }
+  }
+
+  function markRatingCtaSeen() {
+    try {
+      window.localStorage.setItem(RATING_CTA_STORAGE_KEY, String(Date.now()));
+    } catch (_e) {
+      // localStorage unavailable (private mode, etc.) — silently skip suppression.
+    }
+  }
+
+  function showRatingCta() {
+    var cta = document.getElementById("rating-cta");
+    if (!cta) return;
+    cta.classList.add("visible");
+    cta.setAttribute("aria-hidden", "false");
+    if (!ratingCtaViewed) {
+      ratingCtaViewed = true;
+      markRatingCtaSeen();
+      safeRecordReceiverEvent("receiver_rating_cta_viewed", {
+        placement: "post_play_dismiss",
+      });
+    }
+  }
+
+  function hideRatingCta() {
+    var cta = document.getElementById("rating-cta");
+    if (!cta) return;
+    cta.classList.remove("visible");
+    cta.setAttribute("aria-hidden", "true");
+  }
+
+  function maybeShowRatingCta() {
+    if (ratingCtaSuppressed()) return;
+    showRatingCta();
+  }
+
+  function setupRatingCta() {
+    hideRatingCta();
+    var link = document.getElementById("rating-cta-link");
+    if (link && !ratingCtaBound) {
+      ratingCtaBound = true;
+      link.addEventListener("click", function () {
+        markRatingCtaSeen();
+        safeRecordReceiverEvent("receiver_rating_cta_clicked", {
+          placement: "post_play_dismiss",
+        });
+      });
+    }
+    var dismissBtn = document.getElementById("rating-cta-dismiss");
+    if (dismissBtn && !ratingCtaDismissBound) {
+      ratingCtaDismissBound = true;
+      dismissBtn.addEventListener("click", function () {
+        markRatingCtaSeen();
+        safeRecordReceiverEvent("receiver_rating_cta_dismissed", {
+          placement: "post_play_dismiss",
+        });
+        hideRatingCta();
       });
     }
   }
