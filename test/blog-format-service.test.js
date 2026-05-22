@@ -5,6 +5,7 @@ const {
   autoFormatArticleMarkdown,
   buildFormattedArticle,
   estimateReadingTimeMinutes,
+  extractFaqPairs,
 } = require("../src/services/blog-format-service");
 const { renderBlogPostPage } = require("../src/services/blog-render-service");
 
@@ -20,7 +21,11 @@ describe("blog format service", () => {
     const paragraphs = formatted.split("\n\n");
 
     assert.ok(paragraphs.length >= 2);
-    assert.ok(paragraphs.every((paragraph) => paragraph.split(/\s+/).filter(Boolean).length <= 55));
+    assert.ok(
+      paragraphs.every(
+        (paragraph) => paragraph.split(/\s+/).filter(Boolean).length <= 55,
+      ),
+    );
   });
 
   test("builds headings and reading-time metadata from formatted markdown", () => {
@@ -47,7 +52,10 @@ describe("blog format service", () => {
       ["why-this-works", "how-to-structure-it", "faq"],
     );
     assert.ok(article.readingTimeMinutes >= 1);
-    assert.equal(article.readingTimeMinutes, estimateReadingTimeMinutes(article.formattedMarkdown));
+    assert.equal(
+      article.readingTimeMinutes,
+      estimateReadingTimeMinutes(article.formattedMarkdown),
+    );
   });
 
   test("renders published articles with reading time, table of contents, and anchored headings", () => {
@@ -107,8 +115,95 @@ describe("blog format service", () => {
     });
 
     assert.match(html, /youtube-nocookie\.com\/embed\/dQw4w9WgXcQ/);
-    assert.match(html, /<audio controls preload="metadata" src="https:\/\/cdn\.porizo\.co\/audio\/example\.mp3">/);
+    assert.match(
+      html,
+      /<audio controls preload="metadata" src="https:\/\/cdn\.porizo\.co\/audio\/example\.mp3">/,
+    );
     assert.match(html, /Song example/);
     assert.match(html, /Preview clip/);
+  });
+
+  test("inline links do not double-escape apostrophes in their label", () => {
+    const html = renderBlogPostPage({
+      slug: "double-escape-regression",
+      title: "Double escape regression",
+      excerpt: "Apostrophes inside link labels must not double-escape.",
+      answer_summary: "",
+      body_markdown: [
+        "Turn it into a [Mother's Day song](/mothers-day-song) with Porizo.",
+      ].join("\n"),
+      tags: [],
+      author_name: "Ambrose",
+      published_at: "2026-05-22T00:00:00.000Z",
+      updated_at: "2026-05-22T00:00:00.000Z",
+    });
+
+    assert.doesNotMatch(html, /Mother&amp;#39;s Day song/);
+    assert.match(html, /Mother&#39;s Day song/);
+  });
+
+  test("BreadcrumbList JSON-LD is emitted on every post with Home -> Blog -> Post hierarchy", () => {
+    const html = renderBlogPostPage({
+      slug: "breadcrumb-test",
+      title: "Breadcrumb test post",
+      excerpt: "Any post should surface the breadcrumb schema.",
+      answer_summary: "",
+      body_markdown: "A short article body.",
+      tags: [],
+      author_name: "Ambrose",
+      published_at: "2026-05-22T00:00:00.000Z",
+      updated_at: "2026-05-22T00:00:00.000Z",
+    });
+
+    assert.match(html, /"@type":"BreadcrumbList"/);
+    assert.match(html, /"position":1,"name":"Home"/);
+    assert.match(html, /"position":2,"name":"Blog"/);
+    assert.match(html, /"position":3,"name":"Breadcrumb test post"/);
+    assert.match(html, /"item":"https:\/\/porizo\.co\/blog\/breadcrumb-test"/);
+  });
+
+  test("extractFaqPairs picks up question-style headings with paragraph answers", () => {
+    const markdown = [
+      "## How do I write a song for a birthday?",
+      "Start with one real memory the recipient will recognize, then build the chorus from the emotional core of that memory.",
+      "",
+      "## What occasions work best?",
+      "Birthdays, anniversaries, Mother's Day, Father's Day, and proposals all work because the recipient already expects something meaningful.",
+      "",
+      "## Pricing notes",
+      "This heading should be skipped because it is not phrased as a question.",
+    ].join("\n\n");
+
+    const pairs = extractFaqPairs(markdown);
+
+    assert.equal(pairs.length, 2);
+    assert.equal(pairs[0].question, "How do I write a song for a birthday?");
+    assert.match(pairs[0].answer, /one real memory/);
+    assert.equal(pairs[1].question, "What occasions work best?");
+  });
+
+  test("FAQPage JSON-LD is injected when the post has multiple question headings", () => {
+    const html = renderBlogPostPage({
+      slug: "faq-style-article",
+      title: "Song-gift FAQ article",
+      excerpt: "FAQ-style answers for personalized songs.",
+      answer_summary: "How to think about song-gift FAQs.",
+      body_markdown: [
+        "## How long does a personalized song take?",
+        "A free preview is ready in about ninety seconds and the full song finishes in a few minutes.",
+        "",
+        "## What occasions work best for a song gift?",
+        "Milestone birthdays, anniversaries, weddings, and family thank-yous all carry the emotional weight a song amplifies.",
+      ].join("\n\n"),
+      tags: [],
+      author_name: "Ambrose",
+      published_at: "2026-05-22T00:00:00.000Z",
+      updated_at: "2026-05-22T00:00:00.000Z",
+    });
+
+    assert.match(html, /"@type":"FAQPage"/);
+    assert.match(html, /"@type":"Question"/);
+    assert.match(html, /How long does a personalized song take\?/);
+    assert.match(html, /What occasions work best for a song gift\?/);
   });
 });

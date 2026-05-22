@@ -2,6 +2,7 @@
 
 const {
   buildFormattedArticle,
+  extractFaqPairs,
   slugifyFragment,
 } = require("./blog-format-service");
 
@@ -108,10 +109,12 @@ function renderInlineMarkdown(text) {
   html = html.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
   html = html.replace(/\*([^*]+)\*/g, "<em>$1</em>");
   html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, label, url) => {
+    // label and url come from already-escaped html (pass-1 escapeHtml above),
+    // so re-escaping would double-encode entities like &#39; into &amp;#39;.
     const href = safeUrl(url);
-    if (!href) return escapeHtml(label);
+    if (!href) return label;
     const external = /^https?:\/\//i.test(href);
-    return `<a href="${escapeHtml(href)}"${external ? ' target="_blank" rel="noopener noreferrer"' : ""}>${escapeHtml(label)}</a>`;
+    return `<a href="${href}"${external ? ' target="_blank" rel="noopener noreferrer"' : ""}>${label}</a>`;
   });
   return html;
 }
@@ -558,6 +561,48 @@ function renderBlogPostPage(post, { siteOrigin = "https://porizo.co" } = {}) {
     mainEntityOfPage: canonicalUrl,
   };
 
+  const faqPairs = extractFaqPairs(formattedMarkdown);
+  const faqJsonLd =
+    faqPairs.length >= 2
+      ? {
+          "@context": "https://schema.org",
+          "@type": "FAQPage",
+          mainEntity: faqPairs.map((pair) => ({
+            "@type": "Question",
+            name: pair.question,
+            acceptedAnswer: {
+              "@type": "Answer",
+              text: pair.answer,
+            },
+          })),
+        }
+      : null;
+
+  const breadcrumbJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: [
+      {
+        "@type": "ListItem",
+        position: 1,
+        name: "Home",
+        item: `${siteOrigin}/`,
+      },
+      {
+        "@type": "ListItem",
+        position: 2,
+        name: "Blog",
+        item: `${siteOrigin}/blog`,
+      },
+      {
+        "@type": "ListItem",
+        position: 3,
+        name: post.title,
+        item: canonicalUrl,
+      },
+    ],
+  };
+
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -579,6 +624,8 @@ function renderBlogPostPage(post, { siteOrigin = "https://porizo.co" } = {}) {
   <meta name="twitter:description" content="${escapeHtml(post.excerpt)}">
   ${heroImage ? `<meta name="twitter:image" content="${escapeHtml(heroImage)}">` : ""}
   <script type="application/ld+json">${JSON.stringify(articleJsonLd)}</script>
+  <script type="application/ld+json">${JSON.stringify(breadcrumbJsonLd)}</script>
+  ${faqJsonLd ? `<script type="application/ld+json">${JSON.stringify(faqJsonLd)}</script>` : ""}
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=DM+Sans:wght@400;500&display=swap" rel="stylesheet">

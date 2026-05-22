@@ -88,7 +88,10 @@ function splitSentenceFragments(sentence) {
   return fragments.length > 1 ? fragments : [sentence.trim()];
 }
 
-function splitParagraphIntoReadableChunks(paragraph, { targetWords = 42, maxWords = 55 } = {}) {
+function splitParagraphIntoReadableChunks(
+  paragraph,
+  { targetWords = 42, maxWords = 55 } = {},
+) {
   const normalized = paragraph.replace(/\s+/g, " ").trim();
   if (!normalized) return [];
   if (countWords(normalized) <= maxWords) return [normalized];
@@ -97,7 +100,11 @@ function splitParagraphIntoReadableChunks(paragraph, { targetWords = 42, maxWord
     .split(/(?<=[.!?])\s+(?=[A-Z0-9"'(])/)
     .map((sentence) => sentence.trim())
     .filter(Boolean)
-    .flatMap((sentence) => (countWords(sentence) > maxWords ? splitSentenceFragments(sentence) : [sentence]));
+    .flatMap((sentence) =>
+      countWords(sentence) > maxWords
+        ? splitSentenceFragments(sentence)
+        : [sentence],
+    );
 
   const chunks = [];
   let current = "";
@@ -111,7 +118,10 @@ function splitParagraphIntoReadableChunks(paragraph, { targetWords = 42, maxWord
       continue;
     }
 
-    if (currentWords + sentenceWords > maxWords && currentWords >= Math.max(20, Math.floor(targetWords * 0.7))) {
+    if (
+      currentWords + sentenceWords > maxWords &&
+      currentWords >= Math.max(20, Math.floor(targetWords * 0.7))
+    ) {
       chunks.push(current);
       current = sentence;
       currentWords = sentenceWords;
@@ -135,10 +145,7 @@ function autoFormatArticleMarkdown(markdown) {
     const firstLine = lines[0]?.trim() || "";
     if (/^#{1,6}\s+/.test(firstLine) && lines.length > 1) {
       formattedBlocks.push(firstLine);
-      const remainder = lines
-        .slice(1)
-        .join("\n")
-        .trim();
+      const remainder = lines.slice(1).join("\n").trim();
       if (remainder) {
         if (isStructuredBlock(remainder)) {
           formattedBlocks.push(remainder);
@@ -191,7 +198,9 @@ function estimateReadingTimeMinutes(markdown) {
 }
 
 function buildFormattedArticle(post) {
-  const formattedMarkdown = autoFormatArticleMarkdown(post?.body_markdown || "");
+  const formattedMarkdown = autoFormatArticleMarkdown(
+    post?.body_markdown || "",
+  );
   return {
     formattedMarkdown,
     headings: extractArticleHeadings(formattedMarkdown),
@@ -199,11 +208,53 @@ function buildFormattedArticle(post) {
   };
 }
 
+const INTERROGATIVE_PREFIX =
+  /^(how|what|why|when|where|who|can|should|do|does|did|is|are|will|would|could|may|might)\b/i;
+
+function looksLikeQuestion(text) {
+  const clean = stripMarkdown(text);
+  if (!clean) return false;
+  if (clean.endsWith("?")) return true;
+  return INTERROGATIVE_PREFIX.test(clean);
+}
+
+function extractFaqPairs(markdown, { minAnswerWords = 6, maxPairs = 10 } = {}) {
+  const blocks = splitIntoBlocks(markdown);
+  const pairs = [];
+
+  for (let i = 0; i < blocks.length && pairs.length < maxPairs; i++) {
+    const headingMatch = blocks[i].match(/^(#{2,3})\s+(.+)$/);
+    if (!headingMatch) continue;
+    const questionText = stripMarkdown(headingMatch[2]);
+    if (!looksLikeQuestion(questionText)) continue;
+
+    for (let j = i + 1; j < blocks.length; j++) {
+      const candidate = blocks[j];
+      if (/^#{1,6}\s+/.test(candidate)) break;
+      if (isStructuredBlock(candidate)) continue;
+      const answer = stripMarkdown(candidate);
+      if (answer && countWords(answer) >= minAnswerWords) {
+        pairs.push({
+          question: questionText.endsWith("?")
+            ? questionText
+            : `${questionText}?`,
+          answer,
+        });
+        break;
+      }
+    }
+  }
+
+  return pairs;
+}
+
 module.exports = {
   autoFormatArticleMarkdown,
   buildFormattedArticle,
   estimateReadingTimeMinutes,
   extractArticleHeadings,
+  extractFaqPairs,
+  looksLikeQuestion,
   slugifyFragment,
   splitParagraphIntoReadableChunks,
   stripMarkdown,
