@@ -41,6 +41,9 @@ const publicPages = {
   weddingSongGift: loadPublicFile("wedding-song-gift.html", {
     warnOnMissing: true,
   }),
+  giftsIndex: loadPublicFile("gifts/index.html", {
+    warnOnMissing: true,
+  }),
   terms: loadPublicFile("legal/terms.html", { warnOnMissing: true }),
   privacy: loadPublicFile("legal/privacy.html", { warnOnMissing: true }),
 };
@@ -706,6 +709,9 @@ function registerLegalRoutes(app, { db } = {}) {
   );
   app.get("/wedding-song-gift", async (_request, reply) =>
     respondMarketingHtml(reply, publicPages.weddingSongGift),
+  );
+  app.get("/gifts/", async (_request, reply) =>
+    respondMarketingHtml(reply, publicPages.giftsIndex),
   );
 
   // App download redirect helper for share flows

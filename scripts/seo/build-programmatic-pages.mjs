@@ -28,6 +28,7 @@ const OUT_DIR = path.join(ROOT, "public", "gifts");
 const SITEMAP = path.join(ROOT, "public", "sitemap.xml");
 
 const SITE_BASE = "https://porizo.co";
+const APP_STORE_ID = "6758205028";
 const TODAY = new Date().toISOString().slice(0, 10);
 
 // ---------------------------------------------------------------------------
@@ -502,7 +503,7 @@ const CELLS = [
     exampleHeadline: "From one inside joke to a 10th anniversary song.",
     exampleStarRow: "For a 10th wedding anniversary",
     exampleLyric:
-      `"You still make coffee like the kitchen is yours alone / you still text \"on my way\" from two blocks out / and ten years of the same one inside joke / has somehow turned into the love song I didn't know I was writing."`,
+      `"You still make coffee like the kitchen is yours alone / you still text "on my way" from two blocks out / and ten years of the same one inside joke / has somehow turned into the love song I didn't know I was writing."`,
     exampleStyle: "Indie folk · 75 seconds · sung in the gifter's voice",
     exampleNote:
       'The lyric came from one detail: "He texts \'on my way\' from two blocks from home, every single day." Porizo wrote a verse around the ritual and a chorus about ten years of small loyalties.',
@@ -1890,6 +1891,7 @@ function renderJSONLD(cell) {
 
 function renderHTML(cell) {
   const downloadUrl = `/download?utm_source=seo&utm_medium=programmatic&utm_campaign=${cell.utmCampaign}&utm_content=hero`;
+  const smartBannerUrl = `${SITE_BASE}${downloadUrl}`.replace(/&/g, "&amp;");
   const ogTitle = cell.metaTitle.replace(" | Porizo", "");
   const moments = cell.bestForMoments
     .map((m) => `          <li>${m}</li>`)
@@ -1911,6 +1913,7 @@ function renderHTML(cell) {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="description" content="${cell.metaDescription}">
   <meta name="theme-color" content="#FBF7F2">
+  <meta name="apple-itunes-app" content="app-id=${APP_STORE_ID}, app-argument=${smartBannerUrl}">
   <title>${cell.metaTitle}</title>
   <link rel="canonical" href="${SITE_BASE}/gifts/${cell.slug}">
   <meta property="og:title" content="${ogTitle}">
@@ -2035,21 +2038,145 @@ ${faqs}
 `;
 }
 
+function renderIndexHTML(cells) {
+  const giftLinks = cells
+    .map((cell) => {
+      const title = cell.metaTitle.replace(" | Porizo", "");
+      return `            <li><a href="/gifts/${cell.slug}">${title}</a><span>${cell.metaDescription}</span></li>`;
+    })
+    .join("\n");
+  const itemList = cells.map((cell, index) => ({
+    "@type": "ListItem",
+    position: index + 1,
+    url: `${SITE_BASE}/gifts/${cell.slug}`,
+    name: cell.metaTitle.replace(" | Porizo", ""),
+  }));
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Browse personalized song gift ideas for birthdays, anniversaries, Father's Day, Mother's Day, weddings, graduations, love, apologies, and long-distance moments.">
+  <meta name="theme-color" content="#FBF7F2">
+  <meta name="apple-itunes-app" content="app-id=${APP_STORE_ID}, app-argument=${SITE_BASE}/download?utm_source=seo&amp;utm_medium=smart_banner&amp;utm_campaign=gifts_index">
+  <title>Personalized Song Gift Ideas | Porizo</title>
+  <link rel="canonical" href="${SITE_BASE}/gifts/">
+  <meta property="og:title" content="Personalized Song Gift Ideas | Porizo">
+  <meta property="og:description" content="Find personalized song gift ideas for birthdays, anniversaries, Father's Day, Mother's Day, weddings, graduations, love, apologies, and long-distance moments.">
+  <meta property="og:url" content="${SITE_BASE}/gifts/">
+  <meta property="og:image" content="${SITE_BASE}/assets/og-song.png">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Porizo">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Personalized Song Gift Ideas | Porizo">
+  <meta name="twitter:description" content="Browse personalized song gift ideas for every relationship and occasion.">
+  <meta name="twitter:image" content="${SITE_BASE}/assets/og-song.png">
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles/main.css">
+  <script type="application/ld+json">
+${JSON.stringify({
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "CollectionPage",
+      "@id": `${SITE_BASE}/gifts/#collection`,
+      url: `${SITE_BASE}/gifts/`,
+      name: "Personalized Song Gift Ideas",
+      description:
+        "Personalized song gift ideas by occasion and relationship.",
+      isPartOf: { "@id": `${SITE_BASE}/#website` },
+    },
+    {
+      "@type": "ItemList",
+      "@id": `${SITE_BASE}/gifts/#itemlist`,
+      itemListElement: itemList,
+    },
+    {
+      "@type": "BreadcrumbList",
+      itemListElement: [
+        { "@type": "ListItem", position: 1, name: "Home", item: `${SITE_BASE}/` },
+        { "@type": "ListItem", position: 2, name: "Gifts", item: `${SITE_BASE}/gifts/` },
+      ],
+    },
+  ],
+}, null, 2)}
+  </script>
+</head>
+<body>
+  <nav class="nav nav--static">
+    <div class="container">
+      <div class="nav__inner">
+        <a href="/" class="nav__logo"><span class="nav__logo-text">Porizo</span></a>
+        <div class="nav__links">
+          <a href="/birthday-song-maker" class="nav__link">Birthday</a>
+          <a href="/fathers-day-song" class="nav__link">Father's Day</a>
+          <a href="/anniversary-song-gift" class="nav__link">Anniversary</a>
+        </div>
+        <a href="/download?utm_source=seo&utm_medium=programmatic&utm_campaign=gifts_index&utm_content=nav" class="nav__cta">Get the app</a>
+      </div>
+    </div>
+  </nav>
+  <main class="occasion-page">
+    <section class="occasion-hero">
+      <div class="container">
+        <div class="occasion-hero__grid">
+          <div>
+            <span class="eyebrow">Personalized song gift ideas</span>
+            <h1>Find the right song gift for the moment.</h1>
+            <p class="lede">Browse Porizo gift pages by occasion and relationship. Each page shows when a song works, what memory to start from, and how to turn it into a short personalized song.</p>
+            <div class="occasion-hero__actions">
+              <a href="/download?utm_source=seo&utm_medium=programmatic&utm_campaign=gifts_index&utm_content=hero" class="btn btn--primary">Create a song</a>
+              <a href="/#how" class="btn btn--ghost">How it works</a>
+            </div>
+          </div>
+          <div class="occasion-card" aria-label="Personalized song gift categories">
+            <div class="occasion-card__tag">Birthdays · Family · Love</div>
+            <h2>One real memory becomes the gift.</h2>
+            <p>"The inside joke, the Sunday drive, the thing you never quite said out loud."</p>
+            <div class="occasion-card__wave"><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+    <section class="section section--tight">
+      <div class="container container--narrow">
+        <span class="eyebrow">Browse ideas</span>
+        <h2 style="margin-top: var(--s-4);">Personalized song gift pages</h2>
+        <ul style="margin-top: var(--s-5); line-height: 1.6;">
+${giftLinks}
+        </ul>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
+`;
+}
+
 // ---------------------------------------------------------------------------
 // Sitemap update
 // ---------------------------------------------------------------------------
 
 async function updateSitemap(slugs) {
   const xml = await fs.readFile(SITEMAP, "utf8");
-  const newEntries = slugs
-    .map(
+  const newEntries = [
+    `  <url><loc>${SITE_BASE}/gifts/</loc><lastmod>${TODAY}</lastmod><changefreq>weekly</changefreq><priority>0.8</priority></url>`,
+    ...slugs.map(
       (s) => `  <url><loc>${SITE_BASE}/gifts/${s}</loc><lastmod>${TODAY}</lastmod><changefreq>weekly</changefreq><priority>0.7</priority></url>`,
-    )
+    ),
+  ]
     .join("\n");
 
-  // Remove any existing /gifts/ entries, then insert before </urlset>
+  // Remove any existing /gifts/ entries, then insert before </urlset>.
   const cleaned = xml.replace(/^\s*<url><loc>https:\/\/porizo\.co\/gifts\/[^<]*<\/loc>.*?<\/url>\s*$/gm, "");
-  const updated = cleaned.replace("</urlset>", `${newEntries}\n</urlset>`);
+  const updated = cleaned
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/\s*<\/urlset>/, `\n${newEntries}\n</urlset>`);
   await fs.writeFile(SITEMAP, updated);
 }
 
@@ -2068,6 +2195,9 @@ async function main() {
     console.log(`  ✓ wrote ${path.relative(ROOT, filepath)} (${html.length} bytes)`);
     count += 1;
   }
+  const indexPath = path.join(OUT_DIR, "index.html");
+  await fs.writeFile(indexPath, renderIndexHTML(CELLS));
+  console.log(`  ✓ wrote ${path.relative(ROOT, indexPath)}`);
 
   await updateSitemap(CELLS.map((c) => c.slug));
   console.log(`  ✓ updated sitemap.xml with ${count} entries`);

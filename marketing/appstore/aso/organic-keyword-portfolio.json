@@ -1,0 +1,119 @@
+{
+  "schema_version": "2026-05-22",
+  "app_store_id": 6758205028,
+  "primary_storefronts": ["us", "gb", "au", "ca"],
+  "positioning": {
+    "primary_lane": "personalized song gifts by occasion and relationship",
+    "support_lane": "AI song generation only when it supports gift intent",
+    "metadata_package": {
+      "name": "Porizo: Song Gift Maker",
+      "subtitle": "Birthday, Love & Wedding",
+      "keyword_field_us_ca": "personalized,custom,voice,mom,dad,anniversary,fathers,mothers,day,husband,wife,graduation,ai",
+      "keyword_field_gb_au": "personalised,custom,voice,mum,dad,anniversary,fathers,mothers,day,husband,wife,graduation,ai"
+    }
+  },
+  "lanes": [
+    {
+      "id": "defend_exact_gift_song",
+      "surface": "app_store",
+      "terms": [
+        "personalized song gift",
+        "birthday song gift",
+        "anniversary song gift",
+        "custom song gift",
+        "song gift for dad",
+        "song gift for mom"
+      ]
+    },
+    {
+      "id": "attack_direct_gift_song_competitors",
+      "surface": "app_store",
+      "terms": ["song gift", "gift song", "custom love song gift"]
+    },
+    {
+      "id": "seasonal_occasion",
+      "surface": "app_store_and_web",
+      "terms": [
+        "father's day song",
+        "father's day song for dad",
+        "mother's day song",
+        "mother's day gift song",
+        "birthday song",
+        "birthday song for dad",
+        "birthday song for mom",
+        "graduation song for son",
+        "graduation song for daughter"
+      ]
+    },
+    {
+      "id": "relationship_long_tail",
+      "surface": "web_first",
+      "terms": [
+        "song for husband",
+        "song for wife",
+        "song for boyfriend",
+        "song for girlfriend",
+        "anniversary song for wife",
+        "love song for boyfriend",
+        "apology song for girlfriend"
+      ]
+    },
+    {
+      "id": "ai_support",
+      "surface": "web_bridge_and_tracking",
+      "terms": [
+        "ai song for dad",
+        "ai song for mom",
+        "personalized ai song",
+        "ai birthday song",
+        "ai song generator",
+        "ai song maker",
+        "ai music generator"
+      ]
+    },
+    {
+      "id": "general_gift_web_capture",
+      "surface": "web_only",
+      "terms": [
+        "birthday gift ideas",
+        "birthday gift",
+        "personalized gift",
+        "music gift",
+        "gifts for mom",
+        "unique mother's day gift"
+      ]
+    }
+  ],
+  "competitors": {
+    "direct_gift_song": [
+      { "name": "WishAI:Gift Song & Music Maker", "app_store_id": 6756296198 },
+      { "name": "GiftSong: AI Song Maker", "app_store_id": 6759814466 },
+      { "name": "GiftSong", "app_store_id": 6761984057 },
+      { "name": "WishSong: Gift Song", "app_store_id": 6766134624 },
+      { "name": "SONGYFT", "app_store_id": 1552364144 },
+      { "name": "Songly: AI Songs & Greetings", "app_store_id": 6747972309 }
+    ],
+    "ai_generator": [
+      { "name": "Suno - AI Songs & Music", "app_store_id": 6480136315 },
+      { "name": "AI Song Music Generator: Muzio", "app_store_id": 6502530415 },
+      { "name": "MyTunes : AI Music Generator", "app_store_id": 6447001239 },
+      { "name": "AI Song Generator - Zona", "app_store_id": 6499261254 },
+      { "name": "AI Song Generator: Mozart", "app_store_id": 6502656704 },
+      { "name": "Donna AI Song & Music Maker", "app_store_id": 6482289804 }
+    ],
+    "general_gift": [
+      { "name": "Giftful - Wishlist & Registry", "app_store_id": 1450175505 },
+      { "name": "Zazzle: Custom Gifts & Cards", "app_store_id": 736836912 },
+      { "name": "Givingli: Send Gifts & Cards", "app_store_id": 1386635163 },
+      { "name": "TouchNote Custom Cards & Gifts", "app_store_id": 325525543 },
+      { "name": "FreePrints Gifts", "app_store_id": 1483539370 }
+    ]
+  },
+  "weekly_success_criteria": [
+    "gift song moves from #8 toward top 5",
+    "song gift moves from #4 toward top 3",
+    "father's day song moves from #106 into top 50 after event and metadata are live",
+    "App Store Search impressions increase week over week",
+    "organic web /download events are attributable by campaign"
+  ]
+}

@@ -355,6 +355,7 @@ function renderBlogIndexPage(posts, { siteOrigin = "https://porizo.co" } = {}) {
   <title>Porizo Blog</title>
   <meta name="description" content="Porizo articles about personalized songs, gifting, storytelling, and creating memorable moments.">
   <meta name="theme-color" content="#FBF7F2">
+  <meta name="apple-itunes-app" content="app-id=6758205028, app-argument=${escapeHtml(siteOrigin)}/download?utm_source=seo&amp;utm_medium=smart_banner&amp;utm_campaign=blog">
   <link rel="canonical" href="${escapeHtml(siteOrigin)}/blog">
 
   <meta property="og:type" content="website">
@@ -473,7 +474,7 @@ function renderBlogIndexPage(posts, { siteOrigin = "https://porizo.co" } = {}) {
           <a href="/blog" class="nav__link">Blog</a>
           <a href="/support" class="nav__link nav__link--secondary">Support</a>
         </div>
-        <a href="/download" class="nav__cta">Get the app</a>
+        <a href="/download?utm_source=seo&utm_medium=blog&utm_campaign=blog_index&utm_content=nav" class="nav__cta">Get the app</a>
       </div>
     </div>
   </nav>
@@ -506,7 +507,7 @@ function renderBlogIndexPage(posts, { siteOrigin = "https://porizo.co" } = {}) {
           <h4>Product</h4>
           <a href="/pricing">Pricing</a>
           <a href="/#how">How it works</a>
-          <a href="/download">Download</a>
+          <a href="/download?utm_source=seo&utm_medium=blog&utm_campaign=blog_index&utm_content=footer">Download</a>
         </div>
         <div class="footer__col">
           <h4>Company</h4>
@@ -611,6 +612,7 @@ function renderBlogPostPage(post, { siteOrigin = "https://porizo.co" } = {}) {
   <title>${escapeHtml(post.title)}</title>
   <meta name="description" content="${escapeHtml(post.excerpt)}">
   <meta name="theme-color" content="#FBF7F2">
+  <meta name="apple-itunes-app" content="app-id=6758205028, app-argument=${escapeHtml(siteOrigin)}/download?utm_source=seo&amp;utm_medium=smart_banner&amp;utm_campaign=blog&amp;utm_content=${escapeHtml(post.slug)}">
   <link rel="canonical" href="${escapeHtml(canonicalUrl)}">
   <link rel="icon" type="image/x-icon" href="/favicon.ico">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
@@ -694,7 +696,7 @@ function renderBlogPostPage(post, { siteOrigin = "https://porizo.co" } = {}) {
           <a href="/blog" class="nav__link">Blog</a>
           <a href="/support" class="nav__link nav__link--secondary">Support</a>
         </div>
-        <a href="/download" class="nav__cta">Get the app</a>
+        <a href="/download?utm_source=seo&utm_medium=blog&utm_campaign=${escapeHtml(post.slug)}&utm_content=nav" class="nav__cta">Get the app</a>
       </div>
     </div>
   </nav>
@@ -726,7 +728,7 @@ function renderBlogPostPage(post, { siteOrigin = "https://porizo.co" } = {}) {
           <h4>Product</h4>
           <a href="/pricing">Pricing</a>
           <a href="/#how">How it works</a>
-          <a href="/download">Download</a>
+          <a href="/download?utm_source=seo&utm_medium=blog&utm_campaign=${escapeHtml(post.slug)}&utm_content=footer">Download</a>
         </div>
         <div class="footer__col">
           <h4>Company</h4>

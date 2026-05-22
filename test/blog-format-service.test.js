@@ -7,7 +7,10 @@ const {
   estimateReadingTimeMinutes,
   extractFaqPairs,
 } = require("../src/services/blog-format-service");
-const { renderBlogPostPage } = require("../src/services/blog-render-service");
+const {
+  renderBlogIndexPage,
+  renderBlogPostPage,
+} = require("../src/services/blog-render-service");
 
 describe("blog format service", () => {
   test("splits dense prose into shorter readable paragraphs", () => {
@@ -87,6 +90,30 @@ describe("blog format service", () => {
     assert.match(html, /min read/);
     assert.match(html, /id="why-readable-formatting-matters"/);
     assert.match(html, /href="#how-to-break-up-sections"/);
+  });
+
+  test("blog index and post pages expose attributed install paths", () => {
+    const post = {
+      slug: "personalized-song-gift-guide",
+      title: "Personalized song gift guide",
+      excerpt: "How to make a personalized song gift.",
+      answer_summary: "Start with one specific memory.",
+      body_markdown: "A short article body.",
+      tags: ["seo"],
+      author_name: "Ambrose",
+      published_at: "2026-05-22T00:00:00.000Z",
+      updated_at: "2026-05-22T00:00:00.000Z",
+    };
+
+    const indexHtml = renderBlogIndexPage([post]);
+    assert.match(indexHtml, /name="apple-itunes-app"/);
+    assert.match(indexHtml, /utm_medium=blog/);
+    assert.match(indexHtml, /utm_campaign=blog_index/);
+
+    const postHtml = renderBlogPostPage(post);
+    assert.match(postHtml, /name="apple-itunes-app"/);
+    assert.match(postHtml, /utm_medium=blog/);
+    assert.match(postHtml, /utm_campaign=personalized-song-gift-guide/);
   });
 
   test("renders explicit youtube and audio embed directives safely", () => {

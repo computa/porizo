@@ -1,6 +1,8 @@
 # App Store Localizations — Draft (not yet pushed to ASC)
 
 Generated 2026-05-22 alongside the homepage/blog SEO push.
+Updated 2026-05-22 to pivot App Store search relevance from the broad
+AI-generator lane to the organic gift/occasion lane.
 
 The `en-CA/`, `en-GB/`, and `en-AU/` directories contain draft localizations
 adapted from `en-US/`. They are NOT yet pushed to App Store Connect. Review
@@ -20,6 +22,19 @@ asc localizations create --app 6758205028 --locale en-CA
 asc localizations create --app 6758205028 --locale en-GB
 asc localizations create --app 6758205028 --locale en-AU
 ```
+
+## Current ASO Package
+
+| Field    | Value |
+| -------- | ----- |
+| Name     | `Porizo: Song Gift Maker` |
+| Subtitle | `Birthday, Love & Wedding` |
+| en-US / en-CA keywords | `personalized,custom,voice,mom,dad,anniversary,fathers,mothers,day,husband,wife,graduation,ai` |
+| en-GB / en-AU keywords | `personalised,custom,voice,mum,dad,anniversary,fathers,mothers,day,husband,wife,graduation,ai` |
+
+Rationale: keep `song`, `gift`, and `maker` in the title, put the highest
+occasion-intent words in the subtitle, and keep `ai` as support metadata
+without making the AI-generator lane the main promise.
 
 ## en-CA (Canadian English)
 
@@ -41,7 +56,7 @@ Father's Day promo + release-notes copy carries through unchanged.
 
 | Field            | en-US                          | en-GB                                  |
 | ---------------- | ------------------------------ | -------------------------------------- |
-| subtitle         | Personal AI Song & Voice Gifts | Personal**ised** AI Song & Voice Gifts |
+| subtitle         | Birthday, Love & Wedding       | Birthday, Love & Wedding               |
 | keywords         | …personalized…mom…             | …personal**ised**…**mum**…             |
 | promotional_text | …Father's Day, **June 15**.    | …Father's Day, **15 June**.            |
 | release_notes    | …send before **June 15**.      | …send before **15 June**.              |
@@ -58,7 +73,7 @@ which is identical in both dialects.
 
 | Field            | en-US                          | en-AU                                  |
 | ---------------- | ------------------------------ | -------------------------------------- |
-| subtitle         | Personal AI Song & Voice Gifts | Personal**ised** AI Song & Voice Gifts |
+| subtitle         | Birthday, Love & Wedding       | Birthday, Love & Wedding               |
 | keywords         | …personalized…mom…             | …personal**ised**…**mum**…             |
 | promotional_text | Father's Day, June 15 framing  | **Occasion-neutral** evergreen copy    |
 | release_notes    | Father's Day, June 15 framing  | **Occasion-neutral** evergreen copy    |

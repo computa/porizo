@@ -2,6 +2,7 @@
 
 const crypto = require("crypto");
 const { nowIso, toJson } = require("../utils/common");
+const { loadPublicFile } = require("../utils/public-files");
 const { getFeatureFlag } = require("../services/feature-flags");
 const {
   deleteGiftFundedReservationContent,
@@ -15,6 +16,16 @@ const {
 const { createGiftOpsMonitor } = require("../services/gift-ops-monitoring");
 
 const ACTIVE_RESERVATION_STATUSES = new Set(["reserved", "content_ready"]);
+const publicGiftIndexPage = loadPublicFile("gifts/index.html", {
+  warnOnMissing: true,
+});
+const publicGiftFallbackPage =
+  '<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Porizo Gifts</title></head><body><main><h1>Porizo Gifts</h1><p>Page unavailable.</p></main></body></html>';
+
+function acceptsHtml(request) {
+  const accept = String(request.headers?.accept || "").toLowerCase();
+  return accept.includes("text/html") && !accept.includes("application/json");
+}
 
 function registerGiftRoutes(app, {
   db,
@@ -1491,6 +1502,13 @@ function registerGiftRoutes(app, {
   });
 
   app.get("/gifts", async (request, reply) => {
+    if (acceptsHtml(request)) {
+      return reply
+        .type("text/html; charset=utf-8")
+        .header("Cache-Control", "public, max-age=300")
+        .send(publicGiftIndexPage || publicGiftFallbackPage);
+    }
+
     const userId = await requireUserId(request, reply);
     if (!userId) return;
 
