@@ -31,6 +31,7 @@ const { startCleanupJob } = require("./jobs/cleanup");
 const { startSubscriptionSyncJob } = require("./jobs/subscription-sync");
 const { startGiftDispatchJob } = require("./jobs/gift-dispatch");
 const { startColdEmailJob } = require("./jobs/cold-email-daily");
+const { startShareFollowupsJob } = require("./jobs/share-followups-daily");
 const { startJobRunner, cleanStaleStepFiles } = require("./workflows/runner");
 // Billing services
 const {
@@ -261,13 +262,10 @@ function registerHostAllowlist(app, { appConfig, allowedHosts }) {
     );
 
     if (mode === "enforce") {
-      return reply
-        .code(421)
-        .type("application/json")
-        .send({
-          error: "MISDIRECTED_REQUEST",
-          message: "Host is not configured for this service",
-        });
+      return reply.code(421).type("application/json").send({
+        error: "MISDIRECTED_REQUEST",
+        message: "Host is not configured for this service",
+      });
     }
   });
 }
@@ -5459,6 +5457,14 @@ async function start() {
     log: (msg) => app.log.info(msg),
   });
 
+  // Share follow-up email job: polls share_followups every 5 min for rows
+  // whose send_at has arrived and dispatches the matching stage email.
+  const shareFollowupsJob = startShareFollowupsJob({
+    db,
+    intervalMs: 5 * 60 * 1000,
+    log: (msg) => app.log.info(msg),
+  });
+
   // Start OneSignal tag sync job (updates user segments daily)
   const tagSyncJob = startTagSyncJob({
     db,
@@ -5486,6 +5492,7 @@ async function start() {
     subscriptionSyncJob.stop();
     giftDispatchJob.stop();
     coldEmailJob.stop();
+    shareFollowupsJob.stop();
     tagSyncJob.stop();
     clearInterval(giftReservationExpiryTimer);
     if (jobRunner) {

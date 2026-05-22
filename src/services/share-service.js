@@ -4,6 +4,7 @@ const crypto = require("crypto");
 const { newUuid, newShareId } = require("../utils/ids");
 const { nowIso } = require("../utils/common");
 const { dbGet, dbRun } = require("../utils/db-adapter");
+const { computeFollowupSchedule } = require("./share-followup-service");
 
 const LIFETIME_SHARE_EXPIRES_AT = "9999-12-31T23:59:59.000Z";
 
@@ -34,11 +35,17 @@ async function healAndCheckShare(db, share, table, activeStatus) {
   if (share.status === "expired" && isLifetimeShare(share)) {
     const isBound = share.bound_device_id || share.bound_user_id;
     share.status = isBound ? "claimed" : activeStatus;
-    await dbRun(db, `UPDATE ${table} SET status = ? WHERE id = ?`, [share.status, share.id]);
+    await dbRun(db, `UPDATE ${table} SET status = ? WHERE id = ?`, [
+      share.status,
+      share.id,
+    ]);
   }
   if (!isShareUsable(share)) {
     if (share.status !== "expired") {
-      await dbRun(db, `UPDATE ${table} SET status = ? WHERE id = ?`, ["expired", share.id]);
+      await dbRun(db, `UPDATE ${table} SET status = ? WHERE id = ?`, [
+        "expired",
+        share.id,
+      ]);
     }
     return false;
   }
@@ -48,13 +55,16 @@ async function healAndCheckShare(db, share, table, activeStatus) {
 async function upgradeToLifetime(db, share, table, activeStatus) {
   if (share.status === "revoked" || isLifetimeShare(share)) return share;
   const isBound = share.bound_device_id || share.bound_user_id;
-  const nextStatus = share.status === "expired"
-    ? (isBound ? "claimed" : activeStatus)
-    : (share.status || activeStatus);
+  const nextStatus =
+    share.status === "expired"
+      ? isBound
+        ? "claimed"
+        : activeStatus
+      : share.status || activeStatus;
   await dbRun(
     db,
     `UPDATE ${table} SET share_type = ?, expires_at = ?, status = ? WHERE id = ?`,
-    ["lifetime", LIFETIME_SHARE_EXPIRES_AT, nextStatus, share.id]
+    ["lifetime", LIFETIME_SHARE_EXPIRES_AT, nextStatus, share.id],
   );
   share.share_type = "lifetime";
   share.expires_at = LIFETIME_SHARE_EXPIRES_AT;
@@ -88,9 +98,17 @@ async function createOrGetShareToken({
   attribution = {},
 }) {
   // Check for existing valid token (idempotent)
-  const track = await dbGet(db, "SELECT share_token_id FROM tracks WHERE id = ?", [trackId]);
+  const track = await dbGet(
+    db,
+    "SELECT share_token_id FROM tracks WHERE id = ?",
+    [trackId],
+  );
   if (track?.share_token_id) {
-    const existing = await dbGet(db, "SELECT * FROM share_tokens WHERE id = ?", [track.share_token_id]);
+    const existing = await dbGet(
+      db,
+      "SELECT * FROM share_tokens WHERE id = ?",
+      [track.share_token_id],
+    );
     if (existing && existing.status !== "revoked") {
       if (!isLifetimeShare(existing) && !isDemoShare(existing)) {
         await upgradeToLifetime(db, existing, "share_tokens", "unbound");
@@ -117,7 +135,7 @@ async function createOrGetShareToken({
   await dbRun(
     db,
     "DELETE FROM share_tokens WHERE track_id = ? AND status IN ('expired', 'revoked')",
-    [trackId]
+    [trackId],
   );
 
   await dbRun(
@@ -130,33 +148,55 @@ async function createOrGetShareToken({
       userId,
       "unbound",
       "lifetime",
-      null, null, null, null,
-      1, 1,
+      null,
+      null,
+      null,
+      null,
+      1,
+      1,
       expiresAt,
       nowIso(),
-      null, 0,
-      streamKeyId, streamKey, claimPin, 0,
+      null,
+      0,
+      streamKeyId,
+      streamKey,
+      claimPin,
+      0,
       attribution.utmSource || null,
       attribution.utmMedium || null,
       attribution.utmCampaign || null,
       attribution.referrer || null,
       attribution.ip || null,
       attribution.userAgent || null,
-    ]
+    ],
   );
 
-  await dbRun(db, "UPDATE tracks SET share_token_id = ?, updated_at = ? WHERE id = ?", [
-    shareId,
-    nowIso(),
-    trackId,
-  ]);
+  await dbRun(
+    db,
+    "UPDATE tracks SET share_token_id = ?, updated_at = ? WHERE id = ?",
+    [shareId, nowIso(), trackId],
+  );
+
+  // Schedule sender re-engagement / rating-ask follow-up emails.
+  // Non-fatal: a scheduling failure must never block the share itself.
+  try {
+    await scheduleShareFollowups(db, shareId, userId);
+  } catch (err) {
+    console.warn(
+      `[ShareService] follow-up scheduling failed (non-fatal):`,
+      err?.message,
+    );
+  }
 
   // Pre-generate share.mp4 for social crawlers (non-fatal, optional)
   if (ensureShareMp4) {
     try {
       await ensureShareMp4();
     } catch (err) {
-      console.warn(`[ShareService] Share mp4 pre-generation failed (non-fatal):`, err?.message);
+      console.warn(
+        `[ShareService] Share mp4 pre-generation failed (non-fatal):`,
+        err?.message,
+      );
     }
   }
 
@@ -177,9 +217,17 @@ async function ensurePoemShareToken({
   buildShareUrl,
   attribution = {},
 }) {
-  const poem = await dbGet(db, "SELECT share_token_id FROM poems WHERE id = ?", [poemId]);
+  const poem = await dbGet(
+    db,
+    "SELECT share_token_id FROM poems WHERE id = ?",
+    [poemId],
+  );
   if (poem?.share_token_id) {
-    const existing = await dbGet(db, "SELECT * FROM poem_share_tokens WHERE id = ?", [poem.share_token_id]);
+    const existing = await dbGet(
+      db,
+      "SELECT * FROM poem_share_tokens WHERE id = ?",
+      [poem.share_token_id],
+    );
     if (existing && existing.status !== "revoked") {
       if (!isLifetimeShare(existing) && !isDemoShare(existing)) {
         await upgradeToLifetime(db, existing, "poem_share_tokens", "active");
@@ -202,7 +250,7 @@ async function ensurePoemShareToken({
   await dbRun(
     db,
     "DELETE FROM poem_share_tokens WHERE poem_id = ? AND status IN ('expired', 'revoked')",
-    [poemId]
+    [poemId],
   );
 
   await dbRun(
@@ -210,8 +258,7 @@ async function ensurePoemShareToken({
     `INSERT INTO poem_share_tokens (
       id, poem_id, creator_id, status, share_type, claim_pin, claim_attempts, allow_save, expires_at,
       created_at, access_count, utm_source, utm_medium, utm_campaign, referrer, created_ip, created_user_agent
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       shareId,
       poemId,
@@ -230,14 +277,14 @@ async function ensurePoemShareToken({
       attribution.referrer || null,
       attribution.ip || null,
       attribution.userAgent || null,
-    ]
+    ],
   );
 
-  await dbRun(db, "UPDATE poems SET share_token_id = ?, updated_at = ? WHERE id = ?", [
-    shareId,
-    nowIso(),
-    poemId,
-  ]);
+  await dbRun(
+    db,
+    "UPDATE poems SET share_token_id = ?, updated_at = ? WHERE id = ?",
+    [shareId, nowIso(), poemId],
+  );
 
   return {
     shareId,
@@ -248,6 +295,31 @@ async function ensurePoemShareToken({
   };
 }
 
+/**
+ * Insert the 3-stage share-followup schedule for a freshly created share.
+ * Uses ON CONFLICT DO NOTHING so re-running for an already-scheduled share
+ * is a safe no-op (idempotent via the UNIQUE(share_token_id, stage)
+ * constraint).
+ */
+async function scheduleShareFollowups(db, shareTokenId, senderUserId) {
+  const scheduled = computeFollowupSchedule(new Date());
+  for (const entry of scheduled) {
+    await dbRun(
+      db,
+      `INSERT INTO share_followups (id, share_token_id, sender_user_id, stage, send_at)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT (share_token_id, stage) DO NOTHING`,
+      [
+        newUuid(),
+        shareTokenId,
+        senderUserId,
+        entry.stage,
+        entry.sendAt.toISOString(),
+      ],
+    );
+  }
+}
+
 module.exports = {
   LIFETIME_SHARE_EXPIRES_AT,
   isLifetimeShare,
@@ -255,4 +327,5 @@ module.exports = {
   healAndCheckShare,
   createOrGetShareToken,
   ensurePoemShareToken,
+  scheduleShareFollowups,
 };

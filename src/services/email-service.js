@@ -6,6 +6,7 @@
  */
 
 const { Resend } = require("resend");
+const { getStageCopy } = require("./share-followup-service");
 
 // Configuration
 const config = {
@@ -702,6 +703,104 @@ You'll need the PIN to unlock your gift in the ${config.appName} app.
   return { messageId: data.id };
 }
 
+/**
+ * Send a stage of the share-followup sequence. Driven by the stage copy
+ * registry in share-followup-service so the sequence's source of truth
+ * lives in one place. See docs/plans/2026-05-22-share-email-followup-sequence.md.
+ *
+ * @param {{ to: string, senderName?: string, recipientName?: string, trackTitle?: string, shareUrl?: string, stage: string }} payload
+ * @returns {Promise<{ messageId: string | null }>}
+ */
+async function sendShareFollowupEmail(payload) {
+  const { to, senderName, recipientName, trackTitle, shareUrl, stage } =
+    payload || {};
+  const copy = getStageCopy(stage);
+  if (!copy) {
+    throw new Error(`Unknown share-followup stage: ${stage}`);
+  }
+
+  const safeSender =
+    typeof senderName === "string" && senderName.trim()
+      ? senderName.trim()
+      : "";
+  const safeRecipient =
+    typeof recipientName === "string" && recipientName.trim()
+      ? recipientName.trim()
+      : "";
+  const safeTitle =
+    typeof trackTitle === "string" && trackTitle.trim()
+      ? trackTitle.trim()
+      : "";
+
+  const ctaHref = /^https?:\/\//i.test(copy.ctaPath)
+    ? copy.ctaPath
+    : `${config.publicBaseUrl}${copy.ctaPath}`;
+
+  const greeting = safeSender ? `Hi ${escapeHtml(safeSender)},` : "Hi,";
+  const contextLine =
+    safeRecipient && safeTitle
+      ? `<p style="margin:0 0 16px; color:#4a4a4a; font-size:14px;">About the song you made for ${escapeHtml(safeRecipient)}${safeTitle ? ` (&ldquo;${escapeHtml(safeTitle)}&rdquo;)` : ""}.</p>`
+      : "";
+
+  const { data, error } = await getClient().emails.send({
+    from: config.fromEmail,
+    to,
+    subject: copy.subject,
+    tags: [
+      { name: "category", value: "share_followup" },
+      { name: "stage", value: stage },
+    ],
+    html: `
+<!DOCTYPE html>
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${escapeHtml(copy.subject)}</title>
+</head>
+<body style="margin:0; padding:0; background:#F5F0EB; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; -webkit-font-smoothing: antialiased;">
+<center>
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#F5F0EB;">
+<tr><td align="center" style="padding: 24px 16px;">
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="600" style="max-width:600px; background:#FFFAF5; border-radius:16px; overflow:hidden;">
+  <tr><td align="center" style="padding: 28px 40px 8px;">
+    <span style="font-family: Georgia, 'Times New Roman', serif; font-size: 20px; color: #B0763F; letter-spacing: 1px;">${escapeHtml(config.appName)}</span>
+  </td></tr>
+  <tr><td style="padding: 12px 40px 4px;">
+    <h1 style="margin:0; font-family: Georgia, 'Times New Roman', serif; font-size: 24px; font-weight: normal; color: #1A1A1A; line-height: 1.3;">${escapeHtml(copy.headline)}</h1>
+  </td></tr>
+  <tr><td style="padding: 8px 40px 4px;">
+    <p style="margin:0 0 12px; font-size:15px; color:#1A1A1A;">${greeting}</p>
+    ${contextLine}
+    <p style="margin:0 0 20px; font-size:15px; color:#1A1A1A; line-height:1.55;">${escapeHtml(copy.body)}</p>
+  </td></tr>
+  <tr><td align="center" style="padding: 8px 40px 32px;">
+    <a href="${escapeHtml(ctaHref)}" style="display:inline-block; padding:14px 28px; background:#B0763F; color:#FFFAF5; text-decoration:none; border-radius:999px; font-size:15px; font-weight:500;">${escapeHtml(copy.cta)}</a>
+  </td></tr>
+  ${
+    shareUrl
+      ? `<tr><td align="center" style="padding: 0 40px 24px;"><a href="${escapeHtml(shareUrl)}" style="font-size:13px; color:#888; text-decoration:underline;">Open the share link</a></td></tr>`
+      : ""
+  }
+  <tr><td align="center" style="padding: 0 40px 28px; border-top:1px solid #EFE6DC;">
+    <p style="margin:18px 0 4px; font-size:11px; color:#a09080;">You're receiving this because you created a song share on Porizo. <a href="${escapeHtml(config.publicBaseUrl)}/settings/notifications" style="color:#a09080;">Manage notifications</a>.</p>
+  </td></tr>
+</table>
+</td></tr>
+</table>
+</center>
+</body>
+</html>`,
+  });
+
+  if (error) {
+    console.error(`Share-followup ${stage} email failed:`, error);
+    return { messageId: null };
+  }
+
+  return { messageId: data ? data.id : null };
+}
+
 module.exports = {
   isConfigured,
   sendPasswordResetEmail,
@@ -711,4 +810,5 @@ module.exports = {
   sendWelcomeEmail,
   sendSecurityAlertEmail,
   sendGiftDeliveryEmail,
+  sendShareFollowupEmail,
 };
