@@ -586,7 +586,7 @@ struct GiftSendFlowView: View {
                     }
                     .buttonStyle(.plain)
 
-                    TextField("Phone number", text: $recipientPhone)
+                    TextField(selectedCountry.phonePlaceholder, text: $recipientPhone)
                         .keyboardType(.phonePad)
                         .textContentType(.telephoneNumber)
                         .autocorrectionDisabled(true)

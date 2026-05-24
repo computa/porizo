@@ -300,7 +300,7 @@ struct ProfileCompletionView: View {
                             )
                     }
 
-                    TextField("Phone number", text: $phoneNumber)
+                    TextField(selectedCountry.phonePlaceholder, text: $phoneNumber)
                         .keyboardType(.phonePad)
                         .textContentType(.telephoneNumber)
                         .font(DesignTokens.bodyFont(size: 16))

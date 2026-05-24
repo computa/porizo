@@ -13,6 +13,19 @@ struct Country: Identifiable, Hashable {
     let dialCode: String
     let flag: String
 
+    var phonePlaceholder: String {
+        switch id {
+        case "US", "CA":
+            return "(555) 123-4567"
+        case "AU":
+            return "0412 345 678"
+        case "GB":
+            return "07123 456789"
+        default:
+            return "Phone number"
+        }
+    }
+
     static let common: [Country] = [
         Country(id: "US", name: "United States", dialCode: "+1", flag: "🇺🇸"),
         Country(id: "CA", name: "Canada", dialCode: "+1", flag: "🇨🇦"),
@@ -30,12 +43,36 @@ struct Country: Identifiable, Hashable {
 
     private static var currentRegionCode: String? {
         if #available(iOS 16, *) {
-            return Locale.current.region?.identifier
+            return Locale.autoupdatingCurrent.region?.identifier ?? Locale.current.region?.identifier
         }
-        return (Locale.current as NSLocale).object(forKey: .countryCode) as? String
+        return (Locale.autoupdatingCurrent as NSLocale).object(forKey: .countryCode) as? String
+            ?? (Locale.current as NSLocale).object(forKey: .countryCode) as? String
     }
 
-    static let `default` = country(forRegionCode: currentRegionCode) ?? Country(id: "US", name: "United States", dialCode: "+1", flag: "🇺🇸")
+    static var `default`: Country {
+        defaultCountry(
+            regionCode: currentRegionCode,
+            preferredLanguageIdentifiers: Locale.preferredLanguages
+        )
+    }
+
+    static func defaultCountry(
+        regionCode: String?,
+        preferredLanguageIdentifiers: [String]
+    ) -> Country {
+        if let detected = country(forRegionCode: regionCode) {
+            return detected
+        }
+
+        for identifier in preferredLanguageIdentifiers {
+            if let regionCode = Self.regionCode(fromPreferredLanguageIdentifier: identifier),
+               let detected = country(forRegionCode: regionCode) {
+                return detected
+            }
+        }
+
+        return Country(id: "US", name: "United States", dialCode: "+1", flag: "🇺🇸")
+    }
 
     static func country(forRegionCode code: String?) -> Country? {
         guard let code else { return nil }
@@ -49,6 +86,25 @@ struct Country: Identifiable, Hashable {
         let digits = digitsDroppingInternationalPrefix(from: trimmed.filter(\.isNumber), rawInput: trimmed)
         let matches = common.filter { digits.hasPrefix($0.dialCode.filter(\.isNumber)) }
         return matches.max(by: { $0.dialCode.count < $1.dialCode.count }) ?? .default
+    }
+
+    private static func regionCode(fromPreferredLanguageIdentifier identifier: String) -> String? {
+        if #available(iOS 16, *) {
+            if let region = Locale(identifier: identifier).region?.identifier {
+                return region
+            }
+        } else if let region = (Locale(identifier: identifier) as NSLocale).object(forKey: .countryCode) as? String {
+            return region
+        }
+
+        let tokens = identifier
+            .replacingOccurrences(of: "_", with: "-")
+            .split(separator: "-")
+            .map(String.init)
+
+        return tokens.dropFirst().first { token in
+            token.count == 2 && token.unicodeScalars.allSatisfy { CharacterSet.letters.contains($0) }
+        }
     }
 }
 
@@ -70,6 +126,10 @@ func formatPhoneInput(_ input: String, selectedCountry: Country) -> String {
     let maxDigits = selectedCountry.dialCode == "+1" ? 10 : 15
     let limitedDigits = String(digits.prefix(maxDigits))
     guard selectedCountry.dialCode == "+1" else {
+        if selectedCountry.id == "AU" {
+            let groups = limitedDigits.hasPrefix("0") ? [4, 3, 3] : [3, 3, 3]
+            return groupedPhoneDigits(limitedDigits, groups: groups)
+        }
         return limitedDigits
     }
 
@@ -87,6 +147,25 @@ func formatPhoneInput(_ input: String, selectedCountry: Country) -> String {
         }
     }
     return result
+}
+
+private func groupedPhoneDigits(_ digits: String, groups: [Int]) -> String {
+    guard !digits.isEmpty else { return "" }
+
+    var result: [String] = []
+    var index = digits.startIndex
+
+    for groupSize in groups where index < digits.endIndex {
+        let nextIndex = digits.index(index, offsetBy: groupSize, limitedBy: digits.endIndex) ?? digits.endIndex
+        result.append(String(digits[index..<nextIndex]))
+        index = nextIndex
+    }
+
+    if index < digits.endIndex {
+        result.append(String(digits[index...]))
+    }
+
+    return result.joined(separator: " ")
 }
 
 func normalizedE164PhoneNumber(_ rawInput: String, selectedCountry: Country) -> String? {
@@ -171,6 +250,7 @@ func isValidPhoneNumberInput(_ rawInput: String, selectedCountry: Country) -> Bo
 func normalizedPhoneCountry(_ phoneNumber: String) -> Country? {
     let normalized = phoneNumber.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !normalized.isEmpty else { return nil }
+    guard hasExplicitInternationalPrefix(normalized) else { return nil }
     return Country.country(forPhoneNumber: normalized)
 }
 
@@ -234,6 +314,9 @@ struct CountryPickerSheet: View {
                                 Text(country.dialCode)
                                     .font(DesignTokens.bodyFont(size: 14))
                                     .foregroundStyle(DesignTokens.textSecondary)
+                                Text(country.phonePlaceholder)
+                                    .font(DesignTokens.bodyFont(size: 12))
+                                    .foregroundStyle(DesignTokens.textTertiary)
                             }
 
                             Spacer()

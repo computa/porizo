@@ -154,7 +154,7 @@ struct PhoneAuthView: View {
             }
 
             // Phone number text field
-            TextField("(555) 123-4567", text: $phoneNumber)
+            TextField(selectedCountry.phonePlaceholder, text: $phoneNumber)
                 .font(DesignTokens.bodyFont(size: 16))
                 .foregroundStyle(DesignTokens.textPrimary)
                 .keyboardType(.phonePad)

@@ -254,7 +254,7 @@ struct GiftManagementSheet: View {
                     .buttonStyle(.plain)
                     .disabled(gift.canEdit != true)
 
-                    TextField("Recipient phone", text: $recipientPhone)
+                    TextField(selectedCountry.phonePlaceholder, text: $recipientPhone)
                         .keyboardType(.phonePad)
                         .textContentType(.telephoneNumber)
                         .padding(.horizontal, 14)
