@@ -79,12 +79,13 @@ async function listDueFollowups(db, nowDate, limit) {
   return db
     .prepare(
       `SELECT sf.id, sf.share_token_id, sf.sender_user_id, sf.stage, sf.send_at,
-            u.email AS sender_email, u.name AS sender_name,
+            u.email AS sender_email, u.display_name AS sender_name,
             u.unsubscribed_at AS sender_unsubscribed_at,
-            st.status AS share_status, st.track_id, st.recipient_name
+            st.status AS share_status, st.track_id, t.recipient_name
        FROM share_followups sf
        JOIN users u ON u.id = sf.sender_user_id
        LEFT JOIN share_tokens st ON st.id = sf.share_token_id
+       LEFT JOIN tracks t ON t.id = st.track_id
       WHERE sf.sent_at IS NULL
         AND sf.skip_reason IS NULL
         AND sf.send_at <= ?
