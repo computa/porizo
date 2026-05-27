@@ -551,6 +551,22 @@ const WHY_CLUSTER = new Set([
   "why-a-personalized-song-is-the-best-fathers-day-gift-for-dad",
 ]);
 
+// Canonical consolidation for the 4 generic "why a personalized song gift is
+// better / means more" posts that cannibalize each other. The 3 weaker ones
+// point rel=canonical at the broadest post so Google consolidates ranking
+// signals to one URL — reversible (edit this map), no redirect, no data loss.
+// The Father's Day-specific "why" post is intentionally NOT consolidated (it has
+// distinct seasonal intent). Revisit the winner once GSC data is available
+// (see tasks/blog-cannibalization-fix.md).
+const CANONICAL_OVERRIDES = {
+  "why-personalized-song-gift-means-more-than-physical-present":
+    "why-personalized-song-gift-is-better",
+  "why-personalized-song-gift-hits-harder-than-any-present":
+    "why-personalized-song-gift-is-better",
+  "why-a-personalized-song-gift-means-more-than-a-card":
+    "why-personalized-song-gift-is-better",
+};
+
 // Map a post to its matching transactional landing page (first slug match wins;
 // falls back to the generic custom-song page). All targets are verified live pages.
 const LANDING_RULES = [
@@ -630,7 +646,8 @@ function renderBlogPostPage(
   const bodyHtml = renderMarkdownToHtml(formattedMarkdown, {
     includeHeadingIds: true,
   });
-  const canonicalUrl = `${siteOrigin}/blog/${post.slug}`;
+  const canonicalSlug = CANONICAL_OVERRIDES[post.slug] || post.slug;
+  const canonicalUrl = `${siteOrigin}/blog/${canonicalSlug}`;
   const heroImage = safeUrl(post.hero_image_url || "");
   const publishedDate = formatDate(post.published_at);
   const articleToc = renderArticleToc(headings);

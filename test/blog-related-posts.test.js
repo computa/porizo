@@ -4,7 +4,19 @@ const { describe, test } = require("node:test");
 const {
   pickRelatedPosts,
   landingForPost,
+  renderBlogPostPage,
 } = require("../src/services/blog-render-service");
+
+function makePost(slug) {
+  return {
+    slug,
+    title: "Test post",
+    excerpt: "An excerpt.",
+    body_markdown: "## Heading\n\nSome body content for the article.",
+    published_at: "2026-04-12",
+    tags: ["gift"],
+  };
+}
 
 const POSTS = [
   {
@@ -65,6 +77,34 @@ describe("blog related posts", () => {
       related.some((p) => p.slug === "why-personalized-song-gift-is-better"),
       "a 'why' post (shares 'gift') is a valid related read for a non-why post",
     );
+  });
+
+  test("rel=canonical consolidates a weak 'why' post onto the canonical winner", () => {
+    const html = renderBlogPostPage(
+      makePost("why-personalized-song-gift-hits-harder-than-any-present"),
+      { siteOrigin: "https://porizo.co" },
+    );
+    assert.match(
+      html,
+      /<link rel="canonical" href="https:\/\/porizo\.co\/blog\/why-personalized-song-gift-is-better">/,
+    );
+  });
+
+  test("the canonical winner and Father's Day post stay self-canonical", () => {
+    for (const slug of [
+      "why-personalized-song-gift-is-better",
+      "why-a-personalized-song-is-the-best-fathers-day-gift-for-dad",
+    ]) {
+      const html = renderBlogPostPage(makePost(slug), {
+        siteOrigin: "https://porizo.co",
+      });
+      assert.match(
+        html,
+        new RegExp(
+          `<link rel="canonical" href="https://porizo\\.co/blog/${slug}">`,
+        ),
+      );
+    }
   });
 
   test("landingForPost maps occasion slugs to the right landing page", () => {
