@@ -7,6 +7,7 @@
 
 const { Resend } = require("resend");
 const { getStageCopy } = require("./share-followup-service");
+const { buildUnsubscribeUrl } = require("../utils/unsubscribe-token");
 
 // Configuration
 const config = {
@@ -712,12 +713,25 @@ You'll need the PIN to unlock your gift in the ${config.appName} app.
  * @returns {Promise<{ messageId: string | null }>}
  */
 async function sendShareFollowupEmail(payload) {
-  const { to, senderName, recipientName, trackTitle, shareUrl, stage } =
-    payload || {};
+  const {
+    to,
+    senderUserId,
+    senderName,
+    recipientName,
+    trackTitle,
+    shareUrl,
+    stage,
+  } = payload || {};
   const copy = getStageCopy(stage);
   if (!copy) {
     throw new Error(`Unknown share-followup stage: ${stage}`);
   }
+
+  // One-click unsubscribe (footer link + RFC 8058 headers). Lifecycle emails
+  // must offer opt-out; senderUserId identifies the recipient to suppress.
+  const unsubscribeUrl = senderUserId
+    ? buildUnsubscribeUrl(config.publicBaseUrl, senderUserId)
+    : "";
 
   const safeSender =
     typeof senderName === "string" && senderName.trim()
@@ -750,6 +764,14 @@ async function sendShareFollowupEmail(payload) {
       { name: "category", value: "share_followup" },
       { name: "stage", value: stage },
     ],
+    ...(unsubscribeUrl
+      ? {
+          headers: {
+            "List-Unsubscribe": `<${unsubscribeUrl}>`,
+            "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+          },
+        }
+      : {}),
     html: `
 <!DOCTYPE html>
 <html lang="en" xmlns="http://www.w3.org/1999/xhtml">
@@ -783,7 +805,7 @@ async function sendShareFollowupEmail(payload) {
       : ""
   }
   <tr><td align="center" style="padding: 0 40px 28px; border-top:1px solid #EFE6DC;">
-    <p style="margin:18px 0 4px; font-size:11px; color:#a09080;">You're receiving this because you created a song share on Porizo. <a href="${escapeHtml(config.publicBaseUrl)}/settings/notifications" style="color:#a09080;">Manage notifications</a>.</p>
+    <p style="margin:18px 0 4px; font-size:11px; color:#a09080;">You're receiving this because you created a song share on Porizo. <a href="${escapeHtml(config.publicBaseUrl)}/settings/notifications" style="color:#a09080;">Manage notifications</a>${unsubscribeUrl ? ` or <a href="${escapeHtml(unsubscribeUrl)}" style="color:#a09080;">unsubscribe</a>` : ""}.</p>
   </td></tr>
 </table>
 </td></tr>

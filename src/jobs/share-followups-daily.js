@@ -120,6 +120,7 @@ async function processFollowupRow(db, row) {
   const shareUrl = buildShareUrl(row.share_token_id);
   const { messageId } = await emailService.sendShareFollowupEmail({
     to: row.sender_email,
+    senderUserId: row.sender_user_id,
     senderName: row.sender_name,
     recipientName: row.recipient_name,
     trackTitle,

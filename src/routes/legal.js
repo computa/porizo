@@ -2,6 +2,7 @@ const config = require("../config");
 const geoip = require("geoip-lite");
 const { generatePrefixedId } = require("../utils/ids");
 const { loadPublicFile } = require("../utils/public-files");
+const { verifyUnsubscribeToken } = require("../utils/unsubscribe-token");
 
 const publicPages = {
   index: loadPublicFile("index.html", { warnOnMissing: true }),
@@ -601,6 +602,52 @@ function registerLegalRoutes(app, { db } = {}) {
       reply.code(404).send();
     }
   });
+
+  // One-click unsubscribe for lifecycle emails (share follow-ups). The link is
+  // an HMAC of the user id (see utils/unsubscribe-token), so no token table is
+  // needed and the URL cannot be enumerated. GET serves a confirmation page;
+  // POST satisfies RFC 8058 one-click unsubscribe (List-Unsubscribe-Post).
+  const handleUnsubscribe = async (request, reply) => {
+    const userId = decodeMaybe(request.query?.u);
+    const token = request.query?.t;
+    const ok = userId && verifyUnsubscribeToken(userId, token);
+
+    if (ok && db) {
+      // COALESCE keeps the earliest opt-out timestamp on repeat clicks (idempotent).
+      await db
+        .prepare(
+          `UPDATE users SET unsubscribed_at = COALESCE(unsubscribed_at, ?) WHERE id = ?`,
+        )
+        .run(new Date().toISOString(), userId);
+    }
+
+    if (request.method === "POST") {
+      // One-click clients don't render a body; just acknowledge.
+      return reply.code(ok ? 200 : 400).send();
+    }
+
+    const title = ok ? "You're unsubscribed" : "Link not valid";
+    const message = ok
+      ? "You won't receive any more follow-up emails from Porizo. You can still use the app normally."
+      : "This unsubscribe link is invalid or has expired. If you keep getting emails, reply to one and we'll sort it out.";
+    return reply
+      .code(ok ? 200 : 400)
+      .type("text/html")
+      .header("Cache-Control", "no-store").send(`<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex">
+<title>${escapeHtml(title)}</title></head>
+<body style="margin:0;background:#F5F0EB;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#1A1A1A;">
+<div style="max-width:480px;margin:12vh auto;padding:32px;background:#FFFAF5;border-radius:16px;text-align:center;">
+<div style="font-family:Georgia,serif;font-size:20px;color:#B0763F;letter-spacing:1px;margin-bottom:16px;">Porizo</div>
+<h1 style="font-family:Georgia,serif;font-size:24px;font-weight:normal;margin:0 0 12px;">${escapeHtml(title)}</h1>
+<p style="font-size:15px;line-height:1.55;color:#4a4a4a;margin:0 0 24px;">${escapeHtml(message)}</p>
+<a href="${escapeHtml(config.PUBLIC_BASE_URL)}/" style="display:inline-block;padding:12px 24px;background:#B0763F;color:#FFFAF5;text-decoration:none;border-radius:999px;font-size:15px;">Back to Porizo</a>
+</div></body></html>`);
+  };
+  app.get("/unsubscribe", handleUnsubscribe);
+  app.post("/unsubscribe", handleUnsubscribe);
 
   // Favicon
   app.get("/favicon.ico", async (_request, reply) => {
