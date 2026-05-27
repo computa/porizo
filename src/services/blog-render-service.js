@@ -538,7 +538,93 @@ function renderBlogIndexPage(posts, { siteOrigin = "https://porizo.co" } = {}) {
 </html>`;
 }
 
-function renderBlogPostPage(post, { siteOrigin = "https://porizo.co" } = {}) {
+// Internal-linking: the 5 near-duplicate "why a personalized song gift" posts
+// cannibalize each other. Until the canonical/redirect fix ships (it needs GSC
+// data first — see tasks/blog-cannibalization-fix.md), do NOT cross-link them to
+// each other; that only reinforces the overlap. They still link out to distinct
+// posts and to landing pages.
+const WHY_CLUSTER = new Set([
+  "why-personalized-song-gift-means-more-than-physical-present",
+  "why-personalized-song-gift-is-better",
+  "why-personalized-song-gift-hits-harder-than-any-present",
+  "why-a-personalized-song-gift-means-more-than-a-card",
+  "why-a-personalized-song-is-the-best-fathers-day-gift-for-dad",
+]);
+
+// Map a post to its matching transactional landing page (first slug match wins;
+// falls back to the generic custom-song page). All targets are verified live pages.
+const LANDING_RULES = [
+  { re: /father|dad/, href: "/fathers-day-song", label: "Make a song for Dad" },
+  { re: /mother|mom/, href: "/mothers-day-song", label: "Make a song for Mom" },
+  {
+    re: /anniversary/,
+    href: "/anniversary-song-gift",
+    label: "Make an anniversary song",
+  },
+  { re: /wedding/, href: "/wedding-song-gift", label: "Make a wedding song" },
+  {
+    re: /birthday/,
+    href: "/birthday-song-maker",
+    label: "Make a birthday song",
+  },
+];
+const LANDING_DEFAULT = {
+  href: "/custom-song-gift",
+  label: "Make a custom song gift",
+};
+
+function landingForPost(post) {
+  const slug = String(post?.slug || "").toLowerCase();
+  for (const rule of LANDING_RULES) {
+    if (rule.re.test(slug)) return { href: rule.href, label: rule.label };
+  }
+  return LANDING_DEFAULT;
+}
+
+function pickRelatedPosts(post, allPosts, limit = 3) {
+  if (!Array.isArray(allPosts) || !post) return [];
+  const selfTags = new Set(Array.isArray(post.tags) ? post.tags : []);
+  const selfInWhy = WHY_CLUSTER.has(post.slug);
+  return allPosts
+    .filter((p) => p && p.slug && p.slug !== post.slug)
+    .filter((p) => !(selfInWhy && WHY_CLUSTER.has(p.slug)))
+    .map((p) => {
+      const tags = Array.isArray(p.tags) ? p.tags : [];
+      const shared = tags.filter((t) => selfTags.has(t)).length;
+      return { post: p, shared, ts: Date.parse(p.published_at || 0) || 0 };
+    })
+    .sort((a, b) => b.shared - a.shared || b.ts - a.ts)
+    .slice(0, limit)
+    .map((x) => x.post);
+}
+
+function renderRelatedAndLanding(post, allPosts) {
+  const related = pickRelatedPosts(post, allPosts, 3);
+  const landing = landingForPost(post);
+  const relatedHtml = related.length
+    ? `<section style="margin:40px 0 0;padding-top:28px;border-top:1px solid #EFE6DC;">
+  <h2 style="font-family:Georgia,serif;font-size:20px;font-weight:normal;margin:0 0 16px;color:#1A1A1A;">Related reads</h2>
+  <ul style="list-style:none;padding:0;margin:0;display:grid;gap:14px;">
+    ${related
+      .map(
+        (p) =>
+          `<li><a href="/blog/${escapeHtml(p.slug)}" style="color:#B0763F;text-decoration:none;font-size:16px;">${escapeHtml(p.title)}</a>${p.excerpt ? `<div style="color:#6a6a6a;font-size:14px;margin-top:2px;line-height:1.5;">${escapeHtml(p.excerpt)}</div>` : ""}</li>`,
+      )
+      .join("\n    ")}
+  </ul>
+</section>`
+    : "";
+  const landingHtml = `<section style="margin:32px 0 0;padding:24px;background:#FFFAF5;border:1px solid #EFE6DC;border-radius:14px;text-align:center;">
+  <p style="margin:0 0 14px;font-size:16px;color:#1A1A1A;">Ready to create one?</p>
+  <a href="${escapeHtml(landing.href)}?utm_source=seo&amp;utm_medium=blog&amp;utm_campaign=${escapeHtml(post.slug)}&amp;utm_content=related_cta" style="display:inline-block;padding:13px 26px;background:#B0763F;color:#FFFAF5;text-decoration:none;border-radius:999px;font-size:15px;font-weight:500;">${escapeHtml(landing.label)}</a>
+</section>`;
+  return relatedHtml + landingHtml;
+}
+
+function renderBlogPostPage(
+  post,
+  { siteOrigin = "https://porizo.co", allPosts = [] } = {},
+) {
   const { formattedMarkdown, headings, readingTimeMinutes } =
     buildFormattedArticle(post);
   const bodyHtml = renderMarkdownToHtml(formattedMarkdown, {
@@ -712,6 +798,7 @@ function renderBlogPostPage(post, { siteOrigin = "https://porizo.co" } = {}) {
       <div class="article-main">
         <article>${bodyHtml}</article>
         <div class="tags">${renderTagList(post.tags)}</div>
+        ${renderRelatedAndLanding(post, allPosts)}
       </div>
       ${articleToc}
     </div>
@@ -764,4 +851,7 @@ module.exports = {
   renderMarkdownToHtml,
   renderBlogIndexPage,
   renderBlogPostPage,
+  // Exported for unit tests:
+  pickRelatedPosts,
+  landingForPost,
 };
