@@ -248,6 +248,10 @@ function registerHostAllowlist(app, { appConfig, allowedHosts }) {
   if (mode === "off") return;
 
   app.addHook("onRequest", async (request, reply) => {
+    // Infra health probes (Railway hits /health with Host: healthcheck.railway.app)
+    // must bypass host validation — the endpoint exposes no sensitive data and has to
+    // answer the platform probe regardless of Host, or zero-downtime deploys fail.
+    if (request.url.split("?")[0] === "/health") return;
     const host = normalizeHostForSecurity(request.headers.host);
     if (!host || allowedHosts.has(host)) return;
 
