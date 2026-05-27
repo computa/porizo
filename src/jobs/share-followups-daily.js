@@ -76,8 +76,9 @@ function startShareFollowupsJob({
 
 async function listDueFollowups(db, nowDate, limit) {
   const nowIso = nowDate.toISOString();
-  return db.all(
-    `SELECT sf.id, sf.share_token_id, sf.sender_user_id, sf.stage, sf.send_at,
+  return db
+    .prepare(
+      `SELECT sf.id, sf.share_token_id, sf.sender_user_id, sf.stage, sf.send_at,
             u.email AS sender_email, u.name AS sender_name,
             u.unsubscribed_at AS sender_unsubscribed_at,
             st.status AS share_status, st.track_id, st.recipient_name
@@ -89,8 +90,8 @@ async function listDueFollowups(db, nowDate, limit) {
         AND sf.send_at <= ?
       ORDER BY sf.send_at ASC
       LIMIT ?`,
-    [nowIso, limit],
-  );
+    )
+    .all(nowIso, limit);
 }
 
 async function processFollowupRow(db, row) {
@@ -109,9 +110,9 @@ async function processFollowupRow(db, row) {
 
   let trackTitle = "";
   if (row.track_id) {
-    const track = await db.get(`SELECT title FROM tracks WHERE id = ?`, [
-      row.track_id,
-    ]);
+    const track = await db
+      .prepare(`SELECT title FROM tracks WHERE id = ?`)
+      .get(row.track_id);
     trackTitle = track ? track.title || "" : "";
   }
 
@@ -135,17 +136,17 @@ function buildShareUrl(shareTokenId) {
 }
 
 async function markSent(db, id, resendEmailId) {
-  return db.run(
-    `UPDATE share_followups SET sent_at = ?, resend_email_id = ? WHERE id = ?`,
-    [new Date().toISOString(), resendEmailId || null, id],
-  );
+  return db
+    .prepare(
+      `UPDATE share_followups SET sent_at = ?, resend_email_id = ? WHERE id = ?`,
+    )
+    .run(new Date().toISOString(), resendEmailId || null, id);
 }
 
 async function markSkipped(db, id, reason) {
-  return db.run(`UPDATE share_followups SET skip_reason = ? WHERE id = ?`, [
-    reason,
-    id,
-  ]);
+  return db
+    .prepare(`UPDATE share_followups SET skip_reason = ? WHERE id = ?`)
+    .run(reason, id);
 }
 
 module.exports = {
