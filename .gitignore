@@ -120,6 +120,8 @@ venv/
 !.agents/skills/porizo-shortform-pipeline/**
 !.agents/skills/porizo-user-email-campaign/
 !.agents/skills/porizo-user-email-campaign/**
+!.agents/skills/porizo-organic-demand-discovery/
+!.agents/skills/porizo-organic-demand-discovery/**
 .codex/
 .cursor/
 .droid/
@@ -151,3 +153,6 @@ marketing/email/.state/
 
 # Superpowers brainstorming session artifacts
 .superpowers/
+
+# Father's Day IAE raw intermediate
+marketing/appstore/aso/fathers-day-event-card-raw*.png
