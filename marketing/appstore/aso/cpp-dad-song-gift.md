@@ -54,30 +54,41 @@ Narrative logic: **emotional hook → how easy the input is → control/personal
 (not the mechanic) because dad-gift searchers are buying a feeling; slide 5 closes
 on "giftable, plays without the app" — the differentiator vs a generic song maker.
 
-### Recipient/occasion seeding
-
-For authenticity, slides 2/5 should show **recipient "Dad"** and the **Father's Day**
-occasion. If the fixture flags don't seed recipient text, either (a) extend the
-fixture seeding in `ShareController.swift` (the `seed deterministic share state`
-path) to accept a recipient name, or (b) drive the flow manually with `--bypass-auth`
-and type "Dad" before capturing. Generic screens with Dad-framed overlay copy still
-work if seeding is out of scope.
-
 ## Sizes & specs
 
-- **Required:** 6.9" iPhone — **1290 × 2796** px, RGB, no alpha, ≤ 10 slides.
-- Optional (Apple down-scales 6.9" if omitted): 6.5" (1242 × 2688), 6.1", iPad 13".
-- Match the existing frame template used for `current/6.9/porizo-*.png` so the CPP
-  set is visually consistent with the default listing.
+- **Required:** 6.9" iPhone — the generator outputs **1320 × 2868** px (Apple
+  accepts the 6.9" range); RGB, no alpha, ≤ 10 slides.
+- Also generated: 6.5" (1284 × 2778), 6.3" (1206 × 2622), 6.1" (1125 × 2436).
+- Visually consistent with the default listing because it's the same generator.
 
-## Production (reuse the existing pipeline)
+## Production (web generator, NOT the simulator)
 
-1. Build/run on the 6.9" simulator (iPhone 16 Pro Max), launching with the fixture
-   flags above (`--bypass-auth` to skip login per the project's screenshot flow).
-2. Capture each raw screen → `marketing/appstore/screenshots/cpp-dad/raw/`.
-3. Frame + add overlay headlines with the Warm Canvas template (same tool that
-   produced `current/6.9/porizo-*.png`) → `marketing/appstore/screenshots/cpp-dad/6.9/`.
-4. Name them `01-hero … 05-gift` to preserve slide order on upload.
+The App Store screenshots are **not** captured from the iOS simulator. They are
+rendered by a Vite + React design system at
+`marketing/appstore/screenshots/generator-designed/` (device frame + headline +
+in-app mockup as HTML/CSS), screenshotted by puppeteer, and resized by sharp.
+
+A `variant` mechanism drives per-CPP sets:
+
+1. `Generator.tsx` — `HEADLINES.dad` holds the 5 Father's-Day headlines, and
+   module-level `RECIPIENT`/`OCCASION_LABEL`/`OCCASION_EMOJI` (read from
+   `?variant=`) swap the in-phone mockup copy to "Dad / Happy Father's Day".
+2. Run the generator:
+   ```bash
+   cd marketing/appstore/screenshots/generator-designed
+   node_modules/.bin/vite --port 5174 &           # dev server
+   VARIANT=dad PUPPETEER_EXECUTABLE_PATH="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
+     node capture.mjs
+   ```
+   (Puppeteer's bundled Chrome wasn't installed, so point it at the system Chrome.)
+3. Output lands in `generator-designed/exports-dad/<size>/porizo-<slide>.png`.
+   The committed/tracked copy is mirrored to `cpp-dad/6.9/` — note the whole
+   `marketing/appstore/screenshots/` tree is gitignored, so the generator + outputs
+   are a **local tool**, not version-controlled. Regenerate with the command above.
+4. Slide order for upload: hero → pick → tell → hear → share.
+
+To spin up another CPP (e.g. Mom, anniversary), add a variant to `HEADLINES` +
+extend the `RECIPIENT`/`OCCASION` ternaries, then `VARIANT=<name> node capture.mjs`.
 
 ## Submit & route
 
