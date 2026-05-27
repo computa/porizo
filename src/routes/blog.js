@@ -8,11 +8,12 @@ const {
 
 function registerBlogRoutes(app, { db, config = {} }) {
   const blogService = new BlogService(db);
-  const siteOrigin = (
-    config.PUBLIC_BASE_URL ||
-    config.STREAM_BASE_URL ||
-    "https://porizo.co"
-  ).replace(/\/+$/, "");
+  // SEO canonical host = apex porizo.co (matches sitemap + static pages), NOT
+  // PUBLIC_BASE_URL (api.porizo.co) — that's the API/app host for share/email links.
+  const siteOrigin = (config.CANONICAL_BASE_URL || "https://porizo.co").replace(
+    /\/+$/,
+    "",
+  );
 
   app.get("/blog", async (_request, reply) => {
     const posts = await blogService.listPublishedPosts({ limit: 100 });

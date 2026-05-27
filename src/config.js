@@ -16,13 +16,21 @@ const STREAM_BASE_URL =
 const PUBLIC_BASE_URL =
   process.env.PUBLIC_BASE_URL || `http://localhost:${PORT}`;
 const SHARE_PUBLIC_BASE_URL = process.env.SHARE_PUBLIC_BASE_URL || "";
+// Canonical public host for SEO surfaces (rel=canonical, og:url, JSON-LD). The
+// sitemap and static marketing pages use the apex porizo.co; PUBLIC_BASE_URL is
+// the API/app host (api.porizo.co) used for share/email/deep-link URLs, so SEO
+// rendering must NOT inherit it or blog canonicals point at the wrong host.
+const CANONICAL_BASE_URL =
+  process.env.CANONICAL_BASE_URL || "https://porizo.co";
 const APP_STORE_URL =
   process.env.APP_STORE_URL || "https://apps.apple.com/app/porizo/id6758205028";
 const PLAY_STORE_URL =
   process.env.PLAY_STORE_URL ||
   "https://play.google.com/store/apps/details?id=com.porizo.app";
 const IOS_TESTFLIGHT_URL = process.env.IOS_TESTFLIGHT_URL || "";
-const IOS_MIN_SUPPORTED_BUILD = Number(process.env.IOS_MIN_SUPPORTED_BUILD || 0);
+const IOS_MIN_SUPPORTED_BUILD = Number(
+  process.env.IOS_MIN_SUPPORTED_BUILD || 0,
+);
 const IOS_RECOMMENDED_BUILD = Number(process.env.IOS_RECOMMENDED_BUILD || 0);
 const LIVE_PROVIDERS = process.env.LIVE_PROVIDERS === "true";
 // Dev mode: skip all provider API calls, use placeholders instead
@@ -254,6 +262,7 @@ module.exports = {
   STREAM_BASE_URL,
   PUBLIC_BASE_URL,
   SHARE_PUBLIC_BASE_URL,
+  CANONICAL_BASE_URL,
   APP_STORE_URL,
   PLAY_STORE_URL,
   IOS_TESTFLIGHT_URL,
