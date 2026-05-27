@@ -21,20 +21,21 @@ const WARM_CANVAS_BG = "#F5F0EB";
 const MODEL = "black-forest-labs/flux-1.1-pro";
 
 const PROMPT = [
-  "Warm, cinematic editorial photograph for a premium personalized-song gift brand.",
-  "Intimate Father's Day mood: a father's hand and a small child's hand resting together",
-  "on an old vinyl record beside a vintage record player, a pair of headphones nearby.",
+  "Vertical 9:16 warm, cinematic editorial photograph for a premium personalized-song gift brand.",
+  "Intimate Father's Day mood, shot looking down: a father's hand and a small child's hand",
+  "resting together on an old vinyl record on a vintage record player, a pair of headphones nearby.",
   "Golden-hour sunlight, soft shallow depth of field, gentle film grain, a faint warm",
   "glow of soundwaves in the background. Palette: warm cream, soft beige, honeyed gold,",
   "muted terracotta — cozy, nostalgic, understated, emotionally tender.",
-  "Centered composition with generous empty margins and headroom.",
+  "Vertical composition with the hands in the lower-center third and calm warm bokeh in the",
+  "upper area, generous empty margins.",
   "Absolutely no text, no words, no letters, no numbers, no logos, no watermarks, no UI.",
   "Photorealistic, magazine-quality, no human faces.",
 ].join(" ");
 
 const OUT_DIR = "marketing/appstore/aso";
 const RAW = path.join(OUT_DIR, "fathers-day-event-card-raw.png");
-const FINAL = path.join(OUT_DIR, "fathers-day-event-card-1920x1080.jpg");
+const FINAL = path.join(OUT_DIR, "fathers-day-event-details-1080x1920.jpg");
 
 async function main() {
   if (!TOKEN) throw new Error("REPLICATE_API_TOKEN not set");
@@ -53,7 +54,7 @@ async function main() {
       body: JSON.stringify({
         input: {
           prompt: PROMPT,
-          aspect_ratio: "16:9",
+          aspect_ratio: "9:16",
           output_format: "png",
           prompt_upsampling: true,
           safety_tolerance: 2,
@@ -85,7 +86,7 @@ async function main() {
   console.log(`raw written: ${RAW} (${(buf.length / 1024).toFixed(0)} KB)`);
 
   await sharp(buf)
-    .resize(1920, 1080, { fit: "cover", position: "centre" })
+    .resize(1080, 1920, { fit: "cover", position: "centre" })
     .flatten({ background: WARM_CANVAS_BG })
     .jpeg({ quality: 90 })
     .toFile(FINAL);
