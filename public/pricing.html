@@ -539,11 +539,12 @@
     "@context": "https://schema.org",
     "@graph": [
       {
-        "@type": "Product",
-        "@id": "https://porizo.co/pricing#product",
+        "@type": "Service",
+        "@id": "https://porizo.co/pricing#service",
         "name": "Porizo",
         "description": "Personalized song gifts — original songs from real memories, sung in your own voice.",
-        "brand": { "@type": "Brand", "name": "Porizo" },
+        "serviceType": "Personalized song gift creation",
+        "provider": { "@type": "Organization", "name": "Porizo" },
         "offers": {
           "@type": "AggregateOffer",
           "priceCurrency": "USD",
