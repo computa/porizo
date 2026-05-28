@@ -12,6 +12,9 @@ import AmplitudeSwift
 #if canImport(AppsFlyerLib)
 import AppsFlyerLib
 #endif
+#if canImport(FacebookCore)
+import FacebookCore
+#endif
 
 // MARK: - Funnel Events
 
@@ -152,6 +155,11 @@ final class AnalyticsService: @unchecked Sendable {
         // AppsFlyer (no-op until SDK + dev key are configured)
         forwardToAppsFlyer(event: event, properties: properties)
 
+        // Meta App Events — fires alongside AppsFlyer for dual-rail attribution.
+        // Only conversion events ship (registration/song-created/first-song/share);
+        // other events return nil from `fbSDKMapping` and are dropped here.
+        forwardToFBSDK(event: event, properties: properties)
+
         #if DEBUG
         let propsDesc = properties.map { " \($0)" } ?? ""
         print("[Analytics] \(event.rawValue)\(propsDesc)")
@@ -212,6 +220,20 @@ final class AnalyticsService: @unchecked Sendable {
         print("[AppsFlyer] AFEventPurchase amount=\(amountString) currency=\(currency) productId=\(productId)")
         #endif
         #endif
+
+        // Meta App Events — fires `AppEvents.Name.purchased` so the highest-value
+        // SKAN bucket and AEM optimization see the revenue signal first-party.
+        #if canImport(FacebookCore)
+        let purchaseAmount = NSDecimalNumber(decimal: amount).doubleValue
+        AppEvents.shared.logPurchase(
+            amount: purchaseAmount,
+            currency: currency,
+            parameters: [.contentID: productId]
+        )
+        #if DEBUG
+        print("[FBSDK] purchased amount=\(amountString) currency=\(currency) productId=\(productId)")
+        #endif
+        #endif
     }
 
     /// Map a typed `AnalyticsEvent` to the AppsFlyer event name + values payload.
@@ -226,6 +248,27 @@ final class AnalyticsService: @unchecked Sendable {
         AppsFlyerLib.shared().logEvent(afEventName, withValues: afValues)
         #if DEBUG
         print("[AppsFlyer] \(afEventName)")
+        #endif
+        #endif
+    }
+
+    /// Fires the same canonical conversion events directly to Facebook's App
+    /// Events SDK so Meta has first-party signal in addition to whatever
+    /// AppsFlyer forwards. Dual-rail attribution: if AppsFlyer's Meta-forwarding
+    /// integration ever breaks, Meta still sees install/registration/purchase.
+    /// Mirrors `forwardToAppsFlyer` semantics — only fires for events that map
+    /// to a Meta standard or stable custom event; everything else is ignored.
+    private func forwardToFBSDK(event: AnalyticsEvent, properties: [String: String]?) {
+        #if canImport(FacebookCore)
+        let mapping = Self.fbSDKMapping(for: event, properties: properties)
+        guard let eventName = mapping.name else { return }
+        if let params = mapping.params {
+            AppEvents.shared.logEvent(eventName, parameters: params)
+        } else {
+            AppEvents.shared.logEvent(eventName)
+        }
+        #if DEBUG
+        print("[FBSDK] \(eventName.rawValue)")
         #endif
         #endif
     }
@@ -272,6 +315,51 @@ final class AnalyticsService: @unchecked Sendable {
         return (nil, nil)
         #endif
     }
+
+    /// Meta App Events mapping. Mirrors `appsFlyerMapping` decisions so the same
+    /// conversion intent reaches Meta directly (registration → CompletedRegistration,
+    /// song created → AddedToCart, first song / share → UnlockedAchievement).
+    /// Aligns with the SKAN AEM priority order: Purchase → CompleteRegistration →
+    /// AddToCart. Purchases are logged in `logPurchase(...)`, not here.
+    #if canImport(FacebookCore)
+    static func fbSDKMapping(
+        for event: AnalyticsEvent,
+        properties: [String: String]?
+    ) -> (name: AppEvents.Name?, params: [AppEvents.ParameterName: Any]?) {
+        switch event {
+        case .authCompleted:
+            let method = properties?["provider"] ?? properties?["method"] ?? "unknown"
+            var params: [AppEvents.ParameterName: Any] = [.registrationMethod: method]
+            if let userId = properties?["userId"] { params[.contentID] = userId }
+            return (.completedRegistration, params)
+        case .createCompleted:
+            if properties?["type"] == "song", let trackId = properties?["trackId"] {
+                return (.addedToCart, [.contentID: trackId, .contentType: "song"])
+            }
+            return (nil, nil)
+        case .firstSongCompleted:
+            var params: [AppEvents.ParameterName: Any] = [.description: "first_song"]
+            if let trackId = properties?["trackId"] { params[.contentID] = trackId }
+            return (.unlockedAchievement, params)
+        case .shareCompleted:
+            var params: [AppEvents.ParameterName: Any] = [.description: "song_shared"]
+            if let trackId = properties?["trackId"] { params[.contentID] = trackId }
+            if let channel = properties?["channel"] {
+                params[AppEvents.ParameterName(rawValue: "fb_channel")] = channel
+            }
+            return (.unlockedAchievement, params)
+        default:
+            return (nil, nil)
+        }
+    }
+    #else
+    static func fbSDKMapping(
+        for event: AnalyticsEvent,
+        properties: [String: String]?
+    ) -> (name: String?, params: [String: Any]?) {
+        return (nil, nil)
+    }
+    #endif
 
     // MARK: - Backend Forward
 
