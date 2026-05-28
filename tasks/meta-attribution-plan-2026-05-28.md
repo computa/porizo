@@ -1,5 +1,30 @@
 # Plan — Wire up Meta install attribution end-to-end (2026-05-28)
 
+> **Execution log (2026-05-28 session):**
+>
+> - ✅ Plan written, Phase 0 verified, Q1–Q5 decided
+> - ✅ Phase 1 (App Dataset) — _already auto-provisioned_; verified live (47 installs, 319 activate_app events). Dataset shared with `act_29474028`.
+> - ✅ Phase 2 (FBSDK direct events) — `forwardToFBSDK` + `fbSDKMapping` added in `AnalyticsService.swift`, plus `AppEvents.shared.logPurchase(...)`. **Build verified.** Commit `4569eff`.
+> - ⏸ Phase 3 (SKAN schema) — **blocked on AppsFlyer URL**. Selected "Import from partner app" path; needs the unique URL from the AppsFlyer dashboard. _User action below._
+> - ✅ Phase 4 (Bundle ID linkage) — Meta app already has `object_store_urls.itunes = id6758205028`.
+> - ✅ Phase 5 (Web Pixel) — `Porizo Web` dataset (id `36564205179837496`) created, connected to `act_29474028`, snippet added to `landing/index.html` with PageView + Lead-on-CTA. Commit `16405b9`. **CAPI auto-enabled** at dataset creation (future server-side mirror is one route handler away).
+> - ⏸ Phase 6 (End-to-end verify) — _needs deploy of landing + TestFlight build + real device + 24h SKAN soak_.
+> - ⏸ Phase 7 (Relaunch campaign) — _follows Phase 3 + 6_.
+>
+> **Captured IDs:**
+>
+> - iOS App Dataset = FB App ID `1984455025792561` (auto-provisioned, live)
+> - Web Pixel = `36564205179837496` (named "Porizo Web", in `landing/index.html`)
+> - Ad account `act_29474028` connected to both
+> - System-user CLI token at `~/meta-ads/.env`
+>
+> **User action items to finish:**
+>
+> 1. **Push the `landing/` change** so Vercel deploys → use **Meta Pixel Helper** (Chrome extension) on https://porizo.co to confirm PageView fires (and Lead fires on App Store CTA click).
+> 2. **AppsFlyer dashboard** → generate the SKAdNetwork integration URL for Meta, paste it in Events Manager → Settings → SKAdNetwork → _"Configure events" → "Import from partner app"_. (Or, if AppsFlyer has no SKAN schema yet, set one up there first matching the Q3 decision.)
+> 3. **TestFlight build** of the iOS app with this branch → install on a real device → run the install funnel (open → enroll voice → create first song → buy credit pack) → check Events Manager → _Test Events_ tab shows `activate_app`, `complete_registration`, `add_to_cart`, `unlocked_achievement`, `purchase`. Also check AppsFlyer dashboard parity.
+> 4. **After SKAN postback ~24h soak** confirms attribution on `act_29474028`, **disconnect Ringoversea's Pixel** from the ad account (Phase 6 Q5).
+
 **Goal:** Turn `act_29474028` from a tracking-blind account into one that can run app-install campaigns with **real install/conversion signal** — so Meta can optimize, SKAdNetwork can attribute, and we stop spending blind ($150 lifetime → 0 trackable installs proved we can't do install ads today).
 
 **Owner:** ao · **Scope:** marketing-only (no app feature changes) · **Risk:** mostly Meta Events Manager config + 1 landing-page snippet + small Swift event-logging additions. No DB migrations. No customer-facing changes.
