@@ -5,10 +5,10 @@
 > - ✅ Plan written, Phase 0 verified, Q1–Q5 decided
 > - ✅ Phase 1 (App Dataset) — _already auto-provisioned_; verified live (47 installs, 319 activate_app events). Dataset shared with `act_29474028`.
 > - ✅ Phase 2 (FBSDK direct events) — `forwardToFBSDK` + `fbSDKMapping` added in `AnalyticsService.swift`, plus `AppEvents.shared.logPurchase(...)`. **Build verified.** Commit `4569eff`.
-> - ⏸ Phase 3 (SKAN schema) — **blocked on AppsFlyer URL**. Selected "Import from partner app" path; needs the unique URL from the AppsFlyer dashboard. _User action below._
+> - ✅ Phase 3 (SKAN schema, both sides) — AppsFlyer Conversion Studio (Subscription & IAP template) + AppsFlyer Meta partner activated + In-app event postbacks ON. **Meta side: Customize path** used instead of partner-URL import (the OAuth flow for partner-URL was unreliable). Coarse: High=Purchase, Low=Activate app (Medium skipped — Porizo has no fitting standard SKAN event), applied to all 3 postback windows. "Apple's SKAdNetwork" section now shows "Edit events" (was "Configure events"). Effective on next install postback.
 > - ✅ Phase 4 (Bundle ID linkage) — Meta app already has `object_store_urls.itunes = id6758205028`.
-> - ✅ Phase 5 (Web Pixel) — `Porizo Web` dataset (id `36564205179837496`) created, connected to `act_29474028`, snippet added to `landing/index.html` with PageView + Lead-on-CTA. Commit `16405b9`. **CAPI auto-enabled** at dataset creation (future server-side mirror is one route handler away).
-> - ⏸ Phase 6 (End-to-end verify) — _needs deploy of landing + TestFlight build + real device + 24h SKAN soak_.
+> - ✅ Phase 5 (Web Pixel) — `Porizo Web` dataset (id `36564205179837496`) created, connected to `act_29474028`, snippet added to `public/index.html` (the actually-served Railway file) with PageView + Lead-on-CTA. Commits `ea85d81`, `f2ab68d`. **CAPI auto-enabled** at dataset creation.
+> - ⏸ Phase 6 (End-to-end verify) — _needs Meta-side import + TestFlight build + real device + 24h SKAN soak_.
 > - ⏸ Phase 7 (Relaunch campaign) — _follows Phase 3 + 6_.
 >
 > **Captured IDs:**
@@ -20,8 +20,8 @@
 >
 > **User action items to finish:**
 >
-> 1. **Push the `landing/` change** so Vercel deploys → use **Meta Pixel Helper** (Chrome extension) on https://porizo.co to confirm PageView fires (and Lead fires on App Store CTA click).
-> 2. **AppsFlyer dashboard** → generate the SKAdNetwork integration URL for Meta, paste it in Events Manager → Settings → SKAdNetwork → _"Configure events" → "Import from partner app"_. (Or, if AppsFlyer has no SKAN schema yet, set one up there first matching the Q3 decision.)
+> 1. ✅ ~~Push the `public/index.html` Pixel change~~ — done (Railway auto-deploys, live on porizo.co). Verify with **Meta Pixel Helper** Chrome extension.
+> 2. ✅ ~~Meta Events Manager → SKAdNetwork → Configure events~~ — **done 2026-05-28**. Used Customize path (Custom Integration for SKAdNetwork). Coarse waterfall: High=Purchase, Low=Activate app, applied to all 3 postback windows. Section now shows "Edit events" confirming schema is saved.
 > 3. **TestFlight build** of the iOS app with this branch → install on a real device → run the install funnel (open → enroll voice → create first song → buy credit pack) → check Events Manager → _Test Events_ tab shows `activate_app`, `complete_registration`, `add_to_cart`, `unlocked_achievement`, `purchase`. Also check AppsFlyer dashboard parity.
 > 4. **After SKAN postback ~24h soak** confirms attribution on `act_29474028`, **disconnect Ringoversea's Pixel** from the ad account (Phase 6 Q5).
 
@@ -146,27 +146,26 @@
 ## Phase 3 — SKAdNetwork conversion schema _(item 3)_
 
 > One install = one 6-bit SKAN postback. Spend this carefully.
+> **Path chosen:** Q3-A — AppsFlyer owns the schema, Meta imports from partner. Avoids Meta/AppsFlyer drift.
 
-- [ ] **3.1** Decide on **fine vs coarse** conversion scheme (Q3). Recommended starting schema:
+- [x] **3.1** **AppsFlyer Conversion Studio** (`hq1.appsflyer.com/skan-conversion-studio/config/id6758205028`) — picked **Subscription & IAP** industry template (closest fit to Porizo's IAP-driven model). Schema saved 2026-05-28:
   - **Coarse (LOW/MEDIUM/HIGH):**
-    - LOW: install + open
-    - MEDIUM: complete_registration (voice enrollment done)
-    - HIGH: purchase (any credit purchase)
-  - **Fine (0-63):** map to revenue bucket of first purchase
-- [ ] **3.2** Events Manager → App Dataset → **Aggregated Event Measurement → Configure conversions**
-  - Order the 8 priority slots (only top 8 are tracked under SKAN):
-    1. `Purchase` (high value)
-    2. `Subscribe` (if Porizo has subs)
-    3. `Complete Registration`
-    4. `Add to Cart` (first song create)
-    5. `View Content`
-    6. `App Activate`
-       7-8. reserve
-- [ ] **3.3** Configure the SKAN postback **conversion value schema** to map the events above to coarse + fine values per Meta's UI
-- [ ] **3.4** Submit the schema (Meta requires explicit "save & verify" — takes ~30 min to propagate)
+    - LOW: Session (auto-mapped from template)
+    - MEDIUM/HIGH: auto-filled by AppsFlyer's mapper once Subscribe + Free trial slots set
+  - **Subscribe slot** → `af_purchase` (any credit-pack purchase = HIGH value)
+  - **Free trial slot** → `first_song_completed` (Porizo activation milestone = MEDIUM value)
+  - **Fine (0/64 → 64/64):** auto-generated by AppsFlyer covering 7 revenue ranges + event combinations
+  - **Note:** Coarse 1/3 in summary panel — only LOW explicitly shown. AppsFlyer's auto-mapper handles MEDIUM/HIGH implicitly via fine value buckets. Refine later once postback data flows (~24-72h).
+- [x] **3.2** **AppsFlyer Partner Integrations** (`hq1.appsflyer.com/marketplace/integrated-partners/id6758205028/facebook_int`) — activated Meta ads partner with:
+  - **Facebook App Id**: `1984455025792561`
+  - **Install click-through lookback**: 7 days (AF recommended)
+  - **Install view-through attribution**: ON, 24 hours (AF recommended)
+  - **Reinstall/Re-engagement attribution**: OFF (not needed for new-user campaigns)
+- [ ] **3.3** **Meta Events Manager** → Datasets → Porizo iOS App Dataset → **SKAdNetwork → Configure events → "Import from partner app"** → select **AppsFlyer**. Meta will fetch the schema via the activated partnership using FB App Id 1984455025792561 as the binding key. _(User action — no URL to copy; the partnership handles auth.)_
+- [ ] **3.4** Verify the import in Events Manager → SKAdNetwork tab shows AppsFlyer-derived schema (LOW=session, MEDIUM=engagement, HIGH=purchase + 7 revenue buckets).
 - [ ] **3.5** Cross-check `Info.plist` `SKAdNetworkItems` against [Meta's current published SKAN ID list](https://developers.facebook.com/docs/SKAdNetwork/) — Apple caps at 100, Meta's list is ~100, so they should match exactly. Update if drifted.
 
-**Verification:** Events Manager AEM page shows 8-slot priority order; SKAN preview shows coarse + fine mappings; `Info.plist` SKAN list matches Meta's current canonical list.
+**Verification:** Events Manager SKAdNetwork tab shows schema imported from AppsFlyer; AppsFlyer onboarding shows all 5 steps green (✓ 2026-05-28); `Info.plist` SKAN list matches Meta's current canonical list.
 
 ---
 
