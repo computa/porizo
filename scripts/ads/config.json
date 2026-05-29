@@ -1,0 +1,18 @@
+{
+  "account": "act_29474028",
+  "currency": "AUD",
+  "windows": ["today", "last_3d", "last_7d", "maximum"],
+  "thresholds": {
+    "targetCpi": 4.0,
+    "cpiWarnMultiple": 1.5,
+    "minLinkCtr": 0.008,
+    "maxFrequency": 2.5,
+    "learningInstallFloor": 50,
+    "learningMinAgeDays": 3,
+    "minInstallsForSignificance": 15,
+    "significantCpiGapPct": 0.25,
+    "pacingUnderDeliveryPct": 0.7,
+    "ctrDecayPct": 0.3
+  },
+  "_notes": "targetCpi is in account currency (AUD). Tune after the first week of real data. minInstallsForSignificance gates A/B/C winner calls — below it, the verdict is 'inconclusive, keep running'."
+}
