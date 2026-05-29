@@ -78,7 +78,7 @@ export function renderMarkdown(ev, narrative) {
   // LLM narrative
   L.push('## Analyst narrative');
   L.push('');
-  L.push(narrative || '_LLM narrative unavailable (no ANTHROPIC_API_KEY) — rules-only report above._');
+  L.push(narrative || '_LLM narrative unavailable (Anthropic API + `claude -p` both unreachable — e.g. no API credits, or running headless under launchd). Rules-based analysis above is complete and authoritative._');
   L.push('');
   L.push('---');
   L.push('_Recommend-only. No account changes were made. Apply via the `meta` CLI / Graph API after review._');
