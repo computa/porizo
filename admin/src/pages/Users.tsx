@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, type KeyboardEvent, type ChangeEvent } from 'react';
-import { Users as UsersIcon, Search, Shield, Lock, ChevronRight, X, Clock, TrendingUp, Trash2, Pencil, Save, Mic, Monitor, Globe, Megaphone } from 'lucide-react';
+import { Users as UsersIcon, Search, Shield, Lock, ChevronRight, ChevronLeft, ChevronsRight, ChevronsLeft, X, Clock, TrendingUp, Trash2, Pencil, Save, Mic, Monitor, Globe, Megaphone } from 'lucide-react';
 import { useApi } from '../hooks/useApi';
 import { getTimeSince, formatFullDate } from '../utils/date';
 import { getAdminUser } from '../utils/auth';
@@ -37,6 +37,9 @@ interface UserStats {
 
 interface UsersResponse {
   users: User[];
+  total: number;
+  limit: number;
+  offset: number;
 }
 
 interface BulkActionResponse {
@@ -65,6 +68,11 @@ const attributionColors: Record<string, { bg: string; text: string }> = {
   unknown: { bg: 'bg-slate-500/10', text: 'text-slate-400' },
 };
 
+const DEFAULT_PAGE_SIZE = 50;
+const PAGE_SIZE_OPTIONS = [25, 50, 100];
+
+const paginationButtonClass = 'inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-600/50 bg-slate-800/50 text-slate-300 transition-colors hover:border-rose-500/60 hover:text-white disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-slate-600/50 disabled:hover:text-slate-300';
+
 function attributionStyle(status: string | null | undefined) {
   return attributionColors[status || 'unknown'] || attributionColors.unknown;
 }
@@ -80,6 +88,13 @@ export function Users() {
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkSubmitting, setBulkSubmitting] = useState(false);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [pageOffset, setPageOffset] = useState(0);
+  const [pagination, setPagination] = useState({
+    total: 0,
+    limit: DEFAULT_PAGE_SIZE,
+    offset: 0,
+  });
 
   const isSuperadmin = getAdminUser()?.role === 'superadmin';
 
@@ -111,12 +126,19 @@ export function Users() {
     }
     if (riskFilter) params.append('riskLevel', riskFilter);
     if (tierFilter) params.append('tier', tierFilter);
-    params.append('limit', '50');
+    params.append('limit', String(pageSize));
+    params.append('offset', String(pageOffset));
 
     const queryString = params.toString();
     const data = await get<UsersResponse>(`/users${queryString ? `?${queryString}` : ''}`);
     setUsers(data.users);
-  }, [get, searchQuery, searchType, riskFilter, tierFilter]);
+    setSelectedIds(new Set());
+    setPagination({
+      total: Number(data.total ?? 0),
+      limit: Number(data.limit ?? pageSize),
+      offset: Number(data.offset ?? pageOffset),
+    });
+  }, [get, searchQuery, searchType, riskFilter, tierFilter, pageSize, pageOffset]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -152,6 +174,33 @@ export function Users() {
       else next.add(userId);
       return next;
     });
+  };
+
+  const resetToFirstPage = () => {
+    setPageOffset(0);
+    setSelectedIds(new Set());
+  };
+
+  const totalUsers = pagination.total;
+  const effectiveLimit = pageSize;
+  const currentOffset = pageOffset;
+  const pageStart = totalUsers === 0 ? 0 : currentOffset + 1;
+  const pageEnd = totalUsers === 0 ? 0 : Math.min(currentOffset + users.length, totalUsers);
+  const totalPages = Math.max(1, Math.ceil(totalUsers / effectiveLimit));
+  const currentPage = Math.min(totalPages, Math.floor(currentOffset / effectiveLimit) + 1);
+  const lastPageOffset = Math.max(0, (totalPages - 1) * effectiveLimit);
+  const hasPreviousPage = currentOffset > 0;
+  const hasNextPage = pageEnd < totalUsers;
+  const paginationControlsDisabled = loading && users.length === 0;
+
+  const goToPageOffset = (nextOffset: number) => {
+    setSelectedIds(new Set());
+    setPageOffset(Math.max(0, Math.min(nextOffset, lastPageOffset)));
+  };
+
+  const handlePageSizeChange = (e: ChangeEvent<HTMLSelectElement>) => {
+    setPageSize(Number(e.target.value));
+    resetToFirstPage();
   };
 
   const handleBulkAction = async (action: 'delete' | 'lock' | 'unlock') => {
@@ -234,7 +283,10 @@ export function Users() {
             <input
               type="text"
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                resetToFirstPage();
+              }}
               placeholder={
                 searchType === 'email'
                   ? 'Search by email...'
@@ -252,7 +304,10 @@ export function Users() {
           </div>
           <select
             value={searchType}
-            onChange={(e) => setSearchType(e.target.value)}
+            onChange={(e) => {
+              setSearchType(e.target.value);
+              resetToFirstPage();
+            }}
             aria-label="Search type"
             className="bg-slate-800/50 border border-slate-600/50 rounded-lg px-3 py-2.5 text-sm text-slate-300 focus:border-rose-500 focus:ring-1 focus:ring-rose-500/20"
           >
@@ -264,7 +319,10 @@ export function Users() {
           </select>
           <select
             value={tierFilter}
-            onChange={(e) => setTierFilter(e.target.value)}
+            onChange={(e) => {
+              setTierFilter(e.target.value);
+              resetToFirstPage();
+            }}
             aria-label="Filter by subscription tier"
             className="bg-slate-800/50 border border-slate-600/50 rounded-lg px-3 py-2.5 text-sm text-slate-300 focus:border-rose-500 focus:ring-1 focus:ring-rose-500/20"
           >
@@ -276,7 +334,10 @@ export function Users() {
           </select>
           <select
             value={riskFilter}
-            onChange={(e) => setRiskFilter(e.target.value)}
+            onChange={(e) => {
+              setRiskFilter(e.target.value);
+              resetToFirstPage();
+            }}
             aria-label="Filter by risk level"
             className="bg-slate-800/50 border border-slate-600/50 rounded-lg px-3 py-2.5 text-sm text-slate-300 focus:border-rose-500 focus:ring-1 focus:ring-rose-500/20"
           >
@@ -285,7 +346,9 @@ export function Users() {
             <option value="medium">Medium Risk</option>
             <option value="high">High Risk</option>
           </select>
-          <span className="text-sm text-slate-500 font-data">{users.length} users</span>
+          <span className="text-sm text-slate-500 font-data">
+            {loading && users.length === 0 ? 'Loading...' : `${pageStart}-${pageEnd} of ${totalUsers} users`}
+          </span>
         </div>
       </div>
 
@@ -328,9 +391,10 @@ export function Users() {
       )}
 
       {/* Users List */}
-      <div className="card rounded-xl overflow-hidden overflow-x-auto">
-        <table>
-          <thead>
+      <div className="card rounded-xl overflow-hidden">
+        <div className="overflow-x-auto">
+          <table>
+            <thead>
             <tr className="bg-slate-800/50">
               {isSuperadmin && (
                 <th scope="col" className="w-10">
@@ -358,7 +422,7 @@ export function Users() {
           <tbody>
             {loading && users.length === 0 ? (
               <tr>
-                <td colSpan={isSuperadmin ? 12 : 11} className="text-center py-8">
+                <td colSpan={isSuperadmin ? 11 : 10} className="text-center py-8">
                   <div className="flex items-center justify-center gap-3 text-slate-400">
                     <span className="w-5 h-5 border-2 border-slate-600 border-t-rose-500 rounded-full animate-spin" />
                     Loading users...
@@ -367,7 +431,7 @@ export function Users() {
               </tr>
             ) : users.length === 0 ? (
               <tr>
-                <td colSpan={isSuperadmin ? 12 : 11} className="text-center py-8 text-slate-500">
+                <td colSpan={isSuperadmin ? 11 : 10} className="text-center py-8 text-slate-500">
                   No users found
                 </td>
               </tr>
@@ -476,7 +540,69 @@ export function Users() {
               })
             )}
           </tbody>
-        </table>
+          </table>
+        </div>
+        <div className="flex flex-col gap-3 border-t border-slate-700/50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="text-sm text-slate-400 font-data">
+            {pageStart}-{pageEnd} of {totalUsers} users
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="sr-only" htmlFor="users-page-size">Rows per page</label>
+            <select
+              id="users-page-size"
+              value={pageSize}
+              onChange={handlePageSizeChange}
+              className="h-9 rounded-lg border border-slate-600/50 bg-slate-800/50 px-3 text-sm text-slate-300 focus:border-rose-500 focus:ring-1 focus:ring-rose-500/20"
+            >
+              {PAGE_SIZE_OPTIONS.map((size) => (
+                <option key={size} value={size}>{size} / page</option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={() => goToPageOffset(0)}
+              disabled={!hasPreviousPage || paginationControlsDisabled}
+              className={paginationButtonClass}
+              title="First page"
+              aria-label="First page"
+            >
+              <ChevronsLeft className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => goToPageOffset(currentOffset - effectiveLimit)}
+              disabled={!hasPreviousPage || paginationControlsDisabled}
+              className={paginationButtonClass}
+              title="Previous page"
+              aria-label="Previous page"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+            <span className="min-w-[6.5rem] text-center text-sm text-slate-400 font-data">
+              {currentPage} / {totalPages}
+            </span>
+            <button
+              type="button"
+              onClick={() => goToPageOffset(currentOffset + effectiveLimit)}
+              disabled={!hasNextPage || paginationControlsDisabled}
+              className={paginationButtonClass}
+              title="Next page"
+              aria-label="Next page"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => goToPageOffset(lastPageOffset)}
+              disabled={!hasNextPage || paginationControlsDisabled}
+              className={paginationButtonClass}
+              title="Last page"
+              aria-label="Last page"
+            >
+              <ChevronsRight className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* User Detail Slide-over */}

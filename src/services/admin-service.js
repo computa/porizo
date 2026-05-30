@@ -33,6 +33,58 @@ function safeBounds(limit, offset, maxLimit = 100) {
   };
 }
 
+function buildUserSearchFilter({ email, userId, riskLevel, tier, trackId, shareId, recipientName }) {
+  const where = ['1=1'];
+  const params = [];
+
+  if (email) {
+    const escaped = escapeLikePattern(email);
+    where.push("u.email LIKE ? ESCAPE '\\'");
+    params.push(`%${escaped}%`);
+  }
+  if (userId) {
+    where.push('u.id = ?');
+    params.push(userId);
+  }
+  if (riskLevel) {
+    where.push('u.risk_level = ?');
+    params.push(riskLevel);
+  }
+  if (tier) {
+    if (tier === 'free') {
+      where.push("(e.tier = 'free' OR e.tier IS NULL)");
+    } else {
+      where.push('e.tier = ?');
+      params.push(tier);
+    }
+  }
+  if (trackId) {
+    where.push("EXISTS (SELECT 1 FROM tracks t2 WHERE t2.id = ? AND t2.user_id = u.id)");
+    params.push(trackId);
+  }
+  if (shareId) {
+    where.push(`
+      EXISTS (
+        SELECT 1
+        FROM share_tokens st
+        JOIN tracks t3 ON t3.id = st.track_id
+        WHERE st.id = ? AND t3.user_id = u.id
+      )
+    `);
+    params.push(shareId);
+  }
+  if (recipientName) {
+    const escaped = escapeLikePattern(recipientName);
+    where.push("EXISTS (SELECT 1 FROM tracks t4 WHERE t4.user_id = u.id AND t4.recipient_name LIKE ? ESCAPE '\\')");
+    params.push(`%${escaped}%`);
+  }
+
+  return {
+    whereSql: where.join(' AND '),
+    params,
+  };
+}
+
 class AdminService {
   constructor(db, options = {}) {
     this.db = db;
@@ -149,6 +201,7 @@ class AdminService {
    */
   async searchUsers({ email, userId, riskLevel, tier, trackId, shareId, recipientName, limit = 50, offset = 0 }) {
     const bounds = safeBounds(limit, offset);
+    const filter = buildUserSearchFilter({ email, userId, riskLevel, tier, trackId, shareId, recipientName });
 
     let sql = `
       SELECT
@@ -179,58 +232,28 @@ class AdminService {
         FROM tracks
         GROUP BY user_id
       ) activity ON activity.user_id = u.id
-      WHERE 1=1
+      WHERE ${filter.whereSql}
     `;
-    const params = [];
-
-    if (email) {
-      const escaped = escapeLikePattern(email);
-      sql += " AND u.email LIKE ? ESCAPE '\\'";
-      params.push(`%${escaped}%`);
-    }
-    if (userId) {
-      sql += ' AND u.id = ?';
-      params.push(userId);
-    }
-    if (riskLevel) {
-      sql += ' AND u.risk_level = ?';
-      params.push(riskLevel);
-    }
-    if (tier) {
-      // Filter by subscription tier (free, trial, pro, plus)
-      if (tier === 'free') {
-        sql += " AND (e.tier = 'free' OR e.tier IS NULL)";
-      } else {
-        sql += ' AND e.tier = ?';
-        params.push(tier);
-      }
-    }
-    if (trackId) {
-      sql += " AND EXISTS (SELECT 1 FROM tracks t2 WHERE t2.id = ? AND t2.user_id = u.id)";
-      params.push(trackId);
-    }
-    if (shareId) {
-      sql += `
-        AND EXISTS (
-          SELECT 1
-          FROM share_tokens st
-          JOIN tracks t3 ON t3.id = st.track_id
-          WHERE st.id = ? AND t3.user_id = u.id
-        )
-      `;
-      params.push(shareId);
-    }
-    if (recipientName) {
-      const escaped = escapeLikePattern(recipientName);
-      sql += " AND EXISTS (SELECT 1 FROM tracks t4 WHERE t4.user_id = u.id AND t4.recipient_name LIKE ? ESCAPE '\\')";
-      params.push(`%${escaped}%`);
-    }
 
     sql += ' ORDER BY u.created_at DESC LIMIT ? OFFSET ?';
-    params.push(bounds.limit, bounds.offset);
 
-    const users = await this.db.prepare(sql).all(...params);
-    return await this.attributionService.attachAttributionToUsers(users);
+    const countSql = `
+      SELECT COUNT(DISTINCT u.id) as total
+      FROM users u
+      LEFT JOIN entitlements e ON e.user_id = u.id
+      WHERE ${filter.whereSql}
+    `;
+
+    const [users, countRow] = await Promise.all([
+      this.db.prepare(sql).all(...filter.params, bounds.limit, bounds.offset),
+      this.db.prepare(countSql).get(...filter.params),
+    ]);
+    return {
+      users: await this.attributionService.attachAttributionToUsers(users),
+      total: Number(countRow?.total || 0),
+      limit: bounds.limit,
+      offset: bounds.offset,
+    };
   }
 
   /**

@@ -31,7 +31,7 @@ export interface ColdEmailCampaign {
 // src/routes/admin.js inside PATCH /admin/dashboard/marketing/cold-email/:id.
 // Adding a new editable field requires updating BOTH sides — the backend
 // is the authoritative validator.
-export const EDITABLE_FIELDS: Array<{
+const EDITABLE_FIELDS: Array<{
   key: keyof ColdEmailCampaign;
   label: string;
   type: "text" | "number";

@@ -58,15 +58,20 @@ export function FunnelSection({ days }: FunnelSectionProps) {
 
   useEffect(() => {
     let cancelled = false;
-    setIsLoading(true);
-    setError(null);
-    Promise.all([
-      get<FunnelResponse>(`/analytics/funnel?days=${days}`),
-      get<OverviewResponse>(`/analytics/overview?days=${days}`),
-      get<DailyResponse>(`/analytics/daily/first_song_completed?days=${days}`),
-    ])
-      .then(([f, o, d]) => {
-        if (cancelled) return;
+    Promise.resolve()
+      .then(() => {
+        if (cancelled) return null;
+        setIsLoading(true);
+        setError(null);
+        return Promise.all([
+          get<FunnelResponse>(`/analytics/funnel?days=${days}`),
+          get<OverviewResponse>(`/analytics/overview?days=${days}`),
+          get<DailyResponse>(`/analytics/daily/first_song_completed?days=${days}`),
+        ]);
+      })
+      .then((result) => {
+        if (cancelled || !result) return;
+        const [f, o, d] = result;
         setFunnel(f);
         setOverview(o);
         setDaily(d);

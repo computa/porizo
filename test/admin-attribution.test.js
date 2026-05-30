@@ -148,6 +148,25 @@ describe("admin attribution contract", () => {
     assert.match(detailUser.attribution_reason, /Apple Ads/);
   });
 
+  test("admin user list returns pagination metadata for page controls", async () => {
+    await insertUser(db, "admin_attr_page_1");
+    await insertUser(db, "admin_attr_page_2");
+    await insertUser(db, "admin_attr_page_3");
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/admin/dashboard/users?limit=2&offset=1",
+      headers: adminHeaders,
+    });
+
+    assert.equal(response.statusCode, 200, response.body);
+    const body = response.json();
+    assert.equal(body.users.length, 2);
+    assert.equal(body.total, 3);
+    assert.equal(body.limit, 2);
+    assert.equal(body.offset, 1);
+  });
+
   test("admin user list exposes organic and unknown attribution states explicitly", async () => {
     const organicUserId = "admin_attr_organic";
     const unknownUserId = "admin_attr_unknown";

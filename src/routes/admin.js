@@ -1119,7 +1119,7 @@ function registerAdminRoutes(
     if (!admin) return;
     const { email, userId, riskLevel, tier, trackId, shareId, recipientName } =
       request.query;
-    const users = await adminService.searchUsers({
+    const result = await adminService.searchUsers({
       email,
       userId,
       riskLevel,
@@ -1129,7 +1129,7 @@ function registerAdminRoutes(
       recipientName,
       ...parsePagination(request.query),
     });
-    reply.send({ users });
+    reply.send(result);
   });
 
   app.get("/admin/dashboard/users/stats", async (request, reply) => {
