@@ -573,6 +573,25 @@ class AuthManager {
 
     // MARK: - Social Auth (Apple)
 
+    private static var currentLocaleIdentifier: String {
+        Locale.autoupdatingCurrent.identifier
+    }
+
+    private static var currentRegionCode: String? {
+        if #available(iOS 16, *) {
+            return Locale.autoupdatingCurrent.region?.identifier ?? Locale.current.region?.identifier
+        }
+        return (Locale.autoupdatingCurrent as NSLocale).object(forKey: .countryCode) as? String
+            ?? (Locale.current as NSLocale).object(forKey: .countryCode) as? String
+    }
+
+    private static func addRegistrationLocale(to body: inout [String: Any], countryOverride: String? = nil) {
+        body["locale"] = currentLocaleIdentifier
+        if let country = countryOverride ?? currentRegionCode, !country.isEmpty {
+            body["country"] = country.uppercased()
+        }
+    }
+
     /// Handle Sign in with Apple
     func handleAppleSignIn(authorization: ASAuthorization, nonce: String) async throws {
         pendingSocialLinkRequest = nil
@@ -597,6 +616,7 @@ class AuthManager {
             // it matches the hashed nonce embedded in the Apple ID token.
             "nonce": nonce
         ]
+        Self.addRegistrationLocale(to: &body)
 
         if let authorizationCode = credential.authorizationCode,
            let authCodeString = String(data: authorizationCode, encoding: .utf8),
@@ -796,7 +816,12 @@ class AuthManager {
         var body: [String: String] = [
             "registration_token": registrationToken,
             "phone_number": phoneNumber,
+            "locale": Self.currentLocaleIdentifier,
         ]
+        let phoneCountry = normalizedPhoneCountry(phoneNumber)?.id ?? Self.currentRegionCode
+        if let phoneCountry, !phoneCountry.isEmpty {
+            body["country"] = phoneCountry.uppercased()
+        }
         if let name = displayName, !name.isEmpty { body["name"] = name }
         if let email = email, !email.isEmpty { body["email"] = email }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)

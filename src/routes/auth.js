@@ -11,6 +11,7 @@ const smsService = require("../services/sms-service");
 const gdprAuditService = require("../services/gdpr-audit-service");
 const identityService = require("../services/identity-service");
 const { AttributionService } = require("../services/attribution-service");
+const geoip = require("geoip-lite");
 const {
   verifySocialToken,
   verifyFacebookToken,
@@ -270,6 +271,21 @@ function sendError(reply, statusCode, errorCode, message) {
  */
 function getClientIp(request) {
   return request.ip || "unknown";
+}
+
+function normalizeIsoCountry(value) {
+  if (typeof value !== "string") return null;
+  const country = value.trim().toUpperCase();
+  return /^[A-Z]{2}$/.test(country) ? country : null;
+}
+
+function countryFromIp(ip) {
+  const geo = geoip.lookup(ip);
+  return normalizeIsoCountry(geo?.country);
+}
+
+function registrationCountry({ explicitCountry, clientIp }) {
+  return normalizeIsoCountry(explicitCountry) || countryFromIp(clientIp);
 }
 
 /**
@@ -544,6 +560,8 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
         redirect_uri: { type: "string", maxLength: 512 },
         confirm_link: { type: "boolean" },
         pending_phone_link: { type: "string", pattern: "^\\+[1-9]\\d{1,14}$" },
+        locale: { type: "string", maxLength: 10 },
+        country: { type: "string", maxLength: 2 },
       },
     },
   };
@@ -619,6 +637,8 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
         phone_number: { type: "string", pattern: "^\\+[1-9]\\d{1,14}$" },
         name: { type: "string", maxLength: 100 },
         email: { type: "string", format: "email", maxLength: 255 },
+        locale: { type: "string", maxLength: 10 },
+        country: { type: "string", maxLength: 2 },
       },
     },
   };
@@ -649,6 +669,7 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
   app.post("/auth/signup", { schema: signupSchema }, async (request, reply) => {
     const { email, password, name, locale, country } = request.body;
     const clientIp = getClientIp(request);
+    const countryCode = registrationCountry({ explicitCountry: country, clientIp });
 
     // Rate limit: 5/hour per IP
     if (await consumeAuthRateLimit(`signup:${clientIp}`, 5, 60 * 60 * 1000)) {
@@ -678,7 +699,7 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
         { type: "email", subject: identityService.normalizeEmail(email), verifiedAt: null },
         {
           contacts: [{ type: "email", value: email, source: "user_entered", verified: false }],
-          profile: { displayName: name || null, locale: locale || null, country: country || null },
+          profile: { displayName: name || null, locale: locale || null, country: countryCode },
         }
       );
 
@@ -835,8 +856,11 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
       authorization_code,
       code_verifier,
       redirect_uri,
+      locale,
+      country,
     } = request.body;
     const clientIp = getClientIp(request);
+    const countryCode = registrationCountry({ explicitCountry: country, clientIp });
 
     // Rate limit: 20/hour per IP
     if (await consumeAuthRateLimit(`social:${clientIp}`, 20, 60 * 60 * 1000)) {
@@ -1065,7 +1089,7 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
           const result = await identityService.createUserWithIdentity(
             db,
             { type: provider, subject: providerUserId, providerData, verifiedAt: now },
-            { contacts, profile: { displayName: userName } }
+            { contacts, profile: { displayName: userName, locale: locale || null, country: countryCode } }
           );
           userId = result.userId;
           identityId = result.identityId;
@@ -1952,8 +1976,9 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
   // ==================== PHONE AUTH: REGISTER ====================
 
   app.post("/auth/phone/register", { schema: phoneRegisterSchema }, async (request, reply) => {
-    const { registration_token, phone_number, name, email } = request.body;
+    const { registration_token, phone_number, name, email, locale, country } = request.body;
     const clientIp = getClientIp(request);
+    const countryCode = registrationCountry({ explicitCountry: country, clientIp });
     const normalizedEmail = email ? String(email).trim().toLowerCase() : null;
 
     // Rate limit: 5/hour per IP (same as signup)
@@ -2006,7 +2031,7 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
       const { userId, identityId } = await identityService.createUserWithIdentity(
         db,
         { type: "phone", subject: phoneNumber, verifiedAt: now },
-        { contacts, profile: { displayName: name || null } }
+        { contacts, profile: { displayName: name || null, locale: locale || null, country: countryCode } }
       );
 
       // Create free entitlements — compensate on failure

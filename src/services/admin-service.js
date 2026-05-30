@@ -153,6 +153,7 @@ class AdminService {
     let sql = `
       SELECT
         u.id, u.email, u.display_name, u.risk_level, u.locked_until, u.created_at,
+        u.country,
         u.acquisition_source,
         u.acquisition_medium,
         u.acquisition_campaign,

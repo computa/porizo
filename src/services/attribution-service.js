@@ -22,6 +22,36 @@ function isAppleAdsSource(value) {
   return clean(value)?.toLowerCase() === "apple ads";
 }
 
+function applyDownloadAttribution(result, row, { overwriteAppleAds = false } = {}) {
+  if (!row) return result;
+
+  const downloadSource = sourceFromDownload(row);
+  const shouldOverwriteSource = overwriteAppleAds || !result.acquisition_source;
+  const shouldOverwriteDetails = overwriteAppleAds || !result.acquisition_source;
+
+  if (shouldOverwriteSource) {
+    result.acquisition_source = downloadSource;
+  }
+  if (shouldOverwriteDetails) {
+    result.acquisition_medium = clean(row.utm_medium);
+    result.acquisition_campaign = clean(row.utm_campaign);
+    result.acquisition_content = clean(row.utm_content);
+    result.acquisition_term = clean(row.utm_term);
+    result.acquisition_referrer = clean(row.referrer_url);
+    result.acquisition_at = clean(row.created_at);
+  } else {
+    result.acquisition_medium = result.acquisition_medium || clean(row.utm_medium);
+    result.acquisition_campaign = result.acquisition_campaign || clean(row.utm_campaign);
+    result.acquisition_content = result.acquisition_content || clean(row.utm_content);
+    result.acquisition_term = result.acquisition_term || clean(row.utm_term);
+    result.acquisition_referrer = result.acquisition_referrer || clean(row.referrer_url);
+    result.acquisition_at = result.acquisition_at || clean(row.created_at);
+  }
+  result.acquisition_country = (overwriteAppleAds ? clean(row.country) : result.acquisition_country) || result.acquisition_country || clean(row.country);
+
+  return result;
+}
+
 const APPLE_ADS_DEVELOPER_TEST_ID = 1234567890;
 
 function numeric(value) {
@@ -68,6 +98,7 @@ class AttributionService {
       acquisition_country: clean(user?.acquisition_country),
       acquisition_referrer: clean(user?.acquisition_referrer),
       acquisition_at: clean(user?.acquisition_at),
+      registration_country: clean(user?.country),
       attribution_status: "unknown",
       attribution_reason: "No matched download event or resolved Apple Ads attribution.",
       attribution_confidence: "none",
@@ -81,7 +112,29 @@ class AttributionService {
 
     const hasStoredNonAppleSource = result.acquisition_source && !isAppleAdsSource(result.acquisition_source);
 
-    if (appleAdsAttribution?.status === "resolved" && !hasStoredNonAppleSource) {
+    if (downloadAttribution) {
+      const overwroteAppleAds = isAppleAdsSource(result.acquisition_source);
+      const sourceWasBlank = !result.acquisition_source;
+      const sourceMatchesDownload = clean(result.acquisition_source)?.toLowerCase() === clean(sourceFromDownload(downloadAttribution))?.toLowerCase();
+      applyDownloadAttribution(result, downloadAttribution, {
+        overwriteAppleAds: overwroteAppleAds,
+      });
+      result.attribution_status = "attributed";
+      result.attribution_reason = overwroteAppleAds
+        ? "Matched recent /download attribution event; registration source overrides stored Apple Ads install attribution."
+        : (sourceWasBlank || sourceMatchesDownload || result.attribution_confidence === "none"
+          ? "Matched recent /download attribution event."
+          : result.attribution_reason);
+      result.attribution_confidence = overwroteAppleAds
+        ? "download_event_over_apple_ads"
+        : (sourceWasBlank || sourceMatchesDownload || result.attribution_confidence === "none"
+          ? "download_event"
+          : result.attribution_confidence);
+    }
+
+    const hasResolvedNonAppleSource = result.acquisition_source && !isAppleAdsSource(result.acquisition_source);
+
+    if (appleAdsAttribution?.status === "resolved" && !hasStoredNonAppleSource && !hasResolvedNonAppleSource) {
       result.acquisition_source = result.acquisition_source || "Apple Ads";
       result.acquisition_medium = result.acquisition_medium || "cpc";
       result.acquisition_campaign = result.acquisition_campaign || campaignFromAppleAds(appleAdsAttribution);
@@ -94,24 +147,6 @@ class AttributionService {
         ? "Stored user acquisition fields, filled from resolved Apple Ads attribution where blank."
         : "Resolved Apple Ads attribution.";
       result.attribution_confidence = result.attribution_confidence === "stored" ? "stored_plus_apple_ads" : "apple_ads";
-    }
-
-    if (downloadAttribution) {
-      result.acquisition_source = result.acquisition_source || sourceFromDownload(downloadAttribution);
-      result.acquisition_medium = result.acquisition_medium || clean(downloadAttribution.utm_medium);
-      result.acquisition_campaign = result.acquisition_campaign || clean(downloadAttribution.utm_campaign);
-      result.acquisition_content = result.acquisition_content || clean(downloadAttribution.utm_content);
-      result.acquisition_term = result.acquisition_term || clean(downloadAttribution.utm_term);
-      result.acquisition_country = result.acquisition_country || clean(downloadAttribution.country);
-      result.acquisition_referrer = result.acquisition_referrer || clean(downloadAttribution.referrer_url);
-      result.acquisition_at = result.acquisition_at || clean(downloadAttribution.created_at);
-      result.attribution_status = "attributed";
-      result.attribution_reason = result.attribution_confidence === "none"
-        ? "Matched recent /download attribution event."
-        : result.attribution_reason;
-      result.attribution_confidence = result.attribution_confidence === "none"
-        ? "download_event"
-        : result.attribution_confidence;
     }
 
     if (result.acquisition_source) {
@@ -320,26 +355,51 @@ class AttributionService {
       return;
     }
 
+    const user = await this.db.prepare(`
+      SELECT id, acquisition_source, acquisition_medium, acquisition_campaign, acquisition_content,
+             acquisition_term, acquisition_country, acquisition_referrer, acquisition_at, country
+      FROM users
+      WHERE id = ?
+    `).get(userId);
+
+    if (!user) {
+      return;
+    }
+
+    const current = {
+      acquisition_source: clean(user.acquisition_source),
+      acquisition_medium: clean(user.acquisition_medium),
+      acquisition_campaign: clean(user.acquisition_campaign),
+      acquisition_content: clean(user.acquisition_content),
+      acquisition_term: clean(user.acquisition_term),
+      acquisition_country: clean(user.acquisition_country),
+      acquisition_referrer: clean(user.acquisition_referrer),
+      acquisition_at: clean(user.acquisition_at),
+    };
+    const overwriteAppleAds = isAppleAdsSource(current.acquisition_source);
+    const next = applyDownloadAttribution({ ...current }, row, { overwriteAppleAds });
+    next.acquisition_country = next.acquisition_country || clean(user.country);
+
     await this.db.prepare(`
       UPDATE users
-      SET acquisition_source = COALESCE(acquisition_source, ?),
-          acquisition_medium = COALESCE(acquisition_medium, ?),
-          acquisition_campaign = COALESCE(acquisition_campaign, ?),
-          acquisition_content = COALESCE(acquisition_content, ?),
-          acquisition_term = COALESCE(acquisition_term, ?),
-          acquisition_country = COALESCE(acquisition_country, ?),
-          acquisition_referrer = COALESCE(acquisition_referrer, ?),
-          acquisition_at = COALESCE(acquisition_at, ?)
+      SET acquisition_source = ?,
+          acquisition_medium = ?,
+          acquisition_campaign = ?,
+          acquisition_content = ?,
+          acquisition_term = ?,
+          acquisition_country = ?,
+          acquisition_referrer = ?,
+          acquisition_at = ?
       WHERE id = ?
     `).run(
-      sourceFromDownload(row),
-      clean(row.utm_medium),
-      clean(row.utm_campaign),
-      clean(row.utm_content),
-      clean(row.utm_term),
-      clean(row.country),
-      clean(row.referrer_url),
-      clean(row.created_at),
+      next.acquisition_source,
+      next.acquisition_medium,
+      next.acquisition_campaign,
+      next.acquisition_content,
+      next.acquisition_term,
+      next.acquisition_country,
+      next.acquisition_referrer,
+      next.acquisition_at,
       userId
     );
   }

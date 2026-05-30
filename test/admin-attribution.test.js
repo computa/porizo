@@ -7,6 +7,7 @@ const { beforeEach, afterEach, describe, test } = require("node:test");
 
 const { getDatabase } = require("../src/database");
 const { buildServer } = require("../src/server");
+const { AttributionService } = require("../src/services/attribution-service");
 
 function buildTestApp(db) {
   return buildServer({
@@ -203,6 +204,87 @@ describe("admin attribution contract", () => {
     assert.equal(user.acquisition_campaign, "friends_test");
     assert.equal(user.acquisition_country, "US");
     assert.equal(user.attribution_confidence, "stored");
+  });
+
+  test("matched download registration attribution overrides a stored Apple Ads install source", async () => {
+    const userId = "admin_attr_download_over_apple";
+    await insertUser(db, userId);
+    await db.prepare(
+      `UPDATE users
+       SET acquisition_source = ?, acquisition_medium = ?, acquisition_campaign = ?,
+           acquisition_content = ?, acquisition_term = ?, acquisition_country = ?
+       WHERE id = ?`
+    ).run("Apple Ads", "cpc", "321", "654", "987", "US", userId);
+    await insertAppleAdsAttribution(db, {
+      id: "aaa_admin_attr_download_over_apple",
+      userId,
+      status: "resolved",
+      campaignId: 321,
+      adGroupId: 654,
+      keywordId: 987,
+      country: "US",
+    });
+
+    const now = new Date().toISOString();
+    const download = {
+      id: "dl_admin_attr_download_over_apple",
+      utm_source: "seo",
+      utm_medium: "landing_page",
+      utm_campaign: "birthday_song_gift",
+      utm_content: "hero",
+      utm_term: null,
+      country: "AU",
+      referrer_url: "https://porizo.co/birthday-song-maker",
+      created_at: now,
+    };
+    await db.prepare(`
+      INSERT INTO download_events (
+        id, ip_address, user_agent, utm_source, utm_medium, utm_campaign,
+        utm_content, utm_term, country, referrer_url, matched_user_id, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      download.id,
+      "203.0.113.44",
+      "test-agent",
+      download.utm_source,
+      download.utm_medium,
+      download.utm_campaign,
+      download.utm_content,
+      download.utm_term,
+      download.country,
+      download.referrer_url,
+      userId,
+      download.created_at
+    );
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/admin/dashboard/users?userId=${userId}`,
+      headers: adminHeaders,
+    });
+
+    assert.equal(response.statusCode, 200, response.body);
+    const user = response.json().users[0];
+    assert.equal(user.acquisition_source, "seo");
+    assert.equal(user.acquisition_medium, "landing_page");
+    assert.equal(user.acquisition_campaign, "birthday_song_gift");
+    assert.equal(user.acquisition_content, "hero");
+    assert.equal(user.acquisition_term, null);
+    assert.equal(user.acquisition_country, "AU");
+    assert.equal(user.acquisition_referrer, "https://porizo.co/birthday-song-maker");
+    assert.equal(user.attribution_confidence, "download_event_over_apple_ads");
+
+    const attributionService = new AttributionService(db);
+    await attributionService.backfillUserAcquisitionFromDownload(userId, download);
+    const stored = await db.prepare(`
+      SELECT acquisition_source, acquisition_medium, acquisition_campaign, acquisition_country
+      FROM users
+      WHERE id = ?
+    `).get(userId);
+    assert.equal(stored.acquisition_source, "seo");
+    assert.equal(stored.acquisition_medium, "landing_page");
+    assert.equal(stored.acquisition_campaign, "birthday_song_gift");
+    assert.equal(stored.acquisition_country, "AU");
   });
 
   test("manual attribution override writes an old/new audit contract entry", async () => {

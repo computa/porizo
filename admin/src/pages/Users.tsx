@@ -14,6 +14,7 @@ interface User {
   risk_level: string;
   locked_until: string | null;
   created_at: string;
+  country: string | null;
   tier: string;
   track_count: number;
   voice_status: string;
@@ -456,8 +457,8 @@ export function Users() {
                       </div>
                     </td>
                     <td>
-                      {user.acquisition_country ? (
-                        <span className="text-slate-300 text-sm font-data">{user.acquisition_country}</span>
+                      {user.country || user.acquisition_country ? (
+                        <span className="text-slate-300 text-sm font-data">{user.country || user.acquisition_country}</span>
                       ) : (
                         <span className="text-slate-500 text-xs" title={user.attribution_reason || undefined}>
                           Unknown
@@ -519,6 +520,7 @@ interface UserDetail {
     risk_level: string;
     locked_until: string | null;
     created_at: string;
+    country: string | null;
     acquisition_source: string | null;
     acquisition_campaign: string | null;
     acquisition_country: string | null;
@@ -879,7 +881,8 @@ function UserDetailPanel({ userId, onClose, onUserDeleted }: UserDetailPanelProp
           <InfoCell label="Source" value={detail.user.acquisition_source || 'Unknown'} />
           <InfoCell label="Status" value={detail.user.attribution_status || 'unknown'} />
           <InfoCell label="Campaign" value={detail.user.acquisition_campaign} />
-          <InfoCell label="Country" value={detail.user.acquisition_country || 'Unknown'} />
+          <InfoCell label="Registration Country" value={detail.user.country || 'Unknown'} />
+          <InfoCell label="Attribution Country" value={detail.user.acquisition_country || 'Unknown'} />
           <InfoCell label="Reason" value={detail.user.attribution_reason || 'No attribution reason recorded'} colSpan={2} />
           {detail.attribution && (
             <>
