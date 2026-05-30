@@ -4,6 +4,11 @@ Goal: increase organic App Store search visibility and web-to-app traffic for
 Porizo by making the product legible as a personalized song gift, then stealing
 traffic from apps that already rank for adjacent intent.
 
+Update 2026-05-30: Apple Ads are stopped. This loop now treats historical paid
+search data as evidence only; execution is organic App Store search, App Store
+metadata source files, web SEO, indexing, creator/partner routes, and backend
+attribution.
+
 ## Positioning Decision
 
 Primary lane: personalized song gifts by occasion and relationship.
@@ -90,7 +95,7 @@ Google-visible pages, not broad App Store keyword stuffing.
 - OpenASO now tracks the expanded portfolio across US, GB, AU, and CA.
 - Fastlane metadata source is pivoted to:
   - Name: `Porizo: Song Gift Maker`
-  - Subtitle: `Birthday, Love & Wedding`
+  - Subtitle: `Birthday, Love & Wedding Songs`
   - Keywords: family, seasonal, relationship, voice, and `ai` as support.
 - Web graph now has a `/gifts/` index target for all gift-page breadcrumbs.
 - Homepage, blog, and programmatic gift pages now expose Smart App Banner

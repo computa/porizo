@@ -1,8 +1,9 @@
 # Custom Product Page — `dad-song-gift`
 
 Created 2026-05-27. Purpose: a Father's-Day / song-for-Dad conversion surface for
-**routed traffic** (Apple Search Ads, the cold-email Father's Day CTA, paid social,
-and the `/download` Father's-Day links). Pairs with the Father's Day in-app event.
+**routed organic and owned traffic** (web SEO pages, cold-email Father's Day
+CTAs, creator/partner links, and the `/download` Father's-Day links). Pairs with
+the Father's Day in-app event.
 
 ## What a CPP is (and is not)
 
@@ -20,7 +21,7 @@ each has a unique URL (`…?ppid=<id>`). Route Father's-Day ad/email/web traffic
 that URL so dad-intent visitors see a dad-specific story instead of the generic one.
 
 > Important: the in-app **event** deep link cannot point at a CPP. CPPs are for
-> **Apple Search Ads, web/email, and paid social** destinations. The IAE and the
+> **web/email, creator, partner, and organic landing-page** destinations. The IAE and the
 > CPP are complementary, not linked.
 
 ## CPP metadata
@@ -96,13 +97,14 @@ extend the `RECIPIENT`/`OCCASION` ternaries, then `VARIANT=<name> node capture.m
 2. Upload the 5 Dad screenshots (6.9" required) + set the promotional text above.
 3. Submit the CPP (reviewed with the next app version or standalone).
 4. Copy the CPP URL (`…?ppid=<id>`) and use it as the destination for:
-   - the Father's Day **Apple Search Ads** ad group(s) (`father's day song`, `song gift for dad`, `custom song for dad`),
    - the **cold-email** Father's Day CTA (`utm_campaign=fathers-day-2026`),
-   - any paid social / `/download?...&ppid=<id>` Father's-Day links.
+   - creator/partner Father's-Day links,
+   - web SEO landing-page CTAs that already qualify dad-song intent,
+   - any `/download?...&ppid=<id>` Father's-Day links.
 
 ## Measurement (weekly, per discovery doc)
 
 - CPP **product-page views → conversion rate → first-time downloads** (ASC, segment by CPP).
-- Compare CPP conversion vs the default page for the same Father's-Day ad traffic.
-- `/download` + ASA installs attributed to the Father's-Day campaign.
+- Compare CPP conversion vs the default page for the same Father's-Day web/email/creator traffic.
+- `/download` events and first-time downloads attributed to the Father's-Day campaign.
 - Target: CPP conversion **> default page** for dad-intent traffic (the whole reason it exists).

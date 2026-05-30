@@ -1,11 +1,11 @@
 {
   "schema_version": "1.0",
-  "updated_at": "2026-05-13T04:13:22.344Z",
-  "first_observed": "2026-05-07",
+  "updated_at": "2026-05-29T11:15:36.384Z",
+  "first_observed": "2026-04-16",
   "campaigns": {
     "2143696873": {
       "name": "Porizo - Category US",
-      "first_seen": "2026-05-07",
+      "first_seen": "2026-04-18",
       "daily": {
         "2026-05-07": {
           "impressions": 106,
@@ -50,7 +50,238 @@
           "avg_cpt": 1.5372
         },
         "2026-05-13": {
+          "impressions": 46,
+          "taps": 3,
+          "installs": 0,
+          "spend": 3.3488,
+          "avg_cpt": 1.1163
+        },
+        "2026-04-18": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-19": {
+          "impressions": 91,
+          "taps": 1,
+          "installs": 0,
+          "spend": 1.5354,
+          "avg_cpt": 1.5354
+        },
+        "2026-04-20": {
+          "impressions": 77,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-21": {
+          "impressions": 139,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-22": {
+          "impressions": 46,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-23": {
+          "impressions": 31,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-24": {
+          "impressions": 17,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-25": {
+          "impressions": 24,
+          "taps": 2,
+          "installs": 0,
+          "spend": 3.1357,
+          "avg_cpt": 1.5679
+        },
+        "2026-04-26": {
+          "impressions": 13,
+          "taps": 1,
+          "installs": 0,
+          "spend": 1.8,
+          "avg_cpt": 1.8
+        },
+        "2026-04-27": {
+          "impressions": 8,
+          "taps": 1,
+          "installs": 0,
+          "spend": 1.2099,
+          "avg_cpt": 1.2099
+        },
+        "2026-04-28": {
+          "impressions": 17,
+          "taps": 1,
+          "installs": 0,
+          "spend": 1.6435,
+          "avg_cpt": 1.6435
+        },
+        "2026-04-29": {
+          "impressions": 18,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-30": {
+          "impressions": 24,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-01": {
+          "impressions": 18,
+          "taps": 1,
+          "installs": 1,
+          "spend": 1.5975,
+          "avg_cpt": 1.5975
+        },
+        "2026-05-02": {
+          "impressions": 23,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-03": {
+          "impressions": 20,
+          "taps": 1,
+          "installs": 1,
+          "spend": 0.05,
+          "avg_cpt": 0.05
+        },
+        "2026-05-04": {
+          "impressions": 18,
+          "taps": 4,
+          "installs": 3,
+          "spend": 3.4379,
+          "avg_cpt": 0.8595
+        },
+        "2026-05-05": {
+          "impressions": 28,
+          "taps": 2,
+          "installs": 0,
+          "spend": 2.2114,
+          "avg_cpt": 1.1057
+        },
+        "2026-05-06": {
           "impressions": 4,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-14": {
+          "impressions": 40,
+          "taps": 2,
+          "installs": 0,
+          "spend": 1.9739,
+          "avg_cpt": 0.987
+        },
+        "2026-05-15": {
+          "impressions": 40,
+          "taps": 1,
+          "installs": 0,
+          "spend": 1.0077,
+          "avg_cpt": 1.0077
+        },
+        "2026-05-16": {
+          "impressions": 34,
+          "taps": 2,
+          "installs": 0,
+          "spend": 2.3726,
+          "avg_cpt": 1.1863
+        },
+        "2026-05-17": {
+          "impressions": 49,
+          "taps": 6,
+          "installs": 1,
+          "spend": 8.0889,
+          "avg_cpt": 1.3482
+        },
+        "2026-05-18": {
+          "impressions": 36,
+          "taps": 2,
+          "installs": 0,
+          "spend": 1.3601,
+          "avg_cpt": 0.6801
+        },
+        "2026-05-19": {
+          "impressions": 33,
+          "taps": 3,
+          "installs": 0,
+          "spend": 4.1187,
+          "avg_cpt": 1.3729
+        },
+        "2026-05-20": {
+          "impressions": 25,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-21": {
+          "impressions": 29,
+          "taps": 2,
+          "installs": 0,
+          "spend": 0.648,
+          "avg_cpt": 0.324
+        },
+        "2026-05-22": {
+          "impressions": 22,
+          "taps": 3,
+          "installs": 0,
+          "spend": 4.2753,
+          "avg_cpt": 1.4251
+        },
+        "2026-05-23": {
+          "impressions": 3,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-24": {
+          "impressions": 2,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-25": {
+          "impressions": 3,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-27": {
+          "impressions": 2,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-28": {
+          "impressions": 1,
           "taps": 0,
           "installs": 0,
           "spend": 0,
@@ -58,9 +289,106 @@
         }
       }
     },
+    "2143697607": {
+      "name": "Porizo - Brand US",
+      "first_seen": "2026-04-16",
+      "daily": {
+        "2026-04-16": {
+          "impressions": 154,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-17": {
+          "impressions": 92,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-18": {
+          "impressions": 177,
+          "taps": 1,
+          "installs": 0,
+          "spend": 0.7012,
+          "avg_cpt": 0.7012
+        },
+        "2026-04-19": {
+          "impressions": 336,
+          "taps": 3,
+          "installs": 1,
+          "spend": 1.7946,
+          "avg_cpt": 0.5982
+        },
+        "2026-04-20": {
+          "impressions": 167,
+          "taps": 2,
+          "installs": 1,
+          "spend": 0.9508,
+          "avg_cpt": 0.4754
+        },
+        "2026-04-21": {
+          "impressions": 199,
+          "taps": 2,
+          "installs": 0,
+          "spend": 1.5419,
+          "avg_cpt": 0.771
+        },
+        "2026-04-22": {
+          "impressions": 253,
+          "taps": 2,
+          "installs": 0,
+          "spend": 1.2815,
+          "avg_cpt": 0.6408
+        },
+        "2026-04-23": {
+          "impressions": 218,
+          "taps": 3,
+          "installs": 1,
+          "spend": 1.4758,
+          "avg_cpt": 0.4919
+        },
+        "2026-04-24": {
+          "impressions": 189,
+          "taps": 3,
+          "installs": 0,
+          "spend": 1.6733,
+          "avg_cpt": 0.5578
+        },
+        "2026-04-25": {
+          "impressions": 86,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-26": {
+          "impressions": 40,
+          "taps": 1,
+          "installs": 0,
+          "spend": 0.5617,
+          "avg_cpt": 0.5617
+        },
+        "2026-04-27": {
+          "impressions": 76,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-28": {
+          "impressions": 38,
+          "taps": 1,
+          "installs": 0,
+          "spend": 0.7011,
+          "avg_cpt": 0.7011
+        }
+      }
+    },
     "2143698138": {
       "name": "Porizo - Discovery US",
-      "first_seen": "2026-05-07",
+      "first_seen": "2026-04-16",
       "daily": {
         "2026-05-07": {
           "impressions": 174,
@@ -105,17 +433,248 @@
           "avg_cpt": 0.2439
         },
         "2026-05-13": {
-          "impressions": 7,
+          "impressions": 43,
           "taps": 1,
           "installs": 0,
           "spend": 0.5327,
           "avg_cpt": 0.5327
+        },
+        "2026-04-16": {
+          "impressions": 36,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-17": {
+          "impressions": 42,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-18": {
+          "impressions": 27,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-19": {
+          "impressions": 62,
+          "taps": 1,
+          "installs": 0,
+          "spend": 0.3707,
+          "avg_cpt": 0.3707
+        },
+        "2026-04-20": {
+          "impressions": 30,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-21": {
+          "impressions": 43,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-22": {
+          "impressions": 99,
+          "taps": 1,
+          "installs": 0,
+          "spend": 0.5026,
+          "avg_cpt": 0.5026
+        },
+        "2026-04-23": {
+          "impressions": 34,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-24": {
+          "impressions": 17,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-25": {
+          "impressions": 5,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-26": {
+          "impressions": 4,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-27": {
+          "impressions": 14,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-28": {
+          "impressions": 14,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-29": {
+          "impressions": 6,
+          "taps": 0,
+          "installs": 1,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-30": {
+          "impressions": 10,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-01": {
+          "impressions": 85,
+          "taps": 1,
+          "installs": 1,
+          "spend": 0.4474,
+          "avg_cpt": 0.4474
+        },
+        "2026-05-02": {
+          "impressions": 113,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-03": {
+          "impressions": 47,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-04": {
+          "impressions": 27,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-05": {
+          "impressions": 10,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-06": {
+          "impressions": 13,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-14": {
+          "impressions": 34,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-15": {
+          "impressions": 13,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-16": {
+          "impressions": 23,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-17": {
+          "impressions": 5,
+          "taps": 2,
+          "installs": 0,
+          "spend": 1.2254,
+          "avg_cpt": 0.6127
+        },
+        "2026-05-18": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-19": {
+          "impressions": 36,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-20": {
+          "impressions": 18,
+          "taps": 1,
+          "installs": 0,
+          "spend": 0.5475,
+          "avg_cpt": 0.5475
+        },
+        "2026-05-21": {
+          "impressions": 42,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-22": {
+          "impressions": 9,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-27": {
+          "impressions": 907,
+          "taps": 2,
+          "installs": 0,
+          "spend": 1.08,
+          "avg_cpt": 0.54
+        },
+        "2026-05-28": {
+          "impressions": 128,
+          "taps": 1,
+          "installs": 0,
+          "spend": 0.5013,
+          "avg_cpt": 0.5013
+        },
+        "2026-05-29": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
         }
       }
     },
     "2143756341": {
       "name": "Porizo - Mother's Day US",
-      "first_seen": "2026-05-07",
+      "first_seen": "2026-04-28",
       "daily": {
         "2026-05-07": {
           "impressions": 1,
@@ -146,6 +705,27 @@
           "avg_cpt": 0.05
         },
         "2026-05-11": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-28": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-29": {
+          "impressions": 1,
+          "taps": 1,
+          "installs": 1,
+          "spend": 0.05,
+          "avg_cpt": 0.05
+        },
+        "2026-05-05": {
           "impressions": 1,
           "taps": 0,
           "installs": 0,
@@ -164,6 +744,62 @@
           "installs": 0,
           "spend": 0,
           "avg_cpt": 0
+        },
+        "2026-05-15": {
+          "impressions": 1670,
+          "taps": 10,
+          "installs": 0,
+          "spend": 13.0535,
+          "avg_cpt": 1.3054
+        },
+        "2026-05-16": {
+          "impressions": 2468,
+          "taps": 13,
+          "installs": 0,
+          "spend": 16.8752,
+          "avg_cpt": 1.2981
+        },
+        "2026-05-17": {
+          "impressions": 169,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-18": {
+          "impressions": 88,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-19": {
+          "impressions": 114,
+          "taps": 3,
+          "installs": 0,
+          "spend": 3.8825,
+          "avg_cpt": 1.2942
+        },
+        "2026-05-20": {
+          "impressions": 74,
+          "taps": 1,
+          "installs": 0,
+          "spend": 1.0887,
+          "avg_cpt": 1.0887
+        },
+        "2026-05-21": {
+          "impressions": 87,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-22": {
+          "impressions": 61,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
         }
       }
     }
@@ -174,9 +810,24 @@
       "keyword_id": "2264549443",
       "term": "pet tribute song",
       "match_type": "BROAD",
+      "max_cpt": 1.5,
       "first_seen": "2026-05-12",
       "daily": {
         "2026-05-12": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-21": {
+          "impressions": 2,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-22": {
           "impressions": 1,
           "taps": 0,
           "installs": 0,
@@ -190,7 +841,8 @@
       "keyword_id": "2258612715",
       "term": "mother's day song",
       "match_type": "EXACT",
-      "first_seen": "2026-05-07",
+      "max_cpt": 0.68,
+      "first_seen": "2026-04-28",
       "daily": {
         "2026-05-07": {
           "impressions": 1,
@@ -226,6 +878,27 @@
           "installs": 0,
           "spend": 0,
           "avg_cpt": 0
+        },
+        "2026-04-28": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-29": {
+          "impressions": 1,
+          "taps": 1,
+          "installs": 1,
+          "spend": 0.05,
+          "avg_cpt": 0.05
+        },
+        "2026-05-05": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
         }
       }
     },
@@ -234,7 +907,8 @@
       "keyword_id": "2259995379",
       "term": "music gift",
       "match_type": "BROAD",
-      "first_seen": "2026-05-07",
+      "max_cpt": 0.68,
+      "first_seen": "2026-04-29",
       "daily": {
         "2026-05-07": {
           "impressions": 6,
@@ -270,6 +944,111 @@
           "installs": 0,
           "spend": 0,
           "avg_cpt": 0
+        },
+        "2026-04-29": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 1,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-01": {
+          "impressions": 24,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-02": {
+          "impressions": 49,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-03": {
+          "impressions": 3,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-06": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-13": {
+          "impressions": 7,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-14": {
+          "impressions": 9,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-15": {
+          "impressions": 9,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-16": {
+          "impressions": 21,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-17": {
+          "impressions": 2,
+          "taps": 1,
+          "installs": 0,
+          "spend": 0.6312,
+          "avg_cpt": 0.6312
+        },
+        "2026-05-18": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-22": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-27": {
+          "impressions": 904,
+          "taps": 2,
+          "installs": 0,
+          "spend": 1.08,
+          "avg_cpt": 0.54
+        },
+        "2026-05-28": {
+          "impressions": 126,
+          "taps": 1,
+          "installs": 0,
+          "spend": 0.5013,
+          "avg_cpt": 0.5013
+        },
+        "2026-05-29": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
         }
       }
     },
@@ -278,6 +1057,7 @@
       "keyword_id": "2255067575",
       "term": "anniversary gift",
       "match_type": "BROAD",
+      "max_cpt": 0.68,
       "first_seen": "2026-05-07",
       "daily": {
         "2026-05-07": {
@@ -294,7 +1074,8 @@
       "keyword_id": "2255067569",
       "term": "personalized gift",
       "match_type": "BROAD",
-      "first_seen": "2026-05-07",
+      "max_cpt": 0.68,
+      "first_seen": "2026-04-16",
       "daily": {
         "2026-05-07": {
           "impressions": 11,
@@ -309,6 +1090,62 @@
           "installs": 0,
           "spend": 0,
           "avg_cpt": 0
+        },
+        "2026-04-16": {
+          "impressions": 2,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-17": {
+          "impressions": 2,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-18": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-24": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-25": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-01": {
+          "impressions": 3,
+          "taps": 1,
+          "installs": 1,
+          "spend": 0.4474,
+          "avg_cpt": 0.4474
+        },
+        "2026-05-27": {
+          "impressions": 3,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-28": {
+          "impressions": 2,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
         }
       }
     },
@@ -317,7 +1154,8 @@
       "keyword_id": "2255477141",
       "term": "personalized birthday gift",
       "match_type": "BROAD",
-      "first_seen": "2026-05-09",
+      "max_cpt": 1.8,
+      "first_seen": "2026-04-21",
       "daily": {
         "2026-05-09": {
           "impressions": 1,
@@ -346,6 +1184,118 @@
           "installs": 0,
           "spend": 0,
           "avg_cpt": 0
+        },
+        "2026-04-21": {
+          "impressions": 2,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-22": {
+          "impressions": 3,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-23": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-27": {
+          "impressions": 2,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-28": {
+          "impressions": 6,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-29": {
+          "impressions": 6,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-03": {
+          "impressions": 3,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-04": {
+          "impressions": 2,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-05": {
+          "impressions": 9,
+          "taps": 1,
+          "installs": 0,
+          "spend": 1.3092,
+          "avg_cpt": 1.3092
+        },
+        "2026-05-06": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-16": {
+          "impressions": 2,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-17": {
+          "impressions": 7,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-19": {
+          "impressions": 2,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-20": {
+          "impressions": 3,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-21": {
+          "impressions": 2,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-22": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
         }
       }
     },
@@ -354,7 +1304,8 @@
       "keyword_id": "2255477140",
       "term": "birthday gift ideas",
       "match_type": "BROAD",
-      "first_seen": "2026-05-07",
+      "max_cpt": 3,
+      "first_seen": "2026-04-19",
       "daily": {
         "2026-05-07": {
           "impressions": 12,
@@ -392,7 +1343,147 @@
           "avg_cpt": 0
         },
         "2026-05-13": {
+          "impressions": 28,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-19": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-21": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-22": {
           "impressions": 2,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-26": {
+          "impressions": 4,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-27": {
+          "impressions": 2,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-28": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-30": {
+          "impressions": 2,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-01": {
+          "impressions": 4,
+          "taps": 1,
+          "installs": 1,
+          "spend": 1.5975,
+          "avg_cpt": 1.5975
+        },
+        "2026-05-02": {
+          "impressions": 3,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-04": {
+          "impressions": 1,
+          "taps": 1,
+          "installs": 1,
+          "spend": 1.7325,
+          "avg_cpt": 1.7325
+        },
+        "2026-05-05": {
+          "impressions": 3,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-14": {
+          "impressions": 23,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-15": {
+          "impressions": 27,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-16": {
+          "impressions": 10,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-17": {
+          "impressions": 18,
+          "taps": 1,
+          "installs": 1,
+          "spend": 2.1072,
+          "avg_cpt": 2.1072
+        },
+        "2026-05-18": {
+          "impressions": 19,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-19": {
+          "impressions": 20,
+          "taps": 1,
+          "installs": 0,
+          "spend": 1.8044,
+          "avg_cpt": 1.8044
+        },
+        "2026-05-20": {
+          "impressions": 7,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-21": {
+          "impressions": 11,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-22": {
+          "impressions": 7,
           "taps": 0,
           "installs": 0,
           "spend": 0,
@@ -405,7 +1496,8 @@
       "keyword_id": "2255477139",
       "term": "meaningful gift",
       "match_type": "BROAD",
-      "first_seen": "2026-05-07",
+      "max_cpt": 1.8,
+      "first_seen": "2026-04-19",
       "daily": {
         "2026-05-07": {
           "impressions": 5,
@@ -441,6 +1533,97 @@
           "installs": 0,
           "spend": 1.6193,
           "avg_cpt": 1.6193
+        },
+        "2026-04-19": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-23": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-24": {
+          "impressions": 2,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-25": {
+          "impressions": 3,
+          "taps": 2,
+          "installs": 0,
+          "spend": 3.1357,
+          "avg_cpt": 1.5679
+        },
+        "2026-04-29": {
+          "impressions": 2,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-01": {
+          "impressions": 4,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-03": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-05": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-13": {
+          "impressions": 4,
+          "taps": 3,
+          "installs": 0,
+          "spend": 3.3488,
+          "avg_cpt": 1.1163
+        },
+        "2026-05-14": {
+          "impressions": 2,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-16": {
+          "impressions": 5,
+          "taps": 2,
+          "installs": 0,
+          "spend": 2.3726,
+          "avg_cpt": 1.1863
+        },
+        "2026-05-17": {
+          "impressions": 1,
+          "taps": 1,
+          "installs": 0,
+          "spend": 1.1952,
+          "avg_cpt": 1.1952
+        },
+        "2026-05-18": {
+          "impressions": 4,
+          "taps": 1,
+          "installs": 0,
+          "spend": 1.3029,
+          "avg_cpt": 1.3029
         }
       }
     },
@@ -449,7 +1632,8 @@
       "keyword_id": "2255477138",
       "term": "sentimental gift",
       "match_type": "BROAD",
-      "first_seen": "2026-05-07",
+      "max_cpt": 1.8,
+      "first_seen": "2026-04-19",
       "daily": {
         "2026-05-07": {
           "impressions": 1,
@@ -471,6 +1655,34 @@
           "installs": 0,
           "spend": 0,
           "avg_cpt": 0
+        },
+        "2026-04-19": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-25": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-05": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-13": {
+          "impressions": 2,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
         }
       }
     },
@@ -479,7 +1691,8 @@
       "keyword_id": "2255477137",
       "term": "anniversary gift",
       "match_type": "BROAD",
-      "first_seen": "2026-05-07",
+      "max_cpt": 1.8,
+      "first_seen": "2026-04-19",
       "daily": {
         "2026-05-07": {
           "impressions": 64,
@@ -515,6 +1728,181 @@
           "installs": 0,
           "spend": 0,
           "avg_cpt": 0
+        },
+        "2026-04-19": {
+          "impressions": 51,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-20": {
+          "impressions": 48,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-21": {
+          "impressions": 14,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-22": {
+          "impressions": 20,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-23": {
+          "impressions": 14,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-24": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-25": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-26": {
+          "impressions": 3,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-27": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-28": {
+          "impressions": 4,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-29": {
+          "impressions": 6,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-30": {
+          "impressions": 6,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-01": {
+          "impressions": 4,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-02": {
+          "impressions": 3,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-03": {
+          "impressions": 4,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-04": {
+          "impressions": 4,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-05": {
+          "impressions": 2,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-14": {
+          "impressions": 5,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-15": {
+          "impressions": 2,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-16": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-17": {
+          "impressions": 2,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-18": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-19": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-21": {
+          "impressions": 4,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-22": {
+          "impressions": 1,
+          "taps": 1,
+          "installs": 0,
+          "spend": 1.8,
+          "avg_cpt": 1.8
         }
       }
     },
@@ -523,7 +1911,8 @@
       "keyword_id": "2255477136",
       "term": "birthday gift",
       "match_type": "BROAD",
-      "first_seen": "2026-05-07",
+      "max_cpt": 1.8,
+      "first_seen": "2026-04-19",
       "daily": {
         "2026-05-07": {
           "impressions": 14,
@@ -566,6 +1955,174 @@
           "installs": 0,
           "spend": 0,
           "avg_cpt": 0
+        },
+        "2026-04-19": {
+          "impressions": 25,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-20": {
+          "impressions": 28,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-21": {
+          "impressions": 9,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-22": {
+          "impressions": 2,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-23": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-24": {
+          "impressions": 6,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-25": {
+          "impressions": 4,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-26": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-27": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-28": {
+          "impressions": 4,
+          "taps": 1,
+          "installs": 0,
+          "spend": 1.6435,
+          "avg_cpt": 1.6435
+        },
+        "2026-04-29": {
+          "impressions": 2,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-30": {
+          "impressions": 12,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-01": {
+          "impressions": 3,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-02": {
+          "impressions": 9,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-03": {
+          "impressions": 5,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-04": {
+          "impressions": 4,
+          "taps": 1,
+          "installs": 1,
+          "spend": 1.6053,
+          "avg_cpt": 1.6053
+        },
+        "2026-05-05": {
+          "impressions": 4,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-06": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-13": {
+          "impressions": 5,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-16": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-17": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-18": {
+          "impressions": 4,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-20": {
+          "impressions": 5,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-22": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
         }
       }
     },
@@ -574,9 +2131,24 @@
       "keyword_id": "2255477134",
       "term": "gift for mom",
       "match_type": "BROAD",
-      "first_seen": "2026-05-11",
+      "max_cpt": 1.8,
+      "first_seen": "2026-04-21",
       "daily": {
         "2026-05-11": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-21": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-23": {
           "impressions": 1,
           "taps": 0,
           "installs": 0,
@@ -590,7 +2162,8 @@
       "keyword_id": "2255477133",
       "term": "custom gift",
       "match_type": "BROAD",
-      "first_seen": "2026-05-08",
+      "max_cpt": 1.8,
+      "first_seen": "2026-04-21",
       "daily": {
         "2026-05-08": {
           "impressions": 2,
@@ -621,11 +2194,137 @@
           "avg_cpt": 1.4962
         },
         "2026-05-13": {
+          "impressions": 3,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-21": {
+          "impressions": 110,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-22": {
+          "impressions": 13,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-23": {
+          "impressions": 6,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-29": {
           "impressions": 1,
           "taps": 0,
           "installs": 0,
           "spend": 0,
           "avg_cpt": 0
+        },
+        "2026-05-01": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-02": {
+          "impressions": 2,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-03": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-04": {
+          "impressions": 3,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-05": {
+          "impressions": 4,
+          "taps": 1,
+          "installs": 0,
+          "spend": 0.9022,
+          "avg_cpt": 0.9022
+        },
+        "2026-05-14": {
+          "impressions": 4,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-15": {
+          "impressions": 10,
+          "taps": 1,
+          "installs": 0,
+          "spend": 1.0077,
+          "avg_cpt": 1.0077
+        },
+        "2026-05-16": {
+          "impressions": 8,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-17": {
+          "impressions": 8,
+          "taps": 2,
+          "installs": 0,
+          "spend": 2.2695,
+          "avg_cpt": 1.1348
+        },
+        "2026-05-18": {
+          "impressions": 5,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-19": {
+          "impressions": 6,
+          "taps": 2,
+          "installs": 0,
+          "spend": 2.3143,
+          "avg_cpt": 1.1572
+        },
+        "2026-05-20": {
+          "impressions": 10,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-21": {
+          "impressions": 10,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-22": {
+          "impressions": 6,
+          "taps": 2,
+          "installs": 0,
+          "spend": 2.4753,
+          "avg_cpt": 1.2377
         }
       }
     },
@@ -634,7 +2333,8 @@
       "keyword_id": "2255477132",
       "term": "personalized gifts",
       "match_type": "BROAD",
-      "first_seen": "2026-05-07",
+      "max_cpt": 1.8,
+      "first_seen": "2026-04-19",
       "daily": {
         "2026-05-07": {
           "impressions": 10,
@@ -677,6 +2377,167 @@
           "installs": 0,
           "spend": 0,
           "avg_cpt": 0
+        },
+        "2026-04-19": {
+          "impressions": 7,
+          "taps": 1,
+          "installs": 0,
+          "spend": 1.5354,
+          "avg_cpt": 1.5354
+        },
+        "2026-04-21": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-22": {
+          "impressions": 3,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-23": {
+          "impressions": 4,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-24": {
+          "impressions": 6,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-25": {
+          "impressions": 7,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-26": {
+          "impressions": 3,
+          "taps": 1,
+          "installs": 0,
+          "spend": 1.8,
+          "avg_cpt": 1.8
+        },
+        "2026-04-27": {
+          "impressions": 1,
+          "taps": 1,
+          "installs": 0,
+          "spend": 1.2099,
+          "avg_cpt": 1.2099
+        },
+        "2026-04-28": {
+          "impressions": 2,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-29": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-30": {
+          "impressions": 3,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-01": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-02": {
+          "impressions": 4,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-03": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-05": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-06": {
+          "impressions": 2,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-13": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-14": {
+          "impressions": 3,
+          "taps": 1,
+          "installs": 0,
+          "spend": 1.2389,
+          "avg_cpt": 1.2389
+        },
+        "2026-05-15": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-16": {
+          "impressions": 4,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-17": {
+          "impressions": 11,
+          "taps": 2,
+          "installs": 0,
+          "spend": 2.517,
+          "avg_cpt": 1.2585
+        },
+        "2026-05-18": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-19": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
         }
       }
     },
@@ -685,7 +2546,8 @@
       "keyword_id": "2255068522",
       "term": "gift song",
       "match_type": "EXACT",
-      "first_seen": "2026-05-08",
+      "max_cpt": 1,
+      "first_seen": "2026-04-18",
       "daily": {
         "2026-05-08": {
           "impressions": 3,
@@ -723,6 +2585,1567 @@
           "avg_cpt": 0
         },
         "2026-05-13": {
+          "impressions": 3,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-18": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-19": {
+          "impressions": 5,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-20": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-21": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-22": {
+          "impressions": 3,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-23": {
+          "impressions": 3,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-24": {
+          "impressions": 2,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-25": {
+          "impressions": 8,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-26": {
+          "impressions": 2,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-27": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-30": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-01": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-02": {
+          "impressions": 2,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-03": {
+          "impressions": 5,
+          "taps": 1,
+          "installs": 1,
+          "spend": 0.05,
+          "avg_cpt": 0.05
+        },
+        "2026-05-04": {
+          "impressions": 4,
+          "taps": 2,
+          "installs": 1,
+          "spend": 0.1,
+          "avg_cpt": 0.05
+        },
+        "2026-05-05": {
+          "impressions": 3,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-14": {
+          "impressions": 3,
+          "taps": 1,
+          "installs": 0,
+          "spend": 0.735,
+          "avg_cpt": 0.735
+        },
+        "2026-05-16": {
+          "impressions": 3,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-17": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-18": {
+          "impressions": 2,
+          "taps": 1,
+          "installs": 0,
+          "spend": 0.0572,
+          "avg_cpt": 0.0572
+        },
+        "2026-05-19": {
+          "impressions": 3,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-21": {
+          "impressions": 2,
+          "taps": 2,
+          "installs": 0,
+          "spend": 0.648,
+          "avg_cpt": 0.324
+        },
+        "2026-05-22": {
+          "impressions": 6,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-23": {
+          "impressions": 3,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-24": {
+          "impressions": 2,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-25": {
+          "impressions": 3,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-27": {
+          "impressions": 2,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-28": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        }
+      }
+    },
+    "2143698138:2259995381": {
+      "campaign_id": "2143698138",
+      "keyword_id": "2259995381",
+      "term": "unique gift app",
+      "match_type": "BROAD",
+      "max_cpt": 0.68,
+      "first_seen": "2026-05-02",
+      "daily": {
+        "2026-05-02": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        }
+      }
+    },
+    "2143698138:2255067578": {
+      "campaign_id": "2143698138",
+      "keyword_id": "2255067578",
+      "term": "birthday song",
+      "match_type": "BROAD",
+      "max_cpt": 0.68,
+      "first_seen": "2026-04-17",
+      "daily": {
+        "2026-04-17": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-19": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-20": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        }
+      }
+    },
+    "2143698138:2255067577": {
+      "campaign_id": "2143698138",
+      "keyword_id": "2255067577",
+      "term": "personalized song",
+      "match_type": "BROAD",
+      "max_cpt": 0.68,
+      "first_seen": "2026-04-16",
+      "daily": {
+        "2026-04-16": {
+          "impressions": 2,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-17": {
+          "impressions": 4,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-19": {
+          "impressions": 1,
+          "taps": 1,
+          "installs": 0,
+          "spend": 0.3707,
+          "avg_cpt": 0.3707
+        },
+        "2026-04-20": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-26": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        }
+      }
+    },
+    "2143698138:2255067576": {
+      "campaign_id": "2143698138",
+      "keyword_id": "2255067576",
+      "term": "memorial gift",
+      "match_type": "BROAD",
+      "max_cpt": 0.68,
+      "first_seen": "2026-04-19",
+      "daily": {
+        "2026-04-19": {
+          "impressions": 2,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        }
+      }
+    },
+    "2143698138:2255067571": {
+      "campaign_id": "2143698138",
+      "keyword_id": "2255067571",
+      "term": "custom song",
+      "match_type": "BROAD",
+      "max_cpt": 0.68,
+      "first_seen": "2026-04-17",
+      "daily": {
+        "2026-04-17": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-20": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-21": {
+          "impressions": 2,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-27": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        }
+      }
+    },
+    "2143698138:2255067570": {
+      "campaign_id": "2143698138",
+      "keyword_id": "2255067570",
+      "term": "song gift",
+      "match_type": "BROAD",
+      "max_cpt": 0.68,
+      "first_seen": "2026-04-17",
+      "daily": {
+        "2026-04-17": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-18": {
+          "impressions": 3,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-21": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-04-26": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        }
+      }
+    },
+    "2143697607:2255070694": {
+      "campaign_id": "2143697607",
+      "keyword_id": "2255070694",
+      "term": "porizo",
+      "match_type": "EXACT",
+      "max_cpt": 0.8,
+      "first_seen": "2026-04-23",
+      "daily": {
+        "2026-04-23": {
+          "impressions": 1,
+          "taps": 1,
+          "installs": 1,
+          "spend": 0.2683,
+          "avg_cpt": 0.2683
+        }
+      }
+    },
+    "2143835551:2264550442": {
+      "campaign_id": "2143835551",
+      "keyword_id": "2264550442",
+      "term": "ai voice cover gift",
+      "match_type": "BROAD",
+      "max_cpt": 1.5,
+      "first_seen": "2026-05-15",
+      "daily": {
+        "2026-05-15": {
+          "impressions": 7,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-16": {
+          "impressions": 11,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-17": {
+          "impressions": 2,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-18": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-21": {
+          "impressions": 4,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-22": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        }
+      }
+    },
+    "2143835551:2264549444": {
+      "campaign_id": "2143835551",
+      "keyword_id": "2264549444",
+      "term": "song for my pet",
+      "match_type": "BROAD",
+      "max_cpt": 1.5,
+      "first_seen": "2026-05-16",
+      "daily": {
+        "2026-05-16": {
+          "impressions": 3,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-18": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-19": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-21": {
+          "impressions": 5,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        }
+      }
+    },
+    "2143835551:2264549442": {
+      "campaign_id": "2143835551",
+      "keyword_id": "2264549442",
+      "term": "pet memorial song",
+      "match_type": "BROAD",
+      "max_cpt": 1.5,
+      "first_seen": "2026-05-16",
+      "daily": {
+        "2026-05-16": {
+          "impressions": 2,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-19": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-22": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        }
+      }
+    },
+    "2143835551:2264548775": {
+      "campaign_id": "2143835551",
+      "keyword_id": "2264548775",
+      "term": "song for mother in law",
+      "match_type": "BROAD",
+      "max_cpt": 1.5,
+      "first_seen": "2026-05-16",
+      "daily": {
+        "2026-05-16": {
+          "impressions": 2,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-17": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-18": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-19": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        }
+      }
+    },
+    "2143835551:2264548774": {
+      "campaign_id": "2143835551",
+      "keyword_id": "2264548774",
+      "term": "song for godfather",
+      "match_type": "BROAD",
+      "max_cpt": 1.5,
+      "first_seen": "2026-05-16",
+      "daily": {
+        "2026-05-16": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        }
+      }
+    },
+    "2143835551:2264548773": {
+      "campaign_id": "2143835551",
+      "keyword_id": "2264548773",
+      "term": "song for godmother",
+      "match_type": "BROAD",
+      "max_cpt": 1.5,
+      "first_seen": "2026-05-17",
+      "daily": {
+        "2026-05-17": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        }
+      }
+    },
+    "2143835551:2264548771": {
+      "campaign_id": "2143835551",
+      "keyword_id": "2264548771",
+      "term": "song for niece",
+      "match_type": "BROAD",
+      "max_cpt": 1.5,
+      "first_seen": "2026-05-15",
+      "daily": {
+        "2026-05-15": {
+          "impressions": 7,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-16": {
+          "impressions": 17,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-17": {
+          "impressions": 6,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-18": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        }
+      }
+    },
+    "2143835551:2264548762": {
+      "campaign_id": "2143835551",
+      "keyword_id": "2264548762",
+      "term": "apology song",
+      "match_type": "BROAD",
+      "max_cpt": 1.5,
+      "first_seen": "2026-05-15",
+      "daily": {
+        "2026-05-15": {
+          "impressions": 399,
+          "taps": 1,
+          "installs": 0,
+          "spend": 1.2891,
+          "avg_cpt": 1.2891
+        },
+        "2026-05-16": {
+          "impressions": 241,
+          "taps": 2,
+          "installs": 0,
+          "spend": 2.7684,
+          "avg_cpt": 1.3842
+        },
+        "2026-05-17": {
+          "impressions": 27,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-18": {
+          "impressions": 45,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-19": {
+          "impressions": 44,
+          "taps": 1,
+          "installs": 0,
+          "spend": 1.0833,
+          "avg_cpt": 1.0833
+        },
+        "2026-05-20": {
+          "impressions": 15,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-21": {
+          "impressions": 20,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-22": {
+          "impressions": 26,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        }
+      }
+    },
+    "2143835551:2264548350": {
+      "campaign_id": "2143835551",
+      "keyword_id": "2264548350",
+      "term": "song for someone far away",
+      "match_type": "BROAD",
+      "max_cpt": 1.5,
+      "first_seen": "2026-05-15",
+      "daily": {
+        "2026-05-15": {
+          "impressions": 3,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-16": {
+          "impressions": 10,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-17": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        }
+      }
+    },
+    "2143835551:2264548349": {
+      "campaign_id": "2143835551",
+      "keyword_id": "2264548349",
+      "term": "long distance relationship gift",
+      "match_type": "BROAD",
+      "max_cpt": 1.5,
+      "first_seen": "2026-05-15",
+      "daily": {
+        "2026-05-15": {
+          "impressions": 185,
+          "taps": 1,
+          "installs": 0,
+          "spend": 1.4546,
+          "avg_cpt": 1.4546
+        },
+        "2026-05-16": {
+          "impressions": 157,
+          "taps": 1,
+          "installs": 0,
+          "spend": 1.3806,
+          "avg_cpt": 1.3806
+        },
+        "2026-05-17": {
+          "impressions": 4,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-18": {
+          "impressions": 2,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-19": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-20": {
+          "impressions": 2,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-21": {
+          "impressions": 2,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-22": {
+          "impressions": 3,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        }
+      }
+    },
+    "2143835551:2264548348": {
+      "campaign_id": "2143835551",
+      "keyword_id": "2264548348",
+      "term": "missing you song",
+      "match_type": "BROAD",
+      "max_cpt": 1.5,
+      "first_seen": "2026-05-15",
+      "daily": {
+        "2026-05-15": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-16": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-17": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-21": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        }
+      }
+    },
+    "2143835551:2264548346": {
+      "campaign_id": "2143835551",
+      "keyword_id": "2264548346",
+      "term": "i miss you song",
+      "match_type": "BROAD",
+      "max_cpt": 1.5,
+      "first_seen": "2026-05-15",
+      "daily": {
+        "2026-05-15": {
+          "impressions": 370,
+          "taps": 4,
+          "installs": 0,
+          "spend": 5.2848,
+          "avg_cpt": 1.3212
+        },
+        "2026-05-16": {
+          "impressions": 503,
+          "taps": 2,
+          "installs": 0,
+          "spend": 2.355,
+          "avg_cpt": 1.1775
+        },
+        "2026-05-17": {
+          "impressions": 48,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-18": {
+          "impressions": 9,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-19": {
+          "impressions": 10,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-20": {
+          "impressions": 3,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        }
+      }
+    },
+    "2143835551:2264547141": {
+      "campaign_id": "2143835551",
+      "keyword_id": "2264547141",
+      "term": "dog memorial song",
+      "match_type": "BROAD",
+      "max_cpt": 1.5,
+      "first_seen": "2026-05-16",
+      "daily": {
+        "2026-05-16": {
+          "impressions": 3,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-17": {
+          "impressions": 2,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-19": {
+          "impressions": 2,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-21": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        }
+      }
+    },
+    "2143835551:2264547138": {
+      "campaign_id": "2143835551",
+      "keyword_id": "2264547138",
+      "term": "song for my cat",
+      "match_type": "BROAD",
+      "max_cpt": 1.5,
+      "first_seen": "2026-05-15",
+      "daily": {
+        "2026-05-15": {
+          "impressions": 4,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-16": {
+          "impressions": 34,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-17": {
+          "impressions": 2,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-18": {
+          "impressions": 2,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-19": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-21": {
+          "impressions": 5,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-22": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        }
+      }
+    },
+    "2143835551:2264547137": {
+      "campaign_id": "2143835551",
+      "keyword_id": "2264547137",
+      "term": "song for my dog",
+      "match_type": "BROAD",
+      "max_cpt": 1.5,
+      "first_seen": "2026-05-15",
+      "daily": {
+        "2026-05-15": {
+          "impressions": 3,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-16": {
+          "impressions": 4,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-17": {
+          "impressions": 4,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-18": {
+          "impressions": 6,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-19": {
+          "impressions": 9,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-20": {
+          "impressions": 2,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-21": {
+          "impressions": 5,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-22": {
+          "impressions": 3,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        }
+      }
+    },
+    "2143835551:2264547069": {
+      "campaign_id": "2143835551",
+      "keyword_id": "2264547069",
+      "term": "baby first birthday song",
+      "match_type": "BROAD",
+      "max_cpt": 1.5,
+      "first_seen": "2026-05-15",
+      "daily": {
+        "2026-05-15": {
+          "impressions": 2,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-17": {
+          "impressions": 2,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-18": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-19": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-21": {
+          "impressions": 2,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        }
+      }
+    },
+    "2143835551:2264547068": {
+      "campaign_id": "2143835551",
+      "keyword_id": "2264547068",
+      "term": "song for unborn baby",
+      "match_type": "BROAD",
+      "max_cpt": 1.5,
+      "first_seen": "2026-05-15",
+      "daily": {
+        "2026-05-15": {
+          "impressions": 2,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-16": {
+          "impressions": 2,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-17": {
+          "impressions": 2,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-19": {
+          "impressions": 2,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-21": {
+          "impressions": 2,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        }
+      }
+    },
+    "2143835551:2264547067": {
+      "campaign_id": "2143835551",
+      "keyword_id": "2264547067",
+      "term": "song for my baby",
+      "match_type": "BROAD",
+      "max_cpt": 1.5,
+      "first_seen": "2026-05-15",
+      "daily": {
+        "2026-05-15": {
+          "impressions": 2,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-16": {
+          "impressions": 14,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-17": {
+          "impressions": 5,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-18": {
+          "impressions": 2,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-19": {
+          "impressions": 2,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-20": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-22": {
+          "impressions": 3,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        }
+      }
+    },
+    "2143835551:2264547066": {
+      "campaign_id": "2143835551",
+      "keyword_id": "2264547066",
+      "term": "newborn song gift",
+      "match_type": "BROAD",
+      "max_cpt": 1.5,
+      "first_seen": "2026-05-16",
+      "daily": {
+        "2026-05-16": {
+          "impressions": 3,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-20": {
+          "impressions": 2,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        }
+      }
+    },
+    "2143835551:2264547065": {
+      "campaign_id": "2143835551",
+      "keyword_id": "2264547065",
+      "term": "gender reveal song",
+      "match_type": "BROAD",
+      "max_cpt": 1.5,
+      "first_seen": "2026-05-16",
+      "daily": {
+        "2026-05-16": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-19": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        }
+      }
+    },
+    "2143835551:2264544491": {
+      "campaign_id": "2143835551",
+      "keyword_id": "2264544491",
+      "term": "my voice song app",
+      "match_type": "BROAD",
+      "max_cpt": 1.5,
+      "first_seen": "2026-05-15",
+      "daily": {
+        "2026-05-15": {
+          "impressions": 616,
+          "taps": 4,
+          "installs": 0,
+          "spend": 5.025,
+          "avg_cpt": 1.2563
+        },
+        "2026-05-16": {
+          "impressions": 1282,
+          "taps": 5,
+          "installs": 0,
+          "spend": 5.9831,
+          "avg_cpt": 1.1966
+        },
+        "2026-05-17": {
+          "impressions": 12,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-18": {
+          "impressions": 2,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-19": {
+          "impressions": 4,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-20": {
+          "impressions": 4,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        }
+      }
+    },
+    "2143835551:2264544490": {
+      "campaign_id": "2143835551",
+      "keyword_id": "2264544490",
+      "term": "clone my voice song",
+      "match_type": "BROAD",
+      "max_cpt": 1.5,
+      "first_seen": "2026-05-15",
+      "daily": {
+        "2026-05-15": {
+          "impressions": 2,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-16": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-17": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-18": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-19": {
+          "impressions": 2,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-20": {
+          "impressions": 2,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-21": {
+          "impressions": 2,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-22": {
+          "impressions": 2,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        }
+      }
+    },
+    "2143835551:2264544489": {
+      "campaign_id": "2143835551",
+      "keyword_id": "2264544489",
+      "term": "song with my voice",
+      "match_type": "BROAD",
+      "max_cpt": 1.5,
+      "first_seen": "2026-05-15",
+      "daily": {
+        "2026-05-15": {
+          "impressions": 19,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-16": {
+          "impressions": 43,
+          "taps": 1,
+          "installs": 0,
+          "spend": 1.4691,
+          "avg_cpt": 1.4691
+        },
+        "2026-05-17": {
+          "impressions": 11,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-18": {
+          "impressions": 3,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-19": {
+          "impressions": 11,
+          "taps": 2,
+          "installs": 0,
+          "spend": 2.7992,
+          "avg_cpt": 1.3996
+        },
+        "2026-05-20": {
+          "impressions": 12,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-21": {
+          "impressions": 10,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-22": {
+          "impressions": 4,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        }
+      }
+    },
+    "2143835551:2264544488": {
+      "campaign_id": "2143835551",
+      "keyword_id": "2264544488",
+      "term": "sing in my voice",
+      "match_type": "BROAD",
+      "max_cpt": 1.5,
+      "first_seen": "2026-05-15",
+      "daily": {
+        "2026-05-15": {
+          "impressions": 47,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-16": {
+          "impressions": 133,
+          "taps": 2,
+          "installs": 0,
+          "spend": 2.9191,
+          "avg_cpt": 1.4596
+        },
+        "2026-05-17": {
+          "impressions": 36,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-18": {
+          "impressions": 11,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-19": {
+          "impressions": 20,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-20": {
+          "impressions": 30,
+          "taps": 1,
+          "installs": 0,
+          "spend": 1.0887,
+          "avg_cpt": 1.0887
+        },
+        "2026-05-21": {
+          "impressions": 26,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-22": {
+          "impressions": 16,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        }
+      }
+    },
+    "2143835551:2264544221": {
+      "campaign_id": "2143835551",
+      "keyword_id": "2264544221",
+      "term": "50th birthday song",
+      "match_type": "BROAD",
+      "max_cpt": 1.5,
+      "first_seen": "2026-05-15",
+      "daily": {
+        "2026-05-15": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        }
+      }
+    },
+    "2143835551:2264544216": {
+      "campaign_id": "2143835551",
+      "keyword_id": "2264544216",
+      "term": "1st birthday song",
+      "match_type": "BROAD",
+      "max_cpt": 1.5,
+      "first_seen": "2026-05-17",
+      "daily": {
+        "2026-05-17": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        }
+      }
+    },
+    "2143835551:2264544220": {
+      "campaign_id": "2143835551",
+      "keyword_id": "2264544220",
+      "term": "40th birthday song",
+      "match_type": "BROAD",
+      "max_cpt": 1.5,
+      "first_seen": "2026-05-19",
+      "daily": {
+        "2026-05-19": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        }
+      }
+    },
+    "2143835551:2264547064": {
+      "campaign_id": "2143835551",
+      "keyword_id": "2264547064",
+      "term": "baby announcement song",
+      "match_type": "BROAD",
+      "max_cpt": 1.5,
+      "first_seen": "2026-05-20",
+      "daily": {
+        "2026-05-20": {
           "impressions": 1,
           "taps": 0,
           "installs": 0,

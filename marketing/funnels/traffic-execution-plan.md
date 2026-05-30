@@ -2,14 +2,20 @@
 
 Date: 2026-05-08
 
-This plan is for creating traffic, not waiting for organic discovery. SEO pages are the landing and measurement layer; the traffic must come from paid intent, short-form demand creation, creators, and partner distribution.
+This plan is for creating traffic without Apple Ads. SEO pages are the landing
+and measurement layer; organic App Store search, Google-visible web pages,
+short-form demand creation, creators, partners, and the recipient loop are the
+active channels.
 
 ## Measurement Contract
 
 Use these UTM fields on every public link:
 
-- `utm_source`: channel owner, e.g. `apple_search_ads`, `tiktok`, `instagram`, `creator`, `partner`
-- `utm_medium`: acquisition type, e.g. `paid_search`, `short_video`, `creator_seed`, `newsletter`, `community`
+- `utm_source`: channel owner, e.g. `seo`, `tiktok`, `instagram`, `creator`,
+  `partner`, `share_player`
+- `utm_medium`: acquisition type, e.g. `organic_search`, `landing_page`,
+  `programmatic`, `blog`, `short_video`, `creator_seed`, `newsletter`,
+  `community`
 - `utm_campaign`: campaign theme, e.g. `mothers_day_2026`, `birthday_song_2026`
 - `utm_content`: creative or partner id, e.g. `hook_tears_01`, `creator_jane_01`
 
@@ -22,38 +28,49 @@ Download clicks are tracked by `/download`. Shared-song recipient clicks are tra
 
 ## Week 1 Traffic Targets
 
-- 500 landing page visits from non-search sources.
-- 150 App Store clicks from landing pages or share pages.
+- 25 priority web pages submitted or resubmitted for indexing in Google Search
+  Console.
+- 10 non-brand GSC queries appearing across `/gifts/`, landing pages, and blog
+  posts.
+- 150 App Store clicks from landing pages, blog posts, programmatic pages, or
+  share pages.
 - 40 new registrations.
 - 10 completed songs.
-- 3 usable testimonials or replies.
+- 3 usable testimonials, reviews, or recipient replies.
 
 If registrations remain far below Apple-reported installs, treat it as onboarding or attribution loss, not a channel win.
 
-## Channel 1: Apple Search Ads
+## Channel 1: Organic ASO And Web Search
 
-Goal: capture high-intent searches that already contain gift/song intent.
+Goal: capture high-intent searches that already contain gift/song intent, then
+bridge broader gift searches through web pages before asking for the install.
 
-Campaigns:
+Primary App Store rank targets:
 
-- `asa_exact_custom_song_gift`
-- `asa_exact_birthday_song`
-- `asa_exact_mothers_day_song`
-- `asa_discovery_song_gift`
+- `birthday song gift`
+- `custom song gift`
+- `personalized song gift`
+- `song gift`
+- `gift song`
+- `anniversary song gift`
 
-Keyword groups:
+ASC keyword-field source for the next metadata upload:
 
-- `custom song gift`, `personalized song gift`, `song gift`
-- `birthday song maker`, `birthday song gift`, `custom birthday song`
-- `mother's day song`, `mothers day song gift`, `song for mom`
-- `anniversary song gift`, `love song gift`
+`personalized,custom,voice,mom,dad,anniversary,fathers,mothers,day,husband,wife,graduation,ai,music`
 
 Rules:
 
-- Start exact-match only for the first 48 hours.
-- Pause any keyword with installs but no backend registration after 20 taps.
-- Move spend toward keywords with registrations, not just installs.
-- Keep broad/discovery below 20% of daily spend until registration tracking is stable.
+- Keep `gift/occasion` as the main App Store promise.
+- Use Kickstart competitor tokens such as `music`, `generator`, `lyrics`,
+  `cover`, and `voice changer` as tracking inputs first; only `music` is packed
+  into the current 100-character keyword-field source.
+- Do not execute Apple Ads scripts or mutate paid campaigns while the active
+  strategy is organic.
+- Request indexing for `/gifts/`, `/custom-song-gift`,
+  `/birthday-song-maker`, `/anniversary-song-gift`, `/fathers-day-song`,
+  `/wedding-song-gift`, and the top recipient pages under `/gifts/`.
+- Every indexed page should route App Store clicks through `/download` with
+  `utm_source=seo` and a page-specific `utm_campaign`.
 
 ## Channel 2: Short-Form Video
 
@@ -108,7 +125,7 @@ Daily quota:
 
 - 20 creator DMs per day.
 - 5 completed free songs per day for creators who reply.
-- Log each creator in `docs/growth/creator-outreach.csv`.
+- Log each creator in `marketing/channels/creators/creator-outreach.csv`.
 
 ## Channel 4: Partner Distribution
 
@@ -149,18 +166,24 @@ Operational rule:
 
 ## Daily Review
 
-Review these every day before changing spend:
+Review these every day during the first week, then weekly once indexing is stable:
 
 - Landing visits by campaign.
 - `/download` clicks by campaign.
 - Backend registrations by source/campaign.
 - Completed songs by source/campaign.
 - Bounce emails and user feedback replies.
-- Apple Ads taps vs backend registrations.
+- GSC query/page impressions, clicks, CTR, and average position.
+- App Store Search impressions, product page views, first-time downloads, and
+  product page conversion rate.
 
 Decision rules:
 
 - Double down only when a source produces completed songs.
 - Do not optimize for installs alone.
-- Pause campaigns that create installs with no registrations until onboarding instrumentation explains the gap.
-- Keep one organic/creator experiment running even when paid is active; paid data alone will not reveal message-market fit.
+- If a page gets impressions but no clicks, rewrite title/meta and strengthen
+  internal links.
+- If App Store rank improves but conversion does not, improve screenshots,
+  reviews, and landing context before broadening metadata.
+- Keep one organic/creator experiment running every week; historical paid data
+  is evidence, not the operating channel.

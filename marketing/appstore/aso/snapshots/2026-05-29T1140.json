@@ -2,11 +2,9 @@
   "schema_version": "2.0",
   "last_reviewed": "2026-05-29",
   "live_surfaces": {
-    "app_name": "Porizo: Song Gift Maker",
-    "subtitle": "Birthday, Love & Wedding Songs",
-    "keywords": "personalized,custom,voice,mom,dad,anniversary,fathers,mothers,day,husband,wife,graduation,ai",
-    "hidden_keywords_status": "verified via App Store Connect CLI on 2026-05-30; live field does not yet include music",
-    "verified_at": "2026-05-30"
+    "app_name": "Porizo: AI Song Gift Maker",
+    "subtitle": "Personal AI Song & Voice Gifts",
+    "keywords": "generator,music,birthday,personalized,custom,text,lyrics,mom,dad,anniversary,wedding,proposal,couple"
   },
   "shipping_target_count": 10,
   "scoring": {
@@ -30925,61 +30923,6 @@
       ],
       "keywords_field_string": "generator,music,birthday,personalized,custom,text,lyrics,mom,dad,anniversary,wedding,proposal,couple",
       "keywords_field_chars": 100
-    },
-    {
-      "date": "2026-05-30",
-      "note": "Apple Ads stopped; applied organic-only ASO/web focus. Updated local 1.5.14 keyword-field source with music as the only Kickstart competitor token promoted into metadata; kept generator/lyrics/cover/voice-changer terms as organic tracking only.",
-      "inputs": {
-        "kickstart_competitor_candidates": {
-          "tracked_or_staged_for_tracking": 17,
-          "promoted_to_keyword_field": [
-            "music"
-          ],
-          "held_for_tracking_only": [
-            "generator",
-            "lyrics",
-            "cover",
-            "voice changer"
-          ]
-        },
-        "apple_search_ads": "no live campaign changes; historical data only"
-      },
-      "top10": [
-        "birthday song gift",
-        "custom song gift",
-        "personalized song gift",
-        "song gift",
-        "gift song",
-        "anniversary song gift"
-      ],
-      "keywords_field_string": "personalized,custom,voice,mom,dad,anniversary,fathers,mothers,day,husband,wife,graduation,ai,music",
-      "keywords_field_chars": 98
-    },
-    {
-      "date": "2026-05-30",
-      "note": "Verified live App Store Connect metadata after user challenge. Live en-US keyword field is still the pre-music field; the music addition remains staged locally, not live. Promotional text is also stale and still says Father's Day, June 15.",
-      "inputs": {
-        "asc_live_version": "1.5.14 READY_FOR_SALE",
-        "asc_live_keywords": "personalized,custom,voice,mom,dad,anniversary,fathers,mothers,day,husband,wife,graduation,ai",
-        "staged_keywords": "personalized,custom,voice,mom,dad,anniversary,fathers,mothers,day,husband,wife,graduation,ai,music",
-        "promotional_text_live": "Make a personal song for Dad in his voice or yours. Preview free — finish it for Father's Day, June 15."
-      },
-      "top10": [
-        "birthday song gift",
-        "custom song gift",
-        "personalized song gift",
-        "song gift",
-        "gift song",
-        "anniversary song gift"
-      ],
-      "keywords_field_string": "personalized,custom,voice,mom,dad,anniversary,fathers,mothers,day,husband,wife,graduation,ai,music",
-      "keywords_field_chars": 98
     }
-  ],
-  "next_metadata_source": {
-    "version": "1.5.14 local source / next editable metadata update",
-    "keywords": "personalized,custom,voice,mom,dad,anniversary,fathers,mothers,day,husband,wife,graduation,ai,music",
-    "keywords_chars": 98,
-    "change": "adds music from Kickstart competitor analysis while keeping gift/occasion tokens"
-  }
+  ]
 }

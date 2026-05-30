@@ -1,15 +1,21 @@
 {
   "schema_version": "2026-05-22",
   "app_store_id": 6758205028,
-  "primary_storefronts": ["us", "gb", "au", "ca"],
+  "primary_storefronts": [
+    "us",
+    "gb",
+    "au",
+    "ca"
+  ],
   "positioning": {
     "primary_lane": "personalized song gifts by occasion and relationship",
     "support_lane": "AI song generation only when it supports gift intent",
     "metadata_package": {
       "name": "Porizo: Song Gift Maker",
-      "subtitle": "Birthday, Love & Wedding",
-      "keyword_field_us_ca": "personalized,custom,voice,mom,dad,anniversary,fathers,mothers,day,husband,wife,graduation,ai",
-      "keyword_field_gb_au": "personalised,custom,voice,mum,dad,anniversary,fathers,mothers,day,husband,wife,graduation,ai"
+      "subtitle": "Birthday, Love & Wedding Songs",
+      "keyword_field_us_ca": "personalized,custom,voice,mom,dad,anniversary,fathers,mothers,day,husband,wife,graduation,ai,music",
+      "keyword_field_gb_au": "personalised,custom,voice,mum,dad,anniversary,fathers,mothers,day,husband,wife,graduation,ai",
+      "keyword_field_note": "2026-05-30 organic-only update: keep gift/occasion tokens, add music from Kickstart competitor analysis, and hold generator/lyrics/cover/voice-changer as tracking until qualified organic evidence appears."
     }
   },
   "lanes": [
@@ -28,7 +34,11 @@
     {
       "id": "attack_direct_gift_song_competitors",
       "surface": "app_store",
-      "terms": ["song gift", "gift song", "custom love song gift"]
+      "terms": [
+        "song gift",
+        "gift song",
+        "custom love song gift"
+      ]
     },
     {
       "id": "seasonal_occasion",
@@ -73,7 +83,7 @@
     },
     {
       "id": "general_gift_web_capture",
-      "surface": "web_only",
+      "surface": "web_seo_and_gsc_tracking",
       "terms": [
         "birthday gift ideas",
         "birthday gift",
@@ -86,34 +96,433 @@
   ],
   "competitors": {
     "direct_gift_song": [
-      { "name": "WishAI:Gift Song & Music Maker", "app_store_id": 6756296198 },
-      { "name": "GiftSong: AI Song Maker", "app_store_id": 6759814466 },
-      { "name": "GiftSong", "app_store_id": 6761984057 },
-      { "name": "WishSong: Gift Song", "app_store_id": 6766134624 },
-      { "name": "SONGYFT", "app_store_id": 1552364144 },
-      { "name": "Songly: AI Songs & Greetings", "app_store_id": 6747972309 }
+      {
+        "name": "WishAI:Gift Song & Music Maker",
+        "app_store_id": 6756296198
+      },
+      {
+        "name": "GiftSong: AI Song Maker",
+        "app_store_id": 6759814466
+      },
+      {
+        "name": "GiftSong",
+        "app_store_id": 6761984057
+      },
+      {
+        "name": "WishSong: Gift Song",
+        "app_store_id": 6766134624
+      },
+      {
+        "name": "SONGYFT",
+        "app_store_id": 1552364144
+      },
+      {
+        "name": "Songly: AI Songs & Greetings",
+        "app_store_id": 6747972309
+      }
     ],
     "ai_generator": [
-      { "name": "Suno - AI Songs & Music", "app_store_id": 6480136315 },
-      { "name": "AI Song Music Generator: Muzio", "app_store_id": 6502530415 },
-      { "name": "MyTunes : AI Music Generator", "app_store_id": 6447001239 },
-      { "name": "AI Song Generator - Zona", "app_store_id": 6499261254 },
-      { "name": "AI Song Generator: Mozart", "app_store_id": 6502656704 },
-      { "name": "Donna AI Song & Music Maker", "app_store_id": 6482289804 }
+      {
+        "name": "Suno - AI Songs & Music",
+        "app_store_id": 6480136315
+      },
+      {
+        "name": "AI Song Music Generator: Muzio",
+        "app_store_id": 6502530415
+      },
+      {
+        "name": "MyTunes : AI Music Generator",
+        "app_store_id": 6447001239
+      },
+      {
+        "name": "AI Song Generator - Zona",
+        "app_store_id": 6499261254
+      },
+      {
+        "name": "AI Song Generator: Mozart",
+        "app_store_id": 6502656704
+      },
+      {
+        "name": "Donna AI Song & Music Maker",
+        "app_store_id": 6482289804
+      }
     ],
     "general_gift": [
-      { "name": "Giftful - Wishlist & Registry", "app_store_id": 1450175505 },
-      { "name": "Zazzle: Custom Gifts & Cards", "app_store_id": 736836912 },
-      { "name": "Givingli: Send Gifts & Cards", "app_store_id": 1386635163 },
-      { "name": "TouchNote Custom Cards & Gifts", "app_store_id": 325525543 },
-      { "name": "FreePrints Gifts", "app_store_id": 1483539370 }
+      {
+        "name": "Giftful - Wishlist & Registry",
+        "app_store_id": 1450175505
+      },
+      {
+        "name": "Zazzle: Custom Gifts & Cards",
+        "app_store_id": 736836912
+      },
+      {
+        "name": "Givingli: Send Gifts & Cards",
+        "app_store_id": 1386635163
+      },
+      {
+        "name": "TouchNote Custom Cards & Gifts",
+        "app_store_id": 325525543
+      },
+      {
+        "name": "FreePrints Gifts",
+        "app_store_id": 1483539370
+      }
     ]
   },
   "weekly_success_criteria": [
-    "gift song moves from #8 toward top 5",
-    "song gift moves from #4 toward top 3",
-    "father's day song moves from #106 into top 50 after event and metadata are live",
-    "App Store Search impressions increase week over week",
-    "organic web /download events are attributable by campaign"
-  ]
+    "gift song moves toward top 5 organically without paid spend",
+    "song gift moves toward top 3 organically without paid spend",
+    "custom song gift moves toward #1",
+    "personalized song gift stabilizes in the top 3 across OpenASO and Kickstart",
+    "at least 10 non-brand GSC queries appear across /gifts/, landing pages, and blog pages",
+    "organic web /download events are attributable by seo landing_page, programmatic, blog, and smart_banner UTMs",
+    "App Store Search impressions increase week over week after the next metadata release is live"
+  ],
+  "last_intent_expansion_discovery": {
+    "date": "2026-05-24",
+    "country": "us",
+    "device": "iphone",
+    "skill": "porizo-organic-demand-discovery",
+    "report": "marketing/appstore/aso/organic-demand-discovery-2026-05-24.md",
+    "summary": "Buyer demand starts broad with recipient, occasion, and adjacent keepsake searches, then narrows into song-gift intent. Porizo is strongest where the query includes song+gift, and weakest where the buyer starts from generic gifts, tribute, video, poem, or AI-generator language.",
+    "intent_seed_count": 35,
+    "web_serp_checks": [
+      "gift for dad personalized song",
+      "unique gift for mom custom song",
+      "anniversary gift for wife personalized song",
+      "birthday surprise for husband custom song",
+      "graduation gift for son personalized song",
+      "memorial gift tribute song personalized",
+      "video montage gift personalized song alternative",
+      "custom poem gift personalized song",
+      "make a song for dad app",
+      "create birthday song app",
+      "custom love song for wife gift",
+      "personalized song gift app",
+      "father's day song gift personalized dad",
+      "mother's day song gift personalized mom",
+      "wedding song gift custom song",
+      "birthday song for best friend gift"
+    ],
+    "app_store_checks": [
+      "gift for dad",
+      "unique gift for mom",
+      "anniversary gift for wife",
+      "birthday surprise for husband",
+      "graduation gift for son",
+      "birthday surprise",
+      "song for husband",
+      "song for wife",
+      "memorial gift",
+      "video montage gift",
+      "custom poem gift",
+      "make a song for dad",
+      "create birthday song",
+      "custom love song",
+      "personalized song gift",
+      "song gift",
+      "birthday song gift",
+      "custom song gift",
+      "anniversary song gift",
+      "father's day song",
+      "custom song for dad",
+      "graduation song for son",
+      "ai song generator",
+      "personalized gift"
+    ],
+    "new_tracking_candidates": [
+      "make a song for dad",
+      "create birthday song",
+      "song for dad",
+      "song for mom",
+      "video montage gift",
+      "custom poem gift",
+      "memorial song gift",
+      "celebration of life song",
+      "birthday surprise for husband",
+      "graduation gift for son",
+      "custom song for dad",
+      "custom song for mom"
+    ],
+    "keyword_sets": [
+      {
+        "id": "primary_app_store_rank_targets",
+        "priority": "P0",
+        "primary_surface": "app_store_rank_tracking_and_future_metadata_tests",
+        "owner_metric": "rank,app_store_search_impressions,product_page_views,first_time_downloads,conversion_rate",
+        "keywords": [
+          "birthday song gift",
+          "custom song gift",
+          "personalized song gift",
+          "song gift",
+          "gift song",
+          "anniversary song gift",
+          "song gift for dad",
+          "custom love song",
+          "custom song for dad"
+        ],
+        "rationale": "Highest-fit App Store searches where buyers already understand they want a song as a gift."
+      },
+      {
+        "id": "metadata_token_candidates",
+        "priority": "P0_next_metadata_source",
+        "primary_surface": "app_store_keyword_field",
+        "owner_metric": "rank_movement_for_primary_and_seasonal_sets",
+        "current_submitted_field": "personalized,custom,voice,mom,dad,anniversary,fathers,mothers,day,husband,wife,graduation,ai,music",
+        "future_token_pool": [
+          "personalized",
+          "custom",
+          "voice",
+          "mom",
+          "dad",
+          "anniversary",
+          "fathers",
+          "mothers",
+          "day",
+          "husband",
+          "wife",
+          "graduation",
+          "ai",
+          "music",
+          "lyrics",
+          "generator",
+          "creator"
+        ],
+        "rationale": "Pack only high-fit gift/occasion tokens plus one Kickstart competitor token into the 100-character field; keep broad generator and lyrics terms in tracking until rank/conversion evidence qualifies them."
+      },
+      {
+        "id": "seasonal_sprint",
+        "priority": "P0_until_fathers_day_window_closes",
+        "primary_surface": "in_app_event_custom_product_page_web_seo",
+        "owner_metric": "seasonal_keyword_rank,event_impressions,cpp_views,first_time_downloads,gsc_clicks,download_events",
+        "keywords": [
+          "father's day song",
+          "fathers day song",
+          "father's day song for dad",
+          "fathers day gift song",
+          "father's day song gift",
+          "song gift for dad",
+          "custom song for dad",
+          "make a song for dad",
+          "ai song for dad",
+          "birthday song for dad",
+          "dad birthday song"
+        ],
+        "rationale": "Porizo is relevant but weak for Father's Day searches, making this the clearest immediate organic gap."
+      },
+      {
+        "id": "recipient_occasion_web",
+        "priority": "P1",
+        "primary_surface": "web_seo_internal_links_gsc_tracking",
+        "owner_metric": "gsc_impressions_clicks_position_and_download_events_by_page",
+        "keywords": [
+          "gift for dad",
+          "unique gift for mom",
+          "birthday surprise for husband",
+          "birthday surprise for wife",
+          "anniversary gift for wife",
+          "anniversary gift for husband",
+          "personalized anniversary gift",
+          "graduation gift for son",
+          "graduation gift for daughter",
+          "birthday gift ideas",
+          "wedding song gift",
+          "memorial gift",
+          "remembrance gift"
+        ],
+        "rationale": "Normal buyers often start with recipient and occasion language before they know a song app is the answer."
+      },
+      {
+        "id": "custom_product_page_targets",
+        "priority": "P1",
+        "primary_surface": "custom_product_pages_and_routed_web_traffic",
+        "owner_metric": "cpp_product_page_views_conversion_rate_first_time_downloads",
+        "keywords": [
+          "father's day song",
+          "song gift for dad",
+          "custom song for dad",
+          "make a song for dad",
+          "personalized song gift",
+          "custom song gift",
+          "gift song",
+          "custom love song",
+          "anniversary song for wife",
+          "anniversary song for husband",
+          "song for husband",
+          "song for wife",
+          "memorial song gift",
+          "video montage gift"
+        ],
+        "rationale": "These terms need tailored screenshots and copy because the generic product page is too broad."
+      },
+      {
+        "id": "adjacent_format_conquest",
+        "priority": "P2",
+        "primary_surface": "web_seo_comparison_sections_then_cpp_tests",
+        "owner_metric": "gsc_non_brand_impressions_download_clicks_cpp_conversion_if_routed",
+        "keywords": [
+          "video montage gift",
+          "group video gift",
+          "custom poem gift",
+          "personalized card",
+          "photo book gift",
+          "voice message gift",
+          "memorial gift",
+          "tribute for dad",
+          "celebration of life song",
+          "pet memorial song",
+          "song gift alternative"
+        ],
+        "rationale": "These competitors own buyer language before the buyer realizes a song can be the more emotional format."
+      },
+      {
+        "id": "tracking_only_or_rejected",
+        "priority": "watch_or_reject",
+        "primary_surface": "tracking_only",
+        "owner_metric": "promote_only_if_rank_installs_or_web_conversions_prove_qualified_intent",
+        "keywords": [
+          "ai song generator",
+          "ai music generator",
+          "song generator",
+          "music",
+          "song",
+          "lyrics",
+          "cover",
+          "voice",
+          "meaningful gift",
+          "personalized gifts",
+          "i miss you song",
+          "apology song",
+          "long distance relationship gift",
+          "porizo",
+          "porizo app",
+          "music generator",
+          "music maker",
+          "lyrics generator",
+          "song creator",
+          "music creator",
+          "cover song",
+          "song cover",
+          "ai cover",
+          "voice changer",
+          "rap song",
+          "royalty free music"
+        ],
+        "rationale": "These terms are broad competitor-language imports, brand-only, weak-converting historically, or likely wrong-intent; track organic rank before adding more of them to ASC metadata."
+      }
+    ],
+    "surface_decisions": {
+      "app_store_metadata": [
+        "birthday song gift",
+        "custom song gift",
+        "personalized song gift",
+        "song gift",
+        "gift song",
+        "anniversary song gift"
+      ],
+      "in_app_event": [
+        "father's day song",
+        "father's day song for dad",
+        "song gift for dad",
+        "custom song for dad",
+        "make a song for dad"
+      ],
+      "custom_product_pages": [
+        "dad-song-gift",
+        "custom-song-gift",
+        "love-song-gift",
+        "memorial-tribute-song",
+        "video-to-song-gift"
+      ],
+      "web_seo": [
+        "gift for dad",
+        "unique gift for mom",
+        "anniversary gift for wife",
+        "birthday surprise for husband",
+        "graduation gift for son",
+        "memorial gift",
+        "video montage gift",
+        "custom poem gift",
+        "song for husband",
+        "song for wife",
+        "graduation song for son"
+      ],
+      "tracking_only": [
+        "ai song generator",
+        "ai music generator",
+        "song generator",
+        "voice song maker",
+        "meaningful gift",
+        "personalized gifts",
+        "apology song",
+        "i miss you song",
+        "long distance relationship gift"
+      ]
+    },
+    "next_actions": [
+      "Track the Kickstart competitor-language candidates in OpenASO/Kickstart where available; do not execute Apple Ads tests.",
+      "Use the 1.5.14 keyword field as the ASC source for the next metadata upload: personalized, custom, voice, recipient, seasonal, ai, and music tokens only.",
+      "Request GSC indexing for /gifts/, /custom-song-gift, /birthday-song-maker, /anniversary-song-gift, /fathers-day-song, /wedding-song-gift, and the top /gifts/* recipient pages.",
+      "Strengthen internal links from blog posts to the matching landing or /gifts/ page, then route those pages to /download with existing seo UTMs.",
+      "Report weekly on keyword ranks, App Store Search impressions, product page views, first-time downloads, conversion rate, GSC non-brand queries, and /download events."
+    ]
+  },
+  "paid_ads_status": {
+    "apple_search_ads": "stopped",
+    "effective_date": "2026-05-30",
+    "operating_rule": "Do not use Apple Ads execution scripts or paid campaign changes for the organic ASO loop. Historical ASA rows remain evidence only."
+  },
+  "last_organic_only_update": {
+    "date": "2026-05-30",
+    "country": "us",
+    "device": "iphone",
+    "reason": "Apple Ads stopped; organic ASO search and web traffic are now the active growth loop.",
+    "keyword_field_us_ca_chars": 98,
+    "kickstart_candidates_applied_to_tracking": [
+      "music generator",
+      "lyrics generator",
+      "music maker",
+      "song creator",
+      "music creator",
+      "music creation",
+      "instrumental song",
+      "ai lyrics",
+      "voice changer",
+      "cover song",
+      "song cover",
+      "ai cover",
+      "rap song",
+      "royalty free music",
+      "generator song",
+      "generator music",
+      "music song"
+    ],
+    "kickstart_candidates_promoted_to_keyword_field": [
+      "music"
+    ],
+    "kickstart_candidates_held_from_keyword_field": [
+      "generator",
+      "lyrics",
+      "cover",
+      "voice changer"
+    ],
+    "measurement": "Weekly OpenASO/Kickstart rank check, App Store Connect App Store Search metrics, Google Search Console non-brand query/page metrics, and backend /download attribution.",
+    "keyword_field_us_ca_status": "staged locally; not live in ASC as of 2026-05-30"
+  },
+  "asc_live_verification": {
+    "date": "2026-05-30",
+    "app_store_version": "1.5.14",
+    "app_store_state": "READY_FOR_SALE",
+    "app_info": {
+      "name": "Porizo: Song Gift Maker",
+      "subtitle": "Birthday, Love & Wedding Songs"
+    },
+    "version_localization": {
+      "keywords": "personalized,custom,voice,mom,dad,anniversary,fathers,mothers,day,husband,wife,graduation,ai",
+      "promotionalText": "Make a personal song for Dad in his voice or yours. Preview free — finish it for Father's Day, June 15.",
+      "whatsNew": "Father's Day gifting improvements: make a personal song for Dad from a name, memory, and message, preview it free, and send the finished gift when it feels right."
+    },
+    "status": "Visible name/subtitle are already live. The staged +music keyword field is not live. Promotional text needs correction because Father's Day 2026 is June 21 in the US."
+  }
 }
