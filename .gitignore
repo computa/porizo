@@ -85,6 +85,15 @@ out/
 !/marketing/strategy/**/*.md
 !/marketing/tools/generate-mothers-day-pins.js
 !/marketing/tools/generate-blog-heroes.js
+# Remotion video toolchain: track source + config only (public media 81M, out/ renders, node_modules stay ignored)
+!/marketing/remotion/
+/marketing/remotion/*
+!/marketing/remotion/src/
+!/marketing/remotion/src/**
+!/marketing/remotion/package.json
+!/marketing/remotion/package-lock.json
+!/marketing/remotion/tsconfig.json
+!/marketing/remotion/*.md
 !/marketing/email-templates/
 !/marketing/email-templates/**
 !/marketing/blog/
