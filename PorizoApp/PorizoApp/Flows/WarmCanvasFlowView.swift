@@ -1230,7 +1230,7 @@ struct WarmCanvasFlowView: View {
             do {
                 if !isGiftFundedFlow {
                     let entitlements = try await apiClient.getBillingEntitlements()
-                    guard entitlements.songsRemaining > 0 else {
+                    guard entitlements.canMakeSong else {
                         pendingEntitlementFlowType = .song
                         activeError = .noCredits
                         return
@@ -1603,7 +1603,7 @@ struct WarmCanvasFlowView: View {
         }
         do {
             let entitlements = try await apiClient.getBillingEntitlements()
-            if entitlements.songsRemaining > 0 {
+            if entitlements.canMakeSong {
                 advanceAfterEntitlementCheck()
             } else {
                 pendingEntitlementFlowType = .song

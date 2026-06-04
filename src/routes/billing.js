@@ -6,7 +6,11 @@ const { getFeatureFlag } = require("../services/feature-flags");
 
 // Module-scope so it can be unit-tested and exported. Pure: depends only on
 // its arguments, closes over nothing from the route registrar.
-function buildEntitlementsPayload(entitlements, subscription = null) {
+function buildEntitlementsPayload(
+  entitlements,
+  subscription = null,
+  payPerSongEnabled = false,
+) {
   const toSafeInt = (value, fallback = 0) => {
     const n = Number(value);
     return Number.isFinite(n) ? Math.trunc(n) : fallback;
@@ -29,6 +33,8 @@ function buildEntitlementsPayload(entitlements, subscription = null) {
       poems_used_total: 0,
       trial_songs_remaining: 0,
       gift_wallet_balance: 0,
+      available_song_credits: 0,
+      pay_per_song_enabled: Boolean(payPerSongEnabled),
       trial_expires_at: null,
       plan_id: null,
       billing_period: null,
@@ -52,6 +58,16 @@ function buildEntitlementsPayload(entitlements, subscription = null) {
     poems_used_total: toSafeInt(entitlements.poemsUsedTotal),
     trial_songs_remaining: toSafeInt(entitlements.trialSongsRemaining),
     gift_wallet_balance: toSafeInt(entitlements.giftWalletBalance),
+    // Single source of truth for "can this user make a song right now": ongoing
+    // credits (subscription + trial) plus gift-wallet credit ONLY when the
+    // pay-per-song flag is on. Lets the server flip the feature with no client
+    // change. Spend order remains trial → songs_remaining → gift_wallet.
+    available_song_credits:
+      Math.max(0, toSafeInt(entitlements.songsRemaining)) +
+      (payPerSongEnabled
+        ? Math.max(0, toSafeInt(entitlements.giftWalletBalance))
+        : 0),
+    pay_per_song_enabled: Boolean(payPerSongEnabled),
     trial_expires_at: toIsoOrNull(entitlements.trialExpiresAt),
     plan_id: entitlements.planId,
     billing_period: entitlements.billingPeriod,
@@ -86,6 +102,11 @@ function registerBillingRoutes(
   },
 ) {
   // ============ Billing API Routes ============
+
+  // Whether gift-wallet credit may fund the user's own song. Default OFF.
+  // Single read point for the flag string so the contract can't drift.
+  const isPayPerSongEnabled = async () =>
+    (await getFeatureFlag(db, "paywall_pay_per_song_enabled")) === true;
 
   function parseBooleanQuery(value) {
     if (typeof value === "boolean") return value;
@@ -291,7 +312,13 @@ function registerBillingRoutes(
       const entitlements = await subscriptionManager.getEntitlements(userId);
       const subscription =
         await subscriptionManager.getActiveSubscription(userId);
-      reply.send(buildEntitlementsPayload(entitlements, subscription));
+      reply.send(
+        buildEntitlementsPayload(
+          entitlements,
+          subscription,
+          await isPayPerSongEnabled(),
+        ),
+      );
     } catch (err) {
       console.error("[Billing] Error fetching billing entitlements:", err);
       sendError(reply, 500, "BILLING_ERROR", err.message);
@@ -694,7 +721,11 @@ function registerBillingRoutes(
           expires_at: result.expiresAt, // snake_case for iOS
         },
         entitlements: {
-          ...buildEntitlementsPayload(entitlements, subscription),
+          ...buildEntitlementsPayload(
+            entitlements,
+            subscription,
+            await isPayPerSongEnabled(),
+          ),
         },
       });
     } catch (err) {
@@ -789,7 +820,11 @@ function registerBillingRoutes(
           auto_renewing: subscription.auto_renewing,
         },
         entitlements: entitlements
-          ? buildEntitlementsPayload(entitlements)
+          ? buildEntitlementsPayload(
+              entitlements,
+              null,
+              await isPayPerSongEnabled(),
+            )
           : null,
       });
     } catch (err) {

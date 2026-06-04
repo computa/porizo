@@ -118,6 +118,11 @@ struct BillingEntitlements: Codable, Sendable {
     let poemsAllowance: Int
     let poemsUsedTotal: Int
     let trialSongsRemaining: Int
+    let giftWalletBalance: Int
+    /// Server-computed: songs the user can make right now = ongoing credits
+    /// (subscription + trial) plus gift-wallet credit when the pay-per-song
+    /// flag is on. Gate song creation on this, not songsRemaining alone.
+    let availableSongCredits: Int
     let trialExpiresAt: String?
     let planId: String?
     let billingPeriod: String?
@@ -136,6 +141,8 @@ struct BillingEntitlements: Codable, Sendable {
         case poemsAllowance = "poems_allowance"
         case poemsUsedTotal = "poems_used_total"
         case trialSongsRemaining = "trial_songs_remaining"
+        case giftWalletBalance = "gift_wallet_balance"
+        case availableSongCredits = "available_song_credits"
         case trialExpiresAt = "trial_expires_at"
         case planId = "plan_id"
         case billingPeriod = "billing_period"
@@ -156,6 +163,12 @@ struct BillingEntitlements: Codable, Sendable {
         poemsAllowance = container.decodeFlexibleInt(forKey: .poemsAllowance)
         poemsUsedTotal = container.decodeFlexibleInt(forKey: .poemsUsedTotal)
         trialSongsRemaining = container.decodeFlexibleInt(forKey: .trialSongsRemaining)
+        giftWalletBalance = container.decodeFlexibleInt(forKey: .giftWalletBalance)
+        // Fall back to songsRemaining when the server predates this field, so
+        // older builds gate exactly as before (ongoing credits only).
+        availableSongCredits =
+            container.decodeFlexibleIntIfPresent(forKey: .availableSongCredits)
+            ?? container.decodeFlexibleInt(forKey: .songsRemaining)
         trialExpiresAt = try? container.decodeIfPresent(String.self, forKey: .trialExpiresAt)
         planId = try? container.decodeIfPresent(String.self, forKey: .planId)
         billingPeriod = try? container.decodeIfPresent(String.self, forKey: .billingPeriod)
@@ -163,6 +176,14 @@ struct BillingEntitlements: Codable, Sendable {
         subscriptionRenewsAt = try? container.decodeIfPresent(String.self, forKey: .subscriptionRenewsAt)
         autoRenewEnabled = container.decodeFlexibleBoolIfPresent(forKey: .autoRenewEnabled)
         isInGracePeriod = container.decodeFlexibleBoolIfPresent(forKey: .isInGracePeriod)
+    }
+
+    /// Whether the user can start a song right now. Prefers the server's
+    /// available_song_credits, but never blocks a user who provably has
+    /// ongoing credits — defends against a backend that wrongly reports 0.
+    /// (Over-grant is impossible: the spend endpoint re-validates balance.)
+    var canMakeSong: Bool {
+        Swift.max(availableSongCredits, songsRemaining) > 0
     }
 
     /// Check if trial is active

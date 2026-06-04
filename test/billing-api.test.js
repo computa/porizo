@@ -1126,3 +1126,60 @@ describe("buildEntitlementsPayload gift_wallet_balance", () => {
     assert.equal(payload.gift_wallet_balance, 0);
   });
 });
+
+describe("buildEntitlementsPayload available_song_credits (pay-per-song flag)", () => {
+  const giftOnly = {
+    tier: "free",
+    baseSongsRemaining: 0,
+    songsRemaining: 0,
+    giftWalletBalance: 3,
+  };
+
+  it("excludes gift_wallet from credits when flag is OFF", () => {
+    const payload = buildEntitlementsPayload(giftOnly, null, false);
+    assert.equal(payload.available_song_credits, 0);
+    assert.equal(payload.gift_wallet_balance, 3); // still reported for display
+    assert.equal(payload.pay_per_song_enabled, false);
+  });
+
+  it("includes gift_wallet in credits when flag is ON", () => {
+    const payload = buildEntitlementsPayload(giftOnly, null, true);
+    assert.equal(payload.available_song_credits, 3);
+    assert.equal(payload.pay_per_song_enabled, true);
+  });
+
+  it("always counts songsRemaining regardless of flag", () => {
+    const ent = { ...giftOnly, songsRemaining: 2 };
+    assert.equal(
+      buildEntitlementsPayload(ent, null, false).available_song_credits,
+      2, // 2 ongoing, gift excluded
+    );
+    assert.equal(
+      buildEntitlementsPayload(ent, null, true).available_song_credits,
+      5, // 2 ongoing + 3 gift
+    );
+  });
+
+  it("defaults flag OFF and credits 0 for null entitlements", () => {
+    const payload = buildEntitlementsPayload(null);
+    assert.equal(payload.available_song_credits, 0);
+    assert.equal(payload.pay_per_song_enabled, false);
+  });
+
+  it("clamps a negative gift balance so it never subtracts from ongoing credits", () => {
+    const ent = {
+      tier: "plus",
+      baseSongsRemaining: 0,
+      songsRemaining: 5,
+      giftWalletBalance: -2, // corrupt data must not reduce real credits
+    };
+    assert.equal(
+      buildEntitlementsPayload(ent, null, true).available_song_credits,
+      5,
+    );
+    assert.equal(
+      buildEntitlementsPayload(ent, null, false).available_song_credits,
+      5,
+    );
+  });
+});

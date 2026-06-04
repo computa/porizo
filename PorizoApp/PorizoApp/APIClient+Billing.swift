@@ -89,7 +89,7 @@ extension APIClient {
         let request = try await makeRequest(url: url, method: "GET")
         let (data, _) = try await executeWithAuthRetry(request: request)
         let result = try decodeResponse(BillingEntitlements.self, from: data)
-        print("[Entitlements] tier=\(result.tier) songs=\(result.songsRemaining) poems=\(result.poemsRemaining) allowance=\(result.songsAllowance)")
+        print("[Entitlements] tier=\(result.tier) songs=\(result.songsRemaining) gift=\(result.giftWalletBalance) available=\(result.availableSongCredits) poems=\(result.poemsRemaining) allowance=\(result.songsAllowance)")
         return result
     }
 
