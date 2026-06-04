@@ -367,4 +367,50 @@ final class APIContractTests: XCTestCase {
         XCTAssertEqual(payload.recovery.missingBlocks, ["transformation"])
         XCTAssertEqual(payload.recovery.sessionVersion, 5)
     }
+
+    // MARK: - BillingEntitlements (pay-per-song fields)
+
+    func testBillingEntitlements_decodesPayPerSongFields() throws {
+        let json = Data(#"""
+        {"tier":"free","songs_remaining":0,"songs_allowance":0,
+         "trial_songs_remaining":0,"gift_wallet_balance":3,
+         "available_song_credits":3,"pay_per_song_enabled":true}
+        """#.utf8)
+        let e = try decoder.decode(BillingEntitlements.self, from: json)
+        XCTAssertEqual(e.giftWalletBalance, 3)
+        XCTAssertEqual(e.availableSongCredits, 3)
+        XCTAssertTrue(e.payPerSongEnabled)
+        XCTAssertTrue(e.canMakeSong) // 3 credits available
+    }
+
+    func testBillingEntitlements_flagOffWithGiftOnly_cannotMakeSong() throws {
+        // Server already excludes gift from available_song_credits when flag off.
+        let json = Data(#"""
+        {"tier":"free","songs_remaining":0,"gift_wallet_balance":3,
+         "available_song_credits":0,"pay_per_song_enabled":false}
+        """#.utf8)
+        let e = try decoder.decode(BillingEntitlements.self, from: json)
+        XCTAssertFalse(e.payPerSongEnabled)
+        XCTAssertFalse(e.canMakeSong)
+    }
+
+    func testBillingEntitlements_backwardCompat_missingFieldsFallBack() throws {
+        // Old server: no available_song_credits / pay_per_song_enabled.
+        let json = Data(#"{"tier":"plus","songs_remaining":4}"#.utf8)
+        let e = try decoder.decode(BillingEntitlements.self, from: json)
+        XCTAssertEqual(e.availableSongCredits, 4) // falls back to songsRemaining
+        XCTAssertFalse(e.payPerSongEnabled) // defaults off
+        XCTAssertEqual(e.giftWalletBalance, 0)
+        XCTAssertTrue(e.canMakeSong)
+    }
+
+    func testBillingEntitlements_canMakeSong_neverBlocksOnOngoingCredits() throws {
+        // Defensive: backend wrongly reports 0 available while songsRemaining > 0.
+        let json = Data(#"""
+        {"tier":"plus","songs_remaining":5,"available_song_credits":0,
+         "pay_per_song_enabled":true}
+        """#.utf8)
+        let e = try decoder.decode(BillingEntitlements.self, from: json)
+        XCTAssertTrue(e.canMakeSong) // max(0, 5) > 0 — not locked out
+    }
 }

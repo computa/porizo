@@ -64,6 +64,9 @@ struct SubscriptionView: View {
                         // Credits header
                         creditsHeader
 
+                        // Pay-per-song hero (one-off, the "face" of the wall)
+                        payPerSongHero
+
                         // Toggle section
                         toggleSection
 
@@ -444,6 +447,54 @@ struct SubscriptionView: View {
         }
     }
 
+    // MARK: - Pay-Per-Song Hero (one-off)
+
+    /// The "pay for one song" face of the wall. Shown only when the server
+    /// enables pay-per-song AND the gift_bundle_1 product is available.
+    /// Buying it credits one gift-wallet token; the create flow's existing
+    /// post-dismiss entitlement re-check then lets the song proceed.
+    @ViewBuilder
+    private var payPerSongHero: some View {
+        if entitlements?.payPerSongEnabled == true,
+           let product = storeKit.payPerSongProduct {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Make one song now")
+                    .font(DesignTokens.displayFont(size: 22))
+                    .foregroundStyle(DesignTokens.textPrimary)
+
+                Text("One song, made from your words — yours to keep. No subscription.")
+                    .font(DesignTokens.bodyFont(size: 13))
+                    .foregroundStyle(DesignTokens.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Button {
+                    Task { await storeKit.purchase(product) }
+                } label: {
+                    Text("Pay \(product.displayPrice) — make this song")
+                        .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
+                        .foregroundStyle(DesignTokens.background)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 52)
+                        .background(DesignTokens.gold)
+                        .clipShape(.rect(cornerRadius: 26))
+                }
+                .buttonStyle(.plain)
+                .goldGlow()
+                .disabled(storeKit.purchaseState.isLoading)
+                .opacity(storeKit.purchaseState.isLoading ? 0.5 : 1)
+                .accessibilityLabel("Pay \(product.displayPrice) to make one song")
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(DesignTokens.surface)
+            .clipShape(.rect(cornerRadius: DesignTokens.radiusMedium))
+            .overlay(
+                RoundedRectangle(cornerRadius: DesignTokens.radiusMedium)
+                    .stroke(DesignTokens.gold, lineWidth: 1.5)
+            )
+        }
+    }
+
     // MARK: - Continue Button
 
     private var continueButton: some View {
@@ -498,7 +549,12 @@ struct SubscriptionView: View {
 
     private var tokenProducts: [Product] {
         var result: [Product] = []
-        if let single = storeKit.giftTokenProduct {
+        // When the pay-per-song hero is active it already offers a single song
+        // (gift_bundle_1, $1.99); hide the deprecated one-off ($2.99) so we
+        // don't show two single-song prices.
+        let heroActive =
+            entitlements?.payPerSongEnabled == true && storeKit.payPerSongProduct != nil
+        if !heroActive, let single = storeKit.giftTokenProduct {
             result.append(single)
         }
         result.append(contentsOf: storeKit.giftBundleProducts)
@@ -793,6 +849,9 @@ struct SubscriptionView: View {
         case .success:
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
                 dismiss()
+                // Clear the shared manager's terminal .success so a re-presented
+                // wall starts from .idle and can't act on a stale success.
+                storeKit.resetPurchaseState()
             }
         case .syncFailed:
             errorMessage = "Payment was received, but subscription verification with the server failed. Please reopen the app or use Restore Purchases."

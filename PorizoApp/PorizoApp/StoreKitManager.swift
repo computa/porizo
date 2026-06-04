@@ -199,6 +199,13 @@ final class StoreKitManager {
         product(for: .giftTokenOneOff)
     }
 
+    /// The single-song consumable (`gift_bundle_1`) surfaced as the
+    /// "pay for one song" option. Deliberately separate from
+    /// `giftBundleProducts` (which lists multi-token gift bundles).
+    var payPerSongProduct: Product? {
+        product(for: .giftBundle1)
+    }
+
     var giftBundleProducts: [Product] {
         products.filter {
             let pid = ProductID(rawValue: $0.id)

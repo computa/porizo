@@ -123,6 +123,9 @@ struct BillingEntitlements: Codable, Sendable {
     /// (subscription + trial) plus gift-wallet credit when the pay-per-song
     /// flag is on. Gate song creation on this, not songsRemaining alone.
     let availableSongCredits: Int
+    /// Whether gift-wallet credit can fund the user's own song (server flag).
+    /// Drives whether the "pay for one song" option is offered.
+    let payPerSongEnabled: Bool
     let trialExpiresAt: String?
     let planId: String?
     let billingPeriod: String?
@@ -143,6 +146,7 @@ struct BillingEntitlements: Codable, Sendable {
         case trialSongsRemaining = "trial_songs_remaining"
         case giftWalletBalance = "gift_wallet_balance"
         case availableSongCredits = "available_song_credits"
+        case payPerSongEnabled = "pay_per_song_enabled"
         case trialExpiresAt = "trial_expires_at"
         case planId = "plan_id"
         case billingPeriod = "billing_period"
@@ -169,6 +173,8 @@ struct BillingEntitlements: Codable, Sendable {
         availableSongCredits =
             container.decodeFlexibleIntIfPresent(forKey: .availableSongCredits)
             ?? container.decodeFlexibleInt(forKey: .songsRemaining)
+        payPerSongEnabled =
+            container.decodeFlexibleBoolIfPresent(forKey: .payPerSongEnabled) ?? false
         trialExpiresAt = try? container.decodeIfPresent(String.self, forKey: .trialExpiresAt)
         planId = try? container.decodeIfPresent(String.self, forKey: .planId)
         billingPeriod = try? container.decodeIfPresent(String.self, forKey: .billingPeriod)
