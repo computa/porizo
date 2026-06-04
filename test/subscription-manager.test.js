@@ -7,6 +7,9 @@ const assert = require("node:assert/strict");
 const { getDatabase } = require("../src/database");
 const { createPlanConfigService } = require("../src/services/plan-config");
 const {
+  clearCache: clearFeatureFlagCache,
+} = require("../src/services/feature-flags");
+const {
   createSubscriptionManager,
   TRANSACTION_TYPES,
   STATUS,
@@ -58,7 +61,7 @@ describe("Subscription Manager", async () => {
     testUserId = `user_test_${Date.now()}_${Math.random().toString(36).slice(2)}`;
     await db.query(
       "INSERT INTO users (id, created_at) VALUES (?, datetime('now'))",
-      [testUserId]
+      [testUserId],
     );
   });
 
@@ -82,7 +85,7 @@ describe("Subscription Manager", async () => {
 
       await assert.rejects(
         () => manager.activateTrial(testUserId),
-        /already used their free trial/
+        /already used their free trial/,
       );
     });
 
@@ -91,7 +94,7 @@ describe("Subscription Manager", async () => {
 
       const txResult = await db.query(
         "SELECT * FROM song_transactions WHERE user_id = ? AND type = ?",
-        [testUserId, TRANSACTION_TYPES.TRIAL_GRANT]
+        [testUserId, TRANSACTION_TYPES.TRIAL_GRANT],
       );
 
       assert.equal(txResult.rows.length, 1);
@@ -108,14 +111,14 @@ describe("Subscription Manager", async () => {
       assert.ok(result.subscriptionId);
       assert.equal(result.isNewSubscription, true);
       assert.equal(result.tier, "plus");
-      assert.equal(result.songsGranted, 4);
+      assert.equal(result.songsGranted, 10);
       assert.equal(result.status, "active");
 
       // Verify entitlements updated
       const ent = await manager.getEntitlements(testUserId);
       assert.equal(ent.tier, "plus");
-      assert.equal(ent.songsRemaining, 4);
-      assert.equal(ent.songsAllowance, 4);
+      assert.equal(ent.songsRemaining, 10);
+      assert.equal(ent.songsAllowance, 10);
     });
 
     it("handles subscription renewal", async () => {
@@ -125,7 +128,10 @@ describe("Subscription Manager", async () => {
         transactionId: `tx_first_${Date.now()}`,
         originalTransactionId: originalTxId,
       });
-      const firstResult = await manager.syncSubscription(testUserId, firstValidation);
+      const firstResult = await manager.syncSubscription(
+        testUserId,
+        firstValidation,
+      );
 
       // Simulate renewal with same originalTransactionId but new transactionId
       const renewalValidation = createMockAppleValidation({
@@ -135,15 +141,18 @@ describe("Subscription Manager", async () => {
         expiresAt: new Date(Date.now() + 60 * 24 * 60 * 60 * 1000),
       });
 
-      const renewResult = await manager.syncSubscription(testUserId, renewalValidation);
+      const renewResult = await manager.syncSubscription(
+        testUserId,
+        renewalValidation,
+      );
 
       assert.equal(renewResult.subscriptionId, firstResult.subscriptionId);
       assert.equal(renewResult.isRenewal, true);
-      assert.equal(renewResult.songsGranted, 4);
+      assert.equal(renewResult.songsGranted, 10);
 
-      // Should have 4 songs (reset to plan allowance on renewal)
+      // Should have 10 songs (reset to plan allowance on renewal)
       const ent = await manager.getEntitlements(testUserId);
-      assert.equal(ent.songsRemaining, 4);
+      assert.equal(ent.songsRemaining, 10);
     });
 
     it("does not grant renewal songs when subscription is expired and downgrades entitlements", async () => {
@@ -153,7 +162,7 @@ describe("Subscription Manager", async () => {
         createMockAppleValidation({
           transactionId: `tx_active_${Date.now()}`,
           originalTransactionId: originalTxId,
-        })
+        }),
       );
 
       const expiredValidation = createMockAppleValidation({
@@ -164,7 +173,10 @@ describe("Subscription Manager", async () => {
         autoRenewEnabled: false,
         expiresAt: new Date(Date.now() - 60 * 1000),
       });
-      const result = await manager.syncSubscription(testUserId, expiredValidation);
+      const result = await manager.syncSubscription(
+        testUserId,
+        expiredValidation,
+      );
 
       assert.equal(result.isRenewal, true);
       assert.equal(result.songsGranted, 0);
@@ -184,18 +196,25 @@ describe("Subscription Manager", async () => {
 
       const receiptResult = await db.query(
         "SELECT * FROM purchase_receipts WHERE user_id = ?",
-        [testUserId]
+        [testUserId],
       );
 
       assert.equal(receiptResult.rows.length, 1);
-      assert.equal(receiptResult.rows[0].transaction_id, mockValidation.transactionId);
+      assert.equal(
+        receiptResult.rows[0].transaction_id,
+        mockValidation.transactionId,
+      );
       assert.equal(receiptResult.rows[0].verification_status, "verified");
     });
 
     it("rejects invalid validation", async () => {
       await assert.rejects(
-        () => manager.syncSubscription(testUserId, { valid: false, error: "Invalid" }),
-        /Invalid/
+        () =>
+          manager.syncSubscription(testUserId, {
+            valid: false,
+            error: "Invalid",
+          }),
+        /Invalid/,
       );
     });
 
@@ -206,42 +225,54 @@ describe("Subscription Manager", async () => {
 
       await assert.rejects(
         () => manager.syncSubscription(testUserId, unknownProduct),
-        /Unknown product/
+        /Unknown product/,
       );
     });
 
     it("resets balance to plan allowance on renewal (no accumulation)", async () => {
       const originalTxId = `otx_noaccum_${Date.now()}`;
 
-      // First subscription: 4 songs granted
-      await manager.syncSubscription(testUserId, createMockAppleValidation({
-        transactionId: `tx_first_${Date.now()}`,
-        originalTransactionId: originalTxId,
-      }));
+      // First subscription: 10 songs granted
+      await manager.syncSubscription(
+        testUserId,
+        createMockAppleValidation({
+          transactionId: `tx_first_${Date.now()}`,
+          originalTransactionId: originalTxId,
+        }),
+      );
 
-      // User spends 1 song, leaving 3
+      // User spends 1 song, leaving 9
       await manager.spendSong(testUserId, "track_1");
       let ent = await manager.getEntitlements(testUserId);
-      assert.equal(ent.songsRemaining, 3);
+      assert.equal(ent.songsRemaining, 9);
 
-      // Renewal: should reset to 4, not add 4 to 3
-      await manager.syncSubscription(testUserId, createMockAppleValidation({
-        transactionId: `tx_renewal_${Date.now()}`,
-        originalTransactionId: originalTxId,
-        expiresAt: new Date(Date.now() + 60 * 24 * 60 * 60 * 1000),
-      }));
+      // Renewal: should reset to 10, not add 10 to 9
+      await manager.syncSubscription(
+        testUserId,
+        createMockAppleValidation({
+          transactionId: `tx_renewal_${Date.now()}`,
+          originalTransactionId: originalTxId,
+          expiresAt: new Date(Date.now() + 60 * 24 * 60 * 60 * 1000),
+        }),
+      );
 
       ent = await manager.getEntitlements(testUserId);
-      assert.equal(ent.songsRemaining, 4);  // Reset, not 7
+      assert.equal(ent.songsRemaining, 10); // Reset, not 19
     });
 
     it("ignores stale competing Apple chains with earlier expiry", async () => {
+      // Anchor to "now" so the live monthly stays active regardless of when
+      // the suite runs. Relationships preserved from the original prod repro:
+      // live monthly purchased earlier with a LATER expiry; stale daily
+      // purchased later but with an EARLIER (already-passed) expiry.
+      const DAY = 24 * 60 * 60 * 1000;
+      const now = Date.now();
       const activeMonthly = createMockAppleValidation({
         transactionId: "tx_live_monthly",
         originalTransactionId: "otx_live_monthly",
-        originalPurchaseDate: new Date("2026-03-04T00:23:16.000Z"),
-        purchaseDate: new Date("2026-03-04T00:23:16.000Z"),
-        expiresAt: new Date("2026-04-03T23:23:16.000Z"),
+        originalPurchaseDate: new Date(now - 3 * DAY),
+        purchaseDate: new Date(now - 3 * DAY),
+        expiresAt: new Date(now + 27 * DAY),
         autoRenewEnabled: true,
         environment: "production",
       });
@@ -251,9 +282,9 @@ describe("Subscription Manager", async () => {
       const staleCompetingChain = createMockAppleValidation({
         transactionId: "tx_stale_daily",
         originalTransactionId: "otx_stale_daily",
-        originalPurchaseDate: new Date("2026-02-24T05:58:44.000Z"),
-        purchaseDate: new Date("2026-03-07T05:58:44.000Z"),
-        expiresAt: new Date("2026-03-08T05:58:44.000Z"),
+        originalPurchaseDate: new Date(now - 11 * DAY),
+        purchaseDate: new Date(now - 1 * DAY),
+        expiresAt: new Date(now - 0.5 * DAY),
         autoRenewEnabled: false,
         isActive: false,
         isExpired: true,
@@ -261,13 +292,16 @@ describe("Subscription Manager", async () => {
         environment: "production",
       });
 
-      const result = await manager.syncSubscription(testUserId, staleCompetingChain);
+      const result = await manager.syncSubscription(
+        testUserId,
+        staleCompetingChain,
+      );
 
       assert.equal(result.ignoredAsStaleCompetingChain, true);
 
       const sub = await db.query(
         "SELECT original_transaction_id, latest_transaction_id, expires_at, auto_renew_enabled, status FROM subscriptions WHERE user_id = ?",
-        [testUserId]
+        [testUserId],
       );
       assert.equal(sub.rows.length, 1);
       assert.equal(sub.rows[0].original_transaction_id, "otx_live_monthly");
@@ -277,7 +311,7 @@ describe("Subscription Manager", async () => {
 
       const ent = await manager.getEntitlements(testUserId);
       assert.equal(ent.tier, "plus");
-      assert.equal(ent.songsRemaining, 4);
+      assert.equal(ent.songsRemaining, 10);
     });
   });
 
@@ -304,7 +338,7 @@ describe("Subscription Manager", async () => {
       const result = await manager.spendSong(testUserId, "track_456");
 
       assert.equal(result.source, "subscription");
-      assert.equal(result.songsRemaining, 3);
+      assert.equal(result.songsRemaining, 9);
     });
 
     it("throws when no songs remaining", async () => {
@@ -312,12 +346,12 @@ describe("Subscription Manager", async () => {
       await db.query(
         `INSERT INTO entitlements (user_id, tier, songs_remaining, updated_at)
          VALUES (?, 'free', 0, datetime('now'))`,
-        [testUserId]
+        [testUserId],
       );
 
       await assert.rejects(
         () => manager.spendSong(testUserId, "track_789"),
-        /Insufficient songs remaining/
+        /Insufficient songs remaining/,
       );
     });
 
@@ -327,7 +361,7 @@ describe("Subscription Manager", async () => {
 
       const txResult = await db.query(
         "SELECT * FROM song_transactions WHERE user_id = ? AND type = ?",
-        [testUserId, TRANSACTION_TYPES.SPEND]
+        [testUserId, TRANSACTION_TYPES.SPEND],
       );
 
       assert.equal(txResult.rows.length, 1);
@@ -336,7 +370,7 @@ describe("Subscription Manager", async () => {
     });
 
     it("drains trial songs before subscription songs", async () => {
-      // Activate trial (2 songs) then subscribe (4 songs)
+      // Activate trial (2 songs) then subscribe (10 songs)
       await manager.activateTrial(testUserId);
       await manager.syncSubscription(testUserId, createMockAppleValidation());
 
@@ -353,26 +387,29 @@ describe("Subscription Manager", async () => {
 
       const ent = await manager.getEntitlements(testUserId);
       assert.equal(ent.trialSongsRemaining, 0);
-      assert.equal(ent.songsRemaining, 3); // 4 sub - 1 spent + 0 trial = 3 total
+      assert.equal(ent.songsRemaining, 9); // 10 sub - 1 spent + 0 trial = 9 total
     });
 
     it("throws for user with no entitlements record", async () => {
       await assert.rejects(
         () => manager.spendSong(testUserId, "track_none"),
-        /No entitlements found/
+        /No entitlements found/,
       );
     });
   });
 
   describe("handleExpiration", () => {
     it("downgrades user to free tier", async () => {
-      // Create subscription first (Pro plan for 10 songs)
+      // Create subscription first (Pro plan for 20 songs)
       const mockValidation = createMockAppleValidation({
         productId: "com.porizo.pro_monthly",
         expiresAt: new Date(Date.now() - 1000), // Expired
         autoRenewEnabled: false,
       });
-      const subResult = await manager.syncSubscription(testUserId, mockValidation);
+      const subResult = await manager.syncSubscription(
+        testUserId,
+        mockValidation,
+      );
 
       const result = await manager.handleExpiration(subResult.subscriptionId);
 
@@ -398,11 +435,14 @@ describe("Subscription Manager", async () => {
       const mockValidation = createMockAppleValidation({
         productId: "com.porizo.pro_monthly",
       });
-      const subResult = await manager.syncSubscription(testUserId, mockValidation);
+      const subResult = await manager.syncSubscription(
+        testUserId,
+        mockValidation,
+      );
 
-      // User has 10 songs from Pro plan
+      // User has 20 songs from Pro plan
       let ent = await manager.getEntitlements(testUserId);
-      assert.equal(ent.songsRemaining, 10);
+      assert.equal(ent.songsRemaining, 20);
 
       // Expire the subscription
       await manager.handleExpiration(subResult.subscriptionId);
@@ -416,11 +456,14 @@ describe("Subscription Manager", async () => {
 
   describe("handleRevocation", () => {
     it("revokes subscription and removes songs", async () => {
-      const subResult = await manager.syncSubscription(testUserId, createMockAppleValidation());
+      const subResult = await manager.syncSubscription(
+        testUserId,
+        createMockAppleValidation(),
+      );
 
       const result = await manager.handleRevocation(subResult.subscriptionId);
 
-      assert.equal(result.songsRevoked, 4);
+      assert.equal(result.songsRevoked, 10);
       assert.equal(result.songsRemaining, 0);
 
       // Verify subscription status
@@ -431,17 +474,20 @@ describe("Subscription Manager", async () => {
     });
 
     it("records refund transaction", async () => {
-      const subResult = await manager.syncSubscription(testUserId, createMockAppleValidation());
+      const subResult = await manager.syncSubscription(
+        testUserId,
+        createMockAppleValidation(),
+      );
 
       await manager.handleRevocation(subResult.subscriptionId);
 
       const txResult = await db.query(
         "SELECT * FROM song_transactions WHERE user_id = ? AND type = ?",
-        [testUserId, TRANSACTION_TYPES.REFUND]
+        [testUserId, TRANSACTION_TYPES.REFUND],
       );
 
       assert.equal(txResult.rows.length, 1);
-      assert.equal(txResult.rows[0].amount, -4);
+      assert.equal(txResult.rows[0].amount, -10);
     });
   });
 
@@ -458,7 +504,8 @@ describe("Subscription Manager", async () => {
       });
 
       const result = await manager.syncSubscription(testUserId, validation);
-      const activeSubscription = await manager.getActiveSubscription(testUserId);
+      const activeSubscription =
+        await manager.getActiveSubscription(testUserId);
 
       assert.equal(result.status, "expired");
       assert.equal(activeSubscription, null);
@@ -481,7 +528,7 @@ describe("Subscription Manager", async () => {
 
       const txResult = await db.query(
         "SELECT * FROM song_transactions WHERE user_id = ? AND type = ?",
-        [testUserId, TRANSACTION_TYPES.ADMIN_GRANT]
+        [testUserId, TRANSACTION_TYPES.ADMIN_GRANT],
       );
 
       assert.equal(txResult.rows.length, 1);
@@ -495,7 +542,7 @@ describe("Subscription Manager", async () => {
       const newUserId = `user_new_${Date.now()}`;
       await db.query(
         "INSERT INTO users (id, created_at) VALUES (?, datetime('now'))",
-        [newUserId]
+        [newUserId],
       );
 
       const ent = await manager.getEntitlements(newUserId);
@@ -529,6 +576,175 @@ describe("Subscription Manager", async () => {
     it("returns null for user without subscription", async () => {
       const sub = await manager.getActiveSubscription(testUserId);
       assert.equal(sub, null);
+    });
+  });
+
+  describe("spendSong with gift_wallet (paywall_pay_per_song_enabled)", () => {
+    function setPayPerSongFlag(value) {
+      db.prepare(
+        `INSERT OR REPLACE INTO feature_flags (id, value, updated_at, updated_by)
+         VALUES (?, ?, datetime('now'), 'test')`,
+      ).run("paywall_pay_per_song_enabled", JSON.stringify(value));
+      clearFeatureFlagCache();
+    }
+
+    async function seedGiftWallet(userId, balance) {
+      await db.query(
+        `INSERT INTO gift_wallet (user_id, balance, updated_at)
+         VALUES (?, ?, datetime('now'))
+         ON CONFLICT(user_id) DO UPDATE SET balance = ?`,
+        [userId, balance, balance],
+      );
+    }
+
+    async function getGiftWalletBalance(userId) {
+      const res = await db.query(
+        "SELECT balance FROM gift_wallet WHERE user_id = ?",
+        [userId],
+      );
+      return res.rows.length ? Number(res.rows[0].balance) : null;
+    }
+
+    beforeEach(() => {
+      // Default OFF for each test; individual tests opt in.
+      setPayPerSongFlag(false);
+    });
+
+    it("spend order: trial -> songs_remaining -> gift_wallet (flag ON)", async () => {
+      setPayPerSongFlag(true);
+
+      // trial=1, songs_remaining=1, gift=1
+      await db.query(
+        `INSERT INTO entitlements (user_id, tier, songs_remaining, trial_songs_remaining, updated_at)
+         VALUES (?, 'free', 1, 1, datetime('now'))`,
+        [testUserId],
+      );
+      await seedGiftWallet(testUserId, 1);
+
+      const s1 = await manager.spendSong(testUserId, "g_track_1");
+      assert.equal(s1.source, "trial");
+
+      const s2 = await manager.spendSong(testUserId, "g_track_2");
+      assert.equal(s2.source, "subscription");
+
+      const s3 = await manager.spendSong(testUserId, "g_track_3");
+      assert.equal(s3.source, "gift_token");
+
+      assert.equal(await getGiftWalletBalance(testUserId), 0);
+    });
+
+    it("flag OFF: trial=0,songs=0,gift=1 throws INSUFFICIENT (unchanged behavior)", async () => {
+      setPayPerSongFlag(false);
+
+      await db.query(
+        `INSERT INTO entitlements (user_id, tier, songs_remaining, trial_songs_remaining, updated_at)
+         VALUES (?, 'free', 0, 0, datetime('now'))`,
+        [testUserId],
+      );
+      await seedGiftWallet(testUserId, 1);
+
+      await assert.rejects(
+        () => manager.spendSong(testUserId, "g_track_off"),
+        /Insufficient songs remaining/,
+      );
+
+      // Gift wallet untouched
+      assert.equal(await getGiftWalletBalance(testUserId), 1);
+    });
+
+    it("flag ON: trial=0,songs=0,gift=1 spends via gift_token and records ledger row", async () => {
+      setPayPerSongFlag(true);
+
+      await db.query(
+        `INSERT INTO entitlements (user_id, tier, songs_remaining, trial_songs_remaining, updated_at)
+         VALUES (?, 'free', 0, 0, datetime('now'))`,
+        [testUserId],
+      );
+      await seedGiftWallet(testUserId, 1);
+
+      const result = await manager.spendSong(testUserId, "g_track_gift");
+      assert.equal(result.source, "gift_token");
+
+      assert.equal(await getGiftWalletBalance(testUserId), 0);
+
+      const ledger = await db.query(
+        "SELECT * FROM gift_wallet_transactions WHERE user_id = ? AND reference_id = ?",
+        [testUserId, "g_track_gift"],
+      );
+      assert.equal(ledger.rows.length, 1);
+      assert.equal(Number(ledger.rows[0].amount), -1);
+      assert.equal(Number(ledger.rows[0].balance_before), 1);
+      assert.equal(Number(ledger.rows[0].balance_after), 0);
+    });
+
+    it("flag ON: all zero (trial=0,songs=0,gift=0) throws INSUFFICIENT", async () => {
+      setPayPerSongFlag(true);
+
+      await db.query(
+        `INSERT INTO entitlements (user_id, tier, songs_remaining, trial_songs_remaining, updated_at)
+         VALUES (?, 'free', 0, 0, datetime('now'))`,
+        [testUserId],
+      );
+      await seedGiftWallet(testUserId, 0);
+
+      await assert.rejects(
+        () => manager.spendSong(testUserId, "g_track_zero"),
+        /Insufficient songs remaining/,
+      );
+    });
+
+    it("flag ON: atomic guard prevents double-spend of last gift token", async () => {
+      setPayPerSongFlag(true);
+
+      await db.query(
+        `INSERT INTO entitlements (user_id, tier, songs_remaining, trial_songs_remaining, updated_at)
+         VALUES (?, 'free', 0, 0, datetime('now'))`,
+        [testUserId],
+      );
+      await seedGiftWallet(testUserId, 1);
+
+      const first = await manager.spendSong(testUserId, "g_dbl_1");
+      assert.equal(first.source, "gift_token");
+
+      // Second spend must fail — no balance left, guard holds.
+      await assert.rejects(
+        () => manager.spendSong(testUserId, "g_dbl_2"),
+        /Insufficient songs remaining/,
+      );
+
+      assert.equal(await getGiftWalletBalance(testUserId), 0);
+
+      // Exactly one debit ledger row recorded.
+      const ledger = await db.query(
+        "SELECT * FROM gift_wallet_transactions WHERE user_id = ? AND amount = -1",
+        [testUserId],
+      );
+      assert.equal(ledger.rows.length, 1);
+    });
+
+    it("getEntitlements returns giftWalletBalance without changing songsRemaining", async () => {
+      await db.query(
+        `INSERT INTO entitlements (user_id, tier, songs_remaining, trial_songs_remaining, updated_at)
+         VALUES (?, 'free', 2, 1, datetime('now'))`,
+        [testUserId],
+      );
+      await seedGiftWallet(testUserId, 3);
+
+      const ent = await manager.getEntitlements(testUserId);
+      // base(2) + trial(1) unchanged
+      assert.equal(ent.songsRemaining, 3);
+      assert.equal(ent.giftWalletBalance, 3);
+    });
+
+    it("getEntitlements returns giftWalletBalance 0 when no wallet row", async () => {
+      await db.query(
+        `INSERT INTO entitlements (user_id, tier, songs_remaining, updated_at)
+         VALUES (?, 'free', 1, datetime('now'))`,
+        [testUserId],
+      );
+
+      const ent = await manager.getEntitlements(testUserId);
+      assert.equal(ent.giftWalletBalance, 0);
     });
   });
 

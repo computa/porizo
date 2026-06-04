@@ -88,9 +88,11 @@ function createSubscriptionManager(db, services = {}) {
   }
 
   function isAdminUpgradeActive(ent) {
-    return ent.admin_upgrade_tier
-      && ent.admin_upgrade_expires_at
-      && new Date(ent.admin_upgrade_expires_at) > new Date();
+    return (
+      ent.admin_upgrade_tier &&
+      ent.admin_upgrade_expires_at &&
+      new Date(ent.admin_upgrade_expires_at) > new Date()
+    );
   }
 
   const TIER_RANK = { free: 0, plus: 1, pro: 2 };
@@ -102,24 +104,29 @@ function createSubscriptionManager(db, services = {}) {
    */
   async function resolveEffectiveTier(ent) {
     let subscriptionTier = "free";
-    const rawTier = (typeof ent.tier === "string" && ent.tier) ? ent.tier : "free";
+    const rawTier =
+      typeof ent.tier === "string" && ent.tier ? ent.tier : "free";
     if (rawTier !== "free") {
-      const activeSub = await db.prepare(
-        `SELECT id FROM subscriptions
+      const activeSub = await db
+        .prepare(
+          `SELECT id FROM subscriptions
          WHERE user_id = ? AND status IN ('active', 'grace_period', 'billing_retry')
            AND (expires_at IS NULL OR expires_at > ?)
-         LIMIT 1`
-      ).get(ent.user_id, new Date().toISOString());
+         LIMIT 1`,
+        )
+        .get(ent.user_id, new Date().toISOString());
       if (activeSub) {
         subscriptionTier = rawTier;
       }
     }
 
-    const adminTier = isAdminUpgradeActive(ent) ? ent.admin_upgrade_tier : "free";
+    const adminTier = isAdminUpgradeActive(ent)
+      ? ent.admin_upgrade_tier
+      : "free";
 
     return [subscriptionTier, adminTier].reduce(
-      (best, t) => (TIER_RANK[t] || 0) > (TIER_RANK[best] || 0) ? t : best,
-      "free"
+      (best, t) => ((TIER_RANK[t] || 0) > (TIER_RANK[best] || 0) ? t : best),
+      "free",
     );
   }
 
@@ -129,9 +136,11 @@ function createSubscriptionManager(db, services = {}) {
    * @returns {Promise<string>} Effective tier ('free', 'plus', or 'pro')
    */
   async function getEffectiveTier(userId) {
-    const ent = await db.prepare(
-      "SELECT user_id, tier, admin_upgrade_tier, admin_upgrade_expires_at FROM entitlements WHERE user_id = ?"
-    ).get(userId);
+    const ent = await db
+      .prepare(
+        "SELECT user_id, tier, admin_upgrade_tier, admin_upgrade_expires_at FROM entitlements WHERE user_id = ?",
+      )
+      .get(userId);
     if (!ent) return "free";
     return resolveEffectiveTier(ent);
   }
@@ -156,7 +165,7 @@ function createSubscriptionManager(db, services = {}) {
     // Get plan info from product ID (safe to read outside transaction — immutable config)
     const planInfo = await planConfigService.getPlanByProductId(
       validation.productId,
-      validation.platform
+      validation.platform,
     );
 
     if (!planInfo) {
@@ -171,7 +180,7 @@ function createSubscriptionManager(db, services = {}) {
       const existingResult = await query(
         `SELECT * FROM subscriptions
          WHERE original_transaction_id = ?${lockSuffix}`,
-        [validation.originalTransactionId]
+        [validation.originalTransactionId],
       );
       let existingSubscription = existingResult.rows[0] || null;
 
@@ -184,7 +193,7 @@ function createSubscriptionManager(db, services = {}) {
              expires_at DESC,
              created_at DESC
            LIMIT 1${lockSuffix}`,
-          [userId, validation.productId]
+          [userId, validation.productId],
         );
         existingSubscription = productResult.rows[0] || null;
       }
@@ -200,7 +209,8 @@ function createSubscriptionManager(db, services = {}) {
       const isCompetingChain =
         existingSubscription &&
         existingSubscription.original_transaction_id &&
-        existingSubscription.original_transaction_id !== validation.originalTransactionId;
+        existingSubscription.original_transaction_id !==
+          validation.originalTransactionId;
       const shouldIgnoreStaleCompetingChain =
         isCompetingChain &&
         Number.isFinite(existingExpiresAtMs) &&
@@ -212,7 +222,7 @@ function createSubscriptionManager(db, services = {}) {
           query,
           userId,
           existingSubscription.id,
-          validation
+          validation,
         );
         return {
           subscriptionId: existingSubscription.id,
@@ -221,18 +231,22 @@ function createSubscriptionManager(db, services = {}) {
           tier: existingSubscription.tier,
           songsGranted: 0,
           songsRemaining: null,
-          expiresAt: existingSubscription.expires_at ? new Date(existingSubscription.expires_at) : null,
+          expiresAt: existingSubscription.expires_at
+            ? new Date(existingSubscription.expires_at)
+            : null,
           status: existingSubscription.status,
           ignoredAsStaleCompetingChain: true,
         };
       }
 
       const isNewSubscription = !existingSubscription;
-      const isRenewal = existingSubscription &&
+      const isRenewal =
+        existingSubscription &&
         validation.transactionId !== existingSubscription.latest_transaction_id;
 
       // Upsert subscription record
-      const subscriptionId = existingSubscription?.id ||
+      const subscriptionId =
+        existingSubscription?.id ||
         `sub_${crypto.randomBytes(12).toString("hex")}`;
 
       if (isNewSubscription) {
@@ -273,7 +287,7 @@ function createSubscriptionManager(db, services = {}) {
             validation.gracePeriodExpiresAt?.toISOString() || null,
             validation.environment,
             0,
-          ]
+          ],
         );
       } else {
         await query(
@@ -304,7 +318,7 @@ function createSubscriptionManager(db, services = {}) {
             isRenewal ? 1 : 0,
             validation.environment,
             subscriptionId,
-          ]
+          ],
         );
       }
 
@@ -319,7 +333,7 @@ function createSubscriptionManager(db, services = {}) {
         validation,
         isNewSubscription,
         isRenewal,
-        subscriptionId
+        subscriptionId,
       );
 
       return {
@@ -338,7 +352,12 @@ function createSubscriptionManager(db, services = {}) {
   /**
    * Record purchase receipt for audit trail
    */
-  async function recordPurchaseReceipt(query, userId, subscriptionId, validation) {
+  async function recordPurchaseReceipt(
+    query,
+    userId,
+    subscriptionId,
+    validation,
+  ) {
     const receiptId = `rcpt_${crypto.randomBytes(12).toString("hex")}`;
 
     await query(
@@ -363,7 +382,7 @@ function createSubscriptionManager(db, services = {}) {
         validation.expiresAt?.toISOString() || null,
         validation.isTrialPeriod ? 1 : 0,
         0, // is_upgrade - would need to compare with previous subscription
-      ]
+      ],
     );
   }
 
@@ -371,12 +390,18 @@ function createSubscriptionManager(db, services = {}) {
    * Update user entitlements based on subscription
    */
   async function updateEntitlements(
-    query, userId, planInfo, validation, isNew, isRenewal, subscriptionId
+    query,
+    userId,
+    planInfo,
+    validation,
+    isNew,
+    isRenewal,
+    subscriptionId,
   ) {
     // Get current entitlements
     const currentResult = await query(
       "SELECT * FROM entitlements WHERE user_id = ?",
-      [userId]
+      [userId],
     );
 
     const current = currentResult.rows[0] || {
@@ -391,8 +416,12 @@ function createSubscriptionManager(db, services = {}) {
     const paidAccessActive = hasActivePaidAccess(validation);
 
     // H3+H4: Detect plan change (upgrade/downgrade) by comparing plan_id
-    const isPlanChange = !isNew && !isRenewal && paidAccessActive &&
-      current.plan_id && current.plan_id !== planInfo.plan_id;
+    const isPlanChange =
+      !isNew &&
+      !isRenewal &&
+      paidAccessActive &&
+      current.plan_id &&
+      current.plan_id !== planInfo.plan_id;
 
     if (isNew && validation.isTrialPeriod) {
       // Trial - don't grant subscription songs, user should use trial songs
@@ -416,13 +445,18 @@ function createSubscriptionManager(db, services = {}) {
       : current.songs_remaining + songsToGrant;
     const entitlementTier = paidAccessActive ? planInfo.tier : "free";
     const songsAllowance = paidAccessActive ? planInfo.songs_per_month : 0;
-    const poemsAllowance = paidAccessActive ? (planInfo.poems_per_month || 0) : 0;
-    const poemsToGrant = (isNew || isRenewal || isPlanChange) && paidAccessActive ? poemsAllowance : 0;
+    const poemsAllowance = paidAccessActive ? planInfo.poems_per_month || 0 : 0;
+    const poemsToGrant =
+      (isNew || isRenewal || isPlanChange) && paidAccessActive
+        ? poemsAllowance
+        : 0;
     const newPoemsBalance = shouldResetBalance
       ? poemsToGrant
       : (current.poems_remaining || 0) + poemsToGrant;
     const planId = paidAccessActive ? planInfo.plan_id : null;
-    const billingPeriod = paidAccessActive ? getBillingPeriod(validation.productId) : null;
+    const billingPeriod = paidAccessActive
+      ? getBillingPeriod(validation.productId)
+      : null;
     const subscriptionStartsAt = paidAccessActive
       ? validation.originalPurchaseDate.toISOString()
       : null;
@@ -466,7 +500,7 @@ function createSubscriptionManager(db, services = {}) {
         billingPeriod,
         subscriptionStartsAt,
         subscriptionRenewsAt,
-      ]
+      ],
     );
 
     // Record transaction in audit log
@@ -480,7 +514,7 @@ function createSubscriptionManager(db, services = {}) {
         newBalance,
         "subscription",
         subscriptionId,
-        `${planInfo.tier} subscription ${isRenewal ? "renewal" : "started"}`
+        `${planInfo.tier} subscription ${isRenewal ? "renewal" : "started"}`,
       );
     }
 
@@ -505,7 +539,9 @@ function createSubscriptionManager(db, services = {}) {
     }
 
     const trialExpiresAt = new Date();
-    trialExpiresAt.setDate(trialExpiresAt.getDate() + trialConfig.duration_days);
+    trialExpiresAt.setDate(
+      trialExpiresAt.getDate() + trialConfig.duration_days,
+    );
 
     return db.transaction(async (query) => {
       // C1 + review H-1/H4: All checks inside transaction to prevent TOCTOU race
@@ -513,7 +549,7 @@ function createSubscriptionManager(db, services = {}) {
       const currentResult = await query(
         `SELECT songs_remaining, trial_songs_remaining, trial_started_at, tier
          FROM entitlements WHERE user_id = ?${lockSuffix}`,
-        [userId]
+        [userId],
       );
 
       if (currentResult.rows[0]?.trial_started_at) {
@@ -526,7 +562,8 @@ function createSubscriptionManager(db, services = {}) {
       }
 
       const currentSongs = currentResult.rows[0]?.songs_remaining || 0;
-      const currentTrialSongs = currentResult.rows[0]?.trial_songs_remaining || 0;
+      const currentTrialSongs =
+        currentResult.rows[0]?.trial_songs_remaining || 0;
       // Total available = subscription songs + trial songs
       const totalAfter = currentSongs + trialConfig.songs_allowed;
 
@@ -552,7 +589,7 @@ function createSubscriptionManager(db, services = {}) {
           trialExpiresAt.toISOString(),
           trialConfig.songs_allowed,
           trialExpiresAt.toISOString(),
-        ]
+        ],
       );
 
       // Record transaction
@@ -565,7 +602,7 @@ function createSubscriptionManager(db, services = {}) {
         trialConfig.songs_allowed,
         "trial",
         null,
-        `${trialConfig.duration_days}-day free trial activated`
+        `${trialConfig.duration_days}-day free trial activated`,
       );
 
       return {
@@ -584,7 +621,7 @@ function createSubscriptionManager(db, services = {}) {
   async function handleExpiration(subscriptionId) {
     const subResult = await db.query(
       "SELECT * FROM subscriptions WHERE id = ?",
-      [subscriptionId]
+      [subscriptionId],
     );
 
     if (subResult.rows.length === 0) {
@@ -601,13 +638,13 @@ function createSubscriptionManager(db, services = {}) {
           status = 'expired',
           updated_at = CURRENT_TIMESTAMP
         WHERE id = ?`,
-        [subscriptionId]
+        [subscriptionId],
       );
 
       // Get current entitlements
       const entResult = await query(
         "SELECT * FROM entitlements WHERE user_id = ?",
-        [subscription.user_id]
+        [subscription.user_id],
       );
 
       const current = entResult.rows[0];
@@ -626,7 +663,7 @@ function createSubscriptionManager(db, services = {}) {
             subscription_renews_at = NULL,
             updated_at = CURRENT_TIMESTAMP
           WHERE user_id = ?`,
-          [subscription.user_id]
+          [subscription.user_id],
         );
 
         return {
@@ -650,7 +687,7 @@ function createSubscriptionManager(db, services = {}) {
           subscription_renews_at = NULL,
           updated_at = CURRENT_TIMESTAMP
         WHERE user_id = ?`,
-        [subscription.user_id]
+        [subscription.user_id],
       );
 
       // Record audit (only if there were songs to expire, consistent with handleRevocation)
@@ -665,7 +702,7 @@ function createSubscriptionManager(db, services = {}) {
           0,
           "subscription",
           subscriptionId,
-          "Subscription expired, credits reset to zero"
+          "Subscription expired, credits reset to zero",
         );
       }
 
@@ -690,7 +727,7 @@ function createSubscriptionManager(db, services = {}) {
         grace_period_expires_at = ?,
         updated_at = CURRENT_TIMESTAMP
       WHERE id = ?`,
-      [gracePeriodExpiresAt.toISOString(), subscriptionId]
+      [gracePeriodExpiresAt.toISOString(), subscriptionId],
     );
 
     return { subscriptionId, status: "grace_period", gracePeriodExpiresAt };
@@ -703,7 +740,7 @@ function createSubscriptionManager(db, services = {}) {
   async function handleRevocation(subscriptionId) {
     const subResult = await db.query(
       "SELECT * FROM subscriptions WHERE id = ?",
-      [subscriptionId]
+      [subscriptionId],
     );
 
     if (subResult.rows.length === 0) {
@@ -720,13 +757,13 @@ function createSubscriptionManager(db, services = {}) {
           cancelled_at = CURRENT_TIMESTAMP,
           updated_at = CURRENT_TIMESTAMP
         WHERE id = ?`,
-        [subscriptionId]
+        [subscriptionId],
       );
 
       // Get current entitlements
       const entResult = await query(
         "SELECT * FROM entitlements WHERE user_id = ?",
-        [subscription.user_id]
+        [subscription.user_id],
       );
 
       const current = entResult.rows[0];
@@ -742,8 +779,12 @@ function createSubscriptionManager(db, services = {}) {
          FROM song_transactions
          WHERE user_id = ? AND reference_id = ?
            AND type IN (?, ?)`,
-        [subscription.user_id, subscriptionId,
-         TRANSACTION_TYPES.SUBSCRIPTION_GRANT, TRANSACTION_TYPES.SUBSCRIPTION_RENEWAL]
+        [
+          subscription.user_id,
+          subscriptionId,
+          TRANSACTION_TYPES.SUBSCRIPTION_GRANT,
+          TRANSACTION_TYPES.SUBSCRIPTION_RENEWAL,
+        ],
       );
       const totalGranted = Number(grantResult.rows[0]?.total_granted || 0);
       const songsToRevoke = Math.min(current.songs_remaining, totalGranted);
@@ -760,15 +801,18 @@ function createSubscriptionManager(db, services = {}) {
             subscription_renews_at = NULL,
             updated_at = CURRENT_TIMESTAMP
           WHERE user_id = ?`,
-          [newBalance, subscription.user_id]
+          [newBalance, subscription.user_id],
         );
       } else {
         // M2: Also revoke poems and reset allowances on revocation
         const poemsToRevoke = Math.min(
           current.poems_remaining || 0,
-          current.poems_allowance || 0
+          current.poems_allowance || 0,
         );
-        const newPoemsBalance = Math.max(0, (current.poems_remaining || 0) - poemsToRevoke);
+        const newPoemsBalance = Math.max(
+          0,
+          (current.poems_remaining || 0) - poemsToRevoke,
+        );
 
         await query(
           `UPDATE entitlements SET
@@ -782,7 +826,7 @@ function createSubscriptionManager(db, services = {}) {
             subscription_renews_at = NULL,
             updated_at = CURRENT_TIMESTAMP
           WHERE user_id = ?`,
-          [newBalance, newPoemsBalance, subscription.user_id]
+          [newBalance, newPoemsBalance, subscription.user_id],
         );
       }
 
@@ -797,7 +841,7 @@ function createSubscriptionManager(db, services = {}) {
           newBalance,
           "subscription",
           subscriptionId,
-          "Subscription revoked/refunded"
+          "Subscription revoked/refunded",
         );
       }
 
@@ -816,18 +860,28 @@ function createSubscriptionManager(db, services = {}) {
    * @returns {Promise<Object>} Updated balance
    */
   async function spendSong(userId, trackId) {
-    return db.transaction(async (query) => spendSongInTransaction(query, userId, trackId));
+    return db.transaction(async (query) =>
+      spendSongInTransaction(query, userId, trackId),
+    );
   }
 
-  async function spendSongInTransaction(query, userId, trackId) {
+  async function spendSongInTransaction(
+    query,
+    userId,
+    trackId,
+    trackVersionId = null,
+  ) {
     // Read current state to determine source (trial vs regular) and validate expiry.
     // The actual decrement is done atomically via UPDATE...WHERE to eliminate the
     // SELECT-then-UPDATE race (BILL-02). SQLite is single-writer so the WHERE check
-    // is race-free there; on PostgreSQL the acquireUserLock advisory lock in the
-    // caller's transaction serializes concurrent spends for the same user.
+    // is race-free there; on PostgreSQL the row-level lock taken by each atomic
+    // UPDATE...WHERE <col> > 0 serializes concurrent spends for the same user.
+    // NOTE: there is NO advisory lock on this path — the atomic WHERE guard is the
+    // sole double-spend protection, and it is sufficient for trial, subscription,
+    // and gift_wallet decrements alike.
     const entResult = await query(
       "SELECT * FROM entitlements WHERE user_id = ?",
-      [userId]
+      [userId],
     );
 
     if (entResult.rows.length === 0) {
@@ -839,11 +893,46 @@ function createSubscriptionManager(db, services = {}) {
     const current = entResult.rows[0];
 
     // H1: Check trial expiry before allowing trial song spend
-    const trialExpired = current.trial_expires_at && new Date(current.trial_expires_at) < new Date();
-    const hasTrialSongs = !trialExpired && (current.trial_songs_remaining || 0) > 0;
+    const trialExpired =
+      current.trial_expires_at &&
+      new Date(current.trial_expires_at) < new Date();
+    const hasTrialSongs =
+      !trialExpired && (current.trial_songs_remaining || 0) > 0;
     const hasRegularSongs = current.songs_remaining > 0;
 
-    if (!hasTrialSongs && !hasRegularSongs) {
+    // BILL-GIFT: One-off gift_wallet tokens (bundles) become spendable on
+    // make-your-own only when paywall_pay_per_song_enabled is ON. The flag is read
+    // via this tx's own `query` — NOT getFeatureFlag(db, ...), which routes through
+    // db.prepare -> a SECOND pooled connection while this tx already holds one. On
+    // Postgres, nesting a pooled query inside the transaction risks pool-exhaustion
+    // deadlock under burst load. Reading via `query` keeps it on the same
+    // connection and inside this tx's snapshot. Mirrors getFeatureFlag's JSON parse
+    // + default-OFF; gift tokens are NOT spendable here when OFF.
+    let payPerSongEnabled = false;
+    try {
+      const flagRes = await query(
+        "SELECT value FROM feature_flags WHERE id = ?",
+        ["paywall_pay_per_song_enabled"],
+      );
+      const flagRow = flagRes.rows?.[0];
+      payPerSongEnabled =
+        flagRow && flagRow.value != null
+          ? JSON.parse(flagRow.value) === true
+          : false;
+    } catch {
+      payPerSongEnabled = false; // graceful default-OFF on read/parse error
+    }
+    let giftWalletBalance = 0;
+    if (payPerSongEnabled && !hasTrialSongs && !hasRegularSongs) {
+      const walletResult = await query(
+        "SELECT balance FROM gift_wallet WHERE user_id = ?",
+        [userId],
+      );
+      giftWalletBalance = Number(walletResult.rows?.[0]?.balance || 0);
+    }
+    const hasGiftTokens = payPerSongEnabled && giftWalletBalance > 0;
+
+    if (!hasTrialSongs && !hasRegularSongs && !hasGiftTokens) {
       const err = new Error("Insufficient songs remaining");
       err.code = ENTITLEMENT_ERRORS.INSUFFICIENT_SONGS;
       throw err;
@@ -862,7 +951,7 @@ function createSubscriptionManager(db, services = {}) {
           songs_used_total = songs_used_total + 1,
           updated_at = CURRENT_TIMESTAMP
         WHERE user_id = ? AND trial_songs_remaining > 0`,
-        [userId]
+        [userId],
       );
       if ((trialResult.changes ?? trialResult.rowCount ?? 0) === 0) {
         const err = new Error("Insufficient songs remaining");
@@ -870,7 +959,7 @@ function createSubscriptionManager(db, services = {}) {
         throw err;
       }
       newBalance = current.trial_songs_remaining - 1;
-    } else {
+    } else if (hasRegularSongs) {
       // Use regular song. Atomic decrement: WHERE guard prevents double-spend (BILL-02).
       source = "subscription";
       const songResult = await query(
@@ -879,7 +968,7 @@ function createSubscriptionManager(db, services = {}) {
           songs_used_total = songs_used_total + 1,
           updated_at = CURRENT_TIMESTAMP
         WHERE user_id = ? AND songs_remaining > 0`,
-        [userId]
+        [userId],
       );
       if ((songResult.changes ?? songResult.rowCount ?? 0) === 0) {
         const err = new Error("Insufficient songs remaining");
@@ -887,6 +976,86 @@ function createSubscriptionManager(db, services = {}) {
         throw err;
       }
       newBalance = current.songs_remaining - 1;
+    } else {
+      // BILL-GIFT: Spend a one-off gift_wallet token (bundle). Only reachable when
+      // paywall_pay_per_song_enabled is ON and both trial + subscription are
+      // exhausted (the early hasGiftTokens check passed). The atomic
+      // UPDATE...WHERE balance > 0 is the SOLE double-spend guard (same as the
+      // trial/subscription paths) — a request racing past the SELECT cannot
+      // double-spend the last token: it blocks on the row lock, re-reads
+      // balance = 0, matches 0 rows, and throws INSUFFICIENT.
+      source = "gift_token";
+      const giftResult = await query(
+        `UPDATE gift_wallet SET
+          balance = balance - 1,
+          updated_at = CURRENT_TIMESTAMP
+        WHERE user_id = ? AND balance > 0`,
+        [userId],
+      );
+      if ((giftResult.changes ?? giftResult.rowCount ?? 0) === 0) {
+        const err = new Error("Insufficient songs remaining");
+        err.code = ENTITLEMENT_ERRORS.INSUFFICIENT_SONGS;
+        throw err;
+      }
+
+      // Re-read the post-decrement balance from WITHIN this tx so the immutable
+      // ledger records the TRUE balance, not a stale pre-UPDATE snapshot (the
+      // gift_wallet can be concurrently mutated by the gift-send flow).
+      const afterRes = await query(
+        "SELECT balance FROM gift_wallet WHERE user_id = ?",
+        [userId],
+      );
+      const balanceAfter = Number(afterRes.rows?.[0]?.balance ?? 0);
+      const balanceBefore = balanceAfter + 1;
+      newBalance = balanceAfter;
+
+      // Keep songs_used_total consistent with the trial/subscription paths so
+      // analytics counts gift-funded renders too.
+      await query(
+        `UPDATE entitlements SET
+          songs_used_total = songs_used_total + 1,
+          updated_at = CURRENT_TIMESTAMP
+        WHERE user_id = ?`,
+        [userId],
+      );
+
+      // Record the debit in the gift_wallet ledger (same columns as
+      // applyGiftWalletTransaction in server.js, which is a closure there and
+      // cannot run inside this tx). A deterministic idempotency_key per
+      // track_version gives the ledger the same replay-dedup guarantee as
+      // gift_reserve/credits (the partial unique index ignores NULL keys).
+      const giftTxId = `gwtx_${crypto.randomBytes(12).toString("hex")}`;
+      await query(
+        `INSERT INTO gift_wallet_transactions (
+          id, user_id, type, amount, balance_before, balance_after,
+          source, reference_type, reference_id, description, metadata_json, idempotency_key, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+        [
+          giftTxId,
+          userId,
+          "song_spend",
+          -1,
+          balanceBefore,
+          balanceAfter,
+          "gift_token",
+          "track",
+          trackId,
+          "Song rendered from gift_token",
+          null,
+          trackVersionId ? `song_spend_${trackVersionId}` : null,
+        ],
+      );
+
+      // Gift-token spends are tracked in the gift_wallet ledger, not in
+      // song_transactions. The combined remaining count is unchanged for the
+      // ongoing ledgers (trial + subscription were both 0 here).
+      const validTrialRemaining = !trialExpired
+        ? current.trial_songs_remaining || 0
+        : 0;
+      return {
+        songsRemaining: (current.songs_remaining || 0) + validTrialRemaining,
+        source,
+      };
     }
 
     // Record transaction
@@ -895,20 +1064,25 @@ function createSubscriptionManager(db, services = {}) {
       userId,
       TRANSACTION_TYPES.SPEND,
       -1,
-      source === "trial" ? current.trial_songs_remaining : current.songs_remaining,
+      source === "trial"
+        ? current.trial_songs_remaining
+        : current.songs_remaining,
       newBalance,
       "track",
       trackId,
-      `Song rendered from ${source}`
+      `Song rendered from ${source}`,
     );
 
     // Only include trial_songs_remaining in the total if the trial is still valid.
     // An expired trial may still have a non-zero DB count until the cleanup job runs.
-    const validTrialRemaining = !trialExpired ? (current.trial_songs_remaining || 0) : 0;
+    const validTrialRemaining = !trialExpired
+      ? current.trial_songs_remaining || 0
+      : 0;
     return {
-      songsRemaining: source === "trial"
-        ? newBalance + (current.songs_remaining || 0)
-        : newBalance + validTrialRemaining,
+      songsRemaining:
+        source === "trial"
+          ? newBalance + (current.songs_remaining || 0)
+          : newBalance + validTrialRemaining,
       source,
     };
   }
@@ -920,13 +1094,15 @@ function createSubscriptionManager(db, services = {}) {
    * @returns {Promise<Object>} Updated balance
    */
   async function spendPoem(userId, poemId) {
-    return db.transaction(async (query) => spendPoemInTransaction(query, userId, poemId));
+    return db.transaction(async (query) =>
+      spendPoemInTransaction(query, userId, poemId),
+    );
   }
 
   async function spendPoemInTransaction(query, userId, poemId) {
     const entResult = await query(
       "SELECT poems_remaining, poems_used_total FROM entitlements WHERE user_id = ?",
-      [userId]
+      [userId],
     );
 
     if (entResult.rows.length === 0) {
@@ -951,7 +1127,7 @@ function createSubscriptionManager(db, services = {}) {
         poems_used_total = poems_used_total + 1,
         updated_at = CURRENT_TIMESTAMP
       WHERE user_id = ? AND poems_remaining > 0`,
-      [userId]
+      [userId],
     );
     if ((poemResult.changes ?? poemResult.rowCount ?? 0) === 0) {
       const err = new Error("Insufficient poems remaining");
@@ -969,7 +1145,7 @@ function createSubscriptionManager(db, services = {}) {
       newBalance,
       "poem",
       poemId,
-      "Poem generated"
+      "Poem generated",
     );
 
     return { poemsRemaining: newBalance };
@@ -985,7 +1161,7 @@ function createSubscriptionManager(db, services = {}) {
     return db.transaction(async (query) => {
       const entResult = await query(
         "SELECT poems_remaining FROM entitlements WHERE user_id = ?",
-        [userId]
+        [userId],
       );
 
       const currentBalance = entResult.rows[0]?.poems_remaining || 0;
@@ -997,7 +1173,7 @@ function createSubscriptionManager(db, services = {}) {
          ON CONFLICT(user_id) DO UPDATE SET
            poems_remaining = entitlements.poems_remaining + ?,
            updated_at = CURRENT_TIMESTAMP`,
-        [userId, amount, amount]
+        [userId, amount, amount],
       );
 
       await recordSongTransaction(
@@ -1009,7 +1185,7 @@ function createSubscriptionManager(db, services = {}) {
         newBalance,
         "admin",
         null,
-        reason
+        reason,
       );
 
       return { poemsGranted: amount, poemsRemaining: newBalance };
@@ -1022,7 +1198,7 @@ function createSubscriptionManager(db, services = {}) {
   async function getSubscriptionByOriginalTx(originalTransactionId) {
     const result = await db.query(
       "SELECT * FROM subscriptions WHERE original_transaction_id = ?",
-      [originalTransactionId]
+      [originalTransactionId],
     );
     return result.rows[0] || null;
   }
@@ -1033,8 +1209,9 @@ function createSubscriptionManager(db, services = {}) {
    * @returns {Promise<Object|null>} Active subscription or null
    */
   async function getActiveSubscription(userId) {
-    const result = await db.prepare(
-      `SELECT * FROM subscriptions
+    const result = await db
+      .prepare(
+        `SELECT * FROM subscriptions
        WHERE user_id = ?
          AND status IN ('active', 'grace_period', 'billing_retry')
          AND (
@@ -1042,8 +1219,9 @@ function createSubscriptionManager(db, services = {}) {
            OR (grace_period_expires_at IS NOT NULL AND grace_period_expires_at > ?)
          )
        ORDER BY created_at DESC
-       LIMIT 1`
-    ).get(userId, new Date().toISOString(), new Date().toISOString());
+       LIMIT 1`,
+      )
+      .get(userId, new Date().toISOString(), new Date().toISOString());
     return result || null;
   }
 
@@ -1053,9 +1231,9 @@ function createSubscriptionManager(db, services = {}) {
    * @returns {Promise<Object|null>} Entitlements or null
    */
   async function getEntitlements(userId) {
-    const ent = await db.prepare(
-      "SELECT * FROM entitlements WHERE user_id = ?"
-    ).get(userId);
+    const ent = await db
+      .prepare("SELECT * FROM entitlements WHERE user_id = ?")
+      .get(userId);
 
     if (!ent) {
       return null;
@@ -1068,24 +1246,38 @@ function createSubscriptionManager(db, services = {}) {
 
     const baseSongsRemaining = toSafeInt(ent.songs_remaining);
     // H1: Zero out trial songs if trial has expired
-    const trialExpired = ent.trial_expires_at && new Date(ent.trial_expires_at) < new Date();
-    const trialSongsRemaining = trialExpired ? 0 : toSafeInt(ent.trial_songs_remaining);
+    const trialExpired =
+      ent.trial_expires_at && new Date(ent.trial_expires_at) < new Date();
+    const trialSongsRemaining = trialExpired
+      ? 0
+      : toSafeInt(ent.trial_songs_remaining);
 
     // H2 + H3: Resolve effective tier (subscription + admin upgrade overlay)
     const effectiveTier = await resolveEffectiveTier(ent);
+
+    // BILL-GIFT: Expose the one-off gift_wallet balance (bundles) alongside the
+    // ongoing ledgers. This is reported separately and does NOT alter the
+    // existing songsRemaining (base + trial) value.
+    const walletRow = await db
+      .prepare("SELECT balance FROM gift_wallet WHERE user_id = ?")
+      .get(userId);
+    const giftWalletBalance = toSafeInt(walletRow?.balance);
 
     return {
       userId: ent.user_id,
       tier: effectiveTier,
       baseSongsRemaining,
       songsRemaining: baseSongsRemaining + trialSongsRemaining,
+      giftWalletBalance,
       songsAllowance: toSafeInt(ent.songs_allowance),
       songsUsedTotal: toSafeInt(ent.songs_used_total),
       poemsRemaining: toSafeInt(ent.poems_remaining),
       poemsAllowance: toSafeInt(ent.poems_allowance),
       poemsUsedTotal: toSafeInt(ent.poems_used_total),
       trialSongsRemaining,
-      trialExpiresAt: ent.trial_expires_at ? new Date(ent.trial_expires_at) : null,
+      trialExpiresAt: ent.trial_expires_at
+        ? new Date(ent.trial_expires_at)
+        : null,
       previewCountToday: toSafeInt(ent.preview_count_today),
       planId: ent.plan_id || null,
       billingPeriod: ent.billing_period || null,
@@ -1097,7 +1289,8 @@ function createSubscriptionManager(db, services = {}) {
         : null,
       adminUpgradeTier: ent.admin_upgrade_tier || null,
       adminUpgradeExpiresAt: ent.admin_upgrade_expires_at
-        ? new Date(ent.admin_upgrade_expires_at) : null,
+        ? new Date(ent.admin_upgrade_expires_at)
+        : null,
     };
   }
 
@@ -1111,7 +1304,7 @@ function createSubscriptionManager(db, services = {}) {
     return db.transaction(async (query) => {
       const entResult = await query(
         "SELECT songs_remaining FROM entitlements WHERE user_id = ?",
-        [userId]
+        [userId],
       );
 
       const currentBalance = entResult.rows[0]?.songs_remaining || 0;
@@ -1123,7 +1316,7 @@ function createSubscriptionManager(db, services = {}) {
          ON CONFLICT(user_id) DO UPDATE SET
            songs_remaining = entitlements.songs_remaining + ?,
            updated_at = CURRENT_TIMESTAMP`,
-        [userId, amount, amount]
+        [userId, amount, amount],
       );
 
       await recordSongTransaction(
@@ -1135,7 +1328,7 @@ function createSubscriptionManager(db, services = {}) {
         newBalance,
         "admin",
         null,
-        reason
+        reason,
       );
 
       return { songsGranted: amount, songsRemaining: newBalance };
@@ -1150,7 +1343,13 @@ function createSubscriptionManager(db, services = {}) {
    * @param {string} reason - Audit reason
    * @param {string} [adminId] - Admin who performed the action
    */
-  async function adminComplimentaryUpgrade(userId, tier, durationDays, reason, adminId) {
+  async function adminComplimentaryUpgrade(
+    userId,
+    tier,
+    durationDays,
+    reason,
+    adminId,
+  ) {
     if (!["plus", "pro"].includes(tier)) {
       throw new Error("Tier must be 'plus' or 'pro'");
     }
@@ -1160,7 +1359,9 @@ function createSubscriptionManager(db, services = {}) {
       throw new Error(`No plan found for tier '${tier}'`);
     }
 
-    const expiresAt = new Date(Date.now() + durationDays * 86400000).toISOString();
+    const expiresAt = new Date(
+      Date.now() + durationDays * 86400000,
+    ).toISOString();
     const songsToGrant = plan.songs_per_month || 0;
     const poemsToGrant = plan.poems_per_month || 0;
 
@@ -1169,7 +1370,7 @@ function createSubscriptionManager(db, services = {}) {
 
       const entResult = await query(
         "SELECT songs_remaining, poems_remaining FROM entitlements WHERE user_id = ?",
-        [userId]
+        [userId],
       );
       const current = entResult.rows[0];
       if (!current) {
@@ -1189,16 +1390,28 @@ function createSubscriptionManager(db, services = {}) {
           poems_allowance = ?,
           updated_at = CURRENT_TIMESTAMP
         WHERE user_id = ?`,
-        [tier, expiresAt, songsToGrant, songsToGrant,
-         poemsToGrant, poemsToGrant, userId]
+        [
+          tier,
+          expiresAt,
+          songsToGrant,
+          songsToGrant,
+          poemsToGrant,
+          poemsToGrant,
+          userId,
+        ],
       );
 
       if (songsToGrant > 0) {
         await recordSongTransaction(
-          query, userId, TRANSACTION_TYPES.ADMIN_UPGRADE,
-          songsToGrant, songsBefore, songsAfter,
-          "admin", null,
-          `Complimentary ${tier} upgrade (${durationDays}d): ${reason}`
+          query,
+          userId,
+          TRANSACTION_TYPES.ADMIN_UPGRADE,
+          songsToGrant,
+          songsBefore,
+          songsAfter,
+          "admin",
+          null,
+          `Complimentary ${tier} upgrade (${durationDays}d): ${reason}`,
         );
       }
 
@@ -1207,7 +1420,15 @@ function createSubscriptionManager(db, services = {}) {
           userId,
           action: "admin_complimentary_upgrade",
           resourceType: "entitlements",
-          metadata: { tier, durationDays, reason, adminId: adminId || null, songsGranted: songsToGrant, poemsGranted: poemsToGrant, expiresAt },
+          metadata: {
+            tier,
+            durationDays,
+            reason,
+            adminId: adminId || null,
+            songsGranted: songsToGrant,
+            poemsGranted: poemsToGrant,
+            expiresAt,
+          },
         });
       }
 
@@ -1237,7 +1458,7 @@ function createSubscriptionManager(db, services = {}) {
           admin_upgrade_expires_at = NULL,
           updated_at = CURRENT_TIMESTAMP
         WHERE user_id = ?`,
-        [userId]
+        [userId],
       );
 
       if (writeAuditLog) {
@@ -1257,7 +1478,15 @@ function createSubscriptionManager(db, services = {}) {
    * Record a song transaction for audit trail
    */
   async function recordSongTransaction(
-    query, userId, type, amount, balanceBefore, balanceAfter, source, referenceId, description
+    query,
+    userId,
+    type,
+    amount,
+    balanceBefore,
+    balanceAfter,
+    source,
+    referenceId,
+    description,
   ) {
     const txId = `stx_${crypto.randomBytes(12).toString("hex")}`;
 
@@ -1277,7 +1506,7 @@ function createSubscriptionManager(db, services = {}) {
         source, // reference_type same as source for now
         referenceId,
         description,
-      ]
+      ],
     );
 
     return txId;
@@ -1309,7 +1538,10 @@ function createSubscriptionManager(db, services = {}) {
     autoRenewing,
   }) {
     // Get plan info from product ID (safe to read outside transaction — immutable config)
-    const planInfo = await planConfigService.getPlanByProductId(subscriptionId, "google");
+    const planInfo = await planConfigService.getPlanByProductId(
+      subscriptionId,
+      "google",
+    );
 
     // Map Google status to internal status
     const internalStatus = mapGoogleStatus(status);
@@ -1321,7 +1553,7 @@ function createSubscriptionManager(db, services = {}) {
       const lockSuffix = await acquireUserLock(query, userId);
       const existingResult = await query(
         `SELECT * FROM subscriptions WHERE original_transaction_id = ? AND platform = 'google'${lockSuffix}`,
-        [purchaseToken]
+        [purchaseToken],
       );
       const existingSubscription = existingResult.rows[0];
       const isNewSubscription = !existingSubscription;
@@ -1332,7 +1564,8 @@ function createSubscriptionManager(db, services = {}) {
       }
 
       const resolvedTier = planInfo?.tier || tier || "premium";
-      const subscriptionDbId = existingSubscription?.id ||
+      const subscriptionDbId =
+        existingSubscription?.id ||
         `sub_${crypto.randomBytes(12).toString("hex")}`;
 
       if (isNewSubscription) {
@@ -1353,12 +1586,16 @@ function createSubscriptionManager(db, services = {}) {
             orderId,
             expiresAt || null,
             autoRenewing ? 1 : 0,
-          ]
+          ],
         );
 
         // Grant songs for new subscription
         let entitlementResult = null;
-        if (planInfo && (internalStatus === STATUS.ACTIVE || internalStatus === STATUS.GRACE_PERIOD)) {
+        if (
+          planInfo &&
+          (internalStatus === STATUS.ACTIVE ||
+            internalStatus === STATUS.GRACE_PERIOD)
+        ) {
           const songsToGrant = planInfo.songs_per_month || 0;
           if (songsToGrant > 0) {
             await query(
@@ -1369,7 +1606,7 @@ function createSubscriptionManager(db, services = {}) {
                  songs_remaining = songs_remaining + ?,
                  songs_allowance = excluded.songs_allowance,
                  updated_at = CURRENT_TIMESTAMP`,
-              [userId, resolvedTier, songsToGrant, songsToGrant, songsToGrant]
+              [userId, resolvedTier, songsToGrant, songsToGrant, songsToGrant],
             );
             entitlementResult = {
               songsGranted: songsToGrant,
@@ -1379,7 +1616,11 @@ function createSubscriptionManager(db, services = {}) {
           }
         }
         if (!entitlementResult) {
-          entitlementResult = { songsGranted: 0, songsRemaining: 0, isRenewal: false };
+          entitlementResult = {
+            songsGranted: 0,
+            songsRemaining: 0,
+            isRenewal: false,
+          };
         }
         return {
           id: subscriptionDbId,
@@ -1411,15 +1652,21 @@ function createSubscriptionManager(db, services = {}) {
             expiresAt || null,
             autoRenewing ? 1 : 0,
             subscriptionDbId,
-          ]
+          ],
         );
 
         // BILL-01: Update entitlements on renewal/plan change (mirrors Apple sync path)
         let entitlementResult = null;
-        if (planInfo && (internalStatus === STATUS.ACTIVE || internalStatus === STATUS.GRACE_PERIOD)) {
-          const isRenewal = existingSubscription.status === 'expired' ||
-            existingSubscription.status === 'grace_period' ||
-            (existingSubscription.expires_at && new Date(existingSubscription.expires_at) < new Date());
+        if (
+          planInfo &&
+          (internalStatus === STATUS.ACTIVE ||
+            internalStatus === STATUS.GRACE_PERIOD)
+        ) {
+          const isRenewal =
+            existingSubscription.status === "expired" ||
+            existingSubscription.status === "grace_period" ||
+            (existingSubscription.expires_at &&
+              new Date(existingSubscription.expires_at) < new Date());
           const validation = {
             isActive: true,
             isExpired: false,
@@ -1431,8 +1678,13 @@ function createSubscriptionManager(db, services = {}) {
             expiresAt: expiresAt ? new Date(expiresAt) : null,
           };
           entitlementResult = await updateEntitlements(
-            query, userId, planInfo, validation,
-            false, isRenewal, subscriptionDbId
+            query,
+            userId,
+            planInfo,
+            validation,
+            false,
+            isRenewal,
+            subscriptionDbId,
           );
           return {
             id: subscriptionDbId,
@@ -1498,7 +1750,7 @@ function createSubscriptionManager(db, services = {}) {
     return Boolean(
       validation?.isActive ||
       validation?.isInGracePeriod ||
-      validation?.isInBillingRetry
+      validation?.isInBillingRetry,
     );
   }
 
@@ -1526,14 +1778,24 @@ function createSubscriptionManager(db, services = {}) {
     const poemsGrant = (await getFeatureFlag(db, "free_tier_poems_grant")) ?? 1;
     const now = opts.now || new Date().toISOString();
     const previewCountToday = opts.previewCountToday ?? 0;
-    const previewCountResetAt = opts.previewCountResetAt || new Date(Date.now() + 86400000).toISOString();
+    const previewCountResetAt =
+      opts.previewCountResetAt || new Date(Date.now() + 86400000).toISOString();
 
-    await db.prepare(
-      `INSERT INTO entitlements (user_id, tier, songs_remaining, poems_remaining,
+    await db
+      .prepare(
+        `INSERT INTO entitlements (user_id, tier, songs_remaining, poems_remaining,
        preview_count_today, preview_count_reset_at, updated_at)
        VALUES (?, 'free', ?, ?, ?, ?, ?)
-       ON CONFLICT (user_id) DO NOTHING`
-    ).run(userId, songsGrant, poemsGrant, previewCountToday, previewCountResetAt, now);
+       ON CONFLICT (user_id) DO NOTHING`,
+      )
+      .run(
+        userId,
+        songsGrant,
+        poemsGrant,
+        previewCountToday,
+        previewCountResetAt,
+        now,
+      );
   }
 
   return {

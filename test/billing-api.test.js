@@ -9,6 +9,7 @@ const { describe, it, beforeEach, afterEach } = require("node:test");
 const assert = require("node:assert/strict");
 const { getDatabase } = require("../src/database");
 const { buildServer } = require("../src/server");
+const { buildEntitlementsPayload } = require("../src/routes/billing");
 
 describe("Billing API", async () => {
   let db;
@@ -34,7 +35,7 @@ describe("Billing API", async () => {
     testUserId = `user_billing_${Date.now()}_${Math.random().toString(36).slice(2)}`;
     await db.query(
       "INSERT INTO users (id, created_at) VALUES (?, datetime('now'))",
-      [testUserId]
+      [testUserId],
     );
 
     // Build server with test config
@@ -77,7 +78,7 @@ describe("Billing API", async () => {
       const duplicateTestUserId = `user_duplicate_${Date.now()}_${Math.random().toString(36).slice(2)}`;
       await db.query(
         "INSERT INTO users (id, created_at) VALUES (?, datetime('now'))",
-        [duplicateTestUserId]
+        [duplicateTestUserId],
       );
 
       // First activation
@@ -124,16 +125,13 @@ describe("Billing API", async () => {
 
       const plusPlan = body.plans.find((plan) => plan.tier === "plus");
       assert.ok(plusPlan);
-      assert.equal(plusPlan.songs_per_month, 4);
+      assert.equal(plusPlan.songs_per_month, 10);
       assert.equal(plusPlan.poems_per_month, 10);
       assert.equal(
         plusPlan.apple_product_ids.monthly,
-        "com.porizo.plus_monthly"
+        "com.porizo.plus_monthly",
       );
-      assert.equal(
-        plusPlan.apple_product_ids.annual,
-        "com.porizo.plus_annual"
-      );
+      assert.equal(plusPlan.apple_product_ids.annual, "com.porizo.plus_annual");
       assert.equal(Object.hasOwn(plusPlan, "previews_per_day"), false);
     });
   });
@@ -341,7 +339,7 @@ describe("Billing API", async () => {
 
       const receiptRows = await db.query(
         "SELECT id FROM purchase_receipts WHERE transaction_id = ?",
-        [transactionId]
+        [transactionId],
       );
       assert.equal(receiptRows.rows.length, 0);
     });
@@ -350,7 +348,9 @@ describe("Billing API", async () => {
       const mockAppleValidator = {
         isConfigured: () => true,
         verifyTransaction: async () => {
-          throw new Error("validator should not be called for existing receipts");
+          throw new Error(
+            "validator should not be called for existing receipts",
+          );
         },
       };
 
@@ -395,7 +395,7 @@ describe("Billing API", async () => {
           0,
           0,
           new Date().toISOString(),
-        ]
+        ],
       );
 
       const response = await appWithMocks.inject({
@@ -416,7 +416,7 @@ describe("Billing API", async () => {
         `SELECT type, amount, reference_type, reference_id
          FROM gift_wallet_transactions
          WHERE user_id = ? AND reference_type = 'receipt' AND reference_id = ?`,
-        [testUserId, receiptId]
+        [testUserId, receiptId],
       );
       assert.equal(txRows.rows.length, 1);
       assert.equal(txRows.rows[0].type, "gift_purchase");
@@ -430,7 +430,10 @@ describe("Billing API", async () => {
         method: "POST",
         url: "/billing/receipt/google",
         headers: { "x-user-id": testUserId },
-        payload: { purchaseToken: "test-token", subscriptionId: "com.porizo.plus_monthly" },
+        payload: {
+          purchaseToken: "test-token",
+          subscriptionId: "com.porizo.plus_monthly",
+        },
       });
 
       assert.equal(response.statusCode, 501);
@@ -484,7 +487,11 @@ describe("Billing API", async () => {
         method: "POST",
         url: "/billing/restore",
         headers: { "x-user-id": testUserId },
-        payload: { platform: "google", purchaseToken: "tx-123", subscriptionId: "com.porizo.plus_monthly" },
+        payload: {
+          platform: "google",
+          purchaseToken: "tx-123",
+          subscriptionId: "com.porizo.plus_monthly",
+        },
       });
 
       assert.equal(response.statusCode, 501);
@@ -498,7 +505,9 @@ describe("Billing API", async () => {
           orderId: "order-1",
           tier: "plus",
           status: "active",
-          expiryTime: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+          expiryTime: new Date(
+            Date.now() + 7 * 24 * 60 * 60 * 1000,
+          ).toISOString(),
           autoRenewing: true,
           acknowledged: true,
           raw: { lineItems: [{ productId: subscriptionId }] },
@@ -510,7 +519,9 @@ describe("Billing API", async () => {
           id: "sub_google_restore_1",
           tier: "plus",
           status: "active",
-          expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+          expires_at: new Date(
+            Date.now() + 7 * 24 * 60 * 60 * 1000,
+          ).toISOString(),
           auto_renewing: true,
         }),
       };
@@ -570,7 +581,9 @@ describe("Billing API", async () => {
           subscriptionId: "sub_restore_1",
           tier: "plus",
           status: "active",
-          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+          expiresAt: new Date(
+            Date.now() + 7 * 24 * 60 * 60 * 1000,
+          ).toISOString(),
           songsRemaining: 4,
         }),
       };
@@ -611,9 +624,12 @@ describe("Billing API", async () => {
 
         const auditRows = await db.query(
           "SELECT action, metadata_json FROM audit_logs WHERE user_id = ? AND action = 'subscription_restored' ORDER BY created_at DESC LIMIT 1",
-          [testUserId]
+          [testUserId],
         );
-        assert.ok(auditRows.rows.length > 0, "expected subscription_restored audit entry");
+        assert.ok(
+          auditRows.rows.length > 0,
+          "expected subscription_restored audit entry",
+        );
         const metadata = JSON.parse(auditRows.rows[0].metadata_json || "{}");
         assert.equal(metadata.platform, "apple");
         assert.equal(metadata.tier, "plus");
@@ -633,7 +649,9 @@ describe("Billing API", async () => {
 
       const mockSubscriptionManager = {
         syncSubscription: async () => {
-          throw new Error("syncSubscription should not be called for invalid receipts");
+          throw new Error(
+            "syncSubscription should not be called for invalid receipts",
+          );
         },
       };
 
@@ -687,12 +705,14 @@ describe("Billing API", async () => {
 
     it("acknowledges valid-looking payload", async () => {
       // Create a mock JWS (header.payload.signature)
-      const header = Buffer.from(JSON.stringify({ alg: "ES256" })).toString("base64url");
+      const header = Buffer.from(JSON.stringify({ alg: "ES256" })).toString(
+        "base64url",
+      );
       const payload = Buffer.from(
         JSON.stringify({
           notificationType: "SUBSCRIBED",
           notificationUUID: "test-uuid",
-        })
+        }),
       ).toString("base64url");
       const signature = Buffer.from("mock-signature").toString("base64url");
       const mockJWS = `${header}.${payload}.${signature}`;
@@ -740,7 +760,13 @@ describe("Billing API", async () => {
           latest_transaction_id, original_purchase_date, expires_at, auto_renew_enabled,
           environment, renewal_count, created_at, updated_at
         ) VALUES (?, ?, ?, 'plus', 'active', 'google', ?, ?, datetime('now'), datetime('now', '+30 day'), 1, 'production', 0, datetime('now'), datetime('now'))`,
-        ["sub_google_linked", testUserId, "com.porizo.plus_monthly", "purchase_token_google", "order_1"]
+        [
+          "sub_google_linked",
+          testUserId,
+          "com.porizo.plus_monthly",
+          "purchase_token_google",
+          "order_1",
+        ],
       );
 
       const mockGoogleValidator = {
@@ -749,7 +775,9 @@ describe("Billing API", async () => {
           status: "active",
           orderId: "order_2",
           tier: "plus",
-          expiryTime: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+          expiryTime: new Date(
+            Date.now() + 30 * 24 * 60 * 60 * 1000,
+          ).toISOString(),
           autoRenewing: true,
           acknowledged: true,
           raw: { lineItems: [{ productId: "com.porizo.plus_monthly" }] },
@@ -773,13 +801,15 @@ describe("Billing API", async () => {
 
       const payload = {
         message: {
-          data: Buffer.from(JSON.stringify({
-            subscriptionNotification: {
-              notificationType: 2,
-              purchaseToken: "purchase_token_google",
-              subscriptionId: "com.porizo.plus_monthly",
-            },
-          })).toString("base64"),
+          data: Buffer.from(
+            JSON.stringify({
+              subscriptionNotification: {
+                notificationType: 2,
+                purchaseToken: "purchase_token_google",
+                subscriptionId: "com.porizo.plus_monthly",
+              },
+            }),
+          ).toString("base64"),
         },
       };
 
@@ -867,7 +897,9 @@ describe("Billing API", async () => {
             planId: "plus",
             billingPeriod: "monthly",
             subscriptionStartsAt: new Date(),
-            subscriptionRenewsAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+            subscriptionRenewsAt: new Date(
+              Date.now() + 30 * 24 * 60 * 60 * 1000,
+            ),
           }),
           getActiveSubscription: async () => ({
             id: "sub_admin_sync_1",
@@ -875,7 +907,9 @@ describe("Billing API", async () => {
             status: "active",
             product_id: "com.porizo.plus_monthly",
             platform: "apple",
-            expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+            expires_at: new Date(
+              Date.now() + 30 * 24 * 60 * 60 * 1000,
+            ).toISOString(),
             auto_renew_enabled: 1,
           }),
         };
@@ -1064,5 +1098,31 @@ describe("Billing API", async () => {
         assert.equal(body.trialConfig.duration_days, 14);
       });
     });
+  });
+});
+
+describe("buildEntitlementsPayload gift_wallet_balance", () => {
+  it("emits gift_wallet_balance from entitlements.giftWalletBalance", () => {
+    const payload = buildEntitlementsPayload({
+      tier: "free",
+      baseSongsRemaining: 0,
+      songsRemaining: 0,
+      giftWalletBalance: 5,
+    });
+    assert.equal(payload.gift_wallet_balance, 5);
+  });
+
+  it("defaults gift_wallet_balance to 0 when absent", () => {
+    const payload = buildEntitlementsPayload({
+      tier: "free",
+      baseSongsRemaining: 0,
+      songsRemaining: 0,
+    });
+    assert.equal(payload.gift_wallet_balance, 0);
+  });
+
+  it("emits gift_wallet_balance 0 for null entitlements", () => {
+    const payload = buildEntitlementsPayload(null);
+    assert.equal(payload.gift_wallet_balance, 0);
   });
 });

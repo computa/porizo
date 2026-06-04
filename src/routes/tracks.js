@@ -276,7 +276,7 @@ function registerTrackRoutes(
       throw new Error("SPEND_IN_TX_UNAVAILABLE");
     }
 
-    await spendInTransaction(query, userId, trackId);
+    await spendInTransaction(query, userId, trackId, trackVersionId);
     await query(
       "UPDATE track_versions SET song_entitlement_consumed_at = ? WHERE id = ?",
       [now, trackVersionId],

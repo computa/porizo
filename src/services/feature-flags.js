@@ -31,6 +31,10 @@ const DEFAULTS = {
   gift_sms_enabled: true,
   gift_email_enabled: true,
   gift_require_app_claim: true,
+  // Pay-per-song: allow one-off gift_wallet tokens (bundles) to be spent on
+  // making your own song. Default OFF — gift tokens are NOT spendable on
+  // make-your-own until this is explicitly enabled.
+  paywall_pay_per_song_enabled: false,
   // Seed-VC voice conversion flags
   // cfgRate: Lower = natural singing, higher = voice similarity
   // Balanced default to improve voice match without over-cloning
