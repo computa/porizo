@@ -181,10 +181,7 @@ struct V1ScreenCatalogView: View {
                     }
 
                     Section("Subscriptions") {
-                        screenLink("14 - Subscription Plans") {
-                            SubscriptionView(apiClient: apiClient, storeKit: StoreKitManager(apiClient: apiClient))
-                        }
-                        screenLink("14b - Subscription v2") {
+                        screenLink("14 - Paywall (SubscriptionViewV2)") {
                             SubscriptionViewV2(apiClient: apiClient, storeKit: StoreKitManager(apiClient: apiClient))
                         }
                     }

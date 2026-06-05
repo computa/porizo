@@ -12,6 +12,12 @@ import StoreKit
 struct SubscriptionViewV2: View {
     let apiClient: APIClient
     var storeKit: StoreKitManager
+    /// Recipient name for the pay-per-song hero ("Make {name}'s song now") when
+    /// presented from the create flow; nil/blank → generic copy.
+    var recipientName: String? = nil
+    /// Whether the one-off pay-per-song hero may appear. False for poem contexts
+    /// (pay-per-song is songs-only) → falls back to the subscription-first layout.
+    var offerPayPerSong: Bool = true
     @Environment(\.dismiss) private var dismiss
 
     @State private var billingPeriod: BillingPeriod = .monthly
@@ -29,8 +35,13 @@ struct SubscriptionViewV2: View {
         case monthly, annual
     }
 
+    /// Credits relevant to THIS paywall's context — song credits on the song
+    /// paywall, poem credits on the poem paywall. Summing both would make a song
+    /// wall read "2 credits" off unrelated poem credits and wrongly keep the Free
+    /// card visible when the user is actually out of songs.
     private var currentCredits: Int {
-        (entitlements?.songsRemaining ?? 0) + (entitlements?.poemsRemaining ?? 0)
+        offerPayPerSong ? (entitlements?.songsRemaining ?? 0)
+                        : (entitlements?.poemsRemaining ?? 0)
     }
     private var currentTier: String {
         entitlements?.tier ?? "free"
@@ -46,26 +57,29 @@ struct SubscriptionViewV2: View {
                 ScrollView {
                     VStack(spacing: 20) {
                         if heroActive {
-                            // Pay-per-song centered: the one-off hero is the focal point;
-                            // subscription is collapsed to one teaser until "See all plans".
-                            PayPerSongHeroView(storeKit: storeKit)
+                            // Pay-per-song centered: the one-off hero is the ONLY focal
+                            // point by default. Everything else — subscriptions AND the
+                            // multi-song bundles — stays folded behind "See all plans".
+                            PayPerSongHeroView(storeKit: storeKit, recipientName: recipientName)
                             creditsLabel
 
-                            subscribeAndSaveHeader
                             if showAllPlans {
+                                // One-off bundles sit closest to the single-song hero
+                                // (same impulse, no commitment); subscriptions below.
+                                bundlesSection
+                                subscribeAndSaveHeader
                                 billingToggle
                                 planCards
                             } else {
-                                compactSubscribeTeaser
+                                seeAllPlansLink
                             }
                         } else {
-                            // Flag off: original subscription-first layout.
+                            // No pay-per-song (e.g. poem context): subscription-first layout.
                             creditsLabel
                             billingToggle
                             planCards
                         }
 
-                        restoreButton
                         subscriptionDisclosure
                     }
                     .padding(.horizontal, 20)
@@ -130,7 +144,7 @@ struct SubscriptionViewV2: View {
 
             Spacer()
 
-            Text("Make a song")
+            Text(offerPayPerSong ? "Make a song" : "Upgrade")
                 .font(DesignTokens.displayFont(size: 20, weight: .semibold))
                 .foregroundStyle(DesignTokens.textPrimary)
 
@@ -208,63 +222,136 @@ struct SubscriptionViewV2: View {
         }
     }
 
-    // True when the pay-per-song one-off is live — drives the hero-centered layout.
+    // True when the pay-per-song one-off is live AND allowed in this context
+    // (songs only) — drives the hero-centered layout. Poem contexts fall back to
+    // the subscription-first layout.
     private var heroActive: Bool {
-        PayPerSongHeroView.shouldDisplay(storeKit: storeKit)
+        offerPayPerSong && PayPerSongHeroView.shouldDisplay(storeKit: storeKit)
     }
 
-    // Cheapest paid plan, featured in the collapsed subscription teaser.
-    private var featuredPlan: SubscriptionPlan? {
-        plans
-            .filter { $0.tier.lowercased() != "free" && $0.priceMonthly != nil }
-            .min(by: { ($0.priceMonthly ?? Int.max) < ($1.priceMonthly ?? Int.max) })
+    // Direction A (fully folded): the default view shows nothing but a quiet
+    // "See all plans" link — subscriptions AND bundles stay hidden until tapped.
+    private var seeAllPlansLink: some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.2)) { showAllPlans = true }
+        } label: {
+            HStack(spacing: 4) {
+                Text("See all plans")
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .semibold))
+            }
+            .font(DesignTokens.bodyFont(size: 14, weight: .medium))
+            .foregroundStyle(DesignTokens.goldDark)
+        }
+        .buttonStyle(.plain)
     }
 
-    // Direction A: one compact subscription teaser + "See all plans" expander,
-    // so subscription stays discoverable but visually out of the way.
-    private var compactSubscribeTeaser: some View {
+    // MARK: - One-off song bundles (3 / 5 songs)
+
+    /// Multi-song one-off bundles (gift_bundle_3/5) credit gift-wallet tokens that
+    /// fund the user's own songs. Folded with the plans; hidden when unavailable.
+    /// Real StoreKit products don't load under simctl, so DEBUG fixtures render
+    /// static rows there for visual verification (same approach as the hero price).
+    private var bundlesSection: some View {
+        Group {
+            let products = storeKit.giftBundleProducts
+            if !products.isEmpty {
+                bundlesContainer {
+                    ForEach(products, id: \.id) { product in
+                        bundleRowView(
+                            title: bundleSongCount(product).map { "\($0) songs" } ?? product.displayName,
+                            price: product.displayPrice,
+                            isBestValue: ProductID(rawValue: product.id) == .giftBundle5
+                        ) { Task { await storeKit.purchase(product) } }
+                    }
+                }
+            } else {
+                #if DEBUG
+                if SimulatorFixtures.isActive {
+                    bundlesContainer {
+                        bundleRowView(title: "3 songs", price: "$4.99", isBestValue: false) {}
+                        bundleRowView(title: "5 songs", price: "$7.99", isBestValue: true) {}
+                    }
+                }
+                #endif
+            }
+        }
+    }
+
+    private func bundlesContainer<Content: View>(@ViewBuilder _ rows: () -> Content) -> some View {
         VStack(spacing: 12) {
-            if let plan = featuredPlan {
-                Button { purchasePlan(plan) } label: {
-                    HStack(spacing: 12) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(plan.name)
-                                .font(DesignTokens.bodyFont(size: 15, weight: .semibold))
-                                .foregroundStyle(DesignTokens.textPrimary)
-                            Text("\(plan.songsPerMonth) songs/mo")
-                                .font(DesignTokens.bodyFont(size: 13))
-                                .foregroundStyle(DesignTokens.textSecondary)
-                        }
-                        Spacer(minLength: 8)
-                        Text(priceText(for: plan))
+            HStack(spacing: 12) {
+                Rectangle().fill(DesignTokens.border).frame(height: 1)
+                Text("or buy a bundle")
+                    .font(DesignTokens.bodyFont(size: 13))
+                    .foregroundStyle(DesignTokens.textTertiary)
+                    .layoutPriority(1)
+                Rectangle().fill(DesignTokens.border).frame(height: 1)
+            }
+            rows()
+        }
+    }
+
+    private func bundleSongCount(_ product: Product) -> Int? {
+        switch ProductID(rawValue: product.id) {
+        case .giftBundle3: return 3
+        case .giftBundle5: return 5
+        default: return nil
+        }
+    }
+
+    private func bundleRowView(
+        title: String,
+        price: String,
+        isBestValue: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text(title)
                             .font(DesignTokens.bodyFont(size: 15, weight: .semibold))
                             .foregroundStyle(DesignTokens.textPrimary)
-                            .fixedSize()
+                        if isBestValue {
+                            Text("BEST VALUE")
+                                .font(DesignTokens.bodyFont(size: 10, weight: .semibold))
+                                .foregroundStyle(DesignTokens.background)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(DesignTokens.gold)
+                                .clipShape(.rect(cornerRadius: 4))
+                        }
                     }
-                    .padding(14)
-                    .background(DesignTokens.surface)
-                    .clipShape(.rect(cornerRadius: DesignTokens.radiusCTA))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: DesignTokens.radiusCTA)
-                            .stroke(DesignTokens.border, lineWidth: 1)
-                    )
+                    Text("Yours to keep — no subscription")
+                        .font(DesignTokens.bodyFont(size: 13))
+                        .foregroundStyle(DesignTokens.textSecondary)
                 }
-                .buttonStyle(.plain)
+                Spacer(minLength: 8)
+                Text(price)
+                    .font(DesignTokens.bodyFont(size: 15, weight: .semibold))
+                    .foregroundStyle(DesignTokens.textPrimary)
+                    .fixedSize()
             }
-
-            Button {
-                withAnimation(.easeInOut(duration: 0.2)) { showAllPlans = true }
-            } label: {
-                HStack(spacing: 4) {
-                    Text("See all plans")
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 11, weight: .semibold))
-                }
-                .font(DesignTokens.bodyFont(size: 14, weight: .medium))
-                .foregroundStyle(DesignTokens.goldDark)
-            }
-            .buttonStyle(.plain)
+            .padding(14)
+            .background(DesignTokens.surface)
+            .clipShape(.rect(cornerRadius: DesignTokens.radiusCTA))
+            .overlay(
+                RoundedRectangle(cornerRadius: DesignTokens.radiusCTA)
+                    .stroke(isBestValue ? DesignTokens.gold : DesignTokens.border,
+                            lineWidth: isBestValue ? 1.5 : 1)
+            )
         }
+        .buttonStyle(.plain)
+        .disabled(storeKit.purchaseState.blocksRepeatPurchase)
+        .opacity(storeKit.purchaseState.blocksRepeatPurchase ? 0.5 : 1)
+    }
+
+    // Hide the Free tier once the user's free song is spent — a "Free · 0 songs"
+    // card is dead weight on the out-of-credits paywall.
+    private var visiblePlans: [SubscriptionPlan] {
+        guard currentCredits == 0 else { return plans }
+        return plans.filter { $0.tier.lowercased() != "free" }
     }
 
     private var planCards: some View {
@@ -276,7 +363,7 @@ struct SubscriptionViewV2: View {
                         .frame(height: 140)
                 }
             } else {
-                ForEach(plans) { plan in
+                ForEach(visiblePlans) { plan in
                     planCard(for: plan)
                 }
             }
@@ -345,6 +432,8 @@ struct SubscriptionViewV2: View {
                 }
                 .buttonStyle(.plain)
                 .padding(.top, 4)
+                .disabled(storeKit.purchaseState.blocksRepeatPurchase)
+                .opacity(storeKit.purchaseState.blocksRepeatPurchase ? 0.5 : 1)
             }
         }
         .padding(16)
@@ -383,21 +472,6 @@ struct SubscriptionViewV2: View {
             guard let cents = plan.priceAnnual else { return "" }
             return String(format: "$%.2f / month", Double(cents) / 12.0 / 100.0)
         }
-    }
-
-    // MARK: - Restore
-
-    private var restoreButton: some View {
-        Button {
-            Task { await storeKit.restore() }
-        } label: {
-            Text("Restore Purchases")
-                .font(DesignTokens.bodyFont(size: 14))
-                .foregroundStyle(DesignTokens.textTertiary)
-        }
-        .buttonStyle(.plain)
-        .frame(maxWidth: .infinity, alignment: .center)
-        .padding(.top, 8)
     }
 
     // MARK: - Loading Overlay

@@ -248,7 +248,8 @@ struct MainTabView: View {
             if createFlowLaunch == nil,
                args.contains("--fixture-reveal") ||
                args.contains("--fixture-reveal-ready") ||
-               args.contains("--fixture-creating") {
+               args.contains("--fixture-creating") ||
+               args.contains("--fixture-nocredits") {
                 try? await Task.sleep(for: .seconds(0.5))
                 presentCreateFlow()
             }

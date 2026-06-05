@@ -387,7 +387,11 @@ final class StoreKitManager {
     /// - Returns: Success status
     @discardableResult
     func purchase(_ product: Product) async -> Bool {
-        guard purchaseState != .purchasing else { return false }
+        // Single chokepoint against duplicate charges: reject while ANY purchase is
+        // in flight or just succeeded (not only `.purchasing`). Covers a second tap
+        // on a different product on the same screen (hero / bundle / subscribe) and
+        // the post-`.success` window before the paywall dismisses (LB1).
+        guard !purchaseState.blocksRepeatPurchase else { return false }
         purchaseState = .purchasing
 
         do {

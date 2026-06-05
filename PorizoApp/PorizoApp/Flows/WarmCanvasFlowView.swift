@@ -951,10 +951,6 @@ struct WarmCanvasFlowView: View {
         case .noCredits:
             NoCreditsView(
                 creationNoun: creationNoun,
-                recipientName: setup.recipientName,
-                payPerSongPrice: (pendingEntitlementFlowType == .song
-                    && PayPerSongHeroView.shouldDisplay(storeKit: storeKit))
-                    ? PayPerSongHeroView.displayPrice(storeKit) : nil,
                 onUpgrade: {
                     activeError = nil
                     pendingEntitlementFlowType = resolvedSelectedType
@@ -1050,7 +1046,12 @@ struct WarmCanvasFlowView: View {
     private func sheetContent(for sheet: ActiveSheet) -> some View {
         switch sheet {
         case .upgrade:
-            SubscriptionView(apiClient: apiClient, storeKit: storeKit, recipientName: setup.recipientName)
+            SubscriptionViewV2(
+                apiClient: apiClient,
+                storeKit: storeKit,
+                recipientName: setup.recipientName,
+                offerPayPerSong: resolvedSelectedType == .song
+            )
 
         case .voiceEnrollment(let existingScore):
             EnrollmentFlowView(
@@ -1973,6 +1974,17 @@ struct WarmCanvasFlowView: View {
             setup.occasion = .birthday
             selectedType = .song
             activeSheet = .upgrade
+            return
+        }
+        // Land directly on the song "out of credits" prompt (NoCreditsView) so the
+        // post-free-song prompt is testable offline. Price comes from --mock-* via
+        // PayPerSongHeroView.displayPrice.
+        if fixtureArgs.contains("--fixture-nocredits") {
+            setup.recipientName = "Sarah"
+            setup.occasion = .birthday
+            selectedType = .song
+            pendingEntitlementFlowType = .song
+            activeError = .noCredits
             return
         }
         #endif
