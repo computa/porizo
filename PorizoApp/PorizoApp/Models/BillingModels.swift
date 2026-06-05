@@ -210,6 +210,35 @@ struct BillingEntitlements: Codable, Sendable {
     }
 }
 
+#if DEBUG
+extension BillingEntitlements {
+    /// Build a mock for simulator fixtures (the struct is decoder-only, so we
+    /// round-trip a dict through the real decoder to stay faithful to it).
+    static func mock(
+        tier: String = "free",
+        songsRemaining: Int = 0,
+        songsAllowance: Int = 0,
+        trialSongsRemaining: Int = 0,
+        giftWalletBalance: Int = 0,
+        availableSongCredits: Int = 0,
+        payPerSongEnabled: Bool = false
+    ) -> BillingEntitlements {
+        let dict: [String: Any] = [
+            "tier": tier,
+            "songs_remaining": songsRemaining,
+            "songs_allowance": songsAllowance,
+            "trial_songs_remaining": trialSongsRemaining,
+            "gift_wallet_balance": giftWalletBalance,
+            "available_song_credits": availableSongCredits,
+            "pay_per_song_enabled": payPerSongEnabled,
+        ]
+        // Safe: the dict is JSON-valid and matches the decoder's contract.
+        let data = try! JSONSerialization.data(withJSONObject: dict)
+        return try! JSONDecoder().decode(BillingEntitlements.self, from: data)
+    }
+}
+#endif
+
 /// Response from GET /billing/subscription-status
 struct SubscriptionResponse: Decodable, Sendable {
     let hasActiveSubscription: Bool

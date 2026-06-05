@@ -453,10 +453,33 @@ struct SubscriptionView: View {
     /// enables pay-per-song AND the gift_bundle_1 product is available.
     /// Buying it credits one gift-wallet token; the create flow's existing
     /// post-dismiss entitlement re-check then lets the song proceed.
+    /// Display price for the hero. Real StoreKit product in production; in DEBUG
+    /// falls back to a fixture price so the hero renders on the simulator without
+    /// StoreKit (config files only apply when launched through Xcode, not simctl).
+    private var payPerSongDisplayPrice: String? {
+        if let product = storeKit.payPerSongProduct { return product.displayPrice }
+        #if DEBUG
+        if SimulatorFixtures.isActive { return "$1.99" }
+        #endif
+        return nil
+    }
+
+    /// True when the pay-per-song hero should show. Production: the server flag.
+    /// DEBUG: also honor the `--mock-payperson` fixture directly, so the hero is
+    /// verifiable on the simulator even if entitlements failed to load (e.g. the
+    /// backend is down and loadData's combined await threw).
+    private var isPayPerSongHeroEnabled: Bool {
+        if entitlements?.payPerSongEnabled == true { return true }
+        #if DEBUG
+        if SimulatorFixtures.has("--mock-payperson") { return true }
+        #endif
+        return false
+    }
+
     @ViewBuilder
     private var payPerSongHero: some View {
-        if entitlements?.payPerSongEnabled == true,
-           let product = storeKit.payPerSongProduct {
+        if isPayPerSongHeroEnabled,
+           let price = payPerSongDisplayPrice {
             VStack(alignment: .leading, spacing: 10) {
                 Text("Make one song now")
                     .font(DesignTokens.displayFont(size: 22))
@@ -468,9 +491,11 @@ struct SubscriptionView: View {
                     .fixedSize(horizontal: false, vertical: true)
 
                 Button {
-                    Task { await storeKit.purchase(product) }
+                    if let product = storeKit.payPerSongProduct {
+                        Task { await storeKit.purchase(product) }
+                    }
                 } label: {
-                    Text("Pay \(product.displayPrice) — make this song")
+                    Text("Pay \(price) — make this song")
                         .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
                         .foregroundStyle(DesignTokens.background)
                         .frame(maxWidth: .infinity)
@@ -482,7 +507,7 @@ struct SubscriptionView: View {
                 .goldGlow()
                 .disabled(storeKit.purchaseState.isLoading)
                 .opacity(storeKit.purchaseState.isLoading ? 0.5 : 1)
-                .accessibilityLabel("Pay \(product.displayPrice) to make one song")
+                .accessibilityLabel("Pay \(price) to make one song")
             }
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)

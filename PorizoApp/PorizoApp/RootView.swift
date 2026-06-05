@@ -318,6 +318,13 @@ struct RootView: View {
                                     appState = .main
                                     return
                                 }
+                                // --bypass-auth (or any --mock-* fixture) goes
+                                // straight to the app, skipping onboarding+auth,
+                                // so simulator testing needs no login.
+                                if skipAuth || SimulatorFixtures.isActive {
+                                    appState = .main
+                                    return
+                                }
                                 #endif
                                 normalizeLegacyOnboardingCompletionIfNeeded()
                                 if hasCompletedOnboardingFlow {

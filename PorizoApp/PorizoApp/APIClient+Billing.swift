@@ -85,6 +85,14 @@ extension APIClient {
 
     /// Get user's billing entitlements (subscription tier, songs remaining, etc.)
     func getBillingEntitlements() async throws -> BillingEntitlements {
+        #if DEBUG
+        // Simulator fixtures: return a canned entitlement state with no backend
+        // call, so paywall/credit flows are testable offline.
+        if let mock = SimulatorFixtures.mockEntitlements {
+            print("[Entitlements] FIXTURE mock: payPerSong=\(mock.payPerSongEnabled) available=\(mock.availableSongCredits)")
+            return mock
+        }
+        #endif
         let url = URL(string: "\(baseURL)/billing/entitlements")!
         let request = try await makeRequest(url: url, method: "GET")
         let (data, _) = try await executeWithAuthRetry(request: request)

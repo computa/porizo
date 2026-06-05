@@ -1962,6 +1962,15 @@ struct WarmCanvasFlowView: View {
             moment = .wait
             return
         }
+        // Present the create-flow paywall directly so the pay-per-song wall +
+        // hero are testable offline (entitlement state comes from --mock-*).
+        if fixtureArgs.contains("--fixture-paywall") {
+            setup.recipientName = "Sarah"
+            setup.occasion = .birthday
+            selectedType = .song
+            activeSheet = .upgrade
+            return
+        }
         #endif
 
         let persisted = CreateFlowStore.shared.load()
