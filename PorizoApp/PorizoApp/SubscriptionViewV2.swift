@@ -45,6 +45,18 @@ struct SubscriptionViewV2: View {
                 ScrollView {
                     VStack(spacing: 20) {
                         creditsLabel
+                        // PF-1 — one-off pay-per-song hero (the "face"); generic here
+                        // since Settings has no recipient context. Flag-gated.
+                        PayPerSongHeroView(
+                            storeKit: storeKit,
+                            payPerSongEnabled: entitlements?.payPerSongEnabled == true
+                        )
+                        if PayPerSongHeroView.shouldDisplay(
+                            payPerSongEnabled: entitlements?.payPerSongEnabled == true,
+                            storeKit: storeKit
+                        ) {
+                            subscribeAndSaveHeader
+                        }
                         billingToggle
                         planCards
                         restoreButton
@@ -177,6 +189,18 @@ struct SubscriptionViewV2: View {
     }
 
     // MARK: - Plan Cards
+
+    // PF-1 — demotes the subscription cards below the one-off hero.
+    private var subscribeAndSaveHeader: some View {
+        HStack(spacing: 12) {
+            Rectangle().fill(DesignTokens.border).frame(height: 1)
+            Text("or subscribe & save")
+                .font(DesignTokens.bodyFont(size: 13))
+                .foregroundStyle(DesignTokens.textTertiary)
+                .layoutPriority(1)
+            Rectangle().fill(DesignTokens.border).frame(height: 1)
+        }
+    }
 
     private var planCards: some View {
         VStack(spacing: 16) {

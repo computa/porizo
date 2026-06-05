@@ -414,16 +414,39 @@ struct ShareFailureView: View {
 /// Shown when the user has exhausted all credits and cannot create a song.
 struct NoCreditsView: View {
     var creationNoun: String = "song"
-    let onUpgrade: () -> Void     // Upgrade to Pro
+    /// Recipient name for personalizing the pay-per-song CTA; nil/blank → generic.
+    var recipientName: String? = nil
+    /// Pay-per-song display price; nil when pay-per-song is OFF (keeps the
+    /// subscription "Upgrade to Pro" CTA so we never promise a price that isn't live).
+    var payPerSongPrice: String? = nil
+    let onUpgrade: () -> Void     // Pay-per-song / Upgrade to Pro
     let onRestore: () -> Void     // Restore Purchases
     let onDismiss: () -> Void     // Maybe Later
+
+    private var trimmedRecipient: String? {
+        let name = (recipientName ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return nil }
+        // Cap so an over-long name can't push the price off the CTA.
+        return String(name.prefix(24))
+    }
+
+    /// Pay-per-song CTA when the one-off is live; otherwise the subscription CTA.
+    private var primaryCTALabel: String {
+        guard let price = payPerSongPrice else { return "Upgrade to Pro" }
+        if let name = trimmedRecipient { return "Make \(name)'s \(creationNoun) · \(price)" }
+        return "Make a \(creationNoun) · \(price)"
+    }
+
+    private var bodyLine: String {
+        payPerSongPrice != nil
+            ? "Make one more \(creationNoun) — no subscription needed"
+            : "Upgrade to Pro for more \(creationNoun)s each month"
+    }
 
     var body: some View {
         FlowErrorScaffold(
             title: "You've used all your credits",
-            bodyLines: [
-                "Upgrade to Pro for more \(creationNoun)s each month"
-            ],
+            bodyLines: [bodyLine],
             icon: { EmptyView() },
             extra: {
                 // Inline credits badge
@@ -446,14 +469,14 @@ struct NoCreditsView: View {
             },
             actions: {
                 VStack(spacing: DesignTokens.spacing12) {
-                    CoralCTAButton("Upgrade to Pro", action: onUpgrade)
+                    CoralCTAButton(primaryCTALabel, action: onUpgrade)
                     TextLinkButton(label: "Restore Purchases", action: onRestore)
                     TextLinkButton(label: "Maybe Later", action: onDismiss)
                 }
             }
         )
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("No credits remaining. Upgrade to Pro for more \(creationNoun)s.")
+        .accessibilityLabel("No credits remaining. \(primaryCTALabel).")
     }
 }
 

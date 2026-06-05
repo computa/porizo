@@ -94,6 +94,9 @@ struct WarmCanvasFlowView: View {
     @State private var didCompleteVoiceEnrollment = false
     @State private var shouldResumeMyVoiceAfterEnrollment = false
     @State private var pendingEntitlementFlowType: CreateFlowKind?
+    /// Captured when .noCredits triggers, so NoCreditsView shows the pay-per-song
+    /// CTA only when the one-off is actually enabled (songs only, not poems).
+    @State private var noCreditsPayPerSongEnabled = false
     @State private var myVoiceEnabled = true
     @State private var pendingSpeechText: String?
     @State private var isChatCollapsed = false
@@ -951,6 +954,11 @@ struct WarmCanvasFlowView: View {
         case .noCredits:
             NoCreditsView(
                 creationNoun: creationNoun,
+                recipientName: setup.recipientName,
+                payPerSongPrice: PayPerSongHeroView.shouldDisplay(
+                    payPerSongEnabled: noCreditsPayPerSongEnabled,
+                    storeKit: storeKit
+                ) ? PayPerSongHeroView.displayPrice(storeKit) : nil,
                 onUpgrade: {
                     activeError = nil
                     pendingEntitlementFlowType = resolvedSelectedType
@@ -1046,7 +1054,7 @@ struct WarmCanvasFlowView: View {
     private func sheetContent(for sheet: ActiveSheet) -> some View {
         switch sheet {
         case .upgrade:
-            SubscriptionView(apiClient: apiClient, storeKit: storeKit)
+            SubscriptionView(apiClient: apiClient, storeKit: storeKit, recipientName: setup.recipientName)
 
         case .voiceEnrollment(let existingScore):
             EnrollmentFlowView(
@@ -1232,6 +1240,7 @@ struct WarmCanvasFlowView: View {
                     let entitlements = try await apiClient.getBillingEntitlements()
                     guard entitlements.canMakeSong else {
                         pendingEntitlementFlowType = .song
+                        noCreditsPayPerSongEnabled = entitlements.payPerSongEnabled
                         activeError = .noCredits
                         return
                     }
@@ -1607,6 +1616,7 @@ struct WarmCanvasFlowView: View {
                 advanceAfterEntitlementCheck()
             } else {
                 pendingEntitlementFlowType = .song
+                noCreditsPayPerSongEnabled = entitlements.payPerSongEnabled
                 activeError = .noCredits
             }
         } catch {
@@ -1625,6 +1635,7 @@ struct WarmCanvasFlowView: View {
                 withAnimation { moment = .wait }
             } else {
                 pendingEntitlementFlowType = .poem
+                noCreditsPayPerSongEnabled = false  // pay-per-song is songs only
                 activeError = .noCredits
             }
         } catch {
