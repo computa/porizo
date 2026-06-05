@@ -51,6 +51,36 @@ xcrun simctl launch "$UDID" porizo.ios.app.PorizoApp --bypass-auth --mock-payper
 
 `Configuration.storekit` is wired into the PorizoApp scheme (`StoreKitConfigurationFileReference`), so IAP products load with **simulated** purchases (no sandbox Apple ID) when run through Xcode. Under raw `simctl` launches some products may not load — the hero falls back to a DEBUG price so it still renders.
 
-## Tier 2 (real backend E2E) — TODO
+## Tier 2 — Real backend E2E (no Docker)
 
-For real story-gen / billing-receipt / share flows you still need the backend. See `tasks/todo.md` Tier 2 (native Postgres, `dev:full`, seed script, `/debug/seed`). Not yet implemented.
+For real story-gen / billing-receipt / share flows, run the actual local backend.
+**Docker is NOT required** — this Mac runs native Postgres (`brew services` →
+`postgresql@14` on port 5432) with the `porizo` role+db already created. The
+`db:up` Docker script is optional; `npm run dev` connects to native pg directly
+via `DATABASE_URL` in `.env`.
+
+```bash
+# 1. Ensure native Postgres is up (already a brew service):
+brew services list | grep postgres        # expect: postgresql@14 started
+npm run seed:status                        # prints flags + plans (confirms DB reachable)
+
+# 2. Flip the pay-per-song flag ON locally (so the REAL backend shows the hero):
+npm run seed:payperson                     # → paywall_pay_per_song_enabled = true
+#   (npm run seed:payperson:off to revert)
+
+# 3. Start the API server (simulator talks to http://localhost:3000):
+npm run dev
+
+# 4. Run the app on the simulator WITHOUT mock fixtures (real entitlements):
+xcrun simctl launch "$UDID" porizo.ios.app.PorizoApp --bypass-auth
+#   → real getBillingEntitlements() now returns pay_per_song_enabled=true.
+```
+
+The seed script (`scripts/dev/seed-test-state.mjs`) refuses to run unless
+`DATABASE_URL` points at localhost — it cannot touch production.
+
+### Tier 1 vs Tier 2
+
+- **Tier 1 (fixtures)** — fastest; no backend at all. Use for UI/state checks.
+- **Tier 2 (native pg + `npm run dev`)** — real flows; use for integration
+  (story-gen, purchase→wallet credit, share). Still no Docker.
