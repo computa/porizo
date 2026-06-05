@@ -14,6 +14,7 @@ export default [
       "data/",
       "test-output/",
       "public/admin/assets/",
+      "marketing/appstore/screenshots/**/dist/",
     ],
   },
   js.configs.recommended,
