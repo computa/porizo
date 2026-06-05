@@ -186,6 +186,11 @@ final class RenderController {
     /// Start a preview render. Resumes an existing render if one is in progress.
     func startPreviewRender(trackId: String, versionNum: Int) {
         renderTask?.cancel()
+        #if DEBUG
+        if completeRevealReadyFixtureRender(trackId: trackId, versionNum: versionNum, isFull: false) {
+            return
+        }
+        #endif
         renderTask = Task {
             do {
                 print("[RenderController] Checking for existing render...")
@@ -224,6 +229,11 @@ final class RenderController {
     /// Retry a failed preview render via the /retry endpoint.
     func retryPreviewRender(trackId: String, versionNum: Int) {
         print("[RenderController] retryPreviewRender() called — using /retry endpoint")
+        #if DEBUG
+        if completeRevealReadyFixtureRender(trackId: trackId, versionNum: versionNum, isFull: false) {
+            return
+        }
+        #endif
         resetPreviewState()
 
         renderTask = Task {
@@ -258,6 +268,11 @@ final class RenderController {
     /// Start a full render. Resumes an existing render if one is in progress.
     func startFullRender(trackId: String, versionNum: Int) {
         fullRenderTask?.cancel()
+        #if DEBUG
+        if completeRevealReadyFixtureRender(trackId: trackId, versionNum: versionNum, isFull: true) {
+            return
+        }
+        #endif
         fullRenderPhase = .rendering
         statusMessage = nil
         pollingFailureCount = 0
@@ -292,6 +307,11 @@ final class RenderController {
     /// Retry a failed full render via the /retry endpoint.
     func retryFullRender(trackId: String, versionNum: Int) {
         print("[RenderController] retryFullRender() called — using /retry endpoint")
+        #if DEBUG
+        if completeRevealReadyFixtureRender(trackId: trackId, versionNum: versionNum, isFull: true) {
+            return
+        }
+        #endif
         fullRenderPhase = .rendering
         statusMessage = nil
         pollingFailureCount = 0
@@ -786,6 +806,124 @@ final class RenderController {
         }
         return lines
     }
+
+    #if DEBUG
+    @discardableResult
+    private func completeRevealReadyFixtureRender(trackId: String, versionNum: Int, isFull: Bool) -> Bool {
+        guard SimulatorFixtures.has("--fixture-reveal-ready"),
+              trackId == SimulatorFixtures.revealReadyTrackId,
+              versionNum == SimulatorFixtures.revealReadyVersionNum else {
+            return false
+        }
+
+        let result = Self.revealReadyFixtureResult(isFull: isFull)
+        progress = 100
+        statusMessage = nil
+        errorDetail = .empty
+
+        if isFull {
+            fullRenderPhase = .completed
+            onFullRenderComplete?(result)
+        } else {
+            renderPhase = .completed
+            onPreviewComplete?(result)
+        }
+        return true
+    }
+
+    private static func revealReadyFixtureResult(isFull: Bool) -> RenderResult {
+        RenderResult(
+            audioURL: revealReadyFixtureAudioURL().absoluteString,
+            trackTitle: "Birthday Song for Sarah",
+            recipientName: "Sarah",
+            occasion: "birthday",
+            lyrics: [
+                LyricLine(text: "Sarah, today the room lights up for you", startTime: 0.5),
+                LyricLine(text: "Every laugh turns into something new", startTime: 4.0),
+                LyricLine(text: "We saved this chorus for your birthday night", startTime: 8.0),
+                LyricLine(text: isFull ? "Sing it loud, let every candle shine" : "One more year of stories taking flight", startTime: 12.0)
+            ],
+            coverImageUrl: nil,
+            coverImageSmallUrl: nil,
+            coverImageLargeUrl: nil,
+            artworkUrl: nil
+        )
+    }
+
+    private static func revealReadyFixtureAudioURL() -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("porizo-reveal-ready-fixture.wav")
+
+        guard !FileManager.default.fileExists(atPath: url.path) else { return url }
+
+        do {
+            try buildRevealReadyFixtureWav().write(to: url, options: .atomic)
+        } catch {
+            print("[RenderController] Failed to write reveal-ready fixture audio: \(error.localizedDescription)")
+        }
+        return url
+    }
+
+    private static func buildRevealReadyFixtureWav() -> Data {
+        let sampleRate = 44_100
+        let channels = 1
+        let bitsPerSample = 16
+        let durationSeconds = 16
+        let totalSamples = sampleRate * durationSeconds
+        let byteRate = sampleRate * channels * bitsPerSample / 8
+        let blockAlign = channels * bitsPerSample / 8
+        let dataByteCount = totalSamples * blockAlign
+        let notes = [261.63, 329.63, 392.00, 523.25]
+
+        var data = Data()
+        appendASCII("RIFF", to: &data)
+        appendUInt32LE(UInt32(36 + dataByteCount), to: &data)
+        appendASCII("WAVE", to: &data)
+        appendASCII("fmt ", to: &data)
+        appendUInt32LE(16, to: &data)
+        appendUInt16LE(1, to: &data)
+        appendUInt16LE(UInt16(channels), to: &data)
+        appendUInt32LE(UInt32(sampleRate), to: &data)
+        appendUInt32LE(UInt32(byteRate), to: &data)
+        appendUInt16LE(UInt16(blockAlign), to: &data)
+        appendUInt16LE(UInt16(bitsPerSample), to: &data)
+        appendASCII("data", to: &data)
+        appendUInt32LE(UInt32(dataByteCount), to: &data)
+
+        for sampleIndex in 0..<totalSamples {
+            let time = Double(sampleIndex) / Double(sampleRate)
+            let noteIndex = min(Int(time / 4.0), notes.count - 1)
+            let frequency = notes[noteIndex]
+            let notePosition = time.truncatingRemainder(dividingBy: 4.0)
+            let fadeIn = min(1.0, notePosition / 0.25)
+            let fadeOut = min(1.0, (4.0 - notePosition) / 0.35)
+            let envelope = min(fadeIn, fadeOut)
+            let sample = Int16((sin(2.0 * .pi * frequency * time) * envelope * 4_000.0).rounded())
+            appendInt16LE(sample, to: &data)
+        }
+
+        return data
+    }
+
+    private static func appendASCII(_ string: String, to data: inout Data) {
+        data.append(contentsOf: string.utf8)
+    }
+
+    private static func appendUInt16LE(_ value: UInt16, to data: inout Data) {
+        var littleEndian = value.littleEndian
+        withUnsafeBytes(of: &littleEndian) { data.append(contentsOf: $0) }
+    }
+
+    private static func appendUInt32LE(_ value: UInt32, to data: inout Data) {
+        var littleEndian = value.littleEndian
+        withUnsafeBytes(of: &littleEndian) { data.append(contentsOf: $0) }
+    }
+
+    private static func appendInt16LE(_ value: Int16, to data: inout Data) {
+        var littleEndian = value.littleEndian
+        withUnsafeBytes(of: &littleEndian) { data.append(contentsOf: $0) }
+    }
+    #endif
 
     // MARK: - Render Step Messaging
 

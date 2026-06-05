@@ -1936,8 +1936,8 @@ struct WarmCanvasFlowView: View {
 
     private func initializeFlow() {
         #if DEBUG
-        // Validation fixtures: visual-only states for screenshot/accessibility testing.
-        // Play and share buttons are non-functional (no audio loaded, no share controller).
+        // Validation fixtures for screenshot/accessibility testing. The reveal-ready
+        // fixture also seeds local DEBUG playback/share state for screen navigation.
         let fixtureArgs = ProcessInfo.processInfo.arguments
         if fixtureArgs.contains("--fixture-reveal") {
             setup.recipientName = "Sarah"
@@ -1952,8 +1952,8 @@ struct WarmCanvasFlowView: View {
             setup.occasion = .birthday
             selectedType = .song
             trackTitle = "Birthday Song for Sarah"
-            songFlow.currentTrackId = "track_fixture_reveal_ready"
-            songFlow.currentVersionNum = 1
+            songFlow.currentTrackId = SimulatorFixtures.revealReadyTrackId
+            songFlow.currentVersionNum = SimulatorFixtures.revealReadyVersionNum
             let seededShareController = ShareController(apiClient: apiClient)
             seededShareController.seedDebugShare(
                 shareUrl: "https://porizo.app/play/sh_fixture_reveal_ready",

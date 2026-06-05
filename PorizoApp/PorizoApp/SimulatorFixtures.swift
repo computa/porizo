@@ -13,6 +13,9 @@ enum SimulatorFixtures {
 
     static func has(_ flag: String) -> Bool { args.contains(flag) }
 
+    static let revealReadyTrackId = "track_fixture_reveal_ready"
+    static let revealReadyVersionNum = 1
+
     /// A fixture that should land us straight in the app (skip onboarding+auth).
     /// Covers the offline `--mock-*` states and the real-backend `--demo-login`.
     static var isActive: Bool {
