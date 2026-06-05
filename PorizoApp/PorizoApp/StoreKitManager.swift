@@ -77,6 +77,16 @@ enum PurchaseState: Equatable {
         default: return false
         }
     }
+
+    /// True while a purchase is in flight OR just succeeded — used to keep a
+    /// consumable buy button disabled until the paywall dismisses, so a stray
+    /// second tap can't trigger a duplicate charge (LB1).
+    var blocksRepeatPurchase: Bool {
+        switch self {
+        case .loading, .purchasing, .success: return true
+        default: return false
+        }
+    }
 }
 
 // MARK: - Subscription State

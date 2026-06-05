@@ -7,9 +7,6 @@ const assert = require("node:assert/strict");
 const { getDatabase } = require("../src/database");
 const { createPlanConfigService } = require("../src/services/plan-config");
 const {
-  clearCache: clearFeatureFlagCache,
-} = require("../src/services/feature-flags");
-const {
   createSubscriptionManager,
   TRANSACTION_TYPES,
   STATUS,
@@ -579,15 +576,7 @@ describe("Subscription Manager", async () => {
     });
   });
 
-  describe("spendSong with gift_wallet (paywall_pay_per_song_enabled)", () => {
-    function setPayPerSongFlag(value) {
-      db.prepare(
-        `INSERT OR REPLACE INTO feature_flags (id, value, updated_at, updated_by)
-         VALUES (?, ?, datetime('now'), 'test')`,
-      ).run("paywall_pay_per_song_enabled", JSON.stringify(value));
-      clearFeatureFlagCache();
-    }
-
+  describe("spendSong with gift_wallet (pay-per-song)", () => {
     async function seedGiftWallet(userId, balance) {
       await db.query(
         `INSERT INTO gift_wallet (user_id, balance, updated_at)
@@ -605,14 +594,7 @@ describe("Subscription Manager", async () => {
       return res.rows.length ? Number(res.rows[0].balance) : null;
     }
 
-    beforeEach(() => {
-      // Default OFF for each test; individual tests opt in.
-      setPayPerSongFlag(false);
-    });
-
-    it("spend order: trial -> songs_remaining -> gift_wallet (flag ON)", async () => {
-      setPayPerSongFlag(true);
-
+    it("spend order: trial -> songs_remaining -> gift_wallet", async () => {
       // trial=1, songs_remaining=1, gift=1
       await db.query(
         `INSERT INTO entitlements (user_id, tier, songs_remaining, trial_songs_remaining, updated_at)
@@ -633,28 +615,7 @@ describe("Subscription Manager", async () => {
       assert.equal(await getGiftWalletBalance(testUserId), 0);
     });
 
-    it("flag OFF: trial=0,songs=0,gift=1 throws INSUFFICIENT (unchanged behavior)", async () => {
-      setPayPerSongFlag(false);
-
-      await db.query(
-        `INSERT INTO entitlements (user_id, tier, songs_remaining, trial_songs_remaining, updated_at)
-         VALUES (?, 'free', 0, 0, datetime('now'))`,
-        [testUserId],
-      );
-      await seedGiftWallet(testUserId, 1);
-
-      await assert.rejects(
-        () => manager.spendSong(testUserId, "g_track_off"),
-        /Insufficient songs remaining/,
-      );
-
-      // Gift wallet untouched
-      assert.equal(await getGiftWalletBalance(testUserId), 1);
-    });
-
-    it("flag ON: trial=0,songs=0,gift=1 spends via gift_token and records ledger row", async () => {
-      setPayPerSongFlag(true);
-
+    it("trial=0,songs=0,gift=1 spends via gift_token and records ledger row", async () => {
       await db.query(
         `INSERT INTO entitlements (user_id, tier, songs_remaining, trial_songs_remaining, updated_at)
          VALUES (?, 'free', 0, 0, datetime('now'))`,
@@ -677,9 +638,7 @@ describe("Subscription Manager", async () => {
       assert.equal(Number(ledger.rows[0].balance_after), 0);
     });
 
-    it("flag ON: all zero (trial=0,songs=0,gift=0) throws INSUFFICIENT", async () => {
-      setPayPerSongFlag(true);
-
+    it("all zero (trial=0,songs=0,gift=0) throws INSUFFICIENT", async () => {
       await db.query(
         `INSERT INTO entitlements (user_id, tier, songs_remaining, trial_songs_remaining, updated_at)
          VALUES (?, 'free', 0, 0, datetime('now'))`,
@@ -693,9 +652,7 @@ describe("Subscription Manager", async () => {
       );
     });
 
-    it("flag ON: atomic guard prevents double-spend of last gift token", async () => {
-      setPayPerSongFlag(true);
-
+    it("atomic guard prevents double-spend of last gift token", async () => {
       await db.query(
         `INSERT INTO entitlements (user_id, tier, songs_remaining, trial_songs_remaining, updated_at)
          VALUES (?, 'free', 0, 0, datetime('now'))`,

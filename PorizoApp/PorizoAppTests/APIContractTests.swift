@@ -383,8 +383,10 @@ final class APIContractTests: XCTestCase {
         XCTAssertTrue(e.canMakeSong) // 3 credits available
     }
 
-    func testBillingEntitlements_flagOffWithGiftOnly_cannotMakeSong() throws {
-        // Server already excludes gift from available_song_credits when flag off.
+    func testBillingEntitlements_trustsServerAvailableCredits_notLocalGiftCount() throws {
+        // Client is server-authoritative: it never counts gift_wallet_balance
+        // locally. If the server reports available_song_credits:0, canMakeSong is
+        // false even when a gift balance is present.
         let json = Data(#"""
         {"tier":"free","songs_remaining":0,"gift_wallet_balance":3,
          "available_song_credits":0,"pay_per_song_enabled":false}

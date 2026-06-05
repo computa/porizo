@@ -1,14 +1,13 @@
 #!/usr/bin/env node
-// Local dev seed for simulator E2E testing. Sets feature flags / test state in
-// the LOCAL Postgres so the real backend (npm run dev) can drive flows like the
-// pay-per-song paywall. SAFE: refuses to run against a non-local database.
+// Local dev seed for simulator E2E testing. Seeds test state in the LOCAL
+// Postgres so the real backend (npm run dev) can drive flows. SAFE: refuses to
+// run against a non-local database.
 //
 // Usage:
-//   node -r dotenv/config scripts/dev/seed-test-state.mjs payperson:on
-//   node -r dotenv/config scripts/dev/seed-test-state.mjs payperson:off
+//   node -r dotenv/config scripts/dev/seed-test-state.mjs demo
 //   node -r dotenv/config scripts/dev/seed-test-state.mjs status
 //
-// Or via npm:  npm run seed:payperson   /   npm run seed:status
+// Or via npm:  npm run seed:demo   /   npm run seed:status
 
 import pg from "pg";
 
@@ -24,15 +23,6 @@ if (!isLocal) {
 
 const cmd = process.argv[2] || "status";
 const pool = new pg.Pool({ connectionString: url });
-
-async function setFlag(id, value) {
-  await pool.query(
-    `INSERT INTO feature_flags (id, value, updated_at)
-     VALUES ($1, $2, NOW())
-     ON CONFLICT (id) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
-    [id, JSON.stringify(value)],
-  );
-}
 
 const DEMO_USER_ID = "user_demo_porizo";
 
@@ -75,16 +65,6 @@ async function showStatus() {
 
 try {
   switch (cmd) {
-    case "payperson:on":
-      await setFlag("paywall_pay_per_song_enabled", true);
-      console.log("✓ paywall_pay_per_song_enabled = true");
-      await showStatus();
-      break;
-    case "payperson:off":
-      await setFlag("paywall_pay_per_song_enabled", false);
-      console.log("✓ paywall_pay_per_song_enabled = false");
-      await showStatus();
-      break;
     case "demo":
       await seedDemoUser();
       break;
@@ -92,9 +72,7 @@ try {
       await showStatus();
       break;
     default:
-      console.error(
-        `Unknown command: ${cmd}. Use payperson:on | payperson:off | demo | status`,
-      );
+      console.error(`Unknown command: ${cmd}. Use demo | status`);
       process.exit(1);
   }
 } finally {

@@ -4,8 +4,8 @@
 //
 //  The "pay for one song" hero, shared by the create-flow wall (SubscriptionView)
 //  and the Settings paywall (SubscriptionViewV2). Single source of truth for the
-//  pay-per-song price/flag/copy so the money-facing UI never drifts between
-//  surfaces. Renders nothing unless pay-per-song is enabled AND a price is known.
+//  pay-per-song price/copy so the money-facing UI never drifts between surfaces.
+//  Pay-per-song is always on; the hero renders whenever a price is available.
 //
 
 import SwiftUI
@@ -13,12 +13,10 @@ import StoreKit
 
 struct PayPerSongHeroView: View {
     var storeKit: StoreKitManager
-    /// Server flag (`entitlements.payPerSongEnabled`).
-    let payPerSongEnabled: Bool
     /// Recipient name for personalization; nil/blank → generic copy.
     var recipientName: String? = nil
 
-    // MARK: - Shared gating / price (reused by NoCreditsView so price + flag logic
+    // MARK: - Shared gating / price (reused by NoCreditsView so price logic
     // lives in exactly one place).
 
     /// Real StoreKit price in production; a fixture price in DEBUG so the hero
@@ -32,14 +30,10 @@ struct PayPerSongHeroView: View {
         return nil
     }
 
-    /// True when the hero (and any "or subscribe & save" framing) should show.
-    /// `payPerSongEnabled` is authoritative: callers that deliberately disable the
-    /// one-off (e.g. the poem no-credits path — pay-per-song is songs only) pass
-    /// `false` and the hero stays hidden. The `--mock-payperson` simulator override
-    /// is applied at the entitlements source (it mocks `payPerSongEnabled = true`),
-    /// not here, so it never defeats an explicit `false`.
-    static func shouldDisplay(payPerSongEnabled: Bool, storeKit: StoreKitManager) -> Bool {
-        payPerSongEnabled && displayPrice(storeKit) != nil
+    /// True when the hero (and any "or subscribe & save" framing) should show —
+    /// i.e. the one-off product/price is available.
+    static func shouldDisplay(storeKit: StoreKitManager) -> Bool {
+        displayPrice(storeKit) != nil
     }
 
     // MARK: - Personalized copy
@@ -62,7 +56,7 @@ struct PayPerSongHeroView: View {
     }
 
     var body: some View {
-        if payPerSongEnabled, let price = Self.displayPrice(storeKit) {
+        if let price = Self.displayPrice(storeKit) {
             VStack(alignment: .leading, spacing: 10) {
                 Text(headline)
                     .font(DesignTokens.displayFont(size: 22))
@@ -88,8 +82,8 @@ struct PayPerSongHeroView: View {
                 }
                 .buttonStyle(.plain)
                 .goldGlow()
-                .disabled(storeKit.purchaseState.isLoading)
-                .opacity(storeKit.purchaseState.isLoading ? 0.5 : 1)
+                .disabled(storeKit.purchaseState.blocksRepeatPurchase)
+                .opacity(storeKit.purchaseState.blocksRepeatPurchase ? 0.5 : 1)
                 .accessibilityLabel(buttonLabel(price))
             }
             .padding(16)

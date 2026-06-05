@@ -900,37 +900,19 @@ function createSubscriptionManager(db, services = {}) {
       !trialExpired && (current.trial_songs_remaining || 0) > 0;
     const hasRegularSongs = current.songs_remaining > 0;
 
-    // BILL-GIFT: One-off gift_wallet tokens (bundles) become spendable on
-    // make-your-own only when paywall_pay_per_song_enabled is ON. The flag is read
-    // via this tx's own `query` — NOT getFeatureFlag(db, ...), which routes through
-    // db.prepare -> a SECOND pooled connection while this tx already holds one. On
-    // Postgres, nesting a pooled query inside the transaction risks pool-exhaustion
-    // deadlock under burst load. Reading via `query` keeps it on the same
-    // connection and inside this tx's snapshot. Mirrors getFeatureFlag's JSON parse
-    // + default-OFF; gift tokens are NOT spendable here when OFF.
-    let payPerSongEnabled = false;
-    try {
-      const flagRes = await query(
-        "SELECT value FROM feature_flags WHERE id = ?",
-        ["paywall_pay_per_song_enabled"],
-      );
-      const flagRow = flagRes.rows?.[0];
-      payPerSongEnabled =
-        flagRow && flagRow.value != null
-          ? JSON.parse(flagRow.value) === true
-          : false;
-    } catch {
-      payPerSongEnabled = false; // graceful default-OFF on read/parse error
-    }
+    // BILL-GIFT: One-off gift_wallet tokens (bundles) are spendable on
+    // make-your-own once subscription + trial credits are exhausted. Pay-per-song
+    // is a permanent product, so no feature flag gates this. Only read the wallet
+    // balance when it would actually be needed (no trial/regular songs left).
     let giftWalletBalance = 0;
-    if (payPerSongEnabled && !hasTrialSongs && !hasRegularSongs) {
+    if (!hasTrialSongs && !hasRegularSongs) {
       const walletResult = await query(
         "SELECT balance FROM gift_wallet WHERE user_id = ?",
         [userId],
       );
       giftWalletBalance = Number(walletResult.rows?.[0]?.balance || 0);
     }
-    const hasGiftTokens = payPerSongEnabled && giftWalletBalance > 0;
+    const hasGiftTokens = giftWalletBalance > 0;
 
     if (!hasTrialSongs && !hasRegularSongs && !hasGiftTokens) {
       const err = new Error("Insufficient songs remaining");
@@ -978,8 +960,8 @@ function createSubscriptionManager(db, services = {}) {
       newBalance = current.songs_remaining - 1;
     } else {
       // BILL-GIFT: Spend a one-off gift_wallet token (bundle). Only reachable when
-      // paywall_pay_per_song_enabled is ON and both trial + subscription are
-      // exhausted (the early hasGiftTokens check passed). The atomic
+      // both trial + subscription are exhausted (the early hasGiftTokens check
+      // passed). The atomic
       // UPDATE...WHERE balance > 0 is the SOLE double-spend guard (same as the
       // trial/subscription paths) — a request racing past the SELECT cannot
       // double-spend the last token: it blocks on the row lock, re-reads

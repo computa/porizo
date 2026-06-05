@@ -30,8 +30,6 @@
     "db:logs": "docker compose logs -f postgres",
     "db:shell": "docker exec -it porizo-postgres psql -U porizo -d porizo",
     "seed:status": "node -r dotenv/config scripts/dev/seed-test-state.mjs status",
-    "seed:payperson": "node -r dotenv/config scripts/dev/seed-test-state.mjs payperson:on",
-    "seed:payperson:off": "node -r dotenv/config scripts/dev/seed-test-state.mjs payperson:off",
     "seed:demo": "node -r dotenv/config scripts/dev/seed-test-state.mjs demo",
     "remotion:studio": "npx remotion studio marketing/remotion/src/Root.tsx --port 3100 --public-dir marketing/remotion/public",
     "remotion:render": "npx remotion render marketing/remotion/src/Root.tsx --public-dir marketing/remotion/public",

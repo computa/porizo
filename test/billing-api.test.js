@@ -1127,7 +1127,7 @@ describe("buildEntitlementsPayload gift_wallet_balance", () => {
   });
 });
 
-describe("buildEntitlementsPayload available_song_credits (pay-per-song flag)", () => {
+describe("buildEntitlementsPayload available_song_credits (pay-per-song)", () => {
   const giftOnly = {
     tier: "free",
     baseSongsRemaining: 0,
@@ -1135,35 +1135,25 @@ describe("buildEntitlementsPayload available_song_credits (pay-per-song flag)", 
     giftWalletBalance: 3,
   };
 
-  it("excludes gift_wallet from credits when flag is OFF", () => {
-    const payload = buildEntitlementsPayload(giftOnly, null, false);
-    assert.equal(payload.available_song_credits, 0);
-    assert.equal(payload.gift_wallet_balance, 3); // still reported for display
-    assert.equal(payload.pay_per_song_enabled, false);
-  });
-
-  it("includes gift_wallet in credits when flag is ON", () => {
-    const payload = buildEntitlementsPayload(giftOnly, null, true);
+  it("includes gift_wallet in credits (pay-per-song is permanent)", () => {
+    const payload = buildEntitlementsPayload(giftOnly);
     assert.equal(payload.available_song_credits, 3);
+    assert.equal(payload.gift_wallet_balance, 3);
     assert.equal(payload.pay_per_song_enabled, true);
   });
 
-  it("always counts songsRemaining regardless of flag", () => {
+  it("counts songsRemaining plus gift_wallet", () => {
     const ent = { ...giftOnly, songsRemaining: 2 };
     assert.equal(
-      buildEntitlementsPayload(ent, null, false).available_song_credits,
-      2, // 2 ongoing, gift excluded
-    );
-    assert.equal(
-      buildEntitlementsPayload(ent, null, true).available_song_credits,
+      buildEntitlementsPayload(ent).available_song_credits,
       5, // 2 ongoing + 3 gift
     );
   });
 
-  it("defaults flag OFF and credits 0 for null entitlements", () => {
+  it("reports pay_per_song_enabled true and credits 0 for null entitlements", () => {
     const payload = buildEntitlementsPayload(null);
     assert.equal(payload.available_song_credits, 0);
-    assert.equal(payload.pay_per_song_enabled, false);
+    assert.equal(payload.pay_per_song_enabled, true);
   });
 
   it("clamps a negative gift balance so it never subtracts from ongoing credits", () => {
@@ -1173,13 +1163,6 @@ describe("buildEntitlementsPayload available_song_credits (pay-per-song flag)", 
       songsRemaining: 5,
       giftWalletBalance: -2, // corrupt data must not reduce real credits
     };
-    assert.equal(
-      buildEntitlementsPayload(ent, null, true).available_song_credits,
-      5,
-    );
-    assert.equal(
-      buildEntitlementsPayload(ent, null, false).available_song_credits,
-      5,
-    );
+    assert.equal(buildEntitlementsPayload(ent).available_song_credits, 5);
   });
 });

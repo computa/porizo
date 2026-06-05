@@ -15,6 +15,7 @@ struct SubscriptionViewV2: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var billingPeriod: BillingPeriod = .monthly
+    @State private var showAllPlans = false  // pay-per-song centered: subscription collapsed until expanded
     @State private var showError = false
     @State private var errorMessage = ""
 
@@ -44,21 +45,26 @@ struct SubscriptionViewV2: View {
 
                 ScrollView {
                     VStack(spacing: 20) {
-                        creditsLabel
-                        // PF-1 — one-off pay-per-song hero (the "face"); generic here
-                        // since Settings has no recipient context. Flag-gated.
-                        PayPerSongHeroView(
-                            storeKit: storeKit,
-                            payPerSongEnabled: entitlements?.payPerSongEnabled == true
-                        )
-                        if PayPerSongHeroView.shouldDisplay(
-                            payPerSongEnabled: entitlements?.payPerSongEnabled == true,
-                            storeKit: storeKit
-                        ) {
+                        if heroActive {
+                            // Pay-per-song centered: the one-off hero is the focal point;
+                            // subscription is collapsed to one teaser until "See all plans".
+                            PayPerSongHeroView(storeKit: storeKit)
+                            creditsLabel
+
                             subscribeAndSaveHeader
+                            if showAllPlans {
+                                billingToggle
+                                planCards
+                            } else {
+                                compactSubscribeTeaser
+                            }
+                        } else {
+                            // Flag off: original subscription-first layout.
+                            creditsLabel
+                            billingToggle
+                            planCards
                         }
-                        billingToggle
-                        planCards
+
                         restoreButton
                         subscriptionDisclosure
                     }
@@ -124,7 +130,7 @@ struct SubscriptionViewV2: View {
 
             Spacer()
 
-            Text("Subscription")
+            Text("Make a song")
                 .font(DesignTokens.displayFont(size: 20, weight: .semibold))
                 .foregroundStyle(DesignTokens.textPrimary)
 
@@ -140,8 +146,8 @@ struct SubscriptionViewV2: View {
 
     private var creditsLabel: some View {
         Text("\(currentCredits) credits remaining")
-            .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
-            .foregroundStyle(DesignTokens.goldDark)
+            .font(DesignTokens.bodyFont(size: 13))
+            .foregroundStyle(DesignTokens.textSecondary)
             .frame(maxWidth: .infinity, alignment: .center)
     }
 
@@ -199,6 +205,65 @@ struct SubscriptionViewV2: View {
                 .foregroundStyle(DesignTokens.textTertiary)
                 .layoutPriority(1)
             Rectangle().fill(DesignTokens.border).frame(height: 1)
+        }
+    }
+
+    // True when the pay-per-song one-off is live — drives the hero-centered layout.
+    private var heroActive: Bool {
+        PayPerSongHeroView.shouldDisplay(storeKit: storeKit)
+    }
+
+    // Cheapest paid plan, featured in the collapsed subscription teaser.
+    private var featuredPlan: SubscriptionPlan? {
+        plans
+            .filter { $0.tier.lowercased() != "free" && $0.priceMonthly != nil }
+            .min(by: { ($0.priceMonthly ?? Int.max) < ($1.priceMonthly ?? Int.max) })
+    }
+
+    // Direction A: one compact subscription teaser + "See all plans" expander,
+    // so subscription stays discoverable but visually out of the way.
+    private var compactSubscribeTeaser: some View {
+        VStack(spacing: 12) {
+            if let plan = featuredPlan {
+                Button { purchasePlan(plan) } label: {
+                    HStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(plan.name)
+                                .font(DesignTokens.bodyFont(size: 15, weight: .semibold))
+                                .foregroundStyle(DesignTokens.textPrimary)
+                            Text("\(plan.songsPerMonth) songs/mo")
+                                .font(DesignTokens.bodyFont(size: 13))
+                                .foregroundStyle(DesignTokens.textSecondary)
+                        }
+                        Spacer(minLength: 8)
+                        Text(priceText(for: plan))
+                            .font(DesignTokens.bodyFont(size: 15, weight: .semibold))
+                            .foregroundStyle(DesignTokens.textPrimary)
+                            .fixedSize()
+                    }
+                    .padding(14)
+                    .background(DesignTokens.surface)
+                    .clipShape(.rect(cornerRadius: DesignTokens.radiusCTA))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: DesignTokens.radiusCTA)
+                            .stroke(DesignTokens.border, lineWidth: 1)
+                    )
+                }
+                .buttonStyle(.plain)
+            }
+
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) { showAllPlans = true }
+            } label: {
+                HStack(spacing: 4) {
+                    Text("See all plans")
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 11, weight: .semibold))
+                }
+                .font(DesignTokens.bodyFont(size: 14, weight: .medium))
+                .foregroundStyle(DesignTokens.goldDark)
+            }
+            .buttonStyle(.plain)
         }
     }
 

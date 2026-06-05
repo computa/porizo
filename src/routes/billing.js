@@ -6,11 +6,11 @@ const { getFeatureFlag } = require("../services/feature-flags");
 
 // Module-scope so it can be unit-tested and exported. Pure: depends only on
 // its arguments, closes over nothing from the route registrar.
-function buildEntitlementsPayload(
-  entitlements,
-  subscription = null,
-  payPerSongEnabled = false,
-) {
+// Pay-per-song is a permanent product: gift-wallet credit always counts toward
+// spendable song credits, and `pay_per_song_enabled` is always reported true.
+// The field stays in the payload for backward-compat with deployed clients that
+// still decode it (dropping it would default older clients to OFF).
+function buildEntitlementsPayload(entitlements, subscription = null) {
   const toSafeInt = (value, fallback = 0) => {
     const n = Number(value);
     return Number.isFinite(n) ? Math.trunc(n) : fallback;
@@ -34,7 +34,7 @@ function buildEntitlementsPayload(
       trial_songs_remaining: 0,
       gift_wallet_balance: 0,
       available_song_credits: 0,
-      pay_per_song_enabled: Boolean(payPerSongEnabled),
+      pay_per_song_enabled: true,
       trial_expires_at: null,
       plan_id: null,
       billing_period: null,
@@ -59,15 +59,12 @@ function buildEntitlementsPayload(
     trial_songs_remaining: toSafeInt(entitlements.trialSongsRemaining),
     gift_wallet_balance: toSafeInt(entitlements.giftWalletBalance),
     // Single source of truth for "can this user make a song right now": ongoing
-    // credits (subscription + trial) plus gift-wallet credit ONLY when the
-    // pay-per-song flag is on. Lets the server flip the feature with no client
-    // change. Spend order remains trial → songs_remaining → gift_wallet.
+    // credits (subscription + trial) plus one-off gift-wallet credit. Spend order
+    // remains trial → songs_remaining → gift_wallet.
     available_song_credits:
       Math.max(0, toSafeInt(entitlements.songsRemaining)) +
-      (payPerSongEnabled
-        ? Math.max(0, toSafeInt(entitlements.giftWalletBalance))
-        : 0),
-    pay_per_song_enabled: Boolean(payPerSongEnabled),
+      Math.max(0, toSafeInt(entitlements.giftWalletBalance)),
+    pay_per_song_enabled: true,
     trial_expires_at: toIsoOrNull(entitlements.trialExpiresAt),
     plan_id: entitlements.planId,
     billing_period: entitlements.billingPeriod,
@@ -102,11 +99,6 @@ function registerBillingRoutes(
   },
 ) {
   // ============ Billing API Routes ============
-
-  // Whether gift-wallet credit may fund the user's own song. Default OFF.
-  // Single read point for the flag string so the contract can't drift.
-  const isPayPerSongEnabled = async () =>
-    (await getFeatureFlag(db, "paywall_pay_per_song_enabled")) === true;
 
   function parseBooleanQuery(value) {
     if (typeof value === "boolean") return value;
@@ -312,13 +304,7 @@ function registerBillingRoutes(
       const entitlements = await subscriptionManager.getEntitlements(userId);
       const subscription =
         await subscriptionManager.getActiveSubscription(userId);
-      reply.send(
-        buildEntitlementsPayload(
-          entitlements,
-          subscription,
-          await isPayPerSongEnabled(),
-        ),
-      );
+      reply.send(buildEntitlementsPayload(entitlements, subscription));
     } catch (err) {
       console.error("[Billing] Error fetching billing entitlements:", err);
       sendError(reply, 500, "BILLING_ERROR", err.message);
@@ -721,11 +707,7 @@ function registerBillingRoutes(
           expires_at: result.expiresAt, // snake_case for iOS
         },
         entitlements: {
-          ...buildEntitlementsPayload(
-            entitlements,
-            subscription,
-            await isPayPerSongEnabled(),
-          ),
+          ...buildEntitlementsPayload(entitlements, subscription),
         },
       });
     } catch (err) {
@@ -820,11 +802,7 @@ function registerBillingRoutes(
           auto_renewing: subscription.auto_renewing,
         },
         entitlements: entitlements
-          ? buildEntitlementsPayload(
-              entitlements,
-              null,
-              await isPayPerSongEnabled(),
-            )
+          ? buildEntitlementsPayload(entitlements, null)
           : null,
       });
     } catch (err) {

@@ -67,11 +67,7 @@ struct SubscriptionView: View {
                         creditsHeader
 
                         // Pay-per-song hero (one-off, the "face" of the wall)
-                        PayPerSongHeroView(
-                            storeKit: storeKit,
-                            payPerSongEnabled: entitlements?.payPerSongEnabled == true,
-                            recipientName: recipientName
-                        )
+                        PayPerSongHeroView(storeKit: storeKit, recipientName: recipientName)
 
                         // Toggle section
                         toggleSection
@@ -251,7 +247,6 @@ struct SubscriptionView: View {
     // MARK: - Toggle Section (Compact)
 
     private var toggleSection: some View {
-        // Toggle pill with Save badge overlay outside the clip
         HStack(spacing: 0) {
             toggleButton(title: "Monthly", isSelected: billingPeriod == .monthly) {
                 withAnimation(.easeInOut(duration: 0.2)) {
@@ -259,7 +254,7 @@ struct SubscriptionView: View {
                 }
             }
 
-            toggleButton(title: "Annual", isSelected: billingPeriod == .annual) {
+            toggleButton(title: "Annual", isSelected: billingPeriod == .annual, badge: "Save 20%") {
                 withAnimation(.easeInOut(duration: 0.2)) {
                     billingPeriod = .annual
                 }
@@ -270,26 +265,29 @@ struct SubscriptionView: View {
         .clipShape(.rect(cornerRadius: 16))
         .frame(maxWidth: .infinity)
         .frame(height: 48)
-        .overlay(alignment: .topTrailing) {
-            Text("Save 20%")
-                .font(DesignTokens.bodyFont(size: 9, weight: .bold))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(DesignTokens.error)
-                .clipShape(.rect(cornerRadius: 4))
-                .offset(x: 8, y: -6)
-        }
     }
 
-    private func toggleButton(title: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
+    private func toggleButton(title: String, isSelected: Bool, badge: String? = nil, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Text(title)
-                .font(DesignTokens.bodyFont(size: 13, weight: .medium))
-                .foregroundStyle(isSelected ? DesignTokens.background : DesignTokens.textSecondary)
-                .frame(width: 94, height: 28)
-                .background(isSelected ? DesignTokens.gold : Color.clear)
-                .clipShape(.rect(cornerRadius: 14))
+            HStack(spacing: 6) {
+                Text(title)
+                    .font(DesignTokens.bodyFont(size: 13, weight: .medium))
+                    .foregroundStyle(isSelected ? DesignTokens.background : DesignTokens.textSecondary)
+
+                if let badge {
+                    Text(badge)
+                        .font(DesignTokens.bodyFont(size: 9, weight: .bold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 2)
+                        .background(DesignTokens.error)
+                        .clipShape(Capsule())
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 28)
+            .background(isSelected ? DesignTokens.gold : Color.clear)
+            .clipShape(.rect(cornerRadius: 14))
         }
         .buttonStyle(.plain)
     }
@@ -313,7 +311,7 @@ struct SubscriptionView: View {
                     planCard(
                         tier: plan.tier,
                         title: plan.name,
-                        description: plan.description ?? planSummary(for: plan),
+                        description: planSummary(for: plan),
                         showCurrentBadge: isCurrent,
                         price: price,
                         billingNote: billingNote
@@ -368,19 +366,19 @@ struct SubscriptionView: View {
         billingNote: String?
     ) -> some View {
         let isSelected = selectedTier == tier
-        let hasPrice = price != nil
 
         return Button {
             withAnimation(.easeInOut(duration: 0.15)) {
                 selectedTier = tier
             }
         } label: {
-            HStack(alignment: .center, spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
                 // Radio button
                 radioButton(isSelected: isSelected)
+                    .padding(.top, 2)
 
-                // Content
                 VStack(alignment: .leading, spacing: 4) {
+                    // Top row: name + current badge + price (inline, right-aligned)
                     HStack(spacing: 8) {
                         Text(title)
                             .font(DesignTokens.bodyFont(size: 17, weight: .semibold))
@@ -395,33 +393,31 @@ struct SubscriptionView: View {
                                 .background(DesignTokens.borderSubtle)
                                 .clipShape(.rect(cornerRadius: 4))
                         }
-                    }
 
-                    Text(description)
-                        .font(DesignTokens.bodyFont(size: hasPrice ? 13 : 14))
-                        .foregroundStyle(DesignTokens.textSecondary)
-                        .lineLimit(1)
-                }
+                        Spacer(minLength: 8)
 
-                Spacer()
-
-                // Price (if applicable)
-                if let price = price {
-                    VStack(alignment: .trailing, spacing: 2) {
-                        Text(price)
-                            .font(DesignTokens.bodyFont(size: 15, weight: .semibold))
-                            .foregroundStyle(isSelected ? DesignTokens.gold : .white)
-
-                        if let note = billingNote {
-                            Text(note)
-                                .font(DesignTokens.bodyFont(size: 11))
-                                .foregroundStyle(DesignTokens.textSecondary)
+                        if let price = price {
+                            Text(price)
+                                .font(DesignTokens.bodyFont(size: 15, weight: .semibold))
+                                .foregroundStyle(isSelected ? DesignTokens.gold : .white)
+                                .fixedSize()
                         }
                     }
-                    .frame(width: 120, alignment: .trailing)
+
+                    // Concrete value — full width, never truncated
+                    Text(description)
+                        .font(DesignTokens.bodyFont(size: 13))
+                        .foregroundStyle(DesignTokens.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    if let note = billingNote {
+                        Text(note)
+                            .font(DesignTokens.bodyFont(size: 11))
+                            .foregroundStyle(DesignTokens.textSecondary)
+                    }
                 }
             }
-            .padding(12)
+            .padding(14)
             .background(isSelected ? DesignTokens.gold.opacity(0.08) : DesignTokens.surface)
             .clipShape(.rect(cornerRadius: DesignTokens.radiusMedium))
             .overlay(
@@ -508,10 +504,9 @@ struct SubscriptionView: View {
     private var tokenProducts: [Product] {
         var result: [Product] = []
         // When the pay-per-song hero is active it already offers a single song
-        // (gift_bundle_1, $1.99); hide the deprecated one-off ($2.99) so we
-        // don't show two single-song prices.
-        let heroActive =
-            entitlements?.payPerSongEnabled == true && storeKit.payPerSongProduct != nil
+        // (gift_bundle_1); hide the deprecated one-off so we don't show two
+        // single-song prices.
+        let heroActive = storeKit.payPerSongProduct != nil
         if !heroActive, let single = storeKit.giftTokenProduct {
             result.append(single)
         }
