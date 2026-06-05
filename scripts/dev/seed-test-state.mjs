@@ -34,6 +34,31 @@ async function setFlag(id, value) {
   );
 }
 
+const DEMO_USER_ID = "user_demo_porizo";
+
+async function seedDemoUser() {
+  await pool.query(
+    `INSERT INTO users (id, created_at, display_name, email, email_verified)
+     VALUES ($1, NOW(), 'Demo (Simulator)', 'demo@porizo.test', 1)
+     ON CONFLICT (id) DO NOTHING`,
+    [DEMO_USER_ID],
+  );
+  await pool.query(
+    `INSERT INTO entitlements
+       (user_id, tier, songs_remaining, songs_allowance,
+        poems_remaining, poems_allowance, updated_at)
+     VALUES ($1, 'plus', 5, 10, 5, 10, NOW())
+     ON CONFLICT (user_id) DO UPDATE SET
+       tier = 'plus', songs_remaining = 5, songs_allowance = 10,
+       poems_remaining = 5, poems_allowance = 10, updated_at = NOW()`,
+    [DEMO_USER_ID],
+  );
+  console.log(`✓ demo account ready: ${DEMO_USER_ID} (Plus, 5 songs / 5 poems)`);
+  console.log(
+    "  iOS: launch with --demo-login (real backend, ALLOW_ANON_USER_ID=true).",
+  );
+}
+
 async function showStatus() {
   const flags = await pool.query(
     `SELECT id, value FROM feature_flags WHERE id LIKE 'paywall_%' ORDER BY id`,
@@ -60,11 +85,16 @@ try {
       console.log("✓ paywall_pay_per_song_enabled = false");
       await showStatus();
       break;
+    case "demo":
+      await seedDemoUser();
+      break;
     case "status":
       await showStatus();
       break;
     default:
-      console.error(`Unknown command: ${cmd}. Use payperson:on | payperson:off | status`);
+      console.error(
+        `Unknown command: ${cmd}. Use payperson:on | payperson:off | demo | status`,
+      );
       process.exit(1);
   }
 } finally {

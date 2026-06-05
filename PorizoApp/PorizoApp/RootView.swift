@@ -1137,6 +1137,11 @@ struct RootView: View {
     }
 
     private func getOrCreateDeviceId() -> String {
+        #if DEBUG
+        // Demo account: pin to a fixed, seeded user id (sent as x-user-id) so
+        // the app is "logged in" as a stable account against the real backend.
+        if let demoId = SimulatorFixtures.demoUserId { return demoId }
+        #endif
         let key = "porizo_device_id"
 
         // Try Keychain first (secure storage)
