@@ -1403,6 +1403,20 @@ async function startJobRunner({
     const mixPath = path.join(versionDir, "mix.wav");
     const hasOutput = fs.existsSync(outputPath);
     const hasMix = fs.existsSync(mixPath);
+    const outputStats = hasOutput ? fs.statSync(outputPath) : null;
+    const outputSizeBytes = outputStats?.size || 0;
+    const expectedDuration = Number(
+      musicPlan?.duration_sec || track.duration_target || 60,
+    );
+    const actualDuration = await probeAudioDurationSec(outputPath);
+    const hasProbeableDuration =
+      Number.isFinite(actualDuration) && actualDuration > 0;
+    const hasSaneOutputAudio =
+      hasOutput &&
+      outputSizeBytes >= 90000 &&
+      hasProbeableDuration &&
+      actualDuration >= 10 &&
+      actualDuration <= 15 * 60;
 
     let styleScore = 55;
     const supportScore = Number(musicPlan?.provider_support_score);
@@ -1449,24 +1463,48 @@ async function startJobRunner({
     }
     styleScore = clampNumber(styleScore, 0, 100, 55);
 
+    const qualityContract = resolveRenderContract({ track, musicPlan });
+    const providerLocked =
+      qualityContract.provider_locked || musicPlan?.provider_resolved || "suno";
+    const providerCompletePath = path.join(
+      versionDir,
+      `${providerLocked}_complete.mp3`,
+    );
+    const providerCompleteFallbackPaths = [
+      providerCompletePath,
+      path.join(versionDir, isFull ? "inst_full.mp3" : "inst_preview.mp3"),
+      path.join(versionDir, isFull ? "inst_full.wav" : "inst_preview.wav"),
+      path.join(versionDir, "suno_complete.mp3"),
+      path.join(versionDir, "elevenlabs_complete.mp3"),
+    ];
+    const hasProviderCompleteSourceArtifact = providerCompleteFallbackPaths.some(
+      (candidatePath) => {
+        try {
+          const stats = fs.statSync(candidatePath);
+          return stats.isFile() && stats.size >= 90000;
+        } catch (_err) {
+          return false;
+        }
+      },
+    );
+    const hasProviderCompleteAudio =
+      isProviderCompleteAudioPipeline(qualityContract.pipeline) &&
+      (Boolean(getProviderAudioUrl(trackVersion)) ||
+        hasProviderCompleteSourceArtifact ||
+        hasSaneOutputAudio);
+
     let vocalScore = 68;
     const directProviderGuide =
       Boolean(trackVersion?.guide_vocal_url) &&
       !String(trackVersion.guide_vocal_url).includes("/guide/");
-    const qualityContract = resolveRenderContract({ track, musicPlan });
     const isPersonalized = qualityContract.voice_mode === "user_voice";
-    if (
+    if (hasProviderCompleteAudio) {
+      vocalScore = isPersonalized ? 88 : 90;
+    } else if (
       isPersonalized &&
       isSunoVoicePersonaPipeline(qualityContract.pipeline)
     ) {
-      const providerCompletePath = path.join(
-        versionDir,
-        `${qualityContract.provider_locked || "provider"}_complete.mp3`,
-      );
-      vocalScore =
-        getProviderAudioUrl(trackVersion) || fs.existsSync(providerCompletePath)
-          ? 88
-          : 58;
+      vocalScore = 58;
     } else if (isPersonalized) {
       const personalizedFile = path.join(
         versionDir,
@@ -1498,24 +1536,30 @@ async function startJobRunner({
       fs.existsSync(path.join(versionDir, "stems", "instrumental.wav")) ||
       fs.existsSync(path.join(versionDir, "suno_complete.mp3")) ||
       fs.existsSync(path.join(versionDir, "elevenlabs_complete.mp3"));
-    let balanceScore = hasMix && hasInstrumental ? 84 : hasMix ? 70 : 45;
+    const hasProviderCompleteFinal =
+      hasSaneOutputAudio &&
+      isProviderCompleteAudioPipeline(qualityContract.pipeline);
+    let balanceScore =
+      hasProviderCompleteFinal || (hasMix && hasInstrumental)
+        ? 84
+        : hasMix
+          ? 70
+          : 45;
 
     let technicalScore = hasOutput ? 75 : 25;
     if (hasOutput) {
-      const stats = fs.statSync(outputPath);
-      if (stats.size >= 150000) {
+      if (outputSizeBytes >= 150000) {
         technicalScore += 15;
-      } else if (stats.size >= 90000) {
+      } else if (outputSizeBytes >= 90000) {
         technicalScore += 8;
-      } else if (stats.size < 30000) {
+      } else if (outputSizeBytes < 30000) {
+        technicalScore -= 25;
+      }
+      if (!hasProbeableDuration) {
         technicalScore -= 25;
       }
     }
 
-    const expectedDuration = Number(
-      musicPlan?.duration_sec || track.duration_target || 60,
-    );
-    const actualDuration = await probeAudioDurationSec(outputPath);
     if (Number.isFinite(actualDuration) && expectedDuration > 0) {
       const deltaRatio =
         Math.abs(actualDuration - expectedDuration) / expectedDuration;
@@ -1545,11 +1589,15 @@ async function startJobRunner({
     if (technicalScore < 60) issues.push("technical_quality_low");
     if (!hasOutput) issues.push("missing_output_audio");
 
-    const passed = totalScore >= qualityThreshold && hasOutput;
+    const passed =
+      totalScore >= qualityThreshold &&
+      hasOutput &&
+      technicalScore >= 60;
     return {
       passed,
       threshold: qualityThreshold,
       total_score: totalScore,
+      output_size_bytes: outputSizeBytes,
       style_adherence_score: styleScore,
       vocal_intelligibility_score: vocalScore,
       instrumental_balance_score: balanceScore,
@@ -2219,7 +2267,7 @@ async function startJobRunner({
   }
 
   const dlqReprocessTimer = setInterval(performDLQAutoReprocess, 5 * 60 * 1000);
-  setTimeout(performDLQAutoReprocess, 30000); // Run once at startup after 30s
+  const dlqReprocessStartupTimer = setTimeout(performDLQAutoReprocess, 30000); // Run once at startup after 30s
 
   // Durable artwork-job orphan recovery. Sweeps the `jobs` table for any
   // workflow_type='artwork_render' rows stuck queued past their next_attempt_at
@@ -2232,7 +2280,7 @@ async function startJobRunner({
     });
   };
   const artworkRecoveryTimer = setInterval(artworkRecoverySweep, 60 * 1000);
-  setTimeout(artworkRecoverySweep, 5000); // Run shortly after startup
+  const artworkRecoveryStartupTimer = setTimeout(artworkRecoverySweep, 5000); // Run shortly after startup
 
   // FOR UPDATE SKIP LOCKED prevents race conditions between workers:
   // - Locks selected rows so other workers won't select them
@@ -5589,6 +5637,8 @@ async function startJobRunner({
       clearInterval(recoveryTimer);
       clearInterval(dlqReprocessTimer);
       clearInterval(artworkRecoveryTimer);
+      clearTimeout(dlqReprocessStartupTimer);
+      clearTimeout(artworkRecoveryStartupTimer);
     },
     tickVoiceProviderJobs,
     // Expose concurrent job stats for health checks
