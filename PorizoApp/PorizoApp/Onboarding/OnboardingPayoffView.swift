@@ -34,7 +34,7 @@ struct OnboardingPayoffView: View {
     var body: some View {
         OnboardingScreenShell(accessibilityId: "onboarding-payoff") {
             VStack(spacing: DesignTokens.spacing24) {
-                Text("Your first forever gift\nfor \(recipientName)")
+                Text("Your first song is free\nfor \(recipientName)")
                     .font(DesignTokens.displayFont(size: 28))
                     .foregroundStyle(DesignTokens.textPrimary)
                     .multilineTextAlignment(.center)
@@ -61,7 +61,7 @@ struct OnboardingPayoffView: View {
                     HStack(spacing: DesignTokens.spacing8) {
                         Image(systemName: "sparkles")
                             .font(.system(size: 16))
-                        Text("Make This Song")
+                        Text("Make This Song · Free")
                             .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
                     }
                     .foregroundStyle(.white)

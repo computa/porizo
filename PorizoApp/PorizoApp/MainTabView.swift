@@ -254,6 +254,18 @@ struct MainTabView: View {
             }
             #endif
         }
+        // V-A — recipient tapped "Make one back for {Sender}" while already in the
+        // app. The once-per-launch pending-create consume won't re-fire, so launch
+        // the pre-filled flow directly and clear the now-stale pending context.
+        .onReceive(NotificationCenter.default.publisher(for: .makeOneBackRequested)) { note in
+            let name = (note.userInfo?["recipientName"] as? String) ?? ""
+            hasConsumedPendingCreateContext = true
+            onConsumePendingCreateContext?()
+            presentCreateFlow(
+                initialRecipientName: name.isEmpty ? nil : name,
+                preselectedType: .song
+            )
+        }
     }
 
     // MARK: - Custom Tab Bar (v1.pen design)

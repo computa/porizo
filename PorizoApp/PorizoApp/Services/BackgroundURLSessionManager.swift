@@ -15,6 +15,10 @@ extension Notification.Name {
     static let pushTokenUpdated = Notification.Name("pushTokenUpdated")
     static let songLibraryDidChange = Notification.Name("songLibraryDidChange")
     static let poemLibraryDidChange = Notification.Name("poemLibraryDidChange")
+    /// Recipient tapped "Make one back for {Sender}" on a shared song.
+    /// Carries `userInfo["recipientName"]` (the sender's name). Observed by
+    /// MainTabView to launch a pre-filled create flow in-session.
+    static let makeOneBackRequested = Notification.Name("makeOneBackRequested")
 }
 
 /// Manages persistent uploads using iOS background URLSession.

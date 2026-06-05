@@ -164,6 +164,10 @@ struct RootView: View {
     @State private var apiWrapper: APIClientWrapper?
     @State private var sttRouter: STTRouter?
     @State private var shareContext: ShareContext?
+    // V-A — sender name captured when the recipient taps "Make one back". Consumed in
+    // the share sheet's onDismiss so the create flow presents AFTER the sheet finishes
+    // dismissing (presenting a cover mid-dismiss is dropped by SwiftUI).
+    @State private var pendingReplySenderName: String?
     @State private var receiverClaimContext: ReceiverClaimContext?
     @State private var pendingShareId: String?
     @State private var pendingShareIsPoem: Bool = false
@@ -431,7 +435,7 @@ struct RootView: View {
                 presentReceiverClaimDraft(draft)
             }
         }
-        .sheet(item: $shareContext) { context in
+        .sheet(item: $shareContext, onDismiss: fireMakeOneBackIfPending) { context in
             if context.isPoem {
                 PoemClaimView(
                     apiClient: shareClient,
@@ -441,7 +445,10 @@ struct RootView: View {
                 ShareClaimView(
                     apiClient: shareClient,
                     shareId: context.shareId,
-                    deviceId: getOrCreateDeviceId()
+                    deviceId: getOrCreateDeviceId(),
+                    onReplyToSender: { senderName in
+                        handleMakeOneBack(senderName: senderName)
+                    }
                 )
             }
         }
@@ -727,6 +734,41 @@ struct RootView: View {
         pendingRelationshipType = ""
         pendingSuggestion = ""
         pendingCreateAutostart = false
+    }
+
+    // V-A — recipient tapped "Make one back for {Sender}" on a shared song.
+    // Two routes cover both audiences:
+    //  • Cold / not-yet-onboarded: persist a pending-create context that
+    //    MainTabView autostarts on its first appearance (after auth/onboarding).
+    //  • In-session / already in .main: post .makeOneBackRequested so MainTabView
+    //    launches the pre-filled create flow immediately (the once-per-launch
+    //    pending-consume has already fired and won't re-trigger).
+    private func handleMakeOneBack(senderName: String) {
+        let name = senderName.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        PendingSuggestionStore.clear()
+        pendingSuggestion = ""
+        pendingRecipientName = name
+        pendingOccasion = ""
+        pendingEmotionalSeed = ""
+        pendingRelationshipType = ""
+        pendingCreateType = CreateFlowKind.song.rawValue
+        pendingCreateAutostart = true
+
+        // Dismiss the sheet; the in-session create-flow launch fires from onDismiss
+        // (below) so we never present a cover while the sheet is still dismissing.
+        pendingReplySenderName = name
+        shareContext = nil
+    }
+
+    private func fireMakeOneBackIfPending() {
+        guard let name = pendingReplySenderName else { return }
+        pendingReplySenderName = nil
+        NotificationCenter.default.post(
+            name: .makeOneBackRequested,
+            object: nil,
+            userInfo: name.isEmpty ? [:] : ["recipientName": name]
+        )
     }
 
     // MARK: - Launch Flash

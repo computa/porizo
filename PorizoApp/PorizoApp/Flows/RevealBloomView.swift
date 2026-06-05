@@ -115,6 +115,10 @@ struct RevealBloomView: View {
                     shareButton
                         .padding(.top, DesignTokens.spacing8)
 
+                    // F-3 — reaction-capture nudge (the content moment).
+                    reactionPromptButton
+                        .padding(.top, DesignTokens.spacing4)
+
                     if let shareDebugStatusLabel {
                         Text(shareDebugStatusLabel)
                             .font(.system(size: 1))
@@ -283,7 +287,7 @@ struct RevealBloomView: View {
 
     private var shareButton: some View {
         Button(action: onShare) {
-            Text("Share with \(recipientName)")
+            Text("Send to \(recipientName)")
                 .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
                 .foregroundStyle(DesignTokens.gold)
                 .frame(maxWidth: 280)
@@ -292,7 +296,20 @@ struct RevealBloomView: View {
                 .clipShape(RoundedRectangle(cornerRadius: DesignTokens.radiusCTA))
         }
         .accessibilityIdentifier("reveal-share-button")
-        .accessibilityLabel("Share song with \(recipientName)")
+        .accessibilityLabel("Send song to \(recipientName)")
+    }
+
+    // F-3 — secondary prompt at the reveal: nudge capturing the recipient's
+    // reaction (the highest-value sharable/TikTok moment). Same send action as the
+    // primary CTA — framing, not a separate flow.
+    private var reactionPromptButton: some View {
+        Button(action: onShare) {
+            Text("Send & see their reaction \u{2192}")
+                .font(DesignTokens.bodyFont(size: 14, weight: .medium))
+                .foregroundStyle(.white.opacity(0.85))
+        }
+        .accessibilityIdentifier("reveal-reaction-button")
+        .accessibilityLabel("Send to \(recipientName) and capture their reaction")
     }
 
     // MARK: - Tertiary Links

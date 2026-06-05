@@ -1765,6 +1765,31 @@
         });
       }
     }
+
+    // V-A — reply CTA: reciprocate by making a song back for the sender. Web can't
+    // create, so it routes to the same install URL (deferred deep-link lands in the
+    // pre-filled "make one back" flow once V-D ships). Sender names are user data —
+    // set via textContent only (never innerHTML).
+    var replyLink = document.getElementById("cta-make-one-back");
+    if (replyLink) {
+      var trackInfo = getTrackInfo();
+      var senderName = ((trackInfo && trackInfo.sender_name) || "").trim();
+      replyLink.textContent = senderName
+        ? "Make one back for " + senderName + " →"
+        : "Make one of your own →";
+      replyLink.href =
+        receiverSaveUrl || buildReceiverSaveFallbackUrl("post_play_reply");
+      var headline = document.getElementById("post-play-headline");
+      if (headline && senderName) {
+        headline.textContent = "Loved it? Make one back for " + senderName;
+      }
+      if (!replyLink.dataset.bound) {
+        replyLink.dataset.bound = "1";
+        replyLink.addEventListener("click", function (event) {
+          handleReceiverSaveClick(event, "post_play_reply");
+        });
+      }
+    }
     var dismissBtn = document.getElementById("cta-dismiss");
     if (dismissBtn && !postPlayDismissBound) {
       postPlayDismissBound = true;

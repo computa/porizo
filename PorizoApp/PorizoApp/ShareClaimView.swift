@@ -40,6 +40,9 @@ struct ShareClaimView: View {
     let apiClient: APIClient
     let shareId: String
     let deviceId: String
+    /// Invoked when the recipient taps "Make one back for {Sender}". Receives the
+    /// sender's name (may be empty). RootView routes this into a pre-filled create flow.
+    var onReplyToSender: ((String) -> Void)? = nil
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
@@ -206,9 +209,7 @@ struct ShareClaimView: View {
                     .font(DesignTokens.bodyFont(size: 13))
                     .foregroundStyle(DesignTokens.textSecondary)
 
-                Text("Make one for someone you love \u{2192}")
-                    .font(DesignTokens.bodyFont(size: 13))
-                    .foregroundStyle(DesignTokens.gold)
+                makeOneBackCTA(prominent: false)
             }
             .padding(.horizontal, 20)
             .padding(.bottom, 40)
@@ -297,6 +298,57 @@ struct ShareClaimView: View {
             return "A song made just for \(recipient)"
         }
         return "A song, made just for you"
+    }
+
+    private var senderName: String {
+        (trackInfo?.senderName ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    // V-A — Reply at peak emotion: reciprocate by making a song back for the sender.
+    // Routes into a pre-filled create flow (recipient = sender). `prominent` is a
+    // filled CTA for the listen/preview view; otherwise a lighter gold text link
+    // (used in the PIN state, where filled gold buttons already carry the primary actions).
+    @ViewBuilder
+    private func makeOneBackCTA(prominent: Bool) -> some View {
+        let title = senderName.isEmpty
+            ? "Make a song of your own \u{2192}"
+            : "Make one back for \(senderName) \u{2192}"
+
+        Button {
+            onReplyToSender?(senderName)
+        } label: {
+            if prominent {
+                Text(title)
+                    .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 16)
+                    .background(DesignTokens.gold)
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
+            } else {
+                Text(title)
+                    .font(DesignTokens.bodyFont(size: 13, weight: .semibold))
+                    .foregroundStyle(DesignTokens.gold)
+            }
+        }
+    }
+
+    // V-C — Claim-to-keep. Honest framing: a share link never expires (lifetime
+    // token), so the real urgency is ownership — the song binds to the first device
+    // that claims it and lands permanently in your library. No fake deadline.
+    private var claimUrgencyChip: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "lock.open.fill")
+                .font(.system(size: 11))
+            Text("Claim in the app to make it yours \u{2014} keep it forever")
+                .font(DesignTokens.bodyFont(size: 12))
+        }
+        .foregroundStyle(DesignTokens.textSecondary)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(DesignTokens.surface)
+        .clipShape(Capsule())
+        .overlay(Capsule().stroke(DesignTokens.border, lineWidth: 0.5))
     }
 
     private var miniPostcard: some View {
@@ -540,10 +592,12 @@ struct ShareClaimView: View {
 
             if state == .previewClaimable {
                 VStack(spacing: 12) {
-                    Text("Want to save this song?")
-                        .font(DesignTokens.bodyFont(size: 14))
-                        .foregroundStyle(DesignTokens.textSecondary)
-                        .padding(.top, 24)
+                    // V-A — reciprocate at peak emotion (primary action).
+                    makeOneBackCTA(prominent: true)
+
+                    // V-C — honest claim-to-keep (lifetime link, ownership urgency).
+                    claimUrgencyChip
+                        .padding(.top, 4)
 
                     Button {
                         state = .requiresPin
@@ -562,9 +616,10 @@ struct ShareClaimView: View {
                     }
                 }
                 .padding(.horizontal, 20)
+                .padding(.top, 24)
                 .padding(.bottom, 40)
             } else {
-                VStack(spacing: 8) {
+                VStack(spacing: 12) {
                     Text("This song is already claimed.")
                         .font(DesignTokens.bodyFont(size: 14, weight: .medium))
                         .foregroundStyle(DesignTokens.textSecondary)
@@ -573,6 +628,10 @@ struct ShareClaimView: View {
                         .font(DesignTokens.bodyFont(size: 13))
                         .foregroundStyle(DesignTokens.textTertiary)
                         .multilineTextAlignment(.center)
+
+                    // V-A — reciprocity still applies even when claiming is closed.
+                    makeOneBackCTA(prominent: true)
+                        .padding(.top, 8)
                 }
                 .padding(.horizontal, 20)
                 .padding(.bottom, 40)
