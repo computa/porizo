@@ -542,8 +542,15 @@ struct SubscriptionViewV2: View {
         switch state {
         case .success:
             Task {
+                // Keep buy buttons disabled for the brief success window (LB1),
+                // then dismiss AND clear the shared StoreKitManager — otherwise it
+                // stays `.success`, which `blocksRepeatPurchase` treats as "in
+                // flight", locking every buy button on the next paywall surface
+                // until an unrelated restore/cancel/relaunch resets it. Mirrors
+                // GiftBagView / GiftSendFlowView, which reset after success.
                 try? await Task.sleep(for: .seconds(1))
                 dismiss()
+                storeKit.resetPurchaseState()
             }
         case .syncFailed:
             errorMessage = "Payment received, but server verification failed. Please reopen the app or use Restore Purchases."

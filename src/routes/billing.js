@@ -4,12 +4,17 @@ const crypto = require("crypto");
 const { nowIso, toJson, parseJson } = require("../utils/common");
 const { getFeatureFlag } = require("../services/feature-flags");
 
+// Frozen wire-format constant, NOT a feature toggle. Pay-per-song is a permanent
+// product (gift-wallet credit always funds the user's own songs), so the DB flag
+// that used to drive this was removed. The `pay_per_song_enabled` field stays in
+// the response purely for backward-compat: app builds already on users' phones
+// decode it and default to OFF when it's absent, so we must keep reporting `true`.
+// DELETE this constant and the field once the minimum supported client no longer
+// reads `pay_per_song_enabled` (it's already inert in the current iOS build).
+const PAY_PER_SONG_ENABLED = true;
+
 // Module-scope so it can be unit-tested and exported. Pure: depends only on
 // its arguments, closes over nothing from the route registrar.
-// Pay-per-song is a permanent product: gift-wallet credit always counts toward
-// spendable song credits, and `pay_per_song_enabled` is always reported true.
-// The field stays in the payload for backward-compat with deployed clients that
-// still decode it (dropping it would default older clients to OFF).
 function buildEntitlementsPayload(entitlements, subscription = null) {
   const toSafeInt = (value, fallback = 0) => {
     const n = Number(value);
@@ -34,7 +39,7 @@ function buildEntitlementsPayload(entitlements, subscription = null) {
       trial_songs_remaining: 0,
       gift_wallet_balance: 0,
       available_song_credits: 0,
-      pay_per_song_enabled: true,
+      pay_per_song_enabled: PAY_PER_SONG_ENABLED,
       trial_expires_at: null,
       plan_id: null,
       billing_period: null,
@@ -64,7 +69,7 @@ function buildEntitlementsPayload(entitlements, subscription = null) {
     available_song_credits:
       Math.max(0, toSafeInt(entitlements.songsRemaining)) +
       Math.max(0, toSafeInt(entitlements.giftWalletBalance)),
-    pay_per_song_enabled: true,
+    pay_per_song_enabled: PAY_PER_SONG_ENABLED,
     trial_expires_at: toIsoOrNull(entitlements.trialExpiresAt),
     plan_id: entitlements.planId,
     billing_period: entitlements.billingPeriod,

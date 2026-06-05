@@ -424,7 +424,7 @@ struct NoCreditsView: View {
 
     private var bodyLine: String {
         // Songs lead with the no-subscription one-off; poems are subscription-only.
-        creationNoun == "song"
+        creationNoun.lowercased() == "song"
             ? "Make one more \(creationNoun) — no subscription needed"
             : "Upgrade to Pro for more \(creationNoun)s each month"
     }
