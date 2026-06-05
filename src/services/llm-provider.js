@@ -36,13 +36,12 @@ const MODELS = {
   },
   anthropic: {
     lyrics: "claude-sonnet-4-20250514", // Higher quality for creative tasks
-    simple: "claude-3-haiku-20240307", // Faster/cheaper for simple tasks
+    // Current Haiku — moved off the deprecated Haiku 3
+    // (claude-3-haiku-20240307) and kept in sync with vars_extractor below.
+    simple: "claude-haiku-4-5-20251001", // Faster/cheaper for simple tasks
     // Dedicated lane for the artwork-vars-extractor: bounded-vocab JSON
     // emission needs Haiku 4.5's instruction-following without the cost of
-    // Sonnet. Keeping it separate from `simple` so memory-questions,
-    // blog-editorial-review, and v3 writer fallback (all on Haiku 3 today)
-    // aren't silently bumped to 4.5 here — those callers may have been
-    // tuned against Haiku 3's specific quirks. See spec §6.4.
+    // Sonnet. See spec §6.4.
     vars_extractor: "claude-haiku-4-5-20251001",
   },
   openai: {

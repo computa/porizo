@@ -31,13 +31,17 @@ function buildLightweightPrompt(state, userInput) {
   // Extract key facts (limit to 3 most recent)
   const factList = (state.facts || [])
     .slice(-3)
-    .map(f => f.text)
+    .map((f) => f.text)
     .join("; ");
 
   // Find weak beats (strength < 0.5) and get their purposes
   const weakBeats = (state.beats || [])
-    .filter(b => (typeof b.strength === "number" ? b.strength < 0.5 : b.status !== "covered"))
-    .map(b => b.purpose)
+    .filter((b) =>
+      typeof b.strength === "number"
+        ? b.strength < 0.5
+        : b.status !== "covered",
+    )
+    .map((b) => b.purpose)
     .slice(0, 2)
     .join(", ");
 
@@ -107,7 +111,7 @@ async function callLightweightModel(state, userInput, options = {}) {
 
     if (llmClient) {
       const response = await llmClient.generate({
-        model: options.model || "claude-3-haiku-20240307",
+        model: options.model || "claude-haiku-4-5-20251001",
         prompt,
         maxTokens: 180,
         temperature: 0.2,
@@ -126,7 +130,10 @@ async function callLightweightModel(state, userInput, options = {}) {
     });
 
     if (!response?.text) {
-      return { success: false, error: "Lightweight model returned empty response" };
+      return {
+        success: false,
+        error: "Lightweight model returned empty response",
+      };
     }
 
     return parseLightweightResponse(response.text);
