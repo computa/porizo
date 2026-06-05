@@ -22,6 +22,12 @@ test-output/
 # Xcode user state
 *.xcuserstate
 
+# Editor state
+.vscode/
+
+# iOS provisioning profiles (signing artifacts — never commit)
+*.mobileprovision
+
 # SQLite databases (legacy - now using PostgreSQL)
 *.db
 !.claude/**/*.db
@@ -165,3 +171,6 @@ marketing/email/.state/
 
 # Father's Day IAE raw intermediate
 marketing/appstore/aso/fathers-day-event-card-raw*.png
+
+# macOS folder metadata — keep out even inside carved-in (re-included) dirs
+**/.DS_Store
