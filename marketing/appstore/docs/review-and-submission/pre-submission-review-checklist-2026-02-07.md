@@ -51,7 +51,7 @@ Generated: 2026-02-07 (post-fix refresh)
 
 - [x] App Store copy aligned to shipped save/share behavior (no download mismatch)
   - `/Users/ao/Documents/projects/porizo/PorizoApp/app-store-metadata.md:34`
-  - `/Users/ao/Documents/projects/porizo/docs/appstore/description.md:35`
+  - `/Users/ao/Documents/projects/porizo/marketing/appstore/docs/review-and-submission/description.md:35`
 - [x] User-facing report-abuse path added for shared UGC surfaces
   - `/Users/ao/Documents/projects/porizo/PorizoApp/PorizoApp/ShareClaimView.swift:170`
   - `/Users/ao/Documents/projects/porizo/PorizoApp/PorizoApp/SharedPoemView.swift:278`
@@ -71,4 +71,4 @@ Generated: 2026-02-07 (post-fix refresh)
 
 - Current status: **READY TO SUBMIT (code and build gates)**.
 - Operational caveat: complete the two manual pre-submit items above before pressing Submit for Review.
-- Detailed rationale: `/Users/ao/Documents/projects/porizo/docs/appstore/app-review-rejection-audit-2026-02-07.md`
+- Detailed rationale: `/Users/ao/Documents/projects/porizo/marketing/appstore/docs/review-and-submission/app-review-rejection-audit-2026-02-07.md`

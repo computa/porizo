@@ -28,7 +28,7 @@ asc localizations create --app 6758205028 --locale en-AU
 | Field    | Value |
 | -------- | ----- |
 | Name     | `Porizo: Song Gift Maker` |
-| Subtitle | `Birthday, Love & Wedding` |
+| Subtitle | `Birthday, Love & Wedding Songs` |
 | en-US / en-CA keywords | `personalized,custom,voice,mom,dad,anniversary,fathers,mothers,day,husband,wife,graduation,ai` |
 | en-GB / en-AU keywords | `personalised,custom,voice,mum,dad,anniversary,fathers,mothers,day,husband,wife,graduation,ai` |
 
@@ -56,7 +56,7 @@ Father's Day promo + release-notes copy carries through unchanged.
 
 | Field            | en-US                          | en-GB                                  |
 | ---------------- | ------------------------------ | -------------------------------------- |
-| subtitle         | Birthday, Love & Wedding       | Birthday, Love & Wedding               |
+| subtitle         | Birthday, Love & Wedding Songs | Birthday, Love & Wedding Songs         |
 | keywords         | …personalized…mom…             | …personal**ised**…**mum**…             |
 | promotional_text | …Father's Day, **June 15**.    | …Father's Day, **15 June**.            |
 | release_notes    | …send before **June 15**.      | …send before **15 June**.              |
@@ -73,7 +73,7 @@ which is identical in both dialects.
 
 | Field            | en-US                          | en-AU                                  |
 | ---------------- | ------------------------------ | -------------------------------------- |
-| subtitle         | Birthday, Love & Wedding       | Birthday, Love & Wedding               |
+| subtitle         | Birthday, Love & Wedding Songs | Birthday, Love & Wedding Songs         |
 | keywords         | …personalized…mom…             | …personal**ised**…**mum**…             |
 | promotional_text | Father's Day, June 15 framing  | **Occasion-neutral** evergreen copy    |
 | release_notes    | Father's Day, June 15 framing  | **Occasion-neutral** evergreen copy    |

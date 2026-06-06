@@ -15,12 +15,12 @@ Both blockers resolved. Ready for submission.
 
 | # | Category | Issue | File:Line | Fix |
 |---|----------|-------|-----------|-----|
-| 1 | J | **Listing screenshot `02-explore-home.png` has 144 DPI.** All other listing screenshots are 72 DPI JPEG; this one is 144 DPI PNG with alpha. | `docs/appstore/subscription-screenshots/listing/02-explore-home.png` | Re-export at 72 DPI as JPEG. `sips -s dpiWidth 72 -s dpiHeight 72 -s format jpeg <file>` |
-| 2 | J | **All iPhone and iPad screenshots have `hasAlpha: yes`.** Apple technically accepts PNGs with alpha if the background is opaque, but this has caused rejections. | `docs/appstore/iphone-screenshots/` and `ipad-screenshots/` | Flatten all screenshots: `sips -s hasAlpha no <file>` or convert to JPEG. |
-| 3 | M | **Consumable IAP review screenshots may be incomplete in ASC.** Four consumable products exist but only one screenshot on disk. | `docs/appstore/screenshots/gift-bundle-picker.png` | Verify each consumable product in ASC has a review screenshot uploaded. |
+| 1 | J | **Listing screenshot `02-explore-home.png` has 144 DPI.** All other listing screenshots are 72 DPI JPEG; this one is 144 DPI PNG with alpha. | `marketing/appstore/docs/review-and-submission/subscription-screenshots/listing/02-explore-home.png` | Re-export at 72 DPI as JPEG. `sips -s dpiWidth 72 -s dpiHeight 72 -s format jpeg <file>` |
+| 2 | J | **All iPhone and iPad screenshots have `hasAlpha: yes`.** Apple technically accepts PNGs with alpha if the background is opaque, but this has caused rejections. | `marketing/appstore/docs/review-and-submission/iphone-screenshots/` and `ipad-screenshots/` | Flatten all screenshots: `sips -s hasAlpha no <file>` or convert to JPEG. |
+| 3 | M | **Consumable IAP review screenshots may be incomplete in ASC.** Four consumable products exist but only one screenshot on disk. | `marketing/appstore/docs/review-and-submission/screenshots/gift-bundle-picker.png` | Verify each consumable product in ASC has a review screenshot uploaded. |
 | 4 | A | **Accessibility hints say "Coming soon" on search and notification buttons.** Apple reviewers may use VoiceOver and hear this. | `PorizoApp/PorizoApp/Tabs/ExploreTabView.swift:102,113` | Change to describe button action (e.g., "Search songs"). |
 | 5 | D | **Terms of Service references "Google Play Store."** Porizo is iOS-only, Apple may question this. | `public/legal/terms.html:149,155` | Update to "Apple App Store" only. |
-| 6 | F | **Demo account credentials need ASC verification.** Listed in description.md but must be entered in ASC Review Information. | `docs/appstore/description.md:286-287` | Verify credentials in ASC > App Review Information > Sign-In Information. |
+| 6 | F | **Demo account credentials need ASC verification.** Listed in description.md but must be entered in ASC Review Information. | `marketing/appstore/docs/review-and-submission/description.md:286-287` | Verify credentials in ASC > App Review Information > Sign-In Information. |
 | 7 | B | **Privacy manifest declares SystemBootTime but no direct code usage.** May conflict with SDK manifests. | `PorizoApp/PorizoApp/PrivacyInfo.xcprivacy:155-157` | Verify Firebase/Amplitude SDKs bundle their own manifest for this API. |
 
 ## Quality Gates

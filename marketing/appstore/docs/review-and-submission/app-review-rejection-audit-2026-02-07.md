@@ -78,7 +78,7 @@ Closed:
    - Manifest now declares expanded data categories: `/Users/ao/Documents/projects/porizo/PorizoApp/PorizoApp/PrivacyInfo.xcprivacy:13`
    - App Store privacy questionnaire mapping documented: `/Users/ao/Documents/projects/porizo/PorizoApp/app-store-metadata.md:224`
 4. Metadata mismatch on “download” claims.
-   - Updated to save/share wording: `/Users/ao/Documents/projects/porizo/PorizoApp/app-store-metadata.md:34`, `/Users/ao/Documents/projects/porizo/docs/appstore/description.md:35`
+   - Updated to save/share wording: `/Users/ao/Documents/projects/porizo/PorizoApp/app-store-metadata.md:34`, `/Users/ao/Documents/projects/porizo/marketing/appstore/docs/review-and-submission/description.md:35`
 5. Missing visible abuse-reporting path for shared content.
    - Added report actions in shared views: `/Users/ao/Documents/projects/porizo/PorizoApp/PorizoApp/ShareClaimView.swift:170`, `/Users/ao/Documents/projects/porizo/PorizoApp/PorizoApp/SharedPoemView.swift:278`
    - Added abuse contact in support page: `/Users/ao/Documents/projects/porizo/public/support.html:81`

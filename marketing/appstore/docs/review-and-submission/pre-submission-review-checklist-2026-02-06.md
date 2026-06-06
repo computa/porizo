@@ -1,6 +1,6 @@
 # Porizo iOS Pre-Submission App Review Checklist (Artifact-Mapped)
 
-> Superseded by `/Users/ao/Documents/projects/porizo/docs/appstore/pre-submission-review-checklist-2026-02-07.md`.
+> Superseded by `/Users/ao/Documents/projects/porizo/marketing/appstore/docs/review-and-submission/pre-submission-review-checklist-2026-02-07.md`.
 
 Generated: 2026-02-07 (local)
 Scope: iOS app (`PorizoApp`) + backend/legal artifacts that directly affect App Review outcomes.
@@ -70,7 +70,7 @@ Required action: Keep this aligned with in-app path labels.
 Status: `FAIL`
 Evidence:
 - Download claim: `/Users/ao/Documents/projects/porizo/PorizoApp/app-store-metadata.md:34`
-- Offline/download claims: `/Users/ao/Documents/projects/porizo/docs/appstore/description.md:44`, `/Users/ao/Documents/projects/porizo/docs/appstore/description.md:46`
+- Offline/download claims: `/Users/ao/Documents/projects/porizo/marketing/appstore/docs/review-and-submission/description.md:44`, `/Users/ao/Documents/projects/porizo/marketing/appstore/docs/review-and-submission/description.md:46`
 - Placeholder download UI: `/Users/ao/Documents/projects/porizo/PorizoApp/PorizoApp/TrackPlayerFullView.swift:723`
 Required action: Remove unsupported claims or implement the features first.
 
