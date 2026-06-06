@@ -3,7 +3,7 @@
  * Mother's Day 2026 Pinterest Pin Generator
  *
  * Produces 5 ready-to-upload Pinterest pins (1080x1620, 2:3 ratio) matching the
- * specs in marketing/mothers-day-2026/02-pinterest-pins.md.
+ * specs in marketing/archive/campaign-packs/mothers-day-2026-plan-pack/02-pinterest-pins.md.
  *
  * SVG-rendered to PNG via Sharp. Uses the Porizo "Warm Canvas" design tokens
  * shared with marketing/tools/generate-graphic.js — pixel-perfect, no AI drift.
@@ -17,7 +17,10 @@ const sharp = require("sharp");
 const fs = require("fs");
 const path = require("path");
 
-const OUTPUT_DIR = path.resolve(__dirname, "../mothers-day-2026/pin-assets");
+const OUTPUT_DIR = path.resolve(
+  __dirname,
+  "../archive/campaign-packs/mothers-day-2026-plan-pack/pin-assets",
+);
 
 // Warm Canvas palette — synced with generate-graphic.js
 const B = {

@@ -26,7 +26,7 @@
 
 ### Post body (use as-is for r/SideProject — already drafted in `03-reddit-post.md`)
 
-See `marketing/mothers-day-2026/03-reddit-post.md` — body is final.
+See `marketing/archive/campaign-packs/mothers-day-2026-plan-pack/03-reddit-post.md` — body is final.
 
 ### Reply triggers (set up these saved replies before posting)
 
@@ -159,7 +159,7 @@ What worked: **producing the kit instead of the campaign**.
 
 The kit is reusable for Father's Day in 6 weeks. The campaign isn't.
 
-If anyone's doing a similar holiday push for a small/solo product, happy to share the templates — they're public in [the repo](https://porizo.co?utm_source=reddit&utm_medium=organic&utm_campaign=mothers_day_2026&utm_content=entrepreneur). The Tier 1-4 SEO/GEO scaffolding doc lives in `tasks/traffic-strategy.md`.
+If anyone's doing a similar holiday push for a small/solo product, happy to share the templates — they're public in [the repo](https://porizo.co?utm_source=reddit&utm_medium=organic&utm_campaign=mothers_day_2026&utm_content=entrepreneur). The Tier 1-4 SEO/GEO scaffolding doc lives in `marketing/strategy/achieved/traffic-strategy.md`.
 ```
 
 ### Why this works for r/Entrepreneur

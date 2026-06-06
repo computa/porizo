@@ -105,5 +105,5 @@
 
 ## POST-SHOOT
 
-Save raw footage in `marketing/mothers-day-2026/raw-videos/` (gitignored — local only).
-Save edited final cuts in `marketing/mothers-day-2026/final-videos/` for cross-posting.
+Save raw footage in `marketing/archive/campaign-packs/mothers-day-2026-plan-pack/raw-videos/` (gitignored — local only).
+Save edited final cuts in `marketing/archive/campaign-packs/mothers-day-2026-plan-pack/final-videos/` for cross-posting.
