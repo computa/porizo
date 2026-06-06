@@ -6,6 +6,19 @@ Patterns and rules to prevent repeated mistakes. Review at session start.
 
 ## Session Rules
 
+### 2026-05-29 — iOS 14+ SKAN campaigns need `promoted_object` at the CAMPAIGN level (and the Meta MCP can't auth via Claude Code CLI)
+
+**Trigger:** Relaunching the Father's Day install campaign via Marketing API. Every ad-set creation under a SKAN campaign (`is_skadnetwork_attribution=true`) failed with `Invalid campaign attribution for non-iOS14+ campaign` (subcode 3955009) — even with valid iOS 15+ `user_os` targeting, the SKAdNetwork 4.0 toggle ON, and the iPad Store ID added. I spent most of a session assuming it was Meta-side propagation lag and waited ~12h; it persisted.
+
+**Mistake:** I set `promoted_object` (the app binding) only on the **ad set**, which is correct for non-SKAN app campaigns. iOS 14+ SKAN campaigns enforce "one app per campaign," so the app must be declared via `promoted_object` at the **campaign** level _at creation time_ (it's immutable afterward — you can't PATCH it on). Without it, Meta refuses to classify the campaign as iOS-14+, producing the misleading "non-iOS14+ campaign" error despite `is_skadnetwork_attribution=true` being set.
+
+**Rule:**
+
+1. To create an iOS 14+ SKAN install campaign via Graph API, set `promoted_object={"application_id":..., "object_store_url":...}` on BOTH the campaign (`POST /act_X/campaigns`) AND the ad set. The campaign-level binding is the one the public API docs omit but the Ads Manager UI sets automatically.
+2. `promoted_object` is immutable after campaign creation (subcode 1885090). If you forgot it, DELETE and recreate the campaign — don't try to PATCH.
+3. Prerequisites that ARE real (do these first, in Events Manager + FB App Dashboard): (a) iPad Store ID populated on the FB App's iOS platform card so `supported_platforms` includes `IPAD`; (b) SKAdNetwork 4.0 toggle ON in Events Manager → app dataset → Settings. Verify app eligibility with `GET /act_X/ios_fourteen_campaign_limits?app_id=Y` — a `{campaign_limit, campaign_group_limit}` response means the app is iOS-14 eligible.
+4. **Meta's official Ads MCP (`https://mcp.facebook.com/ads`) cannot complete OAuth through Claude Code CLI.** Claude Code's MCP OAuth uses a `http://localhost:PORT/callback` loopback redirect; Facebook's OAuth dialog enforces HTTPS on every redirect URI (even loopback) and returns "Insecure Login Blocked." This is unfixable from our side (the OAuth app's settings are Meta's). The MCP works with Claude Desktop / ChatGPT / Cursor, not Claude Code CLI. Use the `meta` CLI / Graph API instead — and note the campaign-level `promoted_object` fix above makes the API path fully sufficient.
+
 ### 2026-05-15 — Audit BOTH `.gitignore` AND `.railwayignore`/`.dockerignore` when porting a script that reads runtime files
 
 **Trigger:** Cold-email daily job was ported from `marketing/email/cold-daily-send.py` (laptop launchd) to a backend Node job (`src/jobs/cold-email-daily.js`). Job runs on Railway, reads templates from `/app/marketing/email/*.html`.

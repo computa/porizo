@@ -1,0 +1,7 @@
+interface:
+  display_name: "Porizo Organic Demand Discovery"
+  short_description: "Demand-first ASO growth loop for Porizo"
+  default_prompt: "Use $porizo-organic-demand-discovery to run an intent-expansion search across web and App Store buyer journeys, find demand keywords for Porizo, reject biased terms, map each kept keyword to the right growth surface, and define the weekly measurement plan."
+
+policy:
+  allow_implicit_invocation: true
