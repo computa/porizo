@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Porizo — Create → Free Song → Pay-for-Next Flow</title>
+<style>
+  :root{--canvas:#FBF4E9;--canvas2:#FFF8F0;--ink:#2D1810;--sub:#6B4E3D;--faint:#A89A88;
+    --coral:#E07A4B;--coralDk:#C85F33;--gold:#D4A574;--line:#EADBC7;--good:#7FB069;}
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{background:#15120E;color:#F6EFE3;font-family:-apple-system,system-ui,sans-serif;min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:30px 16px 60px;}
+  h1.page{font-size:22px;}
+  .pageSub{color:#A89A88;font-size:13px;font-family:ui-monospace,monospace;margin:4px 0 18px;}
+  .steps{display:flex;gap:6px;margin-bottom:20px;flex-wrap:wrap;justify-content:center;}
+  .steps .s{font-size:11px;color:#A89A88;background:#241910;border:1px solid #3A2A1B;padding:6px 12px;border-radius:999px;cursor:pointer;}
+  .steps .s.on{background:var(--coral);color:#fff;border-color:var(--coral);}
+  .steps .s.pay.on{background:var(--coralDk);}
+  .phone{width:330px;background:#000;border-radius:46px;padding:12px;box-shadow:0 30px 80px rgba(0,0,0,.6);}
+  .screen{background:var(--canvas);border-radius:36px;overflow:hidden;height:712px;position:relative;}
+  .notch{position:absolute;top:10px;left:50%;transform:translateX(-50%);width:118px;height:26px;background:#000;border-radius:16px;z-index:9;}
+  .scr{display:none;height:100%;flex-direction:column;}
+  .scr.on{display:flex;}
+  .pad{padding:54px 22px 20px;flex:1;display:flex;flex-direction:column;overflow-y:auto;}
+  .kicker{font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--coral);font-weight:700;}
+  .h{font-family:Georgia,serif;font-size:27px;color:var(--ink);line-height:1.08;margin:6px 0 8px;}
+  .p{color:var(--sub);font-size:14px;line-height:1.45;}
+  .spacer{flex:1;}
+  .cta{background:linear-gradient(180deg,var(--coral),var(--coralDk));color:#fff;border:0;border-radius:15px;padding:16px;font-size:16px;font-weight:700;width:100%;cursor:pointer;box-shadow:0 10px 22px rgba(224,122,75,.35);}
+  .cta .s{display:block;font-size:12px;font-weight:500;opacity:.9;margin-top:2px;}
+  .ghost{background:none;border:0;color:var(--sub);font-size:13px;width:100%;padding:12px;margin-top:8px;cursor:pointer;}
+  .navhint{display:flex;justify-content:space-between;width:330px;margin-top:14px;}
+  .navhint button{background:#241910;border:1px solid #3A2A1B;color:#E9DCC8;border-radius:10px;padding:9px 18px;font-size:13px;cursor:pointer;}
+  .navhint button:disabled{opacity:.35;cursor:default;}
+  .field{background:var(--canvas2);border:1px solid var(--line);border-radius:13px;padding:13px 14px;margin-bottom:11px;}
+  .field .lab{font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.08em;}
+  .field .val{font-size:15.5px;color:var(--ink);font-weight:600;margin-top:3px;}
+  .chips{display:flex;gap:7px;flex-wrap:wrap;margin-top:3px;}
+  .chip{font-size:12.5px;padding:7px 12px;border-radius:999px;border:1px solid var(--line);background:#fff;color:var(--sub);}
+  .chip.on{background:#FFF3EC;border-color:var(--coral);color:var(--coralDk);font-weight:700;}
+  .tile{display:flex;align-items:center;gap:13px;background:var(--canvas2);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:10px;}
+  .tile .ic{font-size:22px;}
+  .tile .tt{font-weight:700;color:var(--ink);font-size:14.5px;}
+  .tile .td{color:var(--faint);font-size:12px;margin-top:1px;}
+  .tile.primary{background:linear-gradient(180deg,var(--coral),var(--coralDk));border:0;box-shadow:0 10px 22px rgba(224,122,75,.35);}
+  .tile.primary .tt,.tile.primary .td{color:#fff;} .tile.primary .td{opacity:.92;}
+  .free{display:inline-block;background:rgba(127,176,105,.18);color:#3f7a2e;font-size:10px;font-weight:800;padding:2px 8px;border-radius:6px;margin-left:6px;vertical-align:middle;}
+  .art{height:188px;background:radial-gradient(120% 90% at 30% 20%,#F2A86B,#E07A4B 40%,#C85F33 72%,#8A3F20);position:relative;display:flex;align-items:flex-end;padding:18px;}
+  .art .badge{position:absolute;top:14px;left:18px;background:rgba(0,0,0,.45);color:#fff;font-size:10px;letter-spacing:.12em;font-weight:700;padding:5px 9px;border-radius:7px;}
+  .art .ti{color:#fff;font-family:Georgia,serif;font-size:26px;text-shadow:0 2px 12px rgba(0,0,0,.5);}
+  .wave{display:flex;gap:3px;height:30px;align-items:center;padding:14px 22px 0;}
+  .wave i{flex:1;background:var(--gold);border-radius:3px;animation:w 1.1s ease-in-out infinite;}
+  @keyframes w{0%,100%{height:20%}50%{height:88%}}
+  .gen{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;}
+  .ring{width:74px;height:74px;border-radius:50%;border:5px solid #EADBC7;border-top-color:var(--coral);animation:spin 1s linear infinite;}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .sharebox{background:var(--canvas2);border:1px dashed var(--gold);border-radius:14px;padding:13px;display:flex;align-items:center;justify-content:space-between;margin-top:6px;}
+  .sharebox .u{font-size:12.5px;color:var(--sub);font-family:ui-monospace,monospace;}
+  .sharebox .cp{background:var(--gold);color:#3A2A14;border:0;border-radius:9px;padding:7px 12px;font-size:12px;font-weight:700;}
+  .reactCard{background:linear-gradient(180deg,#FFF3EC,#FFE9DC);border:1px solid #F3C9AE;border-radius:14px;padding:14px;margin-top:12px;}
+  .reactCard .t{font-weight:700;color:var(--coralDk);font-size:14px;} .reactCard .d{color:var(--sub);font-size:12.5px;margin-top:3px;line-height:1.4;}
+  .head{height:170px;background:radial-gradient(120% 90% at 30% 20%,#F2A86B,#E07A4B 40%,#C85F33 72%,#8A3F20);display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;}
+  .head .note{font-size:38px;} .head .ctx{font-size:12px;opacity:.95;margin-top:4px;text-transform:uppercase;letter-spacing:.06em;}
+  .pillfree{background:#fff;color:var(--coralDk);font-size:11px;font-weight:800;padding:4px 11px;border-radius:999px;margin-bottom:8px;}
+  .note{background:#241910;border-left:3px solid var(--coral);border-radius:8px;padding:10px 12px;color:#C9BBA8;font-size:12.5px;width:330px;margin-top:14px;line-height:1.5;}
+  .note b{color:#F6EFE3;}
+</style></head><body>
+
+<h1 class="page">Create → Free Song → Pay-for-Next</h1>
+<div class="pageSub">first song free on signup · no preview · single generation · paywall lands on song #2</div>
+
+<div class="steps">
+  <div class="s on" data-i="0">1 · Create</div>
+  <div class="s" data-i="1">2 · Tell</div>
+  <div class="s" data-i="2">3 · Generate</div>
+  <div class="s" data-i="3">4 · Reveal + Share</div>
+  <div class="s pay" data-i="4">5 · Make another → Pay</div>
+</div>
+
+<div class="phone"><div class="screen"><div class="notch"></div>
+
+  <!-- 1 CREATE -->
+  <div class="scr on">
+    <div class="pad">
+      <div class="kicker">Porizo · Song Gift Maker</div>
+      <div class="h">Make a song for<br>someone you love.</div>
+      <div class="p">A personalized song from a name, a memory, and a message — in about a minute.</div>
+      <div style="height:18px"></div>
+      <div class="tile primary"><span class="ic">🎵</span><div><div class="tt">Make your first song <span class="free">FREE</span></div><div class="td">No card needed. Then $1.99 a song.</div></div></div>
+      <div class="tile"><span class="ic">🎁</span><div><div class="tt">Gift bundles</div><div class="td">Buy 3 or 5 to send · from $4.99</div></div></div>
+      <div class="tile"><span class="ic">∞</span><div><div class="tt">Unlimited — Plus</div><div class="td">10 songs/mo · $7.99</div></div></div>
+      <div class="spacer"></div>
+      <div class="p" style="text-align:center;font-size:12px;color:var(--faint)">Your first song is on us — no subscription.</div>
+    </div>
+  </div>
+
+  <!-- 2 TELL -->
+  <div class="scr">
+    <div class="pad">
+      <div class="kicker">Tell the story</div>
+      <div class="h">Who’s it for?</div>
+      <div class="field"><div class="lab">Recipient</div><div class="val">Dad</div></div>
+      <div class="field"><div class="lab">Occasion</div><div class="chips"><span class="chip on">Father’s Day</span><span class="chip">Birthday</span><span class="chip">Just because</span></div></div>
+      <div class="field"><div class="lab">A memory or message</div><div class="val" style="font-weight:400;font-size:14px;line-height:1.4">“Saturday bike rides, you teaching me to fish, always there. Happy Father’s Day.”</div></div>
+      <div class="field"><div class="lab">Style</div><div class="chips"><span class="chip on">Warm acoustic</span><span class="chip">Upbeat pop</span></div></div>
+      <div class="spacer"></div>
+      <button class="cta">Make Dad’s song<span class="s">your free song · no card needed</span></button>
+    </div>
+  </div>
+
+  <!-- 3 GENERATE (full, no preview) -->
+  <div class="scr">
+    <div class="pad">
+      <div class="gen">
+        <div class="ring"></div>
+        <div class="h" style="text-align:center">Writing Dad’s song…</div>
+        <div class="p" style="text-align:center">Turning your memory into lyrics &amp; music. ~45 seconds. One full song — no preview, no double render.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 4 REVEAL + SHARE (free full song) -->
+  <div class="scr">
+    <div class="art"><div class="badge">✓ YOUR FREE SONG · 0:48</div><div class="ti">For Dad ♥</div></div>
+    <div class="wave"><i></i><i style="animation-delay:.1s"></i><i style="animation-delay:.2s"></i><i style="animation-delay:.3s"></i><i style="animation-delay:.15s"></i><i style="animation-delay:.25s"></i><i style="animation-delay:.05s"></i><i style="animation-delay:.35s"></i><i style="animation-delay:.2s"></i><i style="animation-delay:.1s"></i><i style="animation-delay:.3s"></i><i style="animation-delay:0s"></i><i style="animation-delay:.22s"></i><i style="animation-delay:.12s"></i><i style="animation-delay:.32s"></i></div>
+    <div class="pad" style="padding-top:14px;">
+      <div class="h" style="font-size:22px">Dad’s song is ready 🎉</div>
+      <div class="p">Send it — and watch his face.</div>
+      <button class="cta" style="margin-top:12px">Send Dad his song<span class="s">text or email · he hears it instantly</span></button>
+      <div class="sharebox"><span class="u">porizo.co/s/dad-9f2a…</span><button class="cp">Copy link</button></div>
+      <div class="reactCard"><div class="t">🎥 Capture his reaction</div><div class="d">The best part is his face. Film Dad hearing it — one tap to save the reveal as a post-ready video.</div></div>
+    </div>
+  </div>
+
+  <!-- 5 MAKE ANOTHER → PAY -->
+  <div class="scr">
+    <div class="head"><div class="pillfree">✓ Free song used</div><div class="note">🎵</div><div class="ctx">Make another · for Mom</div></div>
+    <div class="pad" style="padding-top:18px;">
+      <div class="h" style="font-size:22px">Make <span style="color:var(--coralDk)">Mom’s</span> song</div>
+      <div class="p">Loved making Dad’s? Pay per song — no subscription needed.</div>
+      <div class="spacer"></div>
+      <button class="cta">Make Mom’s song — $1.99<span class="s">one song · or 3 for $4.99</span></button>
+      <button class="ghost">🎁 Send as a gift &nbsp;·&nbsp; ∞ Unlimited $7.99/mo</button>
+    </div>
+  </div>
+
+</div></div></div>
+
+<div class="navhint">
+  <button id="prev" onclick="go(-1)">‹ Back</button>
+  <button id="next" onclick="go(1)">Next ›</button>
+</div>
+
+<div class="note">
+  <b>Refined per your design:</b> first song is <b>free on signup</b> (the value-first hook), generated <b>once, in full — no preview, no double render</b>. Payment only appears when they make a <b>second</b> song (step 5), where <b>pay-per-song $1.99 is the face</b>. Recipient side: <code>viral-loop-demo.html</code>.
+</div>
+
+<script>
+let i=0; const scrs=[...document.querySelectorAll('.scr')], tabs=[...document.querySelectorAll('.steps .s')];
+function show(){scrs.forEach((s,k)=>s.classList.toggle('on',k===i));tabs.forEach((t,k)=>t.classList.toggle('on',k===i));
+  document.getElementById('prev').disabled=i===0;document.getElementById('next').disabled=i===scrs.length-1;}
+function go(d){i=Math.max(0,Math.min(scrs.length-1,i+d));show();}
+tabs.forEach(t=>t.onclick=()=>{i=+t.dataset.i;show();});
+show();
+</script>
+</body></html>

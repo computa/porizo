@@ -1,9 +1,18 @@
 # Artwork Generator Redesign — Session Handoff (final)
 
-**Updated:** 2026-05-19 ~02:30 GMT+8
+**Updated:** 2026-05-19 ~02:50 GMT+8
 **Branch:** `feature/artwork-v2`
-**HEAD:** `62decab`
+**HEAD:** `00deaed`
 **Progress:** 15 of 16 tasks complete; Task 12 deferred by design (see below); Task 16 is operator-only.
+
+## Cross-cutting review findings — fixed in `00deaed`
+
+A 4-agent PR review (code-reviewer + silent-failure-hunter + test-analyst + comment-analyst) ran against the whole branch and surfaced two critical bugs that the per-task cycle missed because each lived across two task boundaries:
+
+- **C1: OpenAI fallback unreachable.** `MIN_PROVIDER_IMAGE_WIDTH/HEIGHT = 1280` in `song-artwork.js` rejected the OpenAI fallback's `size: "1024x1024"` output 100% of the time, sending every Flux infra failure straight to the library and skipping OpenAI entirely. Lowered the floor to 1024 + added a regression test.
+- **C2: Haiku extractor fed a JSON blob instead of lyrics.** `resolveArtworkVars` did `parsed.text || parsed.lyrics || JSON.stringify(parsed)` but `buildLyrics` (in `src/writer/songwriter.js`) actually emits `{sections:[{name,lines:[]}], title, style, anchor_line}` — neither `.text` nor `.lyrics` exists. Every Haiku call was getting a structured JSON dump, defeating the Task 4 lyrics-aware feature in production. Now flattens `sections[].lines[]` to newline-joined text + regression test.
+
+Both fixes landed in commit `00deaed` (4 files, +109/-3, 84/84 tests pass).
 
 ## Status at a glance
 

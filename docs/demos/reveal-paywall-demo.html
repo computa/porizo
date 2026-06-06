@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Porizo — Pay-Per-Song Paywall (Proposed)</title>
+<style>
+  :root{--canvas:#FBF4E9;--canvas2:#FFF8F0;--ink:#2D1810;--sub:#6B4E3D;--faint:#A89A88;
+    --coral:#E07A4B;--coralDk:#C85F33;--gold:#D4A574;--line:#EADBC7;--good:#7FB069;}
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{background:#15120E;color:#F6EFE3;font-family:-apple-system,system-ui,sans-serif;min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:32px 16px 60px;}
+  h1.page{font-size:22px;margin-bottom:4px;}
+  .pageSub{color:#A89A88;font-size:13px;font-family:ui-monospace,monospace;margin-bottom:22px;}
+  .toggle{display:inline-flex;background:#241910;border:1px solid #3A2A1B;border-radius:999px;padding:4px;margin-bottom:26px;gap:4px;}
+  .toggle button{border:0;background:transparent;color:#A89A88;font-size:13px;font-weight:600;padding:8px 18px;border-radius:999px;cursor:pointer;transition:.2s;}
+  .toggle button.on{background:var(--coral);color:#fff;}
+  .stage{display:flex;gap:40px;flex-wrap:wrap;justify-content:center;align-items:flex-start;}
+  .phone{width:330px;background:#000;border-radius:46px;padding:12px;box-shadow:0 30px 80px rgba(0,0,0,.6);flex:0 0 auto;}
+  .screen{background:var(--canvas);border-radius:36px;overflow:hidden;height:710px;position:relative;display:flex;flex-direction:column;}
+  .notch{position:absolute;top:10px;left:50%;transform:translateX(-50%);width:118px;height:26px;background:#000;border-radius:16px;z-index:5;}
+  /* hero header (no fake preview) */
+  .head{height:188px;background:radial-gradient(120% 90% at 30% 20%,#F2A86B,#E07A4B 40%,#C85F33 72%,#8A3F20);position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;text-align:center;padding:20px;}
+  .head .glow{position:absolute;inset:0;background:radial-gradient(60% 50% at 70% 28%,rgba(255,255,255,.32),transparent 70%);}
+  .head .note{font-size:40px;position:relative;text-shadow:0 3px 14px rgba(0,0,0,.4);}
+  .head .ctx{position:relative;font-size:12.5px;opacity:.95;letter-spacing:.06em;margin-top:6px;text-transform:uppercase;}
+  .pill{position:absolute;top:46px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,.4);color:#fff;font-size:11px;font-weight:700;padding:5px 12px;border-radius:999px;backdrop-filter:blur(4px);white-space:nowrap;}
+  .body{flex:1;overflow-y:auto;padding:18px 20px;display:flex;flex-direction:column;}
+  .hl{font-family:Georgia,serif;font-size:24px;color:var(--ink);margin-bottom:3px;}
+  .hl .name{color:var(--coralDk);}
+  .sl{color:var(--sub);font-size:13.5px;margin-bottom:16px;}
+  .hero{background:linear-gradient(180deg,var(--coral),var(--coralDk));color:#fff;border:0;border-radius:16px;padding:16px;font-size:17px;font-weight:700;width:100%;cursor:pointer;position:relative;overflow:hidden;box-shadow:0 10px 24px rgba(224,122,75,.4);}
+  .hero .sub{display:block;font-size:12px;font-weight:500;opacity:.92;margin-top:2px;}
+  .hero::after{content:"";position:absolute;top:0;left:-60%;width:40%;height:100%;background:linear-gradient(100deg,transparent,rgba(255,255,255,.45),transparent);animation:shine 2.6s infinite;}
+  @keyframes shine{0%{left:-60%}55%,100%{left:120%}}
+  .anchors{display:flex;gap:8px;margin-top:10px;}
+  .anchor{flex:1;background:var(--canvas2);border:1px solid var(--line);border-radius:13px;padding:10px 8px;text-align:center;cursor:pointer;transition:.15s;}
+  .anchor:hover{border-color:var(--coral);transform:translateY(-1px);}
+  .anchor .n{font-weight:700;color:var(--ink);font-size:14px;}
+  .anchor .p{color:var(--sub);font-size:12px;margin-top:1px;}
+  .anchor .save{display:inline-block;margin-top:5px;font-size:9.5px;color:var(--good);background:rgba(127,176,105,.14);padding:2px 6px;border-radius:6px;font-weight:700;}
+  .sec{margin-top:16px;border-top:1px solid var(--line);padding-top:14px;display:flex;flex-direction:column;gap:10px;}
+  .secrow{display:flex;align-items:center;justify-content:space-between;background:var(--canvas2);border:1px solid var(--line);border-radius:13px;padding:13px 14px;cursor:pointer;}
+  .secrow .l{display:flex;align-items:center;gap:11px;}
+  .secrow .ico{font-size:19px;}
+  .secrow .t{font-weight:600;color:var(--ink);font-size:13.5px;}
+  .secrow .d{color:var(--faint);font-size:11.5px;margin-top:1px;}
+  .secrow .chev{color:var(--faint);font-size:18px;}
+  .proof{margin-top:16px;text-align:center;}
+  .stars{color:#E8A93C;font-size:14px;letter-spacing:2px;}
+  .proof .t{color:var(--sub);font-size:12px;margin-top:4px;}
+  .legal{color:var(--faint);font-size:10px;text-align:center;margin-top:14px;line-height:1.5;}
+  /* current */
+  .curWrap{display:none;}
+  body.showBefore .newWrap{display:none;} body.showBefore .curWrap{display:block;}
+  .cur .body{padding-top:38px;}
+  .curHead{font-family:Georgia,serif;font-size:22px;color:var(--ink);text-align:center;margin-bottom:3px;}
+  .curSub{text-align:center;color:var(--sub);font-size:12.5px;margin-bottom:16px;}
+  .planCard{border:2px solid var(--line);border-radius:14px;padding:14px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;}
+  .planCard.pick{border-color:var(--coral);background:#FFF3EC;}
+  .planCard .pn{font-weight:700;color:var(--ink);font-size:15px;}
+  .planCard .pd{color:var(--sub);font-size:11.5px;margin-top:2px;}
+  .planCard .pp{font-weight:700;color:var(--ink);}
+  .curCont{background:var(--coral);color:#fff;border:0;border-radius:14px;padding:15px;font-size:16px;font-weight:700;width:100%;margin-top:4px;}
+  .curDiv{text-align:center;color:var(--faint);font-size:11.5px;margin:16px 0 10px;}
+  .curTok{display:flex;justify-content:space-between;align-items:center;padding:11px 0;border-top:1px solid var(--line);}
+  .curTok .tn{color:var(--ink);font-size:13px;}
+  .curTok .tb{background:#fff;border:1px solid var(--coral);color:var(--coral);border-radius:9px;padding:6px 14px;font-size:12px;font-weight:700;}
+  .notes{max-width:300px;color:#C9BBA8;}
+  .notes h3{color:#F6EFE3;font-size:14px;margin:18px 0 8px;border-bottom:1px solid #2A221B;padding-bottom:6px;}
+  .notes ul{list-style:none;}
+  .notes li{font-size:13px;line-height:1.5;padding:6px 0 6px 20px;position:relative;}
+  .notes li::before{content:"→";position:absolute;left:0;color:var(--coral);font-weight:700;}
+  .notes b{color:#F6EFE3;}
+</style></head><body>
+
+<h1 class="page">Pay-Per-Song Paywall — Proposed</h1>
+<div class="pageSub">appears on song #2+ (first song free on signup) · $1.99 face · no preview · sub demoted</div>
+
+<div class="toggle">
+  <button id="bAfter" class="on" onclick="setView('after')">✦ Proposed</button>
+  <button id="bBefore" onclick="setView('before')">Current</button>
+</div>
+
+<div class="stage">
+  <!-- PROPOSED -->
+  <div class="newWrap">
+    <div class="phone"><div class="screen"><div class="notch"></div>
+      <div class="head">
+        <div class="glow"></div>
+        <div class="pill">✓ You used your free song</div>
+        <div class="note">🎵</div>
+        <div class="ctx">Father’s Day · for Dad</div>
+      </div>
+      <div class="body">
+        <div class="hl">Make <span class="name">Dad’s</span> song</div>
+        <div class="sl">Pay per song — no subscription needed. Your song, yours to keep &amp; share.</div>
+
+        <button class="hero">Make Dad’s song — $1.99
+          <span class="sub">one song · keep &amp; share</span>
+        </button>
+
+        <div class="anchors">
+          <div class="anchor"><div class="n">3 songs</div><div class="p">$4.99</div><span class="save">$1.66 ea</span></div>
+          <div class="anchor"><div class="n">5 songs</div><div class="p">$7.99</div><span class="save">best · $1.60 ea</span></div>
+        </div>
+
+        <div class="sec">
+          <div class="secrow"><div class="l"><span class="ico">🎁</span><div><div class="t">Send as a gift</div><div class="d">Schedule delivery + note → from $1.99</div></div></div><span class="chev">›</span></div>
+          <div class="secrow"><div class="l"><span class="ico">∞</span><div><div class="t">Make unlimited — Plus</div><div class="d">10 songs/mo · $7.99 ($0.80 a song)</div></div></div><span class="chev">›</span></div>
+        </div>
+
+        <div class="proof"><div class="stars">★★★★★</div><div class="t">Join 12,000+ moments turned into a song</div></div>
+        <div class="legal">One-time purchase. No subscription. Restore anytime.</div>
+      </div>
+    </div></div>
+  </div>
+
+  <!-- CURRENT -->
+  <div class="curWrap">
+    <div class="phone"><div class="screen cur"><div class="notch"></div>
+      <div class="body">
+        <div class="curHead">Upgrade to Porizo Pro</div>
+        <div class="curSub">0 songs remaining · Free Plan</div>
+        <div style="display:flex;justify-content:center;gap:6px;margin-bottom:14px;">
+          <span style="background:#FFF3EC;border:1px solid var(--coral);color:var(--coralDk);font-size:11px;font-weight:700;padding:5px 12px;border-radius:999px;">Monthly</span>
+          <span style="color:var(--faint);font-size:11px;padding:5px 12px;">Annual · Save 20%</span>
+        </div>
+        <div class="planCard"><div><div class="pn">Free</div><div class="pd">5 previews/day</div></div><div class="pp">$0</div></div>
+        <div class="planCard pick"><div><div class="pn">Plus</div><div class="pd">10 songs / month</div></div><div class="pp">$9.99</div></div>
+        <div class="planCard"><div><div class="pn">Pro</div><div class="pd">20 songs / month</div></div><div class="pp">$14.99</div></div>
+        <button class="curCont">Continue</button>
+        <div class="curDiv">— or buy individual songs —</div>
+        <div class="curTok"><span class="tn">3 Songs</span><span class="tb">$12.99</span></div>
+        <div class="curTok"><span class="tn">5 Songs</span><span class="tb">$17.99</span></div>
+      </div>
+    </div></div>
+  </div>
+
+  <div class="notes">
+    <h3>What changed &amp; why</h3>
+    <ul>
+      <li><b>Pay-per-song is the face.</b> "Make Dad’s song — $1.99" is the hero, not "Upgrade to Pro."</li>
+      <li><b>No preview needed.</b> The first song is free on signup, so this wall lands on someone who already loved their free one — value-first without spending generation cost on a preview.</li>
+      <li><b>Personalized.</b> "<b>Dad’s</b> song" uses the recipient name (~+17%).</li>
+      <li><b>Repriced to ~$2:</b> $1.99 / 3-for-$4.99 / 5-for-$7.99 (down from $12.99 / $17.99).</li>
+      <li><b>Both other tracks retained, demoted:</b> gift bundle + subscription as secondary rows.</li>
+      <li><b>Animated</b> hero shimmer; social proof; "no subscription" trust.</li>
+    </ul>
+    <h3>Toggle "Current"</h3>
+    <ul><li>Live paywall leads with 3 subscription cards; one-off songs buried under a divider at $12.99/$17.99.</li></ul>
+  </div>
+</div>
+
+<script>
+function setView(v){document.body.classList.toggle('showBefore',v==='before');
+  document.getElementById('bAfter').classList.toggle('on',v==='after');
+  document.getElementById('bBefore').classList.toggle('on',v==='before');}
+</script>
+</body></html>

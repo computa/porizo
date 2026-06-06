@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Porizo — Viral Loop (Recipient) · A+B+C</title>
+<style>
+  :root{--canvas:#FBF4E9;--canvas2:#FFF8F0;--ink:#2D1810;--sub:#6B4E3D;--faint:#A89A88;
+    --coral:#E07A4B;--coralDk:#C85F33;--gold:#D4A574;--line:#EADBC7;--good:#7FB069;--amber:#C9821F;}
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{background:#15120E;color:#F6EFE3;font-family:-apple-system,system-ui,sans-serif;min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:30px 16px 60px;}
+  h1.page{font-size:22px;}
+  .pageSub{color:#A89A88;font-size:13px;font-family:ui-monospace,monospace;margin:4px 0 18px;}
+  .toggle{display:inline-flex;background:#241910;border:1px solid #3A2A1B;border-radius:999px;padding:4px;margin-bottom:24px;gap:4px;}
+  .toggle button{border:0;background:transparent;color:#A89A88;font-size:13px;font-weight:600;padding:8px 18px;border-radius:999px;cursor:pointer;}
+  .toggle button.on{background:var(--coral);color:#fff;}
+  .stage{display:flex;gap:38px;flex-wrap:wrap;justify-content:center;align-items:flex-start;}
+  .phone{width:330px;background:#000;border-radius:46px;padding:12px;box-shadow:0 30px 80px rgba(0,0,0,.6);}
+  .screen{background:var(--canvas);border-radius:36px;overflow:hidden;height:712px;position:relative;display:flex;flex-direction:column;}
+  .notch{position:absolute;top:10px;left:50%;transform:translateX(-50%);width:118px;height:26px;background:#000;border-radius:16px;z-index:9;}
+  .art{height:188px;background:radial-gradient(120% 90% at 30% 20%,#F2A86B,#E07A4B 40%,#C85F33 72%,#8A3F20);position:relative;display:flex;align-items:flex-end;padding:18px;}
+  .art .from{position:absolute;top:42px;left:18px;color:#fff;font-size:13px;opacity:.95;text-shadow:0 1px 6px rgba(0,0,0,.4);}
+  .art .ti{color:#fff;font-family:Georgia,serif;font-size:28px;text-shadow:0 2px 12px rgba(0,0,0,.5);}
+  /* C: urgency strip */
+  .urgent{background:#FBEFD8;border-bottom:1px solid #EBD9B4;color:var(--amber);font-size:11.5px;font-weight:700;text-align:center;padding:7px;display:flex;align-items:center;justify-content:center;gap:6px;}
+  .wave{display:flex;gap:3px;height:30px;align-items:center;padding:12px 22px 0;}
+  .wave i{flex:1;background:var(--gold);border-radius:3px;animation:w 1.1s ease-in-out infinite;}
+  @keyframes w{0%,100%{height:20%}50%{height:90%}}
+  .ptime{display:flex;justify-content:space-between;color:var(--faint);font-size:11px;padding:6px 22px 0;}
+  .ptime .play{color:var(--coral);font-weight:700;}
+  .pad{flex:1;overflow-y:auto;padding:10px 18px 16px;display:flex;flex-direction:column;}
+  .h{font-family:Georgia,serif;font-size:21px;color:var(--ink);margin:6px 0 3px;}
+  .h .nm{color:var(--coralDk);}
+  .p{color:var(--sub);font-size:13px;line-height:1.4;}
+  /* A: reply hero */
+  .hero{background:linear-gradient(180deg,var(--coral),var(--coralDk));color:#fff;border:0;border-radius:15px;padding:15px;font-size:16px;font-weight:700;width:100%;cursor:pointer;position:relative;overflow:hidden;box-shadow:0 10px 24px rgba(224,122,75,.4);margin-top:12px;}
+  .hero .s{display:block;font-size:11.5px;font-weight:500;opacity:.93;margin-top:2px;}
+  .hero::after{content:"";position:absolute;top:0;left:-60%;width:40%;height:100%;background:linear-gradient(100deg,transparent,rgba(255,255,255,.45),transparent);animation:shine 2.6s infinite;}
+  @keyframes shine{0%{left:-60%}55%,100%{left:120%}}
+  .twoside{background:#FFF3EC;border:1px solid #F3C9AE;border-radius:11px;padding:9px 12px;margin-top:8px;color:var(--coralDk);font-size:11.5px;font-weight:600;display:flex;gap:7px;align-items:center;}
+  /* B: keepsake card */
+  .keep{background:var(--canvas2);border:1px solid var(--line);border-radius:14px;padding:13px;margin-top:14px;}
+  .keep .kt{font-weight:700;color:var(--ink);font-size:13.5px;display:flex;align-items:center;gap:6px;}
+  .keep .kl{list-style:none;margin:9px 0 11px;}
+  .keep .kl li{font-size:12.5px;color:var(--sub);padding:3px 0 3px 22px;position:relative;}
+  .keep .kl li::before{content:"🔒";position:absolute;left:0;font-size:11px;}
+  .keep .kbtn{background:#2D1810;color:#fff;border:0;border-radius:11px;padding:11px;width:100%;font-size:13.5px;font-weight:700;cursor:pointer;}
+  .keep .kbtn .s{display:block;font-size:10.5px;opacity:.8;font-weight:500;margin-top:1px;}
+  .ghost2{background:none;border:0;color:var(--sub);font-size:12.5px;width:100%;padding:10px;margin-top:6px;cursor:pointer;text-decoration:underline;}
+  .proof{margin-top:12px;text-align:center;}
+  .stars{color:#E8A93C;font-size:14px;letter-spacing:2px;} .proof .t{color:var(--sub);font-size:11.5px;margin-top:3px;}
+  /* current */
+  .curWrap{display:none;}
+  body.showCur .newWrap{display:none;} body.showCur .curWrap{display:block;}
+  .savebtn{background:var(--canvas2);border:1px solid var(--line);color:var(--coralDk);border-radius:13px;padding:14px;font-size:14px;font-weight:600;width:100%;margin-top:16px;}
+  .deadtext{color:var(--gold);font-size:13px;text-align:center;margin-top:14px;}
+  .spacer{flex:1;}
+  .notes{max-width:320px;color:#C9BBA8;}
+  .notes h3{color:#F6EFE3;font-size:14px;margin:16px 0 8px;border-bottom:1px solid #2A221B;padding-bottom:6px;}
+  .notes .blk{margin-bottom:12px;} .notes .lab{font-weight:800;color:#F0A074;font-size:12px;}
+  .notes p{font-size:13px;line-height:1.5;margin-top:3px;} .notes b{color:#F6EFE3;}
+</style></head><body>
+
+<h1 class="page">Viral Loop — Recipient · A + B + C</h1>
+<div class="pageSub">reply + app-only keepsakes + claim-to-keep urgency · 39 recipients → 0 today</div>
+
+<div class="toggle">
+  <button id="bA" class="on" onclick="setV('after')">✦ Proposed (A+B+C)</button>
+  <button id="bB" onclick="setV('cur')">Current (dead)</button>
+</div>
+
+<div class="stage">
+  <!-- PROPOSED -->
+  <div class="newWrap">
+    <div class="phone"><div class="screen"><div class="notch"></div>
+      <div class="art"><div class="from">🎁 Maya sent you a song</div><div class="ti">For Dad</div></div>
+      <div class="urgent">⏳ This gift link is live for 7 days — claim it to keep forever</div>
+      <div class="wave"><i></i><i style="animation-delay:.1s"></i><i style="animation-delay:.2s"></i><i style="animation-delay:.3s"></i><i style="animation-delay:.15s"></i><i style="animation-delay:.25s"></i><i style="animation-delay:.05s"></i><i style="animation-delay:.35s"></i><i style="animation-delay:.2s"></i><i style="animation-delay:.1s"></i><i style="animation-delay:.3s"></i><i style="animation-delay:0s"></i><i style="animation-delay:.22s"></i><i style="animation-delay:.12s"></i></div>
+      <div class="ptime"><span class="play">▶ playing — no app needed</span><span>0:24 / 0:48</span></div>
+      <div class="pad">
+        <!-- A: reply -->
+        <div class="h">Heard <span class="nm">Maya’s</span> song? Make one back.</div>
+        <div class="p">She turned a memory into this. Send her one too — the moment goes both ways.</div>
+        <button class="hero">Make one back for Maya — free<span class="s">your first song is on us</span></button>
+        <div class="twoside"><span>💝</span><span>Maya gets a free song too the moment you finish yours.</span></div>
+
+        <!-- B: keepsake-gated -->
+        <div class="keep">
+          <div class="kt">💾 Keep Dad’s song forever</div>
+          <ul class="kl">
+            <li>Download the HD audio</li>
+            <li>Save the reveal video (post-ready)</li>
+            <li>Get the printable lyric card</li>
+          </ul>
+          <button class="kbtn">Claim it in the app<span class="s">free · before the link expires</span></button>
+        </div>
+
+        <button class="ghost2">Make a song for someone else</button>
+        <div class="proof"><div class="stars">★★★★★</div><div class="t">Join 12,000+ moments turned into a song</div></div>
+        <div class="spacer"></div>
+        <div class="p" style="text-align:center;font-size:11px;color:var(--faint)">No sign-up to listen. Register only when you create or claim.</div>
+      </div>
+    </div></div>
+  </div>
+
+  <!-- CURRENT -->
+  <div class="curWrap">
+    <div class="phone"><div class="screen"><div class="notch"></div>
+      <div class="art"><div class="from">Someone sent you a song</div><div class="ti">For Dad</div></div>
+      <div class="wave"><i></i><i style="animation-delay:.1s"></i><i style="animation-delay:.2s"></i><i style="animation-delay:.3s"></i><i style="animation-delay:.15s"></i><i style="animation-delay:.25s"></i><i style="animation-delay:.05s"></i><i style="animation-delay:.35s"></i><i style="animation-delay:.2s"></i><i style="animation-delay:.1s"></i><i style="animation-delay:.3s"></i><i style="animation-delay:0s"></i></div>
+      <div class="ptime"><span class="play">▶ playing</span><span>0:24 / 0:48</span></div>
+      <div class="pad">
+        <button class="savebtn">Save this song in Porizo</button>
+        <div class="deadtext">Make one for someone you love →</div>
+        <div class="spacer"></div>
+        <div class="p" style="text-align:center;font-size:11px;color:var(--faint)">"Save" offers nothing new — they already heard it. The gold line is non-interactive text. 26 saw it, 1 tapped, 0 registered.</div>
+      </div>
+    </div></div>
+  </div>
+
+  <!-- notes -->
+  <div class="notes">
+    <h3>The fix: web stays a great listen, app owns the rest</h3>
+    <p style="color:#C9BBA8;font-size:13px;line-height:1.5;margin-bottom:6px;">You can’t make someone download just to <i>re-play</i> a link. So the download is motivated by things the web can’t give:</p>
+    <div class="blk"><span class="lab">A · REPLY</span><p>"Make one back for Maya — free." Reciprocity at peak emotion. Web can’t create — only the app can. Two-sided: Maya gets one free too (~$0.07 render cost).</p></div>
+    <div class="blk"><span class="lab">B · KEEPSAKES (app-only)</span><p>Web = listen. App = <b>HD download + reveal video + lyric card + library</b>. The recipient who wants to truly <i>keep</i> it must cross over — without ever blocking the listen.</p></div>
+    <div class="blk"><span class="lab">C · CLAIM-TO-KEEP URGENCY</span><p>"Link live 7 days — claim to keep forever." Friendly urgency converts the "I’ll just bookmark it" crowd.</p></div>
+    <div class="blk"><span class="lab">+ plumbing</span><p>Deferred deep link (AppsFlyer OneLink — already have it) so installers land pre-filled; instant play, no PIN; social proof. Target: recipient→register <b>10–15%</b> → K ≈ 0.1–0.15.</p></div>
+  </div>
+</div>
+
+<script>
+function setV(v){document.body.classList.toggle('showCur',v==='cur');
+  document.getElementById('bA').classList.toggle('on',v==='after');
+  document.getElementById('bB').classList.toggle('on',v==='cur');}
+</script>
+</body></html>

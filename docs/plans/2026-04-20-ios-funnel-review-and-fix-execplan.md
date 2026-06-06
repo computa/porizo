@@ -12,7 +12,7 @@ Pricing is **excluded** from this pass. Current baseline worst leaks are impress
 
 ## 2. Screenshots — likely fail, ship replacement
 
-**Review.** Current listing in `docs/appstore/subscription-screenshots/listing/` shows 8 broad feature screens (splash, explore-home, create-choice, create-song, create-poem, personalize, story-chat, voice-profile) — broad product tour, not one story.
+**Review.** Current listing in `marketing/appstore/docs/review-and-submission/subscription-screenshots/listing/` shows 8 broad feature screens (splash, explore-home, create-choice, create-song, create-poem, personalize, story-chat, voice-profile) — broad product tour, not one story.
 **Fix (expected):** replace first 5 screenshots with this sequence, sourced from `PorizoApp/screenshots/appstore-6.5/`:
 1. "Create a personalized song gift"
 2. "For birthdays, anniversaries, and meaningful moments"
