@@ -39,7 +39,10 @@
 - Review fixes applied: `"unknown"`-IP guard; dropped `download_attributed_at` overload; two-writer comment; tests expanded to 8 (email/social/phone call sites, isNewUser gate, idempotency, 72h boundary, most-recent-candidate, deterministic negatives).
 - Verify: ESLint clean; 33/33 tests green (registration-country 2 + receiver-session 23 + receiver-attribution 8); diff surgical (auth.js +38, player.js +12, index.html +2−1) — formatter pollution reverted.
 - Residual (noted, non-blocking): XFF-spoof/shared-NAT mis-attribution is pre-existing + analytics-only (inherited from `matchDownloadAttribution`); web teaser headline has no JS test harness.
-- ⏳ Remaining: G3 (set `APPSFLYER_ONELINK_BASE_URL` once Ambrose provides the OneLink URL) → G4 verify. Then commit.
+- ✅ G3 DONE: `APPSFLYER_ONELINK_BASE_URL=https://porizo.onelink.me/hPJL` set in Railway prod (AppsFlyer OneLink template `hPJL`, iOS-only, App Store fallback). Committed `bb3e866` pushed to `origin/main` → GitHub auto-deployed (`8388c234` SUCCESS).
+- ✅ G4 VERIFIED LIVE: `POST /share/Rtr-MIWy8oy5/receiver-session` in prod returns `receiver_save_url = https://porizo.onelink.me/hPJL?...&deep_link_value=rh_...&deep_link_sub1=rs_...` — OneLink fires, carries handoff+session. (Created one test receiver_session `rs_e8ba8ffd…` in prod; harmless link-open analytics row.)
+- BATCH COMPLETE. Remaining for full direct-tap support (not blocking the deferred/viral path): add `applinks:porizo.onelink.me` to the iOS Associated Domains entitlement (needs a build) — deferred-deep-link install path works without it.
+- G1 (matched_user_id) deployed + 8-test verified; first real recipient registration will populate `matched_user_id` (observable in DB).
 
 ---
 
