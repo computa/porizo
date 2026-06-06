@@ -60,6 +60,7 @@
 ## Tool-Specific Instructions
 
 - MCPLI: avoid `--verbose` unless asked; prefer mcpli daemon log after a normal tool call, and do not delete `.mcpli/` unless explicitly requested. TS2589 is compile-time, so validate with `pnpm typecheck:all`.
+- XcodeBuildMCP / Build iOS Apps simulator browser: `serve-sim` needs direct CoreSimulator access and will fail inside the workspace sandbox. Do not escalate `npx --yes serve-sim@latest`. Resolve the exact package version/integrity first with a cache under `/private/tmp`, then run the pinned cached command offline and scoped to the Simulator UDID, for example `npx --cache /private/tmp/serve-sim-npm-cache --yes --offline serve-sim@0.1.39 <UDID>`. Cleanup must also be scoped with `--kill <UDID>`; never use an unscoped `serve-sim --kill`.
 
 # Repository Guidelines
 
@@ -122,7 +123,7 @@
 <claude-mem-context>
 # Memory Context
 
-# [porizo] recent context, 2026-05-06 8:02pm GMT+8
+# [porizo] recent context, 2026-06-05 5:00pm GMT+8
 
 Legend: 🎯session 🔴bugfix 🟣feature 🔄refactor ✅change 🔵discovery ⚖️decision 🚨security_alert 🔐security_note
 Format: ID TIME TYPE TITLE
