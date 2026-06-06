@@ -37,8 +37,8 @@ test-output/
 .swiftpm/
 build/
 DerivedData/
-*.xcodeproj/xcuserdata/
-*.xcworkspace/xcuserdata/
+**/*.xcodeproj/xcuserdata/
+**/*.xcworkspace/xcuserdata/
 screenshot/
 
 # Exclude CLAUDE.md from iOS app bundle (causes Xcode copy conflicts)
