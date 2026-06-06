@@ -19,6 +19,46 @@ const { initDb } = require("../src/db");
 const { buildServer } = require("../src/server");
 const { createStorageProvider } = require("../src/storage");
 
+// Song claims now require an authenticated device token (one whose JWT carries a
+// `sub`). Register a device with x-user-id so the issued token has sub=recipientId,
+// then claim with that token. Returns { deviceToken, recipientId, deviceId, response }.
+async function claimAuthenticated(
+  app,
+  db,
+  {
+    shareId,
+    pin,
+    deviceId,
+    platform = "ios",
+    appVersion = "1.0.0",
+    recipientId,
+  } = {},
+) {
+  const uid =
+    recipientId ||
+    `recipient_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const did =
+    deviceId ||
+    `device_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  db.prepare(
+    "INSERT OR IGNORE INTO users (id, created_at, risk_level) VALUES (?, ?, ?)",
+  ).run(uid, new Date().toISOString(), "low");
+  const regRes = await app.inject({
+    method: "POST",
+    url: "/device/register",
+    headers: { "x-user-id": uid },
+    payload: { device_id: did, platform, app_version: appVersion },
+  });
+  const { device_token: deviceToken } = JSON.parse(regRes.body);
+  const response = await app.inject({
+    method: "POST",
+    url: `/share/${shareId}/claim`,
+    headers: { "x-device-token": deviceToken },
+    payload: { pin },
+  });
+  return { deviceToken, recipientId: uid, deviceId: did, response };
+}
+
 describe("Share Flow", () => {
   let app;
   let db;
@@ -51,7 +91,7 @@ describe("Share Flow", () => {
 
     // Create test user (users table has: id, created_at, risk_level, locale, country)
     db.prepare(
-      "INSERT OR IGNORE INTO users (id, created_at, risk_level) VALUES (?, ?, ?)"
+      "INSERT OR IGNORE INTO users (id, created_at, risk_level) VALUES (?, ?, ?)",
     ).run(testUserId, new Date().toISOString(), "low");
 
     // Create test track
@@ -85,7 +125,7 @@ describe("Share Flow", () => {
     // Share requires a rendered version (preview_url or full_url must exist)
     // Mock it by updating the database directly
     db.prepare(
-      "UPDATE track_versions SET preview_url = ? WHERE track_id = ? AND version_num = ?"
+      "UPDATE track_versions SET preview_url = ? WHERE track_id = ? AND version_num = ?",
     ).run("http://stream.local/test-preview.m3u8", testTrackId, testVersionNum);
   });
 
@@ -125,7 +165,7 @@ describe("Share Flow", () => {
 
       // Mock render completion
       db.prepare(
-        "UPDATE track_versions SET preview_url = ? WHERE track_id = ? AND version_num = ?"
+        "UPDATE track_versions SET preview_url = ? WHERE track_id = ? AND version_num = ?",
       ).run("http://stream.local/test.m3u8", trackId, version.version_num);
 
       const res = await app.inject({
@@ -146,7 +186,7 @@ describe("Share Flow", () => {
       // Share URL must use /play/ route (not /s/ which doesn't exist)
       assert.ok(
         body.share_url.includes(`/play/${body.share_id}`),
-        `share_url should use /play/ route, got: ${body.share_url}`
+        `share_url should use /play/ route, got: ${body.share_url}`,
       );
       assert.ok(body.expires_at, "Should have expires_at");
       assert.ok(body.claim_pin, "Should have claim_pin");
@@ -192,8 +232,12 @@ describe("Share Flow", () => {
 
       // Mock render completion
       db.prepare(
-        "UPDATE track_versions SET preview_url = ? WHERE track_id = ? AND version_num = ?"
-      ).run("http://stream.local/test.m3u8", track.track_id, version.version_num);
+        "UPDATE track_versions SET preview_url = ? WHERE track_id = ? AND version_num = ?",
+      ).run(
+        "http://stream.local/test.m3u8",
+        track.track_id,
+        version.version_num,
+      );
 
       return { trackId: track.track_id, versionNum: version.version_num };
     }
@@ -229,10 +273,17 @@ describe("Share Flow", () => {
       const body = JSON.parse(res.body);
 
       // Web player expects these fields
-      assert.ok(body.track, "Should have track field (alias for track_preview)");
+      assert.ok(
+        body.track,
+        "Should have track field (alias for track_preview)",
+      );
       assert.ok(body.track.title, "track.title should exist");
       assert.ok(body.track.recipient_name, "track.recipient_name should exist");
-      assert.strictEqual(typeof body.can_access, "boolean", "should have can_access boolean field");
+      assert.strictEqual(
+        typeof body.can_access,
+        "boolean",
+        "should have can_access boolean field",
+      );
     });
 
     it("includes recipient_name in track info", async () => {
@@ -259,7 +310,7 @@ describe("Share Flow", () => {
       // Should include recipient_name (starts with "TestRecipient")
       assert.ok(
         body.track.recipient_name.startsWith("TestRecipient"),
-        `recipient_name should be included, got: ${body.track.recipient_name}`
+        `recipient_name should be included, got: ${body.track.recipient_name}`,
       );
     });
   });
@@ -291,8 +342,12 @@ describe("Share Flow", () => {
 
       // Mock render completion
       db.prepare(
-        "UPDATE track_versions SET preview_url = ? WHERE track_id = ? AND version_num = ?"
-      ).run("http://stream.local/test.m3u8", track.track_id, version.version_num);
+        "UPDATE track_versions SET preview_url = ? WHERE track_id = ? AND version_num = ?",
+      ).run(
+        "http://stream.local/test.m3u8",
+        track.track_id,
+        version.version_num,
+      );
 
       return { trackId: track.track_id, versionNum: version.version_num };
     }
@@ -362,22 +417,90 @@ describe("Share Flow", () => {
       });
       const { share_id, claim_pin } = JSON.parse(createRes.body);
 
-      // Claim with correct PIN
-      const res = await app.inject({
-        method: "POST",
-        url: `/share/${share_id}/claim`,
-        payload: {
-          device_id: "claim-test-device-" + Date.now(),
-          platform: "ios",
-          app_version: "1.0.0",
-          pin: claim_pin,
-        },
+      // Claim with correct PIN (authenticated device token)
+      const { response: res } = await claimAuthenticated(app, db, {
+        shareId: share_id,
+        pin: claim_pin,
+        deviceId: "claim-test-device-" + Date.now(),
       });
 
       assert.strictEqual(res.statusCode, 200);
       const body = JSON.parse(res.body);
       assert.strictEqual(body.status, "claimed");
       assert.strictEqual(body.app_save_allowed, true);
+    });
+
+    it("rejects anonymous claim with correct PIN (SIGN_IN_REQUIRED) and leaves token unbound", async () => {
+      const { trackId, versionNum } = await createShareableTrack();
+
+      const createRes = await app.inject({
+        method: "POST",
+        url: `/tracks/${trackId}/share`,
+        headers: { "x-user-id": testUserId },
+        payload: { version_num: versionNum },
+      });
+      const { share_id, claim_pin } = JSON.parse(createRes.body);
+
+      // Anonymous claim: device_id/platform in body, correct PIN, NO x-device-token.
+      // The dev fallback yields a token with sub=null, which the sign-in gate rejects.
+      const res = await app.inject({
+        method: "POST",
+        url: `/share/${share_id}/claim`,
+        payload: {
+          device_id: "anon-claim-device-" + Date.now(),
+          platform: "ios",
+          app_version: "1.0.0",
+          pin: claim_pin,
+        },
+      });
+
+      assert.strictEqual(res.statusCode, 401);
+      assert.strictEqual(JSON.parse(res.body).error, "SIGN_IN_REQUIRED");
+
+      // Token must NOT be poisoned — still unbound with no bound device.
+      const row = db
+        .prepare(
+          "SELECT status, bound_device_id FROM share_tokens WHERE id = ?",
+        )
+        .get(share_id);
+      assert.strictEqual(row.status, "unbound");
+      assert.ok(!row.bound_device_id);
+    });
+
+    it("authenticated claim with correct PIN creates a received library entry", async () => {
+      const { trackId, versionNum } = await createShareableTrack();
+
+      const createRes = await app.inject({
+        method: "POST",
+        url: `/tracks/${trackId}/share`,
+        headers: { "x-user-id": testUserId },
+        payload: { version_num: versionNum },
+      });
+      const { share_id, claim_pin } = JSON.parse(createRes.body);
+
+      const { response: res, recipientId } = await claimAuthenticated(app, db, {
+        shareId: share_id,
+        pin: claim_pin,
+        deviceId: "lib-entry-device-" + Date.now(),
+      });
+
+      assert.strictEqual(res.statusCode, 200);
+      assert.strictEqual(JSON.parse(res.body).status, "claimed");
+
+      // A 'received' library entry exists for the recipient + this track.
+      const entry = db
+        .prepare(
+          "SELECT user_id, track_id, origin FROM track_library_entries WHERE user_id = ? AND track_id = ?",
+        )
+        .get(recipientId, trackId);
+      assert.ok(entry, "received library entry must exist");
+      assert.strictEqual(entry.origin, "received");
+
+      // The share token is now bound to the recipient user.
+      const row = db
+        .prepare("SELECT bound_user_id FROM share_tokens WHERE id = ?")
+        .get(share_id);
+      assert.strictEqual(row.bound_user_id, recipientId);
     });
   });
 
@@ -408,8 +531,12 @@ describe("Share Flow", () => {
 
       // Mock render completion
       db.prepare(
-        "UPDATE track_versions SET preview_url = ? WHERE track_id = ? AND version_num = ?"
-      ).run("http://stream.local/test.m3u8", track.track_id, version.version_num);
+        "UPDATE track_versions SET preview_url = ? WHERE track_id = ? AND version_num = ?",
+      ).run(
+        "http://stream.local/test.m3u8",
+        track.track_id,
+        version.version_num,
+      );
 
       return { trackId: track.track_id, versionNum: version.version_num };
     }
@@ -427,26 +554,19 @@ describe("Share Flow", () => {
       });
       const { share_id, claim_pin } = JSON.parse(createRes.body);
 
-      // First claim
-      await app.inject({
-        method: "POST",
-        url: `/share/${share_id}/claim`,
-        payload: {
-          device_id: deviceId,
-          platform: "ios",
-          pin: claim_pin,
-        },
+      // First claim (authenticated)
+      const { deviceToken } = await claimAuthenticated(app, db, {
+        shareId: share_id,
+        pin: claim_pin,
+        deviceId,
       });
 
       // Same device re-claims (should succeed or return already claimed)
       const res = await app.inject({
         method: "POST",
         url: `/share/${share_id}/claim`,
-        payload: {
-          device_id: deviceId,
-          platform: "ios",
-          pin: claim_pin,
-        },
+        headers: { "x-device-token": deviceToken },
+        payload: { pin: claim_pin },
       });
 
       // Should succeed (either 200 or already claimed)
@@ -465,26 +585,19 @@ describe("Share Flow", () => {
       });
       const { share_id, claim_pin } = JSON.parse(createRes.body);
 
-      // First device claims
-      await app.inject({
-        method: "POST",
-        url: `/share/${share_id}/claim`,
-        payload: {
-          device_id: "device-A-" + Date.now(),
-          platform: "ios",
-          pin: claim_pin,
-        },
+      // First device claims (authenticated)
+      await claimAuthenticated(app, db, {
+        shareId: share_id,
+        pin: claim_pin,
+        deviceId: "device-A-" + Date.now(),
       });
 
-      // Second device tries to claim
-      const res = await app.inject({
-        method: "POST",
-        url: `/share/${share_id}/claim`,
-        payload: {
-          device_id: "device-B-" + Date.now(),
-          platform: "android",
-          pin: claim_pin,
-        },
+      // Second authenticated device tries to claim
+      const { response: res } = await claimAuthenticated(app, db, {
+        shareId: share_id,
+        pin: claim_pin,
+        deviceId: "device-B-" + Date.now(),
+        platform: "android",
       });
 
       assert.strictEqual(res.statusCode, 409);
@@ -518,8 +631,12 @@ describe("Share Flow", () => {
 
       // Mock render completion
       db.prepare(
-        "UPDATE track_versions SET preview_url = ? WHERE track_id = ? AND version_num = ?"
-      ).run("http://stream.local/test.m3u8", track.track_id, version.version_num);
+        "UPDATE track_versions SET preview_url = ? WHERE track_id = ? AND version_num = ?",
+      ).run(
+        "http://stream.local/test.m3u8",
+        track.track_id,
+        version.version_num,
+      );
 
       return { trackId: track.track_id, versionNum: version.version_num };
     }
@@ -543,11 +660,19 @@ describe("Share Flow", () => {
       });
 
       // Should succeed - returns direct audio URL for browser playback
-      assert.strictEqual(res.statusCode, 200, "Should allow streaming for unclaimed share");
+      assert.strictEqual(
+        res.statusCode,
+        200,
+        "Should allow streaming for unclaimed share",
+      );
       const body = JSON.parse(res.body);
       assert.ok(body.stream_url, "Should return stream_url");
       // Should be direct audio format, not HLS (for browser compatibility)
-      assert.strictEqual(body.format, "audio", "Should return audio format for unclaimed web shares");
+      assert.strictEqual(
+        body.format,
+        "audio",
+        "Should return audio format for unclaimed web shares",
+      );
     });
 
     it("allows public preview playback for claimed shares when web streaming remains enabled", async () => {
@@ -563,26 +688,33 @@ describe("Share Flow", () => {
       });
       const { share_id, claim_pin } = JSON.parse(createRes.body);
 
-      // Claim it
-      await app.inject({
-        method: "POST",
-        url: `/share/${share_id}/claim`,
-        payload: {
-          device_id: deviceId,
-          platform: "ios",
-          pin: claim_pin,
-        },
+      // Claim it (authenticated)
+      await claimAuthenticated(app, db, {
+        shareId: share_id,
+        pin: claim_pin,
+        deviceId,
       });
 
       const infoRes = await app.inject({
         method: "GET",
         url: `/share/${share_id}`,
       });
-      assert.strictEqual(infoRes.statusCode, 200, "Claimed share info should still load");
+      assert.strictEqual(
+        infoRes.statusCode,
+        200,
+        "Claimed share info should still load",
+      );
       const info = JSON.parse(infoRes.body);
       assert.strictEqual(info.status, "claimed");
-      assert.strictEqual(info.app_required, false, "Claimed share should not require app when public listening remains enabled");
-      assert.ok(info.web_stream_url, "Claimed share should retain a public browser stream");
+      assert.strictEqual(
+        info.app_required,
+        false,
+        "Claimed share should not require app when public listening remains enabled",
+      );
+      assert.ok(
+        info.web_stream_url,
+        "Claimed share should retain a public browser stream",
+      );
 
       // Request stream WITHOUT headers - should still return public preview playback
       const res = await app.inject({
@@ -590,10 +722,21 @@ describe("Share Flow", () => {
         url: `/share/${share_id}/stream`,
       });
 
-      assert.strictEqual(res.statusCode, 200, "Claimed share should still expose preview playback for browser listeners");
+      assert.strictEqual(
+        res.statusCode,
+        200,
+        "Claimed share should still expose preview playback for browser listeners",
+      );
       const body = JSON.parse(res.body);
-      assert.strictEqual(body.format, "audio", "Claimed public playback should use direct audio");
-      assert.ok(body.stream_url.includes(`/share/${share_id}/audio`), "Claimed public playback should route to the audio endpoint");
+      assert.strictEqual(
+        body.format,
+        "audio",
+        "Claimed public playback should use direct audio",
+      );
+      assert.ok(
+        body.stream_url.includes(`/share/${share_id}/audio`),
+        "Claimed public playback should route to the audio endpoint",
+      );
     });
 
     it("rejects stream from wrong device", async () => {
@@ -609,14 +752,10 @@ describe("Share Flow", () => {
       });
       const { share_id, claim_pin } = JSON.parse(createRes.body);
 
-      await app.inject({
-        method: "POST",
-        url: `/share/${share_id}/claim`,
-        payload: {
-          device_id: boundDeviceId,
-          platform: "ios",
-          pin: claim_pin,
-        },
+      await claimAuthenticated(app, db, {
+        shareId: share_id,
+        pin: claim_pin,
+        deviceId: boundDeviceId,
       });
 
       // Wrong device requests stream
@@ -700,8 +839,12 @@ describe("Share Flow", () => {
 
       // Mock render completion
       db.prepare(
-        "UPDATE track_versions SET preview_url = ? WHERE track_id = ? AND version_num = ?"
-      ).run("http://stream.local/test.m3u8", track.track_id, version.version_num);
+        "UPDATE track_versions SET preview_url = ? WHERE track_id = ? AND version_num = ?",
+      ).run(
+        "http://stream.local/test.m3u8",
+        track.track_id,
+        version.version_num,
+      );
 
       return { trackId: track.track_id, versionNum: version.version_num };
     }
@@ -727,12 +870,15 @@ describe("Share Flow", () => {
       assert.strictEqual(res.statusCode, 200);
       assert.ok(
         res.headers["content-type"].includes("text/html"),
-        "Should return HTML"
+        "Should return HTML",
       );
-      assert.ok(res.body.includes("<!DOCTYPE html>"), "Should be HTML document");
+      assert.ok(
+        res.body.includes("<!DOCTYPE html>"),
+        "Should be HTML document",
+      );
       assert.ok(
         res.body.toLowerCase().includes("someone made you a song"),
-        "Should contain player title"
+        "Should contain player title",
       );
     });
 
@@ -754,20 +900,24 @@ describe("Share Flow", () => {
 
       assert.strictEqual(res.statusCode, 200);
       assert.ok(
-        res.body.includes('property="og:title" content="A birthday song for Test"'),
-        "Should use recipient + occasion framing in og:title"
+        res.body.includes(
+          'property="og:title" content="A birthday song for Test"',
+        ),
+        "Should use recipient + occasion framing in og:title",
       );
       assert.ok(
-        res.body.includes('property="og:description" content="Open Test&#39;s birthday song and listen in your browser."'),
-        "Should use recipient-aware og:description"
+        res.body.includes(
+          'property="og:description" content="Open Test&#39;s birthday song and listen in your browser."',
+        ),
+        "Should use recipient-aware og:description",
       );
       assert.ok(
         res.body.includes('id="post-play-cta" aria-hidden="true"'),
-        "Initial HTML should hide post-play CTA"
+        "Initial HTML should hide post-play CTA",
       );
       assert.ok(
         !res.body.includes("post-play-cta visible"),
-        "Post-play CTA should not be visible in initial HTML"
+        "Post-play CTA should not be visible in initial HTML",
       );
     });
 
@@ -786,14 +936,15 @@ describe("Share Flow", () => {
         method: "GET",
         url: `/play/${share_id}`,
         headers: {
-          "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1",
+          "user-agent":
+            "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1",
         },
       });
 
       assert.strictEqual(res.statusCode, 200);
       assert.ok(
         (res.headers["content-type"] || "").includes("text/html"),
-        "Mobile share links should stay on the web player"
+        "Mobile share links should stay on the web player",
       );
       assert.strictEqual(res.headers.location, undefined);
     });
@@ -807,12 +958,9 @@ describe("Share Flow", () => {
       assert.strictEqual(res.statusCode, 404);
       assert.ok(
         res.headers["content-type"].includes("text/html"),
-        "Should return HTML"
+        "Should return HTML",
       );
-      assert.ok(
-        res.body.includes("Not Found"),
-        "Should indicate not found"
-      );
+      assert.ok(res.body.includes("Not Found"), "Should indicate not found");
     });
 
     it("logs access when web player is opened", async () => {
@@ -837,7 +985,7 @@ describe("Share Flow", () => {
       // Check that access was logged
       const logs = db
         .prepare(
-          "SELECT * FROM share_access_log WHERE share_token_id = ? AND event_type = ?"
+          "SELECT * FROM share_access_log WHERE share_token_id = ? AND event_type = ?",
         )
         .all(share_id, "web_player_opened");
 
@@ -847,7 +995,7 @@ describe("Share Flow", () => {
       assert.strictEqual(
         metadata.user_agent,
         "Test Browser/1.0",
-        "Should log user agent"
+        "Should log user agent",
       );
     });
   });
@@ -858,7 +1006,7 @@ describe("Share Flow", () => {
     // Helper function to create a shareable track
     async function createShareableTrack() {
       db.prepare(
-        "INSERT OR IGNORE INTO users (id, created_at, risk_level) VALUES (?, ?, ?)"
+        "INSERT OR IGNORE INTO users (id, created_at, risk_level) VALUES (?, ?, ?)",
       ).run(statsTestUserId, new Date().toISOString(), "low");
 
       const createTrackRes = await app.inject({
@@ -882,13 +1030,21 @@ describe("Share Flow", () => {
         headers: { "x-user-id": statsTestUserId },
         payload: { style: "pop" },
       });
-      assert.strictEqual(createVersionRes.statusCode, 201, createVersionRes.body);
+      assert.strictEqual(
+        createVersionRes.statusCode,
+        201,
+        createVersionRes.body,
+      );
       const version = JSON.parse(createVersionRes.body);
 
       // Mock render completion
       db.prepare(
-        "UPDATE track_versions SET preview_url = ? WHERE track_id = ? AND version_num = ?"
-      ).run("http://stream.local/test.m3u8", track.track_id, version.version_num);
+        "UPDATE track_versions SET preview_url = ? WHERE track_id = ? AND version_num = ?",
+      ).run(
+        "http://stream.local/test.m3u8",
+        track.track_id,
+        version.version_num,
+      );
 
       return { trackId: track.track_id, versionNum: version.version_num };
     }
@@ -911,15 +1067,11 @@ describe("Share Flow", () => {
         url: `/share/${share_id}`,
       });
 
-      // Claim the share
-      await app.inject({
-        method: "POST",
-        url: `/share/${share_id}/claim`,
-        payload: {
-          device_id: "stats-test-device",
-          platform: "ios",
-          pin: claim_pin,
-        },
+      // Claim the share (authenticated)
+      await claimAuthenticated(app, db, {
+        shareId: share_id,
+        pin: claim_pin,
+        deviceId: "stats-test-device",
       });
 
       // Get stats
@@ -965,15 +1117,11 @@ describe("Share Flow", () => {
       });
       const { share_id, claim_pin } = JSON.parse(createRes.body);
 
-      // Claim the share
-      await app.inject({
-        method: "POST",
-        url: `/share/${share_id}/claim`,
-        payload: {
-          device_id: "ios-compat-test-device",
-          platform: "ios",
-          pin: claim_pin,
-        },
+      // Claim the share (authenticated)
+      await claimAuthenticated(app, db, {
+        shareId: share_id,
+        pin: claim_pin,
+        deviceId: "ios-compat-test-device",
       });
 
       // Get stats
@@ -987,14 +1135,33 @@ describe("Share Flow", () => {
       const stats = JSON.parse(statsRes.body);
 
       // iOS expects these fields at ROOT level (not nested)
-      assert.strictEqual(typeof stats.total_events, "number", "total_events must be at root");
+      assert.strictEqual(
+        typeof stats.total_events,
+        "number",
+        "total_events must be at root",
+      );
       assert.ok("event_counts" in stats, "event_counts must be at root");
-      assert.strictEqual(typeof stats.is_claimed, "boolean", "is_claimed must be at root");
-      assert.ok("bound_device" in stats, "bound_device must be at root (can be null)");
+      assert.strictEqual(
+        typeof stats.is_claimed,
+        "boolean",
+        "is_claimed must be at root",
+      );
+      assert.ok(
+        "bound_device" in stats,
+        "bound_device must be at root (can be null)",
+      );
 
       // These MUST NOT exist (old nested structure breaks iOS decoding)
-      assert.strictEqual(stats.access_stats, undefined, "access_stats should NOT exist");
-      assert.strictEqual(stats.claim_info, undefined, "claim_info should NOT exist");
+      assert.strictEqual(
+        stats.access_stats,
+        undefined,
+        "access_stats should NOT exist",
+      );
+      assert.strictEqual(
+        stats.claim_info,
+        undefined,
+        "claim_info should NOT exist",
+      );
 
       // Verify bound_device has correct shape when claimed
       assert.ok(stats.bound_device, "bound_device should exist when claimed");
@@ -1025,7 +1192,11 @@ describe("Share Flow", () => {
 
       // Verify unclaimed state
       assert.strictEqual(stats.is_claimed, false, "is_claimed should be false");
-      assert.strictEqual(stats.bound_device, null, "bound_device should be null");
+      assert.strictEqual(
+        stats.bound_device,
+        null,
+        "bound_device should be null",
+      );
       assert.ok(stats.total_events >= 0, "total_events should exist");
     });
 
@@ -1073,7 +1244,7 @@ describe("Share Flow", () => {
     async function createShareableTrack() {
       // Ensure user exists
       db.prepare(
-        "INSERT OR IGNORE INTO users (id, created_at, risk_level) VALUES (?, ?, ?)"
+        "INSERT OR IGNORE INTO users (id, created_at, risk_level) VALUES (?, ?, ?)",
       ).run(qrTestUserId, new Date().toISOString(), "low");
 
       const createTrackRes = await app.inject({
@@ -1100,8 +1271,12 @@ describe("Share Flow", () => {
 
       // Mock render completion
       db.prepare(
-        "UPDATE track_versions SET preview_url = ? WHERE track_id = ? AND version_num = ?"
-      ).run("http://stream.local/test.m3u8", track.track_id, version.version_num);
+        "UPDATE track_versions SET preview_url = ? WHERE track_id = ? AND version_num = ?",
+      ).run(
+        "http://stream.local/test.m3u8",
+        track.track_id,
+        version.version_num,
+      );
 
       return { trackId: track.track_id, versionNum: version.version_num };
     }
@@ -1127,12 +1302,12 @@ describe("Share Flow", () => {
       assert.strictEqual(res.statusCode, 200);
       assert.ok(
         res.headers["content-type"].includes("image/png"),
-        "Should return PNG image"
+        "Should return PNG image",
       );
       // PNG files start with specific magic bytes
       assert.ok(
         res.rawPayload[0] === 0x89 && res.rawPayload[1] === 0x50,
-        "Should be valid PNG data"
+        "Should be valid PNG data",
       );
     });
 
@@ -1157,7 +1332,7 @@ describe("Share Flow", () => {
       assert.strictEqual(res.statusCode, 200);
       assert.ok(
         res.headers["content-type"].includes("image/svg+xml"),
-        "Should return SVG image"
+        "Should return SVG image",
       );
       assert.ok(res.body.includes("<svg"), "Should contain SVG element");
     });
@@ -1238,7 +1413,7 @@ describe("Share Flow", () => {
     async function createShareableTrack() {
       // Ensure user exists
       db.prepare(
-        "INSERT OR IGNORE INTO users (id, created_at, risk_level) VALUES (?, ?, ?)"
+        "INSERT OR IGNORE INTO users (id, created_at, risk_level) VALUES (?, ?, ?)",
       ).run(qrDataTestUserId, new Date().toISOString(), "low");
 
       const createTrackRes = await app.inject({
@@ -1265,8 +1440,12 @@ describe("Share Flow", () => {
 
       // Mock render completion
       db.prepare(
-        "UPDATE track_versions SET preview_url = ? WHERE track_id = ? AND version_num = ?"
-      ).run("http://stream.local/test.m3u8", track.track_id, version.version_num);
+        "UPDATE track_versions SET preview_url = ? WHERE track_id = ? AND version_num = ?",
+      ).run(
+        "http://stream.local/test.m3u8",
+        track.track_id,
+        version.version_num,
+      );
 
       return { trackId: track.track_id, versionNum: version.version_num };
     }
@@ -1294,11 +1473,14 @@ describe("Share Flow", () => {
       const data = JSON.parse(res.body);
 
       assert.ok(data.share_url, "Should include share URL");
-      assert.ok(data.share_url.includes(`/play/${share_id}`), "Share URL should point to web player");
+      assert.ok(
+        data.share_url.includes(`/play/${share_id}`),
+        "Share URL should point to web player",
+      );
       assert.ok(data.qr_data_url, "Should include QR data URL");
       assert.ok(
         data.qr_data_url.startsWith("data:image/png;base64,"),
-        "Data URL should be base64 PNG"
+        "Data URL should be base64 PNG",
       );
       assert.strictEqual(data.size, 300, "Should use default size");
     });
@@ -1372,28 +1554,39 @@ describe("Share Flow", () => {
     const hardenUserId = "harden_test_user";
 
     async function createShareableTrackAndShare() {
-      db.prepare("INSERT OR IGNORE INTO users (id, created_at, risk_level) VALUES (?, ?, ?)")
-        .run(hardenUserId, new Date().toISOString(), "low");
+      db.prepare(
+        "INSERT OR IGNORE INTO users (id, created_at, risk_level) VALUES (?, ?, ?)",
+      ).run(hardenUserId, new Date().toISOString(), "low");
 
       const trackRes = await app.inject({
-        method: "POST", url: "/tracks",
+        method: "POST",
+        url: "/tracks",
         headers: { "x-user-id": hardenUserId },
-        payload: { title: "Harden Song " + Date.now(), recipient_name: "Tester", message: "Test", style: "pop", occasion: "birthday" },
+        payload: {
+          title: "Harden Song " + Date.now(),
+          recipient_name: "Tester",
+          message: "Test",
+          style: "pop",
+          occasion: "birthday",
+        },
       });
       const trackId = JSON.parse(trackRes.body).track_id;
 
       const verRes = await app.inject({
-        method: "POST", url: `/tracks/${trackId}/versions`,
+        method: "POST",
+        url: `/tracks/${trackId}/versions`,
         headers: { "x-user-id": hardenUserId },
         payload: { style: "pop" },
       });
       const versionNum = JSON.parse(verRes.body).version_num;
 
-      db.prepare("UPDATE track_versions SET preview_url = ? WHERE track_id = ? AND version_num = ?")
-        .run("http://stream.local/test.m3u8", trackId, versionNum);
+      db.prepare(
+        "UPDATE track_versions SET preview_url = ? WHERE track_id = ? AND version_num = ?",
+      ).run("http://stream.local/test.m3u8", trackId, versionNum);
 
       const shareRes = await app.inject({
-        method: "POST", url: `/tracks/${trackId}/share`,
+        method: "POST",
+        url: `/tracks/${trackId}/share`,
         headers: { "x-user-id": hardenUserId },
         payload: { version_num: versionNum },
       });
@@ -1405,9 +1598,19 @@ describe("Share Flow", () => {
     // Validation 1: Song share is lifetime with correct fields
     it("V1: song share is created as lifetime with correct fields", async () => {
       const { share_id } = await createShareableTrackAndShare();
-      const row = db.prepare("SELECT * FROM share_tokens WHERE id = ?").get(share_id);
-      assert.strictEqual(row.share_type, "lifetime", "share_type must be lifetime");
-      assert.strictEqual(row.expires_at, "9999-12-31T23:59:59.000Z", "expires_at must be far-future");
+      const row = db
+        .prepare("SELECT * FROM share_tokens WHERE id = ?")
+        .get(share_id);
+      assert.strictEqual(
+        row.share_type,
+        "lifetime",
+        "share_type must be lifetime",
+      );
+      assert.strictEqual(
+        row.expires_at,
+        "9999-12-31T23:59:59.000Z",
+        "expires_at must be far-future",
+      );
       assert.strictEqual(row.status, "unbound");
       assert.ok(row.claim_pin, "must have a claim PIN");
       assert.strictEqual(row.claim_pin.length, 6, "PIN must be 6 digits");
@@ -1417,7 +1620,8 @@ describe("Share Flow", () => {
     it("V2: song claim without PIN is rejected", async () => {
       const { share_id } = await createShareableTrackAndShare();
       const res = await app.inject({
-        method: "POST", url: `/share/${share_id}/claim`,
+        method: "POST",
+        url: `/share/${share_id}/claim`,
         headers: { "x-device-id": "test-device-v2", "x-platform": "ios" },
         payload: {},
       });
@@ -1429,10 +1633,10 @@ describe("Share Flow", () => {
 
     it("V2: song claim with correct PIN succeeds", async () => {
       const { share_id, claim_pin } = await createShareableTrackAndShare();
-      const res = await app.inject({
-        method: "POST", url: `/share/${share_id}/claim`,
-        headers: { "x-device-id": "test-device-v2b", "x-platform": "ios" },
-        payload: { pin: claim_pin },
+      const { response: res } = await claimAuthenticated(app, db, {
+        shareId: share_id,
+        pin: claim_pin,
+        deviceId: "test-device-v2b",
       });
       assert.strictEqual(res.statusCode, 200);
       const body = JSON.parse(res.body);
@@ -1444,40 +1648,67 @@ describe("Share Flow", () => {
       const { share_id } = await createShareableTrackAndShare();
       // GET /share/:shareId should return web_stream_url for unbound shares
       const infoRes = await app.inject({
-        method: "GET", url: `/share/${share_id}`,
+        method: "GET",
+        url: `/share/${share_id}`,
       });
       assert.strictEqual(infoRes.statusCode, 200);
       const info = JSON.parse(infoRes.body);
       assert.strictEqual(info.status, "unbound");
-      assert.ok(info.web_stream_url, "web_stream_url must be populated for unbound share");
-      assert.ok(info.web_stream_url.includes("/audio"), "stream URL must point to audio endpoint");
+      assert.ok(
+        info.web_stream_url,
+        "web_stream_url must be populated for unbound share",
+      );
+      assert.ok(
+        info.web_stream_url.includes("/audio"),
+        "stream URL must point to audio endpoint",
+      );
     });
 
     // Regression: Lifetime auto-heal recovers corrupted shares
     it("auto-heals lifetime share incorrectly marked expired", async () => {
       const { share_id } = await createShareableTrackAndShare();
       // Corrupt: simulate the old bug writing status='expired'
-      db.prepare("UPDATE share_tokens SET status = ? WHERE id = ?").run("expired", share_id);
+      db.prepare("UPDATE share_tokens SET status = ? WHERE id = ?").run(
+        "expired",
+        share_id,
+      );
 
       const res = await app.inject({
-        method: "GET", url: `/share/${share_id}`,
+        method: "GET",
+        url: `/share/${share_id}`,
       });
-      assert.strictEqual(res.statusCode, 200, "auto-heal should recover the share");
+      assert.strictEqual(
+        res.statusCode,
+        200,
+        "auto-heal should recover the share",
+      );
       // Verify DB was healed
-      const row = db.prepare("SELECT status FROM share_tokens WHERE id = ?").get(share_id);
-      assert.strictEqual(row.status, "unbound", "status should be healed back to unbound");
+      const row = db
+        .prepare("SELECT status FROM share_tokens WHERE id = ?")
+        .get(share_id);
+      assert.strictEqual(
+        row.status,
+        "unbound",
+        "status should be healed back to unbound",
+      );
     });
 
     it("does NOT auto-heal genuinely expired normal shares", async () => {
       const { share_id } = await createShareableTrackAndShare();
       // Set to normal with past expiry — genuinely expired
-      db.prepare("UPDATE share_tokens SET share_type = ?, expires_at = ?, status = ? WHERE id = ?")
-        .run("normal", "2020-01-01T00:00:00.000Z", "expired", share_id);
+      db.prepare(
+        "UPDATE share_tokens SET share_type = ?, expires_at = ?, status = ? WHERE id = ?",
+      ).run("normal", "2020-01-01T00:00:00.000Z", "expired", share_id);
 
       const res = await app.inject({
-        method: "GET", url: `/share/${share_id}`,
+        method: "GET",
+        url: `/share/${share_id}`,
       });
-      assert.strictEqual(res.statusCode, 410, "genuinely expired share must stay expired");
+      assert.strictEqual(
+        res.statusCode,
+        410,
+        "genuinely expired share must stay expired",
+      );
     });
   });
 
@@ -1485,18 +1716,35 @@ describe("Share Flow", () => {
     const poemUserId = "11111111-1111-4111-8111-111111111111";
 
     async function createPoemAndShare() {
-      db.prepare("INSERT OR IGNORE INTO users (id, created_at, risk_level) VALUES (?, ?, ?)")
-        .run(poemUserId, new Date().toISOString(), "low");
+      db.prepare(
+        "INSERT OR IGNORE INTO users (id, created_at, risk_level) VALUES (?, ?, ?)",
+      ).run(poemUserId, new Date().toISOString(), "low");
 
       // Create poem directly in DB (poem creation route may require story context)
       const poemId = "poem_" + require("crypto").randomUUID();
-      const verses = JSON.stringify(["Roses are red", "Violets are blue", "This is a test", "Just for you"]);
+      const verses = JSON.stringify([
+        "Roses are red",
+        "Violets are blue",
+        "This is a test",
+        "Just for you",
+      ]);
       db.prepare(
-        "INSERT INTO poems (id, user_id, title, recipient_name, occasion, verses, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
-      ).run(poemId, poemUserId, "Test Poem", "PoemRecipient", "birthday", verses, "completed", new Date().toISOString(), new Date().toISOString());
+        "INSERT INTO poems (id, user_id, title, recipient_name, occasion, verses, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      ).run(
+        poemId,
+        poemUserId,
+        "Test Poem",
+        "PoemRecipient",
+        "birthday",
+        verses,
+        "completed",
+        new Date().toISOString(),
+        new Date().toISOString(),
+      );
 
       const shareRes = await app.inject({
-        method: "POST", url: `/poems/${poemId}/share`,
+        method: "POST",
+        url: `/poems/${poemId}/share`,
         headers: { "x-user-id": poemUserId },
         payload: {},
       });
@@ -1509,17 +1757,23 @@ describe("Share Flow", () => {
     it("V4: poem claim without PIN is rejected", async () => {
       const { share_id } = await createPoemAndShare();
       const res = await app.inject({
-        method: "POST", url: `/poem-share/${share_id}/claim`,
+        method: "POST",
+        url: `/poem-share/${share_id}/claim`,
         headers: { "x-user-id": poemUserId },
         payload: {},
       });
-      assert.strictEqual(res.statusCode, 401, "Poem claim without PIN must return 401");
+      assert.strictEqual(
+        res.statusCode,
+        401,
+        "Poem claim without PIN must return 401",
+      );
     });
 
     it("V4: poem claim with correct PIN succeeds", async () => {
       const { share_id, claim_pin } = await createPoemAndShare();
       const res = await app.inject({
-        method: "POST", url: `/poem-share/${share_id}/claim`,
+        method: "POST",
+        url: `/poem-share/${share_id}/claim`,
         headers: { "x-user-id": poemUserId },
         payload: { pin: claim_pin },
       });
@@ -1532,29 +1786,69 @@ describe("Share Flow", () => {
     it("V5: poem share info returns preview without PIN", async () => {
       const { share_id } = await createPoemAndShare();
       const res = await app.inject({
-        method: "GET", url: `/poem-share/${share_id}`,
+        method: "GET",
+        url: `/poem-share/${share_id}`,
       });
       assert.strictEqual(res.statusCode, 200);
       const body = JSON.parse(res.body);
       assert.ok(body.poem, "must return poem data");
       assert.ok(body.poem.preview_lines, "must return preview_lines");
-      assert.ok(body.poem.preview_lines.length > 0, "preview must have content");
-      assert.ok(body.poem.verses, "must return full verses for web presentation");
-      assert.ok(body.poem.verses.length >= body.poem.preview_lines.length, "full verses must include at least the preview content");
-      assert.strictEqual(body.can_access, true, "web presentation should not be claim-gated");
-      assert.strictEqual(body.app_required, false, "app should be required for claim only, not display");
-      assert.strictEqual(typeof body.app_required_for_claim, "boolean", "app claim gate should remain explicit");
+      assert.ok(
+        body.poem.preview_lines.length > 0,
+        "preview must have content",
+      );
+      assert.ok(
+        body.poem.verses,
+        "must return full verses for web presentation",
+      );
+      assert.ok(
+        body.poem.verses.length >= body.poem.preview_lines.length,
+        "full verses must include at least the preview content",
+      );
+      assert.strictEqual(
+        body.can_access,
+        true,
+        "web presentation should not be claim-gated",
+      );
+      assert.strictEqual(
+        body.app_required,
+        false,
+        "app should be required for claim only, not display",
+      );
+      assert.strictEqual(
+        typeof body.app_required_for_claim,
+        "boolean",
+        "app claim gate should remain explicit",
+      );
       // PIN is required for claiming, but content is visible
-      assert.strictEqual(body.requires_pin, true, "requires_pin should be true (gating claim, not display)");
-      assert.strictEqual(body.requires_pin_for_claim, true, "claim PIN gate should remain explicit");
+      assert.strictEqual(
+        body.requires_pin,
+        true,
+        "requires_pin should be true (gating claim, not display)",
+      );
+      assert.strictEqual(
+        body.requires_pin_for_claim,
+        true,
+        "claim PIN gate should remain explicit",
+      );
     });
 
     // Poem lifetime: shares created via service should be lifetime
     it("poem share is created as lifetime with correct fields", async () => {
       const { share_id } = await createPoemAndShare();
-      const row = db.prepare("SELECT * FROM poem_share_tokens WHERE id = ?").get(share_id);
-      assert.strictEqual(row.share_type, "lifetime", "share_type must be lifetime");
-      assert.strictEqual(row.expires_at, "9999-12-31T23:59:59.000Z", "expires_at must be far-future");
+      const row = db
+        .prepare("SELECT * FROM poem_share_tokens WHERE id = ?")
+        .get(share_id);
+      assert.strictEqual(
+        row.share_type,
+        "lifetime",
+        "share_type must be lifetime",
+      );
+      assert.strictEqual(
+        row.expires_at,
+        "9999-12-31T23:59:59.000Z",
+        "expires_at must be far-future",
+      );
       assert.ok(row.claim_pin, "must have claim PIN");
     });
   });
@@ -1564,25 +1858,39 @@ describe("Share Flow", () => {
 
     // Validation 6: Gift shares follow same claim/playback rules
     it("V6: gift song share (app_only) blocks web stream and requires PIN to claim", async () => {
-      db.prepare("INSERT OR IGNORE INTO users (id, created_at, risk_level) VALUES (?, ?, ?)")
-        .run(giftUserId, new Date().toISOString(), "low");
+      db.prepare(
+        "INSERT OR IGNORE INTO users (id, created_at, risk_level) VALUES (?, ?, ?)",
+      ).run(giftUserId, new Date().toISOString(), "low");
 
       // Create track + version
       const trackRes = await app.inject({
-        method: "POST", url: "/tracks",
+        method: "POST",
+        url: "/tracks",
         headers: { "x-user-id": giftUserId },
-        payload: { title: "Gift Song " + Date.now(), recipient_name: "GiftRecipient", message: "Happy Birthday", style: "pop", occasion: "birthday" },
+        payload: {
+          title: "Gift Song " + Date.now(),
+          recipient_name: "GiftRecipient",
+          message: "Happy Birthday",
+          style: "pop",
+          occasion: "birthday",
+        },
       });
       const trackId = JSON.parse(trackRes.body).track_id;
       const verRes = await app.inject({
-        method: "POST", url: `/tracks/${trackId}/versions`,
+        method: "POST",
+        url: `/tracks/${trackId}/versions`,
         headers: { "x-user-id": giftUserId },
         payload: { style: "pop" },
       });
       const versionNum = JSON.parse(verRes.body).version_num;
-      const versionId = db.prepare("SELECT id FROM track_versions WHERE track_id = ? AND version_num = ?").get(trackId, versionNum).id;
-      db.prepare("UPDATE track_versions SET preview_url = ? WHERE track_id = ? AND version_num = ?")
-        .run("http://stream.local/gift-preview.m3u8", trackId, versionNum);
+      const versionId = db
+        .prepare(
+          "SELECT id FROM track_versions WHERE track_id = ? AND version_num = ?",
+        )
+        .get(trackId, versionNum).id;
+      db.prepare(
+        "UPDATE track_versions SET preview_url = ? WHERE track_id = ? AND version_num = ?",
+      ).run("http://stream.local/gift-preview.m3u8", trackId, versionNum);
 
       // Simulate gift share by inserting directly (ensureTrackGiftShareToken is in server.js closure)
       const shareId = "gift_" + Date.now();
@@ -1591,61 +1899,101 @@ describe("Share Flow", () => {
         `INSERT INTO share_tokens (id, track_id, track_version_id, creator_id, status, share_type, claim_policy,
          web_stream_allowed, app_save_allowed, expires_at, created_at, access_count, claim_pin, claim_attempts,
          stream_key_id, stream_key, delivery_source)
-         VALUES (?, ?, ?, ?, 'unbound', 'normal', 'app_only', 0, 1, ?, ?, 0, ?, 0, ?, ?, 'gift')`
+         VALUES (?, ?, ?, ?, 'unbound', 'normal', 'app_only', 0, 1, ?, ?, 0, ?, 0, ?, ?, 'gift')`,
       ).run(
-        shareId, trackId, versionId, giftUserId,
+        shareId,
+        trackId,
+        versionId,
+        giftUserId,
         new Date(Date.now() + 30 * 86400000).toISOString(),
         new Date().toISOString(),
         pin,
         require("crypto").randomUUID(),
-        require("crypto").randomBytes(16).toString("base64")
+        require("crypto").randomBytes(16).toString("base64"),
       );
-      db.prepare("UPDATE tracks SET share_token_id = ? WHERE id = ?").run(shareId, trackId);
+      db.prepare("UPDATE tracks SET share_token_id = ? WHERE id = ?").run(
+        shareId,
+        trackId,
+      );
 
       // GET /share/:shareId — app_only gift should have no web_stream_url
-      const infoRes = await app.inject({ method: "GET", url: `/share/${shareId}` });
+      const infoRes = await app.inject({
+        method: "GET",
+        url: `/share/${shareId}`,
+      });
       assert.strictEqual(infoRes.statusCode, 200);
       const info = JSON.parse(infoRes.body);
-      assert.strictEqual(info.app_required, true, "app_only gift must require app");
-      assert.strictEqual(info.web_stream_url, null, "app_only gift must not have web stream URL");
+      assert.strictEqual(
+        info.app_required,
+        true,
+        "app_only gift must require app",
+      );
+      assert.strictEqual(
+        info.web_stream_url,
+        null,
+        "app_only gift must not have web stream URL",
+      );
 
       // Claim without PIN should fail (401 = auth required, PIN is the credential)
       const claimNoPin = await app.inject({
-        method: "POST", url: `/share/${shareId}/claim`,
+        method: "POST",
+        url: `/share/${shareId}/claim`,
         headers: { "x-device-id": "gift-device", "x-platform": "ios" },
         payload: {},
       });
-      assert.strictEqual(claimNoPin.statusCode, 401, "claim without PIN must fail");
+      assert.strictEqual(
+        claimNoPin.statusCode,
+        401,
+        "claim without PIN must fail",
+      );
 
-      // Claim with PIN should succeed
-      const claimWithPin = await app.inject({
-        method: "POST", url: `/share/${shareId}/claim`,
-        headers: { "x-device-id": "gift-device", "x-platform": "ios" },
-        payload: { pin },
+      // Claim with PIN should succeed (authenticated)
+      const { response: claimWithPin } = await claimAuthenticated(app, db, {
+        shareId,
+        pin,
+        deviceId: "gift-device",
       });
-      assert.strictEqual(claimWithPin.statusCode, 200, "claim with correct PIN must succeed");
+      assert.strictEqual(
+        claimWithPin.statusCode,
+        200,
+        "claim with correct PIN must succeed",
+      );
       assert.strictEqual(JSON.parse(claimWithPin.body).status, "claimed");
     });
 
     it("V6: gift song share (default policy) allows web preview playback", async () => {
-      db.prepare("INSERT OR IGNORE INTO users (id, created_at, risk_level) VALUES (?, ?, ?)")
-        .run(giftUserId, new Date().toISOString(), "low");
+      db.prepare(
+        "INSERT OR IGNORE INTO users (id, created_at, risk_level) VALUES (?, ?, ?)",
+      ).run(giftUserId, new Date().toISOString(), "low");
 
       const trackRes = await app.inject({
-        method: "POST", url: "/tracks",
+        method: "POST",
+        url: "/tracks",
         headers: { "x-user-id": giftUserId },
-        payload: { title: "Gift Default " + Date.now(), recipient_name: "Recipient", message: "Hi", style: "pop", occasion: "birthday" },
+        payload: {
+          title: "Gift Default " + Date.now(),
+          recipient_name: "Recipient",
+          message: "Hi",
+          style: "pop",
+          occasion: "birthday",
+        },
       });
       const trackId = JSON.parse(trackRes.body).track_id;
       const verRes = await app.inject({
-        method: "POST", url: `/tracks/${trackId}/versions`,
+        method: "POST",
+        url: `/tracks/${trackId}/versions`,
         headers: { "x-user-id": giftUserId },
         payload: { style: "pop" },
       });
       const versionNum = JSON.parse(verRes.body).version_num;
-      const versionId = db.prepare("SELECT id FROM track_versions WHERE track_id = ? AND version_num = ?").get(trackId, versionNum).id;
-      db.prepare("UPDATE track_versions SET preview_url = ? WHERE track_id = ? AND version_num = ?")
-        .run("http://stream.local/gift-default.m3u8", trackId, versionNum);
+      const versionId = db
+        .prepare(
+          "SELECT id FROM track_versions WHERE track_id = ? AND version_num = ?",
+        )
+        .get(trackId, versionNum).id;
+      db.prepare(
+        "UPDATE track_versions SET preview_url = ? WHERE track_id = ? AND version_num = ?",
+      ).run("http://stream.local/gift-default.m3u8", trackId, versionNum);
 
       // Gift share with default policy (web streaming allowed)
       const shareId = "giftdef_" + Date.now();
@@ -1653,43 +2001,73 @@ describe("Share Flow", () => {
         `INSERT INTO share_tokens (id, track_id, track_version_id, creator_id, status, share_type, claim_policy,
          web_stream_allowed, app_save_allowed, expires_at, created_at, access_count, claim_pin, claim_attempts,
          stream_key_id, stream_key, delivery_source)
-         VALUES (?, ?, ?, ?, 'unbound', 'normal', 'default', 1, 1, ?, ?, 0, ?, 0, ?, ?, 'gift')`
+         VALUES (?, ?, ?, ?, 'unbound', 'normal', 'default', 1, 1, ?, ?, 0, ?, 0, ?, ?, 'gift')`,
       ).run(
-        shareId, trackId, versionId, giftUserId,
+        shareId,
+        trackId,
+        versionId,
+        giftUserId,
         new Date(Date.now() + 30 * 86400000).toISOString(),
         new Date().toISOString(),
         "654321",
         require("crypto").randomUUID(),
-        require("crypto").randomBytes(16).toString("base64")
+        require("crypto").randomBytes(16).toString("base64"),
       );
-      db.prepare("UPDATE tracks SET share_token_id = ? WHERE id = ?").run(shareId, trackId);
+      db.prepare("UPDATE tracks SET share_token_id = ? WHERE id = ?").run(
+        shareId,
+        trackId,
+      );
 
-      const infoRes = await app.inject({ method: "GET", url: `/share/${shareId}` });
+      const infoRes = await app.inject({
+        method: "GET",
+        url: `/share/${shareId}`,
+      });
       assert.strictEqual(infoRes.statusCode, 200);
       const info = JSON.parse(infoRes.body);
-      assert.ok(info.web_stream_url, "default-policy gift must have web_stream_url");
-      assert.strictEqual(info.app_required, false, "default-policy gift should not require app");
+      assert.ok(
+        info.web_stream_url,
+        "default-policy gift must have web_stream_url",
+      );
+      assert.strictEqual(
+        info.app_required,
+        false,
+        "default-policy gift should not require app",
+      );
     });
 
     it("default-policy gift exposes sender context in share info and play-page OG metadata", async () => {
-      db.prepare("INSERT OR IGNORE INTO users (id, created_at, risk_level) VALUES (?, ?, ?)")
-        .run(giftUserId, new Date().toISOString(), "low");
+      db.prepare(
+        "INSERT OR IGNORE INTO users (id, created_at, risk_level) VALUES (?, ?, ?)",
+      ).run(giftUserId, new Date().toISOString(), "low");
 
       const trackRes = await app.inject({
-        method: "POST", url: "/tracks",
+        method: "POST",
+        url: "/tracks",
         headers: { "x-user-id": giftUserId },
-        payload: { title: "Gift Sender " + Date.now(), recipient_name: "Alex", message: "Proud of you", style: "pop", occasion: "graduation" },
+        payload: {
+          title: "Gift Sender " + Date.now(),
+          recipient_name: "Alex",
+          message: "Proud of you",
+          style: "pop",
+          occasion: "graduation",
+        },
       });
       const trackId = JSON.parse(trackRes.body).track_id;
       const verRes = await app.inject({
-        method: "POST", url: `/tracks/${trackId}/versions`,
+        method: "POST",
+        url: `/tracks/${trackId}/versions`,
         headers: { "x-user-id": giftUserId },
         payload: { style: "pop" },
       });
       const versionNum = JSON.parse(verRes.body).version_num;
-      const versionId = db.prepare("SELECT id FROM track_versions WHERE track_id = ? AND version_num = ?").get(trackId, versionNum).id;
-      db.prepare("UPDATE track_versions SET preview_url = ? WHERE track_id = ? AND version_num = ?")
-        .run("http://stream.local/gift-sender.m3u8", trackId, versionNum);
+      const versionId = db
+        .prepare(
+          "SELECT id FROM track_versions WHERE track_id = ? AND version_num = ?",
+        )
+        .get(trackId, versionNum).id;
+      db.prepare(
+        "UPDATE track_versions SET preview_url = ? WHERE track_id = ? AND version_num = ?",
+      ).run("http://stream.local/gift-sender.m3u8", trackId, versionNum);
 
       const giftOrderId = "giftorder_" + Date.now();
       const shareId = "giftctx_" + Date.now();
@@ -1702,7 +2080,7 @@ describe("Share Flow", () => {
           dispatch_attempts, last_dispatch_error, dispatched_at, cancelled_at, token_transaction_id,
           refund_transaction_id, version_num, content_snapshot_json, next_retry_at, dispatch_started_at,
           idempotency_key, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         giftOrderId,
         giftUserId,
@@ -1736,14 +2114,14 @@ describe("Share Flow", () => {
         null,
         `gift_ctx_${Date.now()}`,
         createdAt,
-        createdAt
+        createdAt,
       );
 
       db.prepare(
         `INSERT INTO share_tokens (id, track_id, track_version_id, creator_id, gift_order_id, status, share_type, claim_policy,
          web_stream_allowed, app_save_allowed, expires_at, created_at, access_count, claim_pin, claim_attempts,
          stream_key_id, stream_key, delivery_source)
-         VALUES (?, ?, ?, ?, ?, 'unbound', 'normal', 'default', 1, 1, ?, ?, 0, ?, 0, ?, ?, 'gift')`
+         VALUES (?, ?, ?, ?, ?, 'unbound', 'normal', 'default', 1, 1, ?, ?, 0, ?, 0, ?, ?, 'gift')`,
       ).run(
         shareId,
         trackId,
@@ -1754,25 +2132,38 @@ describe("Share Flow", () => {
         createdAt,
         "246810",
         require("crypto").randomUUID(),
-        require("crypto").randomBytes(16).toString("base64")
+        require("crypto").randomBytes(16).toString("base64"),
       );
-      db.prepare("UPDATE tracks SET share_token_id = ? WHERE id = ?").run(shareId, trackId);
+      db.prepare("UPDATE tracks SET share_token_id = ? WHERE id = ?").run(
+        shareId,
+        trackId,
+      );
 
-      const infoRes = await app.inject({ method: "GET", url: `/share/${shareId}` });
+      const infoRes = await app.inject({
+        method: "GET",
+        url: `/share/${shareId}`,
+      });
       assert.strictEqual(infoRes.statusCode, 200);
       const info = JSON.parse(infoRes.body);
       assert.strictEqual(info.track.sender_name, "Marcus");
       assert.strictEqual(info.track.occasion, "graduation");
 
-      const playRes = await app.inject({ method: "GET", url: `/play/${shareId}` });
+      const playRes = await app.inject({
+        method: "GET",
+        url: `/play/${shareId}`,
+      });
       assert.strictEqual(playRes.statusCode, 200);
       assert.ok(
-        playRes.body.includes('property="og:title" content="Marcus made a graduation song for Alex"'),
-        "Gift play page should use sender-aware og:title"
+        playRes.body.includes(
+          'property="og:title" content="Marcus made a graduation song for Alex"',
+        ),
+        "Gift play page should use sender-aware og:title",
       );
       assert.ok(
-        playRes.body.includes('property="og:description" content="Marcus made this graduation song for Alex. Listen in your browser."'),
-        "Gift play page should use sender-aware og:description"
+        playRes.body.includes(
+          'property="og:description" content="Marcus made this graduation song for Alex. Listen in your browser."',
+        ),
+        "Gift play page should use sender-aware og:description",
       );
     });
   });

@@ -1,4 +1,49 @@
-# ACTIVE — Viral-loop gap-close (2026-06-06)
+# ACTIVE — Viral-loop CLAIM-COMPLETION + prominence (2026-06-06b) 🔴 P0
+
+**Trigger:** Ambrose real-device test of the receiver flow. Three issues, evidence-verified in prod.
+**Decision locked (Ambrose 2026-06-06):** claim identity model = **Option A** — recipient can PLAY freely (no auth), but is **prompted to Sign in with Apple before they can CLAIM**. Onboarding is **cut** for recipients (straight to the saved song). Token binds ONLY once a real user exists → orphans become structurally impossible.
+
+## Evidence (prod, verified)
+
+- `share_tokens` claimed count = **1**, and it is **orphaned** (`bound_user_id IS NULL`): token `oFPPtqWY0fFi`, track `01baebf5-…` ("A Birthday Song for Okenna by Ambrose"), claimed iOS 1.5.14 @ 2026-06-05T09:15:57. `claim_success` event has **`user_id:null`**; `track_library_entries` for the track has only the **creator's** `origin:created` row — **no `received` row for any recipient.** → the save step has **never once** transferred a song.
+- Root cause: `sharing.js` claim endpoint binds the token (`status='claimed'`, line ~2185 atomic UPDATE, `bound_user_id = COALESCE(?, bound_user_id)`) BEFORE knowing the user, and the library write is gated `if (claimUserId)` (line ~2215). Unauth receiver → `ensureDeviceToken()` mints an anonymous token (no `sub`) → `claimUserId=null` → token poisoned, nobody owns the song. Re-claim hits `WHERE status='unbound'` → 0 rows → `TOKEN_ALREADY_BOUND` ("PIN didn't work").
+- Funnel (`viral_loop_metrics` + `share_access_log`): 91 shares → 62 human opens → **27 saw save-CTA → 3 clicked (4.8%)** → **0 registered recipients → 0 reciprocal songs.** Two stacked failures multiplying to K=0: (a) claim CTA buried, (b) the few claims that land are orphaned.
+
+## Tasks (status: ⬜ todo · 🔵 wip · ✅ done · ⛔ blocked)
+
+### A — Server: orphan-proof the claim (CODE DONE; deploy coupled to B build)
+
+- [x] **A1. ✅ Refuse anonymous bind.** `sharing.js` `POST /share/:shareId/claim`: after PIN validation, before the bind UPDATE, `if (!claimUserId) → 401 SIGN_IN_REQUIRED` (no status flip, no device bind). Token stays `unbound` + re-claimable. Surgical 21-insert diff, ESLint clean, `node --check` OK; inserted via Python (not Edit tool) to avoid whole-file prettier pollution.
+- [x] **A2. ✅ Regression tests (strong).** share-flow: (1) anon claim+correct PIN → 401 `SIGN_IN_REQUIRED` AND token stays `status='unbound'` no `bound_device_id` (orphan-proof); (2) authed claim → 200 `claimed` AND `track_library_entries` `origin='received'` AND `bound_user_id=recipientId`. Converted ~13 anon-success claim tests → authenticated (new `claimAuthenticated` helper). 119/119 deterministic green; residual suite failures git-stash-confirmed pre-existing. Anon-failure + poem claims untouched.
+- [ ] **A3. Data recovery** — un-poison `oFPPtqWY0fFi` (⏳ AWAITING Ambrose confirm — prod DB write): `UPDATE share_tokens SET status='unbound', bound_device_id=NULL, bound_user_id=NULL, bound_device_platform=NULL, bound_at=NULL, claim_attempts=0 WHERE id='oFPPtqWY0fFi'`. Clears the bad bind so Okenna can claim post-fix.
+- [x] **A4. ✅ Live-app interaction analyzed.** With A1 deployed, the LIVE 1.5.14 app's anonymous claim returns `401 SIGN_IN_REQUIRED` (surfaced error, not a crash) and the token stays `unbound`/claimable — strictly better than today's silent orphan. A1 is safe to deploy ahead of B; UX only fully recovers once B ships.
+
+### C — Web prominence (deploy now, web-only) — Issues #1 + #2
+
+- [ ] **C1. On-arrival "Open in Porizo" primary CTA** — prominent, above the fold, BEFORE passive web consumption; routes via `receiverSaveUrl` (OneLink, deferred-deep-link safe). Sender-aware ("Get {name}'s song in the app"). Never blocks the web listen.
+- [ ] **C2. Make the save/claim button prominent** — large, high-contrast, persistent/sticky; not a small post-play overlay only.
+- [ ] **C3. Verify** — JS syntax + DOM render; pixel-shot if a live share is available.
+
+### B — iOS: play-first → Sign in with Apple → claim → skip onboarding (NEXT BUILD) — Issue #3 real fix
+
+- [ ] **B1.** Receiver deep-link presents play/claim screen that streams immediately (no auth) — already largely wired (`ReceiverClaimView`); confirm play works pre-auth.
+- [ ] **B2.** "Keep {name}'s song forever" → if not authed, Sign in with Apple → claim with the real user token (handles A1's `SIGN_IN_REQUIRED`) → library write.
+- [ ] **B3.** After claim, **cut onboarding** for recipients → land directly on the saved song in library.
+- [ ] **B4.** Re-present claim after auth; handle already-authed fast path; friendly errors (incl. `SIGN_IN_REQUIRED`).
+- [ ] **B5.** Add `applinks:porizo.onelink.me` to iOS Associated Domains (direct-tap; deferred path already works without it).
+- [ ] **B6.** Device test the full play→sign-in→claim→library flow.
+
+### D — Verify the loop turns
+
+- [ ] **D1.** After A+C: re-test claim on the un-poisoned token; confirm `received` library row + `registered_recipients` increments in `viral_loop_metrics`.
+
+## Sequencing + honesty
+
+A + C deploy immediately via push-to-main (server/web) — stop the orphan bleeding, recover the test token, lift the buried CTA. **The loop is NOT fully closed for new-install recipients until B ships** (App Store build): until then a fresh-install recipient still can't complete a claim, but with A deployed their token is no longer poisoned, so it completes the moment B lands. Implement + test A/C locally, then **confirm with Ambrose before push** (A changes a live server contract).
+
+---
+
+# DONE — Viral-loop gap-close (2026-06-06) ✅ batch complete (see status footer below)
 
 **Source:** review of `docs/porizo-monetization-viral-decisions-2026-06.md` §F + `docs/porizo-recovery-plan-2026-06.md` Issue 2 (P0). Supersedes the open V-B / V-D items in the (prior) viral-loop plan below.
 **Method:** `/executing-plans` → implement → `/ce-review-code` per change → `finishing-a-development-branch`.

@@ -2134,6 +2134,27 @@ function registerSharingRoutes(
         }
       }
 
+      // Ownership requires identity. A song in a permanent library must belong to a
+      // user_id; an anonymous device token (no `sub`) must NOT bind the token. Binding
+      // anonymously poisons it (status='claimed', bound_user_id NULL) with no library
+      // entry — the song is then lost AND the token is un-reclaimable (re-claim hits the
+      // WHERE status='unbound' guard). The recipient plays freely on web/app; the iOS app
+      // prompts Sign in with Apple, then claims with a real user token. PIN is validated
+      // above, so an anonymous caller cannot reach this gate without also knowing the PIN.
+      if (!claimUserId) {
+        await recordReceiverClaimEvent("receiver_claim_failed", {
+          error_code: "sign_in_required",
+          platform,
+        });
+        sendError(
+          reply,
+          401,
+          "SIGN_IN_REQUIRED",
+          "Sign in to save this song to your library.",
+        );
+        return;
+      }
+
       if (share.bound_device_id && share.bound_device_id !== deviceId) {
         await addShareAccessLog({
           shareTokenId: share.id,

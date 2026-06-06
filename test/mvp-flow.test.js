@@ -26,7 +26,10 @@ before(async () => {
     UPLOAD_SIGNING_SECRET: "test-upload-secret",
     UPLOAD_URL_TTL_SEC: 900,
   };
-  db = await initDb({ dbPath: ":memory:", migrationsDir: path.join(process.cwd(), "migrations") });
+  db = await initDb({
+    dbPath: ":memory:",
+    migrationsDir: path.join(process.cwd(), "migrations"),
+  });
   storage = createStorageProvider(config);
   app = buildServer({ db, config, storage });
   runner = await startJobRunner({
@@ -109,7 +112,13 @@ async function runMvpFlow(voiceMode, userId) {
   const session = enrollStart.json();
 
   // Create test audio chunks for QC validation
-  const chunkDir = path.join(storageDir, "enrollment", "raw", userId, session.session_id);
+  const chunkDir = path.join(
+    storageDir,
+    "enrollment",
+    "raw",
+    userId,
+    session.session_id,
+  );
   fs.mkdirSync(chunkDir, { recursive: true });
   for (let i = 0; i < 4; i++) {
     fs.writeFileSync(path.join(chunkDir, `chunk_${i}.wav`), createTestWav(3));
@@ -183,7 +192,11 @@ async function runMvpFlow(voiceMode, userId) {
   const previewJobId = renderPreview.json().job_id;
 
   const previewJob = await waitForJobCompletion(previewJobId);
-  assert.equal(previewJob.status, "completed", `Preview render failed: ${JSON.stringify(previewJob)}`);
+  assert.equal(
+    previewJob.status,
+    "completed",
+    `Preview render failed: ${JSON.stringify(previewJob)}`,
+  );
 
   // Share flow
   const share = await app.inject({
@@ -203,10 +216,27 @@ async function runMvpFlow(voiceMode, userId) {
   assert.equal(shareGet.statusCode, 200);
   assert.equal(shareGet.json().status, "unbound");
 
+  // Authenticated claim: register a recipient device so the device token carries a sub
+  const recipientId = `recipient_${userId}_${Date.now()}`;
+  db.prepare(
+    "INSERT OR IGNORE INTO users (id, created_at, risk_level) VALUES (?, ?, ?)",
+  ).run(recipientId, new Date().toISOString(), "low");
+  const recipientReg = await app.inject({
+    method: "POST",
+    url: "/device/register",
+    headers: { "x-user-id": recipientId },
+    payload: {
+      device_id: "ios-idfv-123",
+      platform: "ios",
+      app_version: "1.0.0",
+    },
+  });
+  const recipientToken = recipientReg.json().device_token;
   const claim = await app.inject({
     method: "POST",
     url: `/share/${shareId}/claim`,
-    payload: { device_id: "ios-idfv-123", platform: "ios", app_version: "1.0.0", pin: claimPin },
+    headers: { "x-device-token": recipientToken },
+    payload: { pin: claimPin },
   });
   assert.equal(claim.statusCode, 200);
 
@@ -235,7 +265,11 @@ async function runMvpFlow(voiceMode, userId) {
   const fullJobId = renderFull.json().job_id;
 
   const fullJob = await waitForJobCompletion(fullJobId);
-  assert.equal(fullJob.status, "completed", `Full render failed: ${JSON.stringify(fullJob)}`);
+  assert.equal(
+    fullJob.status,
+    "completed",
+    `Full render failed: ${JSON.stringify(fullJob)}`,
+  );
 
   return { trackId, shareId };
 }
