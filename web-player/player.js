@@ -1937,6 +1937,18 @@
       updateTeaserPlayBtn();
       if (teaserEls.progressFill) teaserEls.progressFill.style.width = "100%";
       teaserAudio.currentTime = 0;
+      // Sender-aware keepsake framing: the teaser unlocks the full song to keep forever
+      // (shares are lifetime). Reply reciprocity ("make one back") lives at post-play, not
+      // here — mid-song is too early to ask the recipient to create. Sender name is user
+      // data: textContent only, never innerHTML.
+      var teaserHeadline = document.getElementById("teaser-unlock-headline");
+      if (teaserHeadline) {
+        var info = getTrackInfo();
+        var senderName = ((info && info.sender_name) || "").trim();
+        teaserHeadline.textContent = senderName
+          ? "Keep " + senderName + "'s song forever"
+          : "Save this song in Porizo";
+      }
       if (teaserEls.unlockCta) teaserEls.unlockCta.classList.add("visible");
     }
 

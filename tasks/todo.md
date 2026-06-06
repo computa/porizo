@@ -1,3 +1,48 @@
+# ACTIVE — Viral-loop gap-close (2026-06-06)
+
+**Source:** review of `docs/porizo-monetization-viral-decisions-2026-06.md` §F + `docs/porizo-recovery-plan-2026-06.md` Issue 2 (P0). Supersedes the open V-B / V-D items in the (prior) viral-loop plan below.
+**Method:** `/executing-plans` → implement → `/ce-review-code` per change → `finishing-a-development-branch`.
+**Branch:** `feat/viral-loop-gap-close` — do NOT implement on `main`.
+
+## Verified state (2026-06-06)
+
+- 🔴 `APPSFLYER_ONELINK_BASE_URL` **absent in Railway prod** (0/90 vars) → every recipient gets the plain `/download` fallback that does NOT survive an App Store install. OneLink never fires.
+- 🔴 `receiver_sessions.matched_user_id` **never back-populated** after signup (`markAppOpened` called w/o `userId` at `sharing.js:1112`; no back-link in `auth.js`) → recipient→registration stays NULL even if a deep link landed.
+- iOS deep-link wiring (`PorizoAppApp.swift` `DeepLinkDelegate` → `handleMakeOneBack`) and server OneLink builder (`app-link-service.js`) are **already built** — just dark.
+- Web V-A **teaser** copy (`web-player/index.html:140`) still "Save this song in Porizo" (only post-play CTA was converted).
+- V-B keepsake features (HD download / reveal video / lyric card / library) **do not exist** in the app (0 matches) → copy promising them = false promise.
+
+## Tasks (status: ⬜ todo · 🔵 wip · ✅ done · ⛔ decision)
+
+### G — Attribution (closes V-D, the real blocker)
+
+- [x] **G1. matched_user_id back-link at registration — ✅ DONE + tested.** `auth.js`: added `matchReceiverAttribution(userId, clientIp)` (mirrors the proven `matchDownloadAttribution` IP + 72h-window backfill), fired fire-and-forget at all 3 signup sites (email/social/phone). Idempotent (`WHERE matched_user_id IS NULL`). Server-only — no iOS/schema change (claim is anonymous, so no deterministic userId there; IP backfill is the established pattern). Test: `test/receiver-attribution.test.js` (same-IP attributes, different-IP does not) — 2/2 green; `registration-country-attribution` 2/2, `receiver-session` 23/23 green.
+- [x] **G2. Smart App Banner `app-argument` — ❎ DROPPED.** Redundant + ineffective: `app-argument` only passes to an _already-installed_ app (does NOT survive a fresh App Store install — the actual gap), and the in-page OneLink CTA (`receiverSaveUrl`) already covers both installed (direct deep link) and fresh-install (deferred) cases. Adding it = speculative complexity that doesn't move recipient→registration. Real fix = G1 + G3.
+- [ ] **G3. `APPSFLYER_ONELINK_BASE_URL` in Railway prod** — ⏳ AWAITING URL from Ambrose (walkthrough provided). Code path already built (`app-link-service.js`); set the var via `rw-use abcobimma` once the OneLink template URL exists.
+- [ ] **G4. End-to-end verify** — after G3 (install → pre-filled "make one back" → attributed registration via DB query on `receiver_sessions.matched_user_id`).
+
+### B — Web V-A teaser copy
+
+- [x] **B1. ✅ DONE.** `index.html` teaser headline → `id="teaser-unlock-headline"`; `player.js` `endTeaser()` sets it sender-aware + keepsake-framed: `senderName ? "Keep {Sender}'s song forever" : "Save this song in Porizo"` (textContent only). Deliberately NOT "make one back": the teaser fires mid-song (preview end), so reply reciprocity stays at post-play (already shipped) — mid-song is too early to ask the recipient to create. Lint clean.
+
+### C — V-B keepsakes — ❎ DROPPED (Ambrose 2026-06-06)
+
+- features don't exist (0 matches); promising them = false promise. Revisit as a real feature build later, not copy.
+
+### D — Sender-reciprocal-free — ⏸️ DEFERRED (Ambrose 2026-06-06)
+
+- recipient-first-free already holds via `free_tier_songs_grant`; don't touch billing until attribution proves the loop converts.
+
+## Status: code complete + reviewed for this batch.
+
+- G1 ✅, B1 ✅; G2 ❎ dropped (redundant). `/ce-review-code` ran (4 personas: security/correctness/testing/maintainability).
+- Review fixes applied: `"unknown"`-IP guard; dropped `download_attributed_at` overload; two-writer comment; tests expanded to 8 (email/social/phone call sites, isNewUser gate, idempotency, 72h boundary, most-recent-candidate, deterministic negatives).
+- Verify: ESLint clean; 33/33 tests green (registration-country 2 + receiver-session 23 + receiver-attribution 8); diff surgical (auth.js +38, player.js +12, index.html +2−1) — formatter pollution reverted.
+- Residual (noted, non-blocking): XFF-spoof/shared-NAT mis-attribution is pre-existing + analytics-only (inherited from `matchDownloadAttribution`); web teaser headline has no JS test harness.
+- ⏳ Remaining: G3 (set `APPSFLYER_ONELINK_BASE_URL` once Ambrose provides the OneLink URL) → G4 verify. Then commit.
+
+---
+
 # Active Plan — Unify paywall to ONE canonical screen (SubscriptionViewV2 / Direction A)
 
 **Goal:** Every paywall/subscription surface uses the ONE design we decided in the

@@ -516,6 +516,41 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
     }
   }
 
+  // Receiver (viral-loop) attribution — links a new user to a recent receiver_sessions row by IP.
+  // A gift recipient opened a shared song/poem, installed, and registered; this is what makes the
+  // recipient->registration step observable (matched_user_id), the success metric for the viral loop.
+  // Mirrors matchDownloadAttribution's IP + time-window approach (same fuzziness tradeoff, NAT-bounded).
+  // receiver-session-service.markAppOpened is the deterministic writer (real userId from the in-app
+  // handoff); this is the heuristic fallback for users who register without it. The `matched_user_id
+  // IS NULL` guard lets the two coexist safely — whichever writes first wins.
+  async function matchReceiverAttribution(userId, clientIp) {
+    // getClientIp returns "unknown" (never falsy) when the IP is unresolved — skip it so an
+    // IP-less registrant can never cross-match a receiver row that also stored "unknown".
+    if (!clientIp || clientIp === "unknown") return;
+    try {
+      const cutoff = new Date(Date.now() - 72 * 60 * 60 * 1000).toISOString();
+      const session = await db.prepare(
+        `SELECT id
+         FROM receiver_sessions
+         WHERE matched_user_id IS NULL
+           AND (last_ip_address = ? OR first_ip_address = ?)
+           AND created_at > ?
+         ORDER BY updated_at DESC LIMIT 1`
+      ).get(clientIp, clientIp, cutoff);
+
+      if (!session) return;
+
+      const now = new Date().toISOString();
+      await db.prepare(
+        `UPDATE receiver_sessions
+         SET matched_user_id = ?, updated_at = ?
+         WHERE id = ? AND matched_user_id IS NULL`
+      ).run(userId, now, session.id);
+    } catch (err) {
+      console.error("Receiver attribution matching failed:", err.message);
+    }
+  }
+
   // ==================== SCHEMAS ====================
 
   const signupSchema = {
@@ -724,6 +759,7 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
 
       // Attribution matching (non-blocking)
       matchDownloadAttribution(userId, clientIp).catch(() => {});
+      matchReceiverAttribution(userId, clientIp).catch(() => {});
 
       // Send verification email (don't await - fire and forget)
       if (emailService.isConfigured()) {
@@ -1130,6 +1166,7 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
       // Attribution matching for new social signups (non-blocking)
       if (isNewUser) {
         matchDownloadAttribution(userId, clientIp).catch(() => {});
+        matchReceiverAttribution(userId, clientIp).catch(() => {});
       }
 
       // Log event
@@ -2062,6 +2099,7 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
 
       // Attribution matching (non-blocking)
       matchDownloadAttribution(userId, clientIp).catch(() => {});
+      matchReceiverAttribution(userId, clientIp).catch(() => {});
 
       // Log event
       await authService.logAuthEvent({
