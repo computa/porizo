@@ -82,6 +82,44 @@ Compare against the Porizo backend admin dashboard
 (`/admin/dashboard/growth/attribution?days=30`) to verify registrations
 join correctly to the new ASA `acquisition_*` columns.
 
+## 2026-05-15 action plan
+
+Ambrose chose to keep the painkiller probe alive and make the test real by
+raising bids instead of pausing the campaign. The intended production changes
+are captured in `scripts/aso/apply-painkiller-actions.mjs`:
+
+- Raise all 51 active `Probe US Painkiller` broad keywords from $0.75 to
+  **$1.50 max CPT**. Campaign budget remains $20/day, so the spend ceiling is
+  unchanged.
+- Raise the one Category exact winner below target to **$3.00 max CPT**.
+  `birthday gift ideas` and `birthday gift` were already at target.
+- Add exact campaign negatives for known waste terms in Category and Probe:
+  `[anniversary gift]`, `[personalized gifts]`, `[meaningful gift]`.
+
+Dry-run result:
+
+```bash
+node scripts/aso/apply-painkiller-actions.mjs
+```
+
+Output summary:
+
+- Probe bid updates: 51/52 keywords to $1.50.
+- Category winner bid updates: 1 exact keyword to $3.00.
+- Category exact negatives to create: 3.
+- Probe exact negatives to create: 3.
+
+Execution was attempted with:
+
+```bash
+node scripts/aso/apply-painkiller-actions.mjs --execute
+```
+
+Apple Ads returned `403 FORBIDDEN: User does not have required permissions`
+on the first targeting-keyword update call. No successful write was observed
+before the failure. Re-run the same command from a write-capable Apple Ads API
+role or apply the dry-run actions in the UI.
+
 ## Phase 2 (2026-05-19+, after day-7 evaluation)
 
 Graduate the winners to EXACT in `Porizo - Category US > High-Intent

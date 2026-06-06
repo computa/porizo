@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "updated_at": "2026-05-29T11:15:36.384Z",
+  "updated_at": "2026-06-02T00:42:41.386Z",
   "first_observed": "2026-04-16",
   "campaigns": {
     "2143696873": {
@@ -282,6 +282,20 @@
         },
         "2026-05-28": {
           "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-31": {
+          "impressions": 3,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-06-01": {
+          "impressions": 2,
           "taps": 0,
           "installs": 0,
           "spend": 0,
@@ -669,6 +683,20 @@
           "installs": 0,
           "spend": 0,
           "avg_cpt": 0
+        },
+        "2026-05-31": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-06-01": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
         }
       }
     },
@@ -1049,6 +1077,13 @@
           "installs": 0,
           "spend": 0,
           "avg_cpt": 0
+        },
+        "2026-05-31": {
+          "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
         }
       }
     },
@@ -1142,6 +1177,13 @@
         },
         "2026-05-28": {
           "impressions": 2,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-06-01": {
+          "impressions": 1,
           "taps": 0,
           "installs": 0,
           "spend": 0,
@@ -2782,6 +2824,20 @@
         },
         "2026-05-28": {
           "impressions": 1,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-05-31": {
+          "impressions": 3,
+          "taps": 0,
+          "installs": 0,
+          "spend": 0,
+          "avg_cpt": 0
+        },
+        "2026-06-01": {
+          "impressions": 2,
           "taps": 0,
           "installs": 0,
           "spend": 0,

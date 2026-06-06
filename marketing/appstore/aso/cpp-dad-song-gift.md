@@ -15,10 +15,12 @@ visitors who arrive via the CPP's unique URL:
 3. (optional) **App preview video**
 
 It does **NOT** change the app **name, subtitle, keyword field, or description** —
-those stay global. A CPP also **does not affect organic Search ranking**; it only
-changes the _first impression_ for traffic you point at it. You get up to 35 CPPs;
-each has a unique URL (`…?ppid=<id>`). Route Father's-Day ad/email/web traffic to
-that URL so dad-intent visitors see a dad-specific story instead of the generic one.
+those stay global. Current App Store behavior also lets CPPs be associated with
+specific search keywords, so this page should be assigned Dad/Father's Day search
+combinations where App Store Connect offers that control. You get up to 35 CPPs;
+each has a unique URL (`…?ppid=<id>`). Route Father's-Day email/web traffic to
+that URL as well so dad-intent visitors see a dad-specific story instead of the
+generic one.
 
 > Important: the in-app **event** deep link cannot point at a CPP. CPPs are for
 > **web/email, creator, partner, and organic landing-page** destinations. The IAE and the
@@ -44,7 +46,7 @@ thumbnail size in Search).
 
 | #        | Headline (overlay)                  | Subcopy (optional, small)                | App screen to capture                                           | Capture fixture                                            |
 | -------- | ----------------------------------- | ---------------------------------------- | --------------------------------------------------------------- | ---------------------------------------------------------- |
-| 1 — Hero | **A song for Dad, from one memory** | First song free                          | Reveal/now-playing with occasion artwork, recipient = Dad       | `--fixture-reveal-ready --bypass-auth`                     |
+| 1 — Hero | **Make Dad a Father's Day song**    | First song free                          | Reveal/now-playing with occasion artwork, recipient = Dad       | `--fixture-reveal-ready --bypass-auth`                     |
 | 2 — Tell | **Tell it one memory of Dad**       | The fishing trip. His advice. His laugh. | Story/seed input screen, recipient = Dad, Father's Day occasion | `--fixture-creating --bypass-auth` (or seed recipient=Dad) |
 | 3 — Pick | **Pick how it should sound**        | Any genre, your voice optional           | Style / voice picker screen                                     | `--bypass-auth` → navigate to style step                   |
 | 4 — Hear | **Hear Dad's song in minutes**      | 45–90 sec, made just for him             | Player full view with waveform + artwork                        | `--fixture-reveal-ready --bypass-auth`                     |

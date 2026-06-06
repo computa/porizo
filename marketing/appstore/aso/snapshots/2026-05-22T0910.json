@@ -1,12 +1,10 @@
 {
   "schema_version": "2.0",
-  "last_reviewed": "2026-06-02",
+  "last_reviewed": "2026-05-22",
   "live_surfaces": {
-    "app_name": "Porizo: Song Gift Maker",
-    "subtitle": "Birthday, Love & Wedding Songs",
-    "keywords": "personalized,custom,voice,mom,dad,anniversary,fathers,mothers,day,husband,wife,graduation,ai",
-    "hidden_keywords_status": "verified via App Store Connect CLI on 2026-05-30; live field does not yet include music",
-    "verified_at": "2026-05-30"
+    "app_name": "Porizo: AI Song Gift Maker",
+    "subtitle": "Personal AI Song & Voice Gifts",
+    "keywords": "generator,music,birthday,personalized,custom,text,lyrics,mom,dad,anniversary,wedding,proposal,couple"
   },
   "shipping_target_count": 10,
   "scoring": {
@@ -28,6 +26,378 @@
   },
   "keywords": [
     {
+      "term": "personalized gift",
+      "tier": 1,
+      "intent_class": "painkiller",
+      "status": "testing",
+      "char_count": 17,
+      "external": {
+        "traffic": null,
+        "chance": null,
+        "difficulty": null,
+        "competing_apps": null,
+        "our_rank": null
+      },
+      "asa": {
+        "impressions": 18,
+        "taps": 1,
+        "installs": 1,
+        "spend": 0.45,
+        "cpt": 0.45,
+        "ttr": 0.0556,
+        "cr": 1,
+        "match_type": "BROAD",
+        "max_cpt": 0.68
+      },
+      "asc_organic": {
+        "search_impressions": 0,
+        "product_page_views": 0,
+        "downloads": 0
+      },
+      "backend": {
+        "registered": 0,
+        "song_created": 0,
+        "song_completed": 0,
+        "day7_retained": 0
+      },
+      "cluster_id": null,
+      "seasonality": null,
+      "effectiveness_score": 166.23796812386774,
+      "best_surface": null,
+      "notes": "Discovered via ASA broad-match 2026-05-09: 100% install rate, $0.45 CPI (1 install / 1 tap / 23 imp)",
+      "history": [
+        {
+          "date": "2026-05-09",
+          "event": "seeded"
+        },
+        {
+          "date": "2026-05-09",
+          "event": "reviewed score=179.43"
+        },
+        {
+          "date": "2026-05-11",
+          "event": "reviewed score=179.43"
+        },
+        {
+          "date": "2026-05-15",
+          "event": "reviewed score=179.43"
+        },
+        {
+          "date": "2026-05-15",
+          "event": "reviewed score=179.43"
+        },
+        {
+          "date": "2026-05-15",
+          "event": "reviewed score=179.43"
+        },
+        {
+          "date": "2026-05-15",
+          "event": "reviewed score=179.43"
+        },
+        {
+          "date": "2026-05-19",
+          "event": "reviewed score=166.24"
+        },
+        {
+          "date": "2026-05-19",
+          "event": "reviewed score=166.24"
+        },
+        {
+          "date": "2026-05-21",
+          "event": "reviewed score=166.24"
+        },
+        {
+          "date": "2026-05-22",
+          "event": "reviewed score=166.24"
+        }
+      ],
+      "action": "BID_UP_OR_VOLUME_CAPPED"
+    },
+    {
+      "term": "birthday gift ideas",
+      "tier": 4,
+      "intent_class": "painkiller",
+      "status": "testing",
+      "char_count": 19,
+      "external": {
+        "traffic": null,
+        "chance": null,
+        "difficulty": null,
+        "competing_apps": null,
+        "our_rank": null
+      },
+      "asa": {
+        "impressions": 290,
+        "taps": 6,
+        "installs": 3,
+        "spend": 11.05,
+        "cpt": 1.84,
+        "ttr": 0.0207,
+        "cr": 0.5,
+        "match_type": "BROAD",
+        "max_cpt": 3
+      },
+      "asc_organic": {
+        "search_impressions": 0,
+        "product_page_views": 0,
+        "downloads": 0
+      },
+      "backend": {
+        "registered": 0,
+        "song_created": 0,
+        "song_completed": 0,
+        "day7_retained": 0
+      },
+      "cluster_id": null,
+      "seasonality": null,
+      "effectiveness_score": 156.73637761741733,
+      "best_surface": null,
+      "notes": "Discovered via ASA broad-match 2026-05-09: 50% install rate, $2.82 CPI",
+      "history": [
+        {
+          "date": "2026-05-09",
+          "event": "seeded"
+        },
+        {
+          "date": "2026-05-09",
+          "event": "reviewed score=84.57"
+        },
+        {
+          "date": "2026-05-09",
+          "event": "reviewed score=135.91"
+        },
+        {
+          "date": "2026-05-11",
+          "event": "reviewed score=128.26"
+        },
+        {
+          "date": "2026-05-15",
+          "event": "reviewed score=143.43"
+        },
+        {
+          "date": "2026-05-15",
+          "event": "reviewed score=143.43"
+        },
+        {
+          "date": "2026-05-15",
+          "event": "reviewed score=0.00"
+        },
+        {
+          "date": "2026-05-15",
+          "event": "reviewed score=143.74"
+        },
+        {
+          "date": "2026-05-19",
+          "event": "reviewed score=187.04"
+        },
+        {
+          "date": "2026-05-19",
+          "event": "reviewed score=187.04"
+        },
+        {
+          "date": "2026-05-21",
+          "event": "reviewed score=155.65"
+        },
+        {
+          "date": "2026-05-22",
+          "event": "reviewed score=156.74"
+        }
+      ],
+      "action": "MATCH_TYPE_GRADUATION"
+    },
+    {
+      "term": "music gift",
+      "tier": 2,
+      "intent_class": "category",
+      "status": "testing",
+      "char_count": 10,
+      "external": {
+        "traffic": null,
+        "chance": null,
+        "difficulty": null,
+        "competing_apps": null,
+        "our_rank": null
+      },
+      "asa": {
+        "impressions": 142,
+        "taps": 2,
+        "installs": 1,
+        "spend": 1.24,
+        "cpt": 0.62,
+        "ttr": 0.0141,
+        "cr": 0.5,
+        "match_type": "BROAD",
+        "max_cpt": 0.68
+      },
+      "asc_organic": {
+        "search_impressions": 0,
+        "product_page_views": 0,
+        "downloads": 0
+      },
+      "backend": {
+        "registered": 0,
+        "song_created": 0,
+        "song_completed": 0,
+        "day7_retained": 0
+      },
+      "cluster_id": null,
+      "seasonality": null,
+      "effectiveness_score": 107.76680187325309,
+      "best_surface": null,
+      "notes": "Cross-category term",
+      "history": [
+        {
+          "date": "2026-05-08",
+          "event": "seeded"
+        },
+        {
+          "date": "2026-05-08",
+          "event": "reviewed score=-20.00"
+        },
+        {
+          "date": "2026-05-09",
+          "event": "reviewed score=0.00"
+        },
+        {
+          "date": "2026-05-09",
+          "event": "reviewed score=194.94"
+        },
+        {
+          "date": "2026-05-09",
+          "event": "reviewed score=0.00"
+        },
+        {
+          "date": "2026-05-11",
+          "event": "reviewed score=196.85"
+        },
+        {
+          "date": "2026-05-15",
+          "event": "reviewed score=204.14"
+        },
+        {
+          "date": "2026-05-15",
+          "event": "reviewed score=204.14"
+        },
+        {
+          "date": "2026-05-15",
+          "event": "reviewed score=0.00"
+        },
+        {
+          "date": "2026-05-15",
+          "event": "reviewed score=206.45"
+        },
+        {
+          "date": "2026-05-19",
+          "event": "reviewed score=107.61"
+        },
+        {
+          "date": "2026-05-19",
+          "event": "reviewed score=107.61"
+        },
+        {
+          "date": "2026-05-21",
+          "event": "reviewed score=107.61"
+        },
+        {
+          "date": "2026-05-22",
+          "event": "reviewed score=107.77"
+        }
+      ],
+      "action": "MONITOR"
+    },
+    {
+      "term": "mother's day song",
+      "tier": 4,
+      "intent_class": "painkiller",
+      "status": "testing",
+      "char_count": 17,
+      "external": {
+        "traffic": null,
+        "chance": null,
+        "difficulty": null,
+        "competing_apps": null,
+        "our_rank": null
+      },
+      "asa": {
+        "impressions": 16,
+        "taps": 3,
+        "installs": 2,
+        "spend": 0.15,
+        "cpt": 0.05,
+        "ttr": 0.1875,
+        "cr": 0.6667,
+        "match_type": "EXACT",
+        "max_cpt": 0.68
+      },
+      "asc_organic": {
+        "search_impressions": 0,
+        "product_page_views": 0,
+        "downloads": 0
+      },
+      "backend": {
+        "registered": 0,
+        "song_created": 0,
+        "song_completed": 0,
+        "day7_retained": 0
+      },
+      "cluster_id": null,
+      "seasonality": null,
+      "effectiveness_score": 106.63890651945039,
+      "best_surface": null,
+      "notes": "Apostrophe variant of mothers day song — Apple tokenizes them differently",
+      "history": [
+        {
+          "date": "2026-05-09",
+          "event": "seeded"
+        },
+        {
+          "date": "2026-05-09",
+          "event": "reviewed score=0.00"
+        },
+        {
+          "date": "2026-05-09",
+          "event": "reviewed score=117.40"
+        },
+        {
+          "date": "2026-05-11",
+          "event": "reviewed score=106.64"
+        },
+        {
+          "date": "2026-05-15",
+          "event": "reviewed score=106.64"
+        },
+        {
+          "date": "2026-05-15",
+          "event": "reviewed score=106.64"
+        },
+        {
+          "date": "2026-05-15",
+          "event": "reviewed score=106.64"
+        },
+        {
+          "date": "2026-05-15",
+          "event": "reviewed score=106.64"
+        },
+        {
+          "date": "2026-05-19",
+          "event": "reviewed score=106.64"
+        },
+        {
+          "date": "2026-05-19",
+          "event": "reviewed score=106.64"
+        },
+        {
+          "date": "2026-05-21",
+          "event": "reviewed score=106.64"
+        },
+        {
+          "date": "2026-05-22",
+          "event": "reviewed score=106.64"
+        }
+      ],
+      "action": "VOLUME_CAPPED"
+    },
+    {
       "term": "birthday gift",
       "tier": 1,
       "intent_class": "painkiller",
@@ -41,13 +411,13 @@
         "our_rank": null
       },
       "asa": {
-        "impressions": 74,
-        "taps": 2,
+        "impressions": 122,
+        "taps": 3,
         "installs": 1,
-        "spend": 2.53,
-        "cpt": 1.26,
-        "ttr": 0.027,
-        "cr": 0.5,
+        "spend": 4.17,
+        "cpt": 1.39,
+        "ttr": 0.0246,
+        "cr": 0.3333,
         "match_type": "BROAD",
         "max_cpt": 1.8
       },
@@ -64,7 +434,7 @@
       },
       "cluster_id": null,
       "seasonality": null,
-      "effectiveness_score": 121.8789821204605,
+      "effectiveness_score": 84.71255482904058,
       "best_surface": null,
       "notes": "Discovered via ASA broad-match 2026-05-09: 50% install rate, $2.53 CPI",
       "history": [
@@ -119,217 +489,9 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=84.71"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=131.11"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=121.88"
-        }
-      ],
-      "action": "MONITOR"
-    },
-    {
-      "term": "birthday gift ideas",
-      "tier": 4,
-      "intent_class": "painkiller",
-      "status": "testing",
-      "char_count": 19,
-      "external": {
-        "traffic": null,
-        "chance": null,
-        "difficulty": null,
-        "competing_apps": null,
-        "our_rank": null
-      },
-      "asa": {
-        "impressions": 276,
-        "taps": 5,
-        "installs": 2,
-        "spend": 9.45,
-        "cpt": 1.89,
-        "ttr": 0.0181,
-        "cr": 0.4,
-        "match_type": "BROAD",
-        "max_cpt": 3
-      },
-      "asc_organic": {
-        "search_impressions": 0,
-        "product_page_views": 0,
-        "downloads": 0
-      },
-      "backend": {
-        "registered": 0,
-        "song_created": 0,
-        "song_completed": 0,
-        "day7_retained": 0
-      },
-      "cluster_id": null,
-      "seasonality": null,
-      "effectiveness_score": 118.38394799135133,
-      "best_surface": null,
-      "notes": "Discovered via ASA broad-match 2026-05-09: 50% install rate, $2.82 CPI",
-      "history": [
-        {
-          "date": "2026-05-09",
-          "event": "seeded"
-        },
-        {
-          "date": "2026-05-09",
-          "event": "reviewed score=84.57"
-        },
-        {
-          "date": "2026-05-09",
-          "event": "reviewed score=135.91"
-        },
-        {
-          "date": "2026-05-11",
-          "event": "reviewed score=128.26"
-        },
-        {
-          "date": "2026-05-15",
-          "event": "reviewed score=143.43"
-        },
-        {
-          "date": "2026-05-15",
-          "event": "reviewed score=143.43"
-        },
-        {
-          "date": "2026-05-15",
-          "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-05-15",
-          "event": "reviewed score=143.74"
-        },
-        {
-          "date": "2026-05-19",
-          "event": "reviewed score=187.04"
-        },
-        {
-          "date": "2026-05-19",
-          "event": "reviewed score=187.04"
-        },
-        {
-          "date": "2026-05-21",
-          "event": "reviewed score=155.65"
-        },
-        {
-          "date": "2026-05-22",
-          "event": "reviewed score=156.74"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=156.25"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=118.38"
         }
       ],
       "action": "MATCH_TYPE_GRADUATION"
-    },
-    {
-      "term": "mother's day song",
-      "tier": 4,
-      "intent_class": "painkiller",
-      "status": "testing",
-      "char_count": 17,
-      "external": {
-        "traffic": null,
-        "chance": null,
-        "difficulty": null,
-        "competing_apps": null,
-        "our_rank": null
-      },
-      "asa": {
-        "impressions": 14,
-        "taps": 2,
-        "installs": 1,
-        "spend": 0.1,
-        "cpt": 0.05,
-        "ttr": 0.1429,
-        "cr": 0.5,
-        "match_type": "EXACT",
-        "max_cpt": 0.68
-      },
-      "asc_organic": {
-        "search_impressions": 0,
-        "product_page_views": 0,
-        "downloads": 0
-      },
-      "backend": {
-        "registered": 0,
-        "song_created": 0,
-        "song_completed": 0,
-        "day7_retained": 0
-      },
-      "cluster_id": null,
-      "seasonality": null,
-      "effectiveness_score": 76.44593183861929,
-      "best_surface": null,
-      "notes": "Apostrophe variant of mothers day song — Apple tokenizes them differently",
-      "history": [
-        {
-          "date": "2026-05-09",
-          "event": "seeded"
-        },
-        {
-          "date": "2026-05-09",
-          "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-05-09",
-          "event": "reviewed score=117.40"
-        },
-        {
-          "date": "2026-05-11",
-          "event": "reviewed score=106.64"
-        },
-        {
-          "date": "2026-05-15",
-          "event": "reviewed score=106.64"
-        },
-        {
-          "date": "2026-05-15",
-          "event": "reviewed score=106.64"
-        },
-        {
-          "date": "2026-05-15",
-          "event": "reviewed score=106.64"
-        },
-        {
-          "date": "2026-05-15",
-          "event": "reviewed score=106.64"
-        },
-        {
-          "date": "2026-05-19",
-          "event": "reviewed score=106.64"
-        },
-        {
-          "date": "2026-05-19",
-          "event": "reviewed score=106.64"
-        },
-        {
-          "date": "2026-05-21",
-          "event": "reviewed score=106.64"
-        },
-        {
-          "date": "2026-05-22",
-          "event": "reviewed score=106.64"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=76.45"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=76.45"
-        }
-      ],
-      "action": "VOLUME_CAPPED"
     },
     {
       "term": "gift song",
@@ -345,15 +507,15 @@
         "our_rank": null
       },
       "asa": {
-        "impressions": 59,
-        "taps": 8,
-        "installs": 2,
-        "spend": 2.6,
-        "cpt": 0.33,
-        "ttr": 0.1356,
-        "cr": 0.25,
+        "impressions": 63,
+        "taps": 9,
+        "installs": 3,
+        "spend": 2.65,
+        "cpt": 0.29,
+        "ttr": 0.1429,
+        "cr": 0.3333,
         "match_type": "EXACT",
-        "max_cpt": 1
+        "max_cpt": 3
       },
       "asc_organic": {
         "search_impressions": 0,
@@ -368,7 +530,7 @@
       },
       "cluster_id": null,
       "seasonality": null,
-      "effectiveness_score": 57.78991563746842,
+      "effectiveness_score": 78.2677988726351,
       "best_surface": null,
       "notes": "Discovered via ASA broad-match 2026-05-09: 50% install rate, $0.10 CPI",
       "history": [
@@ -423,17 +585,9 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=78.27"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=78.27"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=57.79"
         }
       ],
-      "action": "MONITOR"
+      "action": "PROTECT_AND_SCALE"
     },
     {
       "term": "porizo",
@@ -526,14 +680,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=36.12"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=36.12"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=36.12"
         }
       ],
@@ -628,14 +774,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=3.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=3.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=3.00"
         }
       ],
       "action": "MONITOR"
@@ -697,14 +835,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=2.20"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=2.20"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=2.20"
         }
       ],
       "action": "MONITOR"
@@ -765,14 +895,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=2.20"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=2.20"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=2.20"
         }
       ],
@@ -862,14 +984,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=0.00"
         }
       ],
       "action": "MONITOR"
@@ -957,14 +1071,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=0.00"
         }
       ],
@@ -1054,14 +1160,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=0.00"
         }
       ],
       "action": "MONITOR"
@@ -1150,14 +1248,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=0.00"
         }
       ],
       "action": "MONITOR"
@@ -1176,12 +1266,12 @@
         "our_rank": null
       },
       "asa": {
-        "impressions": 163,
+        "impressions": 210,
         "taps": 1,
         "installs": 0,
         "spend": 1.8,
         "cpt": 1.8,
-        "ttr": 0.0061,
+        "ttr": 0.0048,
         "cr": 0,
         "match_type": "BROAD",
         "max_cpt": 1.8
@@ -1245,14 +1335,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=0.00"
         }
       ],
@@ -1342,14 +1424,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=0.00"
         }
       ],
       "action": "MONITOR"
@@ -1437,14 +1511,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=0.00"
         }
       ],
@@ -1534,14 +1600,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=0.00"
         }
       ],
       "action": "MONITOR"
@@ -1629,14 +1687,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=0.00"
         }
       ],
@@ -1726,14 +1776,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=0.00"
         }
       ],
       "action": "MONITOR"
@@ -1752,13 +1794,13 @@
         "our_rank": null
       },
       "asa": {
-        "impressions": 98,
-        "taps": 11,
+        "impressions": 106,
+        "taps": 9,
         "installs": 1,
-        "spend": 12.98,
-        "cpt": 1.18,
-        "ttr": 0.1122,
-        "cr": 0.0909,
+        "spend": 10.5,
+        "cpt": 1.17,
+        "ttr": 0.0849,
+        "cr": 0.1111,
         "match_type": "BROAD",
         "max_cpt": 1.8
       },
@@ -1822,17 +1864,9 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=0.00"
         }
       ],
-      "action": "DEMOTE"
+      "action": "MONITOR"
     },
     {
       "term": "custom song",
@@ -1926,14 +1960,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=0.00"
         }
       ],
       "action": "MONITOR"
@@ -2021,14 +2047,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=0.00"
         }
       ],
@@ -2118,14 +2136,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=0.00"
         }
       ],
       "action": "MONITOR"
@@ -2144,7 +2154,7 @@
         "our_rank": null
       },
       "asa": {
-        "impressions": 1,
+        "impressions": 2,
         "taps": 0,
         "installs": 0,
         "spend": 0,
@@ -2213,14 +2223,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=0.00"
         }
       ],
@@ -2310,14 +2312,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=0.00"
         }
       ],
       "action": "DEMOTE"
@@ -2406,14 +2400,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=0.00"
         }
       ],
       "action": "MONITOR"
@@ -2432,12 +2418,12 @@
         "our_rank": null
       },
       "asa": {
-        "impressions": 43,
-        "taps": 11,
+        "impressions": 56,
+        "taps": 13,
         "installs": 0,
-        "spend": 12.82,
-        "cpt": 1.17,
-        "ttr": 0.2558,
+        "spend": 15.96,
+        "cpt": 1.23,
+        "ttr": 0.2321,
         "cr": 0,
         "match_type": "BROAD",
         "max_cpt": 1.8
@@ -2501,14 +2487,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=0.00"
         }
       ],
@@ -2598,14 +2576,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=0.00"
         }
       ],
       "action": "MONITOR"
@@ -2694,125 +2664,9 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=0.00"
         }
       ],
       "action": "MONITOR"
-    },
-    {
-      "term": "music gift",
-      "tier": 2,
-      "intent_class": "category",
-      "status": "testing",
-      "char_count": 10,
-      "external": {
-        "traffic": null,
-        "chance": null,
-        "difficulty": null,
-        "competing_apps": null,
-        "our_rank": null
-      },
-      "asa": {
-        "impressions": 1097,
-        "taps": 5,
-        "installs": 0,
-        "spend": 2.82,
-        "cpt": 0.56,
-        "ttr": 0.0046,
-        "cr": 0,
-        "match_type": "BROAD",
-        "max_cpt": 0.68
-      },
-      "asc_organic": {
-        "search_impressions": 0,
-        "product_page_views": 0,
-        "downloads": 0
-      },
-      "backend": {
-        "registered": 0,
-        "song_created": 0,
-        "song_completed": 0,
-        "day7_retained": 0
-      },
-      "cluster_id": null,
-      "seasonality": null,
-      "effectiveness_score": 0,
-      "best_surface": null,
-      "notes": "Cross-category term",
-      "history": [
-        {
-          "date": "2026-05-08",
-          "event": "seeded"
-        },
-        {
-          "date": "2026-05-08",
-          "event": "reviewed score=-20.00"
-        },
-        {
-          "date": "2026-05-09",
-          "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-05-09",
-          "event": "reviewed score=194.94"
-        },
-        {
-          "date": "2026-05-09",
-          "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-05-11",
-          "event": "reviewed score=196.85"
-        },
-        {
-          "date": "2026-05-15",
-          "event": "reviewed score=204.14"
-        },
-        {
-          "date": "2026-05-15",
-          "event": "reviewed score=204.14"
-        },
-        {
-          "date": "2026-05-15",
-          "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-05-15",
-          "event": "reviewed score=206.45"
-        },
-        {
-          "date": "2026-05-19",
-          "event": "reviewed score=107.61"
-        },
-        {
-          "date": "2026-05-19",
-          "event": "reviewed score=107.61"
-        },
-        {
-          "date": "2026-05-21",
-          "event": "reviewed score=107.61"
-        },
-        {
-          "date": "2026-05-22",
-          "event": "reviewed score=107.77"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=0.00"
-        }
-      ],
-      "action": "DEMOTE"
     },
     {
       "term": "my voice song app",
@@ -2897,14 +2751,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=0.00"
         }
       ],
@@ -2994,14 +2840,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=0.00"
         }
       ],
       "action": "MONITOR"
@@ -3020,12 +2858,12 @@
         "our_rank": null
       },
       "asa": {
-        "impressions": 45,
+        "impressions": 62,
         "taps": 1,
         "installs": 0,
         "spend": 1.31,
         "cpt": 1.31,
-        "ttr": 0.0222,
+        "ttr": 0.0161,
         "cr": 0,
         "match_type": "BROAD",
         "max_cpt": 1.8
@@ -3090,110 +2928,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=0.00"
-        }
-      ],
-      "action": "MONITOR"
-    },
-    {
-      "term": "personalized gift",
-      "tier": 1,
-      "intent_class": "painkiller",
-      "status": "testing",
-      "char_count": 17,
-      "external": {
-        "traffic": null,
-        "chance": null,
-        "difficulty": null,
-        "competing_apps": null,
-        "our_rank": null
-      },
-      "asa": {
-        "impressions": 19,
-        "taps": 0,
-        "installs": 0,
-        "spend": 0,
-        "cpt": null,
-        "ttr": 0,
-        "cr": null,
-        "match_type": "BROAD",
-        "max_cpt": 0.68
-      },
-      "asc_organic": {
-        "search_impressions": 0,
-        "product_page_views": 0,
-        "downloads": 0
-      },
-      "backend": {
-        "registered": 0,
-        "song_created": 0,
-        "song_completed": 0,
-        "day7_retained": 0
-      },
-      "cluster_id": null,
-      "seasonality": null,
-      "effectiveness_score": 0,
-      "best_surface": null,
-      "notes": "Discovered via ASA broad-match 2026-05-09: 100% install rate, $0.45 CPI (1 install / 1 tap / 23 imp)",
-      "history": [
-        {
-          "date": "2026-05-09",
-          "event": "seeded"
-        },
-        {
-          "date": "2026-05-09",
-          "event": "reviewed score=179.43"
-        },
-        {
-          "date": "2026-05-11",
-          "event": "reviewed score=179.43"
-        },
-        {
-          "date": "2026-05-15",
-          "event": "reviewed score=179.43"
-        },
-        {
-          "date": "2026-05-15",
-          "event": "reviewed score=179.43"
-        },
-        {
-          "date": "2026-05-15",
-          "event": "reviewed score=179.43"
-        },
-        {
-          "date": "2026-05-15",
-          "event": "reviewed score=179.43"
-        },
-        {
-          "date": "2026-05-19",
-          "event": "reviewed score=166.24"
-        },
-        {
-          "date": "2026-05-19",
-          "event": "reviewed score=166.24"
-        },
-        {
-          "date": "2026-05-21",
-          "event": "reviewed score=166.24"
-        },
-        {
-          "date": "2026-05-22",
-          "event": "reviewed score=166.24"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=174.51"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=0.00"
         }
       ],
       "action": "MONITOR"
@@ -3212,12 +2946,12 @@
         "our_rank": null
       },
       "asa": {
-        "impressions": 74,
-        "taps": 11,
+        "impressions": 107,
+        "taps": 13,
         "installs": 0,
-        "spend": 12.59,
-        "cpt": 1.14,
-        "ttr": 0.1486,
+        "spend": 15.6,
+        "cpt": 1.2,
+        "ttr": 0.1215,
         "cr": 0,
         "match_type": "BROAD",
         "max_cpt": 1.8
@@ -3281,14 +3015,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=0.00"
         }
       ],
@@ -3386,14 +3112,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=0.00"
         }
       ],
       "action": "MONITOR"
@@ -3481,14 +3199,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=0.00"
         }
       ],
@@ -3578,14 +3288,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=0.00"
         }
       ],
       "action": "MONITOR"
@@ -3604,7 +3306,7 @@
         "our_rank": null
       },
       "asa": {
-        "impressions": 6,
+        "impressions": 7,
         "taps": 0,
         "installs": 0,
         "spend": 0,
@@ -3673,14 +3375,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=0.00"
         }
       ],
@@ -3770,14 +3464,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=0.00"
         }
       ],
       "action": "MONITOR"
@@ -3865,14 +3551,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=0.00"
         }
       ],
@@ -3962,14 +3640,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=0.00"
         }
       ],
       "action": "MONITOR"
@@ -4057,14 +3727,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=0.00"
         }
       ],
@@ -4154,14 +3816,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=0.00"
         }
       ],
       "action": "MONITOR"
@@ -4249,14 +3903,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=0.00"
         }
       ],
@@ -4346,14 +3992,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=0.00"
         }
       ],
       "action": "MONITOR"
@@ -4441,14 +4079,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=0.00"
         }
       ],
@@ -4538,14 +4168,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=0.00"
         }
       ],
       "action": "MONITOR"
@@ -4634,14 +4256,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=0.00"
         }
       ],
       "action": "MONITOR"
@@ -4729,14 +4343,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=0.00"
         }
       ],
@@ -4834,14 +4440,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=0.00"
         }
       ],
       "action": "MONITOR"
@@ -4930,14 +4528,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=0.00"
         }
       ],
       "action": "MONITOR"
@@ -5025,14 +4615,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=0.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=0.00"
         }
       ],
@@ -5127,66 +4709,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-1.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-1.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-1.00"
-        }
-      ],
-      "action": "MONITOR"
-    },
-    {
-      "term": "music generator",
-      "tier": 4,
-      "intent_class": "category",
-      "status": "untested",
-      "char_count": 15,
-      "external": {
-        "traffic": 17,
-        "chance": null,
-        "difficulty": null,
-        "competing_apps": null,
-        "our_rank": null
-      },
-      "asa": {
-        "impressions": 0,
-        "taps": 0,
-        "installs": 0,
-        "spend": 0,
-        "cpt": null,
-        "ttr": null,
-        "cr": null,
-        "match_type": null,
-        "max_cpt": null
-      },
-      "asc_organic": {
-        "search_impressions": 0,
-        "product_page_views": 0,
-        "downloads": 0
-      },
-      "backend": {
-        "registered": 0,
-        "song_created": 0,
-        "song_completed": 0,
-        "day7_retained": 0
-      },
-      "cluster_id": null,
-      "seasonality": null,
-      "effectiveness_score": -8,
-      "best_surface": null,
-      "notes": "Kickstart competitor Keyword Analysis import 2026-05-29. High-frequency Kickstart competitor phrase. Source terms excluded keywords already attached to Porizo in Kickstart UI.",
-      "history": [
-        {
-          "date": "2026-05-29",
-          "event": "seeded from Kickstart competitor Keyword Analysis"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-8.00"
         }
       ],
       "action": "MONITOR"
@@ -5278,14 +4800,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-10.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-10.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-10.00"
         }
       ],
@@ -5379,118 +4893,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-10.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-10.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-10.00"
-        }
-      ],
-      "action": "MONITOR"
-    },
-    {
-      "term": "ai lyrics",
-      "tier": 4,
-      "intent_class": "category",
-      "status": "untested",
-      "char_count": 9,
-      "external": {
-        "traffic": 12,
-        "chance": null,
-        "difficulty": null,
-        "competing_apps": null,
-        "our_rank": null
-      },
-      "asa": {
-        "impressions": 0,
-        "taps": 0,
-        "installs": 0,
-        "spend": 0,
-        "cpt": null,
-        "ttr": null,
-        "cr": null,
-        "match_type": null,
-        "max_cpt": null
-      },
-      "asc_organic": {
-        "search_impressions": 0,
-        "product_page_views": 0,
-        "downloads": 0
-      },
-      "backend": {
-        "registered": 0,
-        "song_created": 0,
-        "song_completed": 0,
-        "day7_retained": 0
-      },
-      "cluster_id": null,
-      "seasonality": null,
-      "effectiveness_score": -13,
-      "best_surface": null,
-      "notes": "Kickstart competitor Keyword Analysis import 2026-05-29. Derived from Kickstart competitor lyrics token; test for lyric intent. Source terms excluded keywords already attached to Porizo in Kickstart UI.",
-      "history": [
-        {
-          "date": "2026-05-29",
-          "event": "seeded from Kickstart competitor Keyword Analysis"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-13.00"
-        }
-      ],
-      "action": "MONITOR"
-    },
-    {
-      "term": "lyrics generator",
-      "tier": 4,
-      "intent_class": "category",
-      "status": "untested",
-      "char_count": 16,
-      "external": {
-        "traffic": 12,
-        "chance": null,
-        "difficulty": null,
-        "competing_apps": null,
-        "our_rank": null
-      },
-      "asa": {
-        "impressions": 0,
-        "taps": 0,
-        "installs": 0,
-        "spend": 0,
-        "cpt": null,
-        "ttr": null,
-        "cr": null,
-        "match_type": null,
-        "max_cpt": null
-      },
-      "asc_organic": {
-        "search_impressions": 0,
-        "product_page_views": 0,
-        "downloads": 0
-      },
-      "backend": {
-        "registered": 0,
-        "song_created": 0,
-        "song_completed": 0,
-        "day7_retained": 0
-      },
-      "cluster_id": null,
-      "seasonality": null,
-      "effectiveness_score": -13,
-      "best_surface": null,
-      "notes": "Kickstart competitor Keyword Analysis import 2026-05-29. Derived from Kickstart competitor lyrics/generator tokens. Source terms excluded keywords already attached to Porizo in Kickstart UI.",
-      "history": [
-        {
-          "date": "2026-05-29",
-          "event": "seeded from Kickstart competitor Keyword Analysis"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-13.00"
         }
       ],
       "action": "MONITOR"
@@ -5582,14 +4984,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -5683,14 +5077,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -5778,14 +5164,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -5879,14 +5257,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -5974,14 +5344,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -6075,14 +5437,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -6175,14 +5529,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -6270,14 +5616,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -6371,14 +5709,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -6470,14 +5800,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -6571,14 +5893,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -6670,14 +5984,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -6771,14 +6077,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -6870,14 +6168,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -6971,14 +6261,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -7071,14 +6353,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -7166,14 +6440,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -7267,14 +6533,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -7366,14 +6624,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -7467,14 +6717,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -7567,14 +6809,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -7662,14 +6896,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -7763,14 +6989,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -7862,14 +7080,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -7963,14 +7173,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -8062,14 +7264,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -8163,14 +7357,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -8262,14 +7448,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -8363,14 +7541,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -8462,14 +7632,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -8563,14 +7725,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -8662,14 +7816,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -8763,14 +7909,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -8862,14 +8000,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -8963,14 +8093,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -9063,14 +8185,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -9159,14 +8273,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -9254,14 +8360,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -9355,14 +8453,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -9451,14 +8541,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -9546,14 +8628,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -9647,14 +8721,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -9746,14 +8812,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -9847,14 +8905,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -9946,14 +8996,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -10047,14 +9089,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -10146,14 +9180,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -10247,14 +9273,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -10346,14 +9364,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -10447,14 +9457,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -10546,14 +9548,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -10647,14 +9641,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -10747,14 +9733,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -10842,14 +9820,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -10943,14 +9913,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -11042,14 +10004,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -11143,14 +10097,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -11242,14 +10188,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -11343,14 +10281,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -11443,14 +10373,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -11539,14 +10461,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -11634,14 +10548,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -11735,14 +10641,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -11831,14 +10729,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -11926,14 +10816,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -12027,14 +10909,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -12126,14 +11000,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -12227,14 +11093,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -12326,14 +11184,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -12427,14 +11277,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -12527,14 +11369,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -12622,14 +11456,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -12723,14 +11549,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -12818,14 +11636,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -12919,14 +11729,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -13018,14 +11820,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -13119,14 +11913,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -13218,14 +12004,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -13319,14 +12097,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -13414,14 +12184,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -13515,14 +12277,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -13614,14 +12368,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -13715,14 +12461,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -13814,14 +12552,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -13915,14 +12645,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -14011,14 +12733,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -14106,14 +12820,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -14207,14 +12913,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -14302,14 +13000,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -14403,14 +13093,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -14502,14 +13184,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -14603,14 +13277,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -14702,14 +13368,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -14803,14 +13461,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -14902,14 +13552,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -15003,14 +13645,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -15102,14 +13736,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -15203,14 +13829,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -15303,14 +13921,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -15398,14 +14008,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -15499,14 +14101,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -15598,14 +14192,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -15699,14 +14285,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -15798,14 +14376,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -15899,14 +14469,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -15999,14 +14561,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -16095,14 +14649,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -16190,14 +14736,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -16291,14 +14829,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -16390,14 +14920,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -16491,14 +15013,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -16591,14 +15105,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -16686,14 +15192,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -16787,14 +15285,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -16886,14 +15376,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -16987,14 +15469,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -17082,14 +15556,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -17183,14 +15649,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -17282,14 +15740,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -17383,14 +15833,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -17483,14 +15925,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -17579,14 +16013,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -17674,14 +16100,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -17775,14 +16193,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -17875,14 +16285,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -17970,14 +16372,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -18067,14 +16461,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -18162,14 +16548,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -18263,14 +16641,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -18362,14 +16732,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -18463,14 +16825,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -18562,14 +16916,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -18663,14 +17009,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -18762,14 +17100,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -18863,14 +17193,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -18962,14 +17284,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -19063,14 +17377,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -19162,14 +17468,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -19263,14 +17561,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -19363,14 +17653,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -19459,14 +17741,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -19554,14 +17828,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -19655,14 +17921,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -19750,14 +18008,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -19851,14 +18101,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -19951,14 +18193,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -20046,14 +18280,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -20143,14 +18369,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -20238,14 +18456,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -20335,14 +18545,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -20430,14 +18632,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -20527,14 +18721,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -20622,14 +18808,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -20723,14 +18901,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -20823,14 +18993,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -20918,14 +19080,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -21015,14 +19169,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -21110,14 +19256,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -21207,14 +19345,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -21302,14 +19432,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -21399,14 +19521,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -21495,14 +19609,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -21590,14 +19696,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -21691,14 +19789,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -21790,14 +19880,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -21891,14 +19973,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -21990,14 +20064,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -22091,14 +20157,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -22190,14 +20248,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -22291,14 +20341,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -22390,14 +20432,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -22491,14 +20525,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -22590,14 +20616,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -22691,14 +20709,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -22790,14 +20800,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -22891,14 +20893,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -22990,14 +20984,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -23091,14 +21077,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -23191,14 +21169,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -23286,14 +21256,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -23387,14 +21349,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -23486,14 +21440,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -23587,14 +21533,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -23686,14 +21624,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-15.00"
         }
       ],
@@ -23787,14 +21717,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
         }
       ],
       "action": "MONITOR"
@@ -23887,222 +21809,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-15.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-15.00"
-        }
-      ],
-      "action": "MONITOR"
-    },
-    {
-      "term": "generator music",
-      "tier": 4,
-      "intent_class": "category",
-      "status": "untested",
-      "char_count": 15,
-      "external": {
-        "traffic": 6,
-        "chance": null,
-        "difficulty": null,
-        "competing_apps": null,
-        "our_rank": null
-      },
-      "asa": {
-        "impressions": 0,
-        "taps": 0,
-        "installs": 0,
-        "spend": 0,
-        "cpt": null,
-        "ttr": null,
-        "cr": null,
-        "match_type": null,
-        "max_cpt": null
-      },
-      "asc_organic": {
-        "search_impressions": 0,
-        "product_page_views": 0,
-        "downloads": 0
-      },
-      "backend": {
-        "registered": 0,
-        "song_created": 0,
-        "song_completed": 0,
-        "day7_retained": 0
-      },
-      "cluster_id": null,
-      "seasonality": null,
-      "effectiveness_score": -19,
-      "best_surface": null,
-      "notes": "Kickstart competitor Keyword Analysis import 2026-05-29. Kickstart competitor phrase; awkward query, low-priority test only. Source terms excluded keywords already attached to Porizo in Kickstart UI.",
-      "history": [
-        {
-          "date": "2026-05-29",
-          "event": "seeded from Kickstart competitor Keyword Analysis"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-19.00"
-        }
-      ],
-      "action": "MONITOR"
-    },
-    {
-      "term": "generator song",
-      "tier": 4,
-      "intent_class": "category",
-      "status": "untested",
-      "char_count": 14,
-      "external": {
-        "traffic": 6,
-        "chance": null,
-        "difficulty": null,
-        "competing_apps": null,
-        "our_rank": null
-      },
-      "asa": {
-        "impressions": 0,
-        "taps": 0,
-        "installs": 0,
-        "spend": 0,
-        "cpt": null,
-        "ttr": null,
-        "cr": null,
-        "match_type": null,
-        "max_cpt": null
-      },
-      "asc_organic": {
-        "search_impressions": 0,
-        "product_page_views": 0,
-        "downloads": 0
-      },
-      "backend": {
-        "registered": 0,
-        "song_created": 0,
-        "song_completed": 0,
-        "day7_retained": 0
-      },
-      "cluster_id": null,
-      "seasonality": null,
-      "effectiveness_score": -19,
-      "best_surface": null,
-      "notes": "Kickstart competitor Keyword Analysis import 2026-05-29. Kickstart competitor phrase; awkward query, low-priority test only. Source terms excluded keywords already attached to Porizo in Kickstart UI.",
-      "history": [
-        {
-          "date": "2026-05-29",
-          "event": "seeded from Kickstart competitor Keyword Analysis"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-19.00"
-        }
-      ],
-      "action": "MONITOR"
-    },
-    {
-      "term": "music creation",
-      "tier": 4,
-      "intent_class": "category",
-      "status": "untested",
-      "char_count": 14,
-      "external": {
-        "traffic": 6,
-        "chance": null,
-        "difficulty": null,
-        "competing_apps": null,
-        "our_rank": null
-      },
-      "asa": {
-        "impressions": 0,
-        "taps": 0,
-        "installs": 0,
-        "spend": 0,
-        "cpt": null,
-        "ttr": null,
-        "cr": null,
-        "match_type": null,
-        "max_cpt": null
-      },
-      "asc_organic": {
-        "search_impressions": 0,
-        "product_page_views": 0,
-        "downloads": 0
-      },
-      "backend": {
-        "registered": 0,
-        "song_created": 0,
-        "song_completed": 0,
-        "day7_retained": 0
-      },
-      "cluster_id": null,
-      "seasonality": null,
-      "effectiveness_score": -19,
-      "best_surface": null,
-      "notes": "Kickstart competitor Keyword Analysis import 2026-05-29. Kickstart competitor phrase; metadata-token candidate only after signal. Source terms excluded keywords already attached to Porizo in Kickstart UI.",
-      "history": [
-        {
-          "date": "2026-05-29",
-          "event": "seeded from Kickstart competitor Keyword Analysis"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-19.00"
-        }
-      ],
-      "action": "MONITOR"
-    },
-    {
-      "term": "music maker",
-      "tier": 4,
-      "intent_class": "category",
-      "status": "untested",
-      "char_count": 11,
-      "external": {
-        "traffic": 6,
-        "chance": null,
-        "difficulty": null,
-        "competing_apps": null,
-        "our_rank": null
-      },
-      "asa": {
-        "impressions": 0,
-        "taps": 0,
-        "installs": 0,
-        "spend": 0,
-        "cpt": null,
-        "ttr": null,
-        "cr": null,
-        "match_type": null,
-        "max_cpt": null
-      },
-      "asc_organic": {
-        "search_impressions": 0,
-        "product_page_views": 0,
-        "downloads": 0
-      },
-      "backend": {
-        "registered": 0,
-        "song_created": 0,
-        "song_completed": 0,
-        "day7_retained": 0
-      },
-      "cluster_id": null,
-      "seasonality": null,
-      "effectiveness_score": -19,
-      "best_surface": null,
-      "notes": "Kickstart competitor Keyword Analysis import 2026-05-29. Kickstart competitor phrase; exact-match ASA test candidate. Source terms excluded keywords already attached to Porizo in Kickstart UI.",
-      "history": [
-        {
-          "date": "2026-05-29",
-          "event": "seeded from Kickstart competitor Keyword Analysis"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-19.00"
         }
       ],
       "action": "MONITOR"
@@ -24194,14 +21900,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-20.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-20.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-20.00"
         }
       ],
@@ -24295,14 +21993,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-20.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-20.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-20.00"
         }
       ],
       "action": "MONITOR"
@@ -24394,14 +22084,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-20.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-20.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-20.00"
         }
       ],
@@ -24495,14 +22177,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-20.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-20.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-20.00"
         }
       ],
       "action": "MONITOR"
@@ -24590,14 +22264,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-20.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-20.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-20.00"
         }
       ],
@@ -24691,14 +22357,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-20.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-20.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-20.00"
         }
       ],
       "action": "MONITOR"
@@ -24790,14 +22448,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-20.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-20.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-20.00"
         }
       ],
@@ -24891,14 +22541,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-20.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-20.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-20.00"
         }
       ],
       "action": "MONITOR"
@@ -24990,14 +22632,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-20.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-20.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-20.00"
         }
       ],
@@ -25091,14 +22725,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-20.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-20.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-20.00"
         }
       ],
       "action": "MONITOR"
@@ -25190,14 +22816,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-20.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-20.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-20.00"
         }
       ],
@@ -25291,118 +22909,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-20.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-20.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-20.00"
-        }
-      ],
-      "action": "MONITOR"
-    },
-    {
-      "term": "instrumental song",
-      "tier": 4,
-      "intent_class": "category",
-      "status": "untested",
-      "char_count": 17,
-      "external": {
-        "traffic": 5,
-        "chance": null,
-        "difficulty": null,
-        "competing_apps": null,
-        "our_rank": null
-      },
-      "asa": {
-        "impressions": 0,
-        "taps": 0,
-        "installs": 0,
-        "spend": 0,
-        "cpt": null,
-        "ttr": null,
-        "cr": null,
-        "match_type": null,
-        "max_cpt": null
-      },
-      "asc_organic": {
-        "search_impressions": 0,
-        "product_page_views": 0,
-        "downloads": 0
-      },
-      "backend": {
-        "registered": 0,
-        "song_created": 0,
-        "song_completed": 0,
-        "day7_retained": 0
-      },
-      "cluster_id": null,
-      "seasonality": null,
-      "effectiveness_score": -20,
-      "best_surface": null,
-      "notes": "Kickstart competitor Keyword Analysis import 2026-05-29. Kickstart detected competitor token; lower confidence for Porizo. Source terms excluded keywords already attached to Porizo in Kickstart UI.",
-      "history": [
-        {
-          "date": "2026-05-29",
-          "event": "seeded from Kickstart competitor Keyword Analysis"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-20.00"
-        }
-      ],
-      "action": "MONITOR"
-    },
-    {
-      "term": "music creator",
-      "tier": 4,
-      "intent_class": "category",
-      "status": "untested",
-      "char_count": 13,
-      "external": {
-        "traffic": 5,
-        "chance": null,
-        "difficulty": null,
-        "competing_apps": null,
-        "our_rank": null
-      },
-      "asa": {
-        "impressions": 0,
-        "taps": 0,
-        "installs": 0,
-        "spend": 0,
-        "cpt": null,
-        "ttr": null,
-        "cr": null,
-        "match_type": null,
-        "max_cpt": null
-      },
-      "asc_organic": {
-        "search_impressions": 0,
-        "product_page_views": 0,
-        "downloads": 0
-      },
-      "backend": {
-        "registered": 0,
-        "song_created": 0,
-        "song_completed": 0,
-        "day7_retained": 0
-      },
-      "cluster_id": null,
-      "seasonality": null,
-      "effectiveness_score": -20,
-      "best_surface": null,
-      "notes": "Kickstart competitor Keyword Analysis import 2026-05-29. Derived from Kickstart competitor creator/music tokens. Source terms excluded keywords already attached to Porizo in Kickstart UI.",
-      "history": [
-        {
-          "date": "2026-05-29",
-          "event": "seeded from Kickstart competitor Keyword Analysis"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-20.00"
         }
       ],
       "action": "MONITOR"
@@ -25495,66 +23001,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-20.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-20.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-20.00"
-        }
-      ],
-      "action": "MONITOR"
-    },
-    {
-      "term": "music song",
-      "tier": 4,
-      "intent_class": "category",
-      "status": "untested",
-      "char_count": 10,
-      "external": {
-        "traffic": 5,
-        "chance": null,
-        "difficulty": null,
-        "competing_apps": null,
-        "our_rank": null
-      },
-      "asa": {
-        "impressions": 0,
-        "taps": 0,
-        "installs": 0,
-        "spend": 0,
-        "cpt": null,
-        "ttr": null,
-        "cr": null,
-        "match_type": null,
-        "max_cpt": null
-      },
-      "asc_organic": {
-        "search_impressions": 0,
-        "product_page_views": 0,
-        "downloads": 0
-      },
-      "backend": {
-        "registered": 0,
-        "song_created": 0,
-        "song_completed": 0,
-        "day7_retained": 0
-      },
-      "cluster_id": null,
-      "seasonality": null,
-      "effectiveness_score": -20,
-      "best_surface": null,
-      "notes": "Kickstart competitor Keyword Analysis import 2026-05-29. Kickstart competitor phrase; awkward query, low-priority test only. Source terms excluded keywords already attached to Porizo in Kickstart UI.",
-      "history": [
-        {
-          "date": "2026-05-29",
-          "event": "seeded from Kickstart competitor Keyword Analysis"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-20.00"
         }
       ],
       "action": "MONITOR"
@@ -25643,14 +23089,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-20.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-20.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-20.00"
         }
       ],
       "action": "MONITOR"
@@ -25738,14 +23176,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-20.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-20.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-20.00"
         }
       ],
@@ -25839,14 +23269,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-20.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-20.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-20.00"
         }
       ],
       "action": "MONITOR"
@@ -25938,66 +23360,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-20.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-20.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-20.00"
-        }
-      ],
-      "action": "MONITOR"
-    },
-    {
-      "term": "song creator",
-      "tier": 4,
-      "intent_class": "category",
-      "status": "untested",
-      "char_count": 12,
-      "external": {
-        "traffic": 5,
-        "chance": null,
-        "difficulty": null,
-        "competing_apps": null,
-        "our_rank": null
-      },
-      "asa": {
-        "impressions": 0,
-        "taps": 0,
-        "installs": 0,
-        "spend": 0,
-        "cpt": null,
-        "ttr": null,
-        "cr": null,
-        "match_type": null,
-        "max_cpt": null
-      },
-      "asc_organic": {
-        "search_impressions": 0,
-        "product_page_views": 0,
-        "downloads": 0
-      },
-      "backend": {
-        "registered": 0,
-        "song_created": 0,
-        "song_completed": 0,
-        "day7_retained": 0
-      },
-      "cluster_id": null,
-      "seasonality": null,
-      "effectiveness_score": -20,
-      "best_surface": null,
-      "notes": "Kickstart competitor Keyword Analysis import 2026-05-29. Derived from Kickstart competitor creator/song tokens. Source terms excluded keywords already attached to Porizo in Kickstart UI.",
-      "history": [
-        {
-          "date": "2026-05-29",
-          "event": "seeded from Kickstart competitor Keyword Analysis"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-20.00"
         }
       ],
@@ -26091,14 +23453,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-20.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-20.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-20.00"
         }
       ],
       "action": "MONITOR"
@@ -26190,14 +23544,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-20.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-20.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-20.00"
         }
       ],
@@ -26291,14 +23637,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-20.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-20.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-20.00"
         }
       ],
       "action": "MONITOR"
@@ -26391,14 +23729,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-20.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-20.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-20.00"
         }
       ],
       "action": "MONITOR"
@@ -26460,222 +23790,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-21.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-21.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-21.00"
-        }
-      ],
-      "action": "MONITOR"
-    },
-    {
-      "term": "ai cover",
-      "tier": 4,
-      "intent_class": "vitamin",
-      "status": "untested",
-      "char_count": 8,
-      "external": {
-        "traffic": 8,
-        "chance": null,
-        "difficulty": null,
-        "competing_apps": null,
-        "our_rank": null
-      },
-      "asa": {
-        "impressions": 0,
-        "taps": 0,
-        "installs": 0,
-        "spend": 0,
-        "cpt": null,
-        "ttr": null,
-        "cr": null,
-        "match_type": null,
-        "max_cpt": null
-      },
-      "asc_organic": {
-        "search_impressions": 0,
-        "product_page_views": 0,
-        "downloads": 0
-      },
-      "backend": {
-        "registered": 0,
-        "song_created": 0,
-        "song_completed": 0,
-        "day7_retained": 0
-      },
-      "cluster_id": null,
-      "seasonality": null,
-      "effectiveness_score": -22,
-      "best_surface": null,
-      "notes": "Kickstart competitor Keyword Analysis import 2026-05-29. Off-position Kickstart competitor token; likely cover-app intent. Source terms excluded keywords already attached to Porizo in Kickstart UI.",
-      "history": [
-        {
-          "date": "2026-05-29",
-          "event": "seeded from Kickstart competitor Keyword Analysis"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-22.00"
-        }
-      ],
-      "action": "MONITOR"
-    },
-    {
-      "term": "cover song",
-      "tier": 4,
-      "intent_class": "vitamin",
-      "status": "untested",
-      "char_count": 10,
-      "external": {
-        "traffic": 8,
-        "chance": null,
-        "difficulty": null,
-        "competing_apps": null,
-        "our_rank": null
-      },
-      "asa": {
-        "impressions": 0,
-        "taps": 0,
-        "installs": 0,
-        "spend": 0,
-        "cpt": null,
-        "ttr": null,
-        "cr": null,
-        "match_type": null,
-        "max_cpt": null
-      },
-      "asc_organic": {
-        "search_impressions": 0,
-        "product_page_views": 0,
-        "downloads": 0
-      },
-      "backend": {
-        "registered": 0,
-        "song_created": 0,
-        "song_completed": 0,
-        "day7_retained": 0
-      },
-      "cluster_id": null,
-      "seasonality": null,
-      "effectiveness_score": -22,
-      "best_surface": null,
-      "notes": "Kickstart competitor Keyword Analysis import 2026-05-29. Off-position Kickstart competitor token; do not promote unless isolated exact-match data converts. Source terms excluded keywords already attached to Porizo in Kickstart UI.",
-      "history": [
-        {
-          "date": "2026-05-29",
-          "event": "seeded from Kickstart competitor Keyword Analysis"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-22.00"
-        }
-      ],
-      "action": "MONITOR"
-    },
-    {
-      "term": "song cover",
-      "tier": 4,
-      "intent_class": "vitamin",
-      "status": "untested",
-      "char_count": 10,
-      "external": {
-        "traffic": 8,
-        "chance": null,
-        "difficulty": null,
-        "competing_apps": null,
-        "our_rank": null
-      },
-      "asa": {
-        "impressions": 0,
-        "taps": 0,
-        "installs": 0,
-        "spend": 0,
-        "cpt": null,
-        "ttr": null,
-        "cr": null,
-        "match_type": null,
-        "max_cpt": null
-      },
-      "asc_organic": {
-        "search_impressions": 0,
-        "product_page_views": 0,
-        "downloads": 0
-      },
-      "backend": {
-        "registered": 0,
-        "song_created": 0,
-        "song_completed": 0,
-        "day7_retained": 0
-      },
-      "cluster_id": null,
-      "seasonality": null,
-      "effectiveness_score": -22,
-      "best_surface": null,
-      "notes": "Kickstart competitor Keyword Analysis import 2026-05-29. Off-position Kickstart competitor token; likely cover-app intent. Source terms excluded keywords already attached to Porizo in Kickstart UI.",
-      "history": [
-        {
-          "date": "2026-05-29",
-          "event": "seeded from Kickstart competitor Keyword Analysis"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-22.00"
-        }
-      ],
-      "action": "MONITOR"
-    },
-    {
-      "term": "voice changer",
-      "tier": 4,
-      "intent_class": "vitamin",
-      "status": "untested",
-      "char_count": 13,
-      "external": {
-        "traffic": 8,
-        "chance": null,
-        "difficulty": null,
-        "competing_apps": null,
-        "our_rank": null
-      },
-      "asa": {
-        "impressions": 0,
-        "taps": 0,
-        "installs": 0,
-        "spend": 0,
-        "cpt": null,
-        "ttr": null,
-        "cr": null,
-        "match_type": null,
-        "max_cpt": null
-      },
-      "asc_organic": {
-        "search_impressions": 0,
-        "product_page_views": 0,
-        "downloads": 0
-      },
-      "backend": {
-        "registered": 0,
-        "song_created": 0,
-        "song_completed": 0,
-        "day7_retained": 0
-      },
-      "cluster_id": null,
-      "seasonality": null,
-      "effectiveness_score": -22,
-      "best_surface": null,
-      "notes": "Kickstart competitor Keyword Analysis import 2026-05-29. Kickstart detected competitor token; likely voice-tool intent, not gift intent. Source terms excluded keywords already attached to Porizo in Kickstart UI.",
-      "history": [
-        {
-          "date": "2026-05-29",
-          "event": "seeded from Kickstart competitor Keyword Analysis"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-22.00"
         }
       ],
       "action": "MONITOR"
@@ -26767,14 +23881,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-25.00"
         }
       ],
@@ -26868,14 +23974,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-25.00"
         }
       ],
       "action": "MONITOR"
@@ -26967,14 +24065,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-25.00"
         }
       ],
@@ -27068,14 +24158,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-25.00"
         }
       ],
       "action": "MONITOR"
@@ -27163,14 +24245,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-25.00"
         }
       ],
@@ -27264,14 +24338,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-25.00"
         }
       ],
       "action": "MONITOR"
@@ -27363,14 +24429,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-25.00"
         }
       ],
@@ -27464,14 +24522,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-25.00"
         }
       ],
       "action": "MONITOR"
@@ -27563,14 +24613,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-25.00"
         }
       ],
@@ -27664,14 +24706,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-25.00"
         }
       ],
       "action": "MONITOR"
@@ -27764,14 +24798,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-25.00"
         }
       ],
       "action": "MONITOR"
@@ -27859,14 +24885,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-25.00"
         }
       ],
@@ -27956,14 +24974,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-25.00"
         }
       ],
       "action": "MONITOR"
@@ -28052,14 +25062,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-25.00"
         }
       ],
       "action": "MONITOR"
@@ -28147,14 +25149,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-25.00"
         }
       ],
@@ -28248,14 +25242,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-25.00"
         }
       ],
       "action": "MONITOR"
@@ -28347,14 +25333,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-25.00"
         }
       ],
@@ -28448,14 +25426,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-25.00"
         }
       ],
       "action": "MONITOR"
@@ -28547,14 +25517,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-25.00"
         }
       ],
@@ -28648,14 +25610,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-25.00"
         }
       ],
       "action": "MONITOR"
@@ -28747,14 +25701,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-25.00"
         }
       ],
@@ -28848,118 +25794,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-25.00"
-        }
-      ],
-      "action": "MONITOR"
-    },
-    {
-      "term": "rap song",
-      "tier": 4,
-      "intent_class": "vitamin",
-      "status": "untested",
-      "char_count": 8,
-      "external": {
-        "traffic": 5,
-        "chance": null,
-        "difficulty": null,
-        "competing_apps": null,
-        "our_rank": null
-      },
-      "asa": {
-        "impressions": 0,
-        "taps": 0,
-        "installs": 0,
-        "spend": 0,
-        "cpt": null,
-        "ttr": null,
-        "cr": null,
-        "match_type": null,
-        "max_cpt": null
-      },
-      "asc_organic": {
-        "search_impressions": 0,
-        "product_page_views": 0,
-        "downloads": 0
-      },
-      "backend": {
-        "registered": 0,
-        "song_created": 0,
-        "song_completed": 0,
-        "day7_retained": 0
-      },
-      "cluster_id": null,
-      "seasonality": null,
-      "effectiveness_score": -25,
-      "best_surface": null,
-      "notes": "Kickstart competitor Keyword Analysis import 2026-05-29. Kickstart detected competitor token; style-specific low-priority test. Source terms excluded keywords already attached to Porizo in Kickstart UI.",
-      "history": [
-        {
-          "date": "2026-05-29",
-          "event": "seeded from Kickstart competitor Keyword Analysis"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-25.00"
-        }
-      ],
-      "action": "MONITOR"
-    },
-    {
-      "term": "royalty free music",
-      "tier": 4,
-      "intent_class": "vitamin",
-      "status": "untested",
-      "char_count": 18,
-      "external": {
-        "traffic": 5,
-        "chance": null,
-        "difficulty": null,
-        "competing_apps": null,
-        "our_rank": null
-      },
-      "asa": {
-        "impressions": 0,
-        "taps": 0,
-        "installs": 0,
-        "spend": 0,
-        "cpt": null,
-        "ttr": null,
-        "cr": null,
-        "match_type": null,
-        "max_cpt": null
-      },
-      "asc_organic": {
-        "search_impressions": 0,
-        "product_page_views": 0,
-        "downloads": 0
-      },
-      "backend": {
-        "registered": 0,
-        "song_created": 0,
-        "song_completed": 0,
-        "day7_retained": 0
-      },
-      "cluster_id": null,
-      "seasonality": null,
-      "effectiveness_score": -25,
-      "best_surface": null,
-      "notes": "Kickstart competitor Keyword Analysis import 2026-05-29. Kickstart detected competitor token; probably wrong intent for Porizo. Source terms excluded keywords already attached to Porizo in Kickstart UI.",
-      "history": [
-        {
-          "date": "2026-05-29",
-          "event": "seeded from Kickstart competitor Keyword Analysis"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-25.00"
         }
       ],
       "action": "MONITOR"
@@ -29051,14 +25885,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-25.00"
         }
       ],
@@ -29152,14 +25978,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-25.00"
         }
       ],
       "action": "MONITOR"
@@ -29251,14 +26069,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-25.00"
         }
       ],
@@ -29352,14 +26162,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-25.00"
         }
       ],
       "action": "MONITOR"
@@ -29451,14 +26253,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-25.00"
         }
       ],
@@ -29552,14 +26346,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-25.00"
         }
       ],
       "action": "MONITOR"
@@ -29651,14 +26437,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-25.00"
         }
       ],
@@ -29752,14 +26530,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-25.00"
         }
       ],
       "action": "MONITOR"
@@ -29851,14 +26621,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-25.00"
         }
       ],
@@ -29952,14 +26714,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-25.00"
         }
       ],
       "action": "MONITOR"
@@ -30051,14 +26805,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-25.00"
         }
       ],
@@ -30152,14 +26898,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-25.00"
         }
       ],
       "action": "MONITOR"
@@ -30247,14 +26985,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-25.00"
         }
       ],
@@ -30348,14 +27078,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-25.00"
         }
       ],
       "action": "MONITOR"
@@ -30447,14 +27169,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-25.00"
         }
       ],
@@ -30548,14 +27262,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-25.00"
         }
       ],
       "action": "MONITOR"
@@ -30643,14 +27349,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-25.00"
         }
       ],
@@ -30744,14 +27442,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-25.00"
         }
       ],
       "action": "MONITOR"
@@ -30844,14 +27534,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-25.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-25.00"
         }
       ],
       "action": "MONITOR"
@@ -30912,14 +27594,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-29.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-29.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-29.00"
         }
       ],
@@ -30982,14 +27656,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-29.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-29.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-29.00"
         }
       ],
       "action": "MONITOR"
@@ -31050,14 +27716,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-29.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-29.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-29.00"
         }
       ],
@@ -31120,14 +27778,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-29.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-29.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-29.00"
         }
       ],
       "action": "MONITOR"
@@ -31188,14 +27838,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-29.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-29.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-29.00"
         }
       ],
@@ -31258,14 +27900,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-29.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-29.00"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-29.00"
         }
       ],
       "action": "MONITOR"
@@ -31326,14 +27960,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-30.80"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-30.80"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-30.80"
         }
       ],
@@ -31396,14 +28022,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-30.80"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-30.80"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-30.80"
         }
       ],
       "action": "MONITOR"
@@ -31465,14 +28083,6 @@
         {
           "date": "2026-05-22",
           "event": "reviewed score=-30.80"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-30.80"
-        },
-        {
-          "date": "2026-06-02",
-          "event": "reviewed score=-30.80"
         }
       ],
       "action": "MONITOR"
@@ -31533,14 +28143,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-30.80"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-30.80"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-30.80"
         }
       ],
@@ -31634,14 +28236,6 @@
         },
         {
           "date": "2026-05-22",
-          "event": "reviewed score=-37.00"
-        },
-        {
-          "date": "2026-05-29",
-          "event": "reviewed score=-37.00"
-        },
-        {
-          "date": "2026-06-02",
           "event": "reviewed score=-37.00"
         }
       ],
@@ -32211,121 +28805,6 @@
       ],
       "keywords_field_string": "birthday gift ideas,mother's day song,birthday gift,gift song",
       "keywords_field_chars": 61
-    },
-    {
-      "date": "2026-05-29",
-      "note": "Monthly review 2026-05-29",
-      "inputs": {
-        "asa": {
-          "rowsMatched": 43,
-          "rowsDiscovered": 0
-        },
-        "asc": null,
-        "external": null
-      },
-      "top10": [
-        "birthday gift ideas",
-        "gift song"
-      ],
-      "keywords_field_string": "birthday gift ideas,gift song",
-      "keywords_field_chars": 29
-    },
-    {
-      "date": "2026-05-29",
-      "note": "Added Kickstart competitor listing candidates from Keyword Analysis screenshot; staged safe exact-match ASA payload locally only.",
-      "inputs": {
-        "kickstart_competitor_candidates": {
-          "added": 17,
-          "total": 17
-        }
-      },
-      "top10": [
-        "personalized gift",
-        "birthday gift ideas",
-        "birthday gift",
-        "gift song",
-        "mother's day song",
-        "porizo",
-        "ai music generator",
-        "ai music maker",
-        "ai song maker",
-        "1st birthday song"
-      ],
-      "keywords_field_string": "generator,music,birthday,personalized,custom,text,lyrics,mom,dad,anniversary,wedding,proposal,couple",
-      "keywords_field_chars": 100
-    },
-    {
-      "date": "2026-05-30",
-      "note": "Apple Ads stopped; applied organic-only ASO/web focus. Updated local 1.5.14 keyword-field source with music as the only Kickstart competitor token promoted into metadata; kept generator/lyrics/cover/voice-changer terms as organic tracking only.",
-      "inputs": {
-        "kickstart_competitor_candidates": {
-          "tracked_or_staged_for_tracking": 17,
-          "promoted_to_keyword_field": [
-            "music"
-          ],
-          "held_for_tracking_only": [
-            "generator",
-            "lyrics",
-            "cover",
-            "voice changer"
-          ]
-        },
-        "apple_search_ads": "no live campaign changes; historical data only"
-      },
-      "top10": [
-        "birthday song gift",
-        "custom song gift",
-        "personalized song gift",
-        "song gift",
-        "gift song",
-        "anniversary song gift"
-      ],
-      "keywords_field_string": "personalized,custom,voice,mom,dad,anniversary,fathers,mothers,day,husband,wife,graduation,ai,music",
-      "keywords_field_chars": 98
-    },
-    {
-      "date": "2026-05-30",
-      "note": "Verified live App Store Connect metadata after user challenge. Live en-US keyword field is still the pre-music field; the music addition remains staged locally, not live. Promotional text is also stale and still says Father's Day, June 15.",
-      "inputs": {
-        "asc_live_version": "1.5.14 READY_FOR_SALE",
-        "asc_live_keywords": "personalized,custom,voice,mom,dad,anniversary,fathers,mothers,day,husband,wife,graduation,ai",
-        "staged_keywords": "personalized,custom,voice,mom,dad,anniversary,fathers,mothers,day,husband,wife,graduation,ai,music",
-        "promotional_text_live": "Make a personal song for Dad in his voice or yours. Preview free — finish it for Father's Day, June 15."
-      },
-      "top10": [
-        "birthday song gift",
-        "custom song gift",
-        "personalized song gift",
-        "song gift",
-        "gift song",
-        "anniversary song gift"
-      ],
-      "keywords_field_string": "personalized,custom,voice,mom,dad,anniversary,fathers,mothers,day,husband,wife,graduation,ai,music",
-      "keywords_field_chars": 98
-    },
-    {
-      "date": "2026-06-02",
-      "note": "ASO review 2026-05-30 (full workflow + rerank)",
-      "inputs": {
-        "asa": {
-          "rowsMatched": 42,
-          "rowsDiscovered": 0
-        },
-        "asc": null,
-        "external": null
-      },
-      "top10": [
-        "birthday gift ideas",
-        "gift song"
-      ],
-      "keywords_field_string": "birthday gift ideas,gift song",
-      "keywords_field_chars": 29
     }
-  ],
-  "next_metadata_source": {
-    "version": "1.5.14 local source / next editable metadata update",
-    "keywords": "personalized,custom,voice,mom,dad,anniversary,fathers,mothers,day,husband,wife,graduation,ai,music",
-    "keywords_chars": 98,
-    "change": "adds music from Kickstart competitor analysis while keeping gift/occasion tokens"
-  }
+  ]
 }
