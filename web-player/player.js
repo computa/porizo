@@ -53,6 +53,8 @@
   let playStartedLogged = false;
   let playCompletedLogged = false;
   let postPlayCtaViewed = false;
+  let openAppCtaViewed = false;
+  let openAppBannerBound = false;
   let ratingCtaViewed = false;
   let ratingCtaBound = false;
   let ratingCtaDismissBound = false;
@@ -1256,6 +1258,8 @@
       setupShareButtons();
       setupPostPlayCta();
       hidePostPlayCta();
+      updateSaveCtaLabel();
+      setupOpenAppBanner();
       showScreen("player");
     } catch (error) {
       console.error("Load player error:", error);
@@ -1803,6 +1807,59 @@
     setupRatingCta();
   }
 
+  // Prominent persistent save label — sender-aware (recipient keeps the song).
+  function updateSaveCtaLabel() {
+    var label = document.getElementById("player-save-cta-label");
+    if (!label) return;
+    var info = getTrackInfo();
+    var senderName = info ? (info.sender_name || "").trim() : "";
+    label.textContent = senderName
+      ? "Keep " + senderName + "'s song"
+      : "Save in Porizo";
+  }
+
+  // Open-in-app banner — shown on arrival to direct the recipient into the app.
+  // Routes through the same receiver-save handoff and (importantly) records a
+  // save-CTA *view* at arrival, since today that view only fires at song-end.
+  function setupOpenAppBanner() {
+    var banner = document.getElementById("open-app-banner");
+    if (!banner) return;
+    var info = getTrackInfo();
+    var senderName = info ? (info.sender_name || "").trim() : "";
+    // Sender names are user data — textContent only, never innerHTML.
+    var textEl = document.getElementById("open-app-banner-text");
+    if (textEl) {
+      textEl.textContent = senderName
+        ? senderName + " sent you a song — open it in Porizo"
+        : "Open this song in the Porizo app";
+    }
+    var btn = document.getElementById("open-app-banner-btn");
+    if (btn) {
+      btn.href = receiverSaveUrl || buildReceiverSaveFallbackUrl("app_banner");
+    }
+    if (!openAppBannerBound) {
+      openAppBannerBound = true;
+      if (btn) {
+        btn.addEventListener("click", function (event) {
+          handleReceiverSaveClick(event, "app_banner");
+        });
+      }
+      var closeBtn = document.getElementById("open-app-banner-close");
+      if (closeBtn) {
+        closeBtn.addEventListener("click", function () {
+          banner.hidden = true;
+        });
+      }
+    }
+    banner.hidden = false;
+    if (!openAppCtaViewed) {
+      openAppCtaViewed = true;
+      safeRecordReceiverEvent("receiver_save_cta_viewed", {
+        placement: "app_arrival",
+      });
+    }
+  }
+
   // ============ Rating CTA ============
 
   function ratingCtaSuppressed() {
@@ -1903,6 +1960,7 @@
     setupTeaserPlayer(shareData.teaser_url);
     setupTeaserUnlockCta();
     setupTeaserShareButton();
+    setupOpenAppBanner();
     showScreen("teaser");
   }
 
