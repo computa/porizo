@@ -459,8 +459,14 @@ struct RootView: View {
                 receiverSessionId: context.receiverSessionId,
                 onClaimed: {
                     ReceiverClaimDraftStore.clear()
+                    // Land the recipient in the app on their saved song — they signed in
+                    // during claim, so route past splash/onboarding into the library.
+                    if authManager.isAuthenticated {
+                        appState = .main
+                    }
                 }
             )
+            .environment(authManager)
         }
         .sheet(item: $profileCompletionContext, onDismiss: {
             if authManager.needsProfileCompletion {
@@ -1154,6 +1160,10 @@ struct RootView: View {
             ToastService.shared.error("Poem saving from receiver links is not available yet.")
             return
         }
+        // A recipient arriving with a song skips onboarding — get them to the song fast.
+        // This routes splash → main/auth instead of onboardingV2; the claim sheet then
+        // presents over it (sign-in happens inside the sheet for new users).
+        markOnboardingCompleted()
         profileCompletionContext = nil
         receiverClaimContext = ReceiverClaimContext(
             claimToken: draft.claimToken,

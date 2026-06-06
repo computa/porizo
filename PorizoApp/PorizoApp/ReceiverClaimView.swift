@@ -1,5 +1,6 @@
 import SwiftUI
 import AVFoundation
+import AuthenticationServices
 
 struct ReceiverClaimView: View {
     let apiClient: APIClient
@@ -8,7 +9,10 @@ struct ReceiverClaimView: View {
     let onClaimed: () -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(AuthManager.self) private var authManager
     @State private var pin = ""
+    @State private var currentNonce: String?
+    @State private var isSigningIn = false
     @State private var error: String?
     @State private var isClaiming = false
     @State private var isPreparingPlayback = false
@@ -31,7 +35,7 @@ struct ReceiverClaimView: View {
                     .font(DesignTokens.displayFont(size: 28))
                     .foregroundStyle(DesignTokens.textPrimary)
 
-                Text(didClaim ? "This song is saved to this device." : "Enter the sender's PIN if this gift has one.")
+                Text(claimSubtitle)
                     .font(DesignTokens.bodyFont(size: 15))
                     .foregroundStyle(DesignTokens.textSecondary)
                     .multilineTextAlignment(.center)
@@ -87,23 +91,50 @@ struct ReceiverClaimView: View {
                             error = nil
                         }
 
-                    Button {
-                        claim()
-                    } label: {
-                        HStack(spacing: 8) {
-                            if isClaiming {
-                                ProgressView().tint(.white)
+                    // Ownership requires a user. Authenticated recipients claim directly;
+                    // everyone else signs in with Apple first — the claim runs on success.
+                    if authManager.isAuthenticated {
+                        Button {
+                            claim()
+                        } label: {
+                            HStack(spacing: 8) {
+                                if isClaiming {
+                                    ProgressView().tint(.white)
+                                }
+                                Text(isClaiming ? "Saving..." : "Claim & Save")
                             }
-                            Text(isClaiming ? "Saving..." : "Claim & Save")
+                            .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 16)
+                            .background(isClaiming ? DesignTokens.gold.opacity(0.5) : DesignTokens.gold)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
                         }
-                        .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
-                        .foregroundStyle(.white)
+                        .disabled(isClaiming)
+                    } else {
+                        SignInWithAppleButton(.signIn) { request in
+                            request.requestedScopes = [.fullName, .email]
+                            let nonce = randomNonceString()
+                            guard !nonce.isEmpty else {
+                                currentNonce = nil
+                                return
+                            }
+                            currentNonce = nonce
+                            request.nonce = sha256(nonce)
+                        } onCompletion: { result in
+                            handleAppleSignInThenClaim(result)
+                        }
+                        .signInWithAppleButtonStyle(.black)
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 16)
-                        .background(isClaiming ? DesignTokens.gold.opacity(0.5) : DesignTokens.gold)
+                        .frame(height: 52)
                         .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .disabled(isClaiming || isSigningIn)
+                        .opacity((isClaiming || isSigningIn) ? 0.7 : 1.0)
+
+                        if isClaiming || isSigningIn {
+                            ProgressView().tint(DesignTokens.gold)
+                        }
                     }
-                    .disabled(isClaiming)
                 }
 
                 Spacer()
@@ -121,6 +152,56 @@ struct ReceiverClaimView: View {
                 }
             }
         }
+    }
+
+    private var claimSubtitle: String {
+        if didClaim {
+            return "This song is saved to your library."
+        }
+        if authManager.isAuthenticated {
+            return "Enter the sender's PIN if this gift has one."
+        }
+        return "Sign in to save this song to your library — it's yours to keep."
+    }
+
+    // Sign in with Apple, then claim. The device token self-heals: the first claim
+    // may carry a stale anonymous token, get SIGN_IN_REQUIRED, and the API layer
+    // re-registers with the new Bearer (carrying the user) before retrying.
+    private func handleAppleSignInThenClaim(_ result: Result<ASAuthorization, Error>) {
+        Task { @MainActor in
+            switch result {
+            case .success(let authorization):
+                guard let nonce = currentNonce else {
+                    error = "Sign-in session expired. Please try again."
+                    return
+                }
+                isSigningIn = true
+                error = nil
+                do {
+                    try await authManager.handleAppleSignIn(authorization: authorization, nonce: nonce)
+                    currentNonce = nil
+                    isSigningIn = false
+                    claim()
+                } catch {
+                    currentNonce = nil
+                    isSigningIn = false
+                    self.error = mapSignInError(error)
+                }
+            case .failure(let err):
+                currentNonce = nil
+                // Silent on user cancellation; surface real failures.
+                if (err as NSError).code != ASAuthorizationError.canceled.rawValue {
+                    error = "Couldn't sign in. Please try again."
+                }
+            }
+        }
+    }
+
+    private func mapSignInError(_ error: Error) -> String {
+        if let authError = error as? AuthError, case .requiresLinkConfirmation = authError {
+            return "You already have a Porizo account with this Apple ID. Open Porizo, sign in, then tap the gift link again to save it."
+        }
+        return "Couldn't sign in. Please try again."
     }
 
     private func claim() {
@@ -188,6 +269,9 @@ struct ReceiverClaimView: View {
         case .serverError(let message, let code, _):
             if code == "INVALID_PIN" {
                 return "That PIN doesn't look right. Check it with the sender and try again."
+            }
+            if code == "SIGN_IN_REQUIRED" {
+                return "Sign in to save this song to your library."
             }
             return message
         case .httpError(let statusCode, _):

@@ -206,7 +206,14 @@ actor APIClient {
     func shouldRetryDeviceToken(httpResponse: HTTPURLResponse, data: Data) -> Bool {
         guard httpResponse.statusCode == 401 else { return false }
         if let apiError = try? Self.jsonDecoder.decode(APIError.self, from: data) {
-            return apiError.error == "INVALID_DEVICE_TOKEN" || apiError.error == "DEVICE_TOKEN_REQUIRED"
+            // SIGN_IN_REQUIRED: the server rejects an anonymous device token for a claim.
+            // If the user has since signed in, a cached anonymous device token is stale —
+            // re-registering picks up the Bearer so the new token carries the user (sub)
+            // and the claim succeeds on retry. If still unauthenticated, the single retry
+            // re-registers anonymously and the 401 is surfaced (no loop).
+            return apiError.error == "INVALID_DEVICE_TOKEN"
+                || apiError.error == "DEVICE_TOKEN_REQUIRED"
+                || apiError.error == "SIGN_IN_REQUIRED"
         }
         return false
     }
