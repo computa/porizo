@@ -65,6 +65,7 @@ export function mergeSpend(store, pull) {
       keyword_id: String(row.keyword_id),
       term: row.term ?? existing?.term ?? key,
       match_type: row.match_type ?? existing?.match_type ?? 'UNKNOWN',
+      max_cpt: row.max_cpt ?? existing?.max_cpt ?? null,
       first_seen: earlierDate(existing?.first_seen, row.date),
       daily: { ...(existing?.daily ?? {}) },
     };

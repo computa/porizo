@@ -28,7 +28,7 @@ function signClientAssertion({ clientId, teamId, keyId, privateKeyPem, ttlSec = 
   return `${message}.${base64url(sig)}`;
 }
 
-async function getAccessToken({ clientId, teamId, keyId, privateKeyPath }) {
+export async function getAccessToken({ clientId, teamId, keyId, privateKeyPath }) {
   const privateKeyPem = await fs.readFile(privateKeyPath, 'utf8');
   const assertion = signClientAssertion({ clientId, teamId, keyId, privateKeyPem });
   const body = new URLSearchParams({
@@ -50,21 +50,25 @@ async function getAccessToken({ clientId, teamId, keyId, privateKeyPath }) {
   return json.access_token;
 }
 
-async function asaReport({ token, orgId, urlPath, body }) {
+export async function asaJson({ token, orgId, urlPath, method = 'GET', body = null }) {
   const res = await fetch(`${ASA_BASE}${urlPath}`, {
-    method: 'POST',
+    method,
     headers: {
       'Authorization': `Bearer ${token}`,
       'X-AP-Context': `orgId=${orgId}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify(body),
+    body: body == null ? undefined : JSON.stringify(body),
   });
   if (!res.ok) {
     const txt = await res.text();
-    throw new Error(`ASA report ${urlPath} failed ${res.status}: ${txt.slice(0, 500)}`);
+    throw new Error(`ASA ${method} ${urlPath} failed ${res.status}: ${txt.slice(0, 500)}`);
   }
   return res.json();
+}
+
+async function asaReport({ token, orgId, urlPath, body }) {
+  return asaJson({ token, orgId, urlPath, method: 'POST', body });
 }
 
 function ymd(date) {
@@ -93,6 +97,15 @@ function moneyAmount(m) {
   if (typeof m === 'string') return Number(m) || 0;
   if (typeof m === 'object' && m.amount != null) return Number(m.amount) || 0;
   return 0;
+}
+
+function optionalMoneyAmount(...values) {
+  for (const value of values) {
+    if (value == null || value === '') continue;
+    const n = moneyAmount(value);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return null;
 }
 
 function normalizeCampaignRows(json) {
@@ -127,6 +140,7 @@ function normalizeKeywordRows(json, campaignId) {
         keyword_id: String(meta.keywordId),
         term: meta.keyword ?? meta.keywordText,
         match_type: meta.matchType ?? 'UNKNOWN',
+        max_cpt: optionalMoneyAmount(meta.bidAmount, meta.maxCPT, meta.maxCpt),
         date: g.date,
         impressions: g.impressions ?? 0,
         taps: g.taps ?? 0,
