@@ -18,13 +18,19 @@
 - [ ] **A3. Data recovery** — un-poison `oFPPtqWY0fFi` (⏳ AWAITING Ambrose confirm — prod DB write): `UPDATE share_tokens SET status='unbound', bound_device_id=NULL, bound_user_id=NULL, bound_device_platform=NULL, bound_at=NULL, claim_attempts=0 WHERE id='oFPPtqWY0fFi'`. Clears the bad bind so Okenna can claim post-fix.
 - [x] **A4. ✅ Live-app interaction analyzed.** With A1 deployed, the LIVE 1.5.14 app's anonymous claim returns `401 SIGN_IN_REQUIRED` (surfaced error, not a crash) and the token stays `unbound`/claimable — strictly better than today's silent orphan. A1 is safe to deploy ahead of B; UX only fully recovers once B ships.
 
-### C — Web prominence (deploy now, web-only) — Issues #1 + #2
+### C — ✅ SHIPPED + PROD-VERIFIED (commits 4cf971b, 7048239) — Issues #1 + #2
 
 - [ ] **C1. On-arrival "Open in Porizo" primary CTA** — prominent, above the fold, BEFORE passive web consumption; routes via `receiverSaveUrl` (OneLink, deferred-deep-link safe). Sender-aware ("Get {name}'s song in the app"). Never blocks the web listen.
 - [ ] **C2. Make the save/claim button prominent** — large, high-contrast, persistent/sticky; not a small post-play overlay only.
 - [ ] **C3. Verify** — JS syntax + DOM render; pixel-shot if a live share is available.
 
-### B — iOS: play-first → Sign in with Apple → claim → skip onboarding (NEXT BUILD) — Issue #3 real fix
+### B — iOS: ✅ CODE COMPLETE + COMPILES (commit f519f0b); ⏳ device validation via TestFlight — Issue #3 real fix
+
+- [x] B-core. APIClient self-heal (SIGN_IN_REQUIRED → re-register device token w/ Bearer); ReceiverClaimView gates claim on Sign in with Apple; RootView injects AuthManager + skips onboarding for receivers + lands in .main on claim. `xcodebuild` BUILD SUCCEEDED (0/0). NOTE: simulator `simctl openurl porizo://` does NOT reproduce the prod AppsFlyer/Universal-Link receiver entry (server-confirmed app never resolved the handoff) — runtime validation requires a device. User's prior real-device test reached the claim, so the entry path works on device.
+- [ ] B5. `applinks:porizo.onelink.me` Associated Domains (direct-tap; deferred path works without it) — still pending.
+- [ ] B6. Device test play→sign-in→claim→library after TestFlight build lands.
+
+### B (original sub-tasks, superseded by B-core above)
 
 - [ ] **B1.** Receiver deep-link presents play/claim screen that streams immediately (no auth) — already largely wired (`ReceiverClaimView`); confirm play works pre-auth.
 - [ ] **B2.** "Keep {name}'s song forever" → if not authed, Sign in with Apple → claim with the real user token (handles A1's `SIGN_IN_REQUIRED`) → library write.
