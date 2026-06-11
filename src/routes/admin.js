@@ -2319,6 +2319,17 @@ function registerAdminRoutes(
     reply.send(health);
   });
 
+  app.get("/admin/dashboard/billing/sales", async (request, reply) => {
+    const admin = await requireAdminSession(request, reply);
+    if (!admin) return;
+    const sales = await adminService.getBillingSales({
+      days: request.query.days || 30,
+      limit: request.query.limit,
+      offset: request.query.offset,
+    });
+    reply.send(sales);
+  });
+
   app.get("/admin/dashboard/billing/transactions", async (request, reply) => {
     const admin = await requireAdminSession(request, reply);
     if (!admin) return;

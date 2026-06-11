@@ -519,6 +519,9 @@ function registerBillingRoutes(
                 toJson({
                   type: validation.type,
                   environment: validation.environment || "production",
+                  price_millis: validation.price ?? null,
+                  currency: validation.currency ?? null,
+                  storefront: validation.storefront ?? null,
                 }),
                 (validation.purchaseDate instanceof Date
                   ? validation.purchaseDate

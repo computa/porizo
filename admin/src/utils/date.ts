@@ -80,3 +80,16 @@ export function formatCurrency(value: number | null | undefined): string {
   if (value === null || value === undefined) return '$0.00';
   return `$${value.toFixed(2)}`;
 }
+
+export function formatMoney(value: number | null | undefined, currency?: string | null): string {
+  if (value === null || value === undefined) return '—';
+  const normalizedCurrency = currency || 'USD';
+  try {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: normalizedCurrency,
+    }).format(value);
+  } catch {
+    return `${normalizedCurrency} ${value.toFixed(2)}`;
+  }
+}

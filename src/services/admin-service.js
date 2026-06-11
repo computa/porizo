@@ -33,6 +33,225 @@ function safeBounds(limit, offset, maxLimit = 100) {
   };
 }
 
+function parseMaybeJson(value) {
+  if (!value) return null;
+  if (typeof value === "object") return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
+function firstFiniteNumber(...values) {
+  for (const value of values) {
+    if (value == null) continue;
+    if (typeof value === "string" && value.trim() === "") continue;
+    const numberValue = Number(value);
+    if (Number.isFinite(numberValue)) {
+      return numberValue;
+    }
+  }
+  return null;
+}
+
+function normalizeCurrency(value) {
+  if (typeof value !== "string" || !value.trim()) return null;
+  return value.trim().toUpperCase();
+}
+
+function extractReceiptMoney(row, productCatalog) {
+  const payload = parseMaybeJson(row.verification_response) || {};
+  const rawTransaction =
+    payload.transactionInfo ||
+    payload.transaction_info ||
+    payload.apple_transaction ||
+    payload.raw?.transactionInfo ||
+    payload._raw?.transactionInfo ||
+    {};
+  const currency = normalizeCurrency(
+    payload.currency ||
+      payload.currency_code ||
+      rawTransaction.currency ||
+      row.currency,
+  );
+  const priceMillis = firstFiniteNumber(
+    payload.price_millis,
+    payload.apple_price_millis,
+    rawTransaction.price,
+  );
+
+  if (currency && priceMillis !== null) {
+    return {
+      amount: priceMillis / 1000,
+      currency,
+      amount_source: "apple_receipt",
+    };
+  }
+
+  const directAmount = firstFiniteNumber(payload.amount, payload.amount_paid);
+  if (currency && directAmount !== null) {
+    return {
+      amount: directAmount,
+      currency,
+      amount_source: "receipt_amount",
+    };
+  }
+
+  const catalogEntry = productCatalog.get(row.product_id);
+  if (catalogEntry?.amount != null) {
+    return {
+      amount: catalogEntry.amount,
+      currency: catalogEntry.currency,
+      amount_source: "product_catalog",
+    };
+  }
+
+  return {
+    amount: null,
+    currency: null,
+    amount_source: "unknown",
+  };
+}
+
+function isCurrentSubscriberStatus(status) {
+  return ["active", "grace_period", "billing_retry"].includes(status);
+}
+
+function parseTimestampMs(value) {
+  if (!value) return null;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function isCurrentSubscription({ status, expiresAt, gracePeriodExpiresAt }) {
+  if (!isCurrentSubscriberStatus(status)) return false;
+
+  const gracePeriodMs = parseTimestampMs(gracePeriodExpiresAt);
+  if (gracePeriodMs !== null && gracePeriodMs > Date.now()) {
+    return true;
+  }
+
+  const expiresMs = parseTimestampMs(expiresAt);
+  if (expiresMs === null) {
+    return true;
+  }
+
+  return expiresMs > Date.now();
+}
+
+function normalizeSaleType(row) {
+  if (
+    row.gift_wallet_transaction_id ||
+    String(row.product_id || "").includes("gift")
+  ) {
+    return "gift";
+  }
+  if (
+    row.subscription_id ||
+    String(row.product_id || "").includes("monthly") ||
+    String(row.product_id || "").includes("annual")
+  ) {
+    return "subscription";
+  }
+  return "purchase";
+}
+
+function isCountedPaidSale(sale) {
+  if (sale.is_trial) return false;
+  if (sale.amount === 0) return false;
+  return true;
+}
+
+function isPositivePaidSale(sale) {
+  return !sale.is_trial && sale.amount != null && sale.amount > 0;
+}
+
+function addRevenueBucket(buckets, sale) {
+  if (sale.amount == null || !sale.currency) return false;
+  const existing = buckets.get(sale.currency) || {
+    currency: sale.currency,
+    amount: 0,
+    count: 0,
+  };
+  existing.amount += sale.amount;
+  existing.count += 1;
+  buckets.set(sale.currency, existing);
+  return true;
+}
+
+function serializeRevenueBuckets(buckets) {
+  return Array.from(buckets.values()).sort((a, b) =>
+    a.currency.localeCompare(b.currency),
+  );
+}
+
+function singleCurrencyAmount(buckets) {
+  if (buckets.length === 0) {
+    return 0;
+  }
+  if (buckets.length !== 1) {
+    return null;
+  }
+  return buckets[0].amount;
+}
+
+function createSalesSummaryAccumulator() {
+  return {
+    totalSalesCount: 0,
+    subscriptionSalesCount: 0,
+    giftSalesCount: 0,
+    giftTokensGranted: 0,
+    payingUserIds: new Set(),
+    revenueBuckets: new Map(),
+    subscriptionRevenueBuckets: new Map(),
+    giftRevenueBuckets: new Map(),
+    unknownAmountCount: 0,
+  };
+}
+
+function addSaleToSummary(summary, sale) {
+  if (!isCountedPaidSale(sale)) return;
+
+  summary.totalSalesCount += 1;
+  if (sale.sale_type === "subscription") {
+    summary.subscriptionSalesCount += 1;
+  }
+  if (sale.sale_type === "gift") {
+    summary.giftSalesCount += 1;
+    summary.giftTokensGranted += sale.gift_tokens_granted || 0;
+  }
+  if (isPositivePaidSale(sale)) {
+    summary.payingUserIds.add(sale.user_id);
+  }
+
+  const hasKnownRevenue = addRevenueBucket(summary.revenueBuckets, sale);
+  if (!hasKnownRevenue) {
+    summary.unknownAmountCount += 1;
+  } else if (sale.sale_type === "subscription") {
+    addRevenueBucket(summary.subscriptionRevenueBuckets, sale);
+  } else if (sale.sale_type === "gift") {
+    addRevenueBucket(summary.giftRevenueBuckets, sale);
+  }
+}
+
+function finalizeSalesSummary(summary, activeSubscriberCount) {
+  return {
+    totalSalesCount: summary.totalSalesCount,
+    subscriptionSalesCount: summary.subscriptionSalesCount,
+    giftSalesCount: summary.giftSalesCount,
+    giftTokensGranted: summary.giftTokensGranted,
+    payingUsers: summary.payingUserIds.size,
+    activeSubscriberCount,
+    revenueByCurrency: serializeRevenueBuckets(summary.revenueBuckets),
+    subscriptionRevenueByCurrency: serializeRevenueBuckets(
+      summary.subscriptionRevenueBuckets,
+    ),
+    giftRevenueByCurrency: serializeRevenueBuckets(summary.giftRevenueBuckets),
+    unknownAmountCount: summary.unknownAmountCount,
+  };
+}
+
 function buildUserSearchFilter({ email, userId, riskLevel, tier, trackId, shareId, recipientName }) {
   const where = ['1=1'];
   const params = [];
@@ -120,6 +339,300 @@ class AdminService {
   _clampLimit(limit, max = 200) {
     const n = Number.isFinite(Number(limit)) ? Math.trunc(Number(limit)) : 50;
     return Math.max(1, Math.min(max, n));
+  }
+
+  _parseSalesPeriod(days) {
+    if (String(days || "").toLowerCase() === "all") {
+      return {
+        days: "all",
+        label: "all_time",
+        since: null,
+      };
+    }
+
+    const clampedDays = this._clampDays(days);
+    return {
+      days: clampedDays,
+      label: `${clampedDays}_days`,
+      since: new Date(Date.now() - clampedDays * 24 * 60 * 60 * 1000).toISOString(),
+    };
+  }
+
+  async _getProductCatalog() {
+    const catalog = new Map();
+
+    const giftBundles = await this.db.prepare(`
+      SELECT product_id, display_name, price_cents
+      FROM gift_bundles
+    `).all();
+    for (const bundle of giftBundles) {
+      catalog.set(bundle.product_id, {
+        display_name: bundle.display_name,
+        amount: bundle.price_cents == null ? null : Number(bundle.price_cents) / 100,
+        currency: "USD",
+        source: "gift_bundles",
+      });
+    }
+
+    const planProducts = await this.db.prepare(`
+      SELECT
+        pp.product_id,
+        pp.billing_period,
+        sp.name,
+        sp.tier,
+        sp.price_monthly_cents,
+        sp.price_annual_cents
+      FROM plan_products pp
+      LEFT JOIN subscription_plans sp ON sp.id = pp.plan_id
+    `).all();
+    for (const product of planProducts) {
+      const priceCents =
+        product.billing_period === "annual"
+          ? product.price_annual_cents
+          : product.price_monthly_cents;
+      catalog.set(product.product_id, {
+        display_name: [product.name, product.billing_period]
+          .filter(Boolean)
+          .join(" "),
+        tier: product.tier,
+        amount: priceCents == null ? null : Number(priceCents) / 100,
+        currency: "USD",
+        source: "subscription_plans",
+      });
+    }
+
+    return catalog;
+  }
+
+  async _getReceiptSaleRows(period, { limit = 50, offset = 0 } = {}) {
+    const where = ["pr.verification_status = 'verified'"];
+    const params = [];
+    if (period.since) {
+      where.push("pr.purchase_date > ?");
+      params.push(period.since);
+    }
+
+    return await this.db.prepare(`
+      SELECT
+        pr.id,
+        pr.user_id,
+        pr.subscription_id,
+        pr.transaction_id,
+        pr.original_transaction_id,
+        pr.product_id,
+        pr.platform,
+        pr.verification_status,
+        pr.verification_response,
+        pr.purchase_date,
+        pr.expires_date,
+        pr.is_trial,
+        pr.created_at,
+        u.email AS user_email,
+        u.display_name AS user_display_name,
+        uc.value_display AS primary_email,
+        s.status AS subscription_status,
+        s.tier AS subscription_tier,
+        s.expires_at AS subscription_expires_at,
+        s.grace_period_expires_at AS subscription_grace_period_expires_at,
+        s.auto_renew_enabled AS auto_renew_enabled,
+        s.cancelled_at AS subscription_cancelled_at,
+        s.latest_transaction_id AS latest_transaction_id,
+        gwt.id AS gift_wallet_transaction_id,
+        gwt.amount AS gift_tokens_granted
+      FROM purchase_receipts pr
+      LEFT JOIN users u ON u.id = pr.user_id
+      LEFT JOIN user_contacts uc
+        ON uc.user_id = pr.user_id
+       AND uc.type = 'email'
+       AND uc.is_primary = true
+      LEFT JOIN subscriptions s ON s.id = pr.subscription_id
+      LEFT JOIN gift_wallet_transactions gwt
+        ON gwt.reference_type = 'receipt'
+       AND gwt.reference_id = pr.id
+       AND gwt.type = 'gift_purchase'
+      WHERE ${where.join(" AND ")}
+      ORDER BY pr.purchase_date DESC, pr.created_at DESC
+      LIMIT ? OFFSET ?
+    `).all(...params, limit, offset);
+  }
+
+  async _getReceiptSalesPage(period, productCatalog, { limit, offset }) {
+    const sales = [];
+    const scanLimit = Math.max(limit, 100);
+    let scanOffset = 0;
+    let countedOffset = 0;
+
+    while (sales.length < limit) {
+      const rows = await this._getReceiptSaleRows(period, {
+        limit: scanLimit,
+        offset: scanOffset,
+      });
+      if (rows.length === 0) break;
+
+      for (const row of rows) {
+        const sale = this._normalizeReceiptSale(row, productCatalog);
+        if (!isCountedPaidSale(sale)) continue;
+        if (countedOffset < offset) {
+          countedOffset += 1;
+          continue;
+        }
+        sales.push(sale);
+        if (sales.length >= limit) break;
+      }
+
+      scanOffset += rows.length;
+      if (rows.length < scanLimit) break;
+    }
+
+    return sales;
+  }
+
+  async _buildBillingSalesSummary(period, productCatalog) {
+    const summary = createSalesSummaryAccumulator();
+    const scanLimit = 1000;
+    let scanOffset = 0;
+
+    while (true) {
+      const rows = await this._getReceiptSaleRows(period, {
+        limit: scanLimit,
+        offset: scanOffset,
+      });
+      if (rows.length === 0) break;
+
+      for (const row of rows) {
+        addSaleToSummary(
+          summary,
+          this._normalizeReceiptSale(row, productCatalog),
+        );
+      }
+
+      scanOffset += rows.length;
+      if (rows.length < scanLimit) break;
+    }
+
+    const activeSubscriberCount = await this._countCurrentSubscribers();
+    return finalizeSalesSummary(summary, activeSubscriberCount);
+  }
+
+  async _countCurrentSubscribers() {
+    const now = new Date().toISOString();
+    const row = await this.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM subscriptions s
+      WHERE s.status IN ('active', 'grace_period', 'billing_retry')
+        AND (
+          s.expires_at IS NULL
+          OR s.expires_at > ?
+          OR s.grace_period_expires_at > ?
+        )
+    `).get(now, now);
+    return Number(row?.count || 0);
+  }
+
+  async _getCurrentSubscribers(limit = 50) {
+    const now = new Date().toISOString();
+    return await this.db.prepare(`
+      SELECT
+        s.id,
+        s.user_id,
+        s.product_id,
+        s.tier,
+        s.status,
+        s.platform,
+        s.original_transaction_id,
+        s.latest_transaction_id,
+        s.original_purchase_date,
+        s.expires_at,
+        s.auto_renew_enabled,
+        s.grace_period_expires_at,
+        s.cancelled_at,
+        s.updated_at,
+        u.email AS user_email,
+        u.display_name AS user_display_name,
+        uc.value_display AS primary_email
+      FROM subscriptions s
+      LEFT JOIN users u ON u.id = s.user_id
+      LEFT JOIN user_contacts uc
+        ON uc.user_id = s.user_id
+       AND uc.type = 'email'
+       AND uc.is_primary = true
+      WHERE s.status IN ('active', 'grace_period', 'billing_retry')
+        AND (
+          s.expires_at IS NULL
+          OR s.expires_at > ?
+          OR s.grace_period_expires_at > ?
+        )
+      ORDER BY
+        CASE s.status
+          WHEN 'active' THEN 0
+          WHEN 'grace_period' THEN 1
+          WHEN 'billing_retry' THEN 2
+          ELSE 3
+        END,
+        s.expires_at ASC,
+        s.updated_at DESC
+      LIMIT ?
+    `).all(now, now, limit);
+  }
+
+  _normalizeReceiptSale(row, productCatalog) {
+    const catalogEntry = productCatalog.get(row.product_id);
+    const money = extractReceiptMoney(row, productCatalog);
+    const saleType = normalizeSaleType(row);
+    const userEmail = row.primary_email || row.user_email || null;
+    const subscriptionExpiresAt = row.subscription_expires_at || row.expires_date || null;
+
+    return {
+      id: row.id,
+      user_id: row.user_id,
+      user_email: userEmail,
+      user_display_name: row.user_display_name || null,
+      sale_type: saleType,
+      product_id: row.product_id,
+      product_name: catalogEntry?.display_name || row.product_id,
+      platform: row.platform,
+      transaction_id: row.transaction_id,
+      original_transaction_id: row.original_transaction_id,
+      purchase_date: row.purchase_date,
+      created_at: row.created_at,
+      amount: money.amount,
+      currency: money.currency,
+      amount_source: money.amount_source,
+      gift_tokens_granted:
+        row.gift_tokens_granted == null ? null : Number(row.gift_tokens_granted),
+      is_trial: Boolean(row.is_trial),
+      subscription_id: row.subscription_id || null,
+      subscription_status: row.subscription_status || null,
+      subscription_tier: row.subscription_tier || catalogEntry?.tier || null,
+      subscription_expires_at: subscriptionExpiresAt,
+      auto_renew_enabled: Boolean(row.auto_renew_enabled),
+      is_current_subscriber: isCurrentSubscription({
+        status: row.subscription_status,
+        expiresAt: subscriptionExpiresAt,
+        gracePeriodExpiresAt: row.subscription_grace_period_expires_at,
+      }),
+    };
+  }
+
+  _normalizeCurrentSubscriber(row) {
+    return {
+      id: row.id,
+      user_id: row.user_id,
+      user_email: row.primary_email || row.user_email || null,
+      user_display_name: row.user_display_name || null,
+      product_id: row.product_id,
+      tier: row.tier,
+      status: row.status,
+      platform: row.platform,
+      original_transaction_id: row.original_transaction_id,
+      latest_transaction_id: row.latest_transaction_id,
+      original_purchase_date: row.original_purchase_date,
+      expires_at: row.expires_at,
+      auto_renew_enabled: Boolean(row.auto_renew_enabled),
+      grace_period_expires_at: row.grace_period_expires_at,
+      cancelled_at: row.cancelled_at,
+      updated_at: row.updated_at,
+    };
   }
 
   async _persistSecurityConfig(config, actorId, { audit = true } = {}) {
@@ -1438,28 +1951,23 @@ class AdminService {
    * @param {number} days - Number of days to look back
    */
   async getRevenueMetrics(days = 30) {
-    const daysAgo = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+    const sales = await this.getBillingSales({ days, limit: 5000, offset: 0 });
+    const totalRevenue = singleCurrencyAmount(sales.summary.revenueByCurrency);
+    const subscriptionRevenue = singleCurrencyAmount(
+      sales.summary.subscriptionRevenueByCurrency,
+    );
+    const giftRevenue = singleCurrencyAmount(sales.summary.giftRevenueByCurrency);
+    const period = this._parseSalesPeriod(days);
 
-    // Total revenue from credit transactions (purchases)
-    const revenueData = await this.db.prepare(`
-      SELECT
-        SUM(CASE WHEN type = 'purchase' THEN amount ELSE 0 END) as total_purchases,
-        SUM(CASE WHEN type = 'subscription' THEN amount ELSE 0 END) as subscription_revenue,
-        COUNT(DISTINCT user_id) as paying_users
-      FROM credit_transactions
-      WHERE created_at > ? AND type IN ('purchase', 'subscription')
-    `).get(daysAgo);
-
-    // Subscription revenue by tier
     const subscriptionsByTier = await this.db.prepare(`
       SELECT
         tier,
         COUNT(*) as count,
         SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) as active_count
       FROM subscriptions
-      WHERE created_at > ?
+      WHERE (? IS NULL OR created_at > ?)
       GROUP BY tier
-    `).all(daysAgo);
+    `).all(period.since, period.since);
 
     // Trial conversions (trials that became active subscriptions)
     const trialData = await this.db.prepare(`
@@ -1467,15 +1975,15 @@ class AdminService {
         COUNT(CASE WHEN status = 'trial' THEN 1 END) as current_trials,
         COUNT(CASE WHEN status = 'active' AND original_purchase_date IS NOT NULL THEN 1 END) as converted_trials
       FROM subscriptions
-      WHERE created_at > ?
-    `).get(daysAgo);
+      WHERE (? IS NULL OR created_at > ?)
+    `).get(period.since, period.since);
 
     // Churn (cancelled subscriptions in period)
     const churnData = await this.db.prepare(`
       SELECT COUNT(*) as cancelled
       FROM subscriptions
-      WHERE cancelled_at > ? AND cancelled_at IS NOT NULL
-    `).get(daysAgo);
+      WHERE cancelled_at IS NOT NULL AND (? IS NULL OR cancelled_at > ?)
+    `).get(period.since, period.since);
 
     const activeSubscriptions = (await this.db.prepare(`
       SELECT COUNT(*) as count FROM subscriptions WHERE status = 'active'
@@ -1486,15 +1994,52 @@ class AdminService {
       : '0.00';
 
     return {
-      totalRevenue: (revenueData.total_purchases || 0) + (revenueData.subscription_revenue || 0),
-      subscriptionRevenue: revenueData.subscription_revenue || 0,
-      songPurchases: revenueData.total_purchases || 0,
-      payingUsers: revenueData.paying_users || 0,
+      totalRevenue,
+      subscriptionRevenue,
+      songPurchases: giftRevenue,
+      hasMixedRevenueCurrencies: sales.summary.revenueByCurrency.length > 1,
+      payingUsers: sales.summary.payingUsers,
       subscriptionsByTier,
       trialCount: trialData.current_trials || 0,
       trialConversions: trialData.converted_trials || 0,
       cancellations: churnData.cancelled || 0,
       churnRate,
+      salesCount: sales.summary.totalSalesCount,
+      giftSalesCount: sales.summary.giftSalesCount,
+      subscriptionSalesCount: sales.summary.subscriptionSalesCount,
+      revenueByCurrency: sales.summary.revenueByCurrency,
+      unknownAmountCount: sales.summary.unknownAmountCount,
+    };
+  }
+
+  /**
+   * Get receipt-backed Apple sales and current subscriber visibility.
+   */
+  async getBillingSales({ days = 30, limit = 50, offset = 0 } = {}) {
+    const period = this._parseSalesPeriod(days);
+    const bounds = safeBounds(limit, offset, 200);
+    const productCatalog = await this._getProductCatalog();
+
+    const summary = await this._buildBillingSalesSummary(period, productCatalog);
+    const recentSales = await this._getReceiptSalesPage(
+      period,
+      productCatalog,
+      bounds,
+    );
+    const currentSubscribers = (await this._getCurrentSubscribers(100)).map(
+      (row) => this._normalizeCurrentSubscriber(row),
+    );
+
+    return {
+      period,
+      summary,
+      recentSales,
+      currentSubscribers,
+      pagination: {
+        limit: bounds.limit,
+        offset: bounds.offset,
+        returned: recentSales.length,
+      },
     };
   }
 
@@ -1555,14 +2100,19 @@ class AdminService {
    * Get recent billing transactions
    */
   async getBillingTransactions({ limit = 50, offset = 0 } = {}) {
-    const bounds = safeBounds(limit, offset);
-    return await this.db.prepare(`
-      SELECT ct.*, u.email as user_email
-      FROM credit_transactions ct
-      LEFT JOIN users u ON ct.user_id = u.id
-      ORDER BY ct.created_at DESC
-      LIMIT ? OFFSET ?
-    `).all(bounds.limit, bounds.offset);
+    const sales = await this.getBillingSales({ days: "all", limit, offset });
+    return sales.recentSales.map((sale) => ({
+      id: sale.id,
+      user_id: sale.user_id,
+      user_email: sale.user_email,
+      type: sale.sale_type,
+      amount: sale.amount ?? 0,
+      currency: sale.currency,
+      product_id: sale.product_id,
+      transaction_id: sale.transaction_id,
+      created_at: sale.purchase_date || sale.created_at,
+      sale,
+    }));
   }
 
   /**

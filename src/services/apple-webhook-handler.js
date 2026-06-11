@@ -246,6 +246,9 @@ function createAppleWebhookHandler(db, options = {}) {
         ? new Date(transactionInfo.revocationDate)
         : null,
       revocationReason: transactionInfo?.revocationReason,
+      price: transactionInfo?.price ?? null,
+      currency: transactionInfo?.currency ?? null,
+      storefront: transactionInfo?.storefront ?? null,
     };
   }
 
@@ -728,6 +731,9 @@ function createAppleWebhookHandler(db, options = {}) {
       autoRenewEnabled: txInfo.autoRenewStatus === 1,
       isTrialPeriod: false,
       environment: "production",
+      price: txInfo.price,
+      currency: txInfo.currency,
+      storefront: txInfo.storefront,
       ...(isRenewal != null ? { isRenewal } : {}),
     };
   }

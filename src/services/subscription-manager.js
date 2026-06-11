@@ -59,6 +59,21 @@ const STATUS = {
   PAUSED: "paused",
 };
 
+function buildReceiptVerificationResponse(validation) {
+  const rawTransaction = validation?._raw?.transactionInfo || {};
+  const payload = {
+    type: validation.type || null,
+    environment: validation.environment || "production",
+    status: validation.status || null,
+    price_millis: validation.price ?? rawTransaction.price ?? null,
+    currency: validation.currency ?? rawTransaction.currency ?? null,
+    storefront: validation.storefront ?? rawTransaction.storefront ?? null,
+    transaction_reason: rawTransaction.transactionReason || null,
+  };
+
+  return JSON.stringify(payload);
+}
+
 /**
  * Create a Subscription Manager instance
  * @param {Object} db - Database connection
@@ -364,11 +379,12 @@ function createSubscriptionManager(db, services = {}) {
     await query(
       `INSERT INTO purchase_receipts (
         id, user_id, subscription_id, transaction_id, original_transaction_id,
-        product_id, platform, verification_status, purchase_date, expires_date,
-        is_trial, is_upgrade, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        product_id, platform, verification_status, verification_response,
+        purchase_date, expires_date, is_trial, is_upgrade, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
       ON CONFLICT(transaction_id) DO UPDATE SET
         verification_status = excluded.verification_status,
+        verification_response = excluded.verification_response,
         expires_date = excluded.expires_date`,
       [
         receiptId,
@@ -379,6 +395,7 @@ function createSubscriptionManager(db, services = {}) {
         validation.productId,
         validation.platform,
         "verified",
+        buildReceiptVerificationResponse(validation),
         validation.purchaseDate.toISOString(),
         validation.expiresAt?.toISOString() || null,
         validation.isTrialPeriod ? 1 : 0,

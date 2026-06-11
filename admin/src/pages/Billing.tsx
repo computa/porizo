@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { CreditCard, TrendingUp, DollarSign, Calendar, Package, Gift } from 'lucide-react';
 import { useApi } from '../hooks/useApi';
-import { formatCurrency, formatShortDate } from '../utils/date';
+import { formatCurrency, formatMoney, formatShortDate } from '../utils/date';
 import { LoadingState } from '../components/LoadingState';
 import { ErrorState } from '../components/ErrorState';
 import { PlansTab } from './billing/PlansTab';
@@ -22,18 +22,6 @@ interface CostMetrics {
   }>;
 }
 
-interface RevenueMetrics {
-  totalRevenue: number;
-  subscriptionRevenue: number;
-  songPurchases: number;
-  payingUsers: number;
-  subscriptionsByTier: Array<{ tier: string; count: number; active_count: number }>;
-  trialCount: number;
-  trialConversions: number;
-  cancellations: number;
-  churnRate: string;
-}
-
 interface SubscriptionHealth {
   activeSubscriptions: Array<{ tier: string; count: number }>;
   totalActive: number;
@@ -43,17 +31,64 @@ interface SubscriptionHealth {
   inGracePeriod: number;
 }
 
-interface BillingTransaction {
+interface RevenueBucket {
+  currency: string;
+  amount: number;
+  count: number;
+}
+
+interface BillingSale {
   id: string;
   user_id: string;
   user_email: string | null;
-  type: string;
-  amount: number;
-  created_at: string;
+  user_display_name: string | null;
+  sale_type: 'subscription' | 'gift' | 'purchase';
+  product_id: string;
+  product_name: string;
+  platform: string;
+  transaction_id: string;
+  purchase_date: string;
+  amount: number | null;
+  currency: string | null;
+  amount_source: string;
+  gift_tokens_granted: number | null;
+  subscription_status: string | null;
+  subscription_tier: string | null;
+  subscription_expires_at: string | null;
+  is_current_subscriber: boolean;
 }
 
-interface TransactionsResponse {
-  transactions: BillingTransaction[];
+interface CurrentSubscriber {
+  id: string;
+  user_id: string;
+  user_email: string | null;
+  user_display_name: string | null;
+  product_id: string;
+  tier: string;
+  status: string;
+  platform: string;
+  latest_transaction_id: string | null;
+  original_purchase_date: string | null;
+  expires_at: string | null;
+  auto_renew_enabled: boolean;
+  updated_at: string;
+}
+
+interface BillingSalesResponse {
+  summary: {
+    totalSalesCount: number;
+    subscriptionSalesCount: number;
+    giftSalesCount: number;
+    giftTokensGranted: number;
+    payingUsers: number;
+    activeSubscriberCount: number;
+    revenueByCurrency: RevenueBucket[];
+    subscriptionRevenueByCurrency: RevenueBucket[];
+    giftRevenueByCurrency: RevenueBucket[];
+    unknownAmountCount: number;
+  };
+  recentSales: BillingSale[];
+  currentSubscribers: CurrentSubscriber[];
 }
 
 const renderTypeLabels: Record<string, string> = {
@@ -68,6 +103,19 @@ const TABS = [
 ] as const;
 type TabId = typeof TABS[number]['id'];
 
+function formatRevenueBuckets(buckets: RevenueBucket[]): string {
+  if (!buckets.length) return '—';
+  return buckets.map((bucket) => formatMoney(bucket.amount, bucket.currency)).join(' + ');
+}
+
+function formatPersonName(user: { user_display_name: string | null; user_email: string | null; user_id: string }) {
+  return user.user_display_name || user.user_email || user.user_id;
+}
+
+function userLink(userId: string) {
+  return `/users?userId=${encodeURIComponent(userId)}`;
+}
+
 export function Billing() {
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = (searchParams.get('tab') as TabId) || 'overview';
@@ -75,23 +123,20 @@ export function Billing() {
 
   const { get, loading, error } = useApi();
   const [metrics, setMetrics] = useState<CostMetrics | null>(null);
-  const [revenue, setRevenue] = useState<RevenueMetrics | null>(null);
+  const [salesDashboard, setSalesDashboard] = useState<BillingSalesResponse | null>(null);
   const [subscriptionHealth, setSubscriptionHealth] = useState<SubscriptionHealth | null>(null);
-  const [transactions, setTransactions] = useState<BillingTransaction[]>([]);
   const [days, setDays] = useState(30);
 
   useEffect(() => {
     if (activeTab !== 'overview') return;
     Promise.all([
       get<CostMetrics>(`/metrics/costs?days=${days}`),
-      get<RevenueMetrics>(`/billing/revenue?days=${days}`),
+      get<BillingSalesResponse>(`/billing/sales?days=${days}&limit=100`),
       get<SubscriptionHealth>('/billing/subscriptions'),
-      get<TransactionsResponse>('/billing/transactions?limit=25'),
-    ]).then(([costs, revenueData, subscriptionData, transactionData]) => {
+    ]).then(([costs, salesData, subscriptionData]) => {
       setMetrics(costs);
-      setRevenue(revenueData);
+      setSalesDashboard(salesData);
       setSubscriptionHealth(subscriptionData);
-      setTransactions(transactionData.transactions || []);
     }).catch(console.error);
   }, [get, days, activeTab]);
 
@@ -145,7 +190,7 @@ export function Billing() {
 
       {/* Overview tab */}
       <div className={activeTab === 'overview' ? '' : 'hidden'}>
-        {loading && !metrics && !revenue ? (
+        {loading && !metrics && !salesDashboard ? (
           <LoadingState message="Loading billing data..." />
         ) : error && !metrics ? (
           <ErrorState message={`Error loading billing data: ${error}`} />
@@ -195,37 +240,41 @@ export function Billing() {
       </div>
 
       {/* Revenue & Subscription Health */}
-      {(revenue || subscriptionHealth) && (
+      {(salesDashboard || subscriptionHealth) && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
           <div className="card rounded-xl p-6">
-            <h2 className="text-lg font-semibold text-white mb-4">Revenue Summary</h2>
-            {revenue ? (
+            <h2 className="text-lg font-semibold text-white mb-4">Apple Sales Summary</h2>
+            {salesDashboard ? (
               <div className="space-y-3 text-sm">
                 <div className="flex justify-between">
-                  <span className="text-slate-400">Total Revenue</span>
-                  <span className="text-emerald-400 font-data">{formatCurrency(revenue.totalRevenue)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-400">Subscriptions</span>
-                  <span className="text-slate-200 font-data">{formatCurrency(revenue.subscriptionRevenue)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-400">Song Purchases</span>
-                  <span className="text-slate-200 font-data">{formatCurrency(revenue.songPurchases)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-400">Paying Users</span>
-                  <span className="text-slate-200 font-data">{revenue.payingUsers.toLocaleString()}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-400">Trials → Paid</span>
-                  <span className="text-slate-200 font-data">
-                    {revenue.trialConversions}/{revenue.trialCount}
+                  <span className="text-slate-400">Gross Sales</span>
+                  <span className="text-emerald-400 font-data">
+                    {formatRevenueBuckets(salesDashboard.summary.revenueByCurrency)}
                   </span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-slate-400">Churn Rate</span>
-                  <span className="text-slate-200 font-data">{revenue.churnRate}%</span>
+                  <span className="text-slate-400">Subscriptions</span>
+                  <span className="text-slate-200 font-data">
+                    {salesDashboard.summary.subscriptionSalesCount.toLocaleString()} · {formatRevenueBuckets(salesDashboard.summary.subscriptionRevenueByCurrency)}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Gift Buys</span>
+                  <span className="text-slate-200 font-data">
+                    {salesDashboard.summary.giftSalesCount.toLocaleString()} · {formatRevenueBuckets(salesDashboard.summary.giftRevenueByCurrency)}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Paying Users</span>
+                  <span className="text-slate-200 font-data">{salesDashboard.summary.payingUsers.toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Gift Tokens Granted</span>
+                  <span className="text-slate-200 font-data">{salesDashboard.summary.giftTokensGranted.toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Unknown Amounts</span>
+                  <span className="text-slate-200 font-data">{salesDashboard.summary.unknownAmountCount.toLocaleString()} unknown</span>
                 </div>
               </div>
             ) : (
@@ -326,29 +375,101 @@ export function Billing() {
         </div>
       )}
 
-      {/* Recent Transactions */}
-      {transactions.length > 0 && (
+      {/* Apple Sales */}
+      {salesDashboard && salesDashboard.recentSales.length > 0 && (
         <div className="card rounded-xl p-6">
-          <h2 className="text-lg font-semibold text-white mb-4">Recent Transactions</h2>
+          <h2 className="text-lg font-semibold text-white mb-4">Apple Sales</h2>
           <div className="overflow-x-auto">
             <table>
               <thead>
                 <tr className="bg-slate-800/50">
-                  <th>ID</th>
                   <th>User</th>
-                  <th>Type</th>
+                  <th>Sale</th>
+                  <th>Product</th>
                   <th>Amount</th>
+                  <th>Current</th>
                   <th>Date</th>
                 </tr>
               </thead>
               <tbody>
-                {transactions.slice(0, 25).map((tx) => (
-                  <tr key={tx.id}>
-                    <td className="text-slate-400 font-data text-xs">{tx.id.slice(0, 10)}...</td>
-                    <td className="text-slate-300">{tx.user_email || tx.user_id}</td>
-                    <td className="text-slate-400 capitalize">{tx.type}</td>
-                    <td className="text-emerald-400 font-data">{formatCurrency(tx.amount)}</td>
-                    <td className="text-slate-400">{formatShortDate(tx.created_at)}</td>
+                {salesDashboard.recentSales.map((sale) => (
+                  <tr key={sale.id}>
+                    <td className="max-w-[240px] truncate">
+                      <Link
+                        to={userLink(sale.user_id)}
+                        className="text-sky-300 hover:text-sky-200 transition-colors"
+                      >
+                        {formatPersonName(sale)}
+                      </Link>
+                    </td>
+                    <td className="text-slate-400 capitalize">{sale.sale_type}</td>
+                    <td className="text-slate-400 max-w-[260px] truncate">
+                      <div>{sale.product_name || sale.product_id}</div>
+                      <div className="text-xs text-slate-600 font-data truncate">{sale.transaction_id}</div>
+                    </td>
+                    <td className="text-emerald-400 font-data">
+                      {formatMoney(sale.amount, sale.currency)}
+                      {sale.amount_source === 'product_catalog' && (
+                        <span className="ml-2 text-xs text-slate-500">catalog</span>
+                      )}
+                    </td>
+                    <td>
+                      {sale.is_current_subscriber ? (
+                        <span className="text-sky-300 text-sm">Yes</span>
+                      ) : (
+                        <span className="text-slate-500 text-sm">
+                          {sale.sale_type === 'gift' ? `${sale.gift_tokens_granted || 0} gifts` : sale.subscription_status || 'No'}
+                        </span>
+                      )}
+                    </td>
+                    <td className="text-slate-400">{formatShortDate(sale.purchase_date)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Current Subscribers */}
+      {salesDashboard && salesDashboard.currentSubscribers.length > 0 && (
+        <div className="card rounded-xl p-6">
+          <h2 className="text-lg font-semibold text-white mb-4">Current Subscribers</h2>
+          <div className="overflow-x-auto">
+            <table>
+              <thead>
+                <tr className="bg-slate-800/50">
+                  <th>User</th>
+                  <th>Tier</th>
+                  <th>Product</th>
+                  <th>Status</th>
+                  <th>Auto Renew</th>
+                  <th>Renews</th>
+                </tr>
+              </thead>
+              <tbody>
+                {salesDashboard.currentSubscribers.map((subscriber) => (
+                  <tr key={subscriber.id}>
+                    <td className="max-w-[260px] truncate">
+                      <Link
+                        to={userLink(subscriber.user_id)}
+                        className="text-sky-300 hover:text-sky-200 transition-colors"
+                      >
+                        {formatPersonName(subscriber)}
+                      </Link>
+                    </td>
+                    <td className="text-slate-400 capitalize">{subscriber.tier}</td>
+                    <td className="text-slate-400 max-w-[260px] truncate">
+                      <div>{subscriber.product_id}</div>
+                      {subscriber.latest_transaction_id && (
+                        <div className="text-xs text-slate-600 font-data truncate">{subscriber.latest_transaction_id}</div>
+                      )}
+                    </td>
+                    <td className="text-sky-300 capitalize">{subscriber.status.replaceAll('_', ' ')}</td>
+                    <td className="text-slate-300">{subscriber.auto_renew_enabled ? 'Yes' : 'No'}</td>
+                    <td className="text-slate-400">
+                      {subscriber.expires_at ? formatShortDate(subscriber.expires_at) : '—'}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -358,7 +479,7 @@ export function Billing() {
       )}
 
       {/* Empty State */}
-      {(!metrics?.dailyCosts || metrics.dailyCosts.length === 0) && (
+      {(!metrics?.dailyCosts || metrics.dailyCosts.length === 0) && !salesDashboard?.recentSales.length && (
         <div className="card rounded-xl p-12 text-center">
           <div className="w-16 h-16 rounded-full bg-slate-700/50 flex items-center justify-center mx-auto mb-4">
             <DollarSign className="w-8 h-8 text-slate-500" />

@@ -310,6 +310,9 @@ function createAppleReceiptValidator(options = {}) {
       originalTransactionId: transactionInfo.originalTransactionId,
       productId: transactionInfo.productId,
       purchaseDate: new Date(transactionInfo.purchaseDate),
+      price: transactionInfo.price ?? null,
+      currency: transactionInfo.currency ?? null,
+      storefront: transactionInfo.storefront ?? null,
       environment:
         transactionInfo.environment?.toLowerCase() ||
         txLookup.environment ||
@@ -447,6 +450,10 @@ function createAppleReceiptValidator(options = {}) {
       originalPurchaseDate: new Date(transactionInfo.originalPurchaseDate),
       expiresAt,
       gracePeriodExpiresAt,
+      // Apple reports price in milliunits of the currency (9990 => 9.99).
+      price: transactionInfo.price ?? null,
+      currency: transactionInfo.currency ?? null,
+      storefront: transactionInfo.storefront ?? null,
 
       // Renewal info
       autoRenewEnabled: renewalInfo?.autoRenewStatus === AUTO_RENEW_STATUS.ON,

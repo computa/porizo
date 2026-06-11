@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, type KeyboardEvent, type ChangeEvent } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Users as UsersIcon, Search, Shield, Lock, ChevronRight, ChevronLeft, ChevronsRight, ChevronsLeft, X, Clock, TrendingUp, Trash2, Pencil, Save, Mic, Monitor, Globe, Megaphone } from 'lucide-react';
 import { useApi } from '../hooks/useApi';
 import { getTimeSince, formatFullDate } from '../utils/date';
@@ -80,10 +81,12 @@ function attributionStyle(status: string | null | undefined) {
 
 export function Users() {
   const { get, post, loading, error } = useApi();
+  const [searchParams] = useSearchParams();
+  const initialUserId = searchParams.get('userId') || '';
   const [users, setUsers] = useState<User[]>([]);
   const [stats, setStats] = useState<UserStats | null>(null);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchType, setSearchType] = useState('email');
+  const [searchQuery, setSearchQuery] = useState(initialUserId);
+  const [searchType, setSearchType] = useState(initialUserId ? 'userId' : 'email');
   const [riskFilter, setRiskFilter] = useState('');
   const [tierFilter, setTierFilter] = useState('');
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
@@ -147,6 +150,13 @@ export function Users() {
     }, 0);
     return () => clearTimeout(timer);
   }, [fetchStats]);
+
+  useEffect(() => {
+    if (!initialUserId) return;
+    setSearchType('userId');
+    setSearchQuery(initialUserId);
+    setPageOffset(0);
+  }, [initialUserId]);
 
   useEffect(() => {
     const debounce = setTimeout(() => {

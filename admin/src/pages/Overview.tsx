@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
-import { Users, Music, Briefcase, AlertCircle, Clock, TrendingUp, Share2, CreditCard, Mic, Zap, Shield } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { Users, Music, Briefcase, AlertCircle, Clock, TrendingUp, Share2, CreditCard, Mic, Zap, Shield, Receipt, Gift, Crown } from 'lucide-react';
 import { useApi } from '../hooks/useApi';
 import { KPICard } from '../components/KPICard';
 import { LoadingState } from '../components/LoadingState';
 import { ErrorState } from '../components/ErrorState';
+import { formatMoney, formatShortDate } from '../utils/date';
 
 interface OverviewMetrics {
   totalUsers: number;
@@ -60,6 +62,44 @@ interface RiskSummary {
   lockedAccounts: number;
 }
 
+interface RevenueBucket {
+  currency: string;
+  amount: number;
+  count: number;
+}
+
+interface SaleItem {
+  id: string;
+  user_id: string;
+  user_email: string | null;
+  user_display_name: string | null;
+  sale_type: 'subscription' | 'gift' | 'purchase';
+  product_id: string;
+  product_name: string;
+  transaction_id: string;
+  purchase_date: string;
+  amount: number | null;
+  currency: string | null;
+  amount_source: string;
+  gift_tokens_granted: number | null;
+  subscription_status: string | null;
+  is_current_subscriber: boolean;
+}
+
+interface SalesDashboard {
+  summary: {
+    totalSalesCount: number;
+    subscriptionSalesCount: number;
+    giftSalesCount: number;
+    giftTokensGranted: number;
+    payingUsers: number;
+    activeSubscriberCount: number;
+    revenueByCurrency: RevenueBucket[];
+    unknownAmountCount: number;
+  };
+  recentSales: SaleItem[];
+}
+
 const tierLabels: Record<string, string> = {
   free: 'Free',
   starter: 'Starter',
@@ -93,14 +133,25 @@ function formatChange(changeStr: string): string {
   return `${prefix}${changeStr}% vs last week`;
 }
 
+function formatRevenueBuckets(buckets: RevenueBucket[]): string {
+  if (!buckets.length) return 'No amount data';
+  return buckets.map((bucket) => formatMoney(bucket.amount, bucket.currency)).join(' + ');
+}
+
+function formatSaleUser(sale: SaleItem): string {
+  return sale.user_display_name || sale.user_email || sale.user_id;
+}
+
 export function Overview() {
   const { get, loading, error } = useApi();
+  const { get: getSales } = useApi();
   const [metrics, setMetrics] = useState<OverviewMetrics | null>(null);
   const [jobMetrics, setJobMetrics] = useState<JobMetrics | null>(null);
   const [kpiTrends, setKpiTrends] = useState<KPITrends | null>(null);
   const [enrollmentSummary, setEnrollmentSummary] = useState<EnrollmentSummary | null>(null);
   const [pipelineSummary, setPipelineSummary] = useState<PipelineSummary | null>(null);
   const [riskSummary, setRiskSummary] = useState<RiskSummary | null>(null);
+  const [salesDashboard, setSalesDashboard] = useState<SalesDashboard | null>(null);
 
   useEffect(() => {
     Promise.all([
@@ -110,15 +161,17 @@ export function Overview() {
       get<EnrollmentSummary>('/metrics/enrollment').catch(() => null),
       get<PipelineSummary>('/metrics/render-pipeline').catch(() => null),
       get<RiskSummary>('/security/risk-metrics').catch(() => null),
-    ]).then(([overview, jobs, trends, enrollment, pipeline, risk]) => {
+      getSales<SalesDashboard>('/billing/sales?days=all&limit=5').catch(() => null),
+    ]).then(([overview, jobs, trends, enrollment, pipeline, risk, sales]) => {
       setMetrics(overview);
       setJobMetrics(jobs);
       if (trends) setKpiTrends(trends);
       if (enrollment) setEnrollmentSummary(enrollment);
       if (pipeline) setPipelineSummary(pipeline);
       if (risk) setRiskSummary(risk);
+      if (sales) setSalesDashboard(sales);
     }).catch(console.error);
-  }, [get]);
+  }, [get, getSales]);
 
   if (loading && !metrics) {
     return <LoadingState message="Loading dashboard..." />;
@@ -218,6 +271,91 @@ export function Overview() {
               accentColor="rose"
             />
           </div>
+        </div>
+      )}
+
+      {/* Sales & Subscribers */}
+      {salesDashboard && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between gap-4">
+            <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+              <Receipt className="w-5 h-5 text-emerald-400" />
+              Sales & Subscribers
+            </h2>
+            <Link
+              to="/billing?tab=overview"
+              className="text-sm font-medium text-sky-300 hover:text-sky-200 transition-colors"
+            >
+              View billing
+            </Link>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+            <KPICard
+              title="Apple Sales"
+              value={salesDashboard.summary.totalSalesCount}
+              subtitle={`${formatRevenueBuckets(salesDashboard.summary.revenueByCurrency)} all time`}
+              icon={Receipt}
+              trend={salesDashboard.summary.totalSalesCount > 0 ? 'up' : 'neutral'}
+              accentColor="emerald"
+            />
+            <KPICard
+              title="Gift Buys"
+              value={salesDashboard.summary.giftSalesCount}
+              subtitle={`${salesDashboard.summary.giftTokensGranted.toLocaleString()} gift tokens granted`}
+              icon={Gift}
+              trend={salesDashboard.summary.giftSalesCount > 0 ? 'up' : 'neutral'}
+              accentColor="amber"
+            />
+            <KPICard
+              title="Current Subscribers"
+              value={salesDashboard.summary.activeSubscriberCount}
+              subtitle={`${salesDashboard.summary.subscriptionSalesCount.toLocaleString()} subscription payment${salesDashboard.summary.subscriptionSalesCount === 1 ? '' : 's'}`}
+              icon={Crown}
+              trend={salesDashboard.summary.activeSubscriberCount > 0 ? 'up' : 'neutral'}
+              accentColor="sky"
+            />
+          </div>
+
+          {salesDashboard.recentSales.length > 0 && (
+            <div className="card rounded-xl p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-base font-semibold text-white">Recent Sales</h3>
+                <span className="text-xs text-slate-500">Apple receipts</span>
+              </div>
+              <div className="overflow-x-auto">
+                <table>
+                  <thead>
+                    <tr className="bg-slate-800/50">
+                      <th>User</th>
+                      <th>Sale</th>
+                      <th>Amount</th>
+                      <th>Status</th>
+                      <th>Date</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {salesDashboard.recentSales.map((sale) => (
+                      <tr key={sale.id}>
+                        <td className="text-slate-300 max-w-[220px] truncate">{formatSaleUser(sale)}</td>
+                        <td className="text-slate-400 capitalize">{sale.sale_type}</td>
+                        <td className="text-emerald-400 font-data">{formatMoney(sale.amount, sale.currency)}</td>
+                        <td>
+                          {sale.is_current_subscriber ? (
+                            <span className="text-sky-300 text-sm">Current</span>
+                          ) : (
+                            <span className="text-slate-500 text-sm">
+                              {sale.subscription_status || (sale.sale_type === 'gift' ? 'Gift buy' : 'Receipt')}
+                            </span>
+                          )}
+                        </td>
+                        <td className="text-slate-400">{formatShortDate(sale.purchase_date)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
