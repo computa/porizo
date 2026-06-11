@@ -83,6 +83,13 @@ function placeholders(count) {
   return Array.from({ length: count }, () => "?").join(", ");
 }
 
+const DOWNLOAD_ATTRIBUTION_WINDOW_MS = 72 * 60 * 60 * 1000;
+
+function usableClientIp(value) {
+  const ip = clean(value);
+  return ip && ip.toLowerCase() !== "unknown" ? ip : null;
+}
+
 class AttributionService {
   constructor(db) {
     this.db = db;
@@ -225,6 +232,43 @@ class AttributionService {
       ORDER BY created_at DESC
       LIMIT 1
     `).get(userId);
+  }
+
+  async matchRecentDownloadEventForUser(userId, clientIp, { now = new Date(), windowMs = DOWNLOAD_ATTRIBUTION_WINDOW_MS } = {}) {
+    const ip = usableClientIp(clientIp);
+    if (!userId || !ip) {
+      return null;
+    }
+
+    const nowMs = now instanceof Date ? now.getTime() : Date.parse(now);
+    const baseMs = Number.isFinite(nowMs) ? nowMs : Date.now();
+    const cutoff = new Date(baseMs - windowMs).toISOString();
+    const event = await this.db.prepare(`
+      SELECT id, utm_source, utm_medium, utm_campaign, utm_content, utm_term, country, referrer_url, created_at
+      FROM download_events
+      WHERE ip_address = ?
+        AND created_at > ?
+        AND matched_user_id IS NULL
+      ORDER BY created_at DESC
+      LIMIT 1
+    `).get(ip, cutoff);
+
+    if (!event) {
+      return null;
+    }
+
+    const result = await this.db.prepare(`
+      UPDATE download_events
+      SET matched_user_id = ?
+      WHERE id = ? AND matched_user_id IS NULL
+    `).run(userId, event.id);
+
+    if (Number(result?.changes || 0) === 0) {
+      return null;
+    }
+
+    await this.backfillUserAcquisitionFromDownload(userId, event);
+    return event;
   }
 
   async getUserAttribution(user) {
@@ -405,7 +449,7 @@ class AttributionService {
   }
 
   async getAttributionHealth() {
-    const [users, appleAds, backfillMismatch] = await Promise.all([
+    const [users, appleAds, backfillMismatch, downloads] = await Promise.all([
       this.db.prepare(`
         SELECT
           COUNT(*) as total_users,
@@ -443,6 +487,16 @@ class AttributionService {
             OR (aaa.keyword_id IS NOT NULL AND u.acquisition_term IS NULL)
             OR (aaa.country_or_region IS NOT NULL AND aaa.country_or_region <> '' AND u.acquisition_country IS NULL)
           )
+      `).get(),
+      this.db.prepare(`
+        SELECT
+          COUNT(*) as total_events,
+          SUM(CASE WHEN matched_user_id IS NOT NULL THEN 1 ELSE 0 END) as matched_events,
+          COUNT(DISTINCT CASE WHEN matched_user_id IS NOT NULL THEN matched_user_id END) as matched_users,
+          SUM(CASE WHEN matched_user_id IS NULL
+                    AND (utm_source IS NOT NULL OR utm_medium IS NOT NULL OR utm_campaign IS NOT NULL)
+                   THEN 1 ELSE 0 END) as unmatched_attributed_events
+        FROM download_events
       `).get(),
     ]);
 
@@ -485,6 +539,12 @@ class AttributionService {
         failed: Number(appleAds?.failed || 0),
         resolvedRowsNotBackfilled: Number(backfillMismatch?.resolved_rows_not_backfilled || 0),
       },
+      downloads: {
+        totalEvents: Number(downloads?.total_events || 0),
+        matchedEvents: Number(downloads?.matched_events || 0),
+        matchedUsers: Number(downloads?.matched_users || 0),
+        unmatchedAttributedEvents: Number(downloads?.unmatched_attributed_events || 0),
+      },
     };
   }
 }
@@ -492,4 +552,5 @@ class AttributionService {
 module.exports = {
   AttributionService,
   isAppleAdsDeveloperTestData,
+  usableClientIp,
 };

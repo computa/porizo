@@ -62,6 +62,16 @@
 - MCPLI: avoid `--verbose` unless asked; prefer mcpli daemon log after a normal tool call, and do not delete `.mcpli/` unless explicitly requested. TS2589 is compile-time, so validate with `pnpm typecheck:all`.
 - XcodeBuildMCP / Build iOS Apps simulator browser: `serve-sim` needs direct CoreSimulator access and will fail inside the workspace sandbox. Do not escalate `npx --yes serve-sim@latest`. Resolve the exact package version/integrity first with a cache under `/private/tmp`, then run the pinned cached command offline and scoped to the Simulator UDID, for example `npx --cache /private/tmp/serve-sim-npm-cache --yes --offline serve-sim@0.1.39 <UDID>`. Cleanup must also be scoped with `--kill <UDID>`; never use an unscoped `serve-sim --kill`.
 
+## Apple Platform And SwiftUI Workflow
+
+- For Porizo SwiftUI work, use the repo-local `porizo-swiftui-release-workflow` skill as the entry point. It coordinates `swiftui-ui-patterns`, `swiftui-pro`, `swiftui-performance-audit`, `porizo-simulator-testing`, `app-store-screenshots`, `screenshot-optimization`, `app-icon-optimization`, and `localization` as needed.
+- Keep App Store/TestFlight builds on the current stable Xcode lane unless Ambrose explicitly approves a beta build or Apple changes upload requirements. Treat Xcode 27 beta as a compatibility lane until it is stable.
+- Keep Xcode 26.x available for iOS 15/16 debugging and release validation. Xcode 27 beta device debugging starts at iOS 17.
+- For selected-payload presentation in SwiftUI, prefer `.sheet(item:)` or `.fullScreenCover(item:)` over Boolean presentation state plus a separate payload.
+- Important screens should have preview or fixture coverage for empty, loading, error, populated, long text, dark mode, Dynamic Type, and App Store screenshot states.
+- SwiftUI review must include accessibility, state ownership, navigation/presentation, and performance checks. Avoid sorting/filtering, formatter creation, image decoding, or network work in `body`; use stable identity in `ForEach`.
+- Release candidates should run through `docs/ios-swiftui-release-workflow.md` and the Xcode/SwiftUI gate in `docs/pre-testflight-distribution-checklist.md`.
+
 # Repository Guidelines
 
 ## Project Structure & Module Organization
@@ -123,7 +133,7 @@
 <claude-mem-context>
 # Memory Context
 
-# [porizo] recent context, 2026-06-05 5:00pm GMT+8
+# [porizo] recent context, 2026-06-11 3:42pm GMT+8
 
 Legend: 🎯session 🔴bugfix 🟣feature 🔄refactor ✅change 🔵discovery ⚖️decision 🚨security_alert 🔐security_note
 Format: ID TIME TYPE TITLE

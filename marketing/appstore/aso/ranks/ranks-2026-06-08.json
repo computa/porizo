@@ -1,0 +1,832 @@
+{
+  "pulled_at": "2026-06-08T08:59:12.003Z",
+  "date": "2026-06-08",
+  "appId": 6758205028,
+  "countries": [
+    "us",
+    "ca",
+    "au",
+    "nz",
+    "gb"
+  ],
+  "keywords": [
+    "ai song generator",
+    "anniversary song gift",
+    "birthday gift ideas",
+    "birthday song",
+    "birthday song gift",
+    "custom song",
+    "custom song gift",
+    "father's day song",
+    "father's day song for dad",
+    "gift song",
+    "mother's day song",
+    "personalized song",
+    "personalized song gift",
+    "song gift",
+    "song gift for dad",
+    "song gift for mom"
+  ],
+  "rows": [
+    {
+      "date": "2026-06-08",
+      "keyword": "ai song generator",
+      "country": "us",
+      "position": null,
+      "total": 186,
+      "indexed": false,
+      "topApp": "Suno - AI Songs & Music",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "ai song generator",
+      "country": "ca",
+      "position": null,
+      "total": 195,
+      "indexed": false,
+      "topApp": "Suno - AI Songs & Music",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "ai song generator",
+      "country": "au",
+      "position": null,
+      "total": 190,
+      "indexed": false,
+      "topApp": "Suno - AI Songs & Music",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "ai song generator",
+      "country": "nz",
+      "position": null,
+      "total": 186,
+      "indexed": false,
+      "topApp": "Suno - AI Songs & Music",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "ai song generator",
+      "country": "gb",
+      "position": null,
+      "total": 188,
+      "indexed": false,
+      "topApp": "Suno - AI Songs & Music",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "anniversary song gift",
+      "country": "us",
+      "position": 47,
+      "total": 164,
+      "indexed": true,
+      "topApp": "GiftSong",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "anniversary song gift",
+      "country": "ca",
+      "position": 127,
+      "total": 165,
+      "indexed": true,
+      "topApp": "Giftagram: Gifting Made Easy",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "anniversary song gift",
+      "country": "au",
+      "position": 78,
+      "total": 162,
+      "indexed": true,
+      "topApp": "GiftSong",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "anniversary song gift",
+      "country": "nz",
+      "position": null,
+      "total": 165,
+      "indexed": false,
+      "topApp": "SodaGift – Earn, Save, Gift",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "anniversary song gift",
+      "country": "gb",
+      "position": 88,
+      "total": 160,
+      "indexed": true,
+      "topApp": "GiftSong",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "birthday gift ideas",
+      "country": "us",
+      "position": null,
+      "total": 174,
+      "indexed": false,
+      "topApp": "Gift Ideas:Birthday & Calendar",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "birthday gift ideas",
+      "country": "ca",
+      "position": null,
+      "total": 173,
+      "indexed": false,
+      "topApp": "GiftKeeper - Gift Idea Manager",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "birthday gift ideas",
+      "country": "au",
+      "position": null,
+      "total": 169,
+      "indexed": false,
+      "topApp": "GiftKeeper - Gift Idea Manager",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "birthday gift ideas",
+      "country": "nz",
+      "position": null,
+      "total": 173,
+      "indexed": false,
+      "topApp": "Gift Ideas: Birthday Calendar",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "birthday gift ideas",
+      "country": "gb",
+      "position": null,
+      "total": 172,
+      "indexed": false,
+      "topApp": "Unwrapped - Gift Ideas",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "birthday song",
+      "country": "us",
+      "position": 82,
+      "total": 190,
+      "indexed": true,
+      "topApp": "Birthday Song With Name - bday",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "birthday song",
+      "country": "ca",
+      "position": null,
+      "total": 185,
+      "indexed": false,
+      "topApp": "Happy Birthday Songs",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "birthday song",
+      "country": "au",
+      "position": null,
+      "total": 185,
+      "indexed": false,
+      "topApp": "Happy Birthday Songs",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "birthday song",
+      "country": "nz",
+      "position": null,
+      "total": 188,
+      "indexed": false,
+      "topApp": "Happy Birthday Songs",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "birthday song",
+      "country": "gb",
+      "position": null,
+      "total": 185,
+      "indexed": false,
+      "topApp": "Happy Birthday Songs",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "birthday song gift",
+      "country": "us",
+      "position": 68,
+      "total": 176,
+      "indexed": true,
+      "topApp": "Givingli: Send Gifts & Cards",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "birthday song gift",
+      "country": "ca",
+      "position": null,
+      "total": 179,
+      "indexed": false,
+      "topApp": "Birthday Wishes & Cards",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "birthday song gift",
+      "country": "au",
+      "position": 139,
+      "total": 173,
+      "indexed": true,
+      "topApp": "AI Song Maker. Music Generator",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "birthday song gift",
+      "country": "nz",
+      "position": null,
+      "total": 163,
+      "indexed": false,
+      "topApp": "Moonpig: Birthday Cards",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "birthday song gift",
+      "country": "gb",
+      "position": null,
+      "total": 173,
+      "indexed": false,
+      "topApp": "GiftSong",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "custom song",
+      "country": "us",
+      "position": null,
+      "total": 185,
+      "indexed": false,
+      "topApp": "Suno - AI Songs & Music",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "custom song",
+      "country": "ca",
+      "position": null,
+      "total": 191,
+      "indexed": false,
+      "topApp": "Suno - AI Songs & Music",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "custom song",
+      "country": "au",
+      "position": null,
+      "total": 194,
+      "indexed": false,
+      "topApp": "Suno - AI Songs & Music",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "custom song",
+      "country": "nz",
+      "position": null,
+      "total": 192,
+      "indexed": false,
+      "topApp": "Suno - AI Songs & Music",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "custom song",
+      "country": "gb",
+      "position": null,
+      "total": 192,
+      "indexed": false,
+      "topApp": "Suno - AI Songs & Music",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "custom song gift",
+      "country": "us",
+      "position": 92,
+      "total": 173,
+      "indexed": true,
+      "topApp": "Givingli: Send Gifts & Cards",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "custom song gift",
+      "country": "ca",
+      "position": null,
+      "total": 174,
+      "indexed": false,
+      "topApp": "Magic Piano: game by Smule",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "custom song gift",
+      "country": "au",
+      "position": 152,
+      "total": 175,
+      "indexed": true,
+      "topApp": "Magic Piano: game by Smule",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "custom song gift",
+      "country": "nz",
+      "position": null,
+      "total": 164,
+      "indexed": false,
+      "topApp": "TouchNote Custom Cards & Gifts",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "custom song gift",
+      "country": "gb",
+      "position": null,
+      "total": 171,
+      "indexed": false,
+      "topApp": "Magic Piano: game by Smule",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "father's day song",
+      "country": "us",
+      "position": 72,
+      "total": 149,
+      "indexed": true,
+      "topApp": "Father’s Day Song Maker",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "father's day song",
+      "country": "ca",
+      "position": null,
+      "total": 146,
+      "indexed": false,
+      "topApp": "Father's Day Photo Frames 2018",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "father's day song",
+      "country": "au",
+      "position": 97,
+      "total": 151,
+      "indexed": true,
+      "topApp": "Father's Day Cards - Greetings",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "father's day song",
+      "country": "nz",
+      "position": null,
+      "total": 142,
+      "indexed": false,
+      "topApp": "Father's Day Cards - Greetings",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "father's day song",
+      "country": "gb",
+      "position": 120,
+      "total": 150,
+      "indexed": true,
+      "topApp": "Father's Day Photo Frames 2018",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "father's day song for dad",
+      "country": "us",
+      "position": 145,
+      "total": 154,
+      "indexed": true,
+      "topApp": "Fathers Day Quotes & Editor",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "father's day song for dad",
+      "country": "ca",
+      "position": null,
+      "total": 150,
+      "indexed": false,
+      "topApp": "Father's Day Cards - Greetings",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "father's day song for dad",
+      "country": "au",
+      "position": null,
+      "total": 146,
+      "indexed": false,
+      "topApp": "Father's Day Cards - Greetings",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "father's day song for dad",
+      "country": "nz",
+      "position": null,
+      "total": 151,
+      "indexed": false,
+      "topApp": "Father's Day Cards - Greetings",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "father's day song for dad",
+      "country": "gb",
+      "position": null,
+      "total": 145,
+      "indexed": false,
+      "topApp": "Father's Day Cards - Greetings",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "gift song",
+      "country": "us",
+      "position": null,
+      "total": 161,
+      "indexed": false,
+      "topApp": "GiftSong",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "gift song",
+      "country": "ca",
+      "position": 157,
+      "total": 161,
+      "indexed": true,
+      "topApp": "GiftSong",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "gift song",
+      "country": "au",
+      "position": 77,
+      "total": 166,
+      "indexed": true,
+      "topApp": "GiftSong",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "gift song",
+      "country": "nz",
+      "position": null,
+      "total": 155,
+      "indexed": false,
+      "topApp": "GiftSong",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "gift song",
+      "country": "gb",
+      "position": null,
+      "total": 160,
+      "indexed": false,
+      "topApp": "GiftSong",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "mother's day song",
+      "country": "us",
+      "position": 73,
+      "total": 152,
+      "indexed": true,
+      "topApp": "Mother's Day eCard & Greetings",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "mother's day song",
+      "country": "ca",
+      "position": null,
+      "total": 148,
+      "indexed": false,
+      "topApp": "Mother's Day eCard & Greetings",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "mother's day song",
+      "country": "au",
+      "position": 94,
+      "total": 151,
+      "indexed": true,
+      "topApp": "Mother's Day eCard & Greetings",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "mother's day song",
+      "country": "nz",
+      "position": null,
+      "total": 142,
+      "indexed": false,
+      "topApp": "Mother's Day eCard & Greetings",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "mother's day song",
+      "country": "gb",
+      "position": 107,
+      "total": 150,
+      "indexed": true,
+      "topApp": "Mother's Day eCard & Greetings",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "personalized song",
+      "country": "us",
+      "position": null,
+      "total": 178,
+      "indexed": false,
+      "topApp": "AI Song Music Generator: Muzio",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "personalized song",
+      "country": "ca",
+      "position": null,
+      "total": 181,
+      "indexed": false,
+      "topApp": "AI Song Music Generator: Muzio",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "personalized song",
+      "country": "au",
+      "position": null,
+      "total": 179,
+      "indexed": false,
+      "topApp": "AI Song Music Generator: Muzio",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "personalized song",
+      "country": "nz",
+      "position": null,
+      "total": 170,
+      "indexed": false,
+      "topApp": "AI Song Music Generator: Muzio",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "personalized song",
+      "country": "gb",
+      "position": null,
+      "total": 178,
+      "indexed": false,
+      "topApp": "AI Song Music Generator: Muzio",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "personalized song gift",
+      "country": "us",
+      "position": 111,
+      "total": 178,
+      "indexed": true,
+      "topApp": "Givingli: Send Gifts & Cards",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "personalized song gift",
+      "country": "ca",
+      "position": null,
+      "total": 180,
+      "indexed": false,
+      "topApp": "VocalMe: AI Music Generator",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "personalized song gift",
+      "country": "au",
+      "position": 148,
+      "total": 180,
+      "indexed": true,
+      "topApp": "GiftSong",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "personalized song gift",
+      "country": "nz",
+      "position": null,
+      "total": 171,
+      "indexed": false,
+      "topApp": "Shazam: Find Music & Concerts",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "personalized song gift",
+      "country": "gb",
+      "position": null,
+      "total": 176,
+      "indexed": false,
+      "topApp": "GiftSong",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "song gift",
+      "country": "us",
+      "position": 2,
+      "total": 156,
+      "indexed": true,
+      "topApp": "GiftSong: AI Song Maker",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "song gift",
+      "country": "ca",
+      "position": 5,
+      "total": 160,
+      "indexed": true,
+      "topApp": "Magic Piano: game by Smule",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "song gift",
+      "country": "au",
+      "position": 1,
+      "total": 160,
+      "indexed": true,
+      "topApp": "Porizo: Song Gift Maker",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "song gift",
+      "country": "nz",
+      "position": 4,
+      "total": 150,
+      "indexed": true,
+      "topApp": "GiftSong: AI Song Maker",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "song gift",
+      "country": "gb",
+      "position": 4,
+      "total": 155,
+      "indexed": true,
+      "topApp": "GiftSong: AI Song Maker",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "song gift for dad",
+      "country": "us",
+      "position": 84,
+      "total": 145,
+      "indexed": true,
+      "topApp": "Identify Song",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "song gift for dad",
+      "country": "ca",
+      "position": null,
+      "total": 148,
+      "indexed": false,
+      "topApp": "Ultimate Guitar: Chords & Tabs",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "song gift for dad",
+      "country": "au",
+      "position": 133,
+      "total": 147,
+      "indexed": true,
+      "topApp": "Ultimate Guitar: Tabs & Chords",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "song gift for dad",
+      "country": "nz",
+      "position": null,
+      "total": 146,
+      "indexed": false,
+      "topApp": "Soundmap: Find Your Songs",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "song gift for dad",
+      "country": "gb",
+      "position": null,
+      "total": 143,
+      "indexed": false,
+      "topApp": "TinySong",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "song gift for mom",
+      "country": "us",
+      "position": 102,
+      "total": 148,
+      "indexed": true,
+      "topApp": "Identify Song",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "song gift for mom",
+      "country": "ca",
+      "position": null,
+      "total": 150,
+      "indexed": false,
+      "topApp": "VocalMe: AI Music Generator",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "song gift for mom",
+      "country": "au",
+      "position": null,
+      "total": 146,
+      "indexed": false,
+      "topApp": "AI Song Generator - Zona",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "song gift for mom",
+      "country": "nz",
+      "position": null,
+      "total": 143,
+      "indexed": false,
+      "topApp": "Shazam: Find Music & Concerts",
+      "error": null
+    },
+    {
+      "date": "2026-06-08",
+      "keyword": "song gift for mom",
+      "country": "gb",
+      "position": null,
+      "total": 147,
+      "indexed": false,
+      "topApp": "TinySong",
+      "error": null
+    }
+  ]
+}

@@ -137,6 +137,8 @@ venv/
 !.agents/skills/porizo-user-email-campaign/**
 !.agents/skills/porizo-organic-demand-discovery/
 !.agents/skills/porizo-organic-demand-discovery/**
+!.agents/skills/porizo-swiftui-release-workflow/
+!.agents/skills/porizo-swiftui-release-workflow/**
 .codex/
 .cursor/
 .droid/

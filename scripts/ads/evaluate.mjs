@@ -16,6 +16,7 @@ export const DEFAULT_THRESHOLDS = {
   maxFrequency: 2.5,
   learningInstallFloor: 50,
   learningMinAgeDays: 3,
+  learningMaxSpendWithoutGoodCpi: 150,
   minInstallsForSignificance: 15,
   significantCpiGapPct: 0.25,
   pacingUnderDeliveryPct: 0.7,
@@ -60,6 +61,7 @@ export function pacingStatus({ spend = 0, dailyBudget = 0 } = {}, t = DEFAULT_TH
 
 /**
  * Per-entity verdict. Precedence:
+ *   learning + overspent with bad CPI → PAUSE
  *   learning → HOLD (don't judge yet)
  *   else fatigue → REFRESH
  *   else bad CPI → PAUSE
@@ -75,8 +77,14 @@ export function evaluateEntity(m, t = DEFAULT_THRESHOLDS) {
     pacing: pacingStatus({ spend: m.spend, dailyBudget: m.dailyBudget }, t),
   };
 
+  const overspentLearning =
+    flags.learning === 'learning' &&
+    m.spend >= t.learningMaxSpendWithoutGoodCpi &&
+    (m.installs === 0 || flags.cpi === 'bad');
+
   let verdict;
-  if (flags.learning === 'learning') verdict = 'HOLD';
+  if (overspentLearning) verdict = 'PAUSE';
+  else if (flags.learning === 'learning') verdict = 'HOLD';
   else if (flags.frequency === 'fatigue') verdict = 'REFRESH';
   else if (flags.cpi === 'bad') verdict = 'PAUSE';
   else if (flags.cpi === 'good') verdict = 'SCALE';

@@ -172,6 +172,37 @@ function shouldUseTestFlight(request) {
   );
 }
 
+function appStoreCampaignToken(request) {
+  const q = request.query || {};
+  const raw = [q.utm_campaign, q.utm_content]
+    .map((value) => (typeof value === "string" ? value.trim() : ""))
+    .filter(Boolean)
+    .join("_");
+  const token = raw
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 40);
+  return token || null;
+}
+
+function appStoreUrlForRequest(request) {
+  const token = appStoreCampaignToken(request);
+  if (!token) {
+    return appStoreUrl;
+  }
+  try {
+    const parsed = new URL(appStoreUrl);
+    if (parsed.hostname === "apps.apple.com") {
+      parsed.searchParams.set("ct", token);
+    }
+    return parsed.toString();
+  } catch (_err) {
+    return appStoreUrl;
+  }
+}
+
 function resolveDownloadUrl(request) {
   const requestedPlatform = String(request.query?.platform || "").toLowerCase();
   if (requestedPlatform === "android") {
@@ -181,7 +212,7 @@ function resolveDownloadUrl(request) {
     if (shouldUseTestFlight(request)) {
       return iosTestFlightUrl;
     }
-    return appStoreUrl;
+    return appStoreUrlForRequest(request);
   }
 
   const userAgent = String(request.headers["user-agent"] || "").toLowerCase();
@@ -191,7 +222,7 @@ function resolveDownloadUrl(request) {
   if (isIosUserAgent(request) && shouldUseTestFlight(request)) {
     return iosTestFlightUrl;
   }
-  return appStoreUrl;
+  return appStoreUrlForRequest(request);
 }
 
 function decodeMaybe(value, log) {
@@ -542,6 +573,20 @@ async function logDownloadEvent(db, request, deepLink) {
   }
 }
 
+function isLikelyBotUserAgent(userAgent) {
+  const ua = String(userAgent || "").toLowerCase();
+  if (!ua) return false;
+  return /(bot|crawler|spider|preview|headlesschrome|phantomjs|slurp|validator|lighthouse)/.test(ua) ||
+    ua.includes("facebookexternalhit") ||
+    ua.includes("bingpreview") ||
+    ua.includes("duckduckbot") ||
+    ua.includes("google-inspectiontool") ||
+    ua.includes("python-requests") ||
+    ua.includes("go-http-client") ||
+    ua.includes("curl/") ||
+    ua.includes("wget/");
+}
+
 // RFC 8288 Link relations for AI agent discovery on marketing pages.
 // Comma-joined per RFC 8288 §3 (multiple values in one Link header are
 // equivalent to multiple Link headers).
@@ -766,7 +811,7 @@ function registerLegalRoutes(app, { db } = {}) {
     reply.header("Referrer-Policy", "no-referrer");
     const deepLink = resolveDeepLink(request);
     // Log download event for attribution tracking (non-blocking)
-    if (db) {
+    if (db && !isLikelyBotUserAgent(request.headers["user-agent"])) {
       await logDownloadEvent(db, request, deepLink);
     }
 

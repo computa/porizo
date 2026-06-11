@@ -9,10 +9,11 @@
     "maxFrequency": 2.5,
     "learningInstallFloor": 50,
     "learningMinAgeDays": 3,
+    "learningMaxSpendWithoutGoodCpi": 150,
     "minInstallsForSignificance": 15,
     "significantCpiGapPct": 0.25,
     "pacingUnderDeliveryPct": 0.7,
     "ctrDecayPct": 0.3
   },
-  "_notes": "targetCpi is in account currency (AUD). Tune after the first week of real data. minInstallsForSignificance gates A/B/C winner calls — below it, the verdict is 'inconclusive, keep running'."
+  "_notes": "targetCpi is in account currency (AUD). Tune after the first week of real data. learningMaxSpendWithoutGoodCpi prevents Meta's learning gate from keeping obviously uneconomic tests alive. minInstallsForSignificance gates A/B/C winner calls — below it, the verdict is 'inconclusive, keep running'."
 }

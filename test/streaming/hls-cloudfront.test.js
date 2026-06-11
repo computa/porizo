@@ -46,6 +46,50 @@ describe('HLS CloudFront Streaming', () => {
     return privateKey;
   }
 
+  async function registerAuthenticatedDevice(
+    targetApp,
+    { userId = testUserId, deviceId, platform = 'ios', appVersion = '1.0.0' } = {},
+  ) {
+    const response = await targetApp.inject({
+      method: 'POST',
+      url: '/device/register',
+      headers: { 'x-user-id': userId },
+      payload: {
+        device_id: deviceId,
+        platform,
+        app_version: appVersion,
+      },
+    });
+    assert.strictEqual(response.statusCode, 200, response.body);
+    const { device_token: deviceToken } = JSON.parse(response.body);
+    assert.ok(deviceToken, 'Device registration should return a token');
+    return deviceToken;
+  }
+
+  async function createShareFixture(label = '') {
+    const suffix = `${label}_${crypto.randomUUID().slice(0, 8)}`;
+    const trackId = `t_test_${suffix}`;
+    await db.query(`
+      INSERT INTO tracks (id, user_id, title, recipient_name, occasion, status, created_at, updated_at)
+      VALUES ($1, $2, 'Test Song', 'Test Recipient', 'birthday', 'completed', $3, $4)
+    `, [trackId, testUserId, new Date().toISOString(), new Date().toISOString()]);
+
+    const versionId = `tv_test_${suffix}`;
+    await db.query(`
+      INSERT INTO track_versions (id, track_id, version_num, params_json, params_hash, status, render_type, created_at)
+      VALUES ($1, $2, 1, '{}', $3, 'completed', 'preview', $4)
+    `, [versionId, trackId, `hash_${suffix}`, new Date().toISOString()]);
+
+    const shareId = `sh_test${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    await db.query(`
+      INSERT INTO share_tokens (id, track_id, track_version_id, creator_id, status, expires_at, created_at)
+      VALUES ($1, $2, $3, $4, 'unbound', $5, $6)
+    `, [shareId, trackId, versionId, testUserId, expiresAt, new Date().toISOString()]);
+
+    return { trackId, versionId, shareId };
+  }
+
   before(async () => {
     postgresAvailable = await isPostgresAvailable();
     if (!postgresAvailable) {
@@ -141,13 +185,16 @@ describe('HLS CloudFront Streaming', () => {
       return;
     }
 
+    const deviceToken = await registerAuthenticatedDevice(app, {
+      deviceId: 'test-device-123',
+    });
+
     // First claim the share token
     const claimResponse = await app.inject({
       method: 'POST',
       url: `/share/${testShareId}/claim`,
       headers: {
-        'x-device-id': 'test-device-123',
-        'x-platform': 'ios',
+        'x-device-token': deviceToken,
       },
       payload: {
         app_version: '1.0.0',
@@ -160,8 +207,7 @@ describe('HLS CloudFront Streaming', () => {
       method: 'GET',
       url: `/share/${testShareId}/stream`,
       headers: {
-        'x-device-id': 'test-device-123',
-        'x-platform': 'ios',
+        'x-device-token': deviceToken,
       },
     });
 
@@ -231,26 +277,29 @@ describe('HLS CloudFront Streaming', () => {
       VALUES ($1, $2, $3, $4, 'unbound', $5, $6)
     `, [shareIdNoCdn, testTrackIdNoCdn, testVersionIdNoCdn, testUserId, expiresAt, new Date().toISOString()]);
 
-    // Claim the share with body parameters
-    await appNoCdn.inject({
+    const deviceToken = await registerAuthenticatedDevice(appNoCdn, {
+      deviceId: 'test-device-456',
+    });
+
+    // Claim the share with an authenticated device token
+    const claimResponse = await appNoCdn.inject({
       method: 'POST',
       url: `/share/${shareIdNoCdn}/claim`,
       headers: {
-        'x-device-id': 'test-device-456',
-        'x-platform': 'ios',
+        'x-device-token': deviceToken,
       },
       payload: {
         app_version: '1.0.0',
       },
     });
+    assert.strictEqual(claimResponse.statusCode, 200, claimResponse.body);
 
     // Request stream
     const streamResponse = await appNoCdn.inject({
       method: 'GET',
       url: `/share/${shareIdNoCdn}/stream`,
       headers: {
-        'x-device-id': 'test-device-456',
-        'x-platform': 'ios',
+        'x-device-token': deviceToken,
       },
     });
 
@@ -279,14 +328,28 @@ describe('HLS CloudFront Streaming', () => {
 
     // This test verifies the playlist endpoint validates device binding
     // (actual HLS generation requires file system setup)
+    const { shareId } = await createShareFixture('playlist');
+    const deviceToken = await registerAuthenticatedDevice(app, {
+      deviceId: 'test-device-playlist',
+    });
+    const claimResponse = await app.inject({
+      method: 'POST',
+      url: `/share/${shareId}/claim`,
+      headers: {
+        'x-device-token': deviceToken,
+      },
+      payload: {
+        app_version: '1.0.0',
+      },
+    });
+    assert.strictEqual(claimResponse.statusCode, 200, claimResponse.body);
 
     // Request playlist with correct device
     const playlistResponse = await app.inject({
       method: 'GET',
-      url: `/share/${testShareId}/playlist`,
+      url: `/share/${shareId}/playlist`,
       headers: {
-        'x-device-id': 'test-device-123',
-        'x-platform': 'ios',
+        'x-device-token': deviceToken,
       },
     });
 
@@ -301,12 +364,14 @@ describe('HLS CloudFront Streaming', () => {
     );
 
     // Test with wrong device - should be 403
+    const wrongDeviceToken = await registerAuthenticatedDevice(app, {
+      deviceId: 'wrong-device',
+    });
     const wrongDeviceResponse = await app.inject({
       method: 'GET',
-      url: `/share/${testShareId}/playlist`,
+      url: `/share/${shareId}/playlist`,
       headers: {
-        'x-device-id': 'wrong-device',
-        'x-platform': 'ios',
+        'x-device-token': wrongDeviceToken,
       },
     });
 

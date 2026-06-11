@@ -73,6 +73,15 @@ test('evaluateEntity: learning entity returns HOLD verdict regardless of CPI', (
   assert.equal(e.verdict, 'HOLD');
   assert.equal(e.flags.learning, 'learning');
 });
+test('evaluateEntity: learning entity pauses after hard spend cap with bad CPI', () => {
+  const e = evaluateEntity(
+    { installs: 10, ageDays: 10, spend: 196.53, dailyBudget: 10, frequency: 1.4, linkCtr: 0.018, cpi: 19.65 },
+    T,
+  );
+  assert.equal(e.flags.learning, 'learning');
+  assert.equal(e.flags.cpi, 'bad');
+  assert.equal(e.verdict, 'PAUSE');
+});
 test('evaluateEntity: healthy exited entity with good CPI → SCALE candidate', () => {
   const e = evaluateEntity(
     { installs: 120, ageDays: 7, spend: 300, dailyBudget: 20, frequency: 1.5, linkCtr: 0.02, cpi: 2.5 },

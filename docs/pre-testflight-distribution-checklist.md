@@ -2,6 +2,19 @@
 
 Run this before any TestFlight upload or release candidate.
 
+## Xcode And SwiftUI Release Gate
+
+- [ ] Release build uses the current stable Xcode lane, not an Xcode beta, unless explicitly approved.
+- [ ] Xcode 27 beta compatibility issues are tracked separately from the shipping release.
+- [ ] iOS 15/16 debugging remains on Xcode 26.x if older-device behavior is in scope.
+- [ ] SwiftUI changes followed `docs/ios-swiftui-release-workflow.md`.
+- [ ] Important changed screens have preview or fixture coverage for empty, loading, error, populated, long text, dark mode, and Dynamic Type states.
+- [ ] Accessibility pass covers VoiceOver labels/order, Dynamic Type clipping, and Reduce Motion.
+- [ ] Performance review checked for work in `body`, unstable `ForEach` identity, broad state invalidation, large images, and over-broad animations.
+- [ ] Release-sensitive UI changes were verified with `porizo-simulator-testing` or an equivalent simulator/device pass.
+- [ ] Organizer, crash, or analytics signals were checked for launch, hangs, hitches, battery, disk writes, storage, and crashes when available.
+- [ ] App Store screenshot, icon, metadata, or localization impact is either updated or explicitly marked as not affected.
+
 ## App Store Presence
 
 - [ ] First three screenshots explain the product without scrolling.
@@ -53,4 +66,3 @@ Run this before any TestFlight upload or release candidate.
 - [ ] Broad terms with spend and no registrations are paused.
 - [ ] New keyword tests are tied to a Custom Product Page or a clear search-intent hypothesis.
 - [ ] Backend registration/source report is compared against Apple Ads installs before increasing budget.
-

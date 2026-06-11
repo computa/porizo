@@ -496,21 +496,7 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
   // Attribution matching — links a new user to a recent /download event by IP
   async function matchDownloadAttribution(userId, clientIp) {
     try {
-      const cutoff = new Date(Date.now() - 72 * 60 * 60 * 1000).toISOString();
-      const event = await db.prepare(
-        `SELECT id, utm_source, utm_medium, utm_campaign, utm_content, utm_term, country, referrer_url, created_at
-         FROM download_events
-         WHERE ip_address = ? AND created_at > ? AND matched_user_id IS NULL
-         ORDER BY created_at DESC LIMIT 1`
-      ).get(clientIp, cutoff);
-
-      if (!event) return;
-
-      await attributionService.backfillUserAcquisitionFromDownload(userId, event);
-
-      await db.prepare(
-        `UPDATE download_events SET matched_user_id = ? WHERE id = ?`
-      ).run(userId, event.id);
+      await attributionService.matchRecentDownloadEventForUser(userId, clientIp);
     } catch (err) {
       console.error("Attribution matching failed:", err.message);
     }
