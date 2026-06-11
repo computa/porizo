@@ -114,6 +114,7 @@ struct BillingEntitlements: Codable, Sendable {
     let songsRemaining: Int
     let songsAllowance: Int
     let songsUsedTotal: Int
+    let giftSongsUsedTotal: Int
     let poemsRemaining: Int
     let poemsAllowance: Int
     let poemsUsedTotal: Int
@@ -140,6 +141,7 @@ struct BillingEntitlements: Codable, Sendable {
         case songsRemaining = "songs_remaining"
         case songsAllowance = "songs_allowance"
         case songsUsedTotal = "songs_used_total"
+        case giftSongsUsedTotal = "gift_songs_used_total"
         case poemsRemaining = "poems_remaining"
         case poemsAllowance = "poems_allowance"
         case poemsUsedTotal = "poems_used_total"
@@ -163,6 +165,7 @@ struct BillingEntitlements: Codable, Sendable {
         songsRemaining = container.decodeFlexibleInt(forKey: .songsRemaining)
         songsAllowance = container.decodeFlexibleInt(forKey: .songsAllowance)
         songsUsedTotal = container.decodeFlexibleInt(forKey: .songsUsedTotal)
+        giftSongsUsedTotal = container.decodeFlexibleInt(forKey: .giftSongsUsedTotal)
         poemsRemaining = container.decodeFlexibleInt(forKey: .poemsRemaining)
         poemsAllowance = container.decodeFlexibleInt(forKey: .poemsAllowance)
         poemsUsedTotal = container.decodeFlexibleInt(forKey: .poemsUsedTotal)
@@ -218,6 +221,7 @@ extension BillingEntitlements {
         tier: String = "free",
         songsRemaining: Int = 0,
         songsAllowance: Int = 0,
+        giftSongsUsedTotal: Int = 0,
         trialSongsRemaining: Int = 0,
         giftWalletBalance: Int = 0,
         availableSongCredits: Int = 0,
@@ -227,6 +231,7 @@ extension BillingEntitlements {
             "tier": tier,
             "songs_remaining": songsRemaining,
             "songs_allowance": songsAllowance,
+            "gift_songs_used_total": giftSongsUsedTotal,
             "trial_songs_remaining": trialSongsRemaining,
             "gift_wallet_balance": giftWalletBalance,
             "available_song_credits": availableSongCredits,

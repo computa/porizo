@@ -17,6 +17,7 @@ interface User {
   country: string | null;
   tier: string;
   track_count: number;
+  gift_songs_used_total: number;
   voice_status: string;
   last_active: string;
   acquisition_source: string | null;
@@ -410,6 +411,7 @@ export function Users() {
               <th scope="col">User</th>
               <th scope="col">Tier</th>
               <th scope="col">Songs</th>
+              <th scope="col">Gift spent</th>
               <th scope="col">Active</th>
               <th scope="col">Risk</th>
               <th scope="col">Status</th>
@@ -422,7 +424,7 @@ export function Users() {
           <tbody>
             {loading && users.length === 0 ? (
               <tr>
-                <td colSpan={isSuperadmin ? 11 : 10} className="text-center py-8">
+                <td colSpan={isSuperadmin ? 12 : 11} className="text-center py-8">
                   <div className="flex items-center justify-center gap-3 text-slate-400">
                     <span className="w-5 h-5 border-2 border-slate-600 border-t-rose-500 rounded-full animate-spin" />
                     Loading users...
@@ -431,7 +433,7 @@ export function Users() {
               </tr>
             ) : users.length === 0 ? (
               <tr>
-                <td colSpan={isSuperadmin ? 11 : 10} className="text-center py-8 text-slate-500">
+                <td colSpan={isSuperadmin ? 12 : 11} className="text-center py-8 text-slate-500">
                   No users found
                 </td>
               </tr>
@@ -487,6 +489,9 @@ export function Users() {
                     </td>
                     <td>
                       <span className="text-white font-data">{user.track_count}</span>
+                    </td>
+                    <td>
+                      <span className="text-white font-data">{user.gift_songs_used_total ?? 0}</span>
                     </td>
                     <td>
                       <span className="text-slate-400 text-sm">{getTimeSince(user.last_active)}</span>

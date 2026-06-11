@@ -27,8 +27,10 @@ final class APIContractTests: XCTestCase {
         let json = Data(#"{"text":"Gozie, remember","startTime":18.56,"endTime":24.14}"#.utf8)
         let line = try decoder.decode(LyricsLine.self, from: json)
         XCTAssertEqual(line.text, "Gozie, remember")
-        XCTAssertEqual(line.startTime, 18.56, accuracy: 0.01)
-        XCTAssertEqual(line.endTime, 24.14, accuracy: 0.01)
+        let startTime = try XCTUnwrap(line.startTime)
+        let endTime = try XCTUnwrap(line.endTime)
+        XCTAssertEqual(startTime, 18.56, accuracy: 0.01)
+        XCTAssertEqual(endTime, 24.14, accuracy: 0.01)
     }
 
     func testLyricsLine_decodesObjectWithoutTiming() throws {
@@ -383,6 +385,21 @@ final class APIContractTests: XCTestCase {
         XCTAssertTrue(e.canMakeSong) // 3 credits available
     }
 
+    func testBillingEntitlements_decodesGiftSongsUsedTotal() throws {
+        let json = Data(#"""
+        {"tier":"free","songs_remaining":0,"songs_allowance":0,
+         "songs_used_total":5,"gift_songs_used_total":2,
+         "trial_songs_remaining":0,"gift_wallet_balance":0,
+         "available_song_credits":0,"pay_per_song_enabled":true}
+        """#.utf8)
+        let e = try decoder.decode(BillingEntitlements.self, from: json)
+        XCTAssertEqual(e.songsUsedTotal, 5)
+        XCTAssertEqual(e.giftSongsUsedTotal, 2)
+        XCTAssertEqual(e.availableSongCredits, 0)
+        XCTAssertTrue(e.payPerSongEnabled)
+        XCTAssertFalse(e.canMakeSong)
+    }
+
     func testBillingEntitlements_trustsServerAvailableCredits_notLocalGiftCount() throws {
         // Client is server-authoritative: it never counts gift_wallet_balance
         // locally. If the server reports available_song_credits:0, canMakeSong is
@@ -403,6 +420,7 @@ final class APIContractTests: XCTestCase {
         XCTAssertEqual(e.availableSongCredits, 4) // falls back to songsRemaining
         XCTAssertFalse(e.payPerSongEnabled) // defaults off
         XCTAssertEqual(e.giftWalletBalance, 0)
+        XCTAssertEqual(e.giftSongsUsedTotal, 0)
         XCTAssertTrue(e.canMakeSong)
     }
 

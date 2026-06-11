@@ -215,11 +215,11 @@ function createPlanConfigService(db, options = {}) {
     );
 
     if (result.rows.length === 0) {
-      // Return defaults if not configured
+      // Fail closed: free users get the one-time signup grant, not trial songs.
       trialCache = {
-        songs_allowed: 2,
+        songs_allowed: 0,
         duration_days: 7,
-        is_active: true,
+        is_active: false,
       };
     } else {
       trialCache = {

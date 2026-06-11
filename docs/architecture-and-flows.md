@@ -133,6 +133,8 @@ Porizo is a personalized song generation platform where users record their voice
 └─────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
+Song usage reporting must distinguish draft tracks from charged renders. Use `user_song_usage_summary` or `track_versions.song_entitlement_consumed_at`, not raw `tracks` count.
+
 ---
 
 ## Core Data Flow

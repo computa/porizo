@@ -216,6 +216,7 @@ class AdminService {
         u.acquisition_referrer,
         u.acquisition_at,
         COALESCE(e.tier, 'free') as tier,
+        COALESCE(e.gift_songs_used_total, 0) as gift_songs_used_total,
         COALESCE(track_counts.track_count, 0) as track_count,
         COALESCE(vp.status, 'none') as voice_status,
         COALESCE(activity.last_active, u.created_at) as last_active

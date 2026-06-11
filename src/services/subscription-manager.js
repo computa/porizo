@@ -35,6 +35,7 @@ const ENTITLEMENT_ERRORS = {
  * Transaction types for song_transactions table
  */
 const TRANSACTION_TYPES = {
+  FREE_SIGNUP_GRANT: "free_signup_grant",
   SUBSCRIPTION_GRANT: "subscription_grant",
   SUBSCRIPTION_RENEWAL: "subscription_renewal",
   TRIAL_GRANT: "trial_grant",
@@ -996,6 +997,7 @@ function createSubscriptionManager(db, services = {}) {
       await query(
         `UPDATE entitlements SET
           songs_used_total = songs_used_total + 1,
+          gift_songs_used_total = gift_songs_used_total + 1,
           updated_at = CURRENT_TIMESTAMP
         WHERE user_id = ?`,
         [userId],
@@ -1253,6 +1255,7 @@ function createSubscriptionManager(db, services = {}) {
       giftWalletBalance,
       songsAllowance: toSafeInt(ent.songs_allowance),
       songsUsedTotal: toSafeInt(ent.songs_used_total),
+      giftSongsUsedTotal: toSafeInt(ent.gift_songs_used_total),
       poemsRemaining: toSafeInt(ent.poems_remaining),
       poemsAllowance: toSafeInt(ent.poems_allowance),
       poemsUsedTotal: toSafeInt(ent.poems_used_total),
@@ -1748,7 +1751,7 @@ function createSubscriptionManager(db, services = {}) {
 
   /**
    * Create default free-tier entitlements for a new user.
-   * Reads grant amounts from feature flags (admin-configurable).
+   * Reads the one-time signup grant from admin-managed feature flags.
    * @param {string} userId
    * @param {Object} [opts]
    * @param {string} [opts.now] - ISO timestamp (defaults to current time)
@@ -1756,28 +1759,43 @@ function createSubscriptionManager(db, services = {}) {
    * @param {string} [opts.previewCountResetAt] - Reset timestamp
    */
   async function createFreeEntitlements(userId, opts = {}) {
-    const songsGrant = (await getFeatureFlag(db, "free_tier_songs_grant")) ?? 1;
-    const poemsGrant = (await getFeatureFlag(db, "free_tier_poems_grant")) ?? 1;
+    const songsGrant = await getFeatureFlag(db, "free_tier_songs_grant");
+    const poemsGrant = await getFeatureFlag(db, "free_tier_poems_grant");
     const now = opts.now || new Date().toISOString();
     const previewCountToday = opts.previewCountToday ?? 0;
     const previewCountResetAt =
       opts.previewCountResetAt || new Date(Date.now() + 86400000).toISOString();
 
-    await db
-      .prepare(
+    await db.transaction(async (query) => {
+      const result = await query(
         `INSERT INTO entitlements (user_id, tier, songs_remaining, poems_remaining,
-       preview_count_today, preview_count_reset_at, updated_at)
-       VALUES (?, 'free', ?, ?, ?, ?, ?)
-       ON CONFLICT (user_id) DO NOTHING`,
-      )
-      .run(
-        userId,
-        songsGrant,
-        poemsGrant,
-        previewCountToday,
-        previewCountResetAt,
-        now,
+          preview_count_today, preview_count_reset_at, updated_at)
+         VALUES (?, 'free', ?, ?, ?, ?, ?)
+         ON CONFLICT (user_id) DO NOTHING`,
+        [
+          userId,
+          songsGrant,
+          poemsGrant,
+          previewCountToday,
+          previewCountResetAt,
+          now,
+        ],
       );
+
+      if ((result.changes ?? result.rowCount ?? 0) > 0 && songsGrant > 0) {
+        await recordSongTransaction(
+          query,
+          userId,
+          TRANSACTION_TYPES.FREE_SIGNUP_GRANT,
+          songsGrant,
+          0,
+          songsGrant,
+          "free_signup",
+          userId,
+          "Free signup song grant",
+        );
+      }
+    });
   }
 
   return {

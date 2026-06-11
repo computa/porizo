@@ -33,6 +33,7 @@ function buildEntitlementsPayload(entitlements, subscription = null) {
       songs_remaining: 0,
       songs_allowance: 0,
       songs_used_total: 0,
+      gift_songs_used_total: 0,
       poems_remaining: 0,
       poems_allowance: 0,
       poems_used_total: 0,
@@ -58,6 +59,7 @@ function buildEntitlementsPayload(entitlements, subscription = null) {
     songs_remaining: toSafeInt(entitlements.songsRemaining),
     songs_allowance: toSafeInt(entitlements.songsAllowance),
     songs_used_total: toSafeInt(entitlements.songsUsedTotal),
+    gift_songs_used_total: toSafeInt(entitlements.giftSongsUsedTotal),
     poems_remaining: toSafeInt(entitlements.poemsRemaining),
     poems_allowance: toSafeInt(entitlements.poemsAllowance),
     poems_used_total: toSafeInt(entitlements.poemsUsedTotal),
@@ -952,6 +954,8 @@ function registerBillingRoutes(
               songs_allowance: entitlements.songsAllowance,
               songsUsedTotal: entitlements.songsUsedTotal,
               songs_used_total: entitlements.songsUsedTotal,
+              giftSongsUsedTotal: entitlements.giftSongsUsedTotal,
+              gift_songs_used_total: entitlements.giftSongsUsedTotal,
               trialSongsRemaining: entitlements.trialSongsRemaining,
               trial_songs_remaining: entitlements.trialSongsRemaining,
               trialExpiresAt: entitlements.trialExpiresAt,
@@ -1794,8 +1798,8 @@ function registerBillingRoutes(
       const plans = await planConfigService.getPlans({ includeInactive: true });
       const trialConfig = await planConfigService.getTrialConfig();
       const freeTierGrant = {
-        songs: (await getFeatureFlag(db, "free_tier_songs_grant")) ?? 1,
-        poems: (await getFeatureFlag(db, "free_tier_poems_grant")) ?? 1,
+        songs: await getFeatureFlag(db, "free_tier_songs_grant"),
+        poems: await getFeatureFlag(db, "free_tier_poems_grant"),
       };
 
       reply.send({ plans, trialConfig, freeTierGrant });

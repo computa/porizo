@@ -12,6 +12,7 @@
 		48F2C3B4A596877665544332 /* PhoneNumberFormattingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48F2C3B4A596877665544331 /* PhoneNumberFormattingTests.swift */; };
 		5B7D92A10C4E48F4A9C74236 /* AppUpdatePolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C8EA3B21D5F49A5BA185347 /* AppUpdatePolicyTests.swift */; };
 		7C7B0DA6226E8E05B8ACB723 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 26659D1834DD6EF1AEE67805 /* Foundation.framework */; };
+		8D4E6F70123456789ABCDEF1 /* APIContractTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D4E6F70123456789ABCDEF0 /* APIContractTests.swift */; };
 		94F467D80E53413686E7F658 /* BackgroundTaskManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3CC5BD0977E42E99B50ADFF /* BackgroundTaskManagerTests.swift */; };
 		A1B2C3D4E5F60718192A3B4C /* WAVWriterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1E2F3A4B5C60718293A4B5D /* WAVWriterTests.swift */; };
 		A1B2C3D4E5F6A7B8C9D0E1F2 /* OneSignalFramework in Frameworks */ = {isa = PBXBuildFile; productRef = B2C3D4E5F6A7B8C9D0E1F2A3 /* OneSignalFramework */; };
@@ -59,6 +60,7 @@
 		26659D1834DD6EF1AEE67805 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
 		48F2C3B4A596877665544331 /* PhoneNumberFormattingTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = PhoneNumberFormattingTests.swift; path = PorizoAppTests/PhoneNumberFormattingTests.swift; sourceTree = "<group>"; };
 		6C8EA3B21D5F49A5BA185347 /* AppUpdatePolicyTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = AppUpdatePolicyTests.swift; path = PorizoAppTests/AppUpdatePolicyTests.swift; sourceTree = "<group>"; };
+		8D4E6F70123456789ABCDEF0 /* APIContractTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = APIContractTests.swift; path = PorizoAppTests/APIContractTests.swift; sourceTree = "<group>"; };
 		A5B6C7D8E9F01A2B3C4D5E6F /* BackgroundURLSessionManagerTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = BackgroundURLSessionManagerTests.swift; path = PorizoAppTests/BackgroundURLSessionManagerTests.swift; sourceTree = "<group>"; };
 		A7B8C9D0E1F2A3B4C5D6E7F8 /* PorizoNotificationServiceExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = PorizoNotificationServiceExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		C125A4872F05F57600120F9A /* PorizoApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PorizoApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -164,6 +166,7 @@
 			isa = PBXGroup;
 			children = (
 				H8I9J0K1L2M34N5O6P7Q8R9S /* AuthManagerTests.swift */,
+				8D4E6F70123456789ABCDEF0 /* APIContractTests.swift */,
 				6C8EA3B21D5F49A5BA185347 /* AppUpdatePolicyTests.swift */,
 				L2M3N4O5P6Q78R9S0T1U2V3W /* AuthManagerRaceConditionTests.swift */,
 				J0K1L2M3N4O56P7Q8R9S0T1U /* AuthProtectedDataTests.swift */,
@@ -383,6 +386,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				F7A8B9C0D1E2F3A4B5C6D7E8 /* AuthManagerTests.swift in Sources */,
+				8D4E6F70123456789ABCDEF1 /* APIContractTests.swift in Sources */,
 				5B7D92A10C4E48F4A9C74236 /* AppUpdatePolicyTests.swift in Sources */,
 				K1L2M3N4O5P67Q8R9S0T1U2V /* AuthManagerRaceConditionTests.swift in Sources */,
 				I9J0K1L2M3N45O6P7Q8R9S0T /* AuthProtectedDataTests.swift in Sources */,

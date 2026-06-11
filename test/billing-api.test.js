@@ -10,6 +10,7 @@ const assert = require("node:assert/strict");
 const { getDatabase } = require("../src/database");
 const { buildServer } = require("../src/server");
 const { buildEntitlementsPayload } = require("../src/routes/billing");
+const { clearCache, setFeatureFlag } = require("../src/services/feature-flags");
 
 describe("Billing API", async () => {
   let db;
@@ -29,6 +30,7 @@ describe("Billing API", async () => {
   }
 
   beforeEach(async () => {
+    clearCache();
     db = await getDatabase();
 
     // Create test user
@@ -57,8 +59,28 @@ describe("Billing API", async () => {
     adminToken = await loginAdmin();
   });
 
+  async function enableTrialConfig() {
+    await db.query(
+      "UPDATE trial_config SET songs_allowed = 2, duration_days = 7, is_active = 1, updated_at = datetime('now') WHERE id = 1",
+    );
+  }
+
   describe("POST /billing/trial/activate", () => {
+    it("returns TRIAL_DISABLED by default", async () => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/billing/trial/activate",
+        headers: { "x-user-id": testUserId },
+      });
+
+      assert.equal(response.statusCode, 503);
+      const body = JSON.parse(response.body);
+      assert.equal(body.error, "TRIAL_DISABLED");
+    });
+
     it("activates trial for new user", async () => {
+      await enableTrialConfig();
+
       const response = await app.inject({
         method: "POST",
         url: "/billing/trial/activate",
@@ -74,6 +96,8 @@ describe("Billing API", async () => {
     });
 
     it("prevents duplicate trial activation", async () => {
+      await enableTrialConfig();
+
       // Create a separate user for this test to avoid conflicts
       const duplicateTestUserId = `user_duplicate_${Date.now()}_${Math.random().toString(36).slice(2)}`;
       await db.query(
@@ -151,6 +175,8 @@ describe("Billing API", async () => {
     });
 
     it("returns entitlements after trial activation", async () => {
+      await enableTrialConfig();
+
       // Activate trial first
       await app.inject({
         method: "POST",
@@ -168,9 +194,11 @@ describe("Billing API", async () => {
       const body = JSON.parse(response.body);
       assert.equal(body.hasActiveSubscription, false);
       assert.equal(body.entitlements.tier, "free");
-      assert.equal(body.entitlements.baseSongsRemaining, 1);
+      assert.equal(body.entitlements.baseSongsRemaining, 2);
       assert.equal(body.entitlements.trialSongsRemaining, 2);
-      assert.equal(body.entitlements.songsRemaining, 3);
+      assert.equal(body.entitlements.songsRemaining, 4);
+      assert.equal(body.entitlements.giftSongsUsedTotal, 0);
+      assert.equal(body.entitlements.gift_songs_used_total, 0);
     });
 
     it("requires authentication", async () => {
@@ -891,6 +919,7 @@ describe("Billing API", async () => {
             songsRemaining: 4,
             songsAllowance: 4,
             songsUsedTotal: 0,
+            giftSongsUsedTotal: 0,
             trialSongsRemaining: 0,
             trialExpiresAt: null,
             previewCountToday: 0,
@@ -1021,6 +1050,8 @@ describe("Billing API", async () => {
       });
 
       it("returns plans and trial config with admin session", async () => {
+        await setFeatureFlag(db, "free_tier_songs_grant", 4, "test");
+
         const response = await app.inject({
           method: "GET",
           url: "/admin/plans",
@@ -1033,6 +1064,7 @@ describe("Billing API", async () => {
         const body = JSON.parse(response.body);
         assert.ok(Array.isArray(body.plans));
         assert.ok(body.trialConfig);
+        assert.equal(body.freeTierGrant.songs, 4);
         assert.ok(body.plans.length >= 3); // Free, Plus, Pro
       });
     });
@@ -1108,8 +1140,10 @@ describe("buildEntitlementsPayload gift_wallet_balance", () => {
       baseSongsRemaining: 0,
       songsRemaining: 0,
       giftWalletBalance: 5,
+      giftSongsUsedTotal: 2,
     });
     assert.equal(payload.gift_wallet_balance, 5);
+    assert.equal(payload.gift_songs_used_total, 2);
   });
 
   it("defaults gift_wallet_balance to 0 when absent", () => {
@@ -1119,11 +1153,13 @@ describe("buildEntitlementsPayload gift_wallet_balance", () => {
       songsRemaining: 0,
     });
     assert.equal(payload.gift_wallet_balance, 0);
+    assert.equal(payload.gift_songs_used_total, 0);
   });
 
   it("emits gift_wallet_balance 0 for null entitlements", () => {
     const payload = buildEntitlementsPayload(null);
     assert.equal(payload.gift_wallet_balance, 0);
+    assert.equal(payload.gift_songs_used_total, 0);
   });
 });
 

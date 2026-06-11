@@ -167,6 +167,28 @@ describe("admin attribution contract", () => {
     assert.equal(body.offset, 1);
   });
 
+  test("admin user list exposes gift songs spent for user reporting", async () => {
+    const userId = "admin_attr_gift_spent";
+    const now = new Date().toISOString();
+    await insertUser(db, userId);
+    await db.prepare(`
+      INSERT INTO entitlements (
+        user_id, tier, songs_remaining, songs_allowance, songs_used_total,
+        gift_songs_used_total, updated_at
+      ) VALUES (?, 'free', 0, 2, 3, 2, ?)
+    `).run(userId, now);
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/admin/dashboard/users?userId=${userId}`,
+      headers: adminHeaders,
+    });
+
+    assert.equal(response.statusCode, 200, response.body);
+    const listedUser = response.json().users[0];
+    assert.equal(listedUser.gift_songs_used_total, 2);
+  });
+
   test("admin user list exposes organic and unknown attribution states explicitly", async () => {
     const organicUserId = "admin_attr_organic";
     const unknownUserId = "admin_attr_unknown";
@@ -407,6 +429,9 @@ describe("admin attribution contract", () => {
     assert.equal(health.appleAds.pending, 1);
     assert.equal(health.appleAds.testData, 1);
     assert.equal(health.appleAds.resolvedRowsNotBackfilled, 1);
+    assert.equal(health.downloads.totalEvents, 0);
+    assert.equal(health.downloads.matchedEvents, 0);
+    assert.equal(health.downloads.unmatchedAttributedEvents, 0);
     assert.equal(health.users.withAnyAttributionSignal, 2);
   });
 

@@ -6,6 +6,7 @@ const { describe, it, beforeEach } = require("node:test");
 const assert = require("node:assert/strict");
 const { getDatabase } = require("../src/database");
 const { createPlanConfigService } = require("../src/services/plan-config");
+const { clearCache, setFeatureFlag } = require("../src/services/feature-flags");
 const {
   createSubscriptionManager,
   TRANSACTION_TYPES,
@@ -50,6 +51,7 @@ describe("Subscription Manager", async () => {
   }
 
   beforeEach(async () => {
+    clearCache();
     db = await getDatabase();
     planService = createPlanConfigService(db);
     manager = createSubscriptionManager(db, { planConfigService: planService });
@@ -62,8 +64,73 @@ describe("Subscription Manager", async () => {
     );
   });
 
+  async function enableTrialConfig() {
+    await db.query(
+      "UPDATE trial_config SET songs_allowed = 2, duration_days = 7, is_active = 1, updated_at = datetime('now') WHERE id = 1",
+    );
+  }
+
+  describe("createFreeEntitlements", () => {
+    it("grants the default two one-time signup songs and records the grant", async () => {
+      await manager.createFreeEntitlements(testUserId);
+
+      const ent = await manager.getEntitlements(testUserId);
+      assert.equal(ent.tier, "free");
+      assert.equal(ent.baseSongsRemaining, 2);
+      assert.equal(ent.songsRemaining, 2);
+      assert.equal(ent.trialSongsRemaining, 0);
+
+      const tx = await db.query(
+        "SELECT * FROM song_transactions WHERE user_id = ? AND type = ?",
+        [testUserId, TRANSACTION_TYPES.FREE_SIGNUP_GRANT],
+      );
+      assert.equal(tx.rows.length, 1);
+      assert.equal(Number(tx.rows[0].amount), 2);
+      assert.equal(Number(tx.rows[0].balance_before), 0);
+      assert.equal(Number(tx.rows[0].balance_after), 2);
+    });
+
+    it("honors the admin-configured signup song grant for future users", async () => {
+      await setFeatureFlag(db, "free_tier_songs_grant", 3, "test");
+
+      await manager.createFreeEntitlements(testUserId);
+
+      const ent = await manager.getEntitlements(testUserId);
+      assert.equal(ent.songsRemaining, 3);
+
+      const tx = await db.query(
+        "SELECT * FROM song_transactions WHERE user_id = ? AND type = ?",
+        [testUserId, TRANSACTION_TYPES.FREE_SIGNUP_GRANT],
+      );
+      assert.equal(Number(tx.rows[0].amount), 3);
+    });
+
+    it("does not duplicate the signup grant when entitlements already exist", async () => {
+      await manager.createFreeEntitlements(testUserId);
+      await manager.createFreeEntitlements(testUserId);
+
+      const tx = await db.query(
+        "SELECT * FROM song_transactions WHERE user_id = ? AND type = ?",
+        [testUserId, TRANSACTION_TYPES.FREE_SIGNUP_GRANT],
+      );
+      assert.equal(tx.rows.length, 1);
+
+      const ent = await manager.getEntitlements(testUserId);
+      assert.equal(ent.songsRemaining, 2);
+    });
+  });
+
   describe("activateTrial", () => {
+    it("does not activate trial by default", async () => {
+      await assert.rejects(
+        () => manager.activateTrial(testUserId),
+        /Free trial is currently disabled/,
+      );
+    });
+
     it("grants trial songs to new user", async () => {
+      await enableTrialConfig();
+
       const result = await manager.activateTrial(testUserId);
 
       assert.equal(result.songsGranted, 2);
@@ -78,6 +145,8 @@ describe("Subscription Manager", async () => {
     });
 
     it("prevents duplicate trial activation", async () => {
+      await enableTrialConfig();
+
       await manager.activateTrial(testUserId);
 
       await assert.rejects(
@@ -87,6 +156,8 @@ describe("Subscription Manager", async () => {
     });
 
     it("records song transaction for trial grant", async () => {
+      await enableTrialConfig();
+
       await manager.activateTrial(testUserId);
 
       const txResult = await db.query(
@@ -314,6 +385,8 @@ describe("Subscription Manager", async () => {
 
   describe("spendSong", () => {
     it("spends from trial songs first", async () => {
+      await enableTrialConfig();
+
       // Activate trial
       await manager.activateTrial(testUserId);
 
@@ -353,6 +426,8 @@ describe("Subscription Manager", async () => {
     });
 
     it("records spend transaction", async () => {
+      await enableTrialConfig();
+
       await manager.activateTrial(testUserId);
       await manager.spendSong(testUserId, "track_123");
 
@@ -367,6 +442,8 @@ describe("Subscription Manager", async () => {
     });
 
     it("drains trial songs before subscription songs", async () => {
+      await enableTrialConfig();
+
       // Activate trial (2 songs) then subscribe (10 songs)
       await manager.activateTrial(testUserId);
       await manager.syncSubscription(testUserId, createMockAppleValidation());
@@ -547,6 +624,8 @@ describe("Subscription Manager", async () => {
     });
 
     it("combines trial and regular songs in total", async () => {
+      await enableTrialConfig();
+
       // Activate trial
       await manager.activateTrial(testUserId);
 
@@ -628,6 +707,10 @@ describe("Subscription Manager", async () => {
 
       assert.equal(await getGiftWalletBalance(testUserId), 0);
 
+      const ent = await manager.getEntitlements(testUserId);
+      assert.equal(ent.songsUsedTotal, 1);
+      assert.equal(ent.giftSongsUsedTotal, 1);
+
       const ledger = await db.query(
         "SELECT * FROM gift_wallet_transactions WHERE user_id = ? AND reference_id = ?",
         [testUserId, "g_track_gift"],
@@ -636,6 +719,25 @@ describe("Subscription Manager", async () => {
       assert.equal(Number(ledger.rows[0].amount), -1);
       assert.equal(Number(ledger.rows[0].balance_before), 1);
       assert.equal(Number(ledger.rows[0].balance_after), 0);
+    });
+
+    it("tracks gift spend as a subset of total song spend", async () => {
+      await db.query(
+        `INSERT INTO entitlements (user_id, tier, songs_remaining, trial_songs_remaining, updated_at)
+         VALUES (?, 'free', 1, 0, datetime('now'))`,
+        [testUserId],
+      );
+      await seedGiftWallet(testUserId, 1);
+
+      const first = await manager.spendSong(testUserId, "regular_track");
+      assert.equal(first.source, "subscription");
+
+      const second = await manager.spendSong(testUserId, "gift_track");
+      assert.equal(second.source, "gift_token");
+
+      const ent = await manager.getEntitlements(testUserId);
+      assert.equal(ent.songsUsedTotal, 2);
+      assert.equal(ent.giftSongsUsedTotal, 1);
     });
 
     it("all zero (trial=0,songs=0,gift=0) throws INSUFFICIENT", async () => {
@@ -707,6 +809,7 @@ describe("Subscription Manager", async () => {
 
   describe("constants", () => {
     it("exports transaction types", () => {
+      assert.ok(TRANSACTION_TYPES.FREE_SIGNUP_GRANT);
       assert.ok(TRANSACTION_TYPES.SUBSCRIPTION_GRANT);
       assert.ok(TRANSACTION_TYPES.TRIAL_GRANT);
       assert.ok(TRANSACTION_TYPES.SPEND);

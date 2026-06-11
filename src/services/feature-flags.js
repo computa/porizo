@@ -101,8 +101,8 @@ const DEFAULTS = {
   elevenlabs_stability: 0.4,
   // similarityBoost: How closely to match the cloned voice. Higher = stronger voice match.
   elevenlabs_similarity_boost: 0.85,
-  // Free tier one-off grants (admin-configurable)
-  free_tier_songs_grant: 1,
+  // Free tier one-off signup grants (admin-configurable).
+  free_tier_songs_grant: 2,
   free_tier_poems_grant: 1,
 };
 
@@ -601,7 +601,7 @@ const FLAG_METADATA = {
     category: "entitlements",
     label: "Free Tier Songs Grant",
     description:
-      "Number of songs granted to new free accounts on creation. Set to 0 to disable.",
+      "Number of songs granted once when a new free account is created.",
     type: "number",
     min: 0,
     max: 10,

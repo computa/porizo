@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Settings, Music, Mic, AudioWaveform, UserCheck, Code2, PlayCircle, RefreshCw, Save, RotateCcw, AlertTriangle } from 'lucide-react';
+import { Settings, Music, Mic, AudioWaveform, UserCheck, Code2, PlayCircle, RefreshCw, Save, RotateCcw, AlertTriangle, Ticket } from 'lucide-react';
 import { useApi } from '../../hooks/useApi';
 import type { FlagMetadata } from '../../components/settings/FlagRenderer';
 import { LoadingState } from '../../components/LoadingState';
@@ -12,6 +12,7 @@ import { VoiceConversionTab } from './tabs/VoiceConversionTab';
 import { VoiceEnrollmentTab } from './tabs/VoiceEnrollmentTab';
 import { DeveloperTab } from './tabs/DeveloperTab';
 import { OnboardingTab } from './tabs/OnboardingTab';
+import { EntitlementsTab } from './tabs/EntitlementsTab';
 
 interface FeatureFlagsResponse {
   flags: Record<string, FlagMetadata[]>;
@@ -28,6 +29,7 @@ const TABS = [
   { id: 'stt', label: 'STT Config', icon: Mic },
   { id: 'voice-conversion', label: 'Voice Conversion', icon: AudioWaveform },
   { id: 'voice-enrollment', label: 'Voice Enrollment', icon: UserCheck },
+  { id: 'entitlements', label: 'Entitlements', icon: Ticket },
   { id: 'developer', label: 'Developer', icon: Code2 },
   { id: 'onboarding', label: 'Onboarding', icon: PlayCircle },
 ] as const;
@@ -35,7 +37,7 @@ const TABS = [
 type TabId = typeof TABS[number]['id'];
 
 /** Tabs that use the shared feature-flags save/reset/banner UI */
-const FLAG_TABS: ReadonlySet<TabId> = new Set(['voice-conversion', 'voice-enrollment', 'developer']);
+const FLAG_TABS: ReadonlySet<TabId> = new Set(['voice-conversion', 'voice-enrollment', 'entitlements', 'developer']);
 
 /** Wrapper for flag-bearing tabs: shows loading spinner, error, or the tab content */
 function FlagTabContent({ loading, error, children }: { loading: boolean; error: string | null; children: React.ReactNode }) {
@@ -247,6 +249,17 @@ export function FeatureSettings() {
           <VoiceEnrollmentTab
             flags={flags['voice_enrollment'] || []}
             changes={changes}
+            updateFlag={updateFlag}
+            resetToDefault={resetToDefault}
+            getCurrentValue={getCurrentValue}
+            isModified={isModified}
+          />
+        </FlagTabContent>
+      </div>
+      <div className={activeTab === 'entitlements' ? '' : 'hidden'}>
+        <FlagTabContent loading={flagsLoading && Object.keys(flags).length === 0} error={flagsError}>
+          <EntitlementsTab
+            flags={flags['entitlements'] || []}
             updateFlag={updateFlag}
             resetToDefault={resetToDefault}
             getCurrentValue={getCurrentValue}

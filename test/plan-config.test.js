@@ -31,8 +31,8 @@ describe("Plan Configuration Service", async () => {
       assert.ok(proPlan, "Should have pro plan");
 
       assert.equal(freePlan.songs_per_month, 0);
-      assert.equal(plusPlan.songs_per_month, 4);
-      assert.equal(proPlan.songs_per_month, 10);
+      assert.equal(plusPlan.songs_per_month, 10);
+      assert.equal(proPlan.songs_per_month, 20);
     });
 
     it("filters inactive plans by default", async () => {
@@ -91,7 +91,7 @@ describe("Plan Configuration Service", async () => {
       const plan = await planService.getPlanByTier("pro");
       assert.ok(plan);
       assert.equal(plan.tier, "pro");
-      assert.equal(plan.songs_per_month, 10);
+      assert.equal(plan.songs_per_month, 20);
     });
   });
 
@@ -121,8 +121,8 @@ describe("Plan Configuration Service", async () => {
   describe("getSongAllowance", () => {
     it("returns correct allowance for each tier", async () => {
       assert.equal(await planService.getSongAllowance("free"), 0);
-      assert.equal(await planService.getSongAllowance("plus"), 4);
-      assert.equal(await planService.getSongAllowance("pro"), 10);
+      assert.equal(await planService.getSongAllowance("plus"), 10);
+      assert.equal(await planService.getSongAllowance("pro"), 20);
     });
 
     it("returns 0 for unknown tier", async () => {
@@ -142,9 +142,19 @@ describe("Plan Configuration Service", async () => {
     it("returns default trial config", async () => {
       const trial = await planService.getTrialConfig();
       assert.ok(trial);
-      assert.equal(trial.songs_allowed, 2);
+      assert.equal(trial.songs_allowed, 0);
       assert.equal(trial.duration_days, 7);
-      assert.equal(trial.is_active, true);
+      assert.equal(trial.is_active, false);
+    });
+
+    it("fails closed when trial config row is missing", async () => {
+      await db.query("DELETE FROM trial_config WHERE id = 1");
+      planService = createPlanConfigService(db, { cacheTTL: 100 });
+
+      const trial = await planService.getTrialConfig();
+      assert.equal(trial.songs_allowed, 0);
+      assert.equal(trial.duration_days, 7);
+      assert.equal(trial.is_active, false);
     });
   });
 
@@ -189,7 +199,7 @@ describe("Plan Configuration Service", async () => {
 
       // Reset
       await planService.updatePlan("plus", {
-        songs_per_month: 4,
+        songs_per_month: 10,
         price_monthly_cents: 999,
       });
     });
@@ -203,7 +213,7 @@ describe("Plan Configuration Service", async () => {
 
       // Reset
       await planService.updatePlan("plus", {
-        features_json: ["4 songs per month", "20 previews per day", "All occasions", "All music styles"],
+        features_json: ["10 songs per month", "20 previews per day", "All occasions", "All music styles"],
       });
     });
 
@@ -254,10 +264,10 @@ describe("Plan Configuration Service", async () => {
       // Second call should return cached value
       const plans2 = await planService.getPlans();
       const plusPlan = plans2.find((p) => p.id === "plus");
-      assert.equal(plusPlan.songs_per_month, 4, "Should return cached value");
+      assert.equal(plusPlan.songs_per_month, 10, "Should return cached value");
 
       // Reset DB
-      await db.query("UPDATE subscription_plans SET songs_per_month = 4 WHERE id = 'plus'");
+      await db.query("UPDATE subscription_plans SET songs_per_month = 10 WHERE id = 'plus'");
     });
 
     it("invalidates cache on update", async () => {
