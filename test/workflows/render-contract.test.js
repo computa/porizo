@@ -5,6 +5,7 @@ const {
   buildRenderContract,
   resolveRenderContract,
   getProviderAudioUrl,
+  getProviderAudioKey,
   extractProviderAudioUrl,
   isProviderCompleteAudioPipeline,
   sanitizeProviderRoutingForContract,
@@ -95,6 +96,22 @@ describe("render contract helpers", () => {
       instrumental_url: "https://cdn.example.com/from-inst.mp3",
     });
     assert.equal(fromInst, "https://cdn.example.com/from-inst.mp3");
+  });
+
+  test("getProviderAudioKey reads durable provider artifact key from provenance", () => {
+    const key = getProviderAudioKey({
+      provenance_json: JSON.stringify({
+        music: {
+          provider_audio_key: "tracks/user_1/track_1/v2/provider/suno-preview.mp3",
+        },
+      }),
+    });
+    assert.equal(
+      key,
+      "tracks/user_1/track_1/v2/provider/suno-preview.mp3",
+    );
+
+    assert.equal(getProviderAudioKey({ provenance_json: "{invalid" }), null);
   });
 
   test("extractProviderAudioUrl selects first valid URL candidate", () => {

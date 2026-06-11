@@ -357,6 +357,7 @@ async function renderWithProvider({
   musicPlan,
   onTaskId,
   sunoPersona,
+  storageProvider,
 }) {
   if (providerConfig?.live) {
     // Select provider based on config (defaults to suno)
@@ -379,6 +380,7 @@ async function renderWithProvider({
         kind,
         onTaskId,
         sunoPersona,
+        storageProvider,
       });
     }
 

@@ -159,6 +159,26 @@ describe("step-classification", () => {
       assert.equal(r.retryable, false);
     });
 
+    it("classifies Suno mirror upload failures as retryable infrastructure", () => {
+      const r = classifyError(
+        "E302_SUNO_MIRROR_FAILED: Failed to mirror Suno audio to storage - S3 upload failed (503)",
+        "E302_SUNO_MIRROR_FAILED",
+        "instrumental",
+      );
+      assert.equal(r.category, "infrastructure_transient");
+      assert.equal(r.retryable, true);
+    });
+
+    it("classifies durable provider audio hydration failures as retryable infrastructure", () => {
+      const r = classifyError(
+        "E301_PROVIDER_AUDIO_MIRROR_UNAVAILABLE: Failed to hydrate durable provider audio - S3 download failed (503)",
+        "E301_PROVIDER_AUDIO_MIRROR_UNAVAILABLE",
+        "mix",
+      );
+      assert.equal(r.category, "infrastructure_transient");
+      assert.equal(r.retryable, true);
+    });
+
     // Step-aware fallbacks
     it("falls back to provider_terminal for unrecognized error on provider step", () => {
       const r = classifyError("Something unexpected", "UNKNOWN_CODE", "instrumental");

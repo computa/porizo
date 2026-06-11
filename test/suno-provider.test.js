@@ -1,6 +1,28 @@
 require("dotenv/config");
 const assert = require("node:assert/strict");
+const { execFileSync } = require("node:child_process");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
 const { test, describe } = require("node:test");
+const { getFFmpegPath } = require("../src/utils/ffmpeg");
+
+function writeValidMp3(filePath, durationSec = 9) {
+  execFileSync(getFFmpegPath(), [
+    "-y",
+    "-f",
+    "lavfi",
+    "-i",
+    "sine=frequency=440:sample_rate=44100",
+    "-t",
+    String(durationSec),
+    "-c:a",
+    "libmp3lame",
+    "-b:a",
+    "128k",
+    filePath,
+  ], { stdio: "ignore" });
+}
 
 describe("Suno Provider", () => {
   describe("buildSunoPayload", () => {
@@ -376,6 +398,130 @@ describe("Suno Provider", () => {
         /E302_SUNO_ERROR.*track/,
         "Should throw error for invalid track"
       );
+    });
+
+    test("downloadSunoAudio mirrors validated provider MP3 to durable storage", async (t) => {
+      const { downloadSunoAudio } = require("../src/providers/suno");
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "porizo-suno-mirror-"));
+      const providerMp3Path = path.join(tmpDir, "provider.mp3");
+      writeValidMp3(providerMp3Path, 9);
+      const providerBytes = fs.readFileSync(providerMp3Path);
+      const originalFetch = global.fetch;
+      t.after(() => {
+        global.fetch = originalFetch;
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      });
+
+      global.fetch = async (url) => {
+        assert.equal(url, "https://cdn.example.com/ready.mp3");
+        return new Response(providerBytes, { status: 200 });
+      };
+
+      const uploads = [];
+      const storageProvider = {
+        type: "s3",
+        putFile: async ({ key, filePath, contentType }) => {
+          uploads.push({ key, filePath, contentType });
+          assert.equal(contentType, "audio/mpeg");
+          assert.ok(fs.existsSync(filePath));
+          assert.ok(fs.statSync(filePath).size > 0);
+        },
+      };
+
+      const result = await downloadSunoAudio({
+        storageDir: tmpDir,
+        track: { id: "track_1", user_id: "user_1" },
+        trackVersion: { version_num: 2 },
+        kind: "preview",
+        storageProvider,
+        statusResponse: {
+          data: {
+            status: "AUDIO_SUCCESS",
+            response: {
+              sunoData: [
+                {
+                  sourceAudioUrl: "https://cdn.example.com/ready.mp3",
+                  duration: 9,
+                  modelName: "V5",
+                },
+              ],
+            },
+          },
+        },
+      });
+
+      assert.equal(result.instrumental_file, "inst_preview.mp3");
+      assert.equal(
+        result.raw.provider_audio_key,
+        "tracks/user_1/track_1/v2/provider/suno-preview.mp3",
+      );
+      assert.equal(result.raw.provider_audio_mirrored, true);
+      assert.equal(uploads.length, 1);
+      assert.equal(uploads[0].key, result.raw.provider_audio_key);
+    });
+
+    test("downloadSunoAudio removes local provider MP3 when durable mirror fails", async (t) => {
+      const { downloadSunoAudio } = require("../src/providers/suno");
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "porizo-suno-mirror-fail-"));
+      const providerMp3Path = path.join(tmpDir, "provider.mp3");
+      writeValidMp3(providerMp3Path, 9);
+      const providerBytes = fs.readFileSync(providerMp3Path);
+      const originalFetch = global.fetch;
+      t.after(() => {
+        global.fetch = originalFetch;
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      });
+
+      global.fetch = async (url) => {
+        assert.equal(url, "https://cdn.example.com/ready.mp3");
+        return new Response(providerBytes, { status: 200 });
+      };
+
+      let uploadAttempted = false;
+      const outputPath = path.join(
+        tmpDir,
+        "tracks",
+        "user_1",
+        "track_1",
+        "v2",
+        "inst_preview.mp3",
+      );
+
+      await assert.rejects(
+        () =>
+          downloadSunoAudio({
+            storageDir: tmpDir,
+            track: { id: "track_1", user_id: "user_1" },
+            trackVersion: { version_num: 2 },
+            kind: "preview",
+            storageProvider: {
+              putFile: async ({ filePath }) => {
+                uploadAttempted = true;
+                assert.equal(filePath, outputPath);
+                assert.ok(fs.existsSync(filePath));
+                throw new Error("S3 upload failed (503)");
+              },
+            },
+            statusResponse: {
+              data: {
+                status: "AUDIO_SUCCESS",
+                response: {
+                  sunoData: [
+                    {
+                      sourceAudioUrl: "https://cdn.example.com/ready.mp3",
+                      duration: 9,
+                      modelName: "V5",
+                    },
+                  ],
+                },
+              },
+            },
+          }),
+        /E302_SUNO_MIRROR_FAILED/,
+      );
+
+      assert.equal(uploadAttempted, true);
+      assert.equal(fs.existsSync(outputPath), false);
     });
   });
 

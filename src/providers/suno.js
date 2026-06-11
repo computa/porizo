@@ -5,6 +5,7 @@ const { promisify } = require("util");
 const { fetchJson, ensureDir } = require("./http");
 const { pollWithBackoff, createPollingConfig } = require("../utils/polling");
 const { normalizeStyle, getStyle } = require("./style-registry");
+const { trackProviderAudioKey } = require("../storage");
 const config = require("../config");
 const execFileAsync = promisify(execFile);
 
@@ -642,6 +643,7 @@ async function downloadSunoAudio({
   trackVersion,
   kind,
   statusResponse,
+  storageProvider = null,
 }) {
   const { sunoData, firstTrack, audioUrl } = extractSunoTrack(
     statusResponse,
@@ -684,6 +686,30 @@ async function downloadSunoAudio({
     );
   }
 
+  let mirror;
+  try {
+    mirror = await mirrorSunoAudioToStorage({
+      storageProvider,
+      track,
+      trackVersion,
+      kind,
+      filePath: outputPath,
+    });
+  } catch (err) {
+    // The provider step is not complete until the durable mirror exists. Remove
+    // the local cache so a retry cannot skip mirroring by reusing this file.
+    try {
+      if (fs.existsSync(outputPath)) {
+        fs.unlinkSync(outputPath);
+      }
+    } catch (cleanupErr) {
+      console.warn(
+        `[Suno] Failed to remove unmirrored provider audio ${instName}: ${cleanupErr.message}`,
+      );
+    }
+    throw err;
+  }
+
   console.log(`[Suno] Saved ${audioBuffer.length} bytes to ${instName}`);
   console.log(
     `[Suno] Duration: ${validation.durationSec ?? firstTrack.duration}s, Codec: ${validation.codecName}, Model: ${firstTrack.modelName}`,
@@ -702,8 +728,43 @@ async function downloadSunoAudio({
       model: firstTrack.modelName,
       alt_audio_url: sunoData[1]?.sourceAudioUrl || sunoData[1]?.audioUrl,
       status: statusLabel,
+      provider_audio_key: mirror.key,
+      provider_audio_mirrored: mirror.mirrored,
     },
   };
+}
+
+async function mirrorSunoAudioToStorage({
+  storageProvider,
+  track,
+  trackVersion,
+  kind,
+  filePath,
+}) {
+  if (!storageProvider || typeof storageProvider.putFile !== "function") {
+    return { key: null, mirrored: false };
+  }
+  const key = trackProviderAudioKey({
+    userId: track.user_id,
+    trackId: track.id,
+    versionNum: trackVersion.version_num,
+    provider: "suno",
+    kind,
+    format: "mp3",
+  });
+  try {
+    await storageProvider.putFile({
+      key,
+      filePath,
+      contentType: "audio/mpeg",
+    });
+  } catch (err) {
+    throw new Error(
+      `E302_SUNO_MIRROR_FAILED: Failed to mirror Suno audio to storage - ${err?.message || err}`,
+    );
+  }
+  console.log(`[Suno] Mirrored ${kind} provider audio to storage: ${key}`);
+  return { key, mirrored: true };
 }
 
 function getFFprobePath() {
@@ -823,6 +884,7 @@ async function generateMusicWithSuno({
   onHeartbeat,
   sunoModel,
   sunoPersona,
+  storageProvider = null,
 }) {
   validateSunoInput({ apiKey, baseUrl, track, trackVersion });
   console.log(
@@ -936,6 +998,7 @@ async function generateMusicWithSuno({
       trackVersion,
       kind,
       statusResponse,
+      storageProvider,
     });
   } catch (downloadErr) {
     const message = String(downloadErr?.message || "");

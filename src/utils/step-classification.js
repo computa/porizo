@@ -156,9 +156,16 @@ function classifyError(message, code, step) {
     return { category: "entitlement_limit", retryable: false, suggestedAction: "wait_for_reset", canAutoRewrite: false, provider: null };
   }
 
-  // --- S3 upload errors (transient — S3/R2 5xx are retryable) ---
+  // --- Object storage errors (transient — S3/R2 5xx are retryable) ---
 
-  if (normalizedCode === "S3_UPLOAD_FAILED" || msg.startsWith("s3 upload failed")) {
+  if (
+    normalizedCode === "S3_UPLOAD_FAILED" ||
+    normalizedCode === "E302_SUNO_MIRROR_FAILED" ||
+    normalizedCode === "E301_PROVIDER_AUDIO_MIRROR_UNAVAILABLE" ||
+    msg.startsWith("s3 upload failed") ||
+    msg.startsWith("E302_SUNO_MIRROR_FAILED:") ||
+    msg.startsWith("E301_PROVIDER_AUDIO_MIRROR_UNAVAILABLE:")
+  ) {
     return { category: "infrastructure_transient", retryable: true, suggestedAction: "wait_and_retry", canAutoRewrite: false, provider: null };
   }
 

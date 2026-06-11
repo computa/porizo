@@ -189,6 +189,15 @@ function getProviderAudioUrl(trackVersion) {
   return null;
 }
 
+function getProviderAudioKey(trackVersion) {
+  const provenance = safeParseJson(trackVersion?.provenance_json, {});
+  const provenanceKey = provenance?.music?.provider_audio_key;
+  if (typeof provenanceKey === "string" && provenanceKey.trim()) {
+    return provenanceKey.trim();
+  }
+  return null;
+}
+
 function extractProviderAudioUrl(providerResultRaw) {
   const candidates = [
     providerResultRaw?.provider_audio_url,
@@ -331,6 +340,7 @@ module.exports = {
   isSunoVoicePersonaPipeline,
   isProviderCompleteAudioPipeline,
   getProviderAudioUrl,
+  getProviderAudioKey,
   extractProviderAudioUrl,
   sanitizeProviderRoutingForContract,
   sanitizeLyricsForAllMusicProviders,

@@ -61,12 +61,36 @@ function trackVersionKey({ userId, trackId, versionNum }) {
   return `tracks/${userId}/${trackId}/v${versionNum}`;
 }
 
+function safeKeySegment(value, fallback) {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return normalized || fallback;
+}
+
 function trackMasterKey({ userId, trackId, versionNum, format = "aac" }) {
   return `${trackVersionKey({ userId, trackId, versionNum })}/master.${format}`;
 }
 
 function trackPreviewKey({ userId, trackId, versionNum }) {
   return `${trackVersionKey({ userId, trackId, versionNum })}/preview.m4a`;
+}
+
+function trackProviderAudioKey({
+  userId,
+  trackId,
+  versionNum,
+  provider,
+  kind,
+  format = "mp3",
+}) {
+  const safeProvider = safeKeySegment(provider, "provider");
+  const safeKind = safeKeySegment(kind, "audio");
+  const safeFormat = safeKeySegment(format, "mp3").replace(/^\.+/, "");
+  return `${trackVersionKey({ userId, trackId, versionNum })}/provider/${safeProvider}-${safeKind}.${safeFormat}`;
 }
 
 function trackStemsKey({ userId, trackId, versionNum }) {
@@ -98,6 +122,7 @@ module.exports = {
   trackVersionKey,
   trackMasterKey,
   trackPreviewKey,
+  trackProviderAudioKey,
   trackStemsKey,
   trackHLSKey,
   trackArtworkKey,

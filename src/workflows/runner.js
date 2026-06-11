@@ -89,6 +89,7 @@ const {
   assertFrozenContract,
   assertPersonalizedContract,
   getProviderAudioUrl,
+  getProviderAudioKey,
   extractProviderAudioUrl,
   sanitizeProviderRoutingForContract,
   sanitizeLyricsForAllMusicProviders,
@@ -911,6 +912,50 @@ async function uploadTrackOutputsToS3({
   }
 
   return uploadedKeys;
+}
+
+async function hydrateProviderCompleteAudio({
+  providerLocalPath,
+  providerAudioKey = null,
+  providerAudioUrl = null,
+  storageProvider = null,
+  httpDownloadToFile = null,
+}) {
+  if (fs.existsSync(providerLocalPath)) {
+    return { source: "local", key: null, url: null };
+  }
+
+  if (providerAudioKey) {
+    if (!storageProvider || typeof storageProvider.downloadToFile !== "function") {
+      throw new Error(
+        `E301_PROVIDER_AUDIO_MIRROR_UNAVAILABLE: Durable provider audio key exists but storage download is unavailable (${providerAudioKey})`,
+      );
+    }
+    try {
+      await storageProvider.downloadToFile({
+        key: providerAudioKey,
+        filePath: providerLocalPath,
+      });
+    } catch (err) {
+      throw new Error(
+        `E301_PROVIDER_AUDIO_MIRROR_UNAVAILABLE: Failed to hydrate durable provider audio (${providerAudioKey}) - ${err?.message || err}`,
+      );
+    }
+    console.log(
+      `[Mix] Hydrated provider-complete audio from storage: ${providerAudioKey}`,
+    );
+    return { source: "storage", key: providerAudioKey, url: null };
+  }
+
+  if (providerAudioUrl) {
+    const download =
+      httpDownloadToFile ||
+      require("../providers/http").downloadToFile;
+    await download(providerAudioUrl, providerLocalPath, 120000);
+    return { source: "provider_url", key: null, url: providerAudioUrl };
+  }
+
+  return { source: null, key: null, url: null };
 }
 
 function writePlaceholderOutputs({
@@ -1888,6 +1933,7 @@ async function startJobRunner({
             trackVersion,
             kind,
             statusResponse: pollResult.response,
+            storageProvider,
           });
         } catch (downloadErr) {
           const downloadMessage = String(downloadErr?.message || "");
@@ -1917,6 +1963,7 @@ async function startJobRunner({
         return {
           instrumental_url: result?.raw?.instrumental_url || null,
           guide_vocal_url: result?.raw?.guide_vocal_url || null,
+          provider_audio_key: result?.raw?.provider_audio_key || null,
         };
       }
 
@@ -2050,8 +2097,10 @@ async function startJobRunner({
         trackVersion,
         kind,
         statusResponse: pollResult.response,
+        storageProvider,
       });
       const providerAudioUrl = extractProviderAudioUrl(recovered?.raw || {});
+      const providerAudioKey = recovered?.raw?.provider_audio_key || null;
       const provenance_json = mergeProvenanceJson(
         trackVersion.provenance_json,
         {
@@ -2063,6 +2112,8 @@ async function startJobRunner({
             render_contract: renderContract,
             provider_audio_url:
               providerAudioUrl || getProviderAudioUrl(trackVersion),
+            provider_audio_key:
+              providerAudioKey || getProviderAudioKey(trackVersion),
           },
           timeline: [
             {
@@ -2084,6 +2135,7 @@ async function startJobRunner({
           renderContract.pipeline === "guide_tts_and_voice_convert"
             ? recovered?.raw?.guide_vocal_url || null
             : null,
+        provider_audio_key: providerAudioKey,
         provider_routing: routingMetadata || null,
         provenance_json,
       };
@@ -3137,6 +3189,7 @@ async function startJobRunner({
           }
           const providerAudioUrl =
             sunoResult?.instrumental_url || sunoResult?.guide_vocal_url || null;
+          const providerAudioKey = sunoResult?.provider_audio_key || null;
           const provenance_json = mergeProvenanceJson(
             trackVersion.provenance_json,
             {
@@ -3151,6 +3204,8 @@ async function startJobRunner({
                 render_contract: renderContract,
                 provider_audio_url:
                   providerAudioUrl || getProviderAudioUrl(trackVersion),
+                provider_audio_key:
+                  providerAudioKey || getProviderAudioKey(trackVersion),
                 policy_preflight: policyPreflightMeta || null,
               },
               timeline: [
@@ -3259,10 +3314,12 @@ async function startJobRunner({
                 track,
                 renderContract,
               }),
+              storageProvider,
             }),
         });
         const providerMetadata = result?.raw || {};
         const providerAudioUrl = extractProviderAudioUrl(providerMetadata);
+        const providerAudioKey = providerMetadata.provider_audio_key || null;
         const useGuideUrl =
           renderContract.pipeline === "guide_tts_and_voice_convert";
         const provenance_json = mergeProvenanceJson(
@@ -3279,6 +3336,8 @@ async function startJobRunner({
               render_contract: renderContract,
               provider_audio_url:
                 providerAudioUrl || getProviderAudioUrl(trackVersion),
+              provider_audio_key:
+                providerAudioKey || getProviderAudioKey(trackVersion),
               generation_mode:
                 providerMetadata.generation_mode ||
                 musicPlan?.generation_mode ||
@@ -3463,6 +3522,7 @@ async function startJobRunner({
           }
           const providerAudioUrl =
             sunoResult?.instrumental_url || sunoResult?.guide_vocal_url || null;
+          const providerAudioKey = sunoResult?.provider_audio_key || null;
           const provenance_json = mergeProvenanceJson(
             trackVersion.provenance_json,
             {
@@ -3477,6 +3537,8 @@ async function startJobRunner({
                 render_contract: renderContract,
                 provider_audio_url:
                   providerAudioUrl || getProviderAudioUrl(trackVersion),
+                provider_audio_key:
+                  providerAudioKey || getProviderAudioKey(trackVersion),
                 policy_preflight: policyPreflightMeta || null,
               },
               timeline: [
@@ -3585,10 +3647,12 @@ async function startJobRunner({
                 track,
                 renderContract,
               }),
+              storageProvider,
             }),
         });
         const providerMetadata = result?.raw || {};
         const providerAudioUrl = extractProviderAudioUrl(providerMetadata);
+        const providerAudioKey = providerMetadata.provider_audio_key || null;
         const useGuideUrl =
           renderContract.pipeline === "guide_tts_and_voice_convert";
         const provenance_json = mergeProvenanceJson(
@@ -3602,6 +3666,8 @@ async function startJobRunner({
               render_contract: renderContract,
               provider_audio_url:
                 providerAudioUrl || getProviderAudioUrl(trackVersion),
+              provider_audio_key:
+                providerAudioKey || getProviderAudioKey(trackVersion),
               generation_mode:
                 providerMetadata.generation_mode ||
                 musicPlan?.generation_mode ||
@@ -4072,16 +4138,19 @@ async function startJobRunner({
           null,
       });
       const providerAudioUrl = getProviderAudioUrl(trackVersion);
+      const providerAudioKey = getProviderAudioKey(trackVersion);
 
       if (isProviderCompleteAudioPipeline(renderContract.pipeline)) {
         const providerLocalPath = path.join(
           versionDir,
           `${renderContract.provider_locked}_complete.mp3`,
         );
-        if (!fs.existsSync(providerLocalPath) && providerAudioUrl) {
-          const { downloadToFile } = require("../providers/http");
-          await downloadToFile(providerAudioUrl, providerLocalPath, 120000);
-        }
+        await hydrateProviderCompleteAudio({
+          providerLocalPath,
+          providerAudioKey,
+          providerAudioUrl,
+          storageProvider,
+        });
         const providerFallbackPaths = [
           path.join(versionDir, isFull ? "inst_full.mp3" : "inst_preview.mp3"),
           path.join(versionDir, isFull ? "inst_full.wav" : "inst_preview.wav"),
@@ -5663,6 +5732,7 @@ module.exports = {
   cleanStaleStepFiles,
   _testing: {
     performVoiceConversion,
+    hydrateProviderCompleteAudio,
     applyVocalPolish,
     ensureRenderSharePreGeneration,
     resolveSunoPersonaForRenderImpl,
