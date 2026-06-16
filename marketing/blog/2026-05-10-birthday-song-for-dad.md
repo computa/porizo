@@ -170,9 +170,9 @@ Yes, if you keep the tone true to him. Some dads prefer humor, understatement, o
 
 Do not force a perfect-father message. Choose one truthful thing you can say without pretending. If the relationship involves abuse, coercion, or ongoing harm, a song should not replace boundaries, support, or a direct safety plan.
 
-### Can I make the song sound like me?
+### Can I make the song feel like mine?
 
-Porizo is built around personalized songs and, where available, user-voice output from verified in-app voice enrollment. The safest path is to use your own verified voice flow, not uploaded voice files or impersonation.
+Porizo is built around personalized songs. The lyrics come from the specific memory you share, so the song is unmistakably yours, and you choose the musical style while an AI vocalist performs it.
 
 ## Sources
 

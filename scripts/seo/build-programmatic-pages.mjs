@@ -43,11 +43,11 @@ const CELLS = [
     slug: "fathers-day-song-for-dad",
     metaTitle: "Father's Day Song for Dad | Porizo",
     metaDescription:
-      "Make a personalized Father's Day song for Dad — original lyrics from a real memory, sung in your own voice. A finished song in about three minutes.",
+      "Make a personalized Father's Day song for Dad — original lyrics from a real memory, in a music style you choose. A finished song in about three minutes.",
     eyebrow: "Father's Day song for dad",
     h1: "Make a Father's Day song he'll keep.",
     lede:
-      "Porizo turns one real memory of your dad — the song he sang in the car, the joke he never stops telling, the thing he taught you — into an original Father's Day song. Sung in your own voice, finished in about three minutes.",
+      "Porizo turns one real memory of your dad — the song he sang in the car, the joke he never stops telling, the thing he taught you — into an original Father's Day song. You pick the music style, an AI vocalist performs it, and it's finished in about three minutes.",
     cardTag: "For Dad — Father's Day",
     cardTitle: "The Way He Drove the Sundays",
     cardLyric:
@@ -55,7 +55,7 @@ const CELLS = [
     whyEyebrow: "Why Porizo for Father's Day",
     whyHeadline: "A Father's Day gift built around <em>him</em>, not the calendar.",
     whyBody:
-      'Most Father\'s Day gifts say "I remembered." A Porizo song says "I remembered <em>this</em> about you" — the specific Saturday morning he taught you to ride a bike, the verse he sings from memory, the way he answers the phone. Those become the heart of the lyric, then Porizo sings them back in your own voice via voice cloning. Among the established personalized-song gift services (Songfinch, Songlorious, Songheart, ForeverSong) none offer voice cloning of the gifter. Your dad hears a song that was made *for* him, in the voice he raised. Available on Plus and Pro after a one-time voice enrollment.',
+      'Most Father\'s Day gifts say "I remembered." A Porizo song says "I remembered <em>this</em> about you" — the specific Saturday morning he taught you to ride a bike, the verse he sings from memory, the way he answers the phone. Those become the heart of the lyric, performed by an AI vocalist in the music style you choose. The other personalized-song gift services (Songfinch, Songlorious, Songheart, ForeverSong) use human composers and take days. Porizo turns one real memory into a finished song in about three minutes — for around $9 instead of $200. Your dad hears a song that was made *for* him, about him.',
     bestForEyebrow: "Best for",
     bestForHeadline: "Father's Day moments that earn their own song.",
     bestForMoments: [
@@ -63,7 +63,7 @@ const CELLS = [
       "<strong>The first Father's Day apart.</strong> He moved cities, you moved cities, or he's been gone too long. A song crosses the distance instantly.",
       "<strong>A dad who has everything.</strong> The man who refuses gifts but plays the same five songs on repeat. Add yours to that list.",
       "<strong>The Father's Day after a hard year.</strong> Health, grief, distance, transition. A song says what the year made you realize.",
-      "<strong>A surprise at the family dinner.</strong> Hand him the phone after dessert. Watch his face when he hears your voice singing words you couldn't say at the table.",
+      "<strong>A surprise at the family dinner.</strong> Hand him the phone after dessert. Watch his face when he hears a song built from words you couldn't say at the table.",
       "<strong>The dad who became a granddad.</strong> A song that names the grandkid and the dad in the same lyric. Two generations in 75 seconds.",
     ],
     exampleEyebrow: "Example",
@@ -72,9 +72,9 @@ const CELLS = [
     exampleLyric:
       '"You taught me how to drive on a Sunday road / told me the brake was kinder than the wheel / and every time I borrow your jacket / I find another year you carried me through."',
     exampleStyle:
-      "Acoustic folk · 75 seconds · sung in the gifter's voice",
+      "Acoustic folk · 75 seconds",
     exampleNote:
-      'The lyric above came from one detail: "Dad insisted I learn to drive on Sundays — empty roads, no traffic." Porizo turned that single sentence into a verse, a chorus, and a bridge, then sang it back in the gifter\'s tone.',
+      'The lyric above came from one detail: "Dad insisted I learn to drive on Sundays — empty roads, no traffic." Porizo turned that single sentence into a verse, a chorus, and a bridge, performed by an AI vocalist in the acoustic-folk style the gifter chose.',
     faqEyebrow: "FAQ",
     faqHeadline: "Father's Day song questions.",
     faqs: [
@@ -83,8 +83,8 @@ const CELLS = [
         a: "Preview in under 90 seconds. Full 45–90 second song in about three minutes. You can finish the song this morning and send it before dinner.",
       },
       {
-        q: "Will Dad hear it in my voice?",
-        a: "Yes — voice cloning is included on Plus and Pro plans. After a one-time recording of 6–10 short phrases, Porizo sings every song in your own voice. This is the feature that makes a Father's Day song land harder than any card.",
+        q: "Will it actually feel personal?",
+        a: "Yes — the lyrics come from the specific memory you share, so the song is unmistakably about your dad: his Sunday drives, his one joke, the thing he taught you. You choose the music style and an AI vocalist performs it. The specificity is what makes a Father's Day song land harder than any card.",
       },
       {
         q: "What if my dad isn't really into music?",
@@ -96,7 +96,7 @@ const CELLS = [
       },
       {
         q: "How does this compare to Songfinch for Father's Day?",
-        a: "Songfinch uses human composers and ships in around 4–7 days for $179.99–$199.99 (rush options extra). Excellent if Father's Day is two weeks out. Porizo ships in minutes for $9.99/month and adds voice cloning, which Songfinch cannot do. Different tools for different Father's Days.",
+        a: "Songfinch uses human composers and ships in around 4–7 days for $179.99–$199.99 (rush options extra). Excellent if Father's Day is two weeks out. Porizo ships in minutes for about $9 — original lyrics from your memory, in a style you choose. Different tools for different Father's Days.",
       },
       {
         q: "Can my dad share it with family?",
@@ -115,11 +115,11 @@ const CELLS = [
     slug: "fathers-day-song-for-stepdad",
     metaTitle: "Father's Day Song for Stepdad | Porizo",
     metaDescription:
-      "A personalized Father's Day song for your stepdad — built around the moments only you two share. Original lyrics, your voice, finished in minutes.",
+      "A personalized Father's Day song for your stepdad — built around the moments only you two share. Original lyrics, a style you choose, finished in minutes.",
     eyebrow: "Father's Day song for stepdad",
     h1: "Father's Day, the way a stepdad earns one.",
     lede:
-      "Some stepdads showed up and stayed. A Porizo song captures the specific way he made room for you — the inside jokes, the patience, the things he taught without making it a lesson. Original lyrics, sung in your own voice, finished in about three minutes.",
+      "Some stepdads showed up and stayed. A Porizo song captures the specific way he made room for you — the inside jokes, the patience, the things he taught without making it a lesson. Original lyrics, in a music style you choose, finished in about three minutes.",
     cardTag: "For Stepdad — Father's Day",
     cardTitle: "The Quiet One Who Stayed",
     cardLyric:
@@ -127,7 +127,7 @@ const CELLS = [
     whyEyebrow: "Why Porizo for stepdad's Father's Day",
     whyHeadline: "The song says the thing 'Happy Father's Day' can't.",
     whyBody:
-      "Stepdads sit in an awkward seat on Father's Day. A generic card feels too small. A heartfelt note feels too vulnerable to hand over. A Porizo song does what a card can't: it names the moment <em>he</em> earned the title — the day he showed up at the school play, the first time he called you on your birthday without being prompted, the way he handles your mom when she's tired. Those become the lyric, sung in your voice via voice cloning. None of the established human-composer gift services (Songfinch, Songlorious) offer voice cloning. He hears the song. He recognizes your voice. He knows it's real.",
+      "Stepdads sit in an awkward seat on Father's Day. A generic card feels too small. A heartfelt note feels too vulnerable to hand over. A Porizo song does what a card can't: it names the moment <em>he</em> earned the title — the day he showed up at the school play, the first time he called you on your birthday without being prompted, the way he handles your mom when she's tired. Those become the lyric, performed by an AI vocalist in a music style you choose. The human-composer gift services (Songfinch, Songlorious) take days and cost around $200; Porizo turns your memory into a finished song in minutes for about $9. He hears a song built from a moment only the two of you share. He knows it's real.",
     bestForEyebrow: "Best for",
     bestForHeadline: "Stepdad moments that earn their own song.",
     bestForMoments: [
@@ -143,9 +143,9 @@ const CELLS = [
     exampleStarRow: "For a stepdad — 15 years in",
     exampleLyric:
       '"You came to the play that wasn\'t yours to see / you fixed the bike that wasn\'t yours to fix / you taught me what an adult looks like when nobody owes anybody anything / and you stayed."',
-    exampleStyle: "Folk · 80 seconds · sung in the gifter's voice",
+    exampleStyle: "Folk · 80 seconds",
     exampleNote:
-      'The lyric above came from one memory: "He came to my fifth-grade school play even though my mom was working." Porizo built a verse and chorus around that single moment.',
+      'The lyric above came from one memory: "He came to my fifth-grade school play even though my mom was working." Porizo built a verse and chorus around that single moment, performed in the folk style the gifter chose.',
     faqEyebrow: "FAQ",
     faqHeadline: "Stepdad Father's Day song questions.",
     faqs: [
@@ -158,8 +158,8 @@ const CELLS = [
         a: "The lyric works from whatever you give it. You don't have to pretend things are simpler than they are. Many of the most-played Porizo songs for stepdads are about the specific way he showed up — not about the bigger relationship.",
       },
       {
-        q: "Can I make it sound like me singing?",
-        a: "Yes — voice cloning is included on Plus and Pro. After a one-time voice enrollment, Porizo sings every song in your own voice. Hearing your voice is part of what makes this land for him.",
+        q: "How do I choose how the song sounds?",
+        a: "You pick the music style — folk, acoustic, pop, country, R&B — and an AI vocalist performs the lyrics built from your memory. The specificity of the moment is what makes this land for him.",
       },
       {
         q: "How quickly can I do this — Father's Day is days away?",
@@ -186,11 +186,11 @@ const CELLS = [
     slug: "fathers-day-song-for-grandpa",
     metaTitle: "Father's Day Song for Grandpa | Porizo",
     metaDescription:
-      "Personalized Father's Day song for Grandpa. Original lyrics from a real grandkid memory, sung in your own voice. Finished in about three minutes.",
+      "Personalized Father's Day song for Grandpa. Original lyrics from a real grandkid memory, in a music style you choose. Finished in about three minutes.",
     eyebrow: "Father's Day song for grandpa",
     h1: "Make Grandpa a Father's Day song.",
     lede:
-      "Grandpas get cards. Grandpas get phone calls. Grandpas almost never get a song. A Porizo Father's Day song captures one specific thing about him — the workshop in the garage, the recipe he protects, the story he tells every Christmas — and sings it back in your voice. Finished in about three minutes.",
+      "Grandpas get cards. Grandpas get phone calls. Grandpas almost never get a song. A Porizo Father's Day song captures one specific thing about him — the workshop in the garage, the recipe he protects, the story he tells every Christmas — and turns it into an original song in the style you choose. Finished in about three minutes.",
     cardTag: "For Grandpa — Father's Day",
     cardTitle: "The Workshop and the Word for Patience",
     cardLyric:
@@ -198,7 +198,7 @@ const CELLS = [
     whyEyebrow: "Why Porizo for Grandpa's Father's Day",
     whyHeadline: "Most Father's Day gifts skip the grandfather. This one finds him first.",
     whyBody:
-      "Grandfathers are the most overlooked recipient of Father's Day. The kids buy for Dad. The grandkids buy a card, maybe a phone call. A Porizo song flips that — it makes the grandfather the headline of the day. It captures the specific way he showed up across generations: the workshop, the kitchen, the early-morning fishing trip, the time he taught you the right way to shake someone's hand. Sung in your own voice via voice cloning, so when he plays it he hears <em>you</em> — not a stranger, not a singer. That recognition is the gift.",
+      "Grandfathers are the most overlooked recipient of Father's Day. The kids buy for Dad. The grandkids buy a card, maybe a phone call. A Porizo song flips that — it makes the grandfather the headline of the day. It captures the specific way he showed up across generations: the workshop, the kitchen, the early-morning fishing trip, the time he taught you the right way to shake someone's hand. Those details become the lyric, performed by an AI vocalist in a music style you choose, so when he plays it he hears a song built entirely around him. That specificity is the gift.",
     bestForEyebrow: "Best for",
     bestForHeadline: "Grandpa moments that earn their own song.",
     bestForMoments: [
@@ -214,9 +214,9 @@ const CELLS = [
     exampleStarRow: "For a grandpa — 80th Father's Day",
     exampleLyric:
       '"You took me out on the still cold water / told me to listen to the line / and forty years later I still hear it / when the world gets noisy I remember the line."',
-    exampleStyle: "Country · 70 seconds · sung in the gifter's voice",
+    exampleStyle: "Country · 70 seconds",
     exampleNote:
-      'The lyric came from one detail: "Grandpa took me fishing at 5am and told me to be quiet." Porizo turned that into a verse, a chorus about listening, and a closing image of using the lesson in adulthood.',
+      'The lyric came from one detail: "Grandpa took me fishing at 5am and told me to be quiet." Porizo turned that into a verse, a chorus about listening, and a closing image of using the lesson in adulthood — performed in the country style the gifter chose.',
     faqEyebrow: "FAQ",
     faqHeadline: "Grandpa Father's Day song questions.",
     faqs: [
@@ -237,12 +237,12 @@ const CELLS = [
         a: "Songs are 45–90 seconds. For an 80th or 90th birthday Father's Day, the under-90-seconds length actually works in your favor — long enough to land, short enough to play three times in a row.",
       },
       {
-        q: "Can I make it sound like the grandkid singing — not me?",
-        a: "Voice cloning uses the enrolled voice. If you enroll the grandkid's voice (with permission for a minor), the song sings in their voice. Most gifters enroll themselves and the grandkid as separate profiles.",
+        q: "Can the grandkid be the one giving the song?",
+        a: "Yes. Whoever sets it up describes the memory and picks the music style — so a grandkid can build a song from their own moment with grandpa. An AI vocalist performs the lyrics in the style you choose.",
       },
       {
         q: "How does this compare to Songfinch for a grandfather gift?",
-        a: "Songfinch uses human composers and ships in around 4–7 days for $179.99+. Porizo ships in minutes for $9.99/month and adds voice cloning. For a grandfather who might not have many more Father's Days, the speed and the voice-recognition matter.",
+        a: "Songfinch uses human composers and ships in around 4–7 days for $179.99+. Porizo ships in minutes for about $9 — original lyrics from your memory, in a style you choose. For a grandfather who might not have many more Father's Days, the speed matters.",
       },
     ],
     internalLinks: [
@@ -260,11 +260,11 @@ const CELLS = [
     slug: "birthday-song-for-grandma",
     metaTitle: "Birthday Song for Grandma | Porizo",
     metaDescription:
-      "A personalized birthday song for Grandma — original lyrics about her, sung in your own voice. Finished in about three minutes.",
+      "A personalized birthday song for Grandma — original lyrics about her, in a music style you choose. Finished in about three minutes.",
     eyebrow: "Birthday song for grandma",
     h1: "Make Grandma a birthday song.",
     lede:
-      "Grandmas remember every birthday. Make sure this one remembers her. Porizo turns one specific thing about your grandma — her garden, her phone voice, the way she keeps your school photos on the fridge twenty years later — into a song. Sung in your voice. Finished in about three minutes.",
+      "Grandmas remember every birthday. Make sure this one remembers her. Porizo turns one specific thing about your grandma — her garden, her phone voice, the way she keeps your school photos on the fridge twenty years later — into a song. You pick the music style. Finished in about three minutes.",
     cardTag: "For Grandma — Birthday",
     cardTitle: "The Voice That Always Sounded Surprised",
     cardLyric:
@@ -272,7 +272,7 @@ const CELLS = [
     whyEyebrow: "Why Porizo for Grandma's birthday",
     whyHeadline: "Grandma's birthday gift, finally caught up with how you actually feel.",
     whyBody:
-      "Grandma birthdays are easy to default on. Flowers. Box of chocolates. A phone call from the airport. A Porizo song breaks the pattern by being <em>specific</em> — about her garden, the way she answers the phone, the recipe she only makes for you, the song she always sings off-key. Those become the lyric. Then Porizo sings it back in your own voice via voice cloning, so when she plays it she hears <em>you</em>. That recognition is the gift. None of the established human-composer marketplaces (Songfinch, Songlorious, Songheart, ForeverSong) offer voice cloning of the gifter.",
+      "Grandma birthdays are easy to default on. Flowers. Box of chocolates. A phone call from the airport. A Porizo song breaks the pattern by being <em>specific</em> — about her garden, the way she answers the phone, the recipe she only makes for you, the song she always sings off-key. Those become the lyric, performed by an AI vocalist in a music style you choose, so when she plays it she hears a song built entirely around her. That specificity is the gift. The human-composer marketplaces (Songfinch, Songlorious, Songheart, ForeverSong) take days and cost around $200; Porizo turns your memory into a finished song in minutes for about $9.",
     bestForEyebrow: "Best for",
     bestForHeadline: "Grandma birthdays that earn their own song.",
     bestForMoments: [
@@ -288,9 +288,9 @@ const CELLS = [
     exampleStarRow: "For a grandma's 80th",
     exampleLyric:
       '"You answered every call like the phone surprised you / you kept my photos on the fridge for twenty years / you taught me what stays — and what stays doesn\'t leave when you ask it to."',
-    exampleStyle: "Folk ballad · 70 seconds · sung in the gifter's voice",
+    exampleStyle: "Folk ballad · 70 seconds",
     exampleNote:
-      'The lyric came from one detail: "Grandma always answered the phone surprised, like she couldn\'t believe I was calling." Porizo built a verse around that and a chorus about what she taught you about staying.',
+      'The lyric came from one detail: "Grandma always answered the phone surprised, like she couldn\'t believe I was calling." Porizo built a verse around that and a chorus about what she taught you about staying — performed in the folk-ballad style the gifter chose.',
     faqEyebrow: "FAQ",
     faqHeadline: "Grandma birthday song questions.",
     faqs: [
@@ -299,12 +299,12 @@ const CELLS = [
         a: "No. The song is a web link. Open it on your phone, hand it to her, hit play. It plays in the browser. If she's used FaceTime once, she'll handle this fine.",
       },
       {
-        q: "Can I make it sound like me singing?",
-        a: "Yes — voice cloning is included on Plus and Pro. After enrolling your voice (6–10 short phrases, once), Porizo sings every song in your own voice. For a grandma birthday, hearing your voice is the part that hits.",
+        q: "How do I choose how the song sounds?",
+        a: "You pick the music style — folk, acoustic, pop, country — and an AI vocalist performs the lyrics built from your memory. For a grandma birthday, the specificity of the memory is the part that hits.",
       },
       {
         q: "What if multiple grandkids want to give the song together?",
-        a: "Use the enrolled voice of one grandkid. Then mention all the grandkids' names in the memory you describe — the lyric will weave them in. Or enroll each grandkid separately and make a different song from each.",
+        a: "Mention all the grandkids' names in the memory you describe — the lyric will weave them in. Or make a different song from each grandkid, each built from their own moment with her.",
       },
       {
         q: "How long is the song? Can I make it longer for a 90th?",
@@ -316,7 +316,7 @@ const CELLS = [
       },
       {
         q: "How does this compare to Songfinch for a grandma birthday?",
-        a: "Songfinch uses human composers and ships in 4–7 days for $179.99+. Porizo ships in minutes for $9.99/month and adds voice cloning. For a grandma birthday where the moment matters now, the speed and the voice recognition matter.",
+        a: "Songfinch uses human composers and ships in 4–7 days for $179.99+. Porizo ships in minutes for about $9 — original lyrics from your memory, in a style you choose. For a grandma birthday where the moment matters now, the speed matters.",
       },
     ],
     internalLinks: [
@@ -331,11 +331,11 @@ const CELLS = [
     slug: "birthday-song-for-grandpa",
     metaTitle: "Birthday Song for Grandpa | Porizo",
     metaDescription:
-      "Personalized birthday song for Grandpa — original lyrics built around the way he actually shows up. Sung in your voice. Finished in minutes.",
+      "Personalized birthday song for Grandpa — original lyrics built around the way he actually shows up. In a music style you choose. Finished in minutes.",
     eyebrow: "Birthday song for grandpa",
     h1: "Make Grandpa a birthday song.",
     lede:
-      "Grandpas don't ask for much on their birthday. That's part of why the song works — it's the gift he didn't ask for. Porizo captures one specific thing about him — the workshop, the recipe, the way he answers when you call — and turns it into an original song, sung in your voice.",
+      "Grandpas don't ask for much on their birthday. That's part of why the song works — it's the gift he didn't ask for. Porizo captures one specific thing about him — the workshop, the recipe, the way he answers when you call — and turns it into an original song, in a music style you choose.",
     cardTag: "For Grandpa — Birthday",
     cardTitle: "The Workshop Light Was Always On",
     cardLyric:
@@ -343,7 +343,7 @@ const CELLS = [
     whyEyebrow: "Why Porizo for Grandpa's birthday",
     whyHeadline: "The birthday song that finds the specific grandfather, not the category.",
     whyBody:
-      "Grandfather birthday gifts default to a category — fishing, golf, woodworking, history books. A Porizo song flips the script: it finds the <em>specific</em> grandfather, not the type. The early-morning coffee. The story he tells every Thanksgiving. The lesson he repeats every Sunday. Those become the lyric. Sung in your voice via voice cloning, which means when he plays it he hears <em>you</em>, not a singer. Among the established human-composer marketplaces (Songfinch, Songlorious, Songheart, ForeverSong) none offer this.",
+      "Grandfather birthday gifts default to a category — fishing, golf, woodworking, history books. A Porizo song flips the script: it finds the <em>specific</em> grandfather, not the type. The early-morning coffee. The story he tells every Thanksgiving. The lesson he repeats every Sunday. Those become the lyric, performed by an AI vocalist in a music style you choose, which means when he plays it he hears a song built entirely around him. The human-composer marketplaces (Songfinch, Songlorious, Songheart, ForeverSong) take days and cost around $200; Porizo turns your memory into a finished song in minutes for about $9.",
     bestForEyebrow: "Best for",
     bestForHeadline: "Grandpa birthdays that earn their own song.",
     bestForMoments: [
@@ -359,9 +359,9 @@ const CELLS = [
     exampleStarRow: "For a grandpa's 85th",
     exampleLyric:
       '"You measured twice and cut once / you let me hand you the wrong wrench for years / and you taught me what care looks like when nobody\'s watching."',
-    exampleStyle: "Country · 70 seconds · sung in the gifter's voice",
+    exampleStyle: "Country · 70 seconds",
     exampleNote:
-      "The lyric came from one detail: \"Grandpa let me 'help' in the workshop even though I was useless.\" Porizo built a verse around the patience and a chorus about quiet care.",
+      "The lyric came from one detail: \"Grandpa let me 'help' in the workshop even though I was useless.\" Porizo built a verse around the patience and a chorus about quiet care — performed in the country style the gifter chose.",
     faqEyebrow: "FAQ",
     faqHeadline: "Grandpa birthday song questions.",
     faqs: [
@@ -370,8 +370,8 @@ const CELLS = [
         a: "No. The song is a web link. Open it on your phone, hand it to him, hit play. It plays in the browser. If he's used a voicemail this decade, he'll be fine.",
       },
       {
-        q: "Can I make it sound like me singing?",
-        a: "Yes — voice cloning is included on Plus and Pro. Record 6–10 short phrases once and Porizo will sing every song in your own voice.",
+        q: "How do I choose how the song sounds?",
+        a: "You pick the music style — country, folk, acoustic, pop — and an AI vocalist performs the lyrics built from your memory.",
       },
       {
         q: "What if my grandfather isn't a music guy?",
@@ -379,7 +379,7 @@ const CELLS = [
       },
       {
         q: "Can multiple grandkids give the song together?",
-        a: "Use one enrolled voice and mention all the grandkids' names in the memory. Or enroll each grandkid separately and make a different version of the same song.",
+        a: "Mention all the grandkids' names in the memory and the lyric will weave them in. Or make a different version of the song from each grandkid's own moment with him.",
       },
       {
         q: "Can I include the great-grandkids in the lyric?",
@@ -405,11 +405,11 @@ const CELLS = [
     slug: "anniversary-song-for-wife",
     metaTitle: "Anniversary Song for Wife | Porizo",
     metaDescription:
-      "Personalized anniversary song for your wife — original lyrics from a real memory, sung in your voice. Finished in about three minutes.",
+      "Personalized anniversary song for your wife — original lyrics from a real memory, in a music style you choose. Finished in about three minutes.",
     eyebrow: "Anniversary song for wife",
     h1: "Anniversary song for your wife.",
     lede:
-      "The flowers wilt. The card disappears. A Porizo anniversary song catches one specific thing about her — the laugh, the way she says your name when she's tired, the joke from the third date — and turns it into a song. Sung in your own voice. Finished in about three minutes.",
+      "The flowers wilt. The card disappears. A Porizo anniversary song catches one specific thing about her — the laugh, the way she says your name when she's tired, the joke from the third date — and turns it into a song. You pick the music style. Finished in about three minutes.",
     cardTag: "Anniversary — for her",
     cardTitle: "Still the Reason",
     cardLyric:
@@ -417,7 +417,7 @@ const CELLS = [
     whyEyebrow: "Why Porizo for your anniversary",
     whyHeadline: "An anniversary gift that doesn't sound like everyone else's.",
     whyBody:
-      "Anniversary gifts blur together. Flowers, dinner reservation, jewelry-store ad. A Porizo song breaks out of that by being <em>about her specifically</em> — the laugh you fell for, the apartment with the broken radiator, the running joke about pancakes, the thing she said the day you knew. Those become the lyric. Then Porizo sings them back in your own voice via voice cloning — the voice she actually fell for. Among the established human-composer gift services (Songfinch, Songlorious, Songheart, ForeverSong) none offer voice cloning of the gifter. She hears the song and recognizes <em>you</em> singing — that recognition is the gift.",
+      "Anniversary gifts blur together. Flowers, dinner reservation, jewelry-store ad. A Porizo song breaks out of that by being <em>about her specifically</em> — the laugh you fell for, the apartment with the broken radiator, the running joke about pancakes, the thing she said the day you knew. Those become the lyric, performed by an AI vocalist in a music style you choose. The human-composer gift services (Songfinch, Songlorious, Songheart, ForeverSong) take days and cost around $200; Porizo turns one real memory into a finished song in about three minutes for around $9. She hears a song built entirely around the two of you — that specificity is the gift.",
     bestForEyebrow: "Best for",
     bestForHeadline: "Anniversaries that earn their own song.",
     bestForMoments: [
@@ -433,9 +433,9 @@ const CELLS = [
     exampleStarRow: "For a 25th wedding anniversary",
     exampleLyric:
       '"Twenty-five Septembers / and you still hum the same way over coffee / you still answer my one bad joke / and somehow the same morning gets new each time."',
-    exampleStyle: "Acoustic · 75 seconds · sung in the gifter's voice",
+    exampleStyle: "Acoustic · 75 seconds",
     exampleNote:
-      'The lyric came from one detail: "She hums when she pours coffee, the same way she did our first morning together." Porizo wrote a verse and chorus around that and stacked twenty-five years onto it.',
+      'The lyric came from one detail: "She hums when she pours coffee, the same way she did our first morning together." Porizo wrote a verse and chorus around that and stacked twenty-five years onto it — performed in the acoustic style the gifter chose.',
     faqEyebrow: "FAQ",
     faqHeadline: "Anniversary song questions.",
     faqs: [
@@ -444,8 +444,8 @@ const CELLS = [
         a: "Preview in under 90 seconds. Full song in about three minutes. You can finish the song in the time it takes her to get dressed.",
       },
       {
-        q: "Will the song be in my own voice?",
-        a: "Yes — voice cloning is included on Plus and Pro. Record 6–10 short phrases once and Porizo will sing every future song in your voice. For an anniversary song, hearing your voice is what makes it land.",
+        q: "How do I choose how the song sounds?",
+        a: "You pick the music style — acoustic, pop, R&B, country — and an AI vocalist performs the lyrics built from your memory. For an anniversary song, the specific memory is what makes it land.",
       },
       {
         q: "What if I don't know what to say in the song?",
@@ -461,7 +461,7 @@ const CELLS = [
       },
       {
         q: "How does this compare to Songfinch or Songlorious?",
-        a: "Songfinch and Songlorious use human composers and ship in days for $169.99–$199.99 per song. Porizo ships in minutes for $9.99/month and adds voice cloning — the gifter's own voice singing — which neither offers.",
+        a: "Songfinch and Songlorious use human composers and ship in days for $169.99–$199.99 per song. Porizo ships in minutes for about $9 — original lyrics from one real memory, in a music style you choose.",
       },
     ],
     internalLinks: [
@@ -476,11 +476,11 @@ const CELLS = [
     slug: "anniversary-song-for-husband",
     metaTitle: "Anniversary Song for Husband | Porizo",
     metaDescription:
-      "Personalized anniversary song for your husband — original lyrics from a real shared moment, sung in your voice. Finished in about three minutes.",
+      "Personalized anniversary song for your husband — original lyrics from a real shared moment, in a music style you choose. Finished in about three minutes.",
     eyebrow: "Anniversary song for husband",
     h1: "Anniversary song for your husband.",
     lede:
-      "Husbands are notoriously hard to shop for on the anniversary. A Porizo song fixes that by being <em>about him</em> — the way he makes coffee, the line you say every December, the inside joke from the road trip — turned into a song sung in your voice. Finished in about three minutes.",
+      "Husbands are notoriously hard to shop for on the anniversary. A Porizo song fixes that by being <em>about him</em> — the way he makes coffee, the line you say every December, the inside joke from the road trip — turned into a song in the music style you choose. Finished in about three minutes.",
     cardTag: "Anniversary — for him",
     cardTitle: "The Long Quiet Yes",
     cardLyric:
@@ -488,7 +488,7 @@ const CELLS = [
     whyEyebrow: "Why Porizo for your anniversary",
     whyHeadline: "An anniversary gift built for a man who doesn't want stuff.",
     whyBody:
-      "Husbands tend to refuse gifts on the anniversary. 'Don't get me anything.' A Porizo song slips past that defense because it isn't a thing — it's a moment, captured in lyric, in your voice. The way he makes coffee. The thing he says when you're tired. The joke from the third year. Those become the song. Then Porizo sings it back in <em>your voice</em> via voice cloning — the voice he wakes up to. Among the established human-composer gift services (Songfinch, Songlorious, Songheart, ForeverSong) none offer voice cloning of the gifter. He hears the song. He recognizes you singing. He keeps it.",
+      "Husbands tend to refuse gifts on the anniversary. 'Don't get me anything.' A Porizo song slips past that defense because it isn't a thing — it's a moment, captured in lyric. The way he makes coffee. The thing he says when you're tired. The joke from the third year. Those become the song, performed by an AI vocalist in a music style you choose. The human-composer gift services (Songfinch, Songlorious, Songheart, ForeverSong) take days and cost around $200; Porizo turns one real moment into a finished song in minutes for about $9. He hears a song built entirely around the two of you. He keeps it.",
     bestForEyebrow: "Best for",
     bestForHeadline: "Anniversaries that earn their own song.",
     bestForMoments: [
@@ -504,9 +504,9 @@ const CELLS = [
     exampleStarRow: "For a 10th wedding anniversary",
     exampleLyric:
       `"You still make coffee like the kitchen is yours alone / you still text "on my way" from two blocks out / and ten years of the same one inside joke / has somehow turned into the love song I didn't know I was writing."`,
-    exampleStyle: "Indie folk · 75 seconds · sung in the gifter's voice",
+    exampleStyle: "Indie folk · 75 seconds",
     exampleNote:
-      'The lyric came from one detail: "He texts \'on my way\' from two blocks from home, every single day." Porizo wrote a verse around the ritual and a chorus about ten years of small loyalties.',
+      'The lyric came from one detail: "He texts \'on my way\' from two blocks from home, every single day." Porizo wrote a verse around the ritual and a chorus about ten years of small loyalties — performed in the indie-folk style the gifter chose.',
     faqEyebrow: "FAQ",
     faqHeadline: "Anniversary song questions.",
     faqs: [
@@ -515,8 +515,8 @@ const CELLS = [
         a: "Preview in under 90 seconds. Full song in about three minutes. You can finish the song in the time it takes him to find his keys.",
       },
       {
-        q: "Will the song be in my own voice?",
-        a: "Yes — voice cloning is included on Plus and Pro. Record 6–10 short phrases once and Porizo will sing every future song in your voice. For a husband's anniversary gift, your voice is the thing that lands it.",
+        q: "How do I choose how the song sounds?",
+        a: "You pick the music style — indie folk, acoustic, pop, country — and an AI vocalist performs the lyrics built from your memory. For a husband's anniversary gift, the specific moment is the thing that lands it.",
       },
       {
         q: "He says he doesn't want gifts. Will this still work?",
@@ -532,7 +532,7 @@ const CELLS = [
       },
       {
         q: "How does this compare to Songfinch or Songlorious?",
-        a: "Songfinch and Songlorious use human composers and ship in days for $169.99–$199.99 per song. Porizo ships in minutes for $9.99/month and adds voice cloning — your own voice singing — which neither offers.",
+        a: "Songfinch and Songlorious use human composers and ship in days for $169.99–$199.99 per song. Porizo ships in minutes for about $9 — original lyrics from one real moment, in a music style you choose.",
       },
     ],
     internalLinks: [
@@ -547,11 +547,11 @@ const CELLS = [
     slug: "anniversary-song-25-years",
     metaTitle: "25th Anniversary Song (Silver Anniversary) | Porizo",
     metaDescription:
-      "Personalized 25th anniversary song. Original lyrics about your 25 years, sung in your own voice. Finished in about three minutes.",
+      "Personalized 25th anniversary song. Original lyrics about your 25 years, in a music style you choose. Finished in about three minutes.",
     eyebrow: "25th anniversary song",
     h1: "A 25th anniversary song, the way 25 years deserve.",
     lede:
-      "Twenty-five years is silver because silver lasts. A card or a watch can't carry 25 years of inside jokes. A Porizo silver-anniversary song catches one specific moment that ran through every year — the way she pours coffee, the way he says your name — and turns it into a song, sung in your voice.",
+      "Twenty-five years is silver because silver lasts. A card or a watch can't carry 25 years of inside jokes. A Porizo silver-anniversary song catches one specific moment that ran through every year — the way she pours coffee, the way he says your name — and turns it into a song, in the music style you choose.",
     cardTag: "25th — Silver",
     cardTitle: "Twenty-Five Septembers",
     cardLyric:
@@ -559,7 +559,7 @@ const CELLS = [
     whyEyebrow: "Why Porizo for the 25th",
     whyHeadline: "A silver anniversary gift, the way silver actually means.",
     whyBody:
-      "Silver anniversary gifts usually default to silver-as-metal: jewelry, a frame, a watch. The intent is real but the gift is generic. A Porizo silver-anniversary song does what silver actually means: it preserves <em>this specific 25 years</em> — your inside jokes, the way you've made coffee for each other, the running argument about a movie title that's lasted two decades. Those become the lyric, sung back in your own voice via voice cloning. None of the established human-composer marketplaces (Songfinch, Songlorious, Songheart, ForeverSong) offer voice cloning of the gifter. Twenty-five years of you, in a song that didn't exist three minutes ago.",
+      "Silver anniversary gifts usually default to silver-as-metal: jewelry, a frame, a watch. The intent is real but the gift is generic. A Porizo silver-anniversary song does what silver actually means: it preserves <em>this specific 25 years</em> — your inside jokes, the way you've made coffee for each other, the running argument about a movie title that's lasted two decades. Those become the lyric, performed by an AI vocalist in a music style you choose. The human-composer marketplaces (Songfinch, Songlorious, Songheart, ForeverSong) take days and cost around $200; Porizo turns your 25 years into a finished song in minutes for about $9. Twenty-five years of you, in a song that didn't exist three minutes ago.",
     bestForEyebrow: "Best for",
     bestForHeadline: "25th anniversary moments that earn their own song.",
     bestForMoments: [
@@ -575,9 +575,9 @@ const CELLS = [
     exampleStarRow: "For a 25th wedding anniversary",
     exampleLyric:
       '"Twenty-five Septembers / I have watched you find the window where the light hits right / and I will keep walking in pretending I didn\'t notice you waiting / for another twenty-five Septembers."',
-    exampleStyle: "Acoustic · 80 seconds · sung in the gifter's voice",
+    exampleStyle: "Acoustic · 80 seconds",
     exampleNote:
-      'The lyric came from one detail: "She always sits in the same spot by the window at our anniversary breakfast." Porizo built the whole song around that 25-September ritual.',
+      'The lyric came from one detail: "She always sits in the same spot by the window at our anniversary breakfast." Porizo built the whole song around that 25-September ritual, performed in the acoustic style the gifter chose.',
     faqEyebrow: "FAQ",
     faqHeadline: "25th anniversary song questions.",
     faqs: [
@@ -590,8 +590,8 @@ const CELLS = [
         a: "Yes — that's what makes it land. Include any years, places, names, or moments in the memory you give Porizo. The lyric will weave them in.",
       },
       {
-        q: "Will the song be in my own voice?",
-        a: "Yes — voice cloning is on Plus and Pro. Record 6–10 short phrases once and every song after that is in your voice. For a 25th, that detail is what makes the song outlive the dinner.",
+        q: "How do I choose how the song sounds?",
+        a: "You pick the music style — acoustic ballad, pop, country — and an AI vocalist performs the lyrics built from your 25 years. For a 25th, the specificity of the memory is what makes the song outlive the dinner.",
       },
       {
         q: "How long is the song? Can I make it longer for a milestone?",
@@ -599,11 +599,11 @@ const CELLS = [
       },
       {
         q: "Can I make multiple songs — one for each of us?",
-        a: "Yes — and many people do for a 25th. Each spouse enrolls their voice and writes a song to the other. Two songs, two voices, one anniversary.",
+        a: "Yes — and many people do for a 25th. Each spouse writes a song to the other, built from their own memory, in their own chosen style. Two songs, one anniversary.",
       },
       {
         q: "How does this compare to Songfinch for a 25th?",
-        a: "Songfinch uses human composers and ships in 4–7 days for $179.99+. Porizo ships in minutes for $9.99/month and adds voice cloning. For a 25th anniversary, hearing your own voice (or your spouse's) sing the lyric is the part Songfinch can't deliver.",
+        a: "Songfinch uses human composers and ships in 4–7 days for $179.99+. Porizo ships in minutes for about $9 — original lyrics from your 25 years, in a style you choose. For a 25th anniversary where the moment matters now, the speed is the part Songfinch can't deliver.",
       },
     ],
     internalLinks: [
@@ -621,11 +621,11 @@ const CELLS = [
     slug: "graduation-song-for-son",
     metaTitle: "Graduation Song for Son | Porizo",
     metaDescription:
-      "Personalized graduation song for your son — original lyrics about him, sung in your voice. Finished in about three minutes.",
+      "Personalized graduation song for your son — original lyrics about him, in a music style you choose. Finished in about three minutes.",
     eyebrow: "Graduation song for son",
     h1: "Graduation song for your son.",
     lede:
-      "He won't read the card. He might not even open the envelope. But he'll play a song. A Porizo graduation song catches one specific thing about who your son is right now — the joke, the focus, the way he disappears into a project — and turns it into a song, sung in your own voice.",
+      "He won't read the card. He might not even open the envelope. But he'll play a song. A Porizo graduation song catches one specific thing about who your son is right now — the joke, the focus, the way he disappears into a project — and turns it into a song, in the music style you choose.",
     cardTag: "Graduation — for him",
     cardTitle: "The Long Slow Yes",
     cardLyric:
@@ -633,7 +633,7 @@ const CELLS = [
     whyEyebrow: "Why Porizo for graduation",
     whyHeadline: "A graduation gift he'll actually keep.",
     whyBody:
-      "Graduation gifts default to cash, watches, or framed degrees. None of them sit on the playlist. A Porizo song does — because it's specific to him. The way he studied. The thing he said when something hard finally clicked. The teacher he never thanked out loud. Those become the lyric, sung in your own voice via voice cloning, which means when he plays it on the drive home from the ceremony he hears <em>you</em>. Among the established human-composer gift services (Songfinch, Songlorious) none offer voice cloning of the gifter. He keeps the song. He plays it again at his first job interview, his first apartment, his first big break.",
+      "Graduation gifts default to cash, watches, or framed degrees. None of them sit on the playlist. A Porizo song does — because it's specific to him. The way he studied. The thing he said when something hard finally clicked. The teacher he never thanked out loud. Those become the lyric, performed by an AI vocalist in a music style you choose, which means when he plays it on the drive home from the ceremony he hears a song built entirely around him. The human-composer gift services (Songfinch, Songlorious) take days and cost around $200; Porizo turns your memory into a finished song in minutes for about $9. He keeps the song. He plays it again at his first job interview, his first apartment, his first big break.",
     bestForEyebrow: "Best for",
     bestForHeadline: "Graduation moments that earn their own song.",
     bestForMoments: [
@@ -649,9 +649,9 @@ const CELLS = [
     exampleStarRow: "For a son's college graduation",
     exampleLyric:
       '"You read the chapter twice and you didn\'t complain / you turned the lamp off late and you didn\'t say why / and now the long quiet hours are walking across this stage with you."',
-    exampleStyle: "Acoustic · 75 seconds · sung in the gifter's voice",
+    exampleStyle: "Acoustic · 75 seconds",
     exampleNote:
-      'The lyric came from one detail: "He used to study with one lamp on, late, with the door cracked." Porizo built the song around that single image of focus.',
+      'The lyric came from one detail: "He used to study with one lamp on, late, with the door cracked." Porizo built the song around that single image of focus, performed in the acoustic style the gifter chose.',
     faqEyebrow: "FAQ",
     faqHeadline: "Graduation song questions.",
     faqs: [
@@ -660,8 +660,8 @@ const CELLS = [
         a: "Most graduates 'don't really listen to that kind of music' and play these anyway. The reason is the specificity. It's not about music — it's about him.",
       },
       {
-        q: "Will the song be in my voice?",
-        a: "Yes — voice cloning is on Plus and Pro. Record 6–10 short phrases once and Porizo sings every song in your voice. For a graduation song from a parent, that's the part that lands.",
+        q: "How do I choose how the song sounds?",
+        a: "You pick the music style — acoustic, pop, country, indie — and an AI vocalist performs the lyrics built from your memory. For a graduation song from a parent, the specific memory is the part that lands.",
       },
       {
         q: "Can I include his school's name or his major?",
@@ -673,11 +673,11 @@ const CELLS = [
       },
       {
         q: "Can multiple family members contribute?",
-        a: "Yes. Each enrolls their voice and makes a song. Or one person makes the song and lists each family member by name in the memory — the lyric weaves them in.",
+        a: "Yes. Each makes a song from their own memory. Or one person makes the song and lists each family member by name in the memory — the lyric weaves them in.",
       },
       {
         q: "How does this compare to Songfinch?",
-        a: "Songfinch uses human composers and ships in 4–7 days for $179.99+. Porizo ships in minutes for $9.99/month and adds voice cloning. For graduation, the voice-recognition is what makes a parent-to-child song land.",
+        a: "Songfinch uses human composers and ships in 4–7 days for $179.99+. Porizo ships in minutes for about $9 — original lyrics from your memory, in a style you choose. For graduation, the speed and specificity are what make a parent-to-child song land.",
       },
     ],
     internalLinks: [
@@ -697,11 +697,11 @@ const CELLS = [
     slug: "ai-song-generator-for-gifts",
     metaTitle: "AI Song Generator for Gifts | Porizo",
     metaDescription:
-      "Use an AI song generator to make a personalized song gift — original lyrics from a real memory, sung in your own voice. Built for birthdays, anniversaries, and any occasion.",
+      "Use an AI song generator to make a personalized song gift — original lyrics from a real memory, in a music style you choose. Built for birthdays, anniversaries, and any occasion.",
     eyebrow: "AI song generator — built for gifts",
     h1: "The AI song generator built for song gifts.",
     lede:
-      "Plenty of AI song generators make a song. Porizo makes a <em>gift</em>. The difference: Porizo turns one real memory into a 45-90 second song that fits the occasion, names the recipient, and ships as a shareable link sung in your own voice. Built specifically for birthdays, anniversaries, Mother's Day, Father's Day, weddings, graduations, and the in-between moments that earn their own song.",
+      "Plenty of AI song generators make a song. Porizo makes a <em>gift</em>. The difference: Porizo turns one real memory into a 45-90 second song that fits the occasion, names the recipient, and ships as a shareable link in the music style you choose. Built specifically for birthdays, anniversaries, Mother's Day, Father's Day, weddings, graduations, and the in-between moments that earn their own song.",
     cardTag: "AI song generator for gifts",
     cardTitle: "Made For This Moment",
     cardLyric:
@@ -709,7 +709,7 @@ const CELLS = [
     whyEyebrow: "Why a gift-built AI song generator",
     whyHeadline: "AI song generators make songs. Porizo makes a moment land.",
     whyBody:
-      "General-purpose AI song generators (Suno, Donna, Muzio) are designed to make music — any kind of music, for any reason. Porizo is the AI song generator built for one specific job: <strong>turning a real moment between two people into a song gift</strong>. That changes everything downstream — the lyric structure is built around a recipient name and a memory, the song length is 45-90 seconds (right for a gift, not for a playlist), the audio ships as a shareable link the recipient can open in any browser, and the gifter's own voice sings the song via voice cloning. Among the established personalized-song marketplaces (Songfinch, Songlorious, Songheart, ForeverSong) none combine AI generation with voice cloning of the gifter. Porizo is positioned at that intersection on purpose.",
+      "General-purpose AI song generators (Suno, Donna, Muzio) are designed to make music — any kind of music, for any reason. Porizo is the AI song generator built for one specific job: <strong>turning a real moment between two people into a song gift</strong>. That changes everything downstream — the lyric structure is built around a recipient name and a memory, the song length is 45-90 seconds (right for a gift, not for a playlist), the audio ships as a shareable link the recipient can open in any browser, and you choose the music style while an AI vocalist performs it. The established personalized-song marketplaces (Songfinch, Songlorious, Songheart, ForeverSong) use human composers and take days at around $200. Porizo turns one real memory into a finished gift in about three minutes for around $9 — positioned at that intersection on purpose.",
     bestForEyebrow: "Use it for",
     bestForHeadline: "Occasions an AI song generator should be built for.",
     bestForMoments: [
@@ -725,23 +725,23 @@ const CELLS = [
     exampleStarRow: "For a friend's 30th birthday",
     exampleLyric:
       `"You still laugh the loudest at the joke that never lands / you still light every room with the same impossible energy you had at twenty-two / another year brighter, another year you."`,
-    exampleStyle: "Pop ballad · 75 seconds · sung in the gifter's voice",
+    exampleStyle: "Pop ballad · 75 seconds",
     exampleNote:
-      'The lyric came from one detail: "she always laughs at her own jokes before they land." Porizo expanded that into a verse and a chorus, then sang it back in the gifter\'s tone — the kind of song-gift no general-purpose AI generator is built to ship.',
+      'The lyric came from one detail: "she always laughs at her own jokes before they land." Porizo expanded that into a verse and a chorus, performed in the pop-ballad style the gifter chose — the kind of song-gift no general-purpose AI generator is built to ship.',
     faqEyebrow: "FAQ",
     faqHeadline: "AI song generator questions.",
     faqs: [
       {
         q: "How is Porizo different from Suno, Donna, or other AI song generators?",
-        a: "Suno, Donna, and Muzio are built for general music creation — any genre, any reason, often instrumental. Porizo is built for <em>song gifts</em>: short (45-90 sec), structured around a recipient name and memory, sung in the gifter's own voice via voice cloning, shareable as a link. Different jobs.",
+        a: "Suno, Donna, and Muzio are built for general music creation — any genre, any reason, often instrumental. Porizo is built for <em>song gifts</em>: short (45-90 sec), structured around a recipient name and memory, in the music style you choose, shareable as a link. Different jobs.",
       },
       {
-        q: "Can the song really be sung in my own voice?",
-        a: "Yes. Porizo includes voice cloning on Plus and Pro plans. Record 6-10 short phrases once inside the app and every future song is sung in your voice. None of the established human-composer gift services (Songfinch, Songlorious) offer this; few general-purpose AI generators apply it to song-gift use cases.",
+        q: "How do I choose how the song sounds?",
+        a: "You pick the music style — pop, country, R&B, Afropop, folk, acoustic — and an AI vocalist performs the lyrics built from your memory. The lyrics being unmistakably about the recipient is what no general-purpose generator is built to do.",
       },
       {
         q: "Is this a free AI song generator?",
-        a: "The first song is free on the Free plan. Voice cloning, unlimited songs per month, and Pro features are on the Plus ($9.99/mo) and Pro ($14.99/mo) plans. Annual billing reduces effective per-song cost to $1.50-$2.50.",
+        a: "The first song is free on the Free plan. Unlimited songs per month and Pro features are on the Plus ($9.99/mo) and Pro ($14.99/mo) plans. Annual billing reduces effective per-song cost to $1.50-$2.50.",
       },
       {
         q: "How long does it take to make a song?",
@@ -768,11 +768,11 @@ const CELLS = [
     slug: "ai-song-maker-for-birthday",
     metaTitle: "AI Song Maker for Birthday Gifts | Porizo",
     metaDescription:
-      "AI song maker for personalized birthday gifts — original lyrics from a real birthday memory, sung in your own voice. Finished in about three minutes.",
+      "AI song maker for personalized birthday gifts — original lyrics from a real birthday memory, in a music style you choose. Finished in about three minutes.",
     eyebrow: "AI song maker — for birthday gifts",
     h1: "An AI song maker built for birthday gifts.",
     lede:
-      "Most AI song makers ask 'what kind of music do you want?' Porizo asks 'whose birthday is it, and what's one thing only you would know?' The answer becomes the song — original lyrics, original music, sung in your own voice. Finished in about three minutes.",
+      "Most AI song makers ask 'what kind of music do you want?' Porizo asks 'whose birthday is it, and what's one thing only you would know?' The answer becomes the song — original lyrics, original music, in the style you choose. Finished in about three minutes.",
     cardTag: "AI song maker for birthdays",
     cardTitle: "Another Year Brighter",
     cardLyric:
@@ -780,7 +780,7 @@ const CELLS = [
     whyEyebrow: "Why a gift-built AI song maker",
     whyHeadline: "Generic AI song makers play. A birthday-built one lands.",
     whyBody:
-      "A general-purpose AI song maker can produce a song about anyone, any genre, any vibe. The result is technically impressive and emotionally generic. Porizo flips that: every input is built around a <em>specific birthday</em> — the recipient's name, the relationship, a real memory, the occasion. The song that comes out is 45-90 seconds long, sung in your own voice via voice cloning, and lands in a shareable link the birthday person opens once. Among established personalized-song marketplaces (Songfinch, Songlorious, Songheart, ForeverSong) none combine AI generation with voice cloning of the gifter. Porizo is the AI song maker built for that specific job.",
+      "A general-purpose AI song maker can produce a song about anyone, any genre, any vibe. The result is technically impressive and emotionally generic. Porizo flips that: every input is built around a <em>specific birthday</em> — the recipient's name, the relationship, a real memory, the occasion. The song that comes out is 45-90 seconds long, performed by an AI vocalist in a music style you choose, and lands in a shareable link the birthday person opens once. The established personalized-song marketplaces (Songfinch, Songlorious, Songheart, ForeverSong) use human composers and take days at around $200. Porizo turns one real memory into a finished birthday song in minutes for about $9 — built for that specific job.",
     bestForEyebrow: "Best for",
     bestForHeadline: "Birthdays an AI song maker should be built for.",
     bestForMoments: [
@@ -796,19 +796,19 @@ const CELLS = [
     exampleStarRow: "For a friend's 30th birthday",
     exampleLyric:
       `"You still laugh the loudest at the joke that never lands / you still light every room with the same impossible energy you had at twenty-two / another year brighter, another year you."`,
-    exampleStyle: "Pop ballad · 75 seconds · sung in the gifter's voice",
+    exampleStyle: "Pop ballad · 75 seconds",
     exampleNote:
-      "The lyric came from one detail: she always laughs at her own jokes before they land. Porizo expanded that into a full song — the kind a birthday earns.",
+      "The lyric came from one detail: she always laughs at her own jokes before they land. Porizo expanded that into a full song in the pop-ballad style the gifter chose — the kind a birthday earns.",
     faqEyebrow: "FAQ",
     faqHeadline: "AI birthday song maker questions.",
     faqs: [
       {
         q: "How is this different from Suno or other AI song generators?",
-        a: "Suno is built for general music creation. Porizo is built for birthday song gifts: short, structured around the birthday person, sung in your own voice via voice cloning, shareable as a link. Different jobs, different tools.",
+        a: "Suno is built for general music creation. Porizo is built for birthday song gifts: short, structured around the birthday person, in the music style you choose, shareable as a link. Different jobs, different tools.",
       },
       {
-        q: "Can I really make the song sound like me singing for someone's birthday?",
-        a: "Yes. Voice cloning is included on Plus and Pro. Record 6-10 short phrases once and every birthday song is sung in your voice. Hearing your voice is the part that makes a birthday song land harder than any card.",
+        q: "How do I choose how the birthday song sounds?",
+        a: "You pick the music style — pop, country, R&B, folk, acoustic — and an AI vocalist performs the lyrics built from your memory. The lyrics being specifically about the birthday person are what make it land harder than any card.",
       },
       {
         q: "What if the birthday is today?",
@@ -824,7 +824,7 @@ const CELLS = [
       },
       {
         q: "How is this priced vs Songfinch or other birthday song services?",
-        a: "Songfinch is $179.99-$199.99 per song, 4-7 day delivery. Porizo is $9.99/month for 4 songs (Plus) or $14.99/month for 10 songs (Pro) — and ships in minutes with voice cloning, which Songfinch doesn't offer.",
+        a: "Songfinch is $179.99-$199.99 per song, 4-7 day delivery. Porizo is $9.99/month for 4 songs (Plus) or $14.99/month for 10 songs (Pro) — and ships in minutes with original lyrics from your memory, in a style you choose.",
       },
     ],
     internalLinks: [
@@ -839,11 +839,11 @@ const CELLS = [
     slug: "ai-song-for-mom",
     metaTitle: "AI Song for Mom (Mother's Day & Birthday Gifts) | Porizo",
     metaDescription:
-      "Make an AI song for Mom — personalized lyrics from a real memory, sung in your own voice. Built for Mother's Day, her birthday, anniversaries, or any moment.",
+      "Make an AI song for Mom — personalized lyrics from a real memory, in a music style you choose. Built for Mother's Day, her birthday, anniversaries, or any moment.",
     eyebrow: "AI song for mom — gift edition",
     h1: "Make Mom an AI song that's actually about her.",
     lede:
-      "AI songs are easy to generate. AI songs <em>about your specific mom</em> are different. Porizo turns one real memory — her phone voice, her one good chair, the way she shows up at the airport — into a 45-90 second song, sung in your own voice. Mother's Day, her birthday, the anniversary of something quietly important.",
+      "AI songs are easy to generate. AI songs <em>about your specific mom</em> are different. Porizo turns one real memory — her phone voice, her one good chair, the way she shows up at the airport — into a 45-90 second song, in the music style you choose. Mother's Day, her birthday, the anniversary of something quietly important.",
     cardTag: "AI song for Mom",
     cardTitle: "The Door Was Always Open",
     cardLyric:
@@ -851,7 +851,7 @@ const CELLS = [
     whyEyebrow: "Why a gift-built AI song for Mom",
     whyHeadline: "AI songs flatter the algorithm. A song-gift for Mom hits her.",
     whyBody:
-      "Most AI song generators are general purpose — pick a vibe, pick a genre, get a song. A song <em>for Mom</em> needs more specificity: her name in the lyric, the memory only you remember, the version of her that only you saw. Porizo builds the lyric around those details and then sings it back in your own voice via voice cloning, which means when she plays it she hears <em>you</em>. That recognition is the gift. Among the established human-composer gift services (Songfinch, Songlorious, Songheart, ForeverSong) none offer voice cloning of the gifter. Porizo is the AI song app built around the gift moment with the gifter's voice at the center.",
+      "Most AI song generators are general purpose — pick a vibe, pick a genre, get a song. A song <em>for Mom</em> needs more specificity: her name in the lyric, the memory only you remember, the version of her that only you saw. Porizo builds the lyric around those details, performed by an AI vocalist in a music style you choose, which means when she plays it she hears a song built entirely around her. That specificity is the gift. The human-composer gift services (Songfinch, Songlorious, Songheart, ForeverSong) take days and cost around $200; Porizo turns one real memory into a finished song in minutes for about $9 — built around the gift moment.",
     bestForEyebrow: "Best for",
     bestForHeadline: "Moments an AI song for Mom should be built for.",
     bestForMoments: [
@@ -867,19 +867,19 @@ const CELLS = [
     exampleStarRow: "For Mom's 60th birthday",
     exampleLyric:
       `"You answered every call like the phone surprised you / you kept my photos on the fridge for twenty years / you taught me what stays — and what stays doesn't leave when you ask it to."`,
-    exampleStyle: "Folk ballad · 70 seconds · sung in the gifter's voice",
+    exampleStyle: "Folk ballad · 70 seconds",
     exampleNote:
-      "The lyric came from one detail: Mom always answers the phone surprised, like she can't believe you called. Porizo built the song around that ritual.",
+      "The lyric came from one detail: Mom always answers the phone surprised, like she can't believe you called. Porizo built the song around that ritual, performed in the folk-ballad style the gifter chose.",
     faqEyebrow: "FAQ",
     faqHeadline: "AI song for Mom questions.",
     faqs: [
       {
         q: "What's the difference between this and a Suno song for Mom?",
-        a: "Suno makes general music. Porizo makes a song-gift built around your specific mom: 45-90 sec, structured around her name and a memory, sung in your own voice via voice cloning, shareable as a link. Different categories of output.",
+        a: "Suno makes general music. Porizo makes a song-gift built around your specific mom: 45-90 sec, structured around her name and a memory, in the music style you choose, shareable as a link. Different categories of output.",
       },
       {
-        q: "Can the song be in my own voice?",
-        a: "Yes — voice cloning is included on Plus and Pro. Record 6-10 short phrases once and every song after that is in your voice. For a song to Mom, your voice is what makes it land.",
+        q: "How do I choose how the song sounds?",
+        a: "You pick the music style — folk, acoustic, pop, R&B — and an AI vocalist performs the lyrics built from your memory. For a song to Mom, the specific memory is what makes it land.",
       },
       {
         q: "Will Mom know how to play the song?",
@@ -887,15 +887,15 @@ const CELLS = [
       },
       {
         q: "Can multiple siblings contribute to the same song for Mom?",
-        a: "Yes. Either one sibling enrolls their voice and writes the song while mentioning everyone in the lyric, or each sibling makes a separate song with their own voice. Many families do both.",
+        a: "Yes. Either one sibling writes the song while mentioning everyone in the lyric, or each sibling makes a separate song from their own memory. Many families do both.",
       },
       {
         q: "Is there a free AI song for Mom option?",
-        a: "Free plan includes one song. Voice cloning starts on Plus ($9.99/mo, 4 songs/mo). Annual billing brings effective per-song cost to ~$2.50.",
+        a: "Free plan includes one song. Plus ($9.99/mo) adds 4 songs/mo and Pro features. Annual billing brings effective per-song cost to ~$2.50.",
       },
       {
         q: "How does this compare to Songfinch for a Mother's Day gift?",
-        a: "Songfinch is $179.99+ and ships in 4-7 days. Porizo is $9.99/mo and ships in minutes, with your own voice singing. Different tools for different timelines.",
+        a: "Songfinch is $179.99+ and ships in 4-7 days. Porizo is $9.99/mo and ships in minutes — original lyrics from your memory, in a style you choose. Different tools for different timelines.",
       },
     ],
     internalLinks: [
@@ -910,11 +910,11 @@ const CELLS = [
     slug: "ai-song-for-dad",
     metaTitle: "AI Song for Dad (Father's Day & Birthday Gifts) | Porizo",
     metaDescription:
-      "Make an AI song for Dad — personalized lyrics from a real memory, sung in your own voice. Built for Father's Day, his birthday, milestones, or any moment.",
+      "Make an AI song for Dad — personalized lyrics from a real memory, in a music style you choose. Built for Father's Day, his birthday, milestones, or any moment.",
     eyebrow: "AI song for dad — gift edition",
     h1: "Make Dad an AI song that's actually about him.",
     lede:
-      "An AI can write any song. The challenge is writing the song for the specific dad who taught you to drive on Sundays, who hums the same hymn every Christmas, who answers his phone with a sigh and a smile. Porizo turns one real memory into a 45-90 second song for Dad — sung in your own voice. Finished in about three minutes.",
+      "An AI can write any song. The challenge is writing the song for the specific dad who taught you to drive on Sundays, who hums the same hymn every Christmas, who answers his phone with a sigh and a smile. Porizo turns one real memory into a 45-90 second song for Dad — in the music style you choose. Finished in about three minutes.",
     cardTag: "AI song for Dad",
     cardTitle: "The Long Sundays of Dad",
     cardLyric:
@@ -922,7 +922,7 @@ const CELLS = [
     whyEyebrow: "Why a gift-built AI song for Dad",
     whyHeadline: "An AI song for Dad has to be about <em>him</em>, not about AI.",
     whyBody:
-      "Plenty of AI song apps will write you a song about a dad. Porizo writes one about <em>your</em> dad — the workshop he refuses to retire, the recipe he protects, the line he repeats every December. The lyric is built from those details and sung in your own voice via voice cloning, which means when he plays it on the drive home from work he hears <em>you</em>. That recognition does work no generic AI song can do. Among the established human-composer marketplaces (Songfinch, Songlorious, Songheart, ForeverSong) none offer voice cloning of the gifter; Porizo is the AI song app built specifically for that gift moment.",
+      "Plenty of AI song apps will write you a song about a dad. Porizo writes one about <em>your</em> dad — the workshop he refuses to retire, the recipe he protects, the line he repeats every December. The lyric is built from those details, performed by an AI vocalist in a music style you choose, which means when he plays it on the drive home from work he hears a song built entirely around him. That specificity does work no generic AI song can do. The human-composer marketplaces (Songfinch, Songlorious, Songheart, ForeverSong) take days and cost around $200; Porizo turns one real memory into a finished song in minutes for about $9 — built specifically for that gift moment.",
     bestForEyebrow: "Best for",
     bestForHeadline: "Moments an AI song for Dad should be built for.",
     bestForMoments: [
@@ -938,19 +938,19 @@ const CELLS = [
     exampleStarRow: "For Dad's 65th birthday",
     exampleLyric:
       `"You taught me how to drive on a Sunday road / told me the brake was kinder than the wheel / and every time I borrow your jacket / I find another year you carried me through."`,
-    exampleStyle: "Acoustic folk · 75 seconds · sung in the gifter's voice",
+    exampleStyle: "Acoustic folk · 75 seconds",
     exampleNote:
-      'The lyric came from one detail: "Dad insisted I learn to drive on Sundays — empty roads, no traffic." Porizo turned that sentence into a verse, a chorus, and a bridge, sung in the gifter\'s tone.',
+      'The lyric came from one detail: "Dad insisted I learn to drive on Sundays — empty roads, no traffic." Porizo turned that sentence into a verse, a chorus, and a bridge, performed in the acoustic-folk style the gifter chose.',
     faqEyebrow: "FAQ",
     faqHeadline: "AI song for Dad questions.",
     faqs: [
       {
         q: "What's different about Porizo vs Suno or another AI song generator for Dad?",
-        a: "Suno makes general music. Porizo makes a song-gift: short (45-90 sec), structured around your specific dad and a memory, sung in your own voice via voice cloning, shareable as a link he opens on his phone. Different jobs.",
+        a: "Suno makes general music. Porizo makes a song-gift: short (45-90 sec), structured around your specific dad and a memory, in the music style you choose, shareable as a link he opens on his phone. Different jobs.",
       },
       {
-        q: "Can the song be in my voice?",
-        a: "Yes — voice cloning is on Plus and Pro. Record 6-10 short phrases once and every song after is in your voice. For a song from a son or daughter to Dad, your voice is what makes it stick.",
+        q: "How do I choose how the song sounds?",
+        a: "You pick the music style — acoustic, folk, country, pop — and an AI vocalist performs the lyrics built from your memory. For a song from a son or daughter to Dad, the specific memory is what makes it stick.",
       },
       {
         q: "Will Dad know how to play it?",
@@ -962,11 +962,11 @@ const CELLS = [
       },
       {
         q: "Can multiple kids contribute to the same song for Dad?",
-        a: "Yes. Either one kid enrolls their voice and the lyric mentions every kid, or each kid makes a separate song. Families often do both for milestone years.",
+        a: "Yes. Either one kid writes the song and the lyric mentions every kid, or each kid makes a separate song from their own memory. Families often do both for milestone years.",
       },
       {
         q: "How does this compare to Songfinch for a Father's Day gift?",
-        a: "Songfinch is $179.99+ and ships in 4-7 days. Porizo is $9.99/month and ships in minutes, with your own voice. For Father's Day timing pressure, the speed matters; for the gift to actually land, the voice matters.",
+        a: "Songfinch is $179.99+ and ships in 4-7 days. Porizo is $9.99/month and ships in minutes — original lyrics from your memory, in a style you choose. For Father's Day timing pressure, the speed matters; for the gift to land, the specific memory matters.",
       },
     ],
     internalLinks: [
@@ -981,11 +981,11 @@ const CELLS = [
     slug: "personalized-ai-song-generator",
     metaTitle: "Personalized AI Song Generator (Gift Edition) | Porizo",
     metaDescription:
-      "Personalized AI song generator built for gifts — original lyrics from a real memory, sung in your own voice. Birthdays, anniversaries, any occasion.",
+      "Personalized AI song generator built for gifts — original lyrics from a real memory, in a music style you choose. Birthdays, anniversaries, any occasion.",
     eyebrow: "Personalized AI song generator",
     h1: "A personalized AI song generator built for the gift moment.",
     lede:
-      "There are AI song generators. There are personalized song services. Porizo is the one personalized AI song generator built specifically for the <em>gift moment</em> — short (45-90 sec), structured around a recipient name and one real memory, sung in your own voice via voice cloning, shareable as a link before the recipient installs anything.",
+      "There are AI song generators. There are personalized song services. Porizo is the one personalized AI song generator built specifically for the <em>gift moment</em> — short (45-90 sec), structured around a recipient name and one real memory, in the music style you choose, shareable as a link before the recipient installs anything.",
     cardTag: "Personalized AI for gifts",
     cardTitle: "Built For This One Gift",
     cardLyric:
@@ -993,7 +993,7 @@ const CELLS = [
     whyEyebrow: "Why personalized AI for gifts specifically",
     whyHeadline: "Generic AI makes generic songs. The gift moment needs a specific tool.",
     whyBody:
-      "Most personalized song services use human composers and ship in days for $69-$299 (Songfinch, Songlorious, Songheart, ForeverSong). Most AI song generators are built for general music creation (Suno, Donna, Muzio). Porizo lives at the intersection neither of those occupies: a personalized AI song generator built explicitly for the gift moment. The recipient name goes in the lyric. The memory shapes the verse. The gifter's own voice sings the chorus via voice cloning. The output ships in three minutes as a shareable web link. Among the established personalized-song marketplaces, voice cloning of the gifter is not offered by any. Porizo is positioned at that intersection on purpose.",
+      "Most personalized song services use human composers and ship in days for $69-$299 (Songfinch, Songlorious, Songheart, ForeverSong). Most AI song generators are built for general music creation (Suno, Donna, Muzio). Porizo lives at the intersection neither of those occupies: a personalized AI song generator built explicitly for the gift moment. The recipient name goes in the lyric. The memory shapes the verse. You pick the music style and an AI vocalist performs it. The output ships in three minutes as a shareable web link, for about $9 instead of $200. Porizo is positioned at that intersection on purpose.",
     bestForEyebrow: "Built for",
     bestForHeadline: "Where a personalized AI song generator earns its category.",
     bestForMoments: [
@@ -1009,27 +1009,27 @@ const CELLS = [
     exampleStarRow: "For a 25th anniversary",
     exampleLyric:
       `"Twenty-five Septembers / and you still hum the same way over coffee / you still answer my one bad joke / and somehow the same morning gets new each time."`,
-    exampleStyle: "Acoustic · 75 seconds · sung in the gifter's voice",
+    exampleStyle: "Acoustic · 75 seconds",
     exampleNote:
-      'The lyric came from one detail: "She hums when she pours coffee, the same way she did our first morning together." Porizo built a verse and chorus around that and stacked twenty-five years onto it.',
+      'The lyric came from one detail: "She hums when she pours coffee, the same way she did our first morning together." Porizo built a verse and chorus around that and stacked twenty-five years onto it, performed in the acoustic style the gifter chose.',
     faqEyebrow: "FAQ",
     faqHeadline: "Personalized AI song generator questions.",
     faqs: [
       {
         q: "How is Porizo different from other personalized song services like Songfinch?",
-        a: "Songfinch and similar (Songlorious, Songheart, ForeverSong) use human composers and ship in days for $69-$299 per song. Porizo uses AI generation and ships in minutes for $9.99/month, with voice cloning of the gifter — which none of the human-composer services offer.",
+        a: "Songfinch and similar (Songlorious, Songheart, ForeverSong) use human composers and ship in days for $69-$299 per song. Porizo uses AI generation and ships in minutes for about $9 — original lyrics from one real memory, in a music style you choose.",
       },
       {
         q: "How is Porizo different from a general AI song generator like Suno?",
-        a: "Suno is built for general music creation across any genre and any topic. Porizo is built specifically for the personalized song-gift moment: short, structured around a recipient and memory, sung in the gifter's voice, shareable as a link.",
+        a: "Suno is built for general music creation across any genre and any topic. Porizo is built specifically for the personalized song-gift moment: short, structured around a recipient and memory, in the music style you choose, shareable as a link.",
       },
       {
         q: "How long does the song take?",
         a: "Preview in under 90 seconds. Full 45-90 second song in about three minutes.",
       },
       {
-        q: "Can I really sound like me singing?",
-        a: "Yes. Voice cloning is included on Plus and Pro. Record 6-10 short phrases once inside the app and every future song is sung in your voice.",
+        q: "How do I choose how the song sounds?",
+        a: "You pick the music style — pop, country, R&B, Afropop, folk, acoustic — and an AI vocalist performs the lyrics built from your memory.",
       },
       {
         q: "What occasions are supported?",
@@ -1052,11 +1052,11 @@ const CELLS = [
     slug: "graduation-song-for-daughter",
     metaTitle: "Graduation Song for Daughter | Porizo",
     metaDescription:
-      "Personalized graduation song for your daughter — original lyrics about who she is right now, sung in your voice. Finished in minutes.",
+      "Personalized graduation song for your daughter — original lyrics about who she is right now, in a music style you choose. Finished in minutes.",
     eyebrow: "Graduation song for daughter",
     h1: "Graduation song for your daughter.",
     lede:
-      "She'll keep the card for a year. She'll keep a song forever. A Porizo graduation song captures one specific thing about who your daughter became across the years that led to today — the focus, the resilience, the way she says her own name — and turns it into a song, sung in your voice.",
+      "She'll keep the card for a year. She'll keep a song forever. A Porizo graduation song captures one specific thing about who your daughter became across the years that led to today — the focus, the resilience, the way she says her own name — and turns it into a song, in the music style you choose.",
     cardTag: "Graduation — for her",
     cardTitle: "The Long Quiet Yes",
     cardLyric:
@@ -1064,7 +1064,7 @@ const CELLS = [
     whyEyebrow: "Why Porizo for graduation",
     whyHeadline: "A graduation gift that doesn't end with the ceremony.",
     whyBody:
-      "Graduation gifts for daughters default to jewelry, framed diplomas, or a check tucked into a card. They sit in a drawer. A Porizo song doesn't — because it's specific to her. The thing she said when she didn't get into her first choice. The book she finished at 2am. The way she encouraged her younger sibling through a hard semester. Those become the lyric, sung in your own voice via voice cloning. None of the established human-composer marketplaces (Songfinch, Songlorious, Songheart, ForeverSong) offer voice cloning of the gifter. She plays the song on the way to the ceremony, the morning of her first job, the night before her first big presentation. It outlives the dinner.",
+      "Graduation gifts for daughters default to jewelry, framed diplomas, or a check tucked into a card. They sit in a drawer. A Porizo song doesn't — because it's specific to her. The thing she said when she didn't get into her first choice. The book she finished at 2am. The way she encouraged her younger sibling through a hard semester. Those become the lyric, performed by an AI vocalist in a music style you choose. The human-composer marketplaces (Songfinch, Songlorious, Songheart, ForeverSong) take days and cost around $200; Porizo turns your memory into a finished song in minutes for about $9. She plays the song on the way to the ceremony, the morning of her first job, the night before her first big presentation. It outlives the dinner.",
     bestForEyebrow: "Best for",
     bestForHeadline: "Graduation moments that earn their own song.",
     bestForMoments: [
@@ -1080,9 +1080,9 @@ const CELLS = [
     exampleStarRow: "For a daughter's college graduation",
     exampleLyric:
       '"You did the second draft when nobody asked / you sat with the question one more night / and the answer didn\'t come — but you came back the next morning anyway."',
-    exampleStyle: "Indie folk · 80 seconds · sung in the gifter's voice",
+    exampleStyle: "Indie folk · 80 seconds",
     exampleNote:
-      'The lyric came from one detail: "She rewrote her thesis chapter three times in one week." Porizo built the song around discipline and showing up again.',
+      'The lyric came from one detail: "She rewrote her thesis chapter three times in one week." Porizo built the song around discipline and showing up again, performed in the indie-folk style the gifter chose.',
     faqEyebrow: "FAQ",
     faqHeadline: "Graduation song questions.",
     faqs: [
@@ -1091,8 +1091,8 @@ const CELLS = [
         a: "Most graduates 'don't really listen to that kind of music' and play these anyway. The reason is the specificity. It's not about music — it's about her.",
       },
       {
-        q: "Will the song be in my voice?",
-        a: "Yes — voice cloning is on Plus and Pro. Record 6–10 short phrases once and Porizo sings every song in your voice. For a graduation song from a parent to a daughter, your voice is what makes it stick.",
+        q: "How do I choose how the song sounds?",
+        a: "You pick the music style — indie folk, acoustic, pop, country — and an AI vocalist performs the lyrics built from your memory. For a graduation song from a parent to a daughter, the specific memory is what makes it stick.",
       },
       {
         q: "Can I include her school name or major?",
@@ -1100,7 +1100,7 @@ const CELLS = [
       },
       {
         q: "What if both parents want to contribute to the song?",
-        a: "Either enroll one voice and reference both parents in the lyric, or enroll both voices separately and make two short songs — a verse from each.",
+        a: "Either make one song that references both parents in the lyric, or make two short songs — one from each parent's own memory.",
       },
       {
         q: "Can I include her sister/brother in the lyric?",
@@ -1108,7 +1108,7 @@ const CELLS = [
       },
       {
         q: "How does this compare to Songfinch?",
-        a: "Songfinch uses human composers and ships in 4–7 days for $179.99+. Porizo ships in minutes for $9.99/month and adds voice cloning — your own voice singing — which Songfinch cannot do.",
+        a: "Songfinch uses human composers and ships in 4–7 days for $179.99+. Porizo ships in minutes for about $9 — original lyrics from your memory, in a style you choose.",
       },
     ],
     internalLinks: [
@@ -1129,11 +1129,11 @@ const CELLS = [
     slug: "love-song-for-boyfriend",
     metaTitle: "Love Song for Boyfriend | Porizo",
     metaDescription:
-      "Make a personalized love song for your boyfriend — original lyrics from a real shared moment, sung in your own voice. Finished in about three minutes.",
+      "Make a personalized love song for your boyfriend — original lyrics from a real shared moment, in a music style you choose. Finished in about three minutes.",
     eyebrow: "Love song for boyfriend",
     h1: "Make him a love song he'll save.",
     lede:
-      "A love song for your boyfriend doesn't need to be loud. It needs to be specific — the way he says your name when he's tired, the joke from your first month together, the morning he made you laugh in the kitchen. Porizo turns that one detail into a song, sung in your voice. Finished in about three minutes.",
+      "A love song for your boyfriend doesn't need to be loud. It needs to be specific — the way he says your name when he's tired, the joke from your first month together, the morning he made you laugh in the kitchen. Porizo turns that one detail into a song, in the music style you choose. Finished in about three minutes.",
     cardTag: "Love song for him",
     cardTitle: "The Quiet One",
     cardLyric:
@@ -1141,7 +1141,7 @@ const CELLS = [
     whyEyebrow: "Why Porizo for a love song",
     whyHeadline: "A love song for boyfriends, built around the one thing only you would write.",
     whyBody:
-      "Most love songs sound like other love songs. The pop hits, the playlist staples, the lines everyone has heard. A Porizo song is the opposite — it's built around a memory only you two would recognize. The joke from a third date, the way he holds your hand when he is nervous, the song he plays when he drives. Sung in your own voice via voice cloning, which means when he plays it on his phone he hears <em>you</em> singing him lyrics nobody else has ever written. Among the established personalized-song gift services (Songfinch, Songlorious, Songheart, ForeverSong) none combine AI generation with voice cloning of the gifter. Porizo is built for this exact moment.",
+      "Most love songs sound like other love songs. The pop hits, the playlist staples, the lines everyone has heard. A Porizo song is the opposite — it's built around a memory only you two would recognize. The joke from a third date, the way he holds your hand when he is nervous, the song he plays when he drives. Performed by an AI vocalist in a music style you choose, which means when he plays it on his phone he hears lyrics nobody else has ever written. The personalized-song gift services (Songfinch, Songlorious, Songheart, ForeverSong) use human composers and take days at around $200; Porizo turns one real moment into a finished song in minutes for about $9. Porizo is built for this exact moment.",
     bestForEyebrow: "Best for",
     bestForHeadline: "Love-song moments boyfriends actually keep.",
     bestForMoments: [
@@ -1157,9 +1157,9 @@ const CELLS = [
     exampleStarRow: "For a boyfriend — year three",
     exampleLyric:
       `"You text 'on my way' from two blocks out / you laugh at the joke before I land it / and three years in I still don't know how / something this small became this whole."`,
-    exampleStyle: "Acoustic · 75 seconds · sung in the gifter's voice",
+    exampleStyle: "Acoustic · 75 seconds",
     exampleNote:
-      "The lyric came from one detail: he texts 'on my way' from two blocks away. Porizo built a verse around the ritual and a chorus about how three years made small things bigger.",
+      "The lyric came from one detail: he texts 'on my way' from two blocks away. Porizo built a verse around the ritual and a chorus about how three years made small things bigger — performed in the acoustic style the gifter chose.",
     faqEyebrow: "FAQ",
     faqHeadline: "Love-song-for-boyfriend questions.",
     faqs: [
@@ -1168,8 +1168,8 @@ const CELLS = [
         a: "Porizo works for any stage. Give it one specific moment from those months — a first impression that stuck, an early inside joke. The lyric grows from that detail. Short relationships are some of the best song subjects because the details are fresh.",
       },
       {
-        q: "Can he hear it sounding like me singing?",
-        a: "Yes — voice cloning is included on Plus and Pro. Record 6–10 short phrases once inside the app and every song is sung in your own voice. For a love song to a partner, your voice is half the gift.",
+        q: "How do I choose how the song sounds?",
+        a: "You pick the music style — acoustic, pop, R&B, country, indie folk — and an AI vocalist performs the lyrics built from your memory. For a love song to a partner, the specific moment is half the gift.",
       },
       {
         q: "What if he's not really 'into' love songs?",
@@ -1200,11 +1200,11 @@ const CELLS = [
     slug: "love-song-for-girlfriend",
     metaTitle: "Love Song for Girlfriend | Porizo",
     metaDescription:
-      "Make a personalized love song for your girlfriend — original lyrics from a real shared moment, sung in your own voice. Finished in about three minutes.",
+      "Make a personalized love song for your girlfriend — original lyrics from a real shared moment, in a music style you choose. Finished in about three minutes.",
     eyebrow: "Love song for girlfriend",
     h1: "Make her a love song that's actually about her.",
     lede:
-      "Most love songs are about a feeling. A Porizo love song is about a person — the way she laughs at her own jokes before they land, the song she always sings off-key in the car, the way she says 'one more episode' at 2am. Sung in your own voice. Finished in about three minutes.",
+      "Most love songs are about a feeling. A Porizo love song is about a person — the way she laughs at her own jokes before they land, the song she always sings off-key in the car, the way she says 'one more episode' at 2am. In the music style you choose. Finished in about three minutes.",
     cardTag: "Love song for her",
     cardTitle: "One More Episode",
     cardLyric:
@@ -1212,7 +1212,7 @@ const CELLS = [
     whyEyebrow: "Why Porizo for a love song",
     whyHeadline: "A love song for girlfriends, built around the one detail only you noticed.",
     whyBody:
-      "Pop love songs are written for everyone, which means they're written for no one in particular. A Porizo love song is written for one person — about her name, the way she laughs at her own jokes, the morning she said the thing you still think about. Sung in your own voice via voice cloning, which means she doesn't hear a singer. She hears <em>you</em>. None of the established human-composer gift services (Songfinch, Songlorious, Songheart, ForeverSong) offer this. Porizo is the personalized-song app built for the exact gift moment when a card isn't enough and a playlist isn't yours.",
+      "Pop love songs are written for everyone, which means they're written for no one in particular. A Porizo love song is written for one person — about her name, the way she laughs at her own jokes, the morning she said the thing you still think about. Performed by an AI vocalist in a music style you choose, so she hears a song built entirely around her. The human-composer gift services (Songfinch, Songlorious, Songheart, ForeverSong) take days and cost around $200; Porizo turns one real moment into a finished song in minutes for about $9 — built for the exact gift moment when a card isn't enough and a playlist isn't yours.",
     bestForEyebrow: "Best for",
     bestForHeadline: "Love-song moments girlfriends actually keep.",
     bestForMoments: [
@@ -1228,9 +1228,9 @@ const CELLS = [
     exampleStarRow: "For a girlfriend — year two",
     exampleLyric:
       `"You laugh at the joke before I land it / you hum a different song every time you make coffee / and two years of small Tuesdays / has somehow turned into the love song I was trying to write all along."`,
-    exampleStyle: "Indie folk · 80 seconds · sung in the gifter's voice",
+    exampleStyle: "Indie folk · 80 seconds",
     exampleNote:
-      "The lyric came from one detail: she hums a different song every morning while making coffee, never the same one twice. Porizo built a verse around the ritual and a chorus about ordinary days becoming the love story.",
+      "The lyric came from one detail: she hums a different song every morning while making coffee, never the same one twice. Porizo built a verse around the ritual and a chorus about ordinary days becoming the love story — performed in the indie-folk style the gifter chose.",
     faqEyebrow: "FAQ",
     faqHeadline: "Love-song-for-girlfriend questions.",
     faqs: [
@@ -1239,8 +1239,8 @@ const CELLS = [
         a: "Porizo works for any stage of relationship. New relationships often produce the strongest songs because the details are fresh. Give it one specific moment from your first weeks — a first impression, a first laugh — and the lyric grows from there.",
       },
       {
-        q: "Can she hear it sounding like me singing?",
-        a: "Yes — voice cloning is on Plus and Pro. Record 6–10 short phrases once inside the app and every song is sung in your own voice. For a love song from boyfriend to girlfriend, your voice is the part she'll replay.",
+        q: "How do I choose how the song sounds?",
+        a: "You pick the music style — indie folk, acoustic, pop, R&B, country — and an AI vocalist performs the lyrics built from your memory. For a love song from boyfriend to girlfriend, the specific memory is the part she'll replay.",
       },
       {
         q: "What if I'm bad at writing love songs?",
@@ -1248,7 +1248,7 @@ const CELLS = [
       },
       {
         q: "How is this different from a custom song from Songfinch or Songlorious?",
-        a: "Songfinch and Songlorious use human composers and ship in 4–7 days for $179.99–$199.99. Porizo ships in minutes for $9.99/month and sings the song in your own voice, which neither offers.",
+        a: "Songfinch and Songlorious use human composers and ship in 4–7 days for $179.99–$199.99. Porizo ships in minutes for about $9 — original lyrics from one real moment, in a music style you choose.",
       },
       {
         q: "Can I make multiple songs over time?",
@@ -1271,11 +1271,11 @@ const CELLS = [
     slug: "long-distance-song-gift",
     metaTitle: "Long Distance Song Gift | Porizo",
     metaDescription:
-      "A personalized song gift for long distance — original lyrics about the specific distance, sung in your own voice. The link crosses everything instantly.",
+      "A personalized song gift for long distance — original lyrics about the specific distance, in a music style you choose. The link crosses everything instantly.",
     eyebrow: "Long distance song gift",
     h1: "A long-distance song that crosses the distance instantly.",
     lede:
-      "Cards take a week. Flowers wilt. Letters get lost. A Porizo long-distance song gift travels at the speed of a text message — original lyrics about the specific distance you two are managing, sung in your own voice, opened in any browser. Finished in about three minutes.",
+      "Cards take a week. Flowers wilt. Letters get lost. A Porizo long-distance song gift travels at the speed of a text message — original lyrics about the specific distance you two are managing, in the music style you choose, opened in any browser. Finished in about three minutes.",
     cardTag: "Long distance song",
     cardTitle: "Three Time Zones",
     cardLyric:
@@ -1283,7 +1283,7 @@ const CELLS = [
     whyEyebrow: "Why Porizo for long distance",
     whyHeadline: "The gift built for the relationship that lives on a phone.",
     whyBody:
-      "Long-distance relationships and friendships make gifts harder. You can't show up at the door. Shipping takes a week. Cards arrive late. A Porizo song gift solves the format problem — it ships in minutes as a web link that plays in any browser, no install, no account required to listen. And the lyric is built around the <em>specific</em> distance: the time zone, the missed dinners, the running joke about who calls first. Sung in your own voice via voice cloning, which means when they play the song at their desk they hear <em>you</em>, not a stranger. Among the established personalized-song marketplaces (Songfinch, Songlorious, Songheart, ForeverSong) none combine AI generation with voice cloning of the gifter.",
+      "Long-distance relationships and friendships make gifts harder. You can't show up at the door. Shipping takes a week. Cards arrive late. A Porizo song gift solves the format problem — it ships in minutes as a web link that plays in any browser, no install, no account required to listen. And the lyric is built around the <em>specific</em> distance: the time zone, the missed dinners, the running joke about who calls first. Performed by an AI vocalist in a music style you choose, so when they play the song at their desk they hear a song built entirely around the two of you. The personalized-song marketplaces (Songfinch, Songlorious, Songheart, ForeverSong) use human composers and take days at around $200; Porizo turns one real detail into a finished song in minutes for about $9.",
     bestForEyebrow: "Best for",
     bestForHeadline: "Long-distance moments that earn their own song.",
     bestForMoments: [
@@ -1299,9 +1299,9 @@ const CELLS = [
     exampleStarRow: "For a partner overseas — year two of long distance",
     exampleLyric:
       `"Three time zones away you eat dinner when I eat breakfast / and we have learned the math of saying goodnight in the morning / and you have not let me forget once / what your laugh sounds like at 6am your time."`,
-    exampleStyle: "Acoustic · 75 seconds · sung in the gifter's voice",
+    exampleStyle: "Acoustic · 75 seconds",
     exampleNote:
-      "The lyric came from one detail: 'We FaceTime when she's eating dinner and I'm eating breakfast.' Porizo built a verse around the time-zone math and a chorus about the way distance changes the rituals.",
+      "The lyric came from one detail: 'We FaceTime when she's eating dinner and I'm eating breakfast.' Porizo built a verse around the time-zone math and a chorus about the way distance changes the rituals — performed in the acoustic style the gifter chose.",
     faqEyebrow: "FAQ",
     faqHeadline: "Long-distance song gift questions.",
     faqs: [
@@ -1310,8 +1310,8 @@ const CELLS = [
         a: "Send a web link by text, email, WhatsApp, or any messaging app. The song plays in any browser on any device. No app install required for the recipient.",
       },
       {
-        q: "Will the song sound like me singing?",
-        a: "Yes — voice cloning is on Plus and Pro. Record 6–10 short phrases once and every song is in your own voice. For a long-distance gift, hearing your voice is the part that lands hardest.",
+        q: "How do I choose how the song sounds?",
+        a: "You pick the music style — acoustic, pop, R&B, folk — and an AI vocalist performs the lyrics built from your memory. For a long-distance gift, the specific detail is the part that lands hardest.",
       },
       {
         q: "What if my time zone is twelve hours ahead?",
@@ -1327,7 +1327,7 @@ const CELLS = [
       },
       {
         q: "Can multiple people contribute to the same song for someone long-distance?",
-        a: "Yes. Common pattern: one family member enrolls their voice and includes everyone's name in the lyric. Or each family member enrolls separately and makes their own version.",
+        a: "Yes. Common pattern: one family member makes the song and includes everyone's name in the lyric. Or each family member makes their own version from their own memory.",
       },
     ],
     internalLinks: [
@@ -1342,11 +1342,11 @@ const CELLS = [
     slug: "apology-song-for-boyfriend",
     metaTitle: "Apology Song for Boyfriend | Porizo",
     metaDescription:
-      "A personalized apology song for your boyfriend — original lyrics built around what actually happened, sung in your own voice. Honest, specific, finished in minutes.",
+      "A personalized apology song for your boyfriend — original lyrics built around what actually happened, in a music style you choose. Honest, specific, finished in minutes.",
     eyebrow: "Apology song for boyfriend",
     h1: "Say sorry in a song he'll keep.",
     lede:
-      "A text feels too small. A long apology feels like more about you than him. A Porizo apology song lands somewhere in between — short, specific to what happened, in your own voice. Original lyrics, finished in about three minutes.",
+      "A text feels too small. A long apology feels like more about you than him. A Porizo apology song lands somewhere in between — short, specific to what happened, in the music style you choose. Original lyrics, finished in about three minutes.",
     cardTag: "Apology — for him",
     cardTitle: "The Honest Part",
     cardLyric:
@@ -1354,7 +1354,7 @@ const CELLS = [
     whyEyebrow: "Why a song apology works",
     whyHeadline: "An apology that does the work a text can't.",
     whyBody:
-      "A text apology says 'sorry.' A long-form apology says 'sorry, but here is my side.' A Porizo apology song does something a text can't — it gives the apology shape and lets you say the harder thing without it sounding like a speech. The lyric is built around what specifically happened, what you would do differently, and the part you're owning. Sung in your own voice via voice cloning, which means he hears <em>you</em> saying it, not a singer. None of the established personalized-song gift services (Songfinch, Songlorious, Songheart, ForeverSong) offer voice cloning of the gifter — that's the part that makes an apology song land.",
+      "A text apology says 'sorry.' A long-form apology says 'sorry, but here is my side.' A Porizo apology song does something a text can't — it gives the apology shape and lets you say the harder thing without it sounding like a speech. The lyric is built around what specifically happened, what you would do differently, and the part you're owning — performed by an AI vocalist in a music style you choose. The personalized-song gift services (Songfinch, Songlorious, Songheart, ForeverSong) use human composers and take days at around $200; Porizo turns your honest words into a finished song in minutes for about $9 — and the specificity is what makes an apology song land.",
     bestForEyebrow: "When this works",
     bestForHeadline: "Apology-song moments worth doing this for.",
     bestForMoments: [
@@ -1370,9 +1370,9 @@ const CELLS = [
     exampleStarRow: "After a Thursday fight",
     exampleLyric:
       `"I was wrong about Thursday / I was wrong about how I said it / and I have been thinking about your face for two days / which is the part I want you to know I noticed."`,
-    exampleStyle: "Acoustic · 70 seconds · sung in the gifter's voice",
+    exampleStyle: "Acoustic · 70 seconds",
     exampleNote:
-      "The lyric came from one honest sentence: 'I was wrong about Thursday.' Porizo built a song around naming the specific moment instead of generalizing.",
+      "The lyric came from one honest sentence: 'I was wrong about Thursday.' Porizo built a song around naming the specific moment instead of generalizing — performed in the acoustic style the gifter chose.",
     faqEyebrow: "FAQ",
     faqHeadline: "Apology song questions.",
     faqs: [
@@ -1385,8 +1385,8 @@ const CELLS = [
         a: "The song should not replace the real conversation. It works best as the prelude — something he can hear before the in-person talk, so he knows you've thought about it. Then have the conversation. The song earns you the conversation.",
       },
       {
-        q: "Will the song be in my voice?",
-        a: "Yes — voice cloning is on Plus and Pro. Hearing your own voice say the apology is what makes it land. A stranger singing your apology defeats the purpose.",
+        q: "How do I choose how the song sounds?",
+        a: "You pick the music style — a quiet acoustic setting usually fits an apology best — and an AI vocalist performs the lyrics built from your honest words. The specificity of what you own is what makes it land.",
       },
       {
         q: "What should I include in the lyric?",
@@ -1413,11 +1413,11 @@ const CELLS = [
     slug: "apology-song-for-girlfriend",
     metaTitle: "Apology Song for Girlfriend | Porizo",
     metaDescription:
-      "A personalized apology song for your girlfriend — original lyrics about what actually happened, sung in your own voice. Honest, specific, finished in minutes.",
+      "A personalized apology song for your girlfriend — original lyrics about what actually happened, in a music style you choose. Honest, specific, finished in minutes.",
     eyebrow: "Apology song for girlfriend",
     h1: "Say sorry in a song she'll listen to twice.",
     lede:
-      "A long text reads defensive. Flowers feel like a deflection. A Porizo apology song does the harder work — naming the specific moment, owning the specific part, and arriving in your own voice. Finished in about three minutes.",
+      "A long text reads defensive. Flowers feel like a deflection. A Porizo apology song does the harder work — naming the specific moment, owning the specific part, in the music style you choose. Finished in about three minutes.",
     cardTag: "Apology — for her",
     cardTitle: "The Sentence I Should Have Used",
     cardLyric:
@@ -1425,7 +1425,7 @@ const CELLS = [
     whyEyebrow: "Why a song apology works",
     whyHeadline: "An apology built for women who can read between the lines.",
     whyBody:
-      "A long apology text gets re-read and dissected. A flowers-only apology feels like an attempt to skip the conversation. A Porizo apology song is the format that does the real work: it names the specific moment, owns the specific part, and arrives in your own voice via voice cloning. She hears <em>you</em> say the harder sentence — the one you rehearsed and didn't quite get out. Among the established personalized-song marketplaces (Songfinch, Songlorious, Songheart, ForeverSong) none offer voice cloning of the gifter. Porizo is the AI song app built for the gift moment when nothing else fits.",
+      "A long apology text gets re-read and dissected. A flowers-only apology feels like an attempt to skip the conversation. A Porizo apology song is the format that does the real work: it names the specific moment and owns the specific part, performed by an AI vocalist in a music style you choose. It says the harder sentence — the one you rehearsed and didn't quite get out. The personalized-song marketplaces (Songfinch, Songlorious, Songheart, ForeverSong) use human composers and take days at around $200; Porizo turns your honest words into a finished song in minutes for about $9 — built for the gift moment when nothing else fits.",
     bestForEyebrow: "When this works",
     bestForHeadline: "Apology moments worth doing this for.",
     bestForMoments: [
@@ -1441,9 +1441,9 @@ const CELLS = [
     exampleStarRow: "After a Sunday-night fight",
     exampleLyric:
       `"I should have used a different sentence on Sunday / the one I rehearsed in the shower / and then said the loud one instead / and I want you to hear me say the rehearsed one now."`,
-    exampleStyle: "Acoustic · 70 seconds · sung in the gifter's voice",
+    exampleStyle: "Acoustic · 70 seconds",
     exampleNote:
-      "The lyric came from one honest beat: 'I rehearsed the right sentence and then said the wrong one anyway.' Porizo built the song around that exact dynamic.",
+      "The lyric came from one honest beat: 'I rehearsed the right sentence and then said the wrong one anyway.' Porizo built the song around that exact dynamic, performed in the acoustic style the gifter chose.",
     faqEyebrow: "FAQ",
     faqHeadline: "Apology song questions.",
     faqs: [
@@ -1456,8 +1456,8 @@ const CELLS = [
         a: "No. It's the prelude. Send the song before you call her or before you see her in person, so the conversation starts from a different place.",
       },
       {
-        q: "Will the song be in my voice?",
-        a: "Yes — voice cloning is on Plus and Pro. Hearing you say the apology is what makes the song work. A stranger's voice on an apology song defeats the purpose.",
+        q: "How do I choose how the song sounds?",
+        a: "You pick the music style — a quiet acoustic setting usually fits an apology best — and an AI vocalist performs the lyrics built from your honest words. The specificity of what you own is what makes the song work.",
       },
       {
         q: "What should the lyric say?",
@@ -1484,11 +1484,11 @@ const CELLS = [
     slug: "valentines-song-for-her",
     metaTitle: "Valentine's Day Song for Her | Porizo",
     metaDescription:
-      "Make a personalized Valentine's song for her — original lyrics built around your specific story, sung in your own voice. Finished in about three minutes.",
+      "Make a personalized Valentine's song for her — original lyrics built around your specific story, in a music style you choose. Finished in about three minutes.",
     eyebrow: "Valentine's song for her",
     h1: "A Valentine's song made for her, not the holiday.",
     lede:
-      "Most Valentine's gifts are about the holiday. A Porizo Valentine's song is about <em>her</em> — the laugh, the joke from the first month, the way she says your name when she's running late. Original lyrics, sung in your own voice, finished in about three minutes.",
+      "Most Valentine's gifts are about the holiday. A Porizo Valentine's song is about <em>her</em> — the laugh, the joke from the first month, the way she says your name when she's running late. Original lyrics, in the music style you choose, finished in about three minutes.",
     cardTag: "Valentine's — for her",
     cardTitle: "Better Than February",
     cardLyric:
@@ -1496,7 +1496,7 @@ const CELLS = [
     whyEyebrow: "Why Porizo for Valentine's",
     whyHeadline: "A Valentine's gift that doesn't smell like Valentine's.",
     whyBody:
-      "Valentine's Day gifts default to roses, chocolates, jewelry — the same things everyone else is buying. A Porizo Valentine's song breaks out of that by being specific: about her name, the way she does a particular thing, the moment from your relationship that defines what Valentine's actually means for you two. Sung in your own voice via voice cloning, which means when she plays the song she hears <em>you</em>, not a stranger. None of the established human-composer gift services (Songfinch, Songlorious, Songheart, ForeverSong) offer this. Porizo is the personalized-song app built for the gift moment when the holiday gift category isn't enough.",
+      "Valentine's Day gifts default to roses, chocolates, jewelry — the same things everyone else is buying. A Porizo Valentine's song breaks out of that by being specific: about her name, the way she does a particular thing, the moment from your relationship that defines what Valentine's actually means for you two. Performed by an AI vocalist in a music style you choose, so when she plays the song she hears a song built entirely around her. The human-composer gift services (Songfinch, Songlorious, Songheart, ForeverSong) take days and cost around $200; Porizo turns one real moment into a finished song in minutes for about $9 — built for the gift moment when the holiday gift category isn't enough.",
     bestForEyebrow: "Best for",
     bestForHeadline: "Valentine's moments that earn their own song.",
     bestForMoments: [
@@ -1512,19 +1512,19 @@ const CELLS = [
     exampleStarRow: "For a girlfriend — third Valentine's",
     exampleLyric:
       `"You laugh like the year just opened a window / you make Tuesday feel like a holiday / and February doesn't get to take credit / for what you do to every other month."`,
-    exampleStyle: "Indie folk · 75 seconds · sung in the gifter's voice",
+    exampleStyle: "Indie folk · 75 seconds",
     exampleNote:
-      "The lyric came from one detail: 'She laughs in a way that makes any random Tuesday feel like a small holiday.' Porizo built the song around that and pointed it back at Valentine's.",
+      "The lyric came from one detail: 'She laughs in a way that makes any random Tuesday feel like a small holiday.' Porizo built the song around that and pointed it back at Valentine's — performed in the indie-folk style the gifter chose.",
     faqEyebrow: "FAQ",
     faqHeadline: "Valentine's song questions.",
     faqs: [
       {
         q: "How is this different from a Valentine's card?",
-        a: "A card delivers a sentence; the card itself is the gift. A Porizo Valentine's song delivers a 75-second original song built around her specifically, in your own voice. Different format, different staying power.",
+        a: "A card delivers a sentence; the card itself is the gift. A Porizo Valentine's song delivers a 75-second original song built around her specifically, in a music style you choose. Different format, different staying power.",
       },
       {
-        q: "Will the song sound like me singing?",
-        a: "Yes — voice cloning is on Plus and Pro. Record 6–10 short phrases once and every song is in your own voice. For a Valentine's song, hearing your voice is half the gift.",
+        q: "How do I choose how the song sounds?",
+        a: "You pick the music style — indie folk, acoustic, pop, R&B — and an AI vocalist performs the lyrics built from your memory. For a Valentine's song, the specific moment is half the gift.",
       },
       {
         q: "What if Valentine's is tomorrow?",
@@ -1536,7 +1536,7 @@ const CELLS = [
       },
       {
         q: "How is this priced vs Songfinch for a Valentine's gift?",
-        a: "Songfinch is $179.99+ and ships in 4–7 days. Porizo is $9.99/month and ships in minutes, with voice cloning of the gifter — which Songfinch doesn't offer.",
+        a: "Songfinch is $179.99+ and ships in 4–7 days. Porizo is $9.99/month and ships in minutes — original lyrics from one real moment, in a style you choose.",
       },
       {
         q: "Should I play it for her or send the link?",
@@ -1555,11 +1555,11 @@ const CELLS = [
     slug: "valentines-song-for-him",
     metaTitle: "Valentine's Day Song for Him | Porizo",
     metaDescription:
-      "Make a personalized Valentine's song for him — original lyrics built around your shared story, sung in your own voice. Finished in about three minutes.",
+      "Make a personalized Valentine's song for him — original lyrics built around your shared story, in a music style you choose. Finished in about three minutes.",
     eyebrow: "Valentine's song for him",
     h1: "A Valentine's song he'll actually keep.",
     lede:
-      "Men's Valentine's gifts default to socks, cologne, or 'just dinner.' A Porizo Valentine's song works because it's about him — the way he says your name when he's tired, the joke from the third week, the song he refuses to skip in the car. Original lyrics, in your own voice, finished in about three minutes.",
+      "Men's Valentine's gifts default to socks, cologne, or 'just dinner.' A Porizo Valentine's song works because it's about him — the way he says your name when he's tired, the joke from the third week, the song he refuses to skip in the car. Original lyrics, in the music style you choose, finished in about three minutes.",
     cardTag: "Valentine's — for him",
     cardTitle: "The Song He Won't Skip",
     cardLyric:
@@ -1567,7 +1567,7 @@ const CELLS = [
     whyEyebrow: "Why Porizo for Valentine's",
     whyHeadline: "A Valentine's gift built for the man who hates Valentine's gifts.",
     whyBody:
-      "Most men's Valentine's gifts are either too small (a card) or too generic (cologne, socks, a watch). A Porizo Valentine's song is specific to him — about his name, his ritual, the song he refuses to skip, the joke from a date you remember — and short enough that it doesn't feel like a performance. Sung in your own voice via voice cloning, which means he hears <em>you</em> singing him a song he can replay on his commute. Among the established human-composer marketplaces (Songfinch, Songlorious, Songheart, ForeverSong) none offer voice cloning of the gifter.",
+      "Most men's Valentine's gifts are either too small (a card) or too generic (cologne, socks, a watch). A Porizo Valentine's song is specific to him — about his name, his ritual, the song he refuses to skip, the joke from a date you remember — and short enough that it doesn't feel like a performance. Performed by an AI vocalist in a music style you choose, it's a song he can replay on his commute. The human-composer marketplaces (Songfinch, Songlorious, Songheart, ForeverSong) take days and cost around $200; Porizo turns one real moment into a finished song in minutes for about $9.",
     bestForEyebrow: "Best for",
     bestForHeadline: "Valentine's moments boyfriends and husbands actually keep.",
     bestForMoments: [
@@ -1583,9 +1583,9 @@ const CELLS = [
     exampleStarRow: "For a husband — fifth Valentine's",
     exampleLyric:
       `"You refuse to skip the same one song every drive / and five years in I still don't ask why / I just hope this song earns the same protection / when it comes on at the end of February."`,
-    exampleStyle: "Country · 75 seconds · sung in the gifter's voice",
+    exampleStyle: "Country · 75 seconds",
     exampleNote:
-      "The lyric came from one detail: 'He never skips one specific song on the radio — same one for five years.' Porizo built the song around that ritual and pointed it forward.",
+      "The lyric came from one detail: 'He never skips one specific song on the radio — same one for five years.' Porizo built the song around that ritual and pointed it forward — performed in the country style the gifter chose.",
     faqEyebrow: "FAQ",
     faqHeadline: "Valentine's song questions.",
     faqs: [
@@ -1594,8 +1594,8 @@ const CELLS = [
         a: "Most men who 'don't really do Valentine's' play these anyway. The reason is it's not a Valentine's gift — it's a song about him that happened to arrive on February 14. Different category.",
       },
       {
-        q: "Will the song sound like me singing?",
-        a: "Yes — voice cloning is on Plus and Pro. Record 6–10 short phrases once and every song is in your own voice. For a Valentine's song to a husband or boyfriend, your voice is what makes it land.",
+        q: "How do I choose how the song sounds?",
+        a: "You pick the music style — country, acoustic, pop, R&B — and an AI vocalist performs the lyrics built from your memory. For a Valentine's song to a husband or boyfriend, the specific moment is what makes it land.",
       },
       {
         q: "What if Valentine's is today?",
@@ -1607,7 +1607,7 @@ const CELLS = [
       },
       {
         q: "How does this compare to a Songfinch Valentine's song?",
-        a: "Songfinch is $179.99+ and ships in 4–7 days. Porizo is $9.99/month and ships in minutes, with voice cloning of the gifter — which Songfinch doesn't offer.",
+        a: "Songfinch is $179.99+ and ships in 4–7 days. Porizo is $9.99/month and ships in minutes — original lyrics from one real moment, in a style you choose.",
       },
       {
         q: "Should I send the song privately or do something with it?",
@@ -1626,11 +1626,11 @@ const CELLS = [
     slug: "song-for-husband-birthday",
     metaTitle: "Birthday Song for Husband | Porizo",
     metaDescription:
-      "A personalized birthday song for your husband — original lyrics built around who he is, sung in your own voice. Finished in about three minutes.",
+      "A personalized birthday song for your husband — original lyrics built around who he is, in a music style you choose. Finished in about three minutes.",
     eyebrow: "Birthday song for husband",
     h1: "Make him a birthday song that's actually about him.",
     lede:
-      "Husbands are notoriously hard to shop for on their birthday. Another tie, another watch, another 'I don't really need anything.' A Porizo birthday song fixes the format problem by being specific — the way he makes coffee, the line he says when you're running late, the joke that has lasted ten years. Original lyrics, in your voice, finished in about three minutes.",
+      "Husbands are notoriously hard to shop for on their birthday. Another tie, another watch, another 'I don't really need anything.' A Porizo birthday song fixes the format problem by being specific — the way he makes coffee, the line he says when you're running late, the joke that has lasted ten years. Original lyrics, in the music style you choose, finished in about three minutes.",
     cardTag: "Birthday — for him",
     cardTitle: "The Same Coffee for a Decade",
     cardLyric:
@@ -1638,7 +1638,7 @@ const CELLS = [
     whyEyebrow: "Why Porizo for husband's birthday",
     whyHeadline: "A husband's birthday gift built for a man who doesn't want stuff.",
     whyBody:
-      "Husbands often say 'don't get me anything' for their birthdays. A Porizo birthday song slips past that defense because it isn't a thing — it's a 75-second song about him, in your voice. The way he makes coffee. The thing he says when you're tired. The joke from the third year. Those become the lyric. Sung in your own voice via voice cloning, which he plays on his commute, on his morning run, in the car alone. Among the established human-composer gift services (Songfinch, Songlorious, Songheart, ForeverSong) none offer voice cloning of the gifter.",
+      "Husbands often say 'don't get me anything' for their birthdays. A Porizo birthday song slips past that defense because it isn't a thing — it's a 75-second song about him. The way he makes coffee. The thing he says when you're tired. The joke from the third year. Those become the lyric, performed by an AI vocalist in a music style you choose, which he plays on his commute, on his morning run, in the car alone. The human-composer gift services (Songfinch, Songlorious, Songheart, ForeverSong) take days and cost around $200; Porizo turns one real moment into a finished song in minutes for about $9.",
     bestForEyebrow: "Best for",
     bestForHeadline: "Husband birthdays that earn their own song.",
     bestForMoments: [
@@ -1654,9 +1654,9 @@ const CELLS = [
     exampleStarRow: "For a husband's 50th birthday",
     exampleLyric:
       `"Fifty years of you / and you still make coffee like the kitchen is yours alone / you still text 'on my way' from two blocks out / and I am hoping the next fifty / sound exactly like the last."`,
-    exampleStyle: "Acoustic · 80 seconds · sung in the gifter's voice",
+    exampleStyle: "Acoustic · 80 seconds",
     exampleNote:
-      "The lyric came from one detail: 'He texts \"on my way\" from two blocks from home, every single day.' Porizo built a verse around the ritual and a chorus about fifty years of small loyalties.",
+      "The lyric came from one detail: 'He texts \"on my way\" from two blocks from home, every single day.' Porizo built a verse around the ritual and a chorus about fifty years of small loyalties — performed in the acoustic style the gifter chose.",
     faqEyebrow: "FAQ",
     faqHeadline: "Husband birthday song questions.",
     faqs: [
@@ -1665,8 +1665,8 @@ const CELLS = [
         a: "Preview in under 90 seconds. Full song in about three minutes. You can finish the song in the time it takes him to find his keys.",
       },
       {
-        q: "Will the song be in my voice?",
-        a: "Yes — voice cloning is on Plus and Pro. Record 6–10 short phrases once and every song is in your voice. For a husband's birthday song, your voice is the part that makes it stick.",
+        q: "How do I choose how the song sounds?",
+        a: "You pick the music style — acoustic, pop, country, R&B — and an AI vocalist performs the lyrics built from your memory. For a husband's birthday song, the specific moment is the part that makes it stick.",
       },
       {
         q: "He says he doesn't want gifts. Will he like this?",
@@ -1678,7 +1678,7 @@ const CELLS = [
       },
       {
         q: "How does this compare to Songfinch for a husband's birthday?",
-        a: "Songfinch is $179.99+ and ships in 4–7 days for a song from a human composer. Porizo is $9.99/month and ships in minutes with voice cloning — your own voice singing — which Songfinch doesn't offer.",
+        a: "Songfinch is $179.99+ and ships in 4–7 days for a song from a human composer. Porizo is $9.99/month and ships in minutes — original lyrics from one real moment, in a style you choose.",
       },
       {
         q: "Should I give it at the party or privately?",
@@ -1697,11 +1697,11 @@ const CELLS = [
     slug: "song-for-wife-birthday",
     metaTitle: "Birthday Song for Wife | Porizo",
     metaDescription:
-      "A personalized birthday song for your wife — original lyrics built around who she is, sung in your own voice. Finished in about three minutes.",
+      "A personalized birthday song for your wife — original lyrics built around who she is, in a music style you choose. Finished in about three minutes.",
     eyebrow: "Birthday song for wife",
     h1: "Make her a birthday song that's actually about her.",
     lede:
-      "Roses are easy. Reservations are easy. A song that names the specific thing about your wife — the laugh, the way she pours coffee, the joke from the third year — is harder, and that's why it lands. Porizo turns that one detail into a song, sung in your voice. Finished in about three minutes.",
+      "Roses are easy. Reservations are easy. A song that names the specific thing about your wife — the laugh, the way she pours coffee, the joke from the third year — is harder, and that's why it lands. Porizo turns that one detail into a song, in the music style you choose. Finished in about three minutes.",
     cardTag: "Birthday — for her",
     cardTitle: "Her Specific Tuesday",
     cardLyric:
@@ -1709,7 +1709,7 @@ const CELLS = [
     whyEyebrow: "Why Porizo for wife's birthday",
     whyHeadline: "A wife's birthday gift that finally catches up with how you actually feel.",
     whyBody:
-      "Wife birthday gifts blur together. Flowers, jewelry, dinner reservation, weekend trip. A Porizo birthday song flips the format by being specific — about her name, her ritual, the joke from the third year, the laugh you fell for. Those become the lyric. Sung in your own voice via voice cloning, which means when she plays it on the morning of her birthday she hears <em>you</em> — not a stranger, not a singer. Among the established human-composer gift services (Songfinch, Songlorious, Songheart, ForeverSong) none combine AI generation with voice cloning of the gifter. Porizo is the personalized-song app built for this exact moment.",
+      "Wife birthday gifts blur together. Flowers, jewelry, dinner reservation, weekend trip. A Porizo birthday song flips the format by being specific — about her name, her ritual, the joke from the third year, the laugh you fell for. Those become the lyric, performed by an AI vocalist in a music style you choose, so when she plays it on the morning of her birthday she hears a song built entirely around her. The human-composer gift services (Songfinch, Songlorious, Songheart, ForeverSong) take days and cost around $200; Porizo turns one real moment into a finished song in minutes for about $9 — built for this exact moment.",
     bestForEyebrow: "Best for",
     bestForHeadline: "Wife birthdays that earn their own song.",
     bestForMoments: [
@@ -1725,9 +1725,9 @@ const CELLS = [
     exampleStarRow: "For a wife's 40th birthday",
     exampleLyric:
       `"Forty years of you / and you still pour coffee like every cup is the first one / you still hum a different song every morning / and I have been hoping for forty more / the same way I hoped for the first ten."`,
-    exampleStyle: "Acoustic · 80 seconds · sung in the gifter's voice",
+    exampleStyle: "Acoustic · 80 seconds",
     exampleNote:
-      "The lyric came from one detail: 'She hums a different song every morning while making coffee, never the same one twice.' Porizo built a verse around the ritual and a chorus about forty years of small surprises.",
+      "The lyric came from one detail: 'She hums a different song every morning while making coffee, never the same one twice.' Porizo built a verse around the ritual and a chorus about forty years of small surprises — performed in the acoustic style the gifter chose.",
     faqEyebrow: "FAQ",
     faqHeadline: "Wife birthday song questions.",
     faqs: [
@@ -1736,8 +1736,8 @@ const CELLS = [
         a: "Preview in under 90 seconds. Full song in about three minutes. You can finish the song in the time it takes her to get ready.",
       },
       {
-        q: "Will the song be in my voice?",
-        a: "Yes — voice cloning is on Plus and Pro. Record 6–10 short phrases once and every song is in your voice. For a wife's birthday, your voice is what makes the song land.",
+        q: "How do I choose how the song sounds?",
+        a: "You pick the music style — acoustic, pop, country, R&B — and an AI vocalist performs the lyrics built from your memory. For a wife's birthday, the specific moment is what makes the song land.",
       },
       {
         q: "What if I don't know what to write?",
@@ -1749,7 +1749,7 @@ const CELLS = [
       },
       {
         q: "How does this compare to Songfinch for a wife's birthday?",
-        a: "Songfinch is $179.99+ and ships in 4–7 days. Porizo is $9.99/month and ships in minutes with voice cloning — your own voice singing — which Songfinch doesn't offer.",
+        a: "Songfinch is $179.99+ and ships in 4–7 days. Porizo is $9.99/month and ships in minutes — original lyrics from one real moment, in a style you choose.",
       },
       {
         q: "Should I send the link or play it for her?",
@@ -1768,11 +1768,11 @@ const CELLS = [
     slug: "best-friend-birthday-song",
     metaTitle: "Birthday Song for Best Friend | Porizo",
     metaDescription:
-      "A personalized birthday song for your best friend — original lyrics about the friendship only you two have, sung in your own voice. Finished in minutes.",
+      "A personalized birthday song for your best friend — original lyrics about the friendship only you two have, in a music style you choose. Finished in minutes.",
     eyebrow: "Birthday song for best friend",
     h1: "Make your best friend a birthday song.",
     lede:
-      "The best friend birthday gift is the hardest category. They already know everything about you. They've seen every gift idea you've had. A Porizo birthday song works because it's about the specific friendship you two have — the joke that has lasted a decade, the road trip that changed everything, the way only they laugh at your worst impression. Sung in your voice. Finished in three minutes.",
+      "The best friend birthday gift is the hardest category. They already know everything about you. They've seen every gift idea you've had. A Porizo birthday song works because it's about the specific friendship you two have — the joke that has lasted a decade, the road trip that changed everything, the way only they laugh at your worst impression. In the music style you choose. Finished in three minutes.",
     cardTag: "Best friend birthday",
     cardTitle: "The Decade-Long Joke",
     cardLyric:
@@ -1780,7 +1780,7 @@ const CELLS = [
     whyEyebrow: "Why Porizo for best-friend birthdays",
     whyHeadline: "A best-friend birthday gift that doesn't sound like a brand sent it.",
     whyBody:
-      "Best friend birthday gifts default to two failure modes: too generic (a candle, a mug, a book they didn't want) or too inside-joke (a thing only they know about, which is sweet but doesn't last). A Porizo birthday song hits the middle — it names the specific friendship in lyric, sung in your voice, in a format they can replay. The decade-long inside joke. The trip you took at 23. The way they answer the phone every time. Those become the lyric. Among the established human-composer marketplaces (Songfinch, Songlorious, Songheart, ForeverSong) none offer voice cloning of the gifter — for a best-friend song, hearing <em>your</em> voice is the part that makes it real.",
+      "Best friend birthday gifts default to two failure modes: too generic (a candle, a mug, a book they didn't want) or too inside-joke (a thing only they know about, which is sweet but doesn't last). A Porizo birthday song hits the middle — it names the specific friendship in lyric, performed by an AI vocalist in a music style you choose, in a format they can replay. The decade-long inside joke. The trip you took at 23. The way they answer the phone every time. Those become the lyric. The human-composer marketplaces (Songfinch, Songlorious, Songheart, ForeverSong) take days and cost around $200; Porizo turns one real memory into a finished song in minutes for about $9 — and for a best-friend song, the specific shared history is what makes it real.",
     bestForEyebrow: "Best for",
     bestForHeadline: "Best-friend birthdays that earn their own song.",
     bestForMoments: [
@@ -1796,9 +1796,9 @@ const CELLS = [
     exampleStarRow: "For a best friend's 35th",
     exampleLyric:
       `"You have laughed at the same one joke for ten years / and I have not figured out why it still works / I have been your worst impression / and your favorite excuse to leave the party / and now I want you to be the song you do not skip."`,
-    exampleStyle: "Indie folk · 75 seconds · sung in the gifter's voice",
+    exampleStyle: "Indie folk · 75 seconds",
     exampleNote:
-      "The lyric came from one detail: 'We have one joke from college that we have been telling for ten years, and neither of us can explain why it still works.' Porizo built the song around that.",
+      "The lyric came from one detail: 'We have one joke from college that we have been telling for ten years, and neither of us can explain why it still works.' Porizo built the song around that, performed in the indie-folk style the gifter chose.",
     faqEyebrow: "FAQ",
     faqHeadline: "Best-friend birthday song questions.",
     faqs: [
@@ -1807,8 +1807,8 @@ const CELLS = [
         a: "Porizo lets you pick the tone. A funny, upbeat 60-second song about your worst inside joke lands better for many friendships than a serious ballad. The genre and tone follow your lead.",
       },
       {
-        q: "Will the song be in my voice?",
-        a: "Yes — voice cloning is on Plus and Pro. Hearing your voice is what makes a best-friend song work — they recognize you the second they press play.",
+        q: "How do I choose how the song sounds?",
+        a: "You pick the music style — indie folk, pop, country, hip-hop — and an AI vocalist performs the lyrics built from your memory. The shared history in the lyric is what makes a best-friend song work.",
       },
       {
         q: "Can I make it funny instead of sentimental?",
@@ -1820,7 +1820,7 @@ const CELLS = [
       },
       {
         q: "What if multiple friends want to give the same song together?",
-        a: "Easy. Either one friend enrolls their voice and names everyone in the lyric, or each friend records a separate verse and you stitch them. Many group friends do the second.",
+        a: "Easy. Either one friend makes the song and names everyone in the lyric, or each friend makes their own version from their own memory. Many group friends do the second.",
       },
       {
         q: "What if I want to play it at the party?",

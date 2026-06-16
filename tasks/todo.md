@@ -58,10 +58,15 @@ discovery. Root cause = domain authority + indexing, not content/tech.
 
 ## ⚠️ GATING BLOCKER before any outreach/directory push
 
-- [ ] **Remove voice-cloning false-promise copy** ("sung in your own voice",
-      "voice cloning included") across `CELLS`, public landing HTML, and blog.
-      Pitching media/directories with a claim we can't deliver backfires +
-      App Store risk (`project_no_voice_cloning_tech`). Do this FIRST.
+- [x] **Remove voice-cloning false-promise copy** — DONE across all public
+      marketing surfaces: generator `CELLS` (125→0, regenerated 25 gift pages),
+      `song-in-your-voice.html` (rewritten, URL kept), 13 landing pages, homepage,
+      pricing (voice bullets → true benefits, prices intact), about, support, blog.
+      Reframed to: original song from one real memory + you pick the music style +
+      instant ~$9 vs Songfinch ~$200/4–7d. Verified 0 residual claims; 60 tests pass.
+      NOT touched (out of scope): `public/debug.html` (robots-disallowed dev tool),
+      iOS app copy + App Store screenshots (separate surface — iPad shots still
+      carry it), and the spec/CLAUDE.md product description.
 
 ---
 
