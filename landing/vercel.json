@@ -1,9 +1,0 @@
-{
-  "redirects": [
-    {
-      "source": "/download",
-      "destination": "https://apps.apple.com/app/porizo/id6758205028",
-      "permanent": false
-    }
-  ]
-}
