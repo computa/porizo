@@ -1,4 +1,71 @@
-# ACTIVE — Viral-loop CLAIM-COMPLETION + prominence (2026-06-06b) 🔴 P0
+# ACTIVE — SEO internal linking for "Crawled – currently not indexed" (2026-06-16)
+
+**Context:** GSC reports 33 programmatic landing pages "Crawled – currently not
+indexed". Verified live: pages are technically clean (200, unique copy,
+self-canonical, no noindex, in sitemap, robots allows). Root cause = low domain
+authority + a thinly-interlinked programmatic cluster (homepage links to only 4
+pages; each gift page cross-links ~3 siblings). Off-page authority is the
+dominant lever (marketing, out of scope). Internal linking is the code lever.
+
+## Tasks
+
+- [x] Investigate root cause (not a technical bug — Google discretion)
+- [x] **A. Cross-link the gift cluster** — auto "Related songs" section in
+      `scripts/seo/build-programmatic-pages.mjs` `renderHTML` (each `/gifts/*`
+      page → 6 topical siblings + hub). Verified topical ranking is correct.
+- [x] **B. Comprehensive `/gifts/` hub** — `renderIndexHTML` now lists all 10
+      top-level occasion pages (incoming links de-orphan them).
+- [x] Regenerate: 25 pages + index + sitemap rewritten.
+- [x] Verify: eslint clean; related sections + hub links confirmed; 45/45
+      marketing-seo + gifts tests pass.
+
+**Dropped — C. `/gifts`→`/gifts/` 301:** `GET /gifts` already exists at
+`src/routes/gifts.js:1504` as the authenticated gift-orders API (the 401).
+Adding a redirect = duplicate-route boot crash; nothing links to bare `/gifts`
+(verified) so it is not an indexing factor.
+
+**Out of scope (flagged):** voice-cloning false-promise copy is pervasive in
+`CELLS` ("sung in your own voice", "voice cloning included") — violates memory
+rule `project_no_voice_cloning_tech`. Separate cleanup.
+
+---
+
+# ACTIVE — Organic discovery program (2026-06-16) 🔴
+
+**Goal:** regular users discover Porizo organically. Baseline: GSC 3mo = **2
+clicks / 244 impressions, 146 of 244 = "porizo" (branded)** → ~zero non-branded
+discovery. Root cause = domain authority + indexing, not content/tech.
+**Master plan:** `docs/porizo-organic-discovery-plan-2026-06.md`.
+
+## Code / automation (this repo)
+
+- [x] Gift cluster cross-linking + comprehensive hub (above)
+- [x] **IndexNow auto-submission** — `scripts/seo/submit-indexnow.mjs` (lint clean;
+      dry-run parsed 69 live URLs). Run after deploy + after copy cleanup.
+- [x] **Blog → `/gifts/` hub link** in `blog-render-service.js` (24 blog tests pass).
+- [ ] Songfinch-alternative comparison hardening (table + schema)
+- [ ] Homepage deep-link breadth (popular-by-occasion block)
+- [ ] **Data study** — extract real occasion/style/timing data from DB → publish
+      `/blog/state-of-personalized-song-gifts-2026` (best linkable asset)
+
+## Turnkey ops assets (I drafted; you execute)
+
+- [x] Directory press kit → `marketing/seo/directory-press-kit.md` (8 platforms)
+- [x] Outreach playbook → `marketing/seo/outreach-playbook.md` (gift-guide +
+      Featured/SOS + Reddit + data-study pitch)
+- [ ] Execute: Tier-1 directory blitz, Featured/SOS daily, gift-guide pitches,
+      Reddit seasoning, Product Hunt launch (see playbook)
+
+## ⚠️ GATING BLOCKER before any outreach/directory push
+
+- [ ] **Remove voice-cloning false-promise copy** ("sung in your own voice",
+      "voice cloning included") across `CELLS`, public landing HTML, and blog.
+      Pitching media/directories with a claim we can't deliver backfires +
+      App Store risk (`project_no_voice_cloning_tech`). Do this FIRST.
+
+---
+
+# DONE/PRIOR — Viral-loop CLAIM-COMPLETION + prominence (2026-06-06b) 🔴 P0
 
 **Trigger:** Ambrose real-device test of the receiver flow. Three issues, evidence-verified in prod.
 **Decision locked (Ambrose 2026-06-06):** claim identity model = **Option A** — recipient can PLAY freely (no auth), but is **prompted to Sign in with Apple before they can CLAIM**. Onboarding is **cut** for recipients (straight to the saved song). Token binds ONLY once a real user exists → orphans become structurally impossible.

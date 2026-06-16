@@ -633,6 +633,7 @@ function renderRelatedAndLanding(post, allPosts) {
   const landingHtml = `<section style="margin:32px 0 0;padding:24px;background:#FFFAF5;border:1px solid #EFE6DC;border-radius:14px;text-align:center;">
   <p style="margin:0 0 14px;font-size:16px;color:#1A1A1A;">Ready to create one?</p>
   <a href="${escapeHtml(landing.href)}?utm_source=seo&amp;utm_medium=blog&amp;utm_campaign=${escapeHtml(post.slug)}&amp;utm_content=related_cta" style="display:inline-block;padding:13px 26px;background:#B0763F;color:#FFFAF5;text-decoration:none;border-radius:999px;font-size:15px;font-weight:500;">${escapeHtml(landing.label)}</a>
+  <p style="margin:14px 0 0;font-size:14px;"><a href="/gifts/" style="color:#B0763F;text-decoration:none;">Browse all song gift ideas by occasion &rarr;</a></p>
 </section>`;
   return relatedHtml + landingHtml;
 }

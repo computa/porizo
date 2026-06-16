@@ -1837,6 +1837,58 @@ const CELLS = [
 ];
 
 // ---------------------------------------------------------------------------
+// Top-level occasion landing pages (hand-authored in public/, served via
+// legal.js routes). Listed in the /gifts/ hub so they receive incoming
+// internal links instead of being orphaned (sitemap-only). Excludes
+// song-in-your-voice deliberately — it carries the voice-cloning claim we
+// don't want to amplify in the hub.
+// ---------------------------------------------------------------------------
+
+const TOP_LEVEL_PAGES = [
+  { url: "/birthday-song-for-mom", title: "Birthday Song for Mom" },
+  { url: "/birthday-song-for-dad", title: "Birthday Song for Dad" },
+  { url: "/birthday-song-maker", title: "Birthday Song Maker" },
+  { url: "/mothers-day-song", title: "Mother's Day Song" },
+  { url: "/fathers-day-song", title: "Father's Day Song" },
+  { url: "/anniversary-song-gift", title: "Anniversary Song Gift" },
+  { url: "/custom-song-gift", title: "Custom Song Gift" },
+  { url: "/wedding-song-gift", title: "Wedding Song Gift" },
+  { url: "/graduation-song", title: "Graduation Song" },
+  { url: "/songfinch-alternative", title: "Songfinch Alternative" },
+];
+
+// Generic slug tokens that carry no topical signal — ignored when ranking
+// related pages so "song for mom" matches "song for dad" on the real subject.
+const SLUG_STOPWORDS = new Set([
+  "song", "songs", "for", "the", "a", "an", "gift", "gifts",
+  "ai", "maker", "generator", "personalized", "porizo",
+]);
+
+function slugSubjectTokens(slug) {
+  return slug.split("-").filter((t) => t && !SLUG_STOPWORDS.has(t));
+}
+
+// Rank sibling cells by shared subject tokens (e.g. "anniversary", "wife",
+// "birthday"). Stable sort keeps CELLS order on ties, so even zero-overlap
+// pages still get linked — every page ends with `n` related links, never
+// orphaned. Pure function of the slug list, so no per-cell curation needed.
+function computeRelated(cell, cells, n = 6) {
+  const mine = new Set(slugSubjectTokens(cell.slug));
+  return cells
+    .filter((c) => c.slug !== cell.slug)
+    .map((c, order) => {
+      const score = slugSubjectTokens(c.slug).reduce(
+        (acc, t) => acc + (mine.has(t) ? 1 : 0),
+        0,
+      );
+      return { c, score, order };
+    })
+    .sort((a, b) => b.score - a.score || a.order - b.order)
+    .slice(0, n)
+    .map((x) => x.c);
+}
+
+// ---------------------------------------------------------------------------
 // HTML template
 // ---------------------------------------------------------------------------
 
@@ -1905,6 +1957,12 @@ function renderHTML(cell) {
   const internalLinks = cell.internalLinks
     .map((l, i) => `<a href="${l.url}">${l.text}</a>${i < cell.internalLinks.length - 1 ? " ·" : ""}`)
     .join("\n          ");
+  const relatedLinks = computeRelated(cell, CELLS, 6)
+    .map(
+      (c) =>
+        `          <li><a href="/gifts/${c.slug}">${c.metaTitle.replace(" | Porizo", "")}</a></li>`,
+    )
+    .join("\n");
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -2032,6 +2090,17 @@ ${faqs}
         </p>
       </div>
     </section>
+
+    <section class="section section--tight">
+      <div class="container container--narrow">
+        <span class="eyebrow">More songs</span>
+        <h2 style="margin-top: var(--s-4);">Related personalized songs</h2>
+        <ul style="margin-top: var(--s-4); line-height: 1.8;">
+${relatedLinks}
+          <li><a href="/gifts/">Browse all song gift ideas →</a></li>
+        </ul>
+      </div>
+    </section>
   </main>
 </body>
 </html>
@@ -2045,6 +2114,9 @@ function renderIndexHTML(cells) {
       return `            <li><a href="/gifts/${cell.slug}">${title}</a><span>${cell.metaDescription}</span></li>`;
     })
     .join("\n");
+  const occasionLinks = TOP_LEVEL_PAGES.map(
+    (p) => `            <li><a href="${p.url}">${p.title}</a></li>`,
+  ).join("\n");
   const itemList = cells.map((cell, index) => ({
     "@type": "ListItem",
     position: index + 1,
@@ -2149,6 +2221,15 @@ ${JSON.stringify({
         <h2 style="margin-top: var(--s-4);">Personalized song gift pages</h2>
         <ul style="margin-top: var(--s-5); line-height: 1.6;">
 ${giftLinks}
+        </ul>
+      </div>
+    </section>
+    <section class="section section--tight">
+      <div class="container container--narrow">
+        <span class="eyebrow">By occasion</span>
+        <h2 style="margin-top: var(--s-4);">Popular occasion pages</h2>
+        <ul style="margin-top: var(--s-5); line-height: 1.6;">
+${occasionLinks}
         </ul>
       </div>
     </section>
