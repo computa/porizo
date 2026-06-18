@@ -23,6 +23,7 @@ const {
 } = require("../utils/blend-analyzer");
 const { newUuid } = require("../utils/ids");
 const { nowIso } = require("../utils/common");
+const { getClientIp: extractClientIp } = require("../utils/client-ip");
 const { acknowledgeGiftIncident } = require("../services/gift-delivery-ops");
 const defaultOneSignalService = require("../services/onesignal");
 
@@ -383,7 +384,9 @@ function registerAdminRoutes(
     ) {
       if (!assertion) return "";
       const decoded = await verifyCloudflareAccessJwt(assertion, appConfig);
-      return String(decoded?.email || "").trim().toLowerCase();
+      return String(decoded?.email || "")
+        .trim()
+        .toLowerCase();
     }
 
     return getCloudflareAccessEmail(request);
@@ -465,6 +468,28 @@ function registerAdminRoutes(
     });
   });
 
+  // Rate-limit window for admin login attempts. Mirrors the forgot-password
+  // pattern (per-email + per-IP) but tuned for login: tighter per-email,
+  // looser per-IP, and fail-closed on DB error / undeterminable IP.
+  const ADMIN_LOGIN_WINDOW_MS = 15 * 60 * 1000;
+  const ADMIN_LOGIN_RETRY_AFTER_SECONDS = Math.ceil(
+    ADMIN_LOGIN_WINDOW_MS / 1000,
+  );
+  const ADMIN_LOGIN_GENERIC_FAILURE = {
+    error: "UNAUTHORIZED",
+    message: "Invalid credentials",
+  };
+
+  function sendAdminLoginRateLimited(reply) {
+    return reply
+      .code(429)
+      .header("Retry-After", String(ADMIN_LOGIN_RETRY_AFTER_SECONDS))
+      .send({
+        error: "RATE_LIMITED",
+        message: "Too many login attempts. Please try again later.",
+      });
+  }
+
   app.post("/admin/auth/login", async (request, reply) => {
     const { email, password } = request.body || {};
     if (!email || !password) {
@@ -476,12 +501,49 @@ function registerAdminRoutes(
       );
     }
 
-    const ip = request.ip;
+    const clientIp = getAdminClientIp(request);
+    const normalizedEmail = String(email).toLowerCase().trim();
+
+    // Fail-closed when the real client IP can't be determined: an unkeyable
+    // login attempt would otherwise dodge the per-IP throttle entirely.
+    if (clientIp === "unknown") {
+      console.warn(
+        "[Admin:login] rejected — client IP undeterminable (fail-closed)",
+      );
+      return sendAdminLoginRateLimited(reply);
+    }
+
+    // Two rate-limit dimensions, both fail-closed:
+    //   - per-email: stops spraying many passwords at one admin (10 / 15 min)
+    //   - per-IP:    stops one host spraying across many emails (30 / 15 min)
+    const emailLimited = await consumeAdminAuthRateLimit(
+      normalizedEmail,
+      "admin_login_email",
+      10,
+      ADMIN_LOGIN_WINDOW_MS,
+      { failClosed: true },
+    );
+    if (emailLimited) return sendAdminLoginRateLimited(reply);
+
+    const ipLimited = await consumeAdminAuthRateLimit(
+      clientIp,
+      "admin_login_ip",
+      30,
+      ADMIN_LOGIN_WINDOW_MS,
+      { failClosed: true },
+    );
+    if (ipLimited) return sendAdminLoginRateLimited(reply);
+
     const userAgent = request.headers["user-agent"];
-    const result = await adminAuthService.login(email, password, ip, userAgent);
+    const result = await adminAuthService.login(
+      email,
+      password,
+      clientIp,
+      userAgent,
+    );
 
     if (!result.success) {
-      return sendError(reply, 401, "UNAUTHORIZED", result.error);
+      return reply.code(401).send(ADMIN_LOGIN_GENERIC_FAILURE);
     }
 
     reply.send(result);
@@ -512,10 +574,10 @@ function registerAdminRoutes(
         message: "Current and new password required",
       });
     }
-    if (newPassword.length < 8) {
+    if (newPassword.length < 12) {
       return reply.code(400).send({
         error: "WEAK_PASSWORD",
-        message: "Password must be at least 8 characters",
+        message: "Password must be at least 12 characters",
       });
     }
 
@@ -561,9 +623,20 @@ function registerAdminRoutes(
    * @param {string} scope - Distinguishes limit type, e.g. "admin_forgot_email"
    * @param {number} limit - Max events per window
    * @param {number} windowMs - Window width in ms
+   * @param {{ failClosed?: boolean }} [options] - When failClosed is true, a DB
+   *   error returns true (treat as rate-limited) so the protected endpoint
+   *   blocks rather than silently disabling throttling. Defaults to fail-open
+   *   for password recovery (a transient DB issue shouldn't lock admins out of
+   *   recovery).
    * @returns {Promise<boolean>} true when the request should be rejected
    */
-  async function consumeAdminAuthRateLimit(key, scope, limit, windowMs) {
+  async function consumeAdminAuthRateLimit(
+    key,
+    scope,
+    limit,
+    windowMs,
+    options = {},
+  ) {
     try {
       const windowSeconds = Math.ceil(windowMs / 1000);
       const now = Date.now();
@@ -586,17 +659,17 @@ function registerAdminRoutes(
         .get(key, actionKey, windowStart);
       return Boolean(row && row.count > limit);
     } catch (err) {
-      // Fail-open on DB errors: a transient rate-limit table issue should
-      // not lock admins out of password recovery. The risk of a brief
-      // bypass window is lower than the risk of an admin permanently
-      // unable to regain access during an incident.
+      // Default fail-open: a transient rate-limit table issue should not lock
+      // admins out of password recovery. For login (failClosed:true) we instead
+      // fail closed — an unthrottled admin login surface is a worse outcome than
+      // a brief block during a DB incident.
       console.error("[Admin:rate-limit] error:", err.message);
-      return false;
+      return options.failClosed === true;
     }
   }
 
   function getAdminClientIp(request) {
-    return request.ip || "unknown";
+    return extractClientIp(request);
   }
 
   // POST /admin/auth/forgot-password
@@ -695,14 +768,14 @@ function registerAdminRoutes(
         "token and new_password are required",
       );
     }
-    if (newPassword.length < 8) {
+    if (newPassword.length < 12) {
       // Match the threshold used by /admin/auth/change-password so the rule
       // is identical across both entry points.
       return sendError(
         reply,
         400,
         "WEAK_PASSWORD",
-        "Password must be at least 8 characters",
+        "Password must be at least 12 characters",
       );
     }
 

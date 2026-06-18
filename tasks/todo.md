@@ -1,3 +1,34 @@
+# ACTIVE — Security Hardening Batch 1 (WS1 + WS2 + WS4) — 2026-06-18
+
+Perimeter P0/P1 from `docs/porizo-security-review-2026-06.md`. NOT touching econ
+tombstone, migrations, account deletion, observability (those are Batch 2). TDD.
+
+## WS1 — Client IP (P0-2)
+
+- [ ] Create `src/utils/client-ip.js` `getClientIp(request)` (CF-Connecting-IP via net.isIP, else request.ip, else "unknown")
+- [ ] `auth.js` getClientIp (~272) delegates; fix comment 267-270
+- [ ] `admin.js` getAdminClientIp (~598) delegates
+
+## WS2 — Admin login hardening (P0-1)
+
+- [ ] `admin.js` POST /admin/auth/login: rate-limit email (10/15min) + IP (30/15min); unknown IP => fail-closed; 429 + Retry-After + generic body
+- [ ] `admin-auth-service.js` login(): collapse all failures to `{success:false, error:"Invalid credentials"}`; keep lockout server-side; log real reason
+- [ ] admin pw min 8->12 (change-password ~515, reset-password ~698)
+- [ ] `admin-auth-service.js` MAX_SESSION_DURATION_HOURS 168->24
+
+## WS4 — login enumeration + fail-closed limiters (P1)
+
+- [ ] `auth.js` user login locked branch: 401 INVALID_CREDENTIALS (not 403) + dummy bcrypt.compare; log account_locked
+- [ ] consumeAuthRateLimit + consumeAdminAuthRateLimit fail-closed for login/signup/admin-login; keep forgot-password fail-open
+
+## Tests + Verify
+
+- [ ] client-ip util tests; admin login 429/generic/lockout tests; user login locked=>401 test
+- [ ] update existing admin session-duration tests (7d -> 24h)
+- [ ] node --check edited files; run admin-_/auth-_ suites; eslint edited files
+
+---
+
 # ACTIVE — SEO internal linking for "Crawled – currently not indexed" (2026-06-16)
 
 **Context:** GSC reports 33 programmatic landing pages "Crawled – currently not

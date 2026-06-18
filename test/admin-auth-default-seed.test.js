@@ -19,7 +19,8 @@ describe("admin auth seeded default credentials", () => {
   beforeEach(async () => {
     originalNodeEnv = process.env.NODE_ENV;
     originalBypass = process.env.ALLOW_DEFAULT_ADMIN_LOGIN_IN_PRODUCTION;
-    originalAdminSessionDurationHours = process.env.ADMIN_SESSION_DURATION_HOURS;
+    originalAdminSessionDurationHours =
+      process.env.ADMIN_SESSION_DURATION_HOURS;
     delete process.env.ADMIN_SESSION_DURATION_HOURS;
 
     db = await getDatabase({
@@ -56,7 +57,8 @@ describe("admin auth seeded default credentials", () => {
     if (originalAdminSessionDurationHours === undefined) {
       delete process.env.ADMIN_SESSION_DURATION_HOURS;
     } else {
-      process.env.ADMIN_SESSION_DURATION_HOURS = originalAdminSessionDurationHours;
+      process.env.ADMIN_SESSION_DURATION_HOURS =
+        originalAdminSessionDurationHours;
     }
 
     await app.close();
@@ -71,18 +73,21 @@ describe("admin auth seeded default credentials", () => {
       "admin@porizo.app",
       "admin123",
       "127.0.0.1",
-      "test"
+      "test",
     );
 
+    // The default seeded password is blocked in production. The response is the
+    // generic "Invalid credentials" (the specific reason is logged, not
+    // returned) so this endpoint can't be used as an enumeration oracle.
     assert.equal(result.success, false);
-    assert.match(
-      result.error,
-      /Default seeded admin credentials are disabled in production/i
-    );
+    assert.equal(result.error, "Invalid credentials");
   });
 
   test("allows the seeded account after its password is rotated in production", async () => {
-    await adminAuthService.changePassword("adm_initial", "rotated-password-123");
+    await adminAuthService.changePassword(
+      "adm_initial",
+      "rotated-password-123",
+    );
 
     process.env.NODE_ENV = "production";
     delete process.env.ALLOW_DEFAULT_ADMIN_LOGIN_IN_PRODUCTION;
@@ -111,7 +116,7 @@ describe("admin auth seeded default credentials", () => {
     assert.equal(response.json().admin.email, "admin@porizo.app");
   });
 
-  test("issues admin sessions that last up to 7 days by default", async () => {
+  test("issues admin sessions that last up to 24 hours by default", async () => {
     process.env.ALLOW_DEFAULT_ADMIN_LOGIN_IN_PRODUCTION = "true";
     const beforeLoginMs = Date.now();
 
@@ -124,13 +129,19 @@ describe("admin auth seeded default credentials", () => {
     assert.equal(response.statusCode, 200, response.body);
     const expiresAtMs = new Date(response.json().expiresAt).getTime();
     const durationMs = expiresAtMs - beforeLoginMs;
-    const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
+    const oneDayMs = 24 * 60 * 60 * 1000;
 
-    assert.ok(durationMs > sevenDaysMs - 5_000, `expected ~7 days, got ${durationMs}ms`);
-    assert.ok(durationMs <= sevenDaysMs + 5_000, `expected session to be capped at 7 days, got ${durationMs}ms`);
+    assert.ok(
+      durationMs > oneDayMs - 5_000,
+      `expected ~24h, got ${durationMs}ms`,
+    );
+    assert.ok(
+      durationMs <= oneDayMs + 5_000,
+      `expected session to be capped at 24h, got ${durationMs}ms`,
+    );
   });
 
-  test("caps admin session duration overrides at 7 days", async () => {
+  test("caps admin session duration overrides at 24 hours", async () => {
     process.env.ALLOW_DEFAULT_ADMIN_LOGIN_IN_PRODUCTION = "true";
     process.env.ADMIN_SESSION_DURATION_HOURS = "999";
     const beforeLoginMs = Date.now();
@@ -144,8 +155,11 @@ describe("admin auth seeded default credentials", () => {
     assert.equal(response.statusCode, 200, response.body);
     const expiresAtMs = new Date(response.json().expiresAt).getTime();
     const durationMs = expiresAtMs - beforeLoginMs;
-    const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
+    const oneDayMs = 24 * 60 * 60 * 1000;
 
-    assert.ok(durationMs <= sevenDaysMs + 5_000, `expected cap at 7 days, got ${durationMs}ms`);
+    assert.ok(
+      durationMs <= oneDayMs + 5_000,
+      `expected cap at 24h, got ${durationMs}ms`,
+    );
   });
 });

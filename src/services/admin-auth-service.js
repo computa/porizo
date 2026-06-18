@@ -9,7 +9,7 @@ const bcrypt = require("bcrypt");
 const crypto = require("crypto");
 const { generateId } = require("../utils/ids");
 
-const MAX_SESSION_DURATION_HOURS = 7 * 24;
+const MAX_SESSION_DURATION_HOURS = 24;
 const DEFAULT_SESSION_DURATION_HOURS = MAX_SESSION_DURATION_HOURS;
 
 function getSessionDurationMs() {
@@ -94,29 +94,37 @@ function shouldBlockDefaultSeededAdminLogin(admin, password) {
 async function login(email, password, ip, userAgent) {
   if (!db) throw new Error("AdminAuthService not initialized");
 
+  // Single generic failure response for EVERY failure mode (unknown email,
+  // locked account, wrong password, disabled default-seeded admin). Returning
+  // identical {success:false, error:"Invalid credentials"} for all cases keeps
+  // this endpoint from being an account-enumeration / lockout-state oracle.
+  // Lockout state is still tracked server-side; the real reason is logged, not
+  // returned to the client.
+  const GENERIC_FAILURE = { success: false, error: "Invalid credentials" };
+
   const admin = await db
     .prepare("SELECT * FROM admin_users WHERE email = ?")
     .get(email.toLowerCase());
 
   if (!admin) {
-    return { success: false, error: "Invalid credentials" };
+    console.warn("[Admin:login] failed — unknown email");
+    return GENERIC_FAILURE;
   }
 
-  // Check if account is locked
+  // Honor an active lockout server-side, but do not reveal it to the client.
   if (admin.locked_until && new Date(admin.locked_until) > new Date()) {
-    const remainingMs = new Date(admin.locked_until) - new Date();
-    const remainingMins = Math.ceil(remainingMs / 60000);
-    return {
-      success: false,
-      error: `Account locked. Try again in ${remainingMins} minutes.`,
-    };
+    console.warn(
+      `[Admin:login] failed — account locked adminId=${admin.id} until=${admin.locked_until}`,
+    );
+    return GENERIC_FAILURE;
   }
 
   // Verify password
   const valid = await bcrypt.compare(password, admin.password_hash);
 
   if (!valid) {
-    // Increment failed count
+    // Increment failed count and set lockout when threshold reached. Kept
+    // server-side; the response stays generic regardless of remaining attempts.
     const newCount = (admin.failed_login_count || 0) + 1;
     const lockUntil =
       newCount >= config.maxFailedLoginAttempts
@@ -131,25 +139,23 @@ async function login(email, password, ip, userAgent) {
       )
       .run(newCount, lockUntil, admin.id);
 
-    const attemptsRemaining = config.maxFailedLoginAttempts - newCount;
-    if (attemptsRemaining > 0) {
-      return {
-        success: false,
-        error: `Invalid credentials. ${attemptsRemaining} attempts remaining.`,
-      };
+    if (lockUntil) {
+      console.warn(
+        `[Admin:login] failed — wrong password, account now locked adminId=${admin.id} until=${lockUntil}`,
+      );
+    } else {
+      console.warn(
+        `[Admin:login] failed — wrong password adminId=${admin.id} failedCount=${newCount}`,
+      );
     }
-    return {
-      success: false,
-      error: `Account locked for ${config.lockoutDurationMinutes} minutes.`,
-    };
+    return GENERIC_FAILURE;
   }
 
   if (shouldBlockDefaultSeededAdminLogin(admin, password)) {
-    return {
-      success: false,
-      error:
-        "Default seeded admin credentials are disabled in production. Rotate this account password or create a new superadmin.",
-    };
+    console.warn(
+      `[Admin:login] failed — default seeded admin credentials disabled in production adminId=${admin.id}`,
+    );
+    return GENERIC_FAILURE;
   }
 
   // Reset failed count, update last login
