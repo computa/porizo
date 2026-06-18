@@ -12,6 +12,7 @@ const { authLogger } = require("../utils/logger");
 const {
   revokeAllEnrollmentSessionTokensForUser,
 } = require("./enrollment-session-service");
+const { identityHash } = require("./identity-service");
 
 // Validate required environment variables
 function getJwtSecret() {
@@ -941,6 +942,19 @@ async function deleteUserAccount(userId) {
 
   // Transaction for atomic deletion
   await db.transaction(async () => {
+    // 0. ECON tombstone capture (P1-ECON): read identity + trial state BEFORE any
+    // deletes below remove the provider/entitlements rows. Persisted further down,
+    // before user_auth_providers is purged — all inside this one transaction.
+    const tombstoneProviders = await db
+      .prepare(
+        "SELECT provider, provider_user_id FROM user_auth_providers WHERE user_id = ?",
+      )
+      .all(userId);
+    const tombstoneTrialRow = await db
+      .prepare("SELECT trial_started_at FROM entitlements WHERE user_id = ?")
+      .get(userId);
+    const tombstoneHadTrial = !!tombstoneTrialRow?.trial_started_at;
+
     // 1. Story data (deepest first)
     await db
       .prepare(
@@ -1071,12 +1085,15 @@ async function deleteUserAccount(userId) {
 
     // 8. Auth tables (CASCADE handles most via FK constraints)
     // Explicit deletes for tables that might not have CASCADE set up
-    // SECURITY NOTE: auth_events deletion is required for GDPR "right to erasure" compliance.
-    // Tradeoff: this removes the security audit trail for this user. If your jurisdiction or
-    // security policy requires retaining auth events, consider anonymizing instead:
-    //   UPDATE auth_events SET user_id = NULL, ip_address = NULL WHERE user_id = ?
-    // The user row itself is already soft-deleted and anonymized (step 9 below).
-    await db.prepare("DELETE FROM auth_events WHERE user_id = ?").run(userId);
+    // SECURITY NOTE: auth_events are ANONYMIZED (PII scrubbed) rather than deleted,
+    // so the security timeline survives GDPR erasure. The user row itself is
+    // soft-deleted + PII-scrubbed (step 9), so keeping user_id here is safe and
+    // preserves forensics (e.g. signup→delete→re-register velocity).
+    await db
+      .prepare(
+        "UPDATE auth_events SET ip_address = NULL, user_agent = NULL WHERE user_id = ?",
+      )
+      .run(userId);
     await db
       .prepare("DELETE FROM email_verification_tokens WHERE user_id = ?")
       .run(userId);
@@ -1090,6 +1107,33 @@ async function deleteUserAccount(userId) {
       .prepare("DELETE FROM token_families WHERE user_id = ?")
       .run(userId);
     await db.prepare("DELETE FROM user_sessions WHERE user_id = ?").run(userId);
+
+    // ECON tombstone (P1-ECON): persist a salted one-way identity hash (captured
+    // at step 0) so this identity cannot delete→re-register to re-farm free
+    // credits. MUST be before the user_auth_providers DELETE, same transaction.
+    for (const p of tombstoneProviders) {
+      if (!p.provider || !p.provider_user_id) {
+        continue;
+      }
+      const hash = identityHash(p.provider, p.provider_user_id);
+      await db
+        .prepare(
+          `INSERT INTO granted_identities (identity_hash, grant_kind)
+           VALUES (?, 'signup')
+           ON CONFLICT (identity_hash) DO NOTHING`,
+        )
+        .run(hash);
+      if (tombstoneHadTrial) {
+        await db
+          .prepare(
+            `INSERT INTO granted_identities (identity_hash, grant_kind)
+             VALUES (?, 'trial')
+             ON CONFLICT (identity_hash) DO NOTHING`,
+          )
+          .run(hash);
+      }
+    }
+
     await db
       .prepare("DELETE FROM user_auth_providers WHERE user_id = ?")
       .run(userId);
@@ -1110,6 +1154,15 @@ async function deleteUserAccount(userId) {
     `,
       )
       .run(now, userId);
+
+    // 10. Emit a retained account_deleted event (no PII) so the security
+    // timeline records the deletion. Allowed by migration 119's CHECK extension.
+    await db
+      .prepare(
+        `INSERT INTO auth_events (id, user_id, event_type, ip_address, user_agent, metadata)
+         VALUES (?, ?, 'account_deleted', NULL, NULL, NULL)`,
+      )
+      .run(generateId("evt"), userId);
   });
 }
 

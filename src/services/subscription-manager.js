@@ -21,6 +21,7 @@
 
 const crypto = require("crypto");
 const { getFeatureFlag } = require("./feature-flags");
+const { identityHash } = require("./identity-service");
 
 /**
  * Entitlement error codes for structured error dispatch
@@ -548,7 +549,7 @@ function createSubscriptionManager(db, services = {}) {
    * @param {string} userId - User ID
    * @returns {Promise<Object>} Trial activation result
    */
-  async function activateTrial(userId) {
+  async function activateTrial(userId, opts = {}) {
     // Get trial config
     const trialConfig = await planConfigService.getTrialConfig();
 
@@ -579,11 +580,21 @@ function createSubscriptionManager(db, services = {}) {
         throw new Error("Cannot activate trial with an active subscription");
       }
 
+      // Sybil tombstone + risk gate: a previously-granted identity (or a
+      // high/blocked-risk user) gets a 0-song trial.
+      const { suppressed, hash } = await evaluateFreeGrantGate(
+        query,
+        userId,
+        "trial",
+        opts.identity,
+      );
+      const songsGranted = suppressed ? 0 : trialConfig.songs_allowed;
+
       const currentSongs = currentResult.rows[0]?.songs_remaining || 0;
       const currentTrialSongs =
         currentResult.rows[0]?.trial_songs_remaining || 0;
       // Total available = subscription songs + trial songs
-      const totalAfter = currentSongs + trialConfig.songs_allowed;
+      const totalAfter = currentSongs + songsGranted;
 
       // Upsert entitlements with trial
       // IMPORTANT: Trial songs go ONLY into trial_songs_remaining, NOT songs_remaining
@@ -603,28 +614,38 @@ function createSubscriptionManager(db, services = {}) {
           updated_at = CURRENT_TIMESTAMP`,
         [
           userId,
-          trialConfig.songs_allowed,
+          songsGranted,
           trialExpiresAt.toISOString(),
-          trialConfig.songs_allowed,
+          songsGranted,
           trialExpiresAt.toISOString(),
         ],
       );
 
-      // Record transaction
+      // Record transaction (even a 0 grant marks the trial as used)
       await recordSongTransaction(
         query,
         userId,
         TRANSACTION_TYPES.TRIAL_GRANT,
-        trialConfig.songs_allowed,
+        songsGranted,
         currentTrialSongs,
-        trialConfig.songs_allowed,
+        songsGranted,
         "trial",
         null,
         `${trialConfig.duration_days}-day free trial activated`,
       );
 
+      // Record the trial tombstone so the identity cannot re-farm a trial.
+      if (hash && songsGranted > 0) {
+        await query(
+          `INSERT INTO granted_identities (identity_hash, grant_kind)
+           VALUES (?, 'trial')
+           ON CONFLICT (identity_hash) DO NOTHING`,
+          [hash],
+        );
+      }
+
       return {
-        songsGranted: trialConfig.songs_allowed,
+        songsGranted,
         songsRemaining: totalAfter,
         trialExpiresAt,
         durationDays: trialConfig.duration_days,
@@ -1775,8 +1796,40 @@ function createSubscriptionManager(db, services = {}) {
    * @param {number} [opts.previewCountToday] - Initial preview count (default 0)
    * @param {string} [opts.previewCountResetAt] - Reset timestamp
    */
+  /**
+   * Decide whether a FREE grant of `kind` should be suppressed for this request.
+   * Suppressed (0-song) when:
+   *   - the identity hash has already received a grant of this kind (Sybil tombstone), OR
+   *   - the user's risk_level is high/blocked.
+   * Returns { suppressed, hash }. `hash` is null when no identity was supplied
+   * (legacy callers) — in that case only risk_level can suppress.
+   */
+  async function evaluateFreeGrantGate(query, userId, kind, identity) {
+    const userRow = (
+      await query("SELECT risk_level FROM users WHERE id = ?", [userId])
+    ).rows[0];
+    const riskBlocked =
+      userRow?.risk_level === "high" || userRow?.risk_level === "blocked";
+
+    let hash = null;
+    let tombstoned = false;
+    if (identity?.provider && identity?.subject) {
+      hash = identityHash(identity.provider, identity.subject);
+      const existing = await query(
+        "SELECT 1 FROM granted_identities WHERE identity_hash = ? AND grant_kind = ?",
+        [hash, kind],
+      );
+      tombstoned = existing.rows.length > 0;
+    }
+
+    return { suppressed: riskBlocked || tombstoned, hash };
+  }
+
   async function createFreeEntitlements(userId, opts = {}) {
-    const songsGrant = await getFeatureFlag(db, "free_tier_songs_grant");
+    const configuredSongsGrant = await getFeatureFlag(
+      db,
+      "free_tier_songs_grant",
+    );
     const poemsGrant = await getFeatureFlag(db, "free_tier_poems_grant");
     const now = opts.now || new Date().toISOString();
     const previewCountToday = opts.previewCountToday ?? 0;
@@ -1784,6 +1837,14 @@ function createSubscriptionManager(db, services = {}) {
       opts.previewCountResetAt || new Date(Date.now() + 86400000).toISOString();
 
     await db.transaction(async (query) => {
+      const { suppressed, hash } = await evaluateFreeGrantGate(
+        query,
+        userId,
+        "signup",
+        opts.identity,
+      );
+      const songsGrant = suppressed ? 0 : configuredSongsGrant;
+
       const result = await query(
         `INSERT INTO entitlements (user_id, tier, songs_remaining, poems_remaining,
           preview_count_today, preview_count_reset_at, updated_at)
@@ -1799,7 +1860,9 @@ function createSubscriptionManager(db, services = {}) {
         ],
       );
 
-      if ((result.changes ?? result.rowCount ?? 0) > 0 && songsGrant > 0) {
+      const inserted = (result.changes ?? result.rowCount ?? 0) > 0;
+
+      if (inserted && songsGrant > 0) {
         await recordSongTransaction(
           query,
           userId,
@@ -1811,6 +1874,15 @@ function createSubscriptionManager(db, services = {}) {
           userId,
           "Free signup song grant",
         );
+        // Record the tombstone so this identity cannot re-farm the free grant.
+        if (hash) {
+          await query(
+            `INSERT INTO granted_identities (identity_hash, grant_kind)
+             VALUES (?, 'signup')
+             ON CONFLICT (identity_hash) DO NOTHING`,
+            [hash],
+          );
+        }
       }
     });
   }

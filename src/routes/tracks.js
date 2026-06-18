@@ -3,6 +3,7 @@
 const { newUuid } = require("../utils/ids");
 const { createOrGetShareToken } = require("../services/share-service");
 const { nowIso, toJson, parseJson } = require("../utils/common");
+const { getClientIp: extractClientIp } = require("../utils/client-ip");
 const {
   moderationCheck,
   validateGeneratedLyrics,
@@ -1941,7 +1942,7 @@ function registerTrackRoutes(
         utmMedium: request.query.utm_medium || body.utm_medium || null,
         utmCampaign: request.query.utm_campaign || body.utm_campaign || null,
         referrer: request.headers.referer || request.headers.referrer || null,
-        ip: request.ip || null,
+        ip: extractClientIp(request) || null,
         userAgent: request.headers["user-agent"] || null,
       },
     });
@@ -1962,7 +1963,7 @@ function registerTrackRoutes(
           occasion: track.occasion,
           utm_source: result.attribution?.utmSource,
         },
-        ip: request.ip,
+        ip: extractClientIp(request),
         userAgent: request.headers["user-agent"],
       });
     }

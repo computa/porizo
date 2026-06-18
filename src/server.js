@@ -891,8 +891,22 @@ function buildServer({
       .prepare("SELECT user_id FROM entitlements WHERE user_id = ?")
       .get(userId);
     if (!entitlements) {
-      console.log(`[ensureUser] Creating entitlements for user: ${userId}`);
-      await subscriptionManager.createFreeEntitlements(userId);
+      // SECURITY (P1-ECON): ensureUser must NOT grant free songs — it has no
+      // identity/tombstone context, so it was a second ungated Sybil grant path.
+      // Create a 0-song entitlements row only; the legitimate grant happens in
+      // the registration flow (createFreeEntitlements with identity context).
+      app.log.warn(
+        { userId },
+        "[ensureUser] Missing entitlements row — creating 0-song placeholder (no free grant)",
+      );
+      await db
+        .prepare(
+          `INSERT INTO entitlements (user_id, tier, songs_remaining, poems_remaining,
+            preview_count_today, preview_count_reset_at, updated_at)
+           VALUES (?, 'free', 0, 0, 0, ?, ?)
+           ON CONFLICT (user_id) DO NOTHING`,
+        )
+        .run(userId, new Date(Date.now() + 86400000).toISOString(), nowIso());
     }
   }
 
@@ -992,9 +1006,12 @@ function buildServer({
   }
 
   function getBaseUrl(request) {
-    // NOTE: x-forwarded-proto and host are trusted unconditionally here.
-    // Fastify must be configured with trustProxy: true (or a specific proxy IP)
-    // to prevent header spoofing in production. See: fastify({ trustProxy: true }).
+    // SECURITY (P2 host-header pinning): prefer a server-side configured base URL
+    // for generated links so a spoofed Host header cannot poison share/reset
+    // links. Fall back to the request Host only when no config value is set.
+    if (publicBaseUrl) {
+      return publicBaseUrl;
+    }
     const proto = request.headers["x-forwarded-proto"] || "http";
     const host = request.headers["host"];
     if (host) {
@@ -4419,7 +4436,9 @@ function buildServer({
       .prepare("SELECT * FROM tracks WHERE id = ?")
       .get(trackVersion.track_id);
     if (!track || track.user_id !== userId || track.deleted_at) {
-      sendError(reply, 403, "FORBIDDEN", "Job does not belong to this user.");
+      // SECURITY (P3): return 404 (not 403) for other-users' jobs so the
+      // response does not reveal whether a given job id exists.
+      sendError(reply, 404, "JOB_NOT_FOUND", "Job not found.");
       return;
     }
     const progress = computeJobProgress(job);
@@ -5128,13 +5147,25 @@ function buildServer({
 }
 
 async function start() {
-  if (
-    process.env.ALLOW_ANON_USER_ID === "true" &&
-    process.env.NODE_ENV === "production"
-  ) {
-    throw new Error(
-      "ALLOW_ANON_USER_ID must not be enabled in production — it bypasses all authentication",
-    );
+  // SECURITY (P3 boot assertions): turn production misconfiguration footguns into
+  // hard failures. Anon/device-token fallbacks bypass auth; ADMIN_SETUP_SECRET
+  // exposes the one-time admin bootstrap endpoint.
+  if (process.env.NODE_ENV === "production") {
+    if (process.env.ALLOW_ANON_USER_ID === "true") {
+      throw new Error(
+        "ALLOW_ANON_USER_ID must not be enabled in production — it bypasses all authentication",
+      );
+    }
+    if (process.env.ALLOW_DEVICE_TOKEN_FALLBACK === "true") {
+      throw new Error(
+        "ALLOW_DEVICE_TOKEN_FALLBACK must not be enabled in production — it bypasses authentication",
+      );
+    }
+    if (process.env.ADMIN_SETUP_SECRET) {
+      throw new Error(
+        "ADMIN_SETUP_SECRET must be unset in production — it exposes the admin bootstrap endpoint",
+      );
+    }
   }
   const db = await getDatabase({
     dbPath: config.DB_PATH,

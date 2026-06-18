@@ -887,7 +887,13 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
           )
           .run(userId, passwordHash, now);
 
-        await subscriptionManager.createFreeEntitlements(userId, { now });
+        await subscriptionManager.createFreeEntitlements(userId, {
+          now,
+          identity: {
+            provider: "email",
+            subject: identityService.normalizeEmail(email),
+          },
+        });
       } catch (err) {
         console.error(
           "[EmailSignup] Post-creation failed, cleaning up orphaned user:",
@@ -925,13 +931,13 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
           });
       }
 
-      // Log event
+      // Log account-created signal (distinct from login_success)
       await authService.logAuthEvent({
         userId,
-        eventType: "login_success",
+        eventType: "signup_success",
         ipAddress: clientIp,
         userAgent: request.headers["user-agent"],
-        metadata: { method: "signup" },
+        metadata: { method: "email" },
       });
 
       return reply.status(201).send({
@@ -1525,7 +1531,10 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
 
             // Create free entitlements — compensate on failure
             try {
-              await subscriptionManager.createFreeEntitlements(userId, { now });
+              await subscriptionManager.createFreeEntitlements(userId, {
+                now,
+                identity: { provider, subject: providerUserId },
+              });
             } catch (err) {
               console.error(
                 "[SocialAuth] Entitlement creation failed, cleaning up orphaned user:",
@@ -1579,6 +1588,17 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
         if (isNewUser) {
           matchDownloadAttribution(userId, clientIp).catch(() => {});
           matchReceiverAttribution(userId, clientIp).catch(() => {});
+        }
+
+        // Log account-created signal for new social signups (distinct from login)
+        if (isNewUser) {
+          await authService.logAuthEvent({
+            userId,
+            eventType: "signup_success",
+            ipAddress: clientIp,
+            userAgent: request.headers["user-agent"],
+            metadata: { method: provider },
+          });
         }
 
         // Log event
@@ -2993,7 +3013,10 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
 
         // Create free entitlements — compensate on failure
         try {
-          await subscriptionManager.createFreeEntitlements(userId, { now });
+          await subscriptionManager.createFreeEntitlements(userId, {
+            now,
+            identity: { provider: "phone", subject: phoneNumber },
+          });
         } catch (err) {
           console.error(
             "[PhoneRegister] Entitlement creation failed, cleaning up orphaned user:",
@@ -3038,6 +3061,18 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
         // Attribution matching (non-blocking)
         matchDownloadAttribution(userId, clientIp).catch(() => {});
         matchReceiverAttribution(userId, clientIp).catch(() => {});
+
+        // Log account-created signal (distinct from login_success)
+        await authService.logAuthEvent({
+          userId,
+          eventType: "signup_success",
+          ipAddress: clientIp,
+          userAgent: request.headers["user-agent"],
+          metadata: {
+            method: "phone",
+            has_email: Boolean(normalizedEmail),
+          },
+        });
 
         // Log event
         await authService.logAuthEvent({

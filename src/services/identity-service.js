@@ -17,6 +17,7 @@
  */
 
 const { generateId } = require("../utils/ids");
+const crypto = require("crypto");
 
 // ==================== NORMALIZATION ====================
 
@@ -555,7 +556,43 @@ async function assertNoContactConflict(db, type, valueNormalized, excludeUserId 
 
 // ==================== EXPORTS ====================
 
+
+// ==================== IDENTITY TOMBSTONE HASHING ====================
+// Fixed fallback salt for test/dev ONLY. Never used in production — see identityHashSalt().
+const DEV_IDENTITY_HASH_SALT = "porizo-dev-identity-salt-do-not-use-in-prod";
+
+// Resolve the identity-hash salt. One-way commitment: rotating it orphans every
+// existing tombstone, so it must be stable per environment. Production requires a
+// real salt (throw if missing); test/dev falls back to a fixed salt and warns.
+function identityHashSalt() {
+  const salt = process.env.IDENTITY_HASH_SALT;
+  if (salt) {
+    return salt;
+  }
+  if (process.env.NODE_ENV === "production") {
+    throw new Error(
+      "CRITICAL: IDENTITY_HASH_SALT environment variable is not set. " +
+        "Required to compute the Sybil identity tombstone hash.",
+    );
+  }
+  console.warn(
+    "[identity-service] IDENTITY_HASH_SALT not set — using insecure dev fallback. Set it in production.",
+  );
+  return DEV_IDENTITY_HASH_SALT;
+}
+
+// Salted one-way identity hash for the Sybil tombstone: sha256(provider:subject:salt).
+// Never logs or returns the raw subject.
+function identityHash(provider, subject) {
+  const salt = identityHashSalt();
+  return crypto
+    .createHash("sha256")
+    .update(`${provider}:${subject}:${salt}`)
+    .digest("hex");
+}
+
 module.exports = {
+  identityHash,
   // Core resolution
   resolveUserByIdentity,
 

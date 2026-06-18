@@ -7,6 +7,7 @@
 
 const crypto = require("crypto");
 const writer = require("../writer");
+const { getClientIp: extractClientIp } = require("../utils/client-ip");
 const {
   moderationCheck,
   validateGeneratedLyrics,
@@ -2238,7 +2239,7 @@ function registerStoryRoutes(
               initial_prompt_used_length: normalizedPromptInfo.usedLength,
               engine_version: result.engine_version || requestedEngineVersion,
             },
-            ip: request.ip,
+            ip: extractClientIp(request),
             userAgent: request.headers["user-agent"],
           });
         }
@@ -2643,7 +2644,7 @@ function registerStoryRoutes(
               force_confirm: force_confirm === true,
               target_content_type: target_content_type || null,
             },
-            ip: request.ip,
+            ip: extractClientIp(request),
             userAgent: request.headers["user-agent"],
           });
         }
@@ -3411,7 +3412,7 @@ function registerStoryRoutes(
             resourceType: "poem",
             resourceId: poemId,
             metadata: { story_id, tone: finalTone, style: finalStyle },
-            ip: request.ip,
+            ip: extractClientIp(request),
             userAgent: request.headers["user-agent"],
           });
         }

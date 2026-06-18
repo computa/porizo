@@ -1,6 +1,7 @@
 "use strict";
 
 const crypto = require("crypto");
+const { getClientIp: extractClientIp } = require("../utils/client-ip");
 const fs = require("fs");
 const path = require("path");
 const { newUuid } = require("../utils/ids");
@@ -72,7 +73,7 @@ function registerPoemRoutes(app, {
 
   async function enforcePoemClaimRateLimit(request, reply, shareId) {
     if (typeof consumeRateLimit !== "function") return true;
-    const ip = request.ip || "unknown";
+    const ip = extractClientIp(request) || "unknown";
     const coarse = await consumeRateLimit(`poem-claim:${ip}:all`, "poem_claim", 30, 60);
     if (coarse && !coarse.allowed) {
       if (coarse.reset_at) {
@@ -553,7 +554,7 @@ function registerPoemRoutes(app, {
         utmMedium,
         utmCampaign,
         referrer: request.headers.referer || request.headers.referrer || null,
-        ip: request.ip || null,
+        ip: extractClientIp(request) || null,
         userAgent: request.headers["user-agent"] || null,
       },
     });
@@ -576,7 +577,7 @@ function registerPoemRoutes(app, {
           utm_medium: utmMedium,
           utm_campaign: utmCampaign,
         },
-        ip: request.ip,
+        ip: extractClientIp(request),
         userAgent: request.headers["user-agent"],
       });
     }
@@ -673,7 +674,7 @@ function registerPoemRoutes(app, {
     // Log access
     await db.prepare(
       "INSERT INTO poem_share_access_log (id, poem_share_token_id, event_type, metadata, created_at) VALUES (?, ?, ?, ?, ?)"
-    ).run(newUuid(), share.id, "view", toJson({ ip: request.ip }), nowIso());
+    ).run(newUuid(), share.id, "view", toJson({ ip: extractClientIp(request) }), nowIso());
 
     const appRequired = share.claim_policy === "app_only";
 
@@ -859,7 +860,7 @@ function registerPoemRoutes(app, {
         resourceType: "poem_share",
         resourceId: share.id,
         metadata: { poem_id: share.poem_id },
-        ip: request.ip,
+        ip: extractClientIp(request),
         userAgent: request.headers["user-agent"],
       });
     }

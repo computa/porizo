@@ -105,6 +105,34 @@ function registerAdminRoutes(
   const adminGiftOpsService = new AdminGiftOpsService(db);
   const blogService = new BlogService(db);
   adminAuthService.initialize(db);
+
+  // SECURITY (WS2 / P1): global admin auth gate. Every /admin/dashboard* route
+  // requires a valid admin session by default, so a single forgotten inline
+  // requireAdminSession call can never leak data. The inline guards are kept as
+  // defense-in-depth (they reuse request.admin set here). /admin/auth/* is NOT
+  // gated (login/logout/forgot/reset/setup must be reachable unauthenticated).
+  app.addHook("onRequest", async (request, reply) => {
+    const routePath =
+      request.routerPath || request.routeOptions?.url || request.raw?.url || "";
+    if (!routePath.startsWith("/admin/dashboard")) {
+      return;
+    }
+
+    const authHeader = request.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) {
+      sendError(reply, 401, "UNAUTHORIZED", "Missing authorization token");
+      return reply;
+    }
+
+    const admin = await adminAuthService.validateSession(authHeader.slice(7));
+    if (!admin) {
+      sendError(reply, 401, "UNAUTHORIZED", "Invalid or expired session");
+      return reply;
+    }
+
+    // Make the resolved admin available to inline guards (no re-validation).
+    request.admin = admin;
+  });
   const BLOG_TARGET_INTENTS = [
     "informational",
     "commercial",
@@ -132,6 +160,17 @@ function registerAdminRoutes(
    * Returns admin info if valid, null if invalid (and sends error response)
    */
   async function requireAdminSession(request, reply) {
+    // reply.sent-aware: the global onRequest hook below may have already replied
+    // (401) for an unauthenticated /admin/dashboard request. If so, do not
+    // double-send — just return the resolved admin (or null) without writing.
+    if (reply.sent) {
+      return request.admin || null;
+    }
+    // If the global hook already resolved+validated the admin, reuse it.
+    if (request.admin) {
+      return request.admin;
+    }
+
     const authHeader = request.headers.authorization;
     if (!authHeader?.startsWith("Bearer ")) {
       sendError(reply, 401, "UNAUTHORIZED", "Missing authorization token");

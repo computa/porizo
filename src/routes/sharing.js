@@ -4,6 +4,7 @@ const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const QRCode = require("qrcode");
+const { getClientIp: extractClientIp } = require("../utils/client-ip");
 const { newUuid } = require("../utils/ids");
 const { nowIso, toJson, parseJson, ensureDir } = require("../utils/common");
 const { getFeatureFlags } = require("../services/feature-flags");
@@ -329,7 +330,7 @@ function registerSharingRoutes(
     options = {},
   ) {
     if (typeof consumeRateLimit !== "function") return true;
-    const ip = request.ip || "unknown";
+    const ip = extractClientIp(request) || "unknown";
     if (options.aggregate) {
       const scope = options.scope || "all";
       const coarseLimit = await consumeRateLimit(
@@ -534,7 +535,7 @@ function registerSharingRoutes(
         eventType: "audio_served",
         metadata: {
           user_agent: request.headers["user-agent"] || null,
-          ip: request.ip || null,
+          ip: extractClientIp(request) || null,
           type: "full_proxy",
         },
       });
@@ -557,7 +558,7 @@ function registerSharingRoutes(
       eventType: "audio_served",
       metadata: {
         user_agent: request.headers["user-agent"] || null,
-        ip: request.ip || null,
+        ip: extractClientIp(request) || null,
         type: "preview",
       },
     });
@@ -818,7 +819,7 @@ function registerSharingRoutes(
         utm_source: request.query.utm_source || null,
         utm_medium: request.query.utm_medium || null,
       },
-      ip: request.ip,
+      ip: extractClientIp(request),
       userAgent: request.headers["user-agent"],
     });
 
@@ -918,7 +919,7 @@ function registerSharingRoutes(
         utm_medium: request.query.utm_medium || null,
         utm_campaign: request.query.utm_campaign || null,
       },
-      ip: request.ip,
+      ip: extractClientIp(request),
       userAgent: request.headers["user-agent"],
     });
 
@@ -1113,7 +1114,7 @@ function registerSharingRoutes(
         receiverSessionId: resolved.receiverSessionId,
         shareId: resolved.shareId,
         contentKind: resolved.contentKind,
-        ip: request.ip,
+        ip: extractClientIp(request),
         userAgent: request.headers["user-agent"] || null,
       });
     } catch (err) {
@@ -1259,7 +1260,7 @@ function registerSharingRoutes(
           error_code: errorCode || "",
           platform: body.platform || request.headers["x-platform"] || "unknown",
         },
-        ip: request.ip,
+        ip: extractClientIp(request),
         userAgent: request.headers["user-agent"] || null,
         trustedReceiverSession: true,
       });
@@ -1829,7 +1830,7 @@ function registerSharingRoutes(
         contentKind,
         eventName,
         metadata: body.metadata || {},
-        ip: request.ip,
+        ip: extractClientIp(request),
         userAgent: request.headers["user-agent"] || null,
       });
       const receiverSaveUrl = appLinkService.buildReceiverSaveUrl({
@@ -1969,7 +1970,7 @@ function registerSharingRoutes(
             contentKind: "song",
             eventName,
             metadata,
-            ip: request.ip,
+            ip: extractClientIp(request),
             userAgent: request.headers["user-agent"] || null,
           });
         } catch (err) {
@@ -2258,7 +2259,7 @@ function registerSharingRoutes(
         resourceType: "share",
         resourceId: share.id,
         metadata: { platform, track_id: share.track_id },
-        ip: request.ip,
+        ip: extractClientIp(request),
         userAgent: request.headers["user-agent"],
       });
 
@@ -2308,7 +2309,7 @@ function registerSharingRoutes(
           resourceType: "share",
           resourceId: share.id,
           metadata: { platform, claimed: true, track_id: share.track_id },
-          ip: request.ip,
+          ip: extractClientIp(request),
           userAgent: request.headers["user-agent"],
         });
 
@@ -2375,7 +2376,7 @@ function registerSharingRoutes(
             track_id: share.track_id,
             mode: "public_preview",
           },
-          ip: request.ip,
+          ip: extractClientIp(request),
           userAgent: request.headers["user-agent"],
         });
         reply.send({
@@ -2422,7 +2423,7 @@ function registerSharingRoutes(
           track_id: share.track_id,
           mode: "preview",
         },
-        ip: request.ip,
+        ip: extractClientIp(request),
         userAgent: request.headers["user-agent"],
       });
 
@@ -2848,7 +2849,7 @@ function registerSharingRoutes(
     }
 
     // Rate limit: 5 downloads per IP per hour
-    const clientIp = request.ip || "unknown";
+    const clientIp = extractClientIp(request) || "unknown";
     const rateLimitResult = await consumeRateLimit(
       `ip:${clientIp}`,
       "audiogram_download",
