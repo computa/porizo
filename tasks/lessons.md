@@ -386,3 +386,13 @@ Naming similarity on a remote platform ("thanks mom.mp3" vs `marketing/audio hoo
 **Mistake:** Defaulted to a short music clip with the assumption we'd loop or pad the rest. Earlier reels with this approach had repeating audio that sounded amateur — exactly the bug user flagged.
 
 **Rule:** All Porizo TikTok reels are scored with **one continuous 21s music track**. Music plays through the whole reel; volume ducks under voiceovers and restores after. Never cut a shorter clip and loop it. This is the project standard — wire it into `pipeline/audio_kit.py` as the default behavior, not a per-reel decision.
+
+---
+
+## [2026-06-18] Semicolon in a SQL migration COMMENT crashed boot → full prod 502 outage
+
+**Trigger:** Wrote `migrations/pg/120_remove_default_seed_admin.sql` with explanatory comments that contained `;` (e.g. "...via the admin setup endpoint; new environments..." and "...admin_users delete; cleared explicitly...").
+
+**Mistake:** The migration runner (`src/database/postgres.js` / `sqlite.js`) splits each file on `;` and runs every chunk. A `;` inside a `--` comment splits that comment, so the trailing fragment ("new environments bootstrap...") got executed as invalid SQL → migration 120 threw during `runMigrations` on boot → the app process crash-looped → **502 across api.porizo.co + porizo.co + the iOS Apple sign-in** (all the same backend). The migration also never recorded. A subagent had already hit this exact trap on migration 118 and warned about it; I reintroduced it.
+
+**Rule:** NEVER put a `;` inside a migration comment — the runner splits naively on `;`. Comments must contain zero semicolons; only real statements end with `;`. Before committing ANY migration, run `grep -nE '^\s*--.*;' <file>` and confirm it is empty. Migrations are boot-critical: a throwing migration takes the whole app down, so verify against the PG-backed path (sqlite may not catch it), and after deploying a migration, confirm it actually recorded in `schema_migrations` before assuming success.
