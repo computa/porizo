@@ -151,6 +151,7 @@ struct InlineNamePromptView: View {
             }
             .padding(.horizontal, 20)
             .accessibilityIdentifier("name-entry-pick-contact")
+            .buttonStyle(PressableButtonStyle())
 
             Text("We'll text them the song in one tap the moment it's ready.")
                 .font(DesignTokens.bodyFont(size: 13))
@@ -213,6 +214,7 @@ struct InlineNamePromptView: View {
                 .disabled(trimmedName.isEmpty)
                 .opacity(trimmedName.isEmpty ? 0.5 : 1.0)
                 .accessibilityIdentifier("name-entry-continue")
+                .buttonStyle(PressableButtonStyle())
 
                 Button {
                     withAnimation {
@@ -356,6 +358,7 @@ struct InlineNamePromptView: View {
         .disabled(trimmedName.isEmpty)
         .opacity(trimmedName.isEmpty ? 0.5 : 1.0)
         .padding(.horizontal, 20)
+        .buttonStyle(PressableButtonStyle())
     }
 
     private func typeToggleButton(_ label: String, type: CreateFlowKind) -> some View {

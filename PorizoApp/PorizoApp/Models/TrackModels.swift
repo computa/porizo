@@ -91,6 +91,11 @@ struct Track: Codable, Sendable, Identifiable, Equatable {
     let title: String
     let occasion: String?
     let recipientName: String?
+    // Recipient contact collected up front (recipient-first flow). Travels with the
+    // track so the one-tap "Send to [name]" works on the async path too (library /
+    // full player / notification-open), not just the synchronous reveal.
+    var recipientPhone: String? = nil
+    var recipientChannel: String? = nil
     let style: String?
     let durationTarget: Int?
     let voiceMode: String?
@@ -123,6 +128,8 @@ struct Track: Codable, Sendable, Identifiable, Equatable {
         case userId = "user_id"
         case title, occasion, style, message, status
         case recipientName = "recipient_name"
+        case recipientPhone = "recipient_phone"
+        case recipientChannel = "recipient_channel"
         case durationTarget = "duration_target"
         case voiceMode = "voice_mode"
         case latestVersion = "latest_version"

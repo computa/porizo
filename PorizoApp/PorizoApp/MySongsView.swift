@@ -55,6 +55,9 @@ struct MySongsView: View {
     // ShareController persisted in @State to avoid recreation on every sheet re-evaluation
     @State private var trackToShare: Track?
     @State private var shareController: ShareController
+    /// One-tap "Send to [name]" for songs that carry a recipient number (the async
+    /// "Notify me" path): pre-addressed iMessage/WhatsApp instead of the PIN share sheet.
+    @StateObject private var directSend = DirectSendModel()
 
     // Cache control - prevent unnecessary refetches on tab switch
     @State private var lastFetchTime: Date?
@@ -135,6 +138,7 @@ struct MySongsView: View {
                 Text("Remove \"\(track.title)\" from your library?")
             }
         }
+        .directSendHost(directSend)
         .sheet(item: $trackToShare) { track in
             SharePostcardView(
                 recipientName: track.recipientName ?? "Recipient",
@@ -274,6 +278,21 @@ struct MySongsView: View {
             } else if !hasRenderingTrack && pollingService.isPolling {
                 pollingService.stopPolling()
             }
+        }
+    }
+
+    /// One-tap send to the recipient collected up front, when the track carries a
+    /// number; otherwise fall back to the PIN share sheet. This is what makes the
+    /// async ("Notify me") path honor the recipient-first send.
+    private func shareRecipientAware(_ track: Track) {
+        if let phone = track.recipientPhone?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !phone.isEmpty {
+            directSend.send(recipientName: track.recipientName ?? "", phone: phone) {
+                try await shareController.makePinlessShareLink(
+                    trackId: track.id, versionNum: track.latestVersion)
+            }
+        } else {
+            trackToShare = track
         }
     }
 
@@ -481,7 +500,7 @@ struct MySongsView: View {
                             }
                         },
                         onShare: (track.status == "ready" || track.status == "preview_ready" || track.status == "full_ready") && (track.canShare ?? true) ? {
-                            trackToShare = track
+                            shareRecipientAware(track)
                         } : nil,
                         onDelete: {
                             trackToDelete = track

@@ -60,6 +60,10 @@ struct TrackPlayerFullView: View {
     // Share state
     @State private var showingShareSheet = false
     @State private var shareController: ShareController?
+    // Recipient-first: number collected up front (loaded from the track). When present,
+    // the Share button becomes one-tap "Send to [name]" pre-addressed to this number.
+    @State private var recipientPhone: String?
+    @StateObject private var directSend = DirectSendModel()
 
     // Haptic triggers
     @State private var hapticLightTrigger = false
@@ -145,6 +149,31 @@ struct TrackPlayerFullView: View {
         .onDisappear {
             renderController.cancelAll()
             playbackController.cleanup()
+        }
+        .task { await loadRecipientContact() }
+        .directSendHost(directSend)
+    }
+
+    /// Load the recipient number stored on the track so the Share button can offer
+    /// one-tap "Send to [name]" on the async ("Notify me") path.
+    @MainActor
+    private func loadRecipientContact() async {
+        guard recipientPhone == nil else { return }
+        guard let resp = try? await apiClient.getTrack(trackId: trackId) else { return }
+        let phone = resp.track.recipientPhone?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let phone, !phone.isEmpty { recipientPhone = phone }
+        if recipientName.isEmpty, let name = resp.track.recipientName { recipientName = name }
+    }
+
+    /// One-tap: mint a PIN-free link and open iMessage/WhatsApp pre-addressed to the
+    /// recipient number — the same send the reveal screen offers.
+    @MainActor
+    private func startDirectSend() {
+        guard let phone = recipientPhone, !phone.isEmpty else { return }
+        let controller = shareController ?? ShareController(apiClient: apiClient)
+        shareController = controller
+        directSend.send(recipientName: recipientName, phone: phone) {
+            try await controller.makePinlessShareLink(trackId: trackId, versionNum: versionNum)
         }
     }
 
@@ -675,17 +704,38 @@ struct TrackPlayerFullView: View {
         HStack {
             Spacer()
 
-            // Share
-            Button {
-                hapticLightTrigger.toggle()
-                showingShareSheet = true
-            } label: {
-                Image(systemName: "square.and.arrow.up")
-                    .font(.system(size: 22))
-                    .foregroundStyle(DesignTokens.textPrimary)
-                    .frame(width: 44, height: 44)
+            // Share — becomes one-tap "Send to [name]" when a recipient number exists
+            if let phone = recipientPhone, !phone.isEmpty {
+                Button {
+                    hapticLightTrigger.toggle()
+                    startDirectSend()
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "paperplane.fill")
+                            .font(.system(size: 16, weight: .semibold))
+                        Text("Send to \(recipientName.isEmpty ? "them" : recipientName)")
+                            .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 24)
+                    .frame(height: 50)
+                    .background(DesignTokens.gold)
+                    .clipShape(Capsule())
+                }
+                .buttonStyle(PressableButtonStyle())
+                .accessibilityLabel("Send to \(recipientName) and one-tap text the song")
+            } else {
+                Button {
+                    hapticLightTrigger.toggle()
+                    showingShareSheet = true
+                } label: {
+                    Image(systemName: "square.and.arrow.up")
+                        .font(.system(size: 22))
+                        .foregroundStyle(DesignTokens.textPrimary)
+                        .frame(width: 44, height: 44)
+                }
+                .accessibilityLabel("Share")
             }
-            .accessibilityLabel("Share")
 
             Spacer()
         }

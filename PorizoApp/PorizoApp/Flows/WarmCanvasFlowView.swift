@@ -106,13 +106,10 @@ struct WarmCanvasFlowView: View {
 
     // MARK: - One-Tap Direct Send (Send to [recipient])
 
-    /// Minted message body + recipient for the iMessage compose sheet.
-    /// Non-nil drives the compose sheet (`.sheet(item:)`).
-    @State private var directSendPayload: DirectSendPayload?
-    /// Pending channel-choice context when WhatsApp is also available.
-    @State private var directSendChannelChoice: DirectSendChannelChoice?
-    /// In-flight guard: prevents a double-tap from minting two share links.
-    @State private var isSendingDirect = false
+    /// Shared one-tap send (channel chooser + iMessage compose). Hosted via
+    /// `.directSendHost(directSend)`; the same model powers the async path
+    /// (TrackPlayerFullView) so a "Notify me" song can still one-tap the recipient.
+    @StateObject private var directSend = DirectSendModel()
 
     // MARK: - Init
 
@@ -282,40 +279,8 @@ struct WarmCanvasFlowView: View {
                 }
             )
         }
-        // One-tap direct-send: channel chooser (Messages / WhatsApp) when both available.
-        .confirmationDialog(
-            "Send to \(setup.recipientName)",
-            isPresented: Binding(
-                get: { directSendChannelChoice != nil },
-                set: { if !$0 { directSendChannelChoice = nil } }
-            ),
-            titleVisibility: .visible
-        ) {
-            if let choice = directSendChannelChoice {
-                Button("Messages") {
-                    directSendChannelChoice = nil
-                    presentMessageCompose(payload: choice.messagePayload)
-                }
-                Button("WhatsApp") {
-                    directSendChannelChoice = nil
-                    setup.recipientChannel = .whatsApp
-                    UIApplication.shared.open(choice.whatsAppURL)
-                }
-                Button("Cancel", role: .cancel) {
-                    directSendChannelChoice = nil
-                }
-            }
-        }
-        // One-tap direct-send: iMessage compose sheet.
-        .sheet(item: $directSendPayload) { payload in
-            MessageComposeSheet(
-                recipients: payload.recipients,
-                body: payload.body,
-                onFinish: {
-                    directSendPayload = nil
-                }
-            )
-        }
+        // One-tap direct-send: channel chooser + iMessage compose (shared host).
+        .directSendHost(directSend)
         // Alert router
         .alert(
             alertTitle,
@@ -871,78 +836,16 @@ struct WarmCanvasFlowView: View {
     /// recipient's preferred channel (iMessage, optionally WhatsApp) with a
     /// pre-filled message. Only invoked when a recipient phone was captured.
     private func startDirectSend() {
-        guard !isSendingDirect else { return }
+        guard !directSend.isSending else { return }
         guard let phone = setup.recipientPhone else { return }
         guard let (trackId, versionNum) = ensureShareControllerAndTrackIds() else {
             ToastService.shared.show("Song not ready to share yet", type: .warning)
             return
         }
         guard let controller = shareController else { return }
-
-        isSendingDirect = true
-        ToastService.shared.show("Preparing your song link...", type: .info)
-        flowTask?.cancel()
-        flowTask = Task { @MainActor in
-            defer { isSendingDirect = false }
-            do {
-                let link = try await controller.makePinlessShareLink(
-                    trackId: trackId,
-                    versionNum: versionNum
-                )
-                if Task.isCancelled { return }
-
-                let e164 = PhoneNumberNormalizer.e164(phone)
-                let body = RecipientMessage.body(
-                    recipientName: setup.recipientName,
-                    link: link
-                )
-                let recipients = [e164 ?? phone]
-
-                // Offer WhatsApp only when installed AND we have a valid wa.me URL.
-                if let whatsAppScheme = URL(string: "whatsapp://"),
-                   UIApplication.shared.canOpenURL(whatsAppScheme),
-                   let e164,
-                   let whatsAppURL = RecipientMessage.whatsAppURL(phoneE164: e164, body: body) {
-                    directSendChannelChoice = DirectSendChannelChoice(
-                        messagePayload: DirectSendPayload(recipients: recipients, body: body),
-                        whatsAppURL: whatsAppURL
-                    )
-                } else {
-                    presentMessageCompose(
-                        payload: DirectSendPayload(recipients: recipients, body: body)
-                    )
-                }
-            } catch {
-                if Task.isCancelled { return }
-                ToastService.shared.show("Couldn't prepare the link. Try again.", type: .error)
-            }
+        directSend.send(recipientName: setup.recipientName, phone: phone) {
+            try await controller.makePinlessShareLink(trackId: trackId, versionNum: versionNum)
         }
-    }
-
-    /// Present the iMessage compose sheet, or fall back to the system share
-    /// sheet when this device can't send texts.
-    private func presentMessageCompose(payload: DirectSendPayload) {
-        guard MFMessageComposeViewController.canSendText() else {
-            // No SMS capability (e.g. iPad without Messages) — fall back to the
-            // system share sheet with the same PIN-free message body.
-            let activityVC = UIActivityViewController(
-                activityItems: [payload.body],
-                applicationActivities: nil
-            )
-            let scene = UIApplication.shared.connectedScenes
-                .compactMap { $0 as? UIWindowScene }
-                .first { $0.activationState == .foregroundActive }
-            if let windowScene = scene,
-               let root = windowScene.windows.first?.rootViewController {
-                var topVC = root
-                while let presented = topVC.presentedViewController { topVC = presented }
-                activityVC.popoverPresentationController?.sourceView = topVC.view
-                topVC.present(activityVC, animated: true)
-            }
-            return
-        }
-        setup.recipientChannel = .iMessage
-        directSendPayload = payload
     }
 
     private func acknowledgeLibrarySave() {
@@ -2295,6 +2198,12 @@ struct WarmCanvasFlowView: View {
             if let name = track.recipientName, !name.isEmpty {
                 setup.recipientName = name
             }
+            // Carry the recipient number into the reveal so its "Send to [name]" CTA
+            // one-taps the collected number on the resume / notification-open path too.
+            if let phone = track.recipientPhone?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !phone.isEmpty {
+                setup.recipientPhone = phone
+            }
 
             if let version = response.versions.first(where: { $0.versionNum == versionNum }) {
                 if let url = version.fullUrl {
@@ -2389,16 +2298,3 @@ struct WarmCanvasFlowView: View {
 }
 
 // MARK: - Direct Send Payloads
-
-/// Recipient + pre-filled body for the iMessage compose sheet.
-private struct DirectSendPayload: Identifiable {
-    let id = UUID()
-    let recipients: [String]
-    let body: String
-}
-
-/// Channel-choice context presented when WhatsApp is also available.
-private struct DirectSendChannelChoice {
-    let messagePayload: DirectSendPayload
-    let whatsAppURL: URL
-}
