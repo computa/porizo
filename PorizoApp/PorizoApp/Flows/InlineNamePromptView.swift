@@ -29,6 +29,7 @@ struct InlineNamePromptView: View {
     @State private var selectedOccasion: String?
     @State private var activeType: CreateFlowKind = .song
     @State private var contactPresenter = ContactPickerPresenter()
+    @State private var pickedPhone: String?
     @State private var phase: EntryPhase = .recipient
     @State private var showManualEntry = false
 
@@ -110,18 +111,30 @@ struct InlineNamePromptView: View {
     private var recipientPhase: some View {
         VStack(spacing: 20) {
             sparkle
+            if showManualEntry {
+                nameEntryStep
+            } else {
+                chooseRecipientStep
+            }
+        }
+    }
+
+    // Sub-step 1a: choose how to identify the recipient
+    private var chooseRecipientStep: some View {
+        Group {
             Text("Who's this song for?")
                 .font(DesignTokens.displayFont(size: 24))
                 .foregroundStyle(DesignTokens.textPrimary)
                 .multilineTextAlignment(.center)
 
-            // Hero — Choose from Contacts
+            // Hero — Choose from Contacts (captures the phone number)
             Button {
                 contactPresenter.presentPhonePicker { selection in
                     let trimmed = selection.fullName.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !trimmed.isEmpty { nameInput = trimmed }
+                    nameInput = trimmed  // pre-fill, but still editable on the next step
+                    pickedPhone = selection.phoneNumber
                     onContactPicked?(trimmed, selection.phoneNumber)
-                    if !trimmed.isEmpty { withAnimation { phase = .details } }
+                    withAnimation { showManualEntry = true }
                 }
             } label: {
                 HStack(spacing: 8) {
@@ -145,45 +158,77 @@ struct InlineNamePromptView: View {
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 32)
 
-            if showManualEntry {
-                VStack(spacing: 12) {
-                    TextField("Their name", text: $nameInput)
-                        .font(DesignTokens.bodyFont(size: 16))
-                        .foregroundStyle(DesignTokens.textPrimary)
-                        .textInputAutocapitalization(.words)
-                        .autocorrectionDisabled()
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 14)
-                        .background(DesignTokens.surface)
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 12)
-                                .stroke(DesignTokens.border, lineWidth: 1.5))
-                        .accessibilityIdentifier("name-entry-recipient-field")
-                        .onSubmit { advanceToDetails() }
+            Button { withAnimation { pickedPhone = nil; showManualEntry = true } } label: {
+                Text("Just type a name instead")
+                    .font(DesignTokens.bodyFont(size: 14, weight: .medium))
+                    .foregroundStyle(DesignTokens.gold)
+            }
+            .accessibilityIdentifier("name-entry-type-instead")
+        }
+    }
 
-                    Button { advanceToDetails() } label: {
-                        Text("Continue →")
-                            .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 14)
-                            .background(DesignTokens.gold)
-                            .clipShape(RoundedRectangle(cornerRadius: 14))
-                    }
-                    .disabled(trimmedName.isEmpty)
-                    .opacity(trimmedName.isEmpty ? 0.5 : 1.0)
+    // Sub-step 1b: confirm/edit the name to use in the song (pre-filled from the
+    // contact, but editable — a contact may be saved under a nickname/pet name).
+    private var nameEntryStep: some View {
+        Group {
+            Text("What's their name?")
+                .font(DesignTokens.displayFont(size: 24))
+                .foregroundStyle(DesignTokens.textPrimary)
+                .multilineTextAlignment(.center)
+
+            if let phone = pickedPhone, !phone.isEmpty {
+                Text("We'll text the song to \(phone). Use their real name in the song — not a saved nickname.")
+                    .font(DesignTokens.bodyFont(size: 13))
+                    .foregroundStyle(DesignTokens.textSecondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 28)
+            }
+
+            VStack(spacing: 12) {
+                TextField("Their name", text: $nameInput)
+                    .font(DesignTokens.bodyFont(size: 18))
+                    .foregroundStyle(DesignTokens.textPrimary)
+                    .textInputAutocapitalization(.words)
+                    .autocorrectionDisabled()
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
+                    .background(DesignTokens.surface)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(DesignTokens.border, lineWidth: 1.5))
+                    .accessibilityIdentifier("name-entry-recipient-field")
+                    .onSubmit { advanceToDetails() }
+
+                Button { advanceToDetails() } label: {
+                    Text("Continue →")
+                        .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(DesignTokens.gold)
+                        .clipShape(RoundedRectangle(cornerRadius: 14))
                 }
-                .padding(.horizontal, 20)
-            } else {
-                Button { withAnimation { showManualEntry = true } } label: {
-                    Text("Just type a name instead")
-                        .font(DesignTokens.bodyFont(size: 14, weight: .medium))
+                .disabled(trimmedName.isEmpty)
+                .opacity(trimmedName.isEmpty ? 0.5 : 1.0)
+                .accessibilityIdentifier("name-entry-continue")
+
+                Button {
+                    withAnimation {
+                        showManualEntry = false
+                        pickedPhone = nil
+                        nameInput = ""
+                        onContactPicked?("", nil)  // clear the captured number in the parent
+                    }
+                } label: {
+                    Text(pickedPhone != nil ? "Pick a different contact" : "Choose from Contacts instead")
+                        .font(DesignTokens.bodyFont(size: 13, weight: .medium))
                         .foregroundStyle(DesignTokens.gold)
                 }
-                .accessibilityIdentifier("name-entry-type-instead")
+                .padding(.top, 2)
             }
+            .padding(.horizontal, 20)
         }
     }
 
