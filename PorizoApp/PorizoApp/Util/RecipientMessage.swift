@@ -14,6 +14,10 @@ enum RecipientMessage {
         "I made you a song 🎵 \(recipientName) — open it here: \(link)"
     }
 
+    /// Web `wa.me/<E164>` deep link, pre-addressed to a specific recipient.
+    /// Distinct from `SongSharePayloadBuilder.nativeURL(for: .whatsapp, body:)`,
+    /// which builds the un-addressed `whatsapp://send?text=` scheme for the
+    /// sender-driven share sheet. This one targets a known number directly.
     static func whatsAppURL(phoneE164: String, body: String) -> URL? {
         guard phoneE164.hasPrefix("+") else { return nil }
         let digits = String(phoneE164.dropFirst())

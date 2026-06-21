@@ -2,7 +2,16 @@
 //  PhoneNumberNormalizer.swift
 //  PorizoApp
 //
-//  Normalizes raw phone input into E.164 for one-tap recipient sends.
+//  Normalizes raw phone input into E.164 for one-tap recipient sends, using
+//  PhoneNumberKit (full libphonenumber metadata) for robust international
+//  parsing.
+//
+//  NOT a duplicate of `normalizedE164PhoneNumber(_:selectedCountry:)` in
+//  PhoneNumberFormatting.swift — that one is a legacy hand-rolled normalizer
+//  (naive digit rules, a fixed Country list) used by the auth/profile/gift
+//  flows. This path is more correct; do not merge them by routing this through
+//  the legacy function (that would regress international coverage). The right
+//  long-term move is to migrate the legacy call sites onto PhoneNumberKit.
 //
 
 import PhoneNumberKit
