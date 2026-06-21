@@ -396,3 +396,15 @@ Naming similarity on a remote platform ("thanks mom.mp3" vs `marketing/audio hoo
 **Mistake:** The migration runner (`src/database/postgres.js` / `sqlite.js`) splits each file on `;` and runs every chunk. A `;` inside a `--` comment splits that comment, so the trailing fragment ("new environments bootstrap...") got executed as invalid SQL → migration 120 threw during `runMigrations` on boot → the app process crash-looped → **502 across api.porizo.co + porizo.co + the iOS Apple sign-in** (all the same backend). The migration also never recorded. A subagent had already hit this exact trap on migration 118 and warned about it; I reintroduced it.
 
 **Rule:** NEVER put a `;` inside a migration comment — the runner splits naively on `;`. Comments must contain zero semicolons; only real statements end with `;`. Before committing ANY migration, run `grep -nE '^\s*--.*;' <file>` and confirm it is empty. Migrations are boot-critical: a throwing migration takes the whole app down, so verify against the PG-backed path (sqlite may not catch it), and after deploying a migration, confirm it actually recorded in `schema_migrations` before assuming success.
+
+---
+
+## A "primary CTA" on a shared screen is NOT an unmissable step (2026-06-22)
+
+**Trigger:** Building the recipient-first create flow, I chose (per the brainstorm) to put "Pick from Contacts" as the *primary CTA on the existing name-entry screen* — alongside the name text field, occasion chips, type toggle, and Next button.
+
+**Mistake:** Users (including the founder, on build 136) skipped the contact pick entirely — they typed a name and hit Next, never tapping the coral button. That defeats the whole feature: no recipient phone captured → no one-tap "Send to [recipient]" → no improved device-binding. A control that *renders* and is visually "primary" is not the same as a control users will actually use when other inputs on the same screen also satisfy the "what do I do here" question. I verified on the simulator that the button *rendered*, which was necessary but not sufficient — it didn't tell me whether the flow funnels users into it.
+
+**Rule:** When a capture is central to a feature's value (and skippable), make it a DEDICATED step where it is the only/dominant action — don't make it one option among several on a combined screen. "Strongly encouraged" must be structural (a step you walk through), not just visual hierarchy. And when verifying UX, check the *funnel* (can the user trivially bypass the intended action?), not just that the control is present.
+
+**Bonus (same session):** Disable autocorrect on name fields — the sim keyboard autocorrected "Chioma" → "Can". Recipient names must not be mangled (`.autocorrectionDisabled()`).
