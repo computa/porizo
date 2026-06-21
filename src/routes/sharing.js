@@ -1705,11 +1705,13 @@ function registerSharingRoutes(
       }),
       chapter_markers: chapterMarkers,
     };
-    // app_only: every non-demo share is app-first — the browser must show the
-    // "Open in Porizo" app-wall, never a web player. Demo shares keep the public
-    // web player/teaser path. This is distinct from `app_required`
+    // app_only: a non-demo share opened in a BROWSER must show the "Open in
+    // Porizo" app-wall, never a web player. App-context callers (the iOS app)
+    // are exempt — they still receive web_stream_url so the in-app receiver
+    // preview-and-claim screen (ShareClaimView) keeps working. Demo shares keep
+    // the public web player/teaser path. Distinct from `app_required`
     // (claim_policy === "app_only"), which governs claiming, not playback.
-    const appOnly = share.share_type !== "demo";
+    const appOnly = share.share_type !== "demo" && !isAppContext(request);
     const publicWebStreamUrl =
       !appOnly && share.web_stream_allowed
         ? `${getBaseUrl(request)}/share/${share.id}/audio`
@@ -1751,9 +1753,10 @@ function registerSharingRoutes(
           share.bound_device_id === requestDeviceId &&
           share.bound_device_platform === requestPlatform);
 
-    // Public web playback is preview-only for unbound shares, and only for demo
-    // shares — app_only shares get the app-wall with no web stream URL.
-    // Claim PIN remains an app ownership/binding control, not a web playback gate.
+    // web_stream_url is suppressed only for browser app-only shares (they get the
+    // app-wall); demo shares and in-app (iOS) callers still receive it, and
+    // browsers are additionally blocked at /audio. Claim PIN remains an app
+    // ownership/binding control, not a web playback gate.
     const shareStreamUrl =
       !appOnly && share.web_stream_allowed
         ? `${getBaseUrl(request)}/share/${share.id}/audio`

@@ -168,6 +168,24 @@ describe("GET /share/:id app_only flag", () => {
     assert.equal(body.app_only, false);
     assert.ok(body.web_stream_url);
   });
+  it("keeps web_stream_url for in-app (PorizoApp UA) callers — ShareClaimView depends on it", async () => {
+    // Regression guard: suppressing web_stream_url for the iOS app would break
+    // the in-app receiver preview-and-claim screen (ShareClaimView reads
+    // info.webStreamUrl). App-context callers must still receive it.
+    const id = await seedShare();
+    const res = await app.inject({
+      method: "GET",
+      url: `/share/${id}`,
+      headers: { "user-agent": "PorizoApp/1.6.0 (42; iOS)" },
+    });
+    const body = JSON.parse(res.body);
+    assert.equal(body.app_only, false);
+    assert.ok(
+      body.web_stream_url,
+      "in-app receiver keeps its preview stream URL",
+    );
+    assert.ok(body.web_stream_url.includes("/audio"));
+  });
 });
 
 describe("share.mp4 + download.mp4 are teaser-only and ungated for crawlers", () => {
