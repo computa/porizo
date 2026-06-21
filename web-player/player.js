@@ -108,6 +108,7 @@
     loading: document.getElementById("loading"),
     error: document.getElementById("error"),
     expired: document.getElementById("expired"),
+    appWall: document.getElementById("app-wall"),
     teaser: document.getElementById("teaser"),
     player: document.getElementById("player"),
   };
@@ -1175,6 +1176,13 @@
         return;
       }
 
+      // App-only shares (every non-demo share) have no browser playback surface.
+      // Show the "Open in Porizo" app-wall and never create an <audio> element.
+      if (shareData.app_only === true) {
+        loadAppWall();
+        return;
+      }
+
       // Claimed shares can still offer public browser playback while
       // app ownership remains device-bound.
       if (shareData.status === "claimed") {
@@ -1215,6 +1223,62 @@
         showError(error.message);
       }
     }
+  }
+
+  // App-wall — the recipient-facing landing for app-only shares. No <audio>,
+  // no stream: the only path forward is opening the song in the Porizo app.
+  let appWallBound = false;
+  function appWallHeadline(info) {
+    if (!info) return "Someone made you a song";
+    const sender = (info.sender_name || "").trim();
+    const recipient = (info.recipient_name || "").trim();
+    if (sender && recipient) return `${sender} made ${recipient} a song`;
+    if (sender) return `${sender} made you a song`;
+    if (recipient) return `A song for ${recipient}`;
+    return "Someone made you a song";
+  }
+
+  function loadAppWall() {
+    const info = getTrackInfo();
+
+    // Headline + subtitle are user data — textContent only, never innerHTML.
+    const titleEl = document.getElementById("app-wall-title");
+    if (titleEl) titleEl.textContent = appWallHeadline(info);
+
+    // Cover artwork, with graceful SVG fallback when no cover exists.
+    const img = document.getElementById("app-wall-artwork-image");
+    const fallback = document.getElementById("app-wall-artwork-fallback");
+    const artworkUrl = getPlayerArtworkUrl(info);
+    if (img && artworkUrl) {
+      img.onload = function () {
+        if (fallback) fallback.style.display = "none";
+        img.style.display = "block";
+      };
+      img.onerror = function () {
+        img.style.display = "none";
+        if (fallback) fallback.style.display = "";
+      };
+      img.src = artworkUrl;
+    } else if (img) {
+      img.style.display = "none";
+    }
+
+    // Primary CTA → the same receiver-save handoff the player/teaser use.
+    const cta = document.getElementById("app-wall-cta");
+    if (cta) {
+      cta.href = receiverSaveUrl || buildReceiverSaveFallbackUrl("app_wall");
+      if (!appWallBound) {
+        appWallBound = true;
+        cta.addEventListener("click", function (event) {
+          handleReceiverSaveClick(event, "app_wall");
+        });
+      }
+    }
+
+    safeRecordReceiverEvent("receiver_save_cta_viewed", {
+      placement: "app_wall",
+    });
+    showScreen("appWall");
   }
 
   function showError(message, action) {

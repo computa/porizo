@@ -710,14 +710,12 @@ describe("Share Flow", () => {
       );
       const info = JSON.parse(infoRes.body);
       assert.strictEqual(info.status, "claimed");
-      assert.strictEqual(
-        info.app_required,
-        false,
-        "Claimed share should not require app when public listening remains enabled",
-      );
+      // App-only contract (Feature 1): non-demo shares get no browser playback
+      // surface — the web player shows the app-wall, so web_stream_url is null.
+      assert.strictEqual(info.app_only, true, "non-demo share is app-only");
       assert.ok(
-        info.web_stream_url,
-        "Claimed share should retain a public browser stream",
+        !info.web_stream_url,
+        "app-only share advertises no public browser stream",
       );
 
       // In-app request (PorizoApp UA) for a claimed share — still returns public
@@ -1652,9 +1650,10 @@ describe("Share Flow", () => {
     });
 
     // Validation 3: Song web playback does NOT require PIN
-    it("V3: song web playback serves audio without PIN", async () => {
+    it("V3: unbound song share is app-only (no browser web stream)", async () => {
       const { share_id } = await createShareableTrackAndShare();
-      // GET /share/:shareId should return web_stream_url for unbound shares
+      // App-only contract (Feature 1): non-demo unbound shares expose no web
+      // playback surface — the browser shows the app-wall, web_stream_url is null.
       const infoRes = await app.inject({
         method: "GET",
         url: `/share/${share_id}`,
@@ -1662,13 +1661,11 @@ describe("Share Flow", () => {
       assert.strictEqual(infoRes.statusCode, 200);
       const info = JSON.parse(infoRes.body);
       assert.strictEqual(info.status, "unbound");
-      assert.ok(
+      assert.strictEqual(info.app_only, true, "non-demo share is app-only");
+      assert.strictEqual(
         info.web_stream_url,
-        "web_stream_url must be populated for unbound share",
-      );
-      assert.ok(
-        info.web_stream_url.includes("/audio"),
-        "stream URL must point to audio endpoint",
+        null,
+        "app-only share must not advertise a web stream URL",
       );
     });
 
@@ -1969,7 +1966,7 @@ describe("Share Flow", () => {
       assert.strictEqual(JSON.parse(claimWithPin.body).status, "claimed");
     });
 
-    it("V6: gift song share (default policy) allows web preview playback", async () => {
+    it("V6: gift song share (default policy) is app-only (no web preview)", async () => {
       db.prepare(
         "INSERT OR IGNORE INTO users (id, created_at, risk_level) VALUES (?, ?, ?)",
       ).run(giftUserId, new Date().toISOString(), "low");
@@ -2032,14 +2029,13 @@ describe("Share Flow", () => {
       });
       assert.strictEqual(infoRes.statusCode, 200);
       const info = JSON.parse(infoRes.body);
-      assert.ok(
-        info.web_stream_url,
-        "default-policy gift must have web_stream_url",
-      );
+      // App-only contract (Feature 1): every non-demo share is app-first, so even
+      // a default-policy gift exposes no web stream (browser shows the app-wall).
+      assert.strictEqual(info.app_only, true, "non-demo gift is app-only");
       assert.strictEqual(
-        info.app_required,
-        false,
-        "default-policy gift should not require app",
+        info.web_stream_url,
+        null,
+        "default-policy gift must not advertise a web stream URL",
       );
     });
 

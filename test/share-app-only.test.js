@@ -140,6 +140,36 @@ describe("preview-only at source", () => {
   });
 });
 
+describe("GET /share/:id app_only flag", () => {
+  it("is true for normal shares, false for demo", async () => {
+    const normal = await seedShare();
+    const demo = await seedShare({ demo: true });
+    const a = await app.inject({ method: "GET", url: `/share/${normal}` });
+    const b = await app.inject({ method: "GET", url: `/share/${demo}` });
+    assert.equal(JSON.parse(a.body).app_only, true);
+    assert.equal(JSON.parse(b.body).app_only, false);
+  });
+  it("omits web stream/teaser URLs when app_only is true, keeps context + download", async () => {
+    const id = await seedShare();
+    const res = await app.inject({ method: "GET", url: `/share/${id}` });
+    const body = JSON.parse(res.body);
+    assert.equal(body.app_only, true);
+    // No browser playback surface — web stream is suppressed (null), no teaser URL.
+    assert.equal(body.web_stream_url, null);
+    assert.equal(body.teaser_url, undefined);
+    // Context + handoff data is still present so the app-wall can render.
+    assert.ok(body.track);
+    assert.ok(body.app_download_url);
+  });
+  it("keeps web stream URL available for demo shares", async () => {
+    const id = await seedShare({ demo: true });
+    const res = await app.inject({ method: "GET", url: `/share/${id}` });
+    const body = JSON.parse(res.body);
+    assert.equal(body.app_only, false);
+    assert.ok(body.web_stream_url);
+  });
+});
+
 describe("share.mp4 + download.mp4 are teaser-only and ungated for crawlers", () => {
   it("GET /share.mp4 returns 200 video/mp4 or 404 (no preview) — never 403", async () => {
     const id = await seedShare();

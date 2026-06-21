@@ -1705,9 +1705,15 @@ function registerSharingRoutes(
       }),
       chapter_markers: chapterMarkers,
     };
-    const publicWebStreamUrl = share.web_stream_allowed
-      ? `${getBaseUrl(request)}/share/${share.id}/audio`
-      : null;
+    // app_only: every non-demo share is app-first — the browser must show the
+    // "Open in Porizo" app-wall, never a web player. Demo shares keep the public
+    // web player/teaser path. This is distinct from `app_required`
+    // (claim_policy === "app_only"), which governs claiming, not playback.
+    const appOnly = share.share_type !== "demo";
+    const publicWebStreamUrl =
+      !appOnly && share.web_stream_allowed
+        ? `${getBaseUrl(request)}/share/${share.id}/audio`
+        : null;
 
     if (share.status === "claimed") {
       const canAccess =
@@ -1717,6 +1723,7 @@ function registerSharingRoutes(
 
       reply.send({
         status: "claimed",
+        app_only: appOnly,
         track_preview: trackInfo,
         track: trackInfo,
         can_access: canAccess,
@@ -1744,11 +1751,13 @@ function registerSharingRoutes(
           share.bound_device_id === requestDeviceId &&
           share.bound_device_platform === requestPlatform);
 
-    // Public web playback is preview-only for unbound shares.
+    // Public web playback is preview-only for unbound shares, and only for demo
+    // shares — app_only shares get the app-wall with no web stream URL.
     // Claim PIN remains an app ownership/binding control, not a web playback gate.
-    const shareStreamUrl = share.web_stream_allowed
-      ? `${getBaseUrl(request)}/share/${share.id}/audio`
-      : null;
+    const shareStreamUrl =
+      !appOnly && share.web_stream_allowed
+        ? `${getBaseUrl(request)}/share/${share.id}/audio`
+        : null;
 
     // dl_token remains gated behind PIN verification because downloads are meant for intentional export.
     const hasPinProtection = Boolean(share.claim_pin);
@@ -1756,6 +1765,7 @@ function registerSharingRoutes(
 
     reply.send({
       status: "unbound",
+      app_only: appOnly,
       track_preview: trackInfo,
       track: trackInfo, // Alias for web player compatibility
       can_access: canAccess,

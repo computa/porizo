@@ -170,7 +170,6 @@ describe("letterbox web-player helpers", () => {
     assert.equal(normalizeOccasionShort("birthday"), "B.DAY");
     assert.equal(normalizeOccasionShort("unknown_custom"), "ORIG");
   });
-
 });
 
 // --- Integration tests for server routes ---
@@ -1088,14 +1087,12 @@ describe("Share Embed Routes", () => {
     );
     const shareInfo = JSON.parse(shareInfoResponse.body);
     assert.equal(shareInfo.status, "claimed");
+    // App-only contract (Feature 1): non-demo shares advertise no browser
+    // listening surface — the web player shows the app-wall, web_stream_url null.
+    assert.equal(shareInfo.app_only, true, "non-demo share is app-only");
     assert.ok(
-      shareInfo.web_stream_url,
-      "Claimed share should still advertise a public browser listening surface",
-    );
-    assert.equal(
-      shareInfo.app_required,
-      false,
-      "Claimed share should not require the app when public listening is still allowed",
+      !shareInfo.web_stream_url,
+      "app-only share advertises no public browser listening surface",
     );
     const downloadUrl = new URL(shareInfo.app_download_url);
     assert.equal(downloadUrl.pathname, "/download");
