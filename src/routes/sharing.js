@@ -1712,7 +1712,9 @@ function registerSharingRoutes(
     // the public web player/teaser path. Distinct from `app_required`
     // (claim_policy === "app_only"), which governs claiming, not playback.
     const appOnly = share.share_type !== "demo" && !isAppContext(request);
-    const publicWebStreamUrl =
+    // Suppressed for browser app-only shares (they get the app-wall); demo and
+    // in-app callers still receive it, and browsers are blocked at /audio.
+    const webStreamUrl =
       !appOnly && share.web_stream_allowed
         ? `${getBaseUrl(request)}/share/${share.id}/audio`
         : null;
@@ -1729,12 +1731,12 @@ function registerSharingRoutes(
         track_preview: trackInfo,
         track: trackInfo,
         can_access: canAccess,
-        app_required: !canAccess && !publicWebStreamUrl,
+        app_required: !canAccess && !webStreamUrl,
         claim_requires_app: share.claim_policy === "app_only",
         pin_required_for_claim: Boolean(share.claim_pin),
         receiver_save_requires_session: true,
         app_download_url: buildShareAppDownloadUrl({ shareId: share.id }),
-        ...(publicWebStreamUrl && { web_stream_url: publicWebStreamUrl }),
+        ...(webStreamUrl && { web_stream_url: webStreamUrl }),
         feature_flags: webPlayerFlags,
         chapter_markers: chapterMarkers,
         ...(lyrics && { lyrics }),
@@ -1753,15 +1755,6 @@ function registerSharingRoutes(
           share.bound_device_id === requestDeviceId &&
           share.bound_device_platform === requestPlatform);
 
-    // web_stream_url is suppressed only for browser app-only shares (they get the
-    // app-wall); demo shares and in-app (iOS) callers still receive it, and
-    // browsers are additionally blocked at /audio. Claim PIN remains an app
-    // ownership/binding control, not a web playback gate.
-    const shareStreamUrl =
-      !appOnly && share.web_stream_allowed
-        ? `${getBaseUrl(request)}/share/${share.id}/audio`
-        : null;
-
     // dl_token remains gated behind PIN verification because downloads are meant for intentional export.
     const hasPinProtection = Boolean(share.claim_pin);
     const dlToken = hasPinProtection ? null : createDownloadToken(share.id);
@@ -1772,11 +1765,11 @@ function registerSharingRoutes(
       track_preview: trackInfo,
       track: trackInfo, // Alias for web player compatibility
       can_access: canAccess,
-      app_required: appRequired && !shareStreamUrl,
+      app_required: appRequired && !webStreamUrl,
       claim_requires_app: appRequired,
       pin_required_for_claim: Boolean(share.claim_pin),
       receiver_save_requires_session: true,
-      web_stream_url: shareStreamUrl,
+      web_stream_url: webStreamUrl,
       app_download_url: buildShareAppDownloadUrl({ shareId: share.id }),
       ...(dlToken && { dl_token: dlToken }),
       ...(share.share_type === "demo" && { is_demo: true }),
@@ -2266,11 +2259,10 @@ function registerSharingRoutes(
     },
   );
 
-  app.get("/share/:shareId/stream", async (request, reply) => {
-    const share = await resolveValidShare(request, reply);
-    if (!share) return;
-
-    // App-only: push browsers into the app; demo shares + in-app requests pass.
+  // App-only gate: a non-demo share requested by a browser (no app context) is
+  // refused so the recipient is pushed into the app. Demo shares and in-app
+  // requests pass. Returns true if rejected (caller must then return).
+  function rejectBrowserAppOnly(share, request, reply) {
     if (share.share_type !== "demo" && !isAppContext(request)) {
       sendError(
         reply,
@@ -2278,8 +2270,16 @@ function registerSharingRoutes(
         "APP_REQUIRED",
         "Open this song in the Porizo app to listen.",
       );
-      return;
+      return true;
     }
+    return false;
+  }
+
+  app.get("/share/:shareId/stream", async (request, reply) => {
+    const share = await resolveValidShare(request, reply);
+    if (!share) return;
+
+    if (rejectBrowserAppOnly(share, request, reply)) return;
 
     const deviceToken = getDeviceTokenPayload(request, reply, {
       required: false,
@@ -2457,16 +2457,7 @@ function registerSharingRoutes(
   app.get("/share/:shareId/audio", async (request, reply) => {
     const share = await resolveValidShare(request, reply);
     if (!share) return;
-    // App-only: push browsers into the app; demo shares + in-app requests pass.
-    if (share.share_type !== "demo" && !isAppContext(request)) {
-      sendError(
-        reply,
-        403,
-        "APP_REQUIRED",
-        "Open this song in the Porizo app to listen.",
-      );
-      return;
-    }
+    if (rejectBrowserAppOnly(share, request, reply)) return;
     if (share.status !== "unbound" && share.status !== "claimed") {
       sendError(reply, 403, "SHARE_NOT_PLAYABLE", "Share is not playable.");
       return;
@@ -2507,16 +2498,7 @@ function registerSharingRoutes(
   app.get("/share/:shareId/teaser", async (request, reply) => {
     const share = await resolveValidShare(request, reply);
     if (!share) return;
-    // App-only: push browsers into the app; demo shares + in-app requests pass.
-    if (share.share_type !== "demo" && !isAppContext(request)) {
-      sendError(
-        reply,
-        403,
-        "APP_REQUIRED",
-        "Open this song in the Porizo app to listen.",
-      );
-      return;
-    }
+    if (rejectBrowserAppOnly(share, request, reply)) return;
     if (share.status !== "unbound" && share.status !== "claimed") {
       sendError(reply, 403, "SHARE_NOT_PLAYABLE", "Share is not playable.");
       return;
