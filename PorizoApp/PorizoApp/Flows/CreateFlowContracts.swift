@@ -43,6 +43,13 @@ enum CreateFlowState: String, Codable, Sendable {
     }
 }
 
+/// The recipient's preferred delivery channel for a one-tap direct send.
+/// Raw values are the wire format used by `recipient_channel`.
+enum RecipientChannel: String, Codable {
+    case iMessage = "imessage"
+    case whatsApp = "whatsapp"
+}
+
 struct StorySetup: Sendable, Equatable {
     var recipientName: String = ""
     var occasion: Occasion? = nil
@@ -51,7 +58,7 @@ struct StorySetup: Sendable, Equatable {
     var emotionalSeed: String? = nil
     var relationshipType: String? = nil
     var recipientPhone: String? = nil
-    var recipientChannel: String? = nil   // "imessage" | "whatsapp" | nil
+    var recipientChannel: RecipientChannel? = nil
 
     mutating func applyPreselectedRecipientName(_ recipientName: String?) {
         guard let recipientName else { return }

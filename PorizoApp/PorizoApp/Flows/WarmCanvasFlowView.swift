@@ -107,9 +107,8 @@ struct WarmCanvasFlowView: View {
     // MARK: - One-Tap Direct Send (Send to [recipient])
 
     /// Minted message body + recipient for the iMessage compose sheet.
+    /// Non-nil drives the compose sheet (`.sheet(item:)`).
     @State private var directSendPayload: DirectSendPayload?
-    /// Whether the Messages compose sheet is presented.
-    @State private var isPresentingMessageCompose = false
     /// Pending channel-choice context when WhatsApp is also available.
     @State private var directSendChannelChoice: DirectSendChannelChoice?
     /// In-flight guard: prevents a double-tap from minting two share links.
@@ -299,7 +298,7 @@ struct WarmCanvasFlowView: View {
                 }
                 Button("WhatsApp") {
                     directSendChannelChoice = nil
-                    setup.recipientChannel = "whatsapp"
+                    setup.recipientChannel = .whatsApp
                     UIApplication.shared.open(choice.whatsAppURL)
                 }
                 Button("Cancel", role: .cancel) {
@@ -308,17 +307,14 @@ struct WarmCanvasFlowView: View {
             }
         }
         // One-tap direct-send: iMessage compose sheet.
-        .sheet(isPresented: $isPresentingMessageCompose) {
-            if let payload = directSendPayload {
-                MessageComposeSheet(
-                    recipients: payload.recipients,
-                    body: payload.body,
-                    onFinish: {
-                        isPresentingMessageCompose = false
-                        directSendPayload = nil
-                    }
-                )
-            }
+        .sheet(item: $directSendPayload) { payload in
+            MessageComposeSheet(
+                recipients: payload.recipients,
+                body: payload.body,
+                onFinish: {
+                    directSendPayload = nil
+                }
+            )
         }
         // Alert router
         .alert(
@@ -945,9 +941,8 @@ struct WarmCanvasFlowView: View {
             }
             return
         }
-        setup.recipientChannel = "imessage"
+        setup.recipientChannel = .iMessage
         directSendPayload = payload
-        isPresentingMessageCompose = true
     }
 
     private func acknowledgeLibrarySave() {
@@ -1455,7 +1450,7 @@ struct WarmCanvasFlowView: View {
                     voiceGender: songFlow.voiceGender,
                     giftReservationId: giftReservationId,
                     recipientPhone: setup.recipientPhone,
-                    recipientChannel: setup.recipientChannel
+                    recipientChannel: setup.recipientChannel?.rawValue
                 )
                 try Task.checkCancellation()
 
@@ -2396,7 +2391,8 @@ struct WarmCanvasFlowView: View {
 // MARK: - Direct Send Payloads
 
 /// Recipient + pre-filled body for the iMessage compose sheet.
-private struct DirectSendPayload {
+private struct DirectSendPayload: Identifiable {
+    let id = UUID()
     let recipients: [String]
     let body: String
 }
