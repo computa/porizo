@@ -48,7 +48,8 @@ struct GiftContactPickerSheet: UIViewControllerRepresentable {
 
     func updateUIViewController(_ uiViewController: CNContactPickerViewController, context: Context) {}
 
-    final class Coordinator: NSObject, CNContactPickerDelegate {
+    final class Coordinator: NSObject, CNContactPickerDelegate {  // gift-flow coordinator
+        // (unchanged — used by the SwiftUI .sheet path in the Gift flow)
         let method: GiftSendFlowView.GiftDestinationMethod
         let onSelect: (GiftContactSelection) -> Void
 
@@ -100,5 +101,60 @@ struct GiftContactPickerSheet: UIViewControllerRepresentable {
                 }
             }
         }
+    }
+}
+
+/// Presents the system contact picker IMPERATIVELY (UIKit `present`) instead of
+/// as a SwiftUI `.sheet` root. `CNContactPickerViewController` auto-dismisses
+/// itself on selection; embedded as a `.sheet` inside a `.fullScreenCover` that
+/// self-dismiss cascades and tears down the whole parent flow (it kicked the
+/// create flow back to Home). Presenting on the top view controller scopes the
+/// dismissal to the picker only.
+final class ContactPickerPresenter: NSObject, CNContactPickerDelegate {
+    private var onSelect: ((GiftContactSelection) -> Void)?
+    private var strongSelf: ContactPickerPresenter?
+
+    func presentPhonePicker(onSelect: @escaping (GiftContactSelection) -> Void) {
+        self.onSelect = onSelect
+        self.strongSelf = self  // retain through the picker's lifetime
+        let picker = CNContactPickerViewController()
+        picker.delegate = self
+        picker.displayedPropertyKeys = [CNContactPhoneNumbersKey]
+        picker.predicateForEnablingContact = NSPredicate(format: "phoneNumbers.@count > 0")
+        picker.predicateForSelectionOfContact = NSPredicate(value: false)
+        picker.predicateForSelectionOfProperty = NSPredicate(value: true)
+        guard let presenter = Self.topViewController() else { strongSelf = nil; return }
+        presenter.present(picker, animated: true)
+    }
+
+    func contactPicker(
+        _ picker: CNContactPickerViewController, didSelect contactProperty: CNContactProperty
+    ) {
+        defer { strongSelf = nil }
+        guard let phone = contactProperty.value as? CNPhoneNumber else { return }
+        let contact = contactProperty.contact
+        let fullName = CNContactFormatter.string(from: contact, style: .fullName)
+            ?? [contact.givenName, contact.familyName]
+                .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+                .joined(separator: " ")
+        onSelect?(
+            GiftContactSelection(
+                method: .text, fullName: fullName,
+                phoneNumber: phone.stringValue, emailAddress: nil))
+    }
+
+    func contactPickerDidCancel(_ picker: CNContactPickerViewController) {
+        strongSelf = nil
+    }
+
+    private static func topViewController() -> UIViewController? {
+        let windows = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .filter { $0.activationState == .foregroundActive }
+            .flatMap { $0.windows }
+        let keyWindow = windows.first { $0.isKeyWindow } ?? windows.first
+        var top = keyWindow?.rootViewController
+        while let presented = top?.presentedViewController { top = presented }
+        return top
     }
 }

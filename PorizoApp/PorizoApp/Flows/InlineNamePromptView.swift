@@ -28,7 +28,7 @@ struct InlineNamePromptView: View {
     @State private var nameInput: String = ""
     @State private var selectedOccasion: String?
     @State private var activeType: CreateFlowKind = .song
-    @State private var contactPickerRequest: GiftContactPickerRequest?
+    @State private var contactPresenter = ContactPickerPresenter()
     @State private var phase: EntryPhase = .recipient
     @State private var showManualEntry = false
 
@@ -74,15 +74,6 @@ struct InlineNamePromptView: View {
             UIApplication.shared.sendAction(
                 #selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
         }
-        .sheet(item: $contactPickerRequest) { request in
-            GiftContactPickerSheet(method: request.method) { selection in
-                contactPickerRequest = nil
-                let trimmed = selection.fullName.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !trimmed.isEmpty { nameInput = trimmed }
-                onContactPicked?(trimmed, selection.phoneNumber)
-                if !trimmed.isEmpty { withAnimation { phase = .details } }
-            }
-        }
     }
 
     // MARK: - Top bar (back when on step 2 + close)
@@ -126,7 +117,12 @@ struct InlineNamePromptView: View {
 
             // Hero — Choose from Contacts
             Button {
-                contactPickerRequest = GiftContactPickerRequest(method: .text)
+                contactPresenter.presentPhonePicker { selection in
+                    let trimmed = selection.fullName.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !trimmed.isEmpty { nameInput = trimmed }
+                    onContactPicked?(trimmed, selection.phoneNumber)
+                    if !trimmed.isEmpty { withAnimation { phase = .details } }
+                }
             } label: {
                 HStack(spacing: 8) {
                     Image(systemName: "person.crop.circle.badge.plus")
