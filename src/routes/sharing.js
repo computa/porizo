@@ -5,6 +5,7 @@ const fs = require("fs");
 const path = require("path");
 const QRCode = require("qrcode");
 const { getClientIp: extractClientIp } = require("../utils/client-ip");
+const { isAppContext } = require("../utils/request-context");
 const { newUuid } = require("../utils/ids");
 const { nowIso, toJson, parseJson, ensureDir } = require("../utils/common");
 const { getFeatureFlags } = require("../services/feature-flags");
@@ -2275,6 +2276,17 @@ function registerSharingRoutes(
     const share = await resolveValidShare(request, reply);
     if (!share) return;
 
+    // App-only: push browsers into the app; demo shares + in-app requests pass.
+    if (share.share_type !== "demo" && !isAppContext(request)) {
+      sendError(
+        reply,
+        403,
+        "APP_REQUIRED",
+        "Open this song in the Porizo app to listen.",
+      );
+      return;
+    }
+
     const deviceToken = getDeviceTokenPayload(request, reply, {
       required: false,
     });
@@ -2451,6 +2463,16 @@ function registerSharingRoutes(
   app.get("/share/:shareId/audio", async (request, reply) => {
     const share = await resolveValidShare(request, reply);
     if (!share) return;
+    // App-only: push browsers into the app; demo shares + in-app requests pass.
+    if (share.share_type !== "demo" && !isAppContext(request)) {
+      sendError(
+        reply,
+        403,
+        "APP_REQUIRED",
+        "Open this song in the Porizo app to listen.",
+      );
+      return;
+    }
     if (share.status !== "unbound" && share.status !== "claimed") {
       sendError(reply, 403, "SHARE_NOT_PLAYABLE", "Share is not playable.");
       return;
@@ -2491,6 +2513,16 @@ function registerSharingRoutes(
   app.get("/share/:shareId/teaser", async (request, reply) => {
     const share = await resolveValidShare(request, reply);
     if (!share) return;
+    // App-only: push browsers into the app; demo shares + in-app requests pass.
+    if (share.share_type !== "demo" && !isAppContext(request)) {
+      sendError(
+        reply,
+        403,
+        "APP_REQUIRED",
+        "Open this song in the Porizo app to listen.",
+      );
+      return;
+    }
     if (share.status !== "unbound" && share.status !== "claimed") {
       sendError(reply, 403, "SHARE_NOT_PLAYABLE", "Share is not playable.");
       return;

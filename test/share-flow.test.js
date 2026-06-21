@@ -653,13 +653,17 @@ describe("Share Flow", () => {
       });
       const { share_id } = JSON.parse(createRes.body);
 
-      // Request stream WITHOUT headers - should work for unclaimed web shares
+      // In-app request (PorizoApp UA) for an unclaimed web share — browsers are
+      // now gated (APP_REQUIRED) but the app context still streams. The UA-based
+      // app signal avoids the device-token fallback so this exercises the same
+      // public-preview path the route serves to in-app listeners.
       const res = await app.inject({
         method: "GET",
         url: `/share/${share_id}/stream`,
+        headers: { "user-agent": "PorizoApp/1.6.0 (42; iOS)" },
       });
 
-      // Should succeed - returns direct audio URL for browser playback
+      // Should succeed - returns direct audio URL for in-app playback
       assert.strictEqual(
         res.statusCode,
         200,
@@ -716,16 +720,20 @@ describe("Share Flow", () => {
         "Claimed share should retain a public browser stream",
       );
 
-      // Request stream WITHOUT headers - should still return public preview playback
+      // In-app request (PorizoApp UA) for a claimed share — still returns public
+      // preview playback. Browsers are gated (APP_REQUIRED); the app passes. The
+      // UA-based app signal avoids the device-token fallback so the bound-device
+      // check still treats this as a public (non-bound) preview listener.
       const res = await app.inject({
         method: "GET",
         url: `/share/${share_id}/stream`,
+        headers: { "user-agent": "PorizoApp/1.6.0 (42; iOS)" },
       });
 
       assert.strictEqual(
         res.statusCode,
         200,
-        "Claimed share should still expose preview playback for browser listeners",
+        "Claimed share should still expose preview playback for in-app listeners",
       );
       const body = JSON.parse(res.body);
       assert.strictEqual(

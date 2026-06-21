@@ -1,13 +1,19 @@
 /**
- * Share Audio Proxy Contract Tests
+ * Audio Proxy Contract Tests (serveTrackAudio R2 -> client)
  *
  * Pins the contract that broke silently on 2026-05-10:
- *   /share/:id/audio MUST return non-zero body bytes when upstream R2 has the file.
+ *   serveTrackAudio MUST return non-zero body bytes when upstream R2 has the file.
  *
  * The bug was in src/server.js serveTrackAudio's R2-proxy branch — it shipped
  * 200 OK with content-length: 0 because Readable.fromWeb(r2Response.body)
  * silently emitted 0 bytes under Node 20 + Fastify 4.29 + undici. Headers were
  * correct, body was empty. Web players showed "Unable to play this audio."
+ *
+ * Exercised via the public /preview/:trackVersionId.m4a route, which uses the
+ * same serveTrackAudio proxy. (The /share/:id/audio route is now app-only-gated
+ * and preview-only-at-source, so it no longer proxies the full master — but the
+ * byte-forwarding contract of serveTrackAudio itself is unchanged and still
+ * matters for every route that proxies from R2.)
  *
  * The existing share-flow tests use local storage so they never exercise the
  * proxy branch. This file spins up a fake R2 over loopback and asserts the
@@ -156,7 +162,7 @@ describe("Share audio proxy contract (R2 -> client)", () => {
     if (app) await app.close();
   });
 
-  async function createUnboundShareWithFullUrl() {
+  async function createPreviewBackedVersion() {
     const trackRes = await app.inject({
       method: "POST",
       url: "/tracks",
@@ -180,24 +186,27 @@ describe("Share audio proxy contract (R2 -> client)", () => {
     const { version_num } = JSON.parse(verRes.body);
 
     db.prepare(
-      "UPDATE track_versions SET full_url = ?, preview_url = NULL, status = 'full_ready' WHERE track_id = ? AND version_num = ?",
-    ).run("https://api.porizo.co/full/x.m4a", track_id, version_num);
+      "UPDATE track_versions SET preview_url = ?, status = 'full_ready' WHERE track_id = ? AND version_num = ?",
+    ).run("https://api.porizo.co/preview/x.m4a", track_id, version_num);
 
-    const shareRes = await app.inject({
-      method: "POST",
-      url: `/tracks/${track_id}/share`,
-      headers: { "x-user-id": testUserId },
-      payload: { version_num, expires_in_days: 7, web_stream_allowed: true },
-    });
-    const { share_id } = JSON.parse(shareRes.body);
-    return { share_id, track_id, version_num };
+    const trackVersion = db
+      .prepare(
+        "SELECT id FROM track_versions WHERE track_id = ? AND version_num = ?",
+      )
+      .get(track_id, version_num);
+
+    return {
+      track_version_id: trackVersion.id,
+      track_id,
+      version_num,
+    };
   }
 
   it("returns non-zero body bytes for a full-body GET", async () => {
-    const { share_id } = await createUnboundShareWithFullUrl();
+    const { track_version_id } = await createPreviewBackedVersion();
     const res = await app.inject({
       method: "GET",
-      url: `/share/${share_id}/audio`,
+      url: `/preview/${track_version_id}.m4a`,
     });
     assert.strictEqual(res.statusCode, 200, "should be 200 OK");
     assert.match(
@@ -224,10 +233,10 @@ describe("Share audio proxy contract (R2 -> client)", () => {
   });
 
   it("returns non-zero Content-Length for HEAD without a response body", async () => {
-    const { share_id } = await createUnboundShareWithFullUrl();
+    const { track_version_id } = await createPreviewBackedVersion();
     const res = await app.inject({
       method: "HEAD",
-      url: `/share/${share_id}/audio`,
+      url: `/preview/${track_version_id}.m4a`,
     });
     assert.strictEqual(res.statusCode, 200, "should be 200 OK");
     const len = Number(res.headers["content-length"]);
@@ -241,10 +250,10 @@ describe("Share audio proxy contract (R2 -> client)", () => {
   });
 
   it("forwards Range requests with correct partial bytes", async () => {
-    const { share_id } = await createUnboundShareWithFullUrl();
+    const { track_version_id } = await createPreviewBackedVersion();
     const res = await app.inject({
       method: "GET",
-      url: `/share/${share_id}/audio`,
+      url: `/preview/${track_version_id}.m4a`,
       headers: { Range: "bytes=0-99" },
     });
     assert.strictEqual(res.statusCode, 206, "should be 206 Partial Content");
@@ -261,10 +270,10 @@ describe("Share audio proxy contract (R2 -> client)", () => {
   });
 
   it("passes unsatisfiable Range requests through as 416", async () => {
-    const { share_id } = await createUnboundShareWithFullUrl();
+    const { track_version_id } = await createPreviewBackedVersion();
     const res = await app.inject({
       method: "GET",
-      url: `/share/${share_id}/audio`,
+      url: `/preview/${track_version_id}.m4a`,
       headers: { Range: `bytes=${FAKE_AUDIO.length + 10}-` },
     });
     assert.strictEqual(
@@ -299,10 +308,10 @@ describe("Share audio proxy contract (R2 -> client)", () => {
       expiresAt: Date.now() + 300_000,
     });
     try {
-      const { share_id } = await createUnboundShareWithFullUrl();
+      const { track_version_id } = await createPreviewBackedVersion();
       const res = await app.inject({
         method: "GET",
-        url: `/share/${share_id}/audio`,
+        url: `/preview/${track_version_id}.m4a`,
       });
       assert.strictEqual(
         res.statusCode,
@@ -336,10 +345,10 @@ describe("Share audio proxy contract (R2 -> client)", () => {
       expiresAt: Date.now() + 300_000,
     });
     try {
-      const { share_id } = await createUnboundShareWithFullUrl();
+      const { track_version_id } = await createPreviewBackedVersion();
       const res = await app.inject({
         method: "GET",
-        url: `/share/${share_id}/audio`,
+        url: `/preview/${track_version_id}.m4a`,
       });
       assert.strictEqual(res.statusCode, 502);
       const body = JSON.parse(res.body);
