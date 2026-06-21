@@ -1,7 +1,14 @@
 const { trackPreviewKey, trackMasterKey } = require("../storage");
 
-function buildTrackVersionUrls({ storageProvider, track, version, baseUrl, rewriteStreamUrl }) {
-  const rewrite = typeof rewriteStreamUrl === "function" ? rewriteStreamUrl : (url) => url;
+function buildTrackVersionUrls({
+  storageProvider,
+  track,
+  version,
+  baseUrl,
+  rewriteStreamUrl,
+}) {
+  const rewrite =
+    typeof rewriteStreamUrl === "function" ? rewriteStreamUrl : (url) => url;
   let previewUrl = rewrite(version.preview_url, baseUrl);
   let fullUrl = rewrite(version.full_url, baseUrl);
 
@@ -18,6 +25,10 @@ function buildTrackVersionUrls({ storageProvider, track, version, baseUrl, rewri
       }).url;
     }
     if (version.full_url) {
+      // OWNER-ONLY: this presigned URL points at the full master. Both callers
+      // (GET /tracks/:id, GET /tracks/:id/versions) are requireUserId +
+      // ownership-gated. Never expose buildTrackVersionUrls on a share/recipient
+      // path — it would bypass the app-only share gating entirely.
       const fullKey = trackMasterKey({
         userId: track.user_id,
         trackId: track.id,

@@ -104,21 +104,24 @@ describe("app-only share audio gate", () => {
     assert.equal(res.statusCode, 403);
     assert.equal(JSON.parse(res.body).error, "APP_REQUIRED");
   });
-  it("does NOT return APP_REQUIRED when app headers are present", async () => {
+  it("passes the gate (reaches preview handler) when app headers are present", async () => {
+    // App context bypasses APP_REQUIRED; with no local preview.m4a in tests the
+    // preview handler returns 404 AUDIO_NOT_AVAILABLE — proving the gate passed
+    // AND the request reached the preview-only path (not a silent non-403).
     const id = await seedShare();
     const res = await app.inject({
       method: "GET",
       url: `/share/${id}/audio`,
       headers: { "x-device-id": "dev1", "x-platform": "ios" },
     });
-    if (res.statusCode === 403)
-      assert.notEqual(JSON.parse(res.body).error, "APP_REQUIRED");
+    assert.equal(res.statusCode, 404);
+    assert.equal(JSON.parse(res.body).error, "AUDIO_NOT_AVAILABLE");
   });
-  it("does NOT return APP_REQUIRED for a demo share in a browser", async () => {
+  it("exempts a demo share in a browser (reaches preview handler)", async () => {
     const id = await seedShare({ demo: true });
     const res = await app.inject({ method: "GET", url: `/share/${id}/audio` });
-    if (res.statusCode === 403)
-      assert.notEqual(JSON.parse(res.body).error, "APP_REQUIRED");
+    assert.equal(res.statusCode, 404);
+    assert.equal(JSON.parse(res.body).error, "AUDIO_NOT_AVAILABLE");
   });
 });
 

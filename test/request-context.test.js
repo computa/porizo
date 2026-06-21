@@ -18,6 +18,10 @@ describe("isAppContext", () => {
       true,
     );
   });
+  it("is false when only x-device-id is present (requires both id + platform)", () => {
+    assert.equal(isAppContext({ headers: { "x-device-id": "dev1" } }), false);
+    assert.equal(isAppContext({ headers: { "x-platform": "ios" } }), false);
+  });
   it("is false for a plain browser request", () => {
     assert.equal(
       isAppContext({ headers: { "user-agent": "Mozilla/5.0 (iPhone)" } }),

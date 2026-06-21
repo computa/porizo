@@ -5084,7 +5084,6 @@ function buildServer({
     trackPreviewKey,
     trackVersionKey,
     trackArtworkKey,
-    serveTrackAudio,
     getUserRiskLevel,
     consumeRateLimit,
   });
