@@ -34,6 +34,20 @@ struct CreateShareResponse: Codable, Sendable {
         self.expiresAt = expiresAt
         self.claimPin = claimPin
     }
+
+    /// PIN-less shares (`require_pin=false`, used by one-tap "Send to [name]") return
+    /// `claim_pin: null`. The synthesized decoder throws on a null non-optional String,
+    /// which silently aborted the whole send before it could present. Tolerate nulls on
+    /// the non-core fields (default to "") while keeping the public type unchanged so the
+    /// many PIN-flow consumers of `claimPin` are unaffected.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        shareId = try c.decode(String.self, forKey: .shareId)
+        shareUrl = try c.decode(String.self, forKey: .shareUrl)
+        qrCodeUrl = try c.decodeIfPresent(String.self, forKey: .qrCodeUrl) ?? ""
+        expiresAt = try c.decodeIfPresent(String.self, forKey: .expiresAt) ?? ""
+        claimPin = try c.decodeIfPresent(String.self, forKey: .claimPin) ?? ""
+    }
 }
 
 // MARK: - Share Statistics
