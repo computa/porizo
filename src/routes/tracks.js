@@ -1899,19 +1899,27 @@ function registerTrackRoutes(
         .run(normalizedVariant, nowIso(), track.id);
     }
 
-    const existingShare = await findActiveTrackShare(track, userId);
-    if (existingShare) {
-      reply.send({
-        share_id: existingShare.id,
-        share_url: buildPlayShareUrl(existingShare.id, {
-          socialCacheToken: Date.now(),
-        }),
-        qr_code_url: `https://cdn.porizo.local/qr/${existingShare.id}.png`,
-        expires_at: existingShare.expires_at,
-        claim_pin: existingShare.claim_pin,
-        existing: true,
-      });
-      return;
+    // require_pin defaults to true for backward-compat. When the caller opts
+    // into a PIN-less share, skip the bare early-return below and route through
+    // createOrGetShareToken so the strip-PIN-on-reuse logic applies — otherwise
+    // a returning user gets the stale PINned token back.
+    const requirePin = body.require_pin === false ? false : true;
+
+    if (requirePin) {
+      const existingShare = await findActiveTrackShare(track, userId);
+      if (existingShare) {
+        reply.send({
+          share_id: existingShare.id,
+          share_url: buildPlayShareUrl(existingShare.id, {
+            socialCacheToken: Date.now(),
+          }),
+          qr_code_url: `https://cdn.porizo.local/qr/${existingShare.id}.png`,
+          expires_at: existingShare.expires_at,
+          claim_pin: existingShare.claim_pin,
+          existing: true,
+        });
+        return;
+      }
     }
 
     // Idempotency check is handled inside createOrGetShareToken
@@ -1936,6 +1944,7 @@ function registerTrackRoutes(
       trackId: track.id,
       trackVersionId: trackVersion.id,
       userId,
+      requirePin,
       buildShareUrl: (shareId) =>
         buildPlayShareUrl(shareId, { socialCacheToken: Date.now() }),
       ensureShareMp4: () => ensureShareMp4({ track, trackVersion }),

@@ -96,6 +96,7 @@ async function createOrGetShareToken({
   buildShareUrl,
   ensureShareMp4,
   attribution = {},
+  requirePin = true,
 }) {
   // Check for existing valid token (idempotent)
   const track = await dbGet(
@@ -114,6 +115,17 @@ async function createOrGetShareToken({
         await upgradeToLifetime(db, existing, "share_tokens", "unbound");
       }
       if (isShareUsable(existing)) {
+        // Strip the PIN on reuse when the caller opted into a PIN-less share.
+        // A returning user's old PINned token would otherwise leak a PIN into
+        // the one-tap message. NULL it out before handing the token back.
+        if (requirePin === false && existing.claim_pin != null) {
+          await dbRun(
+            db,
+            "UPDATE share_tokens SET claim_pin = NULL, claim_attempts = 0 WHERE id = ?",
+            [existing.id],
+          );
+          existing.claim_pin = null;
+        }
         return {
           shareId: existing.id,
           shareUrl: buildShareUrl(existing.id),
@@ -129,7 +141,9 @@ async function createOrGetShareToken({
   const expiresAt = LIFETIME_SHARE_EXPIRES_AT;
   const streamKeyId = newUuid();
   const streamKey = crypto.randomBytes(16).toString("base64");
-  const claimPin = String(crypto.randomInt(100000, 1000000));
+  const claimPin = requirePin
+    ? String(crypto.randomInt(100000, 1000000))
+    : null;
 
   // Handle UNIQUE constraint: delete expired token for this track if one exists
   await dbRun(

@@ -68,3 +68,84 @@ describe("recipient contact on tracks", () => {
     assert.equal(res.statusCode, 201);
   });
 });
+
+describe("PIN-less shares", () => {
+  it("POST /tracks/:id/share with require_pin:false sets no claim_pin", async () => {
+    const t = await app.inject({
+      method: "POST",
+      url: "/tracks",
+      headers: { "x-user-id": USER },
+      payload: {
+        title: "T",
+        recipient_name: "R",
+        message: "m",
+        style: "pop",
+        occasion: "birthday",
+      },
+    });
+    const { track_id } = JSON.parse(t.body);
+    await app.inject({
+      method: "POST",
+      url: `/tracks/${track_id}/versions`,
+      headers: { "x-user-id": USER },
+      payload: { style: "pop" },
+    });
+    db.prepare(
+      "UPDATE track_versions SET preview_url='x', status='preview_ready' WHERE track_id=?",
+    ).run(track_id);
+    const s = await app.inject({
+      method: "POST",
+      url: `/tracks/${track_id}/share`,
+      headers: { "x-user-id": USER },
+      payload: { version_num: 1, require_pin: false },
+    });
+    const { share_id } = JSON.parse(s.body);
+    const row = db
+      .prepare("SELECT claim_pin FROM share_tokens WHERE id = ?")
+      .get(share_id);
+    assert.equal(row.claim_pin, null);
+  });
+  it("re-sharing an existing PINned share with require_pin:false strips the PIN", async () => {
+    const t = await app.inject({
+      method: "POST",
+      url: "/tracks",
+      headers: { "x-user-id": USER },
+      payload: {
+        title: "T",
+        recipient_name: "R",
+        message: "m",
+        style: "pop",
+        occasion: "birthday",
+      },
+    });
+    const { track_id } = JSON.parse(t.body);
+    await app.inject({
+      method: "POST",
+      url: `/tracks/${track_id}/versions`,
+      headers: { "x-user-id": USER },
+      payload: { style: "pop" },
+    });
+    db.prepare(
+      "UPDATE track_versions SET preview_url='x', status='preview_ready' WHERE track_id=?",
+    ).run(track_id);
+    // First share WITH a PIN (default), then re-share PIN-less. The idempotent
+    // route path must NOT hand back the stale PINned token.
+    await app.inject({
+      method: "POST",
+      url: `/tracks/${track_id}/share`,
+      headers: { "x-user-id": USER },
+      payload: { version_num: 1 },
+    });
+    const s2 = await app.inject({
+      method: "POST",
+      url: `/tracks/${track_id}/share`,
+      headers: { "x-user-id": USER },
+      payload: { version_num: 1, require_pin: false },
+    });
+    const { share_id } = JSON.parse(s2.body);
+    const row = db
+      .prepare("SELECT claim_pin FROM share_tokens WHERE id = ?")
+      .get(share_id);
+    assert.equal(row.claim_pin, null);
+  });
+});
