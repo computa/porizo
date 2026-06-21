@@ -3,6 +3,10 @@
 **Scope:** TestFlight binary upload (internal testing), builds **1.5.17 (137)** and **1.5.18 (138)**.
 
 **138 delta (`4c3456d`):** the contact picker is now presented imperatively (UIKit `present`) instead of as a SwiftUI `.sheet` root, fixing a dismissal cascade. Same `CNContactPickerViewController`, same data — no new privacy/API/entitlement surface. Verdict unchanged: GO.
+
+**139 delta (`9072a4b`):** after picking a contact, an editable name step (pre-filled, the captured number shown) lets the sender use the real name instead of a saved nickname. Pure SwiftUI view structure — no new privacy/API/entitlement surface. Verdict unchanged: GO.
+
+**Builds covered:** also **1.5.19 (139)**.
 **Branch:** `feat/binding-app-only-recipient-first`.
 **Delta since the 2026-06-21 full audit:** one commit (`350d731`) — UI restructure of the create-flow name entry (`InlineNamePromptView.swift`) into a two-step "Who's this song for?" → occasion/type flow, plus `.autocorrectionDisabled()` on the name fields.
 
