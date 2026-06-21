@@ -129,13 +129,15 @@ describe("PIN-less shares", () => {
       "UPDATE track_versions SET preview_url='x', status='preview_ready' WHERE track_id=?",
     ).run(track_id);
     // First share WITH a PIN (default), then re-share PIN-less. The idempotent
-    // route path must NOT hand back the stale PINned token.
-    await app.inject({
+    // route path must reuse the SAME token and STRIP its PIN, not hand back the
+    // stale PINned token nor mint a fresh one.
+    const s1 = await app.inject({
       method: "POST",
       url: `/tracks/${track_id}/share`,
       headers: { "x-user-id": USER },
       payload: { version_num: 1 },
     });
+    const id1 = JSON.parse(s1.body).share_id;
     const s2 = await app.inject({
       method: "POST",
       url: `/tracks/${track_id}/share`,
@@ -143,6 +145,7 @@ describe("PIN-less shares", () => {
       payload: { version_num: 1, require_pin: false },
     });
     const { share_id } = JSON.parse(s2.body);
+    assert.equal(share_id, id1, "same token reused, not recreated");
     const row = db
       .prepare("SELECT claim_pin FROM share_tokens WHERE id = ?")
       .get(share_id);
