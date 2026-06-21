@@ -13,10 +13,15 @@ struct InlineNamePromptView: View {
     var preselectedOccasion: String?
     let onStart: (String, Occasion?, CreateFlowKind) -> Void
     let onCancel: () -> Void
+    /// Called when the sender picks a contact: the contact's full name and
+    /// (when available) their raw phone number. Optional — the typed-name
+    /// field remains the fallback when this isn't wired.
+    var onContactPicked: ((_ name: String, _ phone: String?) -> Void)? = nil
 
     @State private var nameInput: String = ""
     @State private var selectedOccasion: String?
     @State private var activeType: CreateFlowKind = .song
+    @State private var contactPickerRequest: GiftContactPickerRequest?
 
     private static let occasions: [(emoji: String, label: String)] = Occasion.allCases
         .filter { $0 != .custom }
@@ -64,6 +69,31 @@ struct InlineNamePromptView: View {
                     .font(DesignTokens.displayFont(size: 24))
                     .foregroundStyle(DesignTokens.textPrimary)
                     .multilineTextAlignment(.center)
+
+                // Pick from Contacts (primary CTA) — only when the host wires it.
+                if onContactPicked != nil {
+                    Button {
+                        contactPickerRequest = GiftContactPickerRequest(method: .text)
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "person.crop.circle.badge.plus")
+                                .font(.system(size: 16, weight: .semibold))
+                            Text("Pick from Contacts")
+                                .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
+                        }
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
+                        .background(DesignTokens.gold)
+                        .clipShape(RoundedRectangle(cornerRadius: 14))
+                    }
+                    .padding(.horizontal, 20)
+                    .accessibilityIdentifier("name-entry-pick-contact")
+
+                    Text("or type a name")
+                        .font(DesignTokens.bodyFont(size: 13))
+                        .foregroundStyle(DesignTokens.textSecondary)
+                }
 
                 // Name field
                 TextField("Their Name", text: $nameInput)
@@ -157,6 +187,16 @@ struct InlineNamePromptView: View {
         }
         .onTapGesture {
             UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+        }
+        .sheet(item: $contactPickerRequest) { request in
+            GiftContactPickerSheet(method: request.method) { selection in
+                contactPickerRequest = nil
+                let trimmed = selection.fullName.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty {
+                    nameInput = trimmed
+                }
+                onContactPicked?(trimmed, selection.phoneNumber)
+            }
         }
     }
 

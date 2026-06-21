@@ -50,6 +50,8 @@ struct StorySetup: Sendable, Equatable {
     var tone: PoemTone = .heartfelt
     var emotionalSeed: String? = nil
     var relationshipType: String? = nil
+    var recipientPhone: String? = nil
+    var recipientChannel: String? = nil   // "imessage" | "whatsapp" | nil
 
     mutating func applyPreselectedRecipientName(_ recipientName: String?) {
         guard let recipientName else { return }

@@ -9,6 +9,10 @@ import SwiftUI
 import Contacts
 import ContactsUI
 
+/// Exposes the Gift flow's destination enum to other create-flow surfaces
+/// (e.g. the recipient-first name step) without a parallel enum or rename churn.
+typealias ContactDestinationMethod = GiftSendFlowView.GiftDestinationMethod
+
 struct GiftContactPickerRequest: Identifiable {
     let method: GiftSendFlowView.GiftDestinationMethod
 

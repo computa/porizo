@@ -129,7 +129,9 @@ extension APIClient {
         voiceMode: String? = nil,
         voiceGender: String? = nil,
         style: String? = nil,
-        giftReservationId: String? = nil
+        giftReservationId: String? = nil,
+        recipientPhone: String? = nil,
+        recipientChannel: String? = nil
     ) async throws -> StoryToTrackResponse {
         let url = URL(string: "\(baseURL)/story/\(storyId)/to-track")!
 
@@ -139,7 +141,9 @@ extension APIClient {
                 voiceMode: voiceMode,
                 voiceGender: voiceGender,
                 style: style,
-                giftReservationId: giftReservationId
+                giftReservationId: giftReservationId,
+                recipientPhone: recipientPhone,
+                recipientChannel: recipientChannel
             )
         )
 

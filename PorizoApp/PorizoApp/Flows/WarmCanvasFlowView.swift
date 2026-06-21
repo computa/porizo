@@ -436,7 +436,11 @@ struct WarmCanvasFlowView: View {
                         if let occasion { setup.occasion = occasion }
                         startChatWithName(name, type: type)
                     },
-                    onCancel: onCancel
+                    onCancel: onCancel,
+                    onContactPicked: { name, phone in
+                        setup.recipientName = name
+                        setup.recipientPhone = phone
+                    }
                 )
             } else {
                 ChatHeaderView(
@@ -1318,7 +1322,9 @@ struct WarmCanvasFlowView: View {
                     storyContext: context,
                     voiceMode: songFlow.voiceMode,
                     voiceGender: songFlow.voiceGender,
-                    giftReservationId: giftReservationId
+                    giftReservationId: giftReservationId,
+                    recipientPhone: setup.recipientPhone,
+                    recipientChannel: setup.recipientChannel
                 )
                 try Task.checkCancellation()
 

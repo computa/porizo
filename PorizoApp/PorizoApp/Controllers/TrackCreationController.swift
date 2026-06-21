@@ -72,7 +72,9 @@ final class TrackCreationController {
         storyContext: StoryContext,
         voiceMode: VoiceMode,
         voiceGender: VoiceGender?,
-        giftReservationId: String? = nil
+        giftReservationId: String? = nil,
+        recipientPhone: String? = nil,
+        recipientChannel: String? = nil
     ) async throws -> Outcome {
         guard !isCreating else {
             throw APIClientError.invalidResponse
@@ -127,7 +129,9 @@ final class TrackCreationController {
                 voiceMode: voiceMode.rawValue,
                 voiceGender: voiceGender?.rawValue,
                 style: storyContext.style,
-                giftReservationId: giftReservationId
+                giftReservationId: giftReservationId,
+                recipientPhone: recipientPhone,
+                recipientChannel: recipientChannel
             )
             self.progress = 90
 
