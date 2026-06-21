@@ -21,7 +21,8 @@ extension APIClient {
         trackId: String,
         versionNum: Int? = nil,
         expiresInDays: Int = 30,
-        ogVariant: String? = nil
+        ogVariant: String? = nil,
+        requirePin: Bool = true
     ) async throws -> CreateShareResponse {
         let url = URL(string: "\(baseURL)/tracks/\(trackId)/share")!
 
@@ -30,7 +31,10 @@ extension APIClient {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         try await applyAuthHeaders(&request)
 
-        var body: [String: Any] = ["expires_in_days": expiresInDays]
+        var body: [String: Any] = [
+            "expires_in_days": expiresInDays,
+            "require_pin": requirePin,
+        ]
         if let versionNum = versionNum {
             body["version_num"] = versionNum
         }

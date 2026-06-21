@@ -22,6 +22,10 @@ struct RevealBloomView: View {
     var shareDebugStatusLabel: String? = nil
     let onPlay: () -> Void
     let onShare: () -> Void
+    /// When non-nil, the primary "Send to [recipientName]" button invokes this
+    /// one-tap direct-send action instead of `onShare` (the system share sheet).
+    /// Wired by the flow only when a recipient phone was captured.
+    var onDirectSend: (() -> Void)? = nil
     let onEditLyrics: () -> Void
     let onSaveToLibrary: () -> Void
     var onListenFully: (() -> Void)?
@@ -286,7 +290,7 @@ struct RevealBloomView: View {
     // MARK: - Share Button
 
     private var shareButton: some View {
-        Button(action: onShare) {
+        Button(action: onDirectSend ?? onShare) {
             Text("Send to \(recipientName)")
                 .font(DesignTokens.bodyFont(size: 16, weight: .semibold))
                 .foregroundStyle(DesignTokens.gold)

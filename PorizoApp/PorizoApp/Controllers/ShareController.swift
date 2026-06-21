@@ -216,6 +216,20 @@ final class ShareController {
         }
     }
 
+    /// Mint a PIN-free share link and return its URL. Used by the one-tap
+    /// "Send to [recipient]" flow, where the recipient opens the link directly
+    /// without entering a claim PIN. Unlike `generateShareLink` (fire-and-forget),
+    /// this is awaitable so callers can mint the link inline before composing
+    /// the recipient message.
+    func makePinlessShareLink(trackId: String, versionNum: Int) async throws -> String {
+        let resp = try await apiClient.createShare(
+            trackId: trackId,
+            versionNum: versionNum,
+            requirePin: false
+        )
+        return resp.shareUrl
+    }
+
     /// Revoke the active share link, returning to `.noShare`.
     func revokeShare(trackId: String) {
         Task {
