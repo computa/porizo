@@ -90,7 +90,6 @@ function registerSharingRoutes(
     trackPreviewKey,
     trackVersionKey,
     trackArtworkKey,
-    serveTrackAudio,
     getUserRiskLevel: _getUserRiskLevel,
     consumeRateLimit,
   },
@@ -523,34 +522,16 @@ function registerSharingRoutes(
     });
     const audioPath = fs.existsSync(localPreview) ? localPreview : null;
 
-    if (!audioPath && trackVersion.full_url) {
-      // No preview file — proxy full render audio via the same path the app uses
-      const masterKey = trackMasterKey({
-        userId: track.user_id,
-        trackId: track.id,
-        versionNum: trackVersion.version_num,
-        format: "m4a",
-      });
-      await addShareAccessLog({
-        shareTokenId: share.id,
-        eventType: "audio_served",
-        metadata: {
-          user_agent: request.headers["user-agent"] || null,
-          ip: extractClientIp(request) || null,
-          type: "full_proxy",
-        },
-      });
-      await serveTrackAudio(request, reply, {
-        track,
-        trackVersion,
-        s3Key: masterKey,
-        localFileName: "full.m4a",
-      });
-      return true;
-    }
-
+    // Preview-only at source: the public share path can ONLY ever yield the
+    // short preview, never the full master. The full song is reachable only via
+    // the device-token-gated HLS path. Do NOT fall back to full.m4a here.
     if (!audioPath) {
-      sendError(reply, 404, "AUDIO_NOT_AVAILABLE", "Audio not available.");
+      sendError(
+        reply,
+        404,
+        "AUDIO_NOT_AVAILABLE",
+        "Preview is not available yet.",
+      );
       return true;
     }
 

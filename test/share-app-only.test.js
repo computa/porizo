@@ -121,3 +121,18 @@ describe("app-only share audio gate", () => {
       assert.notEqual(JSON.parse(res.body).error, "APP_REQUIRED");
   });
 });
+
+describe("preview-only at source", () => {
+  it("returns 404 AUDIO_NOT_AVAILABLE (never the full master) when no local preview exists", async () => {
+    // full_url set, preview_url null, and no preview.m4a on local disk in tests.
+    const id = await seedShare({ fullOnly: true });
+    const res = await app.inject({
+      method: "GET",
+      url: `/share/${id}/audio`,
+      headers: { "x-device-id": "dev1", "x-platform": "ios" }, // pass the gate
+    });
+    assert.notEqual(res.statusCode, 200); // must NOT stream the full master
+    assert.equal(res.statusCode, 404);
+    assert.equal(JSON.parse(res.body).error, "AUDIO_NOT_AVAILABLE");
+  });
+});
