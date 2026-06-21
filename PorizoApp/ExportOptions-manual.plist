@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>method</key>
+    <string>app-store-connect</string>
+    <key>teamID</key>
+    <string>5VCH6937XM</string>
+    <key>uploadSymbols</key>
+    <true/>
+    <key>destination</key>
+    <string>upload</string>
+    <key>signingStyle</key>
+    <string>manual</string>
+    <key>signingCertificate</key>
+    <string>Apple Distribution: Acuoos Pty Ltd (5VCH6937XM)</string>
+    <key>provisioningProfiles</key>
+    <dict>
+        <key>porizo.ios.app.PorizoApp</key>
+        <string>Porizo App Store 20260605</string>
+        <key>porizo.ios.app.PorizoApp.NotificationServiceExtension</key>
+        <string>Porizo NSE App Store 20260605</string>
+    </dict>
+</dict>
+</plist>
