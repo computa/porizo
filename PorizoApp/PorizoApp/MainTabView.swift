@@ -271,9 +271,16 @@ struct MainTabView: View {
         // one-tap "Send to [name]" CTA) instead of just foregrounding the app.
         .onReceive(NotificationCenter.default.publisher(for: .openReadyTrackReveal)) { note in
             guard let trackId = note.userInfo?["trackId"] as? String else { return }
+            // Don't reassign the fullScreenCover item while a flow is already presented.
+            guard createFlowLaunch == nil else { return }
             Task { @MainActor in
-                let version = (try? await apiClient.getTrack(trackId: trackId))?
-                    .track.latestVersion ?? 1
+                // Resolve the real latest version; abort if the fetch fails rather than
+                // guessing a version (a wrong version strands the resume on a spinner).
+                guard let version = try? await apiClient.getTrack(trackId: trackId).track.latestVersion else {
+                    ToastService.shared.show("Couldn't open that song. Try again.", type: .error)
+                    return
+                }
+                guard createFlowLaunch == nil else { return }
                 // .trackPlayer is the resume target that rebuilds playback and lands on
                 // the reveal (moment = .reveal) rather than the lyrics step.
                 presentCreateFlow(

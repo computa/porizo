@@ -2243,6 +2243,11 @@ struct WarmCanvasFlowView: View {
                     moment = .tell(.trackCreated)
                     await resumeLyricsState()
                 }
+            } else {
+                // Requested version isn't in the track's versions (e.g. a stale version
+                // from a notification tap) — recover instead of stranding the user on .wait.
+                CreateFlowStore.shared.clear()
+                activeAlert = .staleResume
             }
         } catch {
             if case APIClientError.httpError(statusCode: 404, _) = error {

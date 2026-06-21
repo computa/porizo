@@ -44,8 +44,10 @@ struct CreateShareResponse: Codable, Sendable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         shareId = try c.decode(String.self, forKey: .shareId)
         shareUrl = try c.decode(String.self, forKey: .shareUrl)
-        qrCodeUrl = try c.decodeIfPresent(String.self, forKey: .qrCodeUrl) ?? ""
-        expiresAt = try c.decodeIfPresent(String.self, forKey: .expiresAt) ?? ""
+        qrCodeUrl = try c.decode(String.self, forKey: .qrCodeUrl)
+        expiresAt = try c.decode(String.self, forKey: .expiresAt)
+        // Only claim_pin is nullable (PIN-less shares); the rest are always present
+        // (tracks.js:1982). Default the PIN to "" — the pinless path never reads it.
         claimPin = try c.decodeIfPresent(String.self, forKey: .claimPin) ?? ""
     }
 }

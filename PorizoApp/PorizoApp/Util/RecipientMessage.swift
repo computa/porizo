@@ -11,7 +11,9 @@ import Foundation
 
 enum RecipientMessage {
     static func body(recipientName: String, link: String) -> String {
-        "I made you a song 🎵 \(recipientName) — open it here: \(link)"
+        let name = recipientName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lead = name.isEmpty ? "I made you a song 🎵" : "I made you a song 🎵 \(name)"
+        return "\(lead) — open it here: \(link)"
     }
 
     /// Web `wa.me/<E164>` deep link, pre-addressed to a specific recipient.

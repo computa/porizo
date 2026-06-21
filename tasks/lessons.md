@@ -430,3 +430,13 @@ Naming similarity on a remote platform ("thanks mom.mp3" vs `marketing/audio hoo
 **Rule:** From inside a screen that already hosts presentations (or is itself inside a `.fullScreenCover`), present transient UIKit UI (`MFMessageComposeViewController`, `UIActivityViewController`, `UIAlertController` action sheets, `CNContactPickerViewController`) **imperatively** — `topViewController().present(...)` — not via a second SwiftUI modifier. Same fix as the contact-picker dismissal cascade.
 
 **Also (same session):** `CreateFlowResumeTarget.revealBloom` is NOT wired in `rebuildWarmCanvasState` (falls to `default` → lyrics). The target that rebuilds playback and lands on `moment = .reveal` is `.trackPlayer`. Verify enum cases are actually handled in the switch before routing to them.
+
+---
+
+## 2026-06-22 — A 200 from the server doesn't mean the client decoded the response
+
+**Trigger:** "Send to [name]" did nothing across builds 140/141. Prod logs showed `POST /share` returning **200** on every tap — so I assumed the link minted and chased a _presentation_ bug (SwiftUI sheet conflict → rewrote to imperative UIKit). It still didn't work.
+
+**Mistake:** The real failure was a **client-side decode throw**, invisible in server logs. One-tap send calls `createShare(requirePin: false)`; the backend returns `claim_pin: null` for PIN-less shares (`share-service.js:150`), but iOS `CreateShareResponse.claimPin` was a **non-optional `String`** → `JSONDecoder` threw on the null → `makePinlessShareLink` threw → the send bailed into its `catch` (a toast) **before presenting**. The 200 masked it; I burned two builds on the wrong layer.
+
+**Rule:** When a feature works on one code path but not another that hits the **same endpoint with different params**, diff the **response shape** between the two paths and check model **optionality** — a field that's non-null on the default path but null on the variant makes the _entire_ decode throw. A 2xx status only means the server succeeded; confirm the client actually _decoded and used_ the body (add/inspect the decode-error path) before concluding it's a downstream/UI bug. Default response fields that any code path can null out should be optional (or tolerated via `decodeIfPresent`).

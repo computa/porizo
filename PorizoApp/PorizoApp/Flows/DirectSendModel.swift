@@ -66,7 +66,10 @@ final class DirectSendModel: ObservableObject {
     private func presentChannelChooser(
         title: String, recipients: [String], body: String, whatsAppURL: URL
     ) {
-        guard let top = Self.topViewController() else { return }
+        guard let top = Self.topViewController() else {
+            ToastService.shared.show("Couldn't open the share screen. Try again.", type: .error)
+            return
+        }
         let sheet = UIAlertController(title: title, message: nil, preferredStyle: .actionSheet)
         sheet.addAction(UIAlertAction(title: "Messages", style: .default) { [weak self] _ in
             self?.presentMessageCompose(recipients: recipients, body: body)
@@ -85,7 +88,10 @@ final class DirectSendModel: ObservableObject {
     /// Present the iMessage compose sheet, or fall back to the system share sheet
     /// when this device can't send texts (e.g. iPad without Messages).
     private func presentMessageCompose(recipients: [String], body: String) {
-        guard let top = Self.topViewController() else { return }
+        guard let top = Self.topViewController() else {
+            ToastService.shared.show("Couldn't open the share screen. Try again.", type: .error)
+            return
+        }
         guard MFMessageComposeViewController.canSendText() else {
             let activityVC = UIActivityViewController(activityItems: [body], applicationActivities: nil)
             activityVC.popoverPresentationController?.sourceView = top.view
