@@ -33,4 +33,9 @@ final class RecipientMessageTests: XCTestCase {
             RecipientMessage.whatsAppURL(phoneE164: "61412345678", body: "hi")
         )
     }
+
+    func testBodyNeverContainsPin() {
+        let body = RecipientMessage.body(recipientName: "Latifat", link: "https://api.porizo.co/play/abc")
+        XCTAssertFalse(body.uppercased().contains("PIN"))
+    }
 }

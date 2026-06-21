@@ -112,6 +112,8 @@ struct WarmCanvasFlowView: View {
     @State private var isPresentingMessageCompose = false
     /// Pending channel-choice context when WhatsApp is also available.
     @State private var directSendChannelChoice: DirectSendChannelChoice?
+    /// In-flight guard: prevents a double-tap from minting two share links.
+    @State private var isSendingDirect = false
 
     // MARK: - Init
 
@@ -873,6 +875,7 @@ struct WarmCanvasFlowView: View {
     /// recipient's preferred channel (iMessage, optionally WhatsApp) with a
     /// pre-filled message. Only invoked when a recipient phone was captured.
     private func startDirectSend() {
+        guard !isSendingDirect else { return }
         guard let phone = setup.recipientPhone else { return }
         guard let (trackId, versionNum) = ensureShareControllerAndTrackIds() else {
             ToastService.shared.show("Song not ready to share yet", type: .warning)
@@ -880,9 +883,11 @@ struct WarmCanvasFlowView: View {
         }
         guard let controller = shareController else { return }
 
+        isSendingDirect = true
         ToastService.shared.show("Preparing your song link...", type: .info)
         flowTask?.cancel()
         flowTask = Task { @MainActor in
+            defer { isSendingDirect = false }
             do {
                 let link = try await controller.makePinlessShareLink(
                     trackId: trackId,
@@ -928,7 +933,10 @@ struct WarmCanvasFlowView: View {
                 activityItems: [payload.body],
                 applicationActivities: nil
             )
-            if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+            let scene = UIApplication.shared.connectedScenes
+                .compactMap { $0 as? UIWindowScene }
+                .first { $0.activationState == .foregroundActive }
+            if let windowScene = scene,
                let root = windowScene.windows.first?.rootViewController {
                 var topVC = root
                 while let presented = topVC.presentedViewController { topVC = presented }
