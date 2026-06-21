@@ -1,0 +1,2 @@
+ALTER TABLE tracks ADD COLUMN IF NOT EXISTS recipient_phone TEXT;
+ALTER TABLE tracks ADD COLUMN IF NOT EXISTS recipient_channel TEXT;

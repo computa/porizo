@@ -463,7 +463,7 @@ function registerTrackRoutes(
 
       await db
         .prepare(
-          "INSERT INTO tracks (id, user_id, status, title, occasion, recipient_name, style, duration_target, voice_mode, voice_gender, message, story_context_json, share_token_id, latest_version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          "INSERT INTO tracks (id, user_id, status, title, occasion, recipient_name, recipient_phone, recipient_channel, style, duration_target, voice_mode, voice_gender, message, story_context_json, share_token_id, latest_version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .run(
           trackId,
@@ -472,6 +472,8 @@ function registerTrackRoutes(
           body.title || null,
           body.occasion || null,
           body.recipient_name || null,
+          body.recipient_phone || null,
+          body.recipient_channel || null,
           body.style || null,
           body.duration_target || 60,
           requestedVoiceMode,

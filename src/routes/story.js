@@ -444,6 +444,8 @@ const schemas = {
         voice_gender: { type: "string", enum: ["male", "female"] },
         style: { type: "string", maxLength: 50 },
         gift_reservation_id: { type: "string", minLength: 1, maxLength: 64 },
+        recipient_phone: { type: "string", maxLength: 32 },
+        recipient_channel: { type: "string", maxLength: 32 },
       },
       additionalProperties: false,
     },
@@ -4128,8 +4130,8 @@ function registerStoryRoutes(
         await db
           .prepare(
             `
-        INSERT INTO tracks (id, user_id, status, title, occasion, recipient_name, style, message, story_context_json, voice_mode, voice_gender, funding_source, gift_reservation_id, latest_version, created_at, updated_at)
-        VALUES (?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+        INSERT INTO tracks (id, user_id, status, title, occasion, recipient_name, recipient_phone, recipient_channel, style, message, story_context_json, voice_mode, voice_gender, funding_source, gift_reservation_id, latest_version, created_at, updated_at)
+        VALUES (?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
       `,
           )
           .run(
@@ -4138,6 +4140,8 @@ function registerStoryRoutes(
             composedTitle,
             storyContext.occasion,
             storyContext.recipientName,
+            request.body?.recipient_phone || null,
+            request.body?.recipient_channel || null,
             effectiveStyle,
             storyContext.initialPrompt,
             JSON.stringify(

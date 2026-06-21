@@ -595,6 +595,8 @@ function buildServer({
           title: { type: "string", maxLength: 200 },
           occasion: { type: "string", maxLength: 100 },
           recipient_name: { type: "string", maxLength: 100 },
+          recipient_phone: { type: "string", maxLength: 32 },
+          recipient_channel: { type: "string", maxLength: 32 },
           style: { type: "string", maxLength: 100 },
           duration_target: { type: "integer", minimum: 30, maximum: 180 },
           voice_mode: { type: "string", enum: ["user_voice", "ai_voice"] },
