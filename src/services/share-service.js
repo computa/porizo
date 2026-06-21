@@ -118,7 +118,13 @@ async function createOrGetShareToken({
         // Strip the PIN on reuse when the caller opted into a PIN-less share.
         // A returning user's old PINned token would otherwise leak a PIN into
         // the one-tap message. NULL it out before handing the token back.
-        if (requirePin === false && existing.claim_pin != null) {
+        // Only on unbound tokens — once claimed, device binding is the lock and
+        // the PIN is already moot, so there's no reason to mutate it.
+        if (
+          requirePin === false &&
+          existing.claim_pin != null &&
+          existing.status === "unbound"
+        ) {
           await dbRun(
             db,
             "UPDATE share_tokens SET claim_pin = NULL, claim_attempts = 0 WHERE id = ?",
