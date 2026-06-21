@@ -55,18 +55,18 @@ Expect `** BUILD SUCCEEDED **`.
 `migrations/pg/121_add_recipient_contact.sql`:
 
 ```sql
-ALTER TABLE tracks ADD COLUMN IF NOT EXISTS recipient_phone TEXT
-ALTER TABLE tracks ADD COLUMN IF NOT EXISTS recipient_channel TEXT
+ALTER TABLE tracks ADD COLUMN IF NOT EXISTS recipient_phone TEXT;
+ALTER TABLE tracks ADD COLUMN IF NOT EXISTS recipient_channel TEXT;
 ```
 
-`migrations/121_add_recipient_contact.sql` (SQLite — no `IF NOT EXISTS` on ADD COLUMN; one statement per line, NO trailing semicolons inside comments per the lessons file):
+`migrations/121_add_recipient_contact.sql` (SQLite — no `IF NOT EXISTS` on ADD COLUMN):
 
 ```sql
-ALTER TABLE tracks ADD COLUMN recipient_phone TEXT
-ALTER TABLE tracks ADD COLUMN recipient_channel TEXT
+ALTER TABLE tracks ADD COLUMN recipient_phone TEXT;
+ALTER TABLE tracks ADD COLUMN recipient_channel TEXT;
 ```
 
-> Verify the runner's statement-splitting matches sibling migrations (e.g. `120_*`). Match their exact terminator convention.
+> Both runners split on `;` (`src/database/postgres.js:299`), so every real statement MUST end with a semicolon. The `tasks/lessons.md` warning is about semicolons _inside comments_, NOT the absence of statement terminators — sibling `migrations/pg/120_*.sql` terminates each statement with `;`.
 
 - [ ] **Step 2: Failing test**
 
@@ -205,18 +205,61 @@ describe("PIN-less shares", () => {
       .get(share_id);
     assert.equal(row.claim_pin, null);
   });
+  it("re-sharing an existing PINned share with require_pin:false strips the PIN", async () => {
+    const t = await app.inject({
+      method: "POST",
+      url: "/tracks",
+      headers: { "x-user-id": USER },
+      payload: {
+        title: "T",
+        recipient_name: "R",
+        message: "m",
+        style: "pop",
+        occasion: "birthday",
+      },
+    });
+    const { track_id } = JSON.parse(t.body);
+    await app.inject({
+      method: "POST",
+      url: `/tracks/${track_id}/versions`,
+      headers: { "x-user-id": USER },
+      payload: { style: "pop" },
+    });
+    db.prepare(
+      "UPDATE track_versions SET preview_url='x', status='preview_ready' WHERE track_id=?",
+    ).run(track_id);
+    // First share WITH a PIN (default), then re-share PIN-less. The idempotent
+    // route path must NOT hand back the stale PINned token.
+    await app.inject({
+      method: "POST",
+      url: `/tracks/${track_id}/share`,
+      headers: { "x-user-id": USER },
+      payload: { version_num: 1 },
+    });
+    const s2 = await app.inject({
+      method: "POST",
+      url: `/tracks/${track_id}/share`,
+      headers: { "x-user-id": USER },
+      payload: { version_num: 1, require_pin: false },
+    });
+    const { share_id } = JSON.parse(s2.body);
+    const row = db
+      .prepare("SELECT claim_pin FROM share_tokens WHERE id = ?")
+      .get(share_id);
+    assert.equal(row.claim_pin, null);
+  });
 });
 ```
 
-Run → fails (PIN always set).
+Run → fails (PIN always set; idempotent path returns the stale PINned token).
 
 - [ ] **Step 2: Add `requirePin` option to `createOrGetShareToken`**
 
-In `src/services/share-service.js`, add an options field `requirePin = true`. Where it does `const claimPin = String(crypto.randomInt(100000, 1000000));` (~132), gate it: `const claimPin = requirePin ? String(crypto.randomInt(100000, 1000000)) : null;`. Ensure the INSERT binds `null` cleanly (the column is nullable — confirm). For the idempotent "existing token" path, leave existing tokens unchanged (don't strip a PIN off an already-issued token).
+In `src/services/share-service.js`, add an options field `requirePin = true`. Where it does `const claimPin = String(crypto.randomInt(100000, 1000000));` (~132), gate it: `const claimPin = requirePin ? String(crypto.randomInt(100000, 1000000)) : null;`. Ensure the INSERT binds `null` cleanly (the column is nullable — confirm). **Idempotent path:** when an existing non-revoked token is reused AND `requirePin === false` AND that token still has a `claim_pin`, NULL it out (`UPDATE share_tokens SET claim_pin = NULL, claim_attempts = 0 WHERE id = ?`) before returning it — otherwise a returning user's old PINned token leaks a PIN into the one-tap message. Do not otherwise mutate existing tokens.
 
 - [ ] **Step 3: Pass `require_pin` from the share route**
 
-In `src/routes/tracks.js` share endpoint (~1862), read `require_pin` from the body (default `true` for backward-compat) and pass `requirePin` into `createOrGetShareToken`. Add `require_pin` to the endpoint's body schema as optional boolean.
+In `src/routes/tracks.js` share endpoint (~1862), read `require_pin` from the body (default `true` for backward-compat) and pass `requirePin` into `createOrGetShareToken`. Add `require_pin` to the endpoint's body schema as optional boolean. **Critical:** this endpoint early-returns an existing share via `findActiveTrackShare` at ~1900–1913 BEFORE `createOrGetShareToken` runs. When `require_pin === false`, do NOT take that bare early return — route through `createOrGetShareToken({ requirePin: false })` so the strip-PIN-on-reuse logic from Step 2 applies; otherwise a returning user gets the stale PINned token back.
 
 - [ ] **Step 4: Run tests + commit**
 
@@ -252,7 +295,7 @@ git commit -m "feat(ios): recipientPhone/recipientChannel on StorySetup" -- Pori
 
 **Files:** `PorizoApp/PorizoApp/ContactPickerSheet.swift`, `PorizoApp/PorizoApp/Flows/InlineNamePromptView.swift`, `WarmCanvasFlowView.swift`
 
-- [ ] **Step 1: Decouple the destination enum.** `GiftContactSelection`/`GiftContactPickerSheet` reference `GiftSendFlowView.GiftDestinationMethod`. Extract a top-level `enum ContactDestinationMethod: String, CaseIterable { case text, email }` (move it out of `GiftSendFlowView`, or add a top-level alias) so `GiftContactPickerSheet` is usable from the create flow without pulling in `GiftSendFlowView`. Update references. Build.
+- [ ] **Step 1: Make the destination enum reachable from the create flow.** `GiftContactPickerSheet` references the nested `GiftSendFlowView.GiftDestinationMethod`. Add a file-scope `typealias ContactDestinationMethod = GiftSendFlowView.GiftDestinationMethod` in `ContactPickerSheet.swift` — exposes the type to the create flow with ZERO rename churn. Do NOT create a parallel enum (that would force edits to the picker's `Coordinator`/predicate/`onSelect` signatures). Build.
 - [ ] **Step 2: Add an `onContactPicked` callback to `InlineNamePromptView`:** `var onContactPicked: ((_ name: String, _ phone: String?) -> Void)? = nil`, and a primary "Pick from Contacts" button above the name `TextField` that presents `GiftContactPickerSheet(method: .text)` via `.sheet(item:)`. On selection, call `onContactPicked(selection.fullName, selection.phoneNumber)`. Keep the existing typed-name `TextField` as the fallback ("or type a name"). The Contacts system picker needs no permission (`CNContactPickerViewController`).
 - [ ] **Step 3: Wire in `WarmCanvasFlowView`** (the `InlineNamePromptView(...)` at ~432): pass `onContactPicked: { name, phone in setup.recipientName = name; setup.recipientPhone = phone }`. Picked contact wins on name conflict (it overwrites). Then the existing `onStart` proceeds.
 - [ ] **Step 4:** Build → BUILD SUCCEEDED. Simulator check (`--bypass-auth`): start a song, tap "Pick from Contacts", choose a contact+number, confirm the name pre-fills and the flow proceeds. Commit (scoped to the three files).
@@ -331,12 +374,20 @@ Tests: body format exact; whatsAppURL strips `+` and encodes text; nil for non-E
 
 - [ ] **Step 2: `MessageComposeSheet`** — a `UIViewControllerRepresentable` around `MFMessageComposeViewController` (`import MessageUI`), setting `recipients = [phone]` and `body`, with a completion callback (`.sent` / `.cancelled` / `.failed`). Guard with `MFMessageComposeViewController.canSendText()`.
 - [ ] **Step 3: `RevealBloomView`** — add `var onDirectSend: (() -> Void)? = nil`. When the caller provides it (a recipient phone is known), the primary "Send to [recipientName]" button calls `onDirectSend` instead of `onShare`; otherwise it keeps calling `onShare` (today's system-share path). Do NOT restyle the screen.
-- [ ] **Step 4: `WarmCanvasFlowView`** — implement `onDirectSend`:
-  1. `shareController.generateShareLink(trackId:versionNum:)`, await `shareController.shareURLString` (mint a PIN-less link — pass `require_pin: false` through `apiClient.createShare`; extend that call + `POST /tracks/:id/share` payload).
-  2. Build `body = RecipientMessage.body(recipientName:link:)`.
-  3. If `recipientChannel == "whatsapp"` and `UIApplication.shared.canOpenURL(URL(string:"whatsapp://")!)` and `RecipientMessage.whatsAppURL(...)` non-nil → `UIApplication.shared.open(url)`.
-  4. Else present `MessageComposeSheet(recipients:[phone], body:body)`.
-  5. If `setup.recipientPhone == nil` (skipped) → keep the existing system share sheet path.
+- [ ] **Step 4: `WarmCanvasFlowView`** — implement `onDirectSend` (awaitable share path):
+  1. **Add an awaitable PIN-less share method.** `ShareController.generateShareLink` returns `void` and fires an internal `Task`, so `shareURLString` is NOT awaitable — do not use it here. Add:
+     ```swift
+     func makePinlessShareLink(trackId: String, versionNum: Int) async throws -> String {
+         let resp = try await apiClient.createShare(trackId: trackId, versionNum: versionNum, requirePin: false)
+         return resp.shareUrl
+     }
+     ```
+     Extend `apiClient.createShare(...)` with `requirePin: Bool = true` and include `"require_pin": requirePin` in the `POST /tracks/:id/share` body. (`CreateShareResponse.shareUrl` already exists.)
+  2. `let link = try await shareController.makePinlessShareLink(trackId:versionNum:)`.
+  3. `let body = RecipientMessage.body(recipientName: setup.recipientName, link: link)`. **MUST use `RecipientMessage.body` — do NOT call `shareController.prepareShareData(...)`/`defaultMessage`, which appends `"\n\nPIN: …"` (`ShareController.swift:410`) and would leak a PIN into a PIN-less share.**
+  4. If `setup.recipientChannel == "whatsapp"`, `UIApplication.shared.canOpenURL(URL(string: "whatsapp://")!)`, and `RecipientMessage.whatsAppURL(phoneE164: phone, body: body)` non-nil → `UIApplication.shared.open(url)`.
+  5. Else present `MessageComposeSheet(recipients: [phone], body: body)` (iMessage/SMS — Apple auto-routes).
+  6. If `setup.recipientPhone == nil` (skipped) → keep today's system share sheet path (`onShare`).
 - [ ] **Step 5:** Build → BUILD SUCCEEDED. Run unit tests. Simulator check (`--bypass-auth`, `--fixture-paywall` as needed): complete a song with a contact number → reveal shows "Send to [name]" → tap → Messages composer opens prefilled with the body + recipient (iMessage). Skipped-number path → system share sheet. Commit (scoped).
 
 ### Task I6 (optional): "Song ready" push deep-links to reveal/send
@@ -360,3 +411,4 @@ Tests: body format exact; whatsAppURL strips `+` and encodes text; nil for non-E
 2. **PhoneNumberKit API drift** — confirm class/method names against the fetched major version (Task I3 Step 3).
 3. **Ships behind an App Store cycle** — bump `MARKETING_VERSION` + `CURRENT_PROJECT_VERSION` and submit via `asc` when ready (backend B1/B2 can deploy ahead, inert until the app uses them).
 4. **APNs prod env** gates Task I6.
+5. **Test fixture** — before relying on the B2 test, confirm `POST /tracks/:id/versions` with `{ style: "pop" }` succeeds for the minimal `rc-user` fixture (no entitlement row). If it 402/403s on an entitlement check, seed an `entitlements` row in `before()` the way `test/share-flow.test.js` does.
