@@ -418,3 +418,15 @@ Naming similarity on a remote platform ("thanks mom.mp3" vs `marketing/audio hoo
 **Mistake:** Assumed the reveal was the only place a user reaches a finished song. But a slow render (~4 min, partly because prod Anthropic credits were exhausted) trips the `waitTimeout` "Notify me when ready" screen — the user exits to home, gets a push, and opens the song from the **library**. That async path had **no** send-to-the-collected-number: the recipient phone lived only in in-memory view state (`setup.recipientPhone` inside `WarmCanvasFlowView`), so it vanished the moment the create flow closed. The number _was_ persisted server-side, but the track API model didn't expose it and no library surface read it. I spent a long time debugging "no send CTA" before the user clarified they took the "Notify me" path.
 
 **Rule:** When a feature attaches to a _completion state_, enumerate **every** path that reaches that state (sync reveal, async notify-me → library, resume, notification-open) and make the feature present on all of them. Persist feature-critical data on the **model + API**, not just transient view state. Also: when a user reports "X doesn't work," ask which _path_ they took before assuming the surface is broken (the reveal's CTA was fine; they just never saw the reveal).
+
+---
+
+## 2026-06-22 — Don't stack a second SwiftUI `.sheet`/`.confirmationDialog` onto a view that already presents
+
+**Trigger:** Migrated the reveal's one-tap send into a reusable `.directSendHost` ViewModifier that added `.confirmationDialog` + `.sheet(item:)`.
+
+**Mistake:** The host (WarmCanvasFlowView / MySongs / TrackPlayerFullView) already carries `.sheet(item: $activeSheet)`, `.fullScreenCover`, and `.alert`. Stacking another SwiftUI presentation on the same view **silently no-ops** — the action fired (the link minted; `POST /share` showed in prod logs) but nothing appeared. The user tapped "Send" repeatedly to no effect.
+
+**Rule:** From inside a screen that already hosts presentations (or is itself inside a `.fullScreenCover`), present transient UIKit UI (`MFMessageComposeViewController`, `UIActivityViewController`, `UIAlertController` action sheets, `CNContactPickerViewController`) **imperatively** — `topViewController().present(...)` — not via a second SwiftUI modifier. Same fix as the contact-picker dismissal cascade.
+
+**Also (same session):** `CreateFlowResumeTarget.revealBloom` is NOT wired in `rebuildWarmCanvasState` (falls to `default` → lyrics). The target that rebuilds playback and lands on `moment = .reveal` is `.trackPlayer`. Verify enum cases are actually handled in the switch before routing to them.
