@@ -8,6 +8,10 @@ const { getDatabase } = require("./database");
 const config = require("./config");
 const { createHLSPlaylist } = require("./utils/hls");
 const { generateShareMp4 } = require("./utils/ffmpeg");
+const {
+  resolveShareVideoAudio,
+  SHARE_TEASER_MAX_SECONDS,
+} = require("./media/share-video-source");
 const { newUuid, newShareId } = require("./utils/ids");
 const { ensureDir, parseJson, toJson, nowIso } = require("./utils/common");
 const { stableStringify } = require("./utils/stable-json");
@@ -384,11 +388,6 @@ function buildServer({
     appConfig.GIFT_DISPATCH_MAX_ATTEMPTS ??
       config.GIFT_DISPATCH_MAX_ATTEMPTS ??
       5,
-  );
-  const shareVideoMaxDurationSec = Number(
-    appConfig.SHARE_VIDEO_MAX_DURATION_SEC ??
-      config.SHARE_VIDEO_MAX_DURATION_SEC ??
-      0,
   );
   const facebookAppId =
     appConfig.FACEBOOK_APP_ID || config.FACEBOOK_APP_ID || "";
@@ -1490,11 +1489,13 @@ function buildServer({
   }
 
   function shareVideoKeyForTrackVersion(track, trackVersion) {
+    // New filename ("share-teaser.mp4") so the ~600 existing cached share.mp4
+    // files (full-length) regenerate as the preview-only 15s teaser.
     return `${trackVersionKey({
       userId: track.user_id,
       trackId: track.id,
       versionNum: trackVersion.version_num,
-    })}/share.mp4`;
+    })}/share-teaser.mp4`;
   }
 
   async function ensureLocalFileFromStorage({ key, localPath }) {
@@ -1523,7 +1524,7 @@ function buildServer({
 
   async function isShareMp4Ready({ track, trackVersion }) {
     const versionDir = getVersionDir(track, trackVersion);
-    const mp4Path = path.join(versionDir, "share.mp4");
+    const mp4Path = path.join(versionDir, "share-teaser.mp4");
     if (fs.existsSync(mp4Path)) {
       return true;
     }
@@ -1545,12 +1546,13 @@ function buildServer({
 
   async function ensureShareMp4({ track, trackVersion }) {
     const versionDir = getVersionDir(track, trackVersion);
-    const mp4Path = path.join(versionDir, "share.mp4");
+    const mp4Path = path.join(versionDir, "share-teaser.mp4");
     const shareVideoKey = shareVideoKeyForTrackVersion(track, trackVersion);
     if (fs.existsSync(mp4Path)) {
       return mp4Path;
     }
-    // If this server instance was restarted, recover pre-generated share.mp4 from object storage.
+    // If this server instance was restarted, recover the pre-generated teaser
+    // from object storage.
     if (storageProvider.type !== "local") {
       const downloaded = await ensureLocalFileFromStorage({
         key: shareVideoKey,
@@ -1561,43 +1563,25 @@ function buildServer({
       }
     }
 
-    const fullPath = path.join(versionDir, "full.m4a");
-    const previewPath = path.join(versionDir, "preview.m4a");
-    let audioPath = fs.existsSync(fullPath)
-      ? fullPath
-      : fs.existsSync(previewPath)
-        ? previewPath
-        : null;
+    // Teaser-only: the share video is sourced exclusively from the preview —
+    // the full master is never embedded in a publicly-served unfurl video.
+    let { audioPath } = resolveShareVideoAudio({ versionDir });
 
     if (!audioPath && storageProvider.type !== "local") {
-      const fullKey = trackMasterKey({
-        userId: track.user_id,
-        trackId: track.id,
-        versionNum: trackVersion.version_num,
-        format: "m4a",
-      });
       const previewKey = trackPreviewKey({
         userId: track.user_id,
         trackId: track.id,
         versionNum: trackVersion.version_num,
       });
-      if (trackVersion.full_url) {
-        await ensureLocalFileFromStorage({ key: fullKey, localPath: fullPath });
-      }
-      if (!fs.existsSync(fullPath)) {
-        await ensureLocalFileFromStorage({
-          key: previewKey,
-          localPath: previewPath,
-        });
-      }
-      audioPath = fs.existsSync(fullPath)
-        ? fullPath
-        : fs.existsSync(previewPath)
-          ? previewPath
-          : null;
+      await ensureLocalFileFromStorage({
+        key: previewKey,
+        localPath: path.join(versionDir, "preview.m4a"),
+      });
+      ({ audioPath } = resolveShareVideoAudio({ versionDir }));
     }
 
     if (!audioPath) {
+      // No preview → no unfurl video. Routes fall through to 404.
       return null;
     }
 
@@ -1662,7 +1646,7 @@ function buildServer({
         songTitle: track.title,
         recipientName: track.recipient_name,
         occasion: track.occasion,
-        maxDuration: shareVideoMaxDurationSec,
+        maxDuration: SHARE_TEASER_MAX_SECONDS,
       });
       if (storageProvider.type !== "local") {
         try {

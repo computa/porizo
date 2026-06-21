@@ -136,3 +136,26 @@ describe("preview-only at source", () => {
     assert.equal(JSON.parse(res.body).error, "AUDIO_NOT_AVAILABLE");
   });
 });
+
+describe("share.mp4 + download.mp4 are teaser-only and ungated for crawlers", () => {
+  it("GET /share.mp4 returns 200 video/mp4 or 404 (no preview) — never 403", async () => {
+    const id = await seedShare();
+    const res = await app.inject({
+      method: "GET",
+      url: `/share/${id}/share.mp4`,
+    });
+    assert.ok([200, 404].includes(res.statusCode));
+    if (res.statusCode === 200)
+      assert.match(res.headers["content-type"], /^video\/mp4/);
+  });
+  it("download.mp4 inherits the teaser (no full-master video to a browser)", async () => {
+    // download.mp4 calls ensureShareMp4 — after this task it can only produce share-teaser.mp4.
+    const id = await seedShare({ fullOnly: true });
+    const res = await app.inject({
+      method: "GET",
+      url: `/share/${id}/download.mp4`,
+    });
+    // With no local preview, ensureShareMp4 returns null → route must 404, not stream full audio.
+    assert.notEqual(res.statusCode, 200);
+  });
+});
