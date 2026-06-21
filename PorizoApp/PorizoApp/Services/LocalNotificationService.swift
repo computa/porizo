@@ -75,6 +75,9 @@ final class LocalNotificationService {
         content.title = "Song Ready!"
         content.body = "\"\(trackTitle)\" is ready to play."
         content.sound = .default
+        // Carry the track id so tapping the notification opens the song's reveal
+        // (with its one-tap "Send to [name]" CTA) instead of just foregrounding the app.
+        content.userInfo = ["trackId": trackId]
 
         // Use track ID as identifier for consistent removal
         let identifier = notificationIdentifier(for: trackId)

@@ -151,7 +151,6 @@ struct TrackPlayerFullView: View {
             playbackController.cleanup()
         }
         .task { await loadRecipientContact() }
-        .directSendHost(directSend)
     }
 
     /// Load the recipient number stored on the track so the Share button can offer

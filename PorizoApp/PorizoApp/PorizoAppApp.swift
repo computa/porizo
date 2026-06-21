@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import UserNotifications
 import FirebaseCore
 import FirebaseCrashlytics
 import OneSignalFramework
@@ -137,7 +138,7 @@ extension Notification.Name {
 }
 #endif
 
-class AppDelegate: NSObject, UIApplicationDelegate {
+class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
 
     // MARK: - App Launch
 
@@ -145,6 +146,8 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
+        // Receive notification taps (open the song's reveal) and foreground banners.
+        UNUserNotificationCenter.current().delegate = self
         OneSignalMarketing.initialize(launchOptions: launchOptions)
 
         #if canImport(FacebookCore)
@@ -168,6 +171,29 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         #endif
 
         return true
+    }
+
+    // MARK: - Local Notification Taps (render-complete → open the song's reveal)
+
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        // Show the "Song Ready!" banner even when the app is foregrounded.
+        completionHandler([.banner, .sound])
+    }
+
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        if let trackId = response.notification.request.content.userInfo["trackId"] as? String {
+            NotificationCenter.default.post(
+                name: .openReadyTrackReveal, object: nil, userInfo: ["trackId": trackId])
+        }
+        completionHandler()
     }
 
     // MARK: - Push Notification Registration

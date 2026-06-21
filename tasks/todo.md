@@ -53,6 +53,17 @@ the recipient number collected upfront (iMessage/WhatsApp, PIN-free link) — no
   (also a likely cause of the 4-min render → timeout). User to top up.
 - The `waitTimeout` threshold itself (render legitimately took 4 min).
 
+## 141 — fixes after device test
+
+- [x] **Reveal "Send" did nothing** (regression): `.directSendHost` stacked a 2nd SwiftUI
+      `.sheet`/`.confirmationDialog` onto a view already hosting activeSheet/fullScreenCover/alert
+      → link minted (POST /share in logs) but nothing presented. Fix: present the channel
+      chooser + iMessage compose **imperatively** (UIKit `present` on top VC), like
+      `ContactPickerPresenter`. Removed `.directSendHost` from all 3 surfaces.
+- [x] **#2 auto-route on notification tap:** local notif carries `trackId`; AppDelegate is
+      `UNUserNotificationCenterDelegate` (tap → `.openReadyTrackReveal`); MainTabView routes to
+      `presentCreateFlow(resumeTrackId:)` → resume-to-reveal (loads recipient_phone → send CTA).
+
 ## Open decision
 
 Surface for the async send CTA: **(A) repurpose the existing Share button** to become

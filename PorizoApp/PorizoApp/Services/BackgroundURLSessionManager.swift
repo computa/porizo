@@ -11,6 +11,8 @@ import Foundation
 extension Notification.Name {
     static let backgroundUploadCompleted = Notification.Name("backgroundUploadCompleted")
     static let trackRenderCompleted = Notification.Name("trackRenderCompleted")
+    /// Posted when the user taps a "Song Ready!" notification — userInfo `["trackId": String]`.
+    static let openReadyTrackReveal = Notification.Name("openReadyTrackReveal")
     static let appReturnedToForeground = Notification.Name("appReturnedToForeground")
     static let pushTokenUpdated = Notification.Name("pushTokenUpdated")
     static let songLibraryDidChange = Notification.Name("songLibraryDidChange")

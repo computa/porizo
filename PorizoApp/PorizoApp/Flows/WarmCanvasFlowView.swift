@@ -106,9 +106,9 @@ struct WarmCanvasFlowView: View {
 
     // MARK: - One-Tap Direct Send (Send to [recipient])
 
-    /// Shared one-tap send (channel chooser + iMessage compose). Hosted via
-    /// `.directSendHost(directSend)`; the same model powers the async path
-    /// (TrackPlayerFullView) so a "Notify me" song can still one-tap the recipient.
+    /// Shared one-tap send (channel chooser + iMessage compose, presented imperatively).
+    /// The same model powers the async path (MySongs / TrackPlayerFullView) so a
+    /// "Notify me" song can still one-tap the recipient.
     @StateObject private var directSend = DirectSendModel()
 
     // MARK: - Init
@@ -279,8 +279,6 @@ struct WarmCanvasFlowView: View {
                 }
             )
         }
-        // One-tap direct-send: channel chooser + iMessage compose (shared host).
-        .directSendHost(directSend)
         // Alert router
         .alert(
             alertTitle,

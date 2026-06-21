@@ -138,7 +138,6 @@ struct MySongsView: View {
                 Text("Remove \"\(track.title)\" from your library?")
             }
         }
-        .directSendHost(directSend)
         .sheet(item: $trackToShare) { track in
             SharePostcardView(
                 recipientName: track.recipientName ?? "Recipient",
@@ -506,7 +505,10 @@ struct MySongsView: View {
                             trackToDelete = track
                             showingDeleteConfirmation = true
                         },
-                        onResume: resumeAction(for: track)
+                        onResume: resumeAction(for: track),
+                        onOpenReveal: (track.status == "ready" || track.status == "full_ready" || track.status == "preview_ready") && onResumeSelected != nil
+                            ? { onResumeSelected?(track.id, track.latestVersion, .trackPlayer) }
+                            : nil
                     )
                 }
             }
@@ -789,6 +791,8 @@ struct SongCard: View {
     var onShare: (() -> Void)? = nil
     var onDelete: (() -> Void)? = nil
     var onResume: (() -> Void)? = nil
+    /// Re-open the celebratory reveal for a finished song (subtle "…" menu item).
+    var onOpenReveal: (() -> Void)? = nil
 
     @Environment(StyleStore.self) private var styleStore
 
@@ -881,6 +885,14 @@ struct SongCard: View {
                                         onPlay()
                                     } label: {
                                         Label(isPlaying ? "Pause" : "Play", systemImage: isPlaying ? "pause.fill" : "play.fill")
+                                    }
+                                }
+
+                                if let openReveal = onOpenReveal {
+                                    Button {
+                                        openReveal()
+                                    } label: {
+                                        Label("Open reveal", systemImage: "sparkles")
                                     }
                                 }
 

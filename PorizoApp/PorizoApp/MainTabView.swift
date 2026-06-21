@@ -267,6 +267,19 @@ struct MainTabView: View {
                 preselectedType: .song
             )
         }
+        // Tapping a "Song Ready!" notification → open that song's reveal (with its
+        // one-tap "Send to [name]" CTA) instead of just foregrounding the app.
+        .onReceive(NotificationCenter.default.publisher(for: .openReadyTrackReveal)) { note in
+            guard let trackId = note.userInfo?["trackId"] as? String else { return }
+            Task { @MainActor in
+                let version = (try? await apiClient.getTrack(trackId: trackId))?
+                    .track.latestVersion ?? 1
+                // .trackPlayer is the resume target that rebuilds playback and lands on
+                // the reveal (moment = .reveal) rather than the lyrics step.
+                presentCreateFlow(
+                    resumeTrackId: trackId, resumeVersionNum: version, resumeTarget: .trackPlayer)
+            }
+        }
     }
 
     // MARK: - Custom Tab Bar (v1.pen design)
