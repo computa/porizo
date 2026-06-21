@@ -401,10 +401,20 @@ Naming similarity on a remote platform ("thanks mom.mp3" vs `marketing/audio hoo
 
 ## A "primary CTA" on a shared screen is NOT an unmissable step (2026-06-22)
 
-**Trigger:** Building the recipient-first create flow, I chose (per the brainstorm) to put "Pick from Contacts" as the *primary CTA on the existing name-entry screen* — alongside the name text field, occasion chips, type toggle, and Next button.
+**Trigger:** Building the recipient-first create flow, I chose (per the brainstorm) to put "Pick from Contacts" as the _primary CTA on the existing name-entry screen_ — alongside the name text field, occasion chips, type toggle, and Next button.
 
-**Mistake:** Users (including the founder, on build 136) skipped the contact pick entirely — they typed a name and hit Next, never tapping the coral button. That defeats the whole feature: no recipient phone captured → no one-tap "Send to [recipient]" → no improved device-binding. A control that *renders* and is visually "primary" is not the same as a control users will actually use when other inputs on the same screen also satisfy the "what do I do here" question. I verified on the simulator that the button *rendered*, which was necessary but not sufficient — it didn't tell me whether the flow funnels users into it.
+**Mistake:** Users (including the founder, on build 136) skipped the contact pick entirely — they typed a name and hit Next, never tapping the coral button. That defeats the whole feature: no recipient phone captured → no one-tap "Send to [recipient]" → no improved device-binding. A control that _renders_ and is visually "primary" is not the same as a control users will actually use when other inputs on the same screen also satisfy the "what do I do here" question. I verified on the simulator that the button _rendered_, which was necessary but not sufficient — it didn't tell me whether the flow funnels users into it.
 
-**Rule:** When a capture is central to a feature's value (and skippable), make it a DEDICATED step where it is the only/dominant action — don't make it one option among several on a combined screen. "Strongly encouraged" must be structural (a step you walk through), not just visual hierarchy. And when verifying UX, check the *funnel* (can the user trivially bypass the intended action?), not just that the control is present.
+**Rule:** When a capture is central to a feature's value (and skippable), make it a DEDICATED step where it is the only/dominant action — don't make it one option among several on a combined screen. "Strongly encouraged" must be structural (a step you walk through), not just visual hierarchy. And when verifying UX, check the _funnel_ (can the user trivially bypass the intended action?), not just that the control is present.
 
 **Bonus (same session):** Disable autocorrect on name fields — the sim keyboard autocorrected "Chioma" → "Can". Recipient names must not be mangled (`.autocorrectionDisabled()`).
+
+---
+
+## 2026-06-22 — A feature that works on the "happy" path is not done until every path to the same state has it
+
+**Trigger:** Shipped one-tap "Send to [recipient]" on the synchronous create→reveal flow.
+
+**Mistake:** Assumed the reveal was the only place a user reaches a finished song. But a slow render (~4 min, partly because prod Anthropic credits were exhausted) trips the `waitTimeout` "Notify me when ready" screen — the user exits to home, gets a push, and opens the song from the **library**. That async path had **no** send-to-the-collected-number: the recipient phone lived only in in-memory view state (`setup.recipientPhone` inside `WarmCanvasFlowView`), so it vanished the moment the create flow closed. The number _was_ persisted server-side, but the track API model didn't expose it and no library surface read it. I spent a long time debugging "no send CTA" before the user clarified they took the "Notify me" path.
+
+**Rule:** When a feature attaches to a _completion state_, enumerate **every** path that reaches that state (sync reveal, async notify-me → library, resume, notification-open) and make the feature present on all of them. Persist feature-critical data on the **model + API**, not just transient view state. Also: when a user reports "X doesn't work," ask which _path_ they took before assuming the surface is broken (the reveal's CTA was fine; they just never saw the reveal).

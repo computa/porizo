@@ -6,7 +6,9 @@
 
 **139 delta (`9072a4b`):** after picking a contact, an editable name step (pre-filled, the captured number shown) lets the sender use the real name instead of a saved nickname. Pure SwiftUI view structure — no new privacy/API/entitlement surface. Verdict unchanged: GO.
 
-**Builds covered:** also **1.5.19 (139)**.
+**140 delta (1.5.20):** one-tap "Send to [name]" now works on the async ("Notify me") path — the library Share (`MySongsView`) and the full player (`TrackPlayerFullView`) offer the same iMessage/WhatsApp pre-addressed send as the reveal, and the reveal's send logic is extracted into a shared `DirectSendModel`. The recipient number is the same `recipient_phone` already collected/declared/audited (2026-06-21); the track API already returns it (no backend change). No new privacy/API/entitlement/framework surface — reuses `MessageUI` + `recipient_phone`. Verdict unchanged: GO.
+
+**Builds covered:** also **1.5.19 (139)** and **1.5.20 (140)**.
 **Branch:** `feat/binding-app-only-recipient-first`.
 **Delta since the 2026-06-21 full audit:** one commit (`350d731`) — UI restructure of the create-flow name entry (`InlineNamePromptView.swift`) into a two-step "Who's this song for?" → occasion/type flow, plus `.autocorrectionDisabled()` on the name fields.
 
