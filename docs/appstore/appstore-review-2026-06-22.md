@@ -10,7 +10,9 @@
 
 **141 delta (1.5.21):** (a) the one-tap send now presents the channel chooser + iMessage compose **imperatively** (UIKit `present`) instead of a stacked SwiftUI `.sheet` (which silently no-op'd inside the nested presentations) — same `MFMessageComposeViewController`/`UIActivityViewController`, no new surface; (b) tapping the local "Song Ready!" notification opens the song's reveal — `AppDelegate` adopts `UNUserNotificationCenterDelegate` (local notifications already used; no new entitlement, no remote-push change). No new privacy/API/framework surface. Verdict unchanged: GO.
 
-**Builds covered:** also **1.5.19 (139)**, **1.5.20 (140)**, **1.5.21 (141)**.
+**142–143 delta (1.5.22 / 1.5.23):** root-cause fix for one-tap send — `CreateShareResponse` now tolerates the null `claim_pin` returned for PIN-less shares (the non-optional field threw on decode, silently aborting the send). Plus specialist-review fixes (stale-resume recovery, notification-tap double-present guard + version-resolution, empty-name message body, observable nil-VC failure). Pure client-side correctness; no new privacy/API/entitlement surface. Security review (ce-security-reviewer) confirmed the PIN-less path is still gated by device-binding and the decode change can't bypass claim authz. Verdict unchanged: GO.
+
+**Builds covered:** also **1.5.19 (139)**, **1.5.20 (140)**, **1.5.21 (141)**, **1.5.22 (142)**, **1.5.23 (143)**.
 **Branch:** `feat/binding-app-only-recipient-first`.
 **Delta since the 2026-06-21 full audit:** one commit (`350d731`) — UI restructure of the create-flow name entry (`InlineNamePromptView.swift`) into a two-step "Who's this song for?" → occasion/type flow, plus `.autocorrectionDisabled()` on the name fields.
 
