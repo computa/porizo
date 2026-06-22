@@ -71,7 +71,10 @@ describe("production hosting hardening controls", () => {
 
     const response = await app.inject({
       method: "GET",
-      url: "/health",
+      // NOT /health — that path intentionally bypasses host validation so Railway's
+      // infra probe answers during zero-downtime deploys. Use a normal path so the
+      // allowlist hook actually evaluates the (untrusted) Railway host.
+      url: "/",
       headers: { host: "porizo-production.up.railway.app" },
     });
 
