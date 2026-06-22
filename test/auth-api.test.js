@@ -738,9 +738,14 @@ describe("Auth API Endpoints", () => {
         (contact) => contact.value_normalized === newEmail.toLowerCase(),
       );
 
-      assert.ok(
-        oldContact?.verified_at,
-        "original signup email should remain verified",
+      // The original signup email is an UNVERIFIED contact (signup never verifies
+      // it; the old token here is intentionally invalidated -> 400). Changing the
+      // pending email must not delete it — it should still exist, unverified.
+      assert.ok(oldContact, "original signup email contact should still exist");
+      assert.strictEqual(
+        oldContact.verified_at,
+        null,
+        "original signup email stays unverified (it was never verified)",
       );
       assert.ok(updatedContact, "new pending email contact should exist");
       assert.strictEqual(
