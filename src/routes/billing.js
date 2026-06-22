@@ -633,6 +633,16 @@ function registerBillingRoutes(
     const userId = await requireUserId(request, reply);
     if (!userId) return;
 
+    // Rate limit: 10 receipt validations / minute per user — bounds a
+    // compromised/looping client hammering Apple's validation API.
+    const rl = await consumeRateLimit(userId, "receipt_validate", 10, 60);
+    if (!rl.allowed) {
+      sendError(reply, 429, "RATE_LIMITED", "Too many validation attempts.", {
+        retry_at: rl.reset_at,
+      });
+      return;
+    }
+
     const { transactionId, transaction_id: legacyTransactionId } =
       request.body || {};
     const effectiveTransactionId = transactionId || legacyTransactionId;
@@ -753,6 +763,15 @@ function registerBillingRoutes(
   app.post("/billing/receipt/google", async (request, reply) => {
     const userId = await requireUserId(request, reply);
     if (!userId) return;
+
+    // Rate limit: 10 receipt validations / minute per user (see apple receipt).
+    const rl = await consumeRateLimit(userId, "receipt_validate", 10, 60);
+    if (!rl.allowed) {
+      sendError(reply, 429, "RATE_LIMITED", "Too many validation attempts.", {
+        retry_at: rl.reset_at,
+      });
+      return;
+    }
 
     try {
       if (!googleValidator.isConfigured()) {
@@ -991,6 +1010,16 @@ function registerBillingRoutes(
   app.post("/billing/restore", async (request, reply) => {
     const userId = await requireUserId(request, reply);
     if (!userId) return;
+
+    // Rate limit: 5 restores / 5 min per user — restore probes someone else's
+    // transaction ownership; throttle to blunt enumeration.
+    const rl = await consumeRateLimit(userId, "billing_restore", 5, 5 * 60);
+    if (!rl.allowed) {
+      sendError(reply, 429, "RATE_LIMITED", "Too many restore attempts.", {
+        retry_at: rl.reset_at,
+      });
+      return;
+    }
 
     const {
       platform,

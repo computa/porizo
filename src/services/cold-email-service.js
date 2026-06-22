@@ -184,9 +184,21 @@ async function listActiveCampaigns(db) {
 }
 
 async function listPendingRecipients(db, campaignId, limit) {
+  // Suppress any recipient whose email belongs to a user who unsubscribed
+  // (one-click unsubscribe sets users.unsubscribed_at). Without this, an
+  // unsubscribed user on a cold list keeps receiving cold email — a compliance
+  // and trust problem. Match case-insensitively against the verified-primary
+  // mirror (users.email).
   return db
     .prepare(
-      "SELECT * FROM cold_email_recipients WHERE campaign_id = ? AND sent_at IS NULL ORDER BY index_pos ASC LIMIT ?",
+      `SELECT * FROM cold_email_recipients r
+       WHERE r.campaign_id = ? AND r.sent_at IS NULL
+         AND NOT EXISTS (
+           SELECT 1 FROM users u
+           WHERE LOWER(u.email) = LOWER(r.email)
+             AND u.unsubscribed_at IS NOT NULL
+         )
+       ORDER BY r.index_pos ASC LIMIT ?`,
     )
     .all(campaignId, limit);
 }

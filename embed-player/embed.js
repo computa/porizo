@@ -12,7 +12,7 @@
   if (!shareId) return;
   var mediaUrl = document.body.dataset.mediaUrl;
 
-  audio.src = mediaUrl || ("/share/" + shareId + "/share.mp4");
+  audio.src = mediaUrl || "/share/" + shareId + "/share.mp4";
   audio.preload = "metadata";
 
   function formatTime(s) {
@@ -35,13 +35,28 @@
     }
   });
 
-  audio.addEventListener("play", function () { setPlaying(true); });
-  audio.addEventListener("pause", function () { setPlaying(false); });
-  audio.addEventListener("ended", function () { setPlaying(false); });
+  audio.addEventListener("play", function () {
+    setPlaying(true);
+  });
+  audio.addEventListener("pause", function () {
+    setPlaying(false);
+  });
+  audio.addEventListener("ended", function () {
+    setPlaying(false);
+  });
 
   audio.addEventListener("loadedmetadata", function () {
     durationEl.textContent = formatTime(audio.duration);
     playBtn.disabled = false;
+  });
+
+  audio.addEventListener("error", function () {
+    // Surface load failure instead of leaving the play button stuck disabled
+    // with no feedback (e.g. expired/missing media or a network error).
+    durationEl.textContent = "Unavailable";
+    setPlaying(false);
+    playBtn.disabled = true;
+    playBtn.setAttribute("aria-label", "Audio unavailable");
   });
 
   audio.addEventListener("timeupdate", function () {
