@@ -2169,10 +2169,20 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
       // New identity-layer fields
       auth_methods: authMethods,
       contacts,
+      // Surface the email/phone even when it's an unverified, not-yet-primary
+      // contact (e.g. fresh signup): prefer a verified primary, then the legacy
+      // mirror, then any contact of that type. Consumers use email_verified /
+      // the contacts[] verified_at to tell verified from unverified.
       primary_email:
-        primaryEmailContact?.value_normalized || user.email || null,
+        primaryEmailContact?.value_normalized ||
+        user.email ||
+        contactRows.find((c) => c.type === "email")?.value_normalized ||
+        null,
       primary_phone:
-        primaryPhoneContact?.value_normalized || user.phone_number || null,
+        primaryPhoneContact?.value_normalized ||
+        user.phone_number ||
+        contactRows.find((c) => c.type === "phone")?.value_normalized ||
+        null,
       needs_profile_completion: !completeness.complete,
       missing_profile_requirements: completeness.missing,
     };

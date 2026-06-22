@@ -332,7 +332,10 @@ describe("Auth API Endpoints", () => {
 
       assert.strictEqual(response.statusCode, 200);
       const body = JSON.parse(response.body);
-      assert.strictEqual(body.email, userEmail);
+      // /auth/me surfaces the email via primary_email (incl. unverified signup
+      // contacts); there is no top-level `email` field in the identity-model
+      // response.
+      assert.strictEqual(body.primary_email, userEmail);
       assert.strictEqual(body.display_name, "Test User");
       assert.ok(Array.isArray(body.providers));
       assert.ok(body.providers.includes("email"));
@@ -708,7 +711,8 @@ describe("Auth API Endpoints", () => {
           Authorization: `Bearer ${accessToken}`,
         },
         payload: {
-          email: newEmail,
+          // PATCH /auth/profile takes contact_email (identity-model field), not email.
+          contact_email: newEmail,
         },
       });
       assert.strictEqual(profileResponse.statusCode, 200);
