@@ -104,22 +104,20 @@ test("extractArtworkVars falls back on Haiku timeout", async () => {
   assert.equal(result.picked_by, "fallback_occasion_default");
 });
 
-test("vars_extractor lane routes to Haiku 4.5, distinct from simple lane (spec §6.4)", () => {
+test("vars_extractor lane routes to Haiku 4.5 (spec §6.4)", () => {
   // Regression guard: a prior session shipped this on taskType:"simple"
-  // (Haiku 3) by accident — fixed in commit 10fa049. Lock both the lane
-  // resolution AND its distinctness from the simple lane so the bug can't
-  // come back via either route.
+  // (Haiku 3) by accident — fixed in commit 10fa049. The dedicated lane MUST
+  // resolve to Haiku 4.5; that explicit assertion is the real protection.
+  //
+  // NOTE: the anthropic "simple" lane is currently ALSO Haiku 4.5 ("kept in
+  // sync", llm-provider.js), so distinctness can't be asserted by model string.
+  // If the simple lane is moved off Haiku 4.5 (a stashed change does exactly
+  // that), re-add: assert.notEqual(varsLane, simpleLane).
   const { resolveProviderModel } = require("../../src/services/llm-provider");
   const varsLane = resolveProviderModel("anthropic", "vars_extractor");
-  const simpleLane = resolveProviderModel("anthropic", "simple");
   assert.equal(
     varsLane,
     "claude-haiku-4-5-20251001",
     "vars extractor must run on Haiku 4.5",
-  );
-  assert.notEqual(
-    varsLane,
-    simpleLane,
-    "vars_extractor must stay distinct from simple lane (other callers may be Haiku-3-tuned)",
   );
 });
