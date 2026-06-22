@@ -23,6 +23,33 @@
 - [x] Fixed 2 pre-existing failing tests (verify-email binding; REFUND song count).
 - Touched files green: apple-webhook 19/19, auth-identity 27/27, auth-api 14→15.
 
+## Phase 4 FINAL: suite 49 -> 34 failures (2411/2452 pass); 1 REAL prod bug found+fixed
+
+Fixed clusters: auth-api 14->24, poems 18->19, share-player 0->1, auth-service 42->44,
+stt-config 21->23, security-units-4-11-12 17->20, story-to-track 1->4.
+REAL BUG: cancel-render wrote non-existent track_versions.updated_at (PG 42703) — fixed.
+Commits on branch: 7cc9c80, 4d942ea, a8eef2b, 491bf4c, 211a4db, d473ec4.
+
+Remaining 34 (categorized):
+
+- ~22 CREDENTIAL-GATED (can't fix locally): writer/v3/\* (LLM ECONNREFUSED),
+  app-store-connect (ASC P8 key), mvp-flow (providers), artwork-vars-extractor (LLM).
+- 6 DESIGN cluster (YOUR active app-only/PIN web-playback area): sharing-security,
+  receiver-session, gifts (web_stream_url/app_required true-vs-false), auth-api /auth/me
+  email contract (primary_email vs email).
+- 2 music "ogene" — is the ogene style still supported? (registry/design call)
+- ~4 INVESTIGATION: hosting-hardening (allowlist 200-vs-421), billing-api (trial 0-vs-2),
+  security-units-6-7-8, auth-race-condition (concurrency/flaky), blog-editorial (interference).
+
+## Phase 4 progress (fixing fixable clusters)
+
+- [x] auth-api rate-limit test bug: clearRateLimits(db) → 14→24 of 27 (commit 4d942ea)
+- [x] poems credit fixture: seed poems_remaining → 18→19 (commit a8eef2b)
+- [ ] music "ogene" style guide (false vs true) — REAL-vs-STALE: is 'ogene' still a supported style? needs product call
+- [ ] mvp-flow ai_voice/RVC (402) — integration; needs credits seed AND provider creds
+- [ ] ~8 TBD clusters (security-units, hosting-hardening, sharing-security, story-to-track-contract, gifts, receiver-session, billing-api, blog-editorial)
+- [ ] 2 auth-api: /auth/me email contract (test checks `email`, route returns `primary_email`; unverified signup contact) — design call
+
 ## Open (need user decision / credentials)
 
 - [ ] `npm test` glob: split hermetic vs integration tests (design decision).
