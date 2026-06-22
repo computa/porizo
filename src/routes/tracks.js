@@ -1429,12 +1429,15 @@ function registerTrackRoutes(
           });
         }
 
-        // Reset track version status so the user can re-render
+        // Reset track version status so the user can re-render.
+        // NOTE: track_versions has no updated_at column (only created_at +
+        // lyrics_updated_at). Writing updated_at here threw Postgres 42703 on
+        // every cancel; removed to match the schema and all other tv updates.
         await db
           .prepare(
-            "UPDATE track_versions SET status = 'cancelled', updated_at = ? WHERE id = ?",
+            "UPDATE track_versions SET status = 'cancelled' WHERE id = ?",
           )
-          .run(now, trackVersion.id);
+          .run(trackVersion.id);
 
         await db
           .prepare(

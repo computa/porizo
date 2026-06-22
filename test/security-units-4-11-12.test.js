@@ -150,17 +150,23 @@ describe("Unit 11: Poem credit pre-check before LLM call", () => {
     const now = new Date().toISOString();
 
     // Create user
-    await db.prepare("INSERT INTO users (id, created_at) VALUES (?, ?)").run(userId, now);
+    await db
+      .prepare("INSERT INTO users (id, created_at) VALUES (?, ?)")
+      .run(userId, now);
 
     // Set entitlements with zero poems_remaining
-    await db.prepare(
-      "INSERT INTO entitlements (user_id, tier, songs_remaining, poems_remaining, updated_at) VALUES (?, 'free', 0, 0, ?)"
-    ).run(userId, now);
+    await db
+      .prepare(
+        "INSERT INTO entitlements (user_id, tier, songs_remaining, poems_remaining, updated_at) VALUES (?, 'free', 0, 0, ?)",
+      )
+      .run(userId, now);
 
     // Create poem
-    await db.prepare(
-      "INSERT INTO poems (id, user_id, title, recipient_name, occasion, tone, status, created_at, updated_at) VALUES (?, ?, 'Test Poem', 'Test', 'birthday', 'heartfelt', 'draft', ?, ?)"
-    ).run(poemId, userId, now, now);
+    await db
+      .prepare(
+        "INSERT INTO poems (id, user_id, title, recipient_name, occasion, tone, status, created_at, updated_at) VALUES (?, ?, 'Test Poem', 'Test', 'birthday', 'heartfelt', 'draft', ?, ?)",
+      )
+      .run(poemId, userId, now, now);
 
     const response = await app.inject({
       method: "POST",
@@ -179,12 +185,16 @@ describe("Unit 11: Poem credit pre-check before LLM call", () => {
     const now = new Date().toISOString();
 
     // Create user without entitlements
-    await db.prepare("INSERT INTO users (id, created_at) VALUES (?, ?)").run(userId, now);
+    await db
+      .prepare("INSERT INTO users (id, created_at) VALUES (?, ?)")
+      .run(userId, now);
 
     // Create poem
-    await db.prepare(
-      "INSERT INTO poems (id, user_id, title, recipient_name, occasion, tone, status, created_at, updated_at) VALUES (?, ?, 'Test Poem', 'Test', 'birthday', 'heartfelt', 'draft', ?, ?)"
-    ).run(poemId, userId, now, now);
+    await db
+      .prepare(
+        "INSERT INTO poems (id, user_id, title, recipient_name, occasion, tone, status, created_at, updated_at) VALUES (?, ?, 'Test Poem', 'Test', 'birthday', 'heartfelt', 'draft', ?, ?)",
+      )
+      .run(poemId, userId, now, now);
 
     const response = await app.inject({
       method: "POST",
@@ -203,17 +213,23 @@ describe("Unit 11: Poem credit pre-check before LLM call", () => {
     const now = new Date().toISOString();
 
     // Create user
-    await db.prepare("INSERT INTO users (id, created_at) VALUES (?, ?)").run(userId, now);
+    await db
+      .prepare("INSERT INTO users (id, created_at) VALUES (?, ?)")
+      .run(userId, now);
 
     // Set entitlements with positive poems_remaining
-    await db.prepare(
-      "INSERT INTO entitlements (user_id, tier, songs_remaining, poems_remaining, updated_at) VALUES (?, 'pro', 10, 5, ?)"
-    ).run(userId, now);
+    await db
+      .prepare(
+        "INSERT INTO entitlements (user_id, tier, songs_remaining, poems_remaining, updated_at) VALUES (?, 'pro', 10, 5, ?)",
+      )
+      .run(userId, now);
 
     // Create poem
-    await db.prepare(
-      "INSERT INTO poems (id, user_id, title, recipient_name, occasion, tone, status, created_at, updated_at) VALUES (?, ?, 'Test Poem', 'Test', 'birthday', 'heartfelt', 'draft', ?, ?)"
-    ).run(poemId, userId, now, now);
+    await db
+      .prepare(
+        "INSERT INTO poems (id, user_id, title, recipient_name, occasion, tone, status, created_at, updated_at) VALUES (?, ?, 'Test Poem', 'Test', 'birthday', 'heartfelt', 'draft', ?, ?)",
+      )
+      .run(poemId, userId, now, now);
 
     const response = await app.inject({
       method: "POST",
@@ -282,8 +298,10 @@ describe("Unit 12: Cover auth + admin + CORS + misc", () => {
       });
 
       // Should get 401 (no auth) or 404 (not found after auth), not 200
-      assert.ok([401, 404].includes(response.statusCode),
-        `Expected 401 or 404, got ${response.statusCode}`);
+      assert.ok(
+        [401, 404].includes(response.statusCode),
+        `Expected 401 or 404, got ${response.statusCode}`,
+      );
     });
 
     it("rejects cover access for wrong user", async () => {
@@ -294,16 +312,24 @@ describe("Unit 12: Cover auth + admin + CORS + misc", () => {
       const tvId = `tv_${crypto.randomBytes(8).toString("hex")}`;
 
       // Create users
-      await db.prepare("INSERT INTO users (id, created_at) VALUES (?, ?)").run(userId, now);
-      await db.prepare("INSERT INTO users (id, created_at) VALUES (?, ?)").run(otherUserId, now);
+      await db
+        .prepare("INSERT INTO users (id, created_at) VALUES (?, ?)")
+        .run(userId, now);
+      await db
+        .prepare("INSERT INTO users (id, created_at) VALUES (?, ?)")
+        .run(otherUserId, now);
 
       // Create track + version directly in DB
-      await db.prepare(
-        "INSERT INTO tracks (id, user_id, title, recipient_name, occasion, style, message, status, created_at, updated_at) VALUES (?, ?, 'Test', 'Rec', 'birthday', 'pop', 'msg', 'draft', ?, ?)"
-      ).run(trackId, userId, now, now);
-      await db.prepare(
-        "INSERT INTO track_versions (id, track_id, version_num, status, created_at, updated_at) VALUES (?, ?, 1, 'draft', ?, ?)"
-      ).run(tvId, trackId, now, now);
+      await db
+        .prepare(
+          "INSERT INTO tracks (id, user_id, title, recipient_name, occasion, style, message, status, created_at, updated_at) VALUES (?, ?, 'Test', 'Rec', 'birthday', 'pop', 'msg', 'draft', ?, ?)",
+        )
+        .run(trackId, userId, now, now);
+      await db
+        .prepare(
+          "INSERT INTO track_versions (id, track_id, version_num, status, render_type, params_hash, created_at) VALUES (?, ?, 1, 'draft', 'preview', 'testhash', ?)",
+        )
+        .run(tvId, trackId, now);
 
       // Other user tries to access cover
       const response = await app.inject({
@@ -321,22 +347,32 @@ describe("Unit 12: Cover auth + admin + CORS + misc", () => {
       const trackId = `trk_${crypto.randomBytes(8).toString("hex")}`;
       const tvId = `tv_${crypto.randomBytes(8).toString("hex")}`;
       const shareTokenId = `share_${crypto.randomBytes(8).toString("hex")}`;
-      const futureDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+      const futureDate = new Date(
+        Date.now() + 7 * 24 * 60 * 60 * 1000,
+      ).toISOString();
 
-      await db.prepare("INSERT INTO users (id, created_at) VALUES (?, ?)").run(userId, now);
+      await db
+        .prepare("INSERT INTO users (id, created_at) VALUES (?, ?)")
+        .run(userId, now);
 
       // Create track + version directly in DB
-      await db.prepare(
-        "INSERT INTO tracks (id, user_id, title, recipient_name, occasion, style, message, status, created_at, updated_at) VALUES (?, ?, 'Test', 'Rec', 'birthday', 'pop', 'msg', 'draft', ?, ?)"
-      ).run(trackId, userId, now, now);
-      await db.prepare(
-        "INSERT INTO track_versions (id, track_id, version_num, status, created_at, updated_at) VALUES (?, ?, 1, 'draft', ?, ?)"
-      ).run(tvId, trackId, now, now);
+      await db
+        .prepare(
+          "INSERT INTO tracks (id, user_id, title, recipient_name, occasion, style, message, status, created_at, updated_at) VALUES (?, ?, 'Test', 'Rec', 'birthday', 'pop', 'msg', 'draft', ?, ?)",
+        )
+        .run(trackId, userId, now, now);
+      await db
+        .prepare(
+          "INSERT INTO track_versions (id, track_id, version_num, status, render_type, params_hash, created_at) VALUES (?, ?, 1, 'draft', 'preview', 'testhash', ?)",
+        )
+        .run(tvId, trackId, now);
 
       // Create a share token
-      await db.prepare(
-        "INSERT INTO share_tokens (id, track_id, track_version_id, creator_id, status, expires_at, created_at) VALUES (?, ?, ?, ?, 'active', ?, ?)"
-      ).run(shareTokenId, trackId, tvId, userId, futureDate, now);
+      await db
+        .prepare(
+          "INSERT INTO share_tokens (id, track_id, track_version_id, creator_id, status, expires_at, created_at) VALUES (?, ?, ?, ?, 'active', ?, ?)",
+        )
+        .run(shareTokenId, trackId, tvId, userId, futureDate, now);
 
       // Access cover with share token (no auth header) — should pass auth check
       // Will 404 on disk because no image file, but shouldn't 401/403
@@ -347,8 +383,10 @@ describe("Unit 12: Cover auth + admin + CORS + misc", () => {
       });
 
       // Should NOT be 401 or 403
-      assert.ok(![401, 403].includes(response.statusCode),
-        `Share token should bypass auth, got ${response.statusCode}`);
+      assert.ok(
+        ![401, 403].includes(response.statusCode),
+        `Share token should bypass auth, got ${response.statusCode}`,
+      );
     });
 
     it("rejects cover access via revoked share token", async () => {
@@ -357,22 +395,32 @@ describe("Unit 12: Cover auth + admin + CORS + misc", () => {
       const trackId = `trk_${crypto.randomBytes(8).toString("hex")}`;
       const tvId = `tv_${crypto.randomBytes(8).toString("hex")}`;
       const shareTokenId = `share_${crypto.randomBytes(8).toString("hex")}`;
-      const futureDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+      const futureDate = new Date(
+        Date.now() + 7 * 24 * 60 * 60 * 1000,
+      ).toISOString();
 
-      await db.prepare("INSERT INTO users (id, created_at) VALUES (?, ?)").run(userId, now);
+      await db
+        .prepare("INSERT INTO users (id, created_at) VALUES (?, ?)")
+        .run(userId, now);
 
       // Create track + version directly in DB
-      await db.prepare(
-        "INSERT INTO tracks (id, user_id, title, recipient_name, occasion, style, message, status, created_at, updated_at) VALUES (?, ?, 'Test', 'Rec', 'birthday', 'pop', 'msg', 'draft', ?, ?)"
-      ).run(trackId, userId, now, now);
-      await db.prepare(
-        "INSERT INTO track_versions (id, track_id, version_num, status, created_at, updated_at) VALUES (?, ?, 1, 'draft', ?, ?)"
-      ).run(tvId, trackId, now, now);
+      await db
+        .prepare(
+          "INSERT INTO tracks (id, user_id, title, recipient_name, occasion, style, message, status, created_at, updated_at) VALUES (?, ?, 'Test', 'Rec', 'birthday', 'pop', 'msg', 'draft', ?, ?)",
+        )
+        .run(trackId, userId, now, now);
+      await db
+        .prepare(
+          "INSERT INTO track_versions (id, track_id, version_num, status, render_type, params_hash, created_at) VALUES (?, ?, 1, 'draft', 'preview', 'testhash', ?)",
+        )
+        .run(tvId, trackId, now);
 
       // Create a revoked share token
-      await db.prepare(
-        "INSERT INTO share_tokens (id, track_id, track_version_id, creator_id, status, expires_at, created_at) VALUES (?, ?, ?, ?, 'revoked', ?, ?)"
-      ).run(shareTokenId, trackId, tvId, userId, futureDate, now);
+      await db
+        .prepare(
+          "INSERT INTO share_tokens (id, track_id, track_version_id, creator_id, status, expires_at, created_at) VALUES (?, ?, ?, ?, 'revoked', ?, ?)",
+        )
+        .run(shareTokenId, trackId, tvId, userId, futureDate, now);
 
       // Access with revoked token and no auth
       const response = await app.inject({
@@ -395,8 +443,10 @@ describe("Unit 12: Cover auth + admin + CORS + misc", () => {
       });
 
       // Should require admin auth
-      assert.ok([401, 403].includes(response.statusCode),
-        `Expected 401 or 403, got ${response.statusCode}`);
+      assert.ok(
+        [401, 403].includes(response.statusCode),
+        `Expected 401 or 403, got ${response.statusCode}`,
+      );
     });
 
     it("allows admin access", async () => {
@@ -414,8 +464,10 @@ describe("Unit 12: Cover auth + admin + CORS + misc", () => {
 
       // Admin should get through auth — may get 503 if providers not configured,
       // but not 401/403
-      assert.ok(![401, 403].includes(response.statusCode),
-        `Admin should pass auth, got ${response.statusCode}`);
+      assert.ok(
+        ![401, 403].includes(response.statusCode),
+        `Admin should pass auth, got ${response.statusCode}`,
+      );
     });
   });
 
@@ -426,7 +478,9 @@ describe("Unit 12: Cover auth + admin + CORS + misc", () => {
       const userId = uid("trial_rl");
       const now = new Date().toISOString();
 
-      await db.prepare("INSERT INTO users (id, created_at) VALUES (?, ?)").run(userId, now);
+      await db
+        .prepare("INSERT INTO users (id, created_at) VALUES (?, ?)")
+        .run(userId, now);
 
       const response = await app.inject({
         method: "POST",
@@ -436,14 +490,20 @@ describe("Unit 12: Cover auth + admin + CORS + misc", () => {
 
       // Should succeed (200) or fail for business logic (409 already used),
       // but NOT 429
-      assert.notEqual(response.statusCode, 429, "First attempt should not be rate limited");
+      assert.notEqual(
+        response.statusCode,
+        429,
+        "First attempt should not be rate limited",
+      );
     });
 
     it("blocks after exceeding rate limit", async () => {
       const userId = uid("trial_rl_exceed");
       const now = new Date().toISOString();
 
-      await db.prepare("INSERT INTO users (id, created_at) VALUES (?, ?)").run(userId, now);
+      await db
+        .prepare("INSERT INTO users (id, created_at) VALUES (?, ?)")
+        .run(userId, now);
 
       // Fire 4 requests (limit is 3 per hour)
       for (let i = 0; i < 3; i++) {
