@@ -39,7 +39,10 @@ before(async () => {
     UPLOAD_SIGNING_SECRET: "test-upload-secret",
     UPLOAD_URL_TTL_SEC: 900,
   };
-  db = await initDb({ dbPath: ":memory:", migrationsDir: path.join(process.cwd(), "migrations") });
+  db = await initDb({
+    dbPath: ":memory:",
+    migrationsDir: path.join(process.cwd(), "migrations"),
+  });
   storage = createStorageProvider(config);
   app = buildServer({ db, config, storage });
 });
@@ -66,7 +69,11 @@ describe("Poems API", () => {
       },
     });
 
-    assert.equal(response.statusCode, 201, `Expected 201, got ${response.statusCode}: ${response.body}`);
+    assert.equal(
+      response.statusCode,
+      201,
+      `Expected 201, got ${response.statusCode}: ${response.body}`,
+    );
     const poem = response.json();
 
     assert.ok(poem.id, "Should return poem ID");
@@ -121,7 +128,7 @@ describe("Poems API", () => {
     assert.ok(Array.isArray(data.poems), "Should return poems array");
     assert.ok(data.poems.length >= 1, "Should have at least one poem");
 
-    const poem = data.poems.find(p => p.id === createdPoemId);
+    const poem = data.poems.find((p) => p.id === createdPoemId);
     assert.ok(poem, "Should find the created poem");
   });
 
@@ -149,8 +156,14 @@ describe("Poems API", () => {
     const data = response.json();
 
     // Verify no poems from other user
-    const otherUsersPoems = data.poems.filter(p => p.title === "Other User's Poem");
-    assert.equal(otherUsersPoems.length, 0, "Should not see other user's poems");
+    const otherUsersPoems = data.poems.filter(
+      (p) => p.title === "Other User's Poem",
+    );
+    assert.equal(
+      otherUsersPoems.length,
+      0,
+      "Should not see other user's poems",
+    );
   });
 
   test("GET /poems/:id - retrieves specific poem", async () => {
@@ -271,8 +284,14 @@ describe("Poems API", () => {
       url: "/poems",
       headers: { "x-user-id": TEST_USER_ID },
     });
-    const deletedPoem = listResponse.json().poems.find(p => p.id === poemToDelete);
-    assert.equal(deletedPoem, undefined, "Deleted poem should not appear in list");
+    const deletedPoem = listResponse
+      .json()
+      .poems.find((p) => p.id === poemToDelete);
+    assert.equal(
+      deletedPoem,
+      undefined,
+      "Deleted poem should not appear in list",
+    );
 
     // Verify direct access returns 404
     const getResponse = await app.inject({
@@ -343,6 +362,18 @@ describe("Poems API", () => {
         },
       });
       poemForGeneration = response.json().id;
+
+      // Grant a poem credit so generation reaches the LLM step. The free/anon
+      // tier has poems_remaining = 0, so without this the route returns 402
+      // INSUFFICIENT_POEM_CREDITS before attempting generation, and the test's
+      // documented 503-without-LLM branch is never reached.
+      await db
+        .prepare(
+          `INSERT INTO entitlements (user_id, tier, poems_remaining, updated_at)
+           VALUES (?, 'free', 1, ?)
+           ON CONFLICT(user_id) DO UPDATE SET poems_remaining = entitlements.poems_remaining + 1`,
+        )
+        .run(TEST_USER_ID, new Date().toISOString());
     });
 
     test("generates verses successfully", async () => {
@@ -356,16 +387,28 @@ describe("Poems API", () => {
       // this returns 503 AI_UNAVAILABLE. With LLM keys, it returns 200.
       if (response.statusCode === 503) {
         const data = response.json();
-        assert.equal(data.code, "AI_UNAVAILABLE", "Should return AI_UNAVAILABLE when no LLM configured");
+        assert.equal(
+          data.code,
+          "AI_UNAVAILABLE",
+          "Should return AI_UNAVAILABLE when no LLM configured",
+        );
         return; // Skip rest of test - LLM not available
       }
 
-      assert.equal(response.statusCode, 200, `Expected 200, got ${response.statusCode}: ${response.body}`);
+      assert.equal(
+        response.statusCode,
+        200,
+        `Expected 200, got ${response.statusCode}: ${response.body}`,
+      );
       const data = response.json();
 
       assert.ok(data.poem, "Should return poem object");
       assert.equal(data.poem.id, poemForGeneration);
-      assert.equal(data.poem.status, "generated", "Status should be 'generated'");
+      assert.equal(
+        data.poem.status,
+        "generated",
+        "Status should be 'generated'",
+      );
       assert.ok(data.poem.verses, "Should have verses");
       assert.ok(Array.isArray(data.poem.verses), "Verses should be an array");
       assert.ok(data.poem.verses.length >= 1, "Should have at least one verse");
@@ -402,7 +445,11 @@ describe("Poems API", () => {
         headers: { "x-user-id": TEST_USER_ID },
       });
 
-      assert.equal(response.statusCode, 404, "Should not access other user's poem");
+      assert.equal(
+        response.statusCode,
+        404,
+        "Should not access other user's poem",
+      );
     });
 
     test("requires authentication", async () => {
@@ -439,11 +486,13 @@ describe("Poems API", () => {
       });
       assert.equal(response.statusCode, 201);
       const poemId = response.json().id;
-      await db.prepare("UPDATE poems SET verses = ?, status = ? WHERE id = ?").run(
-        JSON.stringify(["First line", "Second line"]),
-        "generated",
-        poemId
-      );
+      await db
+        .prepare("UPDATE poems SET verses = ?, status = ? WHERE id = ?")
+        .run(
+          JSON.stringify(["First line", "Second line"]),
+          "generated",
+          poemId,
+        );
       return poemId;
     }
 
@@ -453,19 +502,26 @@ describe("Poems API", () => {
         title: "Cached Audio Poem",
       });
 
-      const poemRow = await db.prepare("SELECT user_id FROM poems WHERE id = ?").get(poemId);
+      const poemRow = await db
+        .prepare("SELECT user_id FROM poems WHERE id = ?")
+        .get(poemId);
       const audioDir = path.join(storageDir, "poems", poemRow.user_id, poemId);
       fs.mkdirSync(audioDir, { recursive: true });
-      fs.writeFileSync(path.join(audioDir, "audio.mp3"), Buffer.from("fake-mp3-bytes"));
+      fs.writeFileSync(
+        path.join(audioDir, "audio.mp3"),
+        Buffer.from("fake-mp3-bytes"),
+      );
       assert.equal(fs.existsSync(path.join(audioDir, "audio.mp3")), true);
 
       const windowStart = currentRateWindowStartMs(60 * 60);
-      await db.prepare(
-        `INSERT INTO rate_limits (user_id, action_type, window_start_ms, window_seconds, count, limit_count)
+      await db
+        .prepare(
+          `INSERT INTO rate_limits (user_id, action_type, window_start_ms, window_seconds, count, limit_count)
          VALUES (?, ?, ?, ?, ?, ?)
          ON CONFLICT(user_id, action_type, window_start_ms)
-         DO UPDATE SET count = excluded.count, window_seconds = excluded.window_seconds, limit_count = excluded.limit_count`
-      ).run(poemRow.user_id, "poem_audio", windowStart, 60 * 60, 99, 10);
+         DO UPDATE SET count = excluded.count, window_seconds = excluded.window_seconds, limit_count = excluded.limit_count`,
+        )
+        .run(poemRow.user_id, "poem_audio", windowStart, 60 * 60, 99, 10);
 
       const response = await app.inject({
         method: "POST",
@@ -484,15 +540,19 @@ describe("Poems API", () => {
         userId: TEST_USER_ID,
         title: "Fresh Generation Limited Poem",
       });
-      const poemRow = await db.prepare("SELECT user_id FROM poems WHERE id = ?").get(poemId);
+      const poemRow = await db
+        .prepare("SELECT user_id FROM poems WHERE id = ?")
+        .get(poemId);
 
       const windowStart = currentRateWindowStartMs(60 * 60);
-      await db.prepare(
-        `INSERT INTO rate_limits (user_id, action_type, window_start_ms, window_seconds, count, limit_count)
+      await db
+        .prepare(
+          `INSERT INTO rate_limits (user_id, action_type, window_start_ms, window_seconds, count, limit_count)
          VALUES (?, ?, ?, ?, ?, ?)
          ON CONFLICT(user_id, action_type, window_start_ms)
-         DO UPDATE SET count = excluded.count, window_seconds = excluded.window_seconds, limit_count = excluded.limit_count`
-      ).run(poemRow.user_id, "poem_audio", windowStart, 60 * 60, 99, 10);
+         DO UPDATE SET count = excluded.count, window_seconds = excluded.window_seconds, limit_count = excluded.limit_count`,
+        )
+        .run(poemRow.user_id, "poem_audio", windowStart, 60 * 60, 99, 10);
 
       const response = await app.inject({
         method: "POST",
@@ -511,13 +571,17 @@ describe("Poems API", () => {
         userId: TEST_USER_ID,
         title: "Concurrent Audio Poem",
       });
-      const poemRow = await db.prepare("SELECT user_id FROM poems WHERE id = ?").get(poemId);
+      const poemRow = await db
+        .prepare("SELECT user_id FROM poems WHERE id = ?")
+        .get(poemId);
 
       // Ensure no stale rate limit blocks this test.
       const windowStart = currentRateWindowStartMs(60 * 60);
-      await db.prepare(
-        "DELETE FROM rate_limits WHERE user_id = ? AND action_type = ? AND window_start_ms = ?"
-      ).run(poemRow.user_id, "poem_audio", windowStart);
+      await db
+        .prepare(
+          "DELETE FROM rate_limits WHERE user_id = ? AND action_type = ? AND window_start_ms = ?",
+        )
+        .run(poemRow.user_id, "poem_audio", windowStart);
 
       let generateCallCount = 0;
       const originalGenerateSpeech = elevenlabsProvider.generateSpeech;
@@ -546,7 +610,11 @@ describe("Poems API", () => {
 
         assert.equal(responseA.statusCode, 200, responseA.body);
         assert.equal(responseB.statusCode, 200, responseB.body);
-        assert.equal(generateCallCount, 1, "Expected a single provider generation call");
+        assert.equal(
+          generateCallCount,
+          1,
+          "Expected a single provider generation call",
+        );
       } finally {
         elevenlabsProvider.generateSpeech = originalGenerateSpeech;
       }
