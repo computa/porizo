@@ -53,23 +53,51 @@ describe("Style Profiles", () => {
 
     it("each profile has required properties", () => {
       for (const [name, profile] of Object.entries(STYLES)) {
-        assert.ok(Array.isArray(profile.bpmRange), `${name} should have bpmRange array`);
-        assert.strictEqual(profile.bpmRange.length, 2, `${name} bpmRange should have 2 values`);
-        assert.ok(profile.bpmRange[0] < profile.bpmRange[1], `${name} min BPM < max BPM`);
-        assert.ok(Array.isArray(profile.keys), `${name} should have keys array`);
-        assert.ok(profile.keys.length > 0, `${name} should have at least one key`);
-        assert.ok(["low", "medium", "high"].includes(profile.energy), `${name} energy should be low/medium/high`);
+        assert.ok(
+          Array.isArray(profile.bpmRange),
+          `${name} should have bpmRange array`,
+        );
+        assert.strictEqual(
+          profile.bpmRange.length,
+          2,
+          `${name} bpmRange should have 2 values`,
+        );
+        assert.ok(
+          profile.bpmRange[0] < profile.bpmRange[1],
+          `${name} min BPM < max BPM`,
+        );
+        assert.ok(
+          Array.isArray(profile.keys),
+          `${name} should have keys array`,
+        );
+        assert.ok(
+          profile.keys.length > 0,
+          `${name} should have at least one key`,
+        );
+        assert.ok(
+          ["low", "medium", "high"].includes(profile.energy),
+          `${name} energy should be low/medium/high`,
+        );
       }
     });
 
     it("BPM ranges are genre-appropriate", () => {
       // Ballads should be slower
-      assert.ok(STYLES.ballad.bpmRange[1] <= 90, "Ballad max BPM should be slow");
+      assert.ok(
+        STYLES.ballad.bpmRange[1] <= 90,
+        "Ballad max BPM should be slow",
+      );
       // Dance music should be faster
       assert.ok(STYLES.salsa.bpmRange[0] >= 150, "Salsa should be fast");
       // Reggaeton has characteristic mid-tempo
-      assert.ok(STYLES.reggaeton.bpmRange[0] >= 80, "Reggaeton should be mid-tempo");
-      assert.ok(STYLES.reggaeton.bpmRange[1] <= 110, "Reggaeton should be mid-tempo");
+      assert.ok(
+        STYLES.reggaeton.bpmRange[0] >= 80,
+        "Reggaeton should be mid-tempo",
+      );
+      assert.ok(
+        STYLES.reggaeton.bpmRange[1] <= 110,
+        "Reggaeton should be mid-tempo",
+      );
     });
   });
 
@@ -129,10 +157,17 @@ describe("Style Profiles", () => {
 
   describe("selectKey", () => {
     it("returns key from profile keys", () => {
-      const profile = { bpmRange: [100, 130], keys: ["C", "G", "D"], energy: "medium" };
+      const profile = {
+        bpmRange: [100, 130],
+        keys: ["C", "G", "D"],
+        energy: "medium",
+      };
       for (let i = 0; i < 50; i++) {
         const key = selectKey(profile);
-        assert.ok(["C", "G", "D"].includes(key), `Key ${key} should be in profile`);
+        assert.ok(
+          ["C", "G", "D"].includes(key),
+          `Key ${key} should be in profile`,
+        );
       }
     });
 
@@ -193,7 +228,10 @@ describe("buildMusicPlan", () => {
 
   it("creates plan with style-appropriate key", () => {
     const plan = buildMusicPlan({ style: "afrobeats", durationTarget: 60 });
-    assert.ok(["Eb", "Bb", "F", "Ab"].includes(plan.key), "Should use Afrobeats keys");
+    assert.ok(
+      ["Eb", "Bb", "F", "Ab"].includes(plan.key),
+      "Should use Afrobeats keys",
+    );
   });
 
   it("includes energy level", () => {
@@ -207,7 +245,7 @@ describe("buildMusicPlan", () => {
     const plan = buildMusicPlan({ style: "pop", durationTarget: 60 });
     assert.ok(Array.isArray(plan.sections));
     assert.ok(plan.sections.length >= 1);
-    assert.ok(plan.sections.every(s => s.name && typeof s.bars === "number"));
+    assert.ok(plan.sections.every((s) => s.name && typeof s.bars === "number"));
   });
 
   it("defaults to 60s duration if not specified", () => {
@@ -231,17 +269,28 @@ describe("buildMusicPlan", () => {
     const plan = buildMusicPlan({ style: "ogene", durationTarget: 60 });
     assert.ok(plan.style_prompt, "style_prompt should be set");
     assert.ok(plan.style_prompt_compact, "style_prompt_compact should be set");
-    assert.equal(plan.plan_schema_version, 2, "music plan should use compact schema version");
+    assert.equal(
+      plan.plan_schema_version,
+      2,
+      "music plan should use compact schema version",
+    );
+    // Prompts are now descriptive of the SOUND rather than echoing the literal
+    // genre name (e.g. ogene -> "Igbo ceremonial festival music, iron gong...").
     assert.ok(
-      plan.style_prompt.toLowerCase().includes("ogene"),
-      "style_prompt should preserve the selected style intent"
+      plan.style_prompt.toLowerCase().includes("igbo"),
+      "style_prompt should reflect the selected style intent descriptively",
     );
   });
 
-  it("adds provider-specific fallback constraints for weak style support", () => {
+  it("renders a descriptive provider prompt for weak-support styles", () => {
+    // The literal genre name + "Avoid:" negative constraints were dropped in
+    // favour of descriptive sound prompts; verify the style identity is still
+    // reflected descriptively for a weak-support style (ogene on suno).
     const prompt = getStylePrompt("ogene", "suno");
-    assert.ok(prompt.toLowerCase().includes("ogene"), "Prompt should contain style identity");
-    assert.ok(prompt.includes("Avoid:"), "Prompt should include negative constraints");
+    assert.ok(
+      prompt.toLowerCase().includes("igbo"),
+      "Prompt should reflect the style identity descriptively",
+    );
   });
 
   it("builds deterministic plans when seed is provided", () => {
@@ -265,12 +314,17 @@ describe("buildMusicPlan", () => {
   });
 
   it("attaches structured style_intent to the music plan", () => {
-    const plan = buildMusicPlan({ style: "ogene", durationTarget: 60, provider: "elevenlabs" });
+    const plan = buildMusicPlan({
+      style: "ogene",
+      durationTarget: 60,
+      provider: "elevenlabs",
+    });
     assert.ok(plan.style_intent, "style_intent should be present");
     assert.equal(plan.style_intent.style, "ogene");
     assert.ok(
-      Array.isArray(plan.style_intent.instrument_palette) && plan.style_intent.instrument_palette.length > 0,
-      "style_intent should include instrument palette"
+      Array.isArray(plan.style_intent.instrument_palette) &&
+        plan.style_intent.instrument_palette.length > 0,
+      "style_intent should include instrument palette",
     );
   });
 
@@ -282,7 +336,8 @@ describe("buildMusicPlan", () => {
       styleOverrides: {
         ogene: {
           suno: {
-            instruction_override: "Focus on slit-drum ostinato and ceremonial chant cadence.",
+            instruction_override:
+              "Focus on slit-drum ostinato and ceremonial chant cadence.",
             negative_constraints: ["avoid afropop synth topline"],
           },
         },
@@ -290,11 +345,11 @@ describe("buildMusicPlan", () => {
     });
     assert.ok(
       plan.style_prompt.includes("slit-drum ostinato"),
-      "style prompt should include override instruction"
+      "style prompt should include override instruction",
     );
     assert.ok(
       plan.style_prompt.includes("avoid afropop synth topline"),
-      "style prompt should include override negative constraints"
+      "style prompt should include override negative constraints",
     );
   });
 
@@ -306,7 +361,13 @@ describe("buildMusicPlan", () => {
 
   it("creates full song structure for target durations", () => {
     const plan = buildMusicPlan({ style: "soul", durationTarget: 90 });
-    assert.ok(plan.sections.length >= 5, "Should have verse/chorus/bridge structure");
-    assert.ok(plan.sections.some(s => s.name === "bridge"), "Should have bridge");
+    assert.ok(
+      plan.sections.length >= 5,
+      "Should have verse/chorus/bridge structure",
+    );
+    assert.ok(
+      plan.sections.some((s) => s.name === "bridge"),
+      "Should have bridge",
+    );
   });
 });

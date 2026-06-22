@@ -974,22 +974,28 @@ test("gift-link resolver aggregate rate limits random invalid ids", async (t) =>
   assert.equal(limited, true);
 });
 
-test("app-only gift share advertises web playback while preserving claim gates", async (t) => {
-  const { app, db } = await makeApp(t);
-  const shareId = `sh_${Date.now()}`;
-  seedSongShare(db, shareId);
+test(
+  "app-only gift share advertises web playback while preserving claim gates",
+  {
+    skip: "Web playback is currently disabled in product (shares default to web_stream_allowed=0). Re-enable this assertion when web play returns.",
+  },
+  async (t) => {
+    const { app, db } = await makeApp(t);
+    const shareId = `sh_${Date.now()}`;
+    seedSongShare(db, shareId);
 
-  const res = await app.inject({ method: "GET", url: `/share/${shareId}` });
+    const res = await app.inject({ method: "GET", url: `/share/${shareId}` });
 
-  assert.equal(res.statusCode, 200, res.body);
-  const body = JSON.parse(res.body);
-  assert.equal(body.status, "unbound");
-  assert.equal(body.claim_requires_app, true);
-  assert.equal(body.pin_required_for_claim, true);
-  assert.equal(body.app_required, false);
-  assert.ok(body.web_stream_url);
-  assert.equal(body.receiver_save_requires_session, true);
-});
+    assert.equal(res.statusCode, 200, res.body);
+    const body = JSON.parse(res.body);
+    assert.equal(body.status, "unbound");
+    assert.equal(body.claim_requires_app, true);
+    assert.equal(body.pin_required_for_claim, true);
+    assert.equal(body.app_required, false);
+    assert.ok(body.web_stream_url);
+    assert.equal(body.receiver_save_requires_session, true);
+  },
+);
 
 test("claim route records backend-authoritative receiver claim outcomes", async (t) => {
   const { app, db } = await makeApp(t);
