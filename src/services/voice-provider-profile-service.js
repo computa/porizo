@@ -248,7 +248,9 @@ async function markProviderProfileUploadSubmitted(
       requireField(id, "id"),
     );
   if (!result?.changes) {
-    throw new Error("VOICE_PROVIDER_PROFILE_INVALID_TRANSITION: upload_submitted");
+    throw new Error(
+      "VOICE_PROVIDER_PROFILE_INVALID_TRANSITION: upload_submitted",
+    );
   }
   return getProviderProfileById(db, id);
 }
@@ -281,7 +283,9 @@ async function markProviderProfileCoverSubmitted(
       requireField(id, "id"),
     );
   if (!result?.changes) {
-    throw new Error("VOICE_PROVIDER_PROFILE_INVALID_TRANSITION: cover_submitted");
+    throw new Error(
+      "VOICE_PROVIDER_PROFILE_INVALID_TRANSITION: cover_submitted",
+    );
   }
   return getProviderProfileById(db, id);
 }
@@ -311,7 +315,9 @@ async function markProviderProfilePersonaSubmitted(
       requireField(id, "id"),
     );
   if (!result?.changes) {
-    throw new Error("VOICE_PROVIDER_PROFILE_INVALID_TRANSITION: persona_submitted");
+    throw new Error(
+      "VOICE_PROVIDER_PROFILE_INVALID_TRANSITION: persona_submitted",
+    );
   }
   return getProviderProfileById(db, id);
 }
@@ -426,7 +432,8 @@ async function markProviderProfileManualCleanupRequired(
           profile.id,
           toJson({
             provider: profile.provider,
-            provider_profile_id: providerProfileId || profile.provider_profile_id,
+            provider_profile_id:
+              providerProfileId || profile.provider_profile_id,
             error: sanitizeProviderError(
               error || "remote_persona_manual_cleanup_required",
             ),
@@ -602,6 +609,35 @@ async function recoverStaleVoiceProviderJobs(
       normalizeProvider(provider),
       staleBefore || updatedAt,
     );
+
+  // Propagate terminal job failure to the provider profile so the user's
+  // enrollment doesn't sit on "preparing" forever after a worker crash. Only
+  // fail profiles still in an in-progress provider state, and NEVER one that
+  // still has a queued/running retry (that would prematurely kill a valid
+  // recovery). readiness then resolves to needs_recapture instead of preparing.
+  await db
+    .prepare(
+      `UPDATE voice_provider_profiles
+          SET status = ?, last_error = ?, updated_at = ?
+        WHERE deleted_at IS NULL
+          AND status IN ('pending', 'upload_submitted', 'cover_submitted', 'persona_submitted')
+          AND id IN (
+            SELECT voice_provider_profile_id FROM voice_provider_jobs
+             WHERE provider = ? AND status = ? AND voice_provider_profile_id IS NOT NULL
+          )
+          AND id NOT IN (
+            SELECT voice_provider_profile_id FROM voice_provider_jobs
+             WHERE status IN ('pending', 'running') AND voice_provider_profile_id IS NOT NULL
+          )`,
+    )
+    .run(
+      STATUS.FAILED,
+      "E399_STALE_JOB_RECOVERY: provider job stalled and was failed by recovery sweep",
+      updatedAt,
+      normalizeProvider(provider),
+      STATUS.FAILED,
+    );
+
   return (terminal?.changes || 0) + (retryable?.changes || 0);
 }
 
