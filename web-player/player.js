@@ -1160,12 +1160,15 @@
       }
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("pagehide", onHide);
-      window.removeEventListener("blur", onHide);
       window.removeEventListener("pageshow", onPageShow);
     }
-    // App (or its "Open in Porizo?" confirm dialog) took over — the page is
-    // backgrounded, loses focus, or is restored from bfcache on return. In every
-    // case the app handled it; don't bounce an installed user to the store.
+    // The ONLY reliable "the app opened" signal is the page actually backgrounding
+    // (visibility → hidden / pagehide) or being restored from bfcache on return.
+    // We deliberately do NOT cancel on `blur`/focus loss: when the app ISN'T
+    // installed the custom-scheme nav raises iOS's "address is invalid" dialog,
+    // which steals focus *without* backgrounding the page — treating that as
+    // "app opened" would strand the recipient on the error and never send them to
+    // the App Store.
     function onHide() {
       if (settled) return;
       settled = true;
@@ -1179,9 +1182,8 @@
     }
     function goFallback() {
       if (settled) return;
-      // Last guard: if the page isn't squarely in the foreground, the app/dialog
-      // grabbed it (the confirm dialog keeps visibility "visible" but steals focus).
-      if (document.visibilityState !== "visible" || !document.hasFocus()) {
+      // If the page backgrounded between arming and firing, the app took over.
+      if (document.visibilityState === "hidden") {
         settled = true;
         cleanup();
         return;
@@ -1193,13 +1195,13 @@
 
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("pagehide", onHide);
-    window.addEventListener("blur", onHide);
     window.addEventListener("pageshow", onPageShow);
 
     window.location.href = buildAppDeepLink(handoffId);
-    // Wider window than the launch animation so a real cold start / confirm tap
-    // isn't mistaken for "not installed".
-    timer = setTimeout(goFallback, 2200);
+    // Long enough that an installed app backgrounds the page first (which cancels
+    // this), short enough that a not-installed recipient reaches the App Store
+    // quickly — the OneLink fallback drives install → deferred deep link → claim.
+    timer = setTimeout(goFallback, 1400);
   }
 
   function handleReceiverSaveClick(event, placement) {
