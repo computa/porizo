@@ -25,7 +25,8 @@ describe("Auth API Endpoints", () => {
 
   before(async () => {
     // Configure social auth for test mode (no external JWKS calls).
-    process.env.APPLE_CLIENT_ID = process.env.APPLE_CLIENT_ID || "com.porizo.app.test";
+    process.env.APPLE_CLIENT_ID =
+      process.env.APPLE_CLIENT_ID || "com.porizo.app.test";
     process.env.ALLOW_MOCK_SOCIAL_AUTH = "true";
 
     // Create temp directories
@@ -72,9 +73,13 @@ describe("Auth API Endpoints", () => {
     }
   });
 
-  beforeEach(() => {
-    // Clear rate limits before each test to prevent cross-test interference
-    clearRateLimits();
+  beforeEach(async () => {
+    // Clear rate limits before each test to prevent cross-test interference.
+    // Must pass db: the AUTHORITATIVE rate-limit store is the rate_limits table,
+    // not just the in-memory map. Without db, signup's 5/hour limit accumulates
+    // across the file's many signups and later beforeEach signups get 429,
+    // cascading into the refresh/me/logout/sessions tests (no token issued).
+    await clearRateLimits(db);
   });
 
   function uniqueEmail() {
@@ -243,7 +248,11 @@ describe("Auth API Endpoints", () => {
       const body = JSON.parse(response.body);
       assert.ok(body.access_token);
       assert.ok(body.refresh_token);
-      assert.notEqual(body.refresh_token, refreshToken, "should return new refresh token");
+      assert.notEqual(
+        body.refresh_token,
+        refreshToken,
+        "should return new refresh token",
+      );
     });
 
     it("should reject used refresh token (rotation)", async () => {
@@ -276,7 +285,9 @@ describe("Auth API Endpoints", () => {
 
     it("should reject legacy refresh tokens without a bound session", async () => {
       const userId = `user_legacy_${crypto.randomBytes(4).toString("hex")}`;
-      db.prepare("INSERT INTO users (id, created_at, risk_level) VALUES (?, datetime('now'), 'low')").run(userId);
+      db.prepare(
+        "INSERT INTO users (id, created_at, risk_level) VALUES (?, datetime('now'), 'low')",
+      ).run(userId);
       const { token } = await authService.createRefreshToken(userId);
 
       const response = await app.inject({
@@ -350,7 +361,9 @@ describe("Auth API Endpoints", () => {
 
     it("should reject access tokens without a bound session id", async () => {
       const userId = `user_sidless_${crypto.randomBytes(4).toString("hex")}`;
-      db.prepare("INSERT INTO users (id, created_at, risk_level) VALUES (?, datetime('now'), 'low')").run(userId);
+      db.prepare(
+        "INSERT INTO users (id, created_at, risk_level) VALUES (?, datetime('now'), 'low')",
+      ).run(userId);
       const sidlessToken = authService.generateAccessToken(userId);
 
       const response = await app.inject({
@@ -404,7 +417,9 @@ describe("Auth API Endpoints", () => {
 
       assert.strictEqual(response.statusCode, 200);
       const body = JSON.parse(response.body);
-      assert.ok(body.message.includes("success") || body.message.includes("Logged out"));
+      assert.ok(
+        body.message.includes("success") || body.message.includes("Logged out"),
+      );
     });
 
     it("should succeed even with invalid token", async () => {
@@ -446,7 +461,9 @@ describe("Auth API Endpoints", () => {
       });
       assert.strictEqual(refreshResponse.statusCode, 401);
 
-      const session = db.prepare("SELECT revoked_at FROM user_sessions WHERE id = ?").get(sessionId);
+      const session = db
+        .prepare("SELECT revoked_at FROM user_sessions WHERE id = ?")
+        .get(sessionId);
       assert.ok(session.revoked_at, "logout should revoke the backing session");
     });
   });
@@ -494,7 +511,10 @@ describe("Auth API Endpoints", () => {
       assert.strictEqual(response.statusCode, 200);
       const body = JSON.parse(response.body);
       assert.ok(Array.isArray(body.sessions));
-      assert.ok(body.sessions.length >= 1, "should have at least one session from signup");
+      assert.ok(
+        body.sessions.length >= 1,
+        "should have at least one session from signup",
+      );
     });
   });
 
@@ -614,7 +634,9 @@ describe("Auth API Endpoints", () => {
 
     it("should accept valid JWT format (mock)", async () => {
       // Create a mock JWT (header.payload.signature)
-      const header = Buffer.from(JSON.stringify({ alg: "RS256", typ: "JWT" })).toString("base64url");
+      const header = Buffer.from(
+        JSON.stringify({ alg: "RS256", typ: "JWT" }),
+      ).toString("base64url");
       const rawNonce = `nonce-${crypto.randomBytes(8).toString("hex")}`;
       const payload = Buffer.from(
         JSON.stringify({
@@ -624,7 +646,7 @@ describe("Auth API Endpoints", () => {
           iss: "https://appleid.apple.com",
           aud: process.env.APPLE_CLIENT_ID,
           nonce: sha256Hex(rawNonce),
-        })
+        }),
       ).toString("base64url");
       const signature = Buffer.from("mock-signature").toString("base64url");
       const mockToken = `${header}.${payload}.${signature}`;
@@ -670,12 +692,12 @@ describe("Auth API Endpoints", () => {
       const rawToken = `verify-${crypto.randomBytes(12).toString("hex")}`;
       db.prepare(
         `INSERT INTO email_verification_tokens (id, user_id, token_hash, expires_at, email_normalized)
-         VALUES (?, ?, ?, datetime('now', '+1 day'), ?)`
+         VALUES (?, ?, ?, datetime('now', '+1 day'), ?)`,
       ).run(
         `evt_test_${crypto.randomBytes(4).toString("hex")}`,
         userId,
         sha256Hex(rawToken),
-        signupEmail.toLowerCase()
+        signupEmail.toLowerCase(),
       );
 
       const newEmail = uniqueEmail();
@@ -700,15 +722,28 @@ describe("Auth API Endpoints", () => {
       });
       assert.strictEqual(verifyResponse.statusCode, 400);
 
-      const contacts = db.prepare(
-        "SELECT value_normalized, verified_at FROM user_contacts WHERE user_id = ? AND type = 'email' ORDER BY created_at ASC"
-      ).all(userId);
-      const oldContact = contacts.find((contact) => contact.value_normalized === signupEmail.toLowerCase());
-      const updatedContact = contacts.find((contact) => contact.value_normalized === newEmail.toLowerCase());
+      const contacts = db
+        .prepare(
+          "SELECT value_normalized, verified_at FROM user_contacts WHERE user_id = ? AND type = 'email' ORDER BY created_at ASC",
+        )
+        .all(userId);
+      const oldContact = contacts.find(
+        (contact) => contact.value_normalized === signupEmail.toLowerCase(),
+      );
+      const updatedContact = contacts.find(
+        (contact) => contact.value_normalized === newEmail.toLowerCase(),
+      );
 
-      assert.ok(oldContact?.verified_at, "original signup email should remain verified");
+      assert.ok(
+        oldContact?.verified_at,
+        "original signup email should remain verified",
+      );
       assert.ok(updatedContact, "new pending email contact should exist");
-      assert.strictEqual(updatedContact.verified_at, null, "new pending email must remain unverified");
+      assert.strictEqual(
+        updatedContact.verified_at,
+        null,
+        "new pending email must remain unverified",
+      );
     });
 
     it("should reject resend verification when no pending email contact exists even if users.email remains populated", async () => {
@@ -723,10 +758,16 @@ describe("Auth API Endpoints", () => {
         },
       });
       assert.strictEqual(signupResponse.statusCode, 201);
-      const { access_token: accessToken, user_id: userId } = JSON.parse(signupResponse.body);
+      const { access_token: accessToken, user_id: userId } = JSON.parse(
+        signupResponse.body,
+      );
 
-      db.prepare("DELETE FROM user_contacts WHERE user_id = ? AND type = 'email'").run(userId);
-      db.prepare("UPDATE users SET email = ?, email_verified = 0 WHERE id = ?").run(signupEmail.toLowerCase(), userId);
+      db.prepare(
+        "DELETE FROM user_contacts WHERE user_id = ? AND type = 'email'",
+      ).run(userId);
+      db.prepare(
+        "UPDATE users SET email = ?, email_verified = 0 WHERE id = ?",
+      ).run(signupEmail.toLowerCase(), userId);
 
       const resendResponse = await app.inject({
         method: "POST",
