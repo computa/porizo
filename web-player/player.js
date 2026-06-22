@@ -49,6 +49,7 @@
   let deviceId = null;
   let isPlaying = false;
   let receiverSaveUrl = "";
+  let receiverHandoffId = "";
   let receiverSession = null;
   let playStartedLogged = false;
   let playCompletedLogged = false;
@@ -1096,6 +1097,9 @@
       receiverSaveUrl = data.receiver_save_url;
       updateDownloadLinks();
     }
+    if (data.receiver_handoff_id) {
+      receiverHandoffId = data.receiver_handoff_id;
+    }
     return data;
   }
 
@@ -1108,41 +1112,118 @@
     }
   }
 
+  // Pull the receiver-handoff id out of a save URL — either the OneLink's
+  // `deep_link_value` query or the `/download` fallback's embedded custom-scheme
+  // (`deep_link=porizo:///receiver-handoff/<id>`).
+  function extractHandoffId(url) {
+    if (!url) return "";
+    try {
+      var u = new URL(url, window.location.origin);
+      var fromQuery =
+        u.searchParams.get("deep_link_value") ||
+        u.searchParams.get("receiver_handoff_id");
+      if (fromQuery) return fromQuery;
+      var deepLink = u.searchParams.get("deep_link");
+      if (deepLink) {
+        // searchParams.get already percent-decoded the value.
+        var match = deepLink.match(/receiver-handoff\/([^/?#]+)/);
+        if (match) return match[1];
+      }
+    } catch (_e) {
+      /* malformed URL — no handoff id */
+    }
+    return "";
+  }
+
+  // iOS registers `porizo://` and parses `porizo:///receiver-handoff/<id>`
+  // (RootView.parseReceiverHandoffPayload) → resolves the handoff → claim sheet.
+  function buildAppDeepLink(handoffId) {
+    return "porizo:///receiver-handoff/" + encodeURIComponent(handoffId);
+  }
+
+  // Open the installed app first via the custom scheme (deterministic, unlike a
+  // Universal Link which iOS ignores on programmatic navigation). If the app
+  // doesn't take over within the grace window, it isn't installed — fall back to
+  // the OneLink, which handles the App Store + AppsFlyer deferred deep link.
+  function tryOpenInstalledApp(handoffId, fallbackUrl) {
+    if (!handoffId) {
+      window.location.href = fallbackUrl;
+      return;
+    }
+    var settled = false;
+    var timer = null;
+
+    function cleanup() {
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("pagehide", onHide);
+      window.removeEventListener("blur", onHide);
+      window.removeEventListener("pageshow", onPageShow);
+    }
+    // App (or its "Open in Porizo?" confirm dialog) took over — the page is
+    // backgrounded, loses focus, or is restored from bfcache on return. In every
+    // case the app handled it; don't bounce an installed user to the store.
+    function onHide() {
+      if (settled) return;
+      settled = true;
+      cleanup();
+    }
+    function onVisibility() {
+      if (document.visibilityState === "hidden") onHide();
+    }
+    function onPageShow(event) {
+      if (event.persisted) onHide();
+    }
+    function goFallback() {
+      if (settled) return;
+      // Last guard: if the page isn't squarely in the foreground, the app/dialog
+      // grabbed it (the confirm dialog keeps visibility "visible" but steals focus).
+      if (document.visibilityState !== "visible" || !document.hasFocus()) {
+        settled = true;
+        cleanup();
+        return;
+      }
+      settled = true;
+      cleanup();
+      window.location.href = fallbackUrl;
+    }
+
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("pagehide", onHide);
+    window.addEventListener("blur", onHide);
+    window.addEventListener("pageshow", onPageShow);
+
+    window.location.href = buildAppDeepLink(handoffId);
+    // Wider window than the launch animation so a real cold start / confirm tap
+    // isn't mistaken for "not installed".
+    timer = setTimeout(goFallback, 2200);
+  }
+
   function handleReceiverSaveClick(event, placement) {
     var link = event.currentTarget;
     if (!link || !link.href) return;
 
     event.preventDefault();
-    var targetHref = link.href;
-    var navigated = false;
+    var fallbackUrl = receiverSaveUrl || link.href;
+    var handoffId =
+      receiverHandoffId ||
+      extractHandoffId(receiverSaveUrl) ||
+      extractHandoffId(link.href);
 
-    function navigate(nextUrl) {
-      if (navigated) return;
-      navigated = true;
-      window.location.href = nextUrl || targetHref;
-    }
-
+    // Record the click without blocking the hand-off — keepalive lets it survive
+    // the navigation that opening the app triggers.
     recordReceiverEvent(
       "receiver_save_cta_clicked",
       { placement: placement || "app_bar" },
       { keepalive: true },
-    )
-      .then(function (data) {
-        if (data && data.receiver_save_url) {
-          targetHref = data.receiver_save_url;
-        }
-        navigate(targetHref);
-      })
-      .catch(function () {
-        navigate(targetHref);
-      });
+    ).catch(function () {
+      /* analytics is best-effort */
+    });
 
-    setTimeout(
-      function () {
-        navigate(targetHref);
-      },
-      receiverSaveUrl ? 350 : 1500,
-    );
+    tryOpenInstalledApp(handoffId, fallbackUrl);
   }
 
   // Screen Handlers
