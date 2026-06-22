@@ -177,6 +177,17 @@ describe("Billing API", async () => {
     it("returns entitlements after trial activation", async () => {
       await enableTrialConfig();
 
+      // Establish the free base grant (free_tier_songs_grant=2 since migration 117)
+      // the way signup's createFreeEntitlements would. activateTrial preserves an
+      // existing songs_remaining on conflict but never creates the base grant, so a
+      // raw-INSERT test user otherwise has baseSongsRemaining=0.
+      await db.query(
+        `INSERT INTO entitlements (user_id, tier, songs_remaining, updated_at)
+         VALUES (?, 'free', 2, datetime('now'))
+         ON CONFLICT(user_id) DO UPDATE SET songs_remaining = 2`,
+        [testUserId],
+      );
+
       // Activate trial first
       await app.inject({
         method: "POST",
