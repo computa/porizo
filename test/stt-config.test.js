@@ -30,6 +30,17 @@ describe("STT Configuration Service", async () => {
     const migrationsDir = path.join(__dirname, "..", "migrations");
     db = await initDb({ dbPath, migrationsDir });
     adminService = new AdminService(db);
+
+    // Seed the admin actor used as updated_by. security_config.updated_by has a
+    // FK to admin_users(id); updateSecurityConfig(..., "admin_test") fails with
+    // FOREIGN KEY constraint without this row.
+    await db
+      .prepare(
+        `INSERT INTO admin_users (id, email, password_hash, role, created_at)
+         VALUES ('admin_test', 'admin_test@example.com', 'x', 'superadmin', ?)
+         ON CONFLICT(id) DO NOTHING`,
+      )
+      .run(new Date().toISOString());
   });
 
   after(async () => {
@@ -63,14 +74,14 @@ describe("STT Configuration Service", async () => {
           `
         INSERT OR REPLACE INTO app_config (key, value_json, updated_at)
         VALUES ('stt_config', ?, datetime('now'))
-      `
+      `,
         )
         .run(
           JSON.stringify({
             primary_provider: "apple",
             fallback_provider: "whisperkit",
             whisperkit_model: "medium",
-          })
+          }),
         );
 
       const config = await adminService.getSTTConfig();
@@ -85,7 +96,7 @@ describe("STT Configuration Service", async () => {
 
       assert.ok(
         typeof config.provider_status === "object",
-        "provider_status should be an object"
+        "provider_status should be an object",
       );
 
       // Should include STT-related providers if they exist
@@ -94,7 +105,7 @@ describe("STT Configuration Service", async () => {
       // May have 0 or more STT providers depending on migration state
       assert.ok(
         Array.isArray(sttKeys) || sttKeys === undefined,
-        "Should be able to filter STT keys"
+        "Should be able to filter STT keys",
       );
     });
   });
@@ -103,7 +114,7 @@ describe("STT Configuration Service", async () => {
     it("updates primary provider", async () => {
       await adminService.setSTTConfig(
         { primary_provider: "whisperkit" },
-        "admin_test"
+        "admin_test",
       );
 
       const config = await adminService.getSTTConfig();
@@ -113,7 +124,7 @@ describe("STT Configuration Service", async () => {
     it("updates fallback provider", async () => {
       await adminService.setSTTConfig(
         { fallback_provider: "apple" },
-        "admin_test"
+        "admin_test",
       );
 
       const config = await adminService.getSTTConfig();
@@ -123,7 +134,7 @@ describe("STT Configuration Service", async () => {
     it("updates whisperkit model", async () => {
       await adminService.setSTTConfig(
         { whisperkit_model: "large" },
-        "admin_test"
+        "admin_test",
       );
 
       const config = await adminService.getSTTConfig();
@@ -135,9 +146,9 @@ describe("STT Configuration Service", async () => {
         () =>
           adminService.setSTTConfig(
             { primary_provider: "invalid_provider" },
-            "admin_test"
+            "admin_test",
           ),
-        /Invalid primary_provider/
+        /Invalid primary_provider/,
       );
     });
 
@@ -146,9 +157,9 @@ describe("STT Configuration Service", async () => {
         () =>
           adminService.setSTTConfig(
             { fallback_provider: "invalid_provider" },
-            "admin_test"
+            "admin_test",
           ),
-        /Invalid fallback_provider/
+        /Invalid fallback_provider/,
       );
     });
 
@@ -157,9 +168,9 @@ describe("STT Configuration Service", async () => {
         () =>
           adminService.setSTTConfig(
             { whisperkit_model: "xlarge" },
-            "admin_test"
+            "admin_test",
           ),
-        /Invalid whisperkit_model/
+        /Invalid whisperkit_model/,
       );
     });
 
@@ -169,13 +180,13 @@ describe("STT Configuration Service", async () => {
       for (const provider of validProviders) {
         await adminService.setSTTConfig(
           { primary_provider: provider },
-          "admin_test"
+          "admin_test",
         );
         const config = await adminService.getSTTConfig();
         assert.equal(
           config.primary_provider,
           provider,
-          `Should accept ${provider} as primary`
+          `Should accept ${provider} as primary`,
         );
       }
     });
@@ -186,13 +197,13 @@ describe("STT Configuration Service", async () => {
       for (const model of validModels) {
         await adminService.setSTTConfig(
           { whisperkit_model: model },
-          "admin_test"
+          "admin_test",
         );
         const config = await adminService.getSTTConfig();
         assert.equal(
           config.whisperkit_model,
           model,
-          `Should accept ${model} as whisperkit model`
+          `Should accept ${model} as whisperkit model`,
         );
       }
     });
@@ -206,7 +217,7 @@ describe("STT Configuration Service", async () => {
       assert.ok(appConfig.stt.primary_provider, "Should have primary_provider");
       assert.ok(
         appConfig.stt.fallback_provider,
-        "Should have fallback_provider"
+        "Should have fallback_provider",
       );
       assert.ok(appConfig.stt.whisperkit_model, "Should have whisperkit_model");
       assert.ok(appConfig.stt.provider_status, "Should have provider_status");
@@ -219,7 +230,7 @@ describe("STT Configuration Service", async () => {
           fallback_provider: "apple",
           whisperkit_model: "tiny",
         },
-        "admin_test"
+        "admin_test",
       );
 
       const appConfig = await adminService.getAppConfig();
@@ -231,14 +242,16 @@ describe("STT Configuration Service", async () => {
 
     it("includes client feature flags for voice option visibility", async () => {
       // Ensure defaults are used when no explicit DB value exists.
-      await db.prepare("DELETE FROM feature_flags WHERE id = 'my_voice_enabled'").run();
+      await db
+        .prepare("DELETE FROM feature_flags WHERE id = 'my_voice_enabled'")
+        .run();
       const defaultConfig = await adminService.getAppConfig();
       assert.equal(defaultConfig.flags.my_voice_enabled, true);
 
       // Explicitly disable My Voice and verify /app/config projection reflects it.
       await db
         .prepare(
-          "INSERT OR REPLACE INTO feature_flags (id, value, updated_at, updated_by) VALUES ('my_voice_enabled', ?, datetime('now'), 'test')"
+          "INSERT OR REPLACE INTO feature_flags (id, value, updated_at, updated_by) VALUES ('my_voice_enabled', ?, datetime('now'), 'test')",
         )
         .run(JSON.stringify(false));
 
@@ -265,7 +278,7 @@ describe("STT Configuration Service", async () => {
           iosLastAppStoreSyncAt: "",
           iosAppStoreSyncError: "",
         },
-        "admin_test"
+        "admin_test",
       );
 
       const appConfig = await adminService.getAppConfig();
@@ -310,7 +323,7 @@ describe("STT Configuration Service", async () => {
           iosLastAppStoreSyncAt: "",
           iosAppStoreSyncError: "",
         },
-        "admin_test"
+        "admin_test",
       );
 
       const appConfig = await syncingAdminService.getAppConfig();
@@ -325,7 +338,7 @@ describe("STT Configuration Service", async () => {
       // Start with WhisperKit
       await adminService.setSTTConfig(
         { primary_provider: "whisperkit" },
-        "admin_test"
+        "admin_test",
       );
       let config = await adminService.getSTTConfig();
       assert.equal(config.primary_provider, "whisperkit");
@@ -333,7 +346,7 @@ describe("STT Configuration Service", async () => {
       // Switch to Apple
       await adminService.setSTTConfig(
         { primary_provider: "apple" },
-        "admin_test"
+        "admin_test",
       );
       config = await adminService.getSTTConfig();
       assert.equal(config.primary_provider, "apple");
@@ -341,7 +354,7 @@ describe("STT Configuration Service", async () => {
       // Switch to OpenAI
       await adminService.setSTTConfig(
         { primary_provider: "openai" },
-        "admin_test"
+        "admin_test",
       );
       config = await adminService.getSTTConfig();
       assert.equal(config.primary_provider, "openai");
@@ -351,7 +364,7 @@ describe("STT Configuration Service", async () => {
       // Chain: Apple -> OpenAI
       await adminService.setSTTConfig(
         { primary_provider: "apple", fallback_provider: "openai" },
-        "admin_test"
+        "admin_test",
       );
       let config = await adminService.getSTTConfig();
       assert.equal(config.primary_provider, "apple");
@@ -360,7 +373,7 @@ describe("STT Configuration Service", async () => {
       // Chain: WhisperKit -> Apple
       await adminService.setSTTConfig(
         { primary_provider: "whisperkit", fallback_provider: "apple" },
-        "admin_test"
+        "admin_test",
       );
       config = await adminService.getSTTConfig();
       assert.equal(config.primary_provider, "whisperkit");
@@ -369,7 +382,7 @@ describe("STT Configuration Service", async () => {
       // Chain: OpenAI -> WhisperKit
       await adminService.setSTTConfig(
         { primary_provider: "openai", fallback_provider: "whisperkit" },
-        "admin_test"
+        "admin_test",
       );
       config = await adminService.getSTTConfig();
       assert.equal(config.primary_provider, "openai");
@@ -380,7 +393,7 @@ describe("STT Configuration Service", async () => {
       // This is valid - means no fallback (only use OpenAI)
       await adminService.setSTTConfig(
         { primary_provider: "openai", fallback_provider: "openai" },
-        "admin_test"
+        "admin_test",
       );
       const config = await adminService.getSTTConfig();
       assert.equal(config.primary_provider, "openai");
@@ -393,7 +406,7 @@ describe("STT Configuration Service", async () => {
       // Recommended config: WhisperKit (on-device) -> OpenAI (cloud)
       await adminService.setSTTConfig(
         { primary_provider: "whisperkit", fallback_provider: "openai" },
-        "admin_test"
+        "admin_test",
       );
 
       const appConfig = await adminService.getAppConfig();
@@ -401,12 +414,12 @@ describe("STT Configuration Service", async () => {
       assert.equal(
         appConfig.stt.primary_provider,
         "whisperkit",
-        "Primary should be on-device WhisperKit"
+        "Primary should be on-device WhisperKit",
       );
       assert.equal(
         appConfig.stt.fallback_provider,
         "openai",
-        "Fallback should be cloud OpenAI"
+        "Fallback should be cloud OpenAI",
       );
     });
 
@@ -414,7 +427,7 @@ describe("STT Configuration Service", async () => {
       // Alternative config: OpenAI (consistent) -> WhisperKit (offline fallback)
       await adminService.setSTTConfig(
         { primary_provider: "openai", fallback_provider: "whisperkit" },
-        "admin_test"
+        "admin_test",
       );
 
       const appConfig = await adminService.getAppConfig();
@@ -440,6 +453,17 @@ describe("STT Provider Status", () => {
     const migrationsDir = path.join(__dirname, "..", "migrations");
     db = await initDb({ dbPath, migrationsDir });
     adminService = new AdminService(db);
+
+    // Seed the admin actor used as updated_by. security_config.updated_by has a
+    // FK to admin_users(id); updateSecurityConfig(..., "admin_test") fails with
+    // FOREIGN KEY constraint without this row.
+    await db
+      .prepare(
+        `INSERT INTO admin_users (id, email, password_hash, role, created_at)
+         VALUES ('admin_test', 'admin_test@example.com', 'x', 'superadmin', ?)
+         ON CONFLICT(id) DO NOTHING`,
+      )
+      .run(new Date().toISOString());
   });
 
   after(async () => {
@@ -459,7 +483,7 @@ describe("STT Provider Status", () => {
     // provider_status should be an object
     assert.ok(
       typeof config.provider_status === "object",
-      "provider_status should be an object"
+      "provider_status should be an object",
     );
   });
 
@@ -470,7 +494,7 @@ describe("STT Provider Status", () => {
         `
       INSERT OR REPLACE INTO provider_status (id, provider_name, status, updated_at)
       VALUES ('prov_stt_test', 'stt_test_provider', 'disabled', datetime('now'))
-    `
+    `,
       )
       .run();
 
@@ -481,7 +505,7 @@ describe("STT Provider Status", () => {
       assert.equal(
         config.provider_status["stt_test_provider"],
         "disabled",
-        "Test provider should be disabled"
+        "Test provider should be disabled",
       );
     }
 

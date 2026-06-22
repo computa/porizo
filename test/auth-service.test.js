@@ -103,7 +103,9 @@ describe("Auth Service", () => {
     });
 
     it("should include session id when provided", () => {
-      const token = authService.generateAccessToken("user-sid", { sessionId: "sess-123" });
+      const token = authService.generateAccessToken("user-sid", {
+        sessionId: "sess-123",
+      });
       const payload = authService.verifyAccessToken(token);
 
       assert.strictEqual(payload.sub, "user-sid");
@@ -112,7 +114,9 @@ describe("Auth Service", () => {
 
     it("should reject expired token", async () => {
       // Generate token with very short expiry for testing
-      const token = authService.generateAccessToken("user-789", { expiresIn: "1ms" });
+      const token = authService.generateAccessToken("user-789", {
+        expiresIn: "1ms",
+      });
 
       // Wait for expiry
       await new Promise((r) => setTimeout(r, 10));
@@ -131,7 +135,9 @@ describe("Auth Service", () => {
     it("should reject tampered token", () => {
       const token = authService.generateAccessToken("user-111");
       const parts = token.split(".");
-      parts[1] = Buffer.from(JSON.stringify({ sub: "hacked" })).toString("base64url");
+      parts[1] = Buffer.from(JSON.stringify({ sub: "hacked" })).toString(
+        "base64url",
+      );
       const tamperedToken = parts.join(".");
 
       assert.throws(() => {
@@ -146,48 +152,74 @@ describe("Auth Service", () => {
     beforeEach(() => {
       testUserId = uniqueUserId("user-rt");
       // Create test user
-      db.prepare("INSERT INTO users (id, created_at, risk_level) VALUES (?, datetime('now'), 'low')").run(testUserId);
+      db.prepare(
+        "INSERT INTO users (id, created_at, risk_level) VALUES (?, datetime('now'), 'low')",
+      ).run(testUserId);
     });
 
     it("should create refresh token and store hashed in DB", async () => {
-      const { token, tokenId, expiresAt } = await authService.createRefreshToken(testUserId);
+      const { token, tokenId, expiresAt } =
+        await authService.createRefreshToken(testUserId);
 
       assert.ok(token, "should return raw token");
       assert.ok(tokenId, "should return token ID");
       assert.ok(expiresAt, "should return expiration");
 
       // Verify stored in DB as hash
-      const stored = db.prepare("SELECT * FROM refresh_tokens WHERE id = ?").get(tokenId);
+      const stored = db
+        .prepare("SELECT * FROM refresh_tokens WHERE id = ?")
+        .get(tokenId);
       assert.ok(stored, "should be stored in DB");
-      assert.notEqual(stored.token_hash, token, "should store hash, not raw token");
+      assert.notEqual(
+        stored.token_hash,
+        token,
+        "should store hash, not raw token",
+      );
       assert.strictEqual(stored.user_id, testUserId);
     });
 
     it("should bind refresh token family to session when provided", async () => {
-      const session = await authService.createSession(testUserId, { deviceName: "Test iPhone" });
-      const { tokenFamily } = await authService.createRefreshToken(testUserId, { sessionId: session.id });
+      const session = await authService.createSession(testUserId, {
+        deviceName: "Test iPhone",
+      });
+      const { tokenFamily } = await authService.createRefreshToken(testUserId, {
+        sessionId: session.id,
+      });
 
-      const family = db.prepare("SELECT session_id FROM token_families WHERE id = ?").get(tokenFamily);
+      const family = db
+        .prepare("SELECT session_id FROM token_families WHERE id = ?")
+        .get(tokenFamily);
       assert.strictEqual(family.session_id, session.id);
     });
 
     it("should verify valid refresh token", async () => {
-      const session = await authService.createSession(testUserId, { deviceName: "Test Device" });
-      const { token } = await authService.createRefreshToken(testUserId, { sessionId: session.id });
+      const session = await authService.createSession(testUserId, {
+        deviceName: "Test Device",
+      });
+      const { token } = await authService.createRefreshToken(testUserId, {
+        sessionId: session.id,
+      });
 
       const result = await authService.verifyRefreshToken(token);
       assert.strictEqual(result.userId, testUserId);
       assert.ok(result.tokenId, "should return token ID");
       assert.ok(result.tokenFamily, "should return token family");
-      assert.strictEqual(result.sessionId, session.id, "should return bound session ID");
+      assert.strictEqual(
+        result.sessionId,
+        session.id,
+        "should return bound session ID",
+      );
     });
 
     it("should reject refresh tokens without a bound session", async () => {
       const { token } = await authService.createRefreshToken(testUserId);
 
-      await assert.rejects(async () => {
-        await authService.verifyRefreshToken(token);
-      }, (error) => error?.code === "SESSION_BINDING_REQUIRED");
+      await assert.rejects(
+        async () => {
+          await authService.verifyRefreshToken(token);
+        },
+        (error) => error?.code === "SESSION_BINDING_REQUIRED",
+      );
     });
 
     it("should reject invalid refresh token", async () => {
@@ -197,7 +229,16 @@ describe("Auth Service", () => {
     });
 
     it("should reject revoked refresh token", async () => {
-      const { token, tokenId } = await authService.createRefreshToken(testUserId);
+      // Bind a session: verifyRefreshToken checks session binding first, so a
+      // token created without one fails as "session binding missing" before the
+      // revoked check is ever reached.
+      const session = await authService.createSession(testUserId, {
+        deviceName: "Revoke Device",
+      });
+      const { token, tokenId } = await authService.createRefreshToken(
+        testUserId,
+        { sessionId: session.id },
+      );
 
       // Revoke the token
       await authService.revokeRefreshToken(tokenId);
@@ -208,8 +249,14 @@ describe("Auth Service", () => {
     });
 
     it("should reject expired refresh token", async () => {
-      // Create token with past expiration
-      const { token, tokenId } = await authService.createRefreshToken(testUserId, { expiresIn: -1 });
+      // Bind a session (see revoked test) then create a token with past expiry.
+      const session = await authService.createSession(testUserId, {
+        deviceName: "Expire Device",
+      });
+      const { token } = await authService.createRefreshToken(testUserId, {
+        expiresIn: -1,
+        sessionId: session.id,
+      });
 
       await assert.rejects(async () => {
         await authService.verifyRefreshToken(token);
@@ -217,21 +264,36 @@ describe("Auth Service", () => {
     });
 
     it("should rotate refresh token (generate new, revoke old)", async () => {
-      const session = await authService.createSession(testUserId, { deviceName: "Rotate Device" });
-      const { token: oldToken, tokenId: oldTokenId, tokenFamily } = await authService.createRefreshToken(
-        testUserId,
-        { sessionId: session.id }
-      );
+      const session = await authService.createSession(testUserId, {
+        deviceName: "Rotate Device",
+      });
+      const {
+        token: oldToken,
+        tokenId: oldTokenId,
+        tokenFamily,
+      } = await authService.createRefreshToken(testUserId, {
+        sessionId: session.id,
+      });
 
       // Rotate the token
-      const { token: newToken, tokenId: newTokenId, tokenFamily: newFamily } = await authService.rotateRefreshToken(
-        oldToken
-      );
+      const {
+        token: newToken,
+        tokenId: newTokenId,
+        tokenFamily: newFamily,
+      } = await authService.rotateRefreshToken(oldToken);
 
       assert.notEqual(newToken, oldToken, "new token should differ");
-      assert.strictEqual(newFamily, tokenFamily, "should keep same token family");
+      assert.strictEqual(
+        newFamily,
+        tokenFamily,
+        "should keep same token family",
+      );
       const rotated = await authService.verifyRefreshToken(newToken);
-      assert.strictEqual(rotated.userId, testUserId, "rotated token should keep the same user");
+      assert.strictEqual(
+        rotated.userId,
+        testUserId,
+        "rotated token should keep the same user",
+      );
 
       // Old token should be revoked
       await assert.rejects(async () => {
@@ -240,36 +302,55 @@ describe("Auth Service", () => {
 
       // New token should work
       const result = await authService.rotateRefreshToken(newToken);
-      assert.strictEqual(result.userId, testUserId, "rotation result must include userId for access token minting");
+      assert.strictEqual(
+        result.userId,
+        testUserId,
+        "rotation result must include userId for access token minting",
+      );
     });
 
     it("should reject rotation for refresh token families without a bound session", async () => {
       const { token } = await authService.createRefreshToken(testUserId);
 
-      await assert.rejects(async () => {
-        await authService.rotateRefreshToken(token);
-      }, (error) => error?.code === "SESSION_BINDING_REQUIRED");
+      await assert.rejects(
+        async () => {
+          await authService.rotateRefreshToken(token);
+        },
+        (error) => error?.code === "SESSION_BINDING_REQUIRED",
+      );
     });
 
     it("should detect token reuse attack and revoke entire family", async () => {
       // Create initial token
-      const session = await authService.createSession(testUserId, { deviceName: "Reuse Device" });
-      const { token: token1, tokenFamily } = await authService.createRefreshToken(testUserId, { sessionId: session.id });
+      const session = await authService.createSession(testUserId, {
+        deviceName: "Reuse Device",
+      });
+      const { token: token1, tokenFamily } =
+        await authService.createRefreshToken(testUserId, {
+          sessionId: session.id,
+        });
 
       // Rotate to get token2
       const { token: token2 } = await authService.rotateRefreshToken(token1);
 
       // Attacker tries to reuse token1 (already rotated)
       let reuseError = null;
-      await assert.rejects(async () => {
-        await authService.rotateRefreshToken(token1);
-      }, (err) => {
-        reuseError = err;
-        return /reuse detected|revoked|already rotated|compromised/i.test(err.message || "");
-      });
+      await assert.rejects(
+        async () => {
+          await authService.rotateRefreshToken(token1);
+        },
+        (err) => {
+          reuseError = err;
+          return /reuse detected|revoked|already rotated|compromised/i.test(
+            err.message || "",
+          );
+        },
+      );
 
       // Token family should be marked compromised
-      const family = db.prepare("SELECT * FROM token_families WHERE id = ?").get(tokenFamily);
+      const family = db
+        .prepare("SELECT * FROM token_families WHERE id = ?")
+        .get(tokenFamily);
       if (family.compromised_at) {
         // Strict policy: reuse compromises the whole family
         await assert.rejects(async () => {
@@ -279,7 +360,7 @@ describe("Auth Service", () => {
         // Grace-window policy: reuse shortly after rotation returns re-auth error
         assert.ok(
           /already rotated|conflict/i.test(reuseError?.message || ""),
-          "Expected graceful rotation conflict behavior when family is not compromised"
+          "Expected graceful rotation conflict behavior when family is not compromised",
         );
         const stillValid = await authService.verifyRefreshToken(token2);
         assert.strictEqual(stillValid.userId, testUserId);
@@ -292,20 +373,29 @@ describe("Auth Service", () => {
 
     beforeEach(() => {
       testUserId = uniqueUserId("user-prt");
-      db.prepare("INSERT INTO users (id, created_at, risk_level) VALUES (?, datetime('now'), 'low')").run(testUserId);
+      db.prepare(
+        "INSERT INTO users (id, created_at, risk_level) VALUES (?, datetime('now'), 'low')",
+      ).run(testUserId);
     });
 
     it("should create password reset token", async () => {
-      const { token, tokenId, expiresAt } = await authService.createPasswordResetToken(testUserId);
+      const { token, tokenId, expiresAt } =
+        await authService.createPasswordResetToken(testUserId);
 
       assert.ok(token, "should return raw token");
       assert.ok(tokenId, "should return token ID");
       assert.ok(expiresAt, "should return expiration");
 
       // Verify stored hashed
-      const stored = db.prepare("SELECT * FROM password_reset_tokens WHERE id = ?").get(tokenId);
+      const stored = db
+        .prepare("SELECT * FROM password_reset_tokens WHERE id = ?")
+        .get(tokenId);
       assert.ok(stored, "should be stored in DB");
-      assert.notEqual(stored.token_hash, token, "should store hash, not raw token");
+      assert.notEqual(
+        stored.token_hash,
+        token,
+        "should store hash, not raw token",
+      );
     });
 
     it("should verify valid password reset token", async () => {
@@ -317,7 +407,8 @@ describe("Auth Service", () => {
     });
 
     it("should reject already used token", async () => {
-      const { token, tokenId } = await authService.createPasswordResetToken(testUserId);
+      const { token, tokenId } =
+        await authService.createPasswordResetToken(testUserId);
 
       // Mark as used
       await authService.markPasswordResetTokenUsed(tokenId);
@@ -328,7 +419,9 @@ describe("Auth Service", () => {
     });
 
     it("should reject expired token", async () => {
-      const { token } = await authService.createPasswordResetToken(testUserId, { expiresIn: -1 });
+      const { token } = await authService.createPasswordResetToken(testUserId, {
+        expiresIn: -1,
+      });
 
       await assert.rejects(async () => {
         await authService.verifyPasswordResetToken(token);
@@ -337,8 +430,10 @@ describe("Auth Service", () => {
 
     it("should invalidate all tokens when password is reset", async () => {
       // Create multiple reset tokens
-      const { token: token1 } = await authService.createPasswordResetToken(testUserId);
-      const { token: token2 } = await authService.createPasswordResetToken(testUserId);
+      const { token: token1 } =
+        await authService.createPasswordResetToken(testUserId);
+      const { token: token2 } =
+        await authService.createPasswordResetToken(testUserId);
 
       // Reset password (invalidates all)
       await authService.invalidateAllPasswordResetTokens(testUserId);
@@ -358,11 +453,14 @@ describe("Auth Service", () => {
 
     beforeEach(() => {
       testUserId = uniqueUserId("user-evt");
-      db.prepare("INSERT INTO users (id, created_at, risk_level) VALUES (?, datetime('now'), 'low')").run(testUserId);
+      db.prepare(
+        "INSERT INTO users (id, created_at, risk_level) VALUES (?, datetime('now'), 'low')",
+      ).run(testUserId);
     });
 
     it("should create email verification token", async () => {
-      const { token, tokenId, expiresAt } = await authService.createEmailVerificationToken(testUserId);
+      const { token, tokenId, expiresAt } =
+        await authService.createEmailVerificationToken(testUserId);
 
       assert.ok(token, "should return raw token");
       assert.ok(tokenId, "should return token ID");
@@ -370,19 +468,27 @@ describe("Auth Service", () => {
     });
 
     it("should bind email verification token to the intended email", async () => {
-      const { tokenId, emailNormalized } = await authService.createEmailVerificationToken(testUserId, {
-        email: " Ambrose@Example.com ",
-      });
+      const { tokenId, emailNormalized } =
+        await authService.createEmailVerificationToken(testUserId, {
+          email: " Ambrose@Example.com ",
+        });
 
       assert.strictEqual(emailNormalized, "ambrose@example.com");
-      const stored = db.prepare("SELECT email_normalized FROM email_verification_tokens WHERE id = ?").get(tokenId);
+      const stored = db
+        .prepare(
+          "SELECT email_normalized FROM email_verification_tokens WHERE id = ?",
+        )
+        .get(tokenId);
       assert.strictEqual(stored.email_normalized, "ambrose@example.com");
     });
 
     it("should verify valid email verification token", async () => {
-      const { token } = await authService.createEmailVerificationToken(testUserId, {
-        email: "recipient@example.com",
-      });
+      const { token } = await authService.createEmailVerificationToken(
+        testUserId,
+        {
+          email: "recipient@example.com",
+        },
+      );
 
       const result = await authService.verifyEmailVerificationToken(token);
       assert.strictEqual(result.userId, testUserId);
@@ -390,7 +496,8 @@ describe("Auth Service", () => {
     });
 
     it("should reject already used token", async () => {
-      const { token, tokenId } = await authService.createEmailVerificationToken(testUserId);
+      const { token, tokenId } =
+        await authService.createEmailVerificationToken(testUserId);
 
       await authService.markEmailVerificationTokenUsed(tokenId);
 
@@ -405,7 +512,9 @@ describe("Auth Service", () => {
 
     beforeEach(() => {
       testUserId = uniqueUserId("user-sess");
-      db.prepare("INSERT INTO users (id, created_at, risk_level) VALUES (?, datetime('now'), 'low')").run(testUserId);
+      db.prepare(
+        "INSERT INTO users (id, created_at, risk_level) VALUES (?, datetime('now'), 'low')",
+      ).run(testUserId);
     });
 
     it("should create session for user", async () => {
@@ -435,18 +544,30 @@ describe("Auth Service", () => {
     });
 
     it("should revoke session", async () => {
-      const session = await authService.createSession(testUserId, { deviceName: "Test" });
+      const session = await authService.createSession(testUserId, {
+        deviceName: "Test",
+      });
 
       await authService.revokeSession(session.id);
 
       const sessions = await authService.listSessions(testUserId);
-      assert.strictEqual(sessions.length, 0, "should not list revoked sessions");
+      assert.strictEqual(
+        sessions.length,
+        0,
+        "should not list revoked sessions",
+      );
     });
 
     it("should revoke all sessions except current", async () => {
-      const session1 = await authService.createSession(testUserId, { deviceName: "iPhone" });
-      const session2 = await authService.createSession(testUserId, { deviceName: "iPad" });
-      const session3 = await authService.createSession(testUserId, { deviceName: "Mac" });
+      const session1 = await authService.createSession(testUserId, {
+        deviceName: "iPhone",
+      });
+      const session2 = await authService.createSession(testUserId, {
+        deviceName: "iPad",
+      });
+      const session3 = await authService.createSession(testUserId, {
+        deviceName: "Mac",
+      });
 
       await authService.revokeAllSessionsExcept(testUserId, session1.id);
 
@@ -461,7 +582,9 @@ describe("Auth Service", () => {
 
     beforeEach(() => {
       testUserId = uniqueUserId("user-evt");
-      db.prepare("INSERT INTO users (id, created_at, risk_level) VALUES (?, datetime('now'), 'low')").run(testUserId);
+      db.prepare(
+        "INSERT INTO users (id, created_at, risk_level) VALUES (?, datetime('now'), 'low')",
+      ).run(testUserId);
     });
 
     it("should log auth event", async () => {
@@ -473,7 +596,9 @@ describe("Auth Service", () => {
         metadata: { method: "email" },
       });
 
-      const events = db.prepare("SELECT * FROM auth_events WHERE user_id = ?").all(testUserId);
+      const events = db
+        .prepare("SELECT * FROM auth_events WHERE user_id = ?")
+        .all(testUserId);
 
       assert.strictEqual(events.length, 1);
       assert.strictEqual(events[0].event_type, "login_success");
@@ -487,7 +612,9 @@ describe("Auth Service", () => {
         metadata: { email: "test@example.com" },
       });
 
-      const events = db.prepare("SELECT * FROM auth_events WHERE event_type = 'login_failed'").all();
+      const events = db
+        .prepare("SELECT * FROM auth_events WHERE event_type = 'login_failed'")
+        .all();
 
       assert.ok(events.length > 0);
       assert.strictEqual(events[0].user_id, null);
@@ -500,15 +627,20 @@ describe("Auth Service", () => {
     beforeEach(() => {
       testUserId = uniqueUserId("user-lock");
       db.prepare(
-        "INSERT INTO users (id, email, created_at, risk_level) VALUES (?, ?, datetime('now'), 'low')"
-      ).run(testUserId, `test-${crypto.randomBytes(8).toString("hex")}@example.com`);
+        "INSERT INTO users (id, email, created_at, risk_level) VALUES (?, ?, datetime('now'), 'low')",
+      ).run(
+        testUserId,
+        `test-${crypto.randomBytes(8).toString("hex")}@example.com`,
+      );
     });
 
     it("should increment failed login count", async () => {
       await authService.incrementFailedLoginCount(testUserId);
       await authService.incrementFailedLoginCount(testUserId);
 
-      const user = db.prepare("SELECT failed_login_count FROM users WHERE id = ?").get(testUserId);
+      const user = db
+        .prepare("SELECT failed_login_count FROM users WHERE id = ?")
+        .get(testUserId);
       assert.strictEqual(user.failed_login_count, 2);
     });
 
@@ -528,7 +660,9 @@ describe("Auth Service", () => {
       }
 
       // Set locked_until to past
-      db.prepare("UPDATE users SET locked_until = datetime('now', '-1 hour') WHERE id = ?").run(testUserId);
+      db.prepare(
+        "UPDATE users SET locked_until = datetime('now', '-1 hour') WHERE id = ?",
+      ).run(testUserId);
 
       const isLocked = await authService.isAccountLocked(testUserId);
       assert.strictEqual(isLocked, false);
@@ -540,7 +674,11 @@ describe("Auth Service", () => {
 
       await authService.resetFailedLoginCount(testUserId);
 
-      const user = db.prepare("SELECT failed_login_count, locked_until FROM users WHERE id = ?").get(testUserId);
+      const user = db
+        .prepare(
+          "SELECT failed_login_count, locked_until FROM users WHERE id = ?",
+        )
+        .get(testUserId);
       assert.strictEqual(user.failed_login_count, 0);
       assert.strictEqual(user.locked_until, null);
     });
@@ -550,15 +688,17 @@ describe("Auth Service", () => {
       const concurrentCount = 5;
       await Promise.all(
         Array.from({ length: concurrentCount }, () =>
-          authService.incrementFailedLoginCount(testUserId)
-        )
+          authService.incrementFailedLoginCount(testUserId),
+        ),
       );
 
-      const user = db.prepare("SELECT failed_login_count FROM users WHERE id = ?").get(testUserId);
+      const user = db
+        .prepare("SELECT failed_login_count FROM users WHERE id = ?")
+        .get(testUserId);
       assert.strictEqual(
         user.failed_login_count,
         concurrentCount,
-        `Expected ${concurrentCount} increments, got ${user.failed_login_count} — indicates lost updates`
+        `Expected ${concurrentCount} increments, got ${user.failed_login_count} — indicates lost updates`,
       );
     });
 
@@ -568,7 +708,11 @@ describe("Auth Service", () => {
         await authService.incrementFailedLoginCount(testUserId);
       }
 
-      const user = db.prepare("SELECT failed_login_count, locked_until FROM users WHERE id = ?").get(testUserId);
+      const user = db
+        .prepare(
+          "SELECT failed_login_count, locked_until FROM users WHERE id = ?",
+        )
+        .get(testUserId);
       assert.strictEqual(user.failed_login_count, 10);
       assert.ok(user.locked_until, "should be locked after 10 failures");
 
@@ -579,18 +723,26 @@ describe("Auth Service", () => {
       expectedMinLockout.setMinutes(expectedMinLockout.getMinutes() + 25); // at least 25 min (30 minus some slack)
       assert.ok(
         lockedUntil > expectedMinLockout,
-        "Second lockout should be escalated (>25 min from now)"
+        "Second lockout should be escalated (>25 min from now)",
       );
     });
 
     it("should handle null failed_login_count gracefully", async () => {
       // Explicitly set failed_login_count to NULL to test COALESCE
-      db.prepare("UPDATE users SET failed_login_count = NULL WHERE id = ?").run(testUserId);
+      db.prepare("UPDATE users SET failed_login_count = NULL WHERE id = ?").run(
+        testUserId,
+      );
 
       await authService.incrementFailedLoginCount(testUserId);
 
-      const user = db.prepare("SELECT failed_login_count FROM users WHERE id = ?").get(testUserId);
-      assert.strictEqual(user.failed_login_count, 1, "should increment from NULL to 1");
+      const user = db
+        .prepare("SELECT failed_login_count FROM users WHERE id = ?")
+        .get(testUserId);
+      assert.strictEqual(
+        user.failed_login_count,
+        1,
+        "should increment from NULL to 1",
+      );
     });
   });
 
@@ -608,7 +760,11 @@ describe("Auth Service", () => {
       const hash = authService.hashToken(token);
 
       assert.strictEqual(hash.length, 64, "SHA-256 produces 64-char hex");
-      assert.strictEqual(hash, authService.hashToken(token), "hashing should be deterministic");
+      assert.strictEqual(
+        hash,
+        authService.hashToken(token),
+        "hashing should be deterministic",
+      );
     });
   });
 });
