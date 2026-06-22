@@ -1141,6 +1141,14 @@ async function deleteUserAccount(userId) {
       .prepare("DELETE FROM user_credentials WHERE user_id = ?")
       .run(userId);
 
+    // 8b. Purge user_contacts (GDPR PII residual). user_contacts is the
+    // "sole contact authority" and stores the user's real email + phone in
+    // plaintext (value_normalized/value_display). It has ON DELETE CASCADE on
+    // users(id), but step 9 SOFT-deletes the user row (UPDATE, not DELETE), so
+    // the cascade never fires — leaving authoritative PII behind even though
+    // users.email is anonymized below. Delete explicitly inside this txn.
+    await db.prepare("DELETE FROM user_contacts WHERE user_id = ?").run(userId);
+
     // 9. Soft-delete user (preserve audit trail, anonymize PII)
     await db
       .prepare(
@@ -1164,6 +1172,97 @@ async function deleteUserAccount(userId) {
       )
       .run(generateId("evt"), userId);
   });
+}
+
+/**
+ * Export all personal data held for a user (GDPR Article 20 portability).
+ * Read-only counterpart to deleteUserAccount: assembles the user-scoped rows
+ * across the same domain tables into a single JSON bundle.
+ *
+ * Secrets and internal references are redacted by column name (password hashes,
+ * embeddings, stream keys, raw receipt blobs, provider-side ids) — the export
+ * gives the user THEIR data, never credentials or other people's data. Each
+ * section is wrapped so a table/column that differs between Postgres (prod) and
+ * the sql.js test DB can't abort the whole export.
+ *
+ * @param {string} userId
+ * @returns {Promise<object>} export bundle
+ */
+async function exportUserData(userId) {
+  const user = await db
+    .prepare("SELECT id FROM users WHERE id = ? AND deleted_at IS NULL")
+    .get(userId);
+  if (!user) {
+    throw new Error("User not found");
+  }
+
+  // Column names redacted from every exported row.
+  const REDACT = new Set([
+    "password_hash",
+    "embedding",
+    "embedding_ref",
+    "stream_key",
+    "token",
+    "access_token",
+    "refresh_token",
+    "secret",
+    "provider_profile_id",
+    "source_upload_url",
+    "source_audio_id",
+    "source_task_id",
+    "receipt_data",
+    "latest_receipt",
+    "signed_payload",
+    "jws_representation",
+    "transaction_jws",
+  ]);
+  const scrub = (rows) =>
+    (rows || []).map((row) => {
+      const out = {};
+      for (const [k, v] of Object.entries(row)) {
+        if (!REDACT.has(k)) {
+          out[k] = v;
+        }
+      }
+      return out;
+    });
+
+  // Section name → user-scoped SELECT. Top-level entities only (child rows like
+  // track_versions/story_turns are intentionally omitted to keep the bundle
+  // bounded; they can be added if a portability request specifically needs them).
+  const sections = {
+    profile: "SELECT * FROM users WHERE id = ?",
+    contacts: "SELECT * FROM user_contacts WHERE user_id = ?",
+    auth_providers:
+      "SELECT id, provider, provider_user_id, created_at FROM user_auth_providers WHERE user_id = ?",
+    entitlements: "SELECT * FROM entitlements WHERE user_id = ?",
+    subscriptions: "SELECT * FROM subscriptions WHERE user_id = ?",
+    purchases: "SELECT * FROM purchase_receipts WHERE user_id = ?",
+    credit_transactions: "SELECT * FROM credit_transactions WHERE user_id = ?",
+    tracks: "SELECT * FROM tracks WHERE user_id = ?",
+    poems: "SELECT * FROM poems WHERE user_id = ?",
+    voice_profiles: "SELECT * FROM voice_profiles WHERE user_id = ?",
+    enrollment_sessions: "SELECT * FROM enrollment_sessions WHERE user_id = ?",
+    story_sessions: "SELECT * FROM story_sessions WHERE user_id = ?",
+  };
+
+  const data = {};
+  for (const [name, sql] of Object.entries(sections)) {
+    try {
+      const stmt = await db.prepare(sql);
+      const rows = await stmt.all(userId);
+      data[name] = scrub(rows);
+    } catch (err) {
+      data[name] = { error: `unavailable: ${err.message}` };
+    }
+  }
+
+  return {
+    export_format: "json",
+    generated_at: new Date().toISOString(),
+    user_id: userId,
+    data,
+  };
 }
 
 // ==================== EXPORTS ====================
@@ -1220,4 +1319,7 @@ module.exports = {
 
   // Account deletion
   deleteUserAccount,
+
+  // GDPR data export (Article 20)
+  exportUserData,
 };

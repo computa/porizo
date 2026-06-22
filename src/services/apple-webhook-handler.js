@@ -104,7 +104,7 @@ function createAppleWebhookHandler(db, options = {}) {
   async function isNotificationProcessed(notificationUUID) {
     const result = await query(
       "SELECT id FROM webhook_notifications WHERE platform = 'apple' AND notification_uuid = ?",
-      [notificationUUID]
+      [notificationUUID],
     );
     return result.rows.length > 0;
   }
@@ -116,7 +116,11 @@ function createAppleWebhookHandler(db, options = {}) {
    * @param {string} status - New status
    * @param {Object} result - Processing result to store
    */
-  async function updateNotificationStatus(notificationUUID, status, result = null) {
+  async function updateNotificationStatus(
+    notificationUUID,
+    status,
+    result = null,
+  ) {
     const payloadUpdate = result ? `, payload_json = ?` : "";
     const params = result
       ? [status, JSON.stringify(result), notificationUUID]
@@ -126,7 +130,7 @@ function createAppleWebhookHandler(db, options = {}) {
       `UPDATE webhook_notifications
        SET status = ?, processed_at = CURRENT_TIMESTAMP${payloadUpdate}
        WHERE platform = 'apple' AND notification_uuid = ?`,
-      params
+      params,
     );
   }
 
@@ -158,16 +162,22 @@ function createAppleWebhookHandler(db, options = {}) {
           rawPayload,
           error.message,
           error.stack || null,
-        ]
+        ],
       );
 
       console.error(
-        `[Apple Webhook] Moved to DLQ: ${notification.notificationType} (${notification.notificationUUID})`
+        `[Apple Webhook] Moved to DLQ: ${notification.notificationType} (${notification.notificationUUID})`,
       );
     } catch (dlqError) {
       // Last resort: log to console if DLQ insert fails
-      console.error("[Apple Webhook] CRITICAL: Failed to write to DLQ:", dlqError);
-      console.error("[Apple Webhook] Lost notification:", JSON.stringify(notification));
+      console.error(
+        "[Apple Webhook] CRITICAL: Failed to write to DLQ:",
+        dlqError,
+      );
+      console.error(
+        "[Apple Webhook] Lost notification:",
+        JSON.stringify(notification),
+      );
     }
   }
 
@@ -183,7 +193,7 @@ function createAppleWebhookHandler(db, options = {}) {
        FROM subscriptions s
        JOIN users u ON s.user_id = u.id
        WHERE s.original_transaction_id = ?`,
-      [originalTransactionId]
+      [originalTransactionId],
     );
     return result.rows[0] || null;
   }
@@ -199,7 +209,9 @@ function createAppleWebhookHandler(db, options = {}) {
     if (!appleValidator) {
       // Reject unsigned payloads in production — returning null triggers the
       // INVALID_PAYLOAD path (HTTP 200) which stops Apple retry storms (BILL-05).
-      console.error('Apple webhook validator not initialized - cannot verify signature');
+      console.error(
+        "Apple webhook validator not initialized - cannot verify signature",
+      );
       return null;
     }
     return appleValidator.decodeJWS(signedPayload);
@@ -287,7 +299,12 @@ function createAppleWebhookHandler(db, options = {}) {
     // Atomic idempotency: claim the notification in one step to prevent the TOCTOU race
     // where two concurrent webhook deliveries both pass a SELECT check and double-process (C3).
     const claimId = `whn_${Date.now()}_${crypto.randomBytes(4).toString("hex")}`;
-    const payloadJson = JSON.stringify({ subtype, version, signedDate, rawPayload: signedPayload });
+    const payloadJson = JSON.stringify({
+      subtype,
+      version,
+      signedDate,
+      rawPayload: signedPayload,
+    });
 
     // SQLite's sql.js adapter routes INSERT...RETURNING through .run() which doesn't
     // return rows, so we use INSERT ON CONFLICT DO NOTHING and check `changes` instead.
@@ -296,11 +313,12 @@ function createAppleWebhookHandler(db, options = {}) {
        (id, platform, notification_type, notification_uuid, subscription_id, user_id, payload_json, status, processed_at, created_at)
        VALUES (?, 'apple', ?, ?, NULL, NULL, ?, 'pending', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
        ON CONFLICT (platform, notification_uuid) DO NOTHING`,
-      [claimId, notificationType, notificationUUID, payloadJson]
+      [claimId, notificationType, notificationUUID, payloadJson],
     );
 
     // Check if our insert won (changes > 0) or another process already claimed it
-    const inserted = claimResult.changes > 0 ||
+    const inserted =
+      claimResult.changes > 0 ||
       (claimResult.rowCount != null && claimResult.rowCount > 0);
 
     if (!inserted) {
@@ -321,7 +339,7 @@ function createAppleWebhookHandler(db, options = {}) {
 
     if (txInfo.originalTransactionId) {
       subscription = await findSubscriptionByOriginalTxId(
-        txInfo.originalTransactionId
+        txInfo.originalTransactionId,
       );
       if (subscription) {
         userId = subscription.user_id;
@@ -334,7 +352,12 @@ function createAppleWebhookHandler(db, options = {}) {
     try {
       switch (notificationType) {
         case NOTIFICATION_TYPES.SUBSCRIBED:
-          result = await handleSubscribed(subscription, userId, txInfo, subtype);
+          result = await handleSubscribed(
+            subscription,
+            userId,
+            txInfo,
+            subtype,
+          );
           break;
 
         case NOTIFICATION_TYPES.DID_RENEW:
@@ -357,6 +380,14 @@ function createAppleWebhookHandler(db, options = {}) {
           result = await handleRefund(subscription, txInfo);
           break;
 
+        case NOTIFICATION_TYPES.REFUND_REVERSED:
+          result = await handleRefundReversed(subscription, userId, txInfo);
+          break;
+
+        case NOTIFICATION_TYPES.REFUND_DECLINED:
+          result = await handleRefundDeclined(subscription, txInfo);
+          break;
+
         case NOTIFICATION_TYPES.REVOKE:
           result = await handleRevoke(subscription, txInfo);
           break;
@@ -366,7 +397,11 @@ function createAppleWebhookHandler(db, options = {}) {
           break;
 
         case NOTIFICATION_TYPES.DID_CHANGE_RENEWAL_STATUS:
-          result = await handleRenewalStatusChange(subscription, txInfo, subtype);
+          result = await handleRenewalStatusChange(
+            subscription,
+            txInfo,
+            subtype,
+          );
           break;
 
         case NOTIFICATION_TYPES.TEST:
@@ -383,7 +418,7 @@ function createAppleWebhookHandler(db, options = {}) {
     } catch (err) {
       console.error(
         `[Apple Webhook] Error processing ${notificationType}:`,
-        err
+        err,
       );
       processingError = err;
       result = {
@@ -411,7 +446,7 @@ function createAppleWebhookHandler(db, options = {}) {
       await moveToDeadLetterQueue(
         { notificationType, notificationUUID },
         processingError,
-        signedPayload
+        signedPayload,
       );
 
       return {
@@ -448,7 +483,7 @@ function createAppleWebhookHandler(db, options = {}) {
       // Log and defer - the app should call our receipt endpoint
       console.log(
         "[Apple Webhook] SUBSCRIBED received but no user found for:",
-        txInfo.originalTransactionId
+        txInfo.originalTransactionId,
       );
       return {
         handled: false,
@@ -461,11 +496,17 @@ function createAppleWebhookHandler(db, options = {}) {
     // Build validation object for subscription manager
     const validation = buildValidationFromTxInfo(txInfo);
 
-    const result = await subscriptionManager.syncSubscription(userId, validation);
+    const result = await subscriptionManager.syncSubscription(
+      userId,
+      validation,
+    );
 
     return {
       handled: true,
-      action: subtype === NOTIFICATION_SUBTYPES.RESUBSCRIBE ? "resubscribed" : "subscribed",
+      action:
+        subtype === NOTIFICATION_SUBTYPES.RESUBSCRIBE
+          ? "resubscribed"
+          : "subscribed",
       subscriptionId: result.subscriptionId,
       tier: result.tier,
       songsGranted: result.songsGranted,
@@ -479,7 +520,7 @@ function createAppleWebhookHandler(db, options = {}) {
     if (!subscription || !userId) {
       console.log(
         "[Apple Webhook] DID_RENEW received but subscription not found:",
-        txInfo.originalTransactionId
+        txInfo.originalTransactionId,
       );
       return {
         handled: false,
@@ -491,7 +532,10 @@ function createAppleWebhookHandler(db, options = {}) {
     // Build validation for renewal
     const validation = buildValidationFromTxInfo(txInfo, { isRenewal: true });
 
-    const result = await subscriptionManager.syncSubscription(userId, validation);
+    const result = await subscriptionManager.syncSubscription(
+      userId,
+      validation,
+    );
 
     return {
       handled: true,
@@ -564,10 +608,11 @@ function createAppleWebhookHandler(db, options = {}) {
 
     if (subtype === NOTIFICATION_SUBTYPES.GRACE_PERIOD) {
       // Enter grace period - keep tier but mark subscription
-      const gracePeriodExpiresAt = txInfo.expiresDate || new Date(Date.now() + 16 * 24 * 60 * 60 * 1000);
+      const gracePeriodExpiresAt =
+        txInfo.expiresDate || new Date(Date.now() + 16 * 24 * 60 * 60 * 1000);
       await subscriptionManager.handleGracePeriod(
         subscription.id,
-        gracePeriodExpiresAt
+        gracePeriodExpiresAt,
       );
 
       return {
@@ -585,7 +630,7 @@ function createAppleWebhookHandler(db, options = {}) {
          is_in_billing_retry = 1,
          updated_at = CURRENT_TIMESTAMP
        WHERE id = ?`,
-      [subscription.id]
+      [subscription.id],
     );
 
     return {
@@ -615,6 +660,51 @@ function createAppleWebhookHandler(db, options = {}) {
       subscriptionId: subscription.id,
       songsRevoked: result.songsRevoked,
       refundedTransactionId: txInfo.transactionId,
+    };
+  }
+
+  /**
+   * Handle REFUND_REVERSED notification.
+   * Apple reversed a previously-granted refund (the customer was re-charged),
+   * so the entitlement that handleRefund() revoked must be re-granted. Re-sync
+   * via the same grant path used for renewals; syncSubscription is idempotent
+   * on the transaction, so a duplicate REFUND_REVERSED won't double-grant.
+   */
+  async function handleRefundReversed(subscription, userId, txInfo) {
+    if (!subscription || !userId) {
+      return {
+        handled: false,
+        action: "deferred",
+        reason: "SUBSCRIPTION_NOT_FOUND",
+      };
+    }
+
+    const validation = buildValidationFromTxInfo(txInfo, { isRenewal: true });
+    const result = await subscriptionManager.syncSubscription(
+      userId,
+      validation,
+    );
+
+    return {
+      handled: true,
+      action: "refund_reversed",
+      subscriptionId: result.subscriptionId,
+      songsGranted: result.songsGranted,
+      reversedTransactionId: txInfo.transactionId,
+    };
+  }
+
+  /**
+   * Handle REFUND_DECLINED notification. Apple declined the customer's refund
+   * request; the entitlement is unchanged. Acknowledge so it isn't retried or
+   * parked in the DLQ as an unknown type.
+   */
+  async function handleRefundDeclined(subscription, txInfo) {
+    return {
+      handled: true,
+      action: "refund_declined_ack",
+      subscriptionId: subscription?.id || null,
+      declinedTransactionId: txInfo.transactionId,
     };
   }
 
@@ -660,7 +750,7 @@ function createAppleWebhookHandler(db, options = {}) {
          pending_product_id = ?,
          updated_at = CURRENT_TIMESTAMP
        WHERE id = ?`,
-      [txInfo.autoRenewProductId, subscription.id]
+      [txInfo.autoRenewProductId, subscription.id],
     );
 
     return {
@@ -691,7 +781,7 @@ function createAppleWebhookHandler(db, options = {}) {
          auto_renew_enabled = ?,
          updated_at = CURRENT_TIMESTAMP
        WHERE id = ?`,
-      [autoRenewEnabled ? 1 : 0, subscription.id]
+      [autoRenewEnabled ? 1 : 0, subscription.id],
     );
 
     return {

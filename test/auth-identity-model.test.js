@@ -12,8 +12,10 @@
 
 // Environment must be set before any require() that reads process.env
 process.env.NODE_ENV = "test";
-process.env.JWT_SECRET = process.env.JWT_SECRET || "test-jwt-secret-identity-model-0123456789abcdef";
-process.env.APPLE_CLIENT_ID = process.env.APPLE_CLIENT_ID || "com.porizo.app.test";
+process.env.JWT_SECRET =
+  process.env.JWT_SECRET || "test-jwt-secret-identity-model-0123456789abcdef";
+process.env.APPLE_CLIENT_ID =
+  process.env.APPLE_CLIENT_ID || "com.porizo.app.test";
 process.env.ALLOW_MOCK_SOCIAL_AUTH = "true";
 
 const { describe, it, before, after, beforeEach } = require("node:test");
@@ -25,7 +27,10 @@ const crypto = require("crypto");
 const { initDb } = require("../src/db");
 const { buildServer } = require("../src/server");
 const { createStorageProvider } = require("../src/storage");
-const { clearRateLimits, clearRegistrationTokens } = require("../src/routes/auth");
+const {
+  clearRateLimits,
+  clearRegistrationTokens,
+} = require("../src/routes/auth");
 const identityService = require("../src/services/identity-service");
 
 // ==================== TEST HELPERS ====================
@@ -53,7 +58,9 @@ function sha256Hex(value) {
  * In test mode (ALLOW_MOCK_SOCIAL_AUTH=true), signature verification is skipped.
  */
 function buildMockAppleToken({ sub, email, emailVerified = true, nonce }) {
-  const header = Buffer.from(JSON.stringify({ alg: "RS256", typ: "JWT" })).toString("base64url");
+  const header = Buffer.from(
+    JSON.stringify({ alg: "RS256", typ: "JWT" }),
+  ).toString("base64url");
   const payload = Buffer.from(
     JSON.stringify({
       sub,
@@ -62,7 +69,7 @@ function buildMockAppleToken({ sub, email, emailVerified = true, nonce }) {
       iss: "https://appleid.apple.com",
       aud: process.env.APPLE_CLIENT_ID,
       nonce: sha256Hex(nonce),
-    })
+    }),
   ).toString("base64url");
   const signature = Buffer.from("mock-signature").toString("base64url");
   return `${header}.${payload}.${signature}`;
@@ -76,12 +83,21 @@ async function createAppleUser(app, { email, sub, name } = {}) {
   const appleSub = sub || uniqueAppleSub();
   const appleEmail = email || uniqueEmail();
   const nonce = `nonce-${crypto.randomBytes(8).toString("hex")}`;
-  const token = buildMockAppleToken({ sub: appleSub, email: appleEmail, nonce });
+  const token = buildMockAppleToken({
+    sub: appleSub,
+    email: appleEmail,
+    nonce,
+  });
 
   const res = await app.inject({
     method: "POST",
     url: "/auth/social",
-    payload: { provider: "apple", id_token: token, nonce, name: name || "Apple User" },
+    payload: {
+      provider: "apple",
+      id_token: token,
+      nonce,
+      name: name || "Apple User",
+    },
   });
 
   const body = JSON.parse(res.body);
@@ -108,7 +124,7 @@ async function seedPhoneVerification(db, phoneNumber, code = "123456") {
   await db
     .prepare(
       `INSERT INTO phone_verifications (id, phone_number, code, code_hash, expires_at, attempts)
-       VALUES (?, ?, ?, ?, ?, 0)`
+       VALUES (?, ?, ?, ?, ?, 0)`,
     )
     .run(id, phoneNumber, code, codeHash, expiresAt);
 }
@@ -134,8 +150,16 @@ async function createPhoneUser(app, db, { phone, name, email } = {}) {
     payload: { phone_number: phoneNumber, code },
   });
   const verifyBody = JSON.parse(verifyRes.body);
-  assert.strictEqual(verifyBody.verified, true, `Phone verify failed: ${verifyRes.body}`);
-  assert.strictEqual(verifyBody.existing_user, false, "Expected new phone user");
+  assert.strictEqual(
+    verifyBody.verified,
+    true,
+    `Phone verify failed: ${verifyRes.body}`,
+  );
+  assert.strictEqual(
+    verifyBody.existing_user,
+    false,
+    "Expected new phone user",
+  );
   assert.ok(verifyBody.registration_token, "Missing registration_token");
 
   // Register
@@ -150,7 +174,11 @@ async function createPhoneUser(app, db, { phone, name, email } = {}) {
     },
   });
   const registerBody = JSON.parse(registerRes.body);
-  assert.strictEqual(registerRes.statusCode, 201, `Phone register failed: ${registerRes.body}`);
+  assert.strictEqual(
+    registerRes.statusCode,
+    201,
+    `Phone register failed: ${registerRes.body}`,
+  );
   assert.ok(registerBody.user_id, "Missing user_id from register");
 
   return {
@@ -202,7 +230,11 @@ async function linkApple(app, accessToken, { sub, email } = {}) {
   const appleSub = sub || uniqueAppleSub();
   const appleEmail = email || uniqueEmail();
   const nonce = `nonce-${crypto.randomBytes(8).toString("hex")}`;
-  const token = buildMockAppleToken({ sub: appleSub, email: appleEmail, nonce });
+  const token = buildMockAppleToken({
+    sub: appleSub,
+    email: appleEmail,
+    nonce,
+  });
 
   const res = await app.inject({
     method: "POST",
@@ -239,7 +271,8 @@ describe("Auth Identity Model", () => {
   let storageDir;
 
   before(async () => {
-    process.env.APPLE_CLIENT_ID = process.env.APPLE_CLIENT_ID || "com.porizo.app.test";
+    process.env.APPLE_CLIENT_ID =
+      process.env.APPLE_CLIENT_ID || "com.porizo.app.test";
     process.env.ALLOW_MOCK_SOCIAL_AUTH = "true";
 
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "porizo-identity-test-"));
@@ -250,7 +283,10 @@ describe("Auth Identity Model", () => {
     const migrationsDir = path.join(__dirname, "..", "migrations");
     db = await initDb({ dbPath, migrationsDir });
 
-    const storage = createStorageProvider({ type: "local", basePath: storageDir });
+    const storage = createStorageProvider({
+      type: "local",
+      basePath: storageDir,
+    });
 
     app = buildServer({
       db,
@@ -293,7 +329,12 @@ describe("Auth Identity Model", () => {
 
     it("should link phone via POST /auth/phone/link", async () => {
       phoneNumber = uniquePhone();
-      const result = await linkPhone(app, db, appleUser.accessToken, phoneNumber);
+      const result = await linkPhone(
+        app,
+        db,
+        appleUser.accessToken,
+        phoneNumber,
+      );
       assert.strictEqual(result.statusCode, 200);
       assert.strictEqual(result.body.success, true);
     });
@@ -302,7 +343,11 @@ describe("Auth Identity Model", () => {
       const signIn = await phoneSignIn(app, db, phoneNumber);
       assert.strictEqual(signIn.verified, true);
       assert.strictEqual(signIn.existing_user, true);
-      assert.strictEqual(signIn.user_id, appleUser.userId, "Phone sign-in must resolve to same user_id");
+      assert.strictEqual(
+        signIn.user_id,
+        appleUser.userId,
+        "Phone sign-in must resolve to same user_id",
+      );
       assert.ok(signIn.access_token);
     });
 
@@ -310,11 +355,14 @@ describe("Auth Identity Model", () => {
       const phoneIdentity = await db
         .prepare(
           `SELECT last_used_at FROM user_auth_providers
-           WHERE user_id = ? AND provider = 'phone'`
+           WHERE user_id = ? AND provider = 'phone'`,
         )
         .get(appleUser.userId);
       assert.ok(phoneIdentity, "Phone identity row must exist");
-      assert.ok(phoneIdentity.last_used_at, "last_used_at must be set after sign-in");
+      assert.ok(
+        phoneIdentity.last_used_at,
+        "last_used_at must be set after sign-in",
+      );
     });
 
     it("should preserve entitlements after phone sign-in", async () => {
@@ -357,9 +405,17 @@ describe("Auth Identity Model", () => {
         payload: { provider: "apple", id_token: token, nonce },
       });
 
-      assert.strictEqual(res.statusCode, 200, "Should be 200 for existing user sign-in");
+      assert.strictEqual(
+        res.statusCode,
+        200,
+        "Should be 200 for existing user sign-in",
+      );
       const body = JSON.parse(res.body);
-      assert.strictEqual(body.user_id, phoneUser.userId, "Apple sign-in must resolve to same user_id");
+      assert.strictEqual(
+        body.user_id,
+        phoneUser.userId,
+        "Apple sign-in must resolve to same user_id",
+      );
       assert.ok(body.access_token);
     });
 
@@ -381,19 +437,35 @@ describe("Auth Identity Model", () => {
       const signupRes = await app.inject({
         method: "POST",
         url: "/auth/signup",
-        payload: { email: sharedEmail, password: "SecurePassword123", name: "User A" },
+        payload: {
+          email: sharedEmail,
+          password: "SecurePassword123",
+          name: "User A",
+        },
       });
       const userA = JSON.parse(signupRes.body);
       assert.ok(userA.user_id);
 
       // Manually mark email as verified (normally done via verification token)
-      await db.prepare("UPDATE users SET email_verified = 1 WHERE id = ?").run(userA.user_id);
-      await identityService.verifyContact(db, userA.user_id, "email", sharedEmail, "email_token");
+      await db
+        .prepare("UPDATE users SET email_verified = 1 WHERE id = ?")
+        .run(userA.user_id);
+      await identityService.verifyContact(
+        db,
+        userA.user_id,
+        "email",
+        sharedEmail,
+        "email_token",
+      );
 
       // Attempt Apple sign-in with same email — should get link confirmation prompt
       const appleSub = uniqueAppleSub();
       const nonce = `nonce-${crypto.randomBytes(8).toString("hex")}`;
-      const token = buildMockAppleToken({ sub: appleSub, email: sharedEmail, nonce });
+      const token = buildMockAppleToken({
+        sub: appleSub,
+        email: sharedEmail,
+        nonce,
+      });
 
       const appleRes = await app.inject({
         method: "POST",
@@ -405,12 +477,17 @@ describe("Auth Identity Model", () => {
 
       // The server should either prompt for link confirmation or auto-link.
       // With confirm_link=false (default), it returns requires_link_confirmation.
-      assert.strictEqual(appleBody.requires_link_confirmation, true,
-        "Should require explicit confirmation before linking to existing account");
+      assert.strictEqual(
+        appleBody.requires_link_confirmation,
+        true,
+        "Should require explicit confirmation before linking to existing account",
+      );
 
       // Verify no duplicate user was created
       const userCount = await db
-        .prepare("SELECT COUNT(*) as cnt FROM users WHERE email = ? AND deleted_at IS NULL")
+        .prepare(
+          "SELECT COUNT(*) as cnt FROM users WHERE email = ? AND deleted_at IS NULL",
+        )
         .get(sharedEmail.toLowerCase());
       assert.strictEqual(userCount.cnt, 1, "Must not create duplicate user");
     });
@@ -432,10 +509,15 @@ describe("Auth Identity Model", () => {
       const result = await linkPhone(app, db, userB.accessToken, sharedPhone);
 
       // Must be 409 conflict with E117 or E118 error
-      assert.strictEqual(result.statusCode, 409, "Must reject duplicate phone link");
+      assert.strictEqual(
+        result.statusCode,
+        409,
+        "Must reject duplicate phone link",
+      );
       assert.ok(
-        result.body.error === "E117_PHONE_EXISTS" || result.body.error === "E118_PROVIDER_ALREADY_LINKED",
-        `Expected phone conflict error, got: ${result.body.error}`
+        result.body.error === "E117_PHONE_EXISTS" ||
+          result.body.error === "E118_PROVIDER_ALREADY_LINKED",
+        `Expected phone conflict error, got: ${result.body.error}`,
       );
     });
   });
@@ -451,11 +533,14 @@ describe("Auth Identity Model", () => {
       assert.strictEqual(me.statusCode, 200);
 
       // With relay email and no phone, profile is incomplete
-      assert.strictEqual(me.body.needs_profile_completion, true,
-        "Relay-only user needs profile completion");
+      assert.strictEqual(
+        me.body.needs_profile_completion,
+        true,
+        "Relay-only user needs profile completion",
+      );
       assert.ok(
         me.body.missing_profile_requirements.includes("verified_email"),
-        "Must include verified_email in missing requirements (relay doesn't count)"
+        "Must include verified_email in missing requirements (relay doesn't count)",
       );
     });
 
@@ -473,15 +558,23 @@ describe("Auth Identity Model", () => {
       });
 
       // Manually verify the contact (simulating token verification)
-      await identityService.verifyContact(db, appleUser.userId, "email", realEmail, "test_verify");
+      await identityService.verifyContact(
+        db,
+        appleUser.userId,
+        "email",
+        realEmail,
+        "test_verify",
+      );
       // Also set legacy flag for backward compat
-      await db.prepare("UPDATE users SET email_verified = 1 WHERE id = ?").run(appleUser.userId);
+      await db
+        .prepare("UPDATE users SET email_verified = 1 WHERE id = ?")
+        .run(appleUser.userId);
 
       const me = await getMe(app, appleUser.accessToken);
       assert.strictEqual(me.statusCode, 200);
       assert.ok(
         !me.body.missing_profile_requirements.includes("verified_email"),
-        "verified_email should no longer be in missing requirements"
+        "verified_email should no longer be in missing requirements",
       );
     });
   });
@@ -499,7 +592,12 @@ describe("Auth Identity Model", () => {
 
       // Link phone (linkPhone performs OTP verification; contact is verified)
       const phoneNumber = uniquePhone();
-      const linkRes = await linkPhone(app, db, appleUser.accessToken, phoneNumber);
+      const linkRes = await linkPhone(
+        app,
+        db,
+        appleUser.accessToken,
+        phoneNumber,
+      );
       assert.strictEqual(linkRes.statusCode, 200, "Phone link must succeed");
 
       const me = await getMe(app, appleUser.accessToken);
@@ -507,7 +605,7 @@ describe("Auth Identity Model", () => {
       assert.strictEqual(
         me.body.needs_profile_completion,
         false,
-        "User with phone on file should NOT need profile completion under policy v1"
+        "User with phone on file should NOT need profile completion under policy v1",
       );
     });
 
@@ -529,12 +627,12 @@ describe("Auth Identity Model", () => {
       assert.strictEqual(
         me.body.needs_profile_completion,
         false,
-        "Unverified real email on file should still mark profile complete"
+        "Unverified real email on file should still mark profile complete",
       );
       // verified_email stays in missing_profile_requirements as an informational nudge
       assert.ok(
         me.body.missing_profile_requirements.includes("verified_email"),
-        "missing_profile_requirements still reports unverified email for UI nudges"
+        "missing_profile_requirements still reports unverified email for UI nudges",
       );
     });
 
@@ -569,18 +667,27 @@ describe("Auth Identity Model", () => {
       const contact = await db
         .prepare(
           `SELECT verified_at FROM user_contacts
-           WHERE user_id = ? AND type = 'email' AND value_normalized = ?`
+           WHERE user_id = ? AND type = 'email' AND value_normalized = ?`,
         )
         .get(userId, testEmail.toLowerCase());
       assert.ok(contact, "Contact row must exist");
-      assert.strictEqual(contact.verified_at, null, "Contact must be unverified initially");
+      assert.strictEqual(
+        contact.verified_at,
+        null,
+        "Contact must be unverified initially",
+      );
     });
 
     it("should verify email via POST /auth/verify-email", async () => {
-      // Create a verification token
+      // Create a verification token bound to the email being verified. Production
+      // always passes { email } (auth.js PATCH/profile + add-email routes); a
+      // bare token has email_normalized=null and would fall back to users.email
+      // (a relay for this Apple user), never matching the testEmail contact.
       const authService = require("../src/services/auth-service");
       authService.initialize(db);
-      const { token } = await authService.createEmailVerificationToken(userId);
+      const { token } = await authService.createEmailVerificationToken(userId, {
+        email: testEmail,
+      });
 
       // Consume the verification token
       const res = await app.inject({
@@ -594,15 +701,20 @@ describe("Auth Identity Model", () => {
       const contact = await db
         .prepare(
           `SELECT verified_at FROM user_contacts
-           WHERE user_id = ? AND type = 'email' AND value_normalized = ?`
+           WHERE user_id = ? AND type = 'email' AND value_normalized = ?`,
         )
         .get(userId, testEmail.toLowerCase());
       assert.ok(contact, "Contact row must exist");
-      assert.ok(contact.verified_at, "Contact must be verified after token consumption");
+      assert.ok(
+        contact.verified_at,
+        "Contact must be verified after token consumption",
+      );
     });
 
     it("should sync primary email mirror after verification", async () => {
-      const user = await db.prepare("SELECT email FROM users WHERE id = ?").get(userId);
+      const user = await db
+        .prepare("SELECT email FROM users WHERE id = ?")
+        .get(userId);
       // After verification, the mirror should reflect the verified email
       // (depends on whether the user had another primary email before)
       assert.ok(user, "User must exist");
@@ -629,7 +741,7 @@ describe("Auth Identity Model", () => {
       await db
         .prepare(
           `INSERT INTO tracks (id, user_id, status, title, occasion, recipient_name, style, voice_mode, created_at, updated_at)
-           VALUES (?, ?, 'draft', 'Test Song', 'birthday', 'Test Recipient', 'pop', 'ai_voice', ?, ?)`
+           VALUES (?, ?, 'draft', 'Test Song', 'birthday', 'Test Recipient', 'pop', 'ai_voice', ?, ?)`,
         )
         .run(trackId, userId, now, now);
     });
@@ -649,7 +761,7 @@ describe("Auth Identity Model", () => {
       assert.strictEqual(
         entitlementsAfter.length,
         entitlementsBefore.length,
-        "Linking must not create duplicate entitlement rows"
+        "Linking must not create duplicate entitlement rows",
       );
     });
 
@@ -661,21 +773,32 @@ describe("Auth Identity Model", () => {
       const tracks = await db
         .prepare("SELECT id FROM tracks WHERE user_id = ?")
         .all(userId);
-      assert.ok(tracks.some((t) => t.id === trackId), "Track must be visible after phone sign-in");
+      assert.ok(
+        tracks.some((t) => t.id === trackId),
+        "Track must be visible after phone sign-in",
+      );
     });
 
     it("should have identical user_id across all auth methods", async () => {
       // Check both identities point to same user
       const appleIdentity = await db
-        .prepare("SELECT user_id FROM user_auth_providers WHERE user_id = ? AND provider = 'apple'")
+        .prepare(
+          "SELECT user_id FROM user_auth_providers WHERE user_id = ? AND provider = 'apple'",
+        )
         .get(userId);
       const phoneIdentity = await db
-        .prepare("SELECT user_id FROM user_auth_providers WHERE user_id = ? AND provider = 'phone'")
+        .prepare(
+          "SELECT user_id FROM user_auth_providers WHERE user_id = ? AND provider = 'phone'",
+        )
         .get(userId);
 
       assert.ok(appleIdentity, "Apple identity must exist");
       assert.ok(phoneIdentity, "Phone identity must exist");
-      assert.strictEqual(appleIdentity.user_id, phoneIdentity.user_id, "Both identities must share same user_id");
+      assert.strictEqual(
+        appleIdentity.user_id,
+        phoneIdentity.user_id,
+        "Both identities must share same user_id",
+      );
     });
   });
 
@@ -699,10 +822,15 @@ describe("Auth Identity Model", () => {
 
       // Re-check: needs_profile_completion should still be true
       const me = await getMe(app, user.accessToken);
-      assert.strictEqual(me.body.needs_profile_completion, true,
-        "Skipping must NOT resolve profile completion");
-      assert.ok(me.body.missing_profile_requirements.length > 0,
-        "Missing requirements must still be populated");
+      assert.strictEqual(
+        me.body.needs_profile_completion,
+        true,
+        "Skipping must NOT resolve profile completion",
+      );
+      assert.ok(
+        me.body.missing_profile_requirements.length > 0,
+        "Missing requirements must still be populated",
+      );
     });
   });
 
@@ -724,10 +852,19 @@ describe("Auth Identity Model", () => {
       const body = me.body;
 
       // Verify auth_methods array
-      assert.ok(Array.isArray(body.auth_methods), "auth_methods must be an array");
+      assert.ok(
+        Array.isArray(body.auth_methods),
+        "auth_methods must be an array",
+      );
       const authMethodTypes = body.auth_methods.map((m) => m.type);
-      assert.ok(authMethodTypes.includes("apple"), "auth_methods must include apple");
-      assert.ok(authMethodTypes.includes("phone"), "auth_methods must include phone");
+      assert.ok(
+        authMethodTypes.includes("apple"),
+        "auth_methods must include apple",
+      );
+      assert.ok(
+        authMethodTypes.includes("phone"),
+        "auth_methods must include phone",
+      );
 
       // Each auth method should have linked_at and last_used_at
       for (const method of body.auth_methods) {
@@ -743,13 +880,24 @@ describe("Auth Identity Model", () => {
       assert.ok("primary_phone" in body, "Response must include primary_phone");
 
       // Verify profile completeness fields
-      assert.ok("needs_profile_completion" in body, "Response must include needs_profile_completion");
-      assert.ok(Array.isArray(body.missing_profile_requirements),
-        "missing_profile_requirements must be an array");
+      assert.ok(
+        "needs_profile_completion" in body,
+        "Response must include needs_profile_completion",
+      );
+      assert.ok(
+        Array.isArray(body.missing_profile_requirements),
+        "missing_profile_requirements must be an array",
+      );
 
       // Backward compat fields
-      assert.ok(Array.isArray(body.providers), "providers must be an array (backward compat)");
-      assert.ok("email" in body, "Response must include email (backward compat)");
+      assert.ok(
+        Array.isArray(body.providers),
+        "providers must be an array (backward compat)",
+      );
+      assert.ok(
+        "email" in body,
+        "Response must include email (backward compat)",
+      );
       assert.ok("display_name" in body, "Response must include display_name");
       assert.ok("user_id" in body, "Response must include user_id");
     });
@@ -768,7 +916,7 @@ describe("Auth Identity Model", () => {
       await db
         .prepare(
           `INSERT INTO users (id, email, email_verified, display_name, risk_level, created_at)
-           VALUES (?, ?, 1, 'Legacy User', 'low', ?)`
+           VALUES (?, ?, 1, 'Legacy User', 'low', ?)`,
         )
         .run(userId, email.toLowerCase(), now);
 
@@ -777,7 +925,7 @@ describe("Auth Identity Model", () => {
       await db
         .prepare(
           `INSERT INTO user_auth_providers (id, user_id, provider, provider_user_id)
-           VALUES (?, ?, 'email', ?)`
+           VALUES (?, ?, 'email', ?)`,
         )
         .run(providerId, userId, email.toLowerCase());
 
@@ -793,20 +941,36 @@ describe("Auth Identity Model", () => {
       const contact = await db
         .prepare(
           `SELECT id, type, value_normalized, is_primary FROM user_contacts
-           WHERE user_id = ? AND type = 'email'`
+           WHERE user_id = ? AND type = 'email'`,
         )
         .get(userId);
       assert.ok(contact, "Contact must be created by backfill");
       assert.strictEqual(contact.value_normalized, email.toLowerCase());
-      assert.strictEqual(contact.is_primary, 1, "First contact of type must be primary");
+      assert.strictEqual(
+        contact.is_primary,
+        1,
+        "First contact of type must be primary",
+      );
 
       // Verify the contact then sync mirrors
-      await identityService.verifyContact(db, userId, "email", email, "backfill_verify");
+      await identityService.verifyContact(
+        db,
+        userId,
+        "email",
+        email,
+        "backfill_verify",
+      );
       await identityService.syncUserContactMirrors(db, userId);
 
       // Verify mirror is synced
-      const user = await db.prepare("SELECT email FROM users WHERE id = ?").get(userId);
-      assert.strictEqual(user.email, email.toLowerCase(), "Mirror must match verified primary email");
+      const user = await db
+        .prepare("SELECT email FROM users WHERE id = ?")
+        .get(userId);
+      assert.strictEqual(
+        user.email,
+        email.toLowerCase(),
+        "Mirror must match verified primary email",
+      );
     });
 
     it("should resolve user by identity via resolveUserByIdentity", async () => {
@@ -816,7 +980,7 @@ describe("Auth Identity Model", () => {
       await db
         .prepare(
           `INSERT INTO users (id, risk_level, created_at)
-           VALUES (?, 'low', ?)`
+           VALUES (?, 'low', ?)`,
         )
         .run(userId, now);
 
@@ -825,12 +989,16 @@ describe("Auth Identity Model", () => {
       await db
         .prepare(
           `INSERT INTO user_auth_providers (id, user_id, provider, provider_user_id, status)
-           VALUES (?, ?, 'phone', ?, 'active')`
+           VALUES (?, ?, 'phone', ?, 'active')`,
         )
         .run(providerId, userId, phone);
 
       // Resolve via identity service
-      const resolved = await identityService.resolveUserByIdentity(db, "phone", phone);
+      const resolved = await identityService.resolveUserByIdentity(
+        db,
+        "phone",
+        phone,
+      );
       assert.ok(resolved, "Must resolve user by phone identity");
       assert.strictEqual(resolved.userId, userId);
       assert.strictEqual(resolved.identity.provider, "phone");
@@ -851,7 +1019,13 @@ describe("Auth Identity Model", () => {
         value: sharedEmail,
         source: "test",
       });
-      await identityService.verifyContact(db, userA.userId, "email", sharedEmail, "test_verify");
+      await identityService.verifyContact(
+        db,
+        userA.userId,
+        "email",
+        sharedEmail,
+        "test_verify",
+      );
 
       // User B: create and attempt to verify same email
       const userB = await createAppleUser(app);
@@ -863,12 +1037,26 @@ describe("Auth Identity Model", () => {
 
       // This should throw E119_EMAIL_CONFLICT
       await assert.rejects(
-        () => identityService.verifyContact(db, userB.userId, "email", sharedEmail, "test_verify"),
+        () =>
+          identityService.verifyContact(
+            db,
+            userB.userId,
+            "email",
+            sharedEmail,
+            "test_verify",
+          ),
         (err) => {
-          assert.ok(err instanceof identityService.IdentityError, "Must throw IdentityError");
-          assert.strictEqual(err.code, "E119_EMAIL_CONFLICT", "Must be E119 conflict");
+          assert.ok(
+            err instanceof identityService.IdentityError,
+            "Must throw IdentityError",
+          );
+          assert.strictEqual(
+            err.code,
+            "E119_EMAIL_CONFLICT",
+            "Must be E119 conflict",
+          );
           return true;
-        }
+        },
       );
     });
 
@@ -884,8 +1072,16 @@ describe("Auth Identity Model", () => {
         payload: { email: sharedEmail, password: "SecurePassword123" },
       });
       const userA = JSON.parse(signupRes.body);
-      await db.prepare("UPDATE users SET email_verified = 1 WHERE id = ?").run(userA.user_id);
-      await identityService.verifyContact(db, userA.user_id, "email", sharedEmail, "email_token");
+      await db
+        .prepare("UPDATE users SET email_verified = 1 WHERE id = ?")
+        .run(userA.user_id);
+      await identityService.verifyContact(
+        db,
+        userA.user_id,
+        "email",
+        sharedEmail,
+        "email_token",
+      );
 
       // User B: signup with their own unique email
       const userBOwnEmail = uniqueEmail();
@@ -907,13 +1103,26 @@ describe("Auth Identity Model", () => {
       // Attempt to verify the shared email for user B via identity service
       // This should throw E119_EMAIL_CONFLICT since user A already verified it
       await assert.rejects(
-        () => identityService.verifyContact(db, userB.user_id, "email", sharedEmail, "email_token"),
+        () =>
+          identityService.verifyContact(
+            db,
+            userB.user_id,
+            "email",
+            sharedEmail,
+            "email_token",
+          ),
         (err) => {
-          assert.ok(err instanceof identityService.IdentityError, "Must throw IdentityError");
-          assert.strictEqual(err.code, "E119_EMAIL_CONFLICT",
-            "Must be E119 conflict when verifying email owned by another user");
+          assert.ok(
+            err instanceof identityService.IdentityError,
+            "Must throw IdentityError",
+          );
+          assert.strictEqual(
+            err.code,
+            "E119_EMAIL_CONFLICT",
+            "Must be E119 conflict when verifying email owned by another user",
+          );
           return true;
-        }
+        },
       );
     });
   });

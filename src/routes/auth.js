@@ -947,6 +947,26 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
         expires_in: 3600, // 60 minutes
       });
     } catch (error) {
+      // Duplicate email IDENTITY: the pre-check above only blocks VERIFIED email
+      // contacts (so an unverified email from phone registration doesn't block a
+      // real email/password signup). But user_auth_providers has a UNIQUE index
+      // on (provider, provider_user_id), so a second email/password signup with
+      // the same address trips the constraint here. Surface that as a clean 409
+      // EMAIL_EXISTS rather than a 500. Matched narrowly on the unique-violation
+      // signatures (PG 23505 / SQLite 2067 / "UNIQUE constraint failed") so other
+      // failures still return 500.
+      const isUniqueViolation =
+        error?.code === "23505" ||
+        error?.errcode === 2067 ||
+        /UNIQUE constraint failed/i.test(error?.message || "");
+      if (isUniqueViolation) {
+        return sendError(
+          reply,
+          409,
+          "EMAIL_EXISTS",
+          "An account with this email already exists.",
+        );
+      }
       console.error("Signup error:", error);
       return sendError(
         reply,
@@ -3230,6 +3250,63 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
           500,
           "DELETION_FAILED",
           "Account deletion failed. Please contact support.",
+        );
+      }
+    },
+  );
+
+  // GDPR Article 20 — data portability. Returns the authenticated user's own
+  // personal data as a downloadable JSON bundle. Self-scoped via requireAuth +
+  // request.userId; never accepts a target user id.
+  app.get(
+    "/auth/data-export",
+    { preHandler: requireAuth },
+    async (request, reply) => {
+      const clientIp = getClientIp(request);
+
+      // Rate limit: 3 per day per user (export assembles many tables; abuse guard).
+      if (
+        await consumeAuthRateLimit(
+          `data-export:${request.userId}`,
+          3,
+          24 * 60 * 60 * 1000,
+        )
+      ) {
+        return sendError(
+          reply,
+          429,
+          "RATE_LIMITED",
+          "Please wait before requesting another data export.",
+        );
+      }
+
+      try {
+        const exportBundle = await authService.exportUserData(request.userId);
+
+        // Log GDPR compliance event (Article 20 request record)
+        await gdprAuditService.logDataExportRequest(
+          request.userId,
+          clientIp,
+          "json",
+        );
+
+        reply.header(
+          "Content-Disposition",
+          'attachment; filename="porizo-data-export.json"',
+        );
+        return reply.send(exportBundle);
+      } catch (error) {
+        console.error("[DataExport] Failed:", error);
+
+        if (error.message === "User not found") {
+          return sendError(reply, 404, "USER_NOT_FOUND", "Account not found.");
+        }
+
+        return sendError(
+          reply,
+          500,
+          "EXPORT_FAILED",
+          "Data export failed. Please contact support.",
         );
       }
     },

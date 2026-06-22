@@ -8,7 +8,9 @@ const { describe, it, beforeEach } = require("node:test");
 const assert = require("node:assert/strict");
 const { getDatabase } = require("../src/database");
 const { createPlanConfigService } = require("../src/services/plan-config");
-const { createSubscriptionManager } = require("../src/services/subscription-manager");
+const {
+  createSubscriptionManager,
+} = require("../src/services/subscription-manager");
 const {
   createAppleWebhookHandler,
   NOTIFICATION_TYPES,
@@ -19,7 +21,9 @@ const {
  * Create a mock JWS payload for testing
  */
 function createMockJWS(payload) {
-  const header = Buffer.from(JSON.stringify({ alg: "ES256" })).toString("base64url");
+  const header = Buffer.from(JSON.stringify({ alg: "ES256" })).toString(
+    "base64url",
+  );
   const body = Buffer.from(JSON.stringify(payload)).toString("base64url");
   const signature = Buffer.from("mock-signature").toString("base64url");
   return `${header}.${body}.${signature}`;
@@ -69,7 +73,9 @@ describe("Apple Webhook Handler", async () => {
   beforeEach(async () => {
     db = await getDatabase();
     planService = createPlanConfigService(db);
-    subscriptionManager = createSubscriptionManager(db, { planConfigService: planService });
+    subscriptionManager = createSubscriptionManager(db, {
+      planConfigService: planService,
+    });
 
     // Create mock apple validator for decoding
     const mockAppleValidator = {
@@ -77,7 +83,9 @@ describe("Apple Webhook Handler", async () => {
         try {
           const parts = jws.split(".");
           if (parts.length !== 3) return null;
-          return JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8"));
+          return JSON.parse(
+            Buffer.from(parts[1], "base64url").toString("utf8"),
+          );
         } catch {
           return null;
         }
@@ -94,7 +102,7 @@ describe("Apple Webhook Handler", async () => {
     testUserId = `user_webhook_${Date.now()}_${Math.random().toString(36).slice(2)}`;
     await db.query(
       "INSERT INTO users (id, created_at) VALUES (?, datetime('now'))",
-      [testUserId]
+      [testUserId],
     );
   });
 
@@ -444,9 +452,9 @@ describe("Apple Webhook Handler", async () => {
 
       await subscriptionManager.syncSubscription(testUserId, mockValidation);
 
-      // Verify songs were granted
+      // Verify songs were granted (plus plan grants 10/month since migration 075)
       let ent = await subscriptionManager.getEntitlements(testUserId);
-      assert.equal(ent.songsRemaining, 4);
+      assert.equal(ent.songsRemaining, 10);
 
       // Send refund webhook
       const notification = createMockNotification({
@@ -463,7 +471,7 @@ describe("Apple Webhook Handler", async () => {
       assert.equal(result.success, true);
       assert.equal(result.result.handled, true);
       assert.equal(result.result.action, "refunded");
-      assert.equal(result.result.songsRevoked, 4);
+      assert.equal(result.result.songsRevoked, 10);
 
       // Verify songs were revoked
       ent = await subscriptionManager.getEntitlements(testUserId);
