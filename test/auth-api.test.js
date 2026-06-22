@@ -525,7 +525,12 @@ describe("Auth API Endpoints", () => {
     let accessToken;
     let sessionId;
 
-    before(async () => {
+    // beforeEach (not before): "should revoke session" revokes the session bound
+    // to accessToken, which would poison the later "reject non-existent session"
+    // test (revoked token -> 401 instead of 404). A fresh session per test keeps
+    // them independent. The outer beforeEach clears rate limits first, so the
+    // extra signups aren't throttled.
+    beforeEach(async () => {
       const response = await app.inject({
         method: "POST",
         url: "/auth/signup",
