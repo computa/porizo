@@ -13,7 +13,18 @@ const jwksClient = require("jwks-rsa");
 const crypto = require("crypto");
 
 async function fetchJson(url, options = {}) {
-  const response = await fetch(url, options);
+  // Bound the upstream call: a slow/hung provider API (Facebook/Google token
+  // exchange + profile lookups) must not hang the login request indefinitely.
+  // Fail fast (AbortError) instead — the caller surfaces a clean auth error.
+  const { timeoutMs = 8000, ...fetchOptions } = options;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let response;
+  try {
+    response = await fetch(url, { ...fetchOptions, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
     const message = data?.error?.message || data?.error || response.statusText;
@@ -133,7 +144,10 @@ async function verifyAppleToken(idToken, options = {}) {
   //   2. ALLOW_MOCK_SOCIAL_AUTH must be "true" (never set outside test env)
   // The issuer *value* is still validated below (payload.iss check) — only the cryptographic
   // signature verification is bypassed.
-  if (process.env.NODE_ENV === "test" && process.env.ALLOW_MOCK_SOCIAL_AUTH === "true") {
+  if (
+    process.env.NODE_ENV === "test" &&
+    process.env.ALLOW_MOCK_SOCIAL_AUTH === "true"
+  ) {
     const payload = jwt.decode(idToken);
     if (!payload) {
       throw new Error("INVALID_TOKEN_FORMAT: Could not decode token");
@@ -160,7 +174,9 @@ async function verifyAppleToken(idToken, options = {}) {
       sub: payload.sub,
       email: payload.email_verified ? payload.email : null,
       emailVerified: !!payload.email_verified,
-      isPrivateEmail: payload.is_private_email === "true" || payload.is_private_email === true,
+      isPrivateEmail:
+        payload.is_private_email === "true" ||
+        payload.is_private_email === true,
       authTime: payload.auth_time,
       iat: payload.iat,
       exp: payload.exp,
@@ -207,7 +223,8 @@ async function verifyAppleToken(idToken, options = {}) {
     sub: payload.sub,
     email: payload.email_verified ? payload.email : null, // Only trust verified emails
     emailVerified: !!payload.email_verified,
-    isPrivateEmail: payload.is_private_email === "true" || payload.is_private_email === true,
+    isPrivateEmail:
+      payload.is_private_email === "true" || payload.is_private_email === true,
     authTime: payload.auth_time,
     iat: payload.iat,
     exp: payload.exp,
@@ -232,12 +249,20 @@ async function verifyGoogleToken(idToken, options = {}) {
   }
 
   // Test-mode bypass: allow mocked tokens without JWKS verification.
-  if (process.env.NODE_ENV === "test" && process.env.ALLOW_MOCK_SOCIAL_AUTH === "true") {
+  if (
+    process.env.NODE_ENV === "test" &&
+    process.env.ALLOW_MOCK_SOCIAL_AUTH === "true"
+  ) {
     const payload = jwt.decode(idToken);
     if (!payload) {
       throw new Error("INVALID_TOKEN_FORMAT: Could not decode token");
     }
-    if (payload.iss && !["accounts.google.com", "https://accounts.google.com"].includes(payload.iss)) {
+    if (
+      payload.iss &&
+      !["accounts.google.com", "https://accounts.google.com"].includes(
+        payload.iss,
+      )
+    ) {
       throw new Error("INVALID_TOKEN: Invalid issuer");
     }
     if (!audienceMatches(payload.aud, [clientId])) {
@@ -351,7 +376,7 @@ async function verifyFacebookToken(accessToken, options = {}) {
 
   const appToken = `${appId}|${appSecret}`;
   const debugUrl = `https://graph.facebook.com/debug_token?input_token=${encodeURIComponent(
-    accessToken
+    accessToken,
   )}&access_token=${encodeURIComponent(appToken)}`;
   const debug = await fetchJson(debugUrl);
 
@@ -364,7 +389,7 @@ async function verifyFacebookToken(accessToken, options = {}) {
   }
 
   const meUrl = `https://graph.facebook.com/${debug.data.user_id}?fields=id,name,email&access_token=${encodeURIComponent(
-    accessToken
+    accessToken,
   )}`;
   const me = await fetchJson(meUrl);
 
@@ -372,7 +397,10 @@ async function verifyFacebookToken(accessToken, options = {}) {
   // in the Graph API response for standard permissions). Log a warning if it's
   // explicitly false, but do not block auth — absence of the field is normal.
   if (me.verified === false) {
-    console.warn("[FacebookAuth] Profile verified field is explicitly false for user:", me.id);
+    console.warn(
+      "[FacebookAuth] Profile verified field is explicitly false for user:",
+      me.id,
+    );
   }
 
   return {
