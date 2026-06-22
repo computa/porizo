@@ -280,6 +280,14 @@
     if (elements.iosDownloadLink) {
       elements.iosDownloadLink.setAttribute("href", iosUrl);
     }
+    // App-wall "Get it free" link refreshes once the OneLink resolves.
+    const appWallGet = document.getElementById("app-wall-get");
+    if (appWallGet) {
+      appWallGet.setAttribute(
+        "href",
+        receiverSaveUrl || buildReceiverSaveFallbackUrl("app_wall"),
+      );
+    }
   }
 
   function capitalizeOccasion(value) {
@@ -1141,82 +1149,43 @@
     return "porizo:///receiver-handoff/" + encodeURIComponent(handoffId);
   }
 
-  // Open the installed app first via the custom scheme (deterministic, unlike a
-  // Universal Link which iOS ignores on programmatic navigation). If the app
-  // doesn't take over within the grace window, it isn't installed — fall back to
-  // the OneLink, which handles the App Store + AppsFlyer deferred deep link.
-  function tryOpenInstalledApp(handoffId, fallbackUrl) {
-    if (!handoffId) {
-      window.location.href = fallbackUrl;
-      return;
-    }
-    var settled = false;
-    var timer = null;
+  // Two deterministic actions — NO racing "is it installed?" timer. There is no
+  // reliable client signal to tell iOS's "Open in Porizo?" confirm dialog from its
+  // "address is invalid" error (both keep the page visible), so a timer always
+  // races one of them. Instead the recipient chooses: open the app, or get it.
 
-    function cleanup() {
-      if (timer) {
-        clearTimeout(timer);
-        timer = null;
-      }
-      document.removeEventListener("visibilitychange", onVisibility);
-      window.removeEventListener("pagehide", onHide);
-      window.removeEventListener("pageshow", onPageShow);
+  // "Open in Porizo" — go straight to the installed app via the custom scheme.
+  // Installed → iOS confirm → app opens → claim. Not installed → iOS shows a
+  // one-off "address is invalid" error; the always-visible "Get it free" link is
+  // their path to the App Store. No fallback navigation here, so nothing can race
+  // or disrupt the app hand-off.
+  function handleAppWallOpenClick(event) {
+    if (event) event.preventDefault();
+    var handoffId = receiverHandoffId || extractHandoffId(receiverSaveUrl);
+    recordReceiverEvent(
+      "receiver_save_cta_clicked",
+      { placement: "app_wall_open" },
+      { keepalive: true },
+    ).catch(function () {
+      /* analytics is best-effort */
+    });
+    if (handoffId) {
+      window.location.href = buildAppDeepLink(handoffId);
+    } else {
+      // Handoff not resolved yet (viewed-event still in flight) — get-the-app is
+      // the safe action rather than a broken scheme nav.
+      window.location.href =
+        receiverSaveUrl || buildReceiverSaveFallbackUrl("app_wall");
     }
-    // The ONLY reliable "the app opened" signal is the page actually backgrounding
-    // (visibility → hidden / pagehide) or being restored from bfcache on return.
-    // We deliberately do NOT cancel on `blur`/focus loss: when the app ISN'T
-    // installed the custom-scheme nav raises iOS's "address is invalid" dialog,
-    // which steals focus *without* backgrounding the page — treating that as
-    // "app opened" would strand the recipient on the error and never send them to
-    // the App Store.
-    function onHide() {
-      if (settled) return;
-      settled = true;
-      cleanup();
-    }
-    function onVisibility() {
-      if (document.visibilityState === "hidden") onHide();
-    }
-    function onPageShow(event) {
-      if (event.persisted) onHide();
-    }
-    function goFallback() {
-      if (settled) return;
-      // If the page backgrounded between arming and firing, the app took over.
-      if (document.visibilityState === "hidden") {
-        settled = true;
-        cleanup();
-        return;
-      }
-      settled = true;
-      cleanup();
-      window.location.href = fallbackUrl;
-    }
-
-    document.addEventListener("visibilitychange", onVisibility);
-    window.addEventListener("pagehide", onHide);
-    window.addEventListener("pageshow", onPageShow);
-
-    window.location.href = buildAppDeepLink(handoffId);
-    // Long enough that an installed app backgrounds the page first (which cancels
-    // this), short enough that a not-installed recipient reaches the App Store
-    // quickly — the OneLink fallback drives install → deferred deep link → claim.
-    timer = setTimeout(goFallback, 1400);
   }
 
+  // "Get the app" — the OneLink (App Store + AppsFlyer deferred deep link, so the
+  // claim survives install → first launch). Used by the app-wall's secondary link
+  // and every player/teaser save CTA.
   function handleReceiverSaveClick(event, placement) {
     var link = event.currentTarget;
     if (!link || !link.href) return;
-
     event.preventDefault();
-    var fallbackUrl = receiverSaveUrl || link.href;
-    var handoffId =
-      receiverHandoffId ||
-      extractHandoffId(receiverSaveUrl) ||
-      extractHandoffId(link.href);
-
-    // Record the click without blocking the hand-off — keepalive lets it survive
-    // the navigation that opening the app triggers.
     recordReceiverEvent(
       "receiver_save_cta_clicked",
       { placement: placement || "app_bar" },
@@ -1224,8 +1193,7 @@
     ).catch(function () {
       /* analytics is best-effort */
     });
-
-    tryOpenInstalledApp(handoffId, fallbackUrl);
+    window.location.href = receiverSaveUrl || link.href;
   }
 
   // Screen Handlers
@@ -1311,6 +1279,7 @@
   // App-wall — the recipient-facing landing for app-only shares. No <audio>,
   // no stream: the only path forward is opening the song in the Porizo app.
   let appWallBound = false;
+  let appWallGetBound = false;
   function appWallHeadline(info) {
     if (!info) return "Someone made you a song";
     const sender = (info.sender_name || "").trim();
@@ -1346,14 +1315,24 @@
       img.style.display = "none";
     }
 
-    // Primary CTA → the same receiver-save handoff the player/teaser use.
+    // Primary CTA → open the installed app directly (custom scheme, no fallback).
     const cta = document.getElementById("app-wall-cta");
     if (cta) {
-      cta.href = receiverSaveUrl || buildReceiverSaveFallbackUrl("app_wall");
+      cta.href = "#";
       if (!appWallBound) {
         appWallBound = true;
-        cta.addEventListener("click", function (event) {
-          handleReceiverSaveClick(event, "app_wall");
+        cta.addEventListener("click", handleAppWallOpenClick);
+      }
+    }
+
+    // Secondary CTA → get the app (OneLink: App Store + AppsFlyer deferred claim).
+    const getApp = document.getElementById("app-wall-get");
+    if (getApp) {
+      getApp.href = receiverSaveUrl || buildReceiverSaveFallbackUrl("app_wall");
+      if (!appWallGetBound) {
+        appWallGetBound = true;
+        getApp.addEventListener("click", function (event) {
+          handleReceiverSaveClick(event, "app_wall_get");
         });
       }
     }

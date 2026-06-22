@@ -44,9 +44,43 @@ verify once after deploy.
 ## Verify
 
 - [ ] Local: serve player.js, tap CTA on a device with app installed → app opens to claim.
-- [ ] Prod (after `git push origin main` → Railway auto-deploy): real WhatsApp link →
-      "Open in Porizo" → installed app opens → login → claim (no App Store bounce).
-- [ ] Not-installed device: CTA → App Store → install → open → claim auto-presents.
+- [x] Deployed: `736cdd1` → `origin/main` → Railway. Live `player.js` confirmed serving new code.
+- [x] On-device (installed): WhatsApp link → "Open in Porizo" → app opens → `ReceiverClaimView`
+      (confirmed by user, Image #8). Deep link works end-to-end.
+- [x] Not-installed regression fixed + deployed (`d6cd045`): the `blur`/`hasFocus` guards were
+      suppressing the App Store fallback when the "address is invalid" error dialog stole focus.
+      Now cancel only on genuine background (visibility/pagehide/bfcache); 1400ms window.
+      Live-verified. **Known minor:** ~1.4s "address is invalid" flash before App Store redirect
+      (iOS in-app-browser constraint of probing a custom scheme; can hide via iframe if desired).
+- [ ] Not-installed (user re-test): delete app → link → brief error flash → App Store → install
+      → first launch → AppsFlyer deferred → claim.
+
+## ③ Inconsistent open (RESOLVED in code — two-action wall, awaiting user test)
+
+Root cause: no client signal distinguishes iOS's "Open in Porizo?" confirm (installed) from
+its "address is invalid" error (not installed) — both keep the page visible — so any fallback
+timer races one of them. Fix (user chose "two clear actions, no race"): removed `tryOpenInstalledApp`;
+app-wall now has **"Open in Porizo"** (custom scheme only, no fallback) + **"Don't have the app?
+Get it free"** (OneLink → App Store + AppsFlyer deferred). Player/teaser CTAs revert to OneLink.
+`receiver_link_opened` (fired during init) populates `receiverHandoffId`/`receiverSaveUrl` before
+the wall renders, so the primary CTA always has the handoff at tap time. Files: player.js,
+index.html, styles.css. Cache markers → `20260622-twoaction`.
+
+## ② signed-out claim sheet — RESOLVED (not a bug)
+
+Image #9 = app shows welcome screen after sign-out (sign-out sticks app-wide). Image #13 = the
+signed-out claim sheet correctly shows the "Sign in with Apple" variant. Earlier "Claim & Save
+while signed out" was the logged-in test. No code change.
+
+## (archived hypothesis) ② signed-out shows authenticated claim sheet (Image #8)
+
+User reports `ReceiverClaimView` shows "Claim & Save" (authenticated variant) after a full
+Settings sign-out; expected the Sign-in-with-Apple variant / login. Code review can't explain it:
+single shared `@Observable AuthManager` (env-injected), `logout()` clears all tokens +
+`isAuthenticated=false`, `completeAuthStateLoad` only re-auths with all 3 tokens, device token
+never flips `isAuthenticated`. Awaiting user screenshots to get a clean runtime observation
+before any fix (no symptom-patching). Candidates to check once reproduced: whether sign-out
+sticks app-wide (Settings still shows account?) vs claim-path-only; warm-foreground re-auth race.
 
 ## Out of scope (note, don't do unless asked)
 
