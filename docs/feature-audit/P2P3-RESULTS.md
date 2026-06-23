@@ -45,10 +45,14 @@ the agents' own "confirmed-real" subset ran ~50% false-positive on second pass.
 | A9/A21          | device-token per-token revocation / static JWKS for HS256                                                                 | A9 needs a table+migration; A21 is a design call (404 vs RS256)                                                                                                                                                                                  |
 | H8/H16/H23      | Android web-player Play Store path / AASA components / test mp3 in prod                                                   | H8 covered by OneLink; H16 `paths` still valid (risky to change); H23 is a deletion (flagged)                                                                                                                                                    |
 
-**Dead code flagged (not deleted — needs sign-off):** `src/services/og-text-utils.js` is an
-unimported, drifted duplicate of `src/utils/og-text-utils.js` (the canonical one every caller —
-poem-og, song-og, cover-generator, onboarding, story routes — imports). The F20 fix went into the
-canonical file. The orphan should be deleted; left in place pending confirmation.
+**Duplicate consolidated (F20 follow-through):** `src/services/og-text-utils.js` turned out NOT to
+be unimported — `poem-og-variants.js` and `song-og-variants.js` required it via the relative
+`./og-text-utils`, so all 6 live OG card variants
+(spotlight/envelope/greeting_card/open_book/verse_window/whisper) were still running the drifted
+copy **without** the F20 long-word fix. Repointed both variant modules to the canonical
+`src/utils/og-text-utils.js` and deleted the duplicate (per the project's duplicate-function rule).
+The variants now also match the base cards' occasion labels. 109 OG/poem/share tests pass.
+(Caught by a final relative-path importer check before deleting — the absolute-path grep missed it.)
 
 **Conclusion:** every genuinely-real, reasonable-risk product/UX/robustness gap surfaced by the
 audit has been implemented. The remaining items are edge-case, high-risk-for-low-value, minor
