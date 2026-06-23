@@ -1672,6 +1672,11 @@ function registerEnrollmentRoutes(app, deps) {
         }
 
         let elevenlabsVoiceId = null;
+        // Tracks whether the voice_profile row (which owns elevenlabsVoiceId)
+        // was committed. If we create a clone but never persist it — e.g. the
+        // transaction below throws — the clone is orphaned at ElevenLabs
+        // (cost + voice-slot quota leak). The catch compensates by deleting it.
+        let profilePersisted = false;
         const shouldCreateElevenLabsClone =
           appConfig.LIVE_PROVIDERS && Boolean(appConfig.ELEVENLABS_API_KEY);
         if (shouldCreateElevenLabsClone) {
@@ -1891,6 +1896,7 @@ function registerEnrollmentRoutes(app, deps) {
               nowIso(),
             );
         });
+        profilePersisted = true;
 
         const tierMeta = getTierMetadata(qualityTier);
         const chunkResults = qcResult.metrics.chunk_results || [];
@@ -1939,6 +1945,21 @@ function registerEnrollmentRoutes(app, deps) {
         });
       } catch (err) {
         request.log.error({ err }, "[Enrollment:complete] Unexpected error");
+        // Compensating action: if we created an ElevenLabs clone this run but
+        // failed to persist the profile that owns it, delete the clone so it
+        // does not orphan at ElevenLabs (cost + voice-slot quota leak).
+        if (elevenlabsVoiceId && !profilePersisted) {
+          const { deleteVoiceClone } = require("../providers/elevenlabs-voice");
+          await deleteVoiceClone({
+            apiKey: appConfig.ELEVENLABS_API_KEY,
+            voiceId: elevenlabsVoiceId,
+          }).catch((cleanupErr) =>
+            request.log.warn(
+              { err: cleanupErr, voiceId: elevenlabsVoiceId },
+              "[Enrollment:complete] Failed to delete orphaned ElevenLabs clone",
+            ),
+          );
+        }
         await db
           .prepare(
             "UPDATE enrollment_sessions SET status = ?, completed_at = ? WHERE id = ?",
