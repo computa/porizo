@@ -69,15 +69,37 @@ function withEllipsis(value, maxChars) {
 }
 
 /**
+ * Break tokens wider than the line into line-width chunks so they can't
+ * overflow the SVG text box. A single over-long word (long URL, hashtag,
+ * compound word) would otherwise be committed whole by wrapText's
+ * anti-infinite-loop escape and spill outside the card.
+ */
+function breakLongWords(words, maxCharsPerLine) {
+  if (!(maxCharsPerLine > 0)) return words;
+  const out = [];
+  for (const word of words) {
+    if (word.length <= maxCharsPerLine) {
+      out.push(word);
+      continue;
+    }
+    for (let i = 0; i < word.length; i += maxCharsPerLine) {
+      out.push(word.slice(i, i + maxCharsPerLine));
+    }
+  }
+  return out;
+}
+
+/**
  * Word-wrap text into lines respecting maxCharsPerLine and maxLines.
  * Appends an ellipsis to the last line when words are left over.
  */
 function wrapText(value, maxCharsPerLine, maxLines) {
-  const words = String(value || "")
+  const rawWords = String(value || "")
     .trim()
     .split(/\s+/)
     .filter(Boolean);
-  if (!words.length) return [];
+  if (!rawWords.length) return [];
+  const words = breakLongWords(rawWords, maxCharsPerLine);
 
   const lines = [];
   let current = "";
@@ -119,7 +141,8 @@ function detectDirection(value) {
   const text = String(value || "");
   // Arabic, Arabic Supplement, Hebrew, Arabic Extended-A, and Arabic
   // Presentation Forms-A/B.
-  const rtlRegex = /[\u0590-\u05FF\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/;
+  const rtlRegex =
+    /[\u0590-\u05FF\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/;
   return rtlRegex.test(text) ? "rtl" : "ltr";
 }
 
@@ -138,7 +161,11 @@ function localizedForPrefix(value) {
   if (/[֐-׿יִ-ﭏ]/.test(text)) {
     return "לְ "; // "לְ " — Hebrew "to/for" preposition
   }
-  if (/[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/.test(text)) {
+  if (
+    /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/.test(
+      text,
+    )
+  ) {
     return "لـ "; // "لـ " — Arabic "for" with tatweel
   }
   return "For ";
