@@ -1,5 +1,30 @@
 # Test Baseline (Phase 4)
 
+## UPDATE 2026-06-23 (b) — E2E user stories run against a live local server
+
+The 13 `writer/v3` E2E tests don't actually need provider credentials — only a running
+server. The app boots locally with **`DEV_MODE=true`** (providers disabled, placeholders),
+**sqlite `:memory:`**, local-fs storage, and a throwaway `JWT_SECRET` — no Docker/Postgres/keys.
+The V3 reasoner's **heuristic fallback** drives the story flow without an LLM.
+
+Booted the server on `:3000` and ran the 13 E2E story-flow + adversarial user stories against it:
+
+- **Before any fix: 10/13 pass** (the other 3 were the only ones doing real work).
+- **Found a real concurrency bug:** "concurrent continue requests don't crash" returned
+  `500, 500, 200`. Three simultaneous `/continue` calls hit the optimistic-lock guard (correct —
+  prevents lost updates), but the conflict surfaced inside `verifyStoryOwnership`, whose catch
+  had no `StoryVersionConflictError` branch and fell through to **500**. Fixed → **409**
+  (retryable), matching the continue/confirm/backtrack handlers. (`2811894`)
+- **After fix: 11/13 pass.** The remaining 2 (`Rich birthday — full flow through lyrics`,
+  `5-turn … through lyrics`) fail with `503 AI_UNAVAILABLE` — the **lyrics step genuinely needs
+  a real LLM** (correct graceful degradation, not a crash).
+
+Net: of the 13 "infra-gated" E2E failures in the full-suite run below, **11 actually pass against
+a local server, 1 was a real bug (fixed), and only 2 are truly LLM-gated.** 15/15 story contract
+tests pass — no regression from the 409 fix.
+
+---
+
 ## UPDATE 2026-06-23 — glob FIXED, full suite run, real failures triaged
 
 The `npm test` glob is now **fixed** (commit `6ffa722`): the pattern is quoted
