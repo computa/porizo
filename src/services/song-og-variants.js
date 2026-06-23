@@ -17,20 +17,23 @@ const {
   truncateWithEllipsis,
   wrapText,
   formatOccasion,
-} = require("./og-text-utils");
+} = require("../utils/og-text-utils");
 
 const WIDTH = 1200;
 const HEIGHT = 630;
 const COVER_SIZE = 160;
 const FONT_STACK = "Georgia, 'Times New Roman', serif";
-const SANS_STACK = "'Avenir Next', 'SF Pro Display', 'Helvetica Neue', Arial, sans-serif";
+const SANS_STACK =
+  "'Avenir Next', 'SF Pro Display', 'Helvetica Neue', Arial, sans-serif";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 const { requireSharp: _requireSharp } = require("../utils/sharp-loader");
-function requireSharp() { return _requireSharp("SongOgVariants"); }
+function requireSharp() {
+  return _requireSharp("SongOgVariants");
+}
 
 function buildPlaceholderCover(colors, size) {
   return `<svg width="${size}" height="${size}" xmlns="http://www.w3.org/2000/svg">
@@ -47,7 +50,7 @@ function buildPlaceholderCover(colors, size) {
 
 async function loadCover(sharp, coverPath, colors, size) {
   const mask = Buffer.from(
-    `<svg width="${size}" height="${size}" xmlns="http://www.w3.org/2000/svg"><rect width="${size}" height="${size}" rx="20" fill="white"/></svg>`
+    `<svg width="${size}" height="${size}" xmlns="http://www.w3.org/2000/svg"><rect width="${size}" height="${size}" rx="20" fill="white"/></svg>`,
   );
 
   if (coverPath) {
@@ -62,7 +65,9 @@ async function loadCover(sharp, coverPath, colors, size) {
     }
   }
 
-  return sharp(Buffer.from(buildPlaceholderCover(colors, size))).png().toBuffer();
+  return sharp(Buffer.from(buildPlaceholderCover(colors, size)))
+    .png()
+    .toBuffer();
 }
 
 // ---------------------------------------------------------------------------
@@ -74,9 +79,12 @@ function spotlightSvg({ colors, titleLines, preamble, songTitle, brandName }) {
   const titleStartY = 260;
   const titleLineHeight = 88;
 
-  const nameElements = titleLines.map((line, i) =>
-    `<text x="600" y="${titleStartY + i * titleLineHeight}" font-family="${FONT_STACK}" font-size="80" font-weight="bold" fill="white" text-anchor="middle">${escapeXml(line)}</text>`
-  ).join("\n  ");
+  const nameElements = titleLines
+    .map(
+      (line, i) =>
+        `<text x="600" y="${titleStartY + i * titleLineHeight}" font-family="${FONT_STACK}" font-size="80" font-weight="bold" fill="white" text-anchor="middle">${escapeXml(line)}</text>`,
+    )
+    .join("\n  ");
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg width="${WIDTH}" height="${HEIGHT}" xmlns="http://www.w3.org/2000/svg">
@@ -100,7 +108,13 @@ function spotlightSvg({ colors, titleLines, preamble, songTitle, brandName }) {
 </svg>`;
 }
 
-async function generateSongOgSpotlight({ title, recipientName, occasion, coverPath, brandName = "Porizo" }) {
+async function generateSongOgSpotlight({
+  title,
+  recipientName,
+  occasion,
+  coverPath,
+  brandName = "Porizo",
+}) {
   const sharp = requireSharp();
   if (!sharp) return null;
 
@@ -113,10 +127,24 @@ async function generateSongOgSpotlight({ title, recipientName, occasion, coverPa
 
   const coverBuffer = await loadCover(sharp, coverPath, colors, COVER_SIZE);
 
-  const base = sharp(Buffer.from(spotlightSvg({ colors, titleLines: nameLines, preamble, songTitle, brandName })));
+  const base = sharp(
+    Buffer.from(
+      spotlightSvg({
+        colors,
+        titleLines: nameLines,
+        preamble,
+        songTitle,
+        brandName,
+      }),
+    ),
+  );
   return base
     .composite([
-      { input: coverBuffer, left: WIDTH - COVER_SIZE - 60, top: Math.round((HEIGHT - COVER_SIZE) / 2) },
+      {
+        input: coverBuffer,
+        left: WIDTH - COVER_SIZE - 60,
+        top: Math.round((HEIGHT - COVER_SIZE) / 2),
+      },
     ])
     .jpeg({ quality: 90 })
     .toBuffer();
@@ -131,9 +159,12 @@ function envelopeSvg({ colors, nameLines, songTitle, brandName }) {
   const nameStartY = 220;
   const nameLineHeight = 80;
 
-  const nameElements = nameLines.map((line, i) =>
-    `<text x="80" y="${nameStartY + i * nameLineHeight}" font-family="${FONT_STACK}" font-size="72" font-weight="bold" fill="white">${escapeXml(line)}</text>`
-  ).join("\n  ");
+  const nameElements = nameLines
+    .map(
+      (line, i) =>
+        `<text x="80" y="${nameStartY + i * nameLineHeight}" font-family="${FONT_STACK}" font-size="72" font-weight="bold" fill="white">${escapeXml(line)}</text>`,
+    )
+    .join("\n  ");
 
   // Diagonal sash: top-left corner sweeping to center-right
   return `<?xml version="1.0" encoding="UTF-8"?>
@@ -159,7 +190,13 @@ function envelopeSvg({ colors, nameLines, songTitle, brandName }) {
 </svg>`;
 }
 
-async function generateSongOgEnvelope({ title, recipientName, occasion, coverPath, brandName = "Porizo" }) {
+async function generateSongOgEnvelope({
+  title,
+  recipientName,
+  occasion,
+  coverPath,
+  brandName = "Porizo",
+}) {
   const sharp = requireSharp();
   if (!sharp) return null;
 
@@ -172,10 +209,16 @@ async function generateSongOgEnvelope({ title, recipientName, occasion, coverPat
   const coverSize = 200;
   const coverBuffer = await loadCover(sharp, coverPath, colors, coverSize);
 
-  const base = sharp(Buffer.from(envelopeSvg({ colors, nameLines, songTitle, brandName })));
+  const base = sharp(
+    Buffer.from(envelopeSvg({ colors, nameLines, songTitle, brandName })),
+  );
   return base
     .composite([
-      { input: coverBuffer, left: WIDTH - coverSize - 60, top: HEIGHT - coverSize - 40 },
+      {
+        input: coverBuffer,
+        left: WIDTH - coverSize - 60,
+        top: HEIGHT - coverSize - 40,
+      },
     ])
     .jpeg({ quality: 90 })
     .toBuffer();
@@ -207,9 +250,12 @@ function greetingCardSvg({ colors, nameLines, songTitle, occasionLabel }) {
   const nameStartY = 260;
   const nameLineHeight = 76;
 
-  const nameElements = nameLines.map((line, i) =>
-    `<text x="600" y="${nameStartY + i * nameLineHeight}" font-family="${FONT_STACK}" font-size="68" font-weight="bold" fill="${textColor}" text-anchor="middle">${escapeXml(line)}</text>`
-  ).join("\n  ");
+  const nameElements = nameLines
+    .map(
+      (line, i) =>
+        `<text x="600" y="${nameStartY + i * nameLineHeight}" font-family="${FONT_STACK}" font-size="68" font-weight="bold" fill="${textColor}" text-anchor="middle">${escapeXml(line)}</text>`,
+    )
+    .join("\n  ");
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg width="${WIDTH}" height="${HEIGHT}" xmlns="http://www.w3.org/2000/svg">
@@ -234,7 +280,13 @@ function greetingCardSvg({ colors, nameLines, songTitle, occasionLabel }) {
 </svg>`;
 }
 
-async function generateSongOgGreetingCard({ title, recipientName, occasion, coverPath, brandName: _brandName = "Porizo" }) {
+async function generateSongOgGreetingCard({
+  title,
+  recipientName,
+  occasion,
+  coverPath,
+  brandName: _brandName = "Porizo",
+}) {
   const sharp = requireSharp();
   if (!sharp) return null;
 
@@ -248,10 +300,18 @@ async function generateSongOgGreetingCard({ title, recipientName, occasion, cove
   const coverSize = 180;
   const coverBuffer = await loadCover(sharp, coverPath, colors, coverSize);
 
-  const base = sharp(Buffer.from(greetingCardSvg({ colors, nameLines, songTitle, occasionLabel })));
+  const base = sharp(
+    Buffer.from(
+      greetingCardSvg({ colors, nameLines, songTitle, occasionLabel }),
+    ),
+  );
   return base
     .composite([
-      { input: coverBuffer, left: Math.round((WIDTH - coverSize) / 2), top: 36 },
+      {
+        input: coverBuffer,
+        left: Math.round((WIDTH - coverSize) / 2),
+        top: 36,
+      },
     ])
     .jpeg({ quality: 90 })
     .toBuffer();

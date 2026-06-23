@@ -17,21 +17,27 @@ const {
   truncateWithEllipsis,
   wrapText,
   formatOccasion,
-} = require("./og-text-utils");
+} = require("../utils/og-text-utils");
 
 const WIDTH = 1200;
 const HEIGHT = 630;
 const FONT_STACK = "Georgia, 'Times New Roman', serif";
-const SANS_STACK = "'Avenir Next', 'SF Pro Display', 'Helvetica Neue', Arial, sans-serif";
+const SANS_STACK =
+  "'Avenir Next', 'SF Pro Display', 'Helvetica Neue', Arial, sans-serif";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 const { requireSharp: _requireSharp } = require("../utils/sharp-loader");
-function requireSharp() { return _requireSharp("PoemOgVariants"); }
+function requireSharp() {
+  return _requireSharp("PoemOgVariants");
+}
 
-function collectPreviewLines(verses, { maxLines = 3, maxCharsPerLine = 44 } = {}) {
+function collectPreviewLines(
+  verses,
+  { maxLines = 3, maxCharsPerLine = 44 } = {},
+) {
   const rawLines = [];
   for (const verse of verses || []) {
     const sourceLines = [];
@@ -75,16 +81,23 @@ function openBookSvg({ colors, headingLines, previewLines }) {
   const headingStartY = 180;
   const headingLineHeight = 62;
 
-  const headingElements = headingLines.map((line, i) =>
-    `<text x="${leftMargin}" y="${headingStartY + i * headingLineHeight}" font-family="${FONT_STACK}" font-size="54" font-weight="bold" fill="#2A2017">${escapeXml(line)}</text>`
-  ).join("\n  ");
+  const headingElements = headingLines
+    .map(
+      (line, i) =>
+        `<text x="${leftMargin}" y="${headingStartY + i * headingLineHeight}" font-family="${FONT_STACK}" font-size="54" font-weight="bold" fill="#2A2017">${escapeXml(line)}</text>`,
+    )
+    .join("\n  ");
 
-  const verseStartY = headingStartY + headingLines.length * headingLineHeight + 40;
+  const verseStartY =
+    headingStartY + headingLines.length * headingLineHeight + 40;
   const verseLineHeight = 44;
 
-  const verseElements = previewLines.map((line, i) =>
-    `<text x="${leftMargin}" y="${verseStartY + i * verseLineHeight}" font-family="${FONT_STACK}" font-size="28" font-style="italic" fill="#4A3F33">${escapeXml(line)}</text>`
-  ).join("\n  ");
+  const verseElements = previewLines
+    .map(
+      (line, i) =>
+        `<text x="${leftMargin}" y="${verseStartY + i * verseLineHeight}" font-family="${FONT_STACK}" font-size="28" font-style="italic" fill="#4A3F33">${escapeXml(line)}</text>`,
+    )
+    .join("\n  ");
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg width="${WIDTH}" height="${HEIGHT}" xmlns="http://www.w3.org/2000/svg">
@@ -107,7 +120,12 @@ function openBookSvg({ colors, headingLines, previewLines }) {
 </svg>`;
 }
 
-async function generatePoemOgOpenBook({ title: _title, recipientName, occasion, verses }) {
+async function generatePoemOgOpenBook({
+  title: _title,
+  recipientName,
+  occasion,
+  verses,
+}) {
   const sharp = requireSharp();
   if (!sharp) return null;
 
@@ -115,7 +133,10 @@ async function generatePoemOgOpenBook({ title: _title, recipientName, occasion, 
   const safeName = truncateWithEllipsis(recipientName || "you", 28);
   const heading = `A poem for ${safeName}`;
   const headingLines = wrapText(heading, 28, 2);
-  const previewLines = collectPreviewLines(verses, { maxLines: 3, maxCharsPerLine: 52 });
+  const previewLines = collectPreviewLines(verses, {
+    maxLines: 3,
+    maxCharsPerLine: 52,
+  });
 
   return sharp(Buffer.from(openBookSvg({ colors, headingLines, previewLines })))
     .png()
@@ -135,16 +156,23 @@ function verseWindowSvg({ colors, headingLines, previewLines, occasionLabel }) {
   const headingStartY = panelY + 72;
   const headingLineHeight = 54;
 
-  const headingElements = headingLines.map((line, i) =>
-    `<text x="${textX}" y="${headingStartY + i * headingLineHeight}" font-family="${FONT_STACK}" font-size="46" font-weight="bold" fill="#1A1A1A">${escapeXml(line)}</text>`
-  ).join("\n  ");
+  const headingElements = headingLines
+    .map(
+      (line, i) =>
+        `<text x="${textX}" y="${headingStartY + i * headingLineHeight}" font-family="${FONT_STACK}" font-size="46" font-weight="bold" fill="#1A1A1A">${escapeXml(line)}</text>`,
+    )
+    .join("\n  ");
 
-  const verseStartY = headingStartY + headingLines.length * headingLineHeight + 32;
+  const verseStartY =
+    headingStartY + headingLines.length * headingLineHeight + 32;
   const verseLineHeight = 40;
 
-  const verseElements = previewLines.map((line, i) =>
-    `<text x="${textX}" y="${verseStartY + i * verseLineHeight}" font-family="${FONT_STACK}" font-size="26" font-style="italic" fill="#3A3A3A">${escapeXml(line)}</text>`
-  ).join("\n  ");
+  const verseElements = previewLines
+    .map(
+      (line, i) =>
+        `<text x="${textX}" y="${verseStartY + i * verseLineHeight}" font-family="${FONT_STACK}" font-size="26" font-style="italic" fill="#3A3A3A">${escapeXml(line)}</text>`,
+    )
+    .join("\n  ");
 
   const chipY = verseStartY + previewLines.length * verseLineHeight + 28;
   const chipW = Math.max(140, occasionLabel.length * 13 + 48);
@@ -172,7 +200,12 @@ function verseWindowSvg({ colors, headingLines, previewLines, occasionLabel }) {
 </svg>`;
 }
 
-async function generatePoemOgVerseWindow({ title: _title, recipientName, occasion, verses }) {
+async function generatePoemOgVerseWindow({
+  title: _title,
+  recipientName,
+  occasion,
+  verses,
+}) {
   const sharp = requireSharp();
   if (!sharp) return null;
 
@@ -180,10 +213,17 @@ async function generatePoemOgVerseWindow({ title: _title, recipientName, occasio
   const safeName = truncateWithEllipsis(recipientName || "you", 24);
   const heading = `A poem for ${safeName}`;
   const headingLines = wrapText(heading, 24, 2);
-  const previewLines = collectPreviewLines(verses, { maxLines: 3, maxCharsPerLine: 42 });
+  const previewLines = collectPreviewLines(verses, {
+    maxLines: 3,
+    maxCharsPerLine: 42,
+  });
   const occasionLabel = formatOccasion(occasion, "Poem");
 
-  return sharp(Buffer.from(verseWindowSvg({ colors, headingLines, previewLines, occasionLabel })))
+  return sharp(
+    Buffer.from(
+      verseWindowSvg({ colors, headingLines, previewLines, occasionLabel }),
+    ),
+  )
     .png()
     .toBuffer();
 }
@@ -196,9 +236,12 @@ function whisperSvg({ colors, nameLines, previewLines }) {
   const nameStartY = 210;
   const nameLineHeight = 80;
 
-  const nameElements = nameLines.map((line, i) =>
-    `<text x="600" y="${nameStartY + i * nameLineHeight}" font-family="${FONT_STACK}" font-size="72" font-weight="bold" fill="white" text-anchor="middle">${escapeXml(line)}</text>`
-  ).join("\n  ");
+  const nameElements = nameLines
+    .map(
+      (line, i) =>
+        `<text x="600" y="${nameStartY + i * nameLineHeight}" font-family="${FONT_STACK}" font-size="72" font-weight="bold" fill="white" text-anchor="middle">${escapeXml(line)}</text>`,
+    )
+    .join("\n  ");
 
   // Horizontal accent line (occasion gradient)
   const lineY = nameStartY + nameLines.length * nameLineHeight + 24;
@@ -206,9 +249,12 @@ function whisperSvg({ colors, nameLines, previewLines }) {
   const verseStartY = lineY + 48;
   const verseLineHeight = 44;
 
-  const verseElements = previewLines.map((line, i) =>
-    `<text x="600" y="${verseStartY + i * verseLineHeight}" font-family="${FONT_STACK}" font-size="30" font-style="italic" fill="rgba(255,255,255,0.82)" text-anchor="middle">${escapeXml(line)}</text>`
-  ).join("\n  ");
+  const verseElements = previewLines
+    .map(
+      (line, i) =>
+        `<text x="600" y="${verseStartY + i * verseLineHeight}" font-family="${FONT_STACK}" font-size="30" font-style="italic" fill="rgba(255,255,255,0.82)" text-anchor="middle">${escapeXml(line)}</text>`,
+    )
+    .join("\n  ");
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg width="${WIDTH}" height="${HEIGHT}" xmlns="http://www.w3.org/2000/svg">
@@ -235,14 +281,22 @@ function whisperSvg({ colors, nameLines, previewLines }) {
 </svg>`;
 }
 
-async function generatePoemOgWhisper({ title: _title, recipientName, occasion, verses }) {
+async function generatePoemOgWhisper({
+  title: _title,
+  recipientName,
+  occasion,
+  verses,
+}) {
   const sharp = requireSharp();
   if (!sharp) return null;
 
   const colors = OCCASION_COLORS[occasion] || OCCASION_COLORS.custom;
   const safeName = truncateWithEllipsis(recipientName || "you", 28);
   const nameLines = wrapText(safeName, 18, 2);
-  const previewLines = collectPreviewLines(verses, { maxLines: 3, maxCharsPerLine: 40 });
+  const previewLines = collectPreviewLines(verses, {
+    maxLines: 3,
+    maxCharsPerLine: 40,
+  });
 
   return sharp(Buffer.from(whisperSvg({ colors, nameLines, previewLines })))
     .png()
