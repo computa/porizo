@@ -440,3 +440,13 @@ Naming similarity on a remote platform ("thanks mom.mp3" vs `marketing/audio hoo
 **Mistake:** The real failure was a **client-side decode throw**, invisible in server logs. One-tap send calls `createShare(requirePin: false)`; the backend returns `claim_pin: null` for PIN-less shares (`share-service.js:150`), but iOS `CreateShareResponse.claimPin` was a **non-optional `String`** → `JSONDecoder` threw on the null → `makePinlessShareLink` threw → the send bailed into its `catch` (a toast) **before presenting**. The 200 masked it; I burned two builds on the wrong layer.
 
 **Rule:** When a feature works on one code path but not another that hits the **same endpoint with different params**, diff the **response shape** between the two paths and check model **optionality** — a field that's non-null on the default path but null on the variant makes the _entire_ decode throw. A 2xx status only means the server succeeded; confirm the client actually _decoded and used_ the body (add/inspect the decode-error path) before concluding it's a downstream/UI bug. Default response fields that any code path can null out should be optional (or tolerated via `decodeIfPresent`).
+
+---
+
+## Dead-code checks must include the relative-path import form (2026-06-23)
+
+**Trigger:** Verifying whether `src/services/og-text-utils.js` was unimported dead code before deleting it.
+
+**Mistake:** Grepped only for `services/og-text-utils` (the from-root path) and concluded "zero importers — safe to delete." Two sibling modules (`poem-og-variants.js`, `song-og-variants.js`) actually imported it via the **relative** `require("./og-text-utils")`, which my grep missed. The file was a **live duplicate**, not dead — and worse, it was the drifted copy without the F20 fix, so all 6 OG card variants still had the overflow bug. A final relative-form check caught it one step before `rm`.
+
+**Rule:** Before declaring a module dead or deleting it, grep for **every** form callers can use: the from-root path (`dir/name`), the relative sibling form (`./name`, `../dir/name`), AND bare `require(...name...)`. Sibling modules almost always import via `./`. A single absolute-path grep is not proof of "no importers" — it's the exact false-negative the claim-verification rule warns about. When you find live importers of a duplicate, consolidate them onto the canonical version (don't preserve the fork), then delete.
