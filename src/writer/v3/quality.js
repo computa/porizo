@@ -23,8 +23,8 @@ const SAFETY_BOUNDS = {
  * V3: Made explicit to avoid "flowchart hiding in reasoning system"
  */
 const STRENGTH_THRESHOLDS = {
-  covered: 0.6,   // >= this is considered "covered" (sufficient content)
-  weak: 0.3,      // >= this but < covered is "weak" (partial content)
+  covered: 0.6, // >= this is considered "covered" (sufficient content)
+  weak: 0.3, // >= this but < covered is "weak" (partial content)
   // < weak is "missing"
 };
 
@@ -78,10 +78,7 @@ const REFLECTIVE_SLOT_WEIGHTS = {
  * Slots that MUST be covered before the engine can confirm completion.
  * Keep this set small to avoid over-constraining the flow.
  */
-const CRITICAL_CONFIRM_SLOT_IDS = [
-  "moment_destination",
-  "ending_feel",
-];
+const CRITICAL_CONFIRM_SLOT_IDS = ["moment_destination", "ending_feel"];
 
 /**
  * Reverse mapping: slot name → Labov element.
@@ -112,15 +109,18 @@ const SLOT_GUIDANCE_TEMPLATES = {
   moment_destination: {
     weak: {
       instruction: "Your setting/moment is close, but still too vague.",
-      answerTemplate: "In [place], during [time], [person] [specific action/event] that changed things",
+      answerTemplate:
+        "In [place], during [time], [person] [specific action/event] that changed things",
       examples: [
         "In Aarhus, during the winter exams, Osita worked night shifts and still funded his siblings' tuition.",
         "At our kitchen table on Sunday night, Dad quietly decided to sell his car so we could stay in school.",
       ],
     },
     missing: {
-      instruction: "Add one concrete scene with place, time, and what happened.",
-      answerTemplate: "In [place], during [time], [person] [specific action/event] that changed things",
+      instruction:
+        "Add one concrete scene with place, time, and what happened.",
+      answerTemplate:
+        "In [place], during [time], [person] [specific action/event] that changed things",
       examples: [
         "In Lagos, during the flood season, Mum carried us across water to get to class.",
         "At the airport in December, she hugged me and said we were starting over together.",
@@ -130,14 +130,16 @@ const SLOT_GUIDANCE_TEMPLATES = {
   stakes: {
     weak: {
       instruction: "State what could have been lost if this failed.",
-      answerTemplate: "If this failed, [person] would have lost [specific consequence]",
+      answerTemplate:
+        "If this failed, [person] would have lost [specific consequence]",
       examples: [
         "If this failed, he would have lost his visa and the chance to support his parents.",
       ],
     },
     missing: {
       instruction: "Add one explicit consequence.",
-      answerTemplate: "If this failed, [person] would have lost [specific consequence]",
+      answerTemplate:
+        "If this failed, [person] would have lost [specific consequence]",
       examples: [
         "If this failed, we would have lost our home and my younger brother's schooling.",
       ],
@@ -145,15 +147,18 @@ const SLOT_GUIDANCE_TEMPLATES = {
   },
   who: {
     weak: {
-      instruction: "Clarify their role and what makes them important to the story.",
-      answerTemplate: "[Name] is my [relationship] — they [defining trait or action]",
+      instruction:
+        "Clarify their role and what makes them important to the story.",
+      answerTemplate:
+        "[Name] is my [relationship] — they [defining trait or action]",
       examples: [
         "Osita is my older brother — he always stepped up when our parents couldn't.",
       ],
     },
     missing: {
       instruction: "Name the person and their relationship to you.",
-      answerTemplate: "[Name] is my [relationship] — they [defining trait or action]",
+      answerTemplate:
+        "[Name] is my [relationship] — they [defining trait or action]",
       examples: [
         "My grandmother Nkechi raised me after my parents moved abroad for work.",
         "Tunde is my best friend since secondary school — we survived everything together.",
@@ -162,11 +167,10 @@ const SLOT_GUIDANCE_TEMPLATES = {
   },
   want: {
     weak: {
-      instruction: "Make the desire more specific — what exactly did they hope for?",
+      instruction:
+        "Make the desire more specific — what exactly did they hope for?",
       answerTemplate: "[Person] wanted [specific desire] because [reason]",
-      examples: [
-        "She wanted to hear him say he was proud of her, just once.",
-      ],
+      examples: ["She wanted to hear him say he was proud of her, just once."],
     },
     missing: {
       instruction: "State what the person wanted most in this moment.",
@@ -179,15 +183,18 @@ const SLOT_GUIDANCE_TEMPLATES = {
   },
   blocker: {
     weak: {
-      instruction: "Make the obstacle more concrete — what specifically stood in the way?",
-      answerTemplate: "The problem was [specific obstacle] which meant [consequence]",
+      instruction:
+        "Make the obstacle more concrete — what specifically stood in the way?",
+      answerTemplate:
+        "The problem was [specific obstacle] which meant [consequence]",
       examples: [
         "The distance between us had grown into years of silence neither of us knew how to break.",
       ],
     },
     missing: {
       instruction: "Name the main thing standing in the way.",
-      answerTemplate: "The problem was [specific obstacle] which meant [consequence]",
+      answerTemplate:
+        "The problem was [specific obstacle] which meant [consequence]",
       examples: [
         "He was too proud to ask for help, even when the bills were piling up.",
         "We hadn't spoken in three years after the argument at Christmas.",
@@ -196,15 +203,18 @@ const SLOT_GUIDANCE_TEMPLATES = {
   },
   turn: {
     weak: {
-      instruction: "Pinpoint the exact moment things shifted — what happened right then?",
-      answerTemplate: "Then [specific event] happened, and after that [what changed]",
+      instruction:
+        "Pinpoint the exact moment things shifted — what happened right then?",
+      answerTemplate:
+        "Then [specific event] happened, and after that [what changed]",
       examples: [
         "Then she called from the hospital parking lot, and after that we couldn't pretend anymore.",
       ],
     },
     missing: {
       instruction: "Describe the moment that changed everything.",
-      answerTemplate: "Then [specific event] happened, and after that [what changed]",
+      answerTemplate:
+        "Then [specific event] happened, and after that [what changed]",
       examples: [
         "He showed up at my graduation even though he said he wouldn't come.",
         "She handed me the letter she'd been carrying for months but never sent.",
@@ -213,15 +223,18 @@ const SLOT_GUIDANCE_TEMPLATES = {
   },
   ending_feel: {
     weak: {
-      instruction: "Be more specific about the feeling — what emotion should linger?",
-      answerTemplate: "The listener should feel [specific emotion] because [reason]",
+      instruction:
+        "Be more specific about the feeling — what emotion should linger?",
+      answerTemplate:
+        "The listener should feel [specific emotion] because [reason]",
       examples: [
         "The listener should feel quietly proud, like witnessing someone finally get what they deserved.",
       ],
     },
     missing: {
       instruction: "Describe how the story should leave the listener feeling.",
-      answerTemplate: "The listener should feel [specific emotion] because [reason]",
+      answerTemplate:
+        "The listener should feel [specific emotion] because [reason]",
       examples: [
         "It should feel bittersweet — happy we reconnected but aware of the time we lost.",
         "It should feel hopeful, like the hard part is over and something good is starting.",
@@ -230,15 +243,18 @@ const SLOT_GUIDANCE_TEMPLATES = {
   },
   tone: {
     weak: {
-      instruction: "Refine the tone — is it more warm, raw, playful, or cinematic?",
-      answerTemplate: "The tone should be [adjective] — like [comparison or feeling]",
+      instruction:
+        "Refine the tone — is it more warm, raw, playful, or cinematic?",
+      answerTemplate:
+        "The tone should be [adjective] — like [comparison or feeling]",
       examples: [
         "The tone should be gentle and warm — like a late-night conversation between old friends.",
       ],
     },
     missing: {
       instruction: "Describe the overall feeling and style of the story.",
-      answerTemplate: "The tone should be [adjective] — like [comparison or feeling]",
+      answerTemplate:
+        "The tone should be [adjective] — like [comparison or feeling]",
       examples: [
         "Keep it real and a little raw — no sugar-coating, just honest.",
         "Make it cinematic, like a movie scene you can't stop thinking about.",
@@ -251,14 +267,38 @@ const SLOT_GUIDANCE_TEMPLATES = {
 // Used only when the LLM fails to generate a contextual question.
 // These are soft, open-ended prompts tied to the 5-element UI the user sees.
 const SLOT_TO_ELEMENT_FALLBACK = {
-  moment_destination: { element: "The Setting", prompt: "Tell me more about where and when this takes place." },
-  who: { element: "Your Bond", prompt: "Tell me more about what makes your relationship special." },
-  want: { element: "Your Bond", prompt: "What did they want most in that moment?" },
-  blocker: { element: "The Moment", prompt: "Was there anything that made this harder?" },
-  stakes: { element: "The Details", prompt: "What would it have meant if things went differently?" },
-  turn: { element: "The Moment", prompt: "What happened in that moment, and what changed after it?" },
-  ending_feel: { element: "The Feeling", prompt: "How do you want someone to feel hearing this?" },
-  tone: { element: "The Feeling", prompt: "What kind of mood fits this story?" },
+  moment_destination: {
+    element: "The Setting",
+    prompt: "Tell me more about where and when this takes place.",
+  },
+  who: {
+    element: "Your Bond",
+    prompt: "Tell me more about what makes your relationship special.",
+  },
+  want: {
+    element: "Your Bond",
+    prompt: "What did they want most in that moment?",
+  },
+  blocker: {
+    element: "The Moment",
+    prompt: "Was there anything that made this harder?",
+  },
+  stakes: {
+    element: "The Details",
+    prompt: "What would it have meant if things went differently?",
+  },
+  turn: {
+    element: "The Moment",
+    prompt: "What happened in that moment, and what changed after it?",
+  },
+  ending_feel: {
+    element: "The Feeling",
+    prompt: "How do you want someone to feel hearing this?",
+  },
+  tone: {
+    element: "The Feeling",
+    prompt: "What kind of mood fits this story?",
+  },
 };
 
 /**
@@ -277,28 +317,49 @@ const SLOT_TO_ELEMENT_FALLBACK = {
  */
 const BEAT_FALLBACK_PRIORITY = [
   // Emotionally pivotal moments (highest priority)
-  "turning_point", "moment", "birth_moment", "falling",
+  "turning_point",
+  "moment",
+  "birth_moment",
+  "falling",
   // Core meaning
   "meaning",
   // Scene/foundation
-  "scene", "meeting", "discovery", "who",
+  "scene",
+  "meeting",
+  "discovery",
+  "who",
   // Stakes/tension (lowest priority)
-  "stakes", "scare", "struggle",
+  "stakes",
+  "scare",
+  "struggle",
 ];
 
-const RELATIONSHIP_HINT_REGEX = /\b(mom|mum|mother|dad|father|parent|sister|brother|friend|partner|wife|husband|fiance|fiancee|son|daughter|child|mentor|teacher|grandma|grandpa|aunt|uncle|cousin|colleague|boss)\b/i;
-const WANT_REGEX = /\b(want(?:ed|s)?|wish(?:ed|es)?|hope(?:d|s)?|dream(?:ed|s)?|goal|trying to|needed to|need to|longed to|in order to|so that)\b/i;
-const BLOCKER_REGEX = /\b(couldn't|could not|can't|cannot|blocked|stopped|prevented|afraid|fear|anxious|rule|secret|barrier|obstacle|challenge|struggle|conflict)\b/i;
-const STAKES_REGEX = /\b(if we failed|if i failed|if they failed|if this failed|lose|lost|risk(?:ed|s)?|at stake|cost us|cost me|would have lost|without this)\b/i;
-const STAKES_WEAK_REGEX = /\b(mattered|important|meant everything|heartbroken|devastating)\b/i;
-const TURN_REGEX = /\b(turning point|everything changed|that moment|suddenly|after that|then i knew)\b/i;
-const TURN_MEMORY_REGEX = /\b(i(?:'|’)ll never forget|i will never forget|i(?:'|’)ll always remember|i will always remember)\b/i;
-const TURN_CRISIS_REGEX = /\b(high[- ]risk|bleeding|hospital|pregnan(?:cy|t)|twins?|fear|pain|uncertainty|complication|emergency|crisis|surgery|diagnosis|labou?r|delivery)\b/i;
-const TURN_RESPONSE_REGEX = /\b(stayed strong|endured|survived|overcame|followed every instruction|kept every appointment|did everything|carried (?:them|him|her) safely)\b/i;
-const TURN_TRANSFORMATION_REGEX = /\b(from that day|watching you become|made me love|made me respect|because of you)\b/i;
-const ENDING_FEEL_REGEX = /\b(hopeful|tragic|funny|reflective|bittersweet|uplifting|comforting|joyful|proud|peaceful|healing|grateful|inspired|honou?red|loved|seen)\b/i;
-const TONE_REGEX = /\b(cinematic|realistic|comedic|romantic|playful|serious|raw|poetic|gentle|dramatic|upbeat|melancholic)\b/i;
-const APPRECIATION_REGEX = /\b(appreciat(?:e|ion)|grateful|gratitude|thankful|celebrat(?:e|ion)|honou?r|motherhood|fatherhood|selfless|sacrifice|steady presence|show(?:ing)? up|for all you do|care|support)\b/i;
+const RELATIONSHIP_HINT_REGEX =
+  /\b(mom|mum|mother|dad|father|parent|sister|brother|friend|partner|wife|husband|fiance|fiancee|son|daughter|child|mentor|teacher|grandma|grandpa|aunt|uncle|cousin|colleague|boss)\b/i;
+const WANT_REGEX =
+  /\b(want(?:ed|s)?|wish(?:ed|es)?|hope(?:d|s)?|dream(?:ed|s)?|goal|trying to|needed to|need to|longed to|in order to|so that)\b/i;
+const BLOCKER_REGEX =
+  /\b(couldn't|could not|can't|cannot|blocked|stopped|prevented|afraid|fear|anxious|rule|secret|barrier|obstacle|challenge|struggle|conflict)\b/i;
+const STAKES_REGEX =
+  /\b(if we failed|if i failed|if they failed|if this failed|lose|lost|risk(?:ed|s)?|at stake|cost us|cost me|would have lost|without this)\b/i;
+const STAKES_WEAK_REGEX =
+  /\b(mattered|important|meant everything|heartbroken|devastating)\b/i;
+const TURN_REGEX =
+  /\b(turning point|everything changed|that moment|suddenly|after that|then i knew)\b/i;
+const TURN_MEMORY_REGEX =
+  /\b(i(?:'|’)ll never forget|i will never forget|i(?:'|’)ll always remember|i will always remember)\b/i;
+const TURN_CRISIS_REGEX =
+  /\b(high[- ]risk|bleeding|hospital|pregnan(?:cy|t)|twins?|fear|pain|uncertainty|complication|emergency|crisis|surgery|diagnosis|labou?r|delivery)\b/i;
+const TURN_RESPONSE_REGEX =
+  /\b(stayed strong|endured|survived|overcame|followed every instruction|kept every appointment|did everything|carried (?:them|him|her) safely)\b/i;
+const TURN_TRANSFORMATION_REGEX =
+  /\b(from that day|watching you become|made me love|made me respect|because of you)\b/i;
+const ENDING_FEEL_REGEX =
+  /\b(hopeful|tragic|funny|reflective|bittersweet|uplifting|comforting|joyful|proud|peaceful|healing|grateful|inspired|honou?red|loved|seen)\b/i;
+const TONE_REGEX =
+  /\b(cinematic|realistic|comedic|romantic|playful|serious|raw|poetic|gentle|dramatic|upbeat|melancholic)\b/i;
+const APPRECIATION_REGEX =
+  /\b(appreciat(?:e|ion)|grateful|gratitude|thankful|celebrat(?:e|ion)|honou?r|motherhood|fatherhood|selfless|sacrifice|steady presence|show(?:ing)? up|for all you do|care|support)\b/i;
 const REFLECTIVE_OCCASIONS = new Set([
   "thank_you",
   "gratitude",
@@ -311,17 +372,25 @@ const REFLECTIVE_OCCASIONS = new Set([
 ]);
 
 // --- Labov-specific regex patterns ---
-const EVALUATION_REGEX = /\b(felt|feel|feeling|meant|means|made me|changed|realize[d]?|understood|grateful|loved|special|important|connected)\b/i;
-const SENSORY_REGEX = /\b(smell[s]?|taste[d]?|sound[s]?|hear[d]?|saw|see|touch|warm|cold|bright|dark|loud|quiet|sweet|bitter)\b/i;
-const PAST_ACTION_REGEX = /\b(went|came|ran|walked|drove|called|said|told|gave|took|brought|showed|made|played|danced|laughed|cried|sang|cooked)\b/i;
-const DEDICATION_REGEX = /\b(happy birthday|for you|on your|this is for|here'?s to|celebrating|wishing|this mother'?s? day|this father'?s? day|this anniversary|i want you to know|i see you|i appreciate you|thank you for|you deserve|you mean)\b/i;
+const EVALUATION_REGEX =
+  /\b(felt|feel|feeling|meant|means|made me|changed|realize[d]?|understood|grateful|loved|special|important|connected)\b/i;
+const SENSORY_REGEX =
+  /\b(smell[s]?|taste[d]?|sound[s]?|hear[d]?|saw|see|touch|warm|cold|bright|dark|loud|quiet|sweet|bitter)\b/i;
+const PAST_ACTION_REGEX =
+  /\b(went|came|ran|walked|drove|called|said|told|gave|took|brought|showed|made|played|danced|laughed|cried|sang|cooked)\b/i;
+const DEDICATION_REGEX =
+  /\b(happy birthday|for you|on your|this is for|here'?s to|celebrating|wishing|this mother'?s? day|this father'?s? day|this anniversary|i want you to know|i see you|i appreciate you|thank you for|you deserve|you mean)\b/i;
 
-const TRIBUTE_OCCASION_REGEX = /\b(memorial|bereavement|tribute|thank[_\s-]?you|in[_\s-]?memory)\b/i;
+const TRIBUTE_OCCASION_REGEX =
+  /\b(memorial|bereavement|tribute|thank[_\s-]?you|in[_\s-]?memory)\b/i;
 
 // Labov element classification regexes (shared with extractStoryState in index.js)
-const ORIENTATION_REGEX = /\b(met|lived|grew up|moved to|born|raised|since|college|school|park|kitchen|airport|home|house|summer|winter|year|day|night|morning|childhood)\b/i;
-const COMPLICATING_REGEX = /\b(changed|suddenly|then|happened|showed up|found out|realized|broke|left|lost|arrived|called|ran|fell|crashed|woke|fought|discovered|everything changed)\b/i;
-const RESOLUTION_REGEX = /\b(now|today|since then|from that day|looking back|still|always will|never forgot|became|forgave|healed|stronger|better)\b/i;
+const ORIENTATION_REGEX =
+  /\b(met|lived|grew up|moved to|born|raised|since|college|school|park|kitchen|airport|home|house|summer|winter|year|day|night|morning|childhood)\b/i;
+const COMPLICATING_REGEX =
+  /\b(changed|suddenly|then|happened|showed up|found out|realized|broke|left|lost|arrived|called|ran|fell|crashed|woke|fought|discovered|everything changed)\b/i;
+const RESOLUTION_REGEX =
+  /\b(now|today|since then|from that day|looking back|still|always will|never forgot|became|forgave|healed|stronger|better)\b/i;
 
 const { normalizeOccasion, normalizeText, trimText } = require("./utils");
 
@@ -334,13 +403,16 @@ function clamp(value, min = 0, max = 1) {
 }
 
 function toConfidence(status, evidenceCount = 0) {
-  const base = status === "covered" ? 0.75 : (status === "weak" ? 0.35 : 0.05);
-  const evidenceBoost = status === "missing" ? 0 : Math.min(0.20, evidenceCount * 0.05);
+  const base = status === "covered" ? 0.75 : status === "weak" ? 0.35 : 0.05;
+  const evidenceBoost =
+    status === "missing" ? 0 : Math.min(0.2, evidenceCount * 0.05);
   return Number(clamp(base + evidenceBoost).toFixed(2));
 }
 
 function getBeatStrength(state, beatId) {
-  const beat = (state?.beats || []).find((candidate) => candidate?.id === beatId);
+  const beat = (state?.beats || []).find(
+    (candidate) => candidate?.id === beatId,
+  );
   if (!beat) return 0;
   if (typeof beat.strength === "number") return beat.strength;
   if (beat.status === "covered") return 1;
@@ -354,7 +426,9 @@ function hasBeatCoverage(state, beatIds, threshold) {
 
 function buildCorpus(state) {
   const corpus = [];
-  const canonicalNarrative = hasText(state?.narrative_current) ? state.narrative_current : state?.narrative;
+  const canonicalNarrative = hasText(state?.narrative_current)
+    ? state.narrative_current
+    : state?.narrative;
   if (hasText(canonicalNarrative)) corpus.push(canonicalNarrative);
   for (const fact of state?.facts || []) {
     if ((fact?.status || "active") !== "active") continue;
@@ -376,7 +450,10 @@ function firstText(...values) {
 }
 
 function normalizeSlot(slot, status, reason, evidence = []) {
-  const cleanedEvidence = evidence.filter(hasText).map(normalizeText).slice(0, 4);
+  const cleanedEvidence = evidence
+    .filter(hasText)
+    .map(normalizeText)
+    .slice(0, 4);
   return {
     slot,
     status,
@@ -390,10 +467,16 @@ function normalizeSlot(slot, status, reason, evidence = []) {
  * Find highest-priority uncovered slot from missing/weak lists.
  * Shared by buildGapTargeting (prompt builder) and pickDeterministicGapQuestion.
  */
-function findHighestPriorityGap(missingSlots, weakSlots, priorityOrder = STORY_SLOT_PRIORITY) {
-  return priorityOrder.find((s) => missingSlots.includes(s))
-    || priorityOrder.find((s) => weakSlots.includes(s))
-    || null;
+function findHighestPriorityGap(
+  missingSlots,
+  weakSlots,
+  priorityOrder = STORY_SLOT_PRIORITY,
+) {
+  return (
+    priorityOrder.find((s) => missingSlots.includes(s)) ||
+    priorityOrder.find((s) => weakSlots.includes(s)) ||
+    null
+  );
 }
 
 function getSlotGuidance(slotId, slotState) {
@@ -406,7 +489,9 @@ function getSlotGuidance(slotId, slotState) {
     state: slotState,
     instruction: variant.instruction,
     answerTemplate: variant.answerTemplate,
-    examples: Array.isArray(variant.examples) ? variant.examples.slice(0, 3) : [],
+    examples: Array.isArray(variant.examples)
+      ? variant.examples.slice(0, 3)
+      : [],
   };
 }
 
@@ -417,33 +502,48 @@ function hasStrongTurnScene(corpus) {
   const hasResponse = TURN_RESPONSE_REGEX.test(corpus);
   const hasTransformation = TURN_TRANSFORMATION_REGEX.test(corpus);
 
-  return hasExplicitPivot
-    || (hasMemoryAnchor && hasCrisis)
-    || (hasCrisis && hasResponse)
-    || (hasMemoryAnchor && hasTransformation);
+  return (
+    hasExplicitPivot ||
+    (hasMemoryAnchor && hasCrisis) ||
+    (hasCrisis && hasResponse) ||
+    (hasMemoryAnchor && hasTransformation)
+  );
 }
 
 function hasWeakTurnSignal(corpus) {
-  return TURN_MEMORY_REGEX.test(corpus)
-    || TURN_CRISIS_REGEX.test(corpus)
-    || TURN_RESPONSE_REGEX.test(corpus)
-    || TURN_TRANSFORMATION_REGEX.test(corpus);
+  return (
+    TURN_MEMORY_REGEX.test(corpus) ||
+    TURN_CRISIS_REGEX.test(corpus) ||
+    TURN_RESPONSE_REGEX.test(corpus) ||
+    TURN_TRANSFORMATION_REGEX.test(corpus)
+  );
 }
 
 function isReflectiveTributeStory(state, corpus) {
   const occasion = normalizeOccasion(state?.event?.occasion || state?.occasion);
   if (REFLECTIVE_OCCASIONS.has(occasion)) return true;
 
-  if (occasion === "birthday" || occasion === "celebration" || occasion === "custom") {
+  if (
+    occasion === "birthday" ||
+    occasion === "celebration" ||
+    occasion === "custom"
+  ) {
     return APPRECIATION_REGEX.test(corpus);
   }
 
-  return APPRECIATION_REGEX.test(corpus) && !BLOCKER_REGEX.test(corpus) && !STAKES_REGEX.test(corpus);
+  return (
+    APPRECIATION_REGEX.test(corpus) &&
+    !BLOCKER_REGEX.test(corpus) &&
+    !STAKES_REGEX.test(corpus)
+  );
 }
 
 function countActiveFacts(state) {
   return Array.isArray(state?.facts)
-    ? state.facts.filter((fact) => (fact?.status || "active") === "active" && hasText(fact?.text)).length
+    ? state.facts.filter(
+        (fact) =>
+          (fact?.status || "active") === "active" && hasText(fact?.text),
+      ).length
     : 0;
 }
 
@@ -463,24 +563,28 @@ function computeElementSignals(state, corpus) {
   ].filter(hasText);
 
   const detailSpecificity = clamp(
-    Math.min(0.45, detailFragments.length * 0.1)
-      + Math.min(0.3, activeFacts * 0.08)
-      + (detailFragments.some((value) => trimText(value).split(/\s+/).length >= 6) ? 0.12 : 0)
+    Math.min(0.45, detailFragments.length * 0.1) +
+      Math.min(0.3, activeFacts * 0.08) +
+      (detailFragments.some((value) => trimText(value).split(/\s+/).length >= 6)
+        ? 0.12
+        : 0),
   );
 
   const relationshipDepth = clamp(
-    (hasText(atoms.who) ? 0.35 : 0)
-      + (hasText(state?.recipient_name) ? 0.1 : 0)
-      + (RELATIONSHIP_HINT_REGEX.test(corpus) ? 0.2 : 0)
-      + (Array.isArray(primitives.characters) && primitives.characters.length > 0 ? 0.15 : 0)
-      + (activeFacts >= 2 ? 0.1 : 0)
+    (hasText(atoms.who) ? 0.35 : 0) +
+      (hasText(state?.recipient_name) ? 0.1 : 0) +
+      (RELATIONSHIP_HINT_REGEX.test(corpus) ? 0.2 : 0) +
+      (Array.isArray(primitives.characters) && primitives.characters.length > 0
+        ? 0.15
+        : 0) +
+      (activeFacts >= 2 ? 0.1 : 0),
   );
 
   const reflectiveMomentStrength = clamp(
-    (hasText(firstText(atoms.turn, primitives.turning_point)) ? 0.45 : 0)
-      + (hasText(atoms.action) ? 0.15 : 0)
-      + ((hasText(atoms.where) || hasText(atoms.when)) ? 0.15 : 0)
-      + (hasStrongTurnScene(corpus) ? 0.2 : 0)
+    (hasText(firstText(atoms.turn, primitives.turning_point)) ? 0.45 : 0) +
+      (hasText(atoms.action) ? 0.15 : 0) +
+      (hasText(atoms.where) || hasText(atoms.when) ? 0.15 : 0) +
+      (hasStrongTurnScene(corpus) ? 0.2 : 0),
   );
 
   return {
@@ -500,16 +604,20 @@ function evaluateMomentDestinationSlot(state) {
     atoms.dialogue,
     atoms.physical,
     primitives.inciting_incident,
-    primitives.turning_point
+    primitives.turning_point,
   );
-  const hasMomentBeat = hasBeatCoverage(state, ["moment", "scene", "discovery"], STRENGTH_THRESHOLDS.weak);
+  const hasMomentBeat = hasBeatCoverage(
+    state,
+    ["moment", "scene", "discovery"],
+    STRENGTH_THRESHOLDS.weak,
+  );
 
   if (place && time && (moment || hasMomentBeat)) {
     return normalizeSlot(
       "moment_destination",
       "covered",
       "Moment, place, and time context are present.",
-      [place, time, moment]
+      [place, time, moment],
     );
   }
 
@@ -518,7 +626,7 @@ function evaluateMomentDestinationSlot(state) {
       "moment_destination",
       "weak",
       "Partial setting is present but the destination moment needs precision.",
-      [place, time, moment]
+      [place, time, moment],
     );
   }
 
@@ -526,7 +634,7 @@ function evaluateMomentDestinationSlot(state) {
     "moment_destination",
     "missing",
     "The core moment destination and setting are unclear.",
-    [place, time, moment]
+    [place, time, moment],
   );
 }
 
@@ -535,13 +643,20 @@ function evaluateWhoSlot(state) {
   const primitives = state?.primitives || {};
   const whoText = trimText(atoms.who);
   const recipient = trimText(state?.recipient_name);
-  const characters = Array.isArray(primitives.characters) ? primitives.characters : [];
-  const hasCharacter = characters.some((character) =>
-    hasText(character?.name) || hasText(character?.role)
+  const characters = Array.isArray(primitives.characters)
+    ? primitives.characters
+    : [];
+  const hasCharacter = characters.some(
+    (character) => hasText(character?.name) || hasText(character?.role),
   );
   const relationshipHint = RELATIONSHIP_HINT_REGEX.test(
-    [whoText, recipient, ...characters.map((character) => `${character?.name || ""} ${character?.role || ""}`)]
-      .join(" ")
+    [
+      whoText,
+      recipient,
+      ...characters.map(
+        (character) => `${character?.name || ""} ${character?.role || ""}`,
+      ),
+    ].join(" "),
   );
 
   if ((hasText(whoText) || hasCharacter) && relationshipHint) {
@@ -549,7 +664,7 @@ function evaluateWhoSlot(state) {
       "who",
       "covered",
       "Subject and relationship context are clear.",
-      [whoText, recipient]
+      [whoText, recipient],
     );
   }
 
@@ -558,7 +673,7 @@ function evaluateWhoSlot(state) {
       "who",
       "weak",
       "A subject exists, but relationship detail is still thin.",
-      [whoText, recipient]
+      [whoText, recipient],
     );
   }
 
@@ -566,22 +681,29 @@ function evaluateWhoSlot(state) {
     "who",
     "missing",
     "No clear subject or relationship is identified.",
-    []
+    [],
   );
 }
 
 function evaluateWantSlot(state, corpus) {
   const primitives = state?.primitives || {};
-  const characters = Array.isArray(primitives.characters) ? primitives.characters : [];
-  const explicitDesire = characters.find((character) => hasText(character?.desire))?.desire || "";
-  const beatSignal = hasBeatCoverage(state, ["meaning", "moment"], STRENGTH_THRESHOLDS.weak);
+  const characters = Array.isArray(primitives.characters)
+    ? primitives.characters
+    : [];
+  const explicitDesire =
+    characters.find((character) => hasText(character?.desire))?.desire || "";
+  const beatSignal = hasBeatCoverage(
+    state,
+    ["meaning", "moment"],
+    STRENGTH_THRESHOLDS.weak,
+  );
 
   if (hasText(explicitDesire) || WANT_REGEX.test(corpus)) {
     return normalizeSlot(
       "want",
       "covered",
       "A concrete desire or goal is present.",
-      [explicitDesire]
+      [explicitDesire],
     );
   }
 
@@ -590,7 +712,7 @@ function evaluateWantSlot(state, corpus) {
       "want",
       "weak",
       "Motivation is implied but not explicit yet.",
-      [explicitDesire]
+      [explicitDesire],
     );
   }
 
@@ -598,7 +720,7 @@ function evaluateWantSlot(state, corpus) {
     "want",
     "missing",
     "What the protagonist wants is not explicit.",
-    []
+    [],
   );
 }
 
@@ -608,14 +730,22 @@ function evaluateBlockerSlot(state, corpus) {
   const conflictExternal = trimText(primitives.conflict?.external);
   const atoms = state?.atoms || {};
   const secret = trimText(atoms.secret);
-  const struggleBeat = hasBeatCoverage(state, ["struggle", "stakes"], STRENGTH_THRESHOLDS.weak);
+  const struggleBeat = hasBeatCoverage(
+    state,
+    ["struggle", "stakes"],
+    STRENGTH_THRESHOLDS.weak,
+  );
 
-  if (hasText(conflictInternal) || hasText(conflictExternal) || hasText(secret)) {
+  if (
+    hasText(conflictInternal) ||
+    hasText(conflictExternal) ||
+    hasText(secret)
+  ) {
     return normalizeSlot(
       "blocker",
       "covered",
       "A concrete obstacle is captured.",
-      [conflictInternal, conflictExternal, secret]
+      [conflictInternal, conflictExternal, secret],
     );
   }
 
@@ -624,7 +754,7 @@ function evaluateBlockerSlot(state, corpus) {
       "blocker",
       "weak",
       "Some friction exists, but the blocker is still vague.",
-      []
+      [],
     );
   }
 
@@ -632,23 +762,28 @@ function evaluateBlockerSlot(state, corpus) {
     "blocker",
     "missing",
     "No clear blocker is defined.",
-    []
+    [],
   );
 }
 
 function evaluateStakesSlot(state, corpus) {
   const atoms = state?.atoms || {};
   const stakesText = trimText(atoms.stakes);
-  const stakesBeatCovered = hasBeatCoverage(state, ["stakes", "impact"], STRENGTH_THRESHOLDS.covered);
-  const stakesBeatWeak = hasBeatCoverage(state, ["stakes", "impact"], STRENGTH_THRESHOLDS.weak);
+  const stakesBeatCovered = hasBeatCoverage(
+    state,
+    ["stakes", "impact"],
+    STRENGTH_THRESHOLDS.covered,
+  );
+  const stakesBeatWeak = hasBeatCoverage(
+    state,
+    ["stakes", "impact"],
+    STRENGTH_THRESHOLDS.weak,
+  );
 
   if (hasText(stakesText) || STAKES_REGEX.test(corpus) || stakesBeatCovered) {
-    return normalizeSlot(
-      "stakes",
-      "covered",
-      "Consequences are explicit.",
-      [stakesText]
-    );
+    return normalizeSlot("stakes", "covered", "Consequences are explicit.", [
+      stakesText,
+    ]);
   }
 
   if (STAKES_WEAK_REGEX.test(corpus) || stakesBeatWeak) {
@@ -656,7 +791,7 @@ function evaluateStakesSlot(state, corpus) {
       "stakes",
       "weak",
       "Importance is implied but concrete consequences are missing.",
-      [stakesText]
+      [stakesText],
     );
   }
 
@@ -664,7 +799,7 @@ function evaluateStakesSlot(state, corpus) {
     "stakes",
     "missing",
     "No explicit consequences are captured.",
-    [stakesText]
+    [stakesText],
   );
 }
 
@@ -672,8 +807,16 @@ function evaluateTurnSlot(state, corpus) {
   const atoms = state?.atoms || {};
   const primitives = state?.primitives || {};
   const turnText = firstText(atoms.turn, primitives.turning_point);
-  const turnBeatCovered = hasBeatCoverage(state, ["turning_point", "moment"], STRENGTH_THRESHOLDS.covered);
-  const turnBeatWeak = hasBeatCoverage(state, ["turning_point", "moment"], STRENGTH_THRESHOLDS.weak);
+  const turnBeatCovered = hasBeatCoverage(
+    state,
+    ["turning_point", "moment"],
+    STRENGTH_THRESHOLDS.covered,
+  );
+  const turnBeatWeak = hasBeatCoverage(
+    state,
+    ["turning_point", "moment"],
+    STRENGTH_THRESHOLDS.weak,
+  );
   const strongTurnScene = hasStrongTurnScene(corpus);
 
   if (hasText(turnText) || turnBeatCovered) {
@@ -681,7 +824,7 @@ function evaluateTurnSlot(state, corpus) {
       "turn",
       "covered",
       "A clear turning point is present.",
-      [turnText]
+      [turnText],
     );
   }
 
@@ -690,7 +833,7 @@ function evaluateTurnSlot(state, corpus) {
       "turn",
       "weak",
       "A shift is hinted at but the decisive turn is unclear.",
-      [turnText]
+      [turnText],
     );
   }
 
@@ -698,7 +841,7 @@ function evaluateTurnSlot(state, corpus) {
     "turn",
     "missing",
     "No clear turning point is captured yet.",
-    [turnText]
+    [turnText],
   );
 }
 
@@ -713,7 +856,7 @@ function evaluateEndingFeelSlot(state, corpus) {
       "ending_feel",
       "covered",
       "Ending direction and emotional outcome are both present.",
-      [endingText]
+      [endingText],
     );
   }
 
@@ -722,7 +865,7 @@ function evaluateEndingFeelSlot(state, corpus) {
       "ending_feel",
       "weak",
       "Ending is partially defined, but emotional intent is unclear.",
-      [endingText]
+      [endingText],
     );
   }
 
@@ -730,7 +873,7 @@ function evaluateEndingFeelSlot(state, corpus) {
     "ending_feel",
     "missing",
     "Desired ending emotion is not defined.",
-    []
+    [],
   );
 }
 
@@ -741,12 +884,9 @@ function evaluateToneSlot(state, corpus) {
   const hasTonePattern = TONE_REGEX.test(corpus);
 
   if (hasText(toneText) || hasTonePattern) {
-    return normalizeSlot(
-      "tone",
-      "covered",
-      "Tone direction is explicit.",
-      [toneText]
-    );
+    return normalizeSlot("tone", "covered", "Tone direction is explicit.", [
+      toneText,
+    ]);
   }
 
   if (hasText(weakToneHint)) {
@@ -754,16 +894,11 @@ function evaluateToneSlot(state, corpus) {
       "tone",
       "weak",
       "Some stylistic hints exist, but tone is not explicit.",
-      [weakToneHint]
+      [weakToneHint],
     );
   }
 
-  return normalizeSlot(
-    "tone",
-    "missing",
-    "No tone direction is captured.",
-    []
-  );
+  return normalizeSlot("tone", "missing", "No tone direction is captured.", []);
 }
 
 function sortByPriority(slots, priorityOrder = STORY_SLOT_PRIORITY) {
@@ -785,9 +920,17 @@ function sortByPriority(slots, priorityOrder = STORY_SLOT_PRIORITY) {
  */
 function computeStoryGapAnalysis(state) {
   const corpus = buildCorpus(state);
-  const storyMode = isReflectiveTributeStory(state, corpus) ? "reflective_tribute" : "default";
-  const priorityOrder = storyMode === "reflective_tribute" ? REFLECTIVE_SLOT_PRIORITY : STORY_SLOT_PRIORITY;
-  const weightMap = storyMode === "reflective_tribute" ? REFLECTIVE_SLOT_WEIGHTS : STORY_SLOT_WEIGHTS;
+  const storyMode = isReflectiveTributeStory(state, corpus)
+    ? "reflective_tribute"
+    : "default";
+  const priorityOrder =
+    storyMode === "reflective_tribute"
+      ? REFLECTIVE_SLOT_PRIORITY
+      : STORY_SLOT_PRIORITY;
+  const weightMap =
+    storyMode === "reflective_tribute"
+      ? REFLECTIVE_SLOT_WEIGHTS
+      : STORY_SLOT_WEIGHTS;
 
   const slots = [
     evaluateMomentDestinationSlot(state),
@@ -803,31 +946,43 @@ function computeStoryGapAnalysis(state) {
   const slotById = new Map(slots.map((slot) => [slot.slot, slot]));
   const missingSlots = sortByPriority(
     slots.filter((slot) => slot.status === "missing").map((slot) => slot.slot),
-    priorityOrder
+    priorityOrder,
   );
   const weakSlots = sortByPriority(
     slots.filter((slot) => slot.status === "weak").map((slot) => slot.slot),
-    priorityOrder
+    priorityOrder,
   );
 
-  const weightSum = priorityOrder.reduce((sum, slot) => sum + (weightMap[slot] || 1), 0);
+  const weightSum = priorityOrder.reduce(
+    (sum, slot) => sum + (weightMap[slot] || 1),
+    0,
+  );
   const weightedConfidence = priorityOrder.reduce((sum, slotId) => {
     const slot = slotById.get(slotId);
     const confidence = slot ? slot.confidence : 0;
-    return sum + (confidence * (weightMap[slotId] || 1));
+    return sum + confidence * (weightMap[slotId] || 1);
   }, 0);
-  const readinessScore = Number((weightedConfidence / Math.max(weightSum, 1)).toFixed(2));
+  const readinessScore = Number(
+    (weightedConfidence / Math.max(weightSum, 1)).toFixed(2),
+  );
 
   const coveredCount = slots.filter((slot) => slot.status === "covered").length;
-  const coveredOrWeakCount = slots.filter((slot) => slot.status === "covered" || slot.status === "weak").length;
+  const coveredOrWeakCount = slots.filter(
+    (slot) => slot.status === "covered" || slot.status === "weak",
+  ).length;
   const blockerCovered = slotById.get("blocker")?.status === "covered";
   const stakesCovered = slotById.get("stakes")?.status === "covered";
   const whoCovered = slotById.get("who")?.status === "covered";
-  const momentCovered = slotById.get("moment_destination")?.status === "covered";
-  const turnAtLeastWeak = ["covered", "weak"].includes(slotById.get("turn")?.status || "missing");
-  const endingAtLeastWeak = ["covered", "weak"].includes(slotById.get("ending_feel")?.status || "missing");
+  const momentCovered =
+    slotById.get("moment_destination")?.status === "covered";
+  const turnAtLeastWeak = ["covered", "weak"].includes(
+    slotById.get("turn")?.status || "missing",
+  );
+  const endingAtLeastWeak = ["covered", "weak"].includes(
+    slotById.get("ending_feel")?.status || "missing",
+  );
   const criticalConfirmSlotsCovered = CRITICAL_CONFIRM_SLOT_IDS.every(
-    (slotId) => slotById.get(slotId)?.status === "covered"
+    (slotId) => slotById.get(slotId)?.status === "covered",
   );
   const noSafetyBlock = !(
     state?.last_reasoning?.safety?.blocked === true ||
@@ -835,18 +990,17 @@ function computeStoryGapAnalysis(state) {
     state?.last_reasoning?.safety_violation === true
   );
 
-  const dramaticReady = (
+  const dramaticReady =
     blockerCovered &&
     stakesCovered &&
     endingAtLeastWeak &&
     coveredCount >= 5 &&
     noSafetyBlock &&
-    readinessScore >= 0.72
-  );
+    readinessScore >= 0.72;
 
   // Reflective stories may not always have explicit blocker/stakes phrasing.
   // Accept completion when identity, moment, turn, and emotional ending are coherent.
-  const reflectiveReady = (
+  const reflectiveReady =
     whoCovered &&
     momentCovered &&
     turnAtLeastWeak &&
@@ -854,8 +1008,7 @@ function computeStoryGapAnalysis(state) {
     coveredCount >= 4 &&
     coveredOrWeakCount >= 6 &&
     noSafetyBlock &&
-    readinessScore >= 0.62
-  );
+    readinessScore >= 0.62;
 
   const gates = {
     blockerCovered,
@@ -875,7 +1028,9 @@ function computeStoryGapAnalysis(state) {
   const isStoryReady = dramaticReady || reflectiveReady;
   const readinessProfile = dramaticReady
     ? "dramatic"
-    : (reflectiveReady ? "reflective" : "incomplete");
+    : reflectiveReady
+      ? "reflective"
+      : "incomplete";
 
   return {
     slots,
@@ -893,32 +1048,92 @@ function computeStoryGapAnalysis(state) {
 // --- Story Element Definitions (5 display elements from 8 slots) ---
 
 const STORY_ELEMENT_DEFINITIONS = [
-  { id: "setting", displayName: "The Setting", purpose: "Where and when the story takes place",
-    primarySlot: "moment_destination", bonusSlots: [], isRequired: true },
-  { id: "feeling", displayName: "The Feeling", purpose: "The emotional core of the story",
-    primarySlot: "ending_feel", bonusSlots: ["tone"], isRequired: true },
-  { id: "bond", displayName: "Your Bond", purpose: "What makes your relationship special",
-    primarySlot: "who", bonusSlots: ["want"], isRequired: true },
-  { id: "moment", displayName: "The Moment", purpose: "A specific memorable moment",
-    primarySlot: "turn", bonusSlots: ["blocker"], isRequired: false },
-  { id: "details", displayName: "The Details", purpose: "Specific details that make it personal",
-    primarySlot: "stakes", bonusSlots: [], isRequired: false },
+  {
+    id: "setting",
+    displayName: "The Setting",
+    purpose: "Where and when the story takes place",
+    primarySlot: "moment_destination",
+    bonusSlots: [],
+    isRequired: true,
+  },
+  {
+    id: "feeling",
+    displayName: "The Feeling",
+    purpose: "The emotional core of the story",
+    primarySlot: "ending_feel",
+    bonusSlots: ["tone"],
+    isRequired: true,
+  },
+  {
+    id: "bond",
+    displayName: "Your Bond",
+    purpose: "What makes your relationship special",
+    primarySlot: "who",
+    bonusSlots: ["want"],
+    isRequired: true,
+  },
+  {
+    id: "moment",
+    displayName: "The Moment",
+    purpose: "A specific memorable moment",
+    primarySlot: "turn",
+    bonusSlots: ["blocker"],
+    isRequired: false,
+  },
+  {
+    id: "details",
+    displayName: "The Details",
+    purpose: "Specific details that make it personal",
+    primarySlot: "stakes",
+    bonusSlots: [],
+    isRequired: false,
+  },
 ];
 
 const REFLECTIVE_STORY_ELEMENT_DEFINITIONS = [
-  { id: "setting", displayName: "The Setting", purpose: "Where and when the story takes place",
-    primarySlot: "moment_destination", bonusSlots: [], isRequired: true },
-  { id: "feeling", displayName: "The Feeling", purpose: "The emotional core of the story",
-    primarySlot: "ending_feel", bonusSlots: ["tone"], isRequired: true },
-  { id: "bond", displayName: "Your Bond", purpose: "What makes your relationship special",
-    primarySlot: "who", bonusSlots: [], isRequired: true },
-  { id: "moment", displayName: "The Moment", purpose: "A specific memorable moment or season",
-    primarySlot: "turn", bonusSlots: ["moment_destination"], isRequired: false },
-  { id: "details", displayName: "The Details", purpose: "Specific details that make it personal",
-    primarySlot: "moment_destination", bonusSlots: ["turn"], isRequired: false },
+  {
+    id: "setting",
+    displayName: "The Setting",
+    purpose: "Where and when the story takes place",
+    primarySlot: "moment_destination",
+    bonusSlots: [],
+    isRequired: true,
+  },
+  {
+    id: "feeling",
+    displayName: "The Feeling",
+    purpose: "The emotional core of the story",
+    primarySlot: "ending_feel",
+    bonusSlots: ["tone"],
+    isRequired: true,
+  },
+  {
+    id: "bond",
+    displayName: "Your Bond",
+    purpose: "What makes your relationship special",
+    primarySlot: "who",
+    bonusSlots: [],
+    isRequired: true,
+  },
+  {
+    id: "moment",
+    displayName: "The Moment",
+    purpose: "A specific memorable moment or season",
+    primarySlot: "turn",
+    bonusSlots: ["moment_destination"],
+    isRequired: false,
+  },
+  {
+    id: "details",
+    displayName: "The Details",
+    purpose: "Specific details that make it personal",
+    primarySlot: "moment_destination",
+    bonusSlots: ["turn"],
+    isRequired: false,
+  },
 ];
 
-const ELEMENT_CONFIRM_THRESHOLD = 0.70;
+const ELEMENT_CONFIRM_THRESHOLD = 0.7;
 
 function getStoryElementDefinitions(storyMode = "default") {
   return storyMode === "reflective_tribute"
@@ -928,20 +1143,28 @@ function getStoryElementDefinitions(storyMode = "default") {
 
 function getElementForSlot(storyMode = "default", slotId) {
   if (!slotId) return null;
-  return getStoryElementDefinitions(storyMode).find((def) =>
-    def.primarySlot === slotId || def.bonusSlots.includes(slotId)
-  ) || null;
+  return (
+    getStoryElementDefinitions(storyMode).find(
+      (def) => def.primarySlot === slotId || def.bonusSlots.includes(slotId),
+    ) || null
+  );
 }
 
 function blendStrength(primaryStrength, bonusStrength, bonusWeight = 0.25) {
-  return Math.max(primaryStrength, ((1 - bonusWeight) * primaryStrength) + (bonusWeight * bonusStrength));
+  return Math.max(
+    primaryStrength,
+    (1 - bonusWeight) * primaryStrength + bonusWeight * bonusStrength,
+  );
 }
 
 function computeStoryElements(gapAnalysis) {
   // Labov branch: map Labov elements directly to the 5 display element IDs
-  if (gapAnalysis?.readinessProfile === "labov" && gapAnalysis?.labov?.elements) {
+  if (
+    gapAnalysis?.readinessProfile === "labov" &&
+    gapAnalysis?.labov?.elements
+  ) {
     const labovByName = Object.fromEntries(
-      gapAnalysis.labov.elements.map((e) => [e.element, e])
+      gapAnalysis.labov.elements.map((e) => [e.element, e]),
     );
     const orientation = labovByName.orientation || { strength: 0 };
     const complicating = labovByName.complicating_action || { strength: 0 };
@@ -949,7 +1172,9 @@ function computeStoryElements(gapAnalysis) {
     const resolution = labovByName.resolution || { strength: 0 };
     const specificity = labovByName.specificity_bonus || { strength: 0 };
 
-    const definitions = getStoryElementDefinitions(gapAnalysis.storyMode || "default");
+    const definitions = getStoryElementDefinitions(
+      gapAnalysis.storyMode || "default",
+    );
     return definitions.map((def) => {
       let strength = 0;
       if (def.id === "setting") {
@@ -958,10 +1183,18 @@ function computeStoryElements(gapAnalysis) {
         strength = evaluation.strength;
       } else if (def.id === "bond") {
         // Blend of orientation + complicating_action (relationship context)
-        strength = blendStrength(orientation.strength, complicating.strength, 0.30);
+        strength = blendStrength(
+          orientation.strength,
+          complicating.strength,
+          0.3,
+        );
       } else if (def.id === "moment") {
         // Blend complicating action with resolution (outcome enriches the moment)
-        strength = blendStrength(complicating.strength, resolution.strength, 0.25);
+        strength = blendStrength(
+          complicating.strength,
+          resolution.strength,
+          0.25,
+        );
       } else if (def.id === "details") {
         strength = specificity.strength;
       }
@@ -976,25 +1209,38 @@ function computeStoryElements(gapAnalysis) {
   }
 
   // Legacy branch: slot-based mapping
-  const slotById = new Map((gapAnalysis.slots || []).map(s => [s.slot, s]));
+  const slotById = new Map((gapAnalysis.slots || []).map((s) => [s.slot, s]));
   const storyMode = gapAnalysis?.storyMode || "default";
   const elementSignals = gapAnalysis?.elementSignals || {};
   const definitions = getStoryElementDefinitions(storyMode);
 
-  return definitions.map(def => {
+  return definitions.map((def) => {
     const primaryConf = slotById.get(def.primarySlot)?.confidence || 0;
     let strength = primaryConf;
     if (def.bonusSlots.length > 0) {
-      const bonusConf = def.bonusSlots.reduce((sum, sid) =>
-        sum + (slotById.get(sid)?.confidence || 0), 0) / def.bonusSlots.length;
+      const bonusConf =
+        def.bonusSlots.reduce(
+          (sum, sid) => sum + (slotById.get(sid)?.confidence || 0),
+          0,
+        ) / def.bonusSlots.length;
       strength = blendStrength(primaryConf, bonusConf);
     }
 
     if (storyMode === "reflective_tribute") {
       if (def.id === "bond") {
-        strength = Math.max(strength, blendStrength(primaryConf, elementSignals.relationshipDepth || 0, 0.3));
+        strength = Math.max(
+          strength,
+          blendStrength(
+            primaryConf,
+            elementSignals.relationshipDepth || 0,
+            0.3,
+          ),
+        );
       } else if (def.id === "moment") {
-        strength = Math.max(strength, elementSignals.reflectiveMomentStrength || 0);
+        strength = Math.max(
+          strength,
+          elementSignals.reflectiveMomentStrength || 0,
+        );
       } else if (def.id === "details") {
         strength = Math.max(strength, elementSignals.detailSpecificity || 0);
       }
@@ -1010,13 +1256,16 @@ function computeStoryElements(gapAnalysis) {
 }
 
 function getElementConfirmBlock(elements) {
-  const blocked = elements.filter(el => el.is_required && el.strength < ELEMENT_CONFIRM_THRESHOLD);
+  const blocked = elements.filter(
+    (el) => el.is_required && el.strength < ELEMENT_CONFIRM_THRESHOLD,
+  );
   return {
     hasElementBlock: blocked.length > 0,
-    blockedElements: blocked.map(el => el.id),
-    weakestElement: blocked.length > 0
-      ? blocked.reduce((a, b) => a.strength < b.strength ? a : b)
-      : null,
+    blockedElements: blocked.map((el) => el.id),
+    weakestElement:
+      blocked.length > 0
+        ? blocked.reduce((a, b) => (a.strength < b.strength ? a : b))
+        : null,
   };
 }
 
@@ -1036,16 +1285,36 @@ function getElementConfirmBlock(elements) {
 function pickDeterministicGapQuestion(gapAnalysis) {
   if (!gapAnalysis || typeof gapAnalysis !== "object") return null;
 
-  const missingSlots = Array.isArray(gapAnalysis.missingSlots) ? gapAnalysis.missingSlots : [];
-  const weakSlots = Array.isArray(gapAnalysis.weakSlots) ? gapAnalysis.weakSlots : [];
+  const missingSlots = Array.isArray(gapAnalysis.missingSlots)
+    ? gapAnalysis.missingSlots
+    : [];
+  const weakSlots = Array.isArray(gapAnalysis.weakSlots)
+    ? gapAnalysis.weakSlots
+    : [];
   const storyMode = gapAnalysis.storyMode || "default";
-  const priorityOrder = storyMode === "reflective_tribute" ? REFLECTIVE_SLOT_PRIORITY : STORY_SLOT_PRIORITY;
+  const priorityOrder =
+    storyMode === "reflective_tribute"
+      ? REFLECTIVE_SLOT_PRIORITY
+      : STORY_SLOT_PRIORITY;
 
-  let targetSlot = findHighestPriorityGap(missingSlots, weakSlots, priorityOrder);
-  if (storyMode === "reflective_tribute" && (targetSlot === "blocker" || targetSlot === "stakes")) {
-    const alternateMissing = missingSlots.filter((slot) => slot !== "blocker" && slot !== "stakes");
-    const alternateWeak = weakSlots.filter((slot) => slot !== "blocker" && slot !== "stakes");
-    targetSlot = findHighestPriorityGap(alternateMissing, alternateWeak, priorityOrder) || targetSlot;
+  let targetSlot = findHighestPriorityGap(
+    missingSlots,
+    weakSlots,
+    priorityOrder,
+  );
+  if (
+    storyMode === "reflective_tribute" &&
+    (targetSlot === "blocker" || targetSlot === "stakes")
+  ) {
+    const alternateMissing = missingSlots.filter(
+      (slot) => slot !== "blocker" && slot !== "stakes",
+    );
+    const alternateWeak = weakSlots.filter(
+      (slot) => slot !== "blocker" && slot !== "stakes",
+    );
+    targetSlot =
+      findHighestPriorityGap(alternateMissing, alternateWeak, priorityOrder) ||
+      targetSlot;
   }
   if (!targetSlot) return null;
 
@@ -1055,13 +1324,16 @@ function pickDeterministicGapQuestion(gapAnalysis) {
   const slotDetails = Array.isArray(gapAnalysis.slots)
     ? gapAnalysis.slots.find((slot) => slot.slot === targetSlot)
     : null;
-  const slotState = slotDetails?.status || (missingSlots.includes(targetSlot) ? "missing" : "weak");
+  const slotState =
+    slotDetails?.status ||
+    (missingSlots.includes(targetSlot) ? "missing" : "weak");
   const slotGuidance = getSlotGuidance(targetSlot, slotState);
   let prompt = fallback.prompt;
 
   if (storyMode === "reflective_tribute") {
     if (targetSlot === "blocker") {
-      prompt = "Was there a season or challenge that revealed their strength more clearly?";
+      prompt =
+        "Was there a season or challenge that revealed their strength more clearly?";
     } else if (targetSlot === "stakes") {
       prompt = "What did their care or sacrifice mean for you or your family?";
     }
@@ -1071,7 +1343,9 @@ function pickDeterministicGapQuestion(gapAnalysis) {
     targetSlot,
     prompt,
     inputMode: "freeform",
-    reason: slotDetails?.reason || `${slotState === "missing" ? "Missing" : "Weak"} ${targetSlot} details.`,
+    reason:
+      slotDetails?.reason ||
+      `${slotState === "missing" ? "Missing" : "Weak"} ${targetSlot} details.`,
     slotGuidance,
   };
 }
@@ -1086,7 +1360,8 @@ function getCriticalConfirmSlotCoverage(gapAnalysis) {
     const { orientation, complicating_action, evaluation } = gapAnalysis.labov;
     const blocking = [];
     if ((orientation?.strength || 0) < 0.5) blocking.push("orientation");
-    if ((complicating_action?.strength || 0) < 0.5) blocking.push("complicating_action");
+    if ((complicating_action?.strength || 0) < 0.5)
+      blocking.push("complicating_action");
     if ((evaluation?.strength || 0) < 0.5) blocking.push("evaluation");
     return { hasBlockingGap: blocking.length > 0, blockingSlots: blocking };
   }
@@ -1109,7 +1384,8 @@ function getCriticalConfirmSlotCoverage(gapAnalysis) {
  * Poem readiness gap questions
  */
 const POEM_GAP_QUESTION_DEFAULTS = {
-  narrative: "Could you share the story in one clear paragraph so I can write the poem from it?",
+  narrative:
+    "Could you share the story in one clear paragraph so I can write the poem from it?",
   who: "Who is this about, and what’s your relationship to them?",
   turn: "Think of one specific scene: what did they do, say, or reveal that made this matter so much to you?",
   context: "Where and when did this happen?",
@@ -1131,15 +1407,19 @@ function normalizePoemPlaceCandidate(value) {
   if (!trimmed) return "";
 
   if (
-    /\b(?:was|were|is|are|became|worked as|work as)\b/i.test(trimmed)
-    && /\b(teacher|nurse|doctor|engineer|student|mentor|boss|manager|parent|mother|father|friend|partner|wife|husband|coach)\b/i.test(trimmed)
+    /\b(?:was|were|is|are|became|worked as|work as)\b/i.test(trimmed) &&
+    /\b(teacher|nurse|doctor|engineer|student|mentor|boss|manager|parent|mother|father|friend|partner|wife|husband|coach)\b/i.test(
+      trimmed,
+    )
   ) {
     return "";
   }
 
   if (
-    trimmed.split(/\s+/).length > 8
-    && !/\b(beach|cafe|park|garden|church|hospital|airport|station|kitchen|porch|classroom|campus|school|room|table|home|house|city|town|village)\b/i.test(trimmed)
+    trimmed.split(/\s+/).length > 8 &&
+    !/\b(beach|cafe|park|garden|church|hospital|airport|station|kitchen|porch|classroom|campus|school|room|table|home|house|city|town|village)\b/i.test(
+      trimmed,
+    )
   ) {
     return "";
   }
@@ -1151,7 +1431,7 @@ function extractLikelyPlaceFromFactTexts(factTexts) {
   const locationMatch = factTexts
     .map((text) => {
       const match = text.match(
-        /\b(?:at|in|inside|outside|near|by|on)\s+((?:the\s+)?(?:beach|cafe|park|garden|church|hospital|airport|station|kitchen|porch|classroom|campus|school|room|table|home))\b/i
+        /\b(?:at|in|inside|outside|near|by|on)\s+((?:the\s+)?(?:beach|cafe|park|garden|church|hospital|airport|station|kitchen|porch|classroom|campus|school|room|table|home))\b/i,
       );
       return match ? normalizePoemPlaceCandidate(match[1]) : "";
     })
@@ -1164,7 +1444,9 @@ function extractPoemGuidanceContext(state) {
   const atoms = state?.atoms || {};
   const primitives = state?.primitives || {};
   const facts = Array.isArray(state?.facts) ? state.facts : [];
-  const activeFacts = facts.filter((fact) => fact && fact.status !== "superseded");
+  const activeFacts = facts.filter(
+    (fact) => fact && fact.status !== "superseded",
+  );
   const factTexts = activeFacts
     .map((fact) => (typeof fact.text === "string" ? fact.text.trim() : ""))
     .filter(Boolean);
@@ -1185,17 +1467,27 @@ function extractPoemGuidanceContext(state) {
   const time = firstNonEmptyString([
     atoms.when,
     primitives.setting?.time,
-    factTexts.find((text) => /last year|birthday|anniversary|graduation|wedding|sunset|night|morning|summer/i.test(text)),
+    factTexts.find((text) =>
+      /last year|birthday|anniversary|graduation|wedding|sunset|night|morning|summer/i.test(
+        text,
+      ),
+    ),
   ]);
   const turningDetail = firstNonEmptyString([
     atoms.turn,
     primitives.turning_point,
-    factTexts.find((text) => /note|letter|speech|hug|look|said|gift|surprise|toast|call/i.test(text)),
+    factTexts.find((text) =>
+      /note|letter|speech|hug|look|said|gift|surprise|toast|call/i.test(text),
+    ),
   ]);
   const emotionalCue = firstNonEmptyString([
     atoms.feeling,
     primitives.feeling,
-    factTexts.find((text) => /warm|grateful|seen|loved|proud|safe|quietly magical|overwhelmed|relieved/i.test(text)),
+    factTexts.find((text) =>
+      /warm|grateful|seen|loved|proud|safe|quietly magical|overwhelmed|relieved/i.test(
+        text,
+      ),
+    ),
   ]);
 
   return {
@@ -1237,7 +1529,9 @@ function buildPoemGapQuestion(state, gapId) {
         return `I know this happened ${context.time}. Where were you when it happened?`;
       }
       if (context.place || context.time) {
-        const joined = [context.time, context.place].filter(Boolean).join(" at ");
+        const joined = [context.time, context.place]
+          .filter(Boolean)
+          .join(" at ");
         return `I have part of the setting (${joined}). What missing time-or-place detail would help someone picture it clearly?`;
       }
       return POEM_GAP_QUESTION_DEFAULTS.context;
@@ -1251,13 +1545,23 @@ function buildPoemGapQuestion(state, gapId) {
       return POEM_GAP_QUESTION_DEFAULTS.emotion;
     case "narrative":
       if (context.recipientName || context.place || context.time) {
-        const parts = [context.time, context.place].filter(Boolean).join(" at ");
-        const framing = [context.recipientName ? `with ${context.recipientName}` : "", parts].filter(Boolean).join(" ");
+        const parts = [context.time, context.place]
+          .filter(Boolean)
+          .join(" at ");
+        const framing = [
+          context.recipientName ? `with ${context.recipientName}` : "",
+          parts,
+        ]
+          .filter(Boolean)
+          .join(" ");
         return `Tell me the story in one clean paragraph${framing ? ` about what happened ${framing}` : ""}, so the poem can follow it from beginning to feeling.`;
       }
       return POEM_GAP_QUESTION_DEFAULTS.narrative;
     default:
-      return POEM_GAP_QUESTION_DEFAULTS[gapId] || POEM_GAP_QUESTION_DEFAULTS.narrative;
+      return (
+        POEM_GAP_QUESTION_DEFAULTS[gapId] ||
+        POEM_GAP_QUESTION_DEFAULTS.narrative
+      );
   }
 }
 
@@ -1288,7 +1592,8 @@ function evaluatePoemReadiness(state) {
 
   const hasTurn =
     (typeof atoms.turn === "string" && atoms.turn.trim().length > 0) ||
-    (typeof primitives.turning_point === "string" && primitives.turning_point.trim().length > 0);
+    (typeof primitives.turning_point === "string" &&
+      primitives.turning_point.trim().length > 0);
   if (!hasTurn) {
     gaps.push({ id: "turn", label: "Turning point missing" });
   }
@@ -1296,18 +1601,22 @@ function evaluatePoemReadiness(state) {
   const hasContext =
     (typeof atoms.where === "string" && atoms.where.trim().length > 0) ||
     (typeof atoms.when === "string" && atoms.when.trim().length > 0) ||
-    (typeof primitives.setting?.place === "string" && primitives.setting.place.trim().length > 0) ||
-    (typeof primitives.setting?.time === "string" && primitives.setting.time.trim().length > 0);
+    (typeof primitives.setting?.place === "string" &&
+      primitives.setting.place.trim().length > 0) ||
+    (typeof primitives.setting?.time === "string" &&
+      primitives.setting.time.trim().length > 0);
   if (!hasContext) {
     gaps.push({ id: "context", label: "Time or place missing" });
   }
 
-  const hasEmotionalDepth = state?.last_reasoning?.story_readiness?.has_emotional_depth;
+  const hasEmotionalDepth =
+    state?.last_reasoning?.story_readiness?.has_emotional_depth;
   if (hasEmotionalDepth === false) {
     gaps.push({ id: "emotion", label: "Emotional arc is thin" });
   }
 
-  const suggested = gaps.length > 0 ? buildPoemGapQuestion(state, gaps[0].id) : null;
+  const suggested =
+    gaps.length > 0 ? buildPoemGapQuestion(state, gaps[0].id) : null;
 
   return {
     is_complete: gaps.length === 0,
@@ -1326,11 +1635,13 @@ function evaluatePoemReadiness(state) {
 function isStoryComplete(state) {
   if (!state.beats || state.beats.length === 0) return false;
 
-  const requiredBeats = state.beats.filter(b => b.required);
+  const requiredBeats = state.beats.filter((b) => b.required);
 
   // Support both schemas: status === "covered" OR strength >= threshold
   const isCovered = (b) =>
-    b.status === "covered" || (typeof b.strength === "number" && b.strength >= STRENGTH_THRESHOLDS.covered);
+    b.status === "covered" ||
+    (typeof b.strength === "number" &&
+      b.strength >= STRENGTH_THRESHOLDS.covered);
 
   return requiredBeats.every(isCovered);
 }
@@ -1362,8 +1673,8 @@ function shouldConfirmFromLLM(state, llmDecision) {
   }
 
   // Trust LLM decision
-  const shouldConfirm = llmDecision.action === "CONFIRM" ||
-                        llmDecision.action === "STOP";
+  const shouldConfirm =
+    llmDecision.action === "CONFIRM" || llmDecision.action === "STOP";
 
   return {
     shouldConfirm,
@@ -1437,7 +1748,7 @@ function hasMinimumCoverage(state) {
     (typeof b.strength === "number" && b.strength >= STRENGTH_THRESHOLDS.weak);
 
   const covered = state.beats.filter(isCoveredOrWeak);
-  const coveredIds = covered.map(b => b.id);
+  const coveredIds = covered.map((b) => b.id);
 
   // Need at least 3 beats covered/weak
   if (covered.length < 3) return false;
@@ -1448,11 +1759,17 @@ function hasMinimumCoverage(state) {
 
   // Need some scene-like beat
   const sceneBeats = ["scene", "meeting", "discovery", "who", "relationship"];
-  const hasScene = sceneBeats.some(id => coveredIds.includes(id));
+  const hasScene = sceneBeats.some((id) => coveredIds.includes(id));
 
   // Need some turning point or stakes
-  const pivotBeats = ["turning_point", "stakes", "moment", "impact", "struggle"];
-  const hasPivot = pivotBeats.some(id => coveredIds.includes(id));
+  const pivotBeats = [
+    "turning_point",
+    "stakes",
+    "moment",
+    "impact",
+    "struggle",
+  ];
+  const hasPivot = pivotBeats.some((id) => coveredIds.includes(id));
 
   return hasScene && hasPivot;
 }
@@ -1468,16 +1785,22 @@ function hasMinimumCoverage(state) {
 function getCompletionScore(state) {
   if (!state.beats || state.beats.length === 0) return 0;
 
-  const requiredBeats = state.beats.filter(b => b.required);
+  const requiredBeats = state.beats.filter((b) => b.required);
   if (requiredBeats.length === 0) return 100;
 
   let score = 0;
   for (const beat of requiredBeats) {
     const strength = beat.strength;
     // Support both schemas: status-based OR strength-based
-    if (beat.status === "covered" || (typeof strength === "number" && strength >= STRENGTH_THRESHOLDS.covered)) {
+    if (
+      beat.status === "covered" ||
+      (typeof strength === "number" && strength >= STRENGTH_THRESHOLDS.covered)
+    ) {
       score += 1;
-    } else if (beat.status === "weak" || (typeof strength === "number" && strength >= STRENGTH_THRESHOLDS.weak)) {
+    } else if (
+      beat.status === "weak" ||
+      (typeof strength === "number" && strength >= STRENGTH_THRESHOLDS.weak)
+    ) {
       score += 0.5;
     }
   }
@@ -1501,16 +1824,30 @@ function getMissingBeats(state) {
     // Status-based: missing or weak
     if (b.status === "missing" || b.status === "weak") return true;
     // Strength-based: below covered threshold
-    if (typeof b.strength === "number" && b.strength < STRENGTH_THRESHOLDS.covered) return true;
+    if (
+      typeof b.strength === "number" &&
+      b.strength < STRENGTH_THRESHOLDS.covered
+    )
+      return true;
     return false;
   };
 
   return state.beats
-    .filter(b => b.required && needsWork(b))
+    .filter((b) => b.required && needsWork(b))
     .sort((a, b) => {
       // Sort by strength (lowest first) for strength-based beats
-      const aStrength = typeof a.strength === "number" ? a.strength : (a.status === "weak" ? 0.4 : 0);
-      const bStrength = typeof b.strength === "number" ? b.strength : (b.status === "weak" ? 0.4 : 0);
+      const aStrength =
+        typeof a.strength === "number"
+          ? a.strength
+          : a.status === "weak"
+            ? 0.4
+            : 0;
+      const bStrength =
+        typeof b.strength === "number"
+          ? b.strength
+          : b.status === "weak"
+            ? 0.4
+            : 0;
       return aStrength - bStrength;
     });
 }
@@ -1535,7 +1872,8 @@ function getNextBeatFromLLM(state, llmReasoning) {
   // Helper to check if beat needs work
   const needsWork = (b) => {
     // Strength-based: needs work if below covered threshold
-    if (typeof b.strength === "number") return b.strength < STRENGTH_THRESHOLDS.covered;
+    if (typeof b.strength === "number")
+      return b.strength < STRENGTH_THRESHOLDS.covered;
     // Status-based: needs work if not covered
     return b.status !== "covered";
   };
@@ -1543,7 +1881,7 @@ function getNextBeatFromLLM(state, llmReasoning) {
   // If LLM specified weak elements, follow that order
   if (weakElements.length > 0) {
     for (const weakId of weakElements) {
-      const beat = beats.find(b => b.id === weakId);
+      const beat = beats.find((b) => b.id === weakId);
       if (beat && needsWork(beat)) {
         return beat;
       }
@@ -1551,15 +1889,24 @@ function getNextBeatFromLLM(state, llmReasoning) {
   }
 
   // Fallback: pick required beat with lowest strength
-  const uncovered = beats
-    .filter(b => b.required !== false && needsWork(b));
+  const uncovered = beats.filter((b) => b.required !== false && needsWork(b));
 
   if (uncovered.length === 0) return null;
 
   // Sort by strength (lowest first), defaulting to 0 for status-based
   uncovered.sort((a, b) => {
-    const aStrength = typeof a.strength === "number" ? a.strength : (a.status === "weak" ? 0.4 : 0);
-    const bStrength = typeof b.strength === "number" ? b.strength : (b.status === "weak" ? 0.4 : 0);
+    const aStrength =
+      typeof a.strength === "number"
+        ? a.strength
+        : a.status === "weak"
+          ? 0.4
+          : 0;
+    const bStrength =
+      typeof b.strength === "number"
+        ? b.strength
+        : b.status === "weak"
+          ? 0.4
+          : 0;
     return aStrength - bStrength;
   });
 
@@ -1606,10 +1953,10 @@ function getNextBeatToAsk(state) {
  * These sum to 1.0 and express relative importance of each narrative element.
  */
 const LABOV_DEFAULT_WEIGHTS = {
-  orientation: 0.20,
+  orientation: 0.2,
   complicating_action: 0.25,
   evaluation: 0.35,
-  resolution: 0.10,
+  resolution: 0.1,
   coda: 0.05,
   specificity_bonus: 0.05,
 };
@@ -1621,9 +1968,11 @@ const LABOV_DEFAULT_WEIGHTS = {
 function isTributeOccasion(occasion) {
   if (!occasion) return false;
   const normalized = normalizeOccasion(occasion);
-  return TRIBUTE_OCCASION_REGEX.test(normalized)
-    || normalized === "thank-you"
-    || normalized === "thank_you";
+  return (
+    TRIBUTE_OCCASION_REGEX.test(normalized) ||
+    normalized === "thank-you" ||
+    normalized === "thank_you"
+  );
 }
 
 /**
@@ -1644,42 +1993,92 @@ function evaluateLabovOrientation(state, corpus) {
   const hasWhere = hasText(atoms.where);
   const hasWhen = hasText(atoms.when);
   const hasRelationship = RELATIONSHIP_HINT_REGEX.test(corpus);
-  const hasSettingPrimitive = hasText(state?.primitives?.setting?.place) || hasText(state?.primitives?.setting?.time);
+  const hasSettingPrimitive =
+    hasText(state?.primitives?.setting?.place) ||
+    hasText(state?.primitives?.setting?.time);
   const evidence = [];
 
   let strength = 0;
-  if (hasWho) { strength += 0.35; evidence.push(atoms.who); }
-  if (hasWhere || hasSettingPrimitive) { strength += 0.25; evidence.push(atoms.where || state?.primitives?.setting?.place || ""); }
-  if (hasWhen) { strength += 0.15; evidence.push(atoms.when); }
-  if (hasRelationship) { strength += 0.25; evidence.push("relationship hint in corpus"); }
+  if (hasWho) {
+    strength += 0.35;
+    evidence.push(atoms.who);
+  }
+  if (hasWhere || hasSettingPrimitive) {
+    strength += 0.25;
+    evidence.push(atoms.where || state?.primitives?.setting?.place || "");
+  }
+  if (hasWhen) {
+    strength += 0.15;
+    evidence.push(atoms.when);
+  }
+  if (hasRelationship) {
+    strength += 0.25;
+    evidence.push("relationship hint in corpus");
+  }
 
   strength = clamp(strength);
-  return { element: "orientation", strength, status: labovStatus(strength), evidence: evidence.filter(hasText) };
+  return {
+    element: "orientation",
+    strength,
+    status: labovStatus(strength),
+    evidence: evidence.filter(hasText),
+  };
 }
 
 function evaluateLabovComplicatingAction(state, corpus) {
   const primitives = state?.primitives || {};
   const atoms = state?.atoms || {};
-  const hasConflict = hasText(primitives.conflict?.internal) || hasText(primitives.conflict?.external);
+  const hasConflict =
+    hasText(primitives.conflict?.internal) ||
+    hasText(primitives.conflict?.external);
   const hasPastAction = PAST_ACTION_REGEX.test(corpus);
   const hasBlockerSignal = BLOCKER_REGEX.test(corpus);
   const hasCrisisSignal = TURN_CRISIS_REGEX.test(corpus);
-  const hasStakesSignal = STAKES_REGEX.test(corpus) || STAKES_WEAK_REGEX.test(corpus);
+  const hasStakesSignal =
+    STAKES_REGEX.test(corpus) || STAKES_WEAK_REGEX.test(corpus);
   const hasAction = hasText(atoms.action);
   const hasIncitingIncident = hasText(primitives.inciting_incident);
   const evidence = [];
 
   let strength = 0;
-  if (hasConflict) { strength += 0.35; evidence.push(primitives.conflict?.internal || primitives.conflict?.external || ""); }
-  if (hasPastAction) { strength += 0.20; evidence.push("past-tense action verbs in corpus"); }
-  if (hasBlockerSignal) { strength += 0.15; evidence.push("blocker language in corpus"); }
-  if (hasCrisisSignal) { strength += 0.15; evidence.push("crisis/high-stakes language in corpus"); }
-  if (hasStakesSignal) { strength += 0.10; evidence.push("stakes language in corpus"); }
-  if (hasAction) { strength += 0.15; evidence.push(atoms.action); }
-  if (hasIncitingIncident) { strength += 0.10; evidence.push(primitives.inciting_incident); }
+  if (hasConflict) {
+    strength += 0.35;
+    evidence.push(
+      primitives.conflict?.internal || primitives.conflict?.external || "",
+    );
+  }
+  if (hasPastAction) {
+    strength += 0.2;
+    evidence.push("past-tense action verbs in corpus");
+  }
+  if (hasBlockerSignal) {
+    strength += 0.15;
+    evidence.push("blocker language in corpus");
+  }
+  if (hasCrisisSignal) {
+    strength += 0.15;
+    evidence.push("crisis/high-stakes language in corpus");
+  }
+  if (hasStakesSignal) {
+    strength += 0.1;
+    evidence.push("stakes language in corpus");
+  }
+  if (hasAction) {
+    strength += 0.15;
+    evidence.push(atoms.action);
+  }
+  if (hasIncitingIncident) {
+    strength += 0.1;
+    evidence.push(primitives.inciting_incident);
+  }
 
   strength = clamp(strength);
-  return { element: "complicating_action", strength, status: labovStatus(strength), evidence: evidence.filter(hasText) };
+  return {
+    element: "complicating_action",
+    strength,
+    status: labovStatus(strength),
+    evidence: evidence.filter(hasText),
+  };
 }
 
 function evaluateLabovEvaluation(state, corpus) {
@@ -1697,15 +2096,35 @@ function evaluateLabovEvaluation(state, corpus) {
   const intensifierBonus = clamp(emotionalMatches * 0.05, 0, 0.15);
 
   let strength = 0;
-  if (hasEmotionalLanguage) { strength += 0.30; evidence.push("emotional/subjective language in corpus"); }
-  if (hasAfter) { strength += 0.20; evidence.push(atoms.after); }
-  if (hasResolution) { strength += 0.15; evidence.push(primitives.resolution); }
-  if (hasEndingFeel) { strength += 0.15; evidence.push("ending feel language in corpus"); }
-  if (hasAppreciation) { strength += 0.10; evidence.push("appreciation language"); }
+  if (hasEmotionalLanguage) {
+    strength += 0.3;
+    evidence.push("emotional/subjective language in corpus");
+  }
+  if (hasAfter) {
+    strength += 0.2;
+    evidence.push(atoms.after);
+  }
+  if (hasResolution) {
+    strength += 0.15;
+    evidence.push(primitives.resolution);
+  }
+  if (hasEndingFeel) {
+    strength += 0.15;
+    evidence.push("ending feel language in corpus");
+  }
+  if (hasAppreciation) {
+    strength += 0.1;
+    evidence.push("appreciation language");
+  }
   strength += intensifierBonus;
 
   strength = clamp(strength);
-  return { element: "evaluation", strength, status: labovStatus(strength), evidence: evidence.filter(hasText) };
+  return {
+    element: "evaluation",
+    strength,
+    status: labovStatus(strength),
+    evidence: evidence.filter(hasText),
+  };
 }
 
 function evaluateLabovResolution(state, corpus) {
@@ -1714,56 +2133,125 @@ function evaluateLabovResolution(state, corpus) {
   const hasTurnText = hasText(firstText(atoms.turn, primitives.turning_point));
   const hasTurnRegex = TURN_REGEX.test(corpus);
   const hasTransformation = TURN_TRANSFORMATION_REGEX.test(corpus);
-  const hasChangeResult = /\b(after that|from then on|since then|changed|became|grew|learned)\b/i.test(corpus);
+  const hasChangeResult =
+    /\b(after that|from then on|since then|changed|became|grew|learned)\b/i.test(
+      corpus,
+    );
   const evidence = [];
 
   let strength = 0;
-  if (hasTurnText) { strength += 0.40; evidence.push(atoms.turn || primitives.turning_point || ""); }
-  if (hasTurnRegex) { strength += 0.25; evidence.push("turning point language in corpus"); }
-  if (hasTransformation) { strength += 0.20; evidence.push("transformation language in corpus"); }
-  if (hasChangeResult) { strength += 0.15; evidence.push("change/result language in corpus"); }
+  if (hasTurnText) {
+    strength += 0.4;
+    evidence.push(atoms.turn || primitives.turning_point || "");
+  }
+  if (hasTurnRegex) {
+    strength += 0.25;
+    evidence.push("turning point language in corpus");
+  }
+  if (hasTransformation) {
+    strength += 0.2;
+    evidence.push("transformation language in corpus");
+  }
+  if (hasChangeResult) {
+    strength += 0.15;
+    evidence.push("change/result language in corpus");
+  }
 
   strength = clamp(strength);
-  return { element: "resolution", strength, status: labovStatus(strength), evidence: evidence.filter(hasText) };
+  return {
+    element: "resolution",
+    strength,
+    status: labovStatus(strength),
+    evidence: evidence.filter(hasText),
+  };
 }
 
 function evaluateLabovCoda(state, corpus) {
   const hasDedication = DEDICATION_REGEX.test(corpus);
-  const hasPresentShift = /\b(today|now|still|always will|every time|whenever I)\b/i.test(corpus);
-  const hasOccasionConnection = /\b(on this day|this birthday|this anniversary|this occasion|on your special)\b/i.test(corpus);
+  const hasPresentShift =
+    /\b(today|now|still|always will|every time|whenever I)\b/i.test(corpus);
+  const hasOccasionConnection =
+    /\b(on this day|this birthday|this anniversary|this occasion|on your special)\b/i.test(
+      corpus,
+    );
   const evidence = [];
 
   let strength = 0;
-  if (hasDedication) { strength += 0.45; evidence.push("dedication language in corpus"); }
-  if (hasPresentShift) { strength += 0.35; evidence.push("present-tense shift in corpus"); }
-  if (hasOccasionConnection) { strength += 0.20; evidence.push("occasion-connection in corpus"); }
+  if (hasDedication) {
+    strength += 0.45;
+    evidence.push("dedication language in corpus");
+  }
+  if (hasPresentShift) {
+    strength += 0.35;
+    evidence.push("present-tense shift in corpus");
+  }
+  if (hasOccasionConnection) {
+    strength += 0.2;
+    evidence.push("occasion-connection in corpus");
+  }
 
   strength = clamp(strength);
-  return { element: "coda", strength, status: labovStatus(strength), evidence: evidence.filter(hasText) };
+  return {
+    element: "coda",
+    strength,
+    status: labovStatus(strength),
+    evidence: evidence.filter(hasText),
+  };
 }
 
 function evaluateLabovSpecificityBonus(state, corpus) {
   const atoms = state?.atoms || {};
-  const facts = Array.isArray(state?.facts) ? state.facts.filter((f) => (f?.status || "active") === "active") : [];
+  const facts = Array.isArray(state?.facts)
+    ? state.facts.filter((f) => (f?.status || "active") === "active")
+    : [];
   const evidence = [];
 
   // Proper nouns from facts (corpus is lowercased so can't detect capitalization there)
   const factCorpus = facts.map((f) => f.text || "").join(" ");
-  const totalProperNouns = factCorpus.split(/\s+/).filter((w, i) => i > 0 && /^[A-Z][a-z]/.test(w)).length;
+  const totalProperNouns = factCorpus
+    .split(/\s+/)
+    .filter((w, i) => i > 0 && /^[A-Z][a-z]/.test(w)).length;
 
-  const hasSensory = SENSORY_REGEX.test(corpus) || SENSORY_REGEX.test(factCorpus.toLowerCase());
-  const hasDialogue = hasText(atoms.dialogue) || /["'].+["']/.test(corpus) || /["'].+["']/.test(factCorpus);
-  const hasConcreteDetail = hasText(atoms.object) || hasText(atoms.sound) || hasText(atoms.smell) || hasText(atoms.physical);
+  const hasSensory =
+    SENSORY_REGEX.test(corpus) || SENSORY_REGEX.test(factCorpus.toLowerCase());
+  const hasDialogue =
+    hasText(atoms.dialogue) ||
+    /["'].+["']/.test(corpus) ||
+    /["'].+["']/.test(factCorpus);
+  const hasConcreteDetail =
+    hasText(atoms.object) ||
+    hasText(atoms.sound) ||
+    hasText(atoms.smell) ||
+    hasText(atoms.physical);
 
   let strength = 0;
-  if (totalProperNouns >= 2) { strength += 0.30; evidence.push(`${totalProperNouns} proper nouns`); }
-  else if (totalProperNouns >= 1) { strength += 0.15; evidence.push(`${totalProperNouns} proper noun`); }
-  if (hasSensory) { strength += 0.25; evidence.push("sensory words"); }
-  if (hasDialogue) { strength += 0.25; evidence.push("quoted dialogue"); }
-  if (hasConcreteDetail) { strength += 0.20; evidence.push("concrete detail atoms"); }
+  if (totalProperNouns >= 2) {
+    strength += 0.3;
+    evidence.push(`${totalProperNouns} proper nouns`);
+  } else if (totalProperNouns >= 1) {
+    strength += 0.15;
+    evidence.push(`${totalProperNouns} proper noun`);
+  }
+  if (hasSensory) {
+    strength += 0.25;
+    evidence.push("sensory words");
+  }
+  if (hasDialogue) {
+    strength += 0.25;
+    evidence.push("quoted dialogue");
+  }
+  if (hasConcreteDetail) {
+    strength += 0.2;
+    evidence.push("concrete detail atoms");
+  }
 
   strength = clamp(strength);
-  return { element: "specificity_bonus", strength, status: labovStatus(strength), evidence: evidence.filter(hasText) };
+  return {
+    element: "specificity_bonus",
+    strength,
+    status: labovStatus(strength),
+    evidence: evidence.filter(hasText),
+  };
 }
 
 /**
@@ -1772,23 +2260,85 @@ function evaluateLabovSpecificityBonus(state, corpus) {
  * Labov results without changes.
  */
 function mapLabovToSlots(labovElements) {
-  const byElement = Object.fromEntries(labovElements.map((e) => [e.element, e]));
+  const byElement = Object.fromEntries(
+    labovElements.map((e) => [e.element, e]),
+  );
 
-  const orientation = byElement.orientation || { strength: 0, status: "missing", evidence: [] };
-  const complicating = byElement.complicating_action || { strength: 0, status: "missing", evidence: [] };
-  const evaluation = byElement.evaluation || { strength: 0, status: "missing", evidence: [] };
-  const resolution = byElement.resolution || { strength: 0, status: "missing", evidence: [] };
-  const specificity = byElement.specificity_bonus || { strength: 0, status: "missing", evidence: [] };
+  const orientation = byElement.orientation || {
+    strength: 0,
+    status: "missing",
+    evidence: [],
+  };
+  const complicating = byElement.complicating_action || {
+    strength: 0,
+    status: "missing",
+    evidence: [],
+  };
+  const evaluation = byElement.evaluation || {
+    strength: 0,
+    status: "missing",
+    evidence: [],
+  };
+  const resolution = byElement.resolution || {
+    strength: 0,
+    status: "missing",
+    evidence: [],
+  };
+  const specificity = byElement.specificity_bonus || {
+    strength: 0,
+    status: "missing",
+    evidence: [],
+  };
 
   return [
-    normalizeSlot("moment_destination", orientation.status, "Labov orientation -> moment_destination", orientation.evidence),
-    normalizeSlot("who", orientation.status, "Labov orientation -> who", orientation.evidence),
-    normalizeSlot("want", evaluation.status, "Labov evaluation -> want", evaluation.evidence),
-    normalizeSlot("blocker", complicating.status, "Labov complicating_action -> blocker", complicating.evidence),
-    normalizeSlot("stakes", complicating.status, "Labov complicating_action -> stakes", complicating.evidence),
-    normalizeSlot("turn", resolution.status, "Labov resolution -> turn", resolution.evidence),
-    normalizeSlot("ending_feel", evaluation.status, "Labov evaluation -> ending_feel", evaluation.evidence),
-    normalizeSlot("tone", specificity.status, "Labov specificity_bonus -> tone", specificity.evidence),
+    normalizeSlot(
+      "moment_destination",
+      orientation.status,
+      "Labov orientation -> moment_destination",
+      orientation.evidence,
+    ),
+    normalizeSlot(
+      "who",
+      orientation.status,
+      "Labov orientation -> who",
+      orientation.evidence,
+    ),
+    normalizeSlot(
+      "want",
+      evaluation.status,
+      "Labov evaluation -> want",
+      evaluation.evidence,
+    ),
+    normalizeSlot(
+      "blocker",
+      complicating.status,
+      "Labov complicating_action -> blocker",
+      complicating.evidence,
+    ),
+    normalizeSlot(
+      "stakes",
+      complicating.status,
+      "Labov complicating_action -> stakes",
+      complicating.evidence,
+    ),
+    normalizeSlot(
+      "turn",
+      resolution.status,
+      "Labov resolution -> turn",
+      resolution.evidence,
+    ),
+    normalizeSlot(
+      "ending_feel",
+      evaluation.status,
+      "Labov evaluation -> ending_feel",
+      evaluation.evidence,
+    ),
+    normalizeSlot(
+      "tone",
+      specificity.status,
+      "Labov specificity_bonus -> tone",
+      specificity.evidence,
+    ),
   ];
 }
 
@@ -1808,27 +2358,35 @@ function mapLabovToSlots(labovElements) {
  */
 function computeLabovGapAnalysis(state, options = {}) {
   const corpus = buildCorpus(state);
-  const storyMode = isReflectiveTributeStory(state, corpus) ? "reflective_tribute" : "default";
+  const storyMode = isReflectiveTributeStory(state, corpus)
+    ? "reflective_tribute"
+    : "default";
 
   // Determine weights (occasion-aware adjustment)
-  const occasionRaw = options.occasion || state?.event?.occasion || state?.occasion || "";
+  const occasionRaw =
+    options.occasion || state?.event?.occasion || state?.occasion || "";
   const isTribute = isTributeOccasion(occasionRaw);
   const CELEBRATION_SIMPLE_OCCASIONS = new Set([
-    "celebration", "birthday", "graduation", "get-well", "get_well", "friendship",
+    "celebration",
+    "birthday",
+    "graduation",
+    "get-well",
+    "get_well",
+    "friendship",
   ]);
   const normalizedOccasion = normalizeOccasion(occasionRaw);
   const isCelebration = CELEBRATION_SIMPLE_OCCASIONS.has(normalizedOccasion);
   const weights = { ...LABOV_DEFAULT_WEIGHTS };
   let occasionAdjustment = null;
   if (isCelebration) {
-    weights.orientation = 0.30;
-    weights.complicating_action = 0.10;
+    weights.orientation = 0.3;
+    weights.complicating_action = 0.1;
     weights.evaluation = 0.45;
     weights.resolution = 0.05;
     occasionAdjustment = `celebration: orientation 0.20->0.30, complicating_action 0.25->0.10, evaluation 0.35->0.45, resolution 0.10->0.05`;
   } else if (isTribute) {
     weights.resolution = 0.05;
-    weights.evaluation = 0.40;
+    weights.evaluation = 0.4;
     occasionAdjustment = `tribute: resolution 0.10->0.05, evaluation 0.35->0.40`;
   }
 
@@ -1850,24 +2408,30 @@ function computeLabovGapAnalysis(state, options = {}) {
 
   // Compute weighted score
   const weightedScore = Number(
-    elements.reduce((sum, el) => sum + el.strength * el.weight, 0).toFixed(2)
+    elements.reduce((sum, el) => sum + el.strength * el.weight, 0).toFixed(2),
   );
 
   // Map to backward-compatible 8 slots
   const labovSlots = mapLabovToSlots(rawElements);
-  const missingSlots = labovSlots.filter((s) => s.status === "missing").map((s) => s.slot);
-  const weakSlots = labovSlots.filter((s) => s.status === "weak").map((s) => s.slot);
+  const missingSlots = labovSlots
+    .filter((s) => s.status === "missing")
+    .map((s) => s.slot);
+  const weakSlots = labovSlots
+    .filter((s) => s.status === "weak")
+    .map((s) => s.slot);
 
   // Readiness — two paths to ready:
   // 1. Weighted score >= 0.60 (all elements contribute)
   // 2. Core trio covered: orientation + complicating_action + evaluation all >= 0.60
   //    These three carry 80% of the weight and are sufficient for a song
   const readinessScore = weightedScore;
-  const coreTrio = rawElements.filter(
-    (e) => ["orientation", "complicating_action", "evaluation"].includes(e.element)
+  const coreTrio = rawElements.filter((e) =>
+    ["orientation", "complicating_action", "evaluation"].includes(e.element),
   );
-  const coreTrioCovered = coreTrio.every((e) => e.strength >= STRENGTH_THRESHOLDS.covered);
-  const isStoryReady = readinessScore >= 0.60 || coreTrioCovered;
+  const coreTrioCovered = coreTrio.every(
+    (e) => e.strength >= STRENGTH_THRESHOLDS.covered,
+  );
+  const isStoryReady = readinessScore >= 0.6 || coreTrioCovered;
 
   // "Good enough" escape
   const turnCount = options.turnCount ?? null;
@@ -1883,7 +2447,9 @@ function computeLabovGapAnalysis(state, options = {}) {
   // Backward-compatible gates
   const slotById = new Map(labovSlots.map((s) => [s.slot, s]));
   const coveredCount = labovSlots.filter((s) => s.status === "covered").length;
-  const coveredOrWeakCount = labovSlots.filter((s) => s.status === "covered" || s.status === "weak").length;
+  const coveredOrWeakCount = labovSlots.filter(
+    (s) => s.status === "covered" || s.status === "weak",
+  ).length;
   const gates = {
     blockerCovered: slotById.get("blocker")?.status === "covered",
     stakesCovered: slotById.get("stakes")?.status === "covered",
@@ -1891,10 +2457,14 @@ function computeLabovGapAnalysis(state, options = {}) {
     enoughCoveredOrWeakSlots: coveredOrWeakCount >= 6,
     momentCovered: slotById.get("moment_destination")?.status === "covered",
     whoCovered: slotById.get("who")?.status === "covered",
-    turnAtLeastWeak: ["covered", "weak"].includes(slotById.get("turn")?.status || "missing"),
-    endingAtLeastWeak: ["covered", "weak"].includes(slotById.get("ending_feel")?.status || "missing"),
+    turnAtLeastWeak: ["covered", "weak"].includes(
+      slotById.get("turn")?.status || "missing",
+    ),
+    endingAtLeastWeak: ["covered", "weak"].includes(
+      slotById.get("ending_feel")?.status || "missing",
+    ),
     criticalConfirmSlotsCovered: CRITICAL_CONFIRM_SLOT_IDS.every(
-      (slotId) => slotById.get(slotId)?.status === "covered"
+      (slotId) => slotById.get(slotId)?.status === "covered",
     ),
     noSafetyBlock,
   };
@@ -1952,13 +2522,15 @@ function computeQuestionPriority(labovAnalysis) {
     }
   }
 
-  return bestTarget ? {
-    element: bestTarget.element,
-    priority: Number(bestPriority.toFixed(3)),
-    weight: bestTarget.weight,
-    currentStrength: bestTarget.strength,
-    reason: `${bestTarget.element} has highest information gain (weight ${bestTarget.weight} \u00d7 gap ${(1 - bestTarget.strength).toFixed(2)} = ${bestPriority.toFixed(3)})`,
-  } : null;
+  return bestTarget
+    ? {
+        element: bestTarget.element,
+        priority: Number(bestPriority.toFixed(3)),
+        weight: bestTarget.weight,
+        currentStrength: bestTarget.strength,
+        reason: `${bestTarget.element} has highest information gain (weight ${bestTarget.weight} \u00d7 gap ${(1 - bestTarget.strength).toFixed(2)} = ${bestPriority.toFixed(3)})`,
+      }
+    : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -1976,18 +2548,32 @@ function computeQuestionPriority(labovAnalysis) {
  * @returns {{ stage: string, description: string }}
  */
 function getQuestionStage(turnCount) {
-  if (!turnCount || turnCount <= 1) return { stage: "OPEN", description: "Broad, inviting questions. Let them share freely." };
-  if (turnCount === 2) return { stage: "PROBING", description: "Build on specifics they mentioned. Deepen their details." };
-  return { stage: "CLOSED", description: "Specific detail extraction. Fill in vivid details." };
+  if (!turnCount || turnCount <= 1)
+    return {
+      stage: "OPEN",
+      description: "Broad, inviting questions. Let them share freely.",
+    };
+  if (turnCount === 2)
+    return {
+      stage: "PROBING",
+      description: "Build on specifics they mentioned. Deepen their details.",
+    };
+  return {
+    stage: "CLOSED",
+    description: "Specific detail extraction. Fill in vivid details.",
+  };
 }
 
 // ---------------------------------------------------------------------------
 // Emotional Intensity Detection
 // ---------------------------------------------------------------------------
 
-const VULNERABILITY_REGEX = /\b(breakup|divorce|loss|death|died|funeral|cancer|sick|hospital|depression|anxiety|lonely|scared|crying|tears|grief|heartbreak|betrayal)\b/i;
-const INTENSIFIER_REGEX = /\b(never forget|always remember|changed everything|meant the world|most important|deeply|truly|absolutely|completely|forever)\b/i;
-const FIRST_PERSON_EMOTION_REGEX = /\b(i felt|i feel|made me feel|i couldn't|i was so|i cried|i laughed|broke my heart|fills my heart|i knew then)\b/i;
+const VULNERABILITY_REGEX =
+  /\b(breakup|divorce|loss|death|died|funeral|cancer|sick|hospital|depression|anxiety|lonely|scared|crying|tears|grief|heartbreak|betrayal)\b/i;
+const INTENSIFIER_REGEX =
+  /\b(never forget|always remember|changed everything|meant the world|most important|deeply|truly|absolutely|completely|forever)\b/i;
+const FIRST_PERSON_EMOTION_REGEX =
+  /\b(i felt|i feel|made me feel|i couldn't|i was so|i cried|i laughed|broke my heart|fills my heart|i knew then)\b/i;
 
 /**
  * Detect emotional intensity from the user's latest message.
@@ -2007,9 +2593,11 @@ function detectEmotionalIntensity(userMessage) {
 
   if (VULNERABILITY_REGEX.test(text)) signals.push("vulnerability");
   if (INTENSIFIER_REGEX.test(text)) signals.push("intensifier");
-  if (FIRST_PERSON_EMOTION_REGEX.test(text)) signals.push("first_person_emotion");
+  if (FIRST_PERSON_EMOTION_REGEX.test(text))
+    signals.push("first_person_emotion");
 
-  const intensity = signals.length >= 2 ? "high" : signals.length === 1 ? "medium" : "low";
+  const intensity =
+    signals.length >= 2 ? "high" : signals.length === 1 ? "medium" : "low";
   return { intensity, signals };
 }
 
@@ -2022,10 +2610,14 @@ function detectEmotionalIntensity(userMessage) {
  * Used by validateQuestionRelevance to check whether a question addresses the target.
  */
 const RELEVANCE_KEYWORDS = {
-  orientation: /\b(where|when|who|setting|place|time of|day|night|morning|evening|season|year|city|town|house|room|with you|together|at the|around|scene)\b/i,
-  complicating_action: /\b(what happened|moment|happened|event|then what|what did|how did|turning point|came next|first time|remember when|did .+ (say|do|react)|one time|was there a time|specific time|stands? out|what.s the story|keep coming back)\b/i,
-  evaluation: /\b(feel\w*|felt|mean\w*|meant|matter\w*|emotion\w*|why .+ (important|special|significant)|what .+ (mean|matter)|heart|soul|cherish|value|love|miss|grateful|proud|bittersweet)\b/i,
-  resolution: /\b(change\w*|after\b|different|now\b|end\w*|outcome|result|became|turn out|since then|looking back|today|ultimately|in the end|what.s different|how .+ (turn|work) out)\b/i,
+  orientation:
+    /\b(where|when|who|setting|place|time of|day|night|morning|evening|season|year|city|town|house|room|with you|together|at the|around|scene)\b/i,
+  complicating_action:
+    /\b(what happened|moment|happened|event|then what|what did|how did|turning point|came next|first time|remember when|did .+ (say|do|react)|one time|was there a time|specific time|stands? out|what.s the story|keep coming back)\b/i,
+  evaluation:
+    /\b(feel\w*|felt|mean\w*|meant|matter\w*|emotion\w*|why .+ (important|special|significant)|what .+ (mean|matter)|heart|soul|cherish|value|love|miss|grateful|proud|bittersweet)\b/i,
+  resolution:
+    /\b(change\w*|after\b|different|now\b|end\w*|outcome|result|became|turn out|since then|looking back|today|ultimately|in the end|what.s different|how .+ (turn|work) out)\b/i,
 };
 
 /**
@@ -2058,7 +2650,33 @@ function extractAnchor(text) {
 
   // 1. Proper nouns: capitalized words (skip common sentence starters)
   //    Match "Marcus", "Lagos", "Christmas Eve", "Lake Okonkwo", "Sarah"
-  const COMMON_STARTERS = new Set(["I", "It", "My", "We", "He", "She", "The", "They", "Our", "His", "Her", "There", "This", "That", "When", "After", "Before", "One", "So", "But", "And", "Then", "Yeah", "Yes", "No"]);
+  const COMMON_STARTERS = new Set([
+    "I",
+    "It",
+    "My",
+    "We",
+    "He",
+    "She",
+    "The",
+    "They",
+    "Our",
+    "His",
+    "Her",
+    "There",
+    "This",
+    "That",
+    "When",
+    "After",
+    "Before",
+    "One",
+    "So",
+    "But",
+    "And",
+    "Then",
+    "Yeah",
+    "Yes",
+    "No",
+  ]);
   const properNouns = [];
   const sentences = trimmed.split(/[.!?]+/).filter(Boolean);
   for (const sentence of sentences) {
@@ -2096,19 +2714,46 @@ function extractAnchor(text) {
 
   // 3. Action-laden phrases (past tense verbs with objects)
   const actionMatch = trimmed.match(
-    /(?:taught me|showed me|gave me|took me|brought me|made me|told me|called me|carried me|showed up|flew in|stayed up|woke up|drove to|walked to|ran to)\s*(?:\w+(?:\s+\w+)?)?/i
+    /(?:taught me|showed me|gave me|took me|brought me|made me|told me|called me|carried me|showed up|flew in|stayed up|woke up|drove to|walked to|ran to)\s*(?:\w+(?:\s+\w+)?)?/i,
   );
   if (actionMatch) return actionMatch[0].trim();
 
   // 4. Last resort: the longest noun-like phrase (3+ chars, no stop words)
-  const STOP_WORDS = new Set(["the", "and", "but", "for", "with", "that", "this", "was", "were", "been", "have", "has", "had", "are", "not", "its", "also", "than", "just", "very", "really", "yeah", "yes"]);
-  const contentWords = trimmed.split(/\s+/).filter(w => {
+  const STOP_WORDS = new Set([
+    "the",
+    "and",
+    "but",
+    "for",
+    "with",
+    "that",
+    "this",
+    "was",
+    "were",
+    "been",
+    "have",
+    "has",
+    "had",
+    "are",
+    "not",
+    "its",
+    "also",
+    "than",
+    "just",
+    "very",
+    "really",
+    "yeah",
+    "yes",
+  ]);
+  const contentWords = trimmed.split(/\s+/).filter((w) => {
     const clean = w.replace(/[^a-zA-Z]/g, "").toLowerCase();
     return clean.length >= 3 && !STOP_WORDS.has(clean);
   });
   if (contentWords.length > 0) {
     // Return the first two content words joined
-    return contentWords.slice(0, Math.min(2, contentWords.length)).join(" ").replace(/[^a-zA-Z0-9' -]/g, "");
+    return contentWords
+      .slice(0, Math.min(2, contentWords.length))
+      .join(" ")
+      .replace(/[^a-zA-Z0-9' -]/g, "");
   }
 
   return null;
@@ -2191,8 +2836,14 @@ const TARGETED_QUESTION_TEMPLATES = {
  * @returns {string|null} A targeted, story-specific question, or null if inputs are invalid
  */
 function generateTargetedFallbackQuestion(targetElement, state, userMessage) {
-  if (!targetElement || !TARGETED_QUESTION_TEMPLATES[targetElement]) return null;
-  if (!userMessage || typeof userMessage !== "string" || userMessage.trim().length === 0) return null;
+  if (!targetElement || !TARGETED_QUESTION_TEMPLATES[targetElement])
+    return null;
+  if (
+    !userMessage ||
+    typeof userMessage !== "string" ||
+    userMessage.trim().length === 0
+  )
+    return null;
 
   // 1. Determine funnel stage from turn count
   const turnCount = state?.turn_count ?? 0;
@@ -2204,7 +2855,8 @@ function generateTargetedFallbackQuestion(targetElement, state, userMessage) {
   const wordCount = (userMessage || "").split(/\s+/).filter(Boolean).length;
   let anchor;
   if (wordCount < 5) {
-    anchor = (state?.atoms?.who || state?.recipient_name || "").split(/\s/)[0] || null;
+    anchor =
+      (state?.atoms?.who || state?.recipient_name || "").split(/\s/)[0] || null;
   }
   if (!anchor) {
     anchor = extractAnchor(userMessage);
@@ -2212,7 +2864,9 @@ function generateTargetedFallbackQuestion(targetElement, state, userMessage) {
 
   // 3. If user message is thin (very short / no good anchor), try state facts
   if (!anchor && state?.facts) {
-    const activeFacts = (state.facts || []).filter(f => (f?.status || "active") === "active" && f?.text);
+    const activeFacts = (state.facts || []).filter(
+      (f) => (f?.status || "active") === "active" && f?.text,
+    );
     for (const fact of activeFacts) {
       anchor = extractAnchor(fact.text);
       if (anchor) break;
@@ -2221,7 +2875,10 @@ function generateTargetedFallbackQuestion(targetElement, state, userMessage) {
 
   // 4. Ultimate fallback anchor: use a content word from the message itself
   if (!anchor) {
-    const words = userMessage.trim().split(/\s+/).filter(w => w.length >= 3);
+    const words = userMessage
+      .trim()
+      .split(/\s+/)
+      .filter((w) => w.length >= 3);
     anchor = words.length > 0 ? words.slice(0, 2).join(" ") : "that";
   }
 
@@ -2239,8 +2896,10 @@ function generateTargetedFallbackQuestion(targetElement, state, userMessage) {
 // Extracts key phrases from the user's story and builds tappable
 // suggestion chips. Replaces LLM-generated generic suggestions.
 
-const ACTIVITY_REGEX = /\b(fishing|dancing|cooking|singing|playing|running|swimming|hiking|traveling|camping|gardening|painting|reading|driving|walking|baking|shopping|working|studying|celebrating|laughing|crying)\b/i;
-const NAMED_ITEM_REGEX = /(?:["']([^"']{3,30})["']|(?:called|named|song|movie|book|place)\s+(\w[\w\s]{2,25}))/i;
+const ACTIVITY_REGEX =
+  /\b(fishing|dancing|cooking|singing|playing|running|swimming|hiking|traveling|camping|gardening|painting|reading|driving|walking|baking|shopping|working|studying|celebrating|laughing|crying)\b/i;
+const NAMED_ITEM_REGEX =
+  /(?:["']([^"']{3,30})["']|(?:called|named|song|movie|book|place)\s+(\w[\w\s]{2,25}))/i;
 
 /**
  * Generate 3 suggestion chips specific to THIS user's story.
@@ -2260,23 +2919,40 @@ function generateStorySpecificSuggestions(state, userMessage) {
   // 1. Extract proper nouns (capitalized words, not sentence starters)
   const words = text.split(/\s+/);
   const properNouns = [];
-  for (let i = 1; i < words.length; i++) {
+  // Start at i=0: a name at the sentence start ("Sarah showed up...") is a real
+  // proper noun. The stopword regex below already filters sentence-starters like
+  // "My"/"The", so the prior i=1 skip only dropped legitimate leading names.
+  for (let i = 0; i < words.length; i++) {
     const w = words[i].replace(/[^a-zA-Z']/g, "");
-    if (w.length >= 2 && /^[A-Z]/.test(w) && !/^(The|And|But|For|With|This|That|She|Her|His|He|They|Our|My|We|It|In|On|At|Is|Was|Are|Were|Did|Has|Had|Do|Every|Yet|You|When|After|Before|Because|From|Into)$/.test(w)) {
+    // Title-case only (capital + lowercase): real names like "Sarah", not
+    // all-caps acknowledgements/acronyms ("OK", "USA") or the pronoun "I".
+    if (
+      w.length >= 2 &&
+      /^[A-Z][a-z]/.test(w) &&
+      !/^(The|And|But|For|With|This|That|She|Her|His|He|They|Our|My|We|It|In|On|At|Is|Was|Are|Were|Did|Has|Had|Do|Every|Yet|You|When|After|Before|Because|From|Into)$/.test(
+        w,
+      )
+    ) {
       properNouns.push(w);
     }
   }
 
   // 2. Extract activities/events
-  const activities = [...text.matchAll(new RegExp(ACTIVITY_REGEX.source, "gi"))].map(m => m[1].toLowerCase());
+  const activities = [
+    ...text.matchAll(new RegExp(ACTIVITY_REGEX.source, "gi")),
+  ].map((m) => m[1].toLowerCase());
 
   // 3. Extract named items (quoted phrases, named things)
-  const namedItems = [...text.matchAll(new RegExp(NAMED_ITEM_REGEX.source, "gi"))].map(m => (m[1] || m[2]).trim());
+  const namedItems = [
+    ...text.matchAll(new RegExp(NAMED_ITEM_REGEX.source, "gi")),
+  ].map((m) => (m[1] || m[2]).trim());
 
   // 4. Extract time/place references
   const timePlace = [];
-  const tpMatch = text.match(/\b(every\s+\w+|Saturday|Sunday|summer|winter|morning|evening|night|college|school|hospital|park|kitchen|home|church|beach)\b/gi);
-  if (tpMatch) timePlace.push(...tpMatch.map(s => s.toLowerCase()));
+  const tpMatch = text.match(
+    /\b(every\s+\w+|Saturday|Sunday|summer|winter|morning|evening|night|college|school|hospital|park|kitchen|home|church|beach)\b/gi,
+  );
+  if (tpMatch) timePlace.push(...tpMatch.map((s) => s.toLowerCase()));
 
   // 5. Build suggestions from extracted details
   // Priority: specific moments > activities > time/place > fallback
@@ -2292,8 +2968,16 @@ function generateStorySpecificSuggestions(state, userMessage) {
   }
 
   // Suggestion type C: "How [specific detail] made you feel"
-  if (properNouns.length > 1) {
-    suggestions.push("How " + properNouns[properNouns.length - 1] + " changed things");
+  // Reference any named person/thing they mentioned other than the recipient —
+  // even a single one. Echoing the recipient back ("How <recipient> changed
+  // things") is covered by types D/F, so exclude their own name here.
+  const otherNouns = properNouns.filter(
+    (n) => n.toLowerCase() !== firstName.toLowerCase(),
+  );
+  if (otherNouns.length > 0) {
+    suggestions.push(
+      "How " + otherNouns[otherNouns.length - 1] + " changed things",
+    );
   } else if (namedItems.length > 0) {
     suggestions.push("The story behind " + namedItems[0]);
   }
@@ -2305,7 +2989,9 @@ function generateStorySpecificSuggestions(state, userMessage) {
 
   // Suggestion type E: Activity-based
   if (suggestions.length < 3 && activities.length > 1) {
-    suggestions.push("The best " + activities[activities.length - 1] + " memory");
+    suggestions.push(
+      "The best " + activities[activities.length - 1] + " memory",
+    );
   }
 
   // Suggestion type F: Emotional prompt
@@ -2314,7 +3000,7 @@ function generateStorySpecificSuggestions(state, userMessage) {
   }
 
   // 6. Trim to exactly 3, max 8 words each
-  const result = suggestions.slice(0, 3).map(s => {
+  const result = suggestions.slice(0, 3).map((s) => {
     const words = s.split(/\s+/);
     return words.length > 8 ? words.slice(0, 8).join(" ") : s;
   });
@@ -2322,14 +3008,46 @@ function generateStorySpecificSuggestions(state, userMessage) {
   // 7. If still < 3, fill with occasion-aware fallbacks
   const occasion = state?.event?.occasion || state?.occasion || "birthday";
   const OCCASION_FALLBACKS = {
-    birthday: ["A birthday tradition you share", "Their funniest birthday moment", "What makes " + firstName + " special"],
-    anniversary: ["Your first date memory", "A challenge you overcame together", "What keeps your love strong"],
-    memorial: ["A lesson they taught you", "Their favorite saying", "A sound that reminds you of them"],
-    bereavement: ["What you miss most", "Their kindest moment", "How they showed love"],
-    thank_you: ["The moment you knew", "What they sacrificed", "How they changed your path"],
-    mothers_day: ["A sacrifice she made", "Her signature meal or habit", "What she said that stuck"],
-    fathers_day: ["A lesson he repeated", "His proudest moment of you", "What he'd never say aloud"],
-    friendship: ["An inside joke between you", "When they had your back", "What makes them irreplaceable"],
+    birthday: [
+      "A birthday tradition you share",
+      "Their funniest birthday moment",
+      "What makes " + firstName + " special",
+    ],
+    anniversary: [
+      "Your first date memory",
+      "A challenge you overcame together",
+      "What keeps your love strong",
+    ],
+    memorial: [
+      "A lesson they taught you",
+      "Their favorite saying",
+      "A sound that reminds you of them",
+    ],
+    bereavement: [
+      "What you miss most",
+      "Their kindest moment",
+      "How they showed love",
+    ],
+    thank_you: [
+      "The moment you knew",
+      "What they sacrificed",
+      "How they changed your path",
+    ],
+    mothers_day: [
+      "A sacrifice she made",
+      "Her signature meal or habit",
+      "What she said that stuck",
+    ],
+    fathers_day: [
+      "A lesson he repeated",
+      "His proudest moment of you",
+      "What he'd never say aloud",
+    ],
+    friendship: [
+      "An inside joke between you",
+      "When they had your back",
+      "What makes them irreplaceable",
+    ],
   };
   const fallbacks = OCCASION_FALLBACKS[occasion] || OCCASION_FALLBACKS.birthday;
   while (result.length < 3) {
