@@ -293,7 +293,17 @@ async function verifyStoryOwnership(storyId, userId, sendError, reply, db) {
     }
     return state;
   } catch (err) {
-    if (err.message && err.message.includes("not found")) {
+    if (err.name === "StoryVersionConflictError") {
+      // Concurrent request won the optimistic-lock race (e.g. two rapid
+      // /continue calls on the same session). This is expected and retryable —
+      // report 409, not 500, so it doesn't read as a server fault.
+      sendError(
+        reply,
+        409,
+        "STORY_VERSION_CONFLICT",
+        "Session was modified by another request. Please retry.",
+      );
+    } else if (err.message && err.message.includes("not found")) {
       sendError(reply, 404, "STORY_NOT_FOUND", "Story session not found.");
     } else {
       console.error("[Story] Ownership verification failed:", {
