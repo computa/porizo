@@ -450,3 +450,13 @@ Naming similarity on a remote platform ("thanks mom.mp3" vs `marketing/audio hoo
 **Mistake:** Grepped only for `services/og-text-utils` (the from-root path) and concluded "zero importers — safe to delete." Two sibling modules (`poem-og-variants.js`, `song-og-variants.js`) actually imported it via the **relative** `require("./og-text-utils")`, which my grep missed. The file was a **live duplicate**, not dead — and worse, it was the drifted copy without the F20 fix, so all 6 OG card variants still had the overflow bug. A final relative-form check caught it one step before `rm`.
 
 **Rule:** Before declaring a module dead or deleting it, grep for **every** form callers can use: the from-root path (`dir/name`), the relative sibling form (`./name`, `../dir/name`), AND bare `require(...name...)`. Sibling modules almost always import via `./`. A single absolute-path grep is not proof of "no importers" — it's the exact false-negative the claim-verification rule warns about. When you find live importers of a duplicate, consolidate them onto the canonical version (don't preserve the fork), then delete.
+
+---
+
+## npm test globs run under /bin/sh, which has no `**` (globstar) (2026-06-23)
+
+**Trigger:** The `/goal` test loop; `npm test` reported far fewer tests than `find test -name '*.test.js'` showed.
+
+**Mistake (latent, in package.json):** `"test": "node --test test/**/*.test.js"` — unquoted. npm runs scripts via `/bin/sh`, where `**` is NOT globstar; it collapses to `*`, matching only `test/<onedir>/*.test.js`. Result: only 54 of 208 files ran (~26%), and ALL 114 top-level `test/*.test.js` files were silently skipped. Every "npm test passes" claim only ever covered a quarter of the suite; newly-added top-level test files never ran in CI.
+
+**Rule:** When a test/build npm script uses a `**` glob, QUOTE it (`"test/**/*.test.js"`) so the *tool* (node --test, jest, etc.) expands it with real globstar — never rely on the shell. Verify suite size with `find ... -name '*.test.js' | wc -l` vs. what the runner reports; a large gap means the glob is under-matching. The Bash tool here runs zsh (where `**` works), which MASKS the bug — always reproduce script globs under `/bin/sh -c` to see what npm actually runs.
