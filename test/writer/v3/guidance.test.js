@@ -15,13 +15,22 @@ const { STORY_ELEMENT_DEFINITIONS } = require("../../../src/writer/v3/quality");
 
 function buildTestState(overrides = {}) {
   return {
-    narrative: "When I was twelve, Dad took me fishing at Lake Volta. He taught me to tie a bowline knot and we watched the sun set over the water.",
+    narrative:
+      "When I was twelve, Dad took me fishing at Lake Volta. He taught me to tie a bowline knot and we watched the sun set over the water.",
     recipient_name: "Dad",
     occasion: "birthday",
     story_mode: "default",
     facts: [
-      { text: "went fishing at Lake Volta", beat: "moment_destination", status: "active" },
-      { text: "taught me to tie a bowline knot", beat: "turn", status: "active" },
+      {
+        text: "went fishing at Lake Volta",
+        beat: "moment_destination",
+        status: "active",
+      },
+      {
+        text: "taught me to tie a bowline knot",
+        beat: "turn",
+        status: "active",
+      },
     ],
     atoms: {
       moment_destination: "Lake Volta",
@@ -43,7 +52,9 @@ function makeMockGenerateText(response) {
 }
 
 function makeMockGenerateTextFailing(errorMsg = "LLM unavailable") {
-  return async () => { throw new Error(errorMsg); };
+  return async () => {
+    throw new Error(errorMsg);
+  };
 }
 
 // --- generateElementGuidance ---
@@ -69,7 +80,8 @@ test("generateElementGuidance returns minimal response for strong element", asyn
 test("generateElementGuidance calls LLM for weak element", async () => {
   const state = buildTestState();
   const mockResponse = {
-    diagnosis: "The story mentions Dad but doesn't capture the emotional tone of the memory.",
+    diagnosis:
+      "The story mentions Dad but doesn't capture the emotional tone of the memory.",
     story_anchor: "taught me to tie a bowline knot",
     suggestion: "How did it feel when Dad taught you that knot?",
     examples: [
@@ -146,32 +158,44 @@ test("generateElementGuidance uses reflective definitions for reflective_tribute
 
 test("buildGuidancePrompt includes narrative excerpt", () => {
   const state = buildTestState();
-  const elementDef = STORY_ELEMENT_DEFINITIONS.find(d => d.id === "feeling");
+  const elementDef = STORY_ELEMENT_DEFINITIONS.find((d) => d.id === "feeling");
   const prompt = buildGuidancePrompt(state, elementDef, "weak");
 
   assert.ok(prompt.includes("Lake Volta"), "should include narrative content");
   assert.ok(prompt.includes("Dad"), "should include recipient name");
   assert.ok(prompt.includes("birthday"), "should include occasion");
   assert.ok(prompt.includes("The Feeling"), "should include element name");
-  assert.ok(prompt.includes("weak"), "should include element state");
+  // The prompt was redesigned (clinical → warm-friend tone) to NOT echo the
+  // raw element state ("weak"/"missing"); it incorporates the element's purpose
+  // instead. Assert the purpose, which is the element-definition signal it does use.
+  assert.ok(
+    prompt.includes(elementDef.purpose),
+    "should include element purpose",
+  );
 });
 
 test("buildGuidancePrompt truncates long narratives", () => {
   const longNarrative = "A".repeat(1000);
   const state = buildTestState({ narrative: longNarrative });
-  const elementDef = STORY_ELEMENT_DEFINITIONS.find(d => d.id === "feeling");
+  const elementDef = STORY_ELEMENT_DEFINITIONS.find((d) => d.id === "feeling");
   const prompt = buildGuidancePrompt(state, elementDef, "weak");
 
   assert.ok(prompt.includes("..."), "should truncate with ellipsis");
-  assert.ok(!prompt.includes("A".repeat(700)), "should not include full 1000-char narrative");
+  assert.ok(
+    !prompt.includes("A".repeat(700)),
+    "should not include full 1000-char narrative",
+  );
 });
 
 test("buildGuidancePrompt handles empty narrative", () => {
   const state = buildTestState({ narrative: "" });
-  const elementDef = STORY_ELEMENT_DEFINITIONS.find(d => d.id === "feeling");
+  const elementDef = STORY_ELEMENT_DEFINITIONS.find((d) => d.id === "feeling");
   const prompt = buildGuidancePrompt(state, elementDef, "missing");
 
-  assert.ok(prompt.includes("(No narrative yet)"), "should show placeholder for empty narrative");
+  assert.ok(
+    prompt.includes("(Just getting started)"),
+    "should show placeholder for empty narrative",
+  );
 });
 
 test("buildGuidancePrompt includes related facts", () => {
@@ -181,10 +205,13 @@ test("buildGuidancePrompt includes related facts", () => {
       { text: "felt peaceful", beat: "ending_feel", status: "active" },
     ],
   });
-  const elementDef = STORY_ELEMENT_DEFINITIONS.find(d => d.id === "feeling");
+  const elementDef = STORY_ELEMENT_DEFINITIONS.find((d) => d.id === "feeling");
   const prompt = buildGuidancePrompt(state, elementDef, "weak");
 
-  assert.ok(prompt.includes("the sunset was golden"), "should include related fact");
+  assert.ok(
+    prompt.includes("the sunset was golden"),
+    "should include related fact",
+  );
   assert.ok(prompt.includes("felt peaceful"), "should include related fact");
 });
 
@@ -207,7 +234,8 @@ test("parseGuidanceResponse parses valid JSON", () => {
 });
 
 test("parseGuidanceResponse extracts JSON from code blocks", () => {
-  const input = '```json\n{"diagnosis": "test", "suggestion": "test?", "examples": []}\n```';
+  const input =
+    '```json\n{"diagnosis": "test", "suggestion": "test?", "examples": []}\n```';
   const result = parseGuidanceResponse(input);
   assert.ok(result);
   assert.equal(result.diagnosis, "test");
@@ -258,7 +286,7 @@ test("parseGuidanceResponse handles null story_anchor", () => {
 // --- buildTemplateFallback ---
 
 test("buildTemplateFallback returns guidance from templates", () => {
-  const elementDef = STORY_ELEMENT_DEFINITIONS.find(d => d.id === "moment");
+  const elementDef = STORY_ELEMENT_DEFINITIONS.find((d) => d.id === "moment");
   const result = buildTemplateFallback(elementDef, "weak", 0.4, {});
 
   assert.equal(result.element_id, "moment");
@@ -267,11 +295,20 @@ test("buildTemplateFallback returns guidance from templates", () => {
   assert.equal(result.state, "weak");
   assert.ok(result.diagnosis, "should have diagnosis from template");
   assert.ok(result.suggestion, "should have suggestion from template");
-  assert.equal(result.story_anchor, null, "template fallback has no story anchor");
+  assert.equal(
+    result.story_anchor,
+    null,
+    "template fallback has no story anchor",
+  );
 });
 
 test("buildTemplateFallback handles missing template gracefully", () => {
-  const fakeDef = { id: "fake", displayName: "Fake", primarySlot: "nonexistent", bonusSlots: [] };
+  const fakeDef = {
+    id: "fake",
+    displayName: "Fake",
+    primarySlot: "nonexistent",
+    bonusSlots: [],
+  };
   const result = buildTemplateFallback(fakeDef, "missing", 0, {});
 
   assert.equal(result.element_id, "fake");
@@ -294,7 +331,10 @@ test("findElementDefinition finds reflective elements", () => {
   const result = findElementDefinition("moment", state);
   assert.ok(result);
   assert.equal(result.id, "moment");
-  assert.ok(result.bonusSlots.includes("moment_destination"), "reflective moment should have moment_destination bonus");
+  assert.ok(
+    result.bonusSlots.includes("moment_destination"),
+    "reflective moment should have moment_destination bonus",
+  );
 });
 
 test("findElementDefinition returns null for unknown element", () => {
