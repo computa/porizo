@@ -68,6 +68,7 @@ const { CircuitBreaker } = require("./circuit-breaker");
 const { createDLQService } = require("./dlq");
 const { createJobDurabilityService } = require("./durability");
 const { createStepRegistry } = require("./steps");
+const { createGuideVocalSteps } = require("./steps/guide-vocal");
 const { createLyricsSteps } = require("./steps/lyrics");
 const { createMusicPlanSteps } = require("./steps/music-plan");
 const { createModerationSteps } = require("./steps/moderation");
@@ -2657,6 +2658,24 @@ async function startJobRunner({
       PERSONALIZED_VOICE_MODES,
       toJson,
     }),
+    ...createGuideVocalSteps({
+      assertFrozenContract,
+      assertPersonalizedContract,
+      durabilityService,
+      ensureDir,
+      generateSpeech,
+      getMusicProviderConfig,
+      getVersionDir,
+      lyricsToText,
+      parseJson,
+      providerConfig,
+      PROVIDERS,
+      resolveRenderContract,
+      shouldSkipStep,
+      storageDir,
+      streamBaseUrl,
+      writeWav,
+    }),
     instrumental: async ({ track, trackVersion, job }) => {
       const versionDir = getVersionDir(storageDir, track, trackVersion);
       const instFile = path.join(versionDir, "inst_preview.mp3");
@@ -3329,192 +3348,6 @@ async function startJobRunner({
       renderInstrumental({ storageDir, track, trackVersion, kind: "full" });
       renderGuideVocal({ storageDir, track, trackVersion, kind: "full" });
       return {};
-    },
-
-    guide_vocal: async ({ track, trackVersion }) => {
-      const musicPlan = parseJson(
-        trackVersion.music_plan_json,
-        null,
-        "guide_vocal_music_plan",
-      );
-      const renderContract = resolveRenderContract({ track, musicPlan });
-      const isPersonalized = renderContract.voice_mode === "user_voice";
-      if (isPersonalized) {
-        assertFrozenContract(musicPlan);
-        assertPersonalizedContract(renderContract, "guide_vocal");
-      }
-      if (shouldSkipStep("guide_vocal", renderContract.pipeline)) {
-        console.log(
-          `[JobRunner] Skipping guide_vocal for track ${track.id}: pipeline=${renderContract.pipeline}`,
-        );
-        return {};
-      }
-
-      const versionDir = getVersionDir(storageDir, track, trackVersion);
-      ensureDir(versionDir);
-      const token =
-        trackVersion.guide_access_token ||
-        crypto.randomBytes(16).toString("hex");
-      const guideUrl = `${streamBaseUrl}/guide/${trackVersion.id}?token=${token}`;
-      const fileName = "guide_vocal.mp3";
-      const filePath = path.join(versionDir, fileName);
-
-      // Reuse existing file if present (saves API credits)
-      if (fs.existsSync(filePath)) {
-        console.log(`[JobRunner] Reusing existing guide vocal: ${fileName}`);
-        return {
-          guide_vocal_url: guideUrl,
-          guide_access_token: token,
-        };
-      }
-
-      // TTS is always via ElevenLabs (Suno doesn't do TTS)
-      const musicConfig = await getMusicProviderConfig({
-        requestedStyle: musicPlan?.style || track.style,
-        pinnedProvider:
-          renderContract.provider_locked ||
-          musicPlan?.provider_resolved ||
-          null,
-      });
-      const hasTtsConfig =
-        providerConfig.elevenlabs?.ttsVoiceId &&
-        providerConfig.elevenlabs?.apiKey;
-      if (musicConfig && hasTtsConfig) {
-        const lyrics = parseJson(
-          trackVersion.lyrics_json,
-          null,
-          "guide_vocal_lyrics",
-        );
-        // For preview, only use chorus section to reduce TTS API costs
-        const text = lyricsToText(lyrics, { chorusOnly: true });
-        if (!text) {
-          throw new Error(
-            "E301_GUIDE_VOCAL_MISSING: Lyrics unavailable for guide vocal",
-          );
-        }
-        console.log(
-          `[JobRunner] Generating TTS guide vocal (chorus only) for track ${track.id}`,
-        );
-        await durabilityService.executeWithDurability({
-          provider: PROVIDERS.ELEVENLABS,
-          fn: () =>
-            generateSpeech({
-              baseUrl: providerConfig.elevenlabs.baseUrl,
-              apiKey: providerConfig.elevenlabs.apiKey,
-              voiceId: providerConfig.elevenlabs.ttsVoiceId,
-              text: text,
-              outputPath: filePath,
-              timeoutMs: providerConfig.elevenlabs.timeoutMs,
-            }),
-        });
-        return {
-          guide_vocal_url: guideUrl,
-          guide_access_token: token,
-        };
-      }
-
-      if (isPersonalized) {
-        throw new Error(
-          "E302_PERSONALIZED_NO_TTS: Personalized ElevenLabs render requires TTS config for guide vocal.",
-        );
-      }
-      console.log(
-        `[JobRunner] Using placeholder guide vocal for track ${track.id} (no live provider)`,
-      );
-      const wavPath = path.join(versionDir, "guide_vocal.wav");
-      if (!fs.existsSync(wavPath)) {
-        writeWav(wavPath, { durationSec: 6, frequencyHz: 440 });
-      }
-      return {
-        guide_vocal_url: guideUrl,
-        guide_access_token: token,
-      };
-    },
-    guide_vocal_full: async ({ track, trackVersion }) => {
-      const musicPlan = parseJson(
-        trackVersion.music_plan_json,
-        null,
-        "guide_vocal_full_music_plan",
-      );
-      const renderContract = resolveRenderContract({ track, musicPlan });
-      const isPersonalized = renderContract.voice_mode === "user_voice";
-      if (isPersonalized) {
-        assertFrozenContract(musicPlan);
-        assertPersonalizedContract(renderContract, "guide_vocal_full");
-      }
-      if (shouldSkipStep("guide_vocal_full", renderContract.pipeline)) {
-        console.log(
-          `[JobRunner] Skipping guide_vocal_full for track ${track.id}: pipeline=${renderContract.pipeline}`,
-        );
-        return {};
-      }
-
-      const versionDir = getVersionDir(storageDir, track, trackVersion);
-      ensureDir(versionDir);
-      const token =
-        trackVersion.guide_access_token ||
-        crypto.randomBytes(16).toString("hex");
-      const guideUrl = `${streamBaseUrl}/guide/${trackVersion.id}?token=${token}&kind=full`;
-
-      // TTS is always via ElevenLabs (Suno doesn't do TTS)
-      const musicConfig = await getMusicProviderConfig({
-        requestedStyle: musicPlan?.style || track.style,
-        pinnedProvider:
-          renderContract.provider_locked ||
-          musicPlan?.provider_resolved ||
-          null,
-      });
-      const hasTtsConfig =
-        providerConfig.elevenlabs?.ttsVoiceId &&
-        providerConfig.elevenlabs?.apiKey;
-      if (musicConfig && hasTtsConfig) {
-        const lyrics = parseJson(
-          trackVersion.lyrics_json,
-          null,
-          "guide_vocal_full_lyrics",
-        );
-        const text = lyricsToText(lyrics);
-        if (!text) {
-          throw new Error(
-            "E301_GUIDE_VOCAL_MISSING: Lyrics unavailable for guide vocal",
-          );
-        }
-        console.log(
-          `[JobRunner] Generating TTS full guide vocal for track ${track.id}`,
-        );
-        const fileName = "guide_vocal_full.mp3";
-        const filePath = path.join(versionDir, fileName);
-        await durabilityService.executeWithDurability({
-          provider: PROVIDERS.ELEVENLABS,
-          fn: () =>
-            generateSpeech({
-              baseUrl: providerConfig.elevenlabs.baseUrl,
-              apiKey: providerConfig.elevenlabs.apiKey,
-              voiceId: providerConfig.elevenlabs.ttsVoiceId,
-              text: text,
-              outputPath: filePath,
-              timeoutMs: providerConfig.elevenlabs.timeoutMs,
-            }),
-        });
-        return {
-          guide_vocal_url: guideUrl,
-          guide_access_token: token,
-        };
-      }
-
-      if (isPersonalized) {
-        throw new Error(
-          "E302_PERSONALIZED_NO_TTS: Personalized ElevenLabs render requires TTS config for guide vocal.",
-        );
-      }
-      const wavPath = path.join(versionDir, "guide_vocal_full.wav");
-      if (!fs.existsSync(wavPath)) {
-        writeWav(wavPath, { durationSec: 12, frequencyHz: 440 });
-      }
-      return {
-        guide_vocal_url: guideUrl,
-        guide_access_token: token,
-      };
     },
 
     voice_convert: async ({ track, trackVersion }) => {

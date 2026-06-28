@@ -1315,7 +1315,17 @@ helpers from the runner. Direct step-factory tests passed (9 tests, 9 pass),
 expanded render/persona workflow validation passed (45 tests, 45 pass), syntax
 checks passed, and `npm run lint -- --quiet` passed.
 
-- [ ] **Step 4: Commit Root 5**
+Slice 4 result: `src/workflows/steps/guide-vocal.js` now owns the
+`guide_vocal` and `guide_vocal_full` handlers. The extracted family injects TTS,
+provider config, render-contract guards, guide-token generation, storage path
+helpers, and placeholder WAV generation from the runner. Direct step-factory
+tests passed (13 tests, 13 pass), expanded render/persona workflow validation
+passed (45 tests, 45 pass), syntax checks passed, `git diff --check` passed,
+and `npm run lint -- --quiet` passed. The slice also closes the documented
+idempotency gap for `guide_vocal_full` by reusing an existing
+`guide_vocal_full.mp3` instead of spending another TTS call.
+
+- [ ] **Step 4: Commit each Root 5 slice**
 
 Run:
 

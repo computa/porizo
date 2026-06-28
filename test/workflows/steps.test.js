@@ -1,7 +1,11 @@
 const { describe, test } = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
 
 const { createStepRegistry } = require("../../src/workflows/steps");
+const { createGuideVocalSteps } = require("../../src/workflows/steps/guide-vocal");
 const { createLyricsSteps } = require("../../src/workflows/steps/lyrics");
 const { createMusicPlanSteps } = require("../../src/workflows/steps/music-plan");
 const { createModerationSteps } = require("../../src/workflows/steps/moderation");
@@ -296,6 +300,221 @@ describe("music plan step", () => {
     assert.equal(
       plan.render_contract.pipeline,
       "suno_voice_persona_complete_audio",
+    );
+  });
+});
+
+describe("guide vocal steps", () => {
+  function createGuideVocalStep(overrides = {}) {
+    const calls = [];
+    const storageDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "porizo-guide-step-"),
+    );
+    const baseTrack = {
+      id: "track_1",
+      user_id: "user_1",
+      style: "pop",
+      voice_mode: "ai_voice",
+    };
+    const baseTrackVersion = {
+      id: "version_1",
+      version_num: 1,
+      guide_access_token: null,
+      lyrics_json: JSON.stringify({
+        sections: [
+          { name: "verse", lines: ["verse line"] },
+          { name: "chorus", lines: ["chorus line"] },
+        ],
+      }),
+      music_plan_json: JSON.stringify({
+        style: "pop",
+        provider_resolved: "elevenlabs",
+        render_contract: {
+          provider_locked: "elevenlabs",
+          voice_mode: "ai_voice",
+          pipeline: "guide_tts_and_voice_convert",
+        },
+      }),
+    };
+    const steps = createGuideVocalSteps({
+      assertFrozenContract: (musicPlan) => {
+        calls.push({ name: "assertFrozenContract", musicPlan });
+      },
+      assertPersonalizedContract: (renderContract, stepName) => {
+        calls.push({ name: "assertPersonalizedContract", renderContract, stepName });
+      },
+      createGuideAccessToken: () => "token_123",
+      durabilityService: {
+        executeWithDurability: async ({ provider, fn }) => {
+          calls.push({ name: "executeWithDurability", provider });
+          return fn();
+        },
+      },
+      ensureDir: (dirPath) => fs.mkdirSync(dirPath, { recursive: true }),
+      generateSpeech: async (args) => {
+        calls.push({ name: "generateSpeech", args });
+        fs.writeFileSync(args.outputPath, "mp3");
+      },
+      getMusicProviderConfig: async (args) => {
+        calls.push({ name: "getMusicProviderConfig", args });
+        return { provider: "elevenlabs" };
+      },
+      getVersionDir: (_storageDir, track, trackVersion) =>
+        path.join(
+          _storageDir,
+          "tracks",
+          track.user_id,
+          track.id,
+          `v${trackVersion.version_num}`,
+        ),
+      lyricsToText: (lyrics, options) => {
+        calls.push({ name: "lyricsToText", options });
+        if (options?.chorusOnly) {
+          return lyrics.sections
+            .filter((section) => section.name === "chorus")
+            .flatMap((section) => section.lines)
+            .join("\n");
+        }
+        return lyrics.sections.flatMap((section) => section.lines).join("\n");
+      },
+      parseJson,
+      providerConfig: {
+        elevenlabs: {
+          apiKey: "key",
+          baseUrl: "https://elevenlabs.test",
+          timeoutMs: 1234,
+          ttsVoiceId: "voice_1",
+        },
+      },
+      PROVIDERS: { ELEVENLABS: "elevenlabs" },
+      resolveRenderContract: ({ track, musicPlan }) =>
+        musicPlan.render_contract || {
+          provider_locked: "elevenlabs",
+          voice_mode: track.voice_mode === "user_voice" ? "user_voice" : "ai_voice",
+          pipeline: "guide_tts_and_voice_convert",
+        },
+      shouldSkipStep: () => false,
+      storageDir,
+      streamBaseUrl: "https://stream.test",
+      writeWav: (filePath, options) => {
+        calls.push({ name: "writeWav", filePath, options });
+        fs.writeFileSync(filePath, "wav");
+      },
+      ...overrides,
+    });
+    return { ...steps, baseTrack, baseTrackVersion, calls, storageDir };
+  }
+
+  test("skips guide vocal when the render contract pipeline excludes it", async () => {
+    let speechGenerated = false;
+    const { guide_vocal, baseTrack, baseTrackVersion } = createGuideVocalStep({
+      generateSpeech: async () => {
+        speechGenerated = true;
+      },
+      shouldSkipStep: (stepName, pipeline) =>
+        stepName === "guide_vocal" && pipeline === "provider_complete_audio",
+    });
+
+    const result = await guide_vocal({
+      track: baseTrack,
+      trackVersion: {
+        ...baseTrackVersion,
+        music_plan_json: JSON.stringify({
+          render_contract: {
+            provider_locked: "suno",
+            voice_mode: "ai_voice",
+            pipeline: "provider_complete_audio",
+          },
+        }),
+      },
+    });
+
+    assert.deepEqual(result, {});
+    assert.equal(speechGenerated, false);
+  });
+
+  test("reuses an existing full guide vocal without generating TTS", async () => {
+    const {
+      guide_vocal_full,
+      baseTrack,
+      baseTrackVersion,
+      calls,
+      storageDir,
+    } = createGuideVocalStep();
+    const versionDir = path.join(
+      storageDir,
+      "tracks",
+      baseTrack.user_id,
+      baseTrack.id,
+      `v${baseTrackVersion.version_num}`,
+    );
+    fs.mkdirSync(versionDir, { recursive: true });
+    fs.writeFileSync(path.join(versionDir, "guide_vocal_full.mp3"), "cached");
+
+    const result = await guide_vocal_full({
+      track: baseTrack,
+      trackVersion: baseTrackVersion,
+    });
+
+    assert.deepEqual(result, {
+      guide_vocal_url:
+        "https://stream.test/guide/version_1?token=token_123&kind=full",
+      guide_access_token: "token_123",
+    });
+    assert.equal(
+      calls.some((call) => call.name === "generateSpeech"),
+      false,
+    );
+  });
+
+  test("generates preview guide vocal from chorus lyrics", async () => {
+    const { guide_vocal, baseTrack, baseTrackVersion, calls } =
+      createGuideVocalStep();
+
+    const result = await guide_vocal({
+      track: baseTrack,
+      trackVersion: baseTrackVersion,
+    });
+
+    assert.deepEqual(result, {
+      guide_vocal_url: "https://stream.test/guide/version_1?token=token_123",
+      guide_access_token: "token_123",
+    });
+    assert.deepEqual(
+      calls.find((call) => call.name === "executeWithDurability"),
+      { name: "executeWithDurability", provider: "elevenlabs" },
+    );
+    assert.deepEqual(
+      calls.find((call) => call.name === "lyricsToText").options,
+      { chorusOnly: true },
+    );
+    assert.equal(
+      calls.find((call) => call.name === "generateSpeech").args.text,
+      "chorus line",
+    );
+  });
+
+  test("requires TTS config for personalized guide vocal", async () => {
+    const { guide_vocal, baseTrack, baseTrackVersion } = createGuideVocalStep({
+      providerConfig: { elevenlabs: {} },
+    });
+
+    await assert.rejects(
+      () =>
+        guide_vocal({
+          track: { ...baseTrack, voice_mode: "user_voice" },
+          trackVersion: {
+            ...baseTrackVersion,
+            music_plan_json: JSON.stringify({
+              render_contract: {
+                provider_locked: "elevenlabs",
+                voice_mode: "user_voice",
+                pipeline: "guide_tts_and_voice_convert",
+              },
+            }),
+          },
+        }),
+      /E302_PERSONALIZED_NO_TTS/,
     );
   });
 });
