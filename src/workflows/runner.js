@@ -67,6 +67,8 @@ const {
 const { CircuitBreaker } = require("./circuit-breaker");
 const { createDLQService } = require("./dlq");
 const { createJobDurabilityService } = require("./durability");
+const { createStepRegistry } = require("./steps");
+const { createModerationSteps } = require("./steps/moderation");
 const {
   createAppConfigRepository,
 } = require("../database/app-config-repository");
@@ -2625,32 +2627,8 @@ async function startJobRunner({
     return Math.max(configuredMaxAttempts, 6);
   }
 
-  const stepHandlers = {
-    moderation: ({ track, trackVersion }) => {
-      if (trackVersion.moderation_status) {
-        return { moderation_status: trackVersion.moderation_status };
-      }
-      const lyrics = parseJson(
-        trackVersion.lyrics_json,
-        null,
-        "moderation_lyrics",
-      );
-      const moderation = moderationCheck({
-        title: track.title,
-        recipient_name: track.recipient_name,
-        message: track.message,
-        lyrics: lyrics ? JSON.stringify(lyrics) : null,
-      });
-      if (!moderation.allowed) {
-        return {
-          moderation_status: "blocked",
-          moderation_reason: moderation.reason,
-          status_override: "blocked",
-        };
-      }
-      return { moderation_status: "passed", moderation_reason: null };
-    },
-
+  const stepRegistry = createStepRegistry({
+    ...createModerationSteps({ moderationCheck, parseJson }),
     lyrics: async ({ track, trackVersion }) => {
       const existing = parseJson(trackVersion.lyrics_json, null, "lyrics_json");
       if (existing) {
@@ -4385,7 +4363,7 @@ async function startJobRunner({
 
       throw new Error(`E302_QUALITY_GATE_FAILED: ${qualityReport.summary}`);
     },
-  };
+  });
 
   // Concurrent job processing configuration
   const MAX_CONCURRENT = parseInt(process.env.MAX_CONCURRENT_JOBS || "3", 10);
@@ -4699,7 +4677,7 @@ async function startJobRunner({
     let stepData = null;
     let isPending = false;
     if (track && trackVersion) {
-      const handler = stepHandlers[stepName];
+      const handler = stepRegistry.get(stepName);
       if (handler) {
         const stepHistoryId = generatePrefixedId("sh");
         const stepStartMs = Date.now();

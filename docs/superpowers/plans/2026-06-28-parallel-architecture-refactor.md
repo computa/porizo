@@ -1250,7 +1250,7 @@ Result: committed as `76d105e7 refactor: extract gift delivery plugin`.
 - Test: `test/workflows/personalized-highway.test.js`
 - Test: `test/workflows/personalized-step-guards.test.js`
 
-- [ ] **Step 1: Run render characterization tests before split**
+- [x] **Step 1: Run render characterization tests before split**
 
 Run:
 
@@ -1260,7 +1260,9 @@ node --test --test-concurrency=1 test/workflows/render-contract.test.js test/wor
 
 Expected: all selected tests pass.
 
-- [ ] **Step 2: Create registry entry point**
+Result: Passed locally with `NODE_ENV=test ALLOW_ANON_USER_ID=true ALLOW_DEVICE_TOKEN_FALLBACK=true`; 28 tests, 28 pass, 0 failures.
+
+- [x] **Step 2: Create registry entry point**
 
 Create `src/workflows/steps/index.js`:
 
@@ -1293,6 +1295,13 @@ module.exports = { createPersonalizationSteps };
 ```
 
 Run tests after each moved family.
+
+Slice 1 result: `src/workflows/steps/index.js` now owns `createStepRegistry`,
+`src/workflows/steps/moderation.js` owns the CPU-only moderation handler, and
+`runner.js` dispatches through `stepRegistry.get(stepName)`. The personalized
+and provider I/O families remain in `runner.js` for later, higher-risk slices.
+Post-slice workflow characterization passed (28 tests, 28 pass, 0 failures) and
+`npm run lint -- --quiet` passed.
 
 - [ ] **Step 4: Commit Root 5**
 
