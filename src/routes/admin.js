@@ -41,6 +41,7 @@ const { nowIso } = require("../utils/common");
 const { getClientIp: extractClientIp } = require("../utils/client-ip");
 const { acknowledgeGiftIncident } = require("../services/gift-delivery-ops");
 const defaultOneSignalService = require("../services/onesignal");
+const { registerAdminJobOpsRoutes } = require("./admin/job-ops");
 const { registerAdminMetricsRoutes } = require("./admin/metrics");
 const { registerAdminModerationRoutes } = require("./admin/moderation");
 const {
@@ -1619,60 +1620,12 @@ function registerAdminRoutes(
 
   // --- Jobs ---
 
-  app.get("/admin/dashboard/jobs", async (request, reply) => {
-    const admin = await requireAdminSession(request, reply);
-    if (!admin) return;
-    const { status, workflowType } = request.query;
-    reply.send({
-      jobs: await adminService.listJobs({
-        status,
-        workflowType,
-        ...parsePagination(request.query),
-      }),
-    });
-  });
-
-  app.post("/admin/dashboard/jobs/:id/retry", async (request, reply) => {
-    const admin = await requireAdminRole(request, reply, [
-      "admin",
-      "superadmin",
-    ]);
-    if (!admin) return;
-    const result = await adminService.retryJob(
-      request.params.id,
-      admin.adminId,
-    );
-    if (!result.success) {
-      sendError(reply, 400, "RETRY_ERROR", result.error);
-      return;
-    }
-    reply.send(result);
-  });
-
-  // --- Dead Letter Queue ---
-
-  app.get("/admin/dashboard/dlq", async (request, reply) => {
-    const admin = await requireAdminSession(request, reply);
-    if (!admin) return;
-    reply.send({
-      entries: await adminService.listDLQ(parsePagination(request.query)),
-    });
-  });
-
-  app.post("/admin/dashboard/dlq/:id/reprocess", async (request, reply) => {
-    const admin = await requireAdminRole(request, reply, ["superadmin"]);
-    if (!admin) return;
-    const { reason } = request.body || {};
-    const result = await adminService.reprocessDLQ(
-      request.params.id,
-      admin.adminId,
-      reason || "Admin reprocess",
-    );
-    if (!result.success) {
-      sendError(reply, 400, "DLQ_REPROCESS_ERROR", result.error);
-      return;
-    }
-    reply.send(result);
+  registerAdminJobOpsRoutes(app, {
+    adminService,
+    parsePagination,
+    requireAdminRole,
+    requireAdminSession,
+    sendError,
   });
 
   // --- Moderation ---
@@ -4935,14 +4888,6 @@ function registerAdminRoutes(
         .send(csvLines.join("\n"));
     },
   );
-
-  // Phase 2: Step history API — per-job step execution timeline
-  app.get("/admin/dashboard/jobs/:id/steps", async (request, reply) => {
-    const admin = await requireAdminSession(request, reply);
-    if (!admin) return;
-    const steps = await adminService.getJobStepHistory(request.params.id);
-    reply.send({ steps });
-  });
 
   // Admin SPA catch-all - serves index.html for client-side routing
   // ============ TRACK TRANSFER ============

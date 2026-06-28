@@ -1481,8 +1481,15 @@ pagination, superadmin-only override authorization, reason validation, error
 envelopes, and audit behavior. The read-only music diagnostics route is also
 extracted locally into `src/routes/admin/music-diagnostics.js`, preserving
 auth, filters, limit parsing, error envelope, and response shape. Remaining
-Root 6 work is the rest of the admin route/service split by concern, with
-billing/entitlement left last.
+admin job/DLQ/step-history routes are also extracted locally into
+`src/routes/admin/job-ops.js`, preserving job list/retry, DLQ list/reprocess,
+and step-history behavior while adding route-level coverage. Job-ops follow-up
+risks remain intentionally behavior-preserving in this slice: manual retry does
+not clear every stale runner-claim field, admin DLQ reprocess semantics differ
+from workflow DLQ reprocess, DLQ listing includes reprocessed entries, route
+failures remain broad 400s, and missing job step-history is indistinguishable
+from empty history. Remaining Root 6 work is the rest of the admin route/service
+split by concern, with billing/entitlement left last.
 **Boundary:** Do the `getAppConfig` eviction + non-billing splits first (🟡). Do the billing/entitlement admin slice **last** (⚠ 🔴) with production verification.
 
 ### Root 7 — Writer cycle + god-file decomposition 🟡 effort M

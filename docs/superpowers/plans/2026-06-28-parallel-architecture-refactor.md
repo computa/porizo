@@ -58,7 +58,10 @@ Root 1 is complete only when that scan has no direct persistence hits outside co
 - Root 6 moderation route split is committed as `4d1874ea`. The next Root 6
   slice extracted the read-only music diagnostics route into
   `src/routes/admin/music-diagnostics.js`.
-- Next controller queue: commit the music diagnostics route split, then continue one
+- Root 6 music diagnostics route split is committed as `bfe7cd4e`. The next
+  Root 6 slice extracted admin job/DLQ/step-history routes into
+  `src/routes/admin/job-ops.js` and added route-level coverage.
+- Next controller queue: commit the job-ops route split, then continue one
   non-billing admin route group per slice before the billing/admin entitlement
   slice.
 
@@ -1538,6 +1541,22 @@ Music diagnostics slice completed locally:
 - `src/routes/admin.js` now registers the music diagnostics module instead of
   defining the handler inline.
 - Existing focused route/repository diagnostics coverage remained green.
+
+Job-ops slice completed locally:
+
+- `src/routes/admin/job-ops.js` owns `/admin/dashboard/jobs`,
+  `/admin/dashboard/jobs/:id/retry`, `/admin/dashboard/dlq`,
+  `/admin/dashboard/dlq/:id/reprocess`, and
+  `/admin/dashboard/jobs/:id/steps`.
+- `src/routes/admin.js` now registers the job-ops module instead of defining
+  those handlers inline in two distant parts of the file.
+- `test/admin-job-ops-routes.test.js` fills route-level coverage for job list,
+  retry, DLQ list/reprocess, and step-history behavior.
+- Follow-up risks discovered but intentionally not changed in this extraction:
+  manual job retry does not clear every potentially stale runner-claim field,
+  admin DLQ reprocess requeues the same job while workflow DLQ reprocess creates
+  a new job, DLQ list includes reprocessed entries, route failure envelopes are
+  still broad 400s, and step-history returns empty for missing jobs.
 
 - [ ] **Step 3: Run admin validation**
 
