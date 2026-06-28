@@ -51,7 +51,11 @@ Root 1 is complete only when that scan has no direct persistence hits outside co
   extracted the read-only admin story-session routes into
   `src/routes/admin/story-sessions.js` and tightened route coverage for auth,
   default ordering, and detail payload shape.
-- Next controller queue: commit the story-session route split, then continue one
+- Root 6 story-session route split is committed as `f5bf0f3a`. The next Root 6
+  slice extracted admin moderation queue/override routes into
+  `src/routes/admin/moderation.js` and tightened route coverage for
+  unauthenticated access plus superadmin-only override behavior.
+- Next controller queue: commit the moderation route split, then continue one
   non-billing admin route group per slice before the billing/admin entitlement
   slice.
 
@@ -1513,6 +1517,16 @@ Story-session slice completed locally:
 - `test/admin-story-session-routes.test.js` now covers unauthenticated access,
   default ordering, filtered list behavior, detail payload shape, turn ordering,
   and missing-session 404 behavior.
+
+Moderation slice completed locally:
+
+- `src/routes/admin/moderation.js` owns
+  `/admin/dashboard/moderation/queue` and
+  `/admin/dashboard/moderation/:versionId/override`.
+- `src/routes/admin.js` now registers the moderation module instead of defining
+  those handlers inline.
+- `test/admin-moderation-routes.test.js` now covers unauthenticated queue
+  access and verifies override remains superadmin-only before mutation.
 
 - [ ] **Step 3: Run admin validation**
 

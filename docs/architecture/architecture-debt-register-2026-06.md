@@ -1475,7 +1475,10 @@ locally into `src/routes/admin/metrics.js`, including overview, jobs, cost,
 enrollment, render-pipeline, and risk-metrics route registration. The
 read-only admin story-session routes are also extracted locally into
 `src/routes/admin/story-sessions.js`, preserving auth, pagination, 404, list,
-and detail payload behavior. Remaining Root 6 work is the rest of the admin
+and detail payload behavior. Admin moderation queue/override routes are also
+extracted locally into `src/routes/admin/moderation.js`, preserving queue
+pagination, superadmin-only override authorization, reason validation, error
+envelopes, and audit behavior. Remaining Root 6 work is the rest of the admin
 route/service split by concern, with billing/entitlement left last.
 **Boundary:** Do the `getAppConfig` eviction + non-billing splits first (🟡). Do the billing/entitlement admin slice **last** (⚠ 🔴) with production verification.
 
