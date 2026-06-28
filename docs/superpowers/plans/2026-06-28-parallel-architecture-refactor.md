@@ -108,7 +108,10 @@ Root 1 is complete only when that scan has no direct persistence hits outside co
 - Root 6 track-transfer route split is committed as `b6ce90eb`. The next Root
   6 slice added provider/queue route characterization and extracted those
   routes into `src/routes/admin/provider-queue-control.js`.
-- Next controller queue: commit the provider/queue route split, then continue
+- Root 6 provider/queue route split is committed as `4ff034a7`. The next Root
+  6 slice added STT/music config route characterization and extracted those
+  routes into `src/routes/admin/provider-config.js`.
+- Next controller queue: commit the provider-config route split, then continue
   with another characterized non-billing admin group. Security config/App Store
   sync needs route characterization first; billing/entitlements remain last.
 
@@ -1739,6 +1742,14 @@ Provider/queue control route slice completed locally:
 - `src/routes/admin/provider-queue-control.js` owns provider and queue status
   list/update routes.
 - Existing control route/repository/service coverage remains green.
+
+Provider-config route slice completed locally:
+
+- `test/admin-provider-config-routes.test.js` now characterizes STT and music
+  config route auth, validation, and response decoration.
+- `src/routes/admin/provider-config.js` owns STT config and music provider
+  routing config routes.
+- Existing STT/music route and service coverage remains green.
 
 - [ ] **Step 3: Run admin validation**
 
