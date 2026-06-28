@@ -34,6 +34,10 @@ const {
   trackVersionKey,
   trackArtworkKey,
 } = require("./storage");
+const {
+  createProviderRuntimeConfig,
+  createStorageRuntimeConfig,
+} = require("./providers/provider-config");
 const { startCleanupJob } = require("./jobs/cleanup");
 const { startSubscriptionSyncJob } = require("./jobs/subscription-sync");
 const { startGiftDispatchJob } = require("./jobs/gift-dispatch");
@@ -4322,45 +4326,8 @@ async function start() {
       );
     }
   }
-  // Env fallback default. Runtime default can be changed via admin app_config.
-  const musicProvider = config.MUSIC_PROVIDER || "suno";
-  const providerConfig = {
-    elevenlabs: {
-      // ElevenLabs disabled for music generation routing — only used for TTS guide vocals.
-      live: false,
-      provider: "elevenlabs",
-      apiKey: config.ELEVENLABS_API_KEY,
-      baseUrl: config.ELEVENLABS_BASE_URL,
-      endpoint: config.ELEVENLABS_MUSIC_ENDPOINT,
-      compositionPlanEndpoint: config.ELEVENLABS_COMPOSITION_PLAN_ENDPOINT,
-      voiceId: config.ELEVENLABS_VOICE_ID,
-      ttsVoiceId: config.ELEVENLABS_TTS_VOICE_ID,
-      timeoutMs: config.PROVIDER_TIMEOUT_MS,
-    },
-    suno: {
-      // Runtime routing can select Suno when configured and live.
-      live: liveEnabled && Boolean(config.SUNO_API_KEY),
-      provider: "suno",
-      apiKey: config.SUNO_API_KEY,
-      baseUrl: config.SUNO_BASE_URL,
-      timeoutMs: config.PROVIDER_TIMEOUT_MS,
-    },
-    replicate: {
-      live:
-        liveEnabled &&
-        Boolean(config.REPLICATE_API_TOKEN) &&
-        Boolean(config.REPLICATE_MODEL_VERSION),
-      token: config.REPLICATE_API_TOKEN,
-      baseUrl: config.REPLICATE_BASE_URL,
-      modelVersion: config.REPLICATE_MODEL_VERSION,
-      rvcModel: config.DEFAULT_AI_VOICE_MODEL,
-      timeoutMs: config.PROVIDER_TIMEOUT_MS,
-      demucsModel: config.DEMUCS_SEPARATION_MODEL,
-      demucsShifts: config.DEMUCS_SHIFTS,
-    },
-    // Hugging Face token for Seed-VC (personalized voice mode)
-    hfToken: config.HF_TOKEN || null,
-  };
+  const { providerConfig, providerStatus } =
+    createProviderRuntimeConfig(config);
   console.log(
     `[Server] HF_TOKEN configured: ${providerConfig.hfToken ? "YES" : "NO"}`,
   );
@@ -4369,17 +4336,7 @@ async function start() {
       "[Server] DEV_MODE enabled - all providers disabled, using placeholders",
     );
   }
-  const providerStatus = {
-    elevenlabs: providerConfig.elevenlabs.live,
-    suno: providerConfig.suno.live,
-    replicate: providerConfig.replicate.live,
-    musicProvider: musicProvider,
-    musicProviderSource: "runtime_config_with_env_fallback",
-  };
-  const storage = createStorageProvider({
-    ...config,
-    STREAM_BASE_URL: config.STREAM_BASE_URL,
-  });
+  const storage = createStorageProvider(createStorageRuntimeConfig(config));
   console.log(
     `[Storage] Provider: ${storage.type}${storage.type === "s3" ? " (R2/S3)" : " (local filesystem)"}`,
   );

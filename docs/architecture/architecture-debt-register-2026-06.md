@@ -1340,13 +1340,24 @@ without a separate contract gate.
 
 **Closes:** D4.
 **Scope:** Define a thin provider contract (`{name, submit(input,opts), poll(id)}` or `run(input,opts)`), all on `http.js` for retry/timeout. Route `whisper.js` + `elevenlabs-voice.js` through `http.js` (the immediate correctness win — they currently have no retry in a render hot path). Add a `providers/index.js` registry; extend the existing `resolveMusicProvider` to all providers. Make providers use `storage/index.js` key-helpers instead of hand-building paths.
-**Execution status:** Slice 1 implemented locally. Added a shared
+**Execution status:** Slice 1 is committed. Added a shared
 `fetchResponse` helper with retryable response/network handling and aborting
 timeouts. OpenAI Whisper transcription/alignment plus ElevenLabs voice
 clone/delete/conversion/listing now route through it. Voice clone/delete default
 to no retry to avoid duplicate remote resources; render hot-path conversion can
 opt into retry. Focused provider, render endpoint, ready-step, and
 voice-conversion routing tests pass locally.
+
+Slice 2 is implemented locally. `src/providers/provider-config.js` now owns the
+server/worker boot-time provider config and storage runtime config. `server.js`
+and `worker.js` both consume this factory, eliminating the prior drift where the
+separate worker could enable ElevenLabs as a live music provider while the server
+correctly kept song generation Suno-only. The factory also carries Replicate
+RVC/Demucs fields, HF token, storage S3/KMS fields, and
+`UPLOAD_SIGNING_SECRET` through one shared shape. Remaining provider debt stays
+out of this slice: runtime DB `music_provider_config` parsing still lives in the
+runner/admin paths, `/health/providers` still builds health-check config from
+env, and LLM/Whisper modules still read env directly.
 **Why early:** Mostly off the revenue path, contained, and the first slice (whisper/elevenlabs-voice retry) removes real render-failure risk for low effort.
 **Boundary:** Do NOT rewrite provider business logic; only normalize transport + path construction.
 

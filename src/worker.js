@@ -4,6 +4,10 @@ const config = require("./config");
 const { getDatabase } = require("./database");
 const { startJobRunner } = require("./workflows/runner");
 const { createStorageProvider } = require("./storage");
+const {
+  createProviderRuntimeConfig,
+  createStorageRuntimeConfig,
+} = require("./providers/provider-config");
 const { createEventsService } = require("./services/events-service");
 
 // IMPORTANT: In development, the server runs the job runner inline by default.
@@ -23,52 +27,10 @@ async function startWorker() {
     migrationsDir: path.join(process.cwd(), "migrations"),
   });
 
-  const liveEnabled = config.LIVE_PROVIDERS && !config.DEV_MODE;
-  const providerConfig = {
-    elevenlabs: {
-      live: liveEnabled && Boolean(config.ELEVENLABS_API_KEY),
-      provider: "elevenlabs",
-      apiKey: config.ELEVENLABS_API_KEY,
-      baseUrl: config.ELEVENLABS_BASE_URL,
-      endpoint: config.ELEVENLABS_MUSIC_ENDPOINT,
-      compositionPlanEndpoint: config.ELEVENLABS_COMPOSITION_PLAN_ENDPOINT,
-      voiceId: config.ELEVENLABS_VOICE_ID,
-      ttsVoiceId: config.ELEVENLABS_TTS_VOICE_ID,
-      timeoutMs: config.PROVIDER_TIMEOUT_MS,
-    },
-    suno: {
-      live: liveEnabled && Boolean(config.SUNO_API_KEY),
-      provider: "suno",
-      apiKey: config.SUNO_API_KEY,
-      baseUrl: config.SUNO_BASE_URL,
-      timeoutMs: config.PROVIDER_TIMEOUT_MS,
-    },
-    replicate: {
-      live:
-        liveEnabled &&
-        Boolean(config.REPLICATE_API_TOKEN) &&
-        Boolean(config.REPLICATE_MODEL_VERSION),
-      token: config.REPLICATE_API_TOKEN,
-      baseUrl: config.REPLICATE_BASE_URL,
-      modelVersion: config.REPLICATE_MODEL_VERSION,
-      timeoutMs: config.PROVIDER_TIMEOUT_MS,
-    },
-    hfToken: config.HF_TOKEN || null,
-  };
+  const { providerConfig } = createProviderRuntimeConfig(config);
 
   // Create storage provider (S3 in production, local in dev)
-  const storage = createStorageProvider({
-    STORAGE_PROVIDER: config.STORAGE_PROVIDER,
-    S3_ACCESS_KEY_ID: config.S3_ACCESS_KEY_ID,
-    S3_SECRET_ACCESS_KEY: config.S3_SECRET_ACCESS_KEY,
-    S3_BUCKET: config.S3_BUCKET,
-    S3_REGION: config.S3_REGION,
-    S3_ENDPOINT: config.S3_ENDPOINT,
-    S3_FORCE_PATH_STYLE: config.S3_FORCE_PATH_STYLE,
-    KMS_KEY_ID: config.KMS_KEY_ID,
-    KMS_REGION: config.KMS_REGION,
-    KMS_USE_BUCKET_KEY: config.KMS_USE_BUCKET_KEY,
-  });
+  const storage = createStorageProvider(createStorageRuntimeConfig(config));
 
   const eventsService = createEventsService(db);
 
