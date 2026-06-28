@@ -10,6 +10,9 @@
  */
 
 const API_BASE = "https://api.onesignal.com";
+const {
+  createOneSignalTagSyncRepository,
+} = require("../database/one-signal-tag-sync-repository");
 
 function getConfig() {
   const appId = process.env.ONESIGNAL_APP_ID;
@@ -180,8 +183,15 @@ function daysSince(dateString) {
  * @param {number} [options.intervalMs] - Sync interval (default: 24 hours)
  * @returns {{ stop: () => void }} Job handle with stop method
  */
-function startTagSyncJob({ db, logger, intervalMs = 24 * 60 * 60 * 1000 }) {
+function startTagSyncJob({
+  db,
+  logger,
+  intervalMs = 24 * 60 * 60 * 1000,
+  repository,
+}) {
   const log = logger || console;
+  const tagSyncRepository =
+    repository || createOneSignalTagSyncRepository(db);
 
   async function syncTags() {
     if (!isConfigured()) {
@@ -189,17 +199,7 @@ function startTagSyncJob({ db, logger, intervalMs = 24 * 60 * 60 * 1000 }) {
     }
 
     try {
-      // Get all users with their song count and most recent track creation date
-      const users = await db
-        .prepare(
-          `SELECT u.id,
-                  COUNT(t.id) as song_count,
-                  MAX(t.created_at) as last_song_at
-           FROM users u
-           LEFT JOIN tracks t ON t.user_id = u.id
-           GROUP BY u.id`
-        )
-        .all();
+      const users = await tagSyncRepository.listUserTagSummaries();
 
       let updated = 0;
       let errors = 0;

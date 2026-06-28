@@ -1,0 +1,295 @@
+# Porizo Project — Architecture Map (2026-06-27)
+
+**Status:** Current-state map. Honest, not aspirational. Updated after local
+execution of C1, the Root 3a HTTP/share/schema mechanical extraction, and the
+Root 1 repository slices for receiver sessions, Blog CMS, cold-email
+persistence including admin read/PATCH paths, event telemetry persistence,
+share-followup persistence, identity/contact persistence, attribution persistence
+including admin Apple Ads keyword-map persistence, download-event ingest,
+user email-preference persistence, feature-flag persistence, GDPR audit
+persistence, enrollment cleanup persistence, public/admin app-config
+persistence, subscription plan/trial config persistence, artwork-job persistence,
+artwork-barrier readiness persistence, subscription-sync selection persistence,
+enrollment-session lifecycle persistence, gift-dispatch scheduler/outbox
+state-transition/receipt plus server dispatch-lock/final-status persistence, gift-order management/create/finalize
+persistence, gift share schedule/revoke persistence,
+gift-delivery incident persistence, gift-funding support persistence,
+gift reservation route persistence and gift-funded track render spend
+validation,
+gift-wallet row/balance/ledger and gift-token song-spend persistence,
+gift-content validation read persistence,
+artwork route share-token and owner-access persistence,
+phone-verification persistence, OneSignal tag-sync persistence,
+share-token creation/idempotency persistence,
+auth-route identity bootstrap compensation cleanup,
+phone-registration-token persistence,
+auth cross-identifier lookup persistence,
+auth session lifecycle and access-token session validation persistence,
+auth rate-limit persistence and in-memory fast-path ownership,
+auth receiver-attribution fallback persistence,
+auth profile/contact/username read-write persistence,
+auth provider-linking maintenance persistence,
+auth credential persistence,
+auth security event/lockout persistence,
+auth one-time token persistence,
+auth refresh-token persistence,
+GDPR data-export persistence,
+job durability and render job-read persistence,
+workflow DLQ service persistence,
+device registration and push-token lookup persistence,
+personalized voice active-profile validation persistence,
+voice profile route read persistence,
+story V3 orchestration execution/event persistence,
+story route track/poem library-entry persistence,
+poem route library listing/removal/active-entry persistence,
+server-injected poem library read/upsert persistence,
+track route library listing/removal persistence,
+server-injected track library read/upsert persistence,
+admin marketing contact/campaign/push/engagement persistence, voice-provider
+profile persistence, admin provider/queue control-plane persistence, admin
+onboarding-sample persistence, admin job/DLQ operations persistence,
+admin story-session read persistence, admin moderation persistence, admin
+analytics event/cohort/user-read persistence, generic admin audit-log
+persistence, admin billing/revenue dashboard and user-billing snapshot read
+and gift-bundle management persistence, admin demo-share persistence,
+admin track-transfer persistence,
+admin share-management persistence,
+admin user search/detail/stats read persistence,
+admin overview, voice-enrollment, render-pipeline, risk, cost, KPI aggregate persistence,
+admin entitlement tier update persistence, admin security observability persistence,
+admin user mutation persistence, admin user session/voice-control persistence,
+admin music diagnostics persistence, admin growth metrics persistence, admin
+growth-attribution dashboard persistence, admin Apple Ads keyword-map
+persistence, admin webhook-health persistence, admin gift-ops read persistence,
+admin-auth user/session/password-reset persistence,
+Apple webhook notification/subscription persistence,
+account-deletion persistence, account-deletion
+durable-storage cleanup, plus the adjacent voice-provider worker/runner/enrollment/account
+cleanup.
+
+**Scope of this map:** project-wide at the boundary level, with a deeper backend map for `src/**` because that is where the first architecture-debt pass found the highest concentration of shared correctness risk. iOS, admin, and web-player are included as first-class surfaces and are handled in Root 11 of the debt register after backend contracts stabilize.
+
+**Relationship to `docs/architecture-and-flows.md`:** that document remains the full product-flow and target-architecture source of truth. This map is the current implementation/debt map. Later roots must keep this map and `docs/architecture-and-flows.md` reconciled as behavior moves.
+
+---
+
+## 0. Project-wide surface map
+
+Porizo is not only the Fastify API. The maintainability plan must account for every surface that owns part of the user-visible contract.
+
+```
+┌────────────────────────────────────────────────────────────────────────────┐
+│ Native iOS app: PorizoApp/PorizoApp                                        │
+│ - SwiftUI create, gift, story, playback, share, auth, billing surfaces     │
+│ - Large state owners: RootView, WarmCanvasFlowView, GiftSendFlowView,      │
+│   AuthManager, RenderController                                            │
+└───────────────────────────────┬────────────────────────────────────────────┘
+                                │ HTTP + deep links + StoreKit + push
+                                ▼
+┌────────────────────────────────────────────────────────────────────────────┐
+│ Backend API + worker: src/**                                               │
+│ - Fastify API, auth, billing, sharing, gifts, story, render queue, jobs     │
+│ - External AI/provider orchestration and storage/database access            │
+└──────────────┬─────────────────────────────┬───────────────────────────────┘
+               │                             │
+               ▼                             ▼
+┌──────────────────────────────┐  ┌──────────────────────────────────────────┐
+│ Web player: web-player/**    │  │ Admin UI: admin/src/**                   │
+│ - Recipient share playback   │  │ - Ops, billing, users, marketing,        │
+│ - App-only save wall         │  │   security, jobs, blog controls          │
+│ - Device/session behavior    │  │ - Depends on stable admin API contracts  │
+└──────────────────────────────┘  └──────────────────────────────────────────┘
+```
+
+### Cross-surface contracts that must not drift
+
+- **Create flow:** iOS story/create state ↔ backend story/session/track/render contracts.
+- **Share/device claim:** iOS receiver/deep-link flow and web-player app wall ↔ backend share/session/device-token enforcement.
+- **Billing and entitlements:** iOS StoreKit state ↔ backend receipt validation, entitlements, and admin billing controls.
+- **Render status and playback:** iOS polling/playback and web-player stream behavior ↔ backend job/version/storage URLs.
+- **Admin operations:** admin UI assumptions ↔ backend admin dashboard API envelopes, pagination, auth, and role checks.
+
+### Full-codebase hotspots
+
+| Surface | Main hotspot | Why it matters |
+| ------- | ------------ | -------------- |
+| Backend API/worker | `src/server.js`, `src/workflows/runner.js`, fat routes, missing repositories | Shared correctness and testability bottleneck for every client |
+| iOS app | `RootView.swift`, `WarmCanvasFlowView.swift`, `GiftSendFlowView.swift`, `AuthManager.swift`, render/create controllers | State ownership and presentation payload drift can create stale launches, duplicate work, or failed handoffs |
+| Admin UI | large page components and one generic `useApi` hook | Admin behavior depends on unstated API contracts; repeated fetch/save/poll flows are hard to reason about |
+| Web player | `web-player/player.js` | Recipient app-only saving, device/session behavior, and share attribution are product constraints, not decorative UI |
+
+---
+
+## 1. System at a glance
+
+Porizo is a personalized-song generation platform. The backend is a **functional-JavaScript monolith** on Fastify, fronting a DB-backed job queue that orchestrates external AI providers (Suno, ElevenLabs, Seed-VC, Replicate, Whisper) to render songs, plus the full commerce surface (auth, billing, Apple/Google receipts, gifting, sharing).
+
+```
+                         ┌─────────────────────────────────────────────┐
+   iOS app  ──HTTP──▶    │  Fastify (src/server.js + plugins/)          │
+   web      ──HTTP──▶    │  - HTTP bootstrap split to plugins/          │
+                         │  - 327 routes across src/routes/*            │
+                         │  - ⚠ STILL: gift subsystem, auth mw, route   │
+                         │    wiring, webhooks, startup jobs inline     │
+                         └───────────────┬─────────────────────────────┘
+                                         │ register*Routes(app, {deps})
+                         ┌───────────────▼─────────────────────────────┐
+   routes/ (29k LOC) ──▶ │  business logic + inline SQL + provider calls│  ⚠ no clean controller layer
+                         └───────────────┬─────────────────────────────┘
+                                         │ (mostly) calls services / writer
+                         ┌───────────────▼─────────────────────────────┐
+   services/ (29k LOC)──▶│  domain logic + inline SQL (193 simple hits) │  ⚠ partial repository layer
+                         │  revenue path: subscription-manager,         │
+                         │  auth-service, receipt validators (CLEAN)    │
+                         └───────────────┬─────────────────────────────┘
+                                         │
+         ┌───────────────────────────────┼───────────────────────────────┐
+         ▼                               ▼                               ▼
+  writer/ (22k LOC)            workflows/runner.js (5.7k)        providers/ (6k LOC)
+  v3 story engine +            DB-queue poller +                 9 external integrations
+  songwriter (lyrics)          12 inline step handlers           ⚠ no common interface
+  ⚠ circular dep               ⚠ 1709-line closure              ⚠ 2 bypass shared http
+                                         │
+                         ┌───────────────▼─────────────────────────────┐
+                         │  database/ — SQLite(test)/Postgres(prod)     │  ✅ CLEAN adapter
+                         │  adapter is the one well-abstracted boundary │
+                         └──────────────────────────────────────────────┘
+```
+
+---
+
+## 2. Subsystem inventory (verified)
+
+| Subsystem        | LOC    | What it is                                                                                                                                                                                                                                                                                                                 | Health                         |
+| ---------------- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ |
+| `src/server.js`  | 5,197  | Still a god module, but Root 3a moved Fastify bootstrap, static/security setup, body parsers, validation schemas, and share URL builders out to leaf modules. It still owns the gift-delivery subsystem, auth middleware (`requireUserId`), rate limiting, media helpers, inline webhook handlers, route dependency wiring, and startup jobs/timers. | 🟠 improving, still too large  |
+| `src/routes/`    | 28,837 | 349 endpoints across 17 files. Thin HTTP layer in places (story.js→writer facade, billing.js→subscriptionManager), but most files carry business logic, direct `db.prepare/query` hits, and direct provider calls. Blog sitemap reads now go through `blog-repository.js`; `/download` install-intent logging now goes through attribution/receiver-session repositories; `/analytics/apple-ads-attribution` token/result persistence now goes through `attribution-repository.js`; `POST /tracks/:id/versions` version allocation and server render/job track-version reads now go through `track-version-repository.js`; render job lookup/active/latest-failure reads now go through `job-durability-repository.js`; `/tracks` library listing/removal and server-injected track library read/upsert helpers now go through `track-library-repository.js`; gift reservation route persistence and gift-funded track render spend validation now go through `gift-reservation-repository.js`; `/gifts` listing plus cancel/retry/reschedule gift-order state persistence now goes through `gift-order-repository.js` and outbox row helpers in `gift-dispatch-repository.js`; gift wallet row/balance/ledger and billing receipt-credit reconciliation reads now go through `gift-wallet-repository.js`; gift content validation reads now go through `gift-content-repository.js`; `/tracks/:trackId/artwork.jpg` share-token and track-owner access reads now go through `artwork-access-repository.js`; `/voice/profile`, `/voice/reverify`, and voice-profile delete preflight reads now go through `voice-provider-profile-repository.js`; `/device/register` persistence and receiver-play-completed push-token lookup now go through `device-repository.js`; auth signup/social/phone post-identity compensation cleanup now goes through `identity-repository.js`; phone registration token create/consume/cleanup/recent-proof persistence now goes through `phone-registration-token-repository.js`; auth email/phone/social duplicate-account lookup reads now go through `identity-repository.js`; access-token live-session validation, refresh deleted-user cleanup, logout/password-reset session revocation, and session ownership checks now go through `auth-session-repository.js`; auth route rate-limit DB writes, cleanup, and in-memory fast-path ownership now go through `auth-rate-limit-repository.js`; auth post-signup receiver-attribution fallback now goes through `receiver-session-repository.js`; auth current-user profile/contact reads, display-name and skip-completion writes, pending verification-email lookup, phone-link self-check, and username availability reads now go through `auth-profile-repository.js`; auth phone-provider existence checks, deleted-user provider cleanup, provider revocation, and Apple refresh-token provider-data updates now go through `auth-provider-linking-repository.js`; auth signup/login/reset-password credential persistence now goes through `auth-credential-repository.js`; story V3 orchestration execution/event and story route track/poem library-entry persistence now go through `story-repository.js`; `/poems` library listing/removal/active-entry checks and server-injected poem library read/upsert helpers now go through `poem-library-repository.js`; admin gift-bundle list/update persistence now goes through `admin-billing-repository.js`; admin demo-share create/list/revoke persistence now goes through `admin-demo-share-repository.js`; admin track-transfer persistence and post-state verification now goes through `admin-track-transfer-repository.js`; admin marketing contact/campaign/push/engagement persistence now goes through `admin-marketing-repository.js`; admin cold-email read and PATCH persistence now use `cold-email-repository.js` through the service; admin moderation routes now delegate queue/override persistence through `AdminService` to `admin-moderation-repository.js`; `/unsubscribe` opt-out persistence now goes through `user-email-preferences-repository.js`; `routes/enrollment.js` no longer owns raw `enrollment_sessions` persistence. `legal.js` no longer owns raw persistence for these paths. | 🟠 fat controllers             |
+| `src/services/`  | 28,177 | Domain logic. **Revenue path (subscription-manager, auth-service, apple/google validators, webhook handler) is the cleanest part of the codebase** (factory injection, idempotency, advisory locks). Receiver-session, Blog CMS, cold-email including admin campaign read/PATCH delegation, event telemetry plus admin analytics event/cohort/user-read and generic admin audit-log persistence, admin billing/revenue dashboard and user-billing snapshot read persistence, admin webhook-health persistence, admin gift-ops read persistence, gift-delivery incident persistence, gift-funding support persistence, gift-wallet balance and gift-token spend persistence, phone-verification persistence, OneSignal tag-sync persistence, share-token creation/idempotency persistence, admin demo-share, track-transfer, share-management persistence, admin user search/detail/stats reads and mutation persistence, admin session/voice-control persistence, admin music diagnostics persistence, admin growth metrics persistence, admin growth-attribution dashboard persistence, admin Apple Ads keyword-map persistence, subscription plan/trial config persistence, admin overview/voice-enrollment/render-pipeline/risk/cost metrics reads, KPI aggregate persistence, admin entitlement tier update persistence, admin security observability persistence, admin-auth user/session/password-reset persistence, and Apple webhook notification/subscription persistence, share-followup, identity/contact, attribution, feature-flag, GDPR audit/data export, public/admin app-config, admin provider/queue control-plane, admin onboarding-sample, admin job/DLQ operations, admin story-session reads, admin moderation, auth security event/lockout, auth one-time token, auth refresh-token, voice-provider profile/job, and account-deletion persistence are now behind repositories; most other services still own raw SQL. `voice-provider-profile-service.js` is now a behavioral facade over `voice-provider-profile-repository.js`, including adjacent Suno worker, runner, enrollment, and account-deletion data access for `voice_provider_*` rows. `auth-service.js` account deletion is now orchestration over `account-deletion-repository.js`, GDPR audit, and voice-provider cleanup rather than a blob of direct delete SQL; its refresh-token SQL is now delegated to `auth-refresh-token-repository.js`, and GDPR export section reads now go through `gdpr-data-export-repository.js` while the service keeps token generation, hashing, expiry, reuse/grace policy, route-facing error semantics, redaction policy, and export envelope ownership. `admin-auth-service.js` now delegates admin user/session/password-reset persistence to `admin-auth-repository.js` while keeping bcrypt, raw token generation/hashing, default-seed production policy, lockout decisions, and public return shapes. `apple-webhook-handler.js` now delegates webhook notification idempotency/status/DLQ/stats plus Apple-webhook-specific subscription lookup/state writes to `apple-webhook-repository.js` while retaining notification decoding, lifecycle switch policy, and subscription-manager orchestration. `admin-service.js` is a 3,323-line / 87-method god service that still composes the mobile-client `getAppConfig` payload even though its config persistence is now repository-backed. | 🟡 mixed; admin god-service    |
+| `src/writer/`    | 22,503 | Song/lyrics generation. `v3/` is the live story engine; `songwriter.js` is the live lyrics layer; **`v2/` is DEAD (zero JS files)**. Circular dep `songwriter.js ↔ v3/index.js` broken by lazy require. `quality.js` mixes song + poem logic. Legacy reasoner path kept as fallback.                                       | 🟠 god-files + cycle           |
+| `src/workflows/` | 7,396  | `runner.js` (5,726) = DB-queue poller + 12 inline step handlers in a **1,709-line closure**; nothing unit-testable. `instrumental`/`instrumental_full` and `guide_vocal`/`guide_vocal_full` are ~860 lines of near-duplicate logic. Circuit-breaker, DLQ, durability are properly separate modules; durability jobs-row persistence now lives behind `job-durability-repository.js`, workflow DLQ service persistence now lives behind `dead-letter-queue-repository.js`, and render-completion push-token lookup now lives behind `device-repository.js`. Artwork/audio barrier readiness and PG notify SQL now live behind `artwork-barrier-repository.js`.                        | 🔴 god closure                 |
+| `src/jobs/`      | 1,899  | 7 independent `setInterval` cron-style jobs (cleanup, gift-dispatch, sub-sync, cold-email, aggregates, share-followups). Consistent pattern, decoupled from runner. Cleanup job now delegates expired enrollment-session selection/deletion to `enrollment-cleanup-repository.js`; artwork job now delegates track/version/entitlement/artwork/jobs-row persistence to `artwork-job-repository.js` and guards terminal artwork job rows against stale recovery/retry regressions; subscription sync now delegates renewal/grace-period selectors to `subscription-sync-repository.js`; gift-dispatch scheduler polling/recovery now delegates to `gift-dispatch-repository.js`; the server-owned gift dispatcher also delegates outbox creation/existence, dispatch-attempt ledger inserts, sent/failed delivery transitions, provider receipt lookup/update, per-gift stale sending recovery, dispatch locks, due-row selection/locking, aggregate observability updates, final dispatch status updates, and crash recovery to the same repository. | 🟢 healthy                     |
+| `src/providers/` | 6,185  | 9 external integrations + routing. Shared `http.js` (retry on 5xx) + `polling.js` exist, but **`whisper.js` and `elevenlabs-voice.js` bypass them** (raw fetch, no retry). No common provider interface. 3 providers hand-build storage paths, bypassing `storage/`. `voice.js` no longer owns the personalized active-profile SQL check; that read is now in `voice-provider-profile-repository.js`.                                                       | 🟠 partial abstraction         |
+| `src/storage/`   | 1,592  | `createStorageProvider()` factory → local-FS or S3. Both local and S3 now expose `listObjects`; S3 listing returns continuation metadata and account deletion consumes it. S3 still lacks local's `listKeys` alias and `verifyPresignedRequest`, so Root 10 remains the storage-interface parity pass.                    | 🟡 interface drift             |
+| `src/database/`  | 6,793  | **The one genuinely clean abstraction.** `getDatabase()` selects SQLite(test)/Postgres(prod) adapters with a transparent placeholder-rewrite shim. Same API both sides. Repositories now exist for story sessions, story V3 orchestration execution/event persistence, story route track/poem library-entry persistence, poem route library listing/removal/active-entry persistence, server-injected poem library read/upsert persistence, track route library listing/removal persistence, server-injected track library read/upsert persistence, receiver sessions including auth receiver-attribution fallback, Blog CMS, cold-email persistence plus admin cold-email read/PATCH queries, event telemetry plus admin analytics event/cohort/user-read and generic admin audit-log persistence, admin billing/revenue dashboard, gift-bundle management, and user-billing snapshot read persistence, admin webhook-health persistence, admin gift-ops read persistence, gift-delivery incident persistence, gift-funding support persistence, gift reservation route persistence and gift-funded track render spend validation, gift-wallet row/balance/ledger and gift-token song-spend persistence, gift-dispatch scheduler/outbox state-transition/receipt/dispatch-lock/final-status persistence, gift-order management persistence, gift-content validation reads, artwork route access reads, device registration and push-token lookup persistence, phone-verification persistence, auth rate-limit persistence, auth profile/contact/username read-write persistence, auth provider-linking maintenance persistence, auth credential persistence, auth security event/lockout persistence, auth one-time token persistence, auth refresh-token persistence, GDPR data-export reads, OneSignal tag-sync persistence, share-token creation/idempotency persistence, job durability and render job-read persistence, workflow DLQ service persistence, personalized voice active-profile validation and voice profile route read persistence, admin demo-share persistence, admin track-transfer persistence, admin share-management persistence, admin user search/detail/stats read and mutation persistence, admin session/voice-control persistence, admin music diagnostics persistence, admin growth metrics persistence, admin growth-attribution dashboard persistence, admin Apple Ads keyword-map persistence, subscription plan/trial config persistence, admin overview, voice-enrollment, render-pipeline, risk, cost metrics, KPI aggregate persistence, admin entitlement tier update persistence, admin security observability persistence, admin-auth user/session/password-reset persistence, Apple webhook notification/subscription persistence, share-followup persistence, identity/contact persistence, attribution persistence including `/download` event ingest and Apple Ads token/result capture, track-version allocation/render read persistence, admin marketing contact/campaign/push/engagement persistence, admin provider/queue control-plane persistence, admin onboarding-sample persistence, admin job/DLQ operations persistence, admin story-session read persistence, admin moderation persistence, user email-preference persistence, feature-flag persistence, GDPR audit inserts, enrollment cleanup persistence, public/admin app-config persistence, artwork-job persistence, artwork-barrier readiness persistence, subscription-sync selection persistence, enrollment-session lifecycle persistence, voice-provider profile/job persistence, and account-deletion persistence; the pattern is still not generalized across the rest of the domain.        | 🟢 adapter clean / 🟡 partial repos |
+| `src/utils/`     | 3,626  | Mostly healthy. Two domain-logic misplacements: `qc.js` (enrollment QC thresholds) and `step-classification.js` (render retry/DLQ policy) are business policy living as "utils". `ensureDir` ×5, `getFFmpegPath` ×3 duplicated.                                                                                            | 🟡 mild junk-drawer            |
+| `src/plugins/`   | 249    | Fastify HTTP bootstrap plus markdown content negotiation. Clean mechanical boundary after Root 3a.                                                                                                                                                                                                                          | 🟢 healthy                     |
+| `src/schemas/`   | 137    | Extracted HTTP validation schema constants consumed by route modules.                                                                                                                                                                                                                                                       | 🟢 healthy                     |
+
+---
+
+## 3. What's actually GOOD (don't break these)
+
+The codebase is not uniformly distressed. These are model patterns to preserve and extend:
+
+1. **The DB adapter + repository pattern** (`src/database/`) — SQLite/Postgres dual-mode behind one API with transparent `$1`↔`?` rewriting. `story-repository.js` (story sessions, story V3 orchestration execution/event persistence, and story route track/poem library-entry persistence), `poem-library-repository.js`, `track-library-repository.js`, `gift-reservation-repository.js`, `gift-wallet-repository.js`, `gift-order-repository.js`, `receiver-session-repository.js`, `blog-repository.js`, `cold-email-repository.js` (including admin cold-email read/PATCH persistence), `events-repository.js` (including admin analytics event/cohort/user-read and generic admin audit-log persistence), `admin-billing-repository.js` (admin billing/revenue dashboard and user-billing snapshot read persistence), `admin-gift-ops-repository.js`, `gift-dispatch-repository.js`, `gift-delivery-incident-repository.js`, `gift-funding-repository.js`, `gift-content-repository.js`, `artwork-access-repository.js`, `device-repository.js`, `phone-verification-repository.js`, `phone-registration-token-repository.js`, `auth-session-repository.js`, `auth-rate-limit-repository.js`, `auth-profile-repository.js`, `auth-security-repository.js`, `auth-one-time-token-repository.js`, `auth-refresh-token-repository.js`, `gdpr-data-export-repository.js`, `admin-auth-repository.js`, `apple-webhook-repository.js`, `one-signal-tag-sync-repository.js`, `share-token-repository.js`, `job-durability-repository.js`, `dead-letter-queue-repository.js`, `admin-demo-share-repository.js`, `admin-track-transfer-repository.js`, `admin-share-management-repository.js`, `admin-user-read-repository.js`, `admin-user-mutation-repository.js`, `admin-user-session-control-repository.js`, `admin-music-diagnostics-repository.js`, `admin-metrics-repository.js`, `share-followup-repository.js`, `identity-repository.js` (including auth bootstrap compensation cleanup, cross-identifier duplicate-account reads, and latest active identity lookup), `attribution-repository.js`, `feature-flags-repository.js`, `gdpr-audit-repository.js`, `enrollment-cleanup-repository.js`, `enrollment-session-repository.js`, `app-config-repository.js`, `artwork-job-repository.js`, `admin-control-repository.js`, `admin-onboarding-sample-repository.js`, `admin-job-ops-repository.js`, `admin-story-session-repository.js`, `admin-moderation-repository.js`, `voice-provider-profile-repository.js`, and `account-deletion-repository.js` are now concrete examples of the intended dependency direction.
+   `auth-provider-linking-repository.js` is the current auth-specific provider maintenance example for Apple/social/phone link cleanup.
+2. **The revenue-path services** — `subscription-manager.js`, `apple-receipt-validator.js`, `apple-webhook-handler.js`, `google-receipt-validator.js` use factory injection, idempotency (notification log), DLQ, and Postgres advisory locks. This is the **template** for how every service boundary should look.
+3. **The jobs/ directory** — 7 cron jobs, uniform `start<Name>Job({db})` shape, fully decoupled from the runner.
+4. **Route registration** — `server.js` already extracts 20+ route groups via `register*Routes(app, deps)`. The mechanism for de-godding server.js already exists; it just wasn't applied to gift-delivery, media, and webhooks.
+5. **`http.js` + `polling.js`** — a real shared retry/backoff layer. The fix for provider inconsistency is "route the 2 stragglers through it," not "build something new."
+
+---
+
+## 4. The cross-cutting structural debts (system-wide, not file-local)
+
+These are the patterns that recur across many files — the true architectural roots.
+
+### D1 — No repository layer (the keystone debt)
+
+Hundreds of simple inline `db.prepare`/`db.query` calls remain in `src/routes`
+and `src/services`. The receiver-session, Blog CMS, cold-email, event
+telemetry, generic admin audit-log persistence, gift-content validation reads,
+artwork route access reads, device registration and push-token lookup persistence, share-followup, identity/contact, attribution including Apple Ads
+route persistence and admin Apple Ads keyword-map persistence, track-version allocation, feature-flag, GDPR audit,
+enrollment cleanup, enrollment-session lifecycle, public/admin app-config,
+subscription plan/trial config, artwork-barrier readiness, subscription-sync selection, admin onboarding-sample, admin job/DLQ operations, admin story-session,
+admin moderation, admin track-transfer, admin share-management, admin user
+search/detail/stats reads, mutation persistence, and session/voice-control
+persistence, admin music diagnostics, admin growth metrics, admin
+growth-attribution dashboard persistence, admin Apple Ads keyword-map
+persistence, admin overview/voice-enrollment/render-pipeline/risk/cost metrics reads, KPI aggregate persistence, admin entitlement tier update persistence, admin security observability persistence, OneSignal tag-sync persistence, share-token creation/idempotency persistence, job durability persistence, workflow DLQ service persistence, personalized voice active-profile validation persistence, artwork-job,
+story V3 orchestration execution/event persistence, story route track/poem
+library-entry persistence, poem route library listing/removal/active-entry
+persistence, server-injected poem library read/upsert persistence,
+voice-provider profile, and
+account-deletion slices are now off that list, but schema changes still
+require grep-and-replace across many files, and many unit tests still need a
+live DB. The DB adapter and current
+repositories prove the pattern is achievable — it was just never generalized.
+
+Important caveat: account deletion is now a real repository boundary for the
+delete/scrub cascade, including transaction-scoped SQLite/Postgres semantics.
+It also deletes configured storage-provider artifacts under the user-owned
+`tracks/`, `poems/`, `enrollment/raw/`, `enrollment/clean/`, and
+`voice_profiles/` prefixes. Remote provider-side artifacts outside the storage
+provider contract remain an empirical/provider-contract risk, not something the
+local repository boundary can prove.
+
+### D2 — God modules
+
+`buildServer()` (4,850 lines), `runner.js` `startJobRunner` (1,709-line closure), `routes/admin.js` (133 routes), `admin-service.js` (87 methods), `writer/v3/index.js` (3,531), `songwriter.js` (3,939), `quality.js` (3,119). Each bundles many independent reasons-to-change → shotgun surgery + merge contention + untestability.
+
+### D3 — Duplicated cross-cutting concerns (DRY)
+
+- **3 rate-limiters** with different semantics (`windowMs` vs `windowSeconds`, DB vs in-memory vs mixed). Auth route rate-limit persistence and cache ownership now sit behind `auth-rate-limit-repository.js`, but server/enrollment rate-limit semantics are still separate. The `rate_limits` table already suffered an integer-overflow outage; divergent copies make that class of bug recur.
+- **2 auth guards** with **different security guarantees** (see D5 — this is a correctness defect, not just DRY).
+- **2 `sendError`** with divergent signatures (server.js 5-arg with `details` flattening vs auth.js 4-arg, no details).
+- `ensureDir` ×5, `getFFmpegPath` ×3, `splitSentences` ×3, `factText` ×2, retry-with-sleep reinvented ×3, storage-path construction ×3.
+
+### D4 — No common provider abstraction (DIP)
+
+9 providers, no shared interface. `runner.js` imports 29 concrete modules directly. `whisper.js`/`elevenlabs-voice.js` use raw fetch with no retry → a transient 502 in the lyrics-alignment hot path fails a whole render that Suno/ElevenLabs would have retried.
+
+### D5 — Two CORRECTNESS/SECURITY defects hiding inside the "modularity" ask ⚠️
+
+These are **not** cosmetic. They were surfaced by the formal review and must be treated as latent bugs:
+
+- **Auth-guard revocation gap (CRITICAL, locally fixed).** `requireAuth`
+  (auth.js) already checked `user_sessions ... revoked_at IS NULL`; `requireUserId`
+  previously checked only the JWT signature. The current working tree fixes
+  `requireUserId` to require a live, unrevoked session and reject soft-deleted
+  users. Root 2 still needs to consolidate the duplicate guards into one
+  middleware and production verification is still required.
+- **Error-envelope drift (CRITICAL for API contract).** The wire error shape is a flat `{error, message, ...adhoc-keys}` bag; the documented `E1xx/R2xx/B3xx/S5xx` taxonomy in CLAUDE.md **does not match the actual wire codes** (`RATE_LIMITED`, `VOICE_PROFILE_REQUIRED`, …). Clients special-case per endpoint.
+
+> These two live on the revenue path and require owner review plus production verification. C1 is patched locally but still needs production verification; C2 should be document-first with no wire change until iOS and API contracts are coordinated.
+
+### D6 — Migration-location divergence (test-fidelity hazard)
+
+Three migration locations: `migrations/` (SQLite, 116 files), `migrations/pg/` (Postgres, 112 files), `src/database/migrations/sql/` (3 files, **dead in production** — a test-only abandoned consolidation). **9 migrations exist in one mirror but not the other** → tests run against a SQLite schema that differs from production Postgres. CI has no check comparing the two file lists.
+
+---
+
+## 5. Live vs dead (simplification targets)
+
+| Item                                          | Verdict                                                                            | Confidence |
+| --------------------------------------------- | ---------------------------------------------------------------------------------- | ---------- |
+| `src/writer/v2/`                              | **DEAD** — zero JS files, only an auto-generated `CLAUDE.md`                       | ✓ VERIFIED |
+| `src/database/migrations/` (runner.js + sql/) | **DEAD in production** — only referenced by tests; abandoned consolidation         | ✓ VERIFIED |
+| `src/db.js`                                   | Legacy shim, unused by `start()`                                                   | ✓ VERIFIED |
+| `src/providers/lyrics.js`                     | Live but pure 25-line passthrough shim (redundant indirection)                     | ✓ VERIFIED |
+| `writer/v3/reasoner.js` legacy path           | Live as fallback only; superseded by `kernel/`; needs observability before removal | ✓ VERIFIED |
+| `writer/v3/safety.js`, `monitor.js`           | **Not imported anywhere**                                                          | ✓ VERIFIED |
+| `E302_SEEDVC_ERROR: GPU task aborted` string  | Vestigial GPU-era error code (Seed-VC now runs via Gradio API), still emitted      | ✓ VERIFIED |
+
+---
+
+## 6. Layering verdict
+
+There is **no enforced layering**. The intended `controller → use-case → repository → gateway` is collapsed:
+
+| Layer that should exist | Where it actually lives                                     |
+| ----------------------- | ----------------------------------------------------------- |
+| Controller (HTTP only)  | Routes also do business logic + provider calls + SQL        |
+| Use-case / service      | Services own raw SQL; one service hides a mobile endpoint   |
+| **Repository**          | Partial: story + receiver sessions including auth receiver-attribution fallback + Blog CMS + cold-email including admin read/PATCH persistence + events including admin analytics event/cohort/user-read persistence + admin billing/revenue dashboard, webhook-health, and user-billing snapshot reads + admin demo-share persistence + admin track-transfer persistence + admin share-management persistence + admin user search/detail/stats reads, mutation persistence, and session/voice-control persistence + admin music diagnostics + admin growth metrics + admin overview/voice-enrollment/render-pipeline/risk/cost metrics reads + KPI aggregate persistence + admin entitlement tier update persistence + admin security observability persistence + admin auth persistence + Apple webhook persistence + share followups + identity + auth session lifecycle + auth rate limits + auth credentials + attribution + track-version allocation/render reads + job durability/render job reads + track-library membership + poem-library membership + gift reservations + gift wallet + gift order management + gift dispatch persistence + admin marketing + admin control plane + admin onboarding samples + admin job/DLQ operations + admin story-session reads + admin moderation + feature flags + GDPR audit/data export + enrollment cleanup + enrollment-session lifecycle + public/admin app config + artwork jobs + voice-provider profile + account deletion; hundreds of inline queries remain |
+| Provider / gateway      | ✅ `providers/*` is a real boundary (the cleanest layer)    |
+| Orchestration           | Split: `runner.js` closure + a subsystem inside `server.js` |
+
+**Formal grades from prior architecture review:** Clean-Architecture overall **D-**; OO design SRP **D** / OCP **C-** / DIP **C-** / DRY **D**; API consistency **D**, error-contract **D**, security-as-API-design **D**. Testability is the dominant defect (**F**) — driven entirely by D1 (no repos) + D2 (god closures).
+
+---
+
+## 7. How to read this map alongside the debt register
+
+This document is the **"what exists."** The companion `architecture-debt-register-2026-06.md` is the **"what to do about it, in what order, at what risk."** It converts the debts above (D1–D6) into sequenced architectural _roots_ that a future `architectural-loop` execution would run one at a time — with the revenue-path items explicitly gated.

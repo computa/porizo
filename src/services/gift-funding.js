@@ -1,5 +1,7 @@
 "use strict";
 
+const { createGiftFundingRepository } = require("../database/gift-funding-repository");
+
 const ACTIVE_GIFT_RESERVATION_STATUSES = new Set(["reserved", "content_ready"]);
 
 function createGiftFundingError(code, message, statusCode = 409) {
@@ -23,10 +25,9 @@ async function validateGiftFundingReservation(db, {
   if (!reservationId) {
     return null;
   }
+  const repository = createGiftFundingRepository(db);
 
-  const reservation = await db.prepare(
-    "SELECT * FROM gift_reservations WHERE id = ?"
-  ).get(reservationId);
+  const reservation = await repository.getReservationById(reservationId);
 
   if (!reservation || reservation.user_id !== userId) {
     throw createGiftFundingError(
@@ -64,12 +65,8 @@ async function validateGiftFundingReservation(db, {
     );
   }
 
-  const existingTrack = await db.prepare(
-    "SELECT id FROM tracks WHERE gift_reservation_id = ? AND deleted_at IS NULL LIMIT 1"
-  ).get(reservationId);
-  const existingPoem = await db.prepare(
-    "SELECT id FROM poems WHERE gift_reservation_id = ? AND deleted_at IS NULL LIMIT 1"
-  ).get(reservationId);
+  const existingTrack = await repository.getActiveTrackForReservation(reservationId);
+  const existingPoem = await repository.getActivePoemForReservation(reservationId);
 
   if (existingTrack || existingPoem) {
     throw createGiftFundingError(
@@ -88,15 +85,10 @@ async function findGiftFundingContent(db, {
   if (!reservationId) {
     return null;
   }
+  const repository = createGiftFundingRepository(db);
 
   const track = (!contentType || contentType === "song")
-    ? await db.prepare(
-      `SELECT id, latest_version, status, updated_at
-       FROM tracks
-       WHERE gift_reservation_id = ? AND deleted_at IS NULL
-       ORDER BY updated_at DESC, id DESC
-       LIMIT 1`
-    ).get(reservationId)
+    ? await repository.findLatestTrackForReservation(reservationId)
     : null;
   if (track) {
     return {
@@ -109,13 +101,7 @@ async function findGiftFundingContent(db, {
   }
 
   const poem = (!contentType || contentType === "poem")
-    ? await db.prepare(
-      `SELECT id, status, updated_at
-       FROM poems
-       WHERE gift_reservation_id = ? AND deleted_at IS NULL
-       ORDER BY updated_at DESC, id DESC
-       LIMIT 1`
-    ).get(reservationId)
+    ? await repository.findLatestPoemForReservation(reservationId)
     : null;
   if (poem) {
     return {
@@ -136,48 +122,30 @@ async function deleteGiftFundedReservationContent(db, reservationId, deletedAt) 
   }
 
   const timestamp = deletedAt || new Date().toISOString();
-  const tracks = await db.prepare(
-    "SELECT id, share_token_id FROM tracks WHERE gift_reservation_id = ? AND deleted_at IS NULL"
-  ).all(reservationId);
-  const poems = await db.prepare(
-    "SELECT id, share_token_id FROM poems WHERE gift_reservation_id = ? AND deleted_at IS NULL"
-  ).all(reservationId);
+  const repository = createGiftFundingRepository(db);
+  const tracks = await repository.listActiveTracksForReservation(reservationId);
+  const poems = await repository.listActivePoemsForReservation(reservationId);
 
   for (const track of tracks) {
     if (track.share_token_id) {
-      await db.prepare(
-        `UPDATE share_tokens
-         SET status = 'revoked',
-             web_stream_allowed = 0,
-             expires_at = COALESCE(expires_at, ?),
-             dispatched_at = NULL
-         WHERE id = ? AND status != 'revoked'`
-      ).run(timestamp, track.share_token_id);
+      await repository.revokeTrackShareToken({
+        shareTokenId: track.share_token_id,
+        timestamp,
+      });
     }
-    await db.prepare(
-      "UPDATE tracks SET deleted_at = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL"
-    ).run(timestamp, timestamp, track.id);
-    await db.prepare(
-      "UPDATE track_library_entries SET removed_at = COALESCE(removed_at, ?), updated_at = ? WHERE track_id = ? AND removed_at IS NULL"
-    ).run(timestamp, timestamp, track.id);
+    await repository.softDeleteTrack({ trackId: track.id, timestamp });
+    await repository.removeTrackLibraryEntry({ trackId: track.id, timestamp });
   }
 
   for (const poem of poems) {
     if (poem.share_token_id) {
-      await db.prepare(
-        `UPDATE poem_share_tokens
-         SET status = 'revoked',
-             expires_at = COALESCE(expires_at, ?),
-             dispatched_at = NULL
-         WHERE id = ? AND status != 'revoked'`
-      ).run(timestamp, poem.share_token_id);
+      await repository.revokePoemShareToken({
+        shareTokenId: poem.share_token_id,
+        timestamp,
+      });
     }
-    await db.prepare(
-      "UPDATE poems SET deleted_at = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL"
-    ).run(timestamp, timestamp, poem.id);
-    await db.prepare(
-      "UPDATE poem_library_entries SET removed_at = COALESCE(removed_at, ?), updated_at = ? WHERE poem_id = ? AND removed_at IS NULL"
-    ).run(timestamp, timestamp, poem.id);
+    await repository.softDeletePoem({ poemId: poem.id, timestamp });
+    await repository.removePoemLibraryEntry({ poemId: poem.id, timestamp });
   }
 
   return {

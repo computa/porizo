@@ -1,5 +1,6 @@
 "use strict";
 
+const { createAdminGiftOpsRepository } = require("../database/admin-gift-ops-repository");
 const { parseJson } = require("../utils/common");
 const {
   redactEmail,
@@ -114,8 +115,8 @@ function normalizeOutboxRow(row, { includeSensitive = false } = {}) {
 }
 
 class AdminGiftOpsService {
-  constructor(db) {
-    this.db = db;
+  constructor(db, options = {}) {
+    this.repository = options.repository || createAdminGiftOpsRepository(db);
   }
 
   async getOverview() {
@@ -123,28 +124,11 @@ class AdminGiftOpsService {
     const dueSoon = new Date(Date.now() + 15 * 60 * 1000).toISOString();
     const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
-    const counts = await this.db.prepare(
-      `SELECT
-         SUM(CASE WHEN status = 'scheduled' THEN 1 ELSE 0 END) as scheduled_count,
-         SUM(CASE WHEN status = 'dispatching' THEN 1 ELSE 0 END) as dispatching_count,
-         SUM(CASE WHEN status = 'dispatch_retry' THEN 1 ELSE 0 END) as retrying_count,
-         SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed_count,
-         SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) as cancelled_count,
-         SUM(CASE WHEN status = 'dispatched' THEN 1 ELSE 0 END) as dispatched_count,
-         SUM(CASE WHEN status IN ('scheduled', 'dispatch_retry') AND COALESCE(next_retry_at, send_at) > ? AND COALESCE(next_retry_at, send_at) <= ? THEN 1 ELSE 0 END) as due_soon_count,
-         SUM(CASE WHEN overdue_detected_at IS NOT NULL AND status IN ('scheduled', 'dispatch_retry', 'dispatching') THEN 1 ELSE 0 END) as overdue_count,
-         SUM(CASE WHEN dispatch_status IN ('partial', 'partial_retry') THEN 1 ELSE 0 END) as partial_count,
-         SUM(CASE WHEN last_dispatch_completed_at >= ? THEN 1 ELSE 0 END) as sent_last_24h
-       FROM gift_orders`
-    ).get(now, dueSoon, dayAgo);
-
-    const incidents = await this.db.prepare(
-      `SELECT
-         SUM(CASE WHEN status = 'open' THEN 1 ELSE 0 END) as open_count,
-         SUM(CASE WHEN status = 'acknowledged' THEN 1 ELSE 0 END) as acknowledged_count
-       FROM gift_delivery_incidents
-       WHERE status IN ('open', 'acknowledged')`
-    ).get();
+    const { counts, incidents } = await this.repository.getOverviewCounts({
+      now,
+      dueSoon,
+      dayAgo,
+    });
 
     return {
       scheduled_count: Number(counts?.scheduled_count || 0),
@@ -164,111 +148,17 @@ class AdminGiftOpsService {
 
   async listOrders(filters = {}, options = {}) {
     const { limit, offset } = safeBounds(options.limit, options.offset);
-    const params = [];
-    let sql = `
-      SELECT
-        go.*,
-        u.display_name AS sender_display_name,
-        u.email AS sender_email,
-        (SELECT COUNT(*) FROM gift_delivery_outbox gdo WHERE gdo.gift_order_id = go.id) AS outbox_count,
-        (SELECT COUNT(*) FROM gift_delivery_outbox gdo WHERE gdo.gift_order_id = go.id AND gdo.status = 'sent') AS sent_count,
-        (SELECT COUNT(*) FROM gift_delivery_outbox gdo WHERE gdo.gift_order_id = go.id AND gdo.status = 'failed') AS failed_count,
-        (SELECT COUNT(*) FROM gift_delivery_incidents gdi WHERE gdi.gift_order_id = go.id AND gdi.status IN ('open', 'acknowledged')) AS open_incident_count
-      FROM gift_orders go
-      LEFT JOIN users u ON u.id = go.sender_user_id
-      WHERE 1=1
-    `;
-
-    if (filters.status) {
-      sql += " AND go.status = ?";
-      params.push(filters.status);
-    }
-    if (filters.dispatchStatus) {
-      sql += " AND go.dispatch_status = ?";
-      params.push(filters.dispatchStatus);
-    }
-    if (filters.deliveryMode) {
-      sql += " AND go.delivery_mode = ?";
-      params.push(filters.deliveryMode);
-    }
-    if (filters.channel) {
-      sql += " AND go.channels_json LIKE ?";
-      params.push(`%${filters.channel}%`);
-    }
-    if (filters.senderUserId) {
-      sql += " AND go.sender_user_id = ?";
-      params.push(filters.senderUserId);
-    }
-    if (filters.creator) {
-      sql += " AND (u.display_name LIKE ? OR u.email LIKE ?)";
-      const q = `%${filters.creator}%`;
-      params.push(q, q);
-    }
-    if (filters.recipient) {
-      sql += " AND (go.recipient_phone LIKE ? OR go.recipient_email LIKE ?)";
-      const q = `%${filters.recipient}%`;
-      params.push(q, q);
-    }
-    if (filters.overdue === "true") {
-      sql += " AND go.overdue_detected_at IS NOT NULL";
-    }
-    if (filters.dateFrom) {
-      sql += " AND COALESCE(go.send_at, go.created_at) >= ?";
-      params.push(filters.dateFrom);
-    }
-    if (filters.dateTo) {
-      sql += " AND COALESCE(go.send_at, go.created_at) <= ?";
-      params.push(filters.dateTo);
-    }
-    if (filters.search) {
-      sql += ` AND (
-        go.id LIKE ? OR
-        go.content_id LIKE ? OR
-        go.recipient_phone LIKE ? OR
-        go.recipient_email LIKE ? OR
-        u.email LIKE ? OR
-        u.display_name LIKE ?
-      )`;
-      const q = `%${filters.search}%`;
-      params.push(q, q, q, q, q, q);
-    }
-
-    sql += " ORDER BY COALESCE(go.send_at, go.created_at) DESC LIMIT ? OFFSET ?";
-    params.push(limit, offset);
-
-    const rows = await this.db.prepare(sql).all(...params);
+    const rows = await this.repository.listOrders(filters, { limit, offset });
     return rows.map((row) => normalizeGiftOrderRow(row, { includeSensitive: false }));
   }
 
   async getOrderDetail(id, { includeSensitive = false } = {}) {
-    const row = await this.db.prepare(
-      `SELECT
-        go.*,
-        u.display_name AS sender_display_name,
-        u.email AS sender_email,
-        (SELECT COUNT(*) FROM gift_delivery_outbox gdo WHERE gdo.gift_order_id = go.id) AS outbox_count,
-        (SELECT COUNT(*) FROM gift_delivery_outbox gdo WHERE gdo.gift_order_id = go.id AND gdo.status = 'sent') AS sent_count,
-        (SELECT COUNT(*) FROM gift_delivery_outbox gdo WHERE gdo.gift_order_id = go.id AND gdo.status = 'failed') AS failed_count,
-        (SELECT COUNT(*) FROM gift_delivery_incidents gdi WHERE gdi.gift_order_id = go.id AND gdi.status IN ('open', 'acknowledged')) AS open_incident_count
-      FROM gift_orders go
-      LEFT JOIN users u ON u.id = go.sender_user_id
-      WHERE go.id = ?`
-    ).get(id);
+    const row = await this.repository.getOrderById(id);
     if (!row) return null;
 
-    const outboxRows = await this.db.prepare(
-      "SELECT * FROM gift_delivery_outbox WHERE gift_order_id = ? ORDER BY created_at ASC"
-    ).all(id);
-    const incidents = await this.db.prepare(
-      "SELECT * FROM gift_delivery_incidents WHERE gift_order_id = ? ORDER BY created_at DESC"
-    ).all(id);
-    const auditLogs = await this.db.prepare(
-      `SELECT id, user_id, action, metadata_json, created_at
-       FROM audit_logs
-       WHERE resource_type = 'gift_order' AND resource_id = ?
-       ORDER BY created_at DESC
-       LIMIT 25`
-    ).all(id);
+    const outboxRows = await this.repository.listOrderOutbox(id);
+    const incidents = await this.repository.listOrderIncidents(id);
+    const auditLogs = await this.repository.listOrderAuditLogs(id);
 
     return {
       gift: normalizeGiftOrderRow(row, { includeSensitive }),
@@ -302,52 +192,12 @@ class AdminGiftOpsService {
 
   async listOutbox(filters = {}, options = {}) {
     const { limit, offset } = safeBounds(options.limit, options.offset);
-    let sql = `
-      SELECT gdo.*, go.send_at, go.status as gift_status
-      FROM gift_delivery_outbox gdo
-      JOIN gift_orders go ON go.id = gdo.gift_order_id
-      WHERE 1=1
-    `;
-    const params = [];
-
-    if (filters.status) {
-      sql += " AND gdo.status = ?";
-      params.push(filters.status);
-    }
-    if (filters.receiptStatus) {
-      sql += " AND gdo.receipt_status = ?";
-      params.push(filters.receiptStatus);
-    }
-    if (filters.provider) {
-      sql += " AND gdo.provider_name = ?";
-      params.push(filters.provider);
-    }
-    if (filters.channel) {
-      sql += " AND gdo.channel = ?";
-      params.push(filters.channel);
-    }
-    if (filters.overdue === "true") {
-      sql += " AND go.overdue_detected_at IS NOT NULL";
-    }
-    if (filters.attemptMin !== undefined && filters.attemptMin !== null && filters.attemptMin !== "") {
-      sql += " AND gdo.attempt_count >= ?";
-      params.push(Number(filters.attemptMin) || 0);
-    }
-    if (filters.attemptMax !== undefined && filters.attemptMax !== null && filters.attemptMax !== "") {
-      sql += " AND gdo.attempt_count <= ?";
-      params.push(Number(filters.attemptMax) || 0);
-    }
-
-    sql += " ORDER BY COALESCE(gdo.next_retry_at, gdo.send_after) ASC, gdo.created_at DESC LIMIT ? OFFSET ?";
-    params.push(limit, offset);
-    const rows = await this.db.prepare(sql).all(...params);
+    const rows = await this.repository.listOutbox(filters, { limit, offset });
     return rows.map((row) => normalizeOutboxRow(row, { includeSensitive: false }));
   }
 
   async getIncidentById(id) {
-    const row = await this.db.prepare(
-      "SELECT * FROM gift_delivery_incidents WHERE id = ?"
-    ).get(id);
+    const row = await this.repository.getIncidentById(id);
     if (!row) return null;
     return {
       id: row.id,
@@ -373,25 +223,7 @@ class AdminGiftOpsService {
 
   async listIncidents(filters = {}, options = {}) {
     const { limit, offset } = safeBounds(options.limit, options.offset);
-    let sql = "SELECT * FROM gift_delivery_incidents WHERE 1=1";
-    const params = [];
-    if (filters.status) {
-      sql += " AND status = ?";
-      params.push(filters.status);
-    } else {
-      sql += " AND status IN ('open', 'acknowledged')";
-    }
-    if (filters.severity) {
-      sql += " AND severity = ?";
-      params.push(filters.severity);
-    }
-    if (filters.type) {
-      sql += " AND incident_type = ?";
-      params.push(filters.type);
-    }
-    sql += " ORDER BY updated_at DESC LIMIT ? OFFSET ?";
-    params.push(limit, offset);
-    const rows = await this.db.prepare(sql).all(...params);
+    const rows = await this.repository.listIncidents(filters, { limit, offset });
     return rows.map((entry) => ({
       id: entry.id,
       incident_key: entry.incident_key,

@@ -13,6 +13,9 @@
  */
 
 const crypto = require("node:crypto");
+const {
+  createEnrollmentSessionRepository,
+} = require("../database/enrollment-session-repository");
 
 const REVOCATION_EVENT = "enrollment_session_token_revoked";
 const ROTATION_EVENT = "enrollment_session_token_rotated";
@@ -42,11 +45,7 @@ async function getEnrollmentSession(db, sessionId) {
   if (typeof sessionId !== "string" || !sessionId.trim()) {
     return null;
   }
-  return db
-    .prepare(
-      "SELECT id, user_id, access_token, consent_version, consent_scopes FROM enrollment_sessions WHERE id = ?",
-    )
-    .get(sessionId);
+  return createEnrollmentSessionRepository(db).findTokenContextById(sessionId);
 }
 
 /**
@@ -60,9 +59,9 @@ async function revokeEnrollmentSessionToken(db, sessionId) {
   if (typeof sessionId !== "string" || !sessionId.trim()) {
     return { affected: 0 };
   }
-  const result = await db
-    .prepare("UPDATE enrollment_sessions SET access_token = NULL WHERE id = ?")
-    .run(sessionId);
+  const result = await createEnrollmentSessionRepository(
+    db,
+  ).clearAccessTokenBySessionId(sessionId);
   logRevocation("session", sessionId, null);
   return { affected: result?.changes ?? result?.rowCount ?? 0 };
 }
@@ -79,11 +78,9 @@ async function revokeAllEnrollmentSessionTokensForUser(db, userId) {
   if (typeof userId !== "string" || !userId.trim()) {
     return { affected: 0 };
   }
-  const result = await db
-    .prepare(
-      "UPDATE enrollment_sessions SET access_token = NULL WHERE user_id = ?",
-    )
-    .run(userId);
+  const result = await createEnrollmentSessionRepository(
+    db,
+  ).clearAccessTokensByUserId(userId);
   logRevocation("user", null, userId);
   return { affected: result?.changes ?? result?.rowCount ?? 0 };
 }
@@ -104,9 +101,10 @@ async function rotateAccessTokenForProviderFetch(db, sessionId) {
     throw new Error("rotateAccessTokenForProviderFetch: sessionId required");
   }
   const fresh = crypto.randomBytes(16).toString("hex");
-  const result = await db
-    .prepare("UPDATE enrollment_sessions SET access_token = ? WHERE id = ?")
-    .run(fresh, sessionId);
+  const result = await createEnrollmentSessionRepository(db).setAccessTokenBySessionId({
+    sessionId,
+    accessToken: fresh,
+  });
   const affected = result?.changes ?? result?.rowCount ?? 0;
   if (!affected) {
     throw new Error(

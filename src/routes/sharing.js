@@ -14,6 +14,7 @@ const {
   healAndCheckShare,
 } = require("../services/share-service");
 const pushNotification = require("../services/push-notification");
+const { createDeviceRepository } = require("../database/device-repository");
 
 const CLIENT_RECEIVER_EVENTS = new Set([
   "receiver_link_opened",
@@ -94,6 +95,7 @@ function registerSharingRoutes(
     consumeRateLimit,
   },
 ) {
+  const deviceRepository = createDeviceRepository(db);
   let sharpForImageValidation = null;
   function getSharpForImageValidation() {
     if (sharpForImageValidation !== null) return sharpForImageValidation;
@@ -1846,11 +1848,9 @@ function registerSharingRoutes(
       ) {
         (async () => {
           try {
-            const devices = await db
-              .prepare(
-                "SELECT push_token FROM devices WHERE user_id = ? AND push_token IS NOT NULL",
-              )
-              .all(share.creator_id);
+            const devices = await deviceRepository.listPushTokensForUser(
+              share.creator_id,
+            );
             if (!devices || devices.length === 0) return;
 
             const track = share.track_id

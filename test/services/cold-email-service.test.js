@@ -265,6 +265,31 @@ describe("cold-email-service · buildResendPayload", () => {
     assert.equal(p[0].to[0], "ok@example.com");
     assert.equal(p[1].to[0], "fine@example.com");
   });
+
+  it("preserves source index_pos when invalid emails are filtered out", () => {
+    const rows = [
+      { campaign_id: "c1", index_pos: 0, email: "invalid", first_name: "A" },
+      {
+        campaign_id: "c1",
+        index_pos: 1,
+        email: "ok@example.com",
+        first_name: "B",
+      },
+      {
+        campaign_id: "c1",
+        index_pos: 3,
+        email: "fine@example.com",
+        first_name: "D",
+      },
+    ];
+
+    const p = svc.buildResendPayload(rows, opts);
+
+    assert.deepEqual(
+      p.map((item) => item.source_index_pos),
+      [1, 3],
+    );
+  });
 });
 
 describe("cold-email-service · computeScheduleStart", () => {
@@ -272,5 +297,36 @@ describe("cold-email-service · computeScheduleStart", () => {
     const now = new Date("2026-05-13T09:30:00Z");
     const start = svc.computeScheduleStart(now, 60);
     assert.equal(start.toISOString(), "2026-05-13T10:30:00.000Z");
+  });
+});
+
+describe("cold-email-service · updateCampaignFields", () => {
+  it("delegates the campaign patch to the injected repository", async () => {
+    const calls = [];
+    const repository = {
+      updateCampaignFields: async (...args) => {
+        calls.push(args);
+        return true;
+      },
+    };
+
+    const changed = await svc.updateCampaignFields(
+      {},
+      "campaign-1",
+      { subject: "Updated subject" },
+      "2026-06-27T10:00:00.000Z",
+      "2026-06-27T10:01:00.000Z",
+      { repository },
+    );
+
+    assert.equal(changed, true);
+    assert.deepEqual(calls, [
+      [
+        "campaign-1",
+        { subject: "Updated subject" },
+        "2026-06-27T10:00:00.000Z",
+        "2026-06-27T10:01:00.000Z",
+      ],
+    ]);
   });
 });

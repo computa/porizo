@@ -1,6 +1,7 @@
 "use strict";
 
 const { newUuid } = require("../utils/ids");
+const { createBlogRepository } = require("../database/blog-repository");
 const { stripMarkdown } = require("./blog-format-service");
 
 function nowIso() {
@@ -124,27 +125,17 @@ function parseJsonObject(value) {
   }
 }
 
-class BlogService {
-  constructor(db) {
-    this.db = db;
-  }
+function createBlogPostChangedError() {
+  const error = new Error("Blog post changed during review; rerun review before saving the result.");
+  error.code = "BLOG_POST_CHANGED";
+  error.statusCode = 409;
+  return error;
+}
 
-  postSelectSql() {
-    return `
-      SELECT
-        blog_posts.*,
-        CASE
-          WHEN blog_posts.status = 'published' OR blog_posts.published_at IS NOT NULL THEN 1
-          WHEN EXISTS (
-            SELECT 1
-            FROM blog_post_revisions AS revisions
-            WHERE revisions.post_id = blog_posts.id
-              AND revisions.status = 'published'
-          ) THEN 1
-          ELSE 0
-        END AS has_publication_history
-      FROM blog_posts
-    `;
+class BlogService {
+  constructor(db, options = {}) {
+    this.db = db;
+    this.repository = options.repository || createBlogRepository(db);
   }
 
   mapPostRow(row) {
@@ -154,111 +145,92 @@ class BlogService {
       tags: parseJsonArray(row.tags_json),
       review_report: parseJsonObject(row.review_report_json),
       has_publication_history: Boolean(row.has_publication_history),
+      current_revision_number: Number(row.current_revision_number || 0),
     };
   }
 
   async listPosts({ status, search, limit = 50, offset = 0 } = {}) {
-    let sql = `${this.postSelectSql()} WHERE 1=1`;
-    const params = [];
-
-    if (status) {
-      sql += " AND status = ?";
-      params.push(status);
-    }
-    if (search) {
-      sql += " AND (title LIKE ? OR slug LIKE ? OR excerpt LIKE ? OR primary_keyword LIKE ?)";
-      const pattern = `%${String(search).trim()}%`;
-      params.push(pattern, pattern, pattern, pattern);
-    }
-
-    sql += " ORDER BY COALESCE(published_at, updated_at) DESC LIMIT ? OFFSET ?";
-    params.push(limit, offset);
-
-    const rows = await this.db.prepare(sql).all(...params);
+    const rows = await this.repository.listPosts({ status, search, limit, offset });
     return rows.map((row) => this.mapPostRow(row));
   }
 
   async listPublishedPosts({ limit = 100 } = {}) {
-    const rows = await this.db.prepare(`
-      ${this.postSelectSql()}
-      WHERE status = 'published' AND published_at IS NOT NULL
-      ORDER BY published_at DESC
-      LIMIT ?
-    `).all(limit);
+    const rows = await this.repository.listPublishedPosts({ limit });
     return rows.map((row) => this.mapPostRow(row));
   }
 
   async getPostById(id) {
-    const row = await this.db.prepare(`${this.postSelectSql()} WHERE id = ?`).get(id);
+    const row = await this.repository.findPostById(id);
     return this.mapPostRow(row);
   }
 
   async getPublishedPostBySlug(slug) {
-    const row = await this.db.prepare(`
-      ${this.postSelectSql()}
-      WHERE slug = ? AND status = 'published' AND published_at IS NOT NULL
-      LIMIT 1
-    `).get(slug);
+    const row = await this.repository.findPublishedPostBySlug(slug);
     return this.mapPostRow(row);
   }
 
-  async assertSlugAvailable(slug, excludingId = null) {
-    const existing = excludingId
-      ? await this.db.prepare("SELECT id FROM blog_posts WHERE slug = ? AND id != ?").get(slug, excludingId)
-      : await this.db.prepare("SELECT id FROM blog_posts WHERE slug = ?").get(slug);
+  async withBlogTransaction(callback) {
+    if (typeof this.repository.transaction === "function") {
+      return this.repository.transaction(callback);
+    }
+    throw new Error("BlogService mutations require repository transaction support");
+  }
+
+  async findRawPostByIdForMutation(repository, id) {
+    if (typeof repository.findRawPostByIdForUpdate === "function") {
+      return repository.findRawPostByIdForUpdate(id);
+    }
+    return repository.findRawPostById(id);
+  }
+
+  async assertSlugAvailable(slug, excludingId = null, repository = this.repository) {
+    const existing = await repository.findSlugConflict(slug, excludingId);
     if (existing) {
       throw new Error("Slug already exists");
     }
   }
 
-  async getNextRevisionNumber(postId) {
-    const row = await this.db.prepare(
-      "SELECT COALESCE(MAX(revision_number), 0) AS max_revision FROM blog_post_revisions WHERE post_id = ?"
-    ).get(postId);
-    return Number(row?.max_revision || 0) + 1;
+  async getNextRevisionNumber(postId, repository = this.repository) {
+    return repository.getNextRevisionNumber(postId);
   }
 
-  async createRevisionSnapshot(post, createdBy, revisionReason) {
-    const revisionNumber = await this.getNextRevisionNumber(post.id);
-    await this.db.prepare(`
-      INSERT INTO blog_post_revisions (
-        id, post_id, revision_number, title, slug, excerpt, answer_summary, target_query,
-        target_intent, primary_keyword, hero_image_url, body_markdown, tags_json, author_name,
-        status, review_status, review_report_json, revision_reason, created_by, created_at
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      newUuid(),
-      post.id,
+  async getCurrentRevisionNumber(postId, repository = this.repository) {
+    const nextRevisionNumber = await this.getNextRevisionNumber(postId, repository);
+    return Math.max(0, Number(nextRevisionNumber || 1) - 1);
+  }
+
+  async createRevisionSnapshot(
+    post,
+    createdBy,
+    revisionReason,
+    repository = this.repository,
+    now = nowIso()
+  ) {
+    const revisionNumber = await this.getNextRevisionNumber(post.id, repository);
+    await repository.createRevisionSnapshot({
+      id: newUuid(),
+      post,
       revisionNumber,
-      post.title,
-      post.slug,
-      post.excerpt,
-      post.answer_summary,
-      post.target_query,
-      post.target_intent,
-      post.primary_keyword,
-      post.hero_image_url,
-      post.body_markdown,
-      post.tags_json,
-      post.author_name,
-      post.status,
-      post.review_status,
-      post.review_report_json || null,
       revisionReason,
-      createdBy || null,
-      nowIso()
-    );
+      createdBy,
+      now,
+    });
     return revisionNumber;
   }
 
-  async findReusableDraft(input) {
-    const drafts = await this.listPosts({ status: "draft", limit: 100, offset: 0 });
+  async findReusableDraft(input, repository = this.repository) {
+    const rows = typeof repository.listDraftPostsForDuplicateCheck === "function"
+      ? await repository.listDraftPostsForDuplicateCheck()
+      : await repository.listPosts({ status: "draft", limit: 100, offset: 0 });
+    const drafts = rows.map((row) => this.mapPostRow(row));
     return drafts.find((draft) => postsAreDuplicateDrafts(draft, input)) || null;
   }
 
-  async archiveDuplicateDrafts(canonicalPost, updatedBy) {
-    const drafts = await this.listPosts({ status: "draft", limit: 100, offset: 0 });
+  async archiveDuplicateDrafts(canonicalPost, updatedBy, repository = this.repository, now = nowIso()) {
+    const rows = typeof repository.listDraftPostsForDuplicateCheck === "function"
+      ? await repository.listDraftPostsForDuplicateCheck()
+      : await repository.listPosts({ status: "draft", limit: 100, offset: 0 });
+    const drafts = rows.map((row) => this.mapPostRow(row));
     const duplicates = drafts.filter((draft) => {
       if (draft.id === canonicalPost.id) return false;
       return postsAreDuplicateDrafts(draft, canonicalPost);
@@ -266,13 +238,12 @@ class BlogService {
 
     if (duplicates.length === 0) return;
 
-    const now = nowIso();
     for (const duplicate of duplicates) {
-      await this.db.prepare(`
-        UPDATE blog_posts
-        SET status = 'archived', updated_by = ?, updated_at = ?
-        WHERE id = ?
-      `).run(updatedBy || null, now, duplicate.id);
+      await repository.archivePost({
+        id: duplicate.id,
+        updatedBy,
+        now,
+      });
     }
   }
 
@@ -280,161 +251,160 @@ class BlogService {
     const post = normalizePostInput(input);
     if (!post.title) throw new Error("Title is required");
     if (!post.slug) throw new Error("Slug is required");
-    const reusableDraft = await this.findReusableDraft(post);
-    if (reusableDraft) {
-      return this.updatePost(reusableDraft.id, post, createdBy);
-    }
-    await this.assertSlugAvailable(post.slug);
 
-    const id = newUuid();
-    const now = nowIso();
-    await this.db.prepare(`
-      INSERT INTO blog_posts (
-        id, slug, title, excerpt, answer_summary, target_query, target_intent, primary_keyword,
-        hero_image_url, body_markdown, tags_json, author_name, status, review_status,
-        created_by, updated_by, created_at, updated_at
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', 'unreviewed', ?, ?, ?, ?)
-    `).run(
-      id,
-      post.slug,
-      post.title,
-      post.excerpt,
-      post.answer_summary,
-      post.target_query,
-      post.target_intent,
-      post.primary_keyword,
-      post.hero_image_url,
-      post.body_markdown,
-      JSON.stringify(post.tags),
-      post.author_name,
-      createdBy || null,
-      createdBy || null,
-      now,
-      now
-    );
+    return this.withBlogTransaction(async (repository) => {
+      const reusableDraft = await this.findReusableDraft(post, repository);
+      if (reusableDraft) {
+        return this.updatePostWithRepository(repository, reusableDraft.id, post, createdBy);
+      }
+      await this.assertSlugAvailable(post.slug, null, repository);
 
-    const created = await this.db.prepare(`${this.postSelectSql()} WHERE id = ?`).get(id);
-    await this.createRevisionSnapshot(created, createdBy, "create");
-    return this.mapPostRow(created);
+      const id = newUuid();
+      const now = nowIso();
+      await repository.createPost({
+        id,
+        post,
+        createdBy,
+        now,
+      });
+
+      const created = await repository.findPostById(id);
+      await this.createRevisionSnapshot(created, createdBy, "create", repository, now);
+      return this.mapPostRow(await repository.findPostById(id));
+    });
   }
 
-  async updatePost(id, input, updatedBy) {
-    const existing = await this.db.prepare("SELECT * FROM blog_posts WHERE id = ?").get(id);
+  async updatePostWithRepository(repository, id, input, updatedBy, options = {}) {
+    const existing = await this.findRawPostByIdForMutation(repository, id);
     if (!existing) return null;
+
+    const currentRevisionNumber = await this.getCurrentRevisionNumber(id, repository);
+    if (
+      options.expectedRevisionNumber !== undefined &&
+      Number(options.expectedRevisionNumber) !== currentRevisionNumber
+    ) {
+      throw createBlogPostChangedError();
+    }
 
     const next = normalizePostInput({ ...existing, ...input, tags: input?.tags ?? parseJsonArray(existing.tags_json) });
     if (!next.title) throw new Error("Title is required");
     if (!next.slug) throw new Error("Slug is required");
-    await this.assertSlugAvailable(next.slug, id);
+    await this.assertSlugAvailable(next.slug, id, repository);
 
     const now = nowIso();
     const nextStatus = existing.status === "published" ? "draft" : existing.status;
     const nextPublishedAt = nextStatus === "published" ? existing.published_at : null;
-    await this.db.prepare(`
-      UPDATE blog_posts
-      SET slug = ?, title = ?, excerpt = ?, answer_summary = ?, target_query = ?, target_intent = ?,
-          primary_keyword = ?, hero_image_url = ?, body_markdown = ?, tags_json = ?, author_name = ?,
-          status = ?, published_at = ?, review_status = 'unreviewed', review_report_json = NULL, reviewed_at = NULL,
-          updated_by = ?, updated_at = ?
-      WHERE id = ?
-    `).run(
-      next.slug,
-      next.title,
-      next.excerpt,
-      next.answer_summary,
-      next.target_query,
-      next.target_intent,
-      next.primary_keyword,
-      next.hero_image_url,
-      next.body_markdown,
-      JSON.stringify(next.tags),
-      next.author_name,
-      nextStatus,
-      nextPublishedAt,
-      updatedBy || null,
+    await repository.updatePostDraft({
+      id,
+      post: next,
+      status: nextStatus,
+      publishedAt: nextPublishedAt,
+      updatedBy,
       now,
-      id
-    );
+    });
 
-    const updated = await this.db.prepare(`${this.postSelectSql()} WHERE id = ?`).get(id);
-    await this.createRevisionSnapshot(updated, updatedBy, "update");
+    const updated = await repository.findPostById(id);
+    await this.createRevisionSnapshot(updated, updatedBy, "update", repository, now);
     const mapped = this.mapPostRow(updated);
-    await this.archiveDuplicateDrafts(mapped, updatedBy);
-    return this.getPostById(id);
+    await this.archiveDuplicateDrafts(mapped, updatedBy, repository, now);
+    return this.mapPostRow(await repository.findPostById(id));
   }
 
-  async saveReviewResult(id, report, reviewedBy) {
-    const existing = await this.db.prepare("SELECT * FROM blog_posts WHERE id = ?").get(id);
+  async updatePost(id, input, updatedBy, options = {}) {
+    return this.withBlogTransaction((repository) => (
+      this.updatePostWithRepository(repository, id, input, updatedBy, options)
+    ));
+  }
+
+  async saveReviewResultWithRepository(repository, id, report, reviewedBy, options = {}) {
+    const existing = await this.findRawPostByIdForMutation(repository, id);
     if (!existing) return null;
 
     const now = nowIso();
+    const currentRevisionNumber = await this.getCurrentRevisionNumber(id, repository);
+    if (
+      options.expectedRevisionNumber !== undefined &&
+      Number(options.expectedRevisionNumber) !== currentRevisionNumber
+    ) {
+      throw createBlogPostChangedError();
+    }
+
     const nextReviewStatus = report.decision === "approved" ? "approved" : "rejected";
-    await this.db.prepare(`
-      UPDATE blog_posts
-      SET review_status = ?, review_report_json = ?, reviewed_at = ?, updated_by = ?, updated_at = ?
-      WHERE id = ?
-    `).run(nextReviewStatus, JSON.stringify(report), now, reviewedBy || null, now, id);
-
-    const revisionNumber = await this.getNextRevisionNumber(id);
-    await this.db.prepare(`
-      INSERT INTO blog_review_runs (
-        id, post_id, revision_number, decision, overall_score, seo_score, geo_score, aeo_score,
-        report_json, created_by, created_at
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      newUuid(),
+    const reportJson = JSON.stringify(report);
+    await repository.updateReviewResult({
       id,
-      revisionNumber - 1,
-      report.decision,
-      report.overallScore,
-      report.seoScore,
-      report.geoScore,
-      report.aeoScore,
-      JSON.stringify(report),
-      reviewedBy || null,
-      now
-    );
+      reviewStatus: nextReviewStatus,
+      reportJson,
+      reviewedBy,
+      now,
+    });
 
-    const updated = await this.db.prepare(`${this.postSelectSql()} WHERE id = ?`).get(id);
-    await this.createRevisionSnapshot(updated, reviewedBy, "review");
-    return this.mapPostRow(updated);
+    await repository.createReviewRun({
+      id: newUuid(),
+      postId: id,
+      revisionNumber: Math.max(1, currentRevisionNumber),
+      report,
+      reportJson,
+      createdBy: reviewedBy,
+      now,
+    });
+
+    const updated = await repository.findPostById(id);
+    await this.createRevisionSnapshot(updated, reviewedBy, "review", repository, now);
+    return this.mapPostRow(await repository.findPostById(id));
   }
 
-  async publishPost(id, updatedBy) {
-    const existing = await this.db.prepare("SELECT * FROM blog_posts WHERE id = ?").get(id);
+  async saveReviewResult(id, report, reviewedBy, options = {}) {
+    return this.withBlogTransaction((repository) => (
+      this.saveReviewResultWithRepository(repository, id, report, reviewedBy, options)
+    ));
+  }
+
+  async publishPostWithRepository(repository, id, updatedBy) {
+    const existing = await this.findRawPostByIdForMutation(repository, id);
     if (!existing) return null;
     if (existing.review_status !== "approved") {
       throw new Error("Post must pass review before publishing");
     }
 
     const now = nowIso();
-    await this.db.prepare(`
-      UPDATE blog_posts
-      SET status = 'published', published_at = ?, updated_by = ?, updated_at = ?
-      WHERE id = ?
-    `).run(now, updatedBy || null, now, id);
+    await repository.publishPost({
+      id,
+      updatedBy,
+      now,
+    });
 
-    const updated = await this.db.prepare(`${this.postSelectSql()} WHERE id = ?`).get(id);
-    await this.createRevisionSnapshot(updated, updatedBy, "publish");
-    return this.mapPostRow(updated);
+    const updated = await repository.findPostById(id);
+    await this.createRevisionSnapshot(updated, updatedBy, "publish", repository, now);
+    return this.mapPostRow(await repository.findPostById(id));
   }
 
-  async unpublishPost(id, updatedBy) {
-    const existing = await this.db.prepare("SELECT * FROM blog_posts WHERE id = ?").get(id);
+  async publishPost(id, updatedBy) {
+    return this.withBlogTransaction((repository) => (
+      this.publishPostWithRepository(repository, id, updatedBy)
+    ));
+  }
+
+  async unpublishPostWithRepository(repository, id, updatedBy) {
+    const existing = await this.findRawPostByIdForMutation(repository, id);
     if (!existing) return null;
 
     const now = nowIso();
-    await this.db.prepare(`
-      UPDATE blog_posts
-      SET status = 'draft', published_at = NULL, updated_by = ?, updated_at = ?
-      WHERE id = ?
-    `).run(updatedBy || null, now, id);
+    await repository.unpublishPost({
+      id,
+      updatedBy,
+      now,
+    });
 
-    const updated = await this.db.prepare(`${this.postSelectSql()} WHERE id = ?`).get(id);
-    await this.createRevisionSnapshot(updated, updatedBy, "unpublish");
-    return this.mapPostRow(updated);
+    const updated = await repository.findPostById(id);
+    await this.createRevisionSnapshot(updated, updatedBy, "unpublish", repository, now);
+    return this.mapPostRow(await repository.findPostById(id));
+  }
+
+  async unpublishPost(id, updatedBy) {
+    return this.withBlogTransaction((repository) => (
+      this.unpublishPostWithRepository(repository, id, updatedBy)
+    ));
   }
 }
 

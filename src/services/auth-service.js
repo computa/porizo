@@ -10,8 +10,35 @@ const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
 const { authLogger } = require("../utils/logger");
 const {
+  createAccountDeletionRepository,
+} = require("../database/account-deletion-repository");
+const {
+  createAuthSessionRepository,
+} = require("../database/auth-session-repository");
+const {
+  createAuthSecurityRepository,
+} = require("../database/auth-security-repository");
+const {
+  createAuthOneTimeTokenRepository,
+} = require("../database/auth-one-time-token-repository");
+const {
+  createAuthRefreshTokenRepository,
+} = require("../database/auth-refresh-token-repository");
+const {
+  createGdprDataExportRepository,
+} = require("../database/gdpr-data-export-repository");
+const { createGdprAuditRepository } = require("../database/gdpr-audit-repository");
+const {
   revokeAllEnrollmentSessionTokensForUser,
 } = require("./enrollment-session-service");
+const {
+  deleteAccountStorageArtifacts,
+} = require("./account-deletion-storage-service");
+const {
+  deleteVoiceProviderJobsForUser,
+  listProviderProfilesForUser,
+  softDeleteProviderProfilesForUser,
+} = require("./voice-provider-profile-service");
 const { identityHash } = require("./identity-service");
 
 // Validate required environment variables
@@ -72,12 +99,72 @@ function getJwtFingerprint() {
 
 // Database instance (initialized via initialize())
 let db = null;
+let authSessionRepository = null;
+let authSecurityRepository = null;
+let authOneTimeTokenRepository = null;
+let authRefreshTokenRepository = null;
+let gdprDataExportRepository = null;
 
 /**
  * Initialize the auth service with database instance
  */
 function initialize(database) {
   db = database;
+  authSessionRepository = createAuthSessionRepository(database);
+  authSecurityRepository = createAuthSecurityRepository(database);
+  authOneTimeTokenRepository = createAuthOneTimeTokenRepository(database);
+  authRefreshTokenRepository = createAuthRefreshTokenRepository(database);
+  gdprDataExportRepository = createGdprDataExportRepository(database);
+}
+
+function getAuthSessionRepository() {
+  if (!authSessionRepository) {
+    if (!db) {
+      throw new Error("Auth service has not been initialized with a database");
+    }
+    authSessionRepository = createAuthSessionRepository(db);
+  }
+  return authSessionRepository;
+}
+
+function getAuthSecurityRepository() {
+  if (!authSecurityRepository) {
+    if (!db) {
+      throw new Error("Auth service has not been initialized with a database");
+    }
+    authSecurityRepository = createAuthSecurityRepository(db);
+  }
+  return authSecurityRepository;
+}
+
+function getAuthOneTimeTokenRepository() {
+  if (!authOneTimeTokenRepository) {
+    if (!db) {
+      throw new Error("Auth service has not been initialized with a database");
+    }
+    authOneTimeTokenRepository = createAuthOneTimeTokenRepository(db);
+  }
+  return authOneTimeTokenRepository;
+}
+
+function getAuthRefreshTokenRepository() {
+  if (!authRefreshTokenRepository) {
+    if (!db) {
+      throw new Error("Auth service has not been initialized with a database");
+    }
+    authRefreshTokenRepository = createAuthRefreshTokenRepository(db);
+  }
+  return authRefreshTokenRepository;
+}
+
+function getGdprDataExportRepository() {
+  if (!gdprDataExportRepository) {
+    if (!db) {
+      throw new Error("Auth service has not been initialized with a database");
+    }
+    gdprDataExportRepository = createGdprDataExportRepository(db);
+  }
+  return gdprDataExportRepository;
 }
 
 // ==================== PASSWORD HASHING ====================
@@ -154,16 +241,17 @@ function verifyAccessToken(token, options = {}) {
  * Returns raw token (to send to client), plus metadata
  */
 async function createRefreshToken(userId, options = {}) {
+  const refreshTokenRepository = getAuthRefreshTokenRepository();
   const expiresIn = options.expiresIn ?? config.refreshTokenExpiryDays;
   const sessionId = options.sessionId ?? null;
 
   // Create token family first
   const familyId = generateId("tf");
-  await db
-    .prepare(
-      "INSERT INTO token_families (id, user_id, session_id) VALUES (?, ?, ?)",
-    )
-    .run(familyId, userId, sessionId);
+  await refreshTokenRepository.insertTokenFamily({
+    id: familyId,
+    userId,
+    sessionId,
+  });
 
   // Generate secure token
   const rawToken = generateSecureToken();
@@ -178,12 +266,14 @@ async function createRefreshToken(userId, options = {}) {
     expiresAt.setDate(expiresAt.getDate() + expiresIn);
   }
 
-  await db
-    .prepare(
-      `INSERT INTO refresh_tokens (id, user_id, token_hash, token_family, generation, expires_at)
-     VALUES (?, ?, ?, ?, 1, ?)`,
-    )
-    .run(tokenId, userId, tokenHash, familyId, expiresAt.toISOString());
+  await refreshTokenRepository.insertRefreshToken({
+    id: tokenId,
+    userId,
+    tokenHash,
+    tokenFamily: familyId,
+    generation: 1,
+    expiresAt: expiresAt.toISOString(),
+  });
 
   return {
     token: rawToken,
@@ -198,18 +288,11 @@ async function createRefreshToken(userId, options = {}) {
  * Returns user ID and token metadata if valid
  */
 async function verifyRefreshToken(rawToken) {
+  const refreshTokenRepository = getAuthRefreshTokenRepository();
   const tokenHash = hashToken(rawToken);
 
   // Look up token by hash
-  const token = await db
-    .prepare(
-      `SELECT rt.*, tf.compromised_at as family_compromised, tf.session_id, us.revoked_at as session_revoked_at
-       FROM refresh_tokens rt
-       JOIN token_families tf ON rt.token_family = tf.id
-       LEFT JOIN user_sessions us ON tf.session_id = us.id
-       WHERE rt.token_hash = ?`,
-    )
-    .get(tokenHash);
+  const token = await refreshTokenRepository.findTokenForVerification(tokenHash);
 
   if (!token) {
     throw new Error("Token not found or invalid");
@@ -253,11 +336,7 @@ async function verifyRefreshToken(rawToken) {
  * Revoke a refresh token by ID
  */
 async function revokeRefreshToken(tokenId) {
-  await db
-    .prepare(
-      "UPDATE refresh_tokens SET revoked_at = CURRENT_TIMESTAMP WHERE id = ?",
-    )
-    .run(tokenId);
+  await getAuthRefreshTokenRepository().revokeToken(tokenId);
 }
 
 /**
@@ -268,11 +347,8 @@ async function revokeRefreshToken(tokenId) {
  * @returns {number} Number of tokens revoked
  */
 async function revokeAllRefreshTokensForUser(userId) {
-  const result = await db
-    .prepare(
-      "UPDATE refresh_tokens SET revoked_at = CURRENT_TIMESTAMP WHERE user_id = ? AND revoked_at IS NULL",
-    )
-    .run(userId);
+  const result =
+    await getAuthRefreshTokenRepository().revokeActiveTokensForUser(userId);
   authLogger.info(
     { userId, tokensRevoked: result.changes },
     "All refresh tokens revoked (logout)",
@@ -288,11 +364,10 @@ async function revokeAllRefreshTokensForUser(userId) {
  * @returns {number} Number of families marked compromised
  */
 async function compromiseAllTokenFamiliesForUser(userId) {
-  const result = await db
-    .prepare(
-      "UPDATE token_families SET compromised_at = CURRENT_TIMESTAMP WHERE user_id = ? AND compromised_at IS NULL",
-    )
-    .run(userId);
+  const result =
+    await getAuthRefreshTokenRepository().compromiseActiveTokenFamiliesForUser(
+      userId,
+    );
   return result.changes;
 }
 
@@ -304,6 +379,7 @@ async function compromiseAllTokenFamiliesForUser(userId) {
  * All checks and writes happen within a single transaction.
  */
 async function rotateRefreshToken(oldRawToken) {
+  const refreshTokenRepository = getAuthRefreshTokenRepository();
   const oldTokenHash = hashToken(oldRawToken);
 
   // Pre-generate new token values (crypto operations outside transaction)
@@ -330,11 +406,9 @@ async function rotateRefreshToken(oldRawToken) {
   // could both pass the revocation check.
   let result;
   try {
-    result = await db.transaction(async () => {
+    result = await refreshTokenRepository.transaction(async (txRepository) => {
       // Get old token with fresh read inside transaction
-      const oldToken = await db
-        .prepare("SELECT * FROM refresh_tokens WHERE token_hash = ?")
-        .get(oldTokenHash);
+      const oldToken = await txRepository.findTokenByHash(oldTokenHash);
 
       if (!oldToken) {
         const err = new Error("Token not found");
@@ -353,12 +427,11 @@ async function rotateRefreshToken(oldRawToken) {
         // If revoked within grace period, this is likely an app that was killed during refresh
         // Find and check if a replacement token was already issued
         if (timeSinceRevocation < gracePeriodMs) {
-          const replacementToken = await db
-            .prepare(
-              `SELECT id FROM refresh_tokens
-           WHERE token_family = ? AND generation = ? AND revoked_at IS NULL`,
-            )
-            .get(oldToken.token_family, oldToken.generation + 1);
+          const replacementToken =
+            await txRepository.findActiveReplacementToken({
+              tokenFamily: oldToken.token_family,
+              generation: oldToken.generation + 1,
+            });
 
           if (replacementToken) {
             // A new token was already issued - client needs to re-authenticate
@@ -392,25 +465,15 @@ async function rotateRefreshToken(oldRawToken) {
           // detect this defense-in-depth event (it can also be a real reuse
           // attack that happens to land inside the 30s grace window).
           try {
-            await db
-              .prepare(
-                "INSERT INTO audit_logs (id, user_id, action, resource_type, resource_id, metadata_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-              )
-              .run(
-                generateId("audit"),
-                oldToken.user_id,
-                "refresh_token_grace_unrevoke",
-                "refresh_token",
-                oldToken.id,
-                JSON.stringify({
-                  severity: "HIGH",
-                  time_since_revocation_ms: timeSinceRevocation,
-                  has_replacement: false,
-                  token_family: oldToken.token_family,
-                  generation: oldToken.generation,
-                }),
-                new Date().toISOString(),
-              );
+            await txRepository.insertGraceUnrevokeAuditLog({
+              id: generateId("audit"),
+              userId: oldToken.user_id,
+              tokenId: oldToken.id,
+              tokenFamily: oldToken.token_family,
+              generation: oldToken.generation,
+              timeSinceRevocationMs: timeSinceRevocation,
+              createdAt: new Date().toISOString(),
+            });
           } catch (auditErr) {
             // Audit-log failures must not block the user's refresh flow,
             // but they should be loud in logs so monitoring can alert.
@@ -419,9 +482,7 @@ async function rotateRefreshToken(oldRawToken) {
               "Failed to persist refresh_token_grace_unrevoke audit event",
             );
           }
-          await db
-            .prepare("UPDATE refresh_tokens SET revoked_at = NULL WHERE id = ?")
-            .run(oldToken.id);
+          await txRepository.clearTokenRevocation(oldToken.id);
           // Continue with normal rotation flow - the token is now un-revoked
           // Fall through to the rest of the function
         } else {
@@ -432,18 +493,10 @@ async function rotateRefreshToken(oldRawToken) {
           );
 
           // Mark entire family as compromised
-          await db
-            .prepare(
-              "UPDATE token_families SET compromised_at = CURRENT_TIMESTAMP WHERE id = ?",
-            )
-            .run(oldToken.token_family);
+          await txRepository.compromiseTokenFamily(oldToken.token_family);
 
           // Revoke all tokens in family
-          await db
-            .prepare(
-              "UPDATE refresh_tokens SET revoked_at = CURRENT_TIMESTAMP WHERE token_family = ?",
-            )
-            .run(oldToken.token_family);
+          await txRepository.revokeTokensInFamily(oldToken.token_family);
 
           return {
             reuseDetected: true,
@@ -453,14 +506,9 @@ async function rotateRefreshToken(oldRawToken) {
       }
 
       // Check if family already compromised
-      const family = await db
-        .prepare(
-          `SELECT tf.*, us.revoked_at as session_revoked_at
-       FROM token_families tf
-       LEFT JOIN user_sessions us ON tf.session_id = us.id
-       WHERE tf.id = ?`,
-        )
-        .get(oldToken.token_family);
+      const family = await txRepository.findTokenFamilyWithSession(
+        oldToken.token_family,
+      );
       if (family.compromised_at) {
         const err = new Error("Token family compromised");
         err.code = "TOKEN_FAMILY_COMPROMISED";
@@ -480,21 +528,16 @@ async function rotateRefreshToken(oldRawToken) {
       // Revoke old token using optimistic locking to prevent TOCTOU race
       // The conditional WHERE revoked_at IS NULL ensures only ONE concurrent
       // refresh request can succeed - others will get changes=0
-      const revokeResult = await db
-        .prepare(
-          "UPDATE refresh_tokens SET revoked_at = CURRENT_TIMESTAMP WHERE id = ? AND revoked_at IS NULL",
-        )
-        .run(oldToken.id);
+      const revokeResult = await txRepository.revokeActiveToken(oldToken.id);
 
       // If no rows affected, another concurrent request already revoked this token
       if (revokeResult.changes === 0) {
         // Re-check if a replacement token was created (within grace period scenario)
-        const replacementToken = await db
-          .prepare(
-            `SELECT id FROM refresh_tokens
-         WHERE token_family = ? AND generation = ? AND revoked_at IS NULL`,
-          )
-          .get(oldToken.token_family, oldToken.generation + 1);
+        const replacementToken =
+          await txRepository.findActiveReplacementToken({
+            tokenFamily: oldToken.token_family,
+            generation: oldToken.generation + 1,
+          });
 
         if (replacementToken) {
           authLogger.info(
@@ -520,19 +563,14 @@ async function rotateRefreshToken(oldRawToken) {
 
       // Create new token in same family
       const newGeneration = oldToken.generation + 1;
-      await db
-        .prepare(
-          `INSERT INTO refresh_tokens (id, user_id, token_hash, token_family, generation, expires_at)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-        )
-        .run(
-          newTokenId,
-          oldToken.user_id,
-          newTokenHash,
-          oldToken.token_family,
-          newGeneration,
-          expiresAt.toISOString(),
-        );
+      await txRepository.insertRefreshToken({
+        id: newTokenId,
+        userId: oldToken.user_id,
+        tokenHash: newTokenHash,
+        tokenFamily: oldToken.token_family,
+        generation: newGeneration,
+        expiresAt: expiresAt.toISOString(),
+      });
 
       return {
         userId: oldToken.user_id,
@@ -596,12 +634,12 @@ async function createPasswordResetToken(userId, options = {}) {
   const expiresAt = new Date();
   expiresAt.setMinutes(expiresAt.getMinutes() + expiresIn);
 
-  await db
-    .prepare(
-      `INSERT INTO password_reset_tokens (id, user_id, token_hash, expires_at)
-     VALUES (?, ?, ?, ?)`,
-    )
-    .run(tokenId, userId, tokenHash, expiresAt.toISOString());
+  await getAuthOneTimeTokenRepository().insertPasswordResetToken({
+    id: tokenId,
+    userId,
+    tokenHash,
+    expiresAt: expiresAt.toISOString(),
+  });
 
   return {
     token: rawToken,
@@ -613,79 +651,49 @@ async function createPasswordResetToken(userId, options = {}) {
 /**
  * Verify a one-time token (password reset or email verification)
  * @param {string} rawToken - The raw token to verify
- * @param {string} tableName - The table to query
+ * @param {string} tokenType - The one-time token aggregate to query
  * @returns {Promise<{userId: string, tokenId: string}>}
  */
-async function verifyOneTimeToken(rawToken, tableName) {
-  const ALLOWED_TABLES = ["password_reset_tokens", "email_verification_tokens"];
-  if (!ALLOWED_TABLES.includes(tableName)) {
-    throw new Error(`Invalid token table: ${tableName}`);
-  }
-
+async function verifyOneTimeToken(rawToken, tokenType) {
   const tokenHash = hashToken(rawToken);
-
-  // Wrap in transaction so the SELECT and subsequent UPDATE (mark used) are atomic.
-  // This prevents double-use from concurrent requests racing on the same token.
-  return await db.transaction(async () => {
-    const token = await db
-      .prepare(`SELECT * FROM ${tableName} WHERE token_hash = ?`)
-      .get(tokenHash);
-
-    if (!token) {
-      throw new Error("Token not found or invalid");
-    }
-
-    if (token.used_at) {
-      throw new Error("Token has already been used");
-    }
-
-    if (new Date(token.expires_at) < new Date()) {
-      throw new Error("Token has expired");
-    }
-
-    // Mark as used immediately inside the transaction to prevent concurrent reuse
-    await db
-      .prepare(
-        `UPDATE ${tableName} SET used_at = CURRENT_TIMESTAMP WHERE id = ? AND used_at IS NULL`,
-      )
-      .run(token.id);
-
-    return {
-      userId: token.user_id,
-      tokenId: token.id,
-      email_normalized: token.email_normalized || null,
-      contact_id: token.contact_id || null,
-    };
+  const token = await getAuthOneTimeTokenRepository().consumeOneTimeToken({
+    tokenType,
+    tokenHash,
   });
+
+  return {
+    userId: token.user_id,
+    tokenId: token.id,
+    email_normalized: token.email_normalized || null,
+    contact_id: token.contact_id || null,
+  };
 }
 
 /**
  * Verify password reset token
  */
 async function verifyPasswordResetToken(rawToken) {
-  return verifyOneTimeToken(rawToken, "password_reset_tokens");
+  return verifyOneTimeToken(rawToken, "password_reset");
 }
 
 /**
  * Mark password reset token as used
  */
 async function markPasswordResetTokenUsed(tokenId) {
-  await db
-    .prepare(
-      "UPDATE password_reset_tokens SET used_at = CURRENT_TIMESTAMP WHERE id = ?",
-    )
-    .run(tokenId);
+  await getAuthOneTimeTokenRepository().markTokenUsed({
+    tokenType: "password_reset",
+    tokenId,
+  });
 }
 
 /**
  * Invalidate all password reset tokens for user
  */
 async function invalidateAllPasswordResetTokens(userId) {
-  await db
-    .prepare(
-      "UPDATE password_reset_tokens SET used_at = CURRENT_TIMESTAMP WHERE user_id = ? AND used_at IS NULL",
-    )
-    .run(userId);
+  await getAuthOneTimeTokenRepository().invalidateActiveTokensForUser({
+    tokenType: "password_reset",
+    userId,
+  });
 }
 
 // ==================== EMAIL VERIFICATION TOKENS ====================
@@ -704,12 +712,13 @@ async function createEmailVerificationToken(userId, options = {}) {
   const expiresAt = new Date();
   expiresAt.setDate(expiresAt.getDate() + config.emailVerificationExpiryDays);
 
-  await db
-    .prepare(
-      `INSERT INTO email_verification_tokens (id, user_id, token_hash, expires_at, email_normalized)
-     VALUES (?, ?, ?, ?, ?)`,
-    )
-    .run(tokenId, userId, tokenHash, expiresAt.toISOString(), emailNormalized);
+  await getAuthOneTimeTokenRepository().insertEmailVerificationToken({
+    id: tokenId,
+    userId,
+    tokenHash,
+    expiresAt: expiresAt.toISOString(),
+    emailNormalized,
+  });
 
   return {
     token: rawToken,
@@ -723,7 +732,7 @@ async function createEmailVerificationToken(userId, options = {}) {
  * Verify email verification token
  */
 async function verifyEmailVerificationToken(rawToken) {
-  return verifyOneTimeToken(rawToken, "email_verification_tokens");
+  return verifyOneTimeToken(rawToken, "email_verification");
 }
 
 /**
@@ -731,22 +740,20 @@ async function verifyEmailVerificationToken(rawToken) {
  * Used when the pending email target changes.
  */
 async function invalidateEmailVerificationTokens(userId) {
-  await db
-    .prepare(
-      "UPDATE email_verification_tokens SET used_at = CURRENT_TIMESTAMP WHERE user_id = ? AND used_at IS NULL",
-    )
-    .run(userId);
+  await getAuthOneTimeTokenRepository().invalidateActiveTokensForUser({
+    tokenType: "email_verification",
+    userId,
+  });
 }
 
 /**
  * Mark email verification token as used
  */
 async function markEmailVerificationTokenUsed(tokenId) {
-  await db
-    .prepare(
-      "UPDATE email_verification_tokens SET used_at = CURRENT_TIMESTAMP WHERE id = ?",
-    )
-    .run(tokenId);
+  await getAuthOneTimeTokenRepository().markTokenUsed({
+    tokenType: "email_verification",
+    tokenId,
+  });
 }
 
 // ==================== SESSION MANAGEMENT ====================
@@ -760,18 +767,13 @@ async function createSession(userId, sessionData = {}) {
   }
   const sessionId = generateId("sess");
 
-  await db
-    .prepare(
-      `INSERT INTO user_sessions (id, user_id, device_name, ip_address, user_agent, last_active_at)
-     VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
-    )
-    .run(
-      sessionId,
-      userId,
-      sessionData.deviceName || null,
-      sessionData.ipAddress || null,
-      sessionData.userAgent || null,
-    );
+  await getAuthSessionRepository().insertSession({
+    id: sessionId,
+    userId,
+    deviceName: sessionData.deviceName || null,
+    ipAddress: sessionData.ipAddress || null,
+    userAgent: sessionData.userAgent || null,
+  });
 
   return {
     id: sessionId,
@@ -786,45 +788,24 @@ async function createSession(userId, sessionData = {}) {
  * List active sessions for user (not revoked)
  */
 async function listSessions(userId) {
-  const rows = await db
-    .prepare(
-      `SELECT id, user_id, device_name, ip_address, user_agent, last_active_at, created_at
-       FROM user_sessions
-       WHERE user_id = ? AND revoked_at IS NULL
-       ORDER BY last_active_at DESC`,
-    )
-    .all(userId);
-  return rows.map((row) => ({
-    id: row.id,
-    userId: row.user_id,
-    deviceName: row.device_name,
-    ipAddress: row.ip_address,
-    userAgent: row.user_agent,
-    lastActiveAt: row.last_active_at,
-    createdAt: row.created_at,
-  }));
+  return getAuthSessionRepository().listActiveSessions(userId);
 }
 
 /**
  * Revoke a session
  */
 async function revokeSession(sessionId) {
-  await db
-    .prepare(
-      "UPDATE user_sessions SET revoked_at = CURRENT_TIMESTAMP WHERE id = ?",
-    )
-    .run(sessionId);
+  await getAuthSessionRepository().revokeSession(sessionId);
 }
 
 /**
  * Revoke all sessions except the current one
  */
 async function revokeAllSessionsExcept(userId, currentSessionId) {
-  await db
-    .prepare(
-      "UPDATE user_sessions SET revoked_at = CURRENT_TIMESTAMP WHERE user_id = ? AND id != ?",
-    )
-    .run(userId, currentSessionId);
+  await getAuthSessionRepository().revokeAllSessionsExcept(
+    userId,
+    currentSessionId,
+  );
 }
 
 // ==================== AUTH EVENTS (AUDIT) ====================
@@ -841,19 +822,14 @@ async function logAuthEvent({
 }) {
   const eventId = generateId("evt");
 
-  await db
-    .prepare(
-      `INSERT INTO auth_events (id, user_id, event_type, ip_address, user_agent, metadata)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-    )
-    .run(
-      eventId,
-      userId || null,
-      eventType,
-      ipAddress || null,
-      userAgent || null,
-      metadata ? JSON.stringify(metadata) : null,
-    );
+  await getAuthSecurityRepository().insertAuthEvent({
+    id: eventId,
+    userId: userId || null,
+    eventType,
+    ipAddress: ipAddress || null,
+    userAgent: userAgent || null,
+    metadataJson: metadata ? JSON.stringify(metadata) : null,
+  });
 
   return eventId;
 }
@@ -866,16 +842,10 @@ async function logAuthEvent({
  */
 async function incrementFailedLoginCount(userId) {
   // Atomic increment — prevents lost updates from concurrent failed logins
-  await db
-    .prepare(
-      "UPDATE users SET failed_login_count = COALESCE(failed_login_count, 0) + 1 WHERE id = ?",
-    )
-    .run(userId);
+  await getAuthSecurityRepository().incrementFailedLoginCount(userId);
 
   // Read back the atomically-incremented count for lockout decision
-  const user = await db
-    .prepare("SELECT failed_login_count FROM users WHERE id = ?")
-    .get(userId);
+  const user = await getAuthSecurityRepository().findLoginLockoutState(userId);
   const newCount = user?.failed_login_count || 0;
 
   if (newCount >= config.maxFailedLoginAttempts) {
@@ -889,9 +859,10 @@ async function incrementFailedLoginCount(userId) {
     const lockedUntil = new Date();
     lockedUntil.setMinutes(lockedUntil.getMinutes() + escalatedMinutes);
 
-    await db
-      .prepare("UPDATE users SET locked_until = ? WHERE id = ?")
-      .run(lockedUntil.toISOString(), userId);
+    await getAuthSecurityRepository().setAccountLockedUntil({
+      userId,
+      lockedUntil: lockedUntil.toISOString(),
+    });
   }
 }
 
@@ -899,9 +870,7 @@ async function incrementFailedLoginCount(userId) {
  * Check if account is locked
  */
 async function isAccountLocked(userId) {
-  const user = await db
-    .prepare("SELECT locked_until FROM users WHERE id = ?")
-    .get(userId);
+  const user = await getAuthSecurityRepository().findLoginLockoutState(userId);
 
   if (!user?.locked_until) {
     return false;
@@ -914,11 +883,7 @@ async function isAccountLocked(userId) {
  * Reset failed login count (on successful login)
  */
 async function resetFailedLoginCount(userId) {
-  await db
-    .prepare(
-      "UPDATE users SET failed_login_count = 0, locked_until = NULL WHERE id = ?",
-    )
-    .run(userId);
+  await getAuthSecurityRepository().resetFailedLoginCount(userId);
 }
 
 // ==================== ACCOUNT DELETION (GDPR Article 17) ====================
@@ -929,248 +894,102 @@ async function resetFailedLoginCount(userId) {
  * @param {string} userId - User ID to delete
  * @throws {Error} If user not found
  */
-async function deleteUserAccount(userId) {
-  // Verify user exists
-  const user = await db
-    .prepare("SELECT id FROM users WHERE id = ? AND deleted_at IS NULL")
-    .get(userId);
-  if (!user) {
-    throw new Error("User not found");
-  }
-
+async function deleteUserAccount(
+  userId,
+  { accountDeletionAuditLog = null, storageProvider = null } = {},
+) {
+  const accountDeletionRepository = createAccountDeletionRepository(db);
   const now = new Date().toISOString();
 
-  // Transaction for atomic deletion
-  await db.transaction(async () => {
-    // 0. ECON tombstone capture (P1-ECON): read identity + trial state BEFORE any
-    // deletes below remove the provider/entitlements rows. Persisted further down,
-    // before user_auth_providers is purged — all inside this one transaction.
-    const tombstoneProviders = await db
-      .prepare(
-        "SELECT provider, provider_user_id FROM user_auth_providers WHERE user_id = ?",
-      )
-      .all(userId);
-    const tombstoneTrialRow = await db
-      .prepare("SELECT trial_started_at FROM entitlements WHERE user_id = ?")
-      .get(userId);
-    const tombstoneHadTrial = !!tombstoneTrialRow?.trial_started_at;
+  await accountDeletionRepository.transaction(async (accountDeletionTx, txDb) => {
+    const gdprAuditRepository = createGdprAuditRepository(txDb);
 
-    // 1. Story data (deepest first)
-    await db
-      .prepare(
-        `
-      DELETE FROM story_turns WHERE session_id IN
-      (SELECT id FROM story_sessions WHERE user_id = ?)
-    `,
-      )
-      .run(userId);
-    await db
-      .prepare("DELETE FROM story_sessions WHERE user_id = ?")
-      .run(userId);
+    await accountDeletionTx.lockUserScopedTablesForAccountDeletion();
+    const user = await accountDeletionTx.findActiveUser(userId);
+    if (!user) {
+      throw new Error("User not found");
+    }
 
-    // 2. Share data (depends on tracks)
-    await db
-      .prepare(
-        `
-      DELETE FROM share_access_log WHERE share_token_id IN
-      (SELECT id FROM share_tokens WHERE track_id IN
-       (SELECT id FROM tracks WHERE user_id = ?))
-    `,
-      )
-      .run(userId);
-    await db
-      .prepare(
-        `
-      DELETE FROM share_tokens WHERE track_id IN
-      (SELECT id FROM tracks WHERE user_id = ?)
-    `,
-      )
-      .run(userId);
+    // Capture identity/trial state before provider and entitlement rows disappear.
+    const {
+      providers: tombstoneProviders,
+      hadTrial: tombstoneHadTrial,
+    } = await accountDeletionTx.getDeletionTombstoneContext(userId);
 
-    // 3. Track data (deepest first: jobs → track_versions → tracks)
-    await db
-      .prepare(
-        `
-      DELETE FROM jobs WHERE track_version_id IN
-      (SELECT id FROM track_versions WHERE track_id IN
-       (SELECT id FROM tracks WHERE user_id = ?))
-    `,
-      )
-      .run(userId);
-    await db
-      .prepare(
-        `
-      DELETE FROM track_versions WHERE track_id IN
-      (SELECT id FROM tracks WHERE user_id = ?)
-    `,
-      )
-      .run(userId);
-    await db.prepare("DELETE FROM tracks WHERE user_id = ?").run(userId);
+    // Tombstone the account before child cleanup. With the Postgres table locks
+    // above, concurrent account-owned writes either commit before this cascade
+    // sees them or wait until the deleted-user write guards reject them.
+    await accountDeletionTx.softDeleteUser({ userId, deletedAt: now });
+    await accountDeletionTx.anonymizeAuditLogsForUser(userId);
 
-    // 4. Poems
-    await db.prepare("DELETE FROM poems WHERE user_id = ?").run(userId);
+    await accountDeletionTx.deleteStoryRowsForUser(userId);
+    await accountDeletionTx.deleteShareRowsForUser(userId);
+    await accountDeletionTx.deleteTrackRowsForUser(userId);
+    await accountDeletionTx.deletePoemRowsForUser(userId);
+    await accountDeletionTx.deleteGiftRowsForUser(userId);
+    await accountDeletionTx.deleteBillingRowsForUser(userId);
 
-    // 5. Billing & entitlements
-    await db
-      .prepare("DELETE FROM credit_transactions WHERE user_id = ?")
-      .run(userId);
-    await db
-      .prepare("DELETE FROM purchase_receipts WHERE user_id = ?")
-      .run(userId);
-    await db.prepare("DELETE FROM subscriptions WHERE user_id = ?").run(userId);
-    await db.prepare("DELETE FROM entitlements WHERE user_id = ?").run(userId);
-
-    // 6. Voice data. Disable provider-side profile references before deleting
-    // parent voice rows so provider lifecycle evidence is preserved without raw ids.
-    const providerProfiles = await db
-      .prepare(
-        `SELECT id, voice_profile_id, provider, status
-         FROM voice_provider_profiles
-        WHERE user_id = ? AND deleted_at IS NULL`,
-      )
-      .all(userId);
+    // Voice data. Scrub provider-side raw IDs before deleting parent voice
+    // rows; the retained audit row below keeps only local lifecycle metadata.
+    const providerProfiles = await listProviderProfilesForUser(txDb, {
+      userId,
+    });
     if (providerProfiles.length > 0) {
-      await db
-        .prepare(
-          `UPDATE voice_provider_profiles
-            SET status = 'deleted',
-                provider_profile_id = NULL,
-                source_upload_url = NULL,
-                source_task_id = NULL,
-                source_audio_id = NULL,
-                last_error = ?,
-                deleted_at = ?,
-                updated_at = ?
-          WHERE user_id = ? AND deleted_at IS NULL`,
-        )
-        .run("account_deletion", now, now, userId);
-      await db
-        .prepare(
-          `INSERT INTO audit_logs (
-          id, user_id, action, resource_type, resource_id, metadata_json, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        )
-        .run(
-          `aud_${crypto.randomBytes(12).toString("hex")}`,
-          userId,
-          "voice_provider_profiles_deleted",
-          "user",
-          userId,
-          JSON.stringify({
-            reason: "account_deletion",
-            provider_profiles_deleted: providerProfiles.map((row) => ({
-              id: row.id,
-              voice_profile_id: row.voice_profile_id,
-              provider: row.provider,
-              status: row.status,
-            })),
-          }),
-          now,
-        );
+      await softDeleteProviderProfilesForUser(txDb, {
+        userId,
+        reason: "account_deletion",
+        deletedAt: now,
+      });
+      await accountDeletionTx.insertVoiceProviderProfilesDeletedAudit({
+        id: `aud_${crypto.randomBytes(12).toString("hex")}`,
+        userId,
+        providerProfiles,
+        createdAt: now,
+      });
     }
-    await db
-      .prepare("DELETE FROM voice_provider_jobs WHERE user_id = ?")
-      .run(userId);
+    await deleteVoiceProviderJobsForUser(txDb, { userId });
     // U3: token revocation goes through enrollment-domain service.
-    await revokeAllEnrollmentSessionTokensForUser(db, userId);
-    await db
-      .prepare("DELETE FROM enrollment_sessions WHERE user_id = ?")
-      .run(userId);
-    await db
-      .prepare("DELETE FROM voice_profiles WHERE user_id = ?")
-      .run(userId);
+    await revokeAllEnrollmentSessionTokensForUser(txDb, userId);
+    await accountDeletionTx.deleteEnrollmentAndVoiceRowsForUser(userId);
 
-    // 7. Rate limits
-    await db.prepare("DELETE FROM rate_limits WHERE user_id = ?").run(userId);
+    await accountDeletionTx.deleteRateLimitRowsForUser(userId);
+    await accountDeletionTx.scrubTelemetryAndAttributionRowsForUser(userId);
 
-    // 8. Auth tables (CASCADE handles most via FK constraints)
-    // Explicit deletes for tables that might not have CASCADE set up
-    // SECURITY NOTE: auth_events are ANONYMIZED (PII scrubbed) rather than deleted,
-    // so the security timeline survives GDPR erasure. The user row itself is
-    // soft-deleted + PII-scrubbed (step 9), so keeping user_id here is safe and
-    // preserves forensics (e.g. signup→delete→re-register velocity).
-    await db
-      .prepare(
-        "UPDATE auth_events SET ip_address = NULL, user_agent = NULL WHERE user_id = ?",
-      )
-      .run(userId);
-    await db
-      .prepare("DELETE FROM email_verification_tokens WHERE user_id = ?")
-      .run(userId);
-    await db
-      .prepare("DELETE FROM password_reset_tokens WHERE user_id = ?")
-      .run(userId);
-    await db
-      .prepare("DELETE FROM refresh_tokens WHERE user_id = ?")
-      .run(userId);
-    await db
-      .prepare("DELETE FROM token_families WHERE user_id = ?")
-      .run(userId);
-    await db.prepare("DELETE FROM user_sessions WHERE user_id = ?").run(userId);
+    // Retain auth_events as non-PII security evidence while clearing raw request data.
+    await accountDeletionTx.anonymizeAuthEventsForUser(userId);
+    await accountDeletionTx.deleteAuthTokenAndSessionRowsForUser(userId);
 
-    // ECON tombstone (P1-ECON): persist a salted one-way identity hash (captured
-    // at step 0) so this identity cannot delete→re-register to re-farm free
-    // credits. MUST be before the user_auth_providers DELETE, same transaction.
-    for (const p of tombstoneProviders) {
-      if (!p.provider || !p.provider_user_id) {
-        continue;
-      }
-      const hash = identityHash(p.provider, p.provider_user_id);
-      await db
-        .prepare(
-          `INSERT INTO granted_identities (identity_hash, grant_kind)
-           VALUES (?, 'signup')
-           ON CONFLICT (identity_hash) DO NOTHING`,
-        )
-        .run(hash);
-      if (tombstoneHadTrial) {
-        await db
-          .prepare(
-            `INSERT INTO granted_identities (identity_hash, grant_kind)
-             VALUES (?, 'trial')
-             ON CONFLICT (identity_hash) DO NOTHING`,
-          )
-          .run(hash);
-      }
+    await accountDeletionTx.insertGrantedIdentityTombstones({
+      identityHashes: tombstoneProviders
+        .filter((provider) => provider.provider && provider.provider_user_id)
+        .map((provider) =>
+          identityHash(provider.provider, provider.provider_user_id),
+        ),
+      hadTrial: tombstoneHadTrial,
+    });
+
+    await accountDeletionTx.deleteAuthProviderAndCredentialRowsForUser(userId);
+    await accountDeletionTx.deleteContactRowsForUser(userId);
+
+    // Emit retained no-PII GDPR/security evidence after all destructive steps,
+    // so any insert failure rolls the entire cascade back.
+    if (accountDeletionAuditLog) {
+      await gdprAuditRepository.insertAuditLog(accountDeletionAuditLog);
     }
 
-    await db
-      .prepare("DELETE FROM user_auth_providers WHERE user_id = ?")
-      .run(userId);
-    await db
-      .prepare("DELETE FROM user_credentials WHERE user_id = ?")
-      .run(userId);
+    await accountDeletionTx.insertAccountDeletedAuthEvent({
+      id: generateId("evt"),
+      userId,
+    });
 
-    // 8b. Purge user_contacts (GDPR PII residual). user_contacts is the
-    // "sole contact authority" and stores the user's real email + phone in
-    // plaintext (value_normalized/value_display). It has ON DELETE CASCADE on
-    // users(id), but step 9 SOFT-deletes the user row (UPDATE, not DELETE), so
-    // the cascade never fires — leaving authoritative PII behind even though
-    // users.email is anonymized below. Delete explicitly inside this txn.
-    await db.prepare("DELETE FROM user_contacts WHERE user_id = ?").run(userId);
-
-    // 9. Soft-delete user (preserve audit trail, anonymize PII)
-    await db
-      .prepare(
-        `
-      UPDATE users SET
-        email = 'deleted_' || id || '@deleted.local',
-        display_name = 'Deleted User',
-        avatar_url = NULL,
-        deleted_at = ?
-      WHERE id = ?
-    `,
-      )
-      .run(now, userId);
-
-    // 10. Emit a retained account_deleted event (no PII) so the security
-    // timeline records the deletion. Allowed by migration 119's CHECK extension.
-    await db
-      .prepare(
-        `INSERT INTO auth_events (id, user_id, event_type, ip_address, user_agent, metadata)
-         VALUES (?, ?, 'account_deleted', NULL, NULL, NULL)`,
-      )
-      .run(generateId("evt"), userId);
+    // External object deletion is irreversible, so keep it after every DB write
+    // that can fail. A storage failure still rolls back the DB transaction; a
+    // successful storage cleanup has no later DB work that can invalidate it.
+    await deleteAccountStorageArtifacts({
+      storageProvider,
+      userId,
+      logger: authLogger,
+    });
   });
 }
 
@@ -1189,9 +1008,8 @@ async function deleteUserAccount(userId) {
  * @returns {Promise<object>} export bundle
  */
 async function exportUserData(userId) {
-  const user = await db
-    .prepare("SELECT id FROM users WHERE id = ? AND deleted_at IS NULL")
-    .get(userId);
+  const dataExportRepository = getGdprDataExportRepository();
+  const user = await dataExportRepository.findActiveUser(userId);
   if (!user) {
     throw new Error("User not found");
   }
@@ -1227,35 +1045,13 @@ async function exportUserData(userId) {
       return out;
     });
 
-  // Section name → user-scoped SELECT. Top-level entities only (child rows like
-  // track_versions/story_turns are intentionally omitted to keep the bundle
-  // bounded; they can be added if a portability request specifically needs them).
-  const sections = {
-    profile: "SELECT * FROM users WHERE id = ?",
-    contacts: "SELECT * FROM user_contacts WHERE user_id = ?",
-    auth_providers:
-      "SELECT id, provider, provider_user_id, created_at FROM user_auth_providers WHERE user_id = ?",
-    entitlements: "SELECT * FROM entitlements WHERE user_id = ?",
-    subscriptions: "SELECT * FROM subscriptions WHERE user_id = ?",
-    purchases: "SELECT * FROM purchase_receipts WHERE user_id = ?",
-    credit_transactions: "SELECT * FROM credit_transactions WHERE user_id = ?",
-    tracks: "SELECT * FROM tracks WHERE user_id = ?",
-    poems: "SELECT * FROM poems WHERE user_id = ?",
-    voice_profiles: "SELECT * FROM voice_profiles WHERE user_id = ?",
-    enrollment_sessions: "SELECT * FROM enrollment_sessions WHERE user_id = ?",
-    story_sessions: "SELECT * FROM story_sessions WHERE user_id = ?",
-  };
-
-  const data = {};
-  for (const [name, sql] of Object.entries(sections)) {
-    try {
-      const stmt = await db.prepare(sql);
-      const rows = await stmt.all(userId);
-      data[name] = scrub(rows);
-    } catch (err) {
-      data[name] = { error: `unavailable: ${err.message}` };
-    }
-  }
+  const sections = await dataExportRepository.listUserExportSections(userId);
+  const data = Object.fromEntries(
+    Object.entries(sections).map(([name, rowsOrError]) => [
+      name,
+      Array.isArray(rowsOrError) ? scrub(rowsOrError) : rowsOrError,
+    ]),
+  );
 
   return {
     export_format: "json",

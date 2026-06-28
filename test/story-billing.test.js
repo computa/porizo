@@ -111,7 +111,14 @@ function makeConfirmedStoryContext(storyId) {
 }
 
 // Stub the poem generator to avoid real LLM calls
-let originalGeneratePoemFromStory;
+async function generatePoemFromStoryStub() {
+  return {
+    title: "Test Poem",
+    lines: ["Line one", "Line two", "Line three"],
+    provider: "test",
+    model: "test-model",
+  };
+}
 
 before(async () => {
   app = fastify({ logger: false });
@@ -119,16 +126,6 @@ before(async () => {
 
   originalGetStoryState = writer.getStoryState;
   originalGetStoryContext = writer.getStoryContext;
-
-  // Stub the poem generator module
-  const poemModule = require("../src/writer/poem");
-  originalGeneratePoemFromStory = poemModule.generatePoemFromStory;
-  poemModule.generatePoemFromStory = async () => ({
-    title: "Test Poem",
-    lines: ["Line one", "Line two", "Line three"],
-    provider: "test",
-    model: "test-model",
-  });
 
   registerStoryRoutes(app, {
     db: dbStub,
@@ -139,6 +136,7 @@ before(async () => {
     eventsService: null,
     getUserRiskLevel: async () => "low",
     subscriptionManager,
+    generatePoemFromStory: generatePoemFromStoryStub,
   });
 
   await app.ready();
@@ -147,8 +145,6 @@ before(async () => {
 after(async () => {
   writer.getStoryState = originalGetStoryState;
   writer.getStoryContext = originalGetStoryContext;
-  const poemModule = require("../src/writer/poem");
-  poemModule.generatePoemFromStory = originalGeneratePoemFromStory;
   await app.close();
 });
 

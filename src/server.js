@@ -1,7 +1,6 @@
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
-const fastify = require("fastify");
 const twilio = require("twilio");
 const { Resend } = require("resend");
 const { getDatabase } = require("./database");
@@ -15,6 +14,10 @@ const {
 const { newUuid, newShareId } = require("./utils/ids");
 const { ensureDir, parseJson, toJson, nowIso } = require("./utils/common");
 const { stableStringify } = require("./utils/stable-json");
+const {
+  buildShareUrlHelpers,
+  deriveSharePublicBaseUrl,
+} = require("./utils/share-urls");
 const {
   extractPolicyTermsFromMessage,
   expandPolicyTermVariants,
@@ -79,6 +82,30 @@ const { registerBillingRoutes } = require("./routes/billing");
 const { registerOnboardingRoutes } = require("./routes/onboarding");
 const { registerAdminRoutes } = require("./routes/admin");
 const { createStoryRepository } = require("./database/story-repository");
+const {
+  createPoemLibraryRepository,
+} = require("./database/poem-library-repository");
+const {
+  createTrackLibraryRepository,
+} = require("./database/track-library-repository");
+const {
+  createTrackVersionRepository,
+} = require("./database/track-version-repository");
+const {
+  createJobDurabilityRepository,
+} = require("./database/job-durability-repository");
+const {
+  createGiftWalletRepository,
+} = require("./database/gift-wallet-repository");
+const {
+  createGiftDispatchRepository,
+} = require("./database/gift-dispatch-repository");
+const {
+  createShareTokenRepository,
+} = require("./database/share-token-repository");
+const {
+  createIdentityRepository,
+} = require("./database/identity-repository");
 const writer = require("./writer");
 const adminAuthService = require("./services/admin-auth-service");
 const { createEventsService } = require("./services/events-service");
@@ -118,6 +145,12 @@ const { createHealthCheckService } = require("./workflows/health-check");
 const { buildTrackVersionUrls } = require("./services/track-urls");
 const { refreshAppleToken } = require("./services/apple-signin");
 const { startTagSyncJob } = require("./services/onesignal");
+const {
+  createFastifyApp,
+  registerFormUrlEncodedParser,
+  registerStaticAndSecurityBootstrap,
+} = require("./plugins/http-bootstrap");
+const { validationSchemas } = require("./schemas/http-validation");
 
 /**
  * Extract text content from lyrics object for moderation
@@ -168,19 +201,6 @@ function deriveRetrySanitizerProvider({ trackVersion, classification }) {
     return classification.provider.trim();
   }
   return null;
-}
-
-function deriveSharePublicBaseUrl(publicBaseUrl) {
-  try {
-    const parsed = new URL(publicBaseUrl);
-    if (parsed.hostname === "api.porizo.co") {
-      parsed.hostname = "porizo.co";
-      return parsed.origin;
-    }
-  } catch (_) {
-    // Fall through to the configured base URL for local/dev values.
-  }
-  return publicBaseUrl;
 }
 
 function normalizeHostForSecurity(host) {
@@ -287,28 +307,8 @@ function buildServer({
   oneSignalService = null,
 }) {
   let requireAdminRole; // Forward declaration — assigned by registerAdminRoutes below
-  const app = fastify({
-    logger: true,
-    bodyLimit: 1048576, // 1MB max body size to prevent JSON DoS
-    trustProxy: true, // Railway reverse proxy — read X-Forwarded-For for real client IP
-  });
-
-  app.addContentTypeParser(
-    "application/x-www-form-urlencoded",
-    { parseAs: "string" },
-    (_request, body, done) => {
-      try {
-        const params = new URLSearchParams(body);
-        const parsed = {};
-        for (const [key, value] of params.entries()) {
-          parsed[key] = value;
-        }
-        done(null, parsed);
-      } catch (err) {
-        done(err);
-      }
-    },
-  );
+  const app = createFastifyApp();
+  registerFormUrlEncodedParser(app);
 
   const publicBaseUrl =
     appConfig.PUBLIC_BASE_URL ||
@@ -404,6 +404,11 @@ function buildServer({
   // CDN signer for CloudFront signed URLs (optional)
   const cdnSignerInstance = cdnSigner;
 
+  const giftWalletRepository = createGiftWalletRepository(db);
+  const giftDispatchRepository = createGiftDispatchRepository(db);
+  const shareTokenRepository = createShareTokenRepository(db);
+  const identityRepository = createIdentityRepository(db);
+
   // Initialize billing services (use passed-in services or create new ones)
   const planConfigService =
     billingServices?.planConfigService || createPlanConfigService(db);
@@ -426,6 +431,7 @@ function buildServer({
     planConfigService,
     appleValidator,
     googleValidator,
+    giftWalletRepository,
     writeAuditLog: (entry) => addAuditEntry(entry),
   });
   const subscriptionManager = billingServices?.subscriptionManager
@@ -450,120 +456,17 @@ function buildServer({
   // Initialize story repository for persistent story sessions
   const storyRepository = createStoryRepository(db);
   writer.initWithRepository(storyRepository);
+  const poemLibraryRepository = createPoemLibraryRepository(db);
+  const trackLibraryRepository = createTrackLibraryRepository(db);
+  const trackVersionRepository = createTrackVersionRepository(db);
+  const jobDurabilityRepository = createJobDurabilityRepository(db);
 
   // Initialize events service for unified telemetry
   const eventsService = createEventsService(db);
   // In-process lock table to dedupe concurrent poem TTS generation per poem.
   const poemAudioGenerationLocks = new Map();
 
-  // Register static file serving for debug page (guarded)
-  if (enableDebugRoutes) {
-    app.register(require("@fastify/static"), {
-      root: path.join(process.cwd(), "public"),
-      prefix: "/",
-    });
-  }
-
-  // Register web-player static files
-  app.register(require("@fastify/static"), {
-    root: path.join(process.cwd(), "web-player"),
-    prefix: "/web-player/",
-    decorateReply: false, // Avoid decorator conflict with first registration
-  });
-
-  // Register poem-viewer static files
-  app.register(require("@fastify/static"), {
-    root: path.join(process.cwd(), "poem-viewer"),
-    prefix: "/poem-viewer/",
-    decorateReply: false,
-  });
-
-  // Register embed-player static files
-  app.register(require("@fastify/static"), {
-    root: path.join(process.cwd(), "embed-player"),
-    prefix: "/embed-player/",
-    decorateReply: false,
-  });
-
-  // Register public assets for landing page (CSS, images, favicon)
-  app.register(require("@fastify/static"), {
-    root: path.join(process.cwd(), "public/styles"),
-    prefix: "/styles/",
-    decorateReply: false,
-  });
-  app.register(require("@fastify/static"), {
-    root: path.join(process.cwd(), "public/assets"),
-    prefix: "/assets/",
-    decorateReply: false,
-  });
-  app.register(require("@fastify/static"), {
-    root: path.join(process.cwd(), "public/audio"),
-    prefix: "/audio/",
-    decorateReply: false,
-    maxAge: "7d",
-  });
-
-  // Apple App Site Association for universal links (explicit route for correct MIME type)
-  const aasaJson = JSON.stringify({
-    applinks: {
-      apps: [],
-      details: [
-        {
-          appID: "5VCH6937XM.com.porizo.PorizoApp",
-          paths: ["/play/*", "/s/*", "/poem/*"],
-        },
-      ],
-    },
-  });
-  app.get("/.well-known/apple-app-site-association", async (request, reply) => {
-    return reply.type("application/json").send(aasaJson);
-  });
-
-  // DB-07: CORS — allow same-origin + configured origins
-  if (!process.env.CORS_ORIGIN && process.env.NODE_ENV === "production") {
-    throw new Error(
-      "[SecurityGuard:CORS] CORS_ORIGIN must be set in production. Server cannot start with unrestricted CORS. Set CORS_ORIGIN to a comma-separated list of allowed origins.",
-    );
-  }
-  app.register(require("@fastify/cors"), {
-    origin: process.env.CORS_ORIGIN
-      ? process.env.CORS_ORIGIN.split(",")
-      : false,
-    credentials: true,
-  });
-
-  // DB-08: Security headers via Helmet
-  app.register(require("@fastify/helmet"), {
-    contentSecurityPolicy: false, // CSP managed separately for HTML pages
-    // Helmet's default `Cross-Origin-Resource-Policy: same-origin` triggers
-    // Chrome's ORB (Opaque Response Blocking) for external stylesheets and
-    // fonts loaded cross-origin (e.g., Google Fonts for the landing site),
-    // so headings were silently falling back to Georgia / Times. Relax to
-    // `cross-origin` — typical for marketing + API, still safe given no
-    // embedded credentialed APIs.
-    crossOriginResourcePolicy: { policy: "cross-origin" },
-  });
-
-  // Register multipart for file uploads
-  app.register(require("@fastify/multipart"), {
-    limits: { fileSize: 50 * 1024 * 1024 }, // 50MB max
-  });
-
-  // Rate limiting (used by /mcp; opt-in via route config.rateLimit).
-  app.register(require("@fastify/rate-limit"), {
-    global: false,
-  });
-
-  // Markdown content negotiation for marketing pages (Accept: text/markdown).
-  app.register(require("./plugins/markdown-negotiation"));
-
-  app.addContentTypeParser(
-    ["audio/wav", "application/octet-stream"],
-    { parseAs: "buffer" },
-    (request, body, done) => {
-      done(null, body);
-    },
-  );
+  registerStaticAndSecurityBootstrap(app, { enableDebugRoutes });
 
   // ============ Authentication Routes ============
   registerLegalRoutes(app, { db });
@@ -571,151 +474,9 @@ function buildServer({
   registerInternalSunoCallbackRoutes(app, { appConfig, sendError });
   registerMcpRoutes(app);
   registerBlogRoutes(app, { db, config: appConfig });
-  registerAuthRoutes(app, { db, subscriptionManager });
+  registerAuthRoutes(app, { db, subscriptionManager, storageProvider });
 
-  // ============ Input Validation Schemas ============
-  const schemas = {
-    deviceRegister: {
-      body: {
-        type: "object",
-        properties: {
-          device_id: { type: "string", maxLength: 128 },
-          platform: { type: "string", maxLength: 32 },
-          app_version: { type: "string", maxLength: 32 },
-          push_token: { type: "string", maxLength: 256 },
-        },
-        required: ["device_id", "platform"],
-        additionalProperties: false,
-      },
-    },
-    createTrack: {
-      body: {
-        type: "object",
-        properties: {
-          title: { type: "string", maxLength: 200 },
-          occasion: { type: "string", maxLength: 100 },
-          recipient_name: { type: "string", maxLength: 100 },
-          recipient_phone: { type: "string", maxLength: 32 },
-          recipient_channel: { type: "string", maxLength: 32 },
-          style: { type: "string", maxLength: 100 },
-          duration_target: { type: "integer", minimum: 30, maximum: 180 },
-          voice_mode: { type: "string", enum: ["user_voice", "ai_voice"] },
-          voice_gender: { type: "string", enum: ["male", "female"] },
-          message: { type: "string", maxLength: 3000 },
-          // Story context fields for enhanced lyrics generation
-          relationship_type: { type: "string", maxLength: 50 },
-          years_known: { type: "integer", minimum: 0, maximum: 100 },
-          specific_memory: { type: "string", maxLength: 2000 },
-          special_phrases: { type: "string", maxLength: 500 },
-          what_makes_them_special: { type: "string", maxLength: 2000 },
-          // AI-generated follow-up question answers
-          memory_answers: {
-            type: "array",
-            items: {
-              type: "object",
-              properties: {
-                question_id: { type: "string", maxLength: 20 },
-                question: { type: "string", maxLength: 500 },
-                answer: { type: "string", maxLength: 1000 },
-              },
-              required: ["question_id", "question", "answer"],
-            },
-            maxItems: 5,
-          },
-        },
-        additionalProperties: false,
-      },
-    },
-    createVersion: {
-      body: {
-        type: "object",
-        properties: {
-          render_type: { type: "string", enum: ["preview", "full"] },
-          parent_version_id: { type: "string", format: "uuid" },
-          params: { type: "object" },
-        },
-        additionalProperties: false,
-      },
-    },
-    enrollmentStart: {
-      body: {
-        type: "object",
-        required: ["consent_accepted"],
-        properties: {
-          consent_accepted: { type: "boolean", const: true },
-          consent_version: { type: "string", maxLength: 50 },
-          // U2/U17: explicit Suno-persona scope grant (separate from general
-          // enrollment consent). Either form is accepted:
-          //   consent_scopes: ["voice_suno_persona_v1", ...]
-          //   voice_suno_persona_consent: true (boolean shortcut)
-          consent_scopes: {
-            type: "array",
-            items: { type: "string", maxLength: 100 },
-            maxItems: 16,
-          },
-          voice_suno_persona_consent: { type: "boolean" },
-        },
-        additionalProperties: false,
-      },
-    },
-    enrollmentComplete: {
-      body: {
-        type: "object",
-        required: ["session_id"],
-        properties: {
-          session_id: { type: "string", format: "uuid" },
-          // Late-grant of persona consent: client may opt in at completion
-          // time even if /start did not include the scope. Same shape as
-          // enrollmentStart so the gate is consistent.
-          consent_scopes: {
-            type: "array",
-            items: { type: "string", maxLength: 100 },
-            maxItems: 16,
-          },
-          voice_suno_persona_consent: { type: "boolean" },
-        },
-        additionalProperties: false,
-      },
-    },
-    shareClaim: {
-      body: {
-        type: "object",
-        properties: {
-          device_id: { type: "string", minLength: 1, maxLength: 255 },
-          platform: { type: "string", enum: ["ios", "android", "web"] },
-          app_version: { type: "string", maxLength: 20 },
-          pin: { type: "string", pattern: "^[0-9]{6}$" },
-          receiver_session_id: { type: "string", pattern: "^rs_[a-f0-9]{24}$" },
-          receiver_session_secret: {
-            type: "string",
-            pattern: "^[a-f0-9]{48}$",
-          },
-        },
-        additionalProperties: false,
-      },
-    },
-    generateLyrics: {
-      body: {
-        type: "object",
-        properties: {
-          custom_prompt: { type: "string", maxLength: 500 },
-        },
-        additionalProperties: false,
-      },
-    },
-    memoryQuestions: {
-      body: {
-        type: "object",
-        required: ["memory"],
-        properties: {
-          memory: { type: "string", minLength: 5, maxLength: 500 },
-          occasion: { type: "string", maxLength: 100 },
-          recipient_name: { type: "string", maxLength: 100 },
-        },
-        additionalProperties: false,
-      },
-    },
-  };
+  const schemas = validationSchemas;
 
   function sendError(reply, statusCode, error, message, details) {
     const payload = { error, message };
@@ -929,6 +690,43 @@ function buildServer({
           sendError(reply, 401, "INVALID_TOKEN", "Invalid access token.");
           return null;
         }
+        const user = await db
+          .prepare("SELECT id FROM users WHERE id = ? AND deleted_at IS NULL")
+          .get(userId);
+        if (!user) {
+          sendError(
+            reply,
+            401,
+            "INVALID_TOKEN",
+            "Invalid or expired access token.",
+          );
+          return null;
+        }
+        const sessionId = payload?.sid;
+        if (!sessionId) {
+          sendError(
+            reply,
+            401,
+            "INVALID_TOKEN",
+            "Invalid or expired access token.",
+          );
+          return null;
+        }
+        const session = await db
+          .prepare(
+            "SELECT id FROM user_sessions WHERE id = ? AND user_id = ? AND revoked_at IS NULL",
+          )
+          .get(sessionId, userId);
+        if (!session) {
+          sendError(
+            reply,
+            401,
+            "INVALID_TOKEN",
+            "Invalid or expired access token.",
+          );
+          return null;
+        }
+        request.sessionId = sessionId;
         await ensureUser(userId);
         return userId;
       } catch (err) {
@@ -952,7 +750,10 @@ function buildServer({
       }
     }
 
-    if (allowAnonUserId && process.env.NODE_ENV !== "production") {
+    const authFallbackEnv = process.env.NODE_ENV;
+    const allowDevAuthFallback =
+      authFallbackEnv === "development" || authFallbackEnv === "test";
+    if (allowAnonUserId && allowDevAuthFallback) {
       const userId = request.headers["x-user-id"];
       if (!userId || typeof userId !== "string") {
         sendError(reply, 401, "AUTH_REQUIRED", "Missing x-user-id header.");
@@ -1021,142 +822,22 @@ function buildServer({
     return appConfig.STREAM_BASE_URL;
   }
 
-  function buildShareAppDownloadUrl({ shareId: _shareId, kind = "song" }) {
-    const query = new URLSearchParams({
-      channel: "appstore",
-      utm_source: "share_player",
-      utm_medium: "recipient_loop",
-      utm_campaign: "shared_song_recipient",
-      utm_content: `${kind}_generic_install`,
-    });
-    return `${publicBaseUrl}/download?${query.toString()}`;
-  }
-
-  function buildPlayShareUrl(
-    shareId,
-    { versioned = true, socialCacheToken = null } = {},
-  ) {
-    const params = new URLSearchParams();
-    if (versioned && shareCoverVersion) {
-      params.set("sv", String(shareCoverVersion));
-    }
-    if (socialCacheToken) {
-      params.set("smv", String(socialCacheToken).slice(0, 64));
-    }
-    const query = params.toString();
-    return `${sharePublicBaseUrl}/play/${shareId}${query ? `?${query}` : ""}`;
-  }
-
-  function buildFreshPlayShareUrl(shareId) {
-    return buildPlayShareUrl(shareId, {
-      socialCacheToken: Date.now(),
-    });
-  }
-
-  function buildPoemShareUrl(shareId, { versioned = true } = {}) {
-    if (!versioned || !shareCoverVersion) {
-      return `${sharePublicBaseUrl}/poem/${shareId}`;
-    }
-    return `${sharePublicBaseUrl}/poem/${shareId}?sv=${encodeURIComponent(String(shareCoverVersion))}`;
-  }
-
-  function buildGiftShareUrl(shareId, { versioned = true } = {}) {
-    if (!versioned || !shareCoverVersion) {
-      return `${sharePublicBaseUrl}/g/${shareId}`;
-    }
-    return `${sharePublicBaseUrl}/g/${shareId}?sv=${encodeURIComponent(String(shareCoverVersion))}`;
-  }
-
-  function buildRequestedShareUrl(request, expectedPath, fallbackUrl) {
-    const fallback = fallbackUrl;
-    const rawUrl = request?.raw?.url;
-    if (!rawUrl || typeof rawUrl !== "string") {
-      return fallback;
-    }
-    try {
-      const parsed = new URL(rawUrl, sharePublicBaseUrl);
-      if (parsed.pathname !== expectedPath) {
-        return fallback;
-      }
-      return parsed.toString();
-    } catch (_) {
-      return fallback;
-    }
-  }
-
-  function buildRequestedPlayShareUrl(request, shareId) {
-    return buildRequestedShareUrl(
-      request,
-      `/play/${shareId}`,
-      buildPlayShareUrl(shareId),
-    );
-  }
-
-  function buildRequestedPoemShareUrl(request, shareId) {
-    return buildRequestedShareUrl(
-      request,
-      `/poem/${shareId}`,
-      buildPoemShareUrl(shareId),
-    );
-  }
-
-  function extractSocialCacheToken(request) {
-    const rawUrl = request?.raw?.url;
-    if (!rawUrl || typeof rawUrl !== "string") {
-      return null;
-    }
-    try {
-      const parsed = new URL(rawUrl, publicBaseUrl);
-      const tokenKeys = ["smv", "fbv", "xv", "igv", "ttv", "pv"];
-      for (const key of tokenKeys) {
-        const value = parsed.searchParams.get(key);
-        if (value && String(value).trim()) {
-          return String(value).slice(0, 64);
-        }
-      }
-    } catch (_) {
-      return null;
-    }
-    return null;
-  }
-
-  function buildShareCoverUrl(
-    shareId,
-    { socialCacheToken, artworkVersion, variant } = {},
-  ) {
-    const params = new URLSearchParams();
-    if (shareCoverVersion) {
-      params.set("v", String(shareCoverVersion));
-    }
-    if (socialCacheToken) {
-      params.set("smv", String(socialCacheToken));
-    }
-    // Artwork generated_at as a separate cache-bust token. When recipient name
-    // or occasion changes, artwork is regenerated and this timestamp shifts,
-    // forcing WhatsApp/iMessage crawlers to re-fetch the OG card.
-    if (artworkVersion) {
-      params.set("av", String(artworkVersion));
-    }
-    if (variant) {
-      params.set("variant", String(variant));
-    }
-    const query = params.toString();
-    const suffix = query ? `?${query}` : "";
-    return `${sharePublicBaseUrl}/share/${shareId}/cover.jpg${suffix}`;
-  }
-
-  function buildPoemOgImageUrl(shareId, { socialCacheToken } = {}) {
-    const params = new URLSearchParams();
-    if (shareCoverVersion) {
-      params.set("v", String(shareCoverVersion));
-    }
-    if (socialCacheToken) {
-      params.set("smv", String(socialCacheToken));
-    }
-    const query = params.toString();
-    const suffix = query ? `?${query}` : "";
-    return `${sharePublicBaseUrl}/poem/${shareId}/og-image.png${suffix}`;
-  }
+  const {
+    buildShareAppDownloadUrl,
+    buildPlayShareUrl,
+    buildFreshPlayShareUrl,
+    buildPoemShareUrl,
+    buildGiftShareUrl,
+    buildRequestedPlayShareUrl,
+    buildRequestedPoemShareUrl,
+    extractSocialCacheToken,
+    buildShareCoverUrl,
+    buildPoemOgImageUrl,
+  } = buildShareUrlHelpers({
+    publicBaseUrl,
+    sharePublicBaseUrl,
+    shareCoverVersion,
+  });
 
   function normalizeVariantName(value, allowedVariants) {
     if (value === null || value === undefined) {
@@ -1844,230 +1525,24 @@ function buildServer({
     return normalizeGiftChannels(parsed);
   }
 
-  function isUniqueConstraintError(err) {
-    const code = String(err?.code || "").toUpperCase();
-    const message = String(err?.message || "");
-    if (code === "23505" || code.includes("SQLITE_CONSTRAINT")) {
-      return true;
-    }
-    return (
-      message.includes("UNIQUE") || message.toLowerCase().includes("duplicate")
-    );
-  }
-
   async function ensureGiftWalletRow(userId) {
-    const now = nowIso();
-    await db
-      .prepare(
-        `INSERT INTO gift_wallet (user_id, balance, updated_at)
-       VALUES (?, 0, ?)
-       ON CONFLICT(user_id) DO NOTHING`,
-      )
-      .run(userId, now);
-
-    const wallet = await db
-      .prepare(
-        "SELECT user_id, balance, updated_at FROM gift_wallet WHERE user_id = ?",
-      )
-      .get(userId);
-    return {
-      userId: wallet?.user_id || userId,
-      balance: Number(wallet?.balance || 0),
-      updatedAt: wallet?.updated_at || now,
-    };
+    return giftWalletRepository.ensureRow(userId);
   }
 
-  async function applyGiftWalletTransaction({
-    userId,
-    type,
-    amount,
-    source = null,
-    referenceType = null,
-    referenceId = null,
-    description = null,
-    metadata = null,
-    idempotencyKey = null,
-    externalQuery = null,
-  }) {
-    const numAmount = Number(amount || 0);
-    const timestamp = nowIso();
+  async function getGiftWalletBalance(userId, options) {
+    return giftWalletRepository.getBalance(userId, options);
+  }
 
-    // C2: When externalQuery is provided, run inside the caller's transaction
-    // instead of creating a new one. This enables atomic receipt + wallet credit.
-    const execute = async (query) => {
-      await query(
-        `INSERT INTO gift_wallet (user_id, balance, updated_at)
-         VALUES (?, 0, ?)
-         ON CONFLICT(user_id) DO NOTHING`,
-        [userId, timestamp],
-      );
+  async function hasGiftWalletReceiptCredit(args) {
+    return giftWalletRepository.hasReceiptCredit(args);
+  }
 
-      if (idempotencyKey) {
-        const existingResult = await query(
-          `SELECT id, balance_after
-           FROM gift_wallet_transactions
-           WHERE user_id = ? AND idempotency_key = ?
-           ORDER BY created_at DESC
-           LIMIT 1`,
-          [userId, idempotencyKey],
-        );
-        const existing = existingResult?.rows?.[0];
-        if (existing) {
-          return {
-            transactionId: existing.id,
-            balanceAfter: Number(existing.balance_after || 0),
-            idempotent: true,
-          };
-        }
-      }
-
-      let balanceBefore;
-      let balanceAfter;
-
-      // BILL-18: Cap wallet balance to prevent unbounded accumulation
-      const MAX_WALLET_BALANCE = 100000;
-
-      if (db.isPostgres) {
-        const updatedResult = await query(
-          "UPDATE gift_wallet SET balance = balance + ?, updated_at = ? WHERE user_id = ? AND (balance + ?) >= 0 AND (balance + ?) <= ? RETURNING balance",
-          [
-            numAmount,
-            timestamp,
-            userId,
-            numAmount,
-            numAmount,
-            MAX_WALLET_BALANCE,
-          ],
-        );
-        const updated = updatedResult?.rows?.[0];
-        if (!updated) {
-          const err = new Error("INSUFFICIENT_GIFT_TOKENS");
-          err.code = "INSUFFICIENT_GIFT_TOKENS";
-          throw err;
-        }
-        balanceAfter = Number(updated.balance);
-        balanceBefore = balanceAfter - numAmount;
-      } else {
-        const updatedResult = await query(
-          "UPDATE gift_wallet SET balance = balance + ?, updated_at = ? WHERE user_id = ? AND (balance + ?) >= 0 AND (balance + ?) <= ?",
-          [
-            numAmount,
-            timestamp,
-            userId,
-            numAmount,
-            numAmount,
-            MAX_WALLET_BALANCE,
-          ],
-        );
-        if (!updatedResult?.rowCount) {
-          const err = new Error("INSUFFICIENT_GIFT_TOKENS");
-          err.code = "INSUFFICIENT_GIFT_TOKENS";
-          throw err;
-        }
-        const walletResult = await query(
-          "SELECT balance FROM gift_wallet WHERE user_id = ?",
-          [userId],
-        );
-        const walletRow = walletResult?.rows?.[0];
-        balanceAfter = Number(walletRow?.balance || 0);
-        balanceBefore = balanceAfter - numAmount;
-      }
-
-      const transactionId = `gwtx_${crypto.randomBytes(12).toString("hex")}`;
-      try {
-        await query(
-          `INSERT INTO gift_wallet_transactions (
-            id, user_id, type, amount, balance_before, balance_after,
-            source, reference_type, reference_id, description, metadata_json, idempotency_key, created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [
-            transactionId,
-            userId,
-            type,
-            numAmount,
-            balanceBefore,
-            balanceAfter,
-            source,
-            referenceType,
-            referenceId,
-            description,
-            toJson(metadata || {}),
-            idempotencyKey,
-            timestamp,
-          ],
-        );
-      } catch (err) {
-        if (idempotencyKey && isUniqueConstraintError(err)) {
-          // Another request committed the same idempotency key after our pre-check.
-          // Revert this request's balance mutation before returning the existing tx.
-          const revertResult = await query(
-            "UPDATE gift_wallet SET balance = balance - ?, updated_at = ? WHERE user_id = ? AND balance >= ?",
-            [numAmount, timestamp, userId, numAmount],
-          );
-          if (revertResult.rowCount === 0) {
-            console.warn("[GiftWallet] Revert skipped after idempotency race", {
-              userId,
-              amount: numAmount,
-            });
-          }
-          const existingResult = await query(
-            `SELECT id, balance_after
-             FROM gift_wallet_transactions
-             WHERE user_id = ? AND idempotency_key = ?
-             ORDER BY created_at DESC
-             LIMIT 1`,
-            [userId, idempotencyKey],
-          );
-          const existing = existingResult?.rows?.[0];
-          if (existing) {
-            return {
-              transactionId: existing.id,
-              balanceAfter: Number(existing.balance_after || 0),
-              idempotent: true,
-            };
-          }
-        }
-        throw err;
-      }
-
-      return { transactionId, balanceAfter, idempotent: false };
-    };
-
-    if (externalQuery) {
-      return execute(externalQuery);
-    }
-    return db.transaction(execute);
+  async function applyGiftWalletTransaction(args) {
+    return giftWalletRepository.applyTransaction(args);
   }
 
   async function getGiftWalletSummary(userId, limit = 20) {
-    const wallet = await ensureGiftWalletRow(userId);
-    const rows = await db
-      .prepare(
-        `SELECT id, type, amount, balance_before, balance_after, source, reference_type, reference_id, description, metadata_json, created_at
-       FROM gift_wallet_transactions
-       WHERE user_id = ?
-       ORDER BY created_at DESC
-       LIMIT ?`,
-      )
-      .all(userId, Math.max(1, Math.min(Number(limit) || 20, 100)));
-
-    return {
-      balance: wallet.balance,
-      updated_at: wallet.updatedAt,
-      transactions: rows.map((row) => ({
-        id: row.id,
-        type: row.type,
-        amount: Number(row.amount || 0),
-        balance_before: Number(row.balance_before || 0),
-        balance_after: Number(row.balance_after || 0),
-        source: row.source,
-        reference_type: row.reference_type,
-        reference_id: row.reference_id,
-        description: row.description,
-        metadata: parseJson(row.metadata_json, {}, `gift_wallet_tx_${row.id}`),
-        created_at: row.created_at,
-      })),
-    };
+    return giftWalletRepository.getSummary(userId, limit);
   }
 
   async function ensureTrackGiftShareToken({
@@ -2080,11 +1555,8 @@ function buildServer({
     requireAppClaim = true,
     externalQuery = null,
   }) {
-    const query = externalQuery || db.query.bind(db);
-    const trackResult = await query("SELECT * FROM tracks WHERE id = ?", [
-      trackId,
-    ]);
-    const track = trackResult?.rows?.[0] || null;
+    const query = externalQuery || null;
+    const track = await trackVersionRepository.findTrackById(trackId, query);
     if (!track || track.user_id !== senderUserId || track.deleted_at) {
       const err = new Error("TRACK_NOT_FOUND");
       err.code = "TRACK_NOT_FOUND";
@@ -2092,11 +1564,11 @@ function buildServer({
     }
 
     const resolvedVersionNum = Number(versionNum || track.latest_version || 1);
-    const trackVersionResult = await query(
-      "SELECT * FROM track_versions WHERE track_id = ? AND version_num = ?",
-      [track.id, resolvedVersionNum],
-    );
-    const trackVersion = trackVersionResult?.rows?.[0] || null;
+    const trackVersion = await trackVersionRepository.findByTrackIdAndVersion({
+      trackId: track.id,
+      versionNum: resolvedVersionNum,
+      query,
+    });
     if (!trackVersion) {
       const err = new Error("VERSION_NOT_FOUND");
       err.code = "VERSION_NOT_FOUND";
@@ -2322,57 +1794,26 @@ function buildServer({
     nextRetryAt = null,
     externalQuery = null,
   }) {
-    const query = externalQuery || db.query.bind(db);
-    const timestamp = nowIso();
-
-    for (const channel of channels) {
-      const recipient = channel === "sms" ? recipientPhone : recipientEmail;
-      if (!recipient) continue;
-      const providerName = channel === "sms" ? "twilio" : "resend";
-
-      await query(
-        `INSERT INTO gift_delivery_outbox (
-          id, gift_order_id, channel, recipient, status, attempt_count,
-          provider_message_id, last_error, send_after, next_retry_at, last_attempt_at, locked_at,
-          payload_json, created_at, updated_at, provider_name, first_queued_at, first_attempt_started_at,
-          provider_accepted_at, receipt_status, receipt_event_at, receipt_updated_at, receipt_payload_json
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          newUuid(),
-          giftOrderId,
-          channel,
-          recipient,
-          "pending",
-          Math.max(0, Number(baselineAttemptCount || 0)),
-          null,
-          null,
-          sendAtIso,
-          nextRetryAt || sendAtIso,
-          null,
-          null,
-          toJson({}),
-          timestamp,
-          timestamp,
-          providerName,
-          timestamp,
-          null,
-          null,
-          null,
-          null,
-          null,
-          null,
-        ],
-      );
-    }
+    await giftDispatchRepository.createOutboxRows({
+      giftOrderId,
+      channels,
+      recipientPhone,
+      recipientEmail,
+      sendAtIso,
+      baselineAttemptCount,
+      nextRetryAt,
+      timestamp: nowIso(),
+      query: externalQuery,
+    });
   }
 
   async function ensureGiftDeliveryOutboxRows(gift, externalQuery = null) {
     const query = externalQuery || db.query.bind(db);
-    const existingResult = await query(
-      "SELECT id FROM gift_delivery_outbox WHERE gift_order_id = ? LIMIT 1",
-      [gift.id],
-    );
-    if ((existingResult?.rows || []).length > 0) {
+    const hasRows = await giftDispatchRepository.hasOutboxRows({
+      giftOrderId: gift.id,
+      query,
+    });
+    if (hasRows) {
       return;
     }
 
@@ -2426,22 +1867,15 @@ function buildServer({
     payload = {},
     createdAt,
   }) {
-    await db
-      .prepare(
-        `INSERT INTO gift_dispatch_attempts (
-        id, gift_order_id, channel, status, provider_message_id, error_message, payload_json, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        newUuid(),
-        giftId,
-        channel,
-        status,
-        providerMessageId,
-        errorMessage,
-        toJson(payload),
-        createdAt,
-      );
+    await giftDispatchRepository.recordDispatchAttempt({
+      giftId,
+      channel,
+      status,
+      providerMessageId,
+      errorMessage,
+      payload,
+      createdAt,
+    });
   }
 
   async function markGiftDeliverySent({
@@ -2450,36 +1884,12 @@ function buildServer({
     payloadMeta,
     sentAt,
   }) {
-    await db
-      .prepare(
-        `UPDATE gift_delivery_outbox
-       SET status = 'sent',
-           attempt_count = attempt_count + 1,
-           provider_message_id = ?,
-           last_error = NULL,
-           next_retry_at = NULL,
-           last_attempt_at = ?,
-           provider_accepted_at = COALESCE(provider_accepted_at, ?),
-           receipt_status = COALESCE(receipt_status, 'accepted'),
-           receipt_event_at = COALESCE(receipt_event_at, ?),
-           receipt_updated_at = ?,
-           receipt_payload_json = ?,
-           locked_at = NULL,
-           payload_json = ?,
-           updated_at = ?
-       WHERE id = ?`,
-      )
-      .run(
-        providerMessageId,
-        sentAt,
-        sentAt,
-        sentAt,
-        sentAt,
-        toJson(payloadMeta),
-        toJson(payloadMeta),
-        sentAt,
-        deliveryId,
-      );
+    await giftDispatchRepository.markDeliverySent({
+      deliveryId,
+      providerMessageId,
+      payloadMeta,
+      sentAt,
+    });
   }
 
   async function markGiftDeliveryFailed({
@@ -2489,28 +1899,13 @@ function buildServer({
     nextRetryAt,
     failedAt,
   }) {
-    await db
-      .prepare(
-        `UPDATE gift_delivery_outbox
-       SET status = 'failed',
-           attempt_count = ?,
-           last_error = ?,
-           next_retry_at = ?,
-           last_attempt_at = ?,
-           receipt_updated_at = ?,
-           locked_at = NULL,
-           updated_at = ?
-       WHERE id = ?`,
-      )
-      .run(
-        attemptCount,
-        String(errorMessage || "").slice(0, 500),
-        nextRetryAt,
-        failedAt,
-        failedAt,
-        failedAt,
-        deliveryId,
-      );
+    await giftDispatchRepository.markDeliveryFailed({
+      deliveryId,
+      attemptCount,
+      errorMessage,
+      nextRetryAt,
+      failedAt,
+    });
   }
 
   async function applyGiftDeliveryReceipt({
@@ -2537,16 +1932,10 @@ function buildServer({
       return { updated: false, reason: "missing_provider_message_id" };
     }
 
-    const delivery = await db
-      .prepare(
-        `SELECT gdo.*, go.id as gift_id, go.status as gift_status
-       FROM gift_delivery_outbox gdo
-       JOIN gift_orders go ON go.id = gdo.gift_order_id
-       WHERE gdo.provider_message_id = ?
-       ORDER BY gdo.updated_at DESC
-       LIMIT 1`,
-      )
-      .get(providerMessageId);
+    const delivery =
+      await giftDispatchRepository.findDeliveryByProviderMessageId(
+        providerMessageId,
+      );
 
     if (!delivery) {
       await createGiftIncident({
@@ -2575,24 +1964,14 @@ function buildServer({
     });
 
     if (nextState.shouldUpdate) {
-      await db
-        .prepare(
-          `UPDATE gift_delivery_outbox
-         SET receipt_status = ?,
-             receipt_event_at = ?,
-             receipt_updated_at = ?,
-             receipt_payload_json = ?,
-             updated_at = ?
-         WHERE id = ?`,
-        )
-        .run(
-          nextState.nextStatus,
-          receiptEventAt || nowIso(),
-          nowIso(),
-          toJson(receiptPayload),
-          nowIso(),
-          delivery.id,
-        );
+      const updatedAt = nowIso();
+      await giftDispatchRepository.updateDeliveryReceipt({
+        deliveryId: delivery.id,
+        receiptStatus: nextState.nextStatus,
+        receiptEventAt: receiptEventAt || updatedAt,
+        receiptPayload,
+        updatedAt,
+      });
     }
 
     if (
@@ -2643,17 +2022,10 @@ function buildServer({
   }
 
   async function recoverStaleGiftDeliveryRows(giftId, now) {
-    await db
-      .prepare(
-        `UPDATE gift_delivery_outbox
-       SET status = 'failed',
-           last_error = COALESCE(last_error, 'stale_channel_send_recovered'),
-           next_retry_at = ?,
-           locked_at = NULL,
-           updated_at = ?
-       WHERE gift_order_id = ? AND status = 'sending'`,
-      )
-      .run(now, now, giftId);
+    await giftDispatchRepository.recoverSendingRowsForGift({
+      giftOrderId: giftId,
+      now,
+    });
   }
 
   function summarizeGiftDeliveryRows({
@@ -2723,18 +2095,16 @@ function buildServer({
     giftId,
     { outboxRows = null, finalStatus = null } = {},
   ) {
-    const gift = await db
-      .prepare("SELECT * FROM gift_orders WHERE id = ?")
-      .get(giftId);
+    const gift = await giftDispatchRepository.findGiftOrder({
+      giftOrderId: giftId,
+    });
     if (!gift) return null;
 
     const rows =
       outboxRows ||
-      (await db
-        .prepare(
-          "SELECT * FROM gift_delivery_outbox WHERE gift_order_id = ? ORDER BY created_at ASC",
-        )
-        .all(giftId));
+      (await giftDispatchRepository.listOutboxRowsForGift({
+        giftOrderId: giftId,
+      }));
 
     const firstAttemptStartedAt =
       rows
@@ -2766,66 +2136,35 @@ function buildServer({
       ? gift.overdue_detected_at
       : null;
 
-    await db
-      .prepare(
-        `UPDATE gift_orders
-       SET first_dispatch_started_at = COALESCE(first_dispatch_started_at, ?),
-           last_dispatch_completed_at = ?,
-           last_successful_delivery_at = ?,
-           delivery_lag_ms = COALESCE(?, delivery_lag_ms),
-           overdue_detected_at = ?,
-           updated_at = ?
-       WHERE id = ?`,
-      )
-      .run(
-        firstAttemptStartedAt,
-        lastDispatchCompletedAt,
-        lastSuccessfulDeliveryAt,
-        deliveryLagMs,
-        overdueDetectedAt,
-        nowIso(),
-        giftId,
-      );
+    await giftDispatchRepository.updateGiftAggregateObservability({
+      giftOrderId: giftId,
+      firstAttemptStartedAt,
+      lastDispatchCompletedAt,
+      lastSuccessfulDeliveryAt,
+      deliveryLagMs,
+      overdueDetectedAt,
+      updatedAt: nowIso(),
+    });
 
-    return db.prepare("SELECT * FROM gift_orders WHERE id = ?").get(giftId);
+    return giftDispatchRepository.findGiftOrder({ giftOrderId: giftId });
   }
 
   async function syncGiftDeliveryShareDispatch(gift, dispatchedAt) {
-    if (gift.content_type === "song") {
-      await db
-        .prepare(
-          "UPDATE share_tokens SET dispatched_at = ?, dispatch_at = COALESCE(dispatch_at, ?), gift_order_id = COALESCE(gift_order_id, ?) WHERE id = ?",
-        )
-        .run(dispatchedAt, gift.send_at, gift.id, gift.share_token_id);
-      return;
-    }
-
-    if (gift.content_type === "poem") {
-      await db
-        .prepare(
-          "UPDATE poem_share_tokens SET dispatched_at = ?, dispatch_at = COALESCE(dispatch_at, ?), gift_order_id = COALESCE(gift_order_id, ?) WHERE id = ?",
-        )
-        .run(dispatchedAt, gift.send_at, gift.id, gift.share_token_id);
-    }
+    await shareTokenRepository.markGiftShareDispatched({
+      contentType: gift.content_type,
+      shareTokenId: gift.share_token_id,
+      giftOrderId: gift.id,
+      dispatchedAt,
+      scheduledAt: gift.send_at,
+    });
   }
 
   async function revokeGiftDeliveryShare(gift) {
-    if (gift.content_type === "song") {
-      await db
-        .prepare(
-          "UPDATE share_tokens SET status = 'revoked', web_stream_allowed = 0, dispatched_at = NULL WHERE id = ? AND gift_order_id = ? AND delivery_source = 'gift'",
-        )
-        .run(gift.share_token_id, gift.id);
-      return;
-    }
-
-    if (gift.content_type === "poem") {
-      await db
-        .prepare(
-          "UPDATE poem_share_tokens SET status = 'revoked', dispatched_at = NULL WHERE id = ? AND gift_order_id = ? AND delivery_source = 'gift'",
-        )
-        .run(gift.share_token_id, gift.id);
-    }
+    await shareTokenRepository.revokeGiftDeliveryShare({
+      contentType: gift.content_type,
+      shareTokenId: gift.share_token_id,
+      giftOrderId: gift.id,
+    });
   }
 
   async function sendGiftSmsViaTwilio({ to, body, giftId, outboxId }) {
@@ -2942,20 +2281,17 @@ function buildServer({
     }
 
     const dispatchStart = nowIso();
-    const lock = await db
-      .prepare(
-        `UPDATE gift_orders
-       SET status = 'dispatching', dispatch_status = 'pending', dispatch_started_at = ?, first_dispatch_started_at = COALESCE(first_dispatch_started_at, ?), updated_at = ?
-       WHERE id = ? AND status IN ('scheduled', 'dispatch_retry')`,
-      )
-      .run(dispatchStart, dispatchStart, dispatchStart, giftId);
+    const lock = await giftDispatchRepository.lockGiftForDispatch({
+      giftOrderId: giftId,
+      dispatchStart,
+    });
     if (!lock.changes) {
       return { skipped: true, reason: "not_dispatchable" };
     }
 
-    const gift = await db
-      .prepare("SELECT * FROM gift_orders WHERE id = ?")
-      .get(giftId);
+    const gift = await giftDispatchRepository.findGiftOrder({
+      giftOrderId: giftId,
+    });
     if (!gift) {
       return { skipped: true, reason: "not_found" };
     }
@@ -2969,9 +2305,9 @@ function buildServer({
       await ensureGiftDeliveryOutboxRows(gift);
 
       const channels = parseGiftChannelsJson(gift.channels_json);
-      const senderUser = await db
-        .prepare("SELECT display_name, email FROM users WHERE id = ?")
-        .get(gift.sender_user_id);
+      const senderUser = await identityRepository.findUserDisplayProfile(
+        gift.sender_user_id,
+      );
       const senderLabel = buildGiftSenderLabel(senderUser, gift);
       const payloadText = buildGiftDeliveryMessage({
         giftRow: gift,
@@ -2982,16 +2318,10 @@ function buildServer({
 
       await recoverStaleGiftDeliveryRows(gift.id, now);
 
-      const dueRows = await db
-        .prepare(
-          `SELECT *
-         FROM gift_delivery_outbox
-         WHERE gift_order_id = ?
-           AND status IN ('pending', 'failed')
-           AND COALESCE(next_retry_at, send_after) <= ?
-         ORDER BY created_at ASC`,
-        )
-        .all(gift.id, now);
+      const dueRows = await giftDispatchRepository.listDueDeliveryRowsForGift({
+        giftOrderId: gift.id,
+        now,
+      });
 
       if (!dueRows.length) {
         logGiftLifecycle("info", "dispatch_noop", {
@@ -3001,16 +2331,10 @@ function buildServer({
       }
 
       for (const delivery of dueRows) {
-        const lockResult = await db
-          .prepare(
-            `UPDATE gift_delivery_outbox
-           SET status = 'sending',
-               locked_at = ?,
-               first_attempt_started_at = COALESCE(first_attempt_started_at, ?),
-               updated_at = ?
-           WHERE id = ? AND status IN ('pending', 'failed')`,
-          )
-          .run(now, now, now, delivery.id);
+        const lockResult = await giftDispatchRepository.lockDeliveryForSending({
+          deliveryId: delivery.id,
+          lockedAt: now,
+        });
         if (!lockResult.changes) {
           continue;
         }
@@ -3165,14 +2489,9 @@ function buildServer({
         }
       }
 
-      const outboxRows = await db
-        .prepare(
-          `SELECT *
-         FROM gift_delivery_outbox
-         WHERE gift_order_id = ?
-         ORDER BY created_at ASC`,
-        )
-        .all(gift.id);
+      const outboxRows = await giftDispatchRepository.listOutboxRowsForGift({
+        giftOrderId: gift.id,
+      });
 
       const {
         sentRows,
@@ -3191,32 +2510,12 @@ function buildServer({
 
       if (allDelivered) {
         const dispatchedAt = nowIso();
-        await db
-          .prepare(
-            `UPDATE gift_orders
-           SET status = 'dispatched',
-               dispatch_status = 'sent',
-               dispatch_attempts = ?,
-               last_dispatch_error = NULL,
-               next_retry_at = NULL,
-               dispatch_started_at = NULL,
-               last_dispatch_completed_at = ?,
-               last_successful_delivery_at = ?,
-               delivery_lag_ms = COALESCE(?, delivery_lag_ms),
-               overdue_detected_at = NULL,
-               dispatched_at = ?,
-               updated_at = ?
-           WHERE id = ?`,
-          )
-          .run(
-            nextAttempts,
-            dispatchedAt,
-            dispatchedAt,
-            computeGiftDeliveryLagMs(gift, outboxRows),
-            dispatchedAt,
-            dispatchedAt,
-            gift.id,
-          );
+        await giftDispatchRepository.markGiftFullyDispatched({
+          giftOrderId: gift.id,
+          dispatchAttempts: nextAttempts,
+          dispatchedAt,
+          deliveryLagMs: computeGiftDeliveryLagMs(gift, outboxRows),
+        });
 
         await syncGiftDeliveryShareDispatch(gift, dispatchedAt);
         await resolveGiftIncidentsForGift(db, gift.id, [
@@ -3290,51 +2589,33 @@ function buildServer({
         });
       }
 
-      await db
-        .prepare(
-          `UPDATE gift_orders
-         SET status = ?,
-             dispatch_status = ?,
-             dispatch_attempts = ?,
-             last_dispatch_error = ?,
-             next_retry_at = ?,
-             dispatch_started_at = NULL,
-             last_dispatch_completed_at = ?,
-             last_successful_delivery_at = CASE WHEN ? THEN COALESCE(last_successful_delivery_at, ?) ELSE last_successful_delivery_at END,
-             delivery_lag_ms = COALESCE(?, delivery_lag_ms),
-             overdue_detected_at = CASE WHEN ? THEN NULL ELSE overdue_detected_at END,
-             dispatched_at = CASE WHEN ? THEN COALESCE(dispatched_at, ?) ELSE dispatched_at END,
-             refund_transaction_id = COALESCE(?, refund_transaction_id),
-             updated_at = ?
-         WHERE id = ?`,
-        )
-        .run(
-          exhausted
-            ? "failed"
-            : partialComplete
-              ? "dispatched"
-              : "dispatch_retry",
-          exhausted
-            ? "failed"
-            : partialComplete
-              ? "partial"
-              : partiallyDelivered
-                ? "partial_retry"
-                : "retrying",
-          nextAttempts,
-          errors.join("; ") || null,
-          exhausted || partialComplete ? null : nextRetryAt,
-          nowIso(),
-          partiallyDelivered ? 1 : 0,
-          partiallyDelivered ? nowIso() : null,
-          computeGiftDeliveryLagMs(gift, outboxRows),
-          partiallyDelivered || exhausted ? 1 : 0,
-          partialComplete ? 1 : 0,
-          partialComplete ? nowIso() : null,
-          refundTxId,
-          nowIso(),
-          gift.id,
-        );
+      await giftDispatchRepository.markGiftDispatchIncomplete({
+        giftOrderId: gift.id,
+        status: exhausted
+          ? "failed"
+          : partialComplete
+            ? "dispatched"
+            : "dispatch_retry",
+        dispatchStatus: exhausted
+          ? "failed"
+          : partialComplete
+            ? "partial"
+            : partiallyDelivered
+              ? "partial_retry"
+              : "retrying",
+        dispatchAttempts: nextAttempts,
+        lastDispatchError: errors.join("; ") || null,
+        nextRetryAt: exhausted || partialComplete ? null : nextRetryAt,
+        lastDispatchCompletedAt: nowIso(),
+        hasPartialDelivery: partiallyDelivered,
+        lastSuccessfulDeliveryAt: partiallyDelivered ? nowIso() : null,
+        deliveryLagMs: computeGiftDeliveryLagMs(gift, outboxRows),
+        clearOverdue: partiallyDelivered || exhausted,
+        markDispatched: partialComplete,
+        dispatchedAt: partialComplete ? nowIso() : null,
+        refundTransactionId: refundTxId,
+        updatedAt: nowIso(),
+      });
 
       await updateGiftAggregateObservability(gift.id, {
         outboxRows,
@@ -3424,26 +2705,12 @@ function buildServer({
       const retryAt = computeGiftRetryAt(
         Number(gift?.dispatch_attempts || 0) + 1,
       );
-      await db
-        .prepare(
-          `UPDATE gift_orders
-         SET status = 'dispatch_retry',
-             dispatch_status = 'error',
-             dispatch_attempts = dispatch_attempts + 1,
-             next_retry_at = ?,
-             last_dispatch_error = ?,
-             dispatch_started_at = NULL,
-             last_dispatch_completed_at = ?,
-             updated_at = ?
-         WHERE id = ? AND status = 'dispatching'`,
-        )
-        .run(
-          retryAt,
-          String(dispatchErr.message || dispatchErr).slice(0, 500),
-          nowIso(),
-          nowIso(),
-          giftId,
-        );
+      await giftDispatchRepository.recoverGiftDispatchCrash({
+        giftOrderId: giftId,
+        retryAt,
+        errorMessage: dispatchErr.message || dispatchErr,
+        completedAt: nowIso(),
+      });
       await createGiftIncident({
         incidentKey: `gift_dispatch_stalled:${giftId}`,
         incidentType: "gift_dispatch_stalled",
@@ -3589,18 +2856,14 @@ function buildServer({
   );
 
   async function findTrackVersion(trackId, versionNum) {
-    return db
-      .prepare(
-        "SELECT * FROM track_versions WHERE track_id = ? AND version_num = ?",
-      )
-      .get(trackId, versionNum);
+    return trackVersionRepository.findByTrackIdAndVersion({
+      trackId,
+      versionNum,
+    });
   }
 
   async function findJob(jobId) {
-    if (!jobId) {
-      return null;
-    }
-    return await db.prepare("SELECT * FROM jobs WHERE id = ?").get(jobId);
+    return jobDurabilityRepository.findById(jobId);
   }
 
   function isActiveJob(job) {
@@ -3691,14 +2954,10 @@ function buildServer({
   }
 
   async function findLatestFailedJobForVersion(trackVersionId, workflowType) {
-    return db
-      .prepare(
-        `SELECT * FROM jobs
-         WHERE track_version_id = ? AND workflow_type = ? AND status IN ('failed', 'dead_letter', 'blocked')
-         ORDER BY COALESCE(completed_at, updated_at) DESC
-         LIMIT 1`,
-      )
-      .get(trackVersionId, workflowType);
+    return jobDurabilityRepository.findLatestFailedForVersion({
+      trackVersionId,
+      workflowType,
+    });
   }
 
   function normalizeRenderFailureMessage(rawMessage, rawCode) {
@@ -3775,60 +3034,25 @@ function buildServer({
   }
 
   async function findActiveJobForVersion(trackVersionId, workflowType) {
-    return db
-      .prepare(
-        "SELECT * FROM jobs WHERE track_version_id = ? AND workflow_type = ? AND status IN ('queued','running') ORDER BY created_at DESC LIMIT 1",
-      )
-      .get(trackVersionId, workflowType);
-  }
-
-  /**
-   * Atomically increments track version number to prevent race conditions.
-   * Two concurrent requests will get different version numbers guaranteed.
-   * @param {string} trackId - Track ID
-   * @returns {number} The new version number
-   */
-  /** Callers MUST wrap in a transaction — relies on caller-provided serialization. */
-  // Atomic version increment using transaction to prevent race conditions
-  // when concurrent requests try to create new versions simultaneously
-  async function incrementTrackVersion(trackId) {
-    const now = nowIso();
-    // Note: Callers wrap this in a transaction for atomicity with INSERT
-    await db
-      .prepare(
-        "UPDATE tracks SET latest_version = latest_version + 1, updated_at = ? WHERE id = ?",
-      )
-      .run(now, trackId);
-    const track = await db
-      .prepare("SELECT latest_version FROM tracks WHERE id = ?")
-      .get(trackId);
-    return track.latest_version;
+    return jobDurabilityRepository.findActiveForVersion({
+      trackVersionId,
+      workflowType,
+    });
   }
 
   async function getTrackVersions(track, baseUrl) {
     if (!track || !track.id) {
       return [];
     }
-    const versions = await db
-      .prepare(
-        "SELECT * FROM track_versions WHERE track_id = ? ORDER BY version_num",
-      )
-      .all(track.id);
+    const versions = await trackVersionRepository.listByTrackId(track.id);
 
     const versionIds = versions.map((version) => version.id).filter(Boolean);
     const latestFailedJobByVersion = new Map();
     if (versionIds.length > 0) {
-      // Use db.query() instead of db.prepare() to avoid plan-cache pollution from
-      // variable-length IN clauses (each unique param count creates a new cached entry).
-      const placeholders = versionIds.map(() => "?").join(",");
-      const { rows: failedJobs } = await db.query(
-        `SELECT track_version_id, error_code, error_message, step, step_data, updated_at, completed_at
-         FROM jobs
-         WHERE track_version_id IN (${placeholders})
-           AND status IN ('failed', 'dead_letter', 'blocked')
-         ORDER BY COALESCE(completed_at, updated_at) DESC`,
-        versionIds,
-      );
+      const failedJobs =
+        await jobDurabilityRepository.listLatestFailuresForTrackVersions(
+          versionIds,
+        );
 
       for (const job of failedJobs) {
         if (!latestFailedJobByVersion.has(job.track_version_id)) {
@@ -3897,29 +3121,13 @@ function buildServer({
     shareTokenId = null,
     addedAt = nowIso(),
   }) {
-    const now = nowIso();
-    const updateResult = await db
-      .prepare(
-        `UPDATE track_library_entries
-       SET origin = CASE WHEN origin = 'created' THEN origin ELSE ? END,
-           share_token_id = COALESCE(?, share_token_id),
-           added_at = CASE WHEN removed_at IS NOT NULL THEN ? ELSE added_at END,
-           removed_at = NULL, updated_at = ?
-       WHERE user_id = ? AND track_id = ?`,
-      )
-      .run(origin, shareTokenId, addedAt, now, userId, trackId);
-
-    if (updateResult.changes > 0) {
-      return;
-    }
-
-    await db
-      .prepare(
-        `INSERT INTO track_library_entries
-       (user_id, track_id, origin, share_token_id, added_at, removed_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, NULL, ?)`,
-      )
-      .run(userId, trackId, origin, shareTokenId, addedAt, now);
+    await trackLibraryRepository.upsertTrackLibraryEntry({
+      userId,
+      trackId,
+      origin,
+      shareTokenId,
+      addedAt,
+    });
   }
 
   async function upsertPoemLibraryEntry({
@@ -3929,79 +3137,21 @@ function buildServer({
     shareTokenId = null,
     addedAt = nowIso(),
   }) {
-    const now = nowIso();
-    const updateResult = await db
-      .prepare(
-        `UPDATE poem_library_entries
-       SET origin = CASE WHEN origin = 'created' THEN origin ELSE ? END,
-           share_token_id = COALESCE(?, share_token_id),
-           added_at = CASE WHEN removed_at IS NOT NULL THEN ? ELSE added_at END,
-           removed_at = NULL, updated_at = ?
-       WHERE user_id = ? AND poem_id = ?`,
-      )
-      .run(origin, shareTokenId, addedAt, now, userId, poemId);
-
-    if (updateResult.changes > 0) {
-      return;
-    }
-
-    await db
-      .prepare(
-        `INSERT INTO poem_library_entries
-       (user_id, poem_id, origin, share_token_id, added_at, removed_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, NULL, ?)`,
-      )
-      .run(userId, poemId, origin, shareTokenId, addedAt, now);
+    await poemLibraryRepository.upsertPoemLibraryEntry({
+      userId,
+      poemId,
+      origin,
+      shareTokenId,
+      addedAt,
+    });
   }
 
   async function getTrackForLibrary(userId, trackId) {
-    return db
-      .prepare(
-        `SELECT t.*,
-              tle.origin AS library_origin,
-              tle.added_at AS library_added_at,
-              tle.share_token_id AS library_share_token_id,
-              st.claim_pin AS share_claim_pin,
-              st.expires_at AS share_expires_at,
-              st.status AS share_status,
-              CASE WHEN t.user_id = ? THEN 1 ELSE 0 END AS can_edit,
-              CASE WHEN t.user_id = ? THEN 1 ELSE 0 END AS can_share,
-              1 AS can_delete
-       FROM tracks t
-       JOIN track_library_entries tle
-         ON tle.track_id = t.id
-        AND tle.user_id = ?
-        AND tle.removed_at IS NULL
-       LEFT JOIN share_tokens st
-         ON st.id = t.share_token_id
-        AND st.status NOT IN ('revoked', 'expired')
-       WHERE t.id = ?
-         AND t.deleted_at IS NULL
-         AND NOT (COALESCE(t.funding_source, 'standard') = 'gift_token' AND tle.origin = 'created')`,
-      )
-      .get(userId, userId, userId, trackId);
+    return trackLibraryRepository.getTrackForLibrary({ userId, trackId });
   }
 
   async function getPoemForLibrary(userId, poemId) {
-    return db
-      .prepare(
-        `SELECT p.*,
-              ple.origin AS library_origin,
-              ple.added_at AS library_added_at,
-              ple.share_token_id AS library_share_token_id,
-              CASE WHEN p.user_id = ? THEN 1 ELSE 0 END AS can_edit,
-              CASE WHEN p.user_id = ? THEN 1 ELSE 0 END AS can_share,
-              1 AS can_delete
-       FROM poems p
-       JOIN poem_library_entries ple
-         ON ple.poem_id = p.id
-        AND ple.user_id = ?
-        AND ple.removed_at IS NULL
-       WHERE p.id = ?
-         AND p.deleted_at IS NULL
-         AND NOT (COALESCE(p.funding_source, 'standard') = 'gift_token' AND ple.origin = 'created')`,
-      )
-      .get(userId, userId, userId, poemId);
+    return poemLibraryRepository.getPoemForLibrary({ userId, poemId });
   }
 
   async function hydrateTrackCoverImages(trackRows) {
@@ -4016,20 +3166,8 @@ function buildServer({
       return trackRows;
     }
 
-    // Use db.query() instead of db.prepare() to avoid plan-cache pollution from
-    // variable-length IN clauses (each unique param count creates a new cached entry).
-    const placeholders = trackIds.map(() => "?").join(",");
-    const { rows: versions } = await db.query(
-      `SELECT track_id, version_num, cover_image_url, cover_image_small_url, cover_image_large_url
-         FROM track_versions
-        WHERE track_id IN (${placeholders})
-          AND version_num = (
-            SELECT MAX(tv2.version_num)
-              FROM track_versions tv2
-             WHERE tv2.track_id = track_versions.track_id
-          )`,
-      trackIds,
-    );
+    const versions =
+      await trackVersionRepository.listLatestCoverVersionsForTracks(trackIds);
 
     const byTrackVersion = new Map();
     for (const version of versions) {
@@ -4168,9 +3306,7 @@ function buildServer({
       classification.canAutoRewrite
     ) {
       const latestTrackVersion =
-        (await db
-          .prepare("SELECT * FROM track_versions WHERE id = ?")
-          .get(trackVersionId)) || trackVersion;
+        (await trackVersionRepository.findById(trackVersionId)) || trackVersion;
       const currentLyrics = parseJson(
         latestTrackVersion?.lyrics_json,
         null,
@@ -4286,9 +3422,7 @@ function buildServer({
     });
 
     // 8. Return the re-queued job
-    const job = await db
-      .prepare("SELECT * FROM jobs WHERE id = ?")
-      .get(failedJob.id);
+    const job = await jobDurabilityRepository.findById(failedJob.id);
     return { job, created: false };
   }
 
@@ -4399,16 +3533,14 @@ function buildServer({
     if (!userId) {
       return;
     }
-    const job = await db
-      .prepare("SELECT * FROM jobs WHERE id = ?")
-      .get(request.params.id);
+    const job = await jobDurabilityRepository.findById(request.params.id);
     if (!job) {
       sendError(reply, 404, "JOB_NOT_FOUND", "Job not found.");
       return;
     }
-    const trackVersion = await db
-      .prepare("SELECT * FROM track_versions WHERE id = ?")
-      .get(job.track_version_id);
+    const trackVersion = await trackVersionRepository.findById(
+      job.track_version_id,
+    );
     if (!trackVersion) {
       sendError(
         reply,
@@ -4418,9 +3550,9 @@ function buildServer({
       );
       return;
     }
-    const track = await db
-      .prepare("SELECT * FROM tracks WHERE id = ?")
-      .get(trackVersion.track_id);
+    const track = await trackVersionRepository.findTrackById(
+      trackVersion.track_id,
+    );
     if (!track || track.user_id !== userId || track.deleted_at) {
       // SECURITY (P3): return 404 (not 403) for other-users' jobs so the
       // response does not reveal whether a given job id exists.
@@ -4666,9 +3798,9 @@ function buildServer({
   }
 
   app.get("/preview/:trackVersionId.mp3", async (request, reply) => {
-    const trackVersion = await db
-      .prepare("SELECT * FROM track_versions WHERE id = ?")
-      .get(request.params.trackVersionId);
+    const trackVersion = await trackVersionRepository.findById(
+      request.params.trackVersionId,
+    );
     if (!trackVersion) {
       sendError(
         reply,
@@ -4678,9 +3810,9 @@ function buildServer({
       );
       return;
     }
-    const track = await db
-      .prepare("SELECT * FROM tracks WHERE id = ?")
-      .get(trackVersion.track_id);
+    const track = await trackVersionRepository.findTrackById(
+      trackVersion.track_id,
+    );
     if (!track || track.deleted_at) {
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;
@@ -4700,9 +3832,9 @@ function buildServer({
   });
 
   app.get("/preview/:trackVersionId.m4a", async (request, reply) => {
-    const trackVersion = await db
-      .prepare("SELECT * FROM track_versions WHERE id = ?")
-      .get(request.params.trackVersionId);
+    const trackVersion = await trackVersionRepository.findById(
+      request.params.trackVersionId,
+    );
     if (!trackVersion) {
       sendError(
         reply,
@@ -4712,9 +3844,9 @@ function buildServer({
       );
       return;
     }
-    const track = await db
-      .prepare("SELECT * FROM tracks WHERE id = ?")
-      .get(trackVersion.track_id);
+    const track = await trackVersionRepository.findTrackById(
+      trackVersion.track_id,
+    );
     if (!track || track.deleted_at) {
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;
@@ -4737,9 +3869,9 @@ function buildServer({
     if (!userId) {
       return;
     }
-    const trackVersion = await db
-      .prepare("SELECT * FROM track_versions WHERE id = ?")
-      .get(request.params.trackVersionId);
+    const trackVersion = await trackVersionRepository.findById(
+      request.params.trackVersionId,
+    );
     if (!trackVersion) {
       sendError(
         reply,
@@ -4749,9 +3881,9 @@ function buildServer({
       );
       return;
     }
-    const track = await db
-      .prepare("SELECT * FROM tracks WHERE id = ?")
-      .get(trackVersion.track_id);
+    const track = await trackVersionRepository.findTrackById(
+      trackVersion.track_id,
+    );
     if (!track || track.user_id !== userId || track.deleted_at) {
       sendError(reply, 403, "FORBIDDEN", "Track does not belong to this user.");
       return;
@@ -4778,9 +3910,7 @@ function buildServer({
       sendError(reply, 400, "INVALID_SIZE", "Size must be 256 or 1024.");
       return;
     }
-    const trackVersion = await db
-      .prepare("SELECT * FROM track_versions WHERE id = ?")
-      .get(trackVersionId);
+    const trackVersion = await trackVersionRepository.findById(trackVersionId);
     if (!trackVersion) {
       sendError(
         reply,
@@ -4790,9 +3920,9 @@ function buildServer({
       );
       return;
     }
-    const track = await db
-      .prepare("SELECT * FROM tracks WHERE id = ?")
-      .get(trackVersion.track_id);
+    const track = await trackVersionRepository.findTrackById(
+      trackVersion.track_id,
+    );
     if (!track || track.deleted_at) {
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;
@@ -4845,9 +3975,9 @@ function buildServer({
       sendError(reply, 403, "FORBIDDEN", "Missing guide token.");
       return;
     }
-    const trackVersion = await db
-      .prepare("SELECT * FROM track_versions WHERE id = ?")
-      .get(request.params.trackVersionId);
+    const trackVersion = await trackVersionRepository.findById(
+      request.params.trackVersionId,
+    );
     if (!trackVersion || trackVersion.guide_access_token !== token) {
       sendError(reply, 403, "FORBIDDEN", "Invalid guide token.");
       return;
@@ -4859,9 +3989,9 @@ function buildServer({
       sendError(reply, 410, "TOKEN_EXPIRED", "Guide vocal token has expired.");
       return;
     }
-    const track = await db
-      .prepare("SELECT * FROM tracks WHERE id = ?")
-      .get(trackVersion.track_id);
+    const track = await trackVersionRepository.findTrackById(
+      trackVersion.track_id,
+    );
     if (!track || track.deleted_at) {
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;
@@ -4947,6 +4077,7 @@ function buildServer({
     parseGiftChannelsJson,
     renderGiftSummary,
     ensureGiftWalletRow,
+    getGiftWalletBalance,
     applyGiftWalletTransaction,
     ensureTrackGiftShareToken,
     ensurePoemGiftShareToken,
@@ -4985,7 +4116,6 @@ function buildServer({
     isActiveJob,
     isTerminalFailedJobStatus,
     isTerminalTrackFailureStatus,
-    incrementTrackVersion,
     extractLyricsText,
     normalizeVariantName,
     SONG_VARIANT_NAMES,
@@ -5123,6 +4253,7 @@ function buildServer({
     googleValidator,
     giftTokenProductId,
     getGiftWalletSummary,
+    hasGiftWalletReceiptCredit,
     applyGiftWalletTransaction,
     appleWebhookHandler,
     planConfigService,
@@ -5151,6 +4282,18 @@ async function start() {
         "ADMIN_SETUP_SECRET must be unset in production — it exposes the admin bootstrap endpoint",
       );
     }
+  }
+  const authFallbackEnv = process.env.NODE_ENV;
+  const allowDevAuthFallback =
+    authFallbackEnv === "development" || authFallbackEnv === "test";
+  if (
+    !allowDevAuthFallback &&
+    (process.env.ALLOW_ANON_USER_ID === "true" ||
+      process.env.ALLOW_DEVICE_TOKEN_FALLBACK === "true")
+  ) {
+    throw new Error(
+      "Auth fallback env vars are only allowed when NODE_ENV is development or test",
+    );
   }
   const db = await getDatabase({
     dbPath: config.DB_PATH,

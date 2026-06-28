@@ -8,6 +8,9 @@
 const bcrypt = require("bcrypt");
 const crypto = require("crypto");
 const { generateId } = require("../utils/ids");
+const {
+  createAdminAuthRepository,
+} = require("../database/admin-auth-repository");
 
 const MAX_SESSION_DURATION_HOURS = 24;
 const DEFAULT_SESSION_DURATION_HOURS = MAX_SESSION_DURATION_HOURS;
@@ -32,12 +35,24 @@ const config = {
 
 // Database instance (initialized via initialize())
 let db = null;
+let adminAuthRepository = null;
 
 /**
  * Initialize the admin auth service with database instance
  */
 function initialize(database) {
   db = database;
+  adminAuthRepository = createAdminAuthRepository(database);
+}
+
+function getAdminAuthRepository() {
+  if (!adminAuthRepository) {
+    if (!db) {
+      throw new Error("AdminAuthService not initialized");
+    }
+    adminAuthRepository = createAdminAuthRepository(db);
+  }
+  return adminAuthRepository;
 }
 
 // ==================== TOKEN UTILITIES ====================
@@ -93,6 +108,7 @@ function shouldBlockDefaultSeededAdminLogin(admin, password) {
  */
 async function login(email, password, ip, userAgent) {
   if (!db) throw new Error("AdminAuthService not initialized");
+  const repository = getAdminAuthRepository();
 
   // Single generic failure response for EVERY failure mode (unknown email,
   // locked account, wrong password, disabled default-seeded admin). Returning
@@ -102,9 +118,7 @@ async function login(email, password, ip, userAgent) {
   // returned to the client.
   const GENERIC_FAILURE = { success: false, error: "Invalid credentials" };
 
-  const admin = await db
-    .prepare("SELECT * FROM admin_users WHERE email = ?")
-    .get(email.toLowerCase());
+  const admin = await repository.findAdminByEmail(email.toLowerCase());
 
   if (!admin) {
     console.warn("[Admin:login] failed — unknown email");
@@ -133,11 +147,11 @@ async function login(email, password, ip, userAgent) {
           ).toISOString()
         : null;
 
-    await db
-      .prepare(
-        "UPDATE admin_users SET failed_login_count = ?, locked_until = ? WHERE id = ?",
-      )
-      .run(newCount, lockUntil, admin.id);
+    await repository.updateFailedLoginState({
+      adminId: admin.id,
+      failedLoginCount: newCount,
+      lockedUntil: lockUntil,
+    });
 
     if (lockUntil) {
       console.warn(
@@ -159,11 +173,10 @@ async function login(email, password, ip, userAgent) {
   }
 
   // Reset failed count, update last login
-  await db
-    .prepare(
-      "UPDATE admin_users SET failed_login_count = 0, locked_until = NULL, last_login_at = ? WHERE id = ?",
-    )
-    .run(new Date().toISOString(), admin.id);
+  await repository.markLoginSucceeded({
+    adminId: admin.id,
+    lastLoginAt: new Date().toISOString(),
+  });
 
   // Create session
   const token = generateSecureToken();
@@ -171,22 +184,15 @@ async function login(email, password, ip, userAgent) {
   const sessionId = generateId("admsess");
   const expiresAt = new Date(Date.now() + getSessionDurationMs()).toISOString();
 
-  await db
-    .prepare(
-      `
-    INSERT INTO admin_sessions (id, admin_id, token_hash, expires_at, created_at, ip_address, user_agent)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `,
-    )
-    .run(
-      sessionId,
-      admin.id,
-      tokenHash,
-      expiresAt,
-      new Date().toISOString(),
-      ip || null,
-      userAgent || null,
-    );
+  await repository.insertSession({
+    id: sessionId,
+    adminId: admin.id,
+    tokenHash,
+    expiresAt,
+    createdAt: new Date().toISOString(),
+    ipAddress: ip || null,
+    userAgent: userAgent || null,
+  });
 
   return {
     success: true,
@@ -210,16 +216,10 @@ async function validateSession(token) {
   if (!token) return null;
 
   const tokenHash = hashToken(token);
-  const session = await db
-    .prepare(
-      `
-    SELECT s.*, a.email, a.display_name, a.role
-    FROM admin_sessions s
-    JOIN admin_users a ON s.admin_id = a.id
-    WHERE s.token_hash = ? AND s.expires_at > ?
-  `,
-    )
-    .get(tokenHash, new Date().toISOString());
+  const session = await getAdminAuthRepository().findActiveSessionByTokenHash({
+    tokenHash,
+    now: new Date().toISOString(),
+  });
 
   if (!session) return null;
 
@@ -239,9 +239,7 @@ async function logout(token) {
   if (!token) return { success: false };
 
   const tokenHash = hashToken(token);
-  await db
-    .prepare("DELETE FROM admin_sessions WHERE token_hash = ?")
-    .run(tokenHash);
+  await getAdminAuthRepository().deleteSessionByTokenHash(tokenHash);
   return { success: true };
 }
 
@@ -267,21 +265,14 @@ async function createAdmin(email, password, displayName, role = "admin") {
   const id = generateId("adm");
 
   try {
-    await db
-      .prepare(
-        `
-      INSERT INTO admin_users (id, email, password_hash, display_name, role, created_at)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `,
-      )
-      .run(
-        id,
-        email.toLowerCase(),
-        hash,
-        displayName,
-        role,
-        new Date().toISOString(),
-      );
+    await getAdminAuthRepository().insertAdmin({
+      id,
+      email: email.toLowerCase(),
+      passwordHash: hash,
+      displayName,
+      role,
+      createdAt: new Date().toISOString(),
+    });
     return { success: true, id };
   } catch (err) {
     if (err.message.includes("UNIQUE")) {
@@ -298,16 +289,15 @@ async function changePassword(adminId, newPassword) {
   if (!db) throw new Error("AdminAuthService not initialized");
 
   const hash = await bcrypt.hash(newPassword, config.bcryptCost);
-  await db
-    .prepare(
-      "UPDATE admin_users SET password_hash = ?, updated_at = ? WHERE id = ?",
-    )
-    .run(hash, new Date().toISOString(), adminId);
+  const repository = getAdminAuthRepository();
+  await repository.updatePassword({
+    adminId,
+    passwordHash: hash,
+    updatedAt: new Date().toISOString(),
+  });
 
   // Invalidate all sessions for this admin
-  await db
-    .prepare("DELETE FROM admin_sessions WHERE admin_id = ?")
-    .run(adminId);
+  await repository.deleteSessionsForAdmin(adminId);
   return { success: true };
 }
 
@@ -317,15 +307,7 @@ async function changePassword(adminId, newPassword) {
 async function listAdmins() {
   if (!db) throw new Error("AdminAuthService not initialized");
 
-  return await db
-    .prepare(
-      `
-    SELECT id, email, display_name, role, created_at, last_login_at
-    FROM admin_users
-    ORDER BY created_at DESC
-  `,
-    )
-    .all();
+  return await getAdminAuthRepository().listAdmins();
 }
 
 /**
@@ -334,9 +316,8 @@ async function listAdmins() {
 async function cleanupExpiredSessions() {
   if (!db) return;
 
-  const result = await db
-    .prepare("DELETE FROM admin_sessions WHERE expires_at < ?")
-    .run(new Date().toISOString());
+  const result =
+    await getAdminAuthRepository().deleteExpiredSessions(new Date().toISOString());
   return result.changes;
 }
 
@@ -358,9 +339,7 @@ async function findAdminByEmail(email) {
   if (typeof email !== "string" || email.length === 0) return null;
 
   const normalized = email.toLowerCase().trim();
-  return await db
-    .prepare("SELECT * FROM admin_users WHERE email = ?")
-    .get(normalized);
+  return await getAdminAuthRepository().findAdminByEmail(normalized);
 }
 
 /**
@@ -371,9 +350,7 @@ async function findAdminById(adminId) {
   if (!db) throw new Error("AdminAuthService not initialized");
   if (typeof adminId !== "string" || adminId.length === 0) return null;
 
-  return await db
-    .prepare("SELECT * FROM admin_users WHERE id = ?")
-    .get(adminId);
+  return await getAdminAuthRepository().findAdminById(adminId);
 }
 
 /**
@@ -395,20 +372,14 @@ async function createPasswordResetToken(adminId, options = {}) {
   const expiresAt = new Date(now + PASSWORD_RESET_TOKEN_TTL_MS).toISOString();
   const id = generateId("apt"); // admin password token
 
-  await db
-    .prepare(
-      `INSERT INTO admin_password_reset_tokens
-       (id, admin_id, token_hash, expires_at, ip_address, created_at)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-    )
-    .run(
-      id,
-      adminId,
-      tokenHash,
-      expiresAt,
-      options.ipAddress || null,
-      new Date(now).toISOString(),
-    );
+  await getAdminAuthRepository().insertPasswordResetToken({
+    id,
+    adminId,
+    tokenHash,
+    expiresAt,
+    ipAddress: options.ipAddress || null,
+    createdAt: new Date(now).toISOString(),
+  });
 
   return { token, expiresAt, tokenId: id };
 }
@@ -427,13 +398,8 @@ async function verifyPasswordResetToken(rawToken) {
   }
 
   const tokenHash = hashToken(rawToken);
-  const row = await db
-    .prepare(
-      `SELECT id, admin_id, expires_at, used_at
-       FROM admin_password_reset_tokens
-       WHERE token_hash = ?`,
-    )
-    .get(tokenHash);
+  const row =
+    await getAdminAuthRepository().findPasswordResetTokenByHash(tokenHash);
 
   if (!row) throw new Error("INVALID_TOKEN");
   if (row.used_at) throw new Error("INVALID_TOKEN");
@@ -451,9 +417,10 @@ async function markPasswordResetTokenUsed(tokenId) {
   if (!db) throw new Error("AdminAuthService not initialized");
   if (typeof tokenId !== "string" || tokenId.length === 0) return;
 
-  await db
-    .prepare("UPDATE admin_password_reset_tokens SET used_at = ? WHERE id = ?")
-    .run(new Date().toISOString(), tokenId);
+  await getAdminAuthRepository().markPasswordResetTokenUsed({
+    tokenId,
+    usedAt: new Date().toISOString(),
+  });
 }
 
 /**
@@ -467,13 +434,10 @@ async function invalidateAllPasswordResetTokens(adminId) {
   if (!db) throw new Error("AdminAuthService not initialized");
   if (typeof adminId !== "string" || adminId.length === 0) return;
 
-  await db
-    .prepare(
-      `UPDATE admin_password_reset_tokens
-       SET used_at = ?
-       WHERE admin_id = ? AND used_at IS NULL`,
-    )
-    .run(new Date().toISOString(), adminId);
+  await getAdminAuthRepository().markUnusedPasswordResetTokensUsedForAdmin({
+    adminId,
+    usedAt: new Date().toISOString(),
+  });
 }
 
 /**
@@ -488,13 +452,10 @@ async function clearLockout(adminId) {
   if (!db) throw new Error("AdminAuthService not initialized");
   if (typeof adminId !== "string" || adminId.length === 0) return;
 
-  await db
-    .prepare(
-      `UPDATE admin_users
-       SET failed_login_count = 0, locked_until = NULL, updated_at = ?
-       WHERE id = ?`,
-    )
-    .run(new Date().toISOString(), adminId);
+  await getAdminAuthRepository().clearLockout({
+    adminId,
+    updatedAt: new Date().toISOString(),
+  });
 }
 
 module.exports = {

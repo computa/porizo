@@ -5,121 +5,33 @@ const {
 } = require("../services/artwork-vocab");
 const { notifyArtworkReady } = require("../workflows/artwork-barrier");
 const { newUuid } = require("../utils/ids");
+const {
+  createArtworkJobRepository,
+  SQL_GET_TRACK,
+  SQL_GET_LATEST_VERSION,
+  SQL_GET_VERSION_LYRICS,
+  SQL_GET_ENTITLEMENT,
+  SQL_UPDATE_ARTWORK,
+  SQL_UPDATE_ARTWORK_VARS,
+  SQL_MARK_ARTWORK_READY,
+  SQL_INSERT_ARTWORK_JOB,
+  SQL_MARK_JOB_RUNNING,
+  SQL_MARK_JOB_COMPLETED,
+  SQL_MARK_JOB_FAILED,
+  SQL_REQUEUE_JOB,
+  SQL_SELECT_ORPHANED_ARTWORK_JOBS,
+} = require("../database/artwork-job-repository");
 
 const MAX_ATTEMPTS = 3;
 const BACKOFF_MS = [5_000, 15_000, 45_000]; // matches existing API retry policy
 const STALE_RUNNING_MS = 5 * 60 * 1000; // a row stuck in 'running' for 5min is dead
-
-const SQL_GET_TRACK = `
-  SELECT
-    t.id, t.user_id, t.occasion, t.recipient_name, t.style,
-    t.artwork_content_hash, t.latest_version,
-    u.display_name AS sender_display_name
-  FROM tracks t
-  LEFT JOIN users u ON u.id = t.user_id
-  WHERE t.id = ?
-`;
-
-const SQL_GET_LATEST_VERSION = `
-  SELECT id FROM track_versions
-  WHERE track_id = ?
-  ORDER BY version_num DESC
-  LIMIT 1
-`;
-
-const SQL_GET_VERSION_LYRICS = `
-  SELECT lyrics_json FROM track_versions
-  WHERE id = ?
-`;
-
-const SQL_GET_ENTITLEMENT = `
-  SELECT tier, admin_upgrade_tier, admin_upgrade_expires_at
-  FROM entitlements
-  WHERE user_id = ?
-`;
-
-const SQL_UPDATE_ARTWORK = `
-  UPDATE tracks SET
-    artwork_url = ?,
-    artwork_style_variant = ?,
-    artwork_source = ?,
-    artwork_provider = ?,
-    artwork_prompt = ?,
-    artwork_content_hash = ?,
-    artwork_moderation_passed = ?,
-    artwork_generated_at = ?
-  WHERE id = ?
-`;
-
-// Persists the picked vars + provenance to the per-version row. Lives on
-// track_versions (not tracks) so preview and full each carry their own
-// extractor output — see migration 113.
-const SQL_UPDATE_ARTWORK_VARS = `
-  UPDATE track_versions SET
-    artwork_vars_json = ?,
-    artwork_provider = ?,
-    artwork_prompt_version = ?
-  WHERE id = ?
-`;
-
-// Scoped to track_version row, not track — preview and full each need their
-// own flag so the barrier doesn't return instantly with stale artwork.
-const SQL_MARK_ARTWORK_READY = `
-  UPDATE track_versions SET artwork_ready = ?
-  WHERE id = ?
-`;
-
-// Durable-queue SQL — artwork jobs live in the shared `jobs` table.
-// The audio runner's claim query MUST exclude workflow_type='artwork_render'
-// (see src/workflows/runner.js) so the audio pipeline doesn't try to step
-// through artwork rows.
-const SQL_INSERT_ARTWORK_JOB = `
-  INSERT INTO jobs (
-    id, track_version_id, workflow_type, status, step,
-    attempts, max_attempts, step_index, step_data,
-    progress_pct, created_at, updated_at
-  ) VALUES (?, ?, 'artwork_render', 'queued', 'generate', 0, ?, 0, ?, 0, ?, ?)
-`;
-
-const SQL_MARK_JOB_RUNNING = `
-  UPDATE jobs SET status = 'running', last_heartbeat_at = ?, updated_at = ?
-  WHERE id = ?
-`;
-
-const SQL_MARK_JOB_COMPLETED = `
-  UPDATE jobs SET status = 'completed', progress_pct = 100, completed_at = ?, updated_at = ?
-  WHERE id = ?
-`;
-
-const SQL_MARK_JOB_FAILED = `
-  UPDATE jobs SET status = 'failed', error_code = ?, error_message = ?,
-    completed_at = ?, updated_at = ?
-  WHERE id = ?
-`;
-
-const SQL_REQUEUE_JOB = `
-  UPDATE jobs SET status = 'queued', attempts = ?, next_attempt_at = ?,
-    error_message = ?, updated_at = ?
-  WHERE id = ?
-`;
-
-const SQL_SELECT_ORPHANED_ARTWORK_JOBS = `
-  SELECT j.id, j.track_version_id, j.attempts, tv.track_id
-  FROM jobs j
-  LEFT JOIN track_versions tv ON tv.id = j.track_version_id
-  WHERE j.workflow_type = 'artwork_render'
-    AND (
-      (j.status = 'queued' AND (j.next_attempt_at IS NULL OR j.next_attempt_at <= ?))
-      OR (j.status = 'running' AND (j.last_heartbeat_at IS NULL OR j.last_heartbeat_at < ?))
-    )
-  ORDER BY j.created_at ASC
-`;
 
 /**
  * Execute the artwork pipeline for one track and persist the result.
  *
  * @param {Object} args
  * @param {Object} args.db                Database wrapper (db.prepare(sql).get/run)
+ * @param {Object} [args.artworkJobRepository] Persistence boundary for artwork job state
  * @param {string} args.trackId
  * @param {string} [args.trackVersionId]  When provided, scopes the artwork_ready
  *                                        flag to this version. Otherwise resolved
@@ -135,6 +47,7 @@ const SQL_SELECT_ORPHANED_ARTWORK_JOBS = `
  */
 async function runArtworkJob({
   db,
+  artworkJobRepository,
   trackId,
   trackVersionId,
   jobId,
@@ -148,6 +61,7 @@ async function runArtworkJob({
   if (!db || !trackId) {
     throw new Error("runArtworkJob requires db and trackId");
   }
+  const repository = artworkJobRepository || createArtworkJobRepository(db);
 
   // Periodic heartbeat: a paid-tier OpenAI call can take >100s, well under
   // STALE_RUNNING_MS (5min) but enough that a slow downstream + a slow DB
@@ -155,17 +69,18 @@ async function runArtworkJob({
   // start a duplicate run mid-flight.
   let heartbeatTimer = null;
   if (jobId) {
-    await safeJobUpdate(
-      db,
-      SQL_MARK_JOB_RUNNING,
-      [nowIso(), nowIso(), jobId],
+    const claimResult = await safeJobUpdate(
+      () => repository.markJobRunning({ jobId, now: nowIso() }),
       logger,
     );
+    if (isZeroChangeResult(claimResult)) {
+      const err = new Error(`Artwork job is no longer claimable: ${jobId}`);
+      logger.warn(`[ArtworkJob] ${err.message}`);
+      return { ok: false, skipped: true, stale: true, error: err };
+    }
     heartbeatTimer = setInterval(() => {
       safeJobUpdate(
-        db,
-        SQL_MARK_JOB_RUNNING,
-        [nowIso(), nowIso(), jobId],
+        () => repository.markJobRunning({ jobId, now: nowIso() }),
         logger,
       ).catch(() => {});
     }, 30_000);
@@ -182,6 +97,7 @@ async function runArtworkJob({
   try {
     return await runArtworkJobInner({
       db,
+      artworkJobRepository: repository,
       trackId,
       trackVersionId,
       jobId,
@@ -199,6 +115,7 @@ async function runArtworkJob({
 
 async function runArtworkJobInner({
   db,
+  artworkJobRepository,
   trackId,
   trackVersionId,
   jobId,
@@ -211,24 +128,34 @@ async function runArtworkJobInner({
 }) {
   let track;
   try {
-    track = await db.prepare(SQL_GET_TRACK).get(trackId);
+    track = await artworkJobRepository.getTrack(trackId);
   } catch (err) {
     logger.error(
       `[ArtworkJob] Failed to read track ${trackId}: ${err.message}`,
     );
-    if (jobId) await failJob(db, jobId, "DB_READ_ERROR", err.message, logger);
+    if (jobId) {
+      await failJob(artworkJobRepository, jobId, "DB_READ_ERROR", err.message, logger);
+    }
     return { ok: false, error: err };
   }
   if (!track) {
     const err = new Error(`Track not found: ${trackId}`);
-    if (jobId) await failJob(db, jobId, "TRACK_NOT_FOUND", err.message, logger);
+    if (jobId) {
+      await failJob(
+        artworkJobRepository,
+        jobId,
+        "TRACK_NOT_FOUND",
+        err.message,
+        logger,
+      );
+    }
     return { ok: false, error: err };
   }
 
   let versionId = trackVersionId;
   if (!versionId) {
     try {
-      const row = await db.prepare(SQL_GET_LATEST_VERSION).get(trackId);
+      const row = await artworkJobRepository.getLatestVersionForTrack(trackId);
       versionId = row && row.id;
     } catch (err) {
       logger.warn(
@@ -242,9 +169,7 @@ async function runArtworkJobInner({
     if (typeof tierResolver === "function") {
       tier = await tierResolver(track.user_id);
     } else {
-      const entitlement = await db
-        .prepare(SQL_GET_ENTITLEMENT)
-        .get(track.user_id);
+      const entitlement = await artworkJobRepository.getEntitlement(track.user_id);
       tier = effectiveTierFromRow(entitlement);
     }
   } catch (err) {
@@ -255,6 +180,7 @@ async function runArtworkJobInner({
     );
     return scheduleRetry({
       db,
+      artworkJobRepository,
       trackId,
       versionId,
       jobId,
@@ -274,6 +200,7 @@ async function runArtworkJobInner({
   // so a flaky Haiku call never blocks the render.
   const artworkVars = await resolveArtworkVars({
     db,
+    artworkJobRepository,
     trackId,
     versionId,
     occasion: track.occasion,
@@ -299,19 +226,31 @@ async function runArtworkJobInner({
         `[ArtworkJob] Track ${trackId} unchanged (content_hash match) — skipped.`,
       );
       if (versionId) {
-        await persistArtworkVars(db, versionId, result, artworkVars, logger);
-        await markArtworkReady(db, versionId, true, logger);
+        await persistArtworkVars(
+          artworkJobRepository,
+          versionId,
+          result,
+          artworkVars,
+          logger,
+        );
+        await markArtworkReady(db, artworkJobRepository, versionId, true, logger);
       }
-      if (jobId) await completeJob(db, jobId, logger);
+      if (jobId) await completeJob(artworkJobRepository, jobId, logger);
       return { ok: true, skipped: true, result };
     }
 
-    await persistArtwork(db, trackId, result);
+    await persistArtwork(artworkJobRepository, trackId, result);
     if (versionId) {
-      await persistArtworkVars(db, versionId, result, artworkVars, logger);
-      await markArtworkReady(db, versionId, true, logger);
+      await persistArtworkVars(
+        artworkJobRepository,
+        versionId,
+        result,
+        artworkVars,
+        logger,
+      );
+      await markArtworkReady(db, artworkJobRepository, versionId, true, logger);
     }
-    if (jobId) await completeJob(db, jobId, logger);
+    if (jobId) await completeJob(artworkJobRepository, jobId, logger);
 
     logger.info(
       `[ArtworkJob] Track ${trackId} artwork ready ` +
@@ -329,7 +268,7 @@ async function runArtworkJobInner({
       );
       if (jobId) {
         await failJob(
-          db,
+          artworkJobRepository,
           jobId,
           err.code || "PERMANENT_ERROR",
           err.message,
@@ -340,6 +279,7 @@ async function runArtworkJobInner({
     }
     return scheduleRetry({
       db,
+      artworkJobRepository,
       trackId,
       versionId,
       jobId,
@@ -356,6 +296,7 @@ async function runArtworkJobInner({
 
 async function scheduleRetry({
   db,
+  artworkJobRepository,
   trackId,
   versionId,
   jobId,
@@ -381,16 +322,27 @@ async function scheduleRetry({
     // doesn't lose the work — the orphan recovery sweep will pick it up.
     if (jobId) {
       const next = new Date(Date.now() + backoff).toISOString();
-      await safeJobUpdate(
-        db,
-        SQL_REQUEUE_JOB,
-        [attempt, next, err.message, nowIso(), jobId],
+      const requeueResult = await safeJobUpdate(
+        () =>
+          artworkJobRepository.requeueJob({
+            jobId,
+            attempts: attempt,
+            nextAttemptAt: next,
+            message: err.message,
+            now: nowIso(),
+        }),
         logger,
       );
+      if (isZeroChangeResult(requeueResult)) {
+        const staleErr = new Error(`Artwork job is no longer retryable: ${jobId}`);
+        logger.warn(`[ArtworkJob] ${staleErr.message}`);
+        return { ok: false, skipped: true, stale: true, error: staleErr };
+      }
     }
     await sleep(backoff);
     return runArtworkJob({
       db,
+      artworkJobRepository,
       trackId,
       trackVersionId: versionId,
       jobId,
@@ -408,7 +360,7 @@ async function scheduleRetry({
   );
   if (jobId) {
     await failJob(
-      db,
+      artworkJobRepository,
       jobId,
       err.code || "MAX_RETRIES_EXCEEDED",
       err.message,
@@ -432,28 +384,26 @@ function effectiveTierFromRow(entitlement) {
   return entitlement.tier || "free";
 }
 
-async function persistArtwork(db, trackId, result) {
+async function persistArtwork(artworkJobRepository, trackId, result) {
   const moderationFlag = boolToDbValue(result.moderationPassed);
   // artwork_style_variant column lives on `tracks` (migration 109) but the
   // post-Task-7 generate shape no longer emits styleVariant — vars+provenance
   // are now per-version in artwork_vars_json. Keep the column slot, write null.
-  await db
-    .prepare(SQL_UPDATE_ARTWORK)
-    .run(
-      result.artworkUrl,
-      null,
-      result.source,
-      result.provider,
-      result.prompt,
-      result.contentHash,
-      moderationFlag,
-      toIsoString(result.generatedAt),
-      trackId,
-    );
+  await artworkJobRepository.updateArtwork({
+    trackId,
+    artworkUrl: result.artworkUrl,
+    artworkStyleVariant: null,
+    artworkSource: result.source,
+    artworkProvider: result.provider,
+    artworkPrompt: result.prompt,
+    artworkContentHash: result.contentHash,
+    artworkModerationPassed: moderationFlag,
+    artworkGeneratedAt: toIsoString(result.generatedAt),
+  });
 }
 
 async function persistArtworkVars(
-  db,
+  artworkJobRepository,
   trackVersionId,
   result,
   fallbackVars,
@@ -464,14 +414,12 @@ async function persistArtworkVars(
   const provider = (result && result.provider) || null;
   const promptVersion = (result && result.promptVersion) || null;
   try {
-    await db
-      .prepare(SQL_UPDATE_ARTWORK_VARS)
-      .run(
-        vars ? JSON.stringify(vars) : null,
-        provider,
-        promptVersion,
-        trackVersionId,
-      );
+    await artworkJobRepository.updateArtworkVars({
+      trackVersionId,
+      artworkVarsJson: vars ? JSON.stringify(vars) : null,
+      artworkProvider: provider,
+      artworkPromptVersion: promptVersion,
+    });
   } catch (err) {
     // The vars columns are new (migration 113). Test schemas may not have
     // them — fail-soft, matching how the job already treats jobs-row
@@ -483,7 +431,7 @@ async function persistArtworkVars(
 }
 
 async function resolveArtworkVars({
-  db,
+  artworkJobRepository,
   trackId,
   versionId,
   occasion,
@@ -499,7 +447,7 @@ async function resolveArtworkVars({
   try {
     let lyrics = "";
     if (versionId) {
-      const row = await db.prepare(SQL_GET_VERSION_LYRICS).get(versionId);
+      const row = await artworkJobRepository.getVersionLyrics(versionId);
       const lyricsJson = row && row.lyrics_json;
       if (lyricsJson) {
         try {
@@ -539,51 +487,69 @@ async function resolveArtworkVars({
   }
 }
 
-async function markArtworkReady(db, trackVersionId, ready, logger) {
+async function markArtworkReady(
+  db,
+  artworkJobRepository,
+  trackVersionId,
+  ready,
+  logger,
+) {
   if (!trackVersionId) return;
-  await db
-    .prepare(SQL_MARK_ARTWORK_READY)
-    .run(boolToDbValue(ready), trackVersionId);
+  await artworkJobRepository.markArtworkReady({
+    trackVersionId,
+    ready: boolToDbValue(ready),
+  });
   if (ready) {
     // pg_notify on PG so any waiting barrier wakes immediately. No-op on SQLite.
     await notifyArtworkReady({ db, trackVersionId, logger });
   }
 }
 
-async function completeJob(db, jobId, logger) {
-  const now = nowIso();
-  await safeJobUpdate(db, SQL_MARK_JOB_COMPLETED, [now, now, jobId], logger);
-}
-
-async function failJob(db, jobId, code, message, logger) {
+async function completeJob(artworkJobRepository, jobId, logger) {
   const now = nowIso();
   await safeJobUpdate(
-    db,
-    SQL_MARK_JOB_FAILED,
-    [code || null, message || null, now, now, jobId],
+    () => artworkJobRepository.markJobCompleted({ jobId, now }),
     logger,
   );
 }
 
-async function safeJobUpdate(db, sql, args, logger) {
+async function failJob(artworkJobRepository, jobId, code, message, logger) {
+  const now = nowIso();
+  await safeJobUpdate(
+    () => artworkJobRepository.markJobFailed({ jobId, code, message, now }),
+    logger,
+  );
+}
+
+async function safeJobUpdate(updateFn, logger) {
   try {
-    await db.prepare(sql).run(...args);
+    return await updateFn();
   } catch (err) {
     // Job-row updates failing must NOT crash the artwork pipeline — the
     // artwork itself is independently persisted via SQL_UPDATE_ARTWORK.
     (logger || console).warn(
       `[ArtworkJob] Job-row update failed: ${err.message}. Artwork state unaffected.`,
     );
+    return null;
   }
+}
+
+function isZeroChangeResult(result) {
+  if (!result || typeof result !== "object") return false;
+  const changes = result.changes ?? result.rowCount;
+  return Number(changes) === 0;
 }
 
 /**
  * Enqueue an artwork job durably: write a row to the shared `jobs` table
  * (so a process restart can recover it via `recoverOrphanedArtworkJobs`),
  * then fire-and-forget the in-process execution.
+ * Returns a handle so lifecycle owners can wait for graceful shutdown without
+ * blocking request handlers.
  */
 function enqueueArtworkJob({
   db,
+  artworkJobRepository,
   trackId,
   trackVersionId,
   logger = console,
@@ -597,6 +563,7 @@ function enqueueArtworkJob({
     );
     return;
   }
+  const repository = artworkJobRepository || createArtworkJobRepository(db);
   const jobId = newUuid();
   // Best-effort jobs-row insert. The insert is wrapped in a microtask so its
   // success/failure resolves BEFORE the setImmediate fires — that lets us
@@ -605,11 +572,16 @@ function enqueueArtworkJob({
   // recovery sweep would never re-find).
   const stepData = JSON.stringify({ trackId });
   let effectiveJobId = jobId;
-  Promise.resolve()
+  const insertPromise = Promise.resolve()
     .then(() =>
-      db
-        .prepare(SQL_INSERT_ARTWORK_JOB)
-        .run(jobId, trackVersionId, 3, stepData, nowIso(), nowIso()),
+      repository.insertArtworkJob({
+        jobId,
+        trackVersionId,
+        maxAttempts: 3,
+        stepData,
+        createdAt: nowIso(),
+        updatedAt: nowIso(),
+      }),
     )
     .catch((err) => {
       // Sync .run throws (sql.js test path) and async insert failures both
@@ -620,22 +592,31 @@ function enqueueArtworkJob({
         `[ArtworkJob] enqueue insert failed: ${err.message}. Continuing in-process without jobs-row tracking.`,
       );
     });
-  setImmediate(() => {
-    runArtworkJob({
-      db,
-      trackId,
-      trackVersionId,
-      jobId: effectiveJobId,
-      logger,
-      tierResolver,
-      extractVarsFn,
-      generateDependencies,
-    }).catch((err) => {
-      logger.error(
-        `[ArtworkJob] Unhandled error on track ${trackId}: ${err.stack || err.message}`,
-      );
+  const promise = new Promise((resolve) => {
+    setImmediate(() => {
+      insertPromise
+        .then(() =>
+          runArtworkJob({
+            db,
+            artworkJobRepository: repository,
+            trackId,
+            trackVersionId,
+            jobId: effectiveJobId,
+            logger,
+            tierResolver,
+            extractVarsFn,
+            generateDependencies,
+          }),
+        )
+        .catch((err) => {
+          logger.error(
+            `[ArtworkJob] Unhandled error on track ${trackId}: ${err.stack || err.message}`,
+          );
+        })
+        .finally(resolve);
     });
   });
+  return { jobId, promise };
 }
 
 /**
@@ -648,6 +629,7 @@ function enqueueArtworkJob({
  */
 async function recoverOrphanedArtworkJobs({
   db,
+  artworkJobRepository,
   logger = console,
   tierResolver,
   extractVarsFn,
@@ -656,14 +638,13 @@ async function recoverOrphanedArtworkJobs({
   if (!db) {
     throw new Error("recoverOrphanedArtworkJobs requires db");
   }
+  const repository = artworkJobRepository || createArtworkJobRepository(db);
   const now = nowIso();
   const staleCutoff = new Date(Date.now() - STALE_RUNNING_MS).toISOString();
 
   let rows = [];
   try {
-    rows = await db
-      .prepare(SQL_SELECT_ORPHANED_ARTWORK_JOBS)
-      .all(now, staleCutoff);
+    rows = await repository.listRecoverableJobs({ now, staleCutoff });
   } catch (err) {
     logger.warn(`[ArtworkJob] Orphan scan failed: ${err.message}`);
     return { recovered: 0 };
@@ -679,7 +660,7 @@ async function recoverOrphanedArtworkJobs({
         `[ArtworkJob] Orphan job ${row.id} has no parent track — failing.`,
       );
       await failJob(
-        db,
+        repository,
         row.id,
         "ORPHAN_NO_TRACK",
         "track_version missing",
@@ -690,6 +671,7 @@ async function recoverOrphanedArtworkJobs({
     setImmediate(() => {
       runArtworkJob({
         db,
+        artworkJobRepository: repository,
         trackId: row.track_id,
         trackVersionId: row.track_version_id,
         jobId: row.id,

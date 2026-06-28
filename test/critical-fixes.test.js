@@ -1031,6 +1031,99 @@ describe("Voice Provider Runner Lane", () => {
     }
   });
 
+  test("should select only due Suno voice-provider jobs in stable order", async () => {
+    process.env.MAX_CONCURRENT_VOICE_PROVIDER_JOBS = "10";
+    const localDb = await initDb({
+      dbPath: ":memory:",
+      migrationsDir: path.join(process.cwd(), "migrations"),
+    });
+    const baseTime = "2026-06-26T01:00:00.000Z";
+    const laterTime = "2026-06-26T01:05:00.000Z";
+    localDb
+      .prepare("INSERT INTO users (id, created_at) VALUES (?, ?)")
+      .run("vp_lane_order_user", baseTime);
+    localDb
+      .prepare(
+        `INSERT INTO voice_profiles (
+          id, user_id, status, quality_score, model_version, consent_version, created_at
+        ) VALUES (?, ?, 'active', 90, 'test', 'voice_suno_persona_v1', ?)`,
+      )
+      .run("vp_lane_order_voice", "vp_lane_order_user", baseTime);
+    localDb
+      .prepare(
+        `INSERT INTO voice_provider_profiles (
+          id, voice_profile_id, user_id, provider, status, consent_scope, created_at, updated_at
+        ) VALUES (?, ?, ?, 'suno', 'pending', 'voice_suno_persona_v1', ?, ?)`,
+      )
+      .run(
+        "vpp_lane_order",
+        "vp_lane_order_voice",
+        "vp_lane_order_user",
+        baseTime,
+        baseTime,
+      );
+
+    const insertJob = ({
+      id,
+      provider = "suno",
+      attempts = 0,
+      maxAttempts = 3,
+      nextAttemptAt = null,
+      updatedAt = baseTime,
+      createdAt = baseTime,
+    }) => {
+      localDb
+        .prepare(
+          `INSERT INTO voice_provider_jobs (
+            id, voice_profile_id, user_id, provider, voice_provider_profile_id,
+            status, step, attempts, max_attempts, step_data, next_attempt_at,
+            created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, 'pending', 'prepare_persona', ?, ?, '{}', ?, ?, ?)`,
+        )
+        .run(
+          id,
+          "vp_lane_order_voice",
+          "vp_lane_order_user",
+          provider,
+          provider === "suno" ? "vpp_lane_order" : null,
+          attempts,
+          maxAttempts,
+          nextAttemptAt,
+          createdAt,
+          updatedAt,
+        );
+    };
+    insertJob({ id: "vpj_due_old", updatedAt: baseTime, createdAt: baseTime });
+    insertJob({ id: "vpj_due_new", updatedAt: laterTime, createdAt: laterTime });
+    insertJob({
+      id: "vpj_future",
+      nextAttemptAt: "2999-01-01T00:00:00.000Z",
+    });
+    insertJob({ id: "vpj_exhausted", attempts: 3, maxAttempts: 3 });
+    insertJob({ id: "vpj_replicate", provider: "replicate" });
+
+    const started = [];
+    const laneRunner = await startJobRunner({
+      db: localDb,
+      storageDir: os.tmpdir(),
+      streamBaseUrl: "http://stream.local",
+      intervalMs: 1_000_000,
+      recoverStaleJobs: false,
+      voiceProviderJobRunner: async ({ jobId }) => {
+        started.push(jobId);
+      },
+    });
+
+    try {
+      await laneRunner.tickVoiceProviderJobs();
+      await new Promise((resolve) => setImmediate(resolve));
+      assert.deepEqual(started, ["vpj_due_old", "vpj_due_new"]);
+    } finally {
+      laneRunner.stop();
+      localDb.close();
+    }
+  });
+
   test("should disable the voice-provider lane when its table is unavailable", async () => {
     process.env.MAX_CONCURRENT_VOICE_PROVIDER_JOBS = "1";
     const localDb = await initDb({

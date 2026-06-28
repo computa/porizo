@@ -12,6 +12,7 @@ const path = require("path");
 const os = require("os");
 const crypto = require("crypto");
 const { initDb } = require("../src/db");
+const { createLocalStorage } = require("../src/storage/local");
 
 // Generate unique test user ID
 function uniqueUserId(prefix = "user") {
@@ -618,6 +619,307 @@ describe("Auth Service", () => {
 
       assert.ok(events.length > 0);
       assert.strictEqual(events[0].user_id, null);
+    });
+  });
+
+  describe("Account Deletion", () => {
+    it("should roll back account deletion when the GDPR audit insert fails", async () => {
+      const userId = uniqueUserId("user-delete-audit");
+      const email = `delete-${crypto.randomBytes(8).toString("hex")}@example.com`;
+      const duplicateAuditId = `audit-${crypto.randomBytes(8).toString("hex")}`;
+
+      db.prepare(
+        "INSERT INTO users (id, email, created_at, risk_level) VALUES (?, ?, datetime('now'), 'low')",
+      ).run(userId, email);
+      db.prepare(
+        `INSERT INTO audit_logs (
+          id, user_id, action, resource_type, resource_id, metadata_json, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        duplicateAuditId,
+        userId,
+        "PREEXISTING_AUDIT_ROW",
+        "user",
+        userId,
+        "{}",
+        new Date().toISOString(),
+      );
+
+      await assert.rejects(
+        () =>
+          authService.deleteUserAccount(userId, {
+            accountDeletionAuditLog: {
+              id: duplicateAuditId,
+              userId,
+              action: "ACCOUNT_DELETION",
+              resourceType: "user",
+              resourceId: userId,
+              metadataJson: JSON.stringify({ gdpr_request: true }),
+              createdAt: new Date().toISOString(),
+            },
+          }),
+        /audit_logs|constraint|duplicate|UNIQUE/i,
+      );
+
+      const user = db
+        .prepare("SELECT email, display_name, deleted_at FROM users WHERE id = ?")
+        .get(userId);
+      assert.ok(user, "user row should remain after rollback");
+      assert.strictEqual(user.email, email);
+      assert.strictEqual(user.display_name, null);
+      assert.strictEqual(user.deleted_at, null);
+    });
+
+    it("should not delete storage when a later DB audit write fails", async () => {
+      const userId = uniqueUserId("user-delete-audit-storage");
+      const email = `delete-${crypto.randomBytes(8).toString("hex")}@example.com`;
+      const duplicateAuditId = `audit-${crypto.randomBytes(8).toString("hex")}`;
+      const deletedKeys = [];
+      const storageProvider = {
+        listObjects: async ({ prefix }) => ({
+          keys:
+            prefix === `tracks/${userId}/`
+              ? [`tracks/${userId}/track_1/v1/preview.m4a`]
+              : [],
+          prefixes: [],
+        }),
+        deleteObject: async ({ key }) => {
+          deletedKeys.push(key);
+        },
+      };
+
+      db.prepare(
+        "INSERT INTO users (id, email, created_at, risk_level) VALUES (?, ?, datetime('now'), 'low')",
+      ).run(userId, email);
+      db.prepare(
+        `INSERT INTO audit_logs (
+          id, user_id, action, resource_type, resource_id, metadata_json, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        duplicateAuditId,
+        userId,
+        "PREEXISTING_AUDIT_ROW",
+        "user",
+        userId,
+        "{}",
+        new Date().toISOString(),
+      );
+
+      await assert.rejects(
+        () =>
+          authService.deleteUserAccount(userId, {
+            storageProvider,
+            accountDeletionAuditLog: {
+              id: duplicateAuditId,
+              userId,
+              action: "ACCOUNT_DELETION",
+              resourceType: "user",
+              resourceId: userId,
+              metadataJson: JSON.stringify({ gdpr_request: true }),
+              createdAt: new Date().toISOString(),
+            },
+          }),
+        /audit_logs|constraint|duplicate|UNIQUE/i,
+      );
+
+      assert.deepStrictEqual(deletedKeys, []);
+
+      const user = db
+        .prepare("SELECT email, display_name, deleted_at FROM users WHERE id = ?")
+        .get(userId);
+      assert.ok(user, "user row should remain after rollback");
+      assert.strictEqual(user.email, email);
+      assert.strictEqual(user.display_name, null);
+      assert.strictEqual(user.deleted_at, null);
+    });
+
+    it("should scrub voice-provider evidence and remove provider jobs during account deletion", async () => {
+      const userId = uniqueUserId("user-delete-voice-provider");
+      db.prepare(
+        "INSERT INTO users (id, email, created_at, risk_level) VALUES (?, ?, datetime('now'), 'low')",
+      ).run(userId, `${userId}@example.com`);
+      db.prepare(
+        `INSERT INTO voice_profiles (
+          id, user_id, status, quality_score, model_version, consent_version, created_at
+        ) VALUES (?, ?, 'active', 90, 'test', 'voice_suno_persona_v1', datetime('now'))`,
+      ).run("delete_voice_provider_voice", userId);
+      db.prepare(
+        `INSERT INTO voice_provider_profiles (
+          id, voice_profile_id, user_id, provider, provider_profile_id, status,
+          source_upload_url, source_task_id, source_audio_id, consent_scope,
+          created_at, updated_at
+        ) VALUES (?, ?, ?, 'suno', ?, 'active', ?, ?, ?, 'voice_suno_persona_v1',
+          datetime('now'), datetime('now'))`,
+      ).run(
+        "delete_voice_provider_profile",
+        "delete_voice_provider_voice",
+        userId,
+        "remote_persona_secret",
+        "https://files.example.com/raw-user-voice.wav",
+        "remote_task_secret",
+        "remote_audio_secret",
+      );
+      db.prepare(
+        `INSERT INTO voice_provider_jobs (
+          id, voice_profile_id, user_id, provider, voice_provider_profile_id,
+          status, step, attempts, max_attempts, step_data, created_at, updated_at
+        ) VALUES (?, ?, ?, 'suno', ?, 'pending', 'prepare_persona', 0, 3, '{}',
+          datetime('now'), datetime('now'))`,
+      ).run(
+        "delete_voice_provider_job",
+        "delete_voice_provider_voice",
+        userId,
+        "delete_voice_provider_profile",
+      );
+
+      await authService.deleteUserAccount(userId);
+
+      const jobCount = db
+        .prepare("SELECT COUNT(*) AS count FROM voice_provider_jobs WHERE user_id = ?")
+        .get(userId);
+      const voiceCount = db
+        .prepare("SELECT COUNT(*) AS count FROM voice_profiles WHERE user_id = ?")
+        .get(userId);
+      assert.strictEqual(jobCount.count, 0);
+      assert.strictEqual(voiceCount.count, 0);
+
+      const audit = db
+        .prepare(
+          "SELECT metadata_json FROM audit_logs WHERE user_id = ? AND action = ?",
+        )
+        .get(userId, "voice_provider_profiles_deleted");
+      assert.ok(audit, "voice-provider deletion audit should be retained");
+      const metadata = JSON.parse(audit.metadata_json);
+      assert.strictEqual(metadata.reason, "account_deletion");
+      assert.deepStrictEqual(metadata.provider_profiles_deleted, [
+        {
+          id: "delete_voice_provider_profile",
+          voice_profile_id: "delete_voice_provider_voice",
+          provider: "suno",
+          status: "active",
+        },
+      ]);
+      assert.doesNotMatch(audit.metadata_json, /remote_persona_secret/);
+      assert.doesNotMatch(audit.metadata_json, /remote_task_secret/);
+      assert.doesNotMatch(audit.metadata_json, /remote_audio_secret/);
+      assert.doesNotMatch(audit.metadata_json, /raw-user-voice/);
+    });
+
+    it("should delete target-user durable storage artifacts during account deletion", async () => {
+      const userId = uniqueUserId("user-delete-storage");
+      const otherUserId = uniqueUserId("other-storage");
+      const storageRoot = fs.mkdtempSync(path.join(tmpDir, "account-storage-"));
+      const storageProvider = createLocalStorage({ STORAGE_DIR: storageRoot });
+      const sourcePath = path.join(storageRoot, "source-artifact.txt");
+      fs.writeFileSync(sourcePath, "artifact");
+
+      const targetKeys = [
+        `tracks/${userId}/track_1/v1/preview.m4a`,
+        `tracks/${userId}/track_1/v1/master.aac`,
+        `poems/${userId}/poem_1/og_1200x630_v1_default.png`,
+        `enrollment/raw/${userId}/session_1/p1.wav`,
+        `enrollment/clean/${userId}/session_1/clean.wav`,
+        `voice_profiles/${userId}/profile_1/embedding.bin`,
+      ];
+      const retainedKey = `tracks/${otherUserId}/track_1/v1/preview.m4a`;
+
+      for (const key of [...targetKeys, retainedKey]) {
+        await storageProvider.putFile({ key, filePath: sourcePath });
+      }
+
+      db.prepare(
+        "INSERT INTO users (id, email, created_at, risk_level) VALUES (?, ?, datetime('now'), 'low')",
+      ).run(userId, `${userId}@example.com`);
+      db.prepare(
+        "INSERT INTO tracks (id, user_id, status, title, created_at, updated_at) VALUES (?, ?, 'ready', 'Storage Song', datetime('now'), datetime('now'))",
+      ).run("track_delete_storage_success", userId);
+      db.prepare(
+        "INSERT INTO track_versions (id, track_id, version_num, status, render_type, params_hash, created_at) VALUES (?, ?, 1, 'ready', 'preview', 'hash_storage_success', datetime('now'))",
+      ).run("tv_delete_storage_success", "track_delete_storage_success");
+      db.prepare(
+        `INSERT INTO voice_profiles (
+          id, user_id, status, quality_score, model_version, consent_version, created_at
+        ) VALUES (?, ?, 'active', 90, 'test', 'voice_suno_persona_v1', datetime('now'))`,
+      ).run("voice_delete_storage_success", userId);
+
+      await authService.deleteUserAccount(userId, { storageProvider });
+
+      for (const key of targetKeys) {
+        assert.strictEqual(
+          await storageProvider.objectExists({ key }),
+          false,
+          `${key} should be deleted`,
+        );
+      }
+      assert.strictEqual(
+        await storageProvider.objectExists({ key: retainedKey }),
+        true,
+        "other user's artifact should survive",
+      );
+
+      const user = db
+        .prepare("SELECT deleted_at FROM users WHERE id = ?")
+        .get(userId);
+      assert.ok(user.deleted_at, "user should be tombstoned");
+      assert.strictEqual(
+        db
+          .prepare("SELECT COUNT(*) AS count FROM tracks WHERE user_id = ?")
+          .get(userId).count,
+        0,
+      );
+      assert.strictEqual(
+        db
+          .prepare("SELECT COUNT(*) AS count FROM voice_profiles WHERE user_id = ?")
+          .get(userId).count,
+        0,
+      );
+    });
+
+    it("should roll back account deletion when storage artifact cleanup fails", async () => {
+      const userId = uniqueUserId("user-delete-storage-failure");
+      const email = `${userId}@example.com`;
+      const deletedKeys = [];
+      const storageProvider = {
+        listObjects: async ({ prefix }) => ({
+          keys:
+            prefix === `tracks/${userId}/`
+              ? [`tracks/${userId}/track_1/v1/preview.m4a`]
+              : [],
+          prefixes: [],
+        }),
+        deleteObject: async ({ key }) => {
+          deletedKeys.push(key);
+          throw new Error("simulated storage delete failure");
+        },
+      };
+
+      db.prepare(
+        "INSERT INTO users (id, email, created_at, risk_level) VALUES (?, ?, datetime('now'), 'low')",
+      ).run(userId, email);
+
+      await assert.rejects(
+        () => authService.deleteUserAccount(userId, { storageProvider }),
+        /simulated storage delete failure/,
+      );
+
+      assert.deepStrictEqual(deletedKeys, [
+        `tracks/${userId}/track_1/v1/preview.m4a`,
+      ]);
+
+      const user = db
+        .prepare("SELECT email, display_name, deleted_at FROM users WHERE id = ?")
+        .get(userId);
+      assert.ok(user, "user row should remain after rollback");
+      assert.strictEqual(user.email, email);
+      assert.strictEqual(user.display_name, null);
+      assert.strictEqual(user.deleted_at, null);
+
+      const deletedEvent = db
+        .prepare(
+          "SELECT COUNT(*) AS count FROM auth_events WHERE user_id = ? AND event_type = 'account_deleted'",
+        )
+        .get(userId);
+      assert.strictEqual(deletedEvent.count, 0);
     });
   });
 

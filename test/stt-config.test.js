@@ -259,6 +259,50 @@ describe("STT Configuration Service", async () => {
       assert.equal(disabledConfig.flags.my_voice_enabled, false);
     });
 
+    it("projects active gift bundles and onboarding sample into public app config", async () => {
+      await db.prepare("DELETE FROM gift_bundles").run();
+      await db
+        .prepare(
+          `INSERT INTO gift_bundles
+            (product_id, token_count, price_cents, display_name, sort_order, is_active)
+           VALUES
+            ('bundle_inactive', 5, 1799, 'Inactive', 0, 0),
+            ('bundle_one_public', 1, 499, '1 Gift', 10, 1),
+            ('bundle_three_public', 3, 1299, '3 Gifts', 20, 1)`,
+        )
+        .run();
+      await db.prepare("DELETE FROM onboarding_samples").run();
+      await db
+        .prepare(
+          `INSERT INTO onboarding_samples
+            (id, label, audio_url, is_active)
+           VALUES
+            ('sample_inactive_public', 'Inactive', '/audio/inactive.mp3', 0),
+            ('sample_active_public', 'Active Sample', '/audio/active.mp3', 1)`,
+        )
+        .run();
+
+      const appConfig = await adminService.getAppConfig();
+
+      assert.deepEqual(appConfig.gift_bundles, [
+        {
+          product_id: "bundle_one_public",
+          token_count: 1,
+          display_name: "1 Gift",
+          sort_order: 10,
+        },
+        {
+          product_id: "bundle_three_public",
+          token_count: 3,
+          display_name: "3 Gifts",
+          sort_order: 20,
+        },
+      ]);
+      assert.equal(appConfig.onboarding.sample_audio_url, "/audio/active.mp3");
+      assert.equal(appConfig.onboarding.sample_label, "Active Sample");
+      assert.equal(appConfig.onboarding.splash_demo_recipient, "Active Sample");
+    });
+
     it("projects iOS app update policy from security config", async () => {
       await adminService.updateSecurityConfig(
         {
@@ -293,15 +337,22 @@ describe("STT Configuration Service", async () => {
         auto_recommended_version: false,
         last_app_store_version: null,
         last_app_store_sync_at: null,
-        last_app_store_sync_error: null,
       });
+      assert.equal(
+        Object.hasOwn(appConfig.app_update, "last_app_store_sync_error"),
+        false,
+      );
     });
 
-    it("uses the latest App Store version when auto recommended version is enabled", async () => {
+    it("uses cached App Store version when auto recommended version is enabled", async () => {
+      let liveLookupCalled = false;
       const syncingAdminService = new AdminService(db, {
         appStoreConnectService: {
           isConfigured: () => true,
-          getLatestReadyIOSVersion: async () => "1.5.0",
+          getLatestReadyIOSVersion: async () => {
+            liveLookupCalled = true;
+            throw new Error("public app config should not perform live App Store lookup");
+          },
         },
       });
 
@@ -319,9 +370,9 @@ describe("STT Configuration Service", async () => {
           iosRecommendedVersion: "1.4.0",
           iosUpdateMessage: "Update to continue using Porizo.",
           iosAutoRecommendedVersion: true,
-          iosLastAppStoreVersion: "",
-          iosLastAppStoreSyncAt: "",
-          iosAppStoreSyncError: "",
+          iosLastAppStoreVersion: "1.5.0",
+          iosLastAppStoreSyncAt: "2026-06-27T10:00:00.000Z",
+          iosAppStoreSyncError: "Internal auth failure",
         },
         "admin_test",
       );
@@ -330,6 +381,11 @@ describe("STT Configuration Service", async () => {
 
       assert.equal(appConfig.app_update.recommended_version, "1.5.0");
       assert.equal(appConfig.app_update.auto_recommended_version, true);
+      assert.equal(liveLookupCalled, false);
+      assert.equal(
+        Object.hasOwn(appConfig.app_update, "last_app_store_sync_error"),
+        false,
+      );
     });
   });
 

@@ -1,12 +1,21 @@
 const { describe, it } = require("node:test");
 const assert = require("node:assert/strict");
+const { generateKeyPairSync } = require("node:crypto");
 
 const {
+  READY_FOR_DISTRIBUTION,
   compareVersionStrings,
   createAppStoreConnectService,
 } = require("../src/services/app-store-connect-service");
 
 describe("App Store Connect service", () => {
+  function createTestPrivateKey() {
+    return generateKeyPairSync("ec", { namedCurve: "P-256" }).privateKey.export({
+      format: "pem",
+      type: "pkcs8",
+    });
+  }
+
   it("returns the latest iOS version in Ready for Distribution state", async () => {
     const calls = [];
     const fetchImpl = async (url) => {
@@ -35,7 +44,7 @@ describe("App Store Connect service", () => {
     const service = createAppStoreConnectService({
       keyId: "key",
       issuerId: "issuer",
-      privateKey: "-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----",
+      privateKey: createTestPrivateKey(),
       bundleId: "porizo.ios.app.PorizoApp",
       fetchImpl,
       cacheTtlMs: 60_000,
@@ -45,7 +54,9 @@ describe("App Store Connect service", () => {
 
     assert.equal(version, "1.3.0");
     assert.equal(calls.length, 2);
-    assert.match(calls[1], /appStoreState=READY_FOR_DISTRIBUTION/);
+    assert.ok(
+      calls[1].includes(`filter[appStoreState]=${READY_FOR_DISTRIBUTION}`),
+    );
   });
 
   it("caches the resolved version inside the TTL", async () => {
@@ -53,7 +64,7 @@ describe("App Store Connect service", () => {
     const service = createAppStoreConnectService({
       keyId: "key",
       issuerId: "issuer",
-      privateKey: "-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----",
+      privateKey: createTestPrivateKey(),
       bundleId: "porizo.ios.app.PorizoApp",
       fetchImpl: async (url) => {
         appRequests += 1;

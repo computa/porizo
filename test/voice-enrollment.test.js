@@ -1953,6 +1953,91 @@ describe("Voice Enrollment API", () => {
     });
   });
 
+  describe("Voice profile maintenance routes", () => {
+    it("POST /voice/reverify returns a challenge for an active profile", async () => {
+      const userId = uniqueUserId("reverify_profile");
+      const profileId = crypto.randomUUID();
+      const now = new Date().toISOString();
+      await db
+        .prepare("INSERT INTO users (id, created_at) VALUES (?, ?)")
+        .run(userId, now);
+      await db
+        .prepare(
+          "INSERT INTO voice_profiles (id, user_id, status, embedding_ref, quality_score, quality_tier, quality_metrics_json, model_version, consent_version, consent_at, last_verified_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .run(
+          profileId,
+          userId,
+          "active",
+          `voice_profiles/${userId}/${profileId}/embedding.bin`,
+          92,
+          "excellent",
+          JSON.stringify({ average_score: 92 }),
+          "embed_stub",
+          "ios_v1",
+          now,
+          now,
+          now,
+        );
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/voice/reverify",
+        headers: { "x-user-id": userId },
+      });
+
+      assert.strictEqual(response.statusCode, 200);
+      assert.ok(response.json().challenge_id);
+      assert.strictEqual(response.json().challenge_type, "random_phrase");
+    });
+
+    it("DELETE /voice/profile soft-deletes the current profile", async () => {
+      const userId = uniqueUserId("delete_profile");
+      const profileId = crypto.randomUUID();
+      const now = new Date().toISOString();
+      await db
+        .prepare("INSERT INTO users (id, created_at) VALUES (?, ?)")
+        .run(userId, now);
+      await db
+        .prepare(
+          "INSERT INTO voice_profiles (id, user_id, status, embedding_ref, quality_score, quality_tier, quality_metrics_json, model_version, consent_version, consent_at, last_verified_at, created_at, elevenlabs_voice_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .run(
+          profileId,
+          userId,
+          "active",
+          `voice_profiles/${userId}/${profileId}/embedding.bin`,
+          91,
+          "excellent",
+          JSON.stringify({ average_score: 91 }),
+          "embed_stub",
+          "ios_v1",
+          now,
+          now,
+          now,
+          "eleven-disabled-in-test",
+        );
+
+      const response = await app.inject({
+        method: "DELETE",
+        url: "/voice/profile",
+        headers: { "x-user-id": userId },
+      });
+
+      assert.strictEqual(response.statusCode, 200);
+      assert.strictEqual(response.json().deleted, true);
+      const profile = await db
+        .prepare(
+          "SELECT status, embedding_ref, elevenlabs_voice_id, deleted_at FROM voice_profiles WHERE id = ?",
+        )
+        .get(profileId);
+      assert.strictEqual(profile.status, "deleted");
+      assert.strictEqual(profile.embedding_ref, null);
+      assert.strictEqual(profile.elevenlabs_voice_id, null);
+      assert.ok(profile.deleted_at);
+    });
+  });
+
   // ============================================================
   // Full Flow Integration Tests
   // ============================================================

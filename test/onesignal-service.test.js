@@ -14,6 +14,7 @@ const {
   isConfigured,
   sendToSegment,
   sendToUsers,
+  startTagSyncJob,
 } = require("../src/services/onesignal");
 
 describe("OneSignal Service", () => {
@@ -199,6 +200,103 @@ describe("OneSignal Service", () => {
           data: { screen: "songs" },
         });
       });
+    });
+  });
+
+  describe("tag sync job", () => {
+    it("syncs tags from an injected repository", async () => {
+      const origAppId = process.env.ONESIGNAL_APP_ID;
+      const origKey = process.env.ONESIGNAL_REST_API_KEY;
+      const origFetch = global.fetch;
+      const calls = [];
+      let job;
+      let finish;
+      let fail;
+      const done = new Promise((resolve, reject) => {
+        finish = resolve;
+        fail = reject;
+      });
+      const timeout = setTimeout(
+        () => fail(new Error("Timed out waiting for OneSignal tag sync")),
+        2000,
+      );
+
+      process.env.ONESIGNAL_APP_ID = "app-id";
+      process.env.ONESIGNAL_REST_API_KEY = "rest-key";
+      global.fetch = async (url, options) => {
+        calls.push({ url, options, body: JSON.parse(options.body) });
+        if (calls.length === 2) {
+          clearTimeout(timeout);
+          finish();
+        }
+        return {
+          ok: true,
+          status: 200,
+          text: async () => JSON.stringify({ id: "tag-sync" }),
+        };
+      };
+
+      try {
+        job = startTagSyncJob({
+          db: null,
+          logger: { info() {}, warn() {}, error() {} },
+          intervalMs: 60 * 60 * 1000,
+          repository: {
+            listUserTagSummaries: async () => [
+              {
+                id: "user_without_tracks",
+                song_count: 0,
+                last_song_at: null,
+              },
+              {
+                id: "user_power",
+                song_count: 5,
+                last_song_at: null,
+              },
+            ],
+          },
+        });
+
+        await done;
+
+        assert.deepStrictEqual(
+          calls.map((call) => call.url),
+          [
+            "https://api.onesignal.com/apps/app-id/users/by/external_id/user_without_tracks",
+            "https://api.onesignal.com/apps/app-id/users/by/external_id/user_power",
+          ],
+        );
+        assert.deepStrictEqual(calls[0].body, {
+          properties: {
+            tags: {
+              songs_created: "0",
+              days_since_last_song: "never",
+            },
+          },
+        });
+        assert.deepStrictEqual(calls[1].body, {
+          properties: {
+            tags: {
+              songs_created: "5+",
+              days_since_last_song: "never",
+            },
+          },
+        });
+      } finally {
+        clearTimeout(timeout);
+        job?.stop();
+        global.fetch = origFetch;
+        if (origAppId) {
+          process.env.ONESIGNAL_APP_ID = origAppId;
+        } else {
+          delete process.env.ONESIGNAL_APP_ID;
+        }
+        if (origKey) {
+          process.env.ONESIGNAL_REST_API_KEY = origKey;
+        } else {
+          delete process.env.ONESIGNAL_REST_API_KEY;
+        }
+      }
     });
   });
 });

@@ -14,9 +14,12 @@
  * Prerequisites: npm run db:up && npm run dev
  */
 
-const test = require("node:test");
+const nodeTest = require("node:test");
 const assert = require("node:assert/strict");
 
+const RUN_LIVE_STORY_E2E =
+  process.env.RUN_STORY_E2E === "true" || Boolean(process.env.E2E_BASE_URL);
+const test = RUN_LIVE_STORY_E2E ? nodeTest : nodeTest.skip;
 const BASE_URL = process.env.E2E_BASE_URL || "http://localhost:3000";
 const TEST_USER = "adversarial-test-" + Date.now();
 const TURN_TIMEOUT = 60_000;

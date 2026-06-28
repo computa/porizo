@@ -16,6 +16,9 @@ const {
   ensurePoemShareToken,
   healAndCheckShare,
 } = require("../services/share-service");
+const {
+  createPoemLibraryRepository,
+} = require("../database/poem-library-repository");
 
 function registerPoemRoutes(
   app,
@@ -46,6 +49,8 @@ function registerPoemRoutes(
     subscriptionManager,
   },
 ) {
+  const poemLibraryRepository = createPoemLibraryRepository(db);
+
   function resolveGiftReadyAt(shareRow) {
     if (!shareRow || shareRow.delivery_source !== "gift") {
       return null;
@@ -318,25 +323,7 @@ function registerPoemRoutes(
       return;
     }
 
-    const poems = await db
-      .prepare(
-        `SELECT p.*,
-                ple.origin AS library_origin,
-                ple.added_at AS library_added_at,
-                ple.share_token_id AS library_share_token_id,
-                CASE WHEN p.user_id = ? THEN 1 ELSE 0 END AS can_edit,
-                CASE WHEN p.user_id = ? THEN 1 ELSE 0 END AS can_share,
-                1 AS can_delete
-         FROM poems p
-         JOIN poem_library_entries ple
-           ON ple.poem_id = p.id
-          AND ple.user_id = ?
-          AND ple.removed_at IS NULL
-         WHERE p.deleted_at IS NULL
-           AND NOT (COALESCE(p.funding_source, 'standard') = 'gift_token' AND ple.origin = 'created')
-         ORDER BY ple.added_at DESC`,
-      )
-      .all(userId, userId, userId);
+    const poems = await poemLibraryRepository.listPoemsForUser(userId);
 
     // Parse verses JSON for each poem
     const parsedPoems = poems.map((row) => ({
@@ -537,11 +524,11 @@ function registerPoemRoutes(
     }
 
     const now = nowIso();
-    await db
-      .prepare(
-        "UPDATE poem_library_entries SET removed_at = ?, updated_at = ? WHERE user_id = ? AND poem_id = ? AND removed_at IS NULL",
-      )
-      .run(now, now, userId, poem.id);
+    await poemLibraryRepository.removePoemFromLibrary({
+      userId,
+      poemId: poem.id,
+      removedAt: now,
+    });
 
     await addAuditEntry({
       userId,
@@ -1032,11 +1019,11 @@ function registerPoemRoutes(
 
     // Check if already claimed by this user — return 409 if already in library
     if (userId && share.bound_user_id === userId) {
-      const existingEntry = await db
-        .prepare(
-          "SELECT 1 FROM poem_library_entries WHERE user_id = ? AND poem_id = ? AND removed_at IS NULL",
-        )
-        .get(userId, share.poem_id);
+      const existingEntry =
+        await poemLibraryRepository.getActivePoemLibraryEntry({
+          userId,
+          poemId: share.poem_id,
+        });
       if (existingEntry) {
         sendError(
           reply,

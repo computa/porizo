@@ -405,6 +405,22 @@ describe("blog CMS routes", () => {
       assert.equal(repaired.repair.provider, "gemini");
       assert.equal(repaired.repair.before.decision, "rejected");
       assert.ok(typeof repaired.repair.after.overallScore === "number");
+
+      const auditRows = await db.prepare(`
+        SELECT action, metadata_json
+        FROM audit_logs
+        WHERE resource_id = ?
+          AND action IN ('blog_post_repair_draft_applied', 'blog_post_repair')
+        ORDER BY created_at ASC
+      `).all(post.id);
+      assert.deepEqual(
+        auditRows.map((row) => row.action),
+        ["blog_post_repair_draft_applied", "blog_post_repair"]
+      );
+      const draftAppliedMetadata = JSON.parse(auditRows[0].metadata_json);
+      assert.equal(draftAppliedMetadata.source_revision_number, 2);
+      assert.equal(draftAppliedMetadata.repaired_revision_number, 3);
+      assert.equal(draftAppliedMetadata.repair_provider, "gemini");
     } finally {
       blogRepairService.generateBlogRepairDraft = originalGenerateRepair;
     }

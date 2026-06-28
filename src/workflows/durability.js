@@ -25,6 +25,10 @@
  *   await durability.updateHeartbeat(jobId);
  */
 
+const {
+  createJobDurabilityRepository,
+} = require("../database/job-durability-repository");
+
 /**
  * Create a job durability service instance
  * @param {Object} params
@@ -33,7 +37,8 @@
  * @param {Object} params.dlq - DLQ service instance
  * @returns {Object} Durability service interface
  */
-function createJobDurabilityService({ db, circuitBreaker, dlq }) {
+function createJobDurabilityService({ db, circuitBreaker, dlq, repository }) {
+  const jobRepository = repository || createJobDurabilityRepository(db);
   /**
    * Execute a function with circuit breaker protection
    * Records success/failure with the circuit breaker automatically
@@ -65,16 +70,11 @@ function createJobDurabilityService({ db, circuitBreaker, dlq }) {
    * @returns {Promise<boolean>} True if job should be moved to DLQ
    */
   async function shouldMoveToDLQ(jobId) {
-    const result = await db.query(
-      "SELECT status, attempts, max_attempts FROM jobs WHERE id = ?",
-      [jobId]
-    );
+    const job = await jobRepository.getDlqDecisionJob(jobId);
 
-    if (result.rows.length === 0) {
+    if (!job) {
       return false;
     }
-
-    const job = result.rows[0];
     return job.status === "failed" && job.attempts >= job.max_attempts;
   }
 
@@ -99,20 +99,17 @@ function createJobDurabilityService({ db, circuitBreaker, dlq }) {
    */
   async function saveCheckpoint({ jobId, step, data }) {
     // Get current step_data
-    const jobResult = await db.query(
-      "SELECT step_data FROM jobs WHERE id = ?",
-      [jobId]
-    );
+    const job = await jobRepository.getCheckpointJob(jobId);
 
-    if (jobResult.rows.length === 0) {
+    if (!job) {
       throw new Error(`Job not found: ${jobId}`);
     }
 
     // Parse existing step_data or create new object
     let stepData = {};
-    if (jobResult.rows[0].step_data) {
+    if (job.step_data) {
       try {
-        stepData = JSON.parse(jobResult.rows[0].step_data);
+        stepData = JSON.parse(job.step_data);
       } catch (e) {
         stepData = {};
       }
@@ -123,10 +120,11 @@ function createJobDurabilityService({ db, circuitBreaker, dlq }) {
 
     // Update job with new step_data
     const now = new Date().toISOString();
-    await db.query(
-      "UPDATE jobs SET step_data = ?, last_heartbeat_at = ?, updated_at = ? WHERE id = ?",
-      [JSON.stringify(stepData), now, now, jobId]
-    );
+    await jobRepository.updateCheckpoint({
+      jobId,
+      stepDataJson: JSON.stringify(stepData),
+      now,
+    });
   }
 
   /**
@@ -136,10 +134,7 @@ function createJobDurabilityService({ db, circuitBreaker, dlq }) {
    */
   async function updateHeartbeat(jobId) {
     const now = new Date().toISOString();
-    await db.query(
-      "UPDATE jobs SET last_heartbeat_at = ?, updated_at = ? WHERE id = ?",
-      [now, now, jobId]
-    );
+    await jobRepository.updateHeartbeat({ jobId, now });
   }
 
   /**
@@ -155,20 +150,7 @@ function createJobDurabilityService({ db, circuitBreaker, dlq }) {
       Date.now() - staleThresholdMinutes * 60 * 1000
     ).toISOString();
 
-    const result = await db.query(
-      `UPDATE jobs
-       SET status = 'queued',
-           attempts = attempts + 1,
-           locked_by = NULL,
-           locked_at = NULL,
-           updated_at = ?
-       WHERE status = 'running'
-         AND (last_heartbeat_at IS NULL OR last_heartbeat_at < ?)`,
-      [now, thresholdTime]
-    );
-
-    // Return number of affected rows
-    return result.changes || result.rowCount || 0;
+    return jobRepository.recoverStaleJobs({ now, thresholdTime });
   }
 
   /**
@@ -177,18 +159,11 @@ function createJobDurabilityService({ db, circuitBreaker, dlq }) {
    * @returns {Promise<Object>} Job health status
    */
   async function getJobHealth(jobId) {
-    const result = await db.query(
-      `SELECT status, step, step_index, attempts, max_attempts,
-              last_heartbeat_at, error_code, error_message
-       FROM jobs WHERE id = ?`,
-      [jobId]
-    );
+    const job = await jobRepository.getJobHealth(jobId);
 
-    if (result.rows.length === 0) {
+    if (!job) {
       return null;
     }
-
-    const job = result.rows[0];
     return {
       status: job.status,
       currentStep: job.step,
@@ -208,13 +183,7 @@ function createJobDurabilityService({ db, circuitBreaker, dlq }) {
    */
   async function getStats() {
     // Get job stats
-    const jobStats = await db.query(`
-      SELECT
-        status,
-        COUNT(*) as count
-      FROM jobs
-      GROUP BY status
-    `);
+    const jobStats = await jobRepository.getJobStatusCounts();
 
     // Get circuit breaker stats
     const cbStats = circuitBreaker.getAllStats();
@@ -223,7 +192,7 @@ function createJobDurabilityService({ db, circuitBreaker, dlq }) {
     const dlqStats = await dlq.getStats();
 
     return {
-      jobs: jobStats.rows.reduce((acc, row) => {
+      jobs: jobStats.reduce((acc, row) => {
         acc[row.status] = row.count;
         return acc;
       }, {}),

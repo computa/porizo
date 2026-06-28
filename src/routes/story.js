@@ -31,7 +31,9 @@ const SUNO_PERSONA_FAILED_STATUSES = new Set([
   "failed",
   "manual_cleanup_required",
 ]);
-const { generatePoemFromStory } = require("../writer/poem");
+const {
+  generatePoemFromStory: defaultGeneratePoemFromStory,
+} = require("../writer/poem");
 const { evaluatePoemReadiness } = require("../writer/v3/quality");
 const { transcribeAudio } = require("../providers/whisper");
 const {
@@ -56,6 +58,7 @@ const {
 const {
   buildTrackStoryContextPayload,
 } = require("../writer/story-context-serialization");
+const { createStoryRepository } = require("../database/story-repository");
 
 const STORY_INITIAL_PROMPT_WARNING_THRESHOLD = 8000;
 const STORY_INITIAL_PROMPT_MAX_LENGTH = 12000;
@@ -991,9 +994,11 @@ function registerStoryRoutes(
     orchestrationExternalCommandJson = "",
     orchestrationExternalTimeoutMs = 120000,
     storyEngineDefault: _storyEngineDefault = "v3",
+    generatePoemFromStory = defaultGeneratePoemFromStory,
   },
 ) {
   const normalizedStoryEngineDefault = "v3";
+  const storyRepository = createStoryRepository(db);
 
   async function upsertTrackLibraryEntry({
     userId,
@@ -1002,29 +1007,13 @@ function registerStoryRoutes(
     shareTokenId = null,
     addedAt = new Date().toISOString(),
   }) {
-    const now = new Date().toISOString();
-    const updateResult = await db
-      .prepare(
-        `UPDATE track_library_entries
-       SET origin = CASE WHEN origin = 'created' THEN origin ELSE ? END,
-           share_token_id = COALESCE(?, share_token_id),
-           added_at = CASE WHEN removed_at IS NOT NULL THEN ? ELSE added_at END,
-           removed_at = NULL, updated_at = ?
-       WHERE user_id = ? AND track_id = ?`,
-      )
-      .run(origin, shareTokenId, addedAt, now, userId, trackId);
-
-    if (updateResult.changes > 0) {
-      return;
-    }
-
-    await db
-      .prepare(
-        `INSERT INTO track_library_entries
-       (user_id, track_id, origin, share_token_id, added_at, removed_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, NULL, ?)`,
-      )
-      .run(userId, trackId, origin, shareTokenId, addedAt, now);
+    await storyRepository.upsertTrackLibraryEntry({
+      userId,
+      trackId,
+      origin,
+      shareTokenId,
+      addedAt,
+    });
   }
 
   async function upsertPoemLibraryEntry({
@@ -1034,29 +1023,13 @@ function registerStoryRoutes(
     shareTokenId = null,
     addedAt = new Date().toISOString(),
   }) {
-    const now = new Date().toISOString();
-    const updateResult = await db
-      .prepare(
-        `UPDATE poem_library_entries
-       SET origin = CASE WHEN origin = 'created' THEN origin ELSE ? END,
-           share_token_id = COALESCE(?, share_token_id),
-           added_at = CASE WHEN removed_at IS NOT NULL THEN ? ELSE added_at END,
-           removed_at = NULL, updated_at = ?
-       WHERE user_id = ? AND poem_id = ?`,
-      )
-      .run(origin, shareTokenId, addedAt, now, userId, poemId);
-
-    if (updateResult.changes > 0) {
-      return;
-    }
-
-    await db
-      .prepare(
-        `INSERT INTO poem_library_entries
-       (user_id, poem_id, origin, share_token_id, added_at, removed_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, NULL, ?)`,
-      )
-      .run(userId, poemId, origin, shareTokenId, addedAt, now);
+    await storyRepository.upsertPoemLibraryEntry({
+      userId,
+      poemId,
+      origin,
+      shareTokenId,
+      addedAt,
+    });
   }
 
   async function removeTrackLibraryEntry({
@@ -1064,13 +1037,11 @@ function registerStoryRoutes(
     trackId,
     removedAt = new Date().toISOString(),
   }) {
-    await db
-      .prepare(
-        `UPDATE track_library_entries
-       SET removed_at = COALESCE(removed_at, ?), updated_at = ?
-       WHERE user_id = ? AND track_id = ? AND removed_at IS NULL`,
-      )
-      .run(removedAt, removedAt, userId, trackId);
+    await storyRepository.removeTrackLibraryEntry({
+      userId,
+      trackId,
+      removedAt,
+    });
   }
 
   async function removePoemLibraryEntry({
@@ -1078,13 +1049,11 @@ function registerStoryRoutes(
     poemId,
     removedAt = new Date().toISOString(),
   }) {
-    await db
-      .prepare(
-        `UPDATE poem_library_entries
-       SET removed_at = COALESCE(removed_at, ?), updated_at = ?
-       WHERE user_id = ? AND poem_id = ? AND removed_at IS NULL`,
-      )
-      .run(removedAt, removedAt, userId, poemId);
+    await storyRepository.removePoemLibraryEntry({
+      userId,
+      poemId,
+      removedAt,
+    });
   }
 
   async function requireV3OrchestrationAdmin(request, reply) {
@@ -1109,24 +1078,15 @@ function registerStoryRoutes(
     requestPayload,
     replayOf = null,
   }) {
-    const now = new Date().toISOString();
-    await db
-      .prepare(
-        `INSERT INTO orchestration_executions
-       (id, admin_id, status, endpoint, runtime_mode, request_json, result_json, debug_json, error_json, replay_of, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?, ?)`,
-      )
-      .run(
-        executionId,
-        adminId,
-        status,
-        endpoint,
-        runtimeMode,
-        JSON.stringify(requestPayload || {}),
-        replayOf,
-        now,
-        now,
-      );
+    await storyRepository.createOrchestrationExecution({
+      executionId,
+      adminId,
+      status,
+      endpoint,
+      runtimeMode,
+      requestPayload,
+      replayOf,
+    });
   }
 
   async function updateOrchestrationExecutionRecord({
@@ -1136,20 +1096,13 @@ function registerStoryRoutes(
     debug = null,
     error = null,
   }) {
-    await db
-      .prepare(
-        `UPDATE orchestration_executions
-       SET status = ?, result_json = ?, debug_json = ?, error_json = ?, updated_at = ?
-       WHERE id = ?`,
-      )
-      .run(
-        status,
-        result ? JSON.stringify(result) : null,
-        debug ? JSON.stringify(debug) : null,
-        error ? JSON.stringify(error) : null,
-        new Date().toISOString(),
-        executionId,
-      );
+    await storyRepository.updateOrchestrationExecution({
+      executionId,
+      status,
+      result,
+      debug,
+      error,
+    });
   }
 
   async function appendOrchestrationExecutionEvent({
@@ -1161,22 +1114,14 @@ function registerStoryRoutes(
     payload = null,
   }) {
     try {
-      await db
-        .prepare(
-          `INSERT INTO orchestration_execution_events
-         (id, execution_id, sequence, event_type, level, message, payload_json, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        )
-        .run(
-          crypto.randomUUID(),
-          executionId,
-          sequence,
-          eventType,
-          level,
-          message || null,
-          payload ? JSON.stringify(payload) : null,
-          new Date().toISOString(),
-        );
+      await storyRepository.appendOrchestrationExecutionEvent({
+        executionId,
+        sequence,
+        eventType,
+        level,
+        message,
+        payload,
+      });
     } catch (err) {
       console.warn(
         "[Story V3 Orchestration] failed to persist execution event:",
@@ -1217,28 +1162,18 @@ function registerStoryRoutes(
     );
     const safeOffset = clampInt(offset, 0, 1000000, 0);
 
-    const countRow = await db
-      .prepare(
-        "SELECT COUNT(*) as total FROM orchestration_execution_events WHERE execution_id = ?",
-      )
-      .get(executionId);
-
-    const rows = await db
-      .prepare(
-        `SELECT id, execution_id, sequence, event_type, level, message, payload_json, created_at
-       FROM orchestration_execution_events
-       WHERE execution_id = ?
-       ORDER BY sequence ASC, created_at ASC
-       LIMIT ? OFFSET ?`,
-      )
-      .all(executionId, safeLimit, safeOffset);
+    const timeline = await storyRepository.listOrchestrationExecutionEvents({
+      executionId,
+      limit: safeLimit,
+      offset: safeOffset,
+    });
 
     return {
-      items: rows.map(toExecutionEventResponseRecord),
+      items: timeline.rows.map(toExecutionEventResponseRecord),
       pagination: {
         limit: safeLimit,
         offset: safeOffset,
-        total: Number(countRow?.total || 0),
+        total: timeline.total,
       },
     };
   }
@@ -1265,9 +1200,7 @@ function registerStoryRoutes(
     executionId,
     { includeEvents = false, eventLimit = 100, eventOffset = 0 } = {},
   ) {
-    const row = await db
-      .prepare("SELECT * FROM orchestration_executions WHERE id = ?")
-      .get(executionId);
+    const row = await storyRepository.getOrchestrationExecution(executionId);
     const record = toExecutionResponseRecord(row);
     if (!record || !includeEvents) {
       return record;
@@ -1738,43 +1671,19 @@ function registerStoryRoutes(
               ? request.query.status.trim()
               : null;
 
-          const whereSql = statusFilter ? "WHERE status = ?" : "";
-          const countRow = statusFilter
-            ? await db
-                .prepare(
-                  `SELECT COUNT(*) as total FROM orchestration_executions ${whereSql}`,
-                )
-                .get(statusFilter)
-            : await db
-                .prepare(
-                  "SELECT COUNT(*) as total FROM orchestration_executions",
-                )
-                .get();
-
-          const rows = statusFilter
-            ? await db
-                .prepare(
-                  `SELECT id, admin_id, status, endpoint, runtime_mode, replay_of, created_at, updated_at
-               FROM orchestration_executions ${whereSql}
-               ORDER BY created_at DESC
-               LIMIT ? OFFSET ?`,
-                )
-                .all(statusFilter, limit, offset)
-            : await db
-                .prepare(
-                  `SELECT id, admin_id, status, endpoint, runtime_mode, replay_of, created_at, updated_at
-               FROM orchestration_executions
-               ORDER BY created_at DESC
-               LIMIT ? OFFSET ?`,
-                )
-                .all(limit, offset);
+          const executions =
+            await storyRepository.listOrchestrationExecutions({
+              status: statusFilter,
+              limit,
+              offset,
+            });
 
           reply.send({
-            items: rows,
+            items: executions.rows,
             pagination: {
               limit,
               offset,
-              total: Number(countRow?.total || 0),
+              total: executions.total,
             },
           });
         } catch (err) {

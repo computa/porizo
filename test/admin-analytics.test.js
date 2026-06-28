@@ -7,6 +7,7 @@ const { beforeEach, afterEach, describe, test } = require("node:test");
 
 const { getDatabase } = require("../src/database");
 const { buildServer } = require("../src/server");
+const { AdminService } = require("../src/services/admin-service");
 const { newUuid } = require("../src/utils/ids");
 
 function buildTestApp(db) {
@@ -261,5 +262,130 @@ describe("admin analytics routes", () => {
       url: "/admin/dashboard/analytics/overview?days=7",
     });
     assert.equal(response.statusCode, 401);
+  });
+});
+
+describe("AdminService analytics repository boundary", () => {
+  test("delegates admin audit writes to EventsRepository", async () => {
+    let auditPayload;
+    const fakeEventsRepository = {
+      async insertAuditLog(payload) {
+        auditPayload = payload;
+        return { changes: 1 };
+      },
+    };
+
+    const service = new AdminService(
+      { prepare: () => { throw new Error("unexpected db access"); } },
+      { eventsRepository: fakeEventsRepository },
+    );
+
+    await service._audit("admin_2", "admin_lock_user", "user", "user_2", {
+      reason: "risk review",
+    });
+
+    assert.ok(auditPayload, "expected delegated audit insert");
+    assert.match(auditPayload.id, /^audit_[a-f0-9]{24}$/);
+    assert.equal(auditPayload.userId, "admin_2");
+    assert.equal(auditPayload.action, "admin_lock_user");
+    assert.equal(auditPayload.resourceType, "user");
+    assert.equal(auditPayload.resourceId, "user_2");
+    assert.match(auditPayload.createdAt, /^\d{4}-\d{2}-\d{2}T/);
+    assert.deepEqual(JSON.parse(auditPayload.metadataJson), {
+      actor: "admin",
+      admin_id: "admin_2",
+      reason: "risk review",
+    });
+  });
+
+  test("delegates admin analytics reads to EventsRepository and keeps service-owned policy", async () => {
+    const calls = [];
+    const fakeEventsRepository = {
+      async getAdminEventCountsAfter(startDate) {
+        calls.push(["overview", startDate]);
+        return [{ event_name: "auth_completed", count: 2 }];
+      },
+      async getAdminDailyEventCountsAfter(eventName, startDate) {
+        calls.push(["daily", eventName, startDate]);
+        return [{ date: "2026-06-25", count: 2 }];
+      },
+      async countDistinctUsersForEventAfter(eventName, startDate) {
+        calls.push(["funnel-start", eventName, startDate]);
+        return { c: eventName === "first_song_completed" ? 1 : 2 };
+      },
+      async countDistinctUsersConvertedAfter(startEvent, endEvent, startDate) {
+        calls.push(["funnel-converted", startEvent, endEvent, startDate]);
+        return { c: startEvent === "create_started" ? 1 : 2 };
+      },
+      async getAdminUserEvents(userId, limit) {
+        calls.push(["user-events", userId, limit]);
+        return [
+          {
+            id: "evt_admin_boundary",
+            event_name: "auth_completed",
+            user_id: userId,
+            resource_type: "track",
+            resource_id: "track_1",
+            metadata_json: "{}",
+            created_at: "2026-06-25T12:00:00.000Z",
+          },
+        ];
+      },
+      async insertUserAnalyticsReadAudit(payload) {
+        calls.push(["audit", payload]);
+      },
+    };
+
+    const service = new AdminService(
+      { prepare: () => { throw new Error("unexpected db access"); } },
+      { eventsRepository: fakeEventsRepository },
+    );
+
+    const overview = await service.getAnalyticsOverview(0);
+    assert.equal(overview.days, 1);
+    assert.deepEqual(overview.counts, [{ event_name: "auth_completed", count: 2 }]);
+
+    const cachedOverview = await service.getAnalyticsOverview(0);
+    assert.deepEqual(cachedOverview, overview);
+    assert.equal(calls.filter(([name]) => name === "overview").length, 1);
+
+    const daily = await service.getAnalyticsDaily("auth_completed", 500);
+    assert.equal(daily.days, 365);
+    assert.equal(daily.event_name, "auth_completed");
+    assert.deepEqual(daily.byDay, [{ date: "2026-06-25", count: 2 }]);
+
+    const funnel = await service.getFunnelCohort(7);
+    assert.equal(funnel.steps.length, 4);
+    assert.deepEqual(funnel.steps[1], {
+      from: "create_started",
+      to: "create_completed",
+      startUsers: 2,
+      convertedUsers: 1,
+      conversionRate: "50.00",
+    });
+
+    const userAnalytics = await service.getUserAnalytics(
+      "admin_1",
+      "admin@porizo.app",
+      "user_1",
+      999,
+    );
+    assert.equal(userAnalytics.limit, 200);
+    assert.equal(userAnalytics.events[0].id, "evt_admin_boundary");
+
+    const userEventsCall = calls.find(([name]) => name === "user-events");
+    assert.deepEqual(userEventsCall, ["user-events", "user_1", 200]);
+
+    const auditCall = calls.find(([name]) => name === "audit");
+    assert.ok(auditCall, "expected analytics read audit call");
+    assert.equal(auditCall[1].adminId, "admin_1");
+    assert.equal(auditCall[1].targetUserId, "user_1");
+    const auditMetadata = JSON.parse(auditCall[1].metadataJson);
+    assert.deepEqual(auditMetadata, {
+      admin_id: "admin_1",
+      admin_email: "admin@porizo.app",
+      target_user_id: "user_1",
+      event_count: 1,
+    });
   });
 });

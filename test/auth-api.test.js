@@ -22,6 +22,7 @@ describe("Auth API Endpoints", () => {
   let tmpDir;
   let dbPath;
   let storageDir;
+  let storage;
 
   before(async () => {
     // Configure social auth for test mode (no external JWKS calls).
@@ -40,9 +41,9 @@ describe("Auth API Endpoints", () => {
     db = await initDb({ dbPath, migrationsDir });
 
     // Create storage provider
-    const storage = createStorageProvider({
-      type: "local",
-      basePath: storageDir,
+    storage = createStorageProvider({
+      STORAGE_DIR: storageDir,
+      UPLOAD_SIGNING_SECRET: "test-secret",
     });
 
     // Build server
@@ -51,6 +52,7 @@ describe("Auth API Endpoints", () => {
       config: {
         PORT: 0,
         HOST: "127.0.0.1",
+        STORAGE_DIR: storageDir,
         STORAGE_BASE_URL: "",
         UPLOAD_SIGNING_SECRET: "test-secret",
         CLEANUP_INTERVAL_MS: 0, // Disable cleanup
@@ -381,6 +383,52 @@ describe("Auth API Endpoints", () => {
     });
   });
 
+  describe("Auth fallback guards", () => {
+    it("should reject x-user-id fallback outside development and test envs", async () => {
+      const originalNodeEnv = process.env.NODE_ENV;
+      const stagingApp = buildServer({
+        db,
+        config: {
+          PORT: 0,
+          HOST: "127.0.0.1",
+          STORAGE_BASE_URL: "",
+          UPLOAD_SIGNING_SECRET: "test-secret",
+          CLEANUP_INTERVAL_MS: 0,
+          ALLOW_ANON_USER_ID: true,
+        },
+        storage: createStorageProvider({
+          type: "local",
+          basePath: storageDir,
+        }),
+      });
+
+      try {
+        await stagingApp.ready();
+        process.env.NODE_ENV = "staging";
+        const response = await stagingApp.inject({
+          method: "POST",
+          url: "/tracks",
+          headers: { "x-user-id": "staging_fallback_user" },
+          payload: {
+            title: "Fallback Guard Song",
+            occasion: "birthday",
+            recipient_name: "Jordan",
+            style: "pop",
+            duration_target: 60,
+            voice_mode: "ai_voice",
+            message: "Happy birthday!",
+          },
+        });
+
+        assert.strictEqual(response.statusCode, 401);
+        assert.strictEqual(JSON.parse(response.body).error, "AUTH_REQUIRED");
+      } finally {
+        process.env.NODE_ENV = originalNodeEnv;
+        await stagingApp.close();
+      }
+    });
+  });
+
   describe("POST /auth/logout", () => {
     let accessToken;
     let refreshToken;
@@ -468,6 +516,89 @@ describe("Auth API Endpoints", () => {
         .prepare("SELECT revoked_at FROM user_sessions WHERE id = ?")
         .get(sessionId);
       assert.ok(session.revoked_at, "logout should revoke the backing session");
+    });
+
+    it("should reject revoked session tokens on protected content endpoints", async () => {
+      const signupResponse = await app.inject({
+        method: "POST",
+        url: "/auth/signup",
+        payload: {
+          email: uniqueEmail(),
+          password: "SecurePassword123",
+        },
+      });
+      assert.strictEqual(signupResponse.statusCode, 201);
+      const signupBody = JSON.parse(signupResponse.body);
+      const freshAccessToken = signupBody.access_token;
+
+      const logoutResponse = await app.inject({
+        method: "POST",
+        url: "/auth/logout",
+        headers: {
+          Authorization: `Bearer ${freshAccessToken}`,
+        },
+      });
+      assert.strictEqual(logoutResponse.statusCode, 200);
+
+      const createTrackResponse = await app.inject({
+        method: "POST",
+        url: "/tracks",
+        headers: {
+          Authorization: `Bearer ${freshAccessToken}`,
+        },
+        payload: {
+          title: "Revoked Session Song",
+          occasion: "birthday",
+          recipient_name: "Jordan",
+          style: "pop",
+          duration_target: 60,
+          voice_mode: "ai_voice",
+          message: "Happy birthday!",
+        },
+      });
+
+      assert.strictEqual(createTrackResponse.statusCode, 401);
+      const body = JSON.parse(createTrackResponse.body);
+      assert.strictEqual(body.error, "INVALID_TOKEN");
+    });
+
+    it("should reject soft-deleted users on protected content endpoints", async () => {
+      const signupResponse = await app.inject({
+        method: "POST",
+        url: "/auth/signup",
+        payload: {
+          email: uniqueEmail(),
+          password: "SecurePassword123",
+        },
+      });
+      assert.strictEqual(signupResponse.statusCode, 201);
+      const signupBody = JSON.parse(signupResponse.body);
+
+      db.prepare("UPDATE users SET deleted_at = ? WHERE id = ?").run(
+        new Date().toISOString(),
+        signupBody.user_id,
+      );
+
+      const createTrackResponse = await app.inject({
+        method: "POST",
+        url: "/tracks",
+        headers: {
+          Authorization: `Bearer ${signupBody.access_token}`,
+        },
+        payload: {
+          title: "Deleted User Song",
+          occasion: "birthday",
+          recipient_name: "Jordan",
+          style: "pop",
+          duration_target: 60,
+          voice_mode: "ai_voice",
+          message: "Happy birthday!",
+        },
+      });
+
+      assert.strictEqual(createTrackResponse.statusCode, 401);
+      const body = JSON.parse(createTrackResponse.body);
+      assert.strictEqual(body.error, "INVALID_TOKEN");
     });
   });
 
@@ -794,6 +925,109 @@ describe("Auth API Endpoints", () => {
       assert.strictEqual(resendResponse.statusCode, 400);
       const body = JSON.parse(resendResponse.body);
       assert.strictEqual(body.error, "NO_PENDING_VERIFICATION");
+    });
+  });
+
+  describe("GDPR self-service routes", () => {
+    it("GDPR data export returns a self-scoped JSON bundle and writes audit row", async () => {
+      const email = uniqueEmail();
+      const signupResponse = await app.inject({
+        method: "POST",
+        url: "/auth/signup",
+        payload: {
+          email,
+          password: "SecurePassword123",
+          name: "GDPR Export User",
+        },
+      });
+      assert.strictEqual(signupResponse.statusCode, 201);
+      const signupBody = JSON.parse(signupResponse.body);
+
+      const response = await app.inject({
+        method: "GET",
+        url: "/auth/data-export",
+        headers: {
+          Authorization: `Bearer ${signupBody.access_token}`,
+        },
+      });
+
+      assert.strictEqual(response.statusCode, 200);
+      assert.match(
+        response.headers["content-disposition"],
+        /porizo-data-export\.json/,
+      );
+
+      const body = JSON.parse(response.body);
+      assert.strictEqual(body.export_format, "json");
+      assert.strictEqual(body.user_id, signupBody.user_id);
+      assert.ok(Array.isArray(body.data.profile));
+      assert.equal("password_hash" in (body.data.profile[0] || {}), false);
+
+      const audit = db
+        .prepare(
+          "SELECT action, resource_type, resource_id, metadata_json FROM audit_logs WHERE user_id = ? AND action = 'DATA_EXPORT_REQUESTED' ORDER BY created_at DESC LIMIT 1",
+        )
+        .get(signupBody.user_id);
+      assert.ok(audit, "expected GDPR data export audit row");
+      assert.strictEqual(audit.resource_type, "user");
+      assert.strictEqual(audit.resource_id, signupBody.user_id);
+      assert.equal(audit.metadata_json.includes("127.0.0.1"), false);
+      const metadata = JSON.parse(audit.metadata_json);
+      assert.strictEqual(metadata.gdpr_request, true);
+      assert.strictEqual(metadata.export_format, "json");
+      assert.match(metadata.ip_address, /^[0-9a-f]{16}$/);
+    });
+
+    it("GDPR account deletion returns 204 and writes account deletion audit row", async () => {
+      const signupResponse = await app.inject({
+        method: "POST",
+        url: "/auth/signup",
+        payload: {
+          email: uniqueEmail(),
+          password: "SecurePassword123",
+          name: "GDPR Delete User",
+        },
+      });
+      assert.strictEqual(signupResponse.statusCode, 201);
+      const signupBody = JSON.parse(signupResponse.body);
+      const sourcePath = path.join(tmpDir, "delete-account-artifact.txt");
+      const targetKey = `tracks/${signupBody.user_id}/track_1/v1/preview.m4a`;
+      const retainedKey = `tracks/other_api_delete_user/track_1/v1/preview.m4a`;
+      fs.writeFileSync(sourcePath, "artifact");
+      await storage.putFile({ key: targetKey, filePath: sourcePath });
+      await storage.putFile({ key: retainedKey, filePath: sourcePath });
+      assert.strictEqual(await storage.objectExists({ key: targetKey }), true);
+
+      const response = await app.inject({
+        method: "DELETE",
+        url: "/auth/delete-account",
+        headers: {
+          Authorization: `Bearer ${signupBody.access_token}`,
+        },
+      });
+
+      assert.strictEqual(response.statusCode, 204);
+      assert.strictEqual(await storage.objectExists({ key: targetKey }), false);
+      assert.strictEqual(await storage.objectExists({ key: retainedKey }), true);
+
+      const audit = db
+        .prepare(
+          "SELECT action, resource_type, resource_id, metadata_json FROM audit_logs WHERE user_id = ? AND action = 'ACCOUNT_DELETION' ORDER BY created_at DESC LIMIT 1",
+        )
+        .get(signupBody.user_id);
+      assert.ok(audit, "expected GDPR account deletion audit row");
+      assert.strictEqual(audit.resource_type, "user");
+      assert.strictEqual(audit.resource_id, signupBody.user_id);
+
+      const metadata = JSON.parse(audit.metadata_json);
+      assert.strictEqual(metadata.gdpr_request, true);
+      assert.match(metadata.ip_address, /^[0-9a-f]{16}$/);
+      assert.strictEqual(metadata.deletion_type, "full_cascade");
+      assert.deepStrictEqual(metadata.retention_policy, {
+        audit_logs: "7_years",
+        embeddings: "24_hours",
+        raw_recordings: "7_days",
+      });
     });
   });
 });

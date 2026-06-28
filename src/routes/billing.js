@@ -2,6 +2,9 @@
 
 const crypto = require("crypto");
 const { nowIso, toJson, parseJson } = require("../utils/common");
+const {
+  createAdminBillingRepository,
+} = require("../database/admin-billing-repository");
 const { getFeatureFlag } = require("../services/feature-flags");
 
 // Frozen wire-format constant, NOT a feature toggle. Pay-per-song is a permanent
@@ -100,11 +103,16 @@ function registerBillingRoutes(
     googleValidator,
     giftTokenProductId,
     getGiftWalletSummary,
+    hasGiftWalletReceiptCredit,
     applyGiftWalletTransaction,
     appleWebhookHandler,
     planConfigService,
+    adminBillingRepository,
   },
 ) {
+  const adminBillingRepo =
+    adminBillingRepository || createAdminBillingRepository(db);
+
   // ============ Billing API Routes ============
 
   function parseBooleanQuery(value) {
@@ -392,16 +400,10 @@ function registerBillingRoutes(
         }
 
         let recoveredMissingCredit = false;
-        const existingCredit = await db
-          .prepare(
-            `SELECT id
-         FROM gift_wallet_transactions
-         WHERE user_id = ?
-           AND reference_type = 'receipt'
-           AND reference_id = ?
-         LIMIT 1`,
-          )
-          .get(userId, existingReceipt.id);
+        const existingCredit = await hasGiftWalletReceiptCredit({
+          userId,
+          receiptId: existingReceipt.id,
+        });
 
         if (!existingCredit) {
           let existingBundle;
@@ -1401,24 +1403,13 @@ function registerBillingRoutes(
         await subscriptionManager.getEntitlements(targetUserId);
       const activeSubscription =
         await subscriptionManager.getActiveSubscription(targetUserId);
-      const latestSubscription = await db
-        .prepare(
-          `SELECT * FROM subscriptions
-       WHERE user_id = ?
-       ORDER BY updated_at DESC, created_at DESC
-       LIMIT 1`,
-        )
-        .get(targetUserId);
-      const recentReceipts = await db
-        .prepare(
-          `SELECT transaction_id, original_transaction_id, product_id, platform,
-              verification_status, purchase_date, expires_date, created_at
-       FROM purchase_receipts
-       WHERE user_id = ?
-       ORDER BY created_at DESC
-       LIMIT 20`,
-        )
-        .all(targetUserId);
+      const latestSubscription =
+        await adminBillingRepo.getLatestSubscriptionForUser(targetUserId);
+      const recentReceipts =
+        await adminBillingRepo.listRecentReceiptsForUser({
+          userId: targetUserId,
+          limit: 20,
+        });
 
       reply.send({
         userId: targetUserId,

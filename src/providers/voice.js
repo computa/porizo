@@ -16,6 +16,9 @@ const { separateStems } = require("./demucs");
 const { writeWav } = require("../utils/audio");
 const { scoreReferenceAudio, GRADE_VALUES } = require("../services/audio-quality");
 const { getAdaptiveConversionParams, normalizeVolume } = require("../services/audio-preprocessing");
+const {
+  createVoiceProviderProfileRepository,
+} = require("../database/voice-provider-profile-repository");
 
 const MIN_REFERENCE_DURATION_SEC = 6;
 const MIN_SINGING_DURATION_SEC = 6;
@@ -307,6 +310,7 @@ async function convertVoice({
   seedvcConfig = {},
   db = null,
   storage = null,
+  voiceProfileRepository = null,
 }) {
   const voiceMode = track.voice_mode || "ai_voice";
 
@@ -326,6 +330,7 @@ async function convertVoice({
       seedvcConfig,
       db,
       storage,
+      voiceProfileRepository,
     });
   }
 
@@ -406,15 +411,17 @@ async function convertPersonalizedVoice({
   seedvcConfig,
   db,
   storage = null,
+  voiceProfileRepository = null,
 }) {
   // Validate voice profile is active (prevents use of deactivated profiles)
   if (!db) {
     throw new Error("E302_VOICE_ERROR: Database connection required for voice profile validation");
   }
 
-  const hasActiveProfile = await db.prepare(
-    "SELECT 1 FROM voice_profiles WHERE user_id = ? AND status = 'active' LIMIT 1"
-  ).get(track.user_id);
+  const repository =
+    voiceProfileRepository || createVoiceProviderProfileRepository(db);
+  const hasActiveProfile =
+    await repository.hasActiveVoiceProfileForUser(track.user_id);
 
   if (!hasActiveProfile) {
     throw new Error("E302_VOICE_ERROR: No active voice profile. Please re-enroll your voice.");

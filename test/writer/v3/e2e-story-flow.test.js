@@ -12,9 +12,12 @@
  * Usage: NODE_ENV=test node --test test/writer/v3/e2e-story-flow.test.js
  */
 
-const test = require("node:test");
+const nodeTest = require("node:test");
 const assert = require("node:assert/strict");
 
+const RUN_LIVE_STORY_E2E =
+  process.env.RUN_STORY_E2E === "true" || Boolean(process.env.E2E_BASE_URL);
+const test = RUN_LIVE_STORY_E2E ? nodeTest : nodeTest.skip;
 const BASE_URL = process.env.E2E_BASE_URL || "http://localhost:3000";
 const TEST_USER = "e2e-test-user-" + Date.now();
 const TURN_TIMEOUT = 60_000; // 60s per turn (LLM calls)

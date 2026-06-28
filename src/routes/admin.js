@@ -4,12 +4,21 @@ const fs = require("fs");
 const path = require("path");
 const jwt = require("jsonwebtoken");
 const jwksRsa = require("jwks-rsa");
-const {
-  AdminService,
-  escapeLikePattern,
-} = require("../services/admin-service");
+const { AdminService } = require("../services/admin-service");
 const { AdminGiftOpsService } = require("../services/admin-gift-ops-service");
 const { BlogService, normalizePostInput } = require("../services/blog-service");
+const {
+  createAdminMarketingRepository,
+} = require("../database/admin-marketing-repository");
+const {
+  createAdminDemoShareRepository,
+} = require("../database/admin-demo-share-repository");
+const {
+  createAdminTrackTransferRepository,
+} = require("../database/admin-track-transfer-repository");
+const {
+  createAdminBillingRepository,
+} = require("../database/admin-billing-repository");
 const { inferBlogDraftFields } = require("../services/blog-autofill-service");
 const { reviewBlogDraft } = require("../services/blog-review-service");
 const {
@@ -97,6 +106,9 @@ function registerAdminRoutes(
     planConfigService,
     emailService,
     oneSignalService = defaultOneSignalService,
+    adminDemoShareRepository,
+    adminTrackTransferRepository,
+    adminBillingRepository,
   },
 ) {
   // ============ ADMIN DASHBOARD API ============
@@ -104,6 +116,13 @@ function registerAdminRoutes(
   const adminService = new AdminService(db);
   const adminGiftOpsService = new AdminGiftOpsService(db);
   const blogService = new BlogService(db);
+  const adminMarketingRepository = createAdminMarketingRepository(db);
+  const adminDemoShareRepo =
+    adminDemoShareRepository || createAdminDemoShareRepository(db);
+  const adminTrackTransferRepo =
+    adminTrackTransferRepository || createAdminTrackTransferRepository(db);
+  const adminBillingRepo =
+    adminBillingRepository || createAdminBillingRepository(db);
   adminAuthService.initialize(db);
 
   // SECURITY (WS2 / P1): global admin auth gate. Every /admin/dashboard* route
@@ -154,6 +173,27 @@ function registerAdminRoutes(
       .filter(Boolean),
   );
   const GIFT_OPS_READ_ROLES = ["admin", "superadmin"];
+
+  function isTrackTransferVerified(verification, targetUserId) {
+    const shareReset =
+      verification.share_status === null ||
+      (verification.share_creator === targetUserId &&
+        verification.share_status === "unbound" &&
+        verification.share_bound_device_id === null &&
+        verification.share_bound_device_platform === null &&
+        verification.share_bound_app_version === null &&
+        verification.share_bound_user_id === null &&
+        verification.share_bound_at === null);
+
+    return (
+      verification.track_owner === targetUserId &&
+      verification.library_owner === targetUserId &&
+      verification.library_origin === "created" &&
+      verification.source_library_entries === 0 &&
+      verification.active_received_entries === 0 &&
+      shareReset
+    );
+  }
 
   /**
    * Admin session auth helper - validates Bearer token from Authorization header
@@ -1049,13 +1089,23 @@ function registerAdminRoutes(
     if (!post) {
       return sendError(reply, 404, "NOT_FOUND", "Blog post not found");
     }
+    const reviewedRevisionNumber = post.current_revision_number;
     const report = reviewBlogDraft(post);
     report.editorial_review = await generateEditorialReview(post, report);
-    const updated = await blogService.saveReviewResult(
-      post.id,
-      report,
-      admin.adminId,
-    );
+    let updated;
+    try {
+      updated = await blogService.saveReviewResult(
+        post.id,
+        report,
+        admin.adminId,
+        { expectedRevisionNumber: reviewedRevisionNumber },
+      );
+    } catch (error) {
+      if (error?.code === "BLOG_POST_CHANGED") {
+        return sendError(reply, 409, "BLOG_POST_CHANGED", error.message);
+      }
+      throw error;
+    }
     await adminService._audit(
       admin.adminId,
       "blog_post_review",
@@ -1078,6 +1128,7 @@ function registerAdminRoutes(
     if (!post) {
       return sendError(reply, 404, "NOT_FOUND", "Blog post not found");
     }
+    const sourceRevisionNumber = post.current_revision_number;
 
     let reviewReport = post.review_report || reviewBlogDraft(post);
     if (!reviewReport.editorial_review) {
@@ -1118,12 +1169,28 @@ function registerAdminRoutes(
         request.params.id,
         normalized,
         admin.adminId,
+        { expectedRevisionNumber: sourceRevisionNumber },
       );
       if (!repairedPost) {
         return sendError(reply, 404, "NOT_FOUND", "Blog post not found");
       }
 
+      await adminService._audit(
+        admin.adminId,
+        "blog_post_repair_draft_applied",
+        "blog_post",
+        repairedPost.id,
+        {
+          slug: repairedPost.slug,
+          source_revision_number: sourceRevisionNumber,
+          repaired_revision_number: repairedPost.current_revision_number,
+          repair_provider: repairResult.provider,
+          repair_model: repairResult.model,
+        },
+      );
+
       const repairedReport = reviewBlogDraft(repairedPost);
+      const repairedRevisionNumber = repairedPost.current_revision_number;
       repairedReport.editorial_review = await generateEditorialReview(
         repairedPost,
         repairedReport,
@@ -1132,6 +1199,7 @@ function registerAdminRoutes(
         repairedPost.id,
         repairedReport,
         admin.adminId,
+        { expectedRevisionNumber: repairedRevisionNumber },
       );
 
       await adminService._audit(
@@ -1161,7 +1229,10 @@ function registerAdminRoutes(
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Failed to repair blog draft";
-      sendError(reply, 400, "BLOG_REPAIR_FAILED", message);
+      const code = error?.code === "BLOG_POST_CHANGED"
+        ? "BLOG_POST_CHANGED"
+        : "BLOG_REPAIR_FAILED";
+      sendError(reply, code === "BLOG_POST_CHANGED" ? 409 : 400, code, message);
     }
   });
 
@@ -1644,15 +1715,24 @@ function registerAdminRoutes(
       const admin = await requireAdminRole(request, reply, ["superadmin"]);
       if (!admin) return;
       const { reason } = request.body || {};
-      if (!reason) {
-        sendError(reply, 400, "INVALID_PARAMS", "reason is required");
+      const trimmedReason = validateReason(reason, reply);
+      if (!trimmedReason) {
         return;
       }
       const result = await adminService.overrideModeration(
         request.params.versionId,
         admin.adminId,
-        reason,
+        trimmedReason,
       );
+      if (!result.success) {
+        const code =
+          result.error === "Track version not found"
+            ? "TRACK_VERSION_NOT_FOUND"
+            : "TRACK_VERSION_NOT_BLOCKED";
+        const statusCode = code === "TRACK_VERSION_NOT_FOUND" ? 404 : 409;
+        sendError(reply, statusCode, code, result.error);
+        return;
+      }
       reply.send(result);
     },
   );
@@ -2951,9 +3031,7 @@ function registerAdminRoutes(
     if (!admin) return;
 
     try {
-      const bundles = await db
-        .prepare("SELECT * FROM gift_bundles ORDER BY sort_order ASC")
-        .all();
+      const bundles = await adminBillingRepo.listGiftBundlesForAdmin();
       reply.send({ bundles });
     } catch (err) {
       console.error("[Admin] Get gift bundles error:", err);
@@ -3019,40 +3097,18 @@ function registerAdminRoutes(
 
     try {
       // Fetch previous values for audit
-      const previous = await db
-        .prepare("SELECT * FROM gift_bundles WHERE id = ?")
-        .get(id);
+      const previous = await adminBillingRepo.getGiftBundleById(id);
       if (!previous) {
         sendError(reply, 404, "BUNDLE_NOT_FOUND", "Gift bundle not found.");
         return;
       }
 
-      const ALLOWED_COLUMNS = [
-        "token_count",
-        "display_name",
-        "description",
-        "is_active",
-        "sort_order",
-      ];
-      const setClauses = [];
-      const params = [];
-      for (const [key, value] of Object.entries(filteredUpdates)) {
-        if (!ALLOWED_COLUMNS.includes(key))
-          throw new Error(`Unsafe column name: ${key}`);
-        setClauses.push(`${key} = ?`);
-        params.push(value);
-      }
-      setClauses.push("updated_at = ?");
-      params.push(new Date().toISOString());
-      setClauses.push("updated_by = ?");
-      params.push(admin.adminId);
-      params.push(id);
-
-      await db
-        .prepare(
-          `UPDATE gift_bundles SET ${setClauses.join(", ")} WHERE id = ?`,
-        )
-        .run(...params);
+      await adminBillingRepo.updateGiftBundleFields({
+        id,
+        updates: filteredUpdates,
+        updatedAt: new Date().toISOString(),
+        updatedBy: admin.adminId,
+      });
 
       // Audit with previous + new values
       await adminService._audit(
@@ -3071,9 +3127,7 @@ function registerAdminRoutes(
         },
       );
 
-      const updated = await db
-        .prepare("SELECT * FROM gift_bundles WHERE id = ?")
-        .get(id);
+      const updated = await adminBillingRepo.getGiftBundleById(id);
       reply.send({ success: true, bundle: updated });
     } catch (err) {
       request.log.error({ err }, "[Admin] Update gift bundle error");
@@ -3421,7 +3475,7 @@ function registerAdminRoutes(
   }
 
   app.post("/admin/dashboard/demo-shares", async (request, reply) => {
-    const admin = await requireAdminSession(request, reply);
+    const admin = await requireAdminRole(request, reply, ["admin", "superadmin"]);
     if (!admin) return;
 
     const { resource_type, resource_id } = request.body || {};
@@ -3438,41 +3492,28 @@ function registerAdminRoutes(
     }
 
     if (resource_type === "song") {
-      const track = await db
-        .prepare("SELECT * FROM tracks WHERE id = ? AND deleted_at IS NULL")
-        .get(resource_id);
+      const track = await adminDemoShareRepo.getShareableTrack(resource_id);
       if (!track) {
         return sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found");
       }
 
       // Check if share token already exists for this track
-      const existing = await db
-        .prepare("SELECT * FROM share_tokens WHERE track_id = ?")
-        .get(resource_id);
+      const existing =
+        await adminDemoShareRepo.getSongDemoShareByTrack(resource_id);
 
       let shareId;
       if (existing) {
         // Update existing share to demo type
         shareId = existing.id;
-        await db
-          .prepare(
-            `
-        UPDATE share_tokens
-        SET share_type = 'demo', claim_pin = NULL, expires_at = ?, status = 'unbound',
-            web_stream_allowed = 1, bound_device_id = NULL, bound_device_platform = NULL,
-            bound_app_version = NULL, bound_at = NULL, bound_user_id = NULL
-        WHERE id = ?
-      `,
-          )
-          .run(DEMO_EXPIRES_AT, shareId);
+        await adminDemoShareRepo.convertSongShareToDemo({
+          shareId,
+          expiresAt: DEMO_EXPIRES_AT,
+        });
       } else {
         // Insert new demo share
         shareId = newUuid();
-        const trackVersion = await db
-          .prepare(
-            "SELECT id FROM track_versions WHERE track_id = ? ORDER BY version_num DESC LIMIT 1",
-          )
-          .get(resource_id);
+        const trackVersion =
+          await adminDemoShareRepo.getLatestTrackVersion(resource_id);
         if (!trackVersion) {
           return sendError(
             reply,
@@ -3481,26 +3522,19 @@ function registerAdminRoutes(
             "Track has no rendered version",
           );
         }
-        await db
-          .prepare(
-            `
-        INSERT INTO share_tokens (id, track_id, track_version_id, creator_id, status, share_type, claim_pin,
-          expires_at, web_stream_allowed, created_at)
-        VALUES (?, ?, ?, ?, 'unbound', 'demo', NULL, ?, 1, ?)
-      `,
-          )
-          .run(
-            shareId,
-            resource_id,
-            trackVersion.id,
-            track.user_id,
-            DEMO_EXPIRES_AT,
-            nowIso(),
-          );
+        await adminDemoShareRepo.createSongDemoShare({
+          shareId,
+          trackId: resource_id,
+          trackVersionId: trackVersion.id,
+          creatorId: track.user_id,
+          expiresAt: DEMO_EXPIRES_AT,
+          now: nowIso(),
+        });
         // Link share token to track
-        await db
-          .prepare("UPDATE tracks SET share_token_id = ? WHERE id = ?")
-          .run(shareId, resource_id);
+        await adminDemoShareRepo.linkTrackShareToken({
+          shareId,
+          trackId: resource_id,
+        });
       }
 
       await adminService._audit(
@@ -3524,41 +3558,30 @@ function registerAdminRoutes(
       });
     } else {
       // Poem demo share
-      const poem = await db
-        .prepare("SELECT * FROM poems WHERE id = ? AND deleted_at IS NULL")
-        .get(resource_id);
+      const poem = await adminDemoShareRepo.getShareablePoem(resource_id);
       if (!poem) {
         return sendError(reply, 404, "POEM_NOT_FOUND", "Poem not found");
       }
 
-      const existing = await db
-        .prepare("SELECT * FROM poem_share_tokens WHERE poem_id = ?")
-        .get(resource_id);
+      const existing =
+        await adminDemoShareRepo.getPoemDemoShareByPoem(resource_id);
 
       let shareId;
       if (existing) {
         shareId = existing.id;
-        await db
-          .prepare(
-            `
-        UPDATE poem_share_tokens
-        SET share_type = 'demo', claim_pin = NULL, expires_at = ?, status = 'active',
-            bound_user_id = NULL, claim_attempts = 0
-        WHERE id = ?
-      `,
-          )
-          .run(DEMO_EXPIRES_AT, shareId);
+        await adminDemoShareRepo.convertPoemShareToDemo({
+          shareId,
+          expiresAt: DEMO_EXPIRES_AT,
+        });
       } else {
         shareId = newUuid();
-        await db
-          .prepare(
-            `
-        INSERT INTO poem_share_tokens (id, poem_id, creator_id, status, share_type, claim_pin,
-          expires_at, allow_save, created_at)
-        VALUES (?, ?, ?, 'active', 'demo', NULL, ?, 1, ?)
-      `,
-          )
-          .run(shareId, resource_id, poem.user_id, DEMO_EXPIRES_AT, nowIso());
+        await adminDemoShareRepo.createPoemDemoShare({
+          shareId,
+          poemId: resource_id,
+          creatorId: poem.user_id,
+          expiresAt: DEMO_EXPIRES_AT,
+          now: nowIso(),
+        });
       }
 
       await adminService._audit(
@@ -3587,31 +3610,8 @@ function registerAdminRoutes(
     const admin = await requireAdminSession(request, reply);
     if (!admin) return;
 
-    const songShares = await db
-      .prepare(
-        `
-    SELECT st.id, st.track_id as resource_id, 'song' as resource_type,
-      t.title, st.access_count, st.created_at, st.status
-    FROM share_tokens st
-    LEFT JOIN tracks t ON t.id = st.track_id
-    WHERE st.share_type = 'demo'
-    ORDER BY st.created_at DESC
-  `,
-      )
-      .all();
-
-    const poemShares = await db
-      .prepare(
-        `
-    SELECT pst.id, pst.poem_id as resource_id, 'poem' as resource_type,
-      p.title, pst.access_count, pst.created_at, pst.status
-    FROM poem_share_tokens pst
-    LEFT JOIN poems p ON p.id = pst.poem_id
-    WHERE pst.share_type = 'demo'
-    ORDER BY pst.created_at DESC
-  `,
-      )
-      .all();
+    const songShares = await adminDemoShareRepo.listSongDemoShares();
+    const poemShares = await adminDemoShareRepo.listPoemDemoShares();
 
     const allShares = [...songShares, ...poemShares].map((s) => ({
       ...s,
@@ -3622,21 +3622,15 @@ function registerAdminRoutes(
   });
 
   app.post("/admin/dashboard/demo-share/:id/revoke", async (request, reply) => {
-    const admin = await requireAdminSession(request, reply);
+    const admin = await requireAdminRole(request, reply, ["admin", "superadmin"]);
     if (!admin) return;
 
     const shareId = request.params.id;
 
     // Try song share first
-    let share = await db
-      .prepare(
-        "SELECT * FROM share_tokens WHERE id = ? AND share_type = 'demo'",
-      )
-      .get(shareId);
+    let share = await adminDemoShareRepo.getSongDemoShareById(shareId);
     if (share) {
-      await db
-        .prepare("UPDATE share_tokens SET status = 'revoked' WHERE id = ?")
-        .run(shareId);
+      await adminDemoShareRepo.revokeSongDemoShare(shareId);
       await adminService._audit(
         admin.adminId,
         "admin_revoke_demo_share",
@@ -3651,15 +3645,9 @@ function registerAdminRoutes(
     }
 
     // Try poem share
-    share = await db
-      .prepare(
-        "SELECT * FROM poem_share_tokens WHERE id = ? AND share_type = 'demo'",
-      )
-      .get(shareId);
+    share = await adminDemoShareRepo.getPoemDemoShareById(shareId);
     if (share) {
-      await db
-        .prepare("UPDATE poem_share_tokens SET status = 'revoked' WHERE id = ?")
-        .run(shareId);
+      await adminDemoShareRepo.revokePoemDemoShare(shareId);
       await adminService._audit(
         admin.adminId,
         "admin_revoke_demo_share",
@@ -3891,6 +3879,7 @@ function registerAdminRoutes(
       day: "Re-engagement",
     },
   ];
+  const coldEmailSvc = require("../services/cold-email-service");
 
   app.get(
     "/admin/dashboard/marketing/email-templates",
@@ -3923,11 +3912,7 @@ function registerAdminRoutes(
       const knownColdPaths = new Set(
         COLD_EMAIL_TEMPLATES.map((tpl) => `marketing/email/${tpl.file}`),
       );
-      const referenced = await db
-        .prepare(
-          "SELECT DISTINCT template_html_path AS html_path, template_text_path AS text_path FROM cold_email_campaigns",
-        )
-        .all();
+      const referenced = await coldEmailSvc.listTemplateReferences(db);
       const customSpecs = [];
       for (const row of referenced ?? []) {
         if (!row?.html_path) continue;
@@ -3970,42 +3955,13 @@ function registerAdminRoutes(
       );
     }
 
-    let sql = "SELECT * FROM marketing_contacts";
-    const conditions = [];
-    const params = [];
-
-    if (search) {
-      const escaped = escapeLikePattern(search);
-      conditions.push(
-        "(first_name LIKE ? ESCAPE '\\' OR last_name LIKE ? ESCAPE '\\' OR email LIKE ? ESCAPE '\\' OR company_name LIKE ? ESCAPE '\\' OR contact_name LIKE ? ESCAPE '\\')",
-      );
-      params.push(
-        `%${escaped}%`,
-        `%${escaped}%`,
-        `%${escaped}%`,
-        `%${escaped}%`,
-        `%${escaped}%`,
-      );
-    }
-    if (category) {
-      conditions.push("category = ?");
-      params.push(category);
-    }
-    if (status) {
-      conditions.push("status = ?");
-      params.push(status);
-    }
-    if (conditions.length) sql += " WHERE " + conditions.join(" AND ");
-    sql += " ORDER BY created_at DESC LIMIT ? OFFSET ?";
-    params.push(limit, offset);
-
-    const contacts = await db.prepare(sql).all(...params);
-
-    // Get total count for pagination
-    let countSql = "SELECT COUNT(*) as total FROM marketing_contacts";
-    if (conditions.length) countSql += " WHERE " + conditions.join(" AND ");
-    const countParams = params.slice(0, params.length - 2); // exclude limit/offset
-    const { total } = await db.prepare(countSql).get(...countParams);
+    const { contacts, total } = await adminMarketingRepository.listContacts({
+      search,
+      category,
+      status,
+      limit,
+      offset,
+    });
 
     reply.send({ contacts, total, limit, offset });
   });
@@ -4050,92 +4006,56 @@ function registerAdminRoutes(
       );
       const rows = lines.slice(1);
 
-      let inserted = 0;
-      let skipped = 0;
-
-      const insertStmt = db.prepare(`
-    INSERT INTO marketing_contacts (id, first_name, last_name, company_name, website, description, contact_name, email, category, score, icp_fit_reasoning, audience_reach, partnership_opportunity, contact_approach, source_file, status, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
-  `);
-
       const now = nowIso();
-      await db.prepare("BEGIN").run();
-      try {
-        for (const row of rows) {
-          const cols = parseCsvRow(row);
-          // Build record from known headers only (prevents prototype pollution)
-          const record = Object.create(null);
-          headers.forEach((h, i) => {
-            if (KNOWN_HEADERS.has(h)) record[h] = cols[i] || null;
-          });
+      const importRows = rows.map((row) => {
+        const cols = parseCsvRow(row);
+        // Build record from known headers only (prevents prototype pollution)
+        const record = Object.create(null);
+        headers.forEach((h, i) => {
+          if (KNOWN_HEADERS.has(h)) record[h] = cols[i] || null;
+        });
 
-          const email = normalizeEmail(record);
-          const firstName = record.first_name || null;
-          const lastName = record.last_name || null;
-          const companyName = record.company_name || record.name || null;
-          let website = record.website || null;
-          // Derive contact_name from first+last if not explicitly provided
-          const contactName =
-            record.contact_name ||
-            (firstName && lastName
-              ? `${firstName} ${lastName}`
-              : firstName || lastName || null);
+        const email = normalizeEmail(record);
+        const firstName = record.first_name || null;
+        const lastName = record.last_name || null;
+        const companyName = record.company_name || record.name || null;
+        let website = record.website || null;
+        // Derive contact_name from first+last if not explicitly provided
+        const contactName =
+          record.contact_name ||
+          (firstName && lastName
+            ? `${firstName} ${lastName}`
+            : firstName || lastName || null);
 
-          // Dual-path dedup: email takes priority, fallback to company_name+website for legacy B2B records
-          if (email) {
-            const existing = await db
-              .prepare("SELECT id FROM marketing_contacts WHERE email = ?")
-              .get(email);
-            if (existing) {
-              skipped++;
-              continue;
-            }
-          } else if (companyName) {
-            const existing = await db
-              .prepare(
-                "SELECT id FROM marketing_contacts WHERE company_name = ? AND (website = ? OR (website IS NULL AND ? IS NULL))",
-              )
-              .get(companyName, website, website);
-            if (existing) {
-              skipped++;
-              continue;
-            }
-          } else {
-            skipped++;
-            continue;
-          }
-
-          // Sanitize URL — only allow http(s) schemes
-          if (website && !/^https?:\/\//i.test(website)) {
-            website = null;
-          }
-
-          await insertStmt.run(
-            newUuid(),
-            firstName,
-            lastName,
-            companyName,
-            website,
-            record.description || null,
-            contactName,
-            email,
-            record.category || record.channel_type || null,
-            parseInt(record.score || record.icp_fit_score) || 0,
-            record.icp_fit_reasoning || null,
-            record.audience_reach || null,
-            record.partnership_opportunity || null,
-            record.contact_approach || null,
-            filename,
-            now,
-            now,
-          );
-          inserted++;
+        // Sanitize URL — only allow http(s) schemes
+        if (website && !/^https?:\/\//i.test(website)) {
+          website = null;
         }
-        await db.prepare("COMMIT").run();
-      } catch (err) {
-        await db.prepare("ROLLBACK").run();
-        throw err;
-      }
+
+        return {
+          id: newUuid(),
+          firstName,
+          lastName,
+          companyName,
+          website,
+          description: record.description || null,
+          contactName,
+          email,
+          category: record.category || record.channel_type || null,
+          score: parseInt(record.score || record.icp_fit_score) || 0,
+          icpFitReasoning: record.icp_fit_reasoning || null,
+          audienceReach: record.audience_reach || null,
+          partnershipOpportunity: record.partnership_opportunity || null,
+          contactApproach: record.contact_approach || null,
+          sourceFile: filename,
+        };
+      });
+
+      const { inserted, skipped } =
+        await adminMarketingRepository.importContactsTransaction({
+          rows: importRows,
+          now,
+        });
 
       await adminService._audit(
         admin.adminId,
@@ -4157,9 +4077,7 @@ function registerAdminRoutes(
   app.get("/admin/dashboard/marketing/campaigns", async (request, reply) => {
     const admin = await requireAdminSession(request, reply);
     if (!admin) return;
-    const campaigns = await db
-      .prepare("SELECT * FROM marketing_campaigns ORDER BY created_at DESC")
-      .all();
+    const campaigns = await adminMarketingRepository.listCampaigns();
     reply.send({ campaigns });
   });
 
@@ -4167,16 +4085,13 @@ function registerAdminRoutes(
   // Replaces the old launchd/Python job. Read-only observability + manual
   // trigger. Trigger requires superadmin because each call schedules real
   // outbound emails to a cold list — irreversible side effect.
-  const coldEmailSvc = require("../services/cold-email-service");
   const COLD_EMAIL_ID_PATTERN = /^[a-zA-Z0-9_-]{1,64}$/;
 
   app.get("/admin/dashboard/marketing/cold-email", async (request, reply) => {
     const admin = await requireAdminSession(request, reply);
     if (!admin) return;
     const active = await coldEmailSvc.listActiveCampaigns(db);
-    const all = await db
-      .prepare("SELECT * FROM cold_email_campaigns ORDER BY created_at DESC")
-      .all();
+    const all = await coldEmailSvc.listAllCampaigns(db);
     const byId = new Map(active.map((c) => [c.id, c.pending_count]));
     const campaigns = all.map((c) => ({
       ...c,
@@ -4313,8 +4228,7 @@ function registerAdminRoutes(
       const EMAIL_LIKE_RE =
         /^([^<>\r\n]{0,80}<)?[^\s@<>"]+@[^\s@<>"]+\.[^\s@<>"]+>?$/;
 
-      const updates = [];
-      const params = [];
+      const changes = {};
       const changedFields = [];
 
       for (const [field, spec] of Object.entries(allowedString)) {
@@ -4353,8 +4267,7 @@ function registerAdminRoutes(
             `${field} must look like 'name@example.com' or 'Name <name@example.com>'`,
           );
         }
-        updates.push(`${field} = ?`);
-        params.push(value);
+        changes[field] = value;
         changedFields.push(field);
       }
 
@@ -4369,8 +4282,7 @@ function registerAdminRoutes(
             `${field} must be an integer in [${min}, ${max}]`,
           );
         }
-        updates.push(`${field} = ?`);
-        params.push(value);
+        changes[field] = value;
         changedFields.push(field);
       }
 
@@ -4399,12 +4311,11 @@ function registerAdminRoutes(
             );
           }
         }
-        updates.push("earliest_run_date_utc = ?");
-        params.push(value);
+        changes.earliest_run_date_utc = value;
         changedFields.push("earliest_run_date_utc");
       }
 
-      if (updates.length === 0) {
+      if (changedFields.length === 0) {
         return sendError(
           reply,
           400,
@@ -4457,18 +4368,14 @@ function registerAdminRoutes(
       }
 
       const nowIso = new Date().toISOString();
-      updates.push("updated_at = ?");
-      params.push(nowIso);
-      params.push(id);
-      params.push(existing.updated_at ?? "");
-      // COALESCE keeps this portable across SQLite + Postgres (neither
-      // supports a plain `= ?` against potential nulls).
-      const result = await db
-        .prepare(
-          `UPDATE cold_email_campaigns SET ${updates.join(", ")} WHERE id = ? AND COALESCE(updated_at, '') = ?`,
-        )
-        .run(...params);
-      if ((result?.changes ?? 0) === 0) {
+      const updatedCampaign = await coldEmailSvc.updateCampaignFields(
+        db,
+        id,
+        changes,
+        existing.updated_at ?? "",
+        nowIso,
+      );
+      if (!updatedCampaign) {
         // Lost the race after the If-Match check (another PATCH landed
         // between our load and our UPDATE). Surface the conflict.
         return reply.code(409).send({
@@ -4550,25 +4457,17 @@ function registerAdminRoutes(
 
     const id = newUuid();
     const now = nowIso();
-    await db
-      .prepare(
-        `
-    INSERT INTO marketing_campaigns (id, name, type, status, template_id, sent_at, recipient_count, notes, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `,
-      )
-      .run(
-        id,
-        name.trim(),
-        type || "email",
-        status || "draft",
-        template_id || null,
-        sent_at || null,
-        recipient_count || 0,
-        notes || null,
-        now,
-        now,
-      );
+    const campaign = await adminMarketingRepository.createCampaign({
+      id,
+      name: name.trim(),
+      type: type || "email",
+      status: status || "draft",
+      templateId: template_id || null,
+      sentAt: sent_at || null,
+      recipientCount: recipient_count || 0,
+      notes: notes || null,
+      now,
+    });
 
     await adminService._audit(
       admin.adminId,
@@ -4578,9 +4477,6 @@ function registerAdminRoutes(
       { name: name.trim() },
     );
 
-    const campaign = await db
-      .prepare("SELECT * FROM marketing_campaigns WHERE id = ?")
-      .get(id);
     reply.send({ campaign });
   });
 
@@ -4590,9 +4486,9 @@ function registerAdminRoutes(
       const admin = await requireAdminSession(request, reply);
       if (!admin) return;
 
-      const existing = await db
-        .prepare("SELECT * FROM marketing_campaigns WHERE id = ?")
-        .get(request.params.id);
+      const existing = await adminMarketingRepository.getCampaignById(
+        request.params.id,
+      );
       if (!existing) {
         return sendError(reply, 404, "NOT_FOUND", "Campaign not found");
       }
@@ -4703,13 +4599,7 @@ function registerAdminRoutes(
       }
 
       updates.updated_at = nowIso();
-      const setClauses = Object.keys(updates)
-        .map((k) => `${k} = ?`)
-        .join(", ");
-      const values = [...Object.values(updates), request.params.id];
-      await db
-        .prepare(`UPDATE marketing_campaigns SET ${setClauses} WHERE id = ?`)
-        .run(...values);
+      await adminMarketingRepository.updateCampaign(request.params.id, updates);
 
       await adminService._audit(
         admin.adminId,
@@ -4723,9 +4613,9 @@ function registerAdminRoutes(
         },
       );
 
-      const campaign = await db
-        .prepare("SELECT * FROM marketing_campaigns WHERE id = ?")
-        .get(request.params.id);
+      const campaign = await adminMarketingRepository.getCampaignById(
+        request.params.id,
+      );
       reply.send({ campaign });
     },
   );
@@ -4739,9 +4629,9 @@ function registerAdminRoutes(
       ]);
       if (!admin) return;
 
-      const campaign = await db
-        .prepare("SELECT * FROM marketing_campaigns WHERE id = ?")
-        .get(request.params.id);
+      const campaign = await adminMarketingRepository.getCampaignById(
+        request.params.id,
+      );
       if (!campaign) {
         return sendError(reply, 404, "NOT_FOUND", "Campaign not found");
       }
@@ -4885,38 +4775,19 @@ function registerAdminRoutes(
       const targetLabel =
         userIds.length > 0 ? `users:${userIds.length}` : segments.join(",");
 
-      await db
-        .prepare(
-          `
-    INSERT INTO push_campaigns (
-      id, name, segment, title, body, data_json, image_url,
-      onesignal_notification_id, sent_at, recipients_count, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `,
-        )
-        .run(
-          newUuid(),
-          campaign.name,
-          targetLabel,
-          title,
-          body,
-          JSON.stringify(pushData),
-          imageUrl,
-          response.id || null,
-          sentAt,
-          recipients,
-          sentAt,
-        );
-
-      await db
-        .prepare(
-          `
-    UPDATE marketing_campaigns
-    SET status = 'sent', sent_at = ?, recipient_count = ?, updated_at = ?
-    WHERE id = ?
-  `,
-        )
-        .run(sentAt, recipients, sentAt, campaign.id);
+      const updated = await adminMarketingRepository.recordPushSend({
+        pushCampaignId: newUuid(),
+        campaignId: campaign.id,
+        campaignName: campaign.name,
+        targetLabel,
+        title,
+        body,
+        dataJson: JSON.stringify(pushData),
+        imageUrl,
+        notificationId: response.id || null,
+        sentAt,
+        recipients,
+      });
 
       await adminService._audit(
         admin.adminId,
@@ -4930,9 +4801,6 @@ function registerAdminRoutes(
         },
       );
 
-      const updated = await db
-        .prepare("SELECT * FROM marketing_campaigns WHERE id = ?")
-        .get(campaign.id);
       reply.send({
         success: true,
         campaign: updated,
@@ -4951,9 +4819,9 @@ function registerAdminRoutes(
       const admin = await requireAdminSession(request, reply);
       if (!admin) return;
 
-      const campaign = await db
-        .prepare("SELECT * FROM marketing_campaigns WHERE id = ?")
-        .get(request.params.id);
+      const campaign = await adminMarketingRepository.getCampaignById(
+        request.params.id,
+      );
       if (!campaign) {
         return sendError(reply, 404, "NOT_FOUND", "Campaign not found");
       }
@@ -5008,135 +4876,36 @@ function registerAdminRoutes(
         return v === "x" || v === "1" || v === "true";
       }
 
-      let matched = 0;
-      let skippedUnknown = 0;
-      let bouncedCount = 0;
-      let unsubscribedCount = 0;
       const now = nowIso();
       const campaignId = request.params.id;
+      const importRows = rows.map((row) => {
+        const cols = parseCsvRow(row);
+        const record = Object.create(null);
+        rawHeaders.forEach((h, i) => {
+          if (GMASS_HEADERS.has(h)) record[h] = cols[i] || null;
+        });
 
-      await db.prepare("BEGIN").run();
-      try {
-        for (const row of rows) {
-          const cols = parseCsvRow(row);
-          const record = Object.create(null);
-          rawHeaders.forEach((h, i) => {
-            if (GMASS_HEADERS.has(h)) record[h] = cols[i] || null;
-          });
+        return {
+          id: newUuid(),
+          email: normalizeEmail(record),
+          opened: isEngaged(record.opened) ? 1 : 0,
+          clicked: isEngaged(record.clicked) ? 1 : 0,
+          replied: isEngaged(record.replied) ? 1 : 0,
+          bounced: isEngaged(record.bounced) ? 1 : 0,
+          unsubscribed: isEngaged(record.unsubscribed) ? 1 : 0,
+        };
+      });
 
-          const email = normalizeEmail(record);
-          if (!email) {
-            skippedUnknown++;
-            continue;
-          }
-
-          // Match to existing contact
-          const contact = await db
-            .prepare(
-              "SELECT id, status FROM marketing_contacts WHERE email = ?",
-            )
-            .get(email);
-          if (!contact) {
-            skippedUnknown++;
-            continue;
-          }
-
-          const opened = isEngaged(record.opened) ? 1 : 0;
-          const clicked = isEngaged(record.clicked) ? 1 : 0;
-          const replied = isEngaged(record.replied) ? 1 : 0;
-          const bounced = isEngaged(record.bounced) ? 1 : 0;
-          const unsub = isEngaged(record.unsubscribed) ? 1 : 0;
-
-          // Upsert engagement — additive-only (OR-merge: once true, always true)
-          await db
-            .prepare(
-              `
-        INSERT INTO marketing_engagements (id, contact_id, campaign_id, opened, clicked, replied, bounced, unsubscribed, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT (contact_id, campaign_id) DO UPDATE SET
-          opened = MAX(marketing_engagements.opened, excluded.opened),
-          clicked = MAX(marketing_engagements.clicked, excluded.clicked),
-          replied = MAX(marketing_engagements.replied, excluded.replied),
-          bounced = MAX(marketing_engagements.bounced, excluded.bounced),
-          unsubscribed = MAX(marketing_engagements.unsubscribed, excluded.unsubscribed),
-          updated_at = excluded.updated_at
-      `,
-            )
-            .run(
-              newUuid(),
-              contact.id,
-              campaignId,
-              opened,
-              clicked,
-              replied,
-              bounced,
-              unsub,
-              now,
-              now,
-            );
-
-          // One-directional contact status: bounced/unsubscribed never revert to active
-          if (bounced && contact.status === "active") {
-            await db
-              .prepare(
-                "UPDATE marketing_contacts SET status = 'bounced', updated_at = ? WHERE id = ?",
-              )
-              .run(now, contact.id);
-            bouncedCount++;
-          }
-          if (unsub && contact.status !== "unsubscribed") {
-            await db
-              .prepare(
-                "UPDATE marketing_contacts SET status = 'unsubscribed', updated_at = ? WHERE id = ?",
-              )
-              .run(now, contact.id);
-            unsubscribedCount++;
-          }
-
-          matched++;
-        }
-
-        // Recalculate campaign aggregate stats from engagements
-        const stats = await db
-          .prepare(
-            `
-      SELECT
-        COUNT(*) as recipient_count,
-        SUM(opened) as opens,
-        SUM(clicked) as clicks,
-        SUM(replied) as replies,
-        SUM(bounced) as bounces,
-        SUM(unsubscribed) as unsubscribes
-      FROM marketing_engagements WHERE campaign_id = ?
-    `,
-          )
-          .get(campaignId);
-
-        await db
-          .prepare(
-            `
-      UPDATE marketing_campaigns SET
-        recipient_count = ?, opens = ?, clicks = ?, replies = ?, bounces = ?, unsubscribes = ?,
-        updated_at = ?
-      WHERE id = ?
-    `,
-          )
-          .run(
-            stats.recipient_count || 0,
-            stats.opens || 0,
-            stats.clicks || 0,
-            stats.replies || 0,
-            stats.bounces || 0,
-            stats.unsubscribes || 0,
-            now,
-            campaignId,
-          );
-
-        await db.prepare("COMMIT").run();
-      } catch (err) {
-        await db.prepare("ROLLBACK").run();
-        throw err;
-      }
+      const {
+        matched,
+        skippedUnknown,
+        bouncedCount,
+        unsubscribedCount,
+      } = await adminMarketingRepository.importCampaignEngagementsTransaction({
+        campaignId,
+        rows: importRows,
+        now,
+      });
 
       await adminService._audit(
         admin.adminId,
@@ -5171,10 +4940,7 @@ function registerAdminRoutes(
       const admin = await requireAdminSession(request, reply);
       if (!admin) return;
 
-      const campaign = await db
-        .prepare("SELECT id FROM marketing_campaigns WHERE id = ?")
-        .get(request.params.id);
-      if (!campaign) {
+      if (!(await adminMarketingRepository.campaignExists(request.params.id))) {
         return sendError(reply, 404, "NOT_FOUND", "Campaign not found");
       }
 
@@ -5189,42 +4955,18 @@ function registerAdminRoutes(
       const bouncedFilter = parseBooleanFilter(bounced, "bounced", reply);
       if (bouncedFilter === null) return;
 
-      let sql = `
-    SELECT mc.id, mc.first_name, mc.last_name, mc.email, mc.status as contact_status,
-           me.opened, me.clicked, me.replied, me.bounced, me.unsubscribed
-    FROM marketing_engagements me
-    JOIN marketing_contacts mc ON mc.id = me.contact_id
-    WHERE me.campaign_id = ?
-  `;
-      const params = [request.params.id];
-
-      let whereExtra = "";
-      if (openedFilter !== undefined) {
-        whereExtra += " AND me.opened = ?";
-        params.push(openedFilter);
-      }
-      if (clickedFilter !== undefined) {
-        whereExtra += " AND me.clicked = ?";
-        params.push(clickedFilter);
-      }
-      if (repliedFilter !== undefined) {
-        whereExtra += " AND me.replied = ?";
-        params.push(repliedFilter);
-      }
-      if (bouncedFilter !== undefined) {
-        whereExtra += " AND me.bounced = ?";
-        params.push(bouncedFilter);
-      }
-      sql += whereExtra;
-
-      // Count before pagination
-      const countSql = `SELECT COUNT(*) as total FROM marketing_engagements me JOIN marketing_contacts mc ON mc.id = me.contact_id WHERE me.campaign_id = ?${whereExtra}`;
-      const { total } = await db.prepare(countSql).get(...params);
-
-      sql += " ORDER BY mc.email ASC LIMIT ? OFFSET ?";
-      params.push(limit, offset);
-
-      const engagements = await db.prepare(sql).all(...params);
+      const { engagements, total } =
+        await adminMarketingRepository.listCampaignEngagements({
+          campaignId: request.params.id,
+          filters: {
+            opened: openedFilter,
+            clicked: clickedFilter,
+            replied: repliedFilter,
+            bounced: bouncedFilter,
+          },
+          limit,
+          offset,
+        });
       reply.send({ engagements, total, limit, offset });
     },
   );
@@ -5250,52 +4992,20 @@ function registerAdminRoutes(
       const clickedFilter = parseBooleanFilter(clicked, "clicked", reply);
       if (clickedFilter === null) return;
 
-      let sql;
-      let params;
+      let contacts;
 
       if (campaign_id) {
-        const campaign = await db
-          .prepare("SELECT id FROM marketing_campaigns WHERE id = ?")
-          .get(campaign_id);
-        if (!campaign) {
+        if (!(await adminMarketingRepository.campaignExists(campaign_id))) {
           return sendError(reply, 404, "NOT_FOUND", "Campaign not found");
-        }
-
-        // Export contacts filtered by engagement with a specific campaign
-        sql = `
-      SELECT mc.first_name, mc.last_name, mc.email
-      FROM marketing_contacts mc
-      JOIN marketing_engagements me ON me.contact_id = mc.id AND me.campaign_id = ?
-      WHERE 1=1
-    `;
-        params = [campaign_id];
-
-        if (status) {
-          sql += " AND mc.status = ?";
-          params.push(status);
-        }
-
-        if (openedFilter !== undefined) {
-          sql += " AND me.opened = ?";
-          params.push(openedFilter);
-        }
-        if (clickedFilter !== undefined) {
-          sql += " AND me.clicked = ?";
-          params.push(clickedFilter);
-        }
-      } else {
-        // Export all contacts with status filter
-        sql = "SELECT first_name, last_name, email FROM marketing_contacts";
-        params = [];
-
-        if (status) {
-          sql += " WHERE status = ?";
-          params.push(status);
         }
       }
 
-      sql += " ORDER BY email ASC";
-      const contacts = await db.prepare(sql).all(...params);
+      contacts = await adminMarketingRepository.exportContacts({
+        campaignId: campaign_id,
+        status,
+        opened: openedFilter,
+        clicked: clickedFilter,
+      });
 
       // Build CSV
       const csvLines = ["First Name,Last Name,Email"];
@@ -5352,22 +5062,15 @@ function registerAdminRoutes(
         return;
       }
 
-      // Verify track exists and is not deleted
-      const track = await db
-        .prepare(
-          "SELECT id, user_id, title FROM tracks WHERE id = ? AND deleted_at IS NULL",
-        )
-        .get(trackId);
+      const track = await adminTrackTransferRepo.findTransferTrack(trackId);
       if (!track) {
         sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
         return;
       }
 
-      // Verify target user exists
-      const targetUser = await db
-        .prepare("SELECT id, email, display_name FROM users WHERE id = ?")
-        .get(target_user_id);
-      if (!targetUser) {
+      const targetUser =
+        await adminTrackTransferRepo.findTransferTargetUser(target_user_id);
+      if (!targetUser || targetUser.deleted_at) {
         sendError(reply, 404, "USER_NOT_FOUND", "Target user not found.");
         return;
       }
@@ -5382,12 +5085,7 @@ function registerAdminRoutes(
         return;
       }
 
-      // Block transfer if track has active jobs
-      const activeJob = await db
-        .prepare(
-          "SELECT id FROM jobs WHERE track_version_id IN (SELECT id FROM track_versions WHERE track_id = ?) AND status IN ('queued', 'processing')",
-        )
-        .get(trackId);
+      const activeJob = await adminTrackTransferRepo.findActiveTrackJob(trackId);
       if (activeJob) {
         sendError(
           reply,
@@ -5403,52 +5101,25 @@ function registerAdminRoutes(
       const transferId = newUuid();
 
       try {
-        await db.transaction(async (query) => {
-          // 1. tracks.user_id — optimistic lock: WHERE user_id = sourceUserId prevents TOCTOU race
-          const trackResult = await query(
-            "UPDATE tracks SET user_id = ?, updated_at = ? WHERE id = ? AND user_id = ?",
-            [target_user_id, now, trackId, sourceUserId],
-          );
-          if (!(trackResult?.changes ?? trackResult?.rowCount ?? 0)) {
-            throw new Error("CONCURRENT_TRANSFER");
-          }
-
-          // 2. track_library_entries — remove source user's entry, upsert for target user
-          await query(
-            "DELETE FROM track_library_entries WHERE track_id = ? AND user_id = ?",
-            [trackId, sourceUserId],
-          );
-          await query(
-            "INSERT INTO track_library_entries (user_id, track_id, origin, added_at, updated_at) VALUES (?, ?, 'created', ?, ?) ON CONFLICT (user_id, track_id) DO UPDATE SET origin = 'created', removed_at = NULL, updated_at = ?",
-            [target_user_id, trackId, now, now, now],
-          );
-
-          // 3. share_tokens — update creator, reset binding so recipient can claim fresh
-          await query(
-            "UPDATE share_tokens SET creator_id = ?, status = 'unbound', bound_device_id = NULL, bound_user_id = NULL, bound_at = NULL, claim_attempts = 0 WHERE track_id = ?",
-            [target_user_id, trackId],
-          );
-
-          // 4. audit_logs — do NOT rewrite historical entries (compliance requirement).
-          //    Only log the transfer itself so provenance is traceable.
-          await query(
-            "INSERT INTO audit_logs (id, user_id, action, resource_type, resource_id, metadata_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            [
-              transferId,
-              target_user_id,
-              "track_transferred",
-              "track",
-              trackId,
-              JSON.stringify({
-                from_user: sourceUserId,
-                to_user: target_user_id,
-                admin: admin.email,
-              }),
-              now,
-            ],
-          );
+        await adminTrackTransferRepo.transferTrackOwnership({
+          trackId,
+          sourceUserId,
+          targetUserId: target_user_id,
+          adminId: admin.adminId,
+          adminEmail: admin.email,
+          transferId,
+          now,
         });
       } catch (err) {
+        if (err.message === "ACTIVE_JOB") {
+          sendError(
+            reply,
+            409,
+            "ACTIVE_JOB",
+            "Track has an active render job. Wait for it to complete before transferring.",
+          );
+          return;
+        }
         if (err.message === "CONCURRENT_TRANSFER") {
           sendError(
             reply,
@@ -5468,20 +5139,26 @@ function registerAdminRoutes(
         return;
       }
 
-      // Verify final state (outside transaction — read-only)
-      const updatedTrack = await db
-        .prepare("SELECT user_id FROM tracks WHERE id = ?")
-        .get(trackId);
-      const libraryEntry = await db
-        .prepare(
-          "SELECT user_id, origin FROM track_library_entries WHERE track_id = ? AND user_id = ?",
-        )
-        .get(trackId, target_user_id);
-      const shareToken = await db
-        .prepare(
-          "SELECT creator_id, status, bound_user_id FROM share_tokens WHERE track_id = ?",
-        )
-        .get(trackId);
+      const verification = await adminTrackTransferRepo.getTransferVerification({
+        trackId,
+        sourceUserId,
+        targetUserId: target_user_id,
+      });
+      if (!isTrackTransferVerified(verification, target_user_id)) {
+        console.error("[Admin] Track transfer verification failed:", {
+          trackId,
+          sourceUserId,
+          targetUserId: target_user_id,
+          verification,
+        });
+        sendError(
+          reply,
+          500,
+          "TRANSFER_VERIFICATION_FAILED",
+          "Track transfer verification failed.",
+        );
+        return;
+      }
 
       reply.send({
         transferred: true,
@@ -5490,13 +5167,7 @@ function registerAdminRoutes(
         from_user: sourceUserId,
         to_user: target_user_id,
         to_name: targetUser.display_name || null,
-        verification: {
-          track_owner: updatedTrack?.user_id,
-          library_owner: libraryEntry?.user_id,
-          library_origin: libraryEntry?.origin,
-          share_creator: shareToken?.creator_id,
-          share_status: shareToken?.status,
-        },
+        verification,
       });
     },
   );

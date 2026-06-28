@@ -4,6 +4,9 @@
 
 const fs = require("fs");
 const path = require("path");
+const {
+  createEnrollmentCleanupRepository,
+} = require("../database/enrollment-cleanup-repository");
 const { enrollmentChunkKey, enrollmentCleanKey } = require("../storage");
 
 const DEFAULT_RETENTION_DAYS = 7;
@@ -12,6 +15,7 @@ const DEFAULT_RETENTION_DAYS = 7;
  * Clean up expired enrollment sessions
  * @param {Object} options
  * @param {Object} options.db - Database instance with prepared statements
+ * @param {Object} [options.enrollmentCleanupRepository] - Persistence boundary for expired sessions
  * @param {string} options.storageDir - Base storage directory
  * @param {number} options.retentionDays - Days to retain sessions (default: 7)
  * @returns {Promise<{deletedCount: number, errors: string[]}>}
@@ -29,6 +33,7 @@ function safeParseJson(value, fallback) {
 
 async function cleanupExpiredSessions({
   db,
+  enrollmentCleanupRepository,
   storageDir,
   storageProvider,
   retentionDays = DEFAULT_RETENTION_DAYS,
@@ -41,13 +46,9 @@ async function cleanupExpiredSessions({
   const cutoffIso = cutoffDate.toISOString();
 
   try {
-    // Get expired sessions from database
-    const selectStmt = await db.prepare(
-      "SELECT id, user_id, prompts_json, chunk_count FROM enrollment_sessions WHERE started_at < ?"
-    );
-    const expiredSessions = await selectStmt.all(cutoffIso);
-
-    const deleteStmt = await db.prepare("DELETE FROM enrollment_sessions WHERE id = ?");
+    const repository =
+      enrollmentCleanupRepository || createEnrollmentCleanupRepository(db);
+    const expiredSessions = await repository.listSessionsStartedBefore(cutoffIso);
 
     for (const session of expiredSessions) {
       try {
@@ -99,7 +100,7 @@ async function cleanupExpiredSessions({
         }
 
         // Delete from database
-        await deleteStmt.run(session.id);
+        await repository.deleteSessionById(session.id);
         deletedCount++;
       } catch (err) {
         errors.push(`Failed to delete session ${session.id}: ${err.message}`);
@@ -116,6 +117,7 @@ async function cleanupExpiredSessions({
  * Start a recurring cleanup job
  * @param {Object} options
  * @param {Object} options.db - Database instance
+ * @param {Object} [options.enrollmentCleanupRepository] - Persistence boundary for expired sessions
  * @param {string} options.storageDir - Base storage directory
  * @param {number} options.intervalMs - Interval between cleanup runs (default: 1 hour)
  * @param {number} options.retentionDays - Days to retain sessions (default: 7)
@@ -123,6 +125,7 @@ async function cleanupExpiredSessions({
  */
 function startCleanupJob({
   db,
+  enrollmentCleanupRepository,
   storageDir,
   storageProvider,
   intervalMs = 60 * 60 * 1000,
@@ -136,6 +139,7 @@ function startCleanupJob({
     try {
       const result = await cleanupExpiredSessions({
         db,
+        enrollmentCleanupRepository,
         storageDir,
         storageProvider,
         retentionDays,

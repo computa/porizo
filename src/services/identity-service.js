@@ -17,7 +17,15 @@
  */
 
 const { generateId } = require("../utils/ids");
+const { createIdentityRepository } = require("../database/identity-repository");
 const crypto = require("crypto");
+
+function identityRepositoryFor(dbOrRepository) {
+  if (dbOrRepository?.isIdentityRepository) {
+    return dbOrRepository;
+  }
+  return createIdentityRepository(dbOrRepository);
+}
 
 // ==================== NORMALIZATION ====================
 
@@ -72,13 +80,8 @@ class IdentityError extends Error {
  * @returns {Promise<{ userId: string, identity: object } | null>}
  */
 async function resolveUserByIdentity(db, type, subject) {
-  const row = await db.prepare(
-    `SELECT uap.id, uap.user_id, uap.provider, uap.provider_user_id,
-            uap.provider_data, uap.verified_at, uap.linked_at, uap.last_used_at, uap.status
-     FROM user_auth_providers uap
-     JOIN users u ON u.id = uap.user_id AND u.deleted_at IS NULL
-     WHERE uap.provider = ? AND uap.provider_user_id = ? AND uap.status = 'active'`
-  ).get(type, subject);
+  const repository = identityRepositoryFor(db);
+  const row = await repository.findActiveIdentity(type, subject);
 
   if (!row) return null;
 
@@ -107,6 +110,7 @@ async function resolveUserByIdentity(db, type, subject) {
  * @returns {Promise<{ userId: string, identityId: string }>}
  */
 async function createUserWithIdentity(db, identity, options = {}) {
+  const repository = identityRepositoryFor(db);
   const { contacts = [], profile = {} } = options;
   const userId = generateId("user");
   const identityId = generateId("ap");
@@ -139,41 +143,48 @@ async function createUserWithIdentity(db, identity, options = {}) {
     }
   }
 
-  await db.transaction(async () => {
+  await repository.transaction(async (txRepository) => {
     // 1. Create user
-    await db.prepare(
-      `INSERT INTO users (id, display_name, avatar_url, locale, country, risk_level, created_at)
-       VALUES (?, ?, ?, ?, ?, 'low', ?)`
-    ).run(userId, profile.displayName || null, profile.avatarUrl || null, profile.locale || null, profile.country || null, now);
+    await txRepository.insertUser({
+      id: userId,
+      displayName: profile.displayName || null,
+      avatarUrl: profile.avatarUrl || null,
+      locale: profile.locale || null,
+      country: profile.country || null,
+      createdAt: now,
+    });
 
     // 2. Create auth identity
-    await db.prepare(
-      `INSERT INTO user_auth_providers (id, user_id, provider, provider_user_id, provider_data, verified_at, linked_at, last_used_at, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active')`
-    ).run(
-      identityId,
+    await txRepository.insertAuthProvider({
+      id: identityId,
       userId,
-      identity.type,
-      identity.subject,
-      identity.providerData ? JSON.stringify(identity.providerData) : null,
-      identity.verifiedAt || now,
-      now,
-      now
-    );
+      provider: identity.type,
+      providerUserId: identity.subject,
+      providerDataJson: identity.providerData ? JSON.stringify(identity.providerData) : null,
+      verifiedAt: identity.verifiedAt || now,
+      linkedAt: now,
+      lastUsedAt: now,
+    });
 
     // 3. Create contact rows
     for (const c of contactRows) {
-      await db.prepare(
-        `INSERT INTO user_contacts (id, user_id, type, value_normalized, value_display, verified_at, source, source_identity_id, is_primary, is_relay, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      ).run(
-        c.id, c.userId, c.type, c.valueNormalized, c.valueDisplay,
-        c.verifiedAt, c.source, c.sourceIdentityId, c.isPrimary ? 1 : 0, c.isRelay ? 1 : 0, now
-      );
+      await txRepository.insertContact({
+        id: c.id,
+        userId: c.userId,
+        type: c.type,
+        valueNormalized: c.valueNormalized,
+        valueDisplay: c.valueDisplay,
+        verifiedAt: c.verifiedAt,
+        source: c.source,
+        sourceIdentityId: c.sourceIdentityId,
+        isPrimary: c.isPrimary,
+        isRelay: c.isRelay,
+        createdAt: now,
+      });
     }
 
     // 4. Sync mirror columns from contacts
-    await syncUserContactMirrors(db, userId);
+    await syncUserContactMirrors(txRepository, userId);
   });
 
   return { userId, identityId };
@@ -190,60 +201,58 @@ async function createUserWithIdentity(db, identity, options = {}) {
  * @throws E118_PROVIDER_ALREADY_LINKED if identity belongs to another user
  */
 async function linkIdentityToUser(db, userId, identity) {
+  const repository = identityRepositoryFor(db);
   const identityId = generateId("ap");
   const now = new Date().toISOString();
 
   try {
-    await db.transaction(async () => {
+    await repository.transaction(async (txRepository) => {
       // Conflict check INSIDE transaction to close TOCTOU window
-      await assertNoIdentityConflict(db, identity.type, identity.subject, userId);
+      await assertNoIdentityConflict(txRepository, identity.type, identity.subject, userId);
 
       // If linking carries a verified contact, check for contact conflicts too
       if (identity.type === "email" || identity.type === "phone") {
         if (identity.verifiedAt) {
           const normalized = normalizeContactValue(identity.type, identity.subject);
-          await assertNoContactConflict(db, identity.type, normalized, userId);
+          await assertNoContactConflict(txRepository, identity.type, normalized, userId);
         }
       } else if (identity.type === "apple" && identity.providerData?.email && identity.providerData?.emailVerified) {
         const normalized = normalizeEmail(identity.providerData.email);
-        await assertNoContactConflict(db, "email", normalized, userId);
+        await assertNoContactConflict(txRepository, "email", normalized, userId);
       }
 
-      await db.prepare(
-        `INSERT INTO user_auth_providers (id, user_id, provider, provider_user_id, provider_data, verified_at, linked_at, last_used_at, status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active')`
-      ).run(
-      identityId,
-      userId,
-      identity.type,
-      identity.subject,
-      identity.providerData ? JSON.stringify(identity.providerData) : null,
-      identity.verifiedAt || now,
-      now,
-      now
-    );
-
-    // If the identity carries a contact (email or phone), create/update the contact
-    if (identity.type === "email" || identity.type === "phone") {
-      await createOrUpdateContact(db, userId, {
-        type: identity.type,
-        value: identity.subject,
-        source: "provider_sync",
-        sourceIdentityId: identityId,
-        verified: !!identity.verifiedAt,
+      await txRepository.insertAuthProvider({
+        id: identityId,
+        userId,
+        provider: identity.type,
+        providerUserId: identity.subject,
+        providerDataJson: identity.providerData ? JSON.stringify(identity.providerData) : null,
+        verifiedAt: identity.verifiedAt || now,
+        linkedAt: now,
+        lastUsedAt: now,
       });
-    } else if (identity.type === "apple" && identity.providerData?.email) {
-      // Apple Sign-In shares email — create contact
-      await createOrUpdateContact(db, userId, {
-        type: "email",
-        value: identity.providerData.email,
-        source: "apple_claim",
-        sourceIdentityId: identityId,
-        verified: !!identity.providerData.emailVerified,
-      });
-    }
 
-    await syncUserContactMirrors(db, userId);
+      // If the identity carries a contact (email or phone), create/update the contact
+      if (identity.type === "email" || identity.type === "phone") {
+        await createOrUpdateContact(txRepository, userId, {
+          type: identity.type,
+          value: identity.subject,
+          source: "provider_sync",
+          sourceIdentityId: identityId,
+          verified: !!identity.verifiedAt,
+        });
+      } else if (identity.type === "apple" && identity.providerData?.email) {
+        // Apple Sign-In shares email — create contact
+        await createOrUpdateContact(txRepository, userId, {
+          type: "email",
+          value: identity.providerData.email,
+          source: "apple_claim",
+          sourceIdentityId: identityId,
+          verified: !!identity.providerData.emailVerified,
+        });
+      }
+
+      await syncUserContactMirrors(txRepository, userId);
     });
   } catch (err) {
     // Convert raw UNIQUE constraint violations to IdentityError for consistent caller handling
@@ -272,24 +281,28 @@ async function linkIdentityToUser(db, userId, identity) {
  * @returns {Promise<{ contactId: string, created: boolean }>}
  */
 async function createOrUpdateContact(db, userId, { type, value, source, sourceIdentityId, verified = false }) {
+  const repository = identityRepositoryFor(db);
   const normalized = normalizeContactValue(type, value);
   const now = new Date().toISOString();
 
   // Check if this user already has a contact with this normalized value
-  const existing = await db.prepare(
-    `SELECT id, verified_at FROM user_contacts WHERE user_id = ? AND type = ? AND value_normalized = ?`
-  ).get(userId, type, normalized);
+  const existing = await repository.findContactByValue(userId, type, normalized);
 
   if (existing) {
     // Promote to verified if newly verified and not already
     if (verified && !existing.verified_at) {
-      await db.prepare(
-        `UPDATE user_contacts SET source = ?, source_identity_id = ?, verified_at = ? WHERE id = ?`
-      ).run(source, sourceIdentityId || null, now, existing.id);
+      await repository.updateContactVerificationSource({
+        id: existing.id,
+        source,
+        sourceIdentityId: sourceIdentityId || null,
+        verifiedAt: now,
+      });
     } else {
-      await db.prepare(
-        `UPDATE user_contacts SET source = ?, source_identity_id = ? WHERE id = ?`
-      ).run(source, sourceIdentityId || null, existing.id);
+      await repository.updateContactSource({
+        id: existing.id,
+        source,
+        sourceIdentityId: sourceIdentityId || null,
+      });
     }
     return { contactId: existing.id, created: false };
   }
@@ -298,18 +311,21 @@ async function createOrUpdateContact(db, userId, { type, value, source, sourceId
   const relay = type === "email" && isAppleRelay(normalized);
 
   // First contact of this type becomes primary
-  const existingOfType = await db.prepare(
-    `SELECT id FROM user_contacts WHERE user_id = ? AND type = ? LIMIT 1`
-  ).get(userId, type);
+  const existingOfType = await repository.findAnyContactOfType(userId, type);
 
-  await db.prepare(
-    `INSERT INTO user_contacts (id, user_id, type, value_normalized, value_display, verified_at, source, source_identity_id, is_primary, is_relay, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(
-    contactId, userId, type, normalized, value,
-    verified ? now : null, source, sourceIdentityId || null,
-    !existingOfType ? 1 : 0, relay ? 1 : 0, now
-  );
+  await repository.insertContact({
+    id: contactId,
+    userId,
+    type,
+    valueNormalized: normalized,
+    valueDisplay: value,
+    verifiedAt: verified ? now : null,
+    source,
+    sourceIdentityId: sourceIdentityId || null,
+    isPrimary: !existingOfType,
+    isRelay: relay,
+    createdAt: now,
+  });
 
   return { contactId, created: true };
 }
@@ -324,29 +340,33 @@ async function createOrUpdateContact(db, userId, { type, value, source, sourceId
  * @throws E119_EMAIL_CONFLICT if value already verified by another user
  */
 async function verifyContact(db, userId, type, valueNormalized, source) {
+  const repository = identityRepositoryFor(db);
   const normalized = normalizeContactValue(type, valueNormalized);
 
   // Check uniqueness: is this value already verified by another user?
-  await assertNoContactConflict(db, type, normalized, userId);
+  await assertNoContactConflict(repository, type, normalized, userId);
 
   const now = new Date().toISOString();
 
-  const result = await db.prepare(
-    `UPDATE user_contacts SET verified_at = ?, source = ?
-     WHERE user_id = ? AND type = ? AND value_normalized = ? AND verified_at IS NULL`
-  ).run(now, source, userId, type, normalized);
+  const result = await repository.verifyExistingUnverifiedContact({
+    userId,
+    type,
+    valueNormalized: normalized,
+    verifiedAt: now,
+    source,
+  });
 
   if (result.changes === 0) {
     // Either doesn't exist or already verified — createOrUpdateContact handles both:
     // - Missing contact: creates as verified
     // - Already verified: updates source only (idempotent)
-    await createOrUpdateContact(db, userId, {
+    await createOrUpdateContact(repository, userId, {
       type, value: valueNormalized, source, verified: true,
     });
   }
 
   // Sync mirrors after verification changes
-  await syncUserContactMirrors(db, userId);
+  await syncUserContactMirrors(repository, userId);
 }
 
 /**
@@ -356,28 +376,24 @@ async function verifyContact(db, userId, type, valueNormalized, source) {
  * @param {string} contactId - Contact ID to promote
  */
 async function setPrimaryContact(db, userId, contactId) {
-  // Look up the contact to get its type
-  const contact = await db.prepare(
-    `SELECT type FROM user_contacts WHERE id = ? AND user_id = ?`
-  ).get(contactId, userId);
+  const repository = identityRepositoryFor(db);
 
-  if (!contact) {
-    throw new IdentityError("E120_CONTACT_NOT_FOUND", "Contact not found.", 404);
-  }
+  await repository.transaction(async (txRepository) => {
+    // Look up the contact to get its type
+    const contact = await txRepository.getContactTypeForUser(contactId, userId);
 
-  await db.transaction(async () => {
+    if (!contact) {
+      throw new IdentityError("E120_CONTACT_NOT_FOUND", "Contact not found.", 404);
+    }
+
     // Unset previous primary for this type
-    await db.prepare(
-      `UPDATE user_contacts SET is_primary = false WHERE user_id = ? AND type = ? AND is_primary = true`
-    ).run(userId, contact.type);
+    await txRepository.clearPrimaryContactForType(userId, contact.type);
 
     // Set new primary
-    await db.prepare(
-      `UPDATE user_contacts SET is_primary = true WHERE id = ?`
-    ).run(contactId);
+    await txRepository.setPrimaryContact(contactId);
 
     // Sync mirrors
-    await syncUserContactMirrors(db, userId);
+    await syncUserContactMirrors(txRepository, userId);
   });
 }
 
@@ -401,6 +417,7 @@ async function setPrimaryContact(db, userId, contactId) {
  * present, so the "Complete your profile" sheet no longer blocks them.
  */
 async function computeProfileCompleteness(db, userId, policyVersion = "v1") {
+  const repository = identityRepositoryFor(db);
   const missing = [];
 
   if (policyVersion === "v1") {
@@ -409,37 +426,21 @@ async function computeProfileCompleteness(db, userId, policyVersion = "v1") {
     // Relay emails (@privaterelay.appleid.com) don't count — we want a real
     // address for marketing.
 
-    const verifiedEmail = await db.prepare(
-      `SELECT id FROM user_contacts
-       WHERE user_id = ? AND type = 'email' AND verified_at IS NOT NULL AND is_relay = false
-       LIMIT 1`
-    ).get(userId);
+    const verifiedEmail = await repository.findVerifiedNonRelayEmail(userId);
 
     let hasRealEmail = Boolean(verifiedEmail);
     if (!verifiedEmail) {
       missing.push("verified_email");
-      const realEmail = await db.prepare(
-        `SELECT id FROM user_contacts
-         WHERE user_id = ? AND type = 'email' AND is_relay = false
-         LIMIT 1`
-      ).get(userId);
+      const realEmail = await repository.findNonRelayEmail(userId);
       hasRealEmail = Boolean(realEmail);
     }
 
-    const verifiedPhone = await db.prepare(
-      `SELECT id FROM user_contacts
-       WHERE user_id = ? AND type = 'phone' AND verified_at IS NOT NULL
-       LIMIT 1`
-    ).get(userId);
+    const verifiedPhone = await repository.findVerifiedPhone(userId);
 
     let hasPhone = Boolean(verifiedPhone);
     if (!verifiedPhone) {
       missing.push("verified_phone");
-      const phone = await db.prepare(
-        `SELECT id FROM user_contacts
-         WHERE user_id = ? AND type = 'phone'
-         LIMIT 1`
-      ).get(userId);
+      const phone = await repository.findPhone(userId);
       hasPhone = Boolean(phone);
     }
 
@@ -459,31 +460,22 @@ async function computeProfileCompleteness(db, userId, policyVersion = "v1") {
  * @param {string} userId - User ID
  */
 async function syncUserContactMirrors(db, userId) {
+  const repository = identityRepositoryFor(db);
   // Find primary verified email (prefer non-relay, fall back to relay)
-  const primaryEmail = await db.prepare(
-    `SELECT value_normalized FROM user_contacts
-     WHERE user_id = ? AND type = 'email' AND is_primary = true AND verified_at IS NOT NULL
-     LIMIT 1`
-  ).get(userId);
+  const primaryEmail = await repository.findPrimaryVerifiedEmail(userId);
 
   // Find primary verified phone
-  const primaryPhone = await db.prepare(
-    `SELECT value_normalized FROM user_contacts
-     WHERE user_id = ? AND type = 'phone' AND is_primary = true AND verified_at IS NOT NULL
-     LIMIT 1`
-  ).get(userId);
+  const primaryPhone = await repository.findPrimaryVerifiedPhone(userId);
 
   // email_verified mirrors whether a verified email contact exists (for backward compat)
   const emailVerified = primaryEmail ? 1 : 0;
 
-  await db.prepare(
-    `UPDATE users SET email = ?, email_verified = ?, phone_number = ? WHERE id = ?`
-  ).run(
-    primaryEmail?.value_normalized || null,
+  await repository.updateUserContactMirrors({
+    userId,
+    email: primaryEmail?.value_normalized || null,
     emailVerified,
-    primaryPhone?.value_normalized || null,
-    userId
-  );
+    phoneNumber: primaryPhone?.value_normalized || null,
+  });
 }
 
 // ==================== IDENTITY TELEMETRY ====================
@@ -494,14 +486,13 @@ async function syncUserContactMirrors(db, userId) {
  * @param {string} identityId - Auth provider identity ID
  */
 async function recordIdentityUsage(db, identityId) {
+  const repository = identityRepositoryFor(db);
   if (!identityId) {
     console.error("[IdentityService] recordIdentityUsage called with null identityId");
     return;
   }
   const now = new Date().toISOString();
-  const result = await db.prepare(
-    `UPDATE user_auth_providers SET last_used_at = ? WHERE id = ?`
-  ).run(now, identityId);
+  const result = await repository.updateIdentityLastUsed(identityId, now);
   if (result.changes === 0) {
     console.warn(`[IdentityService] recordIdentityUsage: identity ${identityId} not found`);
   }
@@ -517,11 +508,8 @@ async function recordIdentityUsage(db, identityId) {
  * @param {string|null} excludeUserId - User ID to exclude from conflict check (self)
  */
 async function assertNoIdentityConflict(db, type, subject, excludeUserId = null) {
-  const row = await db.prepare(
-    `SELECT user_id FROM user_auth_providers
-     WHERE provider = ? AND provider_user_id = ? AND status = 'active'
-       AND (? IS NULL OR user_id != ?)`
-  ).get(type, subject, excludeUserId, excludeUserId);
+  const repository = identityRepositoryFor(db);
+  const row = await repository.findIdentityConflict(type, subject, excludeUserId);
 
   if (row) {
     throw new IdentityError(
@@ -539,11 +527,8 @@ async function assertNoIdentityConflict(db, type, subject, excludeUserId = null)
  * @param {string|null} excludeUserId - User ID to exclude from conflict check (self)
  */
 async function assertNoContactConflict(db, type, valueNormalized, excludeUserId = null) {
-  const row = await db.prepare(
-    `SELECT user_id FROM user_contacts
-     WHERE type = ? AND value_normalized = ? AND verified_at IS NOT NULL
-       AND (? IS NULL OR user_id != ?)`
-  ).get(type, valueNormalized, excludeUserId, excludeUserId);
+  const repository = identityRepositoryFor(db);
+  const row = await repository.findVerifiedContactConflict(type, valueNormalized, excludeUserId);
 
   if (row) {
     const errorCode = type === "phone" ? "E119_PHONE_CONFLICT" : "E119_EMAIL_CONFLICT";

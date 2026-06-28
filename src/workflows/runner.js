@@ -62,6 +62,7 @@ const {
 const { CircuitBreaker } = require("./circuit-breaker");
 const { createDLQService } = require("./dlq");
 const { createJobDurabilityService } = require("./durability");
+const { createDeviceRepository } = require("../database/device-repository");
 const {
   getFeatureFlag,
   getFeatureFlags,
@@ -107,6 +108,8 @@ const { upsertGiftIncident } = require("../services/gift-delivery-ops");
 const {
   findActiveProviderProfileForUser,
   getProviderProfileById,
+  heartbeatVoiceProviderJob: heartbeatVoiceProviderJobInStore,
+  listDueVoiceProviderJobs,
   recoverStaleVoiceProviderJobs,
 } = require("../services/voice-provider-profile-service");
 const {
@@ -1066,6 +1069,7 @@ async function startJobRunner({
   voiceProviderJobRunner = runSunoVoicePersonaJob,
 }) {
   const runnerId = workerId || crypto.randomUUID();
+  const deviceRepository = createDeviceRepository(db);
   const sunoPollIntervalSec = 10;
   const MAX_CONCURRENT_VOICE_PROVIDER_JOBS = Math.max(
     0,
@@ -5474,11 +5478,9 @@ async function startJobRunner({
       // Send push notification to user's devices (fire-and-forget)
       if (pushNotification.isConfigured()) {
         try {
-          const devices = await db
-            .prepare(
-              "SELECT push_token FROM devices WHERE user_id = ? AND push_token IS NOT NULL",
-            )
-            .all(trackReady.user_id);
+          const devices = await deviceRepository.listPushTokensForUser(
+            trackReady.user_id,
+          );
           for (const device of devices || []) {
             if (device.push_token) {
               pushNotification
@@ -5588,15 +5590,12 @@ async function startJobRunner({
   const voiceProviderProcessingJobs = new Set();
   let activeVoiceProviderJobs = 0;
   let voiceProviderLaneDisabled = false;
-  let selectVoiceProviderJobs = null;
 
   const heartbeatVoiceProviderJob = async (jobId) => {
-    const heartbeatAt = new Date().toISOString();
-    await db
-      .prepare(
-        "UPDATE voice_provider_jobs SET locked_at = ? WHERE id = ? AND locked_by = ? AND status = ?",
-      )
-      .run(heartbeatAt, jobId, runnerId, "running");
+    await heartbeatVoiceProviderJobInStore(db, {
+      id: jobId,
+      lockedBy: runnerId,
+    });
   };
 
   const tickVoiceProviderJobs = async () => {
@@ -5609,33 +5608,13 @@ async function startJobRunner({
       return;
     }
     const now = new Date().toISOString();
-    try {
-      if (!selectVoiceProviderJobs) {
-        selectVoiceProviderJobs = db.prepare(
-          `SELECT *
-             FROM voice_provider_jobs
-            WHERE status = 'pending'
-              AND provider = 'suno'
-              AND attempts < max_attempts
-              AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
-            ORDER BY updated_at ASC, created_at ASC
-            LIMIT ?`,
-        );
-      }
-    } catch (err) {
-      const message = String(err?.message || err || "");
-      if (/voice_provider_jobs|no such table|does not exist/i.test(message)) {
-        voiceProviderLaneDisabled = true;
-        console.warn(
-          "[JobRunner] Suno voice persona job lane disabled; voice_provider_jobs table is unavailable.",
-        );
-        return;
-      }
-      throw err;
-    }
     let candidates = [];
     try {
-      candidates = await selectVoiceProviderJobs.all(now, availableSlots);
+      candidates = await listDueVoiceProviderJobs(db, {
+        provider: "suno",
+        now,
+        limit: availableSlots,
+      });
     } catch (err) {
       const message = String(err?.message || err || "");
       if (/voice_provider_jobs|no such table|does not exist/i.test(message)) {

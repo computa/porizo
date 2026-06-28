@@ -1,5 +1,10 @@
 const config = require("../config");
 const geoip = require("geoip-lite");
+const { createAttributionRepository } = require("../database/attribution-repository");
+const { createBlogRepository } = require("../database/blog-repository");
+const {
+  createUserEmailPreferencesRepository,
+} = require("../database/user-email-preferences-repository");
 const { generatePrefixedId } = require("../utils/ids");
 const { loadPublicFile } = require("../utils/public-files");
 const { verifyUnsubscribeToken } = require("../utils/unsubscribe-token");
@@ -301,16 +306,7 @@ async function withDynamicBlogEntries(sitemap, db) {
   }
 
   try {
-    const posts = await db
-      .prepare(
-        `
-      SELECT slug, published_at, updated_at
-      FROM blog_posts
-      WHERE status = 'published' AND published_at IS NOT NULL
-      ORDER BY published_at DESC
-    `,
-      )
-      .all();
+    const posts = await createBlogRepository(db).listPublishedSitemapPosts();
 
     if (!Array.isArray(posts) || posts.length === 0) {
       return sitemap;
@@ -489,7 +485,7 @@ function buildDownloadBridgePage({ deepLink, fallbackUrl }) {
 </html>`;
 }
 
-async function resolveDownloadReceiverSessionId(db, request, deepLink) {
+function resolveDownloadReceiverAttribution(request, deepLink) {
   const q = request.query || {};
   const receiverSessionId =
     typeof q.receiver_session_id === "string" &&
@@ -518,22 +514,14 @@ async function resolveDownloadReceiverSessionId(db, request, deepLink) {
   );
   if (!handoffMatch) return null;
 
-  const now = new Date().toISOString();
-  const result = await db
-    .prepare(
-      `UPDATE receiver_sessions
-    SET download_attributed_at = ?, updated_at = ?
-    WHERE id = ?
-      AND receiver_handoff_id = ?
-      AND handoff_resolved_at IS NULL
-      AND (handoff_expires_at IS NULL OR handoff_expires_at > ?)
-      AND download_attributed_at IS NULL`,
-    )
-    .run(now, now, receiverSessionId, handoffMatch[1], now);
-  return result && Number(result.changes || 0) > 0 ? receiverSessionId : null;
+  return {
+    receiverSessionId,
+    receiverHandoffId: handoffMatch[1],
+  };
 }
 
-async function logDownloadEvent(db, request, deepLink) {
+async function logDownloadEvent(attributionRepository, request, deepLink) {
+  if (!attributionRepository) return;
   const ip = request.ip || "unknown";
   const ua = request.headers["user-agent"] || null;
   const q = request.query || {};
@@ -544,28 +532,20 @@ async function logDownloadEvent(db, request, deepLink) {
   // better-sqlite3 .run() is synchronous and throws — the prior `.catch()`
   // was dead code. A logging-only insert must never crash the route.
   try {
-    const receiverSessionId = await resolveDownloadReceiverSessionId(
-      db,
-      request,
-      deepLink,
-    );
-    db.prepare(
-      `INSERT INTO download_events (id, ip_address, user_agent, utm_source, utm_medium, utm_campaign, utm_content, utm_term, country, referrer_url, receiver_session_id, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).run(
+    await attributionRepository.recordDownloadEvent({
       id,
-      ip,
-      ua,
-      q.utm_source || null,
-      q.utm_medium || null,
-      q.utm_campaign || null,
-      q.utm_content || null,
-      q.utm_term || null,
+      ipAddress: ip,
+      userAgent: ua,
+      utmSource: q.utm_source || null,
+      utmMedium: q.utm_medium || null,
+      utmCampaign: q.utm_campaign || null,
+      utmContent: q.utm_content || null,
+      utmTerm: q.utm_term || null,
       country,
-      q.ref || request.headers.referer || null,
-      receiverSessionId,
-      new Date().toISOString(),
-    );
+      referrerUrl: q.ref || request.headers.referer || null,
+      receiverAttribution: resolveDownloadReceiverAttribution(request, deepLink),
+      createdAt: new Date().toISOString(),
+    });
   } catch (err) {
     request.log
       ? request.log.warn({ err }, "download event log failed")
@@ -599,6 +579,11 @@ const AGENT_LINK_HEADER = [
 ].join(", ");
 
 function registerLegalRoutes(app, { db } = {}) {
+  const attributionRepository = db ? createAttributionRepository(db) : null;
+  const userEmailPreferencesRepository = db
+    ? createUserEmailPreferencesRepository(db)
+    : null;
+
   // SEO files
   app.get("/robots.txt", async (_request, reply) => {
     if (robotsTxt) {
@@ -657,13 +642,11 @@ function registerLegalRoutes(app, { db } = {}) {
     const token = request.query?.t;
     const ok = userId && verifyUnsubscribeToken(userId, token);
 
-    if (ok && db) {
-      // COALESCE keeps the earliest opt-out timestamp on repeat clicks (idempotent).
-      await db
-        .prepare(
-          `UPDATE users SET unsubscribed_at = COALESCE(unsubscribed_at, ?) WHERE id = ?`,
-        )
-        .run(new Date().toISOString(), userId);
+    if (ok && userEmailPreferencesRepository) {
+      await userEmailPreferencesRepository.markLifecycleEmailsUnsubscribed({
+        userId,
+        unsubscribedAt: new Date().toISOString(),
+      });
     }
 
     if (request.method === "POST") {
@@ -812,7 +795,11 @@ function registerLegalRoutes(app, { db } = {}) {
     const deepLink = resolveDeepLink(request);
     // Log download event for attribution tracking (non-blocking)
     if (db && !isLikelyBotUserAgent(request.headers["user-agent"])) {
-      await logDownloadEvent(db, request, deepLink);
+      await logDownloadEvent(
+        attributionRepository,
+        request,
+        deepLink,
+      );
     }
 
     const fallbackUrl = resolveDownloadUrl(request);

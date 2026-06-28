@@ -235,6 +235,87 @@ describe("Suno voice persona service", () => {
     );
   });
 
+  test("rejects job/profile ownership mismatch before provider calls", async () => {
+    const now = new Date().toISOString();
+    await db
+      .prepare("INSERT INTO users (id, created_at) VALUES (?, ?)")
+      .run("user_2", now);
+    await db
+      .prepare(
+        `INSERT INTO voice_profiles (
+        id, user_id, status, quality_score, model_version, consent_version,
+        consent_at, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        "voice_2",
+        "user_2",
+        "active",
+        90,
+        "test",
+        REQUIRED_CONSENT_SCOPE,
+        now,
+        now,
+      );
+    const mismatchedProfile = await createPendingProviderProfile(db, {
+      voiceProfileId: "voice_2",
+      userId: "user_2",
+      provider: "suno",
+      consentScope: REQUIRED_CONSENT_SCOPE,
+    });
+    const job = await createVoiceProviderJob(db, {
+      voiceProfileId: "voice_1",
+      userId: "user_1",
+      provider: "suno",
+      voiceProviderProfileId: mismatchedProfile.id,
+      maxAttempts: 1,
+      stepData: {
+        enrollment_session_id: "sess_1",
+        source_audio_key: "enrollment/clean/user_1/sess_1/clean.wav",
+      },
+    });
+    let providerCalls = 0;
+
+    await assert.rejects(
+      runSunoVoicePersonaJob({
+        db,
+        jobId: job.id,
+        config: {
+          PUBLIC_BASE_URL: "https://porizo.example",
+          SUNO_BASE_URL: "https://api.sunoapi.org",
+          SUNO_FILE_UPLOAD_BASE_URL: "https://files.example",
+          SUNO_API_KEY: "secret",
+        },
+        sunoClient: {
+          uploadFileUrl: async () => {
+            providerCalls += 1;
+            return { downloadUrl: "https://temp.example/clean.wav" };
+          },
+          submitUploadCoverTask: async () => {
+            providerCalls += 1;
+            return { taskId: "task_123" };
+          },
+          pollUploadCoverForAudio: async () => {
+            providerCalls += 1;
+            return { audioId: "audio_456" };
+          },
+          generatePersona: async () => {
+            providerCalls += 1;
+            return { personaId: "persona_live_789" };
+          },
+        },
+      }),
+      /PROFILE_JOB_MISMATCH/,
+    );
+
+    assert.equal(providerCalls, 0);
+    const failedJob = await db
+      .prepare("SELECT status, last_error FROM voice_provider_jobs WHERE id = ?")
+      .get(job.id);
+    assert.equal(failedJob.status, "failed");
+    assert.match(failedJob.last_error, /PROFILE_JOB_MISMATCH/);
+  });
+
   test("runs a queued provider job to active using a mocked Suno client", async () => {
     await db
       .prepare("UPDATE voice_profiles SET status = ? WHERE id = ?")

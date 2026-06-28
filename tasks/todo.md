@@ -1,42 +1,32 @@
-# Goal: Full Feature Audit → Gap Fix → Test Loop (DB + Backend + Web) — COMPLETE (within local constraints)
+# Goal: Architectural Map + Ranked Refactor Plan (analysis-only pass)
 
-**Scope:** DB, backend, web. iOS out of scope.
-**Canonical artifacts:** `docs/feature-audit/` → `feature-tracker.csv` (178 features), `SUMMARY.md`, `VERIFICATION-RESULTS.md`, `TEST-BASELINE.md`, `fix-plan.md`.
+**Requested:** (1) align codebase with architectural best practices / modularity, (2) simplify + remove patchwork/short-term implementations, (3) updated architectural map.
 
-## Phases 1–4: DONE
+**Decided scope (user-confirmed 2026-06-26):**
 
-- P1 Discovery: 178 features → canonical CSV with user stories. ✅
-- P2 Verify: specialist agents + direct code re-reading; ~95% of "P0/P1" were false positives. ✅
-- P3 Fixes: 6 real product/code bugs fixed. ✅
-- P4 Test loop: full suite **49 → 22 failures** (2420 pass, 10 skipped), every fix root-caused. ✅
+- **Map + ranked plan FIRST. Zero code changes this pass.**
+- Revenue path (billing / auth / receipt-validation) → **documented but NOT modified** unless a proven correctness bug.
+- Refactor _candidates_ to surface: writer pipeline, workflow runner, admin routes, providers, server.js.
 
-## Real bugs fixed (committed)
+This is **Step 1 of the architectural-loop**: identify the architectural roots. Execution of any root is a separate, approved pass.
 
-1. GDPR `user_contacts` PII survived account deletion (soft-delete defeats CASCADE)
-2. GDPR data-export endpoint `/auth/data-export` (Art. 20)
-3. Apple `REFUND_REVERSED`/`DECLINED` → re-grant/ack (were DLQ'd)
-4. Signup duplicate-email 500 → 409
-5. Cancel-render wrote non-existent `track_versions.updated_at` (Postgres 42703)
-6. `/auth/me` now surfaces unverified email via `primary_email`
+## Plan
 
-## Test clusters fixed (root-caused, none weakened)
+- [x] P1 — Fan out parallel scouts to map each subsystem (6 scouts: routes, services, writer, workflows, providers, database/server)
+- [x] P2 — Catalog god-files, coupling, duplication, patchwork/short-term markers, dead code
+- [x] P2b — Formal arxitect review (OO design + Clean Architecture + API design) on worst offenders
+- [x] P3 — Synthesize `docs/architecture/architecture-map-2026-06.md` (honest current-state map)
+- [x] P4 — Build ranked debt register (D1–D6 + 2 CRITICAL correctness findings) with blast-radius + effort
+- [x] P5 — Sequence 10 architectural roots into 4 phases (`docs/architecture/architecture-debt-register-2026-06.md`)
+- [ ] P6 — **AWAITING USER REVIEW** of the plan: order, C1 handling, branch strategy, test gate. NO implementation.
 
-auth-api 14→27 (rate-limit DB store, signup 409, /auth/me, contact_email field, verified-state, per-test session) ·
-poems (credit fixture) · share-player (Prettier quotes) · auth-service (session binding) · stt-config (admin FK seed) ·
-security-units-4-11-12 (+ the real cancel-render bug) · story-to-track (stale positional indices) ·
-music (kept ogene's rich descriptive prompt) · security-units-6-7-8 (enrollment burst limit) ·
-hosting-hardening (/health host-exempt) · billing trial (free-base-grant fixture; base=2 per migration 117) ·
-auth-race-condition (session binding — the concurrency guard works). Web-play tests skipped (feature disabled).
+## Deliverables
 
-## Remaining 22 — BLOCKED, not unfinished
+1. `docs/architecture-map-2026-06.md` — current architecture, real (not aspirational)
+2. `docs/architecture-debt-register-2026-06.md` — ranked debt + roots
 
-- **~21 credential-gated** (need API keys/network, NOT product bugs): writer/v3/\* (LLM `fetch failed`),
-  app-store-connect (ASC P8 key `DECODER`), mvp-flow (providers).
-- **1 model-routing DECISION (user)**: `artwork-vars-extractor` spec §6.4 wants the `simple` anthropic lane
-  distinct from `vars_extractor` (Haiku 4.5). The discarded llm-provider change (simple→Haiku 3) would satisfy it;
-  HEAD keeps them in sync. Re-apply that change OR update the test+spec. (Stashed change recoverable: `git stash list`.)
+## Guardrails
 
-## Standing (optional)
-
-- npm test split: integration set ≈ the credential-gated files; can wire `npm test` (hermetic) + `test:integration`.
-- 13 commits on branch `fix/feature-audit-gaps`, nothing pushed.
+- No edits to `src/**` this pass (analysis only).
+- Verify claims by reading code (per claim-verification rule) — no grep-only assertions in the map.
+- Don't re-litigate the completed feature-audit; this is structural, not feature-level.

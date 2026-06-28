@@ -22,6 +22,9 @@
 const crypto = require("crypto");
 const { getFeatureFlag } = require("./feature-flags");
 const { identityHash } = require("./identity-service");
+const {
+  createGiftWalletRepository,
+} = require("../database/gift-wallet-repository");
 
 /**
  * Entitlement error codes for structured error dispatch
@@ -82,11 +85,18 @@ function buildReceiptVerificationResponse(validation) {
  * @returns {Object} Subscription manager interface
  */
 function createSubscriptionManager(db, services = {}) {
-  const { planConfigService, writeAuditLog } = services;
+  const {
+    planConfigService,
+    writeAuditLog,
+    giftWalletRepository: injectedGiftWalletRepository,
+  } = services;
 
   if (!planConfigService) {
     throw new Error("planConfigService is required");
   }
+
+  const giftWalletRepository =
+    injectedGiftWalletRepository || createGiftWalletRepository(db);
 
   /**
    * Acquire advisory lock and return FOR UPDATE suffix for PostgreSQL.
@@ -639,7 +649,7 @@ function createSubscriptionManager(db, services = {}) {
         await query(
           `INSERT INTO granted_identities (identity_hash, grant_kind)
            VALUES (?, 'trial')
-           ON CONFLICT (identity_hash) DO NOTHING`,
+           ON CONFLICT (identity_hash, grant_kind) DO NOTHING`,
           [hash],
         );
       }
@@ -945,11 +955,9 @@ function createSubscriptionManager(db, services = {}) {
     // balance when it would actually be needed (no trial/regular songs left).
     let giftWalletBalance = 0;
     if (!hasTrialSongs && !hasRegularSongs) {
-      const walletResult = await query(
-        "SELECT balance FROM gift_wallet WHERE user_id = ?",
-        [userId],
-      );
-      giftWalletBalance = Number(walletResult.rows?.[0]?.balance || 0);
+      giftWalletBalance = await giftWalletRepository.getBalance(userId, {
+        query,
+      });
     }
     const hasGiftTokens = giftWalletBalance > 0;
 
@@ -1006,28 +1014,25 @@ function createSubscriptionManager(db, services = {}) {
       // double-spend the last token: it blocks on the row lock, re-reads
       // balance = 0, matches 0 rows, and throws INSUFFICIENT.
       source = "gift_token";
-      const giftResult = await query(
-        `UPDATE gift_wallet SET
-          balance = balance - 1,
-          updated_at = CURRENT_TIMESTAMP
-        WHERE user_id = ? AND balance > 0`,
-        [userId],
-      );
-      if ((giftResult.changes ?? giftResult.rowCount ?? 0) === 0) {
-        const err = new Error("Insufficient songs remaining");
-        err.code = ENTITLEMENT_ERRORS.INSUFFICIENT_SONGS;
+      let walletSpend;
+      try {
+        walletSpend = await giftWalletRepository.spendSongTokenInTransaction(
+          query,
+          {
+            userId,
+            trackId,
+            trackVersionId,
+          },
+        );
+      } catch (err) {
+        if (err?.code === "INSUFFICIENT_GIFT_TOKENS") {
+          const spendErr = new Error("Insufficient songs remaining");
+          spendErr.code = ENTITLEMENT_ERRORS.INSUFFICIENT_SONGS;
+          throw spendErr;
+        }
         throw err;
       }
-
-      // Re-read the post-decrement balance from WITHIN this tx so the immutable
-      // ledger records the TRUE balance, not a stale pre-UPDATE snapshot (the
-      // gift_wallet can be concurrently mutated by the gift-send flow).
-      const afterRes = await query(
-        "SELECT balance FROM gift_wallet WHERE user_id = ?",
-        [userId],
-      );
-      const balanceAfter = Number(afterRes.rows?.[0]?.balance ?? 0);
-      const balanceBefore = balanceAfter + 1;
+      const balanceAfter = walletSpend.balanceAfter;
       newBalance = balanceAfter;
 
       // Keep songs_used_total consistent with the trial/subscription paths so
@@ -1039,33 +1044,6 @@ function createSubscriptionManager(db, services = {}) {
           updated_at = CURRENT_TIMESTAMP
         WHERE user_id = ?`,
         [userId],
-      );
-
-      // Record the debit in the gift_wallet ledger (same columns as
-      // applyGiftWalletTransaction in server.js, which is a closure there and
-      // cannot run inside this tx). A deterministic idempotency_key per
-      // track_version gives the ledger the same replay-dedup guarantee as
-      // gift_reserve/credits (the partial unique index ignores NULL keys).
-      const giftTxId = `gwtx_${crypto.randomBytes(12).toString("hex")}`;
-      await query(
-        `INSERT INTO gift_wallet_transactions (
-          id, user_id, type, amount, balance_before, balance_after,
-          source, reference_type, reference_id, description, metadata_json, idempotency_key, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
-        [
-          giftTxId,
-          userId,
-          "song_spend",
-          -1,
-          balanceBefore,
-          balanceAfter,
-          "gift_token",
-          "track",
-          trackId,
-          "Song rendered from gift_token",
-          null,
-          trackVersionId ? `song_spend_${trackVersionId}` : null,
-        ],
       );
 
       // Gift-token spends are tracked in the gift_wallet ledger, not in
@@ -1280,10 +1258,9 @@ function createSubscriptionManager(db, services = {}) {
     // BILL-GIFT: Expose the one-off gift_wallet balance (bundles) alongside the
     // ongoing ledgers. This is reported separately and does NOT alter the
     // existing songsRemaining (base + trial) value.
-    const walletRow = await db
-      .prepare("SELECT balance FROM gift_wallet WHERE user_id = ?")
-      .get(userId);
-    const giftWalletBalance = toSafeInt(walletRow?.balance);
+    const giftWalletBalance = toSafeInt(
+      await giftWalletRepository.getBalance(userId),
+    );
 
     return {
       userId: ent.user_id,
@@ -1879,7 +1856,7 @@ function createSubscriptionManager(db, services = {}) {
           await query(
             `INSERT INTO granted_identities (identity_hash, grant_kind)
              VALUES (?, 'signup')
-             ON CONFLICT (identity_hash) DO NOTHING`,
+             ON CONFLICT (identity_hash, grant_kind) DO NOTHING`,
             [hash],
           );
         }

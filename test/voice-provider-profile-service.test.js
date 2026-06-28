@@ -9,12 +9,14 @@ const {
   createPendingProviderProfile,
   createVoiceProviderJob,
   findActiveProviderProfileForUser,
+  getProviderProfileById,
   getVoiceProviderJobById,
   markProviderProfileActive,
   markProviderProfileCoverSubmitted,
   markProviderProfileFailed,
   markProviderProfilePersonaSubmitted,
   markProviderProfileUploadSubmitted,
+  markVoiceProviderJobCompleted,
   markVoiceProviderJobFailed,
   markVoiceProviderJobRunning,
   recoverStaleVoiceProviderJobs,
@@ -42,6 +44,36 @@ describe("voice provider profile service", () => {
       )
       .run("voice_1", "user_1", "active", 0.92, "test", "voice_v1", now, now);
   });
+
+  async function activateProviderProfile({
+    voiceProfileId = "voice_1",
+    userId = "user_1",
+    providerProfileId = "persona_live_789",
+    sourceTaskId = `task_${voiceProfileId}`,
+    sourceAudioId = `audio_${voiceProfileId}`,
+  } = {}) {
+    const pending = await createPendingProviderProfile(db, {
+      voiceProfileId,
+      userId,
+      provider: "suno",
+    });
+    await markProviderProfileUploadSubmitted(db, pending.id, {
+      sourceUploadUrl: `https://files.example.com/${voiceProfileId}.wav`,
+    });
+    await markProviderProfileCoverSubmitted(db, pending.id, {
+      sourceTaskId,
+      model: "V5_5",
+    });
+    await markProviderProfilePersonaSubmitted(db, pending.id, {
+      sourceTaskId,
+      sourceAudioId,
+      model: "V5_5",
+    });
+    return markProviderProfileActive(db, pending.id, {
+      providerProfileId,
+      model: "V5_5",
+    });
+  }
 
   test("tracks Suno provider profile lifecycle without storing raw persona ids in jobs", async () => {
     const pending = await createPendingProviderProfile(db, {
@@ -135,11 +167,72 @@ describe("voice provider profile service", () => {
     });
     assert.equal(deletedCount, 1);
 
+    const deleted = await getProviderProfileById(db, pending.id);
+    assert.equal(deleted.status, STATUS.DELETED);
+    assert.equal(deleted.provider_profile_id, null);
+    assert.equal(deleted.source_upload_url, null);
+    assert.equal(deleted.source_task_id, null);
+    assert.equal(deleted.source_audio_id, null);
+    assert.equal(deleted.last_error, "account_deletion");
+    assert.ok(deleted.deleted_at);
+
     const found = await findActiveProviderProfileForUser(db, {
       userId: "user_1",
       provider: "suno",
     });
     assert.equal(found, undefined);
+  });
+
+  test("activating replacement provider profile retires older active voice profile", async () => {
+    const oldActive = await activateProviderProfile({
+      voiceProfileId: "voice_1",
+      providerProfileId: "persona_old",
+    });
+    const now = new Date().toISOString();
+    await db
+      .prepare(
+        `INSERT INTO voice_profiles (
+        id, user_id, status, quality_score, model_version, consent_version,
+        consent_at, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        "voice_2",
+        "user_1",
+        "pending_provider",
+        0.94,
+        "test",
+        "voice_v1",
+        now,
+        now,
+      );
+
+    const replacement = await activateProviderProfile({
+      voiceProfileId: "voice_2",
+      providerProfileId: "persona_new",
+    });
+
+    const newVoiceProfile = await db
+      .prepare(
+        "SELECT status, deleted_at, last_verified_at FROM voice_profiles WHERE id = ?",
+      )
+      .get("voice_2");
+    assert.equal(newVoiceProfile.status, "active");
+    assert.equal(newVoiceProfile.deleted_at, null);
+    assert.ok(newVoiceProfile.last_verified_at);
+    assert.equal(replacement.status, STATUS.ACTIVE);
+
+    const oldVoiceProfile = await db
+      .prepare("SELECT status, deleted_at FROM voice_profiles WHERE id = ?")
+      .get("voice_1");
+    assert.equal(oldVoiceProfile.status, STATUS.DELETED);
+    assert.ok(oldVoiceProfile.deleted_at);
+
+    const oldProviderProfile = await getProviderProfileById(db, oldActive.id);
+    assert.equal(oldProviderProfile.status, STATUS.DELETED);
+    assert.equal(oldProviderProfile.provider_profile_id, null);
+    assert.equal(oldProviderProfile.last_error, "voice_profile_replaced");
+    assert.ok(oldProviderProfile.deleted_at);
   });
 
   test("records provider preparation failures for retry/reporting", async () => {
@@ -219,6 +312,72 @@ describe("voice provider profile service", () => {
     assert.ok(cancelledJob.cancelled_at);
   });
 
+  test("cancels only pending and running provider jobs for a voice profile", async () => {
+    const pending = await createPendingProviderProfile(db, {
+      voiceProfileId: "voice_1",
+      userId: "user_1",
+      provider: "suno",
+    });
+    const pendingJob = await createVoiceProviderJob(db, {
+      voiceProfileId: "voice_1",
+      userId: "user_1",
+      provider: "suno",
+      voiceProviderProfileId: pending.id,
+    });
+    const runningJob = await createVoiceProviderJob(db, {
+      voiceProfileId: "voice_1",
+      userId: "user_1",
+      provider: "suno",
+      voiceProviderProfileId: pending.id,
+    });
+    const completedJob = await createVoiceProviderJob(db, {
+      voiceProfileId: "voice_1",
+      userId: "user_1",
+      provider: "suno",
+      voiceProviderProfileId: pending.id,
+    });
+    const failedJob = await createVoiceProviderJob(db, {
+      voiceProfileId: "voice_1",
+      userId: "user_1",
+      provider: "suno",
+      voiceProviderProfileId: pending.id,
+    });
+
+    await markVoiceProviderJobRunning(db, runningJob.id, { lockedBy: "test" });
+    await markVoiceProviderJobCompleted(db, completedJob.id);
+    await markVoiceProviderJobRunning(db, failedJob.id, { lockedBy: "test" });
+    await markVoiceProviderJobFailed(
+      db,
+      failedJob.id,
+      new Error("terminal"),
+      { retryable: false },
+    );
+
+    const cancelled = await cancelVoiceProviderJobsForVoiceProfile(db, {
+      voiceProfileId: "voice_1",
+      userId: "user_1",
+      reason: "voice_profile_deleted",
+    });
+    assert.equal(cancelled, 2);
+
+    const refreshedPendingJob = await getVoiceProviderJobById(db, pendingJob.id);
+    const refreshedRunningJob = await getVoiceProviderJobById(db, runningJob.id);
+    const refreshedCompletedJob = await getVoiceProviderJobById(
+      db,
+      completedJob.id,
+    );
+    const refreshedFailedJob = await getVoiceProviderJobById(db, failedJob.id);
+
+    assert.equal(refreshedPendingJob.status, STATUS.CANCELLED);
+    assert.equal(refreshedRunningJob.status, STATUS.CANCELLED);
+    assert.equal(refreshedPendingJob.locked_at, null);
+    assert.equal(refreshedRunningJob.locked_at, null);
+    assert.ok(refreshedPendingJob.cancelled_at);
+    assert.ok(refreshedRunningJob.cancelled_at);
+    assert.equal(refreshedCompletedJob.status, "completed");
+    assert.equal(refreshedFailedJob.status, STATUS.FAILED);
+  });
+
   test("stale final-attempt provider jobs fail instead of getting stuck", async () => {
     const pending = await createPendingProviderProfile(db, {
       voiceProfileId: "voice_1",
@@ -245,5 +404,9 @@ describe("voice provider profile service", () => {
     const recoveredJob = await getVoiceProviderJobById(db, job.id);
     assert.equal(recoveredJob.status, STATUS.FAILED);
     assert.equal(recoveredJob.next_attempt_at, null);
+
+    const failedProviderProfile = await getProviderProfileById(db, pending.id);
+    assert.equal(failedProviderProfile.status, STATUS.FAILED);
+    assert.match(failedProviderProfile.last_error, /E399_STALE_JOB_RECOVERY/);
   });
 });

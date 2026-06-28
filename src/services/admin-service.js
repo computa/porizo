@@ -5,6 +5,55 @@
 
 const crypto = require("crypto");
 const config = require("../config");
+const {
+  createAppConfigRepository,
+} = require("../database/app-config-repository");
+const {
+  createAdminControlRepository,
+} = require("../database/admin-control-repository");
+const {
+  createAdminOnboardingSampleRepository,
+} = require("../database/admin-onboarding-sample-repository");
+const {
+  createAdminJobOpsRepository,
+} = require("../database/admin-job-ops-repository");
+const {
+  createAdminStorySessionRepository,
+} = require("../database/admin-story-session-repository");
+const {
+  createAdminModerationRepository,
+} = require("../database/admin-moderation-repository");
+const {
+  createAdminBillingRepository,
+} = require("../database/admin-billing-repository");
+const {
+  createAdminShareManagementRepository,
+} = require("../database/admin-share-management-repository");
+const {
+  createAdminUserReadRepository,
+} = require("../database/admin-user-read-repository");
+const {
+  createAdminUserMutationRepository,
+} = require("../database/admin-user-mutation-repository");
+const {
+  createAdminUserSessionControlRepository,
+} = require("../database/admin-user-session-control-repository");
+const {
+  createAdminMetricsRepository,
+} = require("../database/admin-metrics-repository");
+const {
+  createAdminEntitlementsRepository,
+} = require("../database/admin-entitlements-repository");
+const {
+  createAdminSecurityObservabilityRepository,
+} = require("../database/admin-security-observability-repository");
+const {
+  createAdminMusicDiagnosticsRepository,
+} = require("../database/admin-music-diagnostics-repository");
+const {
+  createAttributionRepository,
+} = require("../database/attribution-repository");
+const { createEventsRepository } = require("../database/events-repository");
 const { createAppStoreConnectService } = require("./app-store-connect-service");
 const { AttributionService } = require("./attribution-service");
 const { sanitizeStyleOverrides } = require("../providers/style-registry");
@@ -252,64 +301,54 @@ function finalizeSalesSummary(summary, activeSubscriberCount) {
   };
 }
 
-function buildUserSearchFilter({ email, userId, riskLevel, tier, trackId, shareId, recipientName }) {
-  const where = ['1=1'];
-  const params = [];
-
-  if (email) {
-    const escaped = escapeLikePattern(email);
-    where.push("u.email LIKE ? ESCAPE '\\'");
-    params.push(`%${escaped}%`);
-  }
-  if (userId) {
-    where.push('u.id = ?');
-    params.push(userId);
-  }
-  if (riskLevel) {
-    where.push('u.risk_level = ?');
-    params.push(riskLevel);
-  }
-  if (tier) {
-    if (tier === 'free') {
-      where.push("(e.tier = 'free' OR e.tier IS NULL)");
-    } else {
-      where.push('e.tier = ?');
-      params.push(tier);
-    }
-  }
-  if (trackId) {
-    where.push("EXISTS (SELECT 1 FROM tracks t2 WHERE t2.id = ? AND t2.user_id = u.id)");
-    params.push(trackId);
-  }
-  if (shareId) {
-    where.push(`
-      EXISTS (
-        SELECT 1
-        FROM share_tokens st
-        JOIN tracks t3 ON t3.id = st.track_id
-        WHERE st.id = ? AND t3.user_id = u.id
-      )
-    `);
-    params.push(shareId);
-  }
-  if (recipientName) {
-    const escaped = escapeLikePattern(recipientName);
-    where.push("EXISTS (SELECT 1 FROM tracks t4 WHERE t4.user_id = u.id AND t4.recipient_name LIKE ? ESCAPE '\\')");
-    params.push(`%${escaped}%`);
-  }
-
-  return {
-    whereSql: where.join(' AND '),
-    params,
-  };
-}
-
 class AdminService {
   constructor(db, options = {}) {
     this.db = db;
     this.appStoreConnectService =
       options.appStoreConnectService || createAppStoreConnectService();
     this.attributionService = options.attributionService || new AttributionService(db);
+    this.attributionRepository =
+      options.attributionRepository || createAttributionRepository(db);
+    this.appConfigRepository =
+      options.appConfigRepository || createAppConfigRepository(db);
+    this.adminControlRepository =
+      options.adminControlRepository || createAdminControlRepository(db);
+    this.adminOnboardingSampleRepository =
+      options.adminOnboardingSampleRepository ||
+      createAdminOnboardingSampleRepository(db);
+    this.adminJobOpsRepository =
+      options.adminJobOpsRepository || createAdminJobOpsRepository(db);
+    this.adminStorySessionRepository =
+      options.adminStorySessionRepository ||
+      createAdminStorySessionRepository(db);
+    this.adminModerationRepository =
+      options.adminModerationRepository || createAdminModerationRepository(db);
+    this.adminBillingRepository =
+      options.adminBillingRepository || createAdminBillingRepository(db);
+    this.adminShareManagementRepository =
+      options.adminShareManagementRepository ||
+      createAdminShareManagementRepository(db);
+    this.adminUserReadRepository =
+      options.adminUserReadRepository || createAdminUserReadRepository(db);
+    this.adminUserMutationRepository =
+      options.adminUserMutationRepository ||
+      createAdminUserMutationRepository(db);
+    this.adminUserSessionControlRepository =
+      options.adminUserSessionControlRepository ||
+      createAdminUserSessionControlRepository(db);
+    this.adminMetricsRepository =
+      options.adminMetricsRepository || createAdminMetricsRepository(db);
+    this.adminEntitlementsRepository =
+      options.adminEntitlementsRepository ||
+      createAdminEntitlementsRepository(db);
+    this.adminSecurityObservabilityRepository =
+      options.adminSecurityObservabilityRepository ||
+      createAdminSecurityObservabilityRepository(db);
+    this.adminMusicDiagnosticsRepository =
+      options.adminMusicDiagnosticsRepository ||
+      createAdminMusicDiagnosticsRepository(db);
+    this.eventsRepository =
+      options.eventsRepository || createEventsRepository(db);
     // In-memory response cache for analytics aggregates. 60s TTL keeps
     // dashboards responsive without hammering events table on every days-selector flick.
     // Cleared on process restart; acceptable for admin-only endpoints.
@@ -361,10 +400,8 @@ class AdminService {
   async _getProductCatalog() {
     const catalog = new Map();
 
-    const giftBundles = await this.db.prepare(`
-      SELECT product_id, display_name, price_cents
-      FROM gift_bundles
-    `).all();
+    const giftBundles =
+      await this.adminBillingRepository.listGiftBundleProducts();
     for (const bundle of giftBundles) {
       catalog.set(bundle.product_id, {
         display_name: bundle.display_name,
@@ -374,17 +411,7 @@ class AdminService {
       });
     }
 
-    const planProducts = await this.db.prepare(`
-      SELECT
-        pp.product_id,
-        pp.billing_period,
-        sp.name,
-        sp.tier,
-        sp.price_monthly_cents,
-        sp.price_annual_cents
-      FROM plan_products pp
-      LEFT JOIN subscription_plans sp ON sp.id = pp.plan_id
-    `).all();
+    const planProducts = await this.adminBillingRepository.listPlanProducts();
     for (const product of planProducts) {
       const priceCents =
         product.billing_period === "annual"
@@ -405,55 +432,11 @@ class AdminService {
   }
 
   async _getReceiptSaleRows(period, { limit = 50, offset = 0 } = {}) {
-    const where = ["pr.verification_status = 'verified'"];
-    const params = [];
-    if (period.since) {
-      where.push("pr.purchase_date > ?");
-      params.push(period.since);
-    }
-
-    return await this.db.prepare(`
-      SELECT
-        pr.id,
-        pr.user_id,
-        pr.subscription_id,
-        pr.transaction_id,
-        pr.original_transaction_id,
-        pr.product_id,
-        pr.platform,
-        pr.verification_status,
-        pr.verification_response,
-        pr.purchase_date,
-        pr.expires_date,
-        pr.is_trial,
-        pr.created_at,
-        u.email AS user_email,
-        u.display_name AS user_display_name,
-        uc.value_display AS primary_email,
-        s.status AS subscription_status,
-        s.tier AS subscription_tier,
-        s.expires_at AS subscription_expires_at,
-        s.grace_period_expires_at AS subscription_grace_period_expires_at,
-        s.auto_renew_enabled AS auto_renew_enabled,
-        s.cancelled_at AS subscription_cancelled_at,
-        s.latest_transaction_id AS latest_transaction_id,
-        gwt.id AS gift_wallet_transaction_id,
-        gwt.amount AS gift_tokens_granted
-      FROM purchase_receipts pr
-      LEFT JOIN users u ON u.id = pr.user_id
-      LEFT JOIN user_contacts uc
-        ON uc.user_id = pr.user_id
-       AND uc.type = 'email'
-       AND uc.is_primary = true
-      LEFT JOIN subscriptions s ON s.id = pr.subscription_id
-      LEFT JOIN gift_wallet_transactions gwt
-        ON gwt.reference_type = 'receipt'
-       AND gwt.reference_id = pr.id
-       AND gwt.type = 'gift_purchase'
-      WHERE ${where.join(" AND ")}
-      ORDER BY pr.purchase_date DESC, pr.created_at DESC
-      LIMIT ? OFFSET ?
-    `).all(...params, limit, offset);
+    return this.adminBillingRepository.listReceiptSaleRows({
+      since: period.since,
+      limit,
+      offset,
+    });
   }
 
   async _getReceiptSalesPage(period, productCatalog, { limit, offset }) {
@@ -516,63 +499,12 @@ class AdminService {
 
   async _countCurrentSubscribers() {
     const now = new Date().toISOString();
-    const row = await this.db.prepare(`
-      SELECT COUNT(*) AS count
-      FROM subscriptions s
-      WHERE s.status IN ('active', 'grace_period', 'billing_retry')
-        AND (
-          s.expires_at IS NULL
-          OR s.expires_at > ?
-          OR s.grace_period_expires_at > ?
-        )
-    `).get(now, now);
-    return Number(row?.count || 0);
+    return this.adminBillingRepository.countCurrentSubscribers({ now });
   }
 
   async _getCurrentSubscribers(limit = 50) {
     const now = new Date().toISOString();
-    return await this.db.prepare(`
-      SELECT
-        s.id,
-        s.user_id,
-        s.product_id,
-        s.tier,
-        s.status,
-        s.platform,
-        s.original_transaction_id,
-        s.latest_transaction_id,
-        s.original_purchase_date,
-        s.expires_at,
-        s.auto_renew_enabled,
-        s.grace_period_expires_at,
-        s.cancelled_at,
-        s.updated_at,
-        u.email AS user_email,
-        u.display_name AS user_display_name,
-        uc.value_display AS primary_email
-      FROM subscriptions s
-      LEFT JOIN users u ON u.id = s.user_id
-      LEFT JOIN user_contacts uc
-        ON uc.user_id = s.user_id
-       AND uc.type = 'email'
-       AND uc.is_primary = true
-      WHERE s.status IN ('active', 'grace_period', 'billing_retry')
-        AND (
-          s.expires_at IS NULL
-          OR s.expires_at > ?
-          OR s.grace_period_expires_at > ?
-        )
-      ORDER BY
-        CASE s.status
-          WHEN 'active' THEN 0
-          WHEN 'grace_period' THEN 1
-          WHEN 'billing_retry' THEN 2
-          ELSE 3
-        END,
-        s.expires_at ASC,
-        s.updated_at DESC
-      LIMIT ?
-    `).all(now, now, limit);
+    return this.adminBillingRepository.listCurrentSubscribers({ now, limit });
   }
 
   _normalizeReceiptSale(row, productCatalog) {
@@ -637,53 +569,21 @@ class AdminService {
 
   async _persistSecurityConfig(config, actorId, { audit = true } = {}) {
     const now = new Date().toISOString();
-    await this.db.prepare(`
-      INSERT INTO security_config (
-        id,
-        session_duration_hours,
-        max_failed_logins,
-        lockout_minutes,
-        rate_limit_defaults_json,
-        ios_min_supported_version,
-        ios_recommended_version,
-        ios_update_message,
-        ios_auto_recommended_version,
-        ios_last_app_store_version,
-        ios_last_app_store_sync_at,
-        ios_app_store_sync_error,
-        updated_at,
-        updated_by
-      )
-      VALUES ('default', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(id) DO UPDATE SET
-        session_duration_hours = excluded.session_duration_hours,
-        max_failed_logins = excluded.max_failed_logins,
-        lockout_minutes = excluded.lockout_minutes,
-        rate_limit_defaults_json = excluded.rate_limit_defaults_json,
-        ios_min_supported_version = excluded.ios_min_supported_version,
-        ios_recommended_version = excluded.ios_recommended_version,
-        ios_update_message = excluded.ios_update_message,
-        ios_auto_recommended_version = excluded.ios_auto_recommended_version,
-        ios_last_app_store_version = excluded.ios_last_app_store_version,
-        ios_last_app_store_sync_at = excluded.ios_last_app_store_sync_at,
-        ios_app_store_sync_error = excluded.ios_app_store_sync_error,
-        updated_at = excluded.updated_at,
-        updated_by = excluded.updated_by
-    `).run(
-      config.sessionDurationHours,
-      config.maxFailedLoginAttempts,
-      config.lockoutDurationMinutes,
-      JSON.stringify(config.rateLimitDefaults),
-      config.iosMinSupportedVersion || null,
-      config.iosRecommendedVersion || null,
-      config.iosUpdateMessage || null,
-      config.iosAutoRecommendedVersion ? 1 : 0,
-      config.iosLastAppStoreVersion || null,
-      config.iosLastAppStoreSyncAt || null,
-      config.iosAppStoreSyncError || null,
-      now,
-      actorId
-    );
+    await this.appConfigRepository.upsertSecurityConfig({
+      sessionDurationHours: config.sessionDurationHours,
+      maxFailedLoginAttempts: config.maxFailedLoginAttempts,
+      lockoutDurationMinutes: config.lockoutDurationMinutes,
+      rateLimitDefaultsJson: JSON.stringify(config.rateLimitDefaults),
+      iosMinSupportedVersion: config.iosMinSupportedVersion || null,
+      iosRecommendedVersion: config.iosRecommendedVersion || null,
+      iosUpdateMessage: config.iosUpdateMessage || null,
+      iosAutoRecommendedVersion: config.iosAutoRecommendedVersion ? 1 : 0,
+      iosLastAppStoreVersion: config.iosLastAppStoreVersion || null,
+      iosLastAppStoreSyncAt: config.iosLastAppStoreSyncAt || null,
+      iosAppStoreSyncError: config.iosAppStoreSyncError || null,
+      updatedAt: now,
+      updatedBy: actorId,
+    });
 
     if (audit) {
       await this._audit(actorId, 'admin_update_security_config', 'config', 'security', config);
@@ -701,9 +601,15 @@ class AdminService {
       admin_id: adminId,
       ...metadata,
     };
-    await this.db.prepare(
-      'INSERT INTO audit_logs (id, user_id, action, resource_type, resource_id, metadata_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
-    ).run(generateAuditId(), adminId, action, resourceType, resourceId, JSON.stringify(enriched), new Date().toISOString());
+    await this.eventsRepository.insertAuditLog({
+      id: generateAuditId(),
+      userId: adminId,
+      action,
+      resourceType,
+      resourceId,
+      metadataJson: JSON.stringify(enriched),
+      createdAt: new Date().toISOString(),
+    });
   }
 
   // ============ USER MANAGEMENT ============
@@ -714,57 +620,20 @@ class AdminService {
    */
   async searchUsers({ email, userId, riskLevel, tier, trackId, shareId, recipientName, limit = 50, offset = 0 }) {
     const bounds = safeBounds(limit, offset);
-    const filter = buildUserSearchFilter({ email, userId, riskLevel, tier, trackId, shareId, recipientName });
-
-    let sql = `
-      SELECT
-        u.id, u.email, u.display_name, u.risk_level, u.locked_until, u.created_at,
-        u.country,
-        u.acquisition_source,
-        u.acquisition_medium,
-        u.acquisition_campaign,
-        u.acquisition_content,
-        u.acquisition_term,
-        u.acquisition_country,
-        u.acquisition_referrer,
-        u.acquisition_at,
-        COALESCE(e.tier, 'free') as tier,
-        COALESCE(e.gift_songs_used_total, 0) as gift_songs_used_total,
-        COALESCE(track_counts.track_count, 0) as track_count,
-        COALESCE(vp.status, 'none') as voice_status,
-        COALESCE(activity.last_active, u.created_at) as last_active
-      FROM users u
-      LEFT JOIN entitlements e ON e.user_id = u.id
-      LEFT JOIN (
-        SELECT user_id, COUNT(*) as track_count
-        FROM tracks
-        GROUP BY user_id
-      ) track_counts ON track_counts.user_id = u.id
-      LEFT JOIN voice_profiles vp ON vp.user_id = u.id AND vp.deleted_at IS NULL
-      LEFT JOIN (
-        SELECT user_id, MAX(created_at) as last_active
-        FROM tracks
-        GROUP BY user_id
-      ) activity ON activity.user_id = u.id
-      WHERE ${filter.whereSql}
-    `;
-
-    sql += ' ORDER BY u.created_at DESC LIMIT ? OFFSET ?';
-
-    const countSql = `
-      SELECT COUNT(DISTINCT u.id) as total
-      FROM users u
-      LEFT JOIN entitlements e ON e.user_id = u.id
-      WHERE ${filter.whereSql}
-    `;
-
-    const [users, countRow] = await Promise.all([
-      this.db.prepare(sql).all(...filter.params, bounds.limit, bounds.offset),
-      this.db.prepare(countSql).get(...filter.params),
-    ]);
+    const { users, total } = await this.adminUserReadRepository.searchUsers({
+      email,
+      userId,
+      riskLevel,
+      tier,
+      trackId,
+      shareId,
+      recipientName,
+      limit: bounds.limit,
+      offset: bounds.offset,
+    });
     return {
       users: await this.attributionService.attachAttributionToUsers(users),
-      total: Number(countRow?.total || 0),
+      total,
       limit: bounds.limit,
       offset: bounds.offset,
     };
@@ -775,23 +644,11 @@ class AdminService {
    * Returns counts by tier and conversion rate
    */
   async getUserStats() {
-    const stats = await this.db.prepare(`
-      SELECT
-        COUNT(*) as total_users,
-        SUM(CASE WHEN e.tier IN ('pro', 'plus') THEN 1 ELSE 0 END) as paid_users,
-        SUM(CASE WHEN e.tier = 'trial' THEN 1 ELSE 0 END) as trial_users,
-        SUM(CASE WHEN e.tier = 'free' OR e.tier IS NULL THEN 1 ELSE 0 END) as free_users
-      FROM users u
-      LEFT JOIN entitlements e ON e.user_id = u.id
-    `).get();
-
+    const stats = await this.adminUserReadRepository.getUserStats();
     return {
-      totalUsers: stats.total_users || 0,
-      paidUsers: stats.paid_users || 0,
-      trialUsers: stats.trial_users || 0,
-      freeUsers: stats.free_users || 0,
-      conversionRate: stats.total_users > 0
-        ? ((stats.paid_users / stats.total_users) * 100).toFixed(1)
+      ...stats,
+      conversionRate: stats.totalUsers > 0
+        ? ((stats.paidUsers / stats.totalUsers) * 100).toFixed(1)
         : '0.0',
     };
   }
@@ -800,44 +657,18 @@ class AdminService {
    * Get detailed user information with related data
    */
   async getUserDetail(userId) {
-    const user = await this.db.prepare(
-      'SELECT * FROM users WHERE id = ?'
-    ).get(userId);
+    const user = await this.adminUserReadRepository.getUserById(userId);
 
     if (!user) return null;
 
     const [voiceProfile, entitlements, subscription, tracks, shares, attribution, appleAdsAttribution, canonicalAttribution] = await Promise.all([
-      this.db.prepare(
-        'SELECT id, status, quality_score, created_at FROM voice_profiles WHERE user_id = ? AND deleted_at IS NULL'
-      ).get(userId),
-      this.db.prepare(
-        'SELECT * FROM entitlements WHERE user_id = ?'
-      ).get(userId),
-      this.db.prepare(
-        'SELECT * FROM subscriptions WHERE user_id = ? ORDER BY created_at DESC LIMIT 1'
-      ).get(userId),
-      this.db.prepare(
-        'SELECT id, title, occasion, status, created_at FROM tracks WHERE user_id = ? ORDER BY created_at DESC LIMIT 10'
-      ).all(userId),
-      this.db.prepare(
-        `SELECT st.id, st.status, st.access_count, t.title
-         FROM share_tokens st
-         JOIN tracks t ON st.track_id = t.id
-         WHERE t.user_id = ?
-         ORDER BY st.created_at DESC LIMIT 10`
-      ).all(userId),
-      this.db.prepare(
-        `SELECT id, utm_source, utm_medium, utm_campaign, utm_content, utm_term, country, referrer_url, created_at
-         FROM download_events
-         WHERE matched_user_id = ?
-         ORDER BY created_at DESC LIMIT 1`
-      ).get(userId),
-      this.db.prepare(
-        `SELECT id, status, campaign_id, ad_group_id, keyword_id, org_id, conversion_type, country_or_region, click_date, created_at, resolved_at
-         FROM apple_ads_attribution
-         WHERE user_id = ? AND status = 'resolved'
-         ORDER BY created_at DESC LIMIT 1`
-      ).get(userId),
+      this.adminUserReadRepository.getUserVoiceProfile(userId),
+      this.adminUserReadRepository.getUserEntitlements(userId),
+      this.adminUserReadRepository.getLatestUserSubscription(userId),
+      this.adminUserReadRepository.listUserTracks(userId),
+      this.adminUserReadRepository.listUserShares(userId),
+      this.adminUserReadRepository.getLatestUserDownloadAttribution(userId),
+      this.adminUserReadRepository.getLatestResolvedAppleAdsAttribution(userId),
       this.attributionService.getUserAttribution(user),
     ]);
 
@@ -854,7 +685,7 @@ class AdminService {
    * Update user risk level
    */
   async updateUserRisk(userId, riskLevel, adminId, reason) {
-    await this.db.prepare('UPDATE users SET risk_level = ? WHERE id = ?').run(riskLevel, userId);
+    await this.adminUserMutationRepository.updateRiskLevel(userId, riskLevel);
     await this._audit(adminId, 'admin_update_risk', 'user', userId, { riskLevel, reason });
     return { success: true };
   }
@@ -864,7 +695,7 @@ class AdminService {
    */
   async lockUser(userId, locked, adminId, reason) {
     const lockedUntil = locked ? new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString() : null;
-    await this.db.prepare('UPDATE users SET locked_until = ? WHERE id = ?').run(lockedUntil, userId);
+    await this.adminUserMutationRepository.updateLockedUntil(userId, lockedUntil);
     await this._audit(adminId, locked ? 'admin_lock_user' : 'admin_unlock_user', 'user', userId, { reason });
     return { success: true, lockedUntil };
   }
@@ -874,7 +705,7 @@ class AdminService {
    * All child tables use ON DELETE CASCADE, so a single DELETE suffices.
    */
   async deleteUser(userId, adminId, reason) {
-    const user = await this.db.prepare('SELECT id, email, display_name FROM users WHERE id = ?').get(userId);
+    const user = await this.adminUserMutationRepository.findDeletionSnapshot(userId);
     if (!user) return { success: false, error: 'User not found' };
 
     // Audit BEFORE delete (so the log references the user while they still exist)
@@ -884,7 +715,7 @@ class AdminService {
       deleted_display_name: user.display_name,
     });
 
-    await this.db.prepare('DELETE FROM users WHERE id = ?').run(userId);
+    await this.adminUserMutationRepository.deleteUser(userId);
 
     return { success: true, deleted: { id: user.id, email: user.email, displayName: user.display_name } };
   }
@@ -975,32 +806,13 @@ class AdminService {
     }
 
     const previousAttribution = Object.keys(attributionUpdates).length > 0
-      ? await this.db.prepare(`
-          SELECT acquisition_source, acquisition_medium, acquisition_campaign, acquisition_content,
-                 acquisition_term, acquisition_country, acquisition_referrer, acquisition_at
-          FROM users
-          WHERE id = ?
-        `).get(userId)
+      ? await this.adminUserMutationRepository.getAttributionSnapshot(userId)
       : null;
 
-    const setClauses = [];
-    const params = [];
-    for (const [key, value] of Object.entries(updates)) {
-      if (!/^[a-z_]+$/.test(key)) throw new Error(`Unsafe column name: ${key}`);
-      setClauses.push(`${key} = ?`);
-      params.push(value);
-    }
-    params.push(userId);
-
-    await this.db.prepare(`UPDATE users SET ${setClauses.join(', ')} WHERE id = ?`).run(...params);
+    await this.adminUserMutationRepository.updateUserFields(userId, updates);
     await this._audit(adminId, 'admin_update_user_profile', 'user', userId, { changedFields: updates });
     if (Object.keys(attributionUpdates).length > 0) {
-      const nextAttribution = await this.db.prepare(`
-        SELECT acquisition_source, acquisition_medium, acquisition_campaign, acquisition_content,
-               acquisition_term, acquisition_country, acquisition_referrer, acquisition_at
-        FROM users
-        WHERE id = ?
-      `).get(userId);
+      const nextAttribution = await this.adminUserMutationRepository.getAttributionSnapshot(userId);
       await this._audit(adminId, 'admin_update_user_attribution', 'user', userId, {
         contract: 'attribution-source-precedence-v1',
         previous: previousAttribution || {
@@ -1044,15 +856,11 @@ class AdminService {
       return { success: false, error: 'No valid fields provided' };
     }
 
-    const current = await this.db.prepare('SELECT tier FROM entitlements WHERE user_id = ?').get(userId);
-
-    if (current) {
-      await this.db.prepare('UPDATE entitlements SET tier = ? WHERE user_id = ?').run(fields.tier, userId);
-    } else {
-      await this.db.prepare(
-        'INSERT INTO entitlements (user_id, tier) VALUES (?, ?)'
-      ).run(userId, fields.tier);
-    }
+    const current = await this.adminEntitlementsRepository.upsertTier(
+      userId,
+      fields.tier,
+      new Date().toISOString(),
+    );
 
     await this._audit(adminId, 'admin_update_entitlements', 'user', userId, {
       previous: current || { tier: 'free' },
@@ -1070,20 +878,10 @@ class AdminService {
   async getOverviewMetrics() {
     const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
     const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-
-    const totalUsers = (await this.db.prepare('SELECT COUNT(*) as count FROM users').get())?.count ?? 0;
-    const newUsersToday = (await this.db.prepare('SELECT COUNT(*) as count FROM users WHERE created_at > ?').get(dayAgo))?.count ?? 0;
-    const newUsersWeek = (await this.db.prepare('SELECT COUNT(*) as count FROM users WHERE created_at > ?').get(weekAgo))?.count ?? 0;
-
-    const tierDist = await this.db.prepare('SELECT tier, COUNT(*) as count FROM entitlements GROUP BY tier').all();
-
-    const jobStats = await this.db.prepare('SELECT status, COUNT(*) as count FROM jobs GROUP BY status').all();
-
-    const rendersToday = (await this.db.prepare(
-      "SELECT COUNT(*) as count FROM track_versions WHERE created_at > ? AND render_type = 'preview'"
-    ).get(dayAgo))?.count ?? 0;
-
-    return { totalUsers, newUsersToday, newUsersWeek, tierDist, jobStats, rendersToday };
+    return this.adminMetricsRepository.getOverviewMetrics({
+      dayAgo,
+      weekAgo,
+    });
   }
 
   // ============ STORY SESSIONS ============
@@ -1093,89 +891,31 @@ class AdminService {
    */
   async listStorySessions({ status, engineVersion, limit = 50, offset = 0 }) {
     const bounds = safeBounds(limit, offset);
-    let sql = `
-      SELECT
-        ss.id,
-        ss.user_id,
-        ss.status,
-        ss.engine_version,
-        ss.recipient_name,
-        ss.occasion,
-        ss.question_count,
-        ss.created_at,
-        ss.updated_at,
-        ss.confirmed_at,
-        u.email as user_email
-      FROM story_sessions ss
-      LEFT JOIN users u ON ss.user_id = u.id
-      WHERE 1=1
-    `;
-    const params = [];
-
-    if (status) {
-      sql += " AND ss.status = ?";
-      params.push(status);
-    }
-    if (engineVersion) {
-      sql += " AND ss.engine_version = ?";
-      params.push(engineVersion);
-    }
-
-    sql += " ORDER BY ss.updated_at DESC LIMIT ? OFFSET ?";
-    params.push(bounds.limit, bounds.offset);
-
-    return await this.db.prepare(sql).all(...params);
+    return this.adminStorySessionRepository.listSessions({
+      status,
+      engineVersion,
+      limit: bounds.limit,
+      offset: bounds.offset,
+    });
   }
 
   /**
    * Get full story session details with turns
    */
   async getStorySessionDetail(sessionId) {
-    const session = await this.db.prepare(`
-      SELECT ss.*, u.email as user_email
-      FROM story_sessions ss
-      LEFT JOIN users u ON ss.user_id = u.id
-      WHERE ss.id = ?
-    `).get(sessionId);
-
-    if (!session) return null;
-
-    const turns = await this.db.prepare(`
-      SELECT * FROM story_turns
-      WHERE session_id = ?
-      ORDER BY turn_number ASC
-    `).all(sessionId);
-
-    return { session, turns };
+    return this.adminStorySessionRepository.getSessionDetail(sessionId);
   }
 
   /**
    * Get job health metrics
    */
   async getJobMetrics() {
-    const jobsByStatus = await this.db.prepare('SELECT status, COUNT(*) as count FROM jobs GROUP BY status').all();
-
-    const jobsByWorkflow = await this.db.prepare(
-      'SELECT workflow_type, status, COUNT(*) as count FROM jobs GROUP BY workflow_type, status'
-    ).all();
-
-    // Stale jobs: running for more than 30 minutes
     const thirtyMinAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString();
-    const staleJobs = (await this.db.prepare(
-      "SELECT COUNT(*) as count FROM jobs WHERE status = 'running' AND updated_at < ?"
-    ).get(thirtyMinAgo))?.count ?? 0;
-
-    // Recent failures grouped by error code
     const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-    const recentFailures = await this.db.prepare(
-      "SELECT error_code, COUNT(*) as count FROM jobs WHERE status = 'failed' AND created_at > ? GROUP BY error_code ORDER BY count DESC LIMIT 10"
-    ).all(weekAgo);
-
-    const dlqCount = (await this.db.prepare(
-      "SELECT COUNT(*) as count FROM dead_letter_queue WHERE reprocessed_at IS NULL"
-    ).get())?.count ?? 0;
-
-    return { jobsByStatus, jobsByWorkflow, staleJobs, recentFailures, dlqCount };
+    return await this.adminJobOpsRepository.getJobMetrics({
+      staleBefore: thirtyMinAgo,
+      failuresAfter: weekAgo,
+    });
   }
 
   /**
@@ -1183,28 +923,7 @@ class AdminService {
    */
   async getCostMetrics(days = 30) {
     const daysAgo = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
-
-    // PostgreSQL jsonb extraction
-    const jsonCost = `(actual_cost_json::jsonb->>'total_usd')::numeric`;
-
-    const dailyCosts = await this.db.prepare(`
-      SELECT DATE(created_at) as date, COUNT(*) as renders,
-             SUM(${jsonCost}) as total_cost_usd
-      FROM track_versions
-      WHERE status = 'completed' AND actual_cost_json IS NOT NULL
-        AND created_at > ?
-      GROUP BY DATE(created_at) ORDER BY date DESC
-    `).all(daysAgo);
-
-    const costByType = await this.db.prepare(`
-      SELECT render_type, COUNT(*) as count,
-             AVG(${jsonCost}) as avg_cost_usd,
-             SUM(${jsonCost}) as total_cost_usd
-      FROM track_versions WHERE status = 'completed' AND actual_cost_json IS NOT NULL
-      GROUP BY render_type
-    `).all();
-
-    return { dailyCosts, costByType };
+    return this.adminMetricsRepository.getCostMetrics({ daysAgo });
   }
 
   // ============ JOB MANAGEMENT ============
@@ -1214,35 +933,29 @@ class AdminService {
    */
   async listJobs({ status, workflowType, limit = 50, offset = 0 }) {
     const bounds = safeBounds(limit, offset);
-    let sql = 'SELECT j.*, tv.track_id FROM jobs j LEFT JOIN track_versions tv ON j.track_version_id = tv.id WHERE 1=1';
-    const params = [];
-
-    if (status) {
-      sql += ' AND j.status = ?';
-      params.push(status);
-    }
-    if (workflowType) {
-      sql += ' AND j.workflow_type = ?';
-      params.push(workflowType);
-    }
-
-    sql += ' ORDER BY j.created_at DESC LIMIT ? OFFSET ?';
-    params.push(bounds.limit, bounds.offset);
-
-    return await this.db.prepare(sql).all(...params);
+    return await this.adminJobOpsRepository.listJobs({
+      status,
+      workflowType,
+      limit: bounds.limit,
+      offset: bounds.offset,
+    });
   }
 
   /**
    * Retry a failed job
    */
   async retryJob(jobId, adminId) {
-    const job = await this.db.prepare('SELECT * FROM jobs WHERE id = ?').get(jobId);
+    const job = await this.adminJobOpsRepository.findJobById(jobId);
     if (!job) return { success: false, error: 'Job not found' };
     if (job.status !== 'failed') return { success: false, error: 'Job is not failed' };
 
-    await this.db.prepare(
-      "UPDATE jobs SET status = 'queued', attempts = 0, error_code = NULL, error_message = NULL, updated_at = ? WHERE id = ?"
-    ).run(new Date().toISOString(), jobId);
+    const retryResult = await this.adminJobOpsRepository.retryFailedJob({
+      jobId,
+      now: new Date().toISOString(),
+    });
+    if (Number(retryResult?.changes ?? retryResult?.rowCount ?? 0) === 0) {
+      return { success: false, error: 'Job is not failed' };
+    }
     await this._audit(adminId, 'admin_retry_job', 'job', jobId);
 
     return { success: true };
@@ -1254,61 +967,39 @@ class AdminService {
    */
   async listDLQ({ limit = 50, offset = 0 }) {
     const bounds = safeBounds(limit, offset);
-    const rows = await this.db.prepare(`
-      SELECT
-        dlq.id,
-        dlq.job_id,
-        dlq.failure_reason,
-        dlq.moved_at,
-        dlq.reprocessed_at,
-        j.workflow_type,
-        j.step,
-        j.error_code,
-        j.error_message,
-        j.step_data
-      FROM dead_letter_queue dlq
-      LEFT JOIN jobs j ON j.id = dlq.job_id
-      ORDER BY dlq.moved_at DESC
-      LIMIT ? OFFSET ?
-    `).all(bounds.limit, bounds.offset);
-
-    return rows.map((row) => ({
-      id: row.id,
-      job_id: row.job_id,
-      workflow_type: row.workflow_type,
-      step: row.step,
-      error_code: row.error_code || null,
-      error_message: row.error_message || row.failure_reason || null,
-      payload_json:
-        row.step_data == null
-          ? null
-          : typeof row.step_data === "string"
-            ? row.step_data
-            : JSON.stringify(row.step_data),
-      created_at: row.moved_at,
-      reprocessed_at: row.reprocessed_at,
-    }));
+    return await this.adminJobOpsRepository.listDLQ({
+      limit: bounds.limit,
+      offset: bounds.offset,
+    });
   }
 
   /**
    * Reprocess a DLQ entry by re-queuing the original job
    */
   async reprocessDLQ(dlqId, adminId, reason) {
-    const entry = await this.db.prepare('SELECT * FROM dead_letter_queue WHERE id = ?').get(dlqId);
+    const entry = await this.adminJobOpsRepository.findDLQById(dlqId);
     if (!entry) return { success: false, error: 'DLQ entry not found' };
     if (entry.reprocessed_at) return { success: false, error: 'DLQ entry already reprocessed' };
 
-    const job = await this.db.prepare('SELECT * FROM jobs WHERE id = ?').get(entry.job_id);
+    const job = await this.adminJobOpsRepository.findJobById(entry.job_id);
     if (!job) return { success: false, error: 'Job not found' };
 
     const now = new Date().toISOString();
-    await this.db.prepare(
-      "UPDATE jobs SET status = 'queued', attempts = 0, error_code = NULL, error_message = NULL, next_attempt_at = NULL, locked_by = NULL, locked_at = NULL, updated_at = ? WHERE id = ?"
-    ).run(now, entry.job_id);
-
-    await this.db.prepare(
-      "UPDATE dead_letter_queue SET reprocessed_at = ?, reprocess_job_id = ? WHERE id = ?"
-    ).run(now, entry.job_id, dlqId);
+    try {
+      await this.adminJobOpsRepository.reprocessDLQEntry({
+        dlqId,
+        jobId: entry.job_id,
+        now,
+      });
+    } catch (error) {
+      if (error.message === "Job not found") {
+        return { success: false, error: "Job not found" };
+      }
+      if (error.message === "DLQ entry not found or already reprocessed") {
+        return { success: false, error: "DLQ entry already reprocessed" };
+      }
+      throw error;
+    }
 
     await this._audit(adminId, 'admin_reprocess_dlq', 'job', entry.job_id, { dlqId, reason });
     return { success: true, jobId: entry.job_id, dlqId };
@@ -1321,23 +1012,28 @@ class AdminService {
    */
   async getModerationQueue({ limit = 50, offset = 0 }) {
     const bounds = safeBounds(limit, offset);
-    return await this.db.prepare(`
-      SELECT tv.id, tv.track_id, tv.moderation_status, tv.moderation_reason, tv.moderation_details_json,
-             t.title, t.occasion, t.recipient_name, t.user_id, tv.created_at
-      FROM track_versions tv
-      JOIN tracks t ON tv.track_id = t.id
-      WHERE tv.moderation_status = 'blocked'
-      ORDER BY tv.created_at DESC LIMIT ? OFFSET ?
-    `).all(bounds.limit, bounds.offset);
+    return this.adminModerationRepository.listBlockedVersions(bounds);
   }
 
   /**
    * Override moderation decision (approve blocked content)
    */
   async overrideModeration(versionId, adminId, reason) {
-    await this.db.prepare(
-      "UPDATE track_versions SET moderation_status = 'approved', moderation_reason = ? WHERE id = ?"
-    ).run(`Admin override: ${reason}`, versionId);
+    const result = await this.adminModerationRepository.approveBlockedVersion({
+      versionId,
+      reason,
+    });
+    if (result.status === "not_found") {
+      return { success: false, error: "Track version not found" };
+    }
+    if (result.status === "not_blocked") {
+      return {
+        success: false,
+        error: "Track version is not blocked",
+        moderationStatus: result.moderationStatus,
+      };
+    }
+
     await this._audit(adminId, 'admin_moderation_override', 'track_version', versionId, { reason });
     return { success: true };
   }
@@ -1349,51 +1045,27 @@ class AdminService {
    */
   async listShares({ status, trackId, userId, limit = 50, offset = 0 }) {
     const bounds = safeBounds(limit, offset);
-    let sql = `
-      SELECT
-        st.id,
-        st.track_id,
-        st.status,
-        st.access_count,
-        st.bound_device_id,
-        st.stream_key,
-        st.created_at,
-        st.expires_at,
-        t.title as track_title
-      FROM share_tokens st
-      JOIN tracks t ON st.track_id = t.id
-      WHERE 1=1
-    `;
-    const params = [];
-
-    if (status) {
-      sql += " AND st.status = ?";
-      params.push(status);
-    }
-    if (trackId) {
-      sql += " AND st.track_id = ?";
-      params.push(trackId);
-    }
-    if (userId) {
-      sql += " AND t.user_id = ?";
-      params.push(userId);
-    }
-
-    sql += " ORDER BY st.created_at DESC LIMIT ? OFFSET ?";
-    params.push(bounds.limit, bounds.offset);
-
-    return await this.db.prepare(sql).all(...params);
+    return this.adminShareManagementRepository.listShares({
+      status,
+      trackId,
+      userId,
+      limit: bounds.limit,
+      offset: bounds.offset,
+    });
   }
 
   /**
    * Rebind a share token to a new device
    */
   async rebindShare(shareId, newDeviceId, adminId, reason) {
-    const share = await this.db.prepare('SELECT * FROM share_tokens WHERE id = ?').get(shareId);
+    const share = await this.adminShareManagementRepository.getShareById(shareId);
     if (!share) return { success: false, error: 'Share not found' };
 
     const oldDeviceId = share.bound_device_id;
-    await this.db.prepare('UPDATE share_tokens SET bound_device_id = ? WHERE id = ?').run(newDeviceId, shareId);
+    await this.adminShareManagementRepository.rebindShareDevice({
+      shareId,
+      newDeviceId,
+    });
     await this._audit(adminId, 'share_rebound', 'share_token', shareId, { oldDeviceId, newDeviceId, reason });
     return { success: true, oldDeviceId, newDeviceId };
   }
@@ -1405,56 +1077,25 @@ class AdminService {
    */
   async listPoemShares({ status, poemId, userId, limit = 50, offset = 0 }) {
     const bounds = safeBounds(limit, offset);
-    let sql = `
-      SELECT
-        pst.id,
-        pst.poem_id,
-        pst.creator_id,
-        pst.status,
-        pst.claim_pin,
-        pst.claim_attempts,
-        pst.access_count,
-        pst.bound_user_id,
-        pst.allow_save,
-        pst.claim_policy,
-        pst.created_at,
-        pst.expires_at,
-        p.title as poem_title,
-        p.recipient_name
-      FROM poem_share_tokens pst
-      JOIN poems p ON pst.poem_id = p.id
-      WHERE 1=1
-    `;
-    const params = [];
-
-    if (status) {
-      sql += " AND pst.status = ?";
-      params.push(status);
-    }
-    if (poemId) {
-      sql += " AND pst.poem_id = ?";
-      params.push(poemId);
-    }
-    if (userId) {
-      sql += " AND pst.creator_id = ?";
-      params.push(userId);
-    }
-
-    sql += " ORDER BY pst.created_at DESC LIMIT ? OFFSET ?";
-    params.push(bounds.limit, bounds.offset);
-
-    return await this.db.prepare(sql).all(...params);
+    return this.adminShareManagementRepository.listPoemShares({
+      status,
+      poemId,
+      userId,
+      limit: bounds.limit,
+      offset: bounds.offset,
+    });
   }
 
   /**
    * Reset claim attempts on a poem share token (unlocks a locked-out recipient)
    */
   async resetPoemShareAttempts(shareId, adminId, reason) {
-    const share = await this.db.prepare('SELECT * FROM poem_share_tokens WHERE id = ?').get(shareId);
+    const share =
+      await this.adminShareManagementRepository.getPoemShareById(shareId);
     if (!share) return { success: false, error: 'Poem share not found' };
 
     const oldAttempts = share.claim_attempts;
-    await this.db.prepare('UPDATE poem_share_tokens SET claim_attempts = 0 WHERE id = ?').run(shareId);
+    await this.adminShareManagementRepository.resetPoemShareAttempts(shareId);
     await this._audit(adminId, 'poem_share_attempts_reset', 'poem_share_token', shareId, { oldAttempts, reason });
     return { success: true, oldAttempts };
   }
@@ -1463,12 +1104,13 @@ class AdminService {
    * Revoke a poem share token
    */
   async revokePoemShare(shareId, adminId, reason) {
-    const share = await this.db.prepare('SELECT * FROM poem_share_tokens WHERE id = ?').get(shareId);
+    const share =
+      await this.adminShareManagementRepository.getPoemShareById(shareId);
     if (!share) return { success: false, error: 'Poem share not found' };
     if (share.status === 'revoked') return { success: false, error: 'Already revoked' };
 
     const oldStatus = share.status;
-    await this.db.prepare('UPDATE poem_share_tokens SET status = ? WHERE id = ?').run('revoked', shareId);
+    await this.adminShareManagementRepository.revokePoemShare(shareId);
     await this._audit(adminId, 'poem_share_revoked', 'poem_share_token', shareId, { oldStatus, reason });
     return { success: true, oldStatus };
   }
@@ -1480,27 +1122,8 @@ class AdminService {
    */
   async getSystemHealth() {
     const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-
-    const jobs = await this.db.prepare(`
-      SELECT
-        SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END) as running,
-        SUM(CASE WHEN status = 'queued' THEN 1 ELSE 0 END) as queued,
-        SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed
-      FROM jobs
-      WHERE created_at > ?
-    `).get(dayAgo);
-
-    const dlqCount = (await this.db.prepare(
-      "SELECT COUNT(*) as count FROM dead_letter_queue WHERE reprocessed_at IS NULL"
-    ).get())?.count ?? 0;
-
-    const recentErrors = await this.db.prepare(`
-      SELECT workflow_type, step, COUNT(*) as count
-      FROM jobs
-      WHERE status = 'failed' AND updated_at > ?
-      GROUP BY workflow_type, step
-      ORDER BY count DESC LIMIT 10
-    `).all(dayAgo);
+    const { jobs, dlqCount, recentErrors } =
+      await this.adminJobOpsRepository.getSystemHealth({ since: dayAgo });
 
     return {
       jobs: { running: jobs?.running || 0, queued: jobs?.queued || 0, failed: jobs?.failed || 0 },
@@ -1515,35 +1138,11 @@ class AdminService {
    */
   async searchAuthEvents({ eventType, userId, startDate, endDate, limit = 50, offset = 0 }) {
     const bounds = safeBounds(limit, offset);
-    let sql = `
-      SELECT ae.*, u.email as user_email
-      FROM auth_events ae
-      LEFT JOIN users u ON ae.user_id = u.id
-      WHERE 1=1
-    `;
-    const params = [];
-
-    if (eventType) {
-      sql += ' AND ae.event_type = ?';
-      params.push(eventType);
-    }
-    if (userId) {
-      sql += ' AND ae.user_id = ?';
-      params.push(userId);
-    }
-    if (startDate) {
-      sql += ' AND ae.created_at >= ?';
-      params.push(startDate);
-    }
-    if (endDate) {
-      sql += ' AND ae.created_at <= ?';
-      params.push(endDate);
-    }
-
-    sql += ' ORDER BY ae.created_at DESC LIMIT ? OFFSET ?';
-    params.push(bounds.limit, bounds.offset);
-
-    return await this.db.prepare(sql).all(...params);
+    return this.adminSecurityObservabilityRepository.searchAuthEvents({
+      filters: { eventType, userId, startDate, endDate },
+      limit: bounds.limit,
+      offset: bounds.offset,
+    });
   }
 
   /**
@@ -1552,14 +1151,10 @@ class AdminService {
   async getAuthEventStats() {
     const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
-    const stats = await this.db.prepare(`
-      SELECT
-        event_type,
-        COUNT(*) as count
-      FROM auth_events
-      WHERE created_at > ?
-      GROUP BY event_type
-    `).all(dayAgo);
+    const stats =
+      await this.adminSecurityObservabilityRepository.getAuthEventStats({
+        since: dayAgo,
+      });
 
     const loginSuccess = stats.find(s => s.event_type === 'login_success')?.count || 0;
     const loginFailed = stats.find(s => s.event_type === 'login_failed')?.count || 0;
@@ -1572,13 +1167,10 @@ class AdminService {
    */
   async getAppleRefreshTokenStats(days = 7) {
     const startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
-    const rows = await this.db.prepare(`
-      SELECT action, COUNT(*) as count, MAX(created_at) as last_seen
-      FROM audit_logs
-      WHERE action IN ('apple_refresh_token_validated', 'apple_refresh_token_invalid')
-        AND created_at >= ?
-      GROUP BY action
-    `).all(startDate);
+    const rows =
+      await this.adminSecurityObservabilityRepository.getAppleRefreshTokenStats({
+        startDate,
+      });
 
     const validated = rows.find(r => r.action === 'apple_refresh_token_validated')?.count || 0;
     const invalid = rows.find(r => r.action === 'apple_refresh_token_invalid')?.count || 0;
@@ -1599,36 +1191,16 @@ class AdminService {
    */
   async searchAuditLogs({ action, resourceType, startDate, endDate, limit = 50, offset = 0 }) {
     const bounds = safeBounds(limit, offset);
-    let sql = `
-      SELECT al.*, au.email as admin_email
-      FROM audit_logs al
-      LEFT JOIN admin_users au ON al.user_id = au.id
-      WHERE 1=1
-    `;
-    const params = [];
-
-    if (action) {
-      const escaped = escapeLikePattern(action);
-      sql += " AND al.action LIKE ? ESCAPE '\\'";
-      params.push(`%${escaped}%`);
-    }
-    if (resourceType) {
-      sql += ' AND al.resource_type = ?';
-      params.push(resourceType);
-    }
-    if (startDate) {
-      sql += ' AND al.created_at >= ?';
-      params.push(startDate);
-    }
-    if (endDate) {
-      sql += ' AND al.created_at <= ?';
-      params.push(endDate);
-    }
-
-    sql += ' ORDER BY al.created_at DESC LIMIT ? OFFSET ?';
-    params.push(bounds.limit, bounds.offset);
-
-    return await this.db.prepare(sql).all(...params);
+    return this.adminSecurityObservabilityRepository.searchAuditLogs({
+      filters: {
+        actionPattern: action ? `%${escapeLikePattern(action)}%` : null,
+        resourceType,
+        startDate,
+        endDate,
+      },
+      limit: bounds.limit,
+      offset: bounds.offset,
+    });
   }
 
   /**
@@ -1636,37 +1208,26 @@ class AdminService {
    */
   async getRateLimits({ userId, actionType, nearLimit = false, limit = 50, offset = 0 }) {
     const bounds = safeBounds(limit, offset);
-    let sql = `
-      SELECT rl.*, u.email as user_email
-      FROM rate_limits rl
-      LEFT JOIN users u ON rl.user_id = u.id
-      WHERE rl.window_start_ms > ?
-    `;
-    const params = [Date.now() - 86400000]; // Last 24h
-
-    if (userId) {
-      sql += ' AND rl.user_id = ?';
-      params.push(userId);
-    }
-    if (actionType) {
-      sql += ' AND rl.action_type = ?';
-      params.push(actionType);
-    }
-    if (nearLimit) {
-      sql += ' AND (rl.count * 1.0 / rl.limit_count) >= 0.8';
-    }
-
-    sql += ' ORDER BY (rl.count * 1.0 / rl.limit_count) DESC LIMIT ? OFFSET ?';
-    params.push(bounds.limit, bounds.offset);
-
-    return await this.db.prepare(sql).all(...params);
+    return this.adminSecurityObservabilityRepository.getRateLimits({
+      filters: {
+        userId,
+        actionType,
+        nearLimit,
+        windowStartAfterMs: Date.now() - 86400000,
+      },
+      limit: bounds.limit,
+      offset: bounds.offset,
+    });
   }
 
   /**
    * Reset a user's rate limit for specific action
    */
   async resetUserRateLimit(userId, actionType, adminId, reason) {
-    await this.db.prepare('DELETE FROM rate_limits WHERE user_id = ? AND action_type = ?').run(userId, actionType);
+    await this.adminSecurityObservabilityRepository.deleteRateLimitRows(
+      userId,
+      actionType,
+    );
     await this._audit(adminId, 'admin_reset_rate_limit', 'user', userId, { actionType, reason });
     return { success: true };
   }
@@ -1676,51 +1237,31 @@ class AdminService {
    */
   async getConsentLogs({ consentVersion, startDate, endDate, limit = 50, offset = 0 }) {
     const bounds = safeBounds(limit, offset);
-    let sql = `
-      SELECT vp.id, vp.user_id, vp.consent_version, vp.consent_at, vp.status, u.email as user_email
-      FROM voice_profiles vp
-      LEFT JOIN users u ON vp.user_id = u.id
-      WHERE vp.consent_at IS NOT NULL
-    `;
-    const params = [];
-
-    if (consentVersion) {
-      sql += ' AND vp.consent_version = ?';
-      params.push(consentVersion);
-    }
-    if (startDate) {
-      sql += ' AND vp.consent_at >= ?';
-      params.push(startDate);
-    }
-    if (endDate) {
-      sql += ' AND vp.consent_at <= ?';
-      params.push(endDate);
-    }
-
-    sql += ' ORDER BY vp.consent_at DESC LIMIT ? OFFSET ?';
-    params.push(bounds.limit, bounds.offset);
-
-    return await this.db.prepare(sql).all(...params);
+    return this.adminSecurityObservabilityRepository.getConsentLogs({
+      filters: { consentVersion, startDate, endDate },
+      limit: bounds.limit,
+      offset: bounds.offset,
+    });
   }
 
   /**
    * Get security configuration
    */
   async getSecurityConfig() {
-    const config = await this.db.prepare('SELECT * FROM security_config WHERE id = ?').get('default');
-    if (config) {
+    const securityConfig = await this.appConfigRepository.findSecurityConfig("default");
+    if (securityConfig) {
       return {
-        sessionDurationHours: config.session_duration_hours,
-        maxFailedLoginAttempts: config.max_failed_logins,
-        lockoutDurationMinutes: config.lockout_minutes,
-        rateLimitDefaults: JSON.parse(config.rate_limit_defaults_json || '{}'),
-        iosMinSupportedVersion: config.ios_min_supported_version || "",
-        iosRecommendedVersion: config.ios_recommended_version || "",
-        iosUpdateMessage: config.ios_update_message || "",
-        iosAutoRecommendedVersion: Boolean(config.ios_auto_recommended_version),
-        iosLastAppStoreVersion: config.ios_last_app_store_version || "",
-        iosLastAppStoreSyncAt: config.ios_last_app_store_sync_at || "",
-        iosAppStoreSyncError: config.ios_app_store_sync_error || "",
+        sessionDurationHours: securityConfig.session_duration_hours,
+        maxFailedLoginAttempts: securityConfig.max_failed_logins,
+        lockoutDurationMinutes: securityConfig.lockout_minutes,
+        rateLimitDefaults: JSON.parse(securityConfig.rate_limit_defaults_json || '{}'),
+        iosMinSupportedVersion: securityConfig.ios_min_supported_version || "",
+        iosRecommendedVersion: securityConfig.ios_recommended_version || "",
+        iosUpdateMessage: securityConfig.ios_update_message || "",
+        iosAutoRecommendedVersion: Boolean(securityConfig.ios_auto_recommended_version),
+        iosLastAppStoreVersion: securityConfig.ios_last_app_store_version || "",
+        iosLastAppStoreSyncAt: securityConfig.ios_last_app_store_sync_at || "",
+        iosAppStoreSyncError: securityConfig.ios_app_store_sync_error || "",
       };
     }
     // Return defaults if no config exists
@@ -1783,14 +1324,25 @@ class AdminService {
     };
   }
 
-  async resolveIOSAppUpdatePolicy() {
+  async resolveIOSAppUpdatePolicy({
+    allowLiveAppStoreSync = false,
+    exposeSyncError = false,
+  } = {}) {
     const securityConfig = await this.getSecurityConfig();
     let recommendedVersion = securityConfig.iosRecommendedVersion || null;
     let lastSyncedVersion = securityConfig.iosLastAppStoreVersion || null;
     let lastSyncAt = securityConfig.iosLastAppStoreSyncAt || null;
     let lastSyncError = securityConfig.iosAppStoreSyncError || null;
 
-    if (securityConfig.iosAutoRecommendedVersion && this.appStoreConnectService?.isConfigured()) {
+    if (securityConfig.iosAutoRecommendedVersion && lastSyncedVersion) {
+      recommendedVersion = lastSyncedVersion;
+    }
+
+    if (
+      allowLiveAppStoreSync &&
+      securityConfig.iosAutoRecommendedVersion &&
+      this.appStoreConnectService?.isConfigured()
+    ) {
       try {
         const detectedVersion = await this.appStoreConnectService.getLatestReadyIOSVersion();
         if (detectedVersion) {
@@ -1814,7 +1366,7 @@ class AdminService {
       auto_recommended_version: securityConfig.iosAutoRecommendedVersion,
       last_app_store_version: lastSyncedVersion,
       last_app_store_sync_at: lastSyncAt,
-      last_app_store_sync_error: lastSyncError,
+      ...(exposeSyncError ? { last_app_store_sync_error: lastSyncError } : {}),
     };
   }
 
@@ -1824,17 +1376,23 @@ class AdminService {
    * Force a user's voice profile to require re-verification
    */
   async forceVoiceReverify(userId, adminId, reason) {
-    const profile = await this.db.prepare(
-      "SELECT id, status FROM voice_profiles WHERE user_id = ? AND status IN ('completed', 'active') AND deleted_at IS NULL"
-    ).get(userId);
+    const profile =
+      await this.adminUserSessionControlRepository.findReverifiableVoiceProfile(
+        userId,
+      );
 
     if (!profile) {
       return { success: false, error: 'No active voice profile found' };
     }
 
-    await this.db.prepare(
-      "UPDATE voice_profiles SET status = 'pending_reverification', last_verified_at = NULL WHERE id = ?"
-    ).run(profile.id);
+    const result =
+      await this.adminUserSessionControlRepository.markVoiceProfilePendingReverification(
+        profile.id,
+      );
+    if (result.changes === 0) {
+      return { success: false, error: 'No active voice profile found' };
+    }
+
     await this._audit(adminId, 'admin_force_reverify', 'voice_profile', profile.id, { targetUserId: userId, previousStatus: profile.status, reason });
 
     return { success: true, voiceProfileId: profile.id };
@@ -1846,22 +1404,22 @@ class AdminService {
    * Get active sessions for a user
    */
   async getUserSessions(userId, limit = 20) {
-    return await this.db.prepare(`
-      SELECT id, device_name, ip_address, user_agent, created_at, last_active_at
-      FROM user_sessions
-      WHERE user_id = ? AND revoked_at IS NULL
-      ORDER BY last_active_at DESC
-      LIMIT ?
-    `).all(userId, limit);
+    return await this.adminUserSessionControlRepository.listActiveUserSessions(
+      userId,
+      limit,
+    );
   }
 
   /**
    * Revoke a specific user session
    */
   async revokeUserSession(userId, sessionId, adminId, reason) {
-    const result = await this.db.prepare(
-      'UPDATE user_sessions SET revoked_at = ? WHERE id = ? AND user_id = ? AND revoked_at IS NULL'
-    ).run(new Date().toISOString(), sessionId, userId);
+    const result =
+      await this.adminUserSessionControlRepository.revokeUserSession({
+        userId,
+        sessionId,
+        revokedAt: new Date().toISOString(),
+      });
 
     if (result.changes === 0) {
       return { success: false, error: 'Session not found or already revoked' };
@@ -1875,9 +1433,11 @@ class AdminService {
    * Revoke all sessions for a user
    */
   async revokeAllUserSessions(userId, adminId, reason) {
-    const result = await this.db.prepare(
-      'UPDATE user_sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL'
-    ).run(new Date().toISOString(), userId);
+    const result =
+      await this.adminUserSessionControlRepository.revokeAllUserSessions({
+        userId,
+        revokedAt: new Date().toISOString(),
+      });
 
     await this._audit(adminId, 'admin_revoke_all_sessions', 'user', userId, { sessionsRevoked: result.changes, reason });
     return { success: true, sessionsRevoked: result.changes };
@@ -1889,7 +1449,7 @@ class AdminService {
    * Get status of all external providers
    */
   async getProviderStatus() {
-    return await this.db.prepare('SELECT * FROM provider_status ORDER BY provider_name').all();
+    return await this.adminControlRepository.listProviderStatus();
   }
 
   /**
@@ -1897,18 +1457,13 @@ class AdminService {
    */
   async setProviderStatus(providerName, status, adminId, reason) {
     const now = new Date().toISOString();
-    const isPaused = status === 'paused';
-
-    await this.db.prepare(`
-      INSERT INTO provider_status (id, provider_name, status, paused_at, paused_by, pause_reason, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(provider_name) DO UPDATE SET
-        status = excluded.status,
-        paused_at = CASE WHEN excluded.status = 'paused' THEN excluded.paused_at ELSE NULL END,
-        paused_by = CASE WHEN excluded.status = 'paused' THEN excluded.paused_by ELSE NULL END,
-        pause_reason = CASE WHEN excluded.status = 'paused' THEN excluded.pause_reason ELSE NULL END,
-        updated_at = excluded.updated_at
-    `).run(`prov_${providerName}`, providerName, status, isPaused ? now : null, isPaused ? adminId : null, reason, now);
+    await this.adminControlRepository.setProviderStatus({
+      providerName,
+      status,
+      adminId,
+      reason,
+      now,
+    });
 
     await this._audit(adminId, `admin_set_provider_${status}`, 'provider', providerName, { status, reason });
     return { success: true };
@@ -1920,7 +1475,7 @@ class AdminService {
    * Get status of all job queues
    */
   async getQueueStatus() {
-    return await this.db.prepare('SELECT * FROM queue_status ORDER BY queue_name').all();
+    return await this.adminControlRepository.listQueueStatus();
   }
 
   /**
@@ -1928,17 +1483,13 @@ class AdminService {
    */
   async setQueueStatus(queueName, status, adminId, reason) {
     const now = new Date().toISOString();
-    const isPaused = status === 'paused';
-
-    await this.db.prepare(`
-      UPDATE queue_status SET
-        status = ?,
-        paused_at = CASE WHEN ? THEN ? ELSE NULL END,
-        paused_by = CASE WHEN ? THEN ? ELSE NULL END,
-        pause_reason = CASE WHEN ? THEN ? ELSE NULL END,
-        updated_at = ?
-      WHERE queue_name = ?
-    `).run(status, isPaused, now, isPaused, adminId, isPaused, reason, now, queueName);
+    await this.adminControlRepository.setQueueStatus({
+      queueName,
+      status,
+      adminId,
+      reason,
+      now,
+    });
 
     await this._audit(adminId, `admin_set_queue_${status}`, 'queue', queueName, { status, reason });
     return { success: true };
@@ -1959,38 +1510,26 @@ class AdminService {
     const giftRevenue = singleCurrencyAmount(sales.summary.giftRevenueByCurrency);
     const period = this._parseSalesPeriod(days);
 
-    const subscriptionsByTier = await this.db.prepare(`
-      SELECT
-        tier,
-        COUNT(*) as count,
-        SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) as active_count
-      FROM subscriptions
-      WHERE (? IS NULL OR created_at > ?)
-      GROUP BY tier
-    `).all(period.since, period.since);
+    const subscriptionsByTier =
+      await this.adminBillingRepository.listSubscriptionsByTierSince({
+        since: period.since,
+      });
 
-    // Trial conversions (trials that became active subscriptions)
-    const trialData = await this.db.prepare(`
-      SELECT
-        COUNT(CASE WHEN status = 'trial' THEN 1 END) as current_trials,
-        COUNT(CASE WHEN status = 'active' AND original_purchase_date IS NOT NULL THEN 1 END) as converted_trials
-      FROM subscriptions
-      WHERE (? IS NULL OR created_at > ?)
-    `).get(period.since, period.since);
+    const trialData =
+      await this.adminBillingRepository.getTrialConversionStatsSince({
+        since: period.since,
+      });
 
-    // Churn (cancelled subscriptions in period)
-    const churnData = await this.db.prepare(`
-      SELECT COUNT(*) as cancelled
-      FROM subscriptions
-      WHERE cancelled_at IS NOT NULL AND (? IS NULL OR cancelled_at > ?)
-    `).get(period.since, period.since);
+    const cancellations =
+      await this.adminBillingRepository.countCancelledSubscriptionsSince({
+        since: period.since,
+      });
 
-    const activeSubscriptions = (await this.db.prepare(`
-      SELECT COUNT(*) as count FROM subscriptions WHERE status = 'active'
-    `).get())?.count ?? 0;
+    const activeSubscriptions =
+      await this.adminBillingRepository.countActiveSubscriptions();
 
     const churnRate = activeSubscriptions > 0
-      ? ((churnData.cancelled / activeSubscriptions) * 100).toFixed(2)
+      ? ((cancellations / activeSubscriptions) * 100).toFixed(2)
       : '0.00';
 
     return {
@@ -2002,7 +1541,7 @@ class AdminService {
       subscriptionsByTier,
       trialCount: trialData.current_trials || 0,
       trialConversions: trialData.converted_trials || 0,
-      cancellations: churnData.cancelled || 0,
+      cancellations,
       churnRate,
       salesCount: sales.summary.totalSalesCount,
       giftSalesCount: sales.summary.giftSalesCount,
@@ -2047,52 +1586,25 @@ class AdminService {
    * Get subscription health metrics
    */
   async getSubscriptionHealth() {
-    // Active subscriptions by tier
-    const byTier = await this.db.prepare(`
-      SELECT tier, COUNT(*) as count
-      FROM subscriptions
-      WHERE status = 'active'
-      GROUP BY tier
-    `).all();
-
-    // Trial count
-    const trialCount = (await this.db.prepare(`
-      SELECT COUNT(*) as count FROM subscriptions WHERE status = 'trial'
-    `).get())?.count ?? 0;
-
-    // Expiring this week
-    // Use ISO string for current time to avoid TEXT vs TIMESTAMP comparison in PostgreSQL
     const now = new Date().toISOString();
     const weekFromNow = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-    const expiringThisWeek = (await this.db.prepare(`
-      SELECT COUNT(*) as count
-      FROM subscriptions
-      WHERE status = 'active' AND expires_at <= ? AND expires_at > ?
-    `).get(weekFromNow, now))?.count ?? 0;
-
-    // Recent cancellations (last 7 days)
     const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-    const recentCancellations = (await this.db.prepare(`
-      SELECT COUNT(*) as count
-      FROM subscriptions
-      WHERE cancelled_at > ?
-    `).get(weekAgo))?.count ?? 0;
-
-    // Grace period subscriptions
-    // Use ISO string for current time comparison
-    const inGracePeriod = (await this.db.prepare(`
-      SELECT COUNT(*) as count
-      FROM subscriptions
-      WHERE grace_period_expires_at > ? AND status != 'active'
-    `).get(now))?.count ?? 0;
+    const health = await this.adminBillingRepository.getSubscriptionHealthCounts({
+      now,
+      weekFromNow,
+      weekAgo,
+    });
 
     return {
-      activeSubscriptions: byTier,
-      totalActive: byTier.reduce((sum, t) => sum + t.count, 0),
-      trialCount,
-      expiringThisWeek,
-      recentCancellations,
-      inGracePeriod,
+      activeSubscriptions: health.activeSubscriptions,
+      totalActive: health.activeSubscriptions.reduce(
+        (sum, t) => sum + t.count,
+        0,
+      ),
+      trialCount: health.trialCount,
+      expiringThisWeek: health.expiringThisWeek,
+      recentCancellations: health.recentCancellations,
+      inGracePeriod: health.inGracePeriod,
     };
   }
 
@@ -2120,37 +1632,12 @@ class AdminService {
    */
   async getWebhookHealth() {
     const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-
-    // Last webhook received (from audit logs)
-    const lastWebhook = await this.db.prepare(`
-      SELECT created_at
-      FROM audit_logs
-      WHERE action LIKE 'webhook_%'
-      ORDER BY created_at DESC
-      LIMIT 1
-    `).get();
-
-    // Webhooks by type (last 24h)
-    const webhooksByType = await this.db.prepare(`
-      SELECT action as webhook_type, COUNT(*) as count
-      FROM audit_logs
-      WHERE action LIKE 'webhook_%' AND created_at > ?
-      GROUP BY action
-    `).all(dayAgo);
-
-    // Failed webhooks (from audit logs with error in metadata)
-    const failedWebhooks = (await this.db.prepare(`
-      SELECT COUNT(*) as count
-      FROM audit_logs
-      WHERE action LIKE 'webhook_%'
-        AND created_at > ?
-        AND metadata_json LIKE '%"error"%'
-    `).get(dayAgo))?.count ?? 0;
+    const health = await this.adminBillingRepository.getWebhookHealth({
+      since: dayAgo,
+    });
 
     return {
-      lastWebhookReceived: lastWebhook?.created_at || null,
-      webhooksByType,
-      failedWebhooks,
+      ...health,
       pendingRetries: 0, // Would need a webhook retry queue table
     };
   }
@@ -2163,29 +1650,19 @@ class AdminService {
    */
   async getAttribution(days = 30) {
     const daysAgo = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
-    const shareAttributionFields = new Set(["utm_source", "utm_medium", "utm_campaign"]);
 
     const buildBreakdown = async (field) => {
       const label = field;
-      const shareRows = shareAttributionFields.has(field)
-        ? await this.db.prepare(`
-          SELECT ${field} AS value,
-                 COUNT(*) AS share_count,
-                 SUM(CASE WHEN status = 'claimed' OR bound_device_id IS NOT NULL OR bound_user_id IS NOT NULL THEN 1 ELSE 0 END) AS claim_count
-          FROM share_tokens
-          WHERE created_at > ? AND ${field} IS NOT NULL
-          GROUP BY ${field}
-        `).all(daysAgo)
-        : [];
-
-      const downloadRows = await this.db.prepare(`
-        SELECT ${field} AS value,
-               COUNT(*) AS download_count,
-               COUNT(DISTINCT matched_user_id) AS registration_count
-        FROM download_events
-        WHERE created_at > ? AND ${field} IS NOT NULL
-        GROUP BY ${field}
-      `).all(daysAgo);
+      const [shareRows, downloadRows] = await Promise.all([
+        this.attributionRepository.listShareAttributionBreakdown({
+          field,
+          since: daysAgo,
+        }),
+        this.attributionRepository.listDownloadAttributionBreakdown({
+          field,
+          since: daysAgo,
+        }),
+      ]);
 
       const merged = new Map();
       const ensure = (value) => {
@@ -2229,68 +1706,20 @@ class AdminService {
       buildBreakdown("utm_term"),
     ]);
 
-    const appleAdsByCampaign = await this.db.prepare(`
-      SELECT aaa.campaign_id,
-             aaa.ad_group_id,
-             aaa.keyword_id,
-             akm.campaign_name,
-             akm.ad_group_name,
-             akm.keyword_text,
-             akm.match_type,
-             COUNT(*) AS token_count,
-             COUNT(DISTINCT aaa.user_id) AS user_count,
-             SUM(CASE WHEN aaa.status = 'resolved' THEN 1 ELSE 0 END) AS resolved_count,
-             SUM(CASE WHEN aaa.status = 'not_found' THEN 1 ELSE 0 END) AS not_found_count,
-             SUM(CASE WHEN aaa.status = 'failed' THEN 1 ELSE 0 END) AS failed_count,
-             SUM(CASE WHEN aaa.country_or_region IS NOT NULL AND aaa.country_or_region <> '' THEN 1 ELSE 0 END) AS with_country_count
-      FROM apple_ads_attribution aaa
-      LEFT JOIN apple_ads_keyword_map akm
-        ON CAST(aaa.keyword_id AS TEXT) = akm.keyword_id
-      WHERE aaa.created_at > ?
-        AND aaa.status <> 'test'
-        AND NOT (
-          COALESCE(aaa.org_id, -1) = 1234567890
-          AND COALESCE(aaa.campaign_id, -1) = 1234567890
-          AND COALESCE(aaa.ad_group_id, -1) = 1234567890
-        )
-      GROUP BY aaa.campaign_id,
-               aaa.ad_group_id,
-               aaa.keyword_id,
-               akm.campaign_name,
-               akm.ad_group_name,
-               akm.keyword_text,
-               akm.match_type
-      ORDER BY resolved_count DESC, token_count DESC
-      LIMIT 50
-    `).all(daysAgo);
-
-    // Total shares with attribution
-    const withAttribution = (await this.db.prepare(`
-      SELECT COUNT(*) as count
-      FROM share_tokens
-      WHERE created_at > ? AND (utm_source IS NOT NULL OR utm_medium IS NOT NULL OR utm_campaign IS NOT NULL)
-    `).get(daysAgo))?.count ?? 0;
-
-    const totalShares = (await this.db.prepare(`
-      SELECT COUNT(*) as count FROM share_tokens WHERE created_at > ?
-    `).get(daysAgo))?.count ?? 0;
-
-    const downloadsWithAttribution = (await this.db.prepare(`
-      SELECT COUNT(*) as count
-      FROM download_events
-      WHERE created_at > ? AND (utm_source IS NOT NULL OR utm_medium IS NOT NULL OR utm_campaign IS NOT NULL)
-    `).get(daysAgo))?.count ?? 0;
-
-    const totalDownloads = (await this.db.prepare(`
-      SELECT COUNT(*) as count FROM download_events WHERE created_at > ?
-    `).get(daysAgo))?.count ?? 0;
-
-    const attributedRegistrations = (await this.db.prepare(`
-      SELECT COUNT(DISTINCT matched_user_id) as count
-      FROM download_events
-      WHERE created_at > ? AND matched_user_id IS NOT NULL
-        AND (utm_source IS NOT NULL OR utm_medium IS NOT NULL OR utm_campaign IS NOT NULL)
-    `).get(daysAgo))?.count ?? 0;
+    const [appleAdsByCampaign, totals] = await Promise.all([
+      this.attributionRepository.listAppleAdsCampaignAttribution({
+        since: daysAgo,
+        limit: 50,
+      }),
+      this.attributionRepository.getAttributionTotals({ since: daysAgo }),
+    ]);
+    const {
+      withAttribution,
+      totalShares,
+      downloadsWithAttribution,
+      totalDownloads,
+      attributedRegistrations,
+    } = totals;
 
     return {
       bySource,
@@ -2311,29 +1740,7 @@ class AdminService {
 
   async getAppleAdsKeywordMap({ limit = 500, offset = 0 } = {}) {
     const bounds = safeBounds(limit, offset, 1000);
-    const rows = await this.db.prepare(`
-      SELECT keyword_id,
-             campaign_id,
-             campaign_name,
-             ad_group_id,
-             ad_group_name,
-             keyword_text,
-             match_type,
-             bid_amount,
-             status,
-             source,
-             last_seen_at,
-             updated_at
-      FROM apple_ads_keyword_map
-      ORDER BY last_seen_at DESC, campaign_name, ad_group_name, keyword_text
-      LIMIT ? OFFSET ?
-    `).all(bounds.limit, bounds.offset);
-
-    const total = (await this.db.prepare(`
-      SELECT COUNT(*) AS count FROM apple_ads_keyword_map
-    `).get())?.count ?? 0;
-
-    return { rows, total: Number(total || 0), limit: bounds.limit, offset: bounds.offset };
+    return this.attributionRepository.listAppleAdsKeywordMap(bounds);
   }
 
   async upsertAppleAdsKeywordMap(rows, adminId = "system") {
@@ -2351,49 +1758,23 @@ class AdminService {
       const keywordText = String(row.keyword_text ?? row.keyword ?? row.text ?? "").trim();
       if (!keywordId || !keywordText) continue;
 
-      await this.db.prepare(`
-        INSERT INTO apple_ads_keyword_map (
-          keyword_id,
-          campaign_id,
-          campaign_name,
-          ad_group_id,
-          ad_group_name,
-          keyword_text,
-          match_type,
-          bid_amount,
-          status,
-          source,
-          last_seen_at,
-          created_at,
-          updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(keyword_id) DO UPDATE SET
-          campaign_id = excluded.campaign_id,
-          campaign_name = excluded.campaign_name,
-          ad_group_id = excluded.ad_group_id,
-          ad_group_name = excluded.ad_group_name,
-          keyword_text = excluded.keyword_text,
-          match_type = excluded.match_type,
-          bid_amount = excluded.bid_amount,
-          status = excluded.status,
-          source = excluded.source,
-          last_seen_at = excluded.last_seen_at,
-          updated_at = excluded.updated_at
-      `).run(
+      await this.attributionRepository.upsertAppleAdsKeywordMapRow({
         keywordId,
-        row.campaign_id != null ? String(row.campaign_id) : null,
-        row.campaign_name || null,
-        row.ad_group_id != null ? String(row.ad_group_id) : null,
-        row.ad_group_name || null,
+        campaignId: row.campaign_id != null ? String(row.campaign_id) : null,
+        campaignName: row.campaign_name || null,
+        adGroupId: row.ad_group_id != null ? String(row.ad_group_id) : null,
+        adGroupName: row.ad_group_name || null,
         keywordText,
-        row.match_type || row.matchType || null,
-        row.bid_amount != null ? String(row.bid_amount) : (row.bidAmount != null ? String(row.bidAmount) : null),
-        row.status || null,
-        row.source || "apple_ads_api",
-        row.last_seen_at || now,
+        matchType: row.match_type || row.matchType || null,
+        bidAmount:
+          row.bid_amount != null
+            ? String(row.bid_amount)
+            : (row.bidAmount != null ? String(row.bidAmount) : null),
+        status: row.status || null,
+        source: row.source || "apple_ads_api",
+        lastSeenAt: row.last_seen_at || now,
         now,
-        now
-      );
+      });
       upserted += 1;
     }
 
@@ -2412,36 +1793,10 @@ class AdminService {
    */
   async getTeaserMetrics(days = 7) {
     const daysAgo = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
-
-    // Teaser views from events table
-    const teaserViews = (await this.db.prepare(`
-      SELECT COUNT(*) as count
-      FROM events
-      WHERE event_name = 'teaser_viewed' AND created_at > ?
-    `).get(daysAgo))?.count ?? 0;
-
-    // Share claims (conversions)
-    const shareClaims = (await this.db.prepare(`
-      SELECT COUNT(*) as count
-      FROM events
-      WHERE event_name = 'share_claim' AND created_at > ?
-    `).get(daysAgo))?.count ?? 0;
-
-    // Share streams
-    const shareStreams = (await this.db.prepare(`
-      SELECT COUNT(*) as count
-      FROM events
-      WHERE event_name = 'share_stream' AND created_at > ?
-    `).get(daysAgo))?.count ?? 0;
-
-    // Daily breakdown
-    const dailyViews = await this.db.prepare(`
-      SELECT DATE(created_at) as date, COUNT(*) as count
-      FROM events
-      WHERE event_name = 'teaser_viewed' AND created_at > ?
-      GROUP BY DATE(created_at)
-      ORDER BY date ASC
-    `).all(daysAgo);
+    const metrics = await this.adminMetricsRepository.getTeaserMetrics({
+      daysAgo,
+    });
+    const { teaserViews, shareClaims, shareStreams, dailyViews } = metrics;
 
     return {
       teaserViews,
@@ -2459,42 +1814,10 @@ class AdminService {
    */
   async getShareMetrics(days = 30) {
     const daysAgo = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
-
-    // Shares created
-    const created = (await this.db.prepare(`
-      SELECT COUNT(*) as count FROM share_tokens WHERE created_at > ?
-    `).get(daysAgo))?.count ?? 0;
-
-    // Shares claimed
-    const claimed = (await this.db.prepare(`
-      SELECT COUNT(*) as count FROM share_tokens WHERE status = 'claimed' AND bound_at > ?
-    `).get(daysAgo))?.count ?? 0;
-
-    // Share by status
-    const byStatus = await this.db.prepare(`
-      SELECT status, COUNT(*) as count
-      FROM share_tokens
-      WHERE created_at > ?
-      GROUP BY status
-    `).all(daysAgo);
-
-    // Average access count — Postgres' AVG() returns `numeric` which the pg
-    // driver delivers as a string, so coerce before .toFixed() below.
-    const avgAccessRaw = (await this.db.prepare(`
-      SELECT AVG(access_count) as avg_access
-      FROM share_tokens
-      WHERE created_at > ?
-    `).get(daysAgo))?.avg_access ?? 0;
-    const avgAccess = Number(avgAccessRaw) || 0;
-
-    // Daily creation trend
-    const dailyCreated = await this.db.prepare(`
-      SELECT DATE(created_at) as date, COUNT(*) as count
-      FROM share_tokens
-      WHERE created_at > ?
-      GROUP BY DATE(created_at)
-      ORDER BY date ASC
-    `).all(daysAgo);
+    const metrics = await this.adminMetricsRepository.getShareMetrics({
+      daysAgo,
+    });
+    const { created, claimed, byStatus, avgAccess, dailyCreated } = metrics;
 
     return {
       created,
@@ -2519,13 +1842,7 @@ class AdminService {
     if (cached) return cached;
 
     const daysAgo = new Date(Date.now() - clampedDays * 24 * 60 * 60 * 1000).toISOString();
-    const counts = await this.db.prepare(`
-      SELECT event_name, COUNT(*) as count
-      FROM events
-      WHERE created_at > ?
-      GROUP BY event_name
-      ORDER BY count DESC
-    `).all(daysAgo);
+    const counts = await this.eventsRepository.getAdminEventCountsAfter(daysAgo);
 
     const payload = { days: clampedDays, counts };
     this._analyticsCacheSet(cacheKey, payload);
@@ -2542,13 +1859,10 @@ class AdminService {
     if (cached) return cached;
 
     const daysAgo = new Date(Date.now() - clampedDays * 24 * 60 * 60 * 1000).toISOString();
-    const byDay = await this.db.prepare(`
-      SELECT DATE(created_at) as date, COUNT(*) as count
-      FROM events
-      WHERE event_name = ? AND created_at > ?
-      GROUP BY DATE(created_at)
-      ORDER BY date ASC
-    `).all(eventName, daysAgo);
+    const byDay = await this.eventsRepository.getAdminDailyEventCountsAfter(
+      eventName,
+      daysAgo,
+    );
 
     const payload = { event_name: eventName, days: clampedDays, byDay };
     this._analyticsCacheSet(cacheKey, payload);
@@ -2584,27 +1898,19 @@ class AdminService {
 
     const steps = [];
     for (const [from, to] of hops) {
-      const startRow = await this.db.prepare(`
-        SELECT COUNT(DISTINCT user_id) as c
-        FROM events
-        WHERE event_name = ? AND created_at > ? AND user_id IS NOT NULL
-      `).get(from, daysAgo);
+      const startRow = await this.eventsRepository.countDistinctUsersForEventAfter(
+        from,
+        daysAgo,
+      );
       const startUsers = startRow?.c ?? 0;
 
       // Converted users: had startEvent in window, then endEvent at or after their earliest startEvent.
-      const convertedRow = await this.db.prepare(`
-        SELECT COUNT(DISTINCT s.user_id) as c
-        FROM events s
-        WHERE s.event_name = ?
-          AND s.created_at > ?
-          AND s.user_id IS NOT NULL
-          AND EXISTS (
-            SELECT 1 FROM events e
-            WHERE e.event_name = ?
-              AND e.user_id = s.user_id
-              AND e.created_at >= s.created_at
-          )
-      `).get(from, daysAgo, to);
+      const convertedRow =
+        await this.eventsRepository.countDistinctUsersConvertedAfter(
+          from,
+          to,
+          daysAgo,
+        );
       const convertedUsers = convertedRow?.c ?? 0;
 
       steps.push({
@@ -2628,13 +1934,10 @@ class AdminService {
    */
   async getUserAnalytics(adminId, adminEmail, userId, limit) {
     const clampedLimit = this._clampLimit(limit, 200);
-    const events = await this.db.prepare(`
-      SELECT id, event_name, user_id, resource_type, resource_id, metadata_json, created_at
-      FROM events
-      WHERE user_id = ?
-      ORDER BY created_at DESC
-      LIMIT ?
-    `).all(userId, clampedLimit);
+    const events = await this.eventsRepository.getAdminUserEvents(
+      userId,
+      clampedLimit,
+    );
 
     // Audit trail — not conditional on whether events exist.
     const auditId = `audit_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
@@ -2645,11 +1948,13 @@ class AdminService {
       target_user_id: userId,
       event_count: events.length,
     });
-    await this.db
-      .prepare(
-        "INSERT INTO audit_logs (id, user_id, action, resource_type, resource_id, metadata_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
-      )
-      .run(auditId, adminId, "analytics.user.read", "user_analytics", userId, metadata, now);
+    await this.eventsRepository.insertUserAnalyticsReadAudit({
+      id: auditId,
+      adminId,
+      targetUserId: userId,
+      metadataJson: metadata,
+      createdAt: now,
+    });
 
     return { userId, limit: clampedLimit, events };
   }
@@ -2661,72 +1966,7 @@ class AdminService {
    */
   async getEnrollmentMetrics() {
     const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-
-    // Total and completed enrollments
-    const totals = await this.db.prepare(`
-      SELECT
-        COUNT(*) as total,
-        SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed
-      FROM enrollment_sessions
-    `).get();
-
-    const total = Number(totals?.total) || 0;
-    const completed = Number(totals?.completed) || 0;
-    const completionRate = total > 0 ? ((completed / total) * 100).toFixed(2) : '0.00';
-
-    // Average quality score from voice profiles
-    const avgQuality = (await this.db.prepare(`
-      SELECT AVG(quality_score) as avg_score
-      FROM voice_profiles
-      WHERE quality_score IS NOT NULL
-    `).get())?.avg_score ?? 0;
-
-    // Quality score distribution (buckets of 10)
-    const qualityDistribution = await this.db.prepare(`
-      SELECT
-        CASE
-          WHEN quality_score < 50 THEN 'Poor (<50)'
-          WHEN quality_score < 70 THEN 'Fair (50-69)'
-          WHEN quality_score < 85 THEN 'Good (70-84)'
-          ELSE 'Excellent (85+)'
-        END as bucket,
-        COUNT(*) as count
-      FROM voice_profiles
-      WHERE quality_score IS NOT NULL
-      GROUP BY bucket
-      ORDER BY MIN(quality_score)
-    `).all();
-
-    // Abandonment by status (excludes completed)
-    const abandonmentByStep = await this.db.prepare(`
-      SELECT status as step, COUNT(*) as count
-      FROM enrollment_sessions
-      WHERE status != 'completed'
-      GROUP BY status
-      ORDER BY count DESC
-    `).all();
-
-    // Last 7 days trend
-    const last7Days = await this.db.prepare(`
-      SELECT
-        DATE(started_at) as date,
-        COUNT(*) as started,
-        SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed
-      FROM enrollment_sessions
-      WHERE started_at >= ?
-      GROUP BY DATE(started_at)
-      ORDER BY date ASC
-    `).all(weekAgo);
-
-    return {
-      totalEnrollments: total,
-      completedEnrollments: completed,
-      completionRate: parseFloat(completionRate),
-      averageQualityScore: Number(avgQuality.toFixed(1)),
-      qualityDistribution,
-      abandonmentByStep,
-      last7Days,
-    };
+    return this.adminMetricsRepository.getEnrollmentMetrics({ weekAgo });
   }
 
   // ============ RENDER PIPELINE METRICS ============
@@ -2736,98 +1976,7 @@ class AdminService {
    */
   async getRenderSuccessMetrics() {
     const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-
-    // Success rate by render type
-    const previewStats = await this.db.prepare(`
-      SELECT
-        COUNT(*) as total,
-        SUM(CASE WHEN status = 'ready' THEN 1 ELSE 0 END) as success
-      FROM track_versions
-      WHERE render_type = 'preview'
-    `).get();
-
-    const fullStats = await this.db.prepare(`
-      SELECT
-        COUNT(*) as total,
-        SUM(CASE WHEN status = 'ready' THEN 1 ELSE 0 END) as success
-      FROM track_versions
-      WHERE render_type = 'full'
-    `).get();
-
-    const previewTotal = Number(previewStats?.total) || 0;
-    const previewSuccess = Number(previewStats?.success) || 0;
-    const fullTotal = Number(fullStats?.total) || 0;
-    const fullSuccess = Number(fullStats?.success) || 0;
-
-    // Error breakdown by error_code (last 7 days)
-    const errorBreakdown = await this.db.prepare(`
-      SELECT
-        error_code,
-        COUNT(*) as count,
-        MAX(updated_at) as last_seen
-      FROM jobs
-      WHERE status = 'failed' AND error_code IS NOT NULL AND updated_at >= ?
-      GROUP BY error_code
-      ORDER BY count DESC
-      LIMIT 20
-    `).all(weekAgo);
-
-    // Step-level latency - fetch timestamps and calculate in JS for PostgreSQL compatibility
-    const stepTimings = await this.db.prepare(`
-      SELECT
-        step,
-        created_at,
-        updated_at
-      FROM jobs
-      WHERE status = 'completed' AND step IS NOT NULL AND created_at >= ?
-    `).all(weekAgo);
-
-    // Calculate step latencies in JavaScript
-    const stepLatencyMap = new Map();
-    for (const job of stepTimings) {
-      const created = new Date(job.created_at).getTime();
-      const updated = new Date(job.updated_at).getTime();
-      const durationMs = updated - created;
-      if (!stepLatencyMap.has(job.step)) {
-        stepLatencyMap.set(job.step, []);
-      }
-      stepLatencyMap.get(job.step).push(durationMs);
-    }
-
-    const stepLatency = Array.from(stepLatencyMap.entries())
-      .filter(([, durations]) => durations.length > 5)
-      .map(([step, durations]) => ({
-        step,
-        sample_count: durations.length,
-        avg_ms: Math.round(durations.reduce((a, b) => a + b, 0) / durations.length),
-      }))
-      .sort((a, b) => b.avg_ms - a.avg_ms);
-
-    // Daily trend (last 7 days)
-    const dailyTrend = await this.db.prepare(`
-      SELECT
-        DATE(completed_at) as date,
-        SUM(CASE WHEN status = 'ready' THEN 1 ELSE 0 END) as success,
-        SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed
-      FROM track_versions
-      WHERE completed_at >= ?
-      GROUP BY DATE(completed_at)
-      ORDER BY date ASC
-    `).all(weekAgo);
-
-    return {
-      successRate: {
-        preview: previewTotal > 0 ? parseFloat(((previewSuccess / previewTotal) * 100).toFixed(2)) : 0,
-        full: fullTotal > 0 ? parseFloat(((fullSuccess / fullTotal) * 100).toFixed(2)) : 0,
-      },
-      errorBreakdown,
-      stepLatency: stepLatency.map(s => ({
-        step: s.step,
-        avg_ms: Math.round(s.avg_ms || 0),
-        sample_count: s.sample_count,
-      })),
-      dailyTrend,
-    };
+    return this.adminMetricsRepository.getRenderSuccessMetrics({ weekAgo });
   }
 
   // ============ RISK METRICS ============
@@ -2838,47 +1987,13 @@ class AdminService {
   async getRiskMetrics() {
     const now = new Date().toISOString();
     const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-
-    // Risk level distribution
-    const distribution = await this.db.prepare(`
-      SELECT
-        COALESCE(risk_level, 'low') as level,
-        COUNT(*) as count
-      FROM users
-      WHERE deleted_at IS NULL
-      GROUP BY risk_level
-      ORDER BY
-        CASE risk_level
-          WHEN 'low' THEN 1
-          WHEN 'medium' THEN 2
-          WHEN 'high' THEN 3
-          WHEN 'blocked' THEN 4
-          ELSE 5
-        END
-    `).all();
-
-    // Locked accounts
-    // Use ISO string for current time to avoid TEXT vs TIMESTAMP comparison in PostgreSQL
-    const lockedAccounts = (await this.db.prepare(`
-      SELECT COUNT(*) as count
-      FROM users
-      WHERE locked_until IS NOT NULL AND locked_until > ?
-    `).get(now))?.count ?? 0;
-
-    // Recent escalations (from audit logs)
-    const recentEscalations = await this.db.prepare(`
-      SELECT
-        resource_id as user_id,
-        metadata_json,
-        created_at as date
-      FROM audit_logs
-      WHERE action = 'admin_update_risk' AND created_at >= ?
-      ORDER BY created_at DESC
-      LIMIT 20
-    `).all(weekAgo);
+    const metrics = await this.adminMetricsRepository.getRiskMetrics({
+      now,
+      weekAgo,
+    });
 
     // Parse escalations to extract from/to risk levels
-    const parsedEscalations = recentEscalations.map(e => {
+    const parsedEscalations = metrics.recentEscalations.map(e => {
       try {
         const meta = JSON.parse(e.metadata_json || '{}');
         return {
@@ -2899,8 +2014,8 @@ class AdminService {
     });
 
     return {
-      distribution,
-      lockedAccounts: Number(lockedAccounts),
+      distribution: metrics.distribution,
+      lockedAccounts: metrics.lockedAccounts,
       recentEscalations: parsedEscalations,
     };
   }
@@ -2913,9 +2028,7 @@ class AdminService {
    */
   async getSTTConfig() {
     // Get STT config from app_config table
-    const configRow = await this.db.prepare(
-      "SELECT value_json FROM app_config WHERE key = 'stt_config'"
-    ).get();
+    const configRow = await this.appConfigRepository.findConfigValue("stt_config");
 
     let config;
     if (configRow) {
@@ -2938,9 +2051,7 @@ class AdminService {
     }
 
     // Get provider status for all STT providers
-    const providerStatus = await this.db.prepare(
-      "SELECT provider_name, status FROM provider_status WHERE provider_name LIKE 'stt_%'"
-    ).all();
+    const providerStatus = await this.appConfigRepository.listProviderStatusByNameLike("stt_%");
 
     const statusMap = {};
     for (const p of providerStatus) {
@@ -2988,15 +2099,12 @@ class AdminService {
       whisperkit_model: config.whisperkit_model || existing.whisperkit_model,
     };
 
-    // Upsert config
-    await this.db.prepare(`
-      INSERT INTO app_config (key, value_json, updated_at, updated_by)
-      VALUES ('stt_config', ?, ?, ?)
-      ON CONFLICT(key) DO UPDATE SET
-        value_json = excluded.value_json,
-        updated_at = excluded.updated_at,
-        updated_by = excluded.updated_by
-    `).run(JSON.stringify(newConfig), now, adminId);
+    await this.appConfigRepository.upsertConfigValue({
+      key: "stt_config",
+      valueJson: JSON.stringify(newConfig),
+      updatedAt: now,
+      updatedBy: adminId,
+    });
 
     await this._audit(adminId, 'admin_update_stt_config', 'config', 'stt', newConfig);
 
@@ -3008,9 +2116,7 @@ class AdminService {
    * Controls runtime default provider and auto style routing behavior.
    */
   async getMusicProviderConfig() {
-    const row = await this.db
-      .prepare("SELECT value_json, updated_at, updated_by FROM app_config WHERE key = 'music_provider_config'")
-      .get();
+    const row = await this.appConfigRepository.findConfigValue("music_provider_config");
 
     const defaults = {
       default_provider: "suno",
@@ -3142,16 +2248,12 @@ class AdminService {
     const now = new Date().toISOString();
     const newConfig = next;
 
-    await this.db
-      .prepare(`
-      INSERT INTO app_config (key, value_json, updated_at, updated_by)
-      VALUES ('music_provider_config', ?, ?, ?)
-      ON CONFLICT(key) DO UPDATE SET
-        value_json = excluded.value_json,
-        updated_at = excluded.updated_at,
-        updated_by = excluded.updated_by
-    `)
-      .run(JSON.stringify(newConfig), now, adminId);
+    await this.appConfigRepository.upsertConfigValue({
+      key: "music_provider_config",
+      valueJson: JSON.stringify(newConfig),
+      updatedAt: now,
+      updatedBy: adminId,
+    });
 
     await this._audit(adminId, "admin_update_music_provider_config", "config", "music_provider", newConfig);
 
@@ -3164,27 +2266,20 @@ class AdminService {
    */
   async getRecentMusicDiagnostics({ limit = 30, provider = null, status = null }) {
     const bounds = safeBounds(limit, 0, 100);
-    const rows = await this.db
-      .prepare(`
-        SELECT
-          tv.id,
-          tv.track_id,
-          tv.version_num,
-          tv.status,
-          tv.created_at,
-          tv.completed_at,
-          tv.music_plan_json,
-          tv.provenance_json,
-          t.user_id,
-          t.title,
-          t.style,
-          t.voice_mode
-        FROM track_versions tv
-        JOIN tracks t ON t.id = tv.track_id
-        ORDER BY COALESCE(tv.completed_at, tv.created_at) DESC
-        LIMIT ?
-      `)
-      .all(bounds.limit);
+    const rows =
+      await this.adminMusicDiagnosticsRepository.listRecentTrackVersions(
+        bounds.limit,
+      );
+    const jobRows =
+      await this.adminMusicDiagnosticsRepository.listLatestJobsForTrackVersions(
+        rows.map((row) => row.id),
+      );
+    const latestJobByTrackVersion = new Map();
+    for (const job of jobRows) {
+      if (!latestJobByTrackVersion.has(job.track_version_id)) {
+        latestJobByTrackVersion.set(job.track_version_id, job);
+      }
+    }
 
     const diagnostics = [];
     for (const row of rows) {
@@ -3216,17 +2311,7 @@ class AdminService {
         continue;
       }
 
-      const latestJob = await this.db
-        .prepare(
-          `
-          SELECT error_code, error_message, updated_at
-          FROM jobs
-          WHERE track_version_id = ?
-          ORDER BY COALESCE(completed_at, updated_at) DESC
-          LIMIT 1
-        `
-        )
-        .get(row.id);
+      const latestJob = latestJobByTrackVersion.get(row.id);
 
       diagnostics.push({
         track_version_id: row.id,
@@ -3266,9 +2351,7 @@ class AdminService {
    * List all onboarding audio samples
    */
   async getOnboardingSamples() {
-    return await this.db.prepare(
-      'SELECT * FROM onboarding_samples ORDER BY created_at ASC'
-    ).all();
+    return await this.adminOnboardingSampleRepository.listAll();
   }
 
   /**
@@ -3277,9 +2360,7 @@ class AdminService {
    */
   async getActiveOnboardingSample() {
     try {
-      const row = await this.db.prepare(
-        'SELECT label, audio_url FROM onboarding_samples WHERE is_active = 1 LIMIT 1'
-      ).get();
+      const row = await this.appConfigRepository.findActiveOnboardingSample();
       return row || null;
     } catch {
       // Table may not exist yet if migration hasn't run
@@ -3310,13 +2391,17 @@ class AdminService {
     const id = 'os_' + require('crypto').randomBytes(6).toString('hex');
     const now = new Date().toISOString();
 
-    await this.db.prepare(
-      'INSERT INTO onboarding_samples (id, label, audio_url, is_active, created_at, updated_at, updated_by) VALUES (?, ?, ?, 0, ?, ?, ?)'
-    ).run(id, label.trim(), audio_url.trim(), now, now, adminId);
+    await this.adminOnboardingSampleRepository.createSample({
+      id,
+      label: label.trim(),
+      audioUrl: audio_url.trim(),
+      now,
+      updatedBy: adminId,
+    });
 
     await this._audit(adminId, 'admin_create_onboarding_sample', 'onboarding_sample', id, { label, audio_url });
 
-    return await this.db.prepare('SELECT * FROM onboarding_samples WHERE id = ?').get(id);
+    return await this.adminOnboardingSampleRepository.findById(id);
   }
 
   /**
@@ -3344,45 +2429,36 @@ class AdminService {
       throw new Error('label must be 200 characters or fewer');
     }
 
-    const previous = await this.db.prepare('SELECT * FROM onboarding_samples WHERE id = ?').get(id);
+    const previous = await this.adminOnboardingSampleRepository.findById(id);
     if (!previous) {
       throw new Error('Onboarding sample not found');
     }
 
-    const ALLOWED_COLUMNS = ['label', 'audio_url'];
-    const setClauses = [];
-    const params = [];
-    for (const [key, value] of Object.entries(filteredUpdates)) {
-      if (!ALLOWED_COLUMNS.includes(key)) throw new Error(`Unsafe column name: ${key}`);
-      setClauses.push(`${key} = ?`);
-      params.push(value);
-    }
-    setClauses.push('updated_at = ?');
-    params.push(new Date().toISOString());
-    setClauses.push('updated_by = ?');
-    params.push(adminId);
-    params.push(id);
-
-    await this.db.prepare(`UPDATE onboarding_samples SET ${setClauses.join(', ')} WHERE id = ?`).run(...params);
+    await this.adminOnboardingSampleRepository.updateSample({
+      id,
+      fields: filteredUpdates,
+      now: new Date().toISOString(),
+      updatedBy: adminId,
+    });
 
     await this._audit(adminId, 'admin_update_onboarding_sample', 'onboarding_sample', id, {
       previous: { label: previous.label, audio_url: previous.audio_url },
       updated: filteredUpdates,
     });
 
-    return await this.db.prepare('SELECT * FROM onboarding_samples WHERE id = ?').get(id);
+    return await this.adminOnboardingSampleRepository.findById(id);
   }
 
   /**
    * Delete an onboarding sample
    */
   async deleteOnboardingSample(id, adminId) {
-    const existing = await this.db.prepare('SELECT * FROM onboarding_samples WHERE id = ?').get(id);
+    const existing = await this.adminOnboardingSampleRepository.findById(id);
     if (!existing) {
       throw new Error('Onboarding sample not found');
     }
 
-    await this.db.prepare('DELETE FROM onboarding_samples WHERE id = ?').run(id);
+    await this.adminOnboardingSampleRepository.deleteSample(id);
     await this._audit(adminId, 'admin_delete_onboarding_sample', 'onboarding_sample', id, {
       label: existing.label, audio_url: existing.audio_url,
     });
@@ -3394,22 +2470,22 @@ class AdminService {
    * Activate a single onboarding sample (transactional: deactivate all, then activate one)
    */
   async activateOnboardingSample(id, adminId) {
-    const existing = await this.db.prepare('SELECT * FROM onboarding_samples WHERE id = ?').get(id);
+    const existing = await this.adminOnboardingSampleRepository.findById(id);
     if (!existing) {
       throw new Error('Onboarding sample not found');
     }
 
-    // Deactivate all, then activate the target
-    await this.db.prepare('UPDATE onboarding_samples SET is_active = 0, updated_at = ?, updated_by = ?')
-      .run(new Date().toISOString(), adminId);
-    await this.db.prepare('UPDATE onboarding_samples SET is_active = 1, updated_at = ?, updated_by = ? WHERE id = ?')
-      .run(new Date().toISOString(), adminId, id);
+    await this.adminOnboardingSampleRepository.activateSample({
+      id,
+      now: new Date().toISOString(),
+      updatedBy: adminId,
+    });
 
     await this._audit(adminId, 'admin_activate_onboarding_sample', 'onboarding_sample', id, {
       label: existing.label,
     });
 
-    return await this.db.prepare('SELECT * FROM onboarding_samples WHERE id = ?').get(id);
+    return await this.adminOnboardingSampleRepository.findById(id);
   }
 
   /**
@@ -3429,9 +2505,7 @@ class AdminService {
     // Active gift bundles for StoreKit product catalog (snake_case to match iOS CodingKeys)
     let gift_bundles = [];
     try {
-      gift_bundles = await this.db.prepare(
-        'SELECT product_id, token_count, display_name, sort_order FROM gift_bundles WHERE is_active = 1 ORDER BY sort_order'
-      ).all();
+      gift_bundles = await this.appConfigRepository.listActiveGiftBundles();
     } catch {
       // Table may not exist yet if migration hasn't run — return empty array
     }
@@ -3594,10 +2668,7 @@ class AdminService {
     };
   }
   async getJobStepHistory(jobId) {
-    const rows = await this.db.prepare(
-      'SELECT * FROM job_step_history WHERE job_id = ? ORDER BY started_at ASC'
-    ).all(jobId);
-    return rows;
+    return await this.adminJobOpsRepository.listJobStepHistory(jobId);
   }
 }
 

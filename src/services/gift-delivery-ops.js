@@ -1,5 +1,8 @@
 "use strict";
 
+const {
+  createGiftDeliveryIncidentRepository,
+} = require("../database/gift-delivery-incident-repository");
 const { nowIso, toJson } = require("../utils/common");
 const { newUuid } = require("../utils/ids");
 const { dbQuery, dbGet, dbAll } = require("../utils/db-adapter");
@@ -120,110 +123,67 @@ async function upsertGiftIncident(db, {
   reopen = true,
 }) {
   const timestamp = nowIso();
-  const existing = await dbGet(
-    db,
-    "SELECT * FROM gift_delivery_incidents WHERE incident_key = ?",
-    [incidentKey]
-  );
+  const repository = createGiftDeliveryIncidentRepository(db);
+  const existing = await repository.getByKey(incidentKey);
 
   if (existing) {
     const nextStatus = reopen ? "open" : existing.status;
-    await dbQuery(
-      db,
-      `UPDATE gift_delivery_incidents
-       SET severity = ?, summary = ?, detail = ?, metadata_json = ?, updated_at = ?, status = ?,
-           gift_order_id = COALESCE(?, gift_order_id),
-           outbox_id = COALESCE(?, outbox_id),
-           resource_type = COALESCE(?, resource_type),
-           resource_id = COALESCE(?, resource_id),
-           acknowledged_at = CASE WHEN ? = 'open' THEN NULL ELSE acknowledged_at END,
-           acknowledged_by = CASE WHEN ? = 'open' THEN NULL ELSE acknowledged_by END,
-           resolved_at = CASE WHEN ? = 'open' THEN NULL ELSE resolved_at END,
-           resolved_by = CASE WHEN ? = 'open' THEN NULL ELSE resolved_by END
-       WHERE incident_key = ?`,
-      [
-        severity,
-        summary,
-        detail,
-        toJson(metadata),
-        timestamp,
-        nextStatus,
-        giftOrderId,
-        outboxId,
-        resourceType,
-        resourceId,
-        nextStatus,
-        nextStatus,
-        nextStatus,
-        nextStatus,
-        incidentKey,
-      ]
-    );
-    return dbGet(db, "SELECT * FROM gift_delivery_incidents WHERE incident_key = ?", [incidentKey]);
-  }
-
-  const id = newUuid();
-  await dbQuery(
-    db,
-    `INSERT INTO gift_delivery_incidents (
-      id, incident_key, incident_type, severity, status, gift_order_id, outbox_id,
-      resource_type, resource_id, summary, detail, metadata_json, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      id,
+    await repository.updateExistingByKey({
       incidentKey,
-      incidentType,
       severity,
-      "open",
+      summary,
+      detail,
+      metadataJson: toJson(metadata),
+      timestamp,
+      nextStatus,
       giftOrderId,
       outboxId,
       resourceType,
       resourceId,
-      summary,
-      detail,
-      toJson(metadata),
-      timestamp,
-      timestamp,
-    ]
-  );
-  return dbGet(db, "SELECT * FROM gift_delivery_incidents WHERE id = ?", [id]);
+    });
+    return repository.getByKey(incidentKey);
+  }
+
+  const id = newUuid();
+  await repository.insert({
+    id,
+    incidentKey,
+    incidentType,
+    severity,
+    status: "open",
+    giftOrderId,
+    outboxId,
+    resourceType,
+    resourceId,
+    summary,
+    detail,
+    metadataJson: toJson(metadata),
+    timestamp,
+  });
+  return repository.getById(id);
 }
 
 async function acknowledgeGiftIncident(db, incidentKey, adminId) {
   const timestamp = nowIso();
-  await dbQuery(
-    db,
-    `UPDATE gift_delivery_incidents
-     SET status = 'acknowledged', acknowledged_at = ?, acknowledged_by = ?, updated_at = ?
-     WHERE incident_key = ? AND status = 'open'`,
-    [timestamp, adminId, timestamp, incidentKey]
-  );
-  return dbGet(db, "SELECT * FROM gift_delivery_incidents WHERE incident_key = ?", [incidentKey]);
+  const repository = createGiftDeliveryIncidentRepository(db);
+  await repository.acknowledgeByKey({ incidentKey, adminId, timestamp });
+  return repository.getByKey(incidentKey);
 }
 
 async function resolveGiftIncident(db, incidentKey, resolverId = null) {
   const timestamp = nowIso();
-  await dbQuery(
-    db,
-    `UPDATE gift_delivery_incidents
-     SET status = 'resolved', resolved_at = ?, resolved_by = ?, updated_at = ?
-     WHERE incident_key = ? AND status != 'resolved'`,
-    [timestamp, resolverId, timestamp, incidentKey]
-  );
-  return dbGet(db, "SELECT * FROM gift_delivery_incidents WHERE incident_key = ?", [incidentKey]);
+  const repository = createGiftDeliveryIncidentRepository(db);
+  await repository.resolveByKey({ incidentKey, resolverId, timestamp });
+  return repository.getByKey(incidentKey);
 }
 
 async function resolveGiftIncidentsForGift(db, giftOrderId, incidentTypes = []) {
-  const params = [nowIso(), giftOrderId];
-  let sql = `UPDATE gift_delivery_incidents
-             SET status = 'resolved', resolved_at = ?, updated_at = ?
-             WHERE gift_order_id = ? AND status != 'resolved'`;
-  params.splice(1, 0, params[0]);
-  if (incidentTypes.length) {
-    sql += ` AND incident_type IN (${incidentTypes.map(() => "?").join(", ")})`;
-    params.push(...incidentTypes);
-  }
-  await dbQuery(db, sql, params);
+  const repository = createGiftDeliveryIncidentRepository(db);
+  await repository.resolveForGift({
+    giftOrderId,
+    incidentTypes,
+    timestamp: nowIso(),
+  });
 }
 
 function normalizeTwilioReceipt(body = {}) {

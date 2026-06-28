@@ -7,6 +7,7 @@ const {
   AttributionService,
   isAppleAdsDeveloperTestData,
 } = require("../services/attribution-service");
+const { createAttributionRepository } = require("../database/attribution-repository");
 
 function asInteger(value) {
   if (value === null || value === undefined || value === "") {
@@ -86,6 +87,7 @@ function registerAnalyticsRoutes(app, {
   eventsService,
   consumeRateLimit,
 }) {
+  const attributionRepository = createAttributionRepository(db);
   const attributionService = new AttributionService(db);
 
   app.post("/analytics/apple-ads-attribution", async (request, reply) => {
@@ -106,9 +108,7 @@ function registerAnalyticsRoutes(app, {
 
     const tokenHash = crypto.createHash("sha256").update(attributionToken).digest("hex");
     const now = nowIso();
-    const existing = await db.prepare(
-      "SELECT * FROM apple_ads_attribution WHERE attribution_token_sha256 = ?"
-    ).get(tokenHash);
+    const existing = await attributionRepository.findAppleAdsAttributionByTokenHash(tokenHash);
 
     if (existing && ["resolved", "not_found", "test"].includes(existing.status)) {
       await attributionService.backfillUserAcquisitionFromAppleAds(existing);
@@ -142,17 +142,15 @@ function registerAnalyticsRoutes(app, {
         ? `Apple Ads attribution request timed out after ${timeoutMs}ms`
         : (error?.message || "Apple Ads attribution request failed.");
 
-      if (existing) {
-        await db.prepare(
-          "UPDATE apple_ads_attribution SET status = ?, last_error = ?, updated_at = ? WHERE id = ?"
-        ).run("failed", message, now, existing.id);
-      } else {
-        await db.prepare(`
-          INSERT INTO apple_ads_attribution (
-            id, user_id, attribution_token_sha256, token_length, status, last_error, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(newUuid(), userId, tokenHash, attributionToken.length, "failed", message, now, now);
-      }
+      await attributionRepository.recordAppleAdsAttributionFailure({
+        existingId: existing?.id || null,
+        id: newUuid(),
+        userId,
+        tokenHash,
+        tokenLength: attributionToken.length,
+        message,
+        now,
+      });
 
       return sendError(reply, 503, "APPLE_ADS_UNAVAILABLE", message);
     }
@@ -191,78 +189,29 @@ function registerAnalyticsRoutes(app, {
       resolvedAt,
     };
 
-    if (existing) {
-      await db.prepare(`
-        UPDATE apple_ads_attribution
-        SET status = ?,
-            api_status_code = ?,
-            campaign_id = ?,
-            ad_group_id = ?,
-            keyword_id = ?,
-            org_id = ?,
-            conversion_type = ?,
-            country_or_region = ?,
-            click_date = ?,
-            impression_date = ?,
-            is_redownload = ?,
-            raw_response_json = ?,
-            last_error = ?,
-            updated_at = ?,
-            resolved_at = ?
-        WHERE id = ?
-      `).run(
-        normalizedStatus,
-        persisted.apiStatusCode,
-        persisted.campaignId,
-        persisted.adGroupId,
-        persisted.keywordId,
-        persisted.orgId,
-        persisted.conversionType,
-        persisted.countryOrRegion,
-        persisted.clickDate,
-        persisted.impressionDate,
-        persisted.isRedownload,
-        persisted.rawResponseJson,
-        persisted.lastError,
-        persisted.updatedAt,
-        persisted.resolvedAt,
-        existing.id
-      );
-    } else {
-      await db.prepare(`
-        INSERT INTO apple_ads_attribution (
-          id, user_id, attribution_token_sha256, token_length, status, api_status_code,
-          campaign_id, ad_group_id, keyword_id, org_id, conversion_type, country_or_region,
-          click_date, impression_date, is_redownload, raw_response_json, last_error,
-          created_at, updated_at, resolved_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        newUuid(),
-        userId,
-        tokenHash,
-        attributionToken.length,
-        normalizedStatus,
-        persisted.apiStatusCode,
-        persisted.campaignId,
-        persisted.adGroupId,
-        persisted.keywordId,
-        persisted.orgId,
-        persisted.conversionType,
-        persisted.countryOrRegion,
-        persisted.clickDate,
-        persisted.impressionDate,
-        persisted.isRedownload,
-        persisted.rawResponseJson,
-        persisted.lastError,
-        now,
-        persisted.updatedAt,
-        persisted.resolvedAt
-      );
-    }
-
-    const row = await db.prepare(
-      "SELECT * FROM apple_ads_attribution WHERE attribution_token_sha256 = ?"
-    ).get(tokenHash);
+    const row = await attributionRepository.upsertAppleAdsAttributionResult({
+      existingId: existing?.id || null,
+      id: newUuid(),
+      userId,
+      tokenHash,
+      tokenLength: attributionToken.length,
+      status: normalizedStatus,
+      apiStatusCode: persisted.apiStatusCode,
+      campaignId: persisted.campaignId,
+      adGroupId: persisted.adGroupId,
+      keywordId: persisted.keywordId,
+      orgId: persisted.orgId,
+      conversionType: persisted.conversionType,
+      countryOrRegion: persisted.countryOrRegion,
+      clickDate: persisted.clickDate,
+      impressionDate: persisted.impressionDate,
+      isRedownload: persisted.isRedownload,
+      rawResponseJson: persisted.rawResponseJson,
+      lastError: persisted.lastError,
+      createdAt: now,
+      updatedAt: persisted.updatedAt,
+      resolvedAt: persisted.resolvedAt,
+    });
     await attributionService.backfillUserAcquisitionFromAppleAds(row);
 
     await addAuditEntry({

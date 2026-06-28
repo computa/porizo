@@ -27,6 +27,14 @@ const {
 // (e.g., a future "personalized_v2") were added.
 const { PERSONALIZED_VOICE_MODES } = require("../workflows/render-contract");
 const { enqueueArtworkJob } = require("../jobs/artwork-job");
+const { createTrackVersionRepository } = require("../database/track-version-repository");
+const { createShareTokenRepository } = require("../database/share-token-repository");
+const {
+  createTrackLibraryRepository,
+} = require("../database/track-library-repository");
+const {
+  createGiftReservationRepository,
+} = require("../database/gift-reservation-repository");
 
 const SUNO_PERSONA_PREPARING_STATUSES = new Set([
   "pending",
@@ -69,7 +77,6 @@ function registerTrackRoutes(
     isActiveJob,
     isTerminalFailedJobStatus,
     isTerminalTrackFailureStatus,
-    incrementTrackVersion,
     extractLyricsText,
     normalizeVariantName,
     SONG_VARIANT_NAMES,
@@ -78,6 +85,19 @@ function registerTrackRoutes(
     subscriptionManager,
   },
 ) {
+  const activeArtworkJobs = new Set();
+  const trackVersionRepository = createTrackVersionRepository(db);
+  const shareTokenRepository = createShareTokenRepository(db);
+  const trackLibraryRepository = createTrackLibraryRepository(db);
+  const giftReservationRepository = createGiftReservationRepository(db);
+  app.addHook("onClose", async () => {
+    if (activeArtworkJobs.size === 0) return;
+    await Promise.race([
+      Promise.allSettled([...activeArtworkJobs]),
+      new Promise((resolve) => setTimeout(resolve, 5000)),
+    ]);
+  });
+
   async function kickArtworkJob(trackId, trackVersionId, userId) {
     // Defense-in-depth rate limit. The render_preview / render_full endpoints
     // already cap at 20/day (free) and 50/day (paid), so the worst-case paid
@@ -99,7 +119,11 @@ function registerTrackRoutes(
         );
       }
     }
-    enqueueArtworkJob({
+    const enqueueArtworkJobFn =
+      typeof config?.enqueueArtworkJobFn === "function"
+        ? config.enqueueArtworkJobFn
+        : enqueueArtworkJob;
+    const enqueueResult = enqueueArtworkJobFn({
       db,
       trackId,
       trackVersionId,
@@ -108,6 +132,11 @@ function registerTrackRoutes(
         : undefined,
       generateDependencies: { storageProvider },
     });
+    const backgroundJob = enqueueResult?.promise;
+    if (backgroundJob && typeof backgroundJob.finally === "function") {
+      activeArtworkJobs.add(backgroundJob);
+      backgroundJob.finally(() => activeArtworkJobs.delete(backgroundJob));
+    }
   }
 
   function mergeProvenanceJson(existingJson, patch) {
@@ -249,15 +278,10 @@ function registerTrackRoutes(
     const now = nowIso();
     if (fundingSource === "gift_token") {
       // Verify the gift reservation is still active (not expired/refunded)
-      const giftReservation = await query(
-        `SELECT id, status FROM gift_reservations
-         WHERE id = (SELECT gift_reservation_id FROM tracks WHERE id = ?)
-         AND status IN ('reserved', 'content_ready', 'finalized')`,
-        [trackId],
-      );
-      const reservationRow = Array.isArray(giftReservation)
-        ? giftReservation[0]
-        : giftReservation;
+      const reservationRow = await giftReservationRepository.getActiveForTrack({
+        trackId,
+        query,
+      });
       if (!reservationRow) {
         // Reservation expired or was refunded — fall through to subscription spend
       } else {
@@ -288,23 +312,15 @@ function registerTrackRoutes(
   async function findActiveTrackShare(track, creatorId) {
     let existingShare = null;
     if (track?.share_token_id) {
-      existingShare = await db
-        .prepare("SELECT * FROM share_tokens WHERE id = ?")
-        .get(track.share_token_id);
+      existingShare = await shareTokenRepository.getSongShareTokenById(
+        track.share_token_id,
+      );
     }
     if (!existingShare) {
-      existingShare = await db
-        .prepare(
-          `SELECT *
-             FROM share_tokens
-            WHERE track_id = ?
-              AND creator_id = ?
-              AND COALESCE(delivery_source, 'manual') != 'gift'
-              AND status != 'revoked'
-            ORDER BY created_at DESC
-            LIMIT 1`,
-        )
-        .get(track.id, creatorId);
+      existingShare = await shareTokenRepository.getLatestManualSongShare({
+        trackId: track.id,
+        creatorId,
+      });
     }
     if (!existingShare) {
       return null;
@@ -314,19 +330,21 @@ function registerTrackRoutes(
     const isValid = isDemo || new Date(existingShare.expires_at) > new Date();
     if (!isValid) {
       if (!isDemo && existingShare.status !== "expired") {
-        await db
-          .prepare("UPDATE share_tokens SET status = ? WHERE id = ?")
-          .run("expired", existingShare.id);
+        await shareTokenRepository.updateShareStatus(
+          "share_tokens",
+          existingShare.id,
+          "expired",
+        );
       }
       return null;
     }
 
     if (!track.share_token_id || track.share_token_id !== existingShare.id) {
-      await db
-        .prepare(
-          "UPDATE tracks SET share_token_id = ?, updated_at = ? WHERE id = ?",
-        )
-        .run(existingShare.id, nowIso(), track.id);
+      await shareTokenRepository.setTrackShareToken({
+        trackId: track.id,
+        shareTokenId: existingShare.id,
+        updatedAt: nowIso(),
+      });
       track.share_token_id = existingShare.id;
     }
 
@@ -517,26 +535,11 @@ function registerTrackRoutes(
       Math.max(1, Number(request.query?.limit || 50) || 50),
     );
     const offset = Math.max(0, Number(request.query?.offset || 0) || 0);
-    const tracks = await db
-      .prepare(
-        `SELECT t.*,
-                tle.origin AS library_origin,
-                tle.added_at AS library_added_at,
-                tle.share_token_id AS library_share_token_id,
-                CASE WHEN t.user_id = ? THEN 1 ELSE 0 END AS can_edit,
-                CASE WHEN t.user_id = ? THEN 1 ELSE 0 END AS can_share,
-                1 AS can_delete
-         FROM tracks t
-         JOIN track_library_entries tle
-           ON tle.track_id = t.id
-          AND tle.user_id = ?
-          AND tle.removed_at IS NULL
-         WHERE t.deleted_at IS NULL
-           AND NOT (COALESCE(t.funding_source, 'standard') = 'gift_token' AND tle.origin = 'created')
-         ORDER BY tle.added_at DESC
-         LIMIT ? OFFSET ?`,
-      )
-      .all(userId, userId, userId, limit, offset);
+    const tracks = await trackLibraryRepository.listTracksForUser({
+      userId,
+      limit,
+      offset,
+    });
     const hydrated = await hydrateTrackCoverImages(tracks);
     reply.send({ tracks: hydrated.map(withTrackLibraryFlags) });
   });
@@ -597,11 +600,11 @@ function registerTrackRoutes(
       return;
     }
     const deletedAt = nowIso();
-    await db
-      .prepare(
-        "UPDATE track_library_entries SET removed_at = ?, updated_at = ? WHERE user_id = ? AND track_id = ? AND removed_at IS NULL",
-      )
-      .run(deletedAt, deletedAt, userId, track.id);
+    await trackLibraryRepository.removeTrackFromLibrary({
+      userId,
+      trackId: track.id,
+      removedAt: deletedAt,
+    });
 
     await addAuditEntry({
       userId,
@@ -685,9 +688,7 @@ function registerTrackRoutes(
       if (!userId) {
         return;
       }
-      const track = await db
-        .prepare("SELECT * FROM tracks WHERE id = ?")
-        .get(request.params.id);
+      const track = await trackVersionRepository.findTrackById(request.params.id);
       if (!track || track.user_id !== userId || track.deleted_at) {
         sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
         return;
@@ -696,11 +697,11 @@ function registerTrackRoutes(
       const paramsHash = computeParamsHash(body.params || {});
       const renderType = body.render_type || "preview";
       const streamBaseUrl = getBaseUrl(request);
-      const existing = await db
-        .prepare(
-          "SELECT id, version_num FROM track_versions WHERE track_id = ? AND params_hash = ? AND render_type = ?",
-        )
-        .get(track.id, paramsHash, renderType);
+      const existing = await trackVersionRepository.findDuplicateVersion({
+        trackId: track.id,
+        paramsHash,
+        renderType,
+      });
       if (existing) {
         sendError(
           reply,
@@ -714,37 +715,23 @@ function registerTrackRoutes(
         );
         return;
       }
-      // Transaction ensures version increment + insert are atomic
       const trackVersionId = newUuid();
-      const versionNum = await db.transaction(async () => {
-        const num = await incrementTrackVersion(track.id);
-        await db
-          .prepare(
-            "INSERT INTO track_versions (id, track_id, version_num, parent_version_id, status, render_type, params_json, params_hash, cost_estimate_json, actual_cost_json, storage_ref, created_at, completed_at, preview_url, full_url, lyrics_status, lyrics_updated_at, lyrics_approved_at, guide_access_token, stream_base_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-          )
-          .run(
-            trackVersionId,
-            track.id,
-            num,
-            body.parent_version_id || null,
-            "queued",
-            renderType,
-            toJson(body.params || {}),
-            paramsHash,
-            toJson({ credits: 1, usd: renderType === "full" ? 0.25 : 0.15 }),
-            null,
-            `tracks/${userId}/${track.id}/v${num}`,
-            nowIso(),
-            null,
-            null,
-            null,
-            "draft",
-            nowIso(),
-            null,
-            null,
-            streamBaseUrl,
-          );
-        return num;
+      const now = nowIso();
+      const { versionNum } = await trackVersionRepository.createVersionWithNextNumber({
+        id: trackVersionId,
+        trackId: track.id,
+        parentVersionId: body.parent_version_id || null,
+        renderType,
+        paramsJson: toJson(body.params || {}),
+        paramsHash,
+        costEstimateJson: toJson({
+          credits: 1,
+          usd: renderType === "full" ? 0.25 : 0.15,
+        }),
+        storageRefPrefix: `tracks/${userId}/${track.id}/v`,
+        createdAt: now,
+        lyricsUpdatedAt: now,
+        streamBaseUrl,
       });
       reply.code(201).send({
         track_version_id: trackVersionId,
