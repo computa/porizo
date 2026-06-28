@@ -66,9 +66,13 @@ const {
   createAppConfigRepository,
 } = require("../database/app-config-repository");
 const {
+  createAuthSecurityRepository,
+} = require("../database/auth-security-repository");
+const {
   createDeadLetterQueueRepository,
 } = require("../database/dead-letter-queue-repository");
 const { createDeviceRepository } = require("../database/device-repository");
+const { createEventsRepository } = require("../database/events-repository");
 const {
   createJobDurabilityRepository,
 } = require("../database/job-durability-repository");
@@ -1081,8 +1085,10 @@ async function startJobRunner({
 }) {
   const runnerId = workerId || crypto.randomUUID();
   const appConfigRepository = createAppConfigRepository(db);
+  const authSecurityRepository = createAuthSecurityRepository(db);
   const deadLetterQueueRepository = createDeadLetterQueueRepository(db);
   const deviceRepository = createDeviceRepository(db);
+  const eventsRepository = createEventsRepository(db);
   const jobDurabilityRepository = createJobDurabilityRepository(db);
   const trackVersionRepository = createTrackVersionRepository(db);
   const sunoPollIntervalSec = 10;
@@ -2379,13 +2385,6 @@ async function startJobRunner({
   const updateJobExternalTask = await db.prepare(
     "UPDATE jobs SET external_task_id = ?, step_data = ?, last_heartbeat_at = ?, updated_at = ? WHERE id = ? AND locked_by = ?",
   );
-  const updateUserRisk = await db.prepare(
-    "UPDATE users SET risk_level = ? WHERE id = ?",
-  );
-  const insertAuditLog = await db.prepare(
-    "INSERT INTO audit_logs (id, user_id, action, resource_type, resource_id, metadata_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-  );
-
   function getErrorInfo(err) {
     const rawMessage =
       err && err.message ? String(err.message) : "unknown_error";
@@ -5049,17 +5048,22 @@ async function startJobRunner({
         status: "failed",
         updatedAt: now,
       });
-      await updateUserRisk.run("high", track.user_id);
+      await authSecurityRepository.setUserRiskLevel({
+        userId: track.user_id,
+        riskLevel: "high",
+      });
       await updateJobStatus.run("blocked", 100, now, now, job.id, runnerId);
-      await insertAuditLog.run(
-        crypto.randomUUID(),
-        track.user_id,
-        "moderation_blocked",
-        "track_version",
-        trackVersion.id,
-        JSON.stringify({ reason: stepData.moderation_reason || "blocked" }),
-        now,
-      );
+      await eventsRepository.insertAuditLog({
+        id: crypto.randomUUID(),
+        userId: track.user_id,
+        action: "moderation_blocked",
+        resourceType: "track_version",
+        resourceId: trackVersion.id,
+        metadataJson: JSON.stringify({
+          reason: stepData.moderation_reason || "blocked",
+        }),
+        createdAt: now,
+      });
       return;
     }
 
@@ -5339,15 +5343,17 @@ async function startJobRunner({
       // Song entitlement is consumed when a version first starts generation.
       // Full render on the same version reuses that entitlement, so the runner
       // should never deduct again at completion.
-      await insertAuditLog.run(
-        crypto.randomUUID(),
-        trackReady.user_id,
-        "render_completed",
-        "track_version",
-        trackVersionReady.id,
-        JSON.stringify({ render_type: isFull ? "full" : "preview" }),
-        now,
-      );
+      await eventsRepository.insertAuditLog({
+        id: crypto.randomUUID(),
+        userId: trackReady.user_id,
+        action: "render_completed",
+        resourceType: "track_version",
+        resourceId: trackVersionReady.id,
+        metadataJson: JSON.stringify({
+          render_type: isFull ? "full" : "preview",
+        }),
+        createdAt: now,
+      });
       writePlaceholderOutputs({
         storageDir,
         track: trackReady,

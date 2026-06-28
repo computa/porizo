@@ -98,4 +98,18 @@ describe("AuthSecurityRepository", () => {
     assert.equal(reset.failed_login_count, 0);
     assert.equal(reset.locked_until, null);
   });
+
+  test("setUserRiskLevel updates runtime risk classification", async () => {
+    await seedUser();
+
+    await repository.setUserRiskLevel({
+      userId: "user_auth_security",
+      riskLevel: "high",
+    });
+
+    const row = await db
+      .prepare("SELECT risk_level FROM users WHERE id = ?")
+      .get("user_auth_security");
+    assert.equal(row.risk_level, "high");
+  });
 });

@@ -45,12 +45,19 @@ function createAuthSecurityRepository(db) {
       .run(userId);
   }
 
+  async function setUserRiskLevel({ userId, riskLevel }) {
+    return db
+      .prepare("UPDATE users SET risk_level = ? WHERE id = ?")
+      .run(riskLevel, userId);
+  }
+
   return {
     insertAuthEvent,
     incrementFailedLoginCount,
     findLoginLockoutState,
     setAccountLockedUntil,
     resetFailedLoginCount,
+    setUserRiskLevel,
   };
 }
 
