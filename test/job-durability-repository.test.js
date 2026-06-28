@@ -203,6 +203,99 @@ describe("JobDurabilityRepository", () => {
     assert.equal(row.updated_at, "2026-06-27T00:05:00.000Z");
   });
 
+  test("createStepHistory and finishStepHistory persist step observability", async () => {
+    await insertJob({
+      id: "job_step_history",
+      status: "running",
+    });
+
+    await repository.createStepHistory({
+      id: "step_history_1",
+      jobId: "job_step_history",
+      stepName: "lyrics",
+      attempt: 2,
+      status: "running",
+      startedAt: "2026-06-27T00:05:00.000Z",
+    });
+    await repository.finishStepHistory({
+      id: "step_history_1",
+      status: "completed",
+      completedAt: "2026-06-27T00:05:03.000Z",
+      durationMs: 3000,
+    });
+
+    assert.deepEqual(
+      await db
+        .prepare(
+          `SELECT job_id, step_name, attempt, status, error_message, started_at, completed_at, duration_ms
+           FROM job_step_history WHERE id = ?`,
+        )
+        .get("step_history_1"),
+      {
+        job_id: "job_step_history",
+        step_name: "lyrics",
+        attempt: 2,
+        status: "completed",
+        error_message: null,
+        started_at: "2026-06-27T00:05:00.000Z",
+        completed_at: "2026-06-27T00:05:03.000Z",
+        duration_ms: 3000,
+      },
+    );
+  });
+
+  test("markOrphanedStepHistoryFailed fails running entries for terminal jobs", async () => {
+    await insertJob({
+      id: "job_step_orphaned",
+      status: "failed",
+    });
+    await insertJob({
+      id: "job_step_active",
+      status: "running",
+    });
+    await repository.createStepHistory({
+      id: "step_history_orphaned",
+      jobId: "job_step_orphaned",
+      stepName: "music",
+      attempt: 1,
+      status: "running",
+      startedAt: "2026-06-27T00:05:00.000Z",
+    });
+    await repository.createStepHistory({
+      id: "step_history_active",
+      jobId: "job_step_active",
+      stepName: "music",
+      attempt: 1,
+      status: "running",
+      startedAt: "2026-06-27T00:05:00.000Z",
+    });
+
+    const changed = await repository.markOrphanedStepHistoryFailed({
+      completedAt: "2026-06-27T00:06:00.000Z",
+    });
+
+    assert.equal(changed, 1);
+    assert.deepEqual(
+      await db
+        .prepare(
+          "SELECT status, error_message, completed_at, duration_ms FROM job_step_history WHERE id = ?",
+        )
+        .get("step_history_orphaned"),
+      {
+        status: "failed",
+        error_message: "Worker crashed",
+        completed_at: "2026-06-27T00:06:00.000Z",
+        duration_ms: 0,
+      },
+    );
+    assert.equal(
+      db
+        .prepare("SELECT status FROM job_step_history WHERE id = ?")
+        .get("step_history_active").status,
+      "running",
+    );
+  });
+
   test("recoverStaleJobs requeues only stale running jobs", async () => {
     await insertJob({
       id: "job_stale",

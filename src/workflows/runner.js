@@ -2171,8 +2171,6 @@ async function startJobRunner({
   // Stale job recovery: reset jobs stuck in 'running' status
   // This handles cases where process crashed mid-step
   // Note: Compute cutoff in JavaScript for database-agnostic comparison
-  let cleanOrphanedStepHistory = null;
-
   async function performStaleJobRecovery() {
     if (!recoverStaleJobs) return;
     try {
@@ -2190,12 +2188,12 @@ async function startJobRunner({
           `[JobRunner] Recovered ${recoveredJobs} stale jobs stuck in 'running' status`,
         );
         // Clean orphaned step history entries left 'running' by crashed workers
-        if (cleanOrphanedStepHistory) {
-          try {
-            await cleanOrphanedStepHistory.run(now);
-          } catch (_) {
-            /* best-effort */
-          }
+        try {
+          await jobDurabilityRepository.markOrphanedStepHistoryFailed({
+            completedAt: now,
+          });
+        } catch (_) {
+          /* best-effort */
         }
       }
       await recoverStaleVoiceProviderJobs(db, {
@@ -2414,23 +2412,6 @@ async function startJobRunner({
      WHERE j.status = 'running' AND j.last_heartbeat_at > ?
      GROUP BY t.user_id HAVING COUNT(*) >= ?`,
   );
-
-  // Phase 2: Step history — observability for each step execution
-  const insertStepHistory = await db.prepare(
-    "INSERT INTO job_step_history (id, job_id, step_name, attempt, status, started_at, completed_at, duration_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-  );
-  const updateStepHistory = await db.prepare(
-    "UPDATE job_step_history SET status = ?, error_message = ?, completed_at = ?, duration_ms = ? WHERE id = ?",
-  );
-  // Orphan cleanup — mark step history entries as failed when their job is no longer running
-  try {
-    cleanOrphanedStepHistory = await db.prepare(
-      `UPDATE job_step_history SET status = 'failed', error_message = 'Worker crashed', completed_at = ?, duration_ms = 0
-       WHERE status = 'running' AND job_id IN (SELECT id FROM jobs WHERE status != 'running')`,
-    );
-  } catch (_) {
-    /* table may not exist yet before migration 072 */
-  }
 
   function getErrorInfo(err) {
     const rawMessage =
@@ -4762,16 +4743,16 @@ async function startJobRunner({
             `[JobRunner] Skipping memoized step "${stepName}" for job ${job.id} (${memo.field} exists)`,
           );
           try {
-            await insertStepHistory.run(
-              generatePrefixedId("sh"),
-              job.id,
+            await jobDurabilityRepository.createStepHistory({
+              id: generatePrefixedId("sh"),
+              jobId: job.id,
               stepName,
-              0,
-              "skipped",
-              now,
-              now,
-              0,
-            );
+              attempt: 0,
+              status: "skipped",
+              startedAt: now,
+              completedAt: now,
+              durationMs: 0,
+            });
           } catch (_) {
             /* best-effort */
           }
@@ -4837,16 +4818,14 @@ async function startJobRunner({
         const stepHistoryId = generatePrefixedId("sh");
         const stepStartMs = Date.now();
         try {
-          await insertStepHistory.run(
-            stepHistoryId,
-            job.id,
+          await jobDurabilityRepository.createStepHistory({
+            id: stepHistoryId,
+            jobId: job.id,
             stepName,
-            (job.attempts || 0) + 1,
-            "running",
-            now,
-            null,
-            null,
-          );
+            attempt: (job.attempts || 0) + 1,
+            status: "running",
+            startedAt: now,
+          });
         } catch (_) {
           /* best-effort */
         }
@@ -4895,26 +4874,25 @@ async function startJobRunner({
           }
           const stepEndMs = Date.now();
           try {
-            await updateStepHistory.run(
-              "completed",
-              null,
-              new Date(stepEndMs).toISOString(),
-              stepEndMs - stepStartMs,
-              stepHistoryId,
-            );
+            await jobDurabilityRepository.finishStepHistory({
+              id: stepHistoryId,
+              status: "completed",
+              completedAt: new Date(stepEndMs).toISOString(),
+              durationMs: stepEndMs - stepStartMs,
+            });
           } catch (_) {
             /* best-effort */
           }
         } catch (err) {
           const stepEndMs = Date.now();
           try {
-            await updateStepHistory.run(
-              "failed",
-              err.message,
-              new Date(stepEndMs).toISOString(),
-              stepEndMs - stepStartMs,
-              stepHistoryId,
-            );
+            await jobDurabilityRepository.finishStepHistory({
+              id: stepHistoryId,
+              status: "failed",
+              errorMessage: err.message,
+              completedAt: new Date(stepEndMs).toISOString(),
+              durationMs: stepEndMs - stepStartMs,
+            });
           } catch (_) {
             /* best-effort */
           }

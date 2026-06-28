@@ -69,6 +69,54 @@ function createJobDurabilityRepository(db) {
     return changeCount(result);
   }
 
+  async function createStepHistory({
+    id,
+    jobId,
+    stepName,
+    attempt,
+    status,
+    startedAt,
+    completedAt = null,
+    durationMs = null,
+  }) {
+    return dbQuery(
+      db,
+      `INSERT INTO job_step_history (
+         id, job_id, step_name, attempt, status, started_at, completed_at, duration_ms
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, jobId, stepName, attempt, status, startedAt, completedAt, durationMs],
+    );
+  }
+
+  async function finishStepHistory({
+    id,
+    status,
+    errorMessage = null,
+    completedAt,
+    durationMs,
+  }) {
+    return dbQuery(
+      db,
+      "UPDATE job_step_history SET status = ?, error_message = ?, completed_at = ?, duration_ms = ? WHERE id = ?",
+      [status, errorMessage, completedAt, durationMs, id],
+    );
+  }
+
+  async function markOrphanedStepHistoryFailed({ completedAt }) {
+    const result = await dbQuery(
+      db,
+      `UPDATE job_step_history
+       SET status = 'failed',
+           error_message = 'Worker crashed',
+           completed_at = ?,
+           duration_ms = 0
+       WHERE status = 'running'
+         AND job_id IN (SELECT id FROM jobs WHERE status != 'running')`,
+      [completedAt],
+    );
+    return changeCount(result);
+  }
+
   async function getJobHealth(jobId) {
     const result = await dbQuery(
       db,
@@ -147,6 +195,9 @@ function createJobDurabilityRepository(db) {
     updateCheckpoint,
     updateHeartbeat,
     recoverStaleJobs,
+    createStepHistory,
+    finishStepHistory,
+    markOrphanedStepHistoryFailed,
     getJobHealth,
     findLatestFailedForVersion,
     findActiveForVersion,
