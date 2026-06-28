@@ -267,6 +267,167 @@ describe("admin demo-share routes", () => {
     });
   });
 
+  test("converts existing stale song demo shares and revokes song shares", async () => {
+    const track = await seedTrack(db, { id: "existing_song_demo" });
+    await db
+      .prepare(
+        `INSERT INTO share_tokens (
+          id, track_id, track_version_id, creator_id, status, share_type,
+          claim_pin, expires_at, web_stream_allowed, bound_device_id,
+          bound_device_platform, bound_app_version, bound_at, bound_user_id,
+          created_at
+        ) VALUES (
+          'existing_song_demo_share', ?, ?, ?, 'claimed', 'demo',
+          '123456', ?, 0, 'device_1', 'ios', '1.0.0', ?, 'bound_user', ?
+        )`,
+      )
+      .run(track.id, track.versionId, track.userId, NOW, NOW, NOW);
+
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/admin/dashboard/demo-shares",
+      headers: { Authorization: `Bearer ${adminToken}` },
+      payload: { resource_type: "song", resource_id: track.id },
+    });
+
+    assert.equal(createResponse.statusCode, 200, createResponse.body);
+    assert.deepEqual(createResponse.json(), {
+      success: true,
+      share_id: "existing_song_demo_share",
+      share_url: "http://public.local/play/existing_song_demo_share?web=1",
+      resource_type: "song",
+      resource_id: track.id,
+    });
+
+    assert.deepEqual(
+      await db
+        .prepare(
+          `SELECT status, share_type, claim_pin, expires_at, web_stream_allowed,
+                  bound_device_id, bound_device_platform, bound_app_version,
+                  bound_at, bound_user_id
+           FROM share_tokens WHERE id = ?`,
+        )
+        .get("existing_song_demo_share"),
+      {
+        status: "unbound",
+        share_type: "demo",
+        claim_pin: null,
+        expires_at: DEMO_EXPIRES_AT,
+        web_stream_allowed: 1,
+        bound_device_id: null,
+        bound_device_platform: null,
+        bound_app_version: null,
+        bound_at: null,
+        bound_user_id: null,
+      },
+    );
+
+    const createAudit = await db
+      .prepare(
+        "SELECT metadata_json FROM audit_logs WHERE action = 'admin_create_demo_share' AND resource_id = ?",
+      )
+      .get("existing_song_demo_share");
+    assert.deepEqual(JSON.parse(createAudit.metadata_json), {
+      actor: "admin",
+      admin_id: "adm_initial",
+      resource_type: "song",
+      resource_id: track.id,
+      action: "converted_existing",
+    });
+
+    const revokeResponse = await app.inject({
+      method: "POST",
+      url: "/admin/dashboard/demo-share/existing_song_demo_share/revoke",
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
+
+    assert.equal(revokeResponse.statusCode, 200, revokeResponse.body);
+    assert.deepEqual(revokeResponse.json(), { success: true, revoked: true });
+    assert.equal(
+      (
+        await db
+          .prepare("SELECT status FROM share_tokens WHERE id = ?")
+          .get("existing_song_demo_share")
+      ).status,
+      "revoked",
+    );
+
+    const revokeAudit = await db
+      .prepare(
+        "SELECT resource_type, resource_id, metadata_json FROM audit_logs WHERE action = 'admin_revoke_demo_share'",
+      )
+      .get();
+    assert.equal(revokeAudit.resource_type, "share_token");
+    assert.equal(revokeAudit.resource_id, "existing_song_demo_share");
+    assert.deepEqual(JSON.parse(revokeAudit.metadata_json), {
+      actor: "admin",
+      admin_id: "adm_initial",
+      resource_type: "song",
+      track_id: track.id,
+    });
+  });
+
+  test("converts existing stale poem demo shares without creating a new token", async () => {
+    const poem = await seedPoem(db, { id: "existing_poem_demo" });
+    await db
+      .prepare(
+        `INSERT INTO poem_share_tokens (
+          id, poem_id, creator_id, status, share_type, claim_pin,
+          bound_user_id, claim_attempts, expires_at, allow_save, created_at
+        ) VALUES (
+          'existing_poem_demo_share', ?, ?, 'claimed', 'demo', '654321',
+          'bound_poem_user', 4, ?, 1, ?
+        )`,
+      )
+      .run(poem.id, poem.userId, NOW, NOW);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/admin/dashboard/demo-shares",
+      headers: { Authorization: `Bearer ${adminToken}` },
+      payload: { resource_type: "poem", resource_id: poem.id },
+    });
+
+    assert.equal(response.statusCode, 200, response.body);
+    assert.deepEqual(response.json(), {
+      success: true,
+      share_id: "existing_poem_demo_share",
+      share_url: "http://public.local/poem/existing_poem_demo_share?web=1",
+      resource_type: "poem",
+      resource_id: poem.id,
+    });
+
+    assert.deepEqual(
+      await db
+        .prepare(
+          `SELECT status, share_type, claim_pin, bound_user_id, claim_attempts, expires_at
+           FROM poem_share_tokens WHERE id = ?`,
+        )
+        .get("existing_poem_demo_share"),
+      {
+        status: "active",
+        share_type: "demo",
+        claim_pin: null,
+        bound_user_id: null,
+        claim_attempts: 0,
+        expires_at: DEMO_EXPIRES_AT,
+      },
+    );
+
+    const audit = await db
+      .prepare(
+        "SELECT metadata_json FROM audit_logs WHERE action = 'admin_create_demo_share' AND resource_id = ?",
+      )
+      .get("existing_poem_demo_share");
+    assert.deepEqual(JSON.parse(audit.metadata_json), {
+      actor: "admin",
+      admin_id: "adm_initial",
+      resource_type: "poem",
+      resource_id: poem.id,
+      action: "converted_existing",
+    });
+  });
+
   test("blocks viewer admins from mutating demo shares", async () => {
     const track = await seedTrack(db, { id: "viewer_track" });
 
@@ -294,6 +455,16 @@ describe("admin demo-share routes", () => {
       payload: { resource_type: "video", resource_id: "anything" },
     });
     assert.equal(invalidType.statusCode, 400, invalidType.body);
+    assert.equal(invalidType.json().error, "INVALID_PARAMS");
+
+    const missingResourceId = await app.inject({
+      method: "POST",
+      url: "/admin/dashboard/demo-shares",
+      headers: { Authorization: `Bearer ${adminToken}` },
+      payload: { resource_type: "song" },
+    });
+    assert.equal(missingResourceId.statusCode, 400, missingResourceId.body);
+    assert.equal(missingResourceId.json().error, "INVALID_PARAMS");
 
     const missingSong = await app.inject({
       method: "POST",
@@ -302,6 +473,22 @@ describe("admin demo-share routes", () => {
       payload: { resource_type: "song", resource_id: "missing_track" },
     });
     assert.equal(missingSong.statusCode, 404, missingSong.body);
+    assert.equal(missingSong.json().error, "TRACK_NOT_FOUND");
+
+    const trackWithoutVersion = await seedTrack(db, {
+      id: "track_without_version",
+    });
+    await db
+      .prepare("DELETE FROM track_versions WHERE track_id = ?")
+      .run(trackWithoutVersion.id);
+    const noVersion = await app.inject({
+      method: "POST",
+      url: "/admin/dashboard/demo-shares",
+      headers: { Authorization: `Bearer ${adminToken}` },
+      payload: { resource_type: "song", resource_id: trackWithoutVersion.id },
+    });
+    assert.equal(noVersion.statusCode, 400, noVersion.body);
+    assert.equal(noVersion.json().error, "NO_VERSION");
 
     const missingShare = await app.inject({
       method: "POST",
@@ -309,5 +496,6 @@ describe("admin demo-share routes", () => {
       headers: { Authorization: `Bearer ${adminToken}` },
     });
     assert.equal(missingShare.statusCode, 404, missingShare.body);
+    assert.equal(missingShare.json().error, "DEMO_SHARE_NOT_FOUND");
   });
 });

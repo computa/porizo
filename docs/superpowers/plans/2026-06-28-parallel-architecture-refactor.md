@@ -64,9 +64,12 @@ Root 1 is complete only when that scan has no direct persistence hits outside co
 - Root 6 job-ops route split is committed as `fcd528cf`. The next Root 6 slice
   extracted admin feature-flag routes into `src/routes/admin/feature-flags.js`
   and added route-level coverage.
-- Next controller queue: commit the feature-flag route split, then extract the
-  demo-share route group before continuing one non-billing admin route group per
-  slice ahead of the billing/admin entitlement slice.
+- Root 6 feature-flag route split is committed as `415356ac`. The next Root 6
+  slice extracted admin demo-share routes into
+  `src/routes/admin/demo-shares.js` and expanded route-level characterization.
+- Next controller queue: commit the demo-share route split, then extract the
+  security observability/audit route group while leaving security config/App
+  Store sync and `/admin/auth/*` for separate, higher-risk slices.
 
 ## File Structure Map
 
@@ -1570,6 +1573,16 @@ Feature-flag route slice completed locally:
 - `test/admin-feature-flag-routes.test.js` pins the admin session gate,
   superadmin-only mutation, empty-body validation, service-level validation
   envelope, and successful persisted update behavior.
+
+Demo-share route slice completed locally:
+
+- `src/routes/admin/demo-shares.js` owns `/admin/dashboard/demo-shares`
+  GET/POST and `/admin/dashboard/demo-share/:id/revoke`.
+- `src/routes/admin.js` now registers the demo-share module instead of defining
+  those handlers inline.
+- `test/admin-demo-share-routes.test.js` now also pins stale existing song/poem
+  demo-share conversion, song revoke audit behavior, missing `resource_id`,
+  no-version errors, and concrete error envelopes.
 
 - [ ] **Step 3: Run admin validation**
 

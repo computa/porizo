@@ -1491,9 +1491,14 @@ failures remain broad 400s, and missing job step-history is indistinguishable
 from empty history. Admin feature-flag GET/PUT routes are also extracted locally
 into `src/routes/admin/feature-flags.js`, preserving the admin session gate,
 superadmin-only mutation gate, empty-body validation, service-level validation
-envelope, feature-flag cache behavior, and persisted update behavior. Remaining
-Root 6 work is the rest of the admin route/service split by concern, with
-billing/entitlement left last.
+envelope, feature-flag cache behavior, and persisted update behavior. Admin
+demo-share GET/POST/revoke routes are also extracted locally into
+`src/routes/admin/demo-shares.js`, preserving URL fallback behavior, fixed demo
+expiry, song/poem create and conversion flows, song-first revoke lookup, audit
+metadata, and role gates while expanding route characterization for conversion,
+no-version, missing-resource, and song-revoke cases. Remaining Root 6 work is
+the rest of the admin route/service split by concern, with billing/entitlement
+left last.
 **Boundary:** Do the `getAppConfig` eviction + non-billing splits first (🟡). Do the billing/entitlement admin slice **last** (⚠ 🔴) with production verification.
 
 ### Root 7 — Writer cycle + god-file decomposition 🟡 effort M
