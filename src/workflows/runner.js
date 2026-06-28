@@ -1104,37 +1104,18 @@ async function startJobRunner({
     halfOpenRequests: durabilityConfig.halfOpenRequests || 1,
   });
 
-  // Adapter for sync await db.prepare to async db.query interface (shared by DLQ and durability)
-  const asyncDbAdapter = {
-    async query(sql, params = []) {
-      const isSelect = sql.trim().toUpperCase().startsWith("SELECT");
-      const stmt = db.prepare(sql);
-      if (isSelect) {
-        const rows = params.length
-          ? await stmt.all(...params)
-          : await stmt.all();
-        return { rows };
-      } else {
-        const result = params.length
-          ? await stmt.run(...params)
-          : await stmt.run();
-        return { changes: result.changes, rowCount: result.changes };
-      }
-    },
-  };
-
   // DLQ service - lazily initialized
   let dlqService = null;
   const getDLQService = () => {
     if (!dlqService) {
-      dlqService = createDLQService(asyncDbAdapter);
+      dlqService = createDLQService(db);
     }
     return dlqService;
   };
 
   // Durability service for provider calls
   const durabilityService = createJobDurabilityService({
-    db: asyncDbAdapter,
+    db,
     circuitBreaker,
     dlq: getDLQService(),
   });
