@@ -14,6 +14,52 @@ function createTrackVersionRepository(db) {
     return runner(query).prepare("SELECT * FROM tracks WHERE id = ?").get(trackId);
   }
 
+  async function createTrack({
+    id,
+    userId,
+    status = "draft",
+    title = null,
+    occasion = null,
+    recipientName = null,
+    recipientPhone = null,
+    recipientChannel = null,
+    style = null,
+    durationTarget = 60,
+    voiceMode,
+    voiceGender = null,
+    message = null,
+    storyContextJson = null,
+    shareTokenId = null,
+    latestVersion = 0,
+    createdAt,
+    updatedAt,
+  }) {
+    return db
+      .prepare(
+        "INSERT INTO tracks (id, user_id, status, title, occasion, recipient_name, recipient_phone, recipient_channel, style, duration_target, voice_mode, voice_gender, message, story_context_json, share_token_id, latest_version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      )
+      .run(
+        id,
+        userId,
+        status,
+        title,
+        occasion,
+        recipientName,
+        recipientPhone,
+        recipientChannel,
+        style,
+        durationTarget,
+        voiceMode,
+        voiceGender,
+        message,
+        storyContextJson,
+        shareTokenId,
+        latestVersion,
+        createdAt,
+        updatedAt,
+      );
+  }
+
   async function findById(trackVersionId, query = null) {
     return runner(query)
       .prepare("SELECT * FROM track_versions WHERE id = ?")
@@ -38,6 +84,169 @@ function createTrackVersionRepository(db) {
     return db
       .prepare("SELECT * FROM track_versions WHERE track_id = ? ORDER BY version_num")
       .all(trackId);
+  }
+
+  async function updateTrackVoiceMode({ trackId, voiceMode, updatedAt }) {
+    return db
+      .prepare("UPDATE tracks SET voice_mode = ?, updated_at = ? WHERE id = ?")
+      .run(voiceMode, updatedAt, trackId);
+  }
+
+  async function updateTrackOgVariant({ trackId, ogVariant, updatedAt }) {
+    return db
+      .prepare("UPDATE tracks SET og_variant = ?, updated_at = ? WHERE id = ?")
+      .run(ogVariant, updatedAt, trackId);
+  }
+
+  async function updateTrackStatus({
+    trackId,
+    status,
+    updatedAt,
+    query = null,
+  }) {
+    return runner(query)
+      .prepare("UPDATE tracks SET status = ?, updated_at = ? WHERE id = ?")
+      .run(status, updatedAt, trackId);
+  }
+
+  async function updateStreamBaseUrl({ trackVersionId, streamBaseUrl }) {
+    return db
+      .prepare("UPDATE track_versions SET stream_base_url = ? WHERE id = ?")
+      .run(streamBaseUrl, trackVersionId);
+  }
+
+  function jobColumnForWorkflowType(workflowType) {
+    if (workflowType === "preview_render") {
+      return {
+        column: "preview_job_id",
+        readyStatus: "preview_ready",
+      };
+    }
+    if (workflowType === "full_render") {
+      return {
+        column: "full_job_id",
+        readyStatus: "full_ready",
+      };
+    }
+    throw new Error(`Unsupported render workflow type: ${workflowType}`);
+  }
+
+  async function linkRenderJobToVersion({
+    trackVersionId,
+    workflowType,
+    jobId,
+    query = null,
+  }) {
+    const { column } = jobColumnForWorkflowType(workflowType);
+    return runner(query)
+      .prepare(`UPDATE track_versions SET ${column} = ? WHERE id = ?`)
+      .run(jobId, trackVersionId);
+  }
+
+  async function markVersionProcessingForRender({
+    trackVersionId,
+    workflowType,
+    query,
+  }) {
+    const { readyStatus } = jobColumnForWorkflowType(workflowType);
+    return runner(query)
+      .prepare(
+        "UPDATE track_versions SET status = 'processing' WHERE id = ? AND status NOT IN ('processing', ?)",
+      )
+      .run(trackVersionId, readyStatus);
+  }
+
+  async function markSongEntitlementConsumed({
+    trackVersionId,
+    consumedAt,
+    query = null,
+  }) {
+    return runner(query)
+      .prepare(
+        "UPDATE track_versions SET song_entitlement_consumed_at = ? WHERE id = ?",
+      )
+      .run(consumedAt, trackVersionId);
+  }
+
+  async function insertRenderJobForVersion({
+    trackId,
+    trackVersionId,
+    jobId,
+    workflowType,
+    stepData = null,
+    createdAt,
+    query,
+  }) {
+    await updateTrackStatus({
+      trackId,
+      status: "rendering",
+      updatedAt: createdAt,
+      query,
+    });
+    await runner(query)
+      .prepare(
+        "INSERT INTO jobs (id, track_version_id, workflow_type, status, step, attempts, max_attempts, step_index, step_data, error_code, error_message, progress_pct, started_at, completed_at, last_heartbeat_at, external_task_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      )
+      .run(
+        jobId,
+        trackVersionId,
+        workflowType,
+        "queued",
+        "queued",
+        0,
+        3,
+        0,
+        stepData,
+        null,
+        null,
+        0,
+        null,
+        null,
+        null,
+        null,
+        createdAt,
+        createdAt,
+      );
+    await linkRenderJobToVersion({
+      trackVersionId,
+      workflowType,
+      jobId,
+      query,
+    });
+    return { jobId };
+  }
+
+  async function cancelActiveRender({
+    trackId,
+    trackVersionId,
+    jobId,
+    cancelledAt,
+  }) {
+    return db.transaction(async (query) => {
+      const txDb = createPreparedDbFromQuery(query, db);
+      const cancelResult = await txDb
+        .prepare(
+          "UPDATE jobs SET status = 'cancelled', completed_at = ?, error_code = 'USER_CANCELLED', error_message = 'Cancelled by user', updated_at = ? WHERE id = ? AND status IN ('queued','running')",
+        )
+        .run(cancelledAt, cancelledAt, jobId);
+
+      if (cancelResult.changes === 0) {
+        throw Object.assign(new Error("Job already finalized"), {
+          code: "NO_ACTIVE_RENDER",
+        });
+      }
+
+      await txDb
+        .prepare("UPDATE track_versions SET status = 'cancelled' WHERE id = ?")
+        .run(trackVersionId);
+      await updateTrackStatus({
+        trackId,
+        status: "draft",
+        updatedAt: cancelledAt,
+        query,
+      });
+      return { cancelled: true };
+    });
   }
 
   async function listLatestCoverVersionsForTracks(trackIds) {
@@ -138,14 +347,80 @@ function createTrackVersionRepository(db) {
     });
   }
 
+  async function updateDraftLyrics({
+    trackVersionId,
+    lyricsJson,
+    lyricsUpdatedAt,
+  }) {
+    return db
+      .prepare(
+        "UPDATE track_versions SET lyrics_json = ?, lyrics_status = ?, lyrics_updated_at = ? WHERE id = ?",
+      )
+      .run(lyricsJson, "draft", lyricsUpdatedAt, trackVersionId);
+  }
+
+  async function blockModeration({ trackVersionId, reason }) {
+    return db
+      .prepare(
+        "UPDATE track_versions SET moderation_status = ?, moderation_reason = ? WHERE id = ?",
+      )
+      .run("blocked", reason, trackVersionId);
+  }
+
+  async function updateGeneratedLyrics({
+    trackVersionId,
+    lyricsJson,
+    lyricsStatus,
+    lyricsUpdatedAt,
+    provenanceJson,
+  }) {
+    return db
+      .prepare(
+        "UPDATE track_versions SET lyrics_json = ?, lyrics_status = ?, lyrics_updated_at = ?, provenance_json = ? WHERE id = ?",
+      )
+      .run(
+        lyricsJson,
+        lyricsStatus,
+        lyricsUpdatedAt,
+        provenanceJson,
+        trackVersionId,
+      );
+  }
+
+  async function approveLyrics({
+    trackVersionId,
+    lyricsApprovedAt,
+    moderationStatus = "passed",
+  }) {
+    return db
+      .prepare(
+        "UPDATE track_versions SET lyrics_status = ?, lyrics_approved_at = ?, moderation_status = ? WHERE id = ?",
+      )
+      .run("approved", lyricsApprovedAt, moderationStatus, trackVersionId);
+  }
+
   return {
     findTrackById,
+    createTrack,
     findById,
     findDuplicateVersion,
     findByTrackIdAndVersion,
     listByTrackId,
+    updateTrackVoiceMode,
+    updateTrackOgVariant,
+    updateTrackStatus,
+    updateStreamBaseUrl,
+    linkRenderJobToVersion,
+    markVersionProcessingForRender,
+    markSongEntitlementConsumed,
+    insertRenderJobForVersion,
+    cancelActiveRender,
     listLatestCoverVersionsForTracks,
     createVersionWithNextNumber,
+    updateDraftLyrics,
+    blockModeration,
+    updateGeneratedLyrics,
+    approveLyrics,
   };
 }
 

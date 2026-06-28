@@ -84,6 +84,31 @@ function createTrackLibraryRepository(db) {
       .get(userId, userId, userId, trackId);
   }
 
+  async function getOwnedGiftTrackForLibrary({ userId, trackId }) {
+    return db
+      .prepare(
+        `SELECT t.*,
+              NULL AS library_origin,
+              NULL AS library_added_at,
+              NULL AS library_share_token_id,
+              st.claim_pin AS share_claim_pin,
+              st.expires_at AS share_expires_at,
+              st.status AS share_status,
+              1 AS can_edit,
+              1 AS can_share,
+              1 AS can_delete
+       FROM tracks t
+       LEFT JOIN share_tokens st
+         ON st.id = t.share_token_id
+        AND st.status NOT IN ('revoked', 'expired')
+       WHERE t.id = ?
+         AND t.user_id = ?
+         AND t.deleted_at IS NULL
+         AND COALESCE(t.funding_source, 'standard') = 'gift_token'`,
+      )
+      .get(trackId, userId);
+  }
+
   async function removeTrackFromLibrary({
     userId,
     trackId,
@@ -100,6 +125,7 @@ function createTrackLibraryRepository(db) {
     upsertTrackLibraryEntry,
     listTracksForUser,
     getTrackForLibrary,
+    getOwnedGiftTrackForLibrary,
     removeTrackFromLibrary,
   };
 }
