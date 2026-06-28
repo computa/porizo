@@ -1378,9 +1378,26 @@ pass), expanded render/persona/voice-routing validation passed (51 tests, 51
 pass), ready ordering tests passed (5 tests, 5 pass), syntax checks passed,
 `git diff --check` passed, and `npm run lint -- --quiet` passed.
 
-Next mapped Root 5 slice: extract the remaining `instrumental` and
-`instrumental_full` handlers as one family. This is now the only inline workflow
-step family left in `runner.js`.
+Slice 9 result: `src/workflows/steps/instrumental.js` now owns
+`instrumental` and `instrumental_full` behind one shared family runner. The
+extracted family injects contract guards, provider routing, policy preflight,
+provider audio URL/key helpers, provenance helpers, Suno polling/recovery
+callbacks, generic provider rendering, local fallback instrumental/guide-vocal
+renderers, and job task attachment from the runner. The slice deliberately keeps
+the closure-heavy Suno polling/recovery helpers in `runner.js` for a smaller
+follow-up cleanup, but no workflow step handlers remain inline in the runner.
+Direct tests cover preview cache reuse, missing lyrics for preview/full,
+personalized guard execution, Suno pending/success/recovery, generic provider
+task/provenance handling, changed/blocked policy preflight, and no-provider
+fallback generation. The provider-lock source scan now includes the extracted
+instrumental module and asserts that `runner.js` no longer defines inline
+instrumental handlers. Focused step/provider-lock tests passed (63 tests, 63
+pass), adjacent contract/DLQ/persona/hydration tests passed (45 tests, 45 pass),
+ready/MVP/classification tests passed (41 tests, 41 pass), endpoint/voice-routing
+tests passed (29 tests, 29 pass), and syntax checks passed.
+
+Next Root 5 cleanup candidate: extract the Suno polling/recovery helper pair out
+of `runner.js` now that the step handlers themselves are module-owned.
 
 - [ ] **Step 4: Commit each Root 5 slice**
 

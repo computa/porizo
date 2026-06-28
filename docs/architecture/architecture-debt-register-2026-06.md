@@ -1412,7 +1412,7 @@ across providers and runner.
 
 ### Root 5 — Runner step Registry 🔴 effort L
 
-**Execution status:** Slices 1-8 implemented and validated locally. Added
+**Execution status:** Slices 1-9 implemented and validated locally. Added
 `src/workflows/steps/index.js` with `createStepRegistry`, moved the CPU-only
 moderation handler into `src/workflows/steps/moderation.js`, and switched
 `runner.js` dispatch from object property lookup to `stepRegistry.get(stepName)`.
@@ -1446,11 +1446,16 @@ guide-vocal recovery, feature flags, storage provider, path helpers, and
 placeholder WAV generation while preserving the `_testing` hydration export.
 Direct tests pin provider-complete local WAV fallback, AI guide-vocal recovery,
 personalized Suno missing-stem failure, live missing-input failure, and non-live
-placeholder output. Instrumental is now the only workflow step family that
-intentionally remains in `runner.js` for the final Root 5 extraction slice.
-Direct step-factory tests, ready ordering/reroll validation, focused
-workflow/render endpoint validation, voice-routing validation, MVP flow, diff
-hygiene, and lint pass locally.
+placeholder output. `src/workflows/steps/instrumental.js` now owns
+`instrumental` and `instrumental_full` behind one shared family runner with
+runner-injected contract guards, provider routing, policy preflight, provider
+audio URL/key helpers, provenance helpers, Suno polling/recovery callbacks,
+generic provider rendering, local fallback instrumental/guide-vocal renderers,
+and job task attachment. No workflow step handlers remain inline in `runner.js`;
+the closure-heavy Suno polling/recovery helpers remain in the runner for a
+smaller follow-up extraction. Direct step-factory tests, ready ordering/reroll
+validation, focused workflow/render endpoint validation, voice-routing
+validation, MVP flow, diff hygiene, and lint pass locally.
 
 **Closes:** D2 (runner), D3 (instrumental/guide_vocal duplication), the 3-way idempotency inconsistency.
 **Scope:** Extract the 12 inline step handlers into `workflows/steps/*.js`, each `{name, run(ctx), shouldSkip(ctx)}`, registered in an ordered array; runner becomes a generic loop. Unify `instrumental`+`instrumental_full` and `guide_vocal`+`guide_vocal_full` (~860 lines of near-duplicate). Pick ONE canonical idempotency mechanism. Extract `pollOrSubmitSunoTask` (200 lines) and the error-classifier helpers.

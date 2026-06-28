@@ -123,6 +123,7 @@ describe("cross-provider fallback removal regression guard", () => {
   test("workflow render sources do not contain cross-provider fallback functions", () => {
     const workflowSources = [
       path.join(__dirname, "..", "..", "src", "workflows", "runner.js"),
+      path.join(__dirname, "..", "..", "src", "workflows", "steps", "instrumental.js"),
       path.join(__dirname, "..", "..", "src", "workflows", "steps", "mix.js"),
     ]
       .map((sourcePath) => fs.readFileSync(sourcePath, "utf-8"))
@@ -153,6 +154,16 @@ describe("cross-provider fallback removal regression guard", () => {
       mixSource.includes('path.join(versionDir, isFull ? "inst_full.wav" : "inst_preview.wav")'),
       "provider_complete_audio mix branch must accept local wav outputs"
     );
+  });
+
+  test("runner no longer defines inline instrumental handlers", () => {
+    const runnerSource = fs.readFileSync(
+      path.join(__dirname, "..", "..", "src", "workflows", "runner.js"),
+      "utf-8"
+    );
+
+    assert.equal(runnerSource.includes("instrumental: async"), false);
+    assert.equal(runnerSource.includes("instrumental_full: async"), false);
   });
 });
 
