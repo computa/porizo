@@ -1303,6 +1303,11 @@ and provider I/O families remain in `runner.js` for later, higher-risk slices.
 Post-slice workflow characterization passed (28 tests, 28 pass, 0 failures) and
 `npm run lint -- --quiet` passed.
 
+Slice 2 result: `src/workflows/steps/lyrics.js` now owns the lyrics handler and
+injects its generator, provenance, policy-sanitizer, and JSON helpers from the
+runner. Post-slice workflow characterization passed (28 tests, 28 pass, 0
+failures), syntax checks passed, and `npm run lint -- --quiet` passed.
+
 - [ ] **Step 4: Commit Root 5**
 
 Run:

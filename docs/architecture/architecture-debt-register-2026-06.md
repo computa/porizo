@@ -1412,10 +1412,12 @@ across providers and runner.
 
 ### Root 5 — Runner step Registry 🔴 effort L
 
-**Execution status:** Slice 1 implemented locally, pending commit. Added
+**Execution status:** Slices 1-2 implemented locally, pending commit. Added
 `src/workflows/steps/index.js` with `createStepRegistry`, moved the CPU-only
 moderation handler into `src/workflows/steps/moderation.js`, and switched
 `runner.js` dispatch from object property lookup to `stepRegistry.get(stepName)`.
+`src/workflows/steps/lyrics.js` now owns the lyrics generation handler with
+runner-injected generator, provenance, policy-sanitizer, and JSON helpers.
 Provider, personalized, mix, and ready families intentionally remain in
 `runner.js` for later higher-risk slices. Focused workflow characterization and
 lint pass locally.
