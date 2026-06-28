@@ -1372,6 +1372,11 @@ normalization, Suno model allowlisting, reroll clamps, and style override
 sanitation in `src/providers/provider-config.js`. `admin-service.js` and
 `runner.js` now consume the same helpers instead of duplicating parser and
 normalization logic.
+
+Slice 5 moves Whisper/OpenAI transcription credentials into normalized provider
+runtime config. Story audio routes and runner lyric alignment now pass explicit
+Whisper config, and `src/providers/whisper.js` no longer reads
+`process.env.OPENAI_API_KEY` directly.
 **Why early:** Mostly off the revenue path, contained, and the first slice (whisper/elevenlabs-voice retry) removes real render-failure risk for low effort.
 **Boundary:** Do NOT rewrite provider business logic; only normalize transport + path construction.
 

@@ -37,6 +37,10 @@ const {
 const { evaluatePoemReadiness } = require("../writer/v3/quality");
 const { transcribeAudio } = require("../providers/whisper");
 const {
+  createProviderRuntimeConfig,
+  createWhisperRuntimeConfig,
+} = require("../providers/provider-config");
+const {
   buildPlanningEnvelope,
   normalizePlanningOutput,
   buildBackendTaskEnvelope,
@@ -997,10 +1001,20 @@ function registerStoryRoutes(
     orchestrationExternalTimeoutMs = 120000,
     storyEngineDefault: _storyEngineDefault = "v3",
     generatePoemFromStory = defaultGeneratePoemFromStory,
+    providerConfig = null,
+    appConfig = {},
   },
 ) {
   const normalizedStoryEngineDefault = "v3";
   const storyRepository = createStoryRepository(db);
+  const storyProviderConfig =
+    providerConfig || createProviderRuntimeConfig(appConfig).providerConfig;
+  const transcriptionWhisperConfig = createWhisperRuntimeConfig(
+    storyProviderConfig,
+    {
+      timeoutMs: 60000,
+    },
+  );
 
   async function upsertTrackLibraryEntry({
     userId,
@@ -3484,7 +3498,10 @@ function registerStoryRoutes(
           size: audioBuffer.length,
           format: ext,
         });
-        transcription = await transcribeAudio(audioBuffer, { filename });
+        transcription = await transcribeAudio(audioBuffer, {
+          ...transcriptionWhisperConfig,
+          filename,
+        });
       } catch (err) {
         console.error("[Story Audio] Transcription failed:", {
           storyId,
@@ -3641,7 +3658,10 @@ function registerStoryRoutes(
         size: audioBuffer.length,
         format: ext,
       });
-      transcription = await transcribeAudio(audioBuffer, { filename });
+      transcription = await transcribeAudio(audioBuffer, {
+        ...transcriptionWhisperConfig,
+        filename,
+      });
     } catch (err) {
       console.error("[Audio Transcribe] Transcription failed:", {
         userId,

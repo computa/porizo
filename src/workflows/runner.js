@@ -28,6 +28,7 @@ const {
 } = require("../providers/music");
 const {
   MUSIC_PROVIDER_CONFIG_KEY,
+  createWhisperRuntimeConfig,
   normalizeMusicProviderConfig,
   parseMusicProviderConfigJson,
 } = require("../providers/provider-config");
@@ -1093,6 +1094,12 @@ async function startJobRunner({
   const deadLetterQueueRepository = createDeadLetterQueueRepository(db);
   const deviceRepository = createDeviceRepository(db);
   const eventsRepository = createEventsRepository(db);
+  const lyricsAlignmentWhisperConfig = createWhisperRuntimeConfig(
+    providerConfig,
+    {
+      timeoutMs: 120000,
+    },
+  );
   const jobDurabilityRepository = createJobDurabilityRepository(db);
   const trackVersionRepository = createTrackVersionRepository(db);
   const sunoPollIntervalSec = 10;
@@ -5121,7 +5128,11 @@ async function startJobRunner({
             );
             if (fs.existsSync(audioFile)) {
               const lyricsText = sectionsToText(sections);
-              const whisperResult = await alignLyrics(audioFile, lyricsText);
+              const whisperResult = await alignLyrics(
+                audioFile,
+                lyricsText,
+                lyricsAlignmentWhisperConfig,
+              );
               const enriched = alignSectionsToTimestamps(
                 sections,
                 whisperResult,

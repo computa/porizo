@@ -69,7 +69,7 @@ async function readWhisperErrorMessage(response) {
  * @param {string} [options.language] - ISO-639-1 language code (e.g., 'en', 'es'). Auto-detected if not provided
  * @param {string} [options.prompt] - Optional context hint to improve transcription accuracy
  * @param {string} [options.filename] - Filename with extension for format detection (default: 'audio.m4a')
- * @param {string} [options.apiKey] - OpenAI API key (falls back to OPENAI_API_KEY env var)
+ * @param {string} [options.apiKey] - OpenAI API key
  * @param {number} [options.timeoutMs] - Request timeout in milliseconds (default: 60000)
  * @returns {Promise<{text: string, language: string, duration: number|null}>}
  */
@@ -78,7 +78,7 @@ async function transcribeAudio(audioBuffer, options = {}) {
     language,
     prompt,
     filename = "audio.m4a",
-    apiKey = process.env.OPENAI_API_KEY,
+    apiKey,
     timeoutMs = 60000,
     retries = 2,
     retryDelayMs,
@@ -200,13 +200,13 @@ function getMimeType(ext) {
  * @param {string} audioPath - Path to the rendered audio file (m4a, mp3, wav)
  * @param {string} lyricsText - Plain text of the lyrics (used as Whisper prompt)
  * @param {Object} [options] - Options
- * @param {string} [options.apiKey] - OpenAI API key (falls back to OPENAI_API_KEY env var)
+ * @param {string} [options.apiKey] - OpenAI API key
  * @param {number} [options.timeoutMs] - Request timeout (default: 120000 for longer songs)
  * @returns {Promise<{segments: Array<{text: string, start: number, end: number}>, words: Array<{word: string, start: number, end: number}>}>}
  */
 async function alignLyrics(audioPath, lyricsText, options = {}) {
   const {
-    apiKey = process.env.OPENAI_API_KEY,
+    apiKey,
     timeoutMs = 120000,
     retries = 2,
     retryDelayMs,

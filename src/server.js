@@ -3478,6 +3478,8 @@ function buildServer({
     orchestrationExternalCommandJson,
     orchestrationExternalTimeoutMs,
     storyEngineDefault,
+    providerConfig: runtimeProviderConfig,
+    appConfig,
   });
 
   // ============ Analytics / Attribution ============

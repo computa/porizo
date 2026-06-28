@@ -177,6 +177,10 @@ function createProviderRuntimeConfig(appConfig = {}) {
   const replicateToken = appConfig.REPLICATE_API_TOKEN || "";
   const replicateModelVersion = appConfig.REPLICATE_MODEL_VERSION || "";
   const providerConfig = {
+    whisper: {
+      apiKey: appConfig.OPENAI_API_KEY || "",
+      timeoutMs: appConfig.WHISPER_TIMEOUT_MS || appConfig.PROVIDER_TIMEOUT_MS,
+    },
     elevenlabs: {
       // ElevenLabs remains available for TTS and voice conversion, but not music routing.
       live: false,
@@ -265,11 +269,22 @@ function createHealthCheckRuntimeConfig(providerConfig = {}, options = {}) {
   };
 }
 
+function createWhisperRuntimeConfig(providerConfig = {}, options = {}) {
+  const whisper = providerConfig.whisper || {};
+  return {
+    apiKey: whisper.apiKey || "",
+    timeoutMs: options.timeoutMs || whisper.timeoutMs,
+    retries: options.retries,
+    retryDelayMs: options.retryDelayMs,
+  };
+}
+
 module.exports = {
   applyMusicProviderConfigPatch,
   createHealthCheckRuntimeConfig,
   createProviderRuntimeConfig,
   createStorageRuntimeConfig,
+  createWhisperRuntimeConfig,
   ELEVENLABS_GENERATION_MODES,
   getDefaultMusicProviderConfig,
   isLiveProvidersEnabled,

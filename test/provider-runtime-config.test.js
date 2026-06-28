@@ -5,6 +5,7 @@ const {
   createHealthCheckRuntimeConfig,
   createProviderRuntimeConfig,
   createStorageRuntimeConfig,
+  createWhisperRuntimeConfig,
   isLiveProvidersEnabled,
   normalizeMusicProviderConfig,
   normalizeMusicProvider,
@@ -39,6 +40,8 @@ describe("Provider runtime config factory", () => {
       DEMUCS_SEPARATION_MODEL: "htdemucs_ft",
       DEMUCS_SHIFTS: 3,
       HF_TOKEN: "hf-token",
+      OPENAI_API_KEY: "openai-key",
+      WHISPER_TIMEOUT_MS: 4321,
       MUSIC_PROVIDER: "elevenlabs",
     });
 
@@ -51,6 +54,8 @@ describe("Provider runtime config factory", () => {
     assert.equal(providerConfig.replicate.demucsModel, "htdemucs_ft");
     assert.equal(providerConfig.replicate.demucsShifts, 3);
     assert.equal(providerConfig.hfToken, "hf-token");
+    assert.equal(providerConfig.whisper.apiKey, "openai-key");
+    assert.equal(providerConfig.whisper.timeoutMs, 4321);
     assert.deepEqual(providerStatus, {
       elevenlabs: false,
       suno: true,
@@ -237,6 +242,25 @@ describe("Provider runtime config factory", () => {
     });
 
     assert.equal(createHealthCheckRuntimeConfig(providerConfig).replicateToken, "");
+  });
+
+  test("derives Whisper call config from normalized provider config", () => {
+    const { providerConfig } = createProviderRuntimeConfig({
+      OPENAI_API_KEY: "openai-key",
+      WHISPER_TIMEOUT_MS: 4321,
+    });
+
+    assert.deepEqual(createWhisperRuntimeConfig(providerConfig), {
+      apiKey: "openai-key",
+      timeoutMs: 4321,
+      retries: undefined,
+      retryDelayMs: undefined,
+    });
+    assert.equal(
+      createWhisperRuntimeConfig(providerConfig, { timeoutMs: 120000 })
+        .timeoutMs,
+      120000,
+    );
   });
 
   test("passes storage credentials through one shared boot-path shape", () => {
