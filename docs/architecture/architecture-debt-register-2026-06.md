@@ -1520,6 +1520,10 @@ poem-share filters, reset/revoke envelopes, role gates, and audit behavior.
 Admin webhook-health route ownership is also extracted locally into
 `src/routes/admin/webhook-health.js`, preserving the admin session gate and
 the existing service/repository health envelope.
+Admin growth/attribution route ownership is also extracted locally into
+`src/routes/admin/growth.js`, preserving attribution, Apple Ads keyword map,
+teaser, share-growth, validation, and admin audit behavior covered by the
+existing growth/attribution suites.
 Security config/App Store sync and `/admin/auth/*` remain separate higher-risk
 slices. Remaining Root 6 work is the rest of the admin route/service split by
 concern, with billing/entitlement left last.

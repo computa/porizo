@@ -86,8 +86,11 @@ Root 1 is complete only when that scan has no direct persistence hits outside co
 - Root 6 share-management route split is committed as `622fee95`. The next
   Root 6 slice extracted admin webhook-health into
   `src/routes/admin/webhook-health.js`.
-- Next controller queue: commit the webhook-health route split, then continue
-  with another non-billing admin group. Security config/App Store sync needs
+- Root 6 webhook-health route split is committed as `48e020ee`. The next Root
+  6 slice extracted admin growth/attribution routes into
+  `src/routes/admin/growth.js`.
+- Next controller queue: commit the growth route split, then continue with
+  another non-billing admin group. Security config/App Store sync needs
   route characterization first; billing/entitlements remain last.
 
 ## File Structure Map
@@ -1654,6 +1657,15 @@ Webhook-health route slice completed locally:
 - `src/routes/admin.js` now registers the webhook-health module alongside the
   other Root 6 admin route groups.
 - Existing webhook-health route/repository coverage remains green.
+
+Growth route slice completed locally:
+
+- `src/routes/admin/growth.js` owns growth attribution, Apple Ads keyword map,
+  teaser metrics, and share-growth metrics routes.
+- `src/routes/admin.js` now registers the growth module alongside the other
+  Root 6 admin route groups.
+- Existing growth metrics, growth repository, and attribution route coverage
+  remains green.
 
 - [ ] **Step 3: Run admin validation**
 
