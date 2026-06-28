@@ -125,13 +125,13 @@ If `git check-ignore -q .worktrees` exits non-zero, patch `.gitignore` with:
 Create worker worktrees from `refactor`:
 
 ```bash
-git worktree add .worktrees/root1-sharing -b refactor/root1-sharing-20260628 refactor
-git worktree add .worktrees/root1-tracks -b refactor/root1-tracks-20260628 refactor
-git worktree add .worktrees/root1-poems -b refactor/root1-poems-20260628 refactor
-git worktree add .worktrees/root1-story -b refactor/root1-story-20260628 refactor
-git worktree add .worktrees/root1-enrollment-small -b refactor/root1-enrollment-small-20260628 refactor
-git worktree add .worktrees/root1-billing -b refactor/root1-billing-20260628 refactor
-git worktree add .worktrees/root1-runner -b refactor/root1-runner-20260628 refactor
+git worktree add .worktrees/root1-sharing -b refactor-root1-sharing-20260628 refactor
+git worktree add .worktrees/root1-tracks -b refactor-root1-tracks-20260628 refactor
+git worktree add .worktrees/root1-poems -b refactor-root1-poems-20260628 refactor
+git worktree add .worktrees/root1-story -b refactor-root1-story-20260628 refactor
+git worktree add .worktrees/root1-enrollment-small -b refactor-root1-enrollment-small-20260628 refactor
+git worktree add .worktrees/root1-billing -b refactor-root1-billing-20260628 refactor
+git worktree add .worktrees/root1-runner -b refactor-root1-runner-20260628 refactor
 ```
 
 Expected: each command prints `Preparing worktree` and `HEAD is now at 43d8d9dd` or the current controller commit after the ignore commit.
@@ -188,9 +188,9 @@ Expected: one commit with only `.gitignore` changed.
 Run:
 
 ```bash
-git worktree add .worktrees/root1-sharing -b refactor/root1-sharing-20260628 refactor
-git worktree add .worktrees/root1-tracks -b refactor/root1-tracks-20260628 refactor
-git worktree add .worktrees/root1-poems -b refactor/root1-poems-20260628 refactor
+git worktree add .worktrees/root1-sharing -b refactor-root1-sharing-20260628 refactor
+git worktree add .worktrees/root1-tracks -b refactor-root1-tracks-20260628 refactor
+git worktree add .worktrees/root1-poems -b refactor-root1-poems-20260628 refactor
 ```
 
 Expected: three worktrees exist and each branch starts from the current `refactor` commit.
@@ -209,7 +209,7 @@ Expected: counts remain concentrated in `src/routes/sharing.js`, `src/routes/tra
 
 **Owner:** Worker Agent A  
 **Worktree:** `.worktrees/root1-sharing`  
-**Branch:** `refactor/root1-sharing-20260628`
+**Branch:** `refactor-root1-sharing-20260628`
 
 **Files:**
 - Modify: `src/routes/sharing.js`
@@ -307,7 +307,7 @@ Expected: worker reports commit SHA, files changed, tests run, direct persistenc
 
 **Owner:** Worker Agent B  
 **Worktree:** `.worktrees/root1-tracks`  
-**Branch:** `refactor/root1-tracks-20260628`
+**Branch:** `refactor-root1-tracks-20260628`
 
 **Files:**
 - Modify: `src/routes/tracks.js`
@@ -391,7 +391,7 @@ Expected: worker reports commit SHA, files changed, tests run, and remaining `tr
 
 **Owner:** Worker Agent C  
 **Worktree:** `.worktrees/root1-poems`  
-**Branch:** `refactor/root1-poems-20260628`
+**Branch:** `refactor-root1-poems-20260628`
 
 **Files:**
 - Modify: `src/routes/poems.js`
@@ -487,9 +487,9 @@ Expected: no Wave 1 worker remains open after result processing.
 Run for each branch:
 
 ```bash
-git diff --stat refactor...refactor/root1-sharing-20260628
-git diff --stat refactor...refactor/root1-tracks-20260628
-git diff --stat refactor...refactor/root1-poems-20260628
+git diff --stat refactor...refactor-root1-sharing-20260628
+git diff --stat refactor...refactor-root1-tracks-20260628
+git diff --stat refactor...refactor-root1-poems-20260628
 ```
 
 Expected: each branch touches only its assigned files.
@@ -499,9 +499,9 @@ Expected: each branch touches only its assigned files.
 Run:
 
 ```bash
-git merge --no-ff refactor/root1-sharing-20260628 -m "merge: root1 sharing repository extraction"
-git merge --no-ff refactor/root1-tracks-20260628 -m "merge: root1 track repository extraction"
-git merge --no-ff refactor/root1-poems-20260628 -m "merge: root1 poem repository extraction"
+git merge --no-ff refactor-root1-sharing-20260628 -m "merge: root1 sharing repository extraction"
+git merge --no-ff refactor-root1-tracks-20260628 -m "merge: root1 track repository extraction"
+git merge --no-ff refactor-root1-poems-20260628 -m "merge: root1 poem repository extraction"
 ```
 
 Expected: merges either apply cleanly or produce confined conflicts in repository files. Resolve conflicts by preserving repository methods and route behavior.
@@ -540,7 +540,7 @@ Expected: commit is skipped if the merge commits already include the exact docs 
 
 **Owner:** Worker Agent D  
 **Worktree:** `.worktrees/root1-story`  
-**Branch:** `refactor/root1-story-20260628`
+**Branch:** `refactor-root1-story-20260628`
 
 **Files:**
 - Modify: `src/routes/story.js`
@@ -555,7 +555,7 @@ Expected: commit is skipped if the merge commits already include the exact docs 
 Run:
 
 ```bash
-git worktree add .worktrees/root1-story -b refactor/root1-story-20260628 refactor
+git worktree add .worktrees/root1-story -b refactor-root1-story-20260628 refactor
 ```
 
 Expected: worktree exists from current `refactor`.
@@ -605,7 +605,7 @@ Expected: worker reports commit SHA, files changed, tests run, and remaining `st
 
 **Owner:** Worker Agent E  
 **Worktree:** `.worktrees/root1-enrollment-small`  
-**Branch:** `refactor/root1-enrollment-small-20260628`
+**Branch:** `refactor-root1-enrollment-small-20260628`
 
 **Files:**
 - Modify: `src/routes/enrollment.js`
@@ -624,7 +624,7 @@ Expected: worker reports commit SHA, files changed, tests run, and remaining `st
 Run:
 
 ```bash
-git worktree add .worktrees/root1-enrollment-small -b refactor/root1-enrollment-small-20260628 refactor
+git worktree add .worktrees/root1-enrollment-small -b refactor-root1-enrollment-small-20260628 refactor
 ```
 
 Expected: worktree exists from current `refactor`.
@@ -698,7 +698,7 @@ Expected: worker reports commit SHA, files changed, tests run, and any deferred 
 
 **Owner:** Worker Agent F  
 **Worktree:** `.worktrees/root1-billing`  
-**Branch:** `refactor/root1-billing-20260628`
+**Branch:** `refactor-root1-billing-20260628`
 
 **Files:**
 - Modify: `src/routes/billing.js`
@@ -716,7 +716,7 @@ Expected: worker reports commit SHA, files changed, tests run, and any deferred 
 Run:
 
 ```bash
-git worktree add .worktrees/root1-billing -b refactor/root1-billing-20260628 refactor
+git worktree add .worktrees/root1-billing -b refactor-root1-billing-20260628 refactor
 ```
 
 Expected: worktree exists from current `refactor`.
@@ -816,9 +816,9 @@ Expected: no Wave 2 worker remains open after result processing.
 Run:
 
 ```bash
-git diff --stat refactor...refactor/root1-story-20260628
-git diff --stat refactor...refactor/root1-enrollment-small-20260628
-git diff --stat refactor...refactor/root1-billing-20260628
+git diff --stat refactor...refactor-root1-story-20260628
+git diff --stat refactor...refactor-root1-enrollment-small-20260628
+git diff --stat refactor...refactor-root1-billing-20260628
 ```
 
 Expected: each branch touches only assigned files.
@@ -828,9 +828,9 @@ Expected: each branch touches only assigned files.
 Run:
 
 ```bash
-git merge --no-ff refactor/root1-story-20260628 -m "merge: root1 story repository extraction"
-git merge --no-ff refactor/root1-enrollment-small-20260628 -m "merge: root1 small persistence extraction"
-git merge --no-ff refactor/root1-billing-20260628 -m "merge: root1 subscription repository extraction"
+git merge --no-ff refactor-root1-story-20260628 -m "merge: root1 story repository extraction"
+git merge --no-ff refactor-root1-enrollment-small-20260628 -m "merge: root1 small persistence extraction"
+git merge --no-ff refactor-root1-billing-20260628 -m "merge: root1 subscription repository extraction"
 ```
 
 Expected: merges either apply cleanly or produce confined conflicts in repository files. Resolve conflicts by preserving repository ownership and route behavior.
@@ -858,7 +858,7 @@ Wave 2 repository extraction moved additional story, enrollment, artwork-job, ad
 
 **Owner:** Worker Agent G  
 **Worktree:** `.worktrees/root1-runner`  
-**Branch:** `refactor/root1-runner-20260628`
+**Branch:** `refactor-root1-runner-20260628`
 
 **Files:**
 - Modify: `src/workflows/runner.js`
@@ -877,7 +877,7 @@ Wave 2 repository extraction moved additional story, enrollment, artwork-job, ad
 Run:
 
 ```bash
-git worktree add .worktrees/root1-runner -b refactor/root1-runner-20260628 refactor
+git worktree add .worktrees/root1-runner -b refactor-root1-runner-20260628 refactor
 ```
 
 Expected: worktree exists from current `refactor`.
@@ -932,7 +932,7 @@ Expected: worker reports commit SHA, files changed, tests run, and remaining run
 **Owner:** Controller
 
 **Files:**
-- Merge: `refactor/root1-runner-20260628`
+- Merge: `refactor-root1-runner-20260628`
 - Update: `docs/architecture/architecture-debt-register-2026-06.md`
 - Update: `docs/architecture/architecture-map-2026-06.md`
 
@@ -947,7 +947,7 @@ Expected: Agent G is closed and no worker remains open.
 Run:
 
 ```bash
-git merge --no-ff refactor/root1-runner-20260628 -m "merge: root1 workflow runner repository extraction"
+git merge --no-ff refactor-root1-runner-20260628 -m "merge: root1 workflow runner repository extraction"
 ```
 
 Expected: merge applies or produces conflicts confined to `src/workflows/runner.js` and repository files.
@@ -1619,4 +1619,4 @@ Use `superpowers:finishing-a-development-branch`. Present Ambrose the standard c
 
 - Spec coverage: the plan covers Root 1 termination, Root 2 auth/rate-limit consolidation, C2 documentation, Root 3b gift extraction, Root 5 runner registry, Root 6 admin/client-config split, Root 7 writer split, Root 8 cleanup, Root 9 migrations, Root 10 storage/OpenAPI, and Root 11 cross-surface create-flow alignment.
 - Placeholder scan: the plan uses concrete files, commands, expected outputs, worker assignments, and repository code patterns. Any worker that finds an unmapped query must stop with `NEEDS_CONTEXT` instead of guessing ownership.
-- Type consistency: repository factories follow the existing `createXRepository(db)` CommonJS pattern; route wiring uses local `buildXRepositories(db)` helpers; worker branches use date-stamped `refactor/root1-*-20260628` names.
+- Type consistency: repository factories follow the existing `createXRepository(db)` CommonJS pattern; route wiring uses local `buildXRepositories(db)` helpers; worker branches use date-stamped `refactor-root1-*-20260628` names.
