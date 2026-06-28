@@ -26,8 +26,12 @@ const {
   renderGuideVocal,
   renderWithProvider,
 } = require("../providers/music");
+const {
+  MUSIC_PROVIDER_CONFIG_KEY,
+  normalizeMusicProviderConfig,
+  parseMusicProviderConfigJson,
+} = require("../providers/provider-config");
 const { resolveMusicProvider } = require("../providers/provider-style-routing");
-const { sanitizeStyleOverrides } = require("../providers/style-registry");
 const {
   submitSunoTask,
   pollSunoTaskOnce,
@@ -1668,21 +1672,12 @@ async function startJobRunner({
       return cachedMusicRoutingConfig;
     }
 
-    const envDefaultProvider = providerConfig.suno?.live
-      ? "suno"
-      : providerConfig.elevenlabs?.live
-        ? "elevenlabs"
-        : config.MUSIC_PROVIDER || "suno";
-    const fallback = {
-      default_provider: envDefaultProvider,
-      suno_model: config.SUNO_MODEL || "V5",
-      auto_style_routing: true,
-      elevenlabs_generation_mode: "composition_plan",
-      auto_reroll_enabled: true,
-      quality_threshold: 72,
-      max_rerolls: 1,
-      style_overrides: {},
-    };
+    const fallback = normalizeMusicProviderConfig(
+      {},
+      {
+        sunoModel: config.SUNO_MODEL,
+      },
+    );
 
     let value = fallback;
     // U8: persona feature flags fold into the cached routing config to avoid
@@ -1713,31 +1708,19 @@ async function startJobRunner({
     }
     try {
       const row = await appConfigRepository.findConfigValue(
-        "music_provider_config",
+        MUSIC_PROVIDER_CONFIG_KEY,
       );
-      if (row?.value_json) {
-        const parsed = parseJson(row.value_json, {}, "music_provider_config");
-        const parsedMaxRerolls = Number(parsed?.max_rerolls);
-        value = {
-          default_provider: "suno", // ElevenLabs removed from music generation pipeline
-          suno_model:
-            parsed?.suno_model === "V4_5" ||
-            parsed?.suno_model === "V5" ||
-            parsed?.suno_model === "V5_5"
-              ? parsed.suno_model
-              : fallback.suno_model,
-          auto_style_routing: parsed?.auto_style_routing !== false,
-          elevenlabs_generation_mode:
-            parsed?.elevenlabs_generation_mode === "compose_detailed"
-              ? "compose_detailed"
-              : "composition_plan",
-          auto_reroll_enabled: parsed?.auto_reroll_enabled !== false,
-          quality_threshold: clampNumber(parsed?.quality_threshold, 0, 100, 72),
-          max_rerolls: Number.isInteger(parsedMaxRerolls)
-            ? Math.max(0, Math.min(3, parsedMaxRerolls))
-            : 1,
-          style_overrides: sanitizeStyleOverrides(parsed?.style_overrides),
-        };
+      if (row) {
+        const parsed = parseMusicProviderConfigJson(row.value_json, {
+          fallback,
+        });
+        if (parsed.parseError) {
+          console.warn(
+            "[JobRunner] Invalid music_provider_config JSON, using normalized fallback:",
+            parsed.parseError.message,
+          );
+        }
+        value = parsed.config;
       }
     } catch (err) {
       console.warn(

@@ -56,7 +56,12 @@ const {
 const { createEventsRepository } = require("../database/events-repository");
 const { createAppStoreConnectService } = require("./app-store-connect-service");
 const { AttributionService } = require("./attribution-service");
-const { sanitizeStyleOverrides } = require("../providers/style-registry");
+const {
+  applyMusicProviderConfigPatch,
+  MUSIC_PROVIDER_CONFIG_KEY,
+  normalizeMusicProviderConfig,
+  parseMusicProviderConfigJson,
+} = require("../providers/provider-config");
 
 /**
  * Escape SQL LIKE wildcards to prevent pattern injection
@@ -2116,57 +2121,28 @@ class AdminService {
    * Controls runtime default provider and auto style routing behavior.
    */
   async getMusicProviderConfig() {
-    const row = await this.appConfigRepository.findConfigValue("music_provider_config");
-
-    const defaults = {
-      default_provider: "suno",
-      suno_model: "V5",
-      auto_style_routing: true,
-      elevenlabs_generation_mode: "composition_plan",
-      auto_reroll_enabled: true,
-      quality_threshold: 72,
-      max_rerolls: 1,
-      style_overrides: {},
-      updated_at: null,
-      updated_by: null,
-    };
+    const row = await this.appConfigRepository.findConfigValue(
+      MUSIC_PROVIDER_CONFIG_KEY,
+    );
 
     if (!row) {
-      return defaults;
+      return normalizeMusicProviderConfig(
+        {},
+        {
+          includeMetadata: true,
+        },
+      );
     }
 
-    try {
-      const parsed = JSON.parse(row.value_json || "{}");
-      return {
-        default_provider: "suno",
-        suno_model:
-          parsed.suno_model === "V4_5" || parsed.suno_model === "V5" || parsed.suno_model === "V5_5"
-            ? parsed.suno_model
-            : defaults.suno_model,
-        auto_style_routing: parsed.auto_style_routing !== false,
-        elevenlabs_generation_mode:
-          parsed.elevenlabs_generation_mode === "compose_detailed"
-            ? "compose_detailed"
-            : "composition_plan",
-        auto_reroll_enabled: parsed.auto_reroll_enabled !== false,
-        quality_threshold: Number.isFinite(Number(parsed.quality_threshold))
-          ? Math.max(0, Math.min(100, Number(parsed.quality_threshold)))
-          : defaults.quality_threshold,
-        max_rerolls: Number.isInteger(Number(parsed.max_rerolls))
-          ? Math.max(0, Math.min(3, Number(parsed.max_rerolls)))
-          : defaults.max_rerolls,
-        style_overrides: sanitizeStyleOverrides(parsed.style_overrides),
-        updated_at: row.updated_at || null,
-        updated_by: row.updated_by || null,
-      };
-    } catch (err) {
+    const parsed = parseMusicProviderConfigJson(row.value_json, {
+      includeMetadata: true,
+      updatedAt: row.updated_at || null,
+      updatedBy: row.updated_by || null,
+    });
+    if (parsed.parseError) {
       console.warn("[AdminService] Invalid music_provider_config JSON, using defaults");
-      return {
-        ...defaults,
-        updated_at: row.updated_at || null,
-        updated_by: row.updated_by || null,
-      };
     }
+    return parsed.config;
   }
 
   /**
@@ -2178,78 +2154,14 @@ class AdminService {
    * @param {string} adminId - Admin user ID for audit
    */
   async setMusicProviderConfig(config, adminId) {
-    const validSunoModels = ["V4_5", "V5", "V5_5"];
-    const validModes = ["composition_plan", "compose_detailed"];
     const existing = await this.getMusicProviderConfig();
-    const next = {
-      default_provider: existing.default_provider,
-      suno_model: existing.suno_model,
-      auto_style_routing: existing.auto_style_routing,
-      elevenlabs_generation_mode: existing.elevenlabs_generation_mode,
-      auto_reroll_enabled: existing.auto_reroll_enabled,
-      quality_threshold: existing.quality_threshold,
-      max_rerolls: existing.max_rerolls,
-      style_overrides: existing.style_overrides,
-    };
-
-    if (Object.prototype.hasOwnProperty.call(config, "default_provider")) {
-      if (config.default_provider !== "suno") {
-        throw new Error("default_provider must be suno; ElevenLabs no longer handles song generation");
-      }
-      next.default_provider = "suno";
-    }
-    if (Object.prototype.hasOwnProperty.call(config, "suno_model")) {
-      if (!validSunoModels.includes(config.suno_model)) {
-        throw new Error("suno_model must be one of: V4_5, V5, V5_5");
-      }
-      next.suno_model = config.suno_model;
-    }
-    if (Object.prototype.hasOwnProperty.call(config, "auto_style_routing")) {
-      if (typeof config.auto_style_routing !== "boolean") {
-        throw new Error("auto_style_routing must be boolean");
-      }
-      next.auto_style_routing = config.auto_style_routing;
-    }
-    if (Object.prototype.hasOwnProperty.call(config, "elevenlabs_generation_mode")) {
-      if (!validModes.includes(config.elevenlabs_generation_mode)) {
-        throw new Error(
-          "elevenlabs_generation_mode must be one of: composition_plan, compose_detailed"
-        );
-      }
-      next.elevenlabs_generation_mode = config.elevenlabs_generation_mode;
-    }
-    if (Object.prototype.hasOwnProperty.call(config, "auto_reroll_enabled")) {
-      if (typeof config.auto_reroll_enabled !== "boolean") {
-        throw new Error("auto_reroll_enabled must be boolean");
-      }
-      next.auto_reroll_enabled = config.auto_reroll_enabled;
-    }
-    if (Object.prototype.hasOwnProperty.call(config, "quality_threshold")) {
-      const threshold = Number(config.quality_threshold);
-      if (!Number.isFinite(threshold)) {
-        throw new Error("quality_threshold must be a number between 0 and 100");
-      }
-      next.quality_threshold = Math.max(0, Math.min(100, threshold));
-    }
-    if (Object.prototype.hasOwnProperty.call(config, "max_rerolls")) {
-      const maxRerolls = Number(config.max_rerolls);
-      if (!Number.isInteger(maxRerolls) || maxRerolls < 0 || maxRerolls > 3) {
-        throw new Error("max_rerolls must be an integer between 0 and 3");
-      }
-      next.max_rerolls = maxRerolls;
-    }
-    if (Object.prototype.hasOwnProperty.call(config, "style_overrides")) {
-      if (config.style_overrides !== null && typeof config.style_overrides !== "object") {
-        throw new Error("style_overrides must be an object map");
-      }
-      next.style_overrides = sanitizeStyleOverrides(config.style_overrides || {});
-    }
+    const next = applyMusicProviderConfigPatch(existing, config);
 
     const now = new Date().toISOString();
     const newConfig = next;
 
     await this.appConfigRepository.upsertConfigValue({
-      key: "music_provider_config",
+      key: MUSIC_PROVIDER_CONFIG_KEY,
       valueJson: JSON.stringify(newConfig),
       updatedAt: now,
       updatedBy: adminId,

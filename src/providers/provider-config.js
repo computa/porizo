@@ -1,9 +1,174 @@
+const { sanitizeStyleOverrides } = require("./style-registry");
+const { clampNumber } = require("../utils/common");
+
+const MUSIC_PROVIDER_CONFIG_KEY = "music_provider_config";
+const SUNO_MODELS = Object.freeze(["V4_5", "V5", "V5_5"]);
+const ELEVENLABS_GENERATION_MODES = Object.freeze([
+  "composition_plan",
+  "compose_detailed",
+]);
+
 function isLiveProvidersEnabled(appConfig = {}) {
   return Boolean(appConfig.LIVE_PROVIDERS) && !appConfig.DEV_MODE;
 }
 
 function normalizeMusicProvider(_value) {
   return "suno";
+}
+
+function normalizeSunoModel(value, fallback = "V5") {
+  return SUNO_MODELS.includes(value) ? value : fallback;
+}
+
+function normalizeElevenLabsGenerationMode(value) {
+  return value === "compose_detailed" ? "compose_detailed" : "composition_plan";
+}
+
+function getDefaultMusicProviderConfig(options = {}) {
+  const result = {
+    default_provider: "suno",
+    suno_model: normalizeSunoModel(options.sunoModel, "V5"),
+    auto_style_routing: true,
+    elevenlabs_generation_mode: "composition_plan",
+    auto_reroll_enabled: true,
+    quality_threshold: 72,
+    max_rerolls: 1,
+    style_overrides: {},
+  };
+
+  if (options.includeMetadata) {
+    result.updated_at = options.updatedAt || null;
+    result.updated_by = options.updatedBy || null;
+  }
+
+  return result;
+}
+
+function normalizeMusicProviderConfig(rawConfig = {}, options = {}) {
+  const raw =
+    rawConfig && typeof rawConfig === "object" && !Array.isArray(rawConfig)
+      ? rawConfig
+      : {};
+  const fallback = {
+    ...getDefaultMusicProviderConfig({
+      sunoModel: options.sunoModel,
+    }),
+    ...(options.fallback || {}),
+  };
+  const maxRerolls = Number(raw.max_rerolls);
+  const normalized = {
+    default_provider: "suno",
+    suno_model: normalizeSunoModel(raw.suno_model, fallback.suno_model),
+    auto_style_routing: raw.auto_style_routing !== false,
+    elevenlabs_generation_mode: normalizeElevenLabsGenerationMode(
+      raw.elevenlabs_generation_mode,
+    ),
+    auto_reroll_enabled: raw.auto_reroll_enabled !== false,
+    quality_threshold: clampNumber(
+      raw.quality_threshold,
+      0,
+      100,
+      fallback.quality_threshold,
+    ),
+    max_rerolls: Number.isInteger(maxRerolls)
+      ? Math.max(0, Math.min(3, maxRerolls))
+      : fallback.max_rerolls,
+    style_overrides: sanitizeStyleOverrides(raw.style_overrides),
+  };
+
+  if (options.includeMetadata) {
+    normalized.updated_at = options.updatedAt || null;
+    normalized.updated_by = options.updatedBy || null;
+  }
+
+  return normalized;
+}
+
+function applyMusicProviderConfigPatch(existingConfig = {}, patch = {}) {
+  const next = normalizeMusicProviderConfig(existingConfig);
+
+  if (Object.prototype.hasOwnProperty.call(patch, "default_provider")) {
+    if (patch.default_provider !== "suno") {
+      throw new Error(
+        "default_provider must be suno; ElevenLabs no longer handles song generation",
+      );
+    }
+    next.default_provider = "suno";
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, "suno_model")) {
+    if (!SUNO_MODELS.includes(patch.suno_model)) {
+      throw new Error("suno_model must be one of: V4_5, V5, V5_5");
+    }
+    next.suno_model = patch.suno_model;
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, "auto_style_routing")) {
+    if (typeof patch.auto_style_routing !== "boolean") {
+      throw new Error("auto_style_routing must be boolean");
+    }
+    next.auto_style_routing = patch.auto_style_routing;
+  }
+  if (
+    Object.prototype.hasOwnProperty.call(patch, "elevenlabs_generation_mode")
+  ) {
+    if (!ELEVENLABS_GENERATION_MODES.includes(patch.elevenlabs_generation_mode)) {
+      throw new Error(
+        "elevenlabs_generation_mode must be one of: composition_plan, compose_detailed",
+      );
+    }
+    next.elevenlabs_generation_mode = patch.elevenlabs_generation_mode;
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, "auto_reroll_enabled")) {
+    if (typeof patch.auto_reroll_enabled !== "boolean") {
+      throw new Error("auto_reroll_enabled must be boolean");
+    }
+    next.auto_reroll_enabled = patch.auto_reroll_enabled;
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, "quality_threshold")) {
+    const threshold = Number(patch.quality_threshold);
+    if (!Number.isFinite(threshold)) {
+      throw new Error("quality_threshold must be a number between 0 and 100");
+    }
+    next.quality_threshold = Math.max(0, Math.min(100, threshold));
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, "max_rerolls")) {
+    const maxRerolls = Number(patch.max_rerolls);
+    if (!Number.isInteger(maxRerolls) || maxRerolls < 0 || maxRerolls > 3) {
+      throw new Error("max_rerolls must be an integer between 0 and 3");
+    }
+    next.max_rerolls = maxRerolls;
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, "style_overrides")) {
+    if (
+      patch.style_overrides !== null &&
+      typeof patch.style_overrides !== "object"
+    ) {
+      throw new Error("style_overrides must be an object map");
+    }
+    next.style_overrides = sanitizeStyleOverrides(patch.style_overrides || {});
+  }
+
+  return next;
+}
+
+function parseMusicProviderConfigJson(valueJson, options = {}) {
+  if (!valueJson) {
+    return {
+      config: normalizeMusicProviderConfig({}, options),
+      parseError: null,
+    };
+  }
+
+  try {
+    return {
+      config: normalizeMusicProviderConfig(JSON.parse(valueJson), options),
+      parseError: null,
+    };
+  } catch (err) {
+    return {
+      config: normalizeMusicProviderConfig({}, options),
+      parseError: err,
+    };
+  }
 }
 
 function createProviderRuntimeConfig(appConfig = {}) {
@@ -101,9 +266,16 @@ function createHealthCheckRuntimeConfig(providerConfig = {}, options = {}) {
 }
 
 module.exports = {
+  applyMusicProviderConfigPatch,
   createHealthCheckRuntimeConfig,
   createProviderRuntimeConfig,
   createStorageRuntimeConfig,
+  ELEVENLABS_GENERATION_MODES,
+  getDefaultMusicProviderConfig,
   isLiveProvidersEnabled,
+  MUSIC_PROVIDER_CONFIG_KEY,
+  normalizeMusicProviderConfig,
   normalizeMusicProvider,
+  parseMusicProviderConfigJson,
+  SUNO_MODELS,
 };

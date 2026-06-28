@@ -1363,8 +1363,15 @@ Slice 3 routes `/health/providers` through the same normalized provider config
 factory instead of rebuilding health-check config from ambient env. It also pins
 the route's admin role guard so valid admin access cannot hide a 500 behind a
 loose auth assertion. Remaining provider debt stays out of this slice: runtime
-DB `music_provider_config` parsing still lives in the runner/admin paths, and
-LLM/Whisper modules still read env directly.
+DB `music_provider_config` parser unification, and LLM/Whisper modules still
+read env directly.
+
+Slice 4 centralizes `music_provider_config` defaults, JSON parsing, lenient
+persisted-read normalization, strict admin patch validation, Suno-only routing
+normalization, Suno model allowlisting, reroll clamps, and style override
+sanitation in `src/providers/provider-config.js`. `admin-service.js` and
+`runner.js` now consume the same helpers instead of duplicating parser and
+normalization logic.
 **Why early:** Mostly off the revenue path, contained, and the first slice (whisper/elevenlabs-voice retry) removes real render-failure risk for low effort.
 **Boundary:** Do NOT rewrite provider business logic; only normalize transport + path construction.
 

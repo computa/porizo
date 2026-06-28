@@ -1,11 +1,14 @@
 const assert = require("node:assert/strict");
 const { describe, test } = require("node:test");
 const {
+  applyMusicProviderConfigPatch,
   createHealthCheckRuntimeConfig,
   createProviderRuntimeConfig,
   createStorageRuntimeConfig,
   isLiveProvidersEnabled,
+  normalizeMusicProviderConfig,
   normalizeMusicProvider,
+  parseMusicProviderConfigJson,
 } = require("../src/providers/provider-config");
 
 describe("Provider runtime config factory", () => {
@@ -61,6 +64,113 @@ describe("Provider runtime config factory", () => {
     assert.equal(normalizeMusicProvider("elevenlabs"), "suno");
     assert.equal(normalizeMusicProvider("suno"), "suno");
     assert.equal(normalizeMusicProvider(null), "suno");
+  });
+
+  test("normalizes persisted music provider config through one Suno-only policy", () => {
+    const normalized = normalizeMusicProviderConfig(
+      {
+        default_provider: "elevenlabs",
+        suno_model: "V6",
+        auto_style_routing: false,
+        elevenlabs_generation_mode: "compose_detailed",
+        auto_reroll_enabled: false,
+        quality_threshold: 120,
+        max_rerolls: 10,
+        style_overrides: {
+          "  Ogene  ": {
+            elevenlabs: {
+              support: "strong",
+              instruction_override: "  lock to ogene bells  ",
+            },
+          },
+        },
+      },
+      {
+        fallback: {
+          suno_model: "V5_5",
+          quality_threshold: 72,
+          max_rerolls: 1,
+        },
+      },
+    );
+
+    assert.equal(normalized.default_provider, "suno");
+    assert.equal(normalized.suno_model, "V5_5");
+    assert.equal(normalized.auto_style_routing, false);
+    assert.equal(normalized.elevenlabs_generation_mode, "compose_detailed");
+    assert.equal(normalized.auto_reroll_enabled, false);
+    assert.equal(normalized.quality_threshold, 100);
+    assert.equal(normalized.max_rerolls, 3);
+    assert.equal(
+      normalized.style_overrides.ogene.elevenlabs.instruction_override,
+      "lock to ogene bells",
+    );
+  });
+
+  test("validates music provider config patches before persistence", () => {
+    assert.deepEqual(
+      applyMusicProviderConfigPatch(
+        {
+          default_provider: "suno",
+          suno_model: "V5",
+          auto_style_routing: true,
+          elevenlabs_generation_mode: "composition_plan",
+          auto_reroll_enabled: true,
+          quality_threshold: 72,
+          max_rerolls: 1,
+          style_overrides: {},
+        },
+        {
+          suno_model: "V5_5",
+          quality_threshold: 81,
+          max_rerolls: 2,
+        },
+      ),
+      {
+        default_provider: "suno",
+        suno_model: "V5_5",
+        auto_style_routing: true,
+        elevenlabs_generation_mode: "composition_plan",
+        auto_reroll_enabled: true,
+        quality_threshold: 81,
+        max_rerolls: 2,
+        style_overrides: {},
+      },
+    );
+
+    assert.throws(
+      () =>
+        applyMusicProviderConfigPatch(
+          { default_provider: "suno" },
+          { default_provider: "elevenlabs" },
+        ),
+      /default_provider must be suno/,
+    );
+  });
+
+  test("parses persisted music provider config JSON with normalized fallback", () => {
+    const parsed = parseMusicProviderConfigJson(
+      JSON.stringify({
+        suno_model: "V4_5",
+        quality_threshold: 80,
+      }),
+    );
+
+    assert.equal(parsed.parseError, null);
+    assert.equal(parsed.config.suno_model, "V4_5");
+    assert.equal(parsed.config.quality_threshold, 80);
+
+    const invalid = parseMusicProviderConfigJson("{not-json", {
+      fallback: {
+        suno_model: "V5_5",
+        quality_threshold: 72,
+        max_rerolls: 1,
+      },
+    });
+
+    assert.ok(invalid.parseError);
+    assert.equal(invalid.config.suno_model, "V5_5");
+    assert.equal(invalid.config.quality_threshold, 72);
   });
 
   test("requires both Replicate token and model version before enabling Replicate", () => {
