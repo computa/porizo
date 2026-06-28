@@ -1596,18 +1596,21 @@ decomposition/service-boundary cleanup, not route-handler extraction.
 **Status 2026-06-29:** In progress. Completed code-first slices:
 `songwriter/prompt-budget.js`, `song-contract.js`,
 `v3/quality/poem-readiness.js`, `v3/quality/question-targeting.js`,
-`v3/quality/labov-gap-analysis.js`, `v3/semantic-story-package.js`,
-`v3/runtime-questions.js`, `v3/ready-confirmation.js`,
-`v3/turn-decision.js`, shared V3 `splitSentences` in `v3/utils.js`, and shared
-writer `factText` through `story-semantics.js`. The songwriter↔v3
+`v3/quality/labov-gap-analysis.js`, `v3/quality/slot-gap-model.js`,
+`v3/quality/story-gap-analysis.js`, `v3/semantic-story-package.js`,
+`v3/runtime-questions.js`, `v3/ready-confirmation.js`, `v3/turn-decision.js`,
+shared V3 `splitSentences` in `v3/utils.js`, and shared writer `factText`
+through `story-semantics.js`. The songwriter↔v3
 contract-validation cycle is now gone; `v3/index.js` imports contract validation
 from the leaf module instead of lazy-requiring `songwriter.js`; deterministic
 semantic story package repair, runtime question helpers, and ready-confirmation
 text are also out of the god file, and `resolveTurnDecision` now lives in
-`v3/turn-decision.js` with its canonical result assembler. Focused V3/writer
-validation and lint passed for each slice. Remaining Root 7 work: extract the
-remaining legacy slot-analysis cluster from `quality.js` and add the later
-test-file parity coverage for shared sanitizer/leaf helpers.
+`v3/turn-decision.js` with its canonical result assembler. Legacy slot-gap
+policy and story gap analysis are now out of `quality.js`, leaving it as an
+866-line compatibility facade over leaf modules. Focused V3/writer validation
+and lint passed for each slice. Remaining Root 7 work: add the later test-file
+parity coverage for shared sanitizer/leaf helpers, then run a cleanup/review
+pass for any now-dead imports or docs.
 **Boundary:** Do NOT alter LLM prompts or generation behavior — structural extraction only, with golden-output regression tests before/after.
 
 ---
