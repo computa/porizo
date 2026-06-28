@@ -83,7 +83,10 @@ Root 1 is complete only when that scan has no direct persistence hits outside co
 - Root 6 user mutation route split is committed as `4fa5065b`. The next Root 6
   slice extracted admin song/poem share-management routes into
   `src/routes/admin/shares.js`.
-- Next controller queue: commit the share-management route split, then continue
+- Root 6 share-management route split is committed as `622fee95`. The next
+  Root 6 slice extracted admin webhook-health into
+  `src/routes/admin/webhook-health.js`.
+- Next controller queue: commit the webhook-health route split, then continue
   with another non-billing admin group. Security config/App Store sync needs
   route characterization first; billing/entitlements remain last.
 
@@ -1643,6 +1646,14 @@ Share-management route slice completed locally:
 - `src/routes/admin.js` now registers the share-management module before gift
   operations.
 - Existing share route/repository coverage remains green.
+
+Webhook-health route slice completed locally:
+
+- `src/routes/admin/webhook-health.js` owns
+  `/admin/dashboard/webhooks/health`.
+- `src/routes/admin.js` now registers the webhook-health module alongside the
+  other Root 6 admin route groups.
+- Existing webhook-health route/repository coverage remains green.
 
 - [ ] **Step 3: Run admin validation**
 

@@ -58,6 +58,9 @@ const { registerAdminShareRoutes } = require("./admin/shares");
 const {
   registerAdminStorySessionRoutes,
 } = require("./admin/story-sessions");
+const {
+  registerAdminWebhookHealthRoutes,
+} = require("./admin/webhook-health");
 const { registerAdminUserReadRoutes } = require("./admin/users-read");
 const {
   registerAdminUserSessionControlRoutes,
@@ -1499,6 +1502,10 @@ function registerAdminRoutes(
     requireAdminSession,
     sendError,
   });
+  registerAdminWebhookHealthRoutes(app, {
+    adminService,
+    requireAdminSession,
+  });
 
   // --- Gift Operations ---
 
@@ -2083,13 +2090,6 @@ function registerAdminRoutes(
       offset,
     });
     reply.send({ transactions });
-  });
-
-  app.get("/admin/dashboard/webhooks/health", async (request, reply) => {
-    const admin = await requireAdminSession(request, reply);
-    if (!admin) return;
-    const health = await adminService.getWebhookHealth();
-    reply.send(health);
   });
 
   // --- Growth & Attribution ---
