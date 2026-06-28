@@ -94,8 +94,12 @@ Root 1 is complete only when that scan has no direct persistence hits outside co
 - Root 6 KPI route split is committed as `480c104a`. The next Root 6 slice
   extracted admin funnel analytics routes into
   `src/routes/admin/analytics.js`.
-- Next controller queue: commit the analytics route split, then continue with
-  another non-billing admin group. Security config/App Store sync needs
+- Root 6 analytics route split is committed as `d83ae6da`. The next Root 6
+  slice moved attribution health into the existing
+  `src/routes/admin/growth.js` boundary.
+- Next controller queue: commit the attribution-health follow-up, then continue
+  with another characterized non-billing admin group. Provider/queue controls
+  need route characterization first. Security config/App Store sync needs
   route characterization first; billing/entitlements remain last.
 
 ## File Structure Map
@@ -1687,6 +1691,12 @@ Analytics route slice completed locally:
 - The route-level comment documenting cache and audit behavior moved with the
   analytics routes.
 - Existing admin analytics route and service boundary coverage remains green.
+
+Attribution-health route follow-up completed locally:
+
+- `src/routes/admin/growth.js` also owns
+  `/admin/dashboard/attribution/health`.
+- Existing attribution and growth route coverage remains green.
 
 - [ ] **Step 3: Run admin validation**
 

@@ -1531,6 +1531,9 @@ Admin analytics route ownership is also extracted locally into
 `src/routes/admin/analytics.js`, preserving overview, funnel, daily event,
 per-user read, cache, clamp, and audit-log behavior covered by the existing
 analytics suite.
+The attribution health route is also folded into the growth/attribution route
+module, removing the last inline attribution-health route from `admin.js` while
+preserving the existing Apple Ads and download health contract.
 Security config/App Store sync and `/admin/auth/*` remain separate higher-risk
 slices. Remaining Root 6 work is the rest of the admin route/service split by
 concern, with billing/entitlement left last.

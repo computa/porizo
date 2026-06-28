@@ -4,6 +4,13 @@ function registerAdminGrowthRoutes(
   app,
   { adminService, requireAdminSession, sendError },
 ) {
+  app.get("/admin/dashboard/attribution/health", async (request, reply) => {
+    const admin = await requireAdminSession(request, reply);
+    if (!admin) return;
+    const health = await adminService.getAttributionHealth();
+    reply.send(health);
+  });
+
   app.get("/admin/dashboard/growth/attribution", async (request, reply) => {
     const admin = await requireAdminSession(request, reply);
     if (!admin) return;
