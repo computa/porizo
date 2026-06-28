@@ -2,10 +2,7 @@ const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const { getKeyForPath } = require("./kms");
-
-function ensureDir(dirPath) {
-  fs.mkdirSync(dirPath, { recursive: true });
-}
+const { ensureDir } = require("../utils/common");
 
 function normalizeBaseUrl(baseUrl) {
   if (!baseUrl) return "";

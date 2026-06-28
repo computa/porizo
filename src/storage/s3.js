@@ -2,10 +2,7 @@ const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const { getKeyForPath, getS3EncryptionHeaders } = require("./kms");
-
-function ensureDir(dirPath) {
-  fs.mkdirSync(dirPath, { recursive: true });
-}
+const { ensureDir } = require("../utils/common");
 
 function hashSha256(value) {
   return crypto.createHash("sha256").update(value).digest("hex");

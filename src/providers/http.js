@@ -2,10 +2,7 @@ const fs = require("fs");
 const path = require("path");
 const { Readable } = require("stream");
 const { pipeline } = require("stream/promises");
-
-function ensureDir(dirPath) {
-  fs.mkdirSync(dirPath, { recursive: true });
-}
+const { ensureDir } = require("../utils/common");
 
 async function withTimeout(promise, timeoutMs) {
   let timeoutId;

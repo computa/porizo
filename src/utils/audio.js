@@ -1,9 +1,6 @@
 const fs = require("fs");
 const path = require("path");
-
-function ensureDir(dirPath) {
-  fs.mkdirSync(dirPath, { recursive: true });
-}
+const { ensureDir } = require("./common");
 
 /**
  * Parse WAV file to extract format info and data location.
