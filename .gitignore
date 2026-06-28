@@ -118,6 +118,9 @@ admin/admin/
 PorizoApp/PorizoApp/PorizoApp/
 .gstack/
 
+# Local Superpowers/Codex worker worktrees
+.worktrees/
+
 # Skills tool lockfile (per-machine state)
 skills-lock.json
 
