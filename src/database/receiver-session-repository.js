@@ -1,5 +1,7 @@
 "use strict";
 
+const { dbGet, dbRun } = require("../utils/db-adapter");
+
 function createReceiverSessionRepository(db) {
   function normalizeRunResult(result) {
     const changes = Number(result?.changes ?? result?.rowCount ?? 0);
@@ -12,15 +14,17 @@ function createReceiverSessionRepository(db) {
   }
 
   async function findSessionById(sessionId) {
-    return db.prepare("SELECT * FROM receiver_sessions WHERE id = ?").get(sessionId);
+    return dbGet(db, "SELECT * FROM receiver_sessions WHERE id = ?", [
+      sessionId,
+    ]);
   }
 
   async function countEventsForSession(sessionId) {
-    const row = await db
-      .prepare(
-        "SELECT COUNT(*) AS count FROM receiver_session_events WHERE receiver_session_id = ?",
-      )
-      .get(sessionId);
+    const row = await dbGet(
+      db,
+      "SELECT COUNT(*) AS count FROM receiver_session_events WHERE receiver_session_id = ?",
+      [sessionId],
+    );
     return Number(row?.count || 0);
   }
 
@@ -31,9 +35,9 @@ function createReceiverSessionRepository(db) {
     sessionId,
     previousHandoffId,
   }) {
-    return db
-      .prepare(
-        `UPDATE receiver_sessions
+    return dbRun(
+      db,
+      `UPDATE receiver_sessions
         SET receiver_handoff_id = ?, handoff_expires_at = ?, handoff_resolved_at = NULL, updated_at = ?
         WHERE id = ?
           AND receiver_handoff_id = ?
@@ -41,8 +45,15 @@ function createReceiverSessionRepository(db) {
             handoff_resolved_at IS NOT NULL
             OR (handoff_expires_at IS NOT NULL AND handoff_expires_at < ?)
           )`,
-      )
-      .run(receiverHandoffId, handoffExpiresAt, now, sessionId, previousHandoffId, now);
+      [
+        receiverHandoffId,
+        handoffExpiresAt,
+        now,
+        sessionId,
+        previousHandoffId,
+        now,
+      ],
+    );
   }
 
   async function createSession({
@@ -57,13 +68,12 @@ function createReceiverSessionRepository(db) {
     userAgent,
     now,
   }) {
-    return db
-      .prepare(
-        `INSERT INTO receiver_sessions
+    return dbRun(
+      db,
+      `INSERT INTO receiver_sessions
         (id, share_id, content_kind, receiver_handoff_id, receiver_session_secret_hash, handoff_expires_at, first_event_name, last_event_name, first_ip_address, last_ip_address, first_user_agent, last_user_agent, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
+      [
         sessionId,
         shareId,
         contentKind,
@@ -78,7 +88,8 @@ function createReceiverSessionRepository(db) {
         userAgent || null,
         now,
         now,
-      );
+      ],
+    );
   }
 
   async function updateSessionLastEvent({
@@ -88,13 +99,13 @@ function createReceiverSessionRepository(db) {
     userAgent,
     now,
   }) {
-    return db
-      .prepare(
-        `UPDATE receiver_sessions
+    return dbRun(
+      db,
+      `UPDATE receiver_sessions
         SET last_event_name = ?, last_ip_address = ?, last_user_agent = ?, updated_at = ?
         WHERE id = ?`,
-      )
-      .run(eventName, ip || null, userAgent || null, now, sessionId);
+      [eventName, ip || null, userAgent || null, now, sessionId],
+    );
   }
 
   async function createEvent({
@@ -107,13 +118,12 @@ function createReceiverSessionRepository(db) {
     userAgent,
     now,
   }) {
-    return db
-      .prepare(
-        `INSERT INTO receiver_session_events
+    return dbRun(
+      db,
+      `INSERT INTO receiver_session_events
       (id, receiver_session_id, share_id, event_name, metadata_json, ip_address, user_agent, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
+      [
         eventId,
         receiverSessionId,
         shareId,
@@ -122,31 +132,34 @@ function createReceiverSessionRepository(db) {
         ip || null,
         userAgent || null,
         now,
-      );
+      ],
+    );
   }
 
   async function findHandoff(handoffId) {
-    return db
-      .prepare(
-        `SELECT id, share_id, content_kind, handoff_expires_at, handoff_resolved_at
+    return dbGet(
+      db,
+      `SELECT id, share_id, content_kind, handoff_expires_at, handoff_resolved_at
       FROM receiver_sessions
       WHERE receiver_handoff_id = ?`,
-      )
-      .get(handoffId);
+      [handoffId],
+    );
   }
 
   async function consumeHandoff(handoffId, now) {
-    return db
-      .prepare(
-        "UPDATE receiver_sessions SET handoff_resolved_at = ?, updated_at = ? WHERE receiver_handoff_id = ? AND handoff_resolved_at IS NULL",
-      )
-      .run(now, now, handoffId);
+    return dbRun(
+      db,
+      "UPDATE receiver_sessions SET handoff_resolved_at = ?, updated_at = ? WHERE receiver_handoff_id = ? AND handoff_resolved_at IS NULL",
+      [now, now, handoffId],
+    );
   }
 
   async function setMatchedUser({ sessionId, userId, now }) {
-    return db
-      .prepare("UPDATE receiver_sessions SET matched_user_id = ?, updated_at = ? WHERE id = ?")
-      .run(userId, now, sessionId);
+    return dbRun(
+      db,
+      "UPDATE receiver_sessions SET matched_user_id = ?, updated_at = ? WHERE id = ?",
+      [userId, now, sessionId],
+    );
   }
 
   async function setReceiverClaimToken({
@@ -156,13 +169,13 @@ function createReceiverSessionRepository(db) {
     claimTokenExpiresAt,
     now,
   }) {
-    return db
-      .prepare(
-        `UPDATE receiver_sessions
+    return dbRun(
+      db,
+      `UPDATE receiver_sessions
       SET receiver_claim_token_hash = ?, claim_token_expires_at = ?, updated_at = ?
       WHERE id = ? AND share_id = ?`,
-      )
-      .run(claimTokenHash, claimTokenExpiresAt, now, sessionId, shareId);
+      [claimTokenHash, claimTokenExpiresAt, now, sessionId, shareId],
+    );
   }
 
   async function createReceiverClaimToken({
@@ -173,63 +186,70 @@ function createReceiverSessionRepository(db) {
     expiresAt,
     now,
   }) {
-    return db
-      .prepare(
-        `INSERT INTO receiver_claim_tokens
+    return dbRun(
+      db,
+      `INSERT INTO receiver_claim_tokens
       (token_hash, receiver_session_id, share_id, content_kind, expires_at, created_at)
       VALUES (?, ?, ?, ?, ?, ?)`,
-      )
-      .run(claimTokenHash, receiverSessionId, shareId, contentKind, expiresAt, now);
+      [
+        claimTokenHash,
+        receiverSessionId,
+        shareId,
+        contentKind,
+        expiresAt,
+        now,
+      ],
+    );
   }
 
   async function findReceiverClaimToken(claimTokenHash) {
-    return db
-      .prepare(
-        `SELECT receiver_session_id, share_id, content_kind, expires_at, consumed_at
+    return dbGet(
+      db,
+      `SELECT receiver_session_id, share_id, content_kind, expires_at, consumed_at
       FROM receiver_claim_tokens
       WHERE token_hash = ?`,
-      )
-      .get(claimTokenHash);
+      [claimTokenHash],
+    );
   }
 
   async function findSessionClaimToken(claimTokenHash) {
-    return db
-      .prepare(
-        `SELECT id, share_id, content_kind, claim_token_expires_at
+    return dbGet(
+      db,
+      `SELECT id, share_id, content_kind, claim_token_expires_at
       FROM receiver_sessions
       WHERE receiver_claim_token_hash = ?`,
-      )
-      .get(claimTokenHash);
+      [claimTokenHash],
+    );
   }
 
   async function findUnconsumedReceiverClaimToken(claimTokenHash) {
-    return db
-      .prepare(
-        `SELECT receiver_session_id
+    return dbGet(
+      db,
+      `SELECT receiver_session_id
       FROM receiver_claim_tokens
       WHERE token_hash = ? AND consumed_at IS NULL`,
-      )
-      .get(claimTokenHash);
+      [claimTokenHash],
+    );
   }
 
   async function consumeReceiverClaimToken(claimTokenHash, now) {
-    return db
-      .prepare(
-        `UPDATE receiver_claim_tokens
+    return dbRun(
+      db,
+      `UPDATE receiver_claim_tokens
       SET consumed_at = ?
       WHERE token_hash = ? AND consumed_at IS NULL`,
-      )
-      .run(now, claimTokenHash);
+      [now, claimTokenHash],
+    );
   }
 
   async function markHandoffResolvedIfUnset({ receiverSessionId, now }) {
-    return db
-      .prepare(
-        `UPDATE receiver_sessions
+    return dbRun(
+      db,
+      `UPDATE receiver_sessions
       SET handoff_resolved_at = COALESCE(handoff_resolved_at, ?), updated_at = ?
       WHERE id = ?`,
-      )
-      .run(now, now, receiverSessionId);
+      [now, now, receiverSessionId],
+    );
   }
 
   async function markDownloadAttributedByHandoff({
@@ -237,17 +257,17 @@ function createReceiverSessionRepository(db) {
     receiverHandoffId,
     now,
   }) {
-    const result = await db
-      .prepare(
-        `UPDATE receiver_sessions
+    const result = await dbRun(
+      db,
+      `UPDATE receiver_sessions
       SET download_attributed_at = ?, updated_at = ?
       WHERE id = ?
         AND receiver_handoff_id = ?
         AND handoff_resolved_at IS NULL
         AND (handoff_expires_at IS NULL OR handoff_expires_at > ?)
         AND download_attributed_at IS NULL`,
-      )
-      .run(now, now, receiverSessionId, receiverHandoffId, now);
+      [now, now, receiverSessionId, receiverHandoffId, now],
+    );
     return normalizeRunResult(result);
   }
 
@@ -257,9 +277,9 @@ function createReceiverSessionRepository(db) {
     cutoff,
     now,
   }) {
-    const result = await db
-      .prepare(
-        `UPDATE receiver_sessions
+    const result = await dbRun(
+      db,
+      `UPDATE receiver_sessions
       SET matched_user_id = ?, updated_at = ?
       WHERE id = (
         SELECT id
@@ -270,8 +290,8 @@ function createReceiverSessionRepository(db) {
         ORDER BY updated_at DESC LIMIT 1
       )
         AND matched_user_id IS NULL`,
-      )
-      .run(userId, now, clientIp, clientIp, cutoff);
+      [userId, now, clientIp, clientIp, cutoff],
+    );
     return normalizeRunResult(result);
   }
 

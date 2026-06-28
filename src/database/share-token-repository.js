@@ -2,6 +2,7 @@
 
 const {
   createPreparedDbFromQuery,
+  dbAll,
   dbGet,
   dbRun,
 } = require("../utils/db-adapter");
@@ -41,6 +42,186 @@ function createShareTokenRepository(db) {
 
   async function getPoemShareTokenById(id) {
     return dbGet(db, "SELECT * FROM poem_share_tokens WHERE id = ?", [id]);
+  }
+
+  async function getTrackById(id) {
+    return dbGet(db, "SELECT * FROM tracks WHERE id = ?", [id]);
+  }
+
+  async function getTrackVersionById(id) {
+    return dbGet(db, "SELECT * FROM track_versions WHERE id = ?", [id]);
+  }
+
+  async function getShareTrackPair({ trackId, trackVersionId }) {
+    const track = trackId ? await getTrackById(trackId) : null;
+    const trackVersion = trackVersionId
+      ? await getTrackVersionById(trackVersionId)
+      : null;
+    return { track, trackVersion };
+  }
+
+  async function getGiftOrderSendAt(giftOrderId) {
+    return dbGet(db, "SELECT send_at FROM gift_orders WHERE id = ?", [
+      giftOrderId,
+    ]);
+  }
+
+  async function getGiftOrderSenderSummary(giftOrderId) {
+    return dbGet(
+      db,
+      "SELECT sender_display_name, recipient_name FROM gift_orders WHERE id = ?",
+      [giftOrderId],
+    );
+  }
+
+  async function getUserDisplayName(userId) {
+    return dbGet(db, "SELECT display_name FROM users WHERE id = ?", [userId]);
+  }
+
+  async function getTrackNotificationMetadata(trackId) {
+    return dbGet(
+      db,
+      "SELECT title, recipient_name FROM tracks WHERE id = ?",
+      [trackId],
+    );
+  }
+
+  async function addPoemShareAccessLog({
+    id,
+    poemShareTokenId,
+    eventType,
+    metadataJson,
+    createdAt,
+  }) {
+    return dbRun(
+      db,
+      "INSERT INTO poem_share_access_log (id, poem_share_token_id, event_type, metadata, created_at) VALUES (?, ?, ?, ?, ?)",
+      [id, poemShareTokenId, eventType, metadataJson, createdAt],
+    );
+  }
+
+  async function getPoemShareForOgImage(shareTokenId) {
+    return dbGet(
+      db,
+      `SELECT pst.id, pst.status, pst.expires_at, pst.share_type, pst.delivery_source,
+            pst.dispatch_at, pst.dispatched_at, pst.gift_order_id, go.send_at AS gift_send_at,
+            p.id AS poem_id, p.user_id, p.title, p.recipient_name, p.occasion, p.verses, p.og_variant
+       FROM poem_share_tokens pst
+       JOIN poems p ON p.id = pst.poem_id
+       LEFT JOIN gift_orders go ON go.id = pst.gift_order_id
+      WHERE pst.id = ?`,
+      [shareTokenId],
+    );
+  }
+
+  async function getPoemShareForViewer(shareTokenId) {
+    return dbGet(
+      db,
+      `SELECT pst.id, pst.status, pst.expires_at, pst.share_type, pst.delivery_source,
+            pst.dispatch_at, pst.dispatched_at, pst.gift_order_id, go.send_at AS gift_send_at,
+            pst.poem_id, p.title, p.recipient_name, p.occasion, p.verses
+       FROM poem_share_tokens pst
+       LEFT JOIN poems p ON p.id = pst.poem_id
+       LEFT JOIN gift_orders go ON go.id = pst.gift_order_id
+      WHERE pst.id = ?`,
+      [shareTokenId],
+    );
+  }
+
+  async function getSongShareWithTrackDetails(shareTokenId) {
+    return dbGet(
+      db,
+      `SELECT st.id, st.status, st.expires_at, st.share_type, st.track_id, st.track_version_id, st.gift_order_id,
+            st.delivery_source, st.dispatch_at, st.dispatched_at,
+            t.title, t.recipient_name, t.occasion, t.user_id,
+            go.sender_display_name, go.recipient_name AS gift_recipient_name
+       FROM share_tokens st
+       LEFT JOIN tracks t ON t.id = st.track_id
+       LEFT JOIN gift_orders go ON go.id = st.gift_order_id
+      WHERE st.id = ?`,
+      [shareTokenId],
+    );
+  }
+
+  async function getContentShareReadyFields({ contentType, shareTokenId }) {
+    const table = shareTableForContentType(contentType);
+    assertShareTable(table);
+    return dbGet(
+      db,
+      `SELECT st.id, st.status, st.expires_at, st.share_type, st.delivery_source,
+            st.dispatch_at, st.dispatched_at, st.gift_order_id, go.send_at AS gift_send_at
+       FROM ${table} st
+       LEFT JOIN gift_orders go ON go.id = st.gift_order_id
+      WHERE st.id = ?`,
+      [shareTokenId],
+    );
+  }
+
+  async function getSongShareDeviceState(shareTokenId) {
+    return dbGet(
+      db,
+      "SELECT status, bound_device_id, bound_device_platform, expires_at FROM share_tokens WHERE id = ?",
+      [shareTokenId],
+    );
+  }
+
+  async function incrementSongShareAccess({ shareTokenId, accessedAt }) {
+    return dbRun(
+      db,
+      "UPDATE share_tokens SET last_accessed_at = ?, access_count = access_count + 1 WHERE id = ?",
+      [accessedAt, shareTokenId],
+    );
+  }
+
+  async function incrementSongShareClaimAttempts(shareTokenId) {
+    return dbRun(
+      db,
+      "UPDATE share_tokens SET claim_attempts = claim_attempts + 1 WHERE id = ? AND claim_attempts < 5 AND status = 'unbound'",
+      [shareTokenId],
+    );
+  }
+
+  async function claimSongShare({
+    shareTokenId,
+    deviceId,
+    platform,
+    appVersion,
+    claimUserId,
+    claimAt,
+    webStreamAllowed,
+  }) {
+    return dbRun(
+      db,
+      "UPDATE share_tokens SET status = ?, bound_device_id = ?, bound_device_platform = ?, bound_app_version = ?, bound_user_id = COALESCE(?, bound_user_id), bound_at = ?, web_stream_allowed = ?, claim_attempts = 0 WHERE id = ? AND bound_device_id IS NULL AND status = 'unbound'",
+      [
+        "claimed",
+        deviceId,
+        platform,
+        appVersion,
+        claimUserId,
+        claimAt,
+        webStreamAllowed ? 1 : 0,
+        shareTokenId,
+      ],
+    );
+  }
+
+  async function getShareAccessSummary(shareTokenId) {
+    const rows = await dbAll(
+      db,
+      "SELECT event_type, COUNT(*) as count, MAX(created_at) as last_at FROM share_access_log WHERE share_token_id = ? GROUP BY event_type",
+      [shareTokenId],
+    );
+    return Array.from(rows);
+  }
+
+  async function getRecentShareAccessActivity(shareTokenId) {
+    const rows = await dbAll(
+      db,
+      "SELECT event_type, metadata, created_at FROM share_access_log WHERE share_token_id = ? ORDER BY created_at DESC LIMIT 10",
+      [shareTokenId],
+    );
+    return Array.from(rows);
   }
 
   async function getGiftShareBinding({ contentType, shareTokenId, query = null }) {
@@ -299,6 +480,24 @@ function createShareTokenRepository(db) {
     getPoemSharePointer,
     getSongShareTokenById,
     getPoemShareTokenById,
+    getTrackById,
+    getTrackVersionById,
+    getShareTrackPair,
+    getGiftOrderSendAt,
+    getGiftOrderSenderSummary,
+    getUserDisplayName,
+    getTrackNotificationMetadata,
+    addPoemShareAccessLog,
+    getPoemShareForOgImage,
+    getPoemShareForViewer,
+    getSongShareWithTrackDetails,
+    getContentShareReadyFields,
+    getSongShareDeviceState,
+    incrementSongShareAccess,
+    incrementSongShareClaimAttempts,
+    claimSongShare,
+    getShareAccessSummary,
+    getRecentShareAccessActivity,
     getGiftShareBinding,
     revokeGiftShare,
     updateGiftShareSchedule,

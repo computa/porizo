@@ -352,6 +352,105 @@ describe("ShareTokenRepository", () => {
     assert.equal(share.id, "share_manual_old");
   });
 
+  test("supports share route hydration, analytics, and atomic claim updates", async () => {
+    await insertUser("user_route_support_repo");
+    await insertUser("recipient_route_support");
+    await insertTrack("track_route_support_repo", "user_route_support_repo");
+    await insertTrackVersion(
+      "track_route_support_repo_version",
+      "track_route_support_repo",
+    );
+    await insertRawSongShare({
+      id: "share_route_support",
+      trackId: "track_route_support_repo",
+      creatorId: "user_route_support_repo",
+      createdAt: "2026-06-27T00:00:00.000Z",
+    });
+    await db
+      .prepare(
+        "INSERT INTO share_access_log (id, share_token_id, event_type, metadata, created_at) VALUES (?, ?, ?, ?, ?), (?, ?, ?, ?, ?)",
+      )
+      .run(
+        "access_route_support_1",
+        "share_route_support",
+        "link_opened",
+        '{"source":"qr"}',
+        "2026-06-27T00:01:00.000Z",
+        "access_route_support_2",
+        "share_route_support",
+        "link_opened",
+        '{"source":"web"}',
+        "2026-06-27T00:02:00.000Z",
+      );
+
+    const { track, trackVersion } = await repository.getShareTrackPair({
+      trackId: "track_route_support_repo",
+      trackVersionId: "track_route_support_repo_version",
+    });
+    assert.equal(track.id, "track_route_support_repo");
+    assert.equal(trackVersion.id, "track_route_support_repo_version");
+
+    const incremented = await repository.incrementSongShareAccess({
+      shareTokenId: "share_route_support",
+      accessedAt: "2026-06-27T00:03:00.000Z",
+    });
+    assert.equal(incremented.changes, 1);
+    const incrementedShare = await repository.getSongShareTokenById(
+      "share_route_support",
+    );
+    assert.equal(Number(incrementedShare.access_count), 1);
+    assert.equal(
+      incrementedShare.last_accessed_at,
+      "2026-06-27T00:03:00.000Z",
+    );
+
+    const summary = await repository.getShareAccessSummary(
+      "share_route_support",
+    );
+    assert.deepEqual(summary, [
+      {
+        event_type: "link_opened",
+        count: 2,
+        last_at: "2026-06-27T00:02:00.000Z",
+      },
+    ]);
+
+    const recent = await repository.getRecentShareAccessActivity(
+      "share_route_support",
+    );
+    assert.equal(recent.length, 2);
+    assert.equal(recent[0].metadata, '{"source":"web"}');
+
+    const claim = await repository.claimSongShare({
+      shareTokenId: "share_route_support",
+      deviceId: "device_route_support",
+      platform: "ios",
+      appVersion: "1.0.0",
+      claimUserId: "recipient_route_support",
+      claimAt: "2026-06-27T00:04:00.000Z",
+      webStreamAllowed: true,
+    });
+    assert.equal(claim.changes, 1);
+
+    const deviceState = await repository.getSongShareDeviceState(
+      "share_route_support",
+    );
+    assert.equal(deviceState.status, "claimed");
+    assert.equal(deviceState.bound_device_id, "device_route_support");
+    assert.equal(deviceState.bound_device_platform, "ios");
+
+    const race = await repository.claimSongShare({
+      shareTokenId: "share_route_support",
+      deviceId: "device_route_support_2",
+      platform: "ios",
+      appVersion: "1.0.0",
+      claimUserId: "recipient_route_support",
+      claimAt: "2026-06-27T00:05:00.000Z",
+      webStreamAllowed: true,
+    });
+    assert.equal(race.changes, 0);
+  });
+
   test("status updates validate the share-token table name", async () => {
     await assert.rejects(
       () => repository.updateShareStatus("users", "share_id", "expired"),
