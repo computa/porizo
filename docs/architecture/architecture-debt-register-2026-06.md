@@ -1621,7 +1621,8 @@ then run a cleanup/review pass for any now-dead imports or docs.
 ### Root 8 — Dead-code & duplication sweep 🟢 effort S
 
 **Closes:** D3 (remaining dups), simplification ask.
-**Scope:** Delete `src/writer/v2/`, `src/database/migrations/` (dead prod), `src/db.js`, `providers/lyrics.js` shim (inline its 2 callers), unimported `safety.js`/`monitor.js`. Consolidate `ensureDir` ×5 → `utils/common`, `getFFmpegPath` ×3 → `utils/ffmpeg`. Move `qc.js` + `step-classification.js` out of `utils/` into their real domains. Remove the vestigial `E302_SEEDVC_ERROR: GPU task aborted` string (or re-label). Strip stray `console.log` debug instrumentation from production handlers (tracks.js render_preview, etc.).
+**Scope:** Delete `src/writer/v2/`, `src/database/migrations/` (dead prod), `src/db.js`, and `providers/lyrics.js` shim (inline its 2 callers). Consolidate `ensureDir` ×5 → `utils/common`, `getFFmpegPath` ×3 → `utils/ffmpeg`. Move `qc.js` + `step-classification.js` out of `utils/` into their real domains. Remove the vestigial `E302_SEEDVC_ERROR: GPU task aborted` string (or re-label). Strip stray `console.log` debug instrumentation from production handlers (tracks.js render_preview, etc.).
+**Status 2026-06-29:** Started. Deleted unimported `src/writer/v3/safety.js` and `src/writer/v3/monitor.js` after targeted import/export-name grep found zero live callers; focused V3 validation remains the gate for this cleanup slice.
 **Boundary:** Delete only what is proven dead in both runtime and validation paths (each deletion verified by `tldr impact` / grep showing zero live callers and by the relevant tests). If a file is production-dead but test-live, first migrate the tests or keep the file. Build green after each removal. `git log` is the resurrection store.
 
 ### Root 9 — Migration-location convergence 🟡 effort S–M
