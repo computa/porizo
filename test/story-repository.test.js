@@ -70,11 +70,76 @@ function createLibraryEntrySchema(database) {
   `);
 }
 
+function createStoryRoutePersistenceSchema(database) {
+  database.exec(`
+    CREATE TABLE users (
+      id TEXT PRIMARY KEY,
+      display_name TEXT
+    );
+    CREATE TABLE story_sessions (
+      id TEXT PRIMARY KEY,
+      user_id TEXT
+    );
+    CREATE TABLE voice_profiles (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      status TEXT NOT NULL
+    );
+    CREATE TABLE poems (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      title TEXT,
+      recipient_name TEXT,
+      occasion TEXT,
+      tone TEXT,
+      verses TEXT,
+      message TEXT,
+      status TEXT,
+      funding_source TEXT,
+      gift_reservation_id TEXT,
+      deleted_at TEXT,
+      created_at TEXT,
+      updated_at TEXT
+    );
+    CREATE TABLE tracks (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      status TEXT,
+      title TEXT,
+      occasion TEXT,
+      recipient_name TEXT,
+      recipient_phone TEXT,
+      recipient_channel TEXT,
+      style TEXT,
+      message TEXT,
+      story_context_json TEXT,
+      voice_mode TEXT,
+      voice_gender TEXT,
+      funding_source TEXT,
+      gift_reservation_id TEXT,
+      latest_version INTEGER,
+      created_at TEXT,
+      updated_at TEXT
+    );
+    CREATE TABLE track_versions (
+      id TEXT PRIMARY KEY,
+      track_id TEXT NOT NULL,
+      version_num INTEGER,
+      status TEXT,
+      render_type TEXT,
+      params_json TEXT,
+      params_hash TEXT,
+      created_at TEXT
+    );
+  `);
+}
+
 describe("StoryRepository orchestration persistence", () => {
   beforeEach(() => {
     db = createSqliteAdapter({ dbPath: ":memory:" });
     createOrchestrationSchema(db);
     createLibraryEntrySchema(db);
+    createStoryRoutePersistenceSchema(db);
     repository = createStoryRepository(db);
   });
 
@@ -295,6 +360,123 @@ describe("StoryRepository orchestration persistence", () => {
       added_at: "2026-06-28T03:00:00.000Z",
       removed_at: "2026-06-28T03:01:00.000Z",
       updated_at: "2026-06-28T03:01:00.000Z",
+    });
+  });
+
+  test("claims unowned sessions without overriding an existing owner", async () => {
+    await db
+      .prepare("INSERT INTO story_sessions (id, user_id) VALUES (?, NULL)")
+      .run("story_unowned");
+
+    const firstClaim = await repository.claimUnownedSession({
+      sessionId: "story_unowned",
+      userId: "user_first",
+    });
+    const secondClaim = await repository.claimUnownedSession({
+      sessionId: "story_unowned",
+      userId: "user_second",
+    });
+
+    assert.deepEqual(firstClaim, { claimed: true, userId: "user_first" });
+    assert.deepEqual(secondClaim, { claimed: false, userId: "user_first" });
+  });
+
+  test("creates story poems and marks credit-spend failures", async () => {
+    const poem = await repository.createStoryPoem({
+      poemId: "poem_from_story",
+      userId: "user_story_repo",
+      title: "For Ada",
+      recipientName: "Ada",
+      occasion: "birthday",
+      tone: "heartfelt",
+      verses: ["Line one", "Line two"],
+      provenance: { source: "story_v2", story_id: "story_poem" },
+      fundingSource: "gift_token",
+      giftReservationId: "gift_reservation_1",
+      createdAt: "2026-06-28T04:00:00.000Z",
+    });
+
+    const persisted = await repository.getStoryGiftPoem("poem_from_story");
+    await repository.markStoryPoemGenerationFailed("poem_from_story");
+    const failedRow = await db
+      .prepare("SELECT status FROM poems WHERE id = ?")
+      .get("poem_from_story");
+
+    assert.deepEqual(poem, {
+      id: "poem_from_story",
+      user_id: "user_story_repo",
+      title: "For Ada",
+      recipient_name: "Ada",
+      occasion: "birthday",
+      tone: "heartfelt",
+      verses: ["Line one", "Line two"],
+      status: "generated",
+      created_at: "2026-06-28T04:00:00.000Z",
+      updated_at: "2026-06-28T04:00:00.000Z",
+    });
+    assert.deepEqual(persisted, poem);
+    assert.equal(failedRow.status, "generation_failed");
+  });
+
+  test("creates story track draft and initial version", async () => {
+    await db
+      .prepare("INSERT INTO users (id, display_name) VALUES (?, ?)")
+      .run("user_story_repo", "Ada Lovelace");
+    await db
+      .prepare("INSERT INTO voice_profiles (id, user_id, status) VALUES (?, ?, ?)")
+      .run("voice_profile_story_repo", "user_story_repo", "active");
+
+    const owner = await repository.getUserDisplayName("user_story_repo");
+    const profile =
+      await repository.findActiveVoiceProfileForUser("user_story_repo");
+
+    await repository.createStoryTrackDraftWithVersion({
+      trackId: "track_from_story",
+      versionId: "version_from_story",
+      userId: "user_story_repo",
+      title: "A Birthday Song for Ada",
+      occasion: "birthday",
+      recipientName: "Ada",
+      recipientPhone: "+15555550123",
+      recipientChannel: "sms",
+      style: "afrobeats",
+      message: "Ada always showed up.",
+      storyContextPayload: {
+        story_id: "story_track",
+        narrative_version: 2,
+      },
+      voiceMode: "user_voice",
+      voiceGender: "female",
+      fundingSource: "standard",
+      giftReservationId: null,
+      paramsJson: JSON.stringify({ story_id: "story_track" }),
+      paramsHash: "hash_story_track",
+      createdAt: "2026-06-28T05:00:00.000Z",
+    });
+
+    const track = await db
+      .prepare(
+        "SELECT title, status, story_context_json, voice_mode, latest_version FROM tracks WHERE id = ?",
+      )
+      .get("track_from_story");
+    const version = await repository.findTrackVersionForGiftReuse({
+      trackId: "track_from_story",
+      versionNum: 1,
+    });
+
+    assert.equal(owner.display_name, "Ada Lovelace");
+    assert.deepEqual(profile, { id: "voice_profile_story_repo" });
+    assert.equal(track.title, "A Birthday Song for Ada");
+    assert.equal(track.status, "draft");
+    assert.deepEqual(JSON.parse(track.story_context_json), {
+      story_id: "story_track",
+      narrative_version: 2,
+    });
+    assert.equal(track.voice_mode, "user_voice");
+    assert.equal(track.latest_version, 1);
+    assert.deepEqual(version, {
+      id: "version_from_story",
+      version_num: 1,
     });
   });
 });
