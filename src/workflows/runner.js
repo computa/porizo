@@ -7,7 +7,7 @@ const { recoverOrphanedArtworkJobs } = require("../jobs/artwork-job");
 const {
   generateLyrics,
   assessRequiredDetailCoverage,
-} = require("../providers/lyrics");
+} = require("../writer/songwriter");
 const { moderationCheck } = require("../providers/moderation");
 const { writeWav } = require("../utils/audio");
 const {

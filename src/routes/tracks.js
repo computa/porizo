@@ -8,7 +8,7 @@ const {
   moderationCheck,
   validateGeneratedLyrics,
 } = require("../providers/moderation");
-const { generateLyrics } = require("../providers/lyrics");
+const { generateLyrics } = require("../writer/songwriter");
 const {
   buildLyricsContext,
   summarizeLyricsContextForLog,

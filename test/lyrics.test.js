@@ -13,7 +13,7 @@ const {
   validateAndRepairLyrics,
   countSyllables,
   MUSIC_STYLES,
-} = require("../src/providers/lyrics");
+} = require("../src/writer/songwriter");
 
 const {
   buildSongwriterPrompt,
@@ -538,9 +538,6 @@ describe("Lyrics Generation", () => {
   });
 
   describe("buildSongwriterPrompt", () => {
-    // Import the new function - will fail until implemented
-    const { buildSongwriterPrompt } = require("../src/providers/lyrics");
-
     it("should include recipient name prominently", () => {
       const prompt = buildSongwriterPrompt({
         recipient_name: "Maria",
@@ -624,7 +621,6 @@ describe("Lyrics Generation", () => {
   });
 
   describe("MUSIC_STYLES constant", () => {
-    const { MUSIC_STYLES } = require("../src/providers/lyrics");
     const { getStyleDisplayMap } = require("../src/providers/style-registry");
 
     it("should include African music styles", () => {
