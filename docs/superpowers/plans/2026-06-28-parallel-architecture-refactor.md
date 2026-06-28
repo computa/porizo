@@ -77,9 +77,12 @@ Root 1 is complete only when that scan has no direct persistence hits outside co
 - Root 6 user-read route split is committed as `b10f4120`. The next Root 6
   slice extracted admin user session and voice-profile control routes into
   `src/routes/admin/user-session-controls.js`.
-- Next controller queue: commit the user session/voice control route split,
-  then continue with admin user mutation subgroups. Security config/App Store
-  sync needs route characterization first; billing/entitlements remain last.
+- Root 6 user session/voice control route split is committed as `9ba74ca3`.
+  The next Root 6 slice extracted non-entitlement admin user mutation routes
+  into `src/routes/admin/user-mutations.js`.
+- Next controller queue: commit the user mutation route split, then continue
+  with another non-billing admin group. Security config/App Store sync needs
+  route characterization first; billing/entitlements remain last.
 
 ## File Structure Map
 
@@ -1620,6 +1623,15 @@ User session/voice control route slice completed locally:
 - `src/routes/admin.js` now registers the user session control module after the
   complimentary-upgrade routes.
 - Existing session-control route/repository coverage remains green.
+
+User mutation route slice completed locally:
+
+- `src/routes/admin/user-mutations.js` owns risk update, lock/unlock, delete,
+  bulk-action, and profile update routes.
+- Entitlements and complimentary-upgrade routes intentionally remain inline for
+  later billing-adjacent slices.
+- `test/admin-user-mutations-routes.test.js` now also pins bulk-action
+  validation and audit behavior.
 
 - [ ] **Step 3: Run admin validation**
 

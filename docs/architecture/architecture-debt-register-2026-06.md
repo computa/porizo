@@ -1509,9 +1509,14 @@ health split. Admin user session/voice control routes are also extracted
 locally into `src/routes/admin/user-session-controls.js`, preserving active
 session listing, superadmin-only revoke gates, single/all session revoke
 envelopes and audit behavior, voice force-reverify gates, and missing
-voice-profile errors. Security config/App Store sync and `/admin/auth/*` remain
-separate higher-risk slices. Remaining Root 6 work is the rest of the admin
-route/service split by concern, with billing/entitlement left last.
+voice-profile errors. Non-entitlement admin user mutation routes are also
+extracted locally into `src/routes/admin/user-mutations.js`, preserving risk
+update validation, lock/unlock gates, delete envelopes, bulk-action validation
+and audit behavior, and profile update attribution audit behavior. Entitlements
+and complimentary upgrades intentionally remain later billing-adjacent slices.
+Security config/App Store sync and `/admin/auth/*` remain separate higher-risk
+slices. Remaining Root 6 work is the rest of the admin route/service split by
+concern, with billing/entitlement left last.
 **Boundary:** Do the `getAppConfig` eviction + non-billing splits first (🟡). Do the billing/entitlement admin slice **last** (⚠ 🔴) with production verification.
 
 ### Root 7 — Writer cycle + god-file decomposition 🟡 effort M

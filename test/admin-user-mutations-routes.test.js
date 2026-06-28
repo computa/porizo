@@ -203,6 +203,59 @@ describe("admin user mutation routes", () => {
     assert.equal(unlockAudit.metadata.reason, "cleared");
   });
 
+  test("bulk action validates payload and preserves lock audit behavior", async () => {
+    await seedUser(db, "admin_mutation_bulk_one");
+    await seedUser(db, "admin_mutation_bulk_two");
+
+    const invalid = await app.inject({
+      method: "POST",
+      url: "/admin/dashboard/users/bulk-action",
+      headers: superadminHeaders,
+      payload: { action: "lock", userIds: [] },
+    });
+    assert.equal(invalid.statusCode, 400, invalid.body);
+    assert.equal(invalid.json().error, "INVALID_PARAMS");
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/admin/dashboard/users/bulk-action",
+      headers: superadminHeaders,
+      payload: {
+        action: "lock",
+        userIds: ["admin_mutation_bulk_one", "admin_mutation_bulk_two"],
+        reason: "bulk risk review",
+      },
+    });
+
+    assert.equal(response.statusCode, 200, response.body);
+    assert.deepEqual(response.json(), {
+      succeeded: ["admin_mutation_bulk_one", "admin_mutation_bulk_two"],
+      failed: [],
+    });
+
+    const users = await db
+      .prepare(
+        `SELECT id, locked_until FROM users
+         WHERE id IN ('admin_mutation_bulk_one', 'admin_mutation_bulk_two')
+         ORDER BY id`,
+      )
+      .all();
+    assert.equal(users.length, 2);
+    assert.ok(users.every((user) => Date.parse(user.locked_until) > Date.now()));
+
+    const audit = await latestAudit(db, "admin_bulk_lock", "bulk");
+    assert.equal(audit.resource_type, "user");
+    assert.deepEqual(audit.metadata, {
+      actor: "admin",
+      admin_id: "adm_initial",
+      action: "lock",
+      requestedCount: 2,
+      succeededCount: 2,
+      failedCount: 0,
+      reason: "bulk risk review",
+    });
+  });
+
   test("profile update ignores unknown fields, updates allowed fields, and audits attribution contract", async () => {
     const userId = "admin_mutation_profile_user";
     await seedUser(db, userId, {
