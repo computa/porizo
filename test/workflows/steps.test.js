@@ -7,6 +7,7 @@ const path = require("path");
 const { createStepRegistry } = require("../../src/workflows/steps");
 const { createGuideVocalSteps } = require("../../src/workflows/steps/guide-vocal");
 const { createLyricsSteps } = require("../../src/workflows/steps/lyrics");
+const { createMixSteps } = require("../../src/workflows/steps/mix");
 const { createMusicPlanSteps } = require("../../src/workflows/steps/music-plan");
 const { createModerationSteps } = require("../../src/workflows/steps/moderation");
 const {
@@ -813,6 +814,198 @@ describe("voice conversion steps", () => {
         }),
       /Guide vocal URL required for voice conversion/,
     );
+  });
+});
+
+describe("mix step", () => {
+  function createMixStep(overrides = {}) {
+    const calls = [];
+    const storageDir = fs.mkdtempSync(path.join(os.tmpdir(), "porizo-mix-step-"));
+    tempDirsToClean.push(storageDir);
+    const baseTrack = {
+      id: "track_1",
+      user_id: "user_1",
+      style: "pop",
+      voice_mode: "ai_voice",
+    };
+    const basePlan = {
+      style: "pop",
+      provider_resolved: null,
+      render_contract: {
+        provider_locked: "suno",
+        voice_mode: "ai_voice",
+        pipeline: "guide_tts_and_voice_convert",
+      },
+    };
+    const baseTrackVersion = {
+      id: "version_1",
+      version_num: 1,
+      music_plan_json: JSON.stringify(basePlan),
+      provenance_json: null,
+      instrumental_url: null,
+    };
+    const getVersionDir = (_storageDir, track, trackVersion) =>
+      path.join(
+        _storageDir,
+        "tracks",
+        track.user_id,
+        track.id,
+        `v${trackVersion.version_num}`,
+      );
+    const steps = createMixSteps({
+      assertFrozenContract: (musicPlan) => {
+        calls.push({ name: "assertFrozenContract", musicPlan });
+      },
+      assertPersonalizedContract: (renderContract, stepName) => {
+        calls.push({ name: "assertPersonalizedContract", renderContract, stepName });
+      },
+      blendVocals: async (args) => {
+        calls.push({ name: "blendVocals", args });
+        fs.copyFileSync(args.convertedVocalPath, args.outputPath);
+      },
+      db: {},
+      ensureDir: (dir) => fs.mkdirSync(dir, { recursive: true }),
+      ensureUserVocalFromGuide: async () => false,
+      getFeatureFlags: async () => ({}),
+      getMusicProviderConfig: async () => null,
+      getProviderAudioKey: () => null,
+      getProviderAudioUrl: () => null,
+      getVersionDir,
+      isProviderCompleteAudioPipeline: (pipeline) =>
+        pipeline === "provider_complete_audio" ||
+        pipeline === "suno_voice_persona_complete_audio",
+      mixTracks: async (args) => {
+        calls.push({ name: "mixTracks", args });
+        fs.writeFileSync(args.outputPath, "mixed");
+      },
+      mixTracksPersonalized: async (args) => {
+        calls.push({ name: "mixTracksPersonalized", args });
+        fs.writeFileSync(args.outputPath, "personalized-mixed");
+      },
+      parseJson,
+      providerConfig: { replicate: { live: false } },
+      resolveRenderContract: ({ musicPlan }) => musicPlan.render_contract,
+      runFFmpeg: async (args) => {
+        calls.push({ name: "runFFmpeg", args });
+        fs.writeFileSync(args[args.length - 1], "ffmpeg-output");
+      },
+      storageDir,
+      storageProvider: null,
+      writeWav: (filePath) => {
+        calls.push({ name: "writeWav", filePath });
+        fs.writeFileSync(filePath, "placeholder");
+      },
+      ...overrides,
+    });
+    const versionDir = getVersionDir(storageDir, baseTrack, baseTrackVersion);
+    fs.mkdirSync(versionDir, { recursive: true });
+    return { ...steps, baseTrack, baseTrackVersion, basePlan, calls, versionDir };
+  }
+
+  test("provider-complete audio accepts local wav fallback output", async () => {
+    const { mix, baseTrack, baseTrackVersion, basePlan, calls, versionDir } =
+      createMixStep();
+    fs.writeFileSync(path.join(versionDir, "inst_preview.wav"), "provider wav");
+
+    await mix({
+      track: baseTrack,
+      trackVersion: {
+        ...baseTrackVersion,
+        music_plan_json: JSON.stringify({
+          ...basePlan,
+          render_contract: {
+            ...basePlan.render_contract,
+            pipeline: "provider_complete_audio",
+          },
+        }),
+      },
+      workflow: "preview_render",
+    });
+
+    const ffmpegCall = calls.find((call) => call.name === "runFFmpeg");
+    assert.ok(ffmpegCall);
+    assert.equal(ffmpegCall.args[2], path.join(versionDir, "inst_preview.wav"));
+    assert.equal(fs.readFileSync(path.join(versionDir, "mix.wav"), "utf8"), "ffmpeg-output");
+  });
+
+  test("AI voice builds missing vocal from guide before standard mixing", async () => {
+    const { mix, baseTrack, baseTrackVersion, calls, versionDir } =
+      createMixStep({
+        ensureUserVocalFromGuide: async ({ versionDir: dir }) => {
+          calls.push({ name: "ensureUserVocalFromGuide", versionDir: dir });
+          fs.writeFileSync(path.join(dir, "user_vocal.wav"), "guide vocal");
+          return true;
+        },
+      });
+    fs.writeFileSync(path.join(versionDir, "inst_preview.mp3"), "instrumental");
+
+    await mix({
+      track: baseTrack,
+      trackVersion: baseTrackVersion,
+      workflow: "preview_render",
+    });
+
+    assert.equal(
+      calls.some((call) => call.name === "ensureUserVocalFromGuide"),
+      true,
+    );
+    assert.equal(calls.find((call) => call.name === "mixTracks").args.vocalPath, path.join(versionDir, "user_vocal.wav"));
+  });
+
+  test("personalized Suno mix requires Demucs instrumental stems", async () => {
+    const { mix, baseTrack, baseTrackVersion, basePlan, versionDir } =
+      createMixStep();
+    fs.writeFileSync(path.join(versionDir, "user_vocal.wav"), "converted vocal");
+
+    await assert.rejects(
+      () =>
+        mix({
+          track: { ...baseTrack, voice_mode: "user_voice" },
+          trackVersion: {
+            ...baseTrackVersion,
+            music_plan_json: JSON.stringify({
+              ...basePlan,
+              render_contract: {
+                provider_locked: "suno",
+                voice_mode: "user_voice",
+                pipeline: "guide_tts_and_voice_convert",
+              },
+            }),
+          },
+          workflow: "preview_render",
+        }),
+      /E301_MISSING_STEMS/,
+    );
+  });
+
+  test("throws when live provider output is required and mix inputs are missing", async () => {
+    const { mix, baseTrack, baseTrackVersion } = createMixStep({
+      providerConfig: { replicate: { live: true } },
+    });
+
+    await assert.rejects(
+      () =>
+        mix({
+          track: baseTrack,
+          trackVersion: baseTrackVersion,
+          workflow: "preview_render",
+        }),
+      /E301_MISSING_INPUTS: Vocal or instrumental missing for mix/,
+    );
+  });
+
+  test("writes placeholder mix when no live provider requires real audio", async () => {
+    const { mix, baseTrack, baseTrackVersion, calls, versionDir } =
+      createMixStep();
+
+    await mix({
+      track: baseTrack,
+      trackVersion: baseTrackVersion,
+      workflow: "preview_render",
+    });
+
+    assert.equal(calls.find((call) => call.name === "writeWav").filePath, path.join(versionDir, "mix.wav"));
+    assert.equal(fs.readFileSync(path.join(versionDir, "mix.wav"), "utf8"), "placeholder");
   });
 });
 

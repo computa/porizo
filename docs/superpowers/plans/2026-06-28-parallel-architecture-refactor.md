@@ -1364,11 +1364,23 @@ tests passed (5 tests, 5 pass), expanded render/persona/voice-routing validation
 passed (51 tests, 51 pass), syntax checks passed, `git diff --check` passed, and
 `npm run lint -- --quiet` passed.
 
-Next mapped Root 5 slice: extract the whole `mix` handler into
-`src/workflows/steps/mix.js`, moving `hydrateProviderCompleteAudio` with it and
-re-exporting that helper through `runner._testing` for the existing hydration
-tests. Update the source-scan contract test to include the new mix module or
-prefer a behavioral step-factory test for provider-complete fallback handling.
+Slice 8 result: `src/workflows/steps/mix.js` now owns the `mix` handler and
+`hydrateProviderCompleteAudio`; `runner._testing.hydrateProviderCompleteAudio`
+is preserved by re-exporting the imported helper. The extracted family injects
+contract guards, provider audio URL/key resolution, live-provider config,
+ffmpeg/mixing helpers, guide-vocal recovery, feature flags, storage provider,
+path helpers, and placeholder WAV generation from the runner. Direct tests cover
+provider-complete local WAV fallback, AI guide-vocal recovery before standard
+mixing, personalized Suno missing-stem failure, live missing-input failure, and
+non-live placeholder output. The provider-lock source scan now includes the new
+mix module. Focused mix/provider-lock/hydration tests passed (53 tests, 53
+pass), expanded render/persona/voice-routing validation passed (51 tests, 51
+pass), ready ordering tests passed (5 tests, 5 pass), syntax checks passed,
+`git diff --check` passed, and `npm run lint -- --quiet` passed.
+
+Next mapped Root 5 slice: extract the remaining `instrumental` and
+`instrumental_full` handlers as one family. This is now the only inline workflow
+step family left in `runner.js`.
 
 - [ ] **Step 4: Commit each Root 5 slice**
 
