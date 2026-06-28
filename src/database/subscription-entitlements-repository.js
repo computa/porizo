@@ -2,10 +2,6 @@
 
 const { createPreparedDbFromQuery } = require("../utils/db-adapter");
 
-function firstRow(result) {
-  return result?.rows?.[0] || null;
-}
-
 function affectedRows(result) {
   return Number(result?.changes ?? result?.rowCount ?? 0);
 }
