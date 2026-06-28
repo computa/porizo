@@ -20,6 +20,14 @@ function createAdminBillingRepository(db) {
       .all();
   }
 
+  async function resetPreviewCount({ userId, updatedAt }) {
+    return db
+      .prepare(
+        "UPDATE entitlements SET preview_count_today = 0, updated_at = ? WHERE user_id = ?",
+      )
+      .run(updatedAt, userId);
+  }
+
   async function getGiftBundleById(id) {
     return db.prepare("SELECT * FROM gift_bundles WHERE id = ?").get(id);
   }
@@ -393,6 +401,7 @@ function createAdminBillingRepository(db) {
     getGiftBundleById,
     listGiftBundleProducts,
     listGiftBundlesForAdmin,
+    resetPreviewCount,
     listPlanProducts,
     listReceiptSaleRows,
     countCurrentSubscribers,
