@@ -1568,6 +1568,10 @@ Admin security config/App Store sync route ownership is also extracted locally
 into `src/routes/admin/security-config.js`, with new characterization for
 admin auth, superadmin mutation/sync gates, validation envelopes, readback, and
 App Store sync failure mapping.
+Admin SPA/static serving is also extracted locally into
+`src/routes/admin/static-ui.js`; Cloudflare Access mode checks remain injected
+from `admin.js`, while the static module owns MIME selection, traversal
+protection, and SPA fallback behavior.
 `/admin/auth/*` remains a separate higher-risk slice. Remaining Root 6 work is
 the rest of the admin route/service split by concern, with billing/entitlement
 left last.

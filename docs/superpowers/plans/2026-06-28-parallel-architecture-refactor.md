@@ -124,9 +124,13 @@ Root 1 is complete only when that scan has no direct persistence hits outside co
 - Root 6 blend-analysis route split is committed as `0be8a136`. The next Root
   6 slice added security config/App Store sync route characterization and
   extracted those handlers into `src/routes/admin/security-config.js`.
-- Next controller queue: commit the security-config route split, then continue
-  with another characterized non-billing group. Billing/entitlements remain
-  last.
+- Root 6 security-config route split is committed as `fc08bf1b`. The next Root
+  6 slice extracted admin SPA/static serving into
+  `src/routes/admin/static-ui.js`, keeping the existing hosting hardening
+  coverage green.
+- Next controller queue: commit the static UI route split, then continue with
+  marketing as the remaining large non-billing group. Billing/entitlements
+  remain last.
 
 ## File Structure Map
 
@@ -1798,6 +1802,14 @@ Security-config route slice completed locally:
 - `src/routes/admin/security-config.js` owns security config read/update and
   `/admin/dashboard/security/config/sync-ios-version`.
 - Existing STT/app-config update-policy coverage remains green.
+
+Static admin UI route slice completed locally:
+
+- `src/routes/admin/static-ui.js` owns the admin SPA and asset serving routes.
+- Cloudflare Access and admin UI mode decisions remain injected from
+  `admin.js`; the static module owns MIME type, traversal guard, and SPA
+  fallback behavior.
+- Existing `test/hosting-hardening.test.js` coverage remains green.
 
 - [ ] **Step 3: Run admin validation**
 
