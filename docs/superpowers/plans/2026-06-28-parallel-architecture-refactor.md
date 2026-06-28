@@ -114,9 +114,13 @@ Root 1 is complete only when that scan has no direct persistence hits outside co
 - Root 6 provider-config route split is committed as `4d19a24a`. The next Root
   6 slice added onboarding-sample route characterization and extracted those
   routes into `src/routes/admin/onboarding-samples.js`.
-- Next controller queue: commit the onboarding-sample route split, then continue
-  with another characterized non-billing admin group. Security config/App Store
-  sync needs route characterization first; billing/entitlements remain last.
+- Root 6 onboarding-sample route split is committed as `9227c8f9`. The next
+  Root 6 slice moved the public mobile `/app/config` route registration into
+  `src/routes/client-config.js`, keeping the existing client config contract
+  test green.
+- Next controller queue: commit the client-config route split, then continue
+  with another characterized non-billing group. Security config/App Store sync
+  needs route characterization first; billing/entitlements remain last.
 
 ## File Structure Map
 
@@ -1762,6 +1766,14 @@ Onboarding-sample route slice completed locally:
 - `src/routes/admin/onboarding-samples.js` owns onboarding sample list/create/
   update/activate/delete routes.
 - Existing onboarding-sample route/service/repository coverage remains green.
+
+Client-config route slice completed locally:
+
+- `src/routes/client-config.js` owns the public `/app/config` route handler.
+- The route still receives the existing `clientConfigService` instance from the
+  admin registration boundary, so this slice does not change service lifetime or
+  server registration order.
+- Existing `test/app-config-route.test.js` coverage remains green.
 
 - [ ] **Step 3: Run admin validation**
 

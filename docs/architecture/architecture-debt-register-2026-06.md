@@ -1557,6 +1557,9 @@ Admin onboarding-sample route ownership is also extracted locally into
 `src/routes/admin/onboarding-samples.js`, with new characterization for admin
 auth, superadmin mutation gates, validation envelopes, activate not-found
 mapping, and delete behavior.
+The public mobile `/app/config` route handler is also moved out of `admin.js`
+into `src/routes/client-config.js`, leaving service lifetime and registration
+order unchanged while making the non-admin boundary explicit.
 Security config/App Store sync and `/admin/auth/*` remain separate higher-risk
 slices. Remaining Root 6 work is the rest of the admin route/service split by
 concern, with billing/entitlement left last.

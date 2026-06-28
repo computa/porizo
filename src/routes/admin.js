@@ -70,6 +70,7 @@ const {
 const {
   registerAdminWebhookHealthRoutes,
 } = require("./admin/webhook-health");
+const { registerClientConfigRoutes } = require("./client-config");
 const { registerAdminUserReadRoutes } = require("./admin/users-read");
 const {
   registerAdminUserSessionControlRoutes,
@@ -1271,13 +1272,8 @@ function registerAdminRoutes(
     sendError,
   });
 
-  // --- Public App Config (for mobile clients) ---
-
-  app.get("/app/config", async (request, reply) => {
-    // Public endpoint - no auth required
-    // Returns safe-for-client configuration
-    const clientConfig = await publicClientConfigService.getClientConfig();
-    reply.send(clientConfig);
+  registerClientConfigRoutes(app, {
+    clientConfigService: publicClientConfigService,
   });
 
   // --- Subscription Plan Management ---
