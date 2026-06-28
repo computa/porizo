@@ -22,6 +22,119 @@ async function withTimeout(promise, timeoutMs) {
   }
 }
 
+async function fetchWithAbortTimeout(url, options = {}, timeoutMs) {
+  const controller = new AbortController();
+  const requestOptions = { ...options, signal: controller.signal };
+  const parentSignal = options.signal;
+  let timeoutId;
+  let timedOut = false;
+  let abortFromParent;
+
+  if (parentSignal) {
+    abortFromParent = () => controller.abort(parentSignal.reason);
+    if (parentSignal.aborted) {
+      abortFromParent();
+    } else {
+      parentSignal.addEventListener("abort", abortFromParent, { once: true });
+    }
+  }
+
+  timeoutId = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+
+  try {
+    return await fetch(url, requestOptions);
+  } catch (err) {
+    if (timedOut) {
+      throw new Error("request_timeout");
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
+    if (parentSignal && abortFromParent) {
+      parentSignal.removeEventListener("abort", abortFromParent);
+    }
+  }
+}
+
+function retryDelayForAttempt(attempt, retryDelayMs) {
+  if (retryDelayMs !== undefined && retryDelayMs !== null) {
+    return Number(retryDelayMs);
+  }
+  return Math.min(1000 * Math.pow(2, attempt), 8000);
+}
+
+function isRequestTimeout(err) {
+  return err && err.message === "request_timeout";
+}
+
+async function wait(ms) {
+  if (!ms || ms <= 0) {
+    return;
+  }
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function fetchResponse(
+  url,
+  options = {},
+  {
+    timeoutMs = 30000,
+    retries = 2,
+    retryDelayMs,
+    retryStatuses = [502, 503, 504],
+    retryTimeouts = false,
+    label = "HTTP",
+  } = {},
+) {
+  let lastError;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    let response;
+    try {
+      response = await fetchWithAbortTimeout(url, options, timeoutMs);
+    } catch (err) {
+      lastError = err;
+      const retryableTimeout = isRequestTimeout(err) && retryTimeouts;
+      const retryableError = !isRequestTimeout(err) || retryableTimeout;
+      if (retryableError && attempt < retries) {
+        const waitMs = retryDelayForAttempt(attempt, retryDelayMs);
+        const reason = isRequestTimeout(err)
+          ? "timeout"
+          : err?.message || "network_error";
+        console.warn(
+          `[${label}] ${reason}, retrying in ${waitMs}ms (attempt ${attempt + 1}/${retries})`,
+        );
+        await wait(waitMs);
+        continue;
+      }
+      if (isRequestTimeout(err)) {
+        throw err;
+      }
+      const message = err && err.message ? err.message : "network_error";
+      throw new Error(`provider_error:network:${message}`);
+    }
+
+    if (
+      !response.ok &&
+      retryStatuses.includes(response.status) &&
+      attempt < retries
+    ) {
+      const waitMs = retryDelayForAttempt(attempt, retryDelayMs);
+      console.warn(
+        `[${label}] ${response.status} error, retrying in ${waitMs}ms (attempt ${attempt + 1}/${retries})`,
+      );
+      await wait(waitMs);
+      continue;
+    }
+
+    return response;
+  }
+
+  throw lastError || new Error("provider_error:unknown");
+}
+
 async function fetchJson(url, options, timeoutMs, retries = 2) {
   let lastError;
   for (let attempt = 0; attempt <= retries; attempt++) {
@@ -217,6 +330,7 @@ async function downloadToFile(url, outputPath, timeoutMs) {
 
 module.exports = {
   fetchJson,
+  fetchResponse,
   fetchBinary,
   fetchBinaryWithHeaders,
   fetchBinaryToFile,

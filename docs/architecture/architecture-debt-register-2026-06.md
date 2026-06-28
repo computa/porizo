@@ -1340,6 +1340,13 @@ without a separate contract gate.
 
 **Closes:** D4.
 **Scope:** Define a thin provider contract (`{name, submit(input,opts), poll(id)}` or `run(input,opts)`), all on `http.js` for retry/timeout. Route `whisper.js` + `elevenlabs-voice.js` through `http.js` (the immediate correctness win — they currently have no retry in a render hot path). Add a `providers/index.js` registry; extend the existing `resolveMusicProvider` to all providers. Make providers use `storage/index.js` key-helpers instead of hand-building paths.
+**Execution status:** Slice 1 implemented locally. Added a shared
+`fetchResponse` helper with retryable response/network handling and aborting
+timeouts. OpenAI Whisper transcription/alignment plus ElevenLabs voice
+clone/delete/conversion/listing now route through it. Voice clone/delete default
+to no retry to avoid duplicate remote resources; render hot-path conversion can
+opt into retry. Focused provider, render endpoint, ready-step, and
+voice-conversion routing tests pass locally.
 **Why early:** Mostly off the revenue path, contained, and the first slice (whisper/elevenlabs-voice retry) removes real render-failure risk for low effort.
 **Boundary:** Do NOT rewrite provider business logic; only normalize transport + path construction.
 

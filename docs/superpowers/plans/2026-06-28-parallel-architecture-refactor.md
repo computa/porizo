@@ -30,7 +30,8 @@ Root 1 is complete only when that scan has no direct persistence hits outside co
 - The Root 1 gate is clean: `rg -n "db\.(prepare|query|exec)|\.prepare\(" src/routes src/services src/jobs src/workflows` returns no matches.
 - Full-suite validation exposed and fixed a post-extraction runner race: manual `await runner.tick()` now waits for dispatched jobs to settle, while interval-driven production ticks keep background dispatch. Focused validation passes for `test/critical-fixes.test.js` and adjacent runner workflow suites.
 - Fresh agents from the runner wave were closed after completion. One older stale MCP-side agent remains unresponsive and is not part of the active execution queue.
-- Next controller queue: validate the completed Root 1 state, commit documentation status, then dispatch bounded parallel exploration/implementation for Root 4 provider strategy before entering the revenue-gated Root 2 path.
+- Root 4 Slice 1 is implemented locally: `fetchResponse` centralizes provider HTTP response retries and aborting timeouts; Whisper transcription/alignment and ElevenLabs voice clone/delete/conversion/listing use it. A review agent caught timeout and non-idempotent retry risks before commit; the patch now aborts timed-out attempts, does not retry timeouts by default, and keeps voice clone/delete retries opt-in to avoid duplicate remote resources.
+- Next controller queue: commit Root 4 Slice 1 after validation, then implement the provider registry/config factory slice before entering the revenue-gated Root 2 path.
 
 ## File Structure Map
 
