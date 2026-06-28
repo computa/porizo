@@ -1322,8 +1322,21 @@ helpers, and placeholder WAV generation from the runner. Direct step-factory
 tests passed (13 tests, 13 pass), expanded render/persona workflow validation
 passed (45 tests, 45 pass), syntax checks passed, `git diff --check` passed,
 and `npm run lint -- --quiet` passed. The slice also closes the documented
-idempotency gap for `guide_vocal_full` by reusing an existing
-`guide_vocal_full.mp3` instead of spending another TTS call.
+idempotency gap for `guide_vocal_full` by reusing an existing non-empty
+`guide_vocal_full.mp3` instead of spending another TTS call. Post-commit review
+flagged zero-byte reuse and temp-dir cleanup; both were fixed in Slice 5.
+
+Slice 5 result: `src/workflows/steps/voice-conversion.js` now owns
+`voice_convert` and `voice_convert_sections`. The extracted family injects
+conversion helpers, provider URL resolution, render-contract guards, durability,
+storage, provider config, and vocal-polish behavior from the runner while
+preserving the existing output-file reuse check before contract parsing. Direct
+step-factory tests now cover reuse, skipped pipelines, live Replicate AI voice,
+local guide fallback, personalized provider-audio source selection, and missing
+personalized source errors. Direct step-factory tests passed (20 tests, 20
+pass), expanded render/persona/voice-routing validation passed (51 tests, 51
+pass), syntax checks passed, `git diff --check` passed, and
+`npm run lint -- --quiet` passed.
 
 - [ ] **Step 4: Commit each Root 5 slice**
 

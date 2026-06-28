@@ -73,6 +73,9 @@ const { createLyricsSteps } = require("./steps/lyrics");
 const { createMusicPlanSteps } = require("./steps/music-plan");
 const { createModerationSteps } = require("./steps/moderation");
 const {
+  createVoiceConversionSteps,
+} = require("./steps/voice-conversion");
+const {
   createAppConfigRepository,
 } = require("../database/app-config-repository");
 const {
@@ -2676,6 +2679,25 @@ async function startJobRunner({
       streamBaseUrl,
       writeWav,
     }),
+    ...createVoiceConversionSteps({
+      applyVocalPolish,
+      assertFrozenContract,
+      assertPersonalizedContract,
+      convertVoice,
+      db,
+      durabilityService,
+      ensureUserVocalFromGuide,
+      getProviderAudioUrl,
+      getVersionDir,
+      parseJson,
+      performVoiceConversion,
+      providerConfig,
+      PROVIDERS,
+      resolveRenderContract,
+      shouldSkipStep,
+      storageDir,
+      storageProvider,
+    }),
     instrumental: async ({ track, trackVersion, job }) => {
       const versionDir = getVersionDir(storageDir, track, trackVersion);
       const instFile = path.join(versionDir, "inst_preview.mp3");
@@ -3348,200 +3370,6 @@ async function startJobRunner({
       renderInstrumental({ storageDir, track, trackVersion, kind: "full" });
       renderGuideVocal({ storageDir, track, trackVersion, kind: "full" });
       return {};
-    },
-
-    voice_convert: async ({ track, trackVersion }) => {
-      const versionDir = getVersionDir(storageDir, track, trackVersion);
-      const outputFile = path.join(versionDir, "user_vocal.wav");
-
-      // Reuse existing file if present (saves API credits)
-      if (fs.existsSync(outputFile)) {
-        console.log(
-          `[JobRunner] Reusing existing voice conversion: user_vocal.wav`,
-        );
-        return { voice_conversion_url: null };
-      }
-
-      const musicPlan = parseJson(
-        trackVersion.music_plan_json,
-        null,
-        "voice_convert_music_plan",
-      );
-      const renderContract = resolveRenderContract({ track, musicPlan });
-      const isPersonalized = renderContract.voice_mode === "user_voice";
-      if (isPersonalized) {
-        assertFrozenContract(musicPlan);
-        assertPersonalizedContract(renderContract, "voice_convert");
-      }
-      if (shouldSkipStep("voice_convert", renderContract.pipeline)) {
-        console.log(
-          `[JobRunner] Skipping voice_convert for track ${track.id}: pipeline=${renderContract.pipeline}`,
-        );
-        return {};
-      }
-      const guideUrl = trackVersion.guide_vocal_url;
-      const providerAudioUrl = getProviderAudioUrl(trackVersion);
-      const conversionSourceUrl =
-        renderContract.pipeline === "provider_audio_personalized_convert"
-          ? providerAudioUrl
-          : guideUrl;
-
-      // AI voice (non-personalized): use guide vocal for voice conversion
-      if (!isPersonalized) {
-        if (providerConfig.replicate?.live && guideUrl) {
-          const result = await durabilityService.executeWithDurability({
-            provider: PROVIDERS.REPLICATE,
-            fn: () =>
-              convertVoice({
-                storageDir,
-                track,
-                trackVersion,
-                kind: "preview",
-                providerConfig: providerConfig.replicate,
-                inputUrl: guideUrl,
-              }),
-          });
-          return {
-            voice_conversion_url: result?.output_url || guideUrl || null,
-          };
-        }
-        const ensured = await ensureUserVocalFromGuide({
-          versionDir,
-          kind: "preview",
-        });
-        if (!ensured) {
-          throw new Error(
-            "E301_GUIDE_VOCAL_MISSING: guide vocal required for AI voice conversion",
-          );
-        }
-        return { voice_conversion_url: guideUrl || null };
-      }
-
-      // Personalized mode requires source audio for voice conversion
-      if (!conversionSourceUrl) {
-        throw new Error(
-          `E301_VOICE_CONVERT_MISSING_INPUT: ${
-            renderContract.pipeline === "provider_audio_personalized_convert"
-              ? "Provider audio URL"
-              : "Guide vocal URL"
-          } required for voice conversion`,
-        );
-      }
-
-      const result = await performVoiceConversion({
-        db,
-        track,
-        trackVersion,
-        kind: "preview",
-        versionDir,
-        conversionSourceUrl,
-        providerConfig,
-        durabilityService,
-        storageDir,
-        storageProvider,
-        renderContract,
-      });
-
-      await applyVocalPolish({ db, outputFile, versionDir, kind: "preview" });
-
-      return { voice_conversion_url: result?.output_url || null };
-    },
-
-    voice_convert_sections: async ({ track, trackVersion }) => {
-      const versionDir = getVersionDir(storageDir, track, trackVersion);
-      const outputFile = path.join(versionDir, "user_vocal_full.wav");
-
-      // Reuse existing file if present (saves API credits)
-      if (fs.existsSync(outputFile)) {
-        console.log(
-          `[JobRunner] Reusing existing voice conversion: user_vocal_full.wav`,
-        );
-        return { voice_conversion_url: null };
-      }
-
-      const musicPlan = parseJson(
-        trackVersion.music_plan_json,
-        null,
-        "voice_convert_sections_music_plan",
-      );
-      const renderContract = resolveRenderContract({ track, musicPlan });
-      const isPersonalized = renderContract.voice_mode === "user_voice";
-      if (isPersonalized) {
-        assertFrozenContract(musicPlan);
-        assertPersonalizedContract(renderContract, "voice_convert_sections");
-      }
-      if (shouldSkipStep("voice_convert_sections", renderContract.pipeline)) {
-        console.log(
-          `[JobRunner] Skipping voice_convert_sections for track ${track.id}: pipeline=${renderContract.pipeline}`,
-        );
-        return {};
-      }
-      const guideUrl = trackVersion.guide_vocal_url;
-      const providerAudioUrl = getProviderAudioUrl(trackVersion);
-      const conversionSourceUrl =
-        renderContract.pipeline === "provider_audio_personalized_convert"
-          ? providerAudioUrl
-          : guideUrl;
-
-      // AI voice (non-personalized): use guide vocal for voice conversion
-      if (!isPersonalized) {
-        if (providerConfig.replicate?.live && guideUrl) {
-          const result = await durabilityService.executeWithDurability({
-            provider: PROVIDERS.REPLICATE,
-            fn: () =>
-              convertVoice({
-                storageDir,
-                track,
-                trackVersion,
-                kind: "full",
-                providerConfig: providerConfig.replicate,
-                inputUrl: guideUrl,
-              }),
-          });
-          return {
-            voice_conversion_url: result?.output_url || guideUrl || null,
-          };
-        }
-        const ensured = await ensureUserVocalFromGuide({
-          versionDir,
-          kind: "full",
-        });
-        if (!ensured) {
-          throw new Error(
-            "E301_GUIDE_VOCAL_MISSING: guide vocal required for AI voice conversion",
-          );
-        }
-        return { voice_conversion_url: guideUrl || null };
-      }
-
-      // Personalized mode requires source audio for voice conversion
-      if (!conversionSourceUrl) {
-        throw new Error(
-          `E301_VOICE_CONVERT_MISSING_INPUT: ${
-            renderContract.pipeline === "provider_audio_personalized_convert"
-              ? "Provider audio URL"
-              : "Guide vocal URL"
-          } required for voice conversion`,
-        );
-      }
-
-      const result = await performVoiceConversion({
-        db,
-        track,
-        trackVersion,
-        kind: "full",
-        versionDir,
-        conversionSourceUrl,
-        providerConfig,
-        durabilityService,
-        storageDir,
-        storageProvider,
-        renderContract,
-      });
-
-      await applyVocalPolish({ db, outputFile, versionDir, kind: "full" });
-
-      return { voice_conversion_url: result?.output_url || null };
     },
 
     mix: async ({ track, trackVersion, workflow }) => {

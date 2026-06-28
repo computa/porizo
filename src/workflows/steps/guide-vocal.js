@@ -4,6 +4,14 @@ const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 
+function hasReusableFile(filePath) {
+  try {
+    return fs.statSync(filePath).size > 0;
+  } catch {
+    return false;
+  }
+}
+
 function createGuideVocalSteps({
   assertFrozenContract,
   assertPersonalizedContract,
@@ -54,7 +62,7 @@ function createGuideVocalSteps({
     const fileName = isFull ? "guide_vocal_full.mp3" : "guide_vocal.mp3";
     const filePath = path.join(versionDir, fileName);
 
-    if (fs.existsSync(filePath)) {
+    if (hasReusableFile(filePath)) {
       console.log(`[JobRunner] Reusing existing guide vocal: ${fileName}`);
       return {
         guide_vocal_url: guideUrl,

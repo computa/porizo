@@ -1,4 +1,4 @@
-const { describe, test } = require("node:test");
+const { describe, test, afterEach } = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("fs");
 const os = require("os");
@@ -9,6 +9,17 @@ const { createGuideVocalSteps } = require("../../src/workflows/steps/guide-vocal
 const { createLyricsSteps } = require("../../src/workflows/steps/lyrics");
 const { createMusicPlanSteps } = require("../../src/workflows/steps/music-plan");
 const { createModerationSteps } = require("../../src/workflows/steps/moderation");
+const {
+  createVoiceConversionSteps,
+} = require("../../src/workflows/steps/voice-conversion");
+
+const tempDirsToClean = [];
+
+afterEach(() => {
+  while (tempDirsToClean.length > 0) {
+    fs.rmSync(tempDirsToClean.pop(), { recursive: true, force: true });
+  }
+});
 
 function parseJson(value, fallback) {
   if (value === null || value === undefined) return fallback;
@@ -310,6 +321,7 @@ describe("guide vocal steps", () => {
     const storageDir = fs.mkdtempSync(
       path.join(os.tmpdir(), "porizo-guide-step-"),
     );
+    tempDirsToClean.push(storageDir);
     const baseTrack = {
       id: "track_1",
       user_id: "user_1",
@@ -467,6 +479,40 @@ describe("guide vocal steps", () => {
     );
   });
 
+  test("does not reuse a zero-byte full guide vocal", async () => {
+    const {
+      guide_vocal_full,
+      baseTrack,
+      baseTrackVersion,
+      calls,
+      storageDir,
+    } = createGuideVocalStep();
+    const versionDir = path.join(
+      storageDir,
+      "tracks",
+      baseTrack.user_id,
+      baseTrack.id,
+      `v${baseTrackVersion.version_num}`,
+    );
+    fs.mkdirSync(versionDir, { recursive: true });
+    fs.writeFileSync(path.join(versionDir, "guide_vocal_full.mp3"), "");
+
+    const result = await guide_vocal_full({
+      track: baseTrack,
+      trackVersion: baseTrackVersion,
+    });
+
+    assert.deepEqual(result, {
+      guide_vocal_url:
+        "https://stream.test/guide/version_1?token=token_123&kind=full",
+      guide_access_token: "token_123",
+    });
+    assert.equal(
+      calls.some((call) => call.name === "generateSpeech"),
+      true,
+    );
+  });
+
   test("generates preview guide vocal from chorus lyrics", async () => {
     const { guide_vocal, baseTrack, baseTrackVersion, calls } =
       createGuideVocalStep();
@@ -515,6 +561,255 @@ describe("guide vocal steps", () => {
           },
         }),
       /E302_PERSONALIZED_NO_TTS/,
+    );
+  });
+});
+
+describe("voice conversion steps", () => {
+  function createVoiceConversionStep(overrides = {}) {
+    const calls = [];
+    const storageDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "porizo-voice-step-"),
+    );
+    tempDirsToClean.push(storageDir);
+    const baseTrack = {
+      id: "track_1",
+      user_id: "user_1",
+      voice_mode: "ai_voice",
+    };
+    const baseTrackVersion = {
+      id: "version_1",
+      version_num: 1,
+      guide_vocal_url: "https://stream.test/guide/version_1?token=token_123",
+      music_plan_json: JSON.stringify({
+        render_contract: {
+          provider_locked: "elevenlabs",
+          voice_mode: "ai_voice",
+          pipeline: "guide_tts_and_voice_convert",
+        },
+      }),
+      provider_audio_url: null,
+    };
+    const steps = createVoiceConversionSteps({
+      applyVocalPolish: async (args) => {
+        calls.push({ name: "applyVocalPolish", args });
+      },
+      assertFrozenContract: (musicPlan) => {
+        calls.push({ name: "assertFrozenContract", musicPlan });
+      },
+      assertPersonalizedContract: (renderContract, stepName) => {
+        calls.push({ name: "assertPersonalizedContract", renderContract, stepName });
+      },
+      convertVoice: async (args) => {
+        calls.push({ name: "convertVoice", args });
+        return { output_url: "https://replicate.test/output.wav" };
+      },
+      db: {},
+      durabilityService: {
+        executeWithDurability: async ({ provider, fn }) => {
+          calls.push({ name: "executeWithDurability", provider });
+          return fn();
+        },
+      },
+      ensureUserVocalFromGuide: async (args) => {
+        calls.push({ name: "ensureUserVocalFromGuide", args });
+        return path.join(args.versionDir, "user_vocal.wav");
+      },
+      getProviderAudioUrl: (trackVersion) => trackVersion.provider_audio_url,
+      getVersionDir: (_storageDir, track, trackVersion) =>
+        path.join(
+          _storageDir,
+          "tracks",
+          track.user_id,
+          track.id,
+          `v${trackVersion.version_num}`,
+        ),
+      parseJson,
+      performVoiceConversion: async (args) => {
+        calls.push({ name: "performVoiceConversion", args });
+        return { output_url: "https://seedvc.test/output.wav" };
+      },
+      providerConfig: { replicate: { live: false, token: "replicate_token" } },
+      PROVIDERS: { REPLICATE: "replicate" },
+      resolveRenderContract: ({ track, musicPlan }) =>
+        musicPlan.render_contract || {
+          provider_locked: "elevenlabs",
+          voice_mode: track.voice_mode === "user_voice" ? "user_voice" : "ai_voice",
+          pipeline: "guide_tts_and_voice_convert",
+        },
+      shouldSkipStep: () => false,
+      storageDir,
+      storageProvider: { name: "storage" },
+      ...overrides,
+    });
+    return { ...steps, baseTrack, baseTrackVersion, calls, storageDir };
+  }
+
+  test("reuses an existing full converted vocal without parsing contract", async () => {
+    let parsed = false;
+    const {
+      voice_convert_sections,
+      baseTrack,
+      baseTrackVersion,
+      storageDir,
+      calls,
+    } = createVoiceConversionStep({
+      parseJson: () => {
+        parsed = true;
+        return null;
+      },
+    });
+    const versionDir = path.join(
+      storageDir,
+      "tracks",
+      baseTrack.user_id,
+      baseTrack.id,
+      `v${baseTrackVersion.version_num}`,
+    );
+    fs.mkdirSync(versionDir, { recursive: true });
+    fs.writeFileSync(path.join(versionDir, "user_vocal_full.wav"), "cached");
+
+    const result = await voice_convert_sections({
+      track: baseTrack,
+      trackVersion: baseTrackVersion,
+    });
+
+    assert.deepEqual(result, { voice_conversion_url: null });
+    assert.equal(parsed, false);
+    assert.equal(calls.length, 0);
+  });
+
+  test("skips voice conversion when the render contract pipeline excludes it", async () => {
+    const { voice_convert, baseTrack, baseTrackVersion, calls } =
+      createVoiceConversionStep({
+        shouldSkipStep: (stepName, pipeline) =>
+          stepName === "voice_convert" && pipeline === "provider_complete_audio",
+      });
+
+    const result = await voice_convert({
+      track: baseTrack,
+      trackVersion: {
+        ...baseTrackVersion,
+        music_plan_json: JSON.stringify({
+          render_contract: {
+            provider_locked: "suno",
+            voice_mode: "ai_voice",
+            pipeline: "provider_complete_audio",
+          },
+        }),
+      },
+    });
+
+    assert.deepEqual(result, {});
+    assert.equal(
+      calls.some((call) => call.name === "convertVoice"),
+      false,
+    );
+  });
+
+  test("uses live Replicate for AI preview voice conversion", async () => {
+    const { voice_convert, baseTrack, baseTrackVersion, calls } =
+      createVoiceConversionStep({
+        providerConfig: { replicate: { live: true, token: "replicate_token" } },
+      });
+
+    const result = await voice_convert({
+      track: baseTrack,
+      trackVersion: baseTrackVersion,
+    });
+
+    assert.deepEqual(result, {
+      voice_conversion_url: "https://replicate.test/output.wav",
+    });
+    assert.deepEqual(
+      calls.find((call) => call.name === "executeWithDurability"),
+      { name: "executeWithDurability", provider: "replicate" },
+    );
+    const convertCall = calls.find((call) => call.name === "convertVoice");
+    assert.equal(convertCall.args.kind, "preview");
+    assert.equal(convertCall.args.inputUrl, baseTrackVersion.guide_vocal_url);
+  });
+
+  test("builds full AI vocal from local guide when live conversion is disabled", async () => {
+    const { voice_convert_sections, baseTrack, baseTrackVersion, calls } =
+      createVoiceConversionStep();
+
+    const result = await voice_convert_sections({
+      track: baseTrack,
+      trackVersion: baseTrackVersion,
+    });
+
+    assert.deepEqual(result, {
+      voice_conversion_url: baseTrackVersion.guide_vocal_url,
+    });
+    const ensureCall = calls.find(
+      (call) => call.name === "ensureUserVocalFromGuide",
+    );
+    assert.equal(ensureCall.args.kind, "full");
+  });
+
+  test("uses provider audio and applies polish for personalized conversion", async () => {
+    const { voice_convert_sections, baseTrack, baseTrackVersion, calls } =
+      createVoiceConversionStep();
+    const trackVersion = {
+      ...baseTrackVersion,
+      provider_audio_url: "https://provider.test/song.wav",
+      music_plan_json: JSON.stringify({
+        render_contract: {
+          provider_locked: "elevenlabs",
+          voice_mode: "user_voice",
+          pipeline: "provider_audio_personalized_convert",
+        },
+      }),
+    };
+
+    const result = await voice_convert_sections({
+      track: { ...baseTrack, voice_mode: "user_voice" },
+      trackVersion,
+    });
+
+    assert.deepEqual(result, {
+      voice_conversion_url: "https://seedvc.test/output.wav",
+    });
+    const conversionCall = calls.find(
+      (call) => call.name === "performVoiceConversion",
+    );
+    assert.equal(conversionCall.args.kind, "full");
+    assert.equal(
+      conversionCall.args.conversionSourceUrl,
+      "https://provider.test/song.wav",
+    );
+    assert.equal(
+      calls.find((call) => call.name === "applyVocalPolish").args.kind,
+      "full",
+    );
+    assert.equal(
+      calls.some((call) => call.name === "assertPersonalizedContract"),
+      true,
+    );
+  });
+
+  test("personalized conversion reports whether provider audio or guide vocal is missing", async () => {
+    const { voice_convert, baseTrack, baseTrackVersion } =
+      createVoiceConversionStep();
+
+    await assert.rejects(
+      () =>
+        voice_convert({
+          track: { ...baseTrack, voice_mode: "user_voice" },
+          trackVersion: {
+            ...baseTrackVersion,
+            guide_vocal_url: null,
+            music_plan_json: JSON.stringify({
+              render_contract: {
+                provider_locked: "elevenlabs",
+                voice_mode: "user_voice",
+                pipeline: "guide_tts_and_voice_convert",
+              },
+            }),
+          },
+        }),
+      /Guide vocal URL required for voice conversion/,
     );
   });
 });
