@@ -1,0 +1,1622 @@
+# Parallel Architecture Refactor Completion Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Finish the architecture refactor from the committed `refactor` branch by terminating Root 1 repository extraction first, then advancing the gated roots in small, mergeable, validated slices.
+
+**Architecture:** The controller stays on branch `refactor` and integrates short-lived worker branches. Route, service, job, and workflow files should stop owning persistence; they should own HTTP/workflow orchestration, validation, authorization, response shaping, and provider/service calls. Persistence moves behind aggregate repositories that accept the injected `db`, follow existing repository patterns, and preserve current wire behavior.
+
+**Tech Stack:** Node.js CommonJS, Fastify, sql.js/PostgreSQL-compatible database adapters, Node built-in test runner, ESLint, Git worktrees, Codex multi-agent workers.
+
+---
+
+## Current Baseline
+
+- Branch: `refactor`
+- Refactor baseline commit: `43d8d9dd refactor: extract repository architecture boundaries`
+- Previous baseline before refactor program: `89a349ff docs(audit): per-feature post-fix test coverage map (178 features)`
+- Current working-tree requirement before each worker wave: `git status --short` prints no tracked changes except the controller's active integration edits.
+- Current Root 1 scan target:
+
+```bash
+rg -n "db\.(prepare|query|exec)|\.prepare\(" src/routes src/services src/jobs src/workflows
+```
+
+Root 1 is complete only when that scan has no direct persistence hits outside comments that describe an injected database contract. Repository files under `src/database/**` may continue to own SQL.
+
+## File Structure Map
+
+### Existing Files To Modify
+
+- `src/routes/sharing.js`  
+  Owns share/player/claim HTTP contracts. It should delegate all share-token, track, track-version, gift-order, receiver-session, and notification lookup/update persistence.
+
+- `src/routes/tracks.js`  
+  Owns track API contracts, render request validation, billing/service orchestration, and response mapping. It should delegate track, track-version, entitlement, usage, and library persistence.
+
+- `src/routes/poems.js`  
+  Owns poem API contracts, poem generation orchestration, OG variant dispatching, and response mapping. It should delegate poem, entitlement, gift snapshot, share-token, and library persistence.
+
+- `src/routes/story.js`  
+  Owns story flow API contracts and orchestration. It should delegate story-session, display-name, track/poem bridge, and entitlement persistence to `src/database/story-repository.js`.
+
+- `src/routes/enrollment.js`  
+  Owns enrollment HTTP contracts, upload validation, audio/provider orchestration, and response mapping. It should delegate the remaining enrollment-session/artifact persistence to `src/database/enrollment-session-repository.js`.
+
+- `src/routes/billing.js` and `src/services/subscription-manager.js`  
+  Own billing HTTP contracts and subscription reconciliation orchestration. They should delegate subscriptions, entitlements, plan, trial, receipt, and tombstone persistence to billing/subscription repositories.
+
+- `src/workflows/runner.js`  
+  Owns render workflow orchestration. It should delegate job selection, job claims, step history, track/track-version updates, user risk updates, audit insertions, blocked-user reads, and provider artifact persistence.
+
+- `src/jobs/artwork-job.js`  
+  Owns scheduled artwork job orchestration. It should delegate any direct artwork-job row persistence to `src/database/artwork-job-repository.js`.
+
+- `src/routes/admin.js`  
+  Owns admin HTTP contracts and authorization. It should not regain broad SQL ownership; remaining direct persistence should move to the existing `admin-*` repositories.
+
+### Repository Files To Extend Or Create
+
+- Extend `src/database/share-token-repository.js` for share-token read/update methods that belong to the share aggregate.
+- Extend `src/database/receiver-session-repository.js` for receiver claim/session methods used by share routes.
+- Extend `src/database/track-version-repository.js` for generic track/version read and status helpers shared by routes and workflow code.
+- Extend `src/database/track-library-repository.js` for track library/list/remove helpers only.
+- Extend `src/database/poem-library-repository.js` for poem library/list/remove helpers only.
+- Extend `src/database/story-repository.js` for story-session and story-flow persistence.
+- Extend `src/database/enrollment-session-repository.js` for enrollment-session lifecycle/artifact persistence.
+- Extend `src/database/artwork-job-repository.js` for artwork job polling/update persistence.
+- Extend `src/database/admin-billing-repository.js` and `src/database/subscription-sync-repository.js` only for billing/admin dashboard and subscription-sync persistence that already belongs there.
+- Create `src/database/subscription-entitlements-repository.js` for billing route and subscription-manager entitlement/subscription operations that do not belong to admin dashboard or sync-job repositories.
+
+### Tests And Validation Files
+
+- Existing targeted contract suites:
+  - `test/share-flow.test.js`
+  - `test/sharing-security.test.js`
+  - `test/share-token-repository.test.js`
+  - `test/tracks.test.js`
+  - `test/track-library-repository.test.js`
+  - `test/track-version-repository.test.js`
+  - `test/poems.test.js`
+  - `test/poem-library-repository.test.js`
+  - `test/story-start.test.js`
+  - `test/story-to-track-contract.test.js`
+  - `test/story-repository.test.js`
+  - `test/voice-enrollment.test.js`
+  - `test/enrollment-session-repository.test.js`
+  - `test/billing-api.test.js`
+  - `test/subscription-manager.test.js`
+  - `test/subscription-sync-repository.test.js`
+  - `test/workflows/render-contract.test.js`
+  - `test/workflows/personalized-highway.test.js`
+  - `test/job-durability-repository.test.js`
+  - `test/admin-billing-repository.test.js`
+- Add new tests only when a public contract touched by a slice lacks existing characterization coverage. Code extraction is the first priority; test additions must be targeted, not broad snapshots.
+
+## Parallel Agent Operating Rules
+
+- Maximum active implementation workers: `3`.
+- Worker wall-clock target: `25 minutes`.
+- Hard action threshold: if a worker has not returned after `40 minutes`, the controller sends an interrupt asking for status and current patch summary. If it cannot provide one, close the worker and continue with a smaller slice.
+- Every fresh worker must be closed with `close_agent` after `DONE`, `DONE_WITH_CONCERNS`, or `BLOCKED` has been processed.
+- Do not reuse inherited or stale agents for implementation. Fresh worker per slice.
+- Each worker owns a disjoint write set. If a worker discovers it must edit a file owned by another active worker, it must stop and report `NEEDS_CONTEXT`.
+- Workers are not alone in the codebase. They must not revert or rewrite changes outside their assigned files.
+- Workers commit only on their worker branch. The controller merges worker branches into `refactor` after review and validation.
+- The controller performs integration review, conflict resolution, validation, documentation updates, and final commits on `refactor`.
+
+## Worktree Layout
+
+Use project-local worktrees so all worker code is visible and cleanup is deterministic:
+
+```bash
+git check-ignore -q .worktrees
+git add .gitignore
+git commit -m "chore: ignore local worker worktrees"
+```
+
+If `git check-ignore -q .worktrees` exits non-zero, patch `.gitignore` with:
+
+```diff
++# Local Superpowers/Codex worker worktrees
++.worktrees/
+```
+
+Create worker worktrees from `refactor`:
+
+```bash
+git worktree add .worktrees/root1-sharing -b refactor/root1-sharing-20260628 refactor
+git worktree add .worktrees/root1-tracks -b refactor/root1-tracks-20260628 refactor
+git worktree add .worktrees/root1-poems -b refactor/root1-poems-20260628 refactor
+git worktree add .worktrees/root1-story -b refactor/root1-story-20260628 refactor
+git worktree add .worktrees/root1-enrollment-small -b refactor/root1-enrollment-small-20260628 refactor
+git worktree add .worktrees/root1-billing -b refactor/root1-billing-20260628 refactor
+git worktree add .worktrees/root1-runner -b refactor/root1-runner-20260628 refactor
+```
+
+Expected: each command prints `Preparing worktree` and `HEAD is now at 43d8d9dd` or the current controller commit after the ignore commit.
+
+## Task 1: Controller Baseline And Worktree Setup
+
+**Owner:** Controller
+
+**Files:**
+- Modify: `.gitignore`
+- Create directories through Git worktree metadata under `.worktrees/`
+
+- [ ] **Step 1: Verify branch and clean status**
+
+Run:
+
+```bash
+git branch --show-current
+git status --short
+git log -n 2 --oneline
+```
+
+Expected:
+
+```text
+refactor
+```
+
+`git status --short` should be empty before editing `.gitignore`.
+
+- [ ] **Step 2: Add local worker worktree ignore rule**
+
+Patch `.gitignore` with:
+
+```gitignore
+
+# Local Superpowers/Codex worker worktrees
+.worktrees/
+```
+
+- [ ] **Step 3: Commit the ignore rule**
+
+Run:
+
+```bash
+git add .gitignore
+git commit -m "chore: ignore local worker worktrees"
+```
+
+Expected: one commit with only `.gitignore` changed.
+
+- [ ] **Step 4: Create worker worktrees**
+
+Run:
+
+```bash
+git worktree add .worktrees/root1-sharing -b refactor/root1-sharing-20260628 refactor
+git worktree add .worktrees/root1-tracks -b refactor/root1-tracks-20260628 refactor
+git worktree add .worktrees/root1-poems -b refactor/root1-poems-20260628 refactor
+```
+
+Expected: three worktrees exist and each branch starts from the current `refactor` commit.
+
+- [ ] **Step 5: Confirm baseline scan**
+
+Run:
+
+```bash
+rg -c "db\.(prepare|query|exec)|\.prepare\(" src/routes src/services src/jobs src/workflows
+```
+
+Expected: counts remain concentrated in `src/routes/sharing.js`, `src/routes/tracks.js`, `src/routes/poems.js`, `src/routes/story.js`, `src/routes/enrollment.js`, `src/routes/billing.js`, `src/services/subscription-manager.js`, `src/workflows/runner.js`, `src/routes/admin.js`, and `src/jobs/artwork-job.js`.
+
+## Task 2: Wave 1 Agent A - Share Route Repository Extraction
+
+**Owner:** Worker Agent A  
+**Worktree:** `.worktrees/root1-sharing`  
+**Branch:** `refactor/root1-sharing-20260628`
+
+**Files:**
+- Modify: `src/routes/sharing.js`
+- Modify: `src/database/share-token-repository.js`
+- Modify: `src/database/receiver-session-repository.js`
+- Test: `test/share-token-repository.test.js`
+- Test: `test/share-flow.test.js`
+- Test: `test/sharing-security.test.js`
+
+- [ ] **Step 1: Capture current share route persistence hits**
+
+Run:
+
+```bash
+rg -n "db\.(prepare|query|exec)|\.prepare\(" src/routes/sharing.js
+```
+
+Expected: the command prints direct persistence hits in `src/routes/sharing.js`.
+
+- [ ] **Step 2: Add repository methods before route rewiring**
+
+Use this exact repository method style in `src/database/share-token-repository.js`:
+
+```js
+async function getSongShareTokenForPublicRead(id) {
+  return dbGet(db, "SELECT * FROM share_tokens WHERE id = ?", [id]);
+}
+
+async function getGiftOrderSendAt(giftOrderId) {
+  return dbGet(db, "SELECT send_at FROM gift_orders WHERE id = ?", [
+    giftOrderId,
+  ]);
+}
+
+async function setSongShareStatus({ id, status }) {
+  return dbRun(db, "UPDATE share_tokens SET status = ? WHERE id = ?", [
+    status,
+    id,
+  ]);
+}
+```
+
+If the route needs another query from `sharing.js`, move it with the same signature rule: method name describes the aggregate behavior, parameters are an object when there is more than one input, and the SQL stays in the repository.
+
+- [ ] **Step 3: Rewire `sharing.js` to use repository methods**
+
+Use this route wiring pattern:
+
+```js
+const { createShareTokenRepository } = require("../database/share-token-repository");
+const { createReceiverSessionRepository } = require("../database/receiver-session-repository");
+
+function buildShareRepositories(db) {
+  return {
+    shareTokens: createShareTokenRepository(db),
+    receiverSessions: createReceiverSessionRepository(db),
+  };
+}
+```
+
+Keep HTTP response fields unchanged. Do not rename response properties.
+
+- [ ] **Step 4: Verify direct route persistence has decreased**
+
+Run:
+
+```bash
+rg -n "db\.(prepare|query|exec)|\.prepare\(" src/routes/sharing.js
+```
+
+Expected: fewer lines than Step 1. If any hits remain, each hit must be listed in the worker final report with the reason it was deferred.
+
+- [ ] **Step 5: Run focused share tests**
+
+Run:
+
+```bash
+node --test --test-concurrency=1 test/share-token-repository.test.js test/share-flow.test.js test/sharing-security.test.js
+```
+
+Expected: all selected tests pass.
+
+- [ ] **Step 6: Commit worker branch**
+
+Run:
+
+```bash
+git add src/routes/sharing.js src/database/share-token-repository.js src/database/receiver-session-repository.js test/share-token-repository.test.js test/share-flow.test.js test/sharing-security.test.js
+git commit -m "refactor: move share route persistence behind repositories"
+```
+
+Expected: worker reports commit SHA, files changed, tests run, direct persistence hits deferred if any.
+
+## Task 3: Wave 1 Agent B - Track Route Repository Extraction
+
+**Owner:** Worker Agent B  
+**Worktree:** `.worktrees/root1-tracks`  
+**Branch:** `refactor/root1-tracks-20260628`
+
+**Files:**
+- Modify: `src/routes/tracks.js`
+- Modify: `src/database/track-version-repository.js`
+- Modify: `src/database/track-library-repository.js`
+- Test: `test/track-version-repository.test.js`
+- Test: `test/track-library-repository.test.js`
+- Test: `test/song-usage-summary.test.js`
+- Test: `test/render-full-billing-atomicity.test.js`
+
+- [ ] **Step 1: Capture current track route persistence hits**
+
+Run:
+
+```bash
+rg -n "db\.(prepare|query|exec)|\.prepare\(" src/routes/tracks.js
+```
+
+Expected: the command prints direct persistence hits in `src/routes/tracks.js`.
+
+- [ ] **Step 2: Add track repository helpers**
+
+Use this style in `src/database/track-version-repository.js`:
+
+```js
+async function findTrackForOwner({ trackId, userId }) {
+  return db
+    .prepare("SELECT * FROM tracks WHERE id = ? AND user_id = ? AND deleted_at IS NULL")
+    .get(trackId, userId);
+}
+
+async function markTrackDeleted({ trackId, userId, deletedAt }) {
+  return db
+    .prepare("UPDATE tracks SET deleted_at = ?, updated_at = ? WHERE id = ? AND user_id = ?")
+    .run(deletedAt, deletedAt, trackId, userId);
+}
+```
+
+Use `track-library-repository.js` only for user library entry operations. Keep render-job and billing writes out of library methods.
+
+- [ ] **Step 3: Rewire `tracks.js`**
+
+Use this pattern at the top-level route setup:
+
+```js
+const { createTrackVersionRepository } = require("../database/track-version-repository");
+const { createTrackLibraryRepository } = require("../database/track-library-repository");
+
+function buildTrackRepositories(db) {
+  return {
+    trackVersions: createTrackVersionRepository(db),
+    trackLibrary: createTrackLibraryRepository(db),
+  };
+}
+```
+
+Preserve existing status codes and error messages.
+
+- [ ] **Step 4: Run focused track tests**
+
+Run:
+
+```bash
+node --test --test-concurrency=1 test/track-version-repository.test.js test/track-library-repository.test.js test/song-usage-summary.test.js test/render-full-billing-atomicity.test.js
+```
+
+Expected: all selected tests pass.
+
+- [ ] **Step 5: Commit worker branch**
+
+Run:
+
+```bash
+git add src/routes/tracks.js src/database/track-version-repository.js src/database/track-library-repository.js test/track-version-repository.test.js test/track-library-repository.test.js
+git commit -m "refactor: move track route persistence behind repositories"
+```
+
+Expected: worker reports commit SHA, files changed, tests run, and remaining `tracks.js` persistence hits.
+
+## Task 4: Wave 1 Agent C - Poem Route Repository Extraction
+
+**Owner:** Worker Agent C  
+**Worktree:** `.worktrees/root1-poems`  
+**Branch:** `refactor/root1-poems-20260628`
+
+**Files:**
+- Modify: `src/routes/poems.js`
+- Modify: `src/database/poem-library-repository.js`
+- Modify: `src/database/share-token-repository.js` only if poem-share-token behavior is extracted
+- Test: `test/poem-library-repository.test.js`
+- Test: `test/poems.test.js`
+- Test: `test/story-delete-poem.test.js`
+
+- [ ] **Step 1: Capture current poem route persistence hits**
+
+Run:
+
+```bash
+rg -n "db\.(prepare|query|exec)|\.prepare\(" src/routes/poems.js
+```
+
+Expected: the command prints direct persistence hits in `src/routes/poems.js`.
+
+- [ ] **Step 2: Add poem repository helpers**
+
+Use this style in `src/database/poem-library-repository.js`:
+
+```js
+async function findActivePoemById(poemId) {
+  return db
+    .prepare("SELECT * FROM poems WHERE id = ? AND deleted_at IS NULL")
+    .get(poemId);
+}
+
+async function markPoemGenerationFailed(poemId) {
+  return db
+    .prepare("UPDATE poems SET status = 'generation_failed' WHERE id = ?")
+    .run(poemId);
+}
+```
+
+Gift snapshot reads from `gift_orders` may stay in `poem-library-repository.js` only if they are used to render poem API state; otherwise report the boundary concern.
+
+- [ ] **Step 3: Rewire `poems.js`**
+
+Use this pattern:
+
+```js
+const { createPoemLibraryRepository } = require("../database/poem-library-repository");
+
+function buildPoemRepositories(db) {
+  return {
+    poems: createPoemLibraryRepository(db),
+  };
+}
+```
+
+Do not change poem response JSON or OG variant behavior.
+
+- [ ] **Step 4: Run focused poem tests**
+
+Run:
+
+```bash
+node --test --test-concurrency=1 test/poem-library-repository.test.js test/poems.test.js test/story-delete-poem.test.js
+```
+
+Expected: all selected tests pass.
+
+- [ ] **Step 5: Commit worker branch**
+
+Run:
+
+```bash
+git add src/routes/poems.js src/database/poem-library-repository.js src/database/share-token-repository.js test/poem-library-repository.test.js test/poems.test.js test/story-delete-poem.test.js
+git commit -m "refactor: move poem route persistence behind repositories"
+```
+
+Expected: worker reports commit SHA, files changed, tests run, and remaining `poems.js` persistence hits.
+
+## Task 5: Controller Review And Merge Wave 1
+
+**Owner:** Controller
+
+**Files:**
+- Merge worker branch changes into `refactor`
+- Update: `docs/architecture/architecture-debt-register-2026-06.md`
+
+- [ ] **Step 1: Wait for Wave 1 workers and close each worker**
+
+Use multi-agent waits for Agent A, Agent B, and Agent C. After each final result is processed, run `close_agent` for that worker.
+
+Expected: no Wave 1 worker remains open after result processing.
+
+- [ ] **Step 2: Review each worker branch**
+
+Run for each branch:
+
+```bash
+git diff --stat refactor...refactor/root1-sharing-20260628
+git diff --stat refactor...refactor/root1-tracks-20260628
+git diff --stat refactor...refactor/root1-poems-20260628
+```
+
+Expected: each branch touches only its assigned files.
+
+- [ ] **Step 3: Merge accepted worker branches**
+
+Run:
+
+```bash
+git merge --no-ff refactor/root1-sharing-20260628 -m "merge: root1 sharing repository extraction"
+git merge --no-ff refactor/root1-tracks-20260628 -m "merge: root1 track repository extraction"
+git merge --no-ff refactor/root1-poems-20260628 -m "merge: root1 poem repository extraction"
+```
+
+Expected: merges either apply cleanly or produce confined conflicts in repository files. Resolve conflicts by preserving repository methods and route behavior.
+
+- [ ] **Step 4: Run Wave 1 validation**
+
+Run:
+
+```bash
+node --test --test-concurrency=1 test/share-token-repository.test.js test/share-flow.test.js test/sharing-security.test.js test/track-version-repository.test.js test/track-library-repository.test.js test/song-usage-summary.test.js test/render-full-billing-atomicity.test.js test/poem-library-repository.test.js test/poems.test.js test/story-delete-poem.test.js
+npm run lint
+```
+
+Expected: selected tests pass and lint passes.
+
+- [ ] **Step 5: Update debt register status**
+
+Append one concise status paragraph under Root 1 in `docs/architecture/architecture-debt-register-2026-06.md`:
+
+```markdown
+Wave 1 repository extraction moved additional sharing, track, and poem route persistence behind repositories and validated the focused share, track, and poem contract suites locally.
+```
+
+- [ ] **Step 6: Commit Wave 1 integration docs if needed**
+
+Run:
+
+```bash
+git add docs/architecture/architecture-debt-register-2026-06.md
+git commit -m "docs: record root1 wave 1 repository extraction"
+```
+
+Expected: commit is skipped if the merge commits already include the exact docs update.
+
+## Task 6: Wave 2 Agent D - Story Route Repository Extraction
+
+**Owner:** Worker Agent D  
+**Worktree:** `.worktrees/root1-story`  
+**Branch:** `refactor/root1-story-20260628`
+
+**Files:**
+- Modify: `src/routes/story.js`
+- Modify: `src/database/story-repository.js`
+- Test: `test/story-repository.test.js`
+- Test: `test/story-start.test.js`
+- Test: `test/story-to-track-contract.test.js`
+- Test: `test/story-session-state.test.js`
+
+- [ ] **Step 1: Create or refresh worktree**
+
+Run:
+
+```bash
+git worktree add .worktrees/root1-story -b refactor/root1-story-20260628 refactor
+```
+
+Expected: worktree exists from current `refactor`.
+
+- [ ] **Step 2: Move remaining story route persistence**
+
+Use this method style in `src/database/story-repository.js`:
+
+```js
+async function getUserDisplayName(userId) {
+  return db
+    .prepare("SELECT display_name FROM users WHERE id = ?")
+    .get(userId);
+}
+
+async function findStorySessionOwner(sessionId) {
+  return db
+    .prepare("SELECT user_id FROM story_sessions WHERE id = ?")
+    .get(sessionId);
+}
+```
+
+Keep story route state machine behavior unchanged.
+
+- [ ] **Step 3: Run focused story tests**
+
+Run:
+
+```bash
+node --test --test-concurrency=1 test/story-repository.test.js test/story-start.test.js test/story-to-track-contract.test.js test/story-session-state.test.js
+```
+
+Expected: all selected tests pass.
+
+- [ ] **Step 4: Commit worker branch**
+
+Run:
+
+```bash
+git add src/routes/story.js src/database/story-repository.js test/story-repository.test.js test/story-start.test.js test/story-to-track-contract.test.js test/story-session-state.test.js
+git commit -m "refactor: move story route persistence behind repository"
+```
+
+Expected: worker reports commit SHA, files changed, tests run, and remaining `story.js` persistence hits.
+
+## Task 7: Wave 2 Agent E - Enrollment, Artwork Job, And Admin Small Leftovers
+
+**Owner:** Worker Agent E  
+**Worktree:** `.worktrees/root1-enrollment-small`  
+**Branch:** `refactor/root1-enrollment-small-20260628`
+
+**Files:**
+- Modify: `src/routes/enrollment.js`
+- Modify: `src/database/enrollment-session-repository.js`
+- Modify: `src/jobs/artwork-job.js`
+- Modify: `src/database/artwork-job-repository.js`
+- Modify: `src/routes/admin.js`
+- Modify: the existing `src/database/admin-*` repository that owns each remaining admin query
+- Test: `test/enrollment-session-repository.test.js`
+- Test: `test/voice-enrollment.test.js`
+- Test: `test/jobs/artwork-job.test.js`
+- Test: focused `test/admin-*-repository.test.js` or `test/admin-*-routes.test.js` matching any admin query moved
+
+- [ ] **Step 1: Create or refresh worktree**
+
+Run:
+
+```bash
+git worktree add .worktrees/root1-enrollment-small -b refactor/root1-enrollment-small-20260628 refactor
+```
+
+Expected: worktree exists from current `refactor`.
+
+- [ ] **Step 2: Move enrollment persistence using existing repository**
+
+Use this method style in `src/database/enrollment-session-repository.js`:
+
+```js
+async function updateEnrollmentSessionArtifact({ id, artifactUrl, updatedAt }) {
+  return db
+    .prepare("UPDATE enrollment_sessions SET artifact_url = ?, updated_at = ? WHERE id = ?")
+    .run(artifactUrl, updatedAt, id);
+}
+```
+
+Method names must reflect the current column behavior in `enrollment.js`; do not broaden repository methods to generic table updates.
+
+- [ ] **Step 3: Move artwork job persistence**
+
+Use this style in `src/database/artwork-job-repository.js`:
+
+```js
+async function getPendingArtworkJob(id) {
+  return db
+    .prepare("SELECT * FROM artwork_jobs WHERE id = ?")
+    .get(id);
+}
+```
+
+Preserve the existing injected `db` contract in `src/jobs/artwork-job.js`.
+
+- [ ] **Step 4: Move admin leftovers**
+
+For each remaining `src/routes/admin.js` persistence hit, choose the existing admin repository by domain:
+
+```text
+admin billing or revenue -> src/database/admin-billing-repository.js
+admin users or sessions -> src/database/admin-user-read-repository.js or src/database/admin-user-session-control-repository.js
+admin shares -> src/database/admin-share-management-repository.js
+admin jobs or DLQ -> src/database/admin-job-ops-repository.js
+admin metrics -> src/database/admin-metrics-repository.js
+```
+
+If a hit does not fit those domains, stop and report `NEEDS_CONTEXT` with the line number and SQL.
+
+- [ ] **Step 5: Run focused tests**
+
+Run:
+
+```bash
+node --test --test-concurrency=1 test/enrollment-session-repository.test.js test/voice-enrollment.test.js test/jobs/artwork-job.test.js
+```
+
+Also run the matching admin test file for any admin repository or route touched.
+
+Expected: selected tests pass.
+
+- [ ] **Step 6: Commit worker branch**
+
+Run:
+
+```bash
+git add src/routes/enrollment.js src/database/enrollment-session-repository.js src/jobs/artwork-job.js src/database/artwork-job-repository.js src/routes/admin.js src/database/admin-*-repository.js test/enrollment-session-repository.test.js test/voice-enrollment.test.js test/jobs/artwork-job.test.js test/admin-*.test.js
+git commit -m "refactor: move small root1 persistence leftovers behind repositories"
+```
+
+Expected: worker reports commit SHA, files changed, tests run, and any deferred admin SQL line numbers.
+
+## Task 8: Wave 2 Agent F - Billing And Subscription Repository Extraction
+
+**Owner:** Worker Agent F  
+**Worktree:** `.worktrees/root1-billing`  
+**Branch:** `refactor/root1-billing-20260628`
+
+**Files:**
+- Modify: `src/routes/billing.js`
+- Modify: `src/services/subscription-manager.js`
+- Create: `src/database/subscription-entitlements-repository.js`
+- Modify: `src/database/admin-billing-repository.js` only for existing billing dashboard/admin concerns
+- Modify: `src/database/subscription-sync-repository.js` only for sync-job concerns
+- Test: `test/billing-api.test.js`
+- Test: `test/subscription-manager.test.js`
+- Test: `test/subscription-sync-repository.test.js`
+- Test: `test/admin-billing-repository.test.js` if admin billing repository changes
+
+- [ ] **Step 1: Create or refresh worktree**
+
+Run:
+
+```bash
+git worktree add .worktrees/root1-billing -b refactor/root1-billing-20260628 refactor
+```
+
+Expected: worktree exists from current `refactor`.
+
+- [ ] **Step 2: Create subscription entitlement repository**
+
+Create `src/database/subscription-entitlements-repository.js` with this shape:
+
+```js
+"use strict";
+
+function createSubscriptionEntitlementsRepository(db) {
+  async function getEntitlementForUser(userId) {
+    return db
+      .prepare("SELECT * FROM entitlements WHERE user_id = ?")
+      .get(userId);
+  }
+
+  async function updateEntitlementTier({ userId, tier }) {
+    return db
+      .prepare("UPDATE entitlements SET tier = ? WHERE user_id = ?")
+      .run(tier, userId);
+  }
+
+  return {
+    getEntitlementForUser,
+    updateEntitlementTier,
+  };
+}
+
+module.exports = { createSubscriptionEntitlementsRepository };
+```
+
+Add only the additional methods required by current `billing.js` and `subscription-manager.js`, preserving current transaction boundaries.
+
+- [ ] **Step 3: Rewire billing code**
+
+Use this dependency pattern:
+
+```js
+const {
+  createSubscriptionEntitlementsRepository,
+} = require("../database/subscription-entitlements-repository");
+
+function buildBillingRepositories(db) {
+  return {
+    subscriptionEntitlements: createSubscriptionEntitlementsRepository(db),
+  };
+}
+```
+
+Keep receipt validation, Apple/Google provider calls, and response mapping in services/routes.
+
+- [ ] **Step 4: Run focused billing tests**
+
+Run:
+
+```bash
+node --test --test-concurrency=1 test/billing-api.test.js test/subscription-manager.test.js test/subscription-sync-repository.test.js
+```
+
+If `admin-billing-repository.js` changed, also run:
+
+```bash
+node --test --test-concurrency=1 test/admin-billing-repository.test.js
+```
+
+Expected: selected tests pass.
+
+- [ ] **Step 5: Commit worker branch**
+
+Run:
+
+```bash
+git add src/routes/billing.js src/services/subscription-manager.js src/database/subscription-entitlements-repository.js src/database/admin-billing-repository.js src/database/subscription-sync-repository.js test/billing-api.test.js test/subscription-manager.test.js test/subscription-sync-repository.test.js test/admin-billing-repository.test.js
+git commit -m "refactor: move subscription persistence behind repository"
+```
+
+Expected: worker reports commit SHA, files changed, tests run, and remaining billing/subscription persistence hits.
+
+## Task 9: Controller Review And Merge Wave 2
+
+**Owner:** Controller
+
+**Files:**
+- Merge worker branch changes into `refactor`
+- Update: `docs/architecture/architecture-debt-register-2026-06.md`
+
+- [ ] **Step 1: Wait for Wave 2 workers and close each worker**
+
+Use multi-agent waits for Agent D, Agent E, and Agent F. After each final result is processed, run `close_agent` for that worker.
+
+Expected: no Wave 2 worker remains open after result processing.
+
+- [ ] **Step 2: Review branch ownership**
+
+Run:
+
+```bash
+git diff --stat refactor...refactor/root1-story-20260628
+git diff --stat refactor...refactor/root1-enrollment-small-20260628
+git diff --stat refactor...refactor/root1-billing-20260628
+```
+
+Expected: each branch touches only assigned files.
+
+- [ ] **Step 3: Merge accepted worker branches**
+
+Run:
+
+```bash
+git merge --no-ff refactor/root1-story-20260628 -m "merge: root1 story repository extraction"
+git merge --no-ff refactor/root1-enrollment-small-20260628 -m "merge: root1 small persistence extraction"
+git merge --no-ff refactor/root1-billing-20260628 -m "merge: root1 subscription repository extraction"
+```
+
+Expected: merges either apply cleanly or produce confined conflicts in repository files. Resolve conflicts by preserving repository ownership and route behavior.
+
+- [ ] **Step 4: Run Wave 2 validation**
+
+Run:
+
+```bash
+node --test --test-concurrency=1 test/story-repository.test.js test/story-start.test.js test/story-to-track-contract.test.js test/story-session-state.test.js test/enrollment-session-repository.test.js test/voice-enrollment.test.js test/jobs/artwork-job.test.js test/billing-api.test.js test/subscription-manager.test.js test/subscription-sync-repository.test.js
+npm run lint
+```
+
+Expected: selected tests pass and lint passes.
+
+- [ ] **Step 5: Update debt register status**
+
+Append one concise status paragraph under Root 1 in `docs/architecture/architecture-debt-register-2026-06.md`:
+
+```markdown
+Wave 2 repository extraction moved additional story, enrollment, artwork-job, admin leftover, billing, and subscription persistence behind repositories and validated the focused route/service suites locally.
+```
+
+## Task 10: Wave 3 Agent G - Workflow Runner Persistence Exit
+
+**Owner:** Worker Agent G  
+**Worktree:** `.worktrees/root1-runner`  
+**Branch:** `refactor/root1-runner-20260628`
+
+**Files:**
+- Modify: `src/workflows/runner.js`
+- Modify: `src/database/job-durability-repository.js`
+- Modify: `src/database/dead-letter-queue-repository.js`
+- Modify: `src/database/track-version-repository.js`
+- Modify: `src/database/voice-provider-profile-repository.js` only for runner voice-profile reads already owned by that repository
+- Test: `test/job-durability-repository.test.js`
+- Test: `test/dead-letter-queue-repository.test.js`
+- Test: `test/workflows/render-contract.test.js`
+- Test: `test/workflows/personalized-highway.test.js`
+- Test: `test/workflows/provider-artifact-hydration.test.js`
+
+- [ ] **Step 1: Create or refresh worktree**
+
+Run:
+
+```bash
+git worktree add .worktrees/root1-runner -b refactor/root1-runner-20260628 refactor
+```
+
+Expected: worktree exists from current `refactor`.
+
+- [ ] **Step 2: Capture current runner persistence hits**
+
+Run:
+
+```bash
+rg -n "db\.(prepare|query|exec)|\.prepare\(" src/workflows/runner.js
+```
+
+Expected: the command prints direct persistence hits in `src/workflows/runner.js`.
+
+- [ ] **Step 3: Move prepared statements behind repositories**
+
+Use this method style in `src/database/job-durability-repository.js`:
+
+```js
+async function claimQueuedRenderJob({ jobId, runnerId, claimedAt }) {
+  return db
+    .prepare("UPDATE render_jobs SET status = 'running', runner_id = ?, claimed_at = ? WHERE id = ? AND status = 'queued'")
+    .run(runnerId, claimedAt, jobId);
+}
+```
+
+Keep workflow step orchestration, provider calls, and retry decision logic in `runner.js`.
+
+- [ ] **Step 4: Run focused runner tests**
+
+Run:
+
+```bash
+node --test --test-concurrency=1 test/job-durability-repository.test.js test/dead-letter-queue-repository.test.js test/workflows/render-contract.test.js test/workflows/personalized-highway.test.js test/workflows/provider-artifact-hydration.test.js
+```
+
+Expected: all selected tests pass.
+
+- [ ] **Step 5: Commit worker branch**
+
+Run:
+
+```bash
+git add src/workflows/runner.js src/database/job-durability-repository.js src/database/dead-letter-queue-repository.js src/database/track-version-repository.js src/database/voice-provider-profile-repository.js test/job-durability-repository.test.js test/dead-letter-queue-repository.test.js test/workflows/render-contract.test.js test/workflows/personalized-highway.test.js test/workflows/provider-artifact-hydration.test.js
+git commit -m "refactor: move workflow runner persistence behind repositories"
+```
+
+Expected: worker reports commit SHA, files changed, tests run, and remaining runner persistence hits.
+
+## Task 11: Controller Root 1 Termination Gate
+
+**Owner:** Controller
+
+**Files:**
+- Merge: `refactor/root1-runner-20260628`
+- Update: `docs/architecture/architecture-debt-register-2026-06.md`
+- Update: `docs/architecture/architecture-map-2026-06.md`
+
+- [ ] **Step 1: Wait for runner worker and close it**
+
+Use multi-agent wait for Agent G. After final result is processed, run `close_agent` for the worker.
+
+Expected: Agent G is closed and no worker remains open.
+
+- [ ] **Step 2: Merge runner branch**
+
+Run:
+
+```bash
+git merge --no-ff refactor/root1-runner-20260628 -m "merge: root1 workflow runner repository extraction"
+```
+
+Expected: merge applies or produces conflicts confined to `src/workflows/runner.js` and repository files.
+
+- [ ] **Step 3: Run Root 1 closure scan**
+
+Run:
+
+```bash
+rg -n "db\.(prepare|query|exec)|\.prepare\(" src/routes src/services src/jobs src/workflows
+```
+
+Expected: no direct persistence hits in route, service, job, or workflow files except comments that describe injected database interfaces.
+
+- [ ] **Step 4: Run Root 1 validation suite**
+
+Run:
+
+```bash
+node --test --test-concurrency=1 test/share-flow.test.js test/sharing-security.test.js test/tracks.test.js test/poems.test.js test/story-start.test.js test/story-to-track-contract.test.js test/voice-enrollment.test.js test/billing-api.test.js test/subscription-manager.test.js test/workflows/render-contract.test.js test/workflows/personalized-highway.test.js
+npm run lint
+```
+
+Expected: selected tests pass and lint passes.
+
+- [ ] **Step 5: Update architecture docs**
+
+Update Root 1 status in `docs/architecture/architecture-debt-register-2026-06.md` to:
+
+```markdown
+Root 1 repository extraction is complete locally: routes, services, jobs, and workflow orchestration no longer own direct persistence. Remaining SQL ownership is intentionally concentrated in `src/database/**` repositories and database adapter/migration files.
+```
+
+Update `docs/architecture/architecture-map-2026-06.md` repository-layer section to show:
+
+```markdown
+HTTP routes and workflow runners depend on aggregate repositories for persistence; repositories are the only production source files allowed to prepare or execute application SQL outside database adapters and migrations.
+```
+
+- [ ] **Step 6: Commit Root 1 closure**
+
+Run:
+
+```bash
+git add docs/architecture/architecture-debt-register-2026-06.md docs/architecture/architecture-map-2026-06.md
+git commit -m "docs: mark repository layer extraction complete"
+```
+
+Expected: commit records Root 1 closure.
+
+## Task 12: Root 2 Auth And Rate-Limit Consolidation
+
+**Owner:** Controller plus one worker after Root 1 is closed  
+**Risk:** Revenue/auth path
+
+**Files:**
+- Modify: `src/services/auth-service.js`
+- Modify: `src/routes/auth.js`
+- Modify: `src/server.js` only if auth middleware ownership requires it
+- Modify: `src/database/auth-session-repository.js`
+- Modify: `src/database/auth-rate-limit-repository.js`
+- Test: `test/auth-api.test.js`
+- Test: `test/auth-login-enumeration.test.js`
+- Test: `test/rate-limit.test.js`
+- Test: `test/auth-race-condition.test.js`
+
+- [ ] **Step 1: Confirm C1 local invariant before changes**
+
+Run:
+
+```bash
+node --test --test-concurrency=1 test/auth-api.test.js test/auth-login-enumeration.test.js test/rate-limit.test.js
+```
+
+Expected: all selected tests pass.
+
+- [ ] **Step 2: Consolidate auth guard and rate-limit ownership**
+
+Move duplicated guard/rate-limit persistence calls into repository-backed service methods. Use this service boundary:
+
+```js
+async function verifyActiveSessionForUser({ userId, sessionId }) {
+  const session = await authSessions.findActiveSessionForUser({
+    userId,
+    sessionId,
+  });
+  return Boolean(session);
+}
+```
+
+Keep route-level auth decisions explicit and preserve current HTTP error envelopes.
+
+- [ ] **Step 3: Run Root 2 tests**
+
+Run:
+
+```bash
+node --test --test-concurrency=1 test/auth-api.test.js test/auth-login-enumeration.test.js test/rate-limit.test.js test/auth-race-condition.test.js
+npm run lint
+```
+
+Expected: selected tests pass and lint passes.
+
+- [ ] **Step 4: Commit Root 2**
+
+Run:
+
+```bash
+git add src/services/auth-service.js src/routes/auth.js src/server.js src/database/auth-session-repository.js src/database/auth-rate-limit-repository.js test/auth-api.test.js test/auth-login-enumeration.test.js test/rate-limit.test.js test/auth-race-condition.test.js
+git commit -m "refactor: consolidate auth and rate-limit boundaries"
+```
+
+Expected: one Root 2 commit.
+
+## Task 13: C2 Error Envelope Documentation Freeze
+
+**Owner:** Controller
+
+**Files:**
+- Modify: `CLAUDE.md`
+- Modify: `docs/architecture-and-flows.md`
+- Modify: `docs/architecture/architecture-debt-register-2026-06.md`
+- Modify or create: `docs/api/error-envelope.md`
+
+- [ ] **Step 1: Document actual current error envelope**
+
+Create or update `docs/api/error-envelope.md` with:
+
+````markdown
+# API Error Envelope
+
+The current public HTTP error envelope is a flat object:
+
+```json
+{
+  "error": "machine_readable_error",
+  "message": "Human-readable message"
+}
+```
+
+Endpoint-specific top-level fields may exist for already-shipped contracts. New endpoints must not add undocumented top-level error fields. A nested versioned envelope is a future client-coordinated migration and is not part of this refactor.
+````
+
+- [ ] **Step 2: Reconcile architecture docs**
+
+Replace claims that the wire format is already `{ error: { code, message, details } }` with links to `docs/api/error-envelope.md`.
+
+- [ ] **Step 3: Commit C2 docs**
+
+Run:
+
+```bash
+git add CLAUDE.md docs/architecture-and-flows.md docs/architecture/architecture-debt-register-2026-06.md docs/api/error-envelope.md
+git commit -m "docs: freeze current API error envelope"
+```
+
+Expected: C2 is document-closed without changing wire behavior.
+
+## Task 14: Root 3b Gift Subsystem Extraction
+
+**Owner:** One worker plus controller review  
+**Risk:** Revenue-adjacent gift path
+
+**Files:**
+- Modify: `src/server.js`
+- Create: `src/plugins/gift-delivery.js`
+- Modify: `src/routes/gifts.js` only if route registration moves
+- Use existing gift repositories under `src/database/gift-*.js`
+- Test: `test/gifts.test.js`
+- Test: `test/gift-webhooks.test.js`
+- Test: `test/gift-dispatch-repository.test.js`
+- Test: `test/render-full-billing-atomicity.test.js`
+
+- [ ] **Step 1: Run gift characterization tests before moving code**
+
+Run:
+
+```bash
+node --test --test-concurrency=1 test/gifts.test.js test/gift-webhooks.test.js test/gift-dispatch-repository.test.js test/render-full-billing-atomicity.test.js
+```
+
+Expected: all selected tests pass.
+
+- [ ] **Step 2: Move gift delivery registration into a Fastify plugin**
+
+Create `src/plugins/gift-delivery.js` with:
+
+```js
+"use strict";
+
+async function giftDeliveryPlugin(fastify, options) {
+  const {
+    db,
+    config,
+    services,
+  } = options;
+
+  fastify.decorate("giftDeliveryContext", {
+    db,
+    config,
+    services,
+  });
+}
+
+module.exports = { giftDeliveryPlugin };
+```
+
+Move existing server-owned gift delivery wiring into the plugin without changing route URLs, schemas, or response bodies.
+
+- [ ] **Step 3: Register plugin from `server.js`**
+
+Use:
+
+```js
+const { giftDeliveryPlugin } = require("./plugins/gift-delivery");
+
+await app.register(giftDeliveryPlugin, {
+  db,
+  config,
+  services,
+});
+```
+
+- [ ] **Step 4: Run gift validation**
+
+Run:
+
+```bash
+node --test --test-concurrency=1 test/gifts.test.js test/gift-webhooks.test.js test/gift-dispatch-repository.test.js test/render-full-billing-atomicity.test.js
+npm run lint
+```
+
+Expected: selected tests pass and lint passes.
+
+- [ ] **Step 5: Commit Root 3b**
+
+Run:
+
+```bash
+git add src/server.js src/plugins/gift-delivery.js src/routes/gifts.js
+git commit -m "refactor: extract gift delivery plugin"
+```
+
+Expected: gift subsystem is no longer embedded directly in `server.js`.
+
+## Task 15: Root 5 Workflow Runner Step Registry
+
+**Owner:** One worker plus controller review
+
+**Files:**
+- Modify: `src/workflows/runner.js`
+- Create: `src/workflows/steps/index.js`
+- Create focused step modules under `src/workflows/steps/`
+- Test: `test/workflows/render-contract.test.js`
+- Test: `test/workflows/personalized-highway.test.js`
+- Test: `test/workflows/personalized-step-guards.test.js`
+
+- [ ] **Step 1: Run render characterization tests before split**
+
+Run:
+
+```bash
+node --test --test-concurrency=1 test/workflows/render-contract.test.js test/workflows/personalized-highway.test.js test/workflows/personalized-step-guards.test.js
+```
+
+Expected: all selected tests pass.
+
+- [ ] **Step 2: Create registry entry point**
+
+Create `src/workflows/steps/index.js`:
+
+```js
+"use strict";
+
+function createStepRegistry(steps) {
+  return new Map(Object.entries(steps));
+}
+
+module.exports = { createStepRegistry };
+```
+
+- [ ] **Step 3: Move one step family at a time**
+
+Move a cohesive step family from `runner.js` into `src/workflows/steps/<family>.js` with this shape:
+
+```js
+"use strict";
+
+function createPersonalizationSteps(dependencies) {
+  return {
+    async personalizeAudio(context) {
+      return dependencies.personalizeAudio(context);
+    },
+  };
+}
+
+module.exports = { createPersonalizationSteps };
+```
+
+Run tests after each moved family.
+
+- [ ] **Step 4: Commit Root 5**
+
+Run:
+
+```bash
+git add src/workflows/runner.js src/workflows/steps test/workflows/render-contract.test.js test/workflows/personalized-highway.test.js test/workflows/personalized-step-guards.test.js
+git commit -m "refactor: introduce workflow step registry"
+```
+
+Expected: runner orchestration is smaller and step dispatch is registry-backed.
+
+## Task 16: Root 6 Admin Split And Client Config Boundary
+
+**Owner:** Two workers after Root 1 and C2 are closed
+
+**Files:**
+- Modify: `src/routes/admin.js`
+- Modify: `src/services/admin-service.js`
+- Create: `src/routes/admin/*.js`
+- Create: `src/services/admin/*.js`
+- Create: `src/services/client-config-service.js`
+- Modify route that serves mobile app config
+- Test: focused `test/admin-*-routes.test.js`
+- Test: `test/app-config-route.test.js`
+
+- [ ] **Step 1: Move `getAppConfig` composition out of admin service**
+
+Create `src/services/client-config-service.js`:
+
+```js
+"use strict";
+
+function createClientConfigService({ appConfigRepository }) {
+  async function getClientConfig() {
+    return appConfigRepository.getAppConfig();
+  }
+
+  return { getClientConfig };
+}
+
+module.exports = { createClientConfigService };
+```
+
+Wire the mobile app-config route to this service.
+
+- [ ] **Step 2: Split one admin route group per file**
+
+Use this route module shape:
+
+```js
+"use strict";
+
+async function adminUsersRoutes(fastify, options) {
+  const { adminService } = options;
+
+  fastify.get("/users", async (request, reply) => {
+    return adminService.users.listUsers(request.query);
+  });
+}
+
+module.exports = { adminUsersRoutes };
+```
+
+Move only one admin concern per commit.
+
+- [ ] **Step 3: Run admin validation**
+
+Run:
+
+```bash
+node --test --test-concurrency=1 test/app-config-route.test.js test/admin-user-read-routes.test.js test/admin-metrics-repository.test.js test/admin-share-routes.test.js
+npm run lint
+```
+
+Expected: selected tests pass and lint passes.
+
+- [ ] **Step 4: Commit Root 6**
+
+Run:
+
+```bash
+git add src/routes/admin.js src/routes/admin src/services/admin-service.js src/services/admin src/services/client-config-service.js test/app-config-route.test.js test/admin-*.test.js
+git commit -m "refactor: split admin routes and client config service"
+```
+
+Expected: admin route/service responsibilities are separated by concern.
+
+## Task 17: Root 7 Writer Decomposition
+
+**Owner:** One worker
+
+**Files:**
+- Modify: `src/writer/songwriter.js`
+- Modify or create focused files under `src/writer/`
+- Test: `test/writer/songwriter-fidelity.test.js`
+- Test: `test/writer/e2e-story-to-lyrics.test.js`
+
+- [ ] **Step 1: Run writer characterization tests**
+
+Run:
+
+```bash
+node --test --test-concurrency=1 test/writer/songwriter-fidelity.test.js test/writer/e2e-story-to-lyrics.test.js
+```
+
+Expected: all selected tests pass.
+
+- [ ] **Step 2: Move serialization and prompt-building helpers**
+
+Use focused module exports:
+
+```js
+"use strict";
+
+function buildSongPrompt(input) {
+  return input.sections.join("\n\n");
+}
+
+module.exports = { buildSongPrompt };
+```
+
+Keep provider invocation in the orchestration file.
+
+- [ ] **Step 3: Run writer validation and commit**
+
+Run:
+
+```bash
+node --test --test-concurrency=1 test/writer/songwriter-fidelity.test.js test/writer/e2e-story-to-lyrics.test.js
+npm run lint
+git add src/writer test/writer
+git commit -m "refactor: split writer prompt responsibilities"
+```
+
+Expected: writer behavior remains stable and files are smaller by responsibility.
+
+## Task 18: Root 8 Cleanup Sweep
+
+**Owner:** Controller plus one explorer worker
+
+**Files:**
+- Remove unused exports/files found by scan
+- Update docs that reference old file ownership
+
+- [ ] **Step 1: Scan for dead code and duplicate compatibility paths**
+
+Run:
+
+```bash
+rg -n "deprecated|compat|legacy|temporary|remove after|old path" src docs test
+```
+
+Expected: every hit is classified as keep, delete, or doc-update.
+
+- [ ] **Step 2: Delete only paths proven unused by tests and imports**
+
+For each candidate file:
+
+```bash
+rg -n "candidateExportOrPath" src test docs
+```
+
+Expected: delete only when no runtime import or documented public contract remains.
+
+- [ ] **Step 3: Run validation and commit**
+
+Run:
+
+```bash
+npm run lint
+npm test
+git add -A
+git commit -m "refactor: remove obsolete architecture compatibility paths"
+```
+
+Expected: lint and full test suite pass.
+
+## Task 19: Root 9 Migration Convergence
+
+**Owner:** One worker plus controller review
+
+**Files:**
+- Modify: `src/database/migrations/runner.js`
+- Modify migration files under `migrations/` only when convergence needs it
+- Test: `test/database/migration-runner.test.js`
+- Test: `test/postgres-schema-parity.test.js`
+- Test: `test/database/postgres-migration.test.js`
+
+- [ ] **Step 1: Run migration characterization tests**
+
+Run:
+
+```bash
+node --test --test-concurrency=1 test/database/migration-runner.test.js test/postgres-schema-parity.test.js test/database/postgres-migration.test.js
+```
+
+Expected: all selected tests pass.
+
+- [ ] **Step 2: Consolidate migration runner behavior**
+
+Keep SQLite/PostgreSQL dialect decisions in migration infrastructure, not routes or services. Use explicit adapter functions:
+
+```js
+function isPostgresDatabase(db) {
+  return Boolean(db && db.dialect === "postgres");
+}
+```
+
+- [ ] **Step 3: Run validation and commit**
+
+Run:
+
+```bash
+node --test --test-concurrency=1 test/database/migration-runner.test.js test/postgres-schema-parity.test.js test/database/postgres-migration.test.js
+npm run lint
+git add src/database/migrations migrations test/database test/postgres-schema-parity.test.js
+git commit -m "refactor: converge database migration boundaries"
+```
+
+Expected: migration behavior is centralized and validated.
+
+## Task 20: Root 10 Storage Interface Parity And OpenAPI
+
+**Owner:** One worker plus controller review
+
+**Files:**
+- Modify: `src/storage/*.js`
+- Create or update: `docs/api/openapi.yaml`
+- Modify: `docs/api/error-envelope.md`
+- Test: `test/storage/*.test.js`
+- Test: `test/storage-security.test.js`
+
+- [ ] **Step 1: Run storage characterization tests**
+
+Run:
+
+```bash
+node --test --test-concurrency=1 test/storage/local.test.js test/storage/s3.test.js test/storage/cloudfront.test.js test/storage-security.test.js
+```
+
+Expected: all selected tests pass.
+
+- [ ] **Step 2: Normalize storage interface**
+
+Use a consistent adapter shape:
+
+```js
+async function putObject({ key, body, contentType, metadata }) {
+  return provider.putObject({ key, body, contentType, metadata });
+}
+```
+
+No route should branch on S3/local implementation details.
+
+- [ ] **Step 3: Create OpenAPI shell for stabilized backend contracts**
+
+Create `docs/api/openapi.yaml` with documented routes for auth, sharing, tracks, poems, billing, and story create flow. Reference `docs/api/error-envelope.md` for errors.
+
+- [ ] **Step 4: Run validation and commit**
+
+Run:
+
+```bash
+node --test --test-concurrency=1 test/storage/local.test.js test/storage/s3.test.js test/storage/cloudfront.test.js test/storage-security.test.js
+npm run lint
+git add src/storage docs/api test/storage test/storage-security.test.js
+git commit -m "docs: add storage parity and API contract map"
+```
+
+Expected: storage adapter behavior is consistent and backend contracts are documented.
+
+## Task 21: Root 11 Cross-Surface Create Flow And SwiftUI State
+
+**Owner:** iOS-focused worker after backend contracts stabilize
+
+**Files:**
+- Backend create-flow contracts under `src/routes/story.js`, `src/routes/tracks.js`, and OpenAPI docs
+- SwiftUI files under `PorizoApp/`
+- Admin or web-player files only where create-flow contract assumptions are visible
+- Tests: backend story/track contract tests and Swift/Xcode validation appropriate to the touched app target
+
+- [ ] **Step 1: Confirm backend contract before iOS changes**
+
+Run:
+
+```bash
+node --test --test-concurrency=1 test/story-to-track-contract.test.js test/render-endpoints.test.js test/routes/story-lyrics-contract.test.js
+```
+
+Expected: all selected backend contract tests pass.
+
+- [ ] **Step 2: Replace boolean-plus-payload SwiftUI presentation**
+
+Use item-driven presentation for selected create payloads:
+
+```swift
+.sheet(item: $selectedCreatePayload) { payload in
+    CreateFlowView(payload: payload)
+}
+```
+
+Do not present a create flow from a Boolean when the payload can be stale or empty.
+
+- [ ] **Step 3: Run iOS validation**
+
+Run the repository-approved Xcode/SwiftUI validation from `docs/ios-swiftui-release-workflow.md` for touched targets.
+
+Expected: build/tests for the touched iOS target pass.
+
+- [ ] **Step 4: Commit Root 11**
+
+Run:
+
+```bash
+git add PorizoApp src/routes docs/api test
+git commit -m "refactor: align create flow contracts across backend and iOS"
+```
+
+Expected: backend and iOS create-flow state ownership are aligned.
+
+## Final Verification Gate
+
+**Owner:** Controller
+
+- [ ] **Step 1: Ensure no workers remain open**
+
+Close any completed worker with `close_agent`. If a worker is blocked, close it after recording the blocker in the plan status section.
+
+- [ ] **Step 2: Run full validation**
+
+Run:
+
+```bash
+npm run lint
+npm test
+```
+
+Expected: lint passes and full Node test suite passes. If full-repo validation reports failures, fix them before handoff unless Ambrose explicitly removes them from scope.
+
+- [ ] **Step 3: Update architecture map**
+
+Update:
+
+```text
+docs/architecture/architecture-map-2026-06.md
+docs/architecture-and-flows.md
+docs/architecture/architecture-debt-register-2026-06.md
+```
+
+Expected: the docs agree on current architecture, repository ownership, Fastify/plugin ownership, workflow boundaries, API error envelope, storage boundary, and cross-surface create flow.
+
+- [ ] **Step 4: Commit final documentation**
+
+Run:
+
+```bash
+git add docs/architecture/architecture-map-2026-06.md docs/architecture-and-flows.md docs/architecture/architecture-debt-register-2026-06.md
+git commit -m "docs: finalize architecture refactor map"
+```
+
+Expected: final docs commit is on `refactor`.
+
+- [ ] **Step 5: Finish the development branch**
+
+Use `superpowers:finishing-a-development-branch`. Present Ambrose the standard completion options after tests pass.
+
+## Plan Self-Review
+
+- Spec coverage: the plan covers Root 1 termination, Root 2 auth/rate-limit consolidation, C2 documentation, Root 3b gift extraction, Root 5 runner registry, Root 6 admin/client-config split, Root 7 writer split, Root 8 cleanup, Root 9 migrations, Root 10 storage/OpenAPI, and Root 11 cross-surface create-flow alignment.
+- Placeholder scan: the plan uses concrete files, commands, expected outputs, worker assignments, and repository code patterns. Any worker that finds an unmapped query must stop with `NEEDS_CONTEXT` instead of guessing ownership.
+- Type consistency: repository factories follow the existing `createXRepository(db)` CommonJS pattern; route wiring uses local `buildXRepositories(db)` helpers; worker branches use date-stamped `refactor/root1-*-20260628` names.
