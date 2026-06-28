@@ -1564,9 +1564,13 @@ Admin blend-analysis diagnostics route ownership is also extracted locally into
 `src/routes/admin/blend-analysis.js`, with new characterization for admin auth,
 superadmin path analysis, storage-scope validation, missing input, and missing
 track-version behavior.
-Security config/App Store sync and `/admin/auth/*` remain separate higher-risk
-slices. Remaining Root 6 work is the rest of the admin route/service split by
-concern, with billing/entitlement left last.
+Admin security config/App Store sync route ownership is also extracted locally
+into `src/routes/admin/security-config.js`, with new characterization for
+admin auth, superadmin mutation/sync gates, validation envelopes, readback, and
+App Store sync failure mapping.
+`/admin/auth/*` remains a separate higher-risk slice. Remaining Root 6 work is
+the rest of the admin route/service split by concern, with billing/entitlement
+left last.
 **Boundary:** Do the `getAppConfig` eviction + non-billing splits first (🟡). Do the billing/entitlement admin slice **last** (⚠ 🔴) with production verification.
 
 ### Root 7 — Writer cycle + god-file decomposition 🟡 effort M

@@ -121,9 +121,12 @@ Root 1 is complete only when that scan has no direct persistence hits outside co
 - Root 6 client-config route split is committed as `678f979c`. The next Root 6
   slice added blend-analysis route characterization and extracted diagnostics
   handlers into `src/routes/admin/blend-analysis.js`.
-- Next controller queue: commit the blend-analysis route split, then continue
-  with another characterized non-billing group. Security config/App Store sync
-  needs route characterization first; billing/entitlements remain last.
+- Root 6 blend-analysis route split is committed as `0be8a136`. The next Root
+  6 slice added security config/App Store sync route characterization and
+  extracted those handlers into `src/routes/admin/security-config.js`.
+- Next controller queue: commit the security-config route split, then continue
+  with another characterized non-billing group. Billing/entitlements remain
+  last.
 
 ## File Structure Map
 
@@ -1786,6 +1789,15 @@ Blend-analysis route slice completed locally:
 - `src/routes/admin/blend-analysis.js` owns the blend diagnostics handlers for
   `/admin/dashboard/analyze-blend` and `/admin/dashboard/analyze-blend/paths`.
 - Existing admin music diagnostics repository coverage remains green.
+
+Security-config route slice completed locally:
+
+- `test/admin-security-config-routes.test.js` now characterizes admin auth,
+  superadmin-only updates/sync, validation errors, readback, and App Store sync
+  failure mapping.
+- `src/routes/admin/security-config.js` owns security config read/update and
+  `/admin/dashboard/security/config/sync-ios-version`.
+- Existing STT/app-config update-policy coverage remains green.
 
 - [ ] **Step 3: Run admin validation**
 
