@@ -843,13 +843,7 @@ async function uploadTrackOutputsToS3({
   trackVersion,
   kind,
 }) {
-  const versionDir = path.join(
-    storageDir,
-    "tracks",
-    track.user_id,
-    track.id,
-    `v${trackVersion.version_num}`,
-  );
+  const versionDir = getVersionDir(storageDir, track, trackVersion);
 
   const isPreview = kind === "preview";
   const audioFileName = isPreview ? "preview.m4a" : "full.m4a";
@@ -988,13 +982,7 @@ function writePlaceholderOutputs({
   kind,
   devMode = false,
 }) {
-  const versionDir = path.join(
-    storageDir,
-    "tracks",
-    track.user_id,
-    track.id,
-    `v${trackVersion.version_num}`,
-  );
+  const versionDir = getVersionDir(storageDir, track, trackVersion);
   ensureDir(versionDir);
   const audioName = kind === "preview" ? "preview.m4a" : "full.m4a";
   const audioPath = path.join(versionDir, audioName);
@@ -2241,13 +2229,7 @@ async function startJobRunner({
 
         // Clean stale files before re-queuing
         if (track && tv && entry.step) {
-          const versionDir = path.join(
-            storageDir,
-            "tracks",
-            track.user_id,
-            track.id,
-            `v${tv.version_num}`,
-          );
+          const versionDir = getVersionDir(storageDir, track, tv);
           cleanStaleStepFiles(versionDir, entry.step);
         }
 
@@ -5074,15 +5056,13 @@ async function startJobRunner({
 
       // Generate cover images before upload so storage sync can include them, but do not
       // publish cover URLs until the render commit succeeds.
+      const versionDir = getVersionDir(
+        storageDir,
+        trackReady,
+        trackVersionReady,
+      );
       if (isSharpAvailable()) {
         try {
-          const versionDir = path.join(
-            storageDir,
-            "tracks",
-            trackReady.user_id,
-            trackReady.id,
-            `v${trackVersionReady.version_num}`,
-          );
           generatedCover = await generateCover({
             versionDir,
             track: trackReady,
@@ -5115,15 +5095,8 @@ async function startJobRunner({
             sections.length > 0 &&
             sections[0].startTime === undefined
           ) {
-            const vDir = path.join(
-              storageDir,
-              "tracks",
-              trackReady.user_id,
-              trackReady.id,
-              `v${trackVersionReady.version_num}`,
-            );
             const audioFile = path.join(
-              vDir,
+              versionDir,
               isFull ? "full.m4a" : "preview.m4a",
             );
             if (fs.existsSync(audioFile)) {
@@ -5328,13 +5301,6 @@ async function startJobRunner({
       // Clean up intermediate files only after fully successful render (including S3)
       // In dev mode with S3 failure, keep temp files for debugging
       if (s3UploadSucceeded) {
-        const versionDir = path.join(
-          storageDir,
-          "tracks",
-          trackReady.user_id,
-          trackReady.id,
-          `v${trackVersionReady.version_num}`,
-        );
         cleanupTempFiles(versionDir);
       }
 

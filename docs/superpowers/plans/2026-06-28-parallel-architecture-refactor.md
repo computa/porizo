@@ -36,7 +36,8 @@ Root 1 is complete only when that scan has no direct persistence hits outside co
 - Root 4 Slice 4 centralizes `music_provider_config` defaults, JSON parsing, lenient persisted-read normalization, strict admin patch validation, Suno-only routing normalization, Suno model allowlisting, reroll clamps, and style override sanitation in `src/providers/provider-config.js`; admin-service and runner now consume the same helpers.
 - Root 4 Slice 5 moves Whisper/OpenAI transcription credentials into normalized provider runtime config. Story audio routes and runner lyric alignment now pass explicit Whisper config, and `src/providers/whisper.js` no longer reads `process.env.OPENAI_API_KEY` directly.
 - Root 4 Slice 6 replaces provider-side manual local track-version directory construction in `music.js` and `suno.js` with the shared `getVersionDir()` helper.
-- Next controller queue: validate and commit Root 4 Slice 6, then continue with the runner-only storage path helper cleanup or enter the revenue-gated Root 2 path.
+- Root 4 Slice 7 replaces runner-side manual local track-version directory construction with `getVersionDir()` in S3 upload, placeholder output, DLQ auto-reprocess cleanup, ready cover generation, ready lyric alignment, and ready cleanup paths. The storage path scan for `path.join(storageDir, "tracks", ...)` is now clean across providers and runner.
+- Next controller queue: validate and commit Root 4 Slice 7, then enter the revenue-gated Root 2 path unless a small Root 4 review issue remains.
 
 ## File Structure Map
 

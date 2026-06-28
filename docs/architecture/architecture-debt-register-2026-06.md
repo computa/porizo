@@ -1382,6 +1382,12 @@ Slice 6 replaces provider-side manual local track-version directory construction
 in `music.js` and `suno.js` with the shared `getVersionDir()` helper. Runner
 artifact paths remain a separate, larger local-storage cleanup slice because
 they touch many render-contract fallbacks.
+
+Slice 7 replaces runner-side manual local track-version directory construction
+with `getVersionDir()` in S3 upload, placeholder output, DLQ auto-reprocess
+cleanup, ready cover generation, ready lyric alignment, and ready cleanup paths.
+The storage path scan for `path.join(storageDir, "tracks", ...)` is now clean
+across providers and runner.
 **Why early:** Mostly off the revenue path, contained, and the first slice (whisper/elevenlabs-voice retry) removes real render-failure risk for low effort.
 **Boundary:** Do NOT rewrite provider business logic; only normalize transport + path construction.
 
