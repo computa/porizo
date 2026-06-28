@@ -1646,11 +1646,10 @@ function registerEnrollmentRoutes(app, deps) {
                 deleteVoiceClone,
               } = require("../providers/elevenlabs-voice");
 
-              const existingWithClone = await db
-                .prepare(
-                  "SELECT elevenlabs_voice_id FROM voice_profiles WHERE user_id = ? AND status = 'active' AND elevenlabs_voice_id IS NOT NULL",
-                )
-                .get(userId);
+              const existingWithClone =
+                await enrollmentSessionRepository.findActiveVoiceCloneForUser(
+                  userId,
+                );
               if (existingWithClone?.elevenlabs_voice_id) {
                 console.log(
                   `[Enrollment:complete] Deleting existing ElevenLabs clone: ${existingWithClone.elevenlabs_voice_id}`,
@@ -1689,11 +1688,10 @@ function registerEnrollmentRoutes(app, deps) {
           }
         }
 
-        const existingProfile = await db
-          .prepare(
-            "SELECT id, quality_score FROM voice_profiles WHERE user_id = ? AND status = 'active' LIMIT 1",
-          )
-          .get(userId);
+        const existingProfile =
+          await enrollmentSessionRepository.findActiveVoiceProfileSummaryForUser(
+            userId,
+          );
 
         let outcome = "new";
         const existingScore = existingProfile?.quality_score || 0;
@@ -1745,35 +1743,30 @@ function registerEnrollmentRoutes(app, deps) {
                 userId,
                 reason: "voice_profile_replaced",
               });
-              await txDb
-                .prepare(
-                  "UPDATE voice_profiles SET status = ?, deleted_at = ? WHERE id = ?",
-                )
-                .run("deleted", nowIso(), existingProfile.id);
+              await txEnrollmentSessionRepository.markVoiceProfileReplaced({
+                profileId: existingProfile.id,
+                deletedAt: nowIso(),
+              });
             }
           }
 
-          await txDb
-            .prepare(
-              "INSERT INTO voice_profiles (id, user_id, status, embedding_ref, quality_score, quality_tier, quality_metrics_json, model_version, consent_version, consent_at, last_verified_at, created_at, elevenlabs_voice_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            )
-            .run(
-              profileId,
-              userId,
-              newVoiceStatus,
-              embeddingRef,
-              qualityScore,
-              qualityTier,
-              JSON.stringify(qcResult.metrics),
-              shouldEmbed
-                ? appConfig.REPLICATE_EMBEDDING_MODEL_VERSION
-                : "embed_stub",
-              session.consent_version,
-              session.started_at,
-              nowIso(),
-              nowIso(),
-              elevenlabsVoiceId,
-            );
+          await txEnrollmentSessionRepository.insertVoiceProfile({
+            id: profileId,
+            userId,
+            status: newVoiceStatus,
+            embeddingRef,
+            qualityScore,
+            qualityTier,
+            qualityMetricsJson: JSON.stringify(qcResult.metrics),
+            modelVersion: shouldEmbed
+              ? appConfig.REPLICATE_EMBEDDING_MODEL_VERSION
+              : "embed_stub",
+            consentVersion: session.consent_version,
+            consentAt: session.started_at,
+            lastVerifiedAt: nowIso(),
+            createdAt: nowIso(),
+            elevenlabsVoiceId,
+          });
 
           if (shouldEnqueuePersona) {
             const providerProfile = await createPendingProviderProfile(txDb, {
@@ -1821,17 +1814,13 @@ function registerEnrollmentRoutes(app, deps) {
             };
           }
 
-          await txDb
-            .prepare(
-              "INSERT INTO audit_logs (id, user_id, action, resource_type, resource_id, metadata_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            )
-            .run(
-              newUuid(),
-              userId,
-              "enrollment_completed",
-              "voice_profile",
-              profileId,
-              toJson({
+          await txEnrollmentSessionRepository.insertAuditLog({
+            id: newUuid(),
+            userId,
+            action: "enrollment_completed",
+            resourceType: "voice_profile",
+            resourceId: profileId,
+            metadataJson: toJson({
                 quality_score: qualityScore,
                 existing_score: existingProfile ? existingScore : null,
                 outcome: outcome,
@@ -1844,9 +1833,9 @@ function registerEnrollmentRoutes(app, deps) {
                       job_id: providerProfileResult.job_id || null,
                     }
                   : null,
-              }),
-              nowIso(),
-            );
+            }),
+            createdAt: nowIso(),
+          });
         });
         profilePersisted = true;
 
@@ -2102,11 +2091,10 @@ function registerEnrollmentRoutes(app, deps) {
     // U3: token revocation goes through enrollment-domain service.
     await revokeAllEnrollmentSessionTokensForUser(db, userId);
 
-    await db
-      .prepare(
-        "UPDATE voice_profiles SET status = ?, embedding_ref = ?, elevenlabs_voice_id = ?, deleted_at = ? WHERE id = ?",
-      )
-      .run("deleted", null, null, nowIso(), profile.id);
+    await enrollmentSessionRepository.deleteVoiceProfileAndClearAssets({
+      profileId: profile.id,
+      deletedAt: nowIso(),
+    });
     await addAuditEntry({
       userId,
       action: "voice_profile_deleted",

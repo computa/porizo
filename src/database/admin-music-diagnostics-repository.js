@@ -45,6 +45,28 @@ function createAdminMusicDiagnosticsRepository(db) {
         )
         .all(...trackVersionIds);
     },
+
+    findTrackVersionBlendContext(trackVersionId) {
+      return db
+        .prepare(
+          `SELECT tv.*, t.user_id, t.id as track_id
+           FROM track_versions tv
+           JOIN tracks t ON tv.track_id = t.id
+           WHERE tv.id = ?`,
+        )
+        .get(trackVersionId);
+    },
+
+    findLatestActiveVoiceProfileForUser(userId) {
+      return db
+        .prepare(
+          `SELECT *
+           FROM voice_profiles
+           WHERE user_id = ? AND status = 'active'
+           ORDER BY created_at DESC LIMIT 1`,
+        )
+        .get(userId);
+    },
   };
 }
 
