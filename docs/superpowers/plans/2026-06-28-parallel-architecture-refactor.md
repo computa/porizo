@@ -128,9 +128,13 @@ Root 1 is complete only when that scan has no direct persistence hits outside co
   6 slice extracted admin SPA/static serving into
   `src/routes/admin/static-ui.js`, keeping the existing hosting hardening
   coverage green.
-- Next controller queue: commit the static UI route split, then continue with
-  marketing as the remaining large non-billing group. Billing/entitlements
-  remain last.
+- Root 6 static UI route split is committed as `42d6d45a`. The next Root 6
+  slice extracted the large admin marketing/cold-email/campaign route group
+  into `src/routes/admin/marketing.js`, keeping the focused marketing route and
+  repository suites green.
+- Next controller queue: commit the marketing route split, then continue with
+  billing/entitlement groups last and `/admin/auth/*` as the remaining
+  higher-risk admin boundary.
 
 ## File Structure Map
 
@@ -1810,6 +1814,16 @@ Static admin UI route slice completed locally:
   `admin.js`; the static module owns MIME type, traversal guard, and SPA
   fallback behavior.
 - Existing `test/hosting-hardening.test.js` coverage remains green.
+
+Marketing route slice completed locally:
+
+- `src/routes/admin/marketing.js` owns marketing email templates, contacts,
+  contact upload/export, campaigns, cold-email read/PATCH/trigger, push send,
+  GMass import, and campaign engagement routes.
+- Marketing-only CSV, status, boolean-filter, push-target, cold-email, and
+  template allowlist helpers moved with the route group.
+- Existing `test/admin-marketing-routes.test.js` and
+  `test/admin-marketing-repository.test.js` coverage remains green.
 
 - [ ] **Step 3: Run admin validation**
 

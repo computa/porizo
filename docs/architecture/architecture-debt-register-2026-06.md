@@ -1572,9 +1572,12 @@ Admin SPA/static serving is also extracted locally into
 `src/routes/admin/static-ui.js`; Cloudflare Access mode checks remain injected
 from `admin.js`, while the static module owns MIME selection, traversal
 protection, and SPA fallback behavior.
+Admin marketing route ownership is also extracted locally into
+`src/routes/admin/marketing.js`, including email templates, contacts,
+contact upload/export, campaigns, cold-email operations, push send, GMass
+import, and engagement routes plus marketing-only helper logic.
 `/admin/auth/*` remains a separate higher-risk slice. Remaining Root 6 work is
-the rest of the admin route/service split by concern, with billing/entitlement
-left last.
+billing/entitlement grouped last.
 **Boundary:** Do the `getAppConfig` eviction + non-billing splits first (🟡). Do the billing/entitlement admin slice **last** (⚠ 🔴) with production verification.
 
 ### Root 7 — Writer cycle + god-file decomposition 🟡 effort M
