@@ -257,27 +257,29 @@ function sanitizeStoryStateForClient(state) {
  * @param {Object} reply - Fastify reply object
  * @returns {Object|null} Story state if authorized, null if error sent
  */
-async function verifyStoryOwnership(storyId, userId, sendError, reply, db) {
+async function verifyStoryOwnership(
+  storyId,
+  userId,
+  sendError,
+  reply,
+  storyRepository,
+) {
   try {
     const state = await writer.getStoryState(storyId);
     if (!state) {
       sendError(reply, 404, "STORY_NOT_FOUND", "Story session not found.");
       return null;
     }
-    if (!state.userId && db) {
-      const claimResult = await db
-        .prepare(
-          "UPDATE story_sessions SET user_id = ? WHERE id = ? AND user_id IS NULL",
-        )
-        .run(userId, storyId);
-      if (claimResult.changes > 0) {
+    if (!state.userId && storyRepository) {
+      const claimResult = await storyRepository.claimUnownedSession({
+        sessionId: storyId,
+        userId,
+      });
+      if (claimResult.claimed) {
         state.userId = userId;
         console.warn("[Story] Claimed unowned session:", { storyId, userId });
-      } else if (claimResult.changes === 0 && !state.userId) {
-        const fresh = await db
-          .prepare("SELECT user_id FROM story_sessions WHERE id = ?")
-          .get(storyId);
-        state.userId = fresh?.user_id;
+      } else if (!state.userId) {
+        state.userId = claimResult.userId;
       }
     }
     if (state.userId !== userId) {
@@ -2219,7 +2221,7 @@ function registerStoryRoutes(
       userId,
       sendError,
       reply,
-      db,
+      storyRepository,
     );
     if (!state) return;
 
@@ -2244,7 +2246,7 @@ function registerStoryRoutes(
         userId,
         sendError,
         reply,
-        db,
+        storyRepository,
       );
       if (!state) return;
 
@@ -2314,7 +2316,7 @@ function registerStoryRoutes(
         userId,
         sendError,
         reply,
-        db,
+        storyRepository,
       );
       if (!state) return;
 
@@ -2442,7 +2444,7 @@ function registerStoryRoutes(
       userId,
       sendError,
       reply,
-      db,
+      storyRepository,
     );
     if (!state) return;
 
@@ -2501,7 +2503,7 @@ function registerStoryRoutes(
         userId,
         sendError,
         reply,
-        db,
+        storyRepository,
       );
       if (!state) return;
 
@@ -2653,7 +2655,7 @@ function registerStoryRoutes(
         userId,
         sendError,
         reply,
-        db,
+        storyRepository,
       );
       if (!state) return;
 
@@ -2745,7 +2747,7 @@ function registerStoryRoutes(
         userId,
         sendError,
         reply,
-        db,
+        storyRepository,
       );
       if (!state) return;
 
@@ -2842,7 +2844,7 @@ function registerStoryRoutes(
         userId,
         sendError,
         reply,
-        db,
+        storyRepository,
       );
       if (!state) return;
 
@@ -2893,7 +2895,7 @@ function registerStoryRoutes(
         userId,
         sendError,
         reply,
-        db,
+        storyRepository,
       );
       if (!state) return;
 
@@ -2947,7 +2949,7 @@ function registerStoryRoutes(
       userId,
       sendError,
       reply,
-      db,
+      storyRepository,
     );
     if (!state) return;
 
@@ -3113,31 +3115,16 @@ function registerStoryRoutes(
           })
         : null;
       if (existingGiftPoem?.contentType === "poem") {
-        const existingPoem = await db
-          .prepare(
-            `SELECT id, user_id, title, recipient_name, occasion, tone, verses, status, created_at, updated_at
-         FROM poems
-         WHERE id = ? AND deleted_at IS NULL`,
-          )
-          .get(existingGiftPoem.contentId);
+        const existingPoem = await storyRepository.getStoryGiftPoem(
+          existingGiftPoem.contentId,
+        );
         if (existingPoem && existingPoem.user_id === userId) {
           await removePoemLibraryEntry({
             userId,
             poemId: existingPoem.id,
           });
           reply.send({
-            poem: {
-              id: existingPoem.id,
-              user_id: existingPoem.user_id,
-              title: existingPoem.title,
-              recipient_name: existingPoem.recipient_name,
-              occasion: existingPoem.occasion,
-              tone: existingPoem.tone,
-              verses: JSON.parse(existingPoem.verses || "[]"),
-              status: existingPoem.status,
-              created_at: existingPoem.created_at,
-              updated_at: existingPoem.updated_at,
-            },
+            poem: existingPoem,
             provider: null,
             model: null,
             idempotent: true,
@@ -3200,7 +3187,7 @@ function registerStoryRoutes(
         userId,
         sendError,
         reply,
-        db,
+        storyRepository,
       );
       if (!state) return;
 
@@ -3262,26 +3249,19 @@ function registerStoryRoutes(
           style: finalStyle,
         };
 
-        await db
-          .prepare(
-            `INSERT INTO poems (id, user_id, title, recipient_name, occasion, tone, verses, message, status, funding_source, gift_reservation_id, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          )
-          .run(
-            poemId,
-            userId,
-            result.title || `For ${context.recipientName || "you"}`,
-            context.recipientName,
-            context.occasion,
-            finalTone,
-            JSON.stringify(result.lines),
-            JSON.stringify(provenance),
-            "generated",
-            giftFundingReservation ? "gift_token" : "standard",
-            giftFundingReservation?.id || null,
-            now,
-            now,
-          );
+        const poem = await storyRepository.createStoryPoem({
+          poemId,
+          userId,
+          title: result.title || `For ${context.recipientName || "you"}`,
+          recipientName: context.recipientName,
+          occasion: context.occasion,
+          tone: finalTone,
+          verses: result.lines,
+          provenance,
+          fundingSource: giftFundingReservation ? "gift_token" : "standard",
+          giftReservationId: giftFundingReservation?.id || null,
+          createdAt: now,
+        });
         if (giftFundingReservation) {
           await removePoemLibraryEntry({
             userId,
@@ -3304,11 +3284,7 @@ function registerStoryRoutes(
             await subscriptionManager.spendPoem(userId, poemId);
           } catch (spendErr) {
             // Generation succeeded but credit spend failed — don't give away free content
-            await db
-              .prepare(
-                "UPDATE poems SET status = 'generation_failed' WHERE id = ?",
-              )
-              .run(poemId);
+            await storyRepository.markStoryPoemGenerationFailed(poemId);
             sendError(
               reply,
               503,
@@ -3339,18 +3315,7 @@ function registerStoryRoutes(
         }
 
         reply.send({
-          poem: {
-            id: poemId,
-            user_id: userId,
-            title: result.title || `For ${context.recipientName || "you"}`,
-            recipient_name: context.recipientName,
-            occasion: context.occasion,
-            tone: finalTone,
-            verses: result.lines,
-            status: "generated",
-            created_at: now,
-            updated_at: now,
-          },
+          poem,
           provider: result.provider,
           model: result.model,
         });
@@ -3435,7 +3400,7 @@ function registerStoryRoutes(
         userId,
         sendError,
         reply,
-        db,
+        storyRepository,
       );
       if (!state) return;
 
@@ -3810,14 +3775,11 @@ function registerStoryRoutes(
           })
         : null;
       if (existingGiftTrack?.contentType === "song") {
-        const existingVersion = await db
-          .prepare(
-            `SELECT id, version_num
-         FROM track_versions
-         WHERE track_id = ? AND version_num = ?
-         LIMIT 1`,
-          )
-          .get(existingGiftTrack.contentId, existingGiftTrack.versionNum || 1);
+        const existingVersion =
+          await storyRepository.findTrackVersionForGiftReuse({
+            trackId: existingGiftTrack.contentId,
+            versionNum: existingGiftTrack.versionNum || 1,
+          });
         if (existingVersion) {
           await removeTrackLibraryEntry({
             userId,
@@ -3854,7 +3816,7 @@ function registerStoryRoutes(
         userId,
         sendError,
         reply,
-        db,
+        storyRepository,
       );
       if (!state) return;
 
@@ -3938,11 +3900,8 @@ function registerStoryRoutes(
             return;
           }
 
-          const profile = await db
-            .prepare(
-              "SELECT id FROM voice_profiles WHERE user_id = ? AND status = 'active'",
-            )
-            .get(userId);
+          const profile =
+            await storyRepository.findActiveVoiceProfileForUser(userId);
           if (!profile) {
             sendError(
               reply,
@@ -4031,9 +3990,7 @@ function registerStoryRoutes(
 
         // Match the onboarding title format: "A {Occasion} Song for {Name} by {Sender}".
         // One extra single-row read; runs once per track creation.
-        const trackOwner = await db
-          .prepare("SELECT display_name FROM users WHERE id = ?")
-          .get(userId);
+        const trackOwner = await storyRepository.getUserDisplayName(userId);
         // Canonical mapping handles apostrophes + multi-word occasions
         // ("mothers_day" → "Mother's Day"). null fallback so we can omit
         // the occasion clause when there's no real one.
@@ -4046,35 +4003,30 @@ function registerStoryRoutes(
           senderFirstName: firstName(trackOwner?.display_name),
         });
 
-        await db
-          .prepare(
-            `
-        INSERT INTO tracks (id, user_id, status, title, occasion, recipient_name, recipient_phone, recipient_channel, style, message, story_context_json, voice_mode, voice_gender, funding_source, gift_reservation_id, latest_version, created_at, updated_at)
-        VALUES (?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
-      `,
-          )
-          .run(
-            trackId,
-            userId,
-            composedTitle,
-            storyContext.occasion,
-            storyContext.recipientName,
-            request.body?.recipient_phone || null,
-            request.body?.recipient_channel || null,
-            effectiveStyle,
-            storyContext.initialPrompt,
-            JSON.stringify(
-              buildTrackStoryContextPayload(storyContext, {
-                storyId: story_id,
-              }),
-            ),
-            requestedVoiceMode,
-            request.body?.voice_gender || null,
-            giftFundingReservation ? "gift_token" : "standard",
-            giftFundingReservation?.id || null,
-            now,
-            now,
-          );
+        // Create initial version with all required fields
+        const versionId = newUuid();
+        await storyRepository.createStoryTrackDraftWithVersion({
+          trackId,
+          versionId,
+          userId,
+          title: composedTitle,
+          occasion: storyContext.occasion,
+          recipientName: storyContext.recipientName,
+          recipientPhone: request.body?.recipient_phone || null,
+          recipientChannel: request.body?.recipient_channel || null,
+          style: effectiveStyle,
+          message: storyContext.initialPrompt,
+          storyContextPayload: buildTrackStoryContextPayload(storyContext, {
+            storyId: story_id,
+          }),
+          voiceMode: requestedVoiceMode,
+          voiceGender: request.body?.voice_gender || null,
+          fundingSource: giftFundingReservation ? "gift_token" : "standard",
+          giftReservationId: giftFundingReservation?.id || null,
+          paramsJson,
+          paramsHash,
+          createdAt: now,
+        });
         if (giftFundingReservation) {
           await removeTrackLibraryEntry({
             userId,
@@ -4090,17 +4042,6 @@ function registerStoryRoutes(
             addedAt: now,
           });
         }
-
-        // Create initial version with all required fields
-        const versionId = newUuid();
-        await db
-          .prepare(
-            `
-        INSERT INTO track_versions (id, track_id, version_num, status, render_type, params_json, params_hash, created_at)
-        VALUES (?, ?, 1, 'draft', 'preview', ?, ?, ?)
-      `,
-          )
-          .run(versionId, trackId, paramsJson, paramsHash, now);
 
         addAuditEntry({
           userId,

@@ -460,6 +460,168 @@ function createStoryRepository(db) {
     return rows.map(hydrateSession);
   }
 
+  async function claimUnownedSession({ sessionId, userId }) {
+    const claimResult = await db
+      .prepare("UPDATE story_sessions SET user_id = ? WHERE id = ? AND user_id IS NULL")
+      .run(userId, sessionId);
+
+    if (claimResult.changes > 0) {
+      return { claimed: true, userId };
+    }
+
+    const fresh = await db
+      .prepare("SELECT user_id FROM story_sessions WHERE id = ?")
+      .get(sessionId);
+
+    return {
+      claimed: false,
+      userId: fresh?.user_id || null,
+    };
+  }
+
+  async function getStoryGiftPoem(poemId) {
+    const row = await db
+      .prepare(
+        `SELECT id, user_id, title, recipient_name, occasion, tone, verses, status, created_at, updated_at
+         FROM poems
+         WHERE id = ? AND deleted_at IS NULL`,
+      )
+      .get(poemId);
+
+    return row ? hydrateStoryGiftPoem(row) : null;
+  }
+
+  async function createStoryPoem({
+    poemId,
+    userId,
+    title,
+    recipientName,
+    occasion,
+    tone,
+    verses,
+    provenance,
+    fundingSource,
+    giftReservationId,
+    createdAt,
+  }) {
+    await db
+      .prepare(
+        `INSERT INTO poems (id, user_id, title, recipient_name, occasion, tone, verses, message, status, funding_source, gift_reservation_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        poemId,
+        userId,
+        title,
+        recipientName,
+        occasion,
+        tone,
+        JSON.stringify(verses),
+        JSON.stringify(provenance),
+        "generated",
+        fundingSource,
+        giftReservationId,
+        createdAt,
+        createdAt,
+      );
+
+    return {
+      id: poemId,
+      user_id: userId,
+      title,
+      recipient_name: recipientName,
+      occasion,
+      tone,
+      verses,
+      status: "generated",
+      created_at: createdAt,
+      updated_at: createdAt,
+    };
+  }
+
+  async function markStoryPoemGenerationFailed(poemId) {
+    return db
+      .prepare("UPDATE poems SET status = 'generation_failed' WHERE id = ?")
+      .run(poemId);
+  }
+
+  async function findTrackVersionForGiftReuse({ trackId, versionNum }) {
+    return db
+      .prepare(
+        `SELECT id, version_num
+         FROM track_versions
+         WHERE track_id = ? AND version_num = ?
+         LIMIT 1`,
+      )
+      .get(trackId, versionNum);
+  }
+
+  async function findActiveVoiceProfileForUser(userId) {
+    return db
+      .prepare("SELECT id FROM voice_profiles WHERE user_id = ? AND status = 'active'")
+      .get(userId);
+  }
+
+  async function getUserDisplayName(userId) {
+    return db.prepare("SELECT display_name FROM users WHERE id = ?").get(userId);
+  }
+
+  async function createStoryTrackDraftWithVersion({
+    trackId,
+    versionId,
+    userId,
+    title,
+    occasion,
+    recipientName,
+    recipientPhone = null,
+    recipientChannel = null,
+    style = null,
+    message = null,
+    storyContextPayload,
+    voiceMode,
+    voiceGender = null,
+    fundingSource,
+    giftReservationId = null,
+    paramsJson,
+    paramsHash,
+    createdAt,
+  }) {
+    await db
+      .prepare(
+        `
+        INSERT INTO tracks (id, user_id, status, title, occasion, recipient_name, recipient_phone, recipient_channel, style, message, story_context_json, voice_mode, voice_gender, funding_source, gift_reservation_id, latest_version, created_at, updated_at)
+        VALUES (?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+      `,
+      )
+      .run(
+        trackId,
+        userId,
+        title,
+        occasion,
+        recipientName,
+        recipientPhone,
+        recipientChannel,
+        style,
+        message,
+        JSON.stringify(storyContextPayload),
+        voiceMode,
+        voiceGender,
+        fundingSource,
+        giftReservationId,
+        createdAt,
+        createdAt,
+      );
+
+    await db
+      .prepare(
+        `
+        INSERT INTO track_versions (id, track_id, version_num, status, render_type, params_json, params_hash, created_at)
+        VALUES (?, ?, 1, 'draft', 'preview', ?, ?, ?)
+      `,
+      )
+      .run(versionId, trackId, paramsJson, paramsHash, createdAt);
+  }
+
   async function upsertTrackLibraryEntry({
     userId,
     trackId,
@@ -758,6 +920,21 @@ function createStoryRepository(db) {
     };
   }
 
+  function hydrateStoryGiftPoem(row) {
+    return {
+      id: row.id,
+      user_id: row.user_id,
+      title: row.title,
+      recipient_name: row.recipient_name,
+      occasion: row.occasion,
+      tone: row.tone,
+      verses: JSON.parse(row.verses || "[]"),
+      status: row.status,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+    };
+  }
+
   return {
     createSession,
     getSession,
@@ -769,6 +946,14 @@ function createStoryRepository(db) {
     getLatestUnansweredTurn,
     expireStaleSessions,
     getActiveSessionsForUser,
+    claimUnownedSession,
+    getStoryGiftPoem,
+    createStoryPoem,
+    markStoryPoemGenerationFailed,
+    findTrackVersionForGiftReuse,
+    findActiveVoiceProfileForUser,
+    getUserDisplayName,
+    createStoryTrackDraftWithVersion,
     upsertTrackLibraryEntry,
     upsertPoemLibraryEntry,
     removeTrackLibraryEntry,
