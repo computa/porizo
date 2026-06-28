@@ -248,6 +248,59 @@ describe("JobDurabilityRepository", () => {
     );
   });
 
+  test("recoverStaleJobs uses locked_at or updated_at when heartbeat is missing", async () => {
+    await insertJob({
+      id: "job_stale_locked",
+      status: "running",
+      attempts: 1,
+      lastHeartbeatAt: null,
+      lockedBy: "old-worker",
+      lockedAt: "2026-06-27T00:00:00.000Z",
+      updatedAt: "2026-06-27T00:00:00.000Z",
+    });
+    await insertJob({
+      id: "job_recent_locked",
+      status: "running",
+      attempts: 1,
+      lastHeartbeatAt: null,
+      lockedBy: "current-worker",
+      lockedAt: "2026-06-27T00:04:30.000Z",
+      updatedAt: "2026-06-27T00:00:00.000Z",
+    });
+    await insertJob({
+      id: "job_stale_updated_only",
+      status: "running",
+      attempts: 1,
+      lastHeartbeatAt: null,
+      lockedBy: null,
+      lockedAt: null,
+      updatedAt: "2026-06-27T00:00:00.000Z",
+    });
+
+    const recovered = await repository.recoverStaleJobs({
+      now: "2026-06-27T00:05:00.000Z",
+      thresholdTime: "2026-06-27T00:01:00.000Z",
+    });
+
+    assert.equal(recovered, 2);
+    assert.equal(
+      db.prepare("SELECT status FROM jobs WHERE id = ?").get("job_stale_locked")
+        .status,
+      "queued",
+    );
+    assert.equal(
+      db.prepare("SELECT status FROM jobs WHERE id = ?").get("job_recent_locked")
+        .status,
+      "running",
+    );
+    assert.equal(
+      db
+        .prepare("SELECT status FROM jobs WHERE id = ?")
+        .get("job_stale_updated_only").status,
+      "queued",
+    );
+  });
+
   test("getJobHealth preserves durability service field source columns", async () => {
     await insertJob({
       id: "job_health",

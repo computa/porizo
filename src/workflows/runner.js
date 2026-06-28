@@ -67,6 +67,9 @@ const {
 } = require("../database/app-config-repository");
 const { createDeviceRepository } = require("../database/device-repository");
 const {
+  createJobDurabilityRepository,
+} = require("../database/job-durability-repository");
+const {
   getFeatureFlag,
   getFeatureFlags,
 } = require("../services/feature-flags");
@@ -1073,6 +1076,7 @@ async function startJobRunner({
   const runnerId = workerId || crypto.randomUUID();
   const appConfigRepository = createAppConfigRepository(db);
   const deviceRepository = createDeviceRepository(db);
+  const jobDurabilityRepository = createJobDurabilityRepository(db);
   const sunoPollIntervalSec = 10;
   const MAX_CONCURRENT_VOICE_PROVIDER_JOBS = Math.max(
     0,
@@ -2167,16 +2171,6 @@ async function startJobRunner({
   // Stale job recovery: reset jobs stuck in 'running' status
   // This handles cases where process crashed mid-step
   // Note: Compute cutoff in JavaScript for database-agnostic comparison
-  const recoverStaleJobsStmt = await db.prepare(`
-    UPDATE jobs
-    SET status = 'queued',
-        attempts = attempts + 1,
-        locked_by = NULL,
-        locked_at = NULL,
-        updated_at = ?
-    WHERE status = 'running'
-      AND COALESCE(last_heartbeat_at, locked_at, updated_at) < ?
-  `);
   let cleanOrphanedStepHistory = null;
 
   async function performStaleJobRecovery() {
@@ -2187,10 +2181,13 @@ async function startJobRunner({
       const cutoffTime = new Date(
         Date.now() - staleJobTimeoutMinutes * 60 * 1000,
       ).toISOString();
-      const result = await recoverStaleJobsStmt.run(now, cutoffTime);
-      if (result.changes > 0) {
+      const recoveredJobs = await jobDurabilityRepository.recoverStaleJobs({
+        now,
+        thresholdTime: cutoffTime,
+      });
+      if (recoveredJobs > 0) {
         console.warn(
-          `[JobRunner] Recovered ${result.changes} stale jobs stuck in 'running' status`,
+          `[JobRunner] Recovered ${recoveredJobs} stale jobs stuck in 'running' status`,
         );
         // Clean orphaned step history entries left 'running' by crashed workers
         if (cleanOrphanedStepHistory) {

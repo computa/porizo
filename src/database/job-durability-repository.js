@@ -63,7 +63,7 @@ function createJobDurabilityRepository(db) {
            locked_at = NULL,
            updated_at = ?
        WHERE status = 'running'
-         AND (last_heartbeat_at IS NULL OR last_heartbeat_at < ?)`,
+         AND COALESCE(last_heartbeat_at, locked_at, updated_at) < ?`,
       [now, thresholdTime],
     );
     return changeCount(result);
