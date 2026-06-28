@@ -62,6 +62,9 @@ const {
 const { CircuitBreaker } = require("./circuit-breaker");
 const { createDLQService } = require("./dlq");
 const { createJobDurabilityService } = require("./durability");
+const {
+  createAppConfigRepository,
+} = require("../database/app-config-repository");
 const { createDeviceRepository } = require("../database/device-repository");
 const {
   getFeatureFlag,
@@ -1068,6 +1071,7 @@ async function startJobRunner({
   voiceProviderJobRunner = runSunoVoicePersonaJob,
 }) {
   const runnerId = workerId || crypto.randomUUID();
+  const appConfigRepository = createAppConfigRepository(db);
   const deviceRepository = createDeviceRepository(db);
   const sunoPollIntervalSec = 10;
   const MAX_CONCURRENT_VOICE_PROVIDER_JOBS = Math.max(
@@ -1709,11 +1713,9 @@ async function startJobRunner({
       );
     }
     try {
-      const row = await db
-        .prepare(
-          "SELECT value_json FROM app_config WHERE key = 'music_provider_config'",
-        )
-        .get();
+      const row = await appConfigRepository.findConfigValue(
+        "music_provider_config",
+      );
       if (row?.value_json) {
         const parsed = parseJson(row.value_json, {}, "music_provider_config");
         const parsedMaxRerolls = Number(parsed?.max_rerolls);
