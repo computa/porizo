@@ -1597,17 +1597,18 @@ decomposition/service-boundary cleanup, not route-handler extraction.
 `songwriter/prompt-budget.js`, `song-contract.js`,
 `v3/quality/poem-readiness.js`, `v3/quality/question-targeting.js`,
 `v3/quality/labov-gap-analysis.js`, `v3/semantic-story-package.js`,
-`v3/runtime-questions.js`, `v3/ready-confirmation.js`, shared V3
-`splitSentences` in `v3/utils.js`, and shared writer `factText` through
-`story-semantics.js`. The songwriter↔v3
+`v3/runtime-questions.js`, `v3/ready-confirmation.js`,
+`v3/turn-decision.js`, shared V3 `splitSentences` in `v3/utils.js`, and shared
+writer `factText` through `story-semantics.js`. The songwriter↔v3
 contract-validation cycle is now gone; `v3/index.js` imports contract validation
 from the leaf module instead of lazy-requiring `songwriter.js`; deterministic
 semantic story package repair, runtime question helpers, and ready-confirmation
-text are also out of the god file. Focused V3/writer validation and lint passed
-for each slice. Remaining Root 7 work: extract the remaining legacy slot-analysis
-cluster from `quality.js`, extract the now-narrower `resolveTurnDecision`
-orchestration from `v3/index.js`, and add the later test-file parity coverage
-for shared sanitizer/leaf helpers.
+text are also out of the god file, and turn-decision result assembly is ready for
+the larger `resolveTurnDecision` move. Focused V3/writer validation and lint
+passed for each slice. Remaining Root 7 work: extract the remaining legacy
+slot-analysis cluster from `quality.js`, extract the now-narrower
+`resolveTurnDecision` orchestration from `v3/index.js`, and add the later
+test-file parity coverage for shared sanitizer/leaf helpers.
 **Boundary:** Do NOT alter LLM prompts or generation behavior — structural extraction only, with golden-output regression tests before/after.
 
 ---
