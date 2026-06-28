@@ -106,6 +106,7 @@ const {
 const { createOrGetShareToken } = require("../services/share-service");
 const { upsertGiftIncident } = require("../services/gift-delivery-ops");
 const {
+  findActiveVoiceProfileForUser,
   findActiveProviderProfileForUser,
   getProviderProfileById,
   heartbeatVoiceProviderJob: heartbeatVoiceProviderJobInStore,
@@ -575,11 +576,9 @@ async function performVoiceConversion({
       );
     }
 
-    const voiceProfile = await db
-      .prepare(
-        "SELECT elevenlabs_voice_id FROM voice_profiles WHERE user_id = ? AND status = 'active'",
-      )
-      .get(track.user_id);
+    const voiceProfile = await findActiveVoiceProfileForUser(db, {
+      userId: track.user_id,
+    });
 
     if (!voiceProfile?.elevenlabs_voice_id) {
       throw new Error(
@@ -2958,11 +2957,9 @@ async function startJobRunner({
       let userVoiceEngine = null;
       let voiceProviderProfileId = null;
       if (PERSONALIZED_VOICE_MODES.has(track.voice_mode)) {
-        const activeVoiceProfile = await db
-          .prepare(
-            "SELECT id FROM voice_profiles WHERE user_id = ? AND status = 'active' ORDER BY created_at DESC LIMIT 1",
-          )
-          .get(track.user_id);
+        const activeVoiceProfile = await findActiveVoiceProfileForUser(db, {
+          userId: track.user_id,
+        });
         if (!activeVoiceProfile) {
           throw new Error(
             "E302_VOICE_PROFILE_REQUIRED: Active voice profile required for My Voice.",
