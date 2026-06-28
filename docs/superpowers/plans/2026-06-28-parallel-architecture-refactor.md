@@ -132,9 +132,12 @@ Root 1 is complete only when that scan has no direct persistence hits outside co
   slice extracted the large admin marketing/cold-email/campaign route group
   into `src/routes/admin/marketing.js`, keeping the focused marketing route and
   repository suites green.
-- Next controller queue: commit the marketing route split, then continue with
-  billing/entitlement groups last and `/admin/auth/*` as the remaining
-  higher-risk admin boundary.
+- Root 6 marketing route split is committed as `497ffef6`. The next Root 6
+  slice extracted billing dashboard, entitlement mutation, complimentary
+  upgrade, plan, and gift-bundle admin routes into
+  `src/routes/admin/billing.js`.
+- Next controller queue: commit the billing route split, then handle
+  `/admin/auth/*` as the remaining higher-risk admin boundary.
 
 ## File Structure Map
 
@@ -1824,6 +1827,14 @@ Marketing route slice completed locally:
   template allowlist helpers moved with the route group.
 - Existing `test/admin-marketing-routes.test.js` and
   `test/admin-marketing-repository.test.js` coverage remains green.
+
+Billing route slice completed locally:
+
+- `src/routes/admin/billing.js` owns entitlement mutation, complimentary
+  upgrade/revoke, billing revenue/subscription/sales/transaction reads,
+  `/admin/billing/plans`, and gift-bundle management routes.
+- Existing entitlement, gift-bundle, billing-sales, and admin-billing
+  repository coverage remains green.
 
 - [ ] **Step 3: Run admin validation**
 

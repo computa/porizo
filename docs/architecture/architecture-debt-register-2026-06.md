@@ -1576,8 +1576,11 @@ Admin marketing route ownership is also extracted locally into
 `src/routes/admin/marketing.js`, including email templates, contacts,
 contact upload/export, campaigns, cold-email operations, push send, GMass
 import, and engagement routes plus marketing-only helper logic.
-`/admin/auth/*` remains a separate higher-risk slice. Remaining Root 6 work is
-billing/entitlement grouped last.
+Admin billing route ownership is also extracted locally into
+`src/routes/admin/billing.js`, including entitlement mutation, complimentary
+upgrade/revoke, billing dashboard reads, plan updates, and gift-bundle
+management. `/admin/auth/*` remains the final higher-risk inline admin route
+boundary.
 **Boundary:** Do the `getAppConfig` eviction + non-billing splits first (🟡). Do the billing/entitlement admin slice **last** (⚠ 🔴) with production verification.
 
 ### Root 7 — Writer cycle + god-file decomposition 🟡 effort M
