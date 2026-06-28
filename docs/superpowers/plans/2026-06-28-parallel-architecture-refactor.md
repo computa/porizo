@@ -89,7 +89,9 @@ Root 1 is complete only when that scan has no direct persistence hits outside co
 - Root 6 webhook-health route split is committed as `48e020ee`. The next Root
   6 slice extracted admin growth/attribution routes into
   `src/routes/admin/growth.js`.
-- Next controller queue: commit the growth route split, then continue with
+- Root 6 growth route split is committed as `aef0d568`. The next Root 6 slice
+  extracted admin KPI dashboard routes into `src/routes/admin/kpis.js`.
+- Next controller queue: commit the KPI route split, then continue with
   another non-billing admin group. Security config/App Store sync needs
   route characterization first; billing/entitlements remain last.
 
@@ -1666,6 +1668,14 @@ Growth route slice completed locally:
   Root 6 admin route groups.
 - Existing growth metrics, growth repository, and attribution route coverage
   remains green.
+
+KPI route slice completed locally:
+
+- `src/routes/admin/kpis.js` owns `/admin/dashboard/kpis` and
+  `/admin/dashboard/kpis/trends`.
+- `src/routes/admin.js` now injects `db` into the KPI module for aggregate job
+  helper calls.
+- Existing KPI route coverage remains green.
 
 - [ ] **Step 3: Run admin validation**
 

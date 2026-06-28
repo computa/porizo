@@ -47,6 +47,7 @@ const {
 } = require("./admin/feature-flags");
 const { registerAdminGrowthRoutes } = require("./admin/growth");
 const { registerAdminJobOpsRoutes } = require("./admin/job-ops");
+const { registerAdminKpiRoutes } = require("./admin/kpis");
 const { registerAdminMetricsRoutes } = require("./admin/metrics");
 const { registerAdminModerationRoutes } = require("./admin/moderation");
 const {
@@ -1512,6 +1513,10 @@ function registerAdminRoutes(
     requireAdminSession,
     sendError,
   });
+  registerAdminKpiRoutes(app, {
+    db,
+    requireAdminSession,
+  });
 
   // --- Gift Operations ---
 
@@ -2146,30 +2151,6 @@ function registerAdminRoutes(
       request.query.limit,
     );
     reply.send(userAnalytics);
-  });
-
-  // --- KPI Dashboard ---
-
-  app.get("/admin/dashboard/kpis", async (request, reply) => {
-    const admin = await requireAdminSession(request, reply);
-    if (!admin) return;
-    const days = parseInt(request.query.days) || 30;
-    const { getKPIAggregates } = require("../jobs/compute-daily-aggregates");
-    const aggregates = await getKPIAggregates(db, days);
-    reply.send({ aggregates });
-  });
-
-  app.get("/admin/dashboard/kpis/trends", async (request, reply) => {
-    const admin = await requireAdminSession(request, reply);
-    if (!admin) return;
-    const {
-      getKPITrends,
-      ensureRecentAggregates,
-    } = require("../jobs/compute-daily-aggregates");
-    // Ensure we have recent data first
-    await ensureRecentAggregates(db, 14);
-    const trends = await getKPITrends(db);
-    reply.send(trends);
   });
 
   // --- STT Provider Config ---
