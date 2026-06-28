@@ -1348,16 +1348,23 @@ to no retry to avoid duplicate remote resources; render hot-path conversion can
 opt into retry. Focused provider, render endpoint, ready-step, and
 voice-conversion routing tests pass locally.
 
-Slice 2 is implemented locally. `src/providers/provider-config.js` now owns the
+Slice 2 is committed as `61fb9d9b refactor: centralize provider boot config`.
+`src/providers/provider-config.js` now owns the
 server/worker boot-time provider config and storage runtime config. `server.js`
 and `worker.js` both consume this factory, eliminating the prior drift where the
 separate worker could enable ElevenLabs as a live music provider while the server
 correctly kept song generation Suno-only. The factory also carries Replicate
 RVC/Demucs fields, HF token, storage S3/KMS fields, and
-`UPLOAD_SIGNING_SECRET` through one shared shape. Remaining provider debt stays
-out of this slice: runtime DB `music_provider_config` parsing still lives in the
-runner/admin paths, `/health/providers` still builds health-check config from
-env, and LLM/Whisper modules still read env directly.
+`UPLOAD_SIGNING_SECRET` through one shared shape. Focused provider/storage
+validation, lint, diff check, and the full `npm test` suite passed before commit
+(2,938 pass / 23 skipped / 0 fail).
+
+Slice 3 routes `/health/providers` through the same normalized provider config
+factory instead of rebuilding health-check config from ambient env. It also pins
+the route's admin role guard so valid admin access cannot hide a 500 behind a
+loose auth assertion. Remaining provider debt stays out of this slice: runtime
+DB `music_provider_config` parsing still lives in the runner/admin paths, and
+LLM/Whisper modules still read env directly.
 **Why early:** Mostly off the revenue path, contained, and the first slice (whisper/elevenlabs-voice retry) removes real render-failure risk for low effort.
 **Boundary:** Do NOT rewrite provider business logic; only normalize transport + path construction.
 

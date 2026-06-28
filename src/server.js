@@ -35,6 +35,7 @@ const {
   trackArtworkKey,
 } = require("./storage");
 const {
+  createHealthCheckRuntimeConfig,
   createProviderRuntimeConfig,
   createStorageRuntimeConfig,
 } = require("./providers/provider-config");
@@ -304,7 +305,7 @@ function registerHostAllowlist(app, { appConfig, allowedHosts }) {
 
 function buildServer({
   db,
-  config: appConfig,
+  config: appConfig = {},
   storage,
   cdnSigner = null,
   billingServices = null,
@@ -313,6 +314,11 @@ function buildServer({
   let requireAdminRole; // Forward declaration — assigned by registerAdminRoutes below
   const app = createFastifyApp();
   registerFormUrlEncodedParser(app);
+  const derivedProviderRuntime = createProviderRuntimeConfig(appConfig);
+  const runtimeProviderConfig =
+    appConfig.providerConfig || derivedProviderRuntime.providerConfig;
+  const runtimeProviderStatus =
+    appConfig.providerStatus || derivedProviderRuntime.providerStatus;
 
   const publicBaseUrl =
     appConfig.PUBLIC_BASE_URL ||
@@ -3488,7 +3494,7 @@ function buildServer({
   app.get("/health", async () => ({
     ok: true,
     time: nowIso(),
-    providers: appConfig.providerStatus || {},
+    providers: runtimeProviderStatus,
   }));
 
   /**
@@ -3499,18 +3505,17 @@ function buildServer({
    */
   app.get("/health/providers", async (request, reply) => {
     // Gate behind admin auth — exposes API keys existence and provider config
-    const adminOk = await requireAdminRole(request, reply);
+    const adminOk = await requireAdminRole(request, reply, [
+      "admin",
+      "superadmin",
+    ]);
     if (!adminOk) return;
 
-    const healthChecker = createHealthCheckService({
-      elevenlabsApiKey: process.env.ELEVENLABS_API_KEY,
-      elevenlabsBaseUrl:
-        process.env.ELEVENLABS_BASE_URL || "https://api.elevenlabs.io",
-      replicateToken: process.env.REPLICATE_API_TOKEN,
-      replicateBaseUrl:
-        process.env.REPLICATE_BASE_URL || "https://api.replicate.com",
-      timeoutMs: 5000,
-    });
+    const healthChecker = createHealthCheckService(
+      createHealthCheckRuntimeConfig(runtimeProviderConfig, {
+        timeoutMs: 5000,
+      }),
+    );
 
     try {
       const health = await healthChecker.getOverallHealth();
@@ -3520,7 +3525,7 @@ function buildServer({
       // For now, just return provider health
       reply.send({
         ...health,
-        circuitBreakers: appConfig.providerStatus || {},
+        circuitBreakers: runtimeProviderStatus,
       });
     } catch (err) {
       console.error("[health/providers] Check failed:", err.message);
@@ -4530,7 +4535,7 @@ async function start() {
 
   const app = buildServer({
     db,
-    config: { ...config, providerStatus },
+    config: { ...config, providerConfig, providerStatus },
     storage,
     billingServices,
   });

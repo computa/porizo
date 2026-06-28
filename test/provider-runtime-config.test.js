@@ -1,6 +1,7 @@
 const assert = require("node:assert/strict");
 const { describe, test } = require("node:test");
 const {
+  createHealthCheckRuntimeConfig,
   createProviderRuntimeConfig,
   createStorageRuntimeConfig,
   isLiveProvidersEnabled,
@@ -71,6 +72,61 @@ describe("Provider runtime config factory", () => {
     });
 
     assert.equal(providerConfig.replicate.live, false);
+  });
+
+  test("disables provider health checks when live providers are disabled", () => {
+    const { providerConfig } = createProviderRuntimeConfig({
+      LIVE_PROVIDERS: false,
+      DEV_MODE: true,
+      ELEVENLABS_API_KEY: "elevenlabs-key",
+      ELEVENLABS_BASE_URL: "https://elevenlabs.example",
+      REPLICATE_API_TOKEN: "replicate-token",
+      REPLICATE_BASE_URL: "https://replicate.example",
+      PROVIDER_TIMEOUT_MS: 1234,
+    });
+
+    assert.deepEqual(
+      createHealthCheckRuntimeConfig(providerConfig, { timeoutMs: 5000 }),
+      {
+        elevenlabsApiKey: "",
+        elevenlabsBaseUrl: "https://elevenlabs.example",
+        replicateToken: "",
+        replicateBaseUrl: "https://replicate.example",
+        timeoutMs: 5000,
+      },
+    );
+  });
+
+  test("derives live provider health-check config from normalized provider config", () => {
+    const { providerConfig } = createProviderRuntimeConfig({
+      LIVE_PROVIDERS: true,
+      DEV_MODE: false,
+      ELEVENLABS_API_KEY: "elevenlabs-key",
+      ELEVENLABS_BASE_URL: "https://elevenlabs.example",
+      REPLICATE_API_TOKEN: "replicate-token",
+      REPLICATE_MODEL_VERSION: "replicate-version",
+      REPLICATE_BASE_URL: "https://replicate.example",
+      PROVIDER_TIMEOUT_MS: 1234,
+    });
+
+    assert.deepEqual(createHealthCheckRuntimeConfig(providerConfig), {
+      elevenlabsApiKey: "elevenlabs-key",
+      elevenlabsBaseUrl: "https://elevenlabs.example",
+      replicateToken: "replicate-token",
+      replicateBaseUrl: "https://replicate.example",
+      timeoutMs: 1234,
+    });
+  });
+
+  test("does not health-check Replicate without the required model version", () => {
+    const { providerConfig } = createProviderRuntimeConfig({
+      LIVE_PROVIDERS: true,
+      DEV_MODE: false,
+      REPLICATE_API_TOKEN: "replicate-token",
+      REPLICATE_MODEL_VERSION: "",
+    });
+
+    assert.equal(createHealthCheckRuntimeConfig(providerConfig).replicateToken, "");
   });
 
   test("passes storage credentials through one shared boot-path shape", () => {

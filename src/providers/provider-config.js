@@ -8,12 +8,16 @@ function normalizeMusicProvider(_value) {
 
 function createProviderRuntimeConfig(appConfig = {}) {
   const liveEnabled = isLiveProvidersEnabled(appConfig);
+  const elevenlabsApiKey = appConfig.ELEVENLABS_API_KEY || "";
+  const replicateToken = appConfig.REPLICATE_API_TOKEN || "";
+  const replicateModelVersion = appConfig.REPLICATE_MODEL_VERSION || "";
   const providerConfig = {
     elevenlabs: {
       // ElevenLabs remains available for TTS and voice conversion, but not music routing.
       live: false,
+      healthCheckEnabled: liveEnabled && Boolean(elevenlabsApiKey),
       provider: "elevenlabs",
-      apiKey: appConfig.ELEVENLABS_API_KEY || "",
+      apiKey: elevenlabsApiKey,
       baseUrl: appConfig.ELEVENLABS_BASE_URL || "https://api.elevenlabs.io",
       endpoint: appConfig.ELEVENLABS_MUSIC_ENDPOINT || "/v1/music",
       compositionPlanEndpoint:
@@ -32,11 +36,11 @@ function createProviderRuntimeConfig(appConfig = {}) {
     replicate: {
       live:
         liveEnabled &&
-        Boolean(appConfig.REPLICATE_API_TOKEN) &&
-        Boolean(appConfig.REPLICATE_MODEL_VERSION),
-      token: appConfig.REPLICATE_API_TOKEN || "",
+        Boolean(replicateToken) &&
+        Boolean(replicateModelVersion),
+      token: replicateToken,
       baseUrl: appConfig.REPLICATE_BASE_URL || "https://api.replicate.com",
-      modelVersion: appConfig.REPLICATE_MODEL_VERSION || "",
+      modelVersion: replicateModelVersion,
       rvcModel: appConfig.DEFAULT_AI_VOICE_MODEL || "",
       timeoutMs: appConfig.PROVIDER_TIMEOUT_MS,
       demucsModel: appConfig.DEMUCS_SEPARATION_MODEL || null,
@@ -78,7 +82,26 @@ function createStorageRuntimeConfig(appConfig = {}) {
   };
 }
 
+function createHealthCheckRuntimeConfig(providerConfig = {}, options = {}) {
+  const elevenlabs = providerConfig.elevenlabs || {};
+  const replicate = providerConfig.replicate || {};
+  return {
+    elevenlabsApiKey: elevenlabs.healthCheckEnabled
+      ? elevenlabs.apiKey || ""
+      : "",
+    elevenlabsBaseUrl: elevenlabs.baseUrl || "https://api.elevenlabs.io",
+    replicateToken: replicate.live ? replicate.token || "" : "",
+    replicateBaseUrl: replicate.baseUrl || "https://api.replicate.com",
+    timeoutMs:
+      options.timeoutMs ||
+      elevenlabs.timeoutMs ||
+      replicate.timeoutMs ||
+      5000,
+  };
+}
+
 module.exports = {
+  createHealthCheckRuntimeConfig,
   createProviderRuntimeConfig,
   createStorageRuntimeConfig,
   isLiveProvidersEnabled,
