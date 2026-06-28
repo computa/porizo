@@ -105,10 +105,12 @@ Root 1 is complete only when that scan has no direct persistence hits outside co
 - Root 6 blog CMS route split is committed as `923d3b84`. The next Root 6
   slice extracted admin track-transfer routes into
   `src/routes/admin/track-transfer.js`.
-- Next controller queue: commit the track-transfer route split, then continue
-  with another characterized non-billing admin group. Provider/queue controls
-  need route characterization first. Security config/App Store sync needs route
-  characterization first; billing/entitlements remain last.
+- Root 6 track-transfer route split is committed as `b6ce90eb`. The next Root
+  6 slice added provider/queue route characterization and extracted those
+  routes into `src/routes/admin/provider-queue-control.js`.
+- Next controller queue: commit the provider/queue route split, then continue
+  with another characterized non-billing admin group. Security config/App Store
+  sync needs route characterization first; billing/entitlements remain last.
 
 ## File Structure Map
 
@@ -1729,6 +1731,14 @@ Track-transfer route slice completed locally:
   `/admin/dashboard/tracks/:trackId/transfer`.
 - Track-transfer verification logic moved with the route group.
 - Existing track-transfer route and repository coverage remains green.
+
+Provider/queue control route slice completed locally:
+
+- `test/admin-control-routes.test.js` now characterizes provider and queue
+  route auth, validation, and mutation envelopes.
+- `src/routes/admin/provider-queue-control.js` owns provider and queue status
+  list/update routes.
+- Existing control route/repository/service coverage remains green.
 
 - [ ] **Step 3: Run admin validation**
 
