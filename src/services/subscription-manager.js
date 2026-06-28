@@ -25,6 +25,9 @@ const { identityHash } = require("./identity-service");
 const {
   createGiftWalletRepository,
 } = require("../database/gift-wallet-repository");
+const {
+  createSubscriptionEntitlementsRepository,
+} = require("../database/subscription-entitlements-repository");
 
 /**
  * Entitlement error codes for structured error dispatch
@@ -89,6 +92,7 @@ function createSubscriptionManager(db, services = {}) {
     planConfigService,
     writeAuditLog,
     giftWalletRepository: injectedGiftWalletRepository,
+    subscriptionEntitlementsRepository: injectedSubscriptionEntitlementsRepository,
   } = services;
 
   if (!planConfigService) {
@@ -97,6 +101,9 @@ function createSubscriptionManager(db, services = {}) {
 
   const giftWalletRepository =
     injectedGiftWalletRepository || createGiftWalletRepository(db);
+  const subscriptionEntitlementsRepository =
+    injectedSubscriptionEntitlementsRepository ||
+    createSubscriptionEntitlementsRepository(db);
 
   /**
    * Acquire advisory lock and return FOR UPDATE suffix for PostgreSQL.
@@ -108,10 +115,7 @@ function createSubscriptionManager(db, services = {}) {
    * when ORDER BY/LIMIT follow.
    */
   async function acquireUserLock(query, userId) {
-    if (db.isPostgres) {
-      await query("SELECT pg_advisory_xact_lock(hashtext(?))", [userId]);
-    }
-    return db.isPostgres ? " FOR UPDATE" : "";
+    return subscriptionEntitlementsRepository.acquireUserLock(query, userId);
   }
 
   function isAdminUpgradeActive(ent) {
@@ -134,14 +138,13 @@ function createSubscriptionManager(db, services = {}) {
     const rawTier =
       typeof ent.tier === "string" && ent.tier ? ent.tier : "free";
     if (rawTier !== "free") {
-      const activeSub = await db
-        .prepare(
-          `SELECT id FROM subscriptions
-         WHERE user_id = ? AND status IN ('active', 'grace_period', 'billing_retry')
-           AND (expires_at IS NULL OR expires_at > ?)
-         LIMIT 1`,
-        )
-        .get(ent.user_id, new Date().toISOString());
+      const activeSub =
+        await subscriptionEntitlementsRepository.findActiveSubscriptionIdForTier(
+          {
+            userId: ent.user_id,
+            now: new Date().toISOString(),
+          },
+        );
       if (activeSub) {
         subscriptionTier = rawTier;
       }
@@ -163,11 +166,10 @@ function createSubscriptionManager(db, services = {}) {
    * @returns {Promise<string>} Effective tier ('free', 'plus', or 'pro')
    */
   async function getEffectiveTier(userId) {
-    const ent = await db
-      .prepare(
-        "SELECT user_id, tier, admin_upgrade_tier, admin_upgrade_expires_at FROM entitlements WHERE user_id = ?",
-      )
-      .get(userId);
+    const ent =
+      await subscriptionEntitlementsRepository.findEntitlementTierFields(
+        userId,
+      );
     if (!ent) return "free";
     return resolveEffectiveTier(ent);
   }
@@ -668,35 +670,29 @@ function createSubscriptionManager(db, services = {}) {
    * @param {string} subscriptionId - Subscription ID
    */
   async function handleExpiration(subscriptionId) {
-    const subResult = await db.query(
-      "SELECT * FROM subscriptions WHERE id = ?",
-      [subscriptionId],
-    );
+    const subscription =
+      await subscriptionEntitlementsRepository.findSubscriptionById(
+        subscriptionId,
+      );
 
-    if (subResult.rows.length === 0) {
+    if (!subscription) {
       throw new Error("Subscription not found");
     }
-
-    const subscription = subResult.rows[0];
 
     return db.transaction(async (query) => {
       await acquireUserLock(query, subscription.user_id);
       // Update subscription status
-      await query(
-        `UPDATE subscriptions SET
-          status = 'expired',
-          updated_at = CURRENT_TIMESTAMP
-        WHERE id = ?`,
-        [subscriptionId],
-      );
+      await subscriptionEntitlementsRepository.markSubscriptionExpired({
+        subscriptionId,
+        query,
+      });
 
       // Get current entitlements
-      const entResult = await query(
-        "SELECT * FROM entitlements WHERE user_id = ?",
-        [subscription.user_id],
-      );
-
-      const current = entResult.rows[0];
+      const current =
+        await subscriptionEntitlementsRepository.findEntitlementsByUserId(
+          subscription.user_id,
+          { query },
+        );
       if (!current) return;
 
       // Check if admin upgrade is still active before zeroing balances
@@ -704,15 +700,11 @@ function createSubscriptionManager(db, services = {}) {
 
       if (adminUpgradeActive) {
         // Admin upgrade active — clear subscription fields but preserve balances
-        await query(
-          `UPDATE entitlements SET
-            tier = 'free',
-            plan_id = NULL,
-            billing_period = NULL,
-            subscription_renews_at = NULL,
-            updated_at = CURRENT_TIMESTAMP
-          WHERE user_id = ?`,
-          [subscription.user_id],
+        await subscriptionEntitlementsRepository.clearExpiredSubscriptionFieldsForAdminUpgrade(
+          {
+            userId: subscription.user_id,
+            query,
+          },
         );
 
         return {
@@ -724,19 +716,11 @@ function createSubscriptionManager(db, services = {}) {
       }
 
       // No admin upgrade — reset everything to free
-      await query(
-        `UPDATE entitlements SET
-          tier = 'free',
-          songs_remaining = 0,
-          songs_allowance = 0,
-          poems_remaining = 0,
-          poems_allowance = 0,
-          plan_id = NULL,
-          billing_period = NULL,
-          subscription_renews_at = NULL,
-          updated_at = CURRENT_TIMESTAMP
-        WHERE user_id = ?`,
-        [subscription.user_id],
+      await subscriptionEntitlementsRepository.resetEntitlementsForExpiredSubscription(
+        {
+          userId: subscription.user_id,
+          query,
+        },
       );
 
       // Record audit (only if there were songs to expire, consistent with handleRevocation)
@@ -770,14 +754,10 @@ function createSubscriptionManager(db, services = {}) {
    * @param {Date} gracePeriodExpiresAt - When grace period ends
    */
   async function handleGracePeriod(subscriptionId, gracePeriodExpiresAt) {
-    await db.query(
-      `UPDATE subscriptions SET
-        status = 'grace_period',
-        grace_period_expires_at = ?,
-        updated_at = CURRENT_TIMESTAMP
-      WHERE id = ?`,
-      [gracePeriodExpiresAt.toISOString(), subscriptionId],
-    );
+    await subscriptionEntitlementsRepository.markSubscriptionGracePeriod({
+      subscriptionId,
+      gracePeriodExpiresAt: gracePeriodExpiresAt.toISOString(),
+    });
 
     return { subscriptionId, status: "grace_period", gracePeriodExpiresAt };
   }
@@ -787,35 +767,28 @@ function createSubscriptionManager(db, services = {}) {
    * @param {string} subscriptionId - Subscription ID
    */
   async function handleRevocation(subscriptionId) {
-    const subResult = await db.query(
-      "SELECT * FROM subscriptions WHERE id = ?",
-      [subscriptionId],
-    );
+    const subscription =
+      await subscriptionEntitlementsRepository.findSubscriptionById(
+        subscriptionId,
+      );
 
-    if (subResult.rows.length === 0) {
+    if (!subscription) {
       throw new Error("Subscription not found");
     }
 
-    const subscription = subResult.rows[0];
-
     return db.transaction(async (query) => {
       // Update subscription status
-      await query(
-        `UPDATE subscriptions SET
-          status = 'revoked',
-          cancelled_at = CURRENT_TIMESTAMP,
-          updated_at = CURRENT_TIMESTAMP
-        WHERE id = ?`,
-        [subscriptionId],
-      );
+      await subscriptionEntitlementsRepository.markSubscriptionRevoked({
+        subscriptionId,
+        query,
+      });
 
       // Get current entitlements
-      const entResult = await query(
-        "SELECT * FROM entitlements WHERE user_id = ?",
-        [subscription.user_id],
-      );
-
-      const current = entResult.rows[0];
+      const current =
+        await subscriptionEntitlementsRepository.findEntitlementsByUserId(
+          subscription.user_id,
+          { query },
+        );
       if (!current) return;
 
       // Check if admin upgrade is still active before full zeroing
@@ -823,34 +796,27 @@ function createSubscriptionManager(db, services = {}) {
 
       // H5: Revoke based on cumulative granted songs, not just one period's allowance.
       // Query total songs granted via this subscription to revoke proportionally.
-      const grantResult = await query(
-        `SELECT COALESCE(SUM(amount), 0) AS total_granted
-         FROM song_transactions
-         WHERE user_id = ? AND reference_id = ?
-           AND type IN (?, ?)`,
-        [
-          subscription.user_id,
-          subscriptionId,
-          TRANSACTION_TYPES.SUBSCRIPTION_GRANT,
-          TRANSACTION_TYPES.SUBSCRIPTION_RENEWAL,
-        ],
-      );
-      const totalGranted = Number(grantResult.rows[0]?.total_granted || 0);
+      const totalGranted =
+        await subscriptionEntitlementsRepository.sumGrantedSongsForSubscription(
+          {
+            userId: subscription.user_id,
+            subscriptionId,
+            grantType: TRANSACTION_TYPES.SUBSCRIPTION_GRANT,
+            renewalType: TRANSACTION_TYPES.SUBSCRIPTION_RENEWAL,
+            query,
+          },
+        );
       const songsToRevoke = Math.min(current.songs_remaining, totalGranted);
       const newBalance = Math.max(0, current.songs_remaining - songsToRevoke);
 
       if (adminUpgradeActive) {
         // Admin upgrade active — revoke subscription songs but preserve admin grant
-        await query(
-          `UPDATE entitlements SET
-            tier = 'free',
-            songs_remaining = ?,
-            plan_id = NULL,
-            billing_period = NULL,
-            subscription_renews_at = NULL,
-            updated_at = CURRENT_TIMESTAMP
-          WHERE user_id = ?`,
-          [newBalance, subscription.user_id],
+        await subscriptionEntitlementsRepository.updateRevokedEntitlementsWithAdminUpgrade(
+          {
+            userId: subscription.user_id,
+            songsRemaining: newBalance,
+            query,
+          },
         );
       } else {
         // M2: Also revoke poems and reset allowances on revocation
@@ -863,20 +829,12 @@ function createSubscriptionManager(db, services = {}) {
           (current.poems_remaining || 0) - poemsToRevoke,
         );
 
-        await query(
-          `UPDATE entitlements SET
-            tier = 'free',
-            songs_remaining = ?,
-            songs_allowance = 0,
-            poems_remaining = ?,
-            poems_allowance = 0,
-            plan_id = NULL,
-            billing_period = NULL,
-            subscription_renews_at = NULL,
-            updated_at = CURRENT_TIMESTAMP
-          WHERE user_id = ?`,
-          [newBalance, newPoemsBalance, subscription.user_id],
-        );
+        await subscriptionEntitlementsRepository.updateRevokedEntitlements({
+          userId: subscription.user_id,
+          songsRemaining: newBalance,
+          poemsRemaining: newPoemsBalance,
+          query,
+        });
       }
 
       // Record refund transaction
@@ -1196,11 +1154,11 @@ function createSubscriptionManager(db, services = {}) {
    * Get subscription by original transaction ID
    */
   async function getSubscriptionByOriginalTx(originalTransactionId) {
-    const result = await db.query(
-      "SELECT * FROM subscriptions WHERE original_transaction_id = ?",
-      [originalTransactionId],
+    return (
+      (await subscriptionEntitlementsRepository.getSubscriptionByOriginalTx(
+        originalTransactionId,
+      )) || null
     );
-    return result.rows[0] || null;
   }
 
   /**
@@ -1209,20 +1167,11 @@ function createSubscriptionManager(db, services = {}) {
    * @returns {Promise<Object|null>} Active subscription or null
    */
   async function getActiveSubscription(userId) {
-    const result = await db
-      .prepare(
-        `SELECT * FROM subscriptions
-       WHERE user_id = ?
-         AND status IN ('active', 'grace_period', 'billing_retry')
-         AND (
-           (expires_at IS NULL OR expires_at > ?)
-           OR (grace_period_expires_at IS NOT NULL AND grace_period_expires_at > ?)
-         )
-       ORDER BY created_at DESC
-       LIMIT 1`,
-      )
-      .get(userId, new Date().toISOString(), new Date().toISOString());
-    return result || null;
+    return (
+      (await subscriptionEntitlementsRepository.getActiveSubscription(userId, {
+        now: new Date().toISOString(),
+      })) || null
+    );
   }
 
   /**
@@ -1231,9 +1180,8 @@ function createSubscriptionManager(db, services = {}) {
    * @returns {Promise<Object|null>} Entitlements or null
    */
   async function getEntitlements(userId) {
-    const ent = await db
-      .prepare("SELECT * FROM entitlements WHERE user_id = ?")
-      .get(userId);
+    const ent =
+      await subscriptionEntitlementsRepository.findEntitlementsByUserId(userId);
 
     if (!ent) {
       return null;
