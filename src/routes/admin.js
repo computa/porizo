@@ -117,11 +117,14 @@ function registerAdminRoutes(
     adminBillingRepository,
     adminAuthRepository,
     adminMusicDiagnosticsRepository,
+    clientConfigService,
   },
 ) {
   // ============ ADMIN DASHBOARD API ============
 
   const adminService = new AdminService(db);
+  const publicClientConfigService =
+    clientConfigService || adminService.clientConfigService;
   const adminGiftOpsService = new AdminGiftOpsService(db);
   const blogService = new BlogService(db);
   const adminMarketingRepository = createAdminMarketingRepository(db);
@@ -2885,8 +2888,8 @@ function registerAdminRoutes(
   app.get("/app/config", async (request, reply) => {
     // Public endpoint - no auth required
     // Returns safe-for-client configuration
-    const config = await adminService.getAppConfig();
-    reply.send(config);
+    const clientConfig = await publicClientConfigService.getClientConfig();
+    reply.send(clientConfig);
   });
 
   // --- Subscription Plan Management ---

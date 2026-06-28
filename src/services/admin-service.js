@@ -62,6 +62,7 @@ const {
   normalizeMusicProviderConfig,
   parseMusicProviderConfigJson,
 } = require("../providers/provider-config");
+const { createClientConfigService } = require("./client-config-service");
 
 /**
  * Escape SQL LIKE wildcards to prevent pattern injection
@@ -316,6 +317,15 @@ class AdminService {
       options.attributionRepository || createAttributionRepository(db);
     this.appConfigRepository =
       options.appConfigRepository || createAppConfigRepository(db);
+    this.clientConfigService =
+      options.clientConfigService ||
+      createClientConfigService({
+        appConfigRepository: this.appConfigRepository,
+        db: this.db,
+        getMusicProviderConfig: () => this.getMusicProviderConfig(),
+        getSTTConfig: () => this.getSTTConfig(),
+        resolveIOSAppUpdatePolicy: () => this.resolveIOSAppUpdatePolicy(),
+      });
     this.adminControlRepository =
       options.adminControlRepository || createAdminControlRepository(db);
     this.adminOnboardingSampleRepository =
@@ -2405,65 +2415,7 @@ class AdminService {
    * Returns a curated subset of configuration safe for clients
    */
   async getAppConfig() {
-    const { getFeatureFlag } = require('./feature-flags');
-    const sttConfig = await this.getSTTConfig();
-    const musicConfig = await this.getMusicProviderConfig();
-    const appUpdatePolicy = await this.resolveIOSAppUpdatePolicy();
-    const showDesignScreens = await getFeatureFlag(this.db, 'show_design_screens');
-    const myVoiceEnabled = await getFeatureFlag(this.db, 'my_voice_enabled');
-    const giftSchedulingEnabled = await getFeatureFlag(this.db, 'gift_scheduling_enabled');
-    const giftPrepayEnforced = await getFeatureFlag(this.db, 'gift_prepay_enforced');
-
-    // Active gift bundles for StoreKit product catalog (snake_case to match iOS CodingKeys)
-    let gift_bundles = [];
-    try {
-      gift_bundles = await this.appConfigRepository.listActiveGiftBundles();
-    } catch {
-      // Table may not exist yet if migration hasn't run — return empty array
-    }
-
-    // Active onboarding sample for pre-auth audio playback + V2 config
-    const activeSample = await this.getActiveOnboardingSample();
-    const onboarding = {
-      sample_audio_url: activeSample?.audio_url || null,
-      sample_label: activeSample?.label || null,
-      splash_demo_recipient: activeSample?.label || null,
-      splash_lyrics_preview: null,
-      launch_flash_audio_url: null,
-      launch_flash_title: 'The Drive Home',
-      launch_flash_recipient: 'For Dad',
-      launch_flash_lyrics_preview: 'You kept one hand on the wheel and one eye on me the whole way home...',
-      question_graph_version: 2,
-      question_graph_url: `${config.PUBLIC_BASE_URL.replace(/\/+$/, "")}/api/onboarding/graph.json`,
-    };
-
-    // Client analytics config. Amplitude's iOS SDK key is a client key
-    // (embedded in the binary at build time is the usual pattern), but we
-    // prefer to serve it via remote config so it can be rotated or disabled
-    // without shipping a new App Store build. Only included when the env
-    // var is set — otherwise iOS sees `analytics` as null and keeps Amplitude
-    // disabled.
-    const amplitudeApiKey = process.env.AMPLITUDE_API_KEY || null;
-    const analytics = amplitudeApiKey ? { amplitude_api_key: amplitudeApiKey } : null;
-
-    return {
-      stt: sttConfig,
-      music: {
-        default_provider: musicConfig.default_provider,
-        auto_style_routing: musicConfig.auto_style_routing,
-        elevenlabs_generation_mode: musicConfig.elevenlabs_generation_mode,
-      },
-      flags: {
-        show_design_screens: showDesignScreens,
-        my_voice_enabled: myVoiceEnabled,
-        gift_scheduling_enabled: giftSchedulingEnabled,
-        gift_prepay_enforced: giftPrepayEnforced,
-      },
-      gift_bundles,
-      onboarding,
-      app_update: appUpdatePolicy,
-      analytics,
-    };
+    return this.clientConfigService.getClientConfig();
   }
 
   // ============ FEATURE FLAGS ============

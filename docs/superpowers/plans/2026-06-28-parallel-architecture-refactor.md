@@ -38,7 +38,15 @@ Root 1 is complete only when that scan has no direct persistence hits outside co
 - Root 4 Slice 6 replaces provider-side manual local track-version directory construction in `music.js` and `suno.js` with the shared `getVersionDir()` helper.
 - Root 4 Slice 7 replaces runner-side manual local track-version directory construction with `getVersionDir()` in S3 upload, placeholder output, DLQ auto-reprocess cleanup, ready cover generation, ready lyric alignment, and ready cleanup paths. The storage path scan for `path.join(storageDir, "tracks", ...)` is now clean across providers and runner.
 - Root 3b gift extraction is in progress locally: gift delivery helpers, provider dispatch, webhooks, route registration, and gift runtime startup moved from `server.js` into `src/plugins/gift-delivery.js`. Registration is intentionally synchronous from `buildServer()` to preserve existing direct test/runtime decorators such as `app.dispatchGiftById()` and `app.expireGiftReservations()`.
-- Next controller queue: close Root 3b with docs/commit, then enter Root 5 workflow runner step registry.
+- Root 5 step-handler extraction is committed. Step handlers now live under
+  `src/workflows/steps/`, `runner.js` owns orchestration, and the remaining
+  Root 5 cleanup candidate is the Suno polling/recovery helper pair.
+- Root 6 Step 1 is in progress: public mobile app-config composition is moving
+  out of `AdminService` into `src/services/client-config-service.js`, with the
+  legacy `AdminService.getAppConfig()` kept as a compatibility delegate.
+- Next controller queue: finish and commit Root 6 Step 1, then split one
+  non-billing admin route group per slice before the billing/admin entitlement
+  slice.
 
 ## File Structure Map
 
@@ -1424,7 +1432,7 @@ Expected: runner orchestration is smaller and step dispatch is registry-backed.
 - Test: focused `test/admin-*-routes.test.js`
 - Test: `test/app-config-route.test.js`
 
-- [ ] **Step 1: Move `getAppConfig` composition out of admin service**
+- [x] **Step 1: Move `getAppConfig` composition out of admin service**
 
 Create `src/services/client-config-service.js`:
 
@@ -1443,6 +1451,17 @@ module.exports = { createClientConfigService };
 ```
 
 Wire the mobile app-config route to this service.
+
+Completed locally in this slice:
+
+- `src/services/client-config-service.js` now composes the safe public
+  `/app/config` contract from injected config helpers and app-config repository
+  reads.
+- `AdminService.getAppConfig()` delegates to the new service for backwards
+  compatibility with existing service callers.
+- `/app/config` uses the client-config service instance rather than the admin
+  service method.
+- Focused coverage added in `test/client-config-service.test.js`.
 
 - [ ] **Step 2: Split one admin route group per file**
 

@@ -1466,6 +1466,12 @@ validation, MVP flow, diff hygiene, and lint pass locally.
 
 **Closes:** D2 (admin god-service + god-route).
 **Scope:** Split `admin-service.js` by concern (`admin/audit`, `admin/users`, `admin/analytics`, `admin/metrics`, `admin/shares`, `admin/system`, `provider-config`) and `routes/admin.js` into matching route groups. **Evict `getAppConfig` composition into a `client-config-service`** (it's a mobile endpoint, not admin) — the single worst CRP violation, tiny effort, high value. Root 1 already extracted the public app-config gift-bundle/onboarding-sample read SQL; Root 6 owns the service/route responsibility move.
+**Execution status:** Client-config eviction is implemented locally in this
+slice. `src/services/client-config-service.js` now owns the public mobile
+config composition, `/app/config` is wired to that service boundary, and
+`AdminService.getAppConfig()` remains only as a compatibility delegate for
+existing callers/tests. Remaining Root 6 work is the admin route/service split
+by concern, with billing/entitlement left last.
 **Boundary:** Do the `getAppConfig` eviction + non-billing splits first (🟡). Do the billing/entitlement admin slice **last** (⚠ 🔴) with production verification.
 
 ### Root 7 — Writer cycle + god-file decomposition 🟡 effort M
