@@ -88,8 +88,7 @@ const {
   extractRetainedDetails,
   computeDetailCoverage,
 } = require("../story-semantics");
-// NOTE: validateSongContract is lazy-required inside ensureCompletedStoryPackage
-// to break the circular dependency: songwriter.js → ./v3 → ../songwriter
+const { validateSongContract } = require("../song-contract");
 const { generateText, isAvailable: isLLMAvailable } = require("../../services/llm-provider");
 const { StoryVersionConflictError } = require("../../database/story-repository");
 
@@ -1271,8 +1270,6 @@ function ensureCompletedStoryPackage(state, context) {
 
   // Re-derive song_map from repaired prose (don't use stale pre-repair blockProfile)
   if (repaired && nextState.song_map) {
-    // Lazy require to break circular dependency: songwriter.js → ./v3 → ../songwriter
-    const { validateSongContract } = require("../songwriter");
     const freshProfile = deriveStoryBlockProfile(nextState);
     const reDerived = repairSongMapWithProfile(nextState.song_map, nextState, { blockProfile: freshProfile });
 
