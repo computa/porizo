@@ -270,7 +270,7 @@ Three migration locations: `migrations/` (SQLite, 116 files), `migrations/pg/` (
 | `src/providers/lyrics.js`                     | **Deleted 2026-06-29** after inlining runtime callers to `writer/songwriter.js`    | ✓ VERIFIED |
 | `writer/v3/reasoner.js` legacy path           | Live as fallback only; superseded by `kernel/`; needs observability before removal | ✓ VERIFIED |
 | `writer/v3/safety.js`, `monitor.js`           | **Deleted 2026-06-29** after grep/export-name verification showed zero live callers | ✓ VERIFIED |
-| `E302_SEEDVC_ERROR: GPU task aborted` string  | Vestigial GPU-era error code (Seed-VC now runs via Gradio API), still emitted      | ✓ VERIFIED |
+| `E302_SEEDVC_ERROR: GPU task aborted` string  | **Removed 2026-06-29**; transient voice retry now relies on normalized provider errors | ✓ VERIFIED |
 
 ---
 

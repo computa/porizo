@@ -2480,10 +2480,6 @@ async function startJobRunner({
       return false;
     }
     return (
-      message.includes("E302_SEEDVC_ERROR: GPU task aborted") ||
-      message.includes(
-        "Personalized voice conversion failed: E302_SEEDVC_ERROR: GPU task aborted",
-      ) ||
       message.includes("download_error:corrupted:File too small") ||
       message.startsWith("download_error:network:") ||
       message.startsWith("download_error:503:") ||
