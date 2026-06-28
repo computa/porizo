@@ -1338,6 +1338,17 @@ pass), expanded render/persona/voice-routing validation passed (51 tests, 51
 pass), syntax checks passed, `git diff --check` passed, and
 `npm run lint -- --quiet` passed.
 
+Slice 6 result: `src/workflows/steps/watermark.js` now owns the `watermark`
+handler. The extracted family injects watermark embedding, AAC encoding, HLS
+creation, provider config, storage path helpers, and placeholder WAV generation
+from the runner while preserving optional HLS failure handling and best-effort
+intermediate cleanup. Direct step-factory tests cover preview/full output
+selection, HLS fallback, placeholder output, live-provider missing-mix errors,
+and cleanup. Direct step-factory tests passed (26 tests, 26 pass), expanded
+render/persona/voice-routing validation passed (51 tests, 51 pass), MVP flow
+passed (2 tests, 2 pass), syntax checks passed, `git diff --check` passed, and
+`npm run lint -- --quiet` passed.
+
 - [ ] **Step 4: Commit each Root 5 slice**
 
 Run:

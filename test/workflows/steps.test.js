@@ -12,6 +12,7 @@ const { createModerationSteps } = require("../../src/workflows/steps/moderation"
 const {
   createVoiceConversionSteps,
 } = require("../../src/workflows/steps/voice-conversion");
+const { createWatermarkSteps } = require("../../src/workflows/steps/watermark");
 
 const tempDirsToClean = [];
 
@@ -810,6 +811,231 @@ describe("voice conversion steps", () => {
           },
         }),
       /Guide vocal URL required for voice conversion/,
+    );
+  });
+});
+
+describe("watermark step", () => {
+  function createWatermarkStep(overrides = {}) {
+    const calls = [];
+    const storageDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "porizo-watermark-step-"),
+    );
+    tempDirsToClean.push(storageDir);
+    const baseTrack = {
+      id: "track_1",
+      user_id: "user_1",
+      style: "pop",
+    };
+    const baseTrackVersion = {
+      id: "version_1",
+      version_num: 1,
+      music_plan_json: JSON.stringify({
+        style: "pop",
+        provider_resolved: null,
+      }),
+    };
+    const getVersionDir = (_storageDir, track, trackVersion) =>
+      path.join(
+        _storageDir,
+        "tracks",
+        track.user_id,
+        track.id,
+        `v${trackVersion.version_num}`,
+      );
+    const steps = createWatermarkSteps({
+      createHLSPlaylist: async (outputPath, hlsDir, segmentSeconds) => {
+        calls.push({
+          name: "createHLSPlaylist",
+          outputPath,
+          hlsDir,
+          segmentSeconds,
+        });
+        fs.mkdirSync(hlsDir, { recursive: true });
+        fs.writeFileSync(path.join(hlsDir, "index.m3u8"), "#EXTM3U");
+      },
+      embedWatermark: async (inputPath, outputPath, trackVersionId) => {
+        calls.push({
+          name: "embedWatermark",
+          inputPath,
+          outputPath,
+          trackVersionId,
+        });
+        fs.writeFileSync(outputPath, "watermarked");
+      },
+      encodeToAAC: async (inputPath, outputPath, bitrate) => {
+        calls.push({ name: "encodeToAAC", inputPath, outputPath, bitrate });
+        fs.writeFileSync(outputPath, "aac");
+      },
+      ensureDir: (dirPath) => fs.mkdirSync(dirPath, { recursive: true }),
+      getMusicProviderConfig: async (args) => {
+        calls.push({ name: "getMusicProviderConfig", args });
+        return null;
+      },
+      getVersionDir,
+      parseJson,
+      providerConfig: { replicate: { live: false } },
+      storageDir,
+      writeWav: (filePath, options) => {
+        calls.push({ name: "writeWav", filePath, options });
+        fs.writeFileSync(filePath, "wav");
+      },
+      ...overrides,
+    });
+    return {
+      ...steps,
+      baseTrack,
+      baseTrackVersion,
+      calls,
+      getVersionDir,
+      storageDir,
+    };
+  }
+
+  test("embeds watermark, encodes AAC, creates HLS, and removes intermediates", async () => {
+    const {
+      watermark,
+      baseTrack,
+      baseTrackVersion,
+      calls,
+      getVersionDir,
+      storageDir,
+    } = createWatermarkStep();
+    const versionDir = getVersionDir(storageDir, baseTrack, baseTrackVersion);
+    fs.mkdirSync(versionDir, { recursive: true });
+    fs.writeFileSync(path.join(versionDir, "mix.wav"), "mix");
+
+    const result = await watermark({
+      track: baseTrack,
+      trackVersion: baseTrackVersion,
+      workflow: "preview_render",
+    });
+
+    assert.deepEqual(result, {});
+    assert.equal(fs.existsSync(path.join(versionDir, "preview.m4a")), true);
+    assert.equal(
+      fs.existsSync(path.join(versionDir, "hls", "index.m3u8")),
+      true,
+    );
+    assert.equal(fs.existsSync(path.join(versionDir, "mix.wav")), false);
+    assert.equal(
+      fs.existsSync(path.join(versionDir, "watermarked.wav")),
+      false,
+    );
+    assert.deepEqual(
+      calls
+        .map((call) => call.name)
+        .filter((name) => name !== "getMusicProviderConfig"),
+      ["embedWatermark", "encodeToAAC", "createHLSPlaylist"],
+    );
+  });
+
+  test("writes full AAC output from a real mix during full render", async () => {
+    const {
+      watermark,
+      baseTrack,
+      baseTrackVersion,
+      calls,
+      getVersionDir,
+      storageDir,
+    } = createWatermarkStep();
+    const versionDir = getVersionDir(storageDir, baseTrack, baseTrackVersion);
+    fs.mkdirSync(versionDir, { recursive: true });
+    fs.writeFileSync(path.join(versionDir, "mix.wav"), "mix");
+
+    await watermark({
+      track: baseTrack,
+      trackVersion: baseTrackVersion,
+      workflow: "full_render",
+    });
+
+    assert.equal(fs.existsSync(path.join(versionDir, "full.m4a")), true);
+    assert.equal(fs.existsSync(path.join(versionDir, "preview.m4a")), false);
+    assert.equal(
+      calls.find((call) => call.name === "encodeToAAC").outputPath,
+      path.join(versionDir, "full.m4a"),
+    );
+  });
+
+  test("keeps encoded output when HLS creation fails", async () => {
+    const { watermark, baseTrack, baseTrackVersion, getVersionDir, storageDir } =
+      createWatermarkStep({
+        createHLSPlaylist: async () => {
+          throw new Error("hls failed");
+        },
+      });
+    const versionDir = getVersionDir(storageDir, baseTrack, baseTrackVersion);
+    fs.mkdirSync(versionDir, { recursive: true });
+    fs.writeFileSync(path.join(versionDir, "mix.wav"), "mix");
+
+    await watermark({
+      track: baseTrack,
+      trackVersion: baseTrackVersion,
+      workflow: "preview_render",
+    });
+
+    assert.equal(fs.existsSync(path.join(versionDir, "preview.m4a")), true);
+    assert.equal(fs.existsSync(path.join(versionDir, "mix.wav")), false);
+    assert.equal(
+      fs.existsSync(path.join(versionDir, "watermarked.wav")),
+      false,
+    );
+  });
+
+  test("writes a placeholder full output when mix is missing and no live provider is required", async () => {
+    const {
+      watermark,
+      baseTrack,
+      baseTrackVersion,
+      calls,
+      getVersionDir,
+      storageDir,
+    } = createWatermarkStep();
+
+    const result = await watermark({
+      track: baseTrack,
+      trackVersion: baseTrackVersion,
+      workflow: "full_render",
+    });
+
+    const versionDir = getVersionDir(storageDir, baseTrack, baseTrackVersion);
+    assert.deepEqual(result, {});
+    assert.equal(fs.existsSync(path.join(versionDir, "full.m4a")), true);
+    assert.deepEqual(
+      calls.find((call) => call.name === "writeWav").options,
+      { durationSec: 12, frequencyHz: 280 },
+    );
+  });
+
+  test("throws when mix is missing and live provider output is required", async () => {
+    const { watermark, baseTrack, baseTrackVersion } = createWatermarkStep({
+      getMusicProviderConfig: async () => ({ provider: "suno" }),
+    });
+
+    await assert.rejects(
+      () =>
+        watermark({
+          track: baseTrack,
+          trackVersion: baseTrackVersion,
+          workflow: "preview_render",
+        }),
+      /E301_MISSING_INPUTS: Mix missing for watermark/,
+    );
+  });
+
+  test("throws when mix is missing and live Replicate conversion is enabled", async () => {
+    const { watermark, baseTrack, baseTrackVersion } = createWatermarkStep({
+      providerConfig: { replicate: { live: true } },
+    });
+
+    await assert.rejects(
+      () =>
+        watermark({
+          track: baseTrack,
+          trackVersion: baseTrackVersion,
+          workflow: "preview_render",
+        }),
+      /E301_MISSING_INPUTS: Mix missing for watermark/,
     );
   });
 });
