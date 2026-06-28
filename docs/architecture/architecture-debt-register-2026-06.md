@@ -1335,6 +1335,16 @@ without a separate contract gate.
 
 ### Root 3b — De-god `server.js`: gift-delivery subsystem extraction 🟡 (revenue-adjacent) effort M _(Phase C)_
 
+**Execution status:** Implemented locally, pending commit. The gift delivery
+normalizers, wallet wrappers used by gift routes, share-token creation,
+outbox/dispatch state machine, Twilio/Resend webhooks, gift route registration,
+and startup gift runtime wiring now live in `src/plugins/gift-delivery.js`.
+`server.js` keeps only the small gift-wallet wrappers required by billing and
+the synchronous plugin call needed to preserve the existing `buildServer()`
+contract where tests and callers directly use `app.dispatchGiftById()` and
+`app.expireGiftReservations()` after construction. Focused gift validation,
+expanded gift/admin/billing coupling validation, and lint pass locally.
+
 **Closes:** D2 (server.js), second half.
 **Scope:** Lift the 1,650-line gift-delivery subsystem (state machine, Twilio/Resend dispatch, retry, observability) out of `buildServer()` into `services/gift-delivery-service.js` + a `register*Routes` group; move the Twilio/Resend webhook handlers to `routes/webhooks.js`.
 **Why later than 3a:** This is the risky part — a live dispatch state machine, revenue-adjacent. Needs gift-dispatch contract tests (G1) and end-to-end dispatch verification.

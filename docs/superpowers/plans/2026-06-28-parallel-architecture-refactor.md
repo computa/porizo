@@ -37,7 +37,8 @@ Root 1 is complete only when that scan has no direct persistence hits outside co
 - Root 4 Slice 5 moves Whisper/OpenAI transcription credentials into normalized provider runtime config. Story audio routes and runner lyric alignment now pass explicit Whisper config, and `src/providers/whisper.js` no longer reads `process.env.OPENAI_API_KEY` directly.
 - Root 4 Slice 6 replaces provider-side manual local track-version directory construction in `music.js` and `suno.js` with the shared `getVersionDir()` helper.
 - Root 4 Slice 7 replaces runner-side manual local track-version directory construction with `getVersionDir()` in S3 upload, placeholder output, DLQ auto-reprocess cleanup, ready cover generation, ready lyric alignment, and ready cleanup paths. The storage path scan for `path.join(storageDir, "tracks", ...)` is now clean across providers and runner.
-- Next controller queue: validate and commit Root 4 Slice 7, then enter the revenue-gated Root 2 path unless a small Root 4 review issue remains.
+- Root 3b gift extraction is in progress locally: gift delivery helpers, provider dispatch, webhooks, route registration, and gift runtime startup moved from `server.js` into `src/plugins/gift-delivery.js`. Registration is intentionally synchronous from `buildServer()` to preserve existing direct test/runtime decorators such as `app.dispatchGiftById()` and `app.expireGiftReservations()`.
+- Next controller queue: close Root 3b with docs/commit, then enter Root 5 workflow runner step registry.
 
 ## File Structure Map
 
@@ -1152,7 +1153,7 @@ Expected: C2 is document-closed without changing wire behavior.
 - Test: `test/gift-dispatch-repository.test.js`
 - Test: `test/render-full-billing-atomicity.test.js`
 
-- [ ] **Step 1: Run gift characterization tests before moving code**
+- [x] **Step 1: Run gift characterization tests before moving code**
 
 Run:
 
@@ -1162,7 +1163,9 @@ node --test --test-concurrency=1 test/gifts.test.js test/gift-webhooks.test.js t
 
 Expected: all selected tests pass.
 
-- [ ] **Step 2: Move gift delivery registration into a Fastify plugin**
+Result: Passed locally with `NODE_ENV=test ALLOW_ANON_USER_ID=true ALLOW_DEVICE_TOKEN_FALLBACK=true`; 64 tests, 63 pass, 1 skipped, 0 failures.
+
+- [x] **Step 2: Move gift delivery registration into a Fastify plugin**
 
 Create `src/plugins/gift-delivery.js` with:
 
@@ -1188,7 +1191,7 @@ module.exports = { giftDeliveryPlugin };
 
 Move existing server-owned gift delivery wiring into the plugin without changing route URLs, schemas, or response bodies.
 
-- [ ] **Step 3: Register plugin from `server.js`**
+- [x] **Step 3: Register plugin from `server.js`**
 
 Use:
 
@@ -1202,7 +1205,14 @@ await app.register(giftDeliveryPlugin, {
 });
 ```
 
-- [ ] **Step 4: Run gift validation**
+Execution note: `buildServer()` remains synchronous because tests and callers use
+decorators like `app.dispatchGiftById()` and `app.expireGiftReservations()`
+directly after construction. The gift module is registered by a synchronous
+plugin registrar instead of `await app.register(...)`; changing `buildServer()`
+to async is a broader contract change and was deliberately avoided in this
+revenue-adjacent root.
+
+- [x] **Step 4: Run gift validation**
 
 Run:
 
@@ -1212,6 +1222,8 @@ npm run lint
 ```
 
 Expected: selected tests pass and lint passes.
+
+Result: focused gift validation passed (64 tests, 63 pass, 1 skipped, 0 failures), expanded gift/admin/billing coupling validation passed (103 tests, 102 pass, 1 skipped, 0 failures), and `npm run lint -- --quiet` passed.
 
 - [ ] **Step 5: Commit Root 3b**
 
