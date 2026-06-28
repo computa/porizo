@@ -1308,6 +1308,13 @@ injects its generator, provenance, policy-sanitizer, and JSON helpers from the
 runner. Post-slice workflow characterization passed (28 tests, 28 pass, 0
 failures), syntax checks passed, and `npm run lint -- --quiet` passed.
 
+Slice 3 result: `src/workflows/steps/music-plan.js` now owns the music-plan
+handler and injects music plan construction, provider routing config, Suno
+persona profile lookup, render contract construction, provenance, and JSON
+helpers from the runner. Direct step-factory tests passed (9 tests, 9 pass),
+expanded render/persona workflow validation passed (45 tests, 45 pass), syntax
+checks passed, and `npm run lint -- --quiet` passed.
+
 - [ ] **Step 4: Commit Root 5**
 
 Run:

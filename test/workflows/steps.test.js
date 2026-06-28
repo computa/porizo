@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 
 const { createStepRegistry } = require("../../src/workflows/steps");
 const { createLyricsSteps } = require("../../src/workflows/steps/lyrics");
+const { createMusicPlanSteps } = require("../../src/workflows/steps/music-plan");
 const { createModerationSteps } = require("../../src/workflows/steps/moderation");
 
 function parseJson(value, fallback) {
@@ -158,6 +159,143 @@ describe("lyrics step", () => {
           trackVersion: { lyrics_json: null, provenance_json: null },
         }),
       /E201_LYRICS_ERROR: AI_UNAVAILABLE/,
+    );
+  });
+});
+
+describe("music plan step", () => {
+  function createMusicPlanStep(overrides = {}) {
+    const calls = [];
+    const { music_plan } = createMusicPlanSteps({
+      buildMusicPlan: (args) => {
+        calls.push({ name: "buildMusicPlan", args });
+        return {
+          style: args.style,
+          provider_resolved: args.provider,
+          generation_mode: args.generationMode,
+          plan_schema_version: 2,
+          style_prompt_compact: "compact",
+          provider_style_hint: "hint",
+          style_intent: "intent",
+        };
+      },
+      buildRenderContract: (args) => ({
+        provider_locked: args.provider,
+        voice_mode: args.voiceMode,
+        pipeline:
+          args.userVoiceEngine === "suno_voice_persona"
+            ? "suno_voice_persona_complete_audio"
+            : "provider_complete_audio",
+        user_voice_engine: args.userVoiceEngine || null,
+        voice_provider_profile_id: args.voiceProviderProfileId || null,
+      }),
+      db: {},
+      findActiveProviderProfileForUser: async () => null,
+      findActiveVoiceProfileForUser: async () => null,
+      getMusicProviderConfig: async () => ({
+        provider: "suno",
+        runtimeConfig: {
+          elevenlabs_generation_mode: "composition_plan",
+          style_overrides: { mood: "bright" },
+        },
+        routing: {
+          requested_provider: "auto",
+          provider: "suno",
+          support: "native",
+          support_score: 1,
+          switched: false,
+          degraded: false,
+          reason: "supported",
+          style: "pop",
+        },
+      }),
+      getProviderProfileById: async () => null,
+      hasPersonaConsentScope: () => false,
+      mergeProvenanceJson: (_existing, patch) => JSON.stringify(patch),
+      nowIso: () => "2026-06-28T00:00:00.000Z",
+      parseJson,
+      PERSONALIZED_VOICE_MODES: new Set(["user_voice", "personalized"]),
+      toJson: JSON.stringify,
+      ...overrides,
+    });
+    return { music_plan, calls };
+  }
+
+  test("builds an AI voice music plan with render contract provenance", async () => {
+    const { music_plan, calls } = createMusicPlanStep();
+
+    const result = await music_plan({
+      track: {
+        id: "track_1",
+        latest_version: 2,
+        style: "pop",
+        duration_target: 60,
+        voice_mode: "ai_voice",
+        voice_gender: "female",
+      },
+      trackVersion: { provenance_json: null },
+      job: { step_data: null },
+    });
+
+    const plan = JSON.parse(result.music_plan_json);
+    assert.equal(plan.provider_resolved, "suno");
+    assert.equal(plan.provider_requested, "auto");
+    assert.equal(plan.voice_gender, "female");
+    assert.equal(plan.render_contract.pipeline, "provider_complete_audio");
+    assert.equal(calls[0].args.seed, "track_1:2:pop");
+
+    const provenance = JSON.parse(result.provenance_json);
+    assert.equal(provenance.music.provider, "suno");
+    assert.equal(provenance.timeline[0].step, "music_plan");
+  });
+
+  test("requires an active local voice profile for personalized mode", async () => {
+    const { music_plan } = createMusicPlanStep();
+
+    await assert.rejects(
+      () =>
+        music_plan({
+          track: {
+            id: "track_1",
+            user_id: "user_1",
+            style: "pop",
+            voice_mode: "user_voice",
+          },
+          trackVersion: {},
+          job: { step_data: null },
+        }),
+      /E302_VOICE_PROFILE_REQUIRED/,
+    );
+  });
+
+  test("uses active Suno persona profile for personalized mode", async () => {
+    const { music_plan } = createMusicPlanStep({
+      findActiveVoiceProfileForUser: async () => ({ id: "voice_1" }),
+      findActiveProviderProfileForUser: async () => ({
+        id: "vpp_1",
+        provider_profile_id: "persona_1",
+        consent_scope: "voice_suno_persona_v1",
+      }),
+      hasPersonaConsentScope: () => true,
+    });
+
+    const result = await music_plan({
+      track: {
+        id: "track_1",
+        user_id: "user_1",
+        style: "pop",
+        voice_mode: "user_voice",
+      },
+      trackVersion: {},
+      job: { step_data: null },
+    });
+
+    const plan = JSON.parse(result.music_plan_json);
+    assert.equal(plan.render_contract.user_voice_engine, "suno_voice_persona");
+    assert.equal(plan.render_contract.voice_provider_profile_id, "vpp_1");
+    assert.equal(
+      plan.render_contract.pipeline,
+      "suno_voice_persona_complete_audio",
     );
   });
 });
