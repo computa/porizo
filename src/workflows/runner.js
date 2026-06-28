@@ -2379,15 +2379,8 @@ async function startJobRunner({
   const updateJobExternalTask = await db.prepare(
     "UPDATE jobs SET external_task_id = ?, step_data = ?, last_heartbeat_at = ?, updated_at = ? WHERE id = ? AND locked_by = ?",
   );
-  const getTrackVersion = await db.prepare(
-    "SELECT * FROM track_versions WHERE id = ?",
-  );
-  const getTrack = await db.prepare("SELECT * FROM tracks WHERE id = ?");
   const updateTrackVersion = await db.prepare(
     "UPDATE track_versions SET status = ?, completed_at = ?, preview_url = COALESCE(?, preview_url), full_url = COALESCE(?, full_url), lyrics_json = COALESCE(?, lyrics_json), lyrics_status = COALESCE(?, lyrics_status), lyrics_updated_at = COALESCE(?, lyrics_updated_at), lyrics_approved_at = COALESCE(?, lyrics_approved_at), music_plan_json = COALESCE(?, music_plan_json), moderation_status = COALESCE(?, moderation_status), moderation_reason = COALESCE(?, moderation_reason), instrumental_url = COALESCE(?, instrumental_url), guide_vocal_url = COALESCE(?, guide_vocal_url), guide_access_token = COALESCE(?, guide_access_token), voice_conversion_url = COALESCE(?, voice_conversion_url), provenance_json = COALESCE(?, provenance_json) WHERE id = ?",
-  );
-  const updateTrack = await db.prepare(
-    "UPDATE tracks SET status = ?, updated_at = ? WHERE id = ?",
   );
   const updateUserRisk = await db.prepare(
     "UPDATE users SET risk_level = ? WHERE id = ?",
@@ -4587,9 +4580,11 @@ async function startJobRunner({
       );
       return;
     }
-    const trackVersion = await getTrackVersion.get(job.track_version_id);
+    const trackVersion = await trackVersionRepository.findById(
+      job.track_version_id,
+    );
     const track = trackVersion
-      ? await getTrack.get(trackVersion.track_id)
+      ? await trackVersionRepository.findTrackById(trackVersion.track_id)
       : null;
 
     // Fail job if track or trackVersion was deleted during processing
@@ -4987,7 +4982,11 @@ async function startJobRunner({
               null,
               trackVersion.id,
             );
-            await updateTrack.run("failed", now, track.id);
+            await trackVersionRepository.updateTrackStatus({
+              trackId: track.id,
+              status: "failed",
+              updatedAt: now,
+            });
 
             // Move to DLQ for debugging and potential reprocessing
             try {
@@ -5072,7 +5071,11 @@ async function startJobRunner({
         stepData.provenance_json || null,
         trackVersion.id,
       );
-      await updateTrack.run("failed", now, track.id);
+      await trackVersionRepository.updateTrackStatus({
+        trackId: track.id,
+        status: "failed",
+        updatedAt: now,
+      });
       await updateUserRisk.run("high", track.user_id);
       await updateJobStatus.run("blocked", 100, now, now, job.id, runnerId);
       await insertAuditLog.run(
@@ -5115,7 +5118,9 @@ async function startJobRunner({
     }
 
     if (stepName === "ready") {
-      const trackVersionReady = await getTrackVersion.get(job.track_version_id);
+      const trackVersionReady = await trackVersionRepository.findById(
+        job.track_version_id,
+      );
       if (!trackVersionReady) {
         console.error(
           `[JobRunner] Job ${job.id} ready step: trackVersion ${job.track_version_id} not found`,
@@ -5123,7 +5128,9 @@ async function startJobRunner({
         await updateJobStatus.run("failed", 100, now, now, job.id, runnerId);
         return;
       }
-      const trackReady = await getTrack.get(trackVersionReady.track_id);
+      const trackReady = await trackVersionRepository.findTrackById(
+        trackVersionReady.track_id,
+      );
       if (!trackReady) {
         console.error(
           `[JobRunner] Job ${job.id} ready step: track ${trackVersionReady.track_id} not found`,
@@ -5279,7 +5286,11 @@ async function startJobRunner({
               null,
               trackVersionReady.id,
             );
-            await updateTrack.run("failed", now, trackReady.id);
+            await trackVersionRepository.updateTrackStatus({
+              trackId: trackReady.id,
+              status: "failed",
+              updatedAt: now,
+            });
             try {
               const dlq = getDLQService();
               await dlq.moveToDeadLetter({
@@ -5364,11 +5375,11 @@ async function startJobRunner({
         completionProvenance,
         trackVersionReady.id,
       );
-      await updateTrack.run(
-        isFull ? "ready" : "preview_ready",
-        now,
-        trackReady.id,
-      );
+      await trackVersionRepository.updateTrackStatus({
+        trackId: trackReady.id,
+        status: isFull ? "ready" : "preview_ready",
+        updatedAt: now,
+      });
       if (generatedCover) {
         await updateTrackVersionCover.run(
           generatedCover.coverUrl,
