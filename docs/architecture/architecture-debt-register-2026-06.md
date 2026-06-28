@@ -1466,121 +1466,121 @@ validation, MVP flow, diff hygiene, and lint pass locally.
 
 **Closes:** D2 (admin god-service + god-route).
 **Scope:** Split `admin-service.js` by concern (`admin/audit`, `admin/users`, `admin/analytics`, `admin/metrics`, `admin/shares`, `admin/system`, `provider-config`) and `routes/admin.js` into matching route groups. **Evict `getAppConfig` composition into a `client-config-service`** (it's a mobile endpoint, not admin) — the single worst CRP violation, tiny effort, high value. Root 1 already extracted the public app-config gift-bundle/onboarding-sample read SQL; Root 6 owns the service/route responsibility move.
-**Execution status:** Client-config eviction is implemented locally in this
+**Execution status:** Client-config eviction is implemented in this
 slice. `src/services/client-config-service.js` now owns the public mobile
 config composition, `/app/config` is wired to that service boundary, and
 `AdminService.getAppConfig()` remains only as a compatibility delegate for
 existing callers/tests. The read-only admin metrics routes are also extracted
-locally into `src/routes/admin/metrics.js`, including overview, jobs, cost,
+into `src/routes/admin/metrics.js`, including overview, jobs, cost,
 enrollment, render-pipeline, and risk-metrics route registration. The
-read-only admin story-session routes are also extracted locally into
+read-only admin story-session routes are also extracted into
 `src/routes/admin/story-sessions.js`, preserving auth, pagination, 404, list,
 and detail payload behavior. Admin moderation queue/override routes are also
-extracted locally into `src/routes/admin/moderation.js`, preserving queue
+extracted into `src/routes/admin/moderation.js`, preserving queue
 pagination, superadmin-only override authorization, reason validation, error
 envelopes, and audit behavior. The read-only music diagnostics route is also
-extracted locally into `src/routes/admin/music-diagnostics.js`, preserving
+extracted into `src/routes/admin/music-diagnostics.js`, preserving
 auth, filters, limit parsing, error envelope, and response shape. Remaining
-admin job/DLQ/step-history routes are also extracted locally into
+admin job/DLQ/step-history routes are also extracted into
 `src/routes/admin/job-ops.js`, preserving job list/retry, DLQ list/reprocess,
 and step-history behavior while adding route-level coverage. Job-ops follow-up
 risks remain intentionally behavior-preserving in this slice: manual retry does
 not clear every stale runner-claim field, admin DLQ reprocess semantics differ
 from workflow DLQ reprocess, DLQ listing includes reprocessed entries, route
 failures remain broad 400s, and missing job step-history is indistinguishable
-from empty history. Admin feature-flag GET/PUT routes are also extracted locally
+from empty history. Admin feature-flag GET/PUT routes are also extracted
 into `src/routes/admin/feature-flags.js`, preserving the admin session gate,
 superadmin-only mutation gate, empty-body validation, service-level validation
 envelope, feature-flag cache behavior, and persisted update behavior. Admin
-demo-share GET/POST/revoke routes are also extracted locally into
+demo-share GET/POST/revoke routes are also extracted into
 `src/routes/admin/demo-shares.js`, preserving URL fallback behavior, fixed demo
 expiry, song/poem create and conversion flows, song-first revoke lookup, audit
 metadata, and role gates while expanding route characterization for conversion,
 no-version, missing-resource, and song-revoke cases. Admin security
-observability routes are also extracted locally into
+observability routes are also extracted into
 `src/routes/admin/security-observability.js`, preserving the security health
 envelope, auth-event filters/stats, Apple refresh stats, audit-log filters,
 rate-limit list/reset behavior, consent-log filters, pagination, and role gates.
-Admin user-read routes are also extracted locally into
+Admin user-read routes are also extracted into
 `src/routes/admin/users-read.js`, preserving user search filters, pagination,
 stats formatting, user-detail 404 envelope, attribution decoration, and session
 gates while leaving attribution health inline for a later attribution/admin
 health split. Admin user session/voice control routes are also extracted
-locally into `src/routes/admin/user-session-controls.js`, preserving active
+into `src/routes/admin/user-session-controls.js`, preserving active
 session listing, superadmin-only revoke gates, single/all session revoke
 envelopes and audit behavior, voice force-reverify gates, and missing
 voice-profile errors. Non-entitlement admin user mutation routes are also
-extracted locally into `src/routes/admin/user-mutations.js`, preserving risk
+extracted into `src/routes/admin/user-mutations.js`, preserving risk
 update validation, lock/unlock gates, delete envelopes, bulk-action validation
 and audit behavior, and profile update attribution audit behavior. Entitlements
 and complimentary upgrades intentionally remain later billing-adjacent slices.
-Admin song/poem share-management routes are also extracted locally into
+Admin song/poem share-management routes are also extracted into
 `src/routes/admin/shares.js`, preserving song-share filters/rebind envelopes,
 poem-share filters, reset/revoke envelopes, role gates, and audit behavior.
-Admin webhook-health route ownership is also extracted locally into
+Admin webhook-health route ownership is also extracted into
 `src/routes/admin/webhook-health.js`, preserving the admin session gate and
 the existing service/repository health envelope.
-Admin growth/attribution route ownership is also extracted locally into
+Admin growth/attribution route ownership is also extracted into
 `src/routes/admin/growth.js`, preserving attribution, Apple Ads keyword map,
 teaser, share-growth, validation, and admin audit behavior covered by the
 existing growth/attribution suites.
-Admin KPI route ownership is also extracted locally into
+Admin KPI route ownership is also extracted into
 `src/routes/admin/kpis.js`, preserving aggregate and trend route contracts while
 keeping aggregate job helper calls explicit behind an injected database handle.
-Admin analytics route ownership is also extracted locally into
+Admin analytics route ownership is also extracted into
 `src/routes/admin/analytics.js`, preserving overview, funnel, daily event,
 per-user read, cache, clamp, and audit-log behavior covered by the existing
 analytics suite.
 The attribution health route is also folded into the growth/attribution route
 module, removing the last inline attribution-health route from `admin.js` while
 preserving the existing Apple Ads and download health contract.
-Admin gift-ops route ownership is also extracted locally into
+Admin gift-ops route ownership is also extracted into
 `src/routes/admin/gift-ops.js`, preserving gift overview, order read/detail,
 outbox, incident, retry, cancel, overdue-review, manual recovery note, role
 gate, audit, and migration-required error contracts.
-Admin blog CMS route ownership is also extracted locally into
+Admin blog CMS route ownership is also extracted into
 `src/routes/admin/blog.js`, preserving blog list/detail/create/update/preview,
 autofill, review, repair, publish/unpublish, validation, audit, and public
 blog lifecycle behavior.
-Admin track-transfer route ownership is also extracted locally into
+Admin track-transfer route ownership is also extracted into
 `src/routes/admin/track-transfer.js`, preserving superadmin-only transfer,
 active-job, soft-deleted-user, audit, share-reset, and verification behavior.
-Admin provider/queue control route ownership is also extracted locally into
+Admin provider/queue control route ownership is also extracted into
 `src/routes/admin/provider-queue-control.js`, with new characterization for
 admin auth, superadmin mutation gates, status validation, and provider/queue
 status mutation envelopes.
-Admin STT/music provider config route ownership is also extracted locally into
+Admin STT/music provider config route ownership is also extracted into
 `src/routes/admin/provider-config.js`, with new characterization for admin
 auth, superadmin mutation gates, validation envelopes, available-provider
 response decoration, and STT/music config persistence behavior.
-Admin onboarding-sample route ownership is also extracted locally into
+Admin onboarding-sample route ownership is also extracted into
 `src/routes/admin/onboarding-samples.js`, with new characterization for admin
 auth, superadmin mutation gates, validation envelopes, activate not-found
 mapping, and delete behavior.
 The public mobile `/app/config` route handler is also moved out of `admin.js`
 into `src/routes/client-config.js`, leaving service lifetime and registration
 order unchanged while making the non-admin boundary explicit.
-Admin blend-analysis diagnostics route ownership is also extracted locally into
+Admin blend-analysis diagnostics route ownership is also extracted into
 `src/routes/admin/blend-analysis.js`, with new characterization for admin auth,
 superadmin path analysis, storage-scope validation, missing input, and missing
 track-version behavior.
-Admin security config/App Store sync route ownership is also extracted locally
+Admin security config/App Store sync route ownership is also extracted
 into `src/routes/admin/security-config.js`, with new characterization for
 admin auth, superadmin mutation/sync gates, validation envelopes, readback, and
 App Store sync failure mapping.
-Admin SPA/static serving is also extracted locally into
+Admin SPA/static serving is also extracted into
 `src/routes/admin/static-ui.js`; Cloudflare Access mode checks remain injected
 from `admin.js`, while the static module owns MIME selection, traversal
 protection, and SPA fallback behavior.
-Admin marketing route ownership is also extracted locally into
+Admin marketing route ownership is also extracted into
 `src/routes/admin/marketing.js`, including email templates, contacts,
 contact upload/export, campaigns, cold-email operations, push send, GMass
 import, and engagement routes plus marketing-only helper logic.
-Admin billing route ownership is also extracted locally into
+Admin billing route ownership is also extracted into
 `src/routes/admin/billing.js`, including entitlement mutation, complimentary
 upgrade/revoke, billing dashboard reads, plan updates, and gift-bundle
 management.
-Admin-auth route ownership is also extracted locally into
+Admin-auth route ownership is also extracted into
 `src/routes/admin/auth.js`, including setup, login/logout, current-session,
 change-password, forgot-password, and reset-password handlers plus the auth
 rate-limit helper. `src/routes/admin.js` now has no inline

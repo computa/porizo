@@ -139,9 +139,12 @@ Root 1 is complete only when that scan has no direct persistence hits outside co
 - Root 6 billing route split is committed as `eb9986b6`. The next Root 6 slice
   added admin-auth route characterization and extracted `/admin/auth/*` into
   `src/routes/admin/auth.js`.
-- Next controller queue: commit the admin-auth route split, then run the Root 6
-  route-split validation sweep and update the architecture map. Remaining
-  Root 6 decomposition is service-boundary work, not route-handler extraction.
+- Root 6 admin-auth route split is committed as `47574500`. The Root 6
+  route-split sweep passed: `src/routes/admin.js` has no direct
+  `app.get/post/put/delete/patch` handlers, the selected admin/client-config
+  validation set passed 28/28, lint passed, and the architecture map is updated
+  with the new route ownership. Remaining Root 6 decomposition is
+  service-boundary work, not route-handler extraction.
 
 ## File Structure Map
 
@@ -1853,7 +1856,7 @@ Admin-auth route slice completed locally:
 - Existing admin-login hardening, default-seed, and admin-auth repository
   coverage remains green.
 
-- [ ] **Step 3: Run admin validation**
+- [x] **Step 3: Run admin validation**
 
 Run:
 
@@ -1864,7 +1867,7 @@ npm run lint
 
 Expected: selected tests pass and lint passes.
 
-- [ ] **Step 4: Commit Root 6**
+- [x] **Step 4: Commit Root 6 route extraction**
 
 Run:
 
@@ -1873,7 +1876,10 @@ git add src/routes/admin.js src/routes/admin src/services/admin-service.js src/s
 git commit -m "refactor: split admin routes and client config service"
 ```
 
-Expected: admin route/service responsibilities are separated by concern.
+Actual: Root 6 route extraction was committed incrementally through
+`47574500 refactor: extract admin auth routes`; `src/routes/admin.js` is now a
+registrar shell, `/app/config` lives in `src/routes/client-config.js`, and the
+architecture map records remaining Root 6 work as admin-service decomposition.
 
 ## Task 17: Root 7 Writer Decomposition
 
