@@ -184,6 +184,213 @@ function createJobDurabilityRepository(db) {
     return Array.from(result.rows || []);
   }
 
+  async function listQueuedRunnableJobs({ now, limit }) {
+    const sql = db.isPostgres
+      ? "SELECT * FROM jobs WHERE status = 'queued' AND workflow_type <> 'artwork_render' AND (next_attempt_at IS NULL OR next_attempt_at <= $1) ORDER BY created_at ASC LIMIT $2 FOR UPDATE SKIP LOCKED"
+      : "SELECT * FROM jobs WHERE status = 'queued' AND workflow_type <> 'artwork_render' AND (next_attempt_at IS NULL OR next_attempt_at <= ?) ORDER BY created_at ASC LIMIT ?";
+    const result = await dbQuery(db, sql, [now, limit]);
+    return Array.from(result.rows || []);
+  }
+
+  async function claimQueuedJob({ jobId, runnerId, now, progressPct }) {
+    return dbRun(
+      db,
+      "UPDATE jobs SET status = 'running', locked_by = ?, locked_at = ?, started_at = COALESCE(started_at, ?), last_heartbeat_at = ?, progress_pct = ?, updated_at = ? WHERE id = ? AND status = 'queued' AND (next_attempt_at IS NULL OR next_attempt_at <= ?)",
+      [runnerId, now, now, now, progressPct, now, jobId, now],
+    );
+  }
+
+  async function markJobStepRunning({
+    jobId,
+    runnerId,
+    step,
+    stepIndex,
+    progressPct,
+    now,
+  }) {
+    return dbRun(
+      db,
+      "UPDATE jobs SET step = ?, step_index = ?, progress_pct = ?, last_heartbeat_at = ?, updated_at = ? WHERE id = ? AND locked_by = ?",
+      [step, stepIndex, progressPct, now, now, jobId, runnerId],
+    );
+  }
+
+  async function advanceJobToStep({
+    jobId,
+    runnerId,
+    status,
+    step,
+    stepIndex,
+    stepDataJson,
+    progressPct,
+    now,
+  }) {
+    return dbRun(
+      db,
+      "UPDATE jobs SET status = ?, step = ?, step_index = ?, step_data = ?, progress_pct = ?, last_heartbeat_at = ?, next_attempt_at = NULL, locked_by = NULL, locked_at = NULL, updated_at = ? WHERE id = ? AND locked_by = ?",
+      [status, step, stepIndex, stepDataJson, progressPct, now, now, jobId, runnerId],
+    );
+  }
+
+  async function advanceJobForReroll({
+    jobId,
+    runnerId,
+    status,
+    step,
+    stepIndex,
+    stepDataJson,
+    progressPct,
+    now,
+  }) {
+    return dbRun(
+      db,
+      "UPDATE jobs SET status = ?, step = ?, step_index = ?, step_data = ?, external_task_id = NULL, progress_pct = ?, last_heartbeat_at = ?, next_attempt_at = NULL, locked_by = NULL, locked_at = NULL, updated_at = ? WHERE id = ? AND locked_by = ?",
+      [status, step, stepIndex, stepDataJson, progressPct, now, now, jobId, runnerId],
+    );
+  }
+
+  async function parkJobUntil({
+    jobId,
+    runnerId,
+    status,
+    step,
+    stepIndex,
+    stepDataJson,
+    progressPct,
+    heartbeatAt,
+    nextAttemptAt,
+    updatedAt,
+  }) {
+    return dbRun(
+      db,
+      "UPDATE jobs SET status = ?, step = ?, step_index = ?, step_data = ?, progress_pct = ?, last_heartbeat_at = ?, next_attempt_at = ?, locked_by = NULL, locked_at = NULL, updated_at = ? WHERE id = ? AND locked_by = ?",
+      [
+        status,
+        step,
+        stepIndex,
+        stepDataJson,
+        progressPct,
+        heartbeatAt,
+        nextAttemptAt,
+        updatedAt,
+        jobId,
+        runnerId,
+      ],
+    );
+  }
+
+  async function markJobTerminal({
+    jobId,
+    runnerId,
+    status,
+    progressPct,
+    completedAt,
+    updatedAt,
+  }) {
+    return dbRun(
+      db,
+      "UPDATE jobs SET status = ?, progress_pct = ?, completed_at = ?, locked_by = NULL, locked_at = NULL, updated_at = ? WHERE id = ? AND locked_by = ?",
+      [status, progressPct, completedAt, updatedAt, jobId, runnerId],
+    );
+  }
+
+  async function heartbeatOwnedJob({ jobId, runnerId, heartbeatAt, updatedAt }) {
+    return dbRun(
+      db,
+      "UPDATE jobs SET last_heartbeat_at = ?, updated_at = ? WHERE id = ? AND locked_by = ?",
+      [heartbeatAt, updatedAt, jobId, runnerId],
+    );
+  }
+
+  async function markJobFailed({
+    jobId,
+    runnerId,
+    status,
+    step,
+    stepIndex,
+    errorCode,
+    errorMessage,
+    progressPct,
+    completedAt,
+    updatedAt,
+  }) {
+    return dbRun(
+      db,
+      "UPDATE jobs SET status = ?, step = ?, step_index = ?, error_code = ?, error_message = ?, progress_pct = ?, completed_at = ?, next_attempt_at = NULL, locked_by = NULL, locked_at = NULL, updated_at = ? WHERE id = ? AND locked_by = ?",
+      [
+        status,
+        step,
+        stepIndex,
+        errorCode,
+        errorMessage,
+        progressPct,
+        completedAt,
+        updatedAt,
+        jobId,
+        runnerId,
+      ],
+    );
+  }
+
+  async function forceMarkJobFailed({
+    jobId,
+    status,
+    step,
+    stepIndex,
+    errorCode,
+    errorMessage,
+    progressPct,
+    completedAt,
+    updatedAt,
+  }) {
+    return dbRun(
+      db,
+      "UPDATE jobs SET status = ?, step = ?, step_index = ?, error_code = ?, error_message = ?, progress_pct = ?, completed_at = ?, next_attempt_at = NULL, locked_by = NULL, locked_at = NULL, updated_at = ? WHERE id = ?",
+      [
+        status,
+        step,
+        stepIndex,
+        errorCode,
+        errorMessage,
+        progressPct,
+        completedAt,
+        updatedAt,
+        jobId,
+      ],
+    );
+  }
+
+  async function requeueJobAttempt({
+    jobId,
+    runnerId,
+    status,
+    progressPct,
+    heartbeatAt,
+    nextAttemptAt,
+    updatedAt,
+  }) {
+    return dbRun(
+      db,
+      "UPDATE jobs SET attempts = attempts + 1, status = ?, progress_pct = ?, last_heartbeat_at = ?, next_attempt_at = ?, locked_by = NULL, locked_at = NULL, updated_at = ? WHERE id = ? AND locked_by = ?",
+      [status, progressPct, heartbeatAt, nextAttemptAt, updatedAt, jobId, runnerId],
+    );
+  }
+
+  async function attachExternalTask({
+    jobId,
+    runnerId,
+    externalTaskId,
+    stepDataJson,
+    heartbeatAt,
+    updatedAt,
+  }) {
+    return dbRun(
+      db,
+      "UPDATE jobs SET external_task_id = ?, step_data = ?, last_heartbeat_at = ?, updated_at = ? WHERE id = ? AND locked_by = ?",
+      [externalTaskId, stepDataJson, heartbeatAt, updatedAt, jobId, runnerId],
+    );
+  }
+
   async function getJobHealth(jobId) {
     const result = await dbQuery(
       db,
@@ -269,6 +476,18 @@ function createJobDurabilityRepository(db) {
     appendDlqInsertFailure,
     listRunningUserIdsAtCapacity,
     listUserIdsForTrackVersionIds,
+    listQueuedRunnableJobs,
+    claimQueuedJob,
+    markJobStepRunning,
+    advanceJobToStep,
+    advanceJobForReroll,
+    parkJobUntil,
+    markJobTerminal,
+    heartbeatOwnedJob,
+    markJobFailed,
+    forceMarkJobFailed,
+    requeueJobAttempt,
+    attachExternalTask,
     getJobHealth,
     findLatestFailedForVersion,
     findActiveForVersion,

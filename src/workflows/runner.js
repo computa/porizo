@@ -1828,7 +1828,12 @@ async function startJobRunner({
     const touchHeartbeat = async () => {
       if (!job) return;
       const stamp = new Date().toISOString();
-      await updateJobHeartbeat.run(stamp, stamp, job.id, runnerId);
+      await jobDurabilityRepository.heartbeatOwnedJob({
+        jobId: job.id,
+        runnerId,
+        heartbeatAt: stamp,
+        updatedAt: stamp,
+      });
     };
 
     const submitTaskForLyrics = async (lyricsPayload) =>
@@ -2040,14 +2045,14 @@ async function startJobRunner({
         routing: routingMetadata || null,
       };
       const stamp = new Date().toISOString();
-      await updateJobExternalTask.run(
-        newTaskId,
-        toJson(payload),
-        stamp,
-        stamp,
-        job.id,
+      await jobDurabilityRepository.attachExternalTask({
+        jobId: job.id,
         runnerId,
-      );
+        externalTaskId: newTaskId,
+        stepDataJson: toJson(payload),
+        heartbeatAt: stamp,
+        updatedAt: stamp,
+      });
     }
 
     return buildPendingResponse({
@@ -2319,53 +2324,6 @@ async function startJobRunner({
   const artworkRecoveryTimer = setInterval(artworkRecoverySweep, 60 * 1000);
   const artworkRecoveryStartupTimer = setTimeout(artworkRecoverySweep, 5000); // Run shortly after startup
 
-  // FOR UPDATE SKIP LOCKED prevents race conditions between workers:
-  // - Locks selected rows so other workers won't select them
-  // - SKIP LOCKED means workers don't block, they just skip locked rows
-  // - LIMIT ensures we only lock what we need (availableSlots)
-  // Exclude artwork_render — those jobs are owned by src/jobs/artwork-job.js
-  // and dispatched via recoverOrphanedArtworkJobs() / enqueueArtworkJob().
-  // Leaving them in this claim query would pull them into the audio pipeline
-  // which has no artwork step handler.
-  const selectJobsQuery = db.isPostgres
-    ? "SELECT * FROM jobs WHERE status = 'queued' AND workflow_type <> 'artwork_render' AND (next_attempt_at IS NULL OR next_attempt_at <= $1) ORDER BY created_at ASC LIMIT $2 FOR UPDATE SKIP LOCKED"
-    : "SELECT * FROM jobs WHERE status = 'queued' AND workflow_type <> 'artwork_render' AND (next_attempt_at IS NULL OR next_attempt_at <= $1) ORDER BY created_at ASC LIMIT $2";
-  const selectJobs = await db.prepare(selectJobsQuery);
-  const claimJob = await db.prepare(
-    "UPDATE jobs SET status = 'running', locked_by = ?, locked_at = ?, started_at = COALESCE(started_at, ?), last_heartbeat_at = ?, progress_pct = ?, updated_at = ? WHERE id = ? AND status = 'queued' AND (next_attempt_at IS NULL OR next_attempt_at <= ?)",
-  );
-  // All job updates include ownership verification (AND locked_by = ?) to prevent
-  // data integrity issues when workers lose ownership mid-processing
-  const updateJobStep = await db.prepare(
-    "UPDATE jobs SET step = ?, step_index = ?, progress_pct = ?, last_heartbeat_at = ?, updated_at = ? WHERE id = ? AND locked_by = ?",
-  );
-  const updateJob = await db.prepare(
-    "UPDATE jobs SET status = ?, step = ?, step_index = ?, step_data = ?, progress_pct = ?, last_heartbeat_at = ?, next_attempt_at = NULL, locked_by = NULL, locked_at = NULL, updated_at = ? WHERE id = ? AND locked_by = ?",
-  );
-  const updateJobReroll = await db.prepare(
-    "UPDATE jobs SET status = ?, step = ?, step_index = ?, step_data = ?, external_task_id = NULL, progress_pct = ?, last_heartbeat_at = ?, next_attempt_at = NULL, locked_by = NULL, locked_at = NULL, updated_at = ? WHERE id = ? AND locked_by = ?",
-  );
-  const updateJobPending = await db.prepare(
-    "UPDATE jobs SET status = ?, step = ?, step_index = ?, step_data = ?, progress_pct = ?, last_heartbeat_at = ?, next_attempt_at = ?, locked_by = NULL, locked_at = NULL, updated_at = ? WHERE id = ? AND locked_by = ?",
-  );
-  const updateJobStatus = await db.prepare(
-    "UPDATE jobs SET status = ?, progress_pct = ?, completed_at = ?, locked_by = NULL, locked_at = NULL, updated_at = ? WHERE id = ? AND locked_by = ?",
-  );
-  const updateJobHeartbeat = await db.prepare(
-    "UPDATE jobs SET last_heartbeat_at = ?, updated_at = ? WHERE id = ? AND locked_by = ?",
-  );
-  const updateJobFailure = await db.prepare(
-    "UPDATE jobs SET status = ?, step = ?, step_index = ?, error_code = ?, error_message = ?, progress_pct = ?, completed_at = ?, next_attempt_at = NULL, locked_by = NULL, locked_at = NULL, updated_at = ? WHERE id = ? AND locked_by = ?",
-  );
-  const updateJobFailureNoLock = await db.prepare(
-    "UPDATE jobs SET status = ?, step = ?, step_index = ?, error_code = ?, error_message = ?, progress_pct = ?, completed_at = ?, next_attempt_at = NULL, locked_by = NULL, locked_at = NULL, updated_at = ? WHERE id = ?",
-  );
-  const updateJobAttempt = await db.prepare(
-    "UPDATE jobs SET attempts = attempts + 1, status = ?, progress_pct = ?, last_heartbeat_at = ?, next_attempt_at = ?, locked_by = NULL, locked_at = NULL, updated_at = ? WHERE id = ? AND locked_by = ?",
-  );
-  const updateJobExternalTask = await db.prepare(
-    "UPDATE jobs SET external_task_id = ?, step_data = ?, last_heartbeat_at = ?, updated_at = ? WHERE id = ? AND locked_by = ?",
-  );
   function getErrorInfo(err) {
     const rawMessage =
       err && err.message ? String(err.message) : "unknown_error";
@@ -3219,14 +3177,14 @@ async function startJobRunner({
                 routing: routingMetadata,
               };
               const stamp = new Date().toISOString();
-              await updateJobExternalTask.run(
-                taskId,
-                toJson(payload),
-                stamp,
-                stamp,
-                job.id,
+              await jobDurabilityRepository.attachExternalTask({
+                jobId: job.id,
                 runnerId,
-              );
+                externalTaskId: taskId,
+                stepDataJson: toJson(payload),
+                heartbeatAt: stamp,
+                updatedAt: stamp,
+              });
             }
           : null;
         const result = await durabilityService.executeWithDurability({
@@ -3552,14 +3510,14 @@ async function startJobRunner({
                 routing: routingMetadata,
               };
               const stamp = new Date().toISOString();
-              await updateJobExternalTask.run(
-                taskId,
-                toJson(payload),
-                stamp,
-                stamp,
-                job.id,
+              await jobDurabilityRepository.attachExternalTask({
+                jobId: job.id,
                 runnerId,
-              );
+                externalTaskId: taskId,
+                stepDataJson: toJson(payload),
+                heartbeatAt: stamp,
+                updatedAt: stamp,
+              });
             }
           : null;
         const result = await durabilityService.executeWithDurability({
@@ -4479,19 +4437,25 @@ async function startJobRunner({
     const nextStep = steps[nextIndex] || null;
     const nextPct = computeProgress(nextIndex, steps.length);
     if (nextStep) {
-      await updateJob.run(
-        "queued",
-        nextStep,
-        nextIndex,
-        stepData ? toJson(stepData) : null,
-        nextPct,
-        now,
-        now,
-        job.id,
+      await jobDurabilityRepository.advanceJobToStep({
+        jobId: job.id,
         runnerId,
-      );
+        status: "queued",
+        step: nextStep,
+        stepIndex: nextIndex,
+        stepDataJson: stepData ? toJson(stepData) : null,
+        progressPct: nextPct,
+        now,
+      });
     } else {
-      await updateJobStatus.run("completed", 100, now, now, job.id, runnerId);
+      await jobDurabilityRepository.markJobTerminal({
+        jobId: job.id,
+        runnerId,
+        status: "completed",
+        progressPct: 100,
+        completedAt: now,
+        updatedAt: now,
+      });
     }
   }
 
@@ -4505,30 +4469,26 @@ async function startJobRunner({
       job.workflow_type === "full_render" ? FULL_STEPS : PREVIEW_STEPS;
     const stepIndex = job.step_index || 0;
     const progressPct = computeProgress(stepIndex, steps.length);
-    const claim = await claimJob.run(
+    const claim = await jobDurabilityRepository.claimQueuedJob({
+      jobId: job.id,
       runnerId,
       now,
-      now,
-      now,
       progressPct,
-      now,
-      job.id,
-      now,
-    );
+    });
     if (claim.changes === 0) {
       return;
     }
     job.status = "running";
     const stepName = steps[stepIndex];
     if (!stepName) {
-      const terminalUpdate = await updateJobStatus.run(
-        "completed",
-        100,
-        now,
-        now,
-        job.id,
+      const terminalUpdate = await jobDurabilityRepository.markJobTerminal({
+        jobId: job.id,
         runnerId,
-      );
+        status: "completed",
+        progressPct: 100,
+        completedAt: now,
+        updatedAt: now,
+      });
       if (!terminalUpdate || terminalUpdate.changes === 0) {
         console.warn(
           `[JobRunner] Could not complete terminal job ${job.id}; lock ownership lost`,
@@ -4536,15 +4496,14 @@ async function startJobRunner({
       }
       return;
     }
-    const stepUpdate = await updateJobStep.run(
-      stepName,
+    const stepUpdate = await jobDurabilityRepository.markJobStepRunning({
+      jobId: job.id,
+      runnerId,
+      step: stepName,
       stepIndex,
       progressPct,
       now,
-      now,
-      job.id,
-      runnerId,
-    );
+    });
     if (stepUpdate.changes === 0) {
       console.warn(
         `[JobRunner] Lost ownership of job ${job.id} during step update, skipping`,
@@ -4563,18 +4522,18 @@ async function startJobRunner({
       console.error(
         `[JobRunner] Job ${job.id} failed: track or trackVersion not found (may have been deleted)`,
       );
-      await updateJobFailure.run(
-        "failed",
-        stepName,
-        stepIndex,
-        "E404_RESOURCE_DELETED",
-        "Track or track version was deleted during processing",
-        100,
-        now,
-        now,
-        job.id,
+      await jobDurabilityRepository.markJobFailed({
+        jobId: job.id,
         runnerId,
-      );
+        status: "failed",
+        step: stepName,
+        stepIndex,
+        errorCode: "E404_RESOURCE_DELETED",
+        errorMessage: "Track or track version was deleted during processing",
+        progressPct: 100,
+        completedAt: now,
+        updatedAt: now,
+      });
       return;
     }
 
@@ -4619,18 +4578,18 @@ async function startJobRunner({
         console.error(
           `[JobRunner] Job ${job.id} exceeded max circuit breaker parks (${parkCount}), failing to DLQ`,
         );
-        await updateJobFailure.run(
-          "failed",
-          stepName,
-          stepIndex,
-          "S503_PROVIDER_UNAVAILABLE",
-          `All providers unavailable after ${parkCount} circuit breaker parks`,
-          progressPct,
-          now,
-          now,
-          job.id,
+        await jobDurabilityRepository.markJobFailed({
+          jobId: job.id,
           runnerId,
-        );
+          status: "failed",
+          step: stepName,
+          stepIndex,
+          errorCode: "S503_PROVIDER_UNAVAILABLE",
+          errorMessage: `All providers unavailable after ${parkCount} circuit breaker parks`,
+          progressPct,
+          completedAt: now,
+          updatedAt: now,
+        });
         try {
           const dlq = getDLQService();
           await dlq.moveToDeadLetter({
@@ -4658,18 +4617,18 @@ async function startJobRunner({
       console.warn(
         `[JobRunner] All providers circuit-open for ${stepName}, parking job ${job.id} (park ${parkCount + 1}/${MAX_CIRCUIT_PARKS})`,
       );
-      await updateJobPending.run(
-        "queued",
-        stepName,
-        stepIndex,
-        updatedStepData,
-        progressPct,
-        now,
-        nextAttemptAt,
-        now,
-        job.id,
+      await jobDurabilityRepository.parkJobUntil({
+        jobId: job.id,
         runnerId,
-      );
+        status: "queued",
+        step: stepName,
+        stepIndex,
+        stepDataJson: updatedStepData,
+        progressPct,
+        heartbeatAt: now,
+        nextAttemptAt,
+        updatedAt: now,
+      });
       return;
     }
 
@@ -4748,18 +4707,18 @@ async function startJobRunner({
             `[JobRunner] Missing intermediate files for step "${stepName}": [${missing.join(", ")}]. ` +
               `Resetting job ${job.id} to step "${resetStep}" (container restart recovery).`,
           );
-          await updateJobPending.run(
-            "queued",
-            resetStep,
-            resetIndex,
-            null,
-            progressPct,
-            now,
-            null,
-            now,
-            job.id,
+          await jobDurabilityRepository.parkJobUntil({
+            jobId: job.id,
             runnerId,
-          );
+            status: "queued",
+            step: resetStep,
+            stepIndex: resetIndex,
+            stepDataJson: null,
+            progressPct,
+            heartbeatAt: now,
+            nextAttemptAt: null,
+            updatedAt: now,
+          });
           return;
         }
       }
@@ -4872,15 +4831,15 @@ async function startJobRunner({
             console.warn(
               `[JobRunner] Retrying job ${job.id} after ${retryAfter}s (attempt ${attemptNumber}/${maxAttempts})`,
             );
-            await updateJobAttempt.run(
-              "queued",
-              progressPct,
-              now,
-              nextAttemptAt,
-              now,
-              job.id,
+            await jobDurabilityRepository.requeueJobAttempt({
+              jobId: job.id,
               runnerId,
-            );
+              status: "queued",
+              progressPct,
+              heartbeatAt: now,
+              nextAttemptAt,
+              updatedAt: now,
+            });
             return;
           }
           if (nonRetryablePolicyError || attemptNumber >= maxAttempts) {
@@ -4904,33 +4863,33 @@ async function startJobRunner({
               });
             }
             const errorInfo = getErrorInfo(err);
-            const failureUpdate = await updateJobFailure.run(
-              "failed",
-              stepName,
-              stepIndex,
-              errorInfo.code,
-              errorInfo.message,
-              100,
-              now,
-              now,
-              job.id,
+            const failureUpdate = await jobDurabilityRepository.markJobFailed({
+              jobId: job.id,
               runnerId,
-            );
+              status: "failed",
+              step: stepName,
+              stepIndex,
+              errorCode: errorInfo.code,
+              errorMessage: errorInfo.message,
+              progressPct: 100,
+              completedAt: now,
+              updatedAt: now,
+            });
             if (!failureUpdate || failureUpdate.changes === 0) {
               console.error(
                 `[JobRunner] Lost ownership while marking job ${job.id} failed; forcing terminal failure state`,
               );
-              await updateJobFailureNoLock.run(
-                "failed",
-                stepName,
+              await jobDurabilityRepository.forceMarkJobFailed({
+                jobId: job.id,
+                status: "failed",
+                step: stepName,
                 stepIndex,
-                errorInfo.code,
-                errorInfo.message,
-                100,
-                now,
-                now,
-                job.id,
-              );
+                errorCode: errorInfo.code,
+                errorMessage: errorInfo.message,
+                progressPct: 100,
+                completedAt: now,
+                updatedAt: now,
+              });
             }
             await trackVersionRepository.applyRenderStepUpdates({
               trackVersionId: trackVersion.id,
@@ -4973,15 +4932,15 @@ async function startJobRunner({
               }
             }
           } else {
-            await updateJobAttempt.run(
-              "queued",
-              progressPct,
-              now,
-              null,
-              now,
-              job.id,
+            await jobDurabilityRepository.requeueJobAttempt({
+              jobId: job.id,
               runnerId,
-            );
+              status: "queued",
+              progressPct,
+              heartbeatAt: now,
+              nextAttemptAt: null,
+              updatedAt: now,
+            });
           }
           return;
         }
@@ -4992,18 +4951,18 @@ async function startJobRunner({
       const nextAttemptAt = new Date(
         Date.now() + retryAfterSec * 1000,
       ).toISOString();
-      await updateJobPending.run(
-        "queued",
-        stepName,
-        stepIndex,
-        stepData ? toJson(stepData) : null,
-        progressPct,
-        now,
-        nextAttemptAt,
-        now,
-        job.id,
+      await jobDurabilityRepository.parkJobUntil({
+        jobId: job.id,
         runnerId,
-      );
+        status: "queued",
+        step: stepName,
+        stepIndex,
+        stepDataJson: stepData ? toJson(stepData) : null,
+        progressPct,
+        heartbeatAt: now,
+        nextAttemptAt,
+        updatedAt: now,
+      });
       return;
     }
     if (stepData && stepData.status_override === "blocked") {
@@ -5033,7 +4992,14 @@ async function startJobRunner({
         userId: track.user_id,
         riskLevel: "high",
       });
-      await updateJobStatus.run("blocked", 100, now, now, job.id, runnerId);
+      await jobDurabilityRepository.markJobTerminal({
+        jobId: job.id,
+        runnerId,
+        status: "blocked",
+        progressPct: 100,
+        completedAt: now,
+        updatedAt: now,
+      });
       await eventsRepository.insertAuditLog({
         id: crypto.randomUUID(),
         userId: track.user_id,
@@ -5057,21 +5023,20 @@ async function startJobRunner({
       const rerollProgress = computeProgress(rerollStepIndex, steps.length);
       const versionDir = getVersionDir(storageDir, track, trackVersion);
       cleanupForReroll(versionDir, job.workflow_type);
-      await updateJobReroll.run(
-        "queued",
-        rerollStepName,
-        rerollStepIndex,
-        toJson({
+      await jobDurabilityRepository.advanceJobForReroll({
+        jobId: job.id,
+        runnerId,
+        status: "queued",
+        step: rerollStepName,
+        stepIndex: rerollStepIndex,
+        stepDataJson: toJson({
           reroll_count: stepData.reroll_count || 1,
           reroll_reason: stepData.reroll_reason || "quality_gate_failed",
           quality_gate: stepData.quality_gate || null,
         }),
-        rerollProgress,
+        progressPct: rerollProgress,
         now,
-        now,
-        job.id,
-        runnerId,
-      );
+      });
       return;
     }
 
@@ -5083,7 +5048,14 @@ async function startJobRunner({
         console.error(
           `[JobRunner] Job ${job.id} ready step: trackVersion ${job.track_version_id} not found`,
         );
-        await updateJobStatus.run("failed", 100, now, now, job.id, runnerId);
+        await jobDurabilityRepository.markJobTerminal({
+          jobId: job.id,
+          runnerId,
+          status: "failed",
+          progressPct: 100,
+          completedAt: now,
+          updatedAt: now,
+        });
         return;
       }
       const trackReady = await trackVersionRepository.findTrackById(
@@ -5093,7 +5065,14 @@ async function startJobRunner({
         console.error(
           `[JobRunner] Job ${job.id} ready step: track ${trackVersionReady.track_id} not found`,
         );
-        await updateJobStatus.run("failed", 100, now, now, job.id, runnerId);
+        await jobDurabilityRepository.markJobTerminal({
+          jobId: job.id,
+          runnerId,
+          status: "failed",
+          progressPct: 100,
+          completedAt: now,
+          updatedAt: now,
+        });
         return;
       }
       const isFull = job.workflow_type === "full_render";
@@ -5213,18 +5192,18 @@ async function startJobRunner({
           if (process.env.NODE_ENV === "production") {
             // Use the standard failure path: update job, track_version, track, DLQ, and billing hold
             const readyStepIndex = steps.indexOf("ready");
-            await updateJobFailure.run(
-              "failed",
-              "ready",
-              readyStepIndex,
-              "S3_UPLOAD_FAILED",
-              s3Error.message,
-              100,
-              now,
-              now,
-              job.id,
+            await jobDurabilityRepository.markJobFailed({
+              jobId: job.id,
               runnerId,
-            );
+              status: "failed",
+              step: "ready",
+              stepIndex: readyStepIndex,
+              errorCode: "S3_UPLOAD_FAILED",
+              errorMessage: s3Error.message,
+              progressPct: 100,
+              completedAt: now,
+              updatedAt: now,
+            });
             await trackVersionRepository.applyRenderStepUpdates({
               trackVersionId: trackVersionReady.id,
               status: "failed",
@@ -5415,7 +5394,14 @@ async function startJobRunner({
         }
       }
 
-      await updateJobStatus.run("completed", 100, now, now, job.id, runnerId);
+      await jobDurabilityRepository.markJobTerminal({
+        jobId: job.id,
+        runnerId,
+        status: "completed",
+        progressPct: 100,
+        completedAt: now,
+        updatedAt: now,
+      });
       return;
     }
 
@@ -5447,7 +5433,10 @@ async function startJobRunner({
 
     // Fetch extra candidates to compensate for user filtering
     const fetchLimit = availableSlots + blockedUserIds.size;
-    const candidates = await selectJobs.all(now, fetchLimit);
+    const candidates = await jobDurabilityRepository.listQueuedRunnableJobs({
+      now,
+      limit: fetchLimit,
+    });
     let candidateUsersByJobId = new Map();
     if (blockedUserIds.size > 0 && candidates.length > 0) {
       const ids = candidates.map((job) => job.track_version_id).filter(Boolean);

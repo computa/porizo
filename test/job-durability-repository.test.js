@@ -30,6 +30,8 @@ async function insertJob({
   lockedAt = null,
   errorCode = null,
   errorMessage = null,
+  progressPct = 0,
+  nextAttemptAt = null,
   createdAt = "2026-06-27T00:00:00.000Z",
   updatedAt = "2026-06-27T00:00:00.000Z",
   completedAt = null,
@@ -39,9 +41,9 @@ async function insertJob({
       `INSERT INTO jobs (
          id, track_version_id, workflow_type, status, step, step_index,
          step_data, attempts, max_attempts, last_heartbeat_at, locked_by,
-         locked_at, error_code, error_message, created_at, updated_at,
-         completed_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         locked_at, error_code, error_message, progress_pct, next_attempt_at,
+         created_at, updated_at, completed_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       id,
@@ -58,6 +60,8 @@ async function insertJob({
       lockedAt,
       errorCode,
       errorMessage,
+      progressPct,
+      nextAttemptAt,
       createdAt,
       updatedAt,
       completedAt,
@@ -201,6 +205,252 @@ describe("JobDurabilityRepository", () => {
     });
     assert.equal(row.last_heartbeat_at, "2026-06-27T00:05:00.000Z");
     assert.equal(row.updated_at, "2026-06-27T00:05:00.000Z");
+  });
+
+  test("job lifecycle methods preserve runner state transitions and lock guards", async () => {
+    await insertJob({
+      id: "job_lifecycle_due",
+      status: "queued",
+      workflowType: "preview_render",
+      createdAt: "2026-06-27T00:01:00.000Z",
+      updatedAt: "2026-06-27T00:01:00.000Z",
+    });
+    await insertJob({
+      id: "job_lifecycle_future",
+      status: "queued",
+      workflowType: "preview_render",
+      nextAttemptAt: "2026-06-27T00:10:00.000Z",
+      createdAt: "2026-06-27T00:00:00.000Z",
+      updatedAt: "2026-06-27T00:00:00.000Z",
+    });
+    await insertJob({
+      id: "job_lifecycle_artwork",
+      status: "queued",
+      workflowType: "artwork_render",
+    });
+
+    const runnable = await repository.listQueuedRunnableJobs({
+      now: "2026-06-27T00:05:00.000Z",
+      limit: 5,
+    });
+    assert.deepEqual(
+      runnable.map((job) => job.id),
+      ["job_lifecycle_due"],
+    );
+
+    assert.equal(
+      (
+        await repository.claimQueuedJob({
+          jobId: "job_lifecycle_due",
+          runnerId: "runner_a",
+          now: "2026-06-27T00:05:00.000Z",
+          progressPct: 10,
+        })
+      ).changes,
+      1,
+    );
+    assert.equal(
+      (
+        await repository.markJobStepRunning({
+          jobId: "job_lifecycle_due",
+          runnerId: "runner_b",
+          step: "lyrics",
+          stepIndex: 1,
+          progressPct: 20,
+          now: "2026-06-27T00:06:00.000Z",
+        })
+      ).changes,
+      0,
+    );
+    await repository.markJobStepRunning({
+      jobId: "job_lifecycle_due",
+      runnerId: "runner_a",
+      step: "lyrics",
+      stepIndex: 1,
+      progressPct: 20,
+      now: "2026-06-27T00:06:00.000Z",
+    });
+    await repository.attachExternalTask({
+      jobId: "job_lifecycle_due",
+      runnerId: "runner_a",
+      externalTaskId: "task_123",
+      stepDataJson: '{"task_id":"task_123"}',
+      heartbeatAt: "2026-06-27T00:06:10.000Z",
+      updatedAt: "2026-06-27T00:06:10.000Z",
+    });
+    await repository.heartbeatOwnedJob({
+      jobId: "job_lifecycle_due",
+      runnerId: "runner_a",
+      heartbeatAt: "2026-06-27T00:06:20.000Z",
+      updatedAt: "2026-06-27T00:06:20.000Z",
+    });
+    await repository.parkJobUntil({
+      jobId: "job_lifecycle_due",
+      runnerId: "runner_a",
+      status: "queued",
+      step: "lyrics",
+      stepIndex: 1,
+      stepDataJson: '{"parked":true}',
+      progressPct: 20,
+      heartbeatAt: "2026-06-27T00:06:30.000Z",
+      nextAttemptAt: "2026-06-27T00:07:00.000Z",
+      updatedAt: "2026-06-27T00:06:30.000Z",
+    });
+
+    assert.deepEqual(
+      await db
+        .prepare(
+          `SELECT status, step, step_index, step_data, external_task_id,
+                  progress_pct, next_attempt_at, locked_by, locked_at
+           FROM jobs WHERE id = ?`,
+        )
+        .get("job_lifecycle_due"),
+      {
+        status: "queued",
+        step: "lyrics",
+        step_index: 1,
+        step_data: '{"parked":true}',
+        external_task_id: "task_123",
+        progress_pct: 20,
+        next_attempt_at: "2026-06-27T00:07:00.000Z",
+        locked_by: null,
+        locked_at: null,
+      },
+    );
+
+    await db
+      .prepare("UPDATE jobs SET locked_by = ?, status = ? WHERE id = ?")
+      .run("runner_a", "running", "job_lifecycle_due");
+    await repository.advanceJobForReroll({
+      jobId: "job_lifecycle_due",
+      runnerId: "runner_a",
+      status: "queued",
+      step: "instrumental",
+      stepIndex: 2,
+      stepDataJson: '{"reroll":true}',
+      progressPct: 30,
+      now: "2026-06-27T00:08:00.000Z",
+    });
+    assert.deepEqual(
+      await db
+        .prepare(
+          "SELECT status, step, step_index, step_data, external_task_id FROM jobs WHERE id = ?",
+        )
+        .get("job_lifecycle_due"),
+      {
+        status: "queued",
+        step: "instrumental",
+        step_index: 2,
+        step_data: '{"reroll":true}',
+        external_task_id: null,
+      },
+    );
+
+    await db
+      .prepare("UPDATE jobs SET locked_by = ?, status = ? WHERE id = ?")
+      .run("runner_a", "running", "job_lifecycle_due");
+    await repository.requeueJobAttempt({
+      jobId: "job_lifecycle_due",
+      runnerId: "runner_a",
+      status: "queued",
+      progressPct: 35,
+      heartbeatAt: "2026-06-27T00:08:30.000Z",
+      nextAttemptAt: null,
+      updatedAt: "2026-06-27T00:08:30.000Z",
+    });
+    assert.deepEqual(
+      await db
+        .prepare(
+          "SELECT attempts, status, progress_pct, locked_by FROM jobs WHERE id = ?",
+        )
+        .get("job_lifecycle_due"),
+      {
+        attempts: 1,
+        status: "queued",
+        progress_pct: 35,
+        locked_by: null,
+      },
+    );
+
+    await db
+      .prepare("UPDATE jobs SET locked_by = ?, status = ? WHERE id = ?")
+      .run("runner_a", "running", "job_lifecycle_due");
+    await repository.markJobFailed({
+      jobId: "job_lifecycle_due",
+      runnerId: "runner_a",
+      status: "failed",
+      step: "lyrics",
+      stepIndex: 1,
+      errorCode: "E_TEST",
+      errorMessage: "failed",
+      progressPct: 100,
+      completedAt: "2026-06-27T00:09:00.000Z",
+      updatedAt: "2026-06-27T00:09:00.000Z",
+    });
+    assert.equal(
+      db.prepare("SELECT status FROM jobs WHERE id = ?").get("job_lifecycle_due")
+        .status,
+      "failed",
+    );
+
+    await repository.forceMarkJobFailed({
+      jobId: "job_lifecycle_future",
+      status: "failed",
+      step: "lyrics",
+      stepIndex: 1,
+      errorCode: "E_FORCE",
+      errorMessage: "forced",
+      progressPct: 100,
+      completedAt: "2026-06-27T00:09:30.000Z",
+      updatedAt: "2026-06-27T00:09:30.000Z",
+    });
+    assert.equal(
+      db
+        .prepare("SELECT error_code FROM jobs WHERE id = ?")
+        .get("job_lifecycle_future").error_code,
+      "E_FORCE",
+    );
+
+    await insertJob({
+      id: "job_lifecycle_advance",
+      status: "running",
+      lockedBy: "runner_a",
+      lockedAt: "2026-06-27T00:09:00.000Z",
+    });
+    await repository.advanceJobToStep({
+      jobId: "job_lifecycle_advance",
+      runnerId: "runner_a",
+      status: "queued",
+      step: "music",
+      stepIndex: 2,
+      stepDataJson: '{"ok":true}',
+      progressPct: 40,
+      now: "2026-06-27T00:10:00.000Z",
+    });
+    await db
+      .prepare("UPDATE jobs SET locked_by = ?, status = ? WHERE id = ?")
+      .run("runner_a", "running", "job_lifecycle_advance");
+    await repository.markJobTerminal({
+      jobId: "job_lifecycle_advance",
+      runnerId: "runner_a",
+      status: "completed",
+      progressPct: 100,
+      completedAt: "2026-06-27T00:11:00.000Z",
+      updatedAt: "2026-06-27T00:11:00.000Z",
+    });
+    assert.deepEqual(
+      await db
+        .prepare(
+          "SELECT status, progress_pct, completed_at, locked_by FROM jobs WHERE id = ?",
+        )
+        .get("job_lifecycle_advance"),
+      {
+        status: "completed",
+        progress_pct: 100,
+        completed_at: "2026-06-27T00:11:00.000Z",
+        locked_by: null,
+      },
+    );
   });
 
   test("createStepHistory and finishStepHistory persist step observability", async () => {
