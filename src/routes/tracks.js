@@ -15,6 +15,7 @@ const {
 } = require("../writer/lyrics-context");
 const { getFeatureFlag } = require("../services/feature-flags");
 const {
+  findActiveVoiceProfileForUser,
   findActiveProviderProfileForUser,
   findLatestPendingProviderProfileForUser,
   findLatestProviderProfileForVoiceProfile,
@@ -162,11 +163,7 @@ function registerTrackRoutes(
     if (!PERSONALIZED_VOICE_MODES.has(track?.voice_mode)) {
       return { ok: true };
     }
-    const voiceProfile = await db
-      .prepare(
-        "SELECT id FROM voice_profiles WHERE user_id = ? AND status = 'active' ORDER BY created_at DESC LIMIT 1",
-      )
-      .get(userId);
+    const voiceProfile = await findActiveVoiceProfileForUser(db, { userId });
     if (!voiceProfile) {
       return {
         ok: false,

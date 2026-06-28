@@ -107,6 +107,12 @@ async function findActiveProviderProfileForUser(
   });
 }
 
+async function findActiveVoiceProfileForUser(db, { userId } = {}) {
+  return repositoryFor(db).findActiveVoiceProfileForUser(
+    requireField(userId, "userId"),
+  );
+}
+
 async function findLatestPendingProviderProfileForUser(
   db,
   { userId, provider = DEFAULT_PROVIDER } = {},
@@ -677,6 +683,7 @@ module.exports = {
   findLatestProviderProfileForVoiceProfile,
   findLatestPendingProviderProfileForUser,
   findActiveProviderProfileForUser,
+  findActiveVoiceProfileForUser,
   getLatestVoiceProviderJobForProfile,
   getProviderProfileById,
   findVoiceProfileStatus,

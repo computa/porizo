@@ -98,7 +98,13 @@ persistence, admin user mutation persistence, admin user session/voice-control
 persistence, admin music diagnostics persistence, admin growth metrics
 persistence, and admin webhook-health persistence are also extracted and
 validated locally. Admin gift-ops read persistence is also extracted and
-validated locally. The remaining repository aggregates are pending.
+validated locally. Wave 1 of the parallel Root 1 execution moved sharing,
+poem, and track route persistence behind repositories, removed all direct
+persistence hits from `src/routes/sharing.js`, `src/routes/poems.js`, and
+`src/routes/tracks.js`, and validated the focused share, poem, and track suites
+locally. The remaining repository aggregates are story, enrollment, admin
+leftovers, billing/subscription management, artwork job orchestration, and
+workflow runner persistence.
 **Method:** Each "root" is a coherent, bounded, sequenceable unit of work (per the `architectural-loop` skill). Execution should use `architectural-loop` as the controlling process and add the smallest relevant specialist reviews available in the executing environment (security, migration, provider, SwiftUI, API/docs). Extra architecture or cleanup tooling can be used as advisory input, but the plan must not depend on unavailable tools.
 
 ---
