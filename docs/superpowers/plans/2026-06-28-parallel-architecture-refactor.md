@@ -67,9 +67,14 @@ Root 1 is complete only when that scan has no direct persistence hits outside co
 - Root 6 feature-flag route split is committed as `415356ac`. The next Root 6
   slice extracted admin demo-share routes into
   `src/routes/admin/demo-shares.js` and expanded route-level characterization.
-- Next controller queue: commit the demo-share route split, then extract the
-  security observability/audit route group while leaving security config/App
-  Store sync and `/admin/auth/*` for separate, higher-risk slices.
+- Root 6 demo-share route split is committed as `093ff0a6`. The next Root 6
+  slice extracted admin security observability/audit routes into
+  `src/routes/admin/security-observability.js` while leaving security
+  config/App Store sync and `/admin/auth/*` for separate, higher-risk slices.
+- Next controller queue: commit the security observability route split, then
+  continue with another non-billing admin group. Good next candidates are admin
+  user read/mutation/session subgroups; security config/App Store sync needs
+  route characterization first.
 
 ## File Structure Map
 
@@ -1583,6 +1588,16 @@ Demo-share route slice completed locally:
 - `test/admin-demo-share-routes.test.js` now also pins stale existing song/poem
   demo-share conversion, song revoke audit behavior, missing `resource_id`,
   no-version errors, and concrete error envelopes.
+
+Security observability route slice completed locally:
+
+- `src/routes/admin/security-observability.js` owns security health,
+  auth-events, auth-event stats, Apple refresh stats, audit logs, rate-limit
+  list/reset, and consent-log routes.
+- `src/routes/admin.js` now registers the security observability module while
+  keeping security config/App Store sync inline.
+- `test/admin-security-observability-routes.test.js` now also pins the security
+  health response envelope.
 
 - [ ] **Step 3: Run admin validation**
 

@@ -120,6 +120,21 @@ describe("admin security observability routes", () => {
     assert.equal(reset.json().error, "FORBIDDEN");
   });
 
+  test("security health returns operational counters", async () => {
+    const response = await app.inject({
+      method: "GET",
+      url: "/admin/dashboard/security/health",
+      headers: adminHeaders,
+    });
+
+    assert.equal(response.statusCode, 200, response.body);
+    const body = response.json();
+    assert.deepEqual(body.jobs, { running: 0, queued: 0, failed: 0 });
+    assert.equal(body.dlqCount, 0);
+    assert.deepEqual(body.recentErrors, []);
+    assert.match(body.checkedAt, /^\d{4}-\d{2}-\d{2}T/);
+  });
+
   test("auth events preserve filters, user-email join, ordering, and stats", async () => {
     const userId = "security_auth_user";
     await seedUser(db, userId, "auth-user@example.com");
