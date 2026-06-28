@@ -80,7 +80,10 @@ Root 1 is complete only when that scan has no direct persistence hits outside co
 - Root 6 user session/voice control route split is committed as `9ba74ca3`.
   The next Root 6 slice extracted non-entitlement admin user mutation routes
   into `src/routes/admin/user-mutations.js`.
-- Next controller queue: commit the user mutation route split, then continue
+- Root 6 user mutation route split is committed as `4fa5065b`. The next Root 6
+  slice extracted admin song/poem share-management routes into
+  `src/routes/admin/shares.js`.
+- Next controller queue: commit the share-management route split, then continue
   with another non-billing admin group. Security config/App Store sync needs
   route characterization first; billing/entitlements remain last.
 
@@ -1632,6 +1635,14 @@ User mutation route slice completed locally:
   later billing-adjacent slices.
 - `test/admin-user-mutations-routes.test.js` now also pins bulk-action
   validation and audit behavior.
+
+Share-management route slice completed locally:
+
+- `src/routes/admin/shares.js` owns song share list/rebind and poem-share
+  list/reset-attempts/revoke routes.
+- `src/routes/admin.js` now registers the share-management module before gift
+  operations.
+- Existing share route/repository coverage remains green.
 
 - [ ] **Step 3: Run admin validation**
 

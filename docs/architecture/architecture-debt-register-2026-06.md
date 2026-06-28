@@ -1514,6 +1514,9 @@ extracted locally into `src/routes/admin/user-mutations.js`, preserving risk
 update validation, lock/unlock gates, delete envelopes, bulk-action validation
 and audit behavior, and profile update attribution audit behavior. Entitlements
 and complimentary upgrades intentionally remain later billing-adjacent slices.
+Admin song/poem share-management routes are also extracted locally into
+`src/routes/admin/shares.js`, preserving song-share filters/rebind envelopes,
+poem-share filters, reset/revoke envelopes, role gates, and audit behavior.
 Security config/App Store sync and `/admin/auth/*` remain separate higher-risk
 slices. Remaining Root 6 work is the rest of the admin route/service split by
 concern, with billing/entitlement left last.
