@@ -30,7 +30,7 @@ const STALE_RUNNING_MS = 5 * 60 * 1000; // a row stuck in 'running' for 5min is 
  * Execute the artwork pipeline for one track and persist the result.
  *
  * @param {Object} args
- * @param {Object} args.db                Database wrapper (db.prepare(sql).get/run)
+ * @param {Object} args.db                Database wrapper used by the repository factory
  * @param {Object} [args.artworkJobRepository] Persistence boundary for artwork job state
  * @param {string} args.trackId
  * @param {string} [args.trackVersionId]  When provided, scopes the artwork_ready

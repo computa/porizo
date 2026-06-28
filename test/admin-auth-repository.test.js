@@ -165,4 +165,36 @@ describe("AdminAuthRepository", () => {
       "2026-06-28T00:20:00.000Z",
     );
   });
+
+  test("increments and returns admin auth rate-limit window count", async () => {
+    const firstCount = await repository.incrementRateLimitWindow({
+      key: "admin@example.com",
+      actionKey: "admin_auth:admin_login_email",
+      windowStartMs: 1782604800000,
+      windowSeconds: 900,
+      limitCount: 10,
+    });
+    const secondCount = await repository.incrementRateLimitWindow({
+      key: "admin@example.com",
+      actionKey: "admin_auth:admin_login_email",
+      windowStartMs: 1782604800000,
+      windowSeconds: 900,
+      limitCount: 10,
+    });
+
+    assert.equal(firstCount, 1);
+    assert.equal(secondCount, 2);
+
+    const row = await db
+      .prepare(
+        "SELECT count, limit_count FROM rate_limits WHERE user_id = ? AND action_type = ? AND window_start_ms = ?",
+      )
+      .get(
+        "admin@example.com",
+        "admin_auth:admin_login_email",
+        1782604800000,
+      );
+    assert.equal(row.count, 2);
+    assert.equal(row.limit_count, 10);
+  });
 });

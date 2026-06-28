@@ -134,6 +134,96 @@ function createEnrollmentSessionRepository(db) {
       .run(accessToken, sessionId);
   }
 
+  async function findActiveVoiceCloneForUser(userId) {
+    return db
+      .prepare(
+        "SELECT elevenlabs_voice_id FROM voice_profiles WHERE user_id = ? AND status = 'active' AND elevenlabs_voice_id IS NOT NULL",
+      )
+      .get(userId);
+  }
+
+  async function findActiveVoiceProfileSummaryForUser(userId) {
+    return db
+      .prepare(
+        "SELECT id, quality_score FROM voice_profiles WHERE user_id = ? AND status = 'active' LIMIT 1",
+      )
+      .get(userId);
+  }
+
+  async function markVoiceProfileReplaced({ profileId, deletedAt }) {
+    return db
+      .prepare("UPDATE voice_profiles SET status = ?, deleted_at = ? WHERE id = ?")
+      .run("deleted", deletedAt, profileId);
+  }
+
+  async function insertVoiceProfile({
+    id,
+    userId,
+    status,
+    embeddingRef,
+    qualityScore,
+    qualityTier,
+    qualityMetricsJson,
+    modelVersion,
+    consentVersion,
+    consentAt,
+    lastVerifiedAt,
+    createdAt,
+    elevenlabsVoiceId = null,
+  }) {
+    return db
+      .prepare(
+        "INSERT INTO voice_profiles (id, user_id, status, embedding_ref, quality_score, quality_tier, quality_metrics_json, model_version, consent_version, consent_at, last_verified_at, created_at, elevenlabs_voice_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      )
+      .run(
+        id,
+        userId,
+        status,
+        embeddingRef,
+        qualityScore,
+        qualityTier,
+        qualityMetricsJson,
+        modelVersion,
+        consentVersion,
+        consentAt,
+        lastVerifiedAt,
+        createdAt,
+        elevenlabsVoiceId,
+      );
+  }
+
+  async function insertAuditLog({
+    id,
+    userId,
+    action,
+    resourceType,
+    resourceId,
+    metadataJson,
+    createdAt,
+  }) {
+    return db
+      .prepare(
+        "INSERT INTO audit_logs (id, user_id, action, resource_type, resource_id, metadata_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      )
+      .run(
+        id,
+        userId,
+        action,
+        resourceType,
+        resourceId,
+        metadataJson,
+        createdAt,
+      );
+  }
+
+  async function deleteVoiceProfileAndClearAssets({ profileId, deletedAt }) {
+    return db
+      .prepare(
+        "UPDATE voice_profiles SET status = ?, embedding_ref = ?, elevenlabs_voice_id = ?, deleted_at = ? WHERE id = ?",
+      )
+      .run("deleted", null, null, deletedAt, profileId);
+  }
+
   return {
     findById,
     findTokenContextById,
@@ -148,6 +238,12 @@ function createEnrollmentSessionRepository(db) {
     clearAccessTokenBySessionId,
     clearAccessTokensByUserId,
     setAccessTokenBySessionId,
+    findActiveVoiceCloneForUser,
+    findActiveVoiceProfileSummaryForUser,
+    markVoiceProfileReplaced,
+    insertVoiceProfile,
+    insertAuditLog,
+    deleteVoiceProfileAndClearAssets,
   };
 }
 

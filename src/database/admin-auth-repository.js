@@ -167,6 +167,30 @@ function createAdminAuthRepository(db) {
       .run(updatedAt, adminId);
   }
 
+  async function incrementRateLimitWindow({
+    key,
+    actionKey,
+    windowStartMs,
+    windowSeconds,
+    limitCount,
+  }) {
+    await db
+      .prepare(
+        `INSERT INTO rate_limits (user_id, action_type, window_start_ms, window_seconds, count, limit_count)
+         VALUES (?, ?, ?, ?, 1, ?)
+         ON CONFLICT(user_id, action_type, window_start_ms)
+         DO UPDATE SET count = rate_limits.count + 1`,
+      )
+      .run(key, actionKey, windowStartMs, windowSeconds, limitCount);
+
+    const row = await db
+      .prepare(
+        "SELECT count FROM rate_limits WHERE user_id = ? AND action_type = ? AND window_start_ms = ?",
+      )
+      .get(key, actionKey, windowStartMs);
+    return row ? Number(row.count || 0) : 0;
+  }
+
   return {
     findAdminByEmail,
     findAdminById,
@@ -185,6 +209,7 @@ function createAdminAuthRepository(db) {
     markPasswordResetTokenUsed,
     markUnusedPasswordResetTokensUsedForAdmin,
     clearLockout,
+    incrementRateLimitWindow,
   };
 }
 

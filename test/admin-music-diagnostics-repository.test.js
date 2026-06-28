@@ -161,4 +161,67 @@ describe("admin music diagnostics repository", () => {
       [],
     );
   });
+
+  test("finds blend analysis track context and latest active voice profile", async () => {
+    await db
+      .prepare("INSERT INTO users (id, created_at, risk_level) VALUES (?, ?, 'low')")
+      .run("diag_user_voice", NOW);
+    await seedTrack(db, {
+      id: "diag_track_blend",
+      userId: "diag_user_voice",
+    });
+    await seedTrackVersion(db, {
+      id: "diag_version_blend",
+      trackId: "diag_track_blend",
+      versionNum: 3,
+    });
+
+    const insertVoiceProfile = db.prepare(
+      `INSERT INTO voice_profiles (
+        id, user_id, status, embedding_ref, quality_score, quality_tier,
+        quality_metrics_json, model_version, consent_version, consent_at,
+        last_verified_at, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+    await insertVoiceProfile.run(
+      "diag_voice_old",
+      "diag_user_voice",
+      "active",
+      "voice_profiles/diag_user_voice/old/embedding.bin",
+      72,
+      "good",
+      "{}",
+      "embed_test",
+      "2.0",
+      NOW,
+      "2026-06-27T10:01:00.000Z",
+      "2026-06-27T10:01:00.000Z",
+    );
+    await insertVoiceProfile.run(
+      "diag_voice_latest",
+      "diag_user_voice",
+      "active",
+      "voice_profiles/diag_user_voice/latest/embedding.bin",
+      88,
+      "excellent",
+      "{}",
+      "embed_test",
+      "2.0",
+      NOW,
+      "2026-06-27T10:02:00.000Z",
+      "2026-06-27T10:02:00.000Z",
+    );
+
+    const context =
+      await repository.findTrackVersionBlendContext("diag_version_blend");
+    assert.equal(context.id, "diag_version_blend");
+    assert.equal(context.track_id, "diag_track_blend");
+    assert.equal(context.user_id, "diag_user_voice");
+    assert.equal(context.version_num, 3);
+
+    const voiceProfile =
+      await repository.findLatestActiveVoiceProfileForUser("diag_user_voice");
+    assert.equal(voiceProfile.id, "diag_voice_latest");
+    assert.equal(voiceProfile.quality_score, 88);
+  });
 });

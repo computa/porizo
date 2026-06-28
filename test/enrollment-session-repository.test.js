@@ -251,4 +251,100 @@ describe("EnrollmentSessionRepository", () => {
     assert.equal(row.completed_at, "2026-06-27T10:05:00.000Z");
     assert.equal(row.chunk_quality_json, '[{"grade":"A"}]');
   });
+
+  test("voice profile completion helpers preserve route-owned row semantics", async () => {
+    await repository.insertVoiceProfile({
+      id: "vp_repo_active",
+      userId: "user_a",
+      status: "active",
+      embeddingRef: "voice_profiles/user_a/vp_repo_active/embedding.bin",
+      qualityScore: 91,
+      qualityTier: "excellent",
+      qualityMetricsJson: '{"average_score":91}',
+      modelVersion: "embed_test",
+      consentVersion: "2.0",
+      consentAt: "2026-06-27T10:00:00.000Z",
+      lastVerifiedAt: "2026-06-27T10:10:00.000Z",
+      createdAt: "2026-06-27T10:10:00.000Z",
+      elevenlabsVoiceId: "el_voice_repo",
+    });
+
+    const summary =
+      await repository.findActiveVoiceProfileSummaryForUser("user_a");
+    assert.deepEqual(summary, {
+      id: "vp_repo_active",
+      quality_score: 91,
+    });
+    assert.deepEqual(await repository.findActiveVoiceCloneForUser("user_a"), {
+      elevenlabs_voice_id: "el_voice_repo",
+    });
+
+    await repository.markVoiceProfileReplaced({
+      profileId: "vp_repo_active",
+      deletedAt: "2026-06-27T10:20:00.000Z",
+    });
+
+    const replaced = await db
+      .prepare(
+        "SELECT status, embedding_ref, elevenlabs_voice_id, deleted_at FROM voice_profiles WHERE id = ?",
+      )
+      .get("vp_repo_active");
+    assert.equal(replaced.status, "deleted");
+    assert.equal(
+      replaced.embedding_ref,
+      "voice_profiles/user_a/vp_repo_active/embedding.bin",
+    );
+    assert.equal(replaced.elevenlabs_voice_id, "el_voice_repo");
+    assert.equal(replaced.deleted_at, "2026-06-27T10:20:00.000Z");
+  });
+
+  test("voice profile deletion helper clears assets and audit helper writes row", async () => {
+    await repository.insertVoiceProfile({
+      id: "vp_repo_delete",
+      userId: "user_a",
+      status: "active",
+      embeddingRef: "voice_profiles/user_a/vp_repo_delete/embedding.bin",
+      qualityScore: 80,
+      qualityTier: "good",
+      qualityMetricsJson: '{"average_score":80}',
+      modelVersion: "embed_test",
+      consentVersion: "2.0",
+      consentAt: "2026-06-27T10:00:00.000Z",
+      lastVerifiedAt: "2026-06-27T10:10:00.000Z",
+      createdAt: "2026-06-27T10:10:00.000Z",
+      elevenlabsVoiceId: "el_voice_delete",
+    });
+
+    await repository.deleteVoiceProfileAndClearAssets({
+      profileId: "vp_repo_delete",
+      deletedAt: "2026-06-27T10:30:00.000Z",
+    });
+    await repository.insertAuditLog({
+      id: "audit_repo_delete",
+      userId: "user_a",
+      action: "voice_profile_deleted",
+      resourceType: "voice_profile",
+      resourceId: "vp_repo_delete",
+      metadataJson: '{"source":"test"}',
+      createdAt: "2026-06-27T10:31:00.000Z",
+    });
+
+    const deleted = await db
+      .prepare(
+        "SELECT status, embedding_ref, elevenlabs_voice_id, deleted_at FROM voice_profiles WHERE id = ?",
+      )
+      .get("vp_repo_delete");
+    assert.equal(deleted.status, "deleted");
+    assert.equal(deleted.embedding_ref, null);
+    assert.equal(deleted.elevenlabs_voice_id, null);
+    assert.equal(deleted.deleted_at, "2026-06-27T10:30:00.000Z");
+
+    const audit = await db
+      .prepare("SELECT * FROM audit_logs WHERE id = ?")
+      .get("audit_repo_delete");
+    assert.equal(audit.user_id, "user_a");
+    assert.equal(audit.action, "voice_profile_deleted");
+    assert.equal(audit.resource_id, "vp_repo_delete");
+    assert.equal(audit.metadata_json, '{"source":"test"}');
+  });
 });

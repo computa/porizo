@@ -19,6 +19,12 @@ const {
 const {
   createAdminBillingRepository,
 } = require("../database/admin-billing-repository");
+const {
+  createAdminAuthRepository,
+} = require("../database/admin-auth-repository");
+const {
+  createAdminMusicDiagnosticsRepository,
+} = require("../database/admin-music-diagnostics-repository");
 const { inferBlogDraftFields } = require("../services/blog-autofill-service");
 const { reviewBlogDraft } = require("../services/blog-review-service");
 const {
@@ -109,6 +115,8 @@ function registerAdminRoutes(
     adminDemoShareRepository,
     adminTrackTransferRepository,
     adminBillingRepository,
+    adminAuthRepository,
+    adminMusicDiagnosticsRepository,
   },
 ) {
   // ============ ADMIN DASHBOARD API ============
@@ -123,6 +131,10 @@ function registerAdminRoutes(
     adminTrackTransferRepository || createAdminTrackTransferRepository(db);
   const adminBillingRepo =
     adminBillingRepository || createAdminBillingRepository(db);
+  const adminAuthRepo =
+    adminAuthRepository || createAdminAuthRepository(db);
+  const adminMusicDiagnosticsRepo =
+    adminMusicDiagnosticsRepository || createAdminMusicDiagnosticsRepository(db);
   adminAuthService.initialize(db);
 
   // SECURITY (WS2 / P1): global admin auth gate. Every /admin/dashboard* route
@@ -722,21 +734,14 @@ function registerAdminRoutes(
       const windowStart = Math.floor(now / windowMs) * windowMs;
       const actionKey = `admin_auth:${scope}`;
 
-      await db
-        .prepare(
-          `INSERT INTO rate_limits (user_id, action_type, window_start_ms, window_seconds, count, limit_count)
-           VALUES (?, ?, ?, ?, 1, ?)
-           ON CONFLICT(user_id, action_type, window_start_ms)
-           DO UPDATE SET count = rate_limits.count + 1`,
-        )
-        .run(key, actionKey, windowStart, windowSeconds, limit);
-
-      const row = await db
-        .prepare(
-          "SELECT count FROM rate_limits WHERE user_id = ? AND action_type = ? AND window_start_ms = ?",
-        )
-        .get(key, actionKey, windowStart);
-      return Boolean(row && row.count > limit);
+      const count = await adminAuthRepo.incrementRateLimitWindow({
+        key,
+        actionKey,
+        windowStartMs: windowStart,
+        windowSeconds,
+        limitCount: limit,
+      });
+      return count > limit;
     } catch (err) {
       // Default fail-open: a transient rate-limit table issue should not lock
       // admins out of password recovery. For login (failClosed:true) we instead
@@ -3283,16 +3288,10 @@ function registerAdminRoutes(
 
     try {
       // Get track version details to find file paths
-      const trackVersion = await db
-        .prepare(
-          `
-      SELECT tv.*, t.user_id, t.id as track_id
-      FROM track_versions tv
-      JOIN tracks t ON tv.track_id = t.id
-      WHERE tv.id = ?
-    `,
-        )
-        .get(trackVersionId);
+      const trackVersion =
+        await adminMusicDiagnosticsRepo.findTrackVersionBlendContext(
+          trackVersionId,
+        );
 
       if (!trackVersion) {
         return sendError(reply, 404, "NOT_FOUND", "Track version not found");
@@ -3319,15 +3318,10 @@ function registerAdminRoutes(
       };
 
       // Try to find user's enrollment audio
-      const voiceProfile = await db
-        .prepare(
-          `
-      SELECT * FROM voice_profiles
-      WHERE user_id = ? AND status = 'active'
-      ORDER BY created_at DESC LIMIT 1
-    `,
-        )
-        .get(userId);
+      const voiceProfile =
+        await adminMusicDiagnosticsRepo.findLatestActiveVoiceProfileForUser(
+          userId,
+        );
 
       if (voiceProfile) {
         // Try to find enrollment audio in S3 or local storage
