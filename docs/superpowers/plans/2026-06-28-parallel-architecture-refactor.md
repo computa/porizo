@@ -71,10 +71,12 @@ Root 1 is complete only when that scan has no direct persistence hits outside co
   slice extracted admin security observability/audit routes into
   `src/routes/admin/security-observability.js` while leaving security
   config/App Store sync and `/admin/auth/*` for separate, higher-risk slices.
-- Next controller queue: commit the security observability route split, then
-  continue with another non-billing admin group. Good next candidates are admin
-  user read/mutation/session subgroups; security config/App Store sync needs
-  route characterization first.
+- Root 6 security observability route split is committed as `38a28d34`. The
+  next Root 6 slice extracted user read routes into
+  `src/routes/admin/users-read.js`.
+- Next controller queue: commit the user-read route split, then continue with
+  admin user mutation/session subgroups. Security config/App Store sync needs
+  route characterization first; billing/entitlements remain last.
 
 ## File Structure Map
 
@@ -1598,6 +1600,15 @@ Security observability route slice completed locally:
   keeping security config/App Store sync inline.
 - `test/admin-security-observability-routes.test.js` now also pins the security
   health response envelope.
+
+User-read route slice completed locally:
+
+- `src/routes/admin/users-read.js` owns `/admin/dashboard/users`,
+  `/admin/dashboard/users/stats`, and `/admin/dashboard/users/:id`.
+- `src/routes/admin.js` now registers the user-read module while keeping
+  `/admin/dashboard/attribution/health` inline for a later attribution/admin
+  health module.
+- Existing user-read and attribution route/repository coverage remains green.
 
 - [ ] **Step 3: Run admin validation**
 

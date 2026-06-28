@@ -1501,9 +1501,13 @@ observability routes are also extracted locally into
 `src/routes/admin/security-observability.js`, preserving the security health
 envelope, auth-event filters/stats, Apple refresh stats, audit-log filters,
 rate-limit list/reset behavior, consent-log filters, pagination, and role gates.
-Security config/App Store sync and `/admin/auth/*` remain separate higher-risk
-slices. Remaining Root 6 work is the rest of the admin route/service split by
-concern, with billing/entitlement left last.
+Admin user-read routes are also extracted locally into
+`src/routes/admin/users-read.js`, preserving user search filters, pagination,
+stats formatting, user-detail 404 envelope, attribution decoration, and session
+gates while leaving attribution health inline for a later attribution/admin
+health split. Security config/App Store sync and `/admin/auth/*` remain
+separate higher-risk slices. Remaining Root 6 work is the rest of the admin
+route/service split by concern, with billing/entitlement left last.
 **Boundary:** Do the `getAppConfig` eviction + non-billing splits first (🟡). Do the billing/entitlement admin slice **last** (⚠ 🔴) with production verification.
 
 ### Root 7 — Writer cycle + god-file decomposition 🟡 effort M
