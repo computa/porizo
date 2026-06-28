@@ -729,20 +729,12 @@ function registerTrackRoutes(
   app.post(
     "/tracks/:id/versions/:version/render_preview",
     async (request, reply) => {
-      console.log(
-        `[render_preview] START: trackId=${request.params.id}, version=${request.params.version}`,
-      );
       const userId = await requireUserId(request, reply);
       if (!userId) {
-        console.log(`[render_preview] No userId, returning early`);
         return;
       }
-      console.log(`[render_preview] userId=${userId}`);
       const track = await trackVersionRepository.findTrackById(
         request.params.id,
-      );
-      console.log(
-        `[render_preview] track exists: ${!!track}, user_id match: ${track?.user_id === userId}`,
       );
       if (!track || track.user_id !== userId || track.deleted_at) {
         sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
@@ -992,9 +984,6 @@ function registerTrackRoutes(
         resourceId: trackVersion.id,
         metadata: { render_type: "preview" },
       });
-      console.log(
-        `[render_preview] Job created: jobId=${previewResult.jobId}, trackVersionId=${trackVersion.id}`,
-      );
       reply.code(202).send({
         job_id: previewResult.jobId,
         estimated_completion_sec: 90,
