@@ -1335,7 +1335,8 @@ without a separate contract gate.
 
 ### Root 3b — De-god `server.js`: gift-delivery subsystem extraction 🟡 (revenue-adjacent) effort M _(Phase C)_
 
-**Execution status:** Implemented locally, pending commit. The gift delivery
+**Execution status:** Committed locally as
+`76d105e7 refactor: extract gift delivery plugin`. The gift delivery
 normalizers, wallet wrappers used by gift routes, share-token creation,
 outbox/dispatch state machine, Twilio/Resend webhooks, gift route registration,
 and startup gift runtime wiring now live in `src/plugins/gift-delivery.js`.

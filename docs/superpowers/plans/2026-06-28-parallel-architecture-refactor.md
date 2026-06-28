@@ -1225,7 +1225,7 @@ Expected: selected tests pass and lint passes.
 
 Result: focused gift validation passed (64 tests, 63 pass, 1 skipped, 0 failures), expanded gift/admin/billing coupling validation passed (103 tests, 102 pass, 1 skipped, 0 failures), and `npm run lint -- --quiet` passed.
 
-- [ ] **Step 5: Commit Root 3b**
+- [x] **Step 5: Commit Root 3b**
 
 Run:
 
@@ -1235,6 +1235,8 @@ git commit -m "refactor: extract gift delivery plugin"
 ```
 
 Expected: gift subsystem is no longer embedded directly in `server.js`.
+
+Result: committed as `76d105e7 refactor: extract gift delivery plugin`.
 
 ## Task 15: Root 5 Workflow Runner Step Registry
 
