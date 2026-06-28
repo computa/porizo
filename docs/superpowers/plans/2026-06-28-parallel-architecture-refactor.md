@@ -1349,6 +1349,27 @@ render/persona/voice-routing validation passed (51 tests, 51 pass), MVP flow
 passed (2 tests, 2 pass), syntax checks passed, `git diff --check` passed, and
 `npm run lint -- --quiet` passed.
 
+Slice 7 result: `src/workflows/steps/ready.js` now owns the `ready` quality-gate
+handler. The extracted family injects runtime music routing config, quality
+evaluation, reroll plan tightening, provenance merging, provider config, and JSON
+helpers from the runner while leaving final ready completion, upload ordering,
+cover/artwork handling, share pre-generation, push notification, cleanup, and job
+terminal marking in `runner.js`. Direct step-factory tests cover no-live-provider
+skip, pass, reroll request, and terminal quality failure. A runner-level
+regression test now pins the risky reroll transition before final completion:
+quality failure under the reroll limit requeues the job to `instrumental`,
+persists tightened `music_plan_json` and quality provenance, and does not publish
+ready URLs. Direct step-factory tests passed (30 tests, 30 pass), ready ordering
+tests passed (5 tests, 5 pass), expanded render/persona/voice-routing validation
+passed (51 tests, 51 pass), syntax checks passed, `git diff --check` passed, and
+`npm run lint -- --quiet` passed.
+
+Next mapped Root 5 slice: extract the whole `mix` handler into
+`src/workflows/steps/mix.js`, moving `hydrateProviderCompleteAudio` with it and
+re-exporting that helper through `runner._testing` for the existing hydration
+tests. Update the source-scan contract test to include the new mix module or
+prefer a behavioral step-factory test for provider-complete fallback handling.
+
 - [ ] **Step 4: Commit each Root 5 slice**
 
 Run:

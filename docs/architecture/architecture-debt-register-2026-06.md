@@ -1412,7 +1412,7 @@ across providers and runner.
 
 ### Root 5 — Runner step Registry 🔴 effort L
 
-**Execution status:** Slices 1-6 implemented and validated locally. Added
+**Execution status:** Slices 1-7 implemented and validated locally. Added
 `src/workflows/steps/index.js` with `createStepRegistry`, moved the CPU-only
 moderation handler into `src/workflows/steps/moderation.js`, and switched
 `runner.js` dispatch from object property lookup to `stepRegistry.get(stepName)`.
@@ -1433,10 +1433,16 @@ preserving the output-file reuse check before contract parsing.
 runner-injected watermark embedding, AAC encoding, HLS creation, provider
 config, storage path helpers, and placeholder WAV generation while preserving
 optional HLS failure handling and best-effort intermediate cleanup.
-Instrumental, mix, and ready families intentionally remain in `runner.js` for
-later higher-risk slices. Direct step-factory tests, focused workflow/render
-endpoint validation, voice-routing validation, MVP flow, diff hygiene, and lint
-pass locally.
+`src/workflows/steps/ready.js` now owns the `ready` quality-gate handler with
+runner-injected runtime routing config, quality evaluation, reroll plan
+tightening, provenance merging, provider config, and JSON helpers while final
+ready completion, upload ordering, cover/artwork handling, share pre-generation,
+push notification, cleanup, and terminal job marking intentionally remain in
+`runner.js`. A runner-level regression test now pins the reroll transition before
+final completion. Instrumental and mix families intentionally remain in
+`runner.js` for later higher-risk slices. Direct step-factory tests, ready
+ordering/reroll validation, focused workflow/render endpoint validation,
+voice-routing validation, MVP flow, diff hygiene, and lint pass locally.
 
 **Closes:** D2 (runner), D3 (instrumental/guide_vocal duplication), the 3-way idempotency inconsistency.
 **Scope:** Extract the 12 inline step handlers into `workflows/steps/*.js`, each `{name, run(ctx), shouldSkip(ctx)}`, registered in an ordered array; runner becomes a generic loop. Unify `instrumental`+`instrumental_full` and `guide_vocal`+`guide_vocal_full` (~860 lines of near-duplicate). Pick ONE canonical idempotency mechanism. Extract `pollOrSubmitSunoTask` (200 lines) and the error-classifier helpers.

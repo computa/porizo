@@ -13,6 +13,7 @@ const {
   createVoiceConversionSteps,
 } = require("../../src/workflows/steps/voice-conversion");
 const { createWatermarkSteps } = require("../../src/workflows/steps/watermark");
+const { createReadySteps } = require("../../src/workflows/steps/ready");
 
 const tempDirsToClean = [];
 
@@ -1036,6 +1037,160 @@ describe("watermark step", () => {
           workflow: "preview_render",
         }),
       /E301_MISSING_INPUTS: Mix missing for watermark/,
+    );
+  });
+});
+
+describe("ready step", () => {
+  function createReadyStep(overrides = {}) {
+    const calls = [];
+    const baseTrack = {
+      id: "track_1",
+      style: "pop",
+    };
+    const baseTrackVersion = {
+      id: "version_1",
+      music_plan_json: JSON.stringify({ style: "pop" }),
+      provenance_json: JSON.stringify({ quality: { reroll_count: 0 } }),
+    };
+    const steps = createReadySteps({
+      clampNumber: (value, min, max, fallback) => {
+        const numeric = Number(value);
+        if (!Number.isFinite(numeric)) return fallback;
+        return Math.max(min, Math.min(max, numeric));
+      },
+      evaluateRenderQuality: async (args) => {
+        calls.push({ name: "evaluateRenderQuality", args });
+        return {
+          passed: true,
+          threshold: args.qualityThreshold,
+          total_score: 91,
+          summary: "Quality gate passed.",
+        };
+      },
+      getRuntimeMusicRoutingConfig: async () => ({
+        quality_threshold: 80,
+        max_rerolls: 1,
+        auto_reroll_enabled: true,
+      }),
+      mergeProvenanceJson: (_existing, patch) => JSON.stringify(patch),
+      nowIso: () => "2026-06-28T00:00:00.000Z",
+      parseJson,
+      providerConfig: { suno: { live: true }, elevenlabs: { live: false } },
+      tightenMusicPlanForReroll: (musicPlan, qualityReport) => {
+        calls.push({ name: "tightenMusicPlanForReroll", musicPlan, qualityReport });
+        return { ...musicPlan, reroll: true };
+      },
+      toJson: JSON.stringify,
+      ...overrides,
+    });
+    return { ...steps, baseTrack, baseTrackVersion, calls };
+  }
+
+  test("skips quality gate when no live music provider is available", async () => {
+    const { ready, baseTrack, baseTrackVersion, calls } = createReadyStep({
+      providerConfig: { suno: { live: false }, elevenlabs: { live: false } },
+    });
+
+    const result = await ready({
+      track: baseTrack,
+      trackVersion: {
+        ...baseTrackVersion,
+        provenance_json: JSON.stringify({ quality: { reroll_count: 2 } }),
+      },
+      workflow: "preview_render",
+    });
+
+    assert.deepEqual(result.quality_gate, {
+      passed: true,
+      skipped: true,
+      reason: "live_music_provider_unavailable",
+      threshold: 80,
+      total_score: 100,
+    });
+    const provenance = JSON.parse(result.provenance_json);
+    assert.equal(provenance.quality.reroll_count, 2);
+    assert.equal(provenance.timeline[0].event, "quality_gate_skipped");
+    assert.equal(
+      calls.some((call) => call.name === "evaluateRenderQuality"),
+      false,
+    );
+  });
+
+  test("returns provenance and quality report when quality passes", async () => {
+    const { ready, baseTrack, baseTrackVersion, calls } = createReadyStep();
+
+    const result = await ready({
+      track: baseTrack,
+      trackVersion: baseTrackVersion,
+      workflow: "full_render",
+    });
+
+    assert.equal(result.quality_gate.passed, true);
+    assert.equal(result.quality_gate.total_score, 91);
+    assert.equal(
+      calls.find((call) => call.name === "evaluateRenderQuality").args.workflowType,
+      "full_render",
+    );
+    const provenance = JSON.parse(result.provenance_json);
+    assert.equal(provenance.timeline[0].event, "quality_gate_passed");
+    assert.equal(provenance.quality.reroll_count, 0);
+  });
+
+  test("requests reroll and tightens the music plan when quality fails below retry limit", async () => {
+    const { ready, baseTrack, baseTrackVersion, calls } = createReadyStep({
+      evaluateRenderQuality: async (args) => {
+        calls.push({ name: "evaluateRenderQuality", args });
+        return {
+          passed: false,
+          threshold: args.qualityThreshold,
+          total_score: 61,
+          summary: "Quality gate failed.",
+        };
+      },
+    });
+
+    const result = await ready({
+      track: baseTrack,
+      trackVersion: baseTrackVersion,
+      workflow: "preview_render",
+    });
+
+    assert.equal(result.reroll_requested, true);
+    assert.equal(result.reroll_count, 1);
+    assert.equal(result.reroll_reason, "Quality gate failed.");
+    assert.deepEqual(JSON.parse(result.music_plan_json), {
+      style: "pop",
+      reroll: true,
+    });
+    assert.equal(
+      calls.some((call) => call.name === "tightenMusicPlanForReroll"),
+      true,
+    );
+  });
+
+  test("throws terminal quality error when reroll is disabled", async () => {
+    const { ready, baseTrack, baseTrackVersion } = createReadyStep({
+      evaluateRenderQuality: async () => ({
+        passed: false,
+        total_score: 50,
+        summary: "mix balance low",
+      }),
+      getRuntimeMusicRoutingConfig: async () => ({
+        quality_threshold: 80,
+        max_rerolls: 3,
+        auto_reroll_enabled: false,
+      }),
+    });
+
+    await assert.rejects(
+      () =>
+        ready({
+          track: baseTrack,
+          trackVersion: baseTrackVersion,
+          workflow: "preview_render",
+        }),
+      /E302_QUALITY_GATE_FAILED: mix balance low/,
     );
   });
 });
