@@ -1470,8 +1470,11 @@ validation, MVP flow, diff hygiene, and lint pass locally.
 slice. `src/services/client-config-service.js` now owns the public mobile
 config composition, `/app/config` is wired to that service boundary, and
 `AdminService.getAppConfig()` remains only as a compatibility delegate for
-existing callers/tests. Remaining Root 6 work is the admin route/service split
-by concern, with billing/entitlement left last.
+existing callers/tests. The read-only admin metrics routes are also extracted
+locally into `src/routes/admin/metrics.js`, including overview, jobs, cost,
+enrollment, render-pipeline, and risk-metrics route registration. Remaining
+Root 6 work is the rest of the admin route/service split by concern, with
+billing/entitlement left last.
 **Boundary:** Do the `getAppConfig` eviction + non-billing splits first (🟡). Do the billing/entitlement admin slice **last** (⚠ 🔴) with production verification.
 
 ### Root 7 — Writer cycle + god-file decomposition 🟡 effort M

@@ -41,6 +41,7 @@ const { nowIso } = require("../utils/common");
 const { getClientIp: extractClientIp } = require("../utils/client-ip");
 const { acknowledgeGiftIncident } = require("../services/gift-delivery-ops");
 const defaultOneSignalService = require("../services/onesignal");
+const { registerAdminMetricsRoutes } = require("./admin/metrics");
 
 const cloudflareAccessJwksClients = new Map();
 
@@ -1607,45 +1608,7 @@ function registerAdminRoutes(
 
   // --- Metrics ---
 
-  app.get("/admin/dashboard/metrics/overview", async (request, reply) => {
-    const admin = await requireAdminSession(request, reply);
-    if (!admin) return;
-    reply.send(await adminService.getOverviewMetrics());
-  });
-
-  app.get("/admin/dashboard/metrics/jobs", async (request, reply) => {
-    const admin = await requireAdminSession(request, reply);
-    if (!admin) return;
-    reply.send(await adminService.getJobMetrics());
-  });
-
-  app.get("/admin/dashboard/metrics/costs", async (request, reply) => {
-    const admin = await requireAdminSession(request, reply);
-    if (!admin) return;
-    const { days } = request.query;
-    reply.send(await adminService.getCostMetrics(days ? parseInt(days) : 30));
-  });
-
-  app.get("/admin/dashboard/metrics/enrollment", async (request, reply) => {
-    const admin = await requireAdminSession(request, reply);
-    if (!admin) return;
-    reply.send(await adminService.getEnrollmentMetrics());
-  });
-
-  app.get(
-    "/admin/dashboard/metrics/render-pipeline",
-    async (request, reply) => {
-      const admin = await requireAdminSession(request, reply);
-      if (!admin) return;
-      reply.send(await adminService.getRenderSuccessMetrics());
-    },
-  );
-
-  app.get("/admin/dashboard/security/risk-metrics", async (request, reply) => {
-    const admin = await requireAdminSession(request, reply);
-    if (!admin) return;
-    reply.send(await adminService.getRiskMetrics());
-  });
+  registerAdminMetricsRoutes(app, { adminService, requireAdminSession });
 
   // --- Jobs ---
 

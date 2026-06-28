@@ -44,7 +44,10 @@ Root 1 is complete only when that scan has no direct persistence hits outside co
 - Root 6 Step 1 is in progress: public mobile app-config composition is moving
   out of `AdminService` into `src/services/client-config-service.js`, with the
   legacy `AdminService.getAppConfig()` kept as a compatibility delegate.
-- Next controller queue: finish and commit Root 6 Step 1, then split one
+- Root 6 Step 1 is committed as `f6faea73`. The next Root 6 slice extracted
+  the read-only admin metrics routes into `src/routes/admin/metrics.js` and
+  added route-level coverage for `/admin/dashboard/metrics/jobs`.
+- Next controller queue: commit the metrics route split, then continue one
   non-billing admin route group per slice before the billing/admin entitlement
   slice.
 
@@ -1482,6 +1485,19 @@ module.exports = { adminUsersRoutes };
 ```
 
 Move only one admin concern per commit.
+
+Metrics slice completed locally:
+
+- `src/routes/admin/metrics.js` owns:
+  `/admin/dashboard/metrics/overview`, `/admin/dashboard/metrics/jobs`,
+  `/admin/dashboard/metrics/costs`, `/admin/dashboard/metrics/enrollment`,
+  `/admin/dashboard/metrics/render-pipeline`, and
+  `/admin/dashboard/security/risk-metrics`.
+- `src/routes/admin.js` now registers the metrics module instead of defining
+  those handlers inline.
+- `test/admin-job-metrics-routes.test.js` fills the route-level coverage gap
+  for `/admin/dashboard/metrics/jobs`; the other metrics routes retain existing
+  focused route tests.
 
 - [ ] **Step 3: Run admin validation**
 
