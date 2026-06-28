@@ -368,6 +368,23 @@ describe("TrackVersionRepository", () => {
     assert.equal(version.status, "preview_ready");
   });
 
+  test("auto-reprocess status helper marks ready versions processing without render guard", async () => {
+    await seedTrack({ latestVersion: 1 });
+    await seedTrackVersion({
+      id: "tv_auto_reprocess_1",
+      versionNum: 1,
+      status: "preview_ready",
+    });
+
+    const update = await repository.markVersionProcessingForAutoReprocess({
+      trackVersionId: "tv_auto_reprocess_1",
+    });
+
+    assert.equal(update.changes, 1);
+    const version = await repository.findById("tv_auto_reprocess_1");
+    assert.equal(version.status, "processing");
+  });
+
   test("cancelActiveRender cancels the active job and resets track state", async () => {
     await seedTrack({ latestVersion: 1 });
     await seedTrackVersion({

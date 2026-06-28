@@ -394,6 +394,62 @@ describe("JobDurabilityRepository", () => {
     );
   });
 
+  test("resetJobForAutoReprocess requeues only failed or dead-letter jobs", async () => {
+    await insertJob({
+      id: "job_auto_reprocess",
+      status: "dead_letter",
+      step: "voice_convert",
+      stepIndex: 5,
+      attempts: 3,
+      errorCode: "E_PROVIDER",
+      errorMessage: "provider timeout",
+      completedAt: "2026-06-27T00:04:00.000Z",
+      lockedBy: "old-worker",
+      lockedAt: "2026-06-27T00:03:00.000Z",
+    });
+    await insertJob({
+      id: "job_auto_running",
+      status: "running",
+      step: "voice_convert",
+      attempts: 1,
+    });
+
+    const reset = await repository.resetJobForAutoReprocess({
+      jobId: "job_auto_reprocess",
+      now: "2026-06-27T00:05:00.000Z",
+    });
+    const skipped = await repository.resetJobForAutoReprocess({
+      jobId: "job_auto_running",
+      now: "2026-06-27T00:05:00.000Z",
+    });
+
+    assert.equal(reset.changes, 1);
+    assert.equal(skipped.changes, 0);
+    assert.deepEqual(
+      await db
+        .prepare(
+          `SELECT status, step, step_index, attempts, error_code, error_message,
+                  progress_pct, completed_at, next_attempt_at, locked_by, locked_at, updated_at
+           FROM jobs WHERE id = ?`,
+        )
+        .get("job_auto_reprocess"),
+      {
+        status: "queued",
+        step: "queued",
+        step_index: 0,
+        attempts: 0,
+        error_code: null,
+        error_message: null,
+        progress_pct: 0,
+        completed_at: null,
+        next_attempt_at: null,
+        locked_by: null,
+        locked_at: null,
+        updated_at: "2026-06-27T00:05:00.000Z",
+      },
+    );
+  });
+
   test("getJobHealth preserves durability service field source columns", async () => {
     await insertJob({
       id: "job_health",

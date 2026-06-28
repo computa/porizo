@@ -1,6 +1,6 @@
 "use strict";
 
-const { dbQuery } = require("../utils/db-adapter");
+const { dbQuery, dbRun } = require("../utils/db-adapter");
 
 function countValue(row) {
   return Number(row?.count || 0);
@@ -117,6 +117,28 @@ function createJobDurabilityRepository(db) {
     return changeCount(result);
   }
 
+  async function resetJobForAutoReprocess({ jobId, now }) {
+    return dbRun(
+      db,
+      `UPDATE jobs
+       SET status = 'queued',
+           step = 'queued',
+           step_index = 0,
+           attempts = 0,
+           error_code = NULL,
+           error_message = NULL,
+           progress_pct = 0,
+           completed_at = NULL,
+           next_attempt_at = NULL,
+           locked_by = NULL,
+           locked_at = NULL,
+           updated_at = ?
+       WHERE id = ?
+         AND status IN ('failed', 'dead_letter')`,
+      [now, jobId],
+    );
+  }
+
   async function getJobHealth(jobId) {
     const result = await dbQuery(
       db,
@@ -198,6 +220,7 @@ function createJobDurabilityRepository(db) {
     createStepHistory,
     finishStepHistory,
     markOrphanedStepHistoryFailed,
+    resetJobForAutoReprocess,
     getJobHealth,
     findLatestFailedForVersion,
     findActiveForVersion,

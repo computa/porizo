@@ -79,6 +79,24 @@ function createDeadLetterQueueRepository(db) {
     );
   }
 
+  async function listAutoReprocessCandidates({
+    cooldownCutoff,
+    limit = 5,
+  }) {
+    return dbAll(
+      db,
+      `SELECT dlq.*, j.step, j.error_code, j.error_message, j.track_version_id, j.workflow_type
+       FROM dead_letter_queue dlq
+       JOIN jobs j ON j.id = dlq.job_id
+       WHERE dlq.reprocessed_at IS NULL
+         AND dlq.auto_reprocess_count < 2
+         AND dlq.moved_at < ?
+       ORDER BY dlq.moved_at ASC
+       LIMIT ?`,
+      [cooldownCutoff, limit],
+    );
+  }
+
   async function findEntryById(dlqId) {
     return dbGet(db, "SELECT * FROM dead_letter_queue WHERE id = ?", [dlqId]);
   }
@@ -129,6 +147,18 @@ function createDeadLetterQueueRepository(db) {
     );
   }
 
+  async function markAutoReprocessed({ dlqId, jobId, now }) {
+    return dbRun(
+      db,
+      `UPDATE dead_letter_queue
+       SET reprocessed_at = ?,
+           reprocess_job_id = ?,
+           auto_reprocess_count = auto_reprocess_count + 1
+       WHERE id = ?`,
+      [now, jobId, dlqId],
+    );
+  }
+
   async function countEntries({ unprocessedOnly = false } = {}) {
     const whereClause = unprocessedOnly ? " WHERE reprocessed_at IS NULL" : "";
     const row = await dbGet(
@@ -154,10 +184,12 @@ function createDeadLetterQueueRepository(db) {
     upsertEntry,
     markJobDeadLetter,
     listEntries,
+    listAutoReprocessCandidates,
     findEntryById,
     findEntryByJobId,
     createReprocessJob,
     markEntryReprocessed,
+    markAutoReprocessed,
     countEntries,
     purgeReprocessedBefore,
     currentStepForJob,

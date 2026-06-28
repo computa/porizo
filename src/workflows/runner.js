@@ -65,10 +65,16 @@ const { createJobDurabilityService } = require("./durability");
 const {
   createAppConfigRepository,
 } = require("../database/app-config-repository");
+const {
+  createDeadLetterQueueRepository,
+} = require("../database/dead-letter-queue-repository");
 const { createDeviceRepository } = require("../database/device-repository");
 const {
   createJobDurabilityRepository,
 } = require("../database/job-durability-repository");
+const {
+  createTrackVersionRepository,
+} = require("../database/track-version-repository");
 const {
   getFeatureFlag,
   getFeatureFlags,
@@ -1075,8 +1081,10 @@ async function startJobRunner({
 }) {
   const runnerId = workerId || crypto.randomUUID();
   const appConfigRepository = createAppConfigRepository(db);
+  const deadLetterQueueRepository = createDeadLetterQueueRepository(db);
   const deviceRepository = createDeviceRepository(db);
   const jobDurabilityRepository = createJobDurabilityRepository(db);
+  const trackVersionRepository = createTrackVersionRepository(db);
   const sunoPollIntervalSec = 10;
   const MAX_CONCURRENT_VOICE_PROVIDER_JOBS = Math.max(
     0,
@@ -2222,18 +2230,11 @@ async function startJobRunner({
   async function performDLQAutoReprocess() {
     try {
       const cooldownCutoff = new Date(Date.now() - 5 * 60 * 1000).toISOString();
-      const candidates = await db
-        .prepare(
-          `SELECT dlq.*, j.step, j.error_code, j.error_message, j.track_version_id, j.workflow_type
-         FROM dead_letter_queue dlq
-         JOIN jobs j ON j.id = dlq.job_id
-         WHERE dlq.reprocessed_at IS NULL
-           AND dlq.auto_reprocess_count < 2
-           AND dlq.moved_at < ?
-         ORDER BY dlq.moved_at ASC
-         LIMIT 5`,
-        )
-        .all(cooldownCutoff);
+      const candidates =
+        await deadLetterQueueRepository.listAutoReprocessCandidates({
+          cooldownCutoff,
+          limit: 5,
+        });
 
       for (const entry of candidates) {
         // Skip non-retryable errors — delegate to the shared classifier (single source of truth)
@@ -2249,13 +2250,11 @@ async function startJobRunner({
         }
 
         const now = new Date().toISOString();
-        const tv = await db
-          .prepare("SELECT * FROM track_versions WHERE id = ?")
-          .get(entry.track_version_id);
+        const tv = await trackVersionRepository.findById(
+          entry.track_version_id,
+        );
         const track = tv
-          ? await db
-              .prepare("SELECT * FROM tracks WHERE id = ?")
-              .get(tv.track_id)
+          ? await trackVersionRepository.findTrackById(tv.track_id)
           : null;
 
         // Clean stale files before re-queuing
@@ -2271,11 +2270,12 @@ async function startJobRunner({
         }
 
         // Reset job to queued (WHERE status guard prevents race with iOS "Try Again")
-        const jobReset = await db
-          .prepare(
-            "UPDATE jobs SET status = 'queued', step = 'queued', step_index = 0, attempts = 0, error_code = NULL, error_message = NULL, progress_pct = 0, completed_at = NULL, next_attempt_at = NULL, locked_by = NULL, locked_at = NULL, updated_at = ? WHERE id = ? AND status IN ('failed', 'dead_letter')",
-          )
-          .run(now, entry.job_id);
+        const jobReset = await jobDurabilityRepository.resetJobForAutoReprocess(
+          {
+            now,
+            jobId: entry.job_id,
+          },
+        );
 
         // Only update DLQ counter and track statuses if the job was actually reset
         if (!jobReset || jobReset.changes === 0) {
@@ -2286,26 +2286,24 @@ async function startJobRunner({
         }
 
         // Update DLQ entry
-        await db
-          .prepare(
-            "UPDATE dead_letter_queue SET reprocessed_at = ?, reprocess_job_id = ?, auto_reprocess_count = auto_reprocess_count + 1 WHERE id = ?",
-          )
-          .run(now, entry.job_id, entry.id);
+        await deadLetterQueueRepository.markAutoReprocessed({
+          now,
+          jobId: entry.job_id,
+          dlqId: entry.id,
+        });
 
         // Reset track_version + track status
         if (tv) {
-          await db
-            .prepare(
-              "UPDATE track_versions SET status = 'processing' WHERE id = ?",
-            )
-            .run(tv.id);
+          await trackVersionRepository.markVersionProcessingForAutoReprocess({
+            trackVersionId: tv.id,
+          });
         }
         if (track) {
-          await db
-            .prepare(
-              "UPDATE tracks SET status = 'rendering', updated_at = ? WHERE id = ?",
-            )
-            .run(now, track.id);
+          await trackVersionRepository.updateTrackStatus({
+            trackId: track.id,
+            status: "rendering",
+            updatedAt: now,
+          });
         }
 
         const attempt = (entry.auto_reprocess_count || 0) + 1;

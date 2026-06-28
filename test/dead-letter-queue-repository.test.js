@@ -187,6 +187,138 @@ describe("DeadLetterQueueRepository current jobs schema", () => {
     );
   });
 
+  test("listAutoReprocessCandidates joins retryable DLQ rows with job context", async () => {
+    await insertCurrentJob({
+      id: "job_auto_old",
+      step: "voice_convert",
+      errorCode: "E_PROVIDER",
+      errorMessage: "provider timeout",
+    });
+    await insertCurrentJob({
+      id: "job_auto_recent",
+      step: "voice_convert",
+      errorMessage: "recent failure",
+    });
+    await insertCurrentJob({
+      id: "job_auto_maxed",
+      step: "ready",
+      errorMessage: "maxed failure",
+    });
+    await db
+      .prepare(
+        `INSERT INTO dead_letter_queue (
+           id, job_id, original_status, failure_reason, failure_count, moved_at,
+           auto_reprocess_count
+         ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        "dlq_auto_old",
+        "job_auto_old",
+        "failed",
+        "provider timeout",
+        3,
+        "2026-06-27T00:00:00.000Z",
+        1,
+      );
+    await db
+      .prepare(
+        `INSERT INTO dead_letter_queue (
+           id, job_id, original_status, failure_reason, failure_count, moved_at,
+           auto_reprocess_count
+         ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        "dlq_auto_recent",
+        "job_auto_recent",
+        "failed",
+        "recent failure",
+        3,
+        "2026-06-27T00:06:00.000Z",
+        0,
+      );
+    await db
+      .prepare(
+        `INSERT INTO dead_letter_queue (
+           id, job_id, original_status, failure_reason, failure_count, moved_at,
+           auto_reprocess_count
+         ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        "dlq_auto_maxed",
+        "job_auto_maxed",
+        "failed",
+        "maxed failure",
+        3,
+        "2026-06-27T00:00:00.000Z",
+        2,
+      );
+
+    const candidates = await repository.listAutoReprocessCandidates({
+      cooldownCutoff: "2026-06-27T00:05:00.000Z",
+      limit: 5,
+    });
+
+    assert.deepEqual(
+      candidates.map((candidate) => ({
+        id: candidate.id,
+        job_id: candidate.job_id,
+        step: candidate.step,
+        error_code: candidate.error_code,
+        track_version_id: candidate.track_version_id,
+        workflow_type: candidate.workflow_type,
+      })),
+      [
+        {
+          id: "dlq_auto_old",
+          job_id: "job_auto_old",
+          step: "voice_convert",
+          error_code: "E_PROVIDER",
+          track_version_id: "job_auto_old_version",
+          workflow_type: "preview_render",
+        },
+      ],
+    );
+  });
+
+  test("markAutoReprocessed timestamps the existing DLQ entry and increments attempts", async () => {
+    await insertCurrentJob({ id: "job_auto_mark" });
+    await db
+      .prepare(
+        `INSERT INTO dead_letter_queue (
+           id, job_id, original_status, failure_reason, failure_count, moved_at,
+           auto_reprocess_count
+         ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        "dlq_auto_mark",
+        "job_auto_mark",
+        "failed",
+        "provider timeout",
+        3,
+        now,
+        1,
+      );
+
+    await repository.markAutoReprocessed({
+      dlqId: "dlq_auto_mark",
+      jobId: "job_auto_mark",
+      now: "2026-06-27T00:10:00.000Z",
+    });
+
+    assert.deepEqual(
+      db
+        .prepare(
+          "SELECT reprocessed_at, reprocess_job_id, auto_reprocess_count FROM dead_letter_queue WHERE id = ?",
+        )
+        .get("dlq_auto_mark"),
+      {
+        reprocessed_at: "2026-06-27T00:10:00.000Z",
+        reprocess_job_id: "job_auto_mark",
+        auto_reprocess_count: 2,
+      },
+    );
+  });
+
   test("stats and purge are adapter-neutral", async () => {
     await insertCurrentJob({ id: "job_old" });
     await insertCurrentJob({ id: "job_new" });

@@ -156,6 +156,15 @@ function createTrackVersionRepository(db) {
       .run(trackVersionId, readyStatus);
   }
 
+  async function markVersionProcessingForAutoReprocess({
+    trackVersionId,
+    query = null,
+  }) {
+    return runner(query)
+      .prepare("UPDATE track_versions SET status = 'processing' WHERE id = ?")
+      .run(trackVersionId);
+  }
+
   async function markSongEntitlementConsumed({
     trackVersionId,
     consumedAt,
@@ -412,6 +421,7 @@ function createTrackVersionRepository(db) {
     updateStreamBaseUrl,
     linkRenderJobToVersion,
     markVersionProcessingForRender,
+    markVersionProcessingForAutoReprocess,
     markSongEntitlementConsumed,
     insertRenderJobForVersion,
     cancelActiveRender,
