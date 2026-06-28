@@ -47,7 +47,11 @@ Root 1 is complete only when that scan has no direct persistence hits outside co
 - Root 6 Step 1 is committed as `f6faea73`. The next Root 6 slice extracted
   the read-only admin metrics routes into `src/routes/admin/metrics.js` and
   added route-level coverage for `/admin/dashboard/metrics/jobs`.
-- Next controller queue: commit the metrics route split, then continue one
+- Root 6 metrics route split is committed as `b2ab7f3b`. The next Root 6 slice
+  extracted the read-only admin story-session routes into
+  `src/routes/admin/story-sessions.js` and tightened route coverage for auth,
+  default ordering, and detail payload shape.
+- Next controller queue: commit the story-session route split, then continue one
   non-billing admin route group per slice before the billing/admin entitlement
   slice.
 
@@ -1498,6 +1502,17 @@ Metrics slice completed locally:
 - `test/admin-job-metrics-routes.test.js` fills the route-level coverage gap
   for `/admin/dashboard/metrics/jobs`; the other metrics routes retain existing
   focused route tests.
+
+Story-session slice completed locally:
+
+- `src/routes/admin/story-sessions.js` owns
+  `/admin/dashboard/story/sessions` and
+  `/admin/dashboard/story/sessions/:id`.
+- `src/routes/admin.js` now registers the story-session module instead of
+  defining those handlers inline.
+- `test/admin-story-session-routes.test.js` now covers unauthenticated access,
+  default ordering, filtered list behavior, detail payload shape, turn ordering,
+  and missing-session 404 behavior.
 
 - [ ] **Step 3: Run admin validation**
 

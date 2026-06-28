@@ -171,6 +171,31 @@ describe("admin story session routes", () => {
     assert.equal(Object.hasOwn(body.sessions[0], "turns"), false);
   });
 
+  test("GET /admin/dashboard/story/sessions requires an admin session", async () => {
+    const response = await app.inject({
+      method: "GET",
+      url: "/admin/dashboard/story/sessions",
+    });
+
+    assert.equal(response.statusCode, 401, response.body);
+    assert.equal(response.json().error, "UNAUTHORIZED");
+  });
+
+  test("GET /admin/dashboard/story/sessions preserves default ordering and pagination", async () => {
+    const response = await app.inject({
+      method: "GET",
+      url: "/admin/dashboard/story/sessions",
+      headers: adminHeaders,
+    });
+
+    assert.equal(response.statusCode, 200, response.body);
+    const body = response.json();
+    assert.deepEqual(
+      body.sessions.map((session) => session.id),
+      ["story_route_new", "story_route_old"],
+    );
+  });
+
   test("GET /admin/dashboard/story/sessions/:id returns only that session's turns in order", async () => {
     await seedTurn(db, {
       id: "story_route_other_turn",
@@ -199,11 +224,58 @@ describe("admin story session routes", () => {
 
     assert.equal(response.statusCode, 200, response.body);
     const body = response.json();
-    assert.equal(body.session.id, "story_route_old");
     assert.deepEqual(
-      body.turns.map((turn) => turn.id),
-      ["story_route_turn_one", "story_route_turn_two"],
+      {
+        id: body.session.id,
+        user_id: body.session.user_id,
+        user_email: body.session.user_email,
+        status: body.session.status,
+        engine_version: body.session.engine_version,
+        recipient_name: body.session.recipient_name,
+        initial_prompt: body.session.initial_prompt,
+      },
+      {
+        id: "story_route_old",
+        user_id: "story_route_user_a",
+        user_email: "route-a@example.com",
+        status: "active",
+        engine_version: "v2",
+        recipient_name: "Ava",
+        initial_prompt: "Tell me about Ava",
+      },
     );
+    assert.deepEqual(
+      body.turns.map((turn) => ({
+        id: turn.id,
+        session_id: turn.session_id,
+        turn_number: turn.turn_number,
+        question: turn.question,
+      })),
+      [
+        {
+          id: "story_route_turn_one",
+          session_id: "story_route_old",
+          turn_number: 1,
+          question: "Where did it begin?",
+        },
+        {
+          id: "story_route_turn_two",
+          session_id: "story_route_old",
+          turn_number: 2,
+          question: "What happened next?",
+        },
+      ],
+    );
+  });
+
+  test("GET /admin/dashboard/story/sessions/:id requires an admin session", async () => {
+    const response = await app.inject({
+      method: "GET",
+      url: "/admin/dashboard/story/sessions/story_route_old",
+    });
+
+    assert.equal(response.statusCode, 401, response.body);
+    assert.equal(response.json().error, "UNAUTHORIZED");
   });
 
   test("GET /admin/dashboard/story/sessions/:id returns 404 for missing sessions", async () => {
