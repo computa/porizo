@@ -97,10 +97,13 @@ Root 1 is complete only when that scan has no direct persistence hits outside co
 - Root 6 analytics route split is committed as `d83ae6da`. The next Root 6
   slice moved attribution health into the existing
   `src/routes/admin/growth.js` boundary.
-- Next controller queue: commit the attribution-health follow-up, then continue
-  with another characterized non-billing admin group. Provider/queue controls
-  need route characterization first. Security config/App Store sync needs
-  route characterization first; billing/entitlements remain last.
+- Root 6 attribution-health follow-up is committed as `2e371736`. The next
+  Root 6 slice extracted admin gift-ops routes into
+  `src/routes/admin/gift-ops.js`.
+- Next controller queue: commit the gift-ops route split, then continue with
+  another characterized non-billing admin group. Provider/queue controls need
+  route characterization first. Security config/App Store sync needs route
+  characterization first; billing/entitlements remain last.
 
 ## File Structure Map
 
@@ -1697,6 +1700,15 @@ Attribution-health route follow-up completed locally:
 - `src/routes/admin/growth.js` also owns
   `/admin/dashboard/attribution/health`.
 - Existing attribution and growth route coverage remains green.
+
+Gift-ops route slice completed locally:
+
+- `src/routes/admin/gift-ops.js` owns gift overview, order list/detail, outbox,
+  incident list/acknowledge, retry, cancel, overdue-review, and manual recovery
+  note routes.
+- Gift-ops schema migration error handling and read-role constants moved with
+  the route group.
+- Existing gift-ops route and repository coverage remains green.
 
 - [ ] **Step 3: Run admin validation**
 

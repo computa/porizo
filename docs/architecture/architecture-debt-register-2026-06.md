@@ -1534,6 +1534,10 @@ analytics suite.
 The attribution health route is also folded into the growth/attribution route
 module, removing the last inline attribution-health route from `admin.js` while
 preserving the existing Apple Ads and download health contract.
+Admin gift-ops route ownership is also extracted locally into
+`src/routes/admin/gift-ops.js`, preserving gift overview, order read/detail,
+outbox, incident, retry, cancel, overdue-review, manual recovery note, role
+gate, audit, and migration-required error contracts.
 Security config/App Store sync and `/admin/auth/*` remain separate higher-risk
 slices. Remaining Root 6 work is the rest of the admin route/service split by
 concern, with billing/entitlement left last.
