@@ -1029,7 +1029,7 @@ Expected: commit records Root 1 closure.
 - Test: `test/rate-limit.test.js`
 - Test: `test/auth-race-condition.test.js`
 
-- [ ] **Step 1: Confirm C1 local invariant before changes**
+- [x] **Step 1: Confirm C1 local invariant before changes**
 
 Run:
 
@@ -1039,7 +1039,7 @@ node --test --test-concurrency=1 test/auth-api.test.js test/auth-login-enumerati
 
 Expected: all selected tests pass.
 
-- [ ] **Step 2: Consolidate auth guard and rate-limit ownership**
+- [x] **Step 2: Consolidate auth guard and rate-limit ownership**
 
 Move duplicated guard/rate-limit persistence calls into repository-backed service methods. Use this service boundary:
 
@@ -1055,7 +1055,14 @@ async function verifyActiveSessionForUser({ userId, sessionId }) {
 
 Keep route-level auth decisions explicit and preserve current HTTP error envelopes.
 
-- [ ] **Step 3: Run Root 2 tests**
+Implemented in `src/middleware/require-user.js`, `src/services/auth-service.js`,
+`src/database/rate-limit-repository.js`, `src/routes/auth.js`, and
+`src/server.js`. The rate-limit test now exercises production repository code
+instead of a copied helper and caught/fixed a parallel-consume rollback bug.
+Added a revoked JWT session characterization for `/billing/receipt/apple` in
+`test/billing-api.test.js`.
+
+- [x] **Step 3: Run Root 2 tests**
 
 Run:
 
@@ -1066,12 +1073,21 @@ npm run lint
 
 Expected: selected tests pass and lint passes.
 
-- [ ] **Step 4: Commit Root 2**
+Verification run:
+
+```bash
+env NODE_ENV=test ALLOW_ANON_USER_ID=true ALLOW_DEVICE_TOKEN_FALLBACK=true node --test --test-concurrency=1 test/auth-api.test.js test/auth-login-enumeration.test.js test/rate-limit.test.js test/auth-race-condition.test.js test/billing-api.test.js
+npm run lint -- --quiet
+```
+
+Result: 107 selected tests passed; lint passed.
+
+- [x] **Step 4: Commit Root 2**
 
 Run:
 
 ```bash
-git add src/services/auth-service.js src/routes/auth.js src/server.js src/database/auth-session-repository.js src/database/auth-rate-limit-repository.js test/auth-api.test.js test/auth-login-enumeration.test.js test/rate-limit.test.js test/auth-race-condition.test.js
+git add src/middleware/require-user.js src/utils/http-error.js src/services/auth-service.js src/routes/auth.js src/server.js src/database/rate-limit-repository.js test/rate-limit.test.js test/billing-api.test.js docs/superpowers/plans/2026-06-28-parallel-architecture-refactor.md docs/architecture/architecture-debt-register-2026-06.md
 git commit -m "refactor: consolidate auth and rate-limit boundaries"
 ```
 

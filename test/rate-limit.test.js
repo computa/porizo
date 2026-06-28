@@ -13,72 +13,27 @@ const path = require("path");
 const os = require("os");
 const crypto = require("crypto");
 const { initDb } = require("../src/db");
+const {
+  createRateLimitRepository,
+} = require("../src/database/rate-limit-repository");
 
 // Generate unique test user ID
 function uniqueUserId(prefix = "rl_user") {
   return `${prefix}_${crypto.randomBytes(8).toString("hex")}`;
 }
 
-/**
- * Sliding window rate limiting implementation (extracted for testing)
- *
- * This mirrors the consumeRateLimit function from server.js to allow
- * unit testing without spinning up the full server.
- */
 async function consumeRateLimit(db, userId, actionKey, limit, windowSeconds) {
-  const now = Date.now();
-  const windowMs = windowSeconds * 1000;
-  const currentWindowStart = Math.floor(now / windowMs) * windowMs;
-  const previousWindowStart = currentWindowStart - windowMs;
-  const elapsedInWindow = now - currentWindowStart;
-  const windowProgress = elapsedInWindow / windowMs;
-  const resetAt = new Date(currentWindowStart + windowMs).toISOString();
-
-  // Get counts from current and previous windows
-  const currentWindow = await db
-    .prepare(
-      "SELECT count FROM rate_limits WHERE user_id = ? AND action_type = ? AND window_start_ms = ?"
-    )
-    .get(userId, actionKey, currentWindowStart);
-  const previousWindow = await db
-    .prepare(
-      "SELECT count FROM rate_limits WHERE user_id = ? AND action_type = ? AND window_start_ms = ?"
-    )
-    .get(userId, actionKey, previousWindowStart);
-
-  const currentCount = currentWindow?.count || 0;
-  const previousCount = previousWindow?.count || 0;
-
-  // Sliding window approximation: weight previous window by remaining time
-  const weightedCount = currentCount + previousCount * (1 - windowProgress);
-
-  // Check if adding this request would exceed limit
-  if (weightedCount >= limit) {
-    return { allowed: false, remaining: 0, reset_at: resetAt };
-  }
-
-  // Atomic upsert
-  await db
-    .prepare(
-      `INSERT INTO rate_limits (user_id, action_type, window_start_ms, window_seconds, count, limit_count)
-       VALUES (?, ?, ?, ?, 1, ?)
-       ON CONFLICT(user_id, action_type, window_start_ms)
-       DO UPDATE SET count = rate_limits.count + 1`
-    )
-    .run(userId, actionKey, currentWindowStart, windowSeconds, limit);
-
-  // Get updated count for remaining calculation
-  const updated = await db
-    .prepare(
-      "SELECT count FROM rate_limits WHERE user_id = ? AND action_type = ? AND window_start_ms = ?"
-    )
-    .get(userId, actionKey, currentWindowStart);
-  const newWeightedCount = updated.count + previousCount * (1 - windowProgress);
-
+  const repository = createRateLimitRepository(db);
+  const result = await repository.consume({
+    key: { subject: userId.startsWith("ip:") ? "ip" : "user", value: userId },
+    action: actionKey,
+    max: limit,
+    windowMs: windowSeconds * 1000,
+  });
   return {
-    allowed: true,
-    remaining: Math.max(0, Math.floor(limit - newWeightedCount)),
-    reset_at: resetAt,
+    allowed: result.allowed,
+    remaining: result.remaining,
+    reset_at: result.resetAt,
   };
 }
 
@@ -351,6 +306,33 @@ describe("Rate Limiting", () => {
         .get(userId, "increment_test", currentWindowStart);
 
       assert.strictEqual(row.count, 3, "count should be 3 after 3 requests");
+    });
+
+    it("should rollback the denied request increment", async () => {
+      const userId = uniqueUserId();
+      const limit = 2;
+
+      await consumeRateLimit(db, userId, "rollback_test", limit, 60);
+      await consumeRateLimit(db, userId, "rollback_test", limit, 60);
+      const denied = await consumeRateLimit(
+        db,
+        userId,
+        "rollback_test",
+        limit,
+        60,
+      );
+      assert.strictEqual(denied.allowed, false);
+
+      const now = Date.now();
+      const windowMs = 60 * 1000;
+      const currentWindowStart = Math.floor(now / windowMs) * windowMs;
+      const row = await db
+        .prepare(
+          "SELECT count FROM rate_limits WHERE user_id = ? AND action_type = ? AND window_start_ms = ?",
+        )
+        .get(userId, "rollback_test", currentWindowStart);
+
+      assert.strictEqual(row.count, limit, "denied request should be rolled back");
     });
   });
 

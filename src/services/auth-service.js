@@ -791,6 +791,21 @@ async function listSessions(userId) {
   return getAuthSessionRepository().listActiveSessions(userId);
 }
 
+async function verifyActiveUser({ userId }) {
+  if (!userId) return false;
+  const user = await getAuthSessionRepository().findActiveUser(userId);
+  return Boolean(user);
+}
+
+async function verifyActiveSessionForUser({ userId, sessionId }) {
+  if (!userId || !sessionId) return false;
+  const session = await getAuthSessionRepository().findActiveSession({
+    userId,
+    sessionId,
+  });
+  return Boolean(session);
+}
+
 /**
  * Revoke a session
  */
@@ -1102,6 +1117,8 @@ module.exports = {
   // Sessions
   createSession,
   listSessions,
+  verifyActiveUser,
+  verifyActiveSessionForUser,
   revokeSession,
   revokeAllSessionsExcept,
 

@@ -60,6 +60,7 @@ const {
   createSubscriptionManager,
 } = require("./services/subscription-manager");
 const authService = require("./services/auth-service");
+const { createRequireUser } = require("./middleware/require-user");
 const {
   issueDeviceToken,
   verifyDeviceToken,
@@ -87,6 +88,9 @@ const { registerBillingRoutes } = require("./routes/billing");
 const { registerOnboardingRoutes } = require("./routes/onboarding");
 const { registerAdminRoutes } = require("./routes/admin");
 const { createStoryRepository } = require("./database/story-repository");
+const {
+  createRateLimitRepository,
+} = require("./database/rate-limit-repository");
 const {
   createPoemLibraryRepository,
 } = require("./database/poem-library-repository");
@@ -465,6 +469,7 @@ function buildServer({
 
   // Initialize story repository for persistent story sessions
   const storyRepository = createStoryRepository(db);
+  const rateLimitRepository = createRateLimitRepository(db);
   writer.initWithRepository(storyRepository);
   const poemLibraryRepository = createPoemLibraryRepository(db);
   const trackLibraryRepository = createTrackLibraryRepository(db);
@@ -689,93 +694,13 @@ function buildServer({
     return user?.risk_level || "low";
   }
 
-  async function requireUserId(request, reply) {
-    const authHeader = request.headers.authorization;
-    if (authHeader && authHeader.startsWith("Bearer ")) {
-      const token = authHeader.slice(7).trim();
-      try {
-        const payload = authService.verifyAccessToken(token);
-        const userId = payload?.sub;
-        if (!userId) {
-          sendError(reply, 401, "INVALID_TOKEN", "Invalid access token.");
-          return null;
-        }
-        const user = await db
-          .prepare("SELECT id FROM users WHERE id = ? AND deleted_at IS NULL")
-          .get(userId);
-        if (!user) {
-          sendError(
-            reply,
-            401,
-            "INVALID_TOKEN",
-            "Invalid or expired access token.",
-          );
-          return null;
-        }
-        const sessionId = payload?.sid;
-        if (!sessionId) {
-          sendError(
-            reply,
-            401,
-            "INVALID_TOKEN",
-            "Invalid or expired access token.",
-          );
-          return null;
-        }
-        const session = await db
-          .prepare(
-            "SELECT id FROM user_sessions WHERE id = ? AND user_id = ? AND revoked_at IS NULL",
-          )
-          .get(sessionId, userId);
-        if (!session) {
-          sendError(
-            reply,
-            401,
-            "INVALID_TOKEN",
-            "Invalid or expired access token.",
-          );
-          return null;
-        }
-        request.sessionId = sessionId;
-        await ensureUser(userId);
-        return userId;
-      } catch (err) {
-        request.log.warn(
-          {
-            authError: {
-              name: err?.name,
-              message: err?.message,
-              code: err?.code,
-            },
-          },
-          "Access token verification failed",
-        );
-        sendError(
-          reply,
-          401,
-          "INVALID_TOKEN",
-          "Invalid or expired access token.",
-        );
-        return null;
-      }
-    }
-
-    const authFallbackEnv = process.env.NODE_ENV;
-    const allowDevAuthFallback =
-      authFallbackEnv === "development" || authFallbackEnv === "test";
-    if (allowAnonUserId && allowDevAuthFallback) {
-      const userId = request.headers["x-user-id"];
-      if (!userId || typeof userId !== "string") {
-        sendError(reply, 401, "AUTH_REQUIRED", "Missing x-user-id header.");
-        return null;
-      }
-      await ensureUser(userId);
-      return userId;
-    }
-
-    sendError(reply, 401, "AUTH_REQUIRED", "Missing authorization token.");
-    return null;
-  }
+  const requireUserId = createRequireUser({
+    authService,
+    ensureUser,
+    sendError,
+    allowAnonUserId,
+    attachUserId: false,
+  });
 
   function getDeviceTokenPayload(request, reply, { required = false } = {}) {
     const rawToken = request.headers["x-device-token"];
@@ -1371,67 +1296,17 @@ function buildServer({
   }
 
   async function consumeRateLimit(userId, actionKey, limit, windowSeconds) {
-    // Sliding window rate limiting (prevents boundary exploit)
-    // Uses weighted average of current and previous window counts.
-    // Atomic approach: increment first, then check. If over limit, decrement (rollback).
-    // This eliminates the TOCTOU race between the pre-check SELECT and the upsert.
     try {
-      const now = Date.now();
-      const windowMs = windowSeconds * 1000;
-      const currentWindowStart = Math.floor(now / windowMs) * windowMs;
-      const previousWindowStart = currentWindowStart - windowMs;
-      const elapsedInWindow = now - currentWindowStart;
-      const windowProgress = elapsedInWindow / windowMs; // 0.0 to 1.0
-      const resetAt = new Date(currentWindowStart + windowMs).toISOString();
-
-      // Step 1: Atomically increment the current window counter first.
-      // Using INSERT ... ON CONFLICT DO UPDATE to ensure atomicity.
-      await db
-        .prepare(
-          `INSERT INTO rate_limits (user_id, action_type, window_start_ms, window_seconds, count, limit_count)
-         VALUES (?, ?, ?, ?, 1, ?)
-         ON CONFLICT(user_id, action_type, window_start_ms)
-         DO UPDATE SET count = rate_limits.count + 1`,
-        )
-        .run(userId, actionKey, currentWindowStart, windowSeconds, limit);
-
-      // Step 2: Read back current and previous window counts post-increment.
-      const currentWindow = await db
-        .prepare(
-          "SELECT count FROM rate_limits WHERE user_id = ? AND action_type = ? AND window_start_ms = ?",
-        )
-        .get(userId, actionKey, currentWindowStart);
-      const previousWindow = await db
-        .prepare(
-          "SELECT count FROM rate_limits WHERE user_id = ? AND action_type = ? AND window_start_ms = ?",
-        )
-        .get(userId, actionKey, previousWindowStart);
-
-      const currentCount = currentWindow?.count || 0;
-      const previousCount = previousWindow?.count || 0;
-
-      // Sliding window approximation: weight previous window by remaining time
-      const weightedCount = currentCount + previousCount * (1 - windowProgress);
-
-      // Step 3: If over limit, roll back the increment and deny.
-      if (weightedCount > limit) {
-        await db
-          .prepare(
-            `UPDATE rate_limits
-           SET count = CASE
-             WHEN count > 0 THEN count - 1
-             ELSE 0
-           END
-           WHERE user_id = ? AND action_type = ? AND window_start_ms = ?`,
-          )
-          .run(userId, actionKey, currentWindowStart);
-        return { allowed: false, remaining: 0, reset_at: resetAt };
-      }
-
+      const result = await rateLimitRepository.consume({
+        key: userId,
+        action: actionKey,
+        max: limit,
+        windowMs: windowSeconds * 1000,
+      });
       return {
-        allowed: true,
-        remaining: Math.max(0, Math.floor(limit - weightedCount)),
-        reset_at: resetAt,
+        allowed: result.allowed,
+        remaining: result.remaining,
+        reset_at: result.resetAt,
       };
     } catch (err) {
       console.error("[RateLimit] DB error:", err.message);

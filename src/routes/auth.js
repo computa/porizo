@@ -33,6 +33,8 @@ const {
 const {
   createReceiverSessionRepository,
 } = require("../database/receiver-session-repository");
+const { createRequireUser } = require("../middleware/require-user");
+const { sendError } = require("../utils/http-error");
 const geoip = require("geoip-lite");
 const {
   verifySocialToken,
@@ -51,6 +53,7 @@ let authRouteProfileRepository = null;
 let authRouteProviderLinkingRepository = null;
 let authRouteCredentialRepository = null;
 let authRouteReceiverSessionRepository = null;
+let requireAuthUser = null;
 
 function phoneRegistrationTokenRepositoryFor(dbOrRepository) {
   if (dbOrRepository?.isPhoneRegistrationTokenRepository) {
@@ -277,16 +280,6 @@ async function findExistingAccountByIdentifiers(
 }
 
 /**
- * Helper to send standardized error response
- */
-function sendError(reply, statusCode, errorCode, message) {
-  return reply.status(statusCode).send({
-    error: errorCode,
-    message,
-  });
-}
-
-/**
  * Extract client IP from request.
  * Delegates to the canonical extractor in src/utils/client-ip.js, which
  * prefers a validated CF-Connecting-IP header (Cloudflare → Railway → origin)
@@ -341,56 +334,10 @@ async function createSessionAndTokens(userId, request, clientIp) {
  * Sets request.userId if valid, returns 401 error if not
  */
 async function requireAuth(request, reply) {
-  const authHeader = request.headers.authorization;
-  if (!authHeader?.startsWith("Bearer ")) {
-    return sendError(
-      reply,
-      401,
-      "UNAUTHORIZED",
-      "Missing authorization header.",
-    );
+  if (!requireAuthUser) {
+    throw new Error("Auth routes have not been registered");
   }
-  try {
-    const payload = authService.verifyAccessToken(authHeader.substring(7));
-    const user = await authRouteSessionRepository.findActiveUser(payload.sub);
-    if (!user) {
-      return sendError(
-        reply,
-        401,
-        "INVALID_TOKEN",
-        "Invalid or expired access token.",
-      );
-    }
-    if (!payload.sid) {
-      return sendError(
-        reply,
-        401,
-        "INVALID_TOKEN",
-        "Invalid or expired access token.",
-      );
-    }
-    const session = await authRouteSessionRepository.findActiveSession({
-      sessionId: payload.sid,
-      userId: payload.sub,
-    });
-    if (!session) {
-      return sendError(
-        reply,
-        401,
-        "INVALID_TOKEN",
-        "Invalid or expired access token.",
-      );
-    }
-    request.sessionId = payload.sid;
-    request.userId = payload.sub;
-  } catch {
-    return sendError(
-      reply,
-      401,
-      "INVALID_TOKEN",
-      "Invalid or expired access token.",
-    );
-  }
+  return requireAuthUser(request, reply);
 }
 
 /**
@@ -412,6 +359,13 @@ function registerAuthRoutes(app, { db, subscriptionManager, storageProvider = nu
   authService.initialize(db);
   gdprAuditService.initialize(db);
   smsService.initialize(db);
+  requireAuthUser = createRequireUser({
+    authService,
+    sendError,
+    missingTokenCode: "UNAUTHORIZED",
+    missingTokenMessage: "Missing authorization header.",
+    attachUserId: true,
+  });
 
   // Clean up expired registration tokens periodically (every 6 hours)
   const tokenCleanupInterval = setInterval(

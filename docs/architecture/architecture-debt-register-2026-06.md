@@ -1314,6 +1314,7 @@ aggregate is its own commit + adversarial pass.
 **Scope:** One `requireUser` middleware (JWT verify + session-revocation + `ensureUser`) in `src/middleware/`; one `rate-limiter` service (`consume({key, max, windowMs})`) over the atomic `rate_limits` table, with explicit key-space (`{subject:'user'|'ip', value}`); delete the duplicate `sendError` in auth.js.
 **Why high:** Highest _correctness_ value (closes C1) + removes a class of recurring rate-limit bugs.
 **Boundary:** Revenue path. Stage behind owner review. Verify in production: revoked session → 401 on a money endpoint; rate-limit window math identical across user + IP + share paths. Do NOT change token rotation logic (already hardened).
+**Execution status:** Implemented locally. `server.js` and auth routes now use a shared `requireUser` middleware backed by `auth-service.verifyActiveUser` and `auth-service.verifyActiveSessionForUser`; `server.js` generic rate limits delegate to `src/database/rate-limit-repository.js`; `auth.js` uses the shared HTTP error helper. Added local revoked-session money-endpoint coverage for `/billing/receipt/apple`. The production revoked-session smoke check remains a deployment/ops follow-up.
 
 ### Root 3a — De-god `server.js`: mechanical bootstrap split 🟢 effort S–M _(Phase A)_
 
