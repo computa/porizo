@@ -24,6 +24,14 @@ rg -n "db\.(prepare|query|exec)|\.prepare\(" src/routes src/services src/jobs sr
 
 Root 1 is complete only when that scan has no direct persistence hits outside comments that describe an injected database contract. Repository files under `src/database/**` may continue to own SQL.
 
+### Current Execution Update - 2026-06-28
+
+- Root 1 is complete locally. The final runner wave moved voice-profile, app-config, stale-recovery, step-history, DLQ, fairness, track/version, risk/audit, and job-lifecycle persistence behind repositories/services.
+- The Root 1 gate is clean: `rg -n "db\.(prepare|query|exec)|\.prepare\(" src/routes src/services src/jobs src/workflows` returns no matches.
+- Full-suite validation exposed and fixed a post-extraction runner race: manual `await runner.tick()` now waits for dispatched jobs to settle, while interval-driven production ticks keep background dispatch. Focused validation passes for `test/critical-fixes.test.js` and adjacent runner workflow suites.
+- Fresh agents from the runner wave were closed after completion. One older stale MCP-side agent remains unresponsive and is not part of the active execution queue.
+- Next controller queue: validate the completed Root 1 state, commit documentation status, then dispatch bounded parallel exploration/implementation for Root 4 provider strategy before entering the revenue-gated Root 2 path.
+
 ## File Structure Map
 
 ### Existing Files To Modify

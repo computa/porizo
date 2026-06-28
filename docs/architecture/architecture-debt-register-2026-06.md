@@ -105,8 +105,12 @@ persistence hits from `src/routes/sharing.js`, `src/routes/poems.js`, and
 locally. Wave 2 moved story, enrollment, admin leftover, artwork-job,
 billing, and subscription-manager persistence behind repositories, removed all
 direct persistence hits from those route/service/job files, and validated the
-combined focused Wave 2 suite locally. Root 1's only remaining direct
-persistence hotspot is `src/workflows/runner.js`.
+combined focused Wave 2 suite locally. The final runner wave moved voice-profile,
+app-config, stale-recovery, step-history, DLQ, fairness, track/version,
+risk/audit, and job-lifecycle persistence behind repositories/services. Root 1's
+direct-persistence gate is now clean; the scan
+`rg -n "db\.(prepare|query|exec)|\.prepare\(" src/routes src/services src/jobs src/workflows`
+returns no matches.
 **Method:** Each "root" is a coherent, bounded, sequenceable unit of work (per the `architectural-loop` skill). Execution should use `architectural-loop` as the controlling process and add the smallest relevant specialist reviews available in the executing environment (security, migration, provider, SwiftUI, API/docs). Extra architecture or cleanup tooling can be used as advisory input, but the plan must not depend on unavailable tools.
 
 ---
@@ -207,7 +211,7 @@ Wire errors are a flat `{error, message, ...adhoc}` bag; the `E1xx/R2xx/B3xx/S5x
 
 **Closes:** D1. Unblocks testability for everything else.
 **Scope:** Extract the remaining inline SQL sites into per-aggregate repositories (`TrackRepo`, `JobRepo`, `GiftRepo`, `ShareRepo`, `UserRepo`, …) that take the already-injected `db`. Generalize the existing `story-repository.js` pattern.
-**Execution status:** In progress. Bounded repository aggregates are complete
+**Execution status:** Complete locally. Bounded repository aggregates are complete
 locally, with the adjacent voice-provider worker/runner/enrollment cleanup
 folded into the voice-provider boundary:
 `receiver-session-service.js` now depends on
@@ -1278,25 +1282,13 @@ log/response shaping. Focused validation passed in
 `test/gifts.test.js` (40 pass / 1 skipped / 0 fail), plus syntax checks, lint,
 diff whitespace checks, and a grep check confirming the moved gift-dispatch SQL
 cluster no longer lives in `server.js`.
-Remaining Root 1 work: extract the other aggregates one at a time, each with
-its own characterization tests and adversarial pass. Current shortlist after
-the enrollment-session lifecycle, track-version allocation/render-read, render
-job-read, and admin
-story-session/cold-email-read/admin-moderation/admin-analytics/admin-demo-share,
-admin user-read, admin overview/enrollment/render/risk/cost metrics, and KPI
-aggregate/admin entitlement update/admin security-observability/admin
-user-mutation/admin user session-control/admin music diagnostics/admin growth
-metrics/admin webhook-health/admin Apple Ads keyword-map/admin
-growth-attribution dashboard/plan-config/subscription-sync/artwork-barrier/admin
-gift-ops-read/gift-dispatch-scheduler/gift-delivery-incident/gift-funding-support
-phone-verification/OneSignal-tag-sync/share-token/job-durability/render-job-read/workflow-DLQ/
-story-V3-orchestration/story-library-entry/poem-route-library/track-library
-gift-reservation/gift-wallet/gift-dispatch-outbox/gift-dispatch-state/
-gift-order-management/gift-create-finalize/gift-share-side-effects/
-gift-route-identity-read follow-ups:
-larger/revenue-adjacent seams such as remaining entitlement
-aggregates/semantics. Full gift-dispatch provider/orchestration extraction is a
-Root 3b service-boundary task, not remaining Root 1 persistence.
+Root 1 is closed locally. The remaining architecture work moves to the next
+roots: Root 4 provider strategy, Root 2 auth/rate-limit consolidation with
+production verification, Root 3b gift-delivery service extraction, Root 5 runner
+step registry, Root 6 admin split, Root 7 writer cycle, and the later migration,
+storage/OpenAPI, cleanup, and cross-surface roots. Full gift-dispatch
+provider/orchestration extraction is a Root 3b service-boundary task, not
+remaining Root 1 persistence.
 Public/admin app-config persistence is done;
 full `getAppConfig` ownership should still move out of
 `admin-service.js` in Root 6.

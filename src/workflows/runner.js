@@ -5411,7 +5411,7 @@ async function startJobRunner({
   };
 
   // Tick function dispatches jobs to available concurrent slots
-  const tick = async () => {
+  const tick = async ({ waitForCompletion = true } = {}) => {
     const now = new Date().toISOString();
     const availableSlots = MAX_CONCURRENT - activeJobs;
     if (availableSlots <= 0) return;
@@ -5466,17 +5466,22 @@ async function startJobRunner({
       );
     }
 
+    const dispatchedJobPromises = [];
     for (const job of eligibleJobs) {
       processingJobs.add(job.id);
       activeJobs++;
 
-      // Process job in background (don't await)
-      processJob(job)
+      const jobPromise = processJob(job)
         .catch((err) => console.error(`[JobRunner] Job ${job.id} error:`, err))
         .finally(() => {
           activeJobs--;
           processingJobs.delete(job.id);
         });
+      dispatchedJobPromises.push(jobPromise);
+    }
+
+    if (waitForCompletion && dispatchedJobPromises.length > 0) {
+      await Promise.all(dispatchedJobPromises);
     }
   };
 
@@ -5565,7 +5570,7 @@ async function startJobRunner({
 
   const timer = setInterval(async () => {
     try {
-      await tick();
+      await tick({ waitForCompletion: false });
       await tickVoiceProviderJobs();
     } catch (err) {
       console.error("[JobRunner] Unhandled error in tick:", err);
