@@ -1553,6 +1553,10 @@ Admin STT/music provider config route ownership is also extracted locally into
 `src/routes/admin/provider-config.js`, with new characterization for admin
 auth, superadmin mutation gates, validation envelopes, available-provider
 response decoration, and STT/music config persistence behavior.
+Admin onboarding-sample route ownership is also extracted locally into
+`src/routes/admin/onboarding-samples.js`, with new characterization for admin
+auth, superadmin mutation gates, validation envelopes, activate not-found
+mapping, and delete behavior.
 Security config/App Store sync and `/admin/auth/*` remain separate higher-risk
 slices. Remaining Root 6 work is the rest of the admin route/service split by
 concern, with billing/entitlement left last.

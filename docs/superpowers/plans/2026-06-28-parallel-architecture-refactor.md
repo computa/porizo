@@ -111,7 +111,10 @@ Root 1 is complete only when that scan has no direct persistence hits outside co
 - Root 6 provider/queue route split is committed as `4ff034a7`. The next Root
   6 slice added STT/music config route characterization and extracted those
   routes into `src/routes/admin/provider-config.js`.
-- Next controller queue: commit the provider-config route split, then continue
+- Root 6 provider-config route split is committed as `4d19a24a`. The next Root
+  6 slice added onboarding-sample route characterization and extracted those
+  routes into `src/routes/admin/onboarding-samples.js`.
+- Next controller queue: commit the onboarding-sample route split, then continue
   with another characterized non-billing admin group. Security config/App Store
   sync needs route characterization first; billing/entitlements remain last.
 
@@ -1750,6 +1753,15 @@ Provider-config route slice completed locally:
 - `src/routes/admin/provider-config.js` owns STT config and music provider
   routing config routes.
 - Existing STT/music route and service coverage remains green.
+
+Onboarding-sample route slice completed locally:
+
+- `test/admin-onboarding-sample-routes.test.js` now characterizes admin auth,
+  superadmin mutation gates, validation errors, activate not-found mapping, and
+  delete envelopes.
+- `src/routes/admin/onboarding-samples.js` owns onboarding sample list/create/
+  update/activate/delete routes.
+- Existing onboarding-sample route/service/repository coverage remains green.
 
 - [ ] **Step 3: Run admin validation**
 
