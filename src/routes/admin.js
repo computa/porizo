@@ -25,15 +25,14 @@ const {
 const {
   createAdminMusicDiagnosticsRepository,
 } = require("../database/admin-music-diagnostics-repository");
-const {
-  analyzeBlend,
-  formatAnalysisReport,
-} = require("../utils/blend-analyzer");
 const { newUuid } = require("../utils/ids");
 const { nowIso } = require("../utils/common");
 const { getClientIp: extractClientIp } = require("../utils/client-ip");
 const defaultOneSignalService = require("../services/onesignal");
 const { registerAdminAnalyticsRoutes } = require("./admin/analytics");
+const {
+  registerAdminBlendAnalysisRoutes,
+} = require("./admin/blend-analysis");
 const { registerAdminBlogRoutes } = require("./admin/blog");
 const { registerAdminDemoShareRoutes } = require("./admin/demo-shares");
 const {
@@ -1534,194 +1533,12 @@ function registerAdminRoutes(
     sendError,
   });
 
-  // --- Blend Analysis (Voice Conversion Diagnostics) ---
-  /**
-   * Analyze a track's blend quality to diagnose voice conversion issues
-   * POST /admin/dashboard/analyze-blend
-   *
-   * Body:
-   * - trackVersionId: string (required) - The track version to analyze
-   * - includeReport: boolean (optional) - Include formatted text report
-   */
-  app.post("/admin/dashboard/analyze-blend", async (request, reply) => {
-    const admin = await requireAdminSession(request, reply);
-    if (!admin) return;
-
-    const { trackVersionId, includeReport } = request.body || {};
-    if (!trackVersionId) {
-      return sendError(
-        reply,
-        400,
-        "INVALID_REQUEST",
-        "trackVersionId is required",
-      );
-    }
-
-    try {
-      // Get track version details to find file paths
-      const trackVersion =
-        await adminMusicDiagnosticsRepo.findTrackVersionBlendContext(
-          trackVersionId,
-        );
-
-      if (!trackVersion) {
-        return sendError(reply, 404, "NOT_FOUND", "Track version not found");
-      }
-
-      const userId = trackVersion.user_id;
-      const trackId = trackVersion.track_id;
-      const version = trackVersion.version_num;
-
-      // Build file paths based on storage layout
-      const basePath = path.join(
-        process.cwd(),
-        "storage/tracks",
-        userId,
-        trackId,
-        `v${version}`,
-      );
-
-      const filePaths = {
-        userEnrollmentPath: null, // Will try to find from voice profile
-        originalVocalPath: path.join(basePath, "stems/vocals.wav"),
-        convertedVocalPath: path.join(basePath, "user_vocal.wav"),
-        blendedOutputPath: path.join(basePath, "blended_vocal.wav"),
-      };
-
-      // Try to find user's enrollment audio
-      const voiceProfile =
-        await adminMusicDiagnosticsRepo.findLatestActiveVoiceProfileForUser(
-          userId,
-        );
-
-      if (voiceProfile) {
-        // Try to find enrollment audio in S3 or local storage
-        const enrollmentBasePath = path.join(
-          process.cwd(),
-          "storage/enrollment/raw",
-          userId,
-        );
-        if (fs.existsSync(enrollmentBasePath)) {
-          const sessions = fs.readdirSync(enrollmentBasePath);
-          if (sessions.length > 0) {
-            const sessionPath = path.join(enrollmentBasePath, sessions[0]);
-            const chunks = fs
-              .readdirSync(sessionPath)
-              .filter((f) => f.endsWith(".wav"));
-            if (chunks.length > 0) {
-              // Prefer sung chunks for voice comparison
-              const sungChunk =
-                chunks.find((c) => c.includes("sung")) || chunks[0];
-              filePaths.userEnrollmentPath = path.join(sessionPath, sungChunk);
-            }
-          }
-        }
-      }
-
-      // Check which files exist
-      const existingFiles = {};
-      for (const [key, filePath] of Object.entries(filePaths)) {
-        if (filePath && fs.existsSync(filePath)) {
-          existingFiles[key] = filePath;
-        }
-      }
-
-      if (Object.keys(existingFiles).length === 0) {
-        return sendError(
-          reply,
-          404,
-          "NO_FILES_FOUND",
-          "No audio files found for analysis. Files may have been cleaned up or render incomplete.",
-        );
-      }
-
-      // Run analysis
-      const analysis = await analyzeBlend(existingFiles);
-
-      // Add track context
-      analysis.trackContext = {
-        trackVersionId,
-        trackId,
-        userId,
-        version,
-        filesAnalyzed: Object.keys(existingFiles),
-        filesMissing: Object.keys(filePaths).filter((k) => !existingFiles[k]),
-      };
-
-      // Optionally include formatted report
-      if (includeReport) {
-        analysis.report = formatAnalysisReport(analysis);
-      }
-
-      reply.send(analysis);
-    } catch (err) {
-      console.error("[Admin] BLEND_ANALYSIS_ERROR:", err);
-      sendError(reply, 500, "ANALYSIS_ERROR", "Failed to analyze blend");
-    }
-  });
-
-  /**
-   * Quick blend analysis from file paths (for CLI/testing)
-   * POST /admin/dashboard/analyze-blend/paths
-   */
-  app.post("/admin/dashboard/analyze-blend/paths", async (request, reply) => {
-    const admin = await requireAdminRole(request, reply, ["superadmin"]);
-    if (!admin) return;
-
-    const {
-      userEnrollmentPath,
-      originalVocalPath,
-      convertedVocalPath,
-      blendedOutputPath,
-      includeReport,
-    } = request.body || {};
-
-    // Validate all paths are within STORAGE_DIR (prevent arbitrary file read)
-    const storageRoot = path.resolve(appConfig.STORAGE_DIR) + path.sep;
-    const paths = {
-      userEnrollmentPath,
-      originalVocalPath,
-      convertedVocalPath,
-      blendedOutputPath,
-    };
-    const existingPaths = {};
-    for (const [key, filePath] of Object.entries(paths)) {
-      if (!filePath) continue;
-      const resolved = path.resolve(filePath);
-      if (!resolved.startsWith(storageRoot)) {
-        return sendError(
-          reply,
-          400,
-          "INVALID_PATH",
-          `Path "${key}" must be within storage directory`,
-        );
-      }
-      if (fs.existsSync(resolved)) {
-        existingPaths[key] = resolved;
-      }
-    }
-
-    if (Object.keys(existingPaths).length === 0) {
-      return sendError(
-        reply,
-        400,
-        "NO_FILES",
-        "No valid file paths provided or files don't exist",
-      );
-    }
-
-    try {
-      const analysis = await analyzeBlend(existingPaths);
-
-      if (includeReport) {
-        analysis.report = formatAnalysisReport(analysis);
-      }
-
-      reply.send(analysis);
-    } catch (err) {
-      console.error("[Admin] BLEND_ANALYSIS_ERROR:", err);
-      sendError(reply, 500, "ANALYSIS_ERROR", "Failed to analyze blend");
-    }
+  registerAdminBlendAnalysisRoutes(app, {
+    adminMusicDiagnosticsRepo,
+    appConfig,
+    requireAdminRole,
+    requireAdminSession,
+    sendError,
   });
 
   // --- Demo Share Links (Marketing) ---

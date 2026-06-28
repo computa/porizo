@@ -1560,6 +1560,10 @@ mapping, and delete behavior.
 The public mobile `/app/config` route handler is also moved out of `admin.js`
 into `src/routes/client-config.js`, leaving service lifetime and registration
 order unchanged while making the non-admin boundary explicit.
+Admin blend-analysis diagnostics route ownership is also extracted locally into
+`src/routes/admin/blend-analysis.js`, with new characterization for admin auth,
+superadmin path analysis, storage-scope validation, missing input, and missing
+track-version behavior.
 Security config/App Store sync and `/admin/auth/*` remain separate higher-risk
 slices. Remaining Root 6 work is the rest of the admin route/service split by
 concern, with billing/entitlement left last.

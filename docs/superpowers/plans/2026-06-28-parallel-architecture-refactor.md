@@ -118,7 +118,10 @@ Root 1 is complete only when that scan has no direct persistence hits outside co
   Root 6 slice moved the public mobile `/app/config` route registration into
   `src/routes/client-config.js`, keeping the existing client config contract
   test green.
-- Next controller queue: commit the client-config route split, then continue
+- Root 6 client-config route split is committed as `678f979c`. The next Root 6
+  slice added blend-analysis route characterization and extracted diagnostics
+  handlers into `src/routes/admin/blend-analysis.js`.
+- Next controller queue: commit the blend-analysis route split, then continue
   with another characterized non-billing group. Security config/App Store sync
   needs route characterization first; billing/entitlements remain last.
 
@@ -1774,6 +1777,15 @@ Client-config route slice completed locally:
   admin registration boundary, so this slice does not change service lifetime or
   server registration order.
 - Existing `test/app-config-route.test.js` coverage remains green.
+
+Blend-analysis route slice completed locally:
+
+- `test/admin-blend-analysis-routes.test.js` now characterizes admin auth,
+  superadmin-only path analysis, storage-scope validation, missing
+  `trackVersionId`, and missing track-version behavior.
+- `src/routes/admin/blend-analysis.js` owns the blend diagnostics handlers for
+  `/admin/dashboard/analyze-blend` and `/admin/dashboard/analyze-blend/paths`.
+- Existing admin music diagnostics repository coverage remains green.
 
 - [ ] **Step 3: Run admin validation**
 
