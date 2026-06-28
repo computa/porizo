@@ -9,16 +9,9 @@
  */
 const { spawn } = require('child_process');
 const fs = require('fs');
+const { getFFmpegPath } = require('./ffmpeg');
 
 const DEFAULT_TIMEOUT_MS = 30000;
-
-function getFFmpegPath() {
-  try {
-    return require('ffmpeg-static');
-  } catch {
-    return 'ffmpeg';
-  }
-}
 
 function runFFmpegCapture(args, timeoutMs = DEFAULT_TIMEOUT_MS) {
   return new Promise((resolve, reject) => {
