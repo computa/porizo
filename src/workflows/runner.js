@@ -2379,20 +2379,11 @@ async function startJobRunner({
   const updateJobExternalTask = await db.prepare(
     "UPDATE jobs SET external_task_id = ?, step_data = ?, last_heartbeat_at = ?, updated_at = ? WHERE id = ? AND locked_by = ?",
   );
-  const updateTrackVersion = await db.prepare(
-    "UPDATE track_versions SET status = ?, completed_at = ?, preview_url = COALESCE(?, preview_url), full_url = COALESCE(?, full_url), lyrics_json = COALESCE(?, lyrics_json), lyrics_status = COALESCE(?, lyrics_status), lyrics_updated_at = COALESCE(?, lyrics_updated_at), lyrics_approved_at = COALESCE(?, lyrics_approved_at), music_plan_json = COALESCE(?, music_plan_json), moderation_status = COALESCE(?, moderation_status), moderation_reason = COALESCE(?, moderation_reason), instrumental_url = COALESCE(?, instrumental_url), guide_vocal_url = COALESCE(?, guide_vocal_url), guide_access_token = COALESCE(?, guide_access_token), voice_conversion_url = COALESCE(?, voice_conversion_url), provenance_json = COALESCE(?, provenance_json) WHERE id = ?",
-  );
   const updateUserRisk = await db.prepare(
     "UPDATE users SET risk_level = ? WHERE id = ?",
   );
   const insertAuditLog = await db.prepare(
     "INSERT INTO audit_logs (id, user_id, action, resource_type, resource_id, metadata_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-  );
-  const updateTrackVersionCover = await db.prepare(
-    "UPDATE track_versions SET cover_image_url = ?, cover_image_small_url = ?, cover_image_large_url = ? WHERE id = ?",
-  );
-  const updateTrackVersionLyricsOnly = await db.prepare(
-    "UPDATE track_versions SET lyrics_json = ? WHERE id = ?",
   );
 
   function getErrorInfo(err) {
@@ -4822,25 +4813,23 @@ async function startJobRunner({
           });
           isPending = Boolean(updates && updates.pending);
           if (!isPending && updates && Object.keys(updates).length) {
-            await updateTrackVersion.run(
-              trackVersion.status,
-              trackVersion.completed_at,
-              null,
-              null,
-              updates.lyrics_json || null,
-              updates.lyrics_status || null,
-              updates.lyrics_updated_at || null,
-              updates.lyrics_approved_at || null,
-              updates.music_plan_json || null,
-              updates.moderation_status || null,
-              updates.moderation_reason || null,
-              updates.instrumental_url || null,
-              updates.guide_vocal_url || null,
-              updates.guide_access_token || null,
-              updates.voice_conversion_url || null,
-              updates.provenance_json || null,
-              trackVersion.id,
-            );
+            await trackVersionRepository.applyRenderStepUpdates({
+              trackVersionId: trackVersion.id,
+              status: trackVersion.status,
+              completedAt: trackVersion.completed_at,
+              lyricsJson: updates.lyrics_json || null,
+              lyricsStatus: updates.lyrics_status || null,
+              lyricsUpdatedAt: updates.lyrics_updated_at || null,
+              lyricsApprovedAt: updates.lyrics_approved_at || null,
+              musicPlanJson: updates.music_plan_json || null,
+              moderationStatus: updates.moderation_status || null,
+              moderationReason: updates.moderation_reason || null,
+              instrumentalUrl: updates.instrumental_url || null,
+              guideVocalUrl: updates.guide_vocal_url || null,
+              guideAccessToken: updates.guide_access_token || null,
+              voiceConversionUrl: updates.voice_conversion_url || null,
+              provenanceJson: updates.provenance_json || null,
+            });
           }
           stepData = updates || null;
           if (job?.id && updates && Object.keys(updates).length > 0) {
@@ -4963,25 +4952,11 @@ async function startJobRunner({
                 job.id,
               );
             }
-            await updateTrackVersion.run(
-              "failed",
-              now,
-              null,
-              null,
-              null,
-              null,
-              null,
-              null,
-              null,
-              null,
-              null,
-              null,
-              null,
-              null,
-              null,
-              null,
-              trackVersion.id,
-            );
+            await trackVersionRepository.applyRenderStepUpdates({
+              trackVersionId: trackVersion.id,
+              status: "failed",
+              completedAt: now,
+            });
             await trackVersionRepository.updateTrackStatus({
               trackId: track.id,
               status: "failed",
@@ -5052,25 +5027,23 @@ async function startJobRunner({
       return;
     }
     if (stepData && stepData.status_override === "blocked") {
-      await updateTrackVersion.run(
-        "blocked",
-        now,
-        null,
-        null,
-        stepData.lyrics_json || null,
-        stepData.lyrics_status || null,
-        stepData.lyrics_updated_at || null,
-        stepData.lyrics_approved_at || null,
-        stepData.music_plan_json || null,
-        stepData.moderation_status || "blocked",
-        stepData.moderation_reason || "blocked",
-        stepData.instrumental_url || null,
-        stepData.guide_vocal_url || null,
-        stepData.guide_access_token || null,
-        stepData.voice_conversion_url || null,
-        stepData.provenance_json || null,
-        trackVersion.id,
-      );
+      await trackVersionRepository.applyRenderStepUpdates({
+        trackVersionId: trackVersion.id,
+        status: "blocked",
+        completedAt: now,
+        lyricsJson: stepData.lyrics_json || null,
+        lyricsStatus: stepData.lyrics_status || null,
+        lyricsUpdatedAt: stepData.lyrics_updated_at || null,
+        lyricsApprovedAt: stepData.lyrics_approved_at || null,
+        musicPlanJson: stepData.music_plan_json || null,
+        moderationStatus: stepData.moderation_status || "blocked",
+        moderationReason: stepData.moderation_reason || "blocked",
+        instrumentalUrl: stepData.instrumental_url || null,
+        guideVocalUrl: stepData.guide_vocal_url || null,
+        guideAccessToken: stepData.guide_access_token || null,
+        voiceConversionUrl: stepData.voice_conversion_url || null,
+        provenanceJson: stepData.provenance_json || null,
+      });
       await trackVersionRepository.updateTrackStatus({
         trackId: track.id,
         status: "failed",
@@ -5210,10 +5183,10 @@ async function startJobRunner({
                 ? { ...lyricsData, sections: enriched }
                 : enriched;
               const enrichedJson = toJson(enrichedData);
-              await updateTrackVersionLyricsOnly.run(
-                enrichedJson,
-                trackVersionReady.id,
-              );
+              await trackVersionRepository.updateVersionLyricsJson({
+                trackVersionId: trackVersionReady.id,
+                lyricsJson: enrichedJson,
+              });
               trackVersionReady.lyrics_json = enrichedJson;
               console.log(
                 `[JobRunner] Lyrics aligned for track ${trackReady.id} (${whisperResult.words?.length || 0} words matched)`,
@@ -5267,25 +5240,11 @@ async function startJobRunner({
               job.id,
               runnerId,
             );
-            await updateTrackVersion.run(
-              "failed",
-              now,
-              null,
-              null,
-              null,
-              null,
-              null,
-              null,
-              null,
-              null,
-              null,
-              null,
-              null,
-              null,
-              null,
-              null,
-              trackVersionReady.id,
-            );
+            await trackVersionRepository.applyRenderStepUpdates({
+              trackVersionId: trackVersionReady.id,
+              status: "failed",
+              completedAt: now,
+            });
             await trackVersionRepository.updateTrackStatus({
               trackId: trackReady.id,
               status: "failed",
@@ -5356,37 +5315,26 @@ async function startJobRunner({
       }
 
       // Commit ready-state only after upload success (or dev-mode local fallback).
-      await updateTrackVersion.run(
+      await trackVersionRepository.applyRenderStepUpdates({
+        trackVersionId: trackVersionReady.id,
         status,
-        now,
-        isFull ? null : url,
-        isFull ? url : null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        completionProvenance,
-        trackVersionReady.id,
-      );
+        completedAt: now,
+        previewUrl: isFull ? null : url,
+        fullUrl: isFull ? url : null,
+        provenanceJson: completionProvenance,
+      });
       await trackVersionRepository.updateTrackStatus({
         trackId: trackReady.id,
         status: isFull ? "ready" : "preview_ready",
         updatedAt: now,
       });
       if (generatedCover) {
-        await updateTrackVersionCover.run(
-          generatedCover.coverUrl,
-          generatedCover.smallUrl,
-          generatedCover.largeUrl,
-          trackVersionReady.id,
-        );
+        await trackVersionRepository.updateVersionCoverImages({
+          trackVersionId: trackVersionReady.id,
+          coverImageUrl: generatedCover.coverUrl,
+          coverImageSmallUrl: generatedCover.smallUrl,
+          coverImageLargeUrl: generatedCover.largeUrl,
+        });
       }
       // Song entitlement is consumed when a version first starts generation.
       // Full render on the same version reuses that entitlement, so the runner

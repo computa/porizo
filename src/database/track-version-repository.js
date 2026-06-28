@@ -165,6 +165,75 @@ function createTrackVersionRepository(db) {
       .run(trackVersionId);
   }
 
+  async function applyRenderStepUpdates({
+    trackVersionId,
+    status,
+    completedAt,
+    previewUrl = null,
+    fullUrl = null,
+    lyricsJson = null,
+    lyricsStatus = null,
+    lyricsUpdatedAt = null,
+    lyricsApprovedAt = null,
+    musicPlanJson = null,
+    moderationStatus = null,
+    moderationReason = null,
+    instrumentalUrl = null,
+    guideVocalUrl = null,
+    guideAccessToken = null,
+    voiceConversionUrl = null,
+    provenanceJson = null,
+    query = null,
+  }) {
+    return runner(query)
+      .prepare(
+        "UPDATE track_versions SET status = ?, completed_at = ?, preview_url = COALESCE(?, preview_url), full_url = COALESCE(?, full_url), lyrics_json = COALESCE(?, lyrics_json), lyrics_status = COALESCE(?, lyrics_status), lyrics_updated_at = COALESCE(?, lyrics_updated_at), lyrics_approved_at = COALESCE(?, lyrics_approved_at), music_plan_json = COALESCE(?, music_plan_json), moderation_status = COALESCE(?, moderation_status), moderation_reason = COALESCE(?, moderation_reason), instrumental_url = COALESCE(?, instrumental_url), guide_vocal_url = COALESCE(?, guide_vocal_url), guide_access_token = COALESCE(?, guide_access_token), voice_conversion_url = COALESCE(?, voice_conversion_url), provenance_json = COALESCE(?, provenance_json) WHERE id = ?",
+      )
+      .run(
+        status,
+        completedAt,
+        previewUrl,
+        fullUrl,
+        lyricsJson,
+        lyricsStatus,
+        lyricsUpdatedAt,
+        lyricsApprovedAt,
+        musicPlanJson,
+        moderationStatus,
+        moderationReason,
+        instrumentalUrl,
+        guideVocalUrl,
+        guideAccessToken,
+        voiceConversionUrl,
+        provenanceJson,
+        trackVersionId,
+      );
+  }
+
+  async function updateVersionCoverImages({
+    trackVersionId,
+    coverImageUrl,
+    coverImageSmallUrl,
+    coverImageLargeUrl,
+  }) {
+    return db
+      .prepare(
+        "UPDATE track_versions SET cover_image_url = ?, cover_image_small_url = ?, cover_image_large_url = ? WHERE id = ?",
+      )
+      .run(
+        coverImageUrl,
+        coverImageSmallUrl,
+        coverImageLargeUrl,
+        trackVersionId,
+      );
+  }
+
+  async function updateVersionLyricsJson({ trackVersionId, lyricsJson }) {
+    return db
+      .prepare("UPDATE track_versions SET lyrics_json = ? WHERE id = ?")
+      .run(lyricsJson, trackVersionId);
+  }
+
   async function markSongEntitlementConsumed({
     trackVersionId,
     consumedAt,
@@ -422,6 +491,9 @@ function createTrackVersionRepository(db) {
     linkRenderJobToVersion,
     markVersionProcessingForRender,
     markVersionProcessingForAutoReprocess,
+    applyRenderStepUpdates,
+    updateVersionCoverImages,
+    updateVersionLyricsJson,
     markSongEntitlementConsumed,
     insertRenderJobForVersion,
     cancelActiveRender,

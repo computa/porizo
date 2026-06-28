@@ -385,6 +385,71 @@ describe("TrackVersionRepository", () => {
     assert.equal(version.status, "processing");
   });
 
+  test("render step updates preserve omitted fields and narrow helpers update lyrics and cover images", async () => {
+    await seedTrack({ latestVersion: 1 });
+    await seedTrackVersion({
+      id: "tv_render_updates_1",
+      versionNum: 1,
+      status: "processing",
+      coverImageUrl: "https://cdn.example/old-cover.jpg",
+    });
+    await db
+      .prepare(
+        `UPDATE track_versions
+         SET preview_url = ?, full_url = ?, lyrics_json = ?, provenance_json = ?
+         WHERE id = ?`,
+      )
+      .run(
+        "https://stream.example/old-preview.m4a",
+        "https://stream.example/old-full.m4a",
+        '{"old":true}',
+        '{"old":true}',
+        "tv_render_updates_1",
+      );
+
+    await repository.applyRenderStepUpdates({
+      trackVersionId: "tv_render_updates_1",
+      status: "preview_ready",
+      completedAt: "2026-06-27T11:30:00.000Z",
+      previewUrl: "https://stream.example/new-preview.m4a",
+      lyricsStatus: "approved",
+      provenanceJson: '{"render":{"done":true}}',
+    });
+    await repository.updateVersionLyricsJson({
+      trackVersionId: "tv_render_updates_1",
+      lyricsJson: '{"aligned":true}',
+    });
+    await repository.updateVersionCoverImages({
+      trackVersionId: "tv_render_updates_1",
+      coverImageUrl: "https://cdn.example/new-cover.jpg",
+      coverImageSmallUrl: "https://cdn.example/new-cover-small.jpg",
+      coverImageLargeUrl: "https://cdn.example/new-cover-large.jpg",
+    });
+
+    assert.deepEqual(
+      await db
+        .prepare(
+          `SELECT status, completed_at, preview_url, full_url, lyrics_json,
+                  lyrics_status, provenance_json, cover_image_url,
+                  cover_image_small_url, cover_image_large_url
+           FROM track_versions WHERE id = ?`,
+        )
+        .get("tv_render_updates_1"),
+      {
+        status: "preview_ready",
+        completed_at: "2026-06-27T11:30:00.000Z",
+        preview_url: "https://stream.example/new-preview.m4a",
+        full_url: "https://stream.example/old-full.m4a",
+        lyrics_json: '{"aligned":true}',
+        lyrics_status: "approved",
+        provenance_json: '{"render":{"done":true}}',
+        cover_image_url: "https://cdn.example/new-cover.jpg",
+        cover_image_small_url: "https://cdn.example/new-cover-small.jpg",
+        cover_image_large_url: "https://cdn.example/new-cover-large.jpg",
+      },
+    );
+  });
+
   test("cancelActiveRender cancels the active job and resets track state", async () => {
     await seedTrack({ latestVersion: 1 });
     await seedTrackVersion({
