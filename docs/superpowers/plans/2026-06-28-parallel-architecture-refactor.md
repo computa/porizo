@@ -136,8 +136,12 @@ Root 1 is complete only when that scan has no direct persistence hits outside co
   slice extracted billing dashboard, entitlement mutation, complimentary
   upgrade, plan, and gift-bundle admin routes into
   `src/routes/admin/billing.js`.
-- Next controller queue: commit the billing route split, then handle
-  `/admin/auth/*` as the remaining higher-risk admin boundary.
+- Root 6 billing route split is committed as `eb9986b6`. The next Root 6 slice
+  added admin-auth route characterization and extracted `/admin/auth/*` into
+  `src/routes/admin/auth.js`.
+- Next controller queue: commit the admin-auth route split, then run the Root 6
+  route-split validation sweep and update the architecture map. Remaining
+  Root 6 decomposition is service-boundary work, not route-handler extraction.
 
 ## File Structure Map
 
@@ -1835,6 +1839,19 @@ Billing route slice completed locally:
   `/admin/billing/plans`, and gift-bundle management routes.
 - Existing entitlement, gift-bundle, billing-sales, and admin-billing
   repository coverage remains green.
+
+Admin-auth route slice completed locally:
+
+- `test/admin-auth-routes.test.js` characterizes setup-disabled, me/logout,
+  change-password validation/session invalidation, forgot-password generic
+  response, and invalid reset-token behavior.
+- `src/routes/admin/auth.js` owns `/admin/auth/*` route handlers plus the
+  admin-auth rate-limit helper.
+- `src/routes/admin.js` now has no direct `app.get/post/put/delete/patch`
+  handlers; it composes route registrars, shared guards, repositories, and
+  services.
+- Existing admin-login hardening, default-seed, and admin-auth repository
+  coverage remains green.
 
 - [ ] **Step 3: Run admin validation**
 

@@ -1579,8 +1579,14 @@ import, and engagement routes plus marketing-only helper logic.
 Admin billing route ownership is also extracted locally into
 `src/routes/admin/billing.js`, including entitlement mutation, complimentary
 upgrade/revoke, billing dashboard reads, plan updates, and gift-bundle
-management. `/admin/auth/*` remains the final higher-risk inline admin route
-boundary.
+management.
+Admin-auth route ownership is also extracted locally into
+`src/routes/admin/auth.js`, including setup, login/logout, current-session,
+change-password, forgot-password, and reset-password handlers plus the auth
+rate-limit helper. `src/routes/admin.js` now has no inline
+`app.get/post/put/delete/patch` handlers; it composes route registrars, shared
+guards, repositories, and services. Remaining Root 6 work is admin-service
+decomposition/service-boundary cleanup, not route-handler extraction.
 **Boundary:** Do the `getAppConfig` eviction + non-billing splits first (🟡). Do the billing/entitlement admin slice **last** (⚠ 🔴) with production verification.
 
 ### Root 7 — Writer cycle + god-file decomposition 🟡 effort M
