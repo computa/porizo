@@ -450,6 +450,106 @@ describe("JobDurabilityRepository", () => {
     );
   });
 
+  test("appendDlqInsertFailure appends operator-visible DLQ failure context", async () => {
+    await insertJob({
+      id: "job_dlq_insert_failed",
+      status: "failed",
+      errorMessage: "original failure",
+    });
+
+    await repository.appendDlqInsertFailure({
+      jobId: "job_dlq_insert_failed",
+      errorMessage: "insert timeout",
+      now: "2026-06-27T00:05:00.000Z",
+    });
+
+    assert.deepEqual(
+      await db
+        .prepare("SELECT error_message, updated_at FROM jobs WHERE id = ?")
+        .get("job_dlq_insert_failed"),
+      {
+        error_message:
+          "original failure [DLQ_INSERT_FAILED: insert timeout]",
+        updated_at: "2026-06-27T00:05:00.000Z",
+      },
+    );
+  });
+
+  test("lists heartbeat-active users at capacity and maps candidate track versions to users", async () => {
+    const now = "2026-06-27T00:05:00.000Z";
+    for (const userId of ["user_capacity", "user_available"]) {
+      await db
+        .prepare("INSERT INTO users (id, created_at) VALUES (?, ?)")
+        .run(userId, now);
+    }
+    for (const { trackId, userId } of [
+      { trackId: "track_capacity_1", userId: "user_capacity" },
+      { trackId: "track_capacity_2", userId: "user_capacity" },
+      { trackId: "track_available_1", userId: "user_available" },
+    ]) {
+      await db
+        .prepare(
+          `INSERT INTO tracks (
+             id, user_id, status, title, latest_version, created_at, updated_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(trackId, userId, "rendering", "Fairness", 1, now, now);
+    }
+    for (const { versionId, trackId } of [
+      { versionId: "tv_capacity_1", trackId: "track_capacity_1" },
+      { versionId: "tv_capacity_2", trackId: "track_capacity_2" },
+      { versionId: "tv_available_1", trackId: "track_available_1" },
+    ]) {
+      await db
+        .prepare(
+          `INSERT INTO track_versions (
+             id, track_id, version_num, status, render_type, params_hash, created_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(versionId, trackId, 1, "processing", "preview", versionId, now);
+    }
+    await insertJob({
+      id: "job_capacity_1",
+      trackVersionId: "tv_capacity_1",
+      status: "running",
+      lastHeartbeatAt: "2026-06-27T00:04:30.000Z",
+    });
+    await insertJob({
+      id: "job_capacity_2",
+      trackVersionId: "tv_capacity_2",
+      status: "running",
+      lastHeartbeatAt: "2026-06-27T00:04:30.000Z",
+    });
+    await insertJob({
+      id: "job_available_1",
+      trackVersionId: "tv_available_1",
+      status: "running",
+      lastHeartbeatAt: "2026-06-27T00:00:30.000Z",
+    });
+
+    const blockedUsers = await repository.listRunningUserIdsAtCapacity({
+      heartbeatCutoff: "2026-06-27T00:03:00.000Z",
+      maxConcurrent: 2,
+    });
+    const candidateUsers = await repository.listUserIdsForTrackVersionIds([
+      "tv_available_1",
+      "tv_capacity_1",
+      "tv_capacity_1",
+    ]);
+
+    assert.deepEqual(blockedUsers, [{ user_id: "user_capacity" }]);
+    assert.deepEqual(
+      Object.fromEntries(
+        candidateUsers.map((row) => [row.track_version_id, row.user_id]),
+      ),
+      {
+        tv_available_1: "user_available",
+        tv_capacity_1: "user_capacity",
+      },
+    );
+    assert.deepEqual(await repository.listUserIdsForTrackVersionIds([]), []);
+  });
+
   test("getJobHealth preserves durability service field source columns", async () => {
     await insertJob({
       id: "job_health",

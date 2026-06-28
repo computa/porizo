@@ -2402,15 +2402,6 @@ async function startJobRunner({
     "UPDATE track_versions SET lyrics_json = ? WHERE id = ?",
   );
 
-  // Phase 3: Per-user concurrency — find users at capacity
-  const getBlockedUsers = await db.prepare(
-    `SELECT t.user_id FROM jobs j
-     JOIN track_versions tv ON j.track_version_id = tv.id
-     JOIN tracks t ON tv.track_id = t.id
-     WHERE j.status = 'running' AND j.last_heartbeat_at > ?
-     GROUP BY t.user_id HAVING COUNT(*) >= ?`,
-  );
-
   function getErrorInfo(err) {
     const rawMessage =
       err && err.message ? String(err.message) : "unknown_error";
@@ -5015,11 +5006,11 @@ async function startJobRunner({
                 dlqErr.message,
               );
               try {
-                await db
-                  .prepare(
-                    "UPDATE jobs SET error_message = error_message || ' [DLQ_INSERT_FAILED: ' || ? || ']', updated_at = ? WHERE id = ?",
-                  )
-                  .run(dlqErr.message, now, job.id);
+                await jobDurabilityRepository.appendDlqInsertFailure({
+                  jobId: job.id,
+                  errorMessage: dlqErr.message,
+                  now,
+                });
               } catch (updateErr) {
                 console.error(
                   `[JobRunner] Failed to update job ${job.id} with DLQ error:`,
@@ -5500,10 +5491,11 @@ async function startJobRunner({
       const heartbeatCutoff = new Date(
         Date.now() - 2 * 60 * 1000,
       ).toISOString();
-      const blockedUsers = await getBlockedUsers.all(
-        heartbeatCutoff,
-        MAX_CONCURRENT_PER_USER,
-      );
+      const blockedUsers =
+        await jobDurabilityRepository.listRunningUserIdsAtCapacity({
+          heartbeatCutoff,
+          maxConcurrent: MAX_CONCURRENT_PER_USER,
+        });
       blockedUserIds = new Set(blockedUsers.map((r) => r.user_id));
     }
 
@@ -5514,14 +5506,8 @@ async function startJobRunner({
     if (blockedUserIds.size > 0 && candidates.length > 0) {
       const ids = candidates.map((job) => job.track_version_id).filter(Boolean);
       if (ids.length > 0) {
-        const placeholders = ids.map(() => "?").join(",");
-        const { rows } = await db.query(
-          `SELECT tv.id AS track_version_id, t.user_id
-             FROM track_versions tv
-             JOIN tracks t ON t.id = tv.track_id
-            WHERE tv.id IN (${placeholders})`,
-          ids,
-        );
+        const rows =
+          await jobDurabilityRepository.listUserIdsForTrackVersionIds(ids);
         candidateUsersByJobId = new Map(
           rows.map((row) => [row.track_version_id, row.user_id]),
         );

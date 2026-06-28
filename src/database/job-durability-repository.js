@@ -139,6 +139,51 @@ function createJobDurabilityRepository(db) {
     );
   }
 
+  async function appendDlqInsertFailure({ jobId, errorMessage, now }) {
+    return dbRun(
+      db,
+      "UPDATE jobs SET error_message = error_message || ' [DLQ_INSERT_FAILED: ' || ? || ']', updated_at = ? WHERE id = ?",
+      [errorMessage, now, jobId],
+    );
+  }
+
+  async function listRunningUserIdsAtCapacity({
+    heartbeatCutoff,
+    maxConcurrent,
+  }) {
+    const result = await dbQuery(
+      db,
+      `SELECT t.user_id
+       FROM jobs j
+       JOIN track_versions tv ON j.track_version_id = tv.id
+       JOIN tracks t ON tv.track_id = t.id
+       WHERE j.status = 'running'
+         AND j.last_heartbeat_at > ?
+       GROUP BY t.user_id
+       HAVING COUNT(*) >= ?`,
+      [heartbeatCutoff, maxConcurrent],
+    );
+    return Array.from(result.rows || []);
+  }
+
+  async function listUserIdsForTrackVersionIds(trackVersionIds) {
+    const ids = [...new Set((trackVersionIds || []).filter(Boolean))];
+    if (ids.length === 0) {
+      return [];
+    }
+
+    const placeholders = ids.map(() => "?").join(",");
+    const result = await dbQuery(
+      db,
+      `SELECT tv.id AS track_version_id, t.user_id
+       FROM track_versions tv
+       JOIN tracks t ON t.id = tv.track_id
+       WHERE tv.id IN (${placeholders})`,
+      ids,
+    );
+    return Array.from(result.rows || []);
+  }
+
   async function getJobHealth(jobId) {
     const result = await dbQuery(
       db,
@@ -221,6 +266,9 @@ function createJobDurabilityRepository(db) {
     finishStepHistory,
     markOrphanedStepHistoryFailed,
     resetJobForAutoReprocess,
+    appendDlqInsertFailure,
+    listRunningUserIdsAtCapacity,
+    listUserIdsForTrackVersionIds,
     getJobHealth,
     findLatestFailedForVersion,
     findActiveForVersion,
