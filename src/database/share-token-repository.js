@@ -43,6 +43,55 @@ function createShareTokenRepository(db) {
     return dbGet(db, "SELECT * FROM poem_share_tokens WHERE id = ?", [id]);
   }
 
+  async function getPoemShareTokenWithGiftSendAt(id) {
+    return dbGet(
+      db,
+      `SELECT pst.*, go.send_at AS gift_send_at
+         FROM poem_share_tokens pst
+         LEFT JOIN gift_orders go ON go.id = pst.gift_order_id
+        WHERE pst.id = ?`,
+      [id],
+    );
+  }
+
+  async function markPoemShareAccessed({ shareTokenId, accessedAt }) {
+    return dbRun(
+      db,
+      "UPDATE poem_share_tokens SET last_accessed_at = ?, access_count = access_count + 1 WHERE id = ?",
+      [accessedAt, shareTokenId],
+    );
+  }
+
+  async function insertPoemShareAccessLog({
+    id,
+    shareTokenId,
+    eventType,
+    metadata,
+    createdAt,
+  }) {
+    return dbRun(
+      db,
+      "INSERT INTO poem_share_access_log (id, poem_share_token_id, event_type, metadata, created_at) VALUES (?, ?, ?, ?, ?)",
+      [id, shareTokenId, eventType, metadata, createdAt],
+    );
+  }
+
+  async function incrementPoemShareClaimAttempts(shareTokenId) {
+    return dbRun(
+      db,
+      "UPDATE poem_share_tokens SET claim_attempts = claim_attempts + 1 WHERE id = ? AND claim_attempts < 5 AND status = 'active'",
+      [shareTokenId],
+    );
+  }
+
+  async function claimPoemShareForUser({ shareTokenId, userId, claimedAt }) {
+    return dbRun(
+      db,
+      "UPDATE poem_share_tokens SET status = ?, bound_user_id = ?, bound_at = ?, claim_attempts = 0 WHERE id = ?",
+      ["claimed", userId, claimedAt, shareTokenId],
+    );
+  }
+
   async function getGiftShareBinding({ contentType, shareTokenId, query = null }) {
     const table = shareTableForContentType(contentType);
     assertShareTable(table);
@@ -299,6 +348,11 @@ function createShareTokenRepository(db) {
     getPoemSharePointer,
     getSongShareTokenById,
     getPoemShareTokenById,
+    getPoemShareTokenWithGiftSendAt,
+    markPoemShareAccessed,
+    insertPoemShareAccessLog,
+    incrementPoemShareClaimAttempts,
+    claimPoemShareForUser,
     getGiftShareBinding,
     revokeGiftShare,
     updateGiftShareSchedule,

@@ -1,6 +1,162 @@
 "use strict";
 
 function createPoemLibraryRepository(db) {
+  async function createPoem({
+    id,
+    userId,
+    title,
+    recipientName,
+    occasion,
+    tone,
+    versesJson,
+    message,
+    status,
+    createdAt,
+    updatedAt,
+  }) {
+    return db
+      .prepare(
+        `INSERT INTO poems (id, user_id, title, recipient_name, occasion, tone, verses, message, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        id,
+        userId,
+        title,
+        recipientName,
+        occasion,
+        tone,
+        versesJson,
+        message,
+        status,
+        createdAt,
+        updatedAt,
+      );
+  }
+
+  async function getPoemById(poemId) {
+    return db.prepare("SELECT * FROM poems WHERE id = ?").get(poemId);
+  }
+
+  async function getLivePoemById(poemId) {
+    return db
+      .prepare("SELECT * FROM poems WHERE id = ? AND deleted_at IS NULL")
+      .get(poemId);
+  }
+
+  async function getOwnedGiftTokenPoemForLibrary({ userId, poemId }) {
+    return db
+      .prepare(
+        `SELECT p.*,
+              NULL AS library_origin,
+              NULL AS library_added_at,
+              NULL AS library_share_token_id,
+              1 AS can_edit,
+              1 AS can_share,
+              1 AS can_delete
+       FROM poems p
+       WHERE p.id = ?
+         AND p.user_id = ?
+         AND p.deleted_at IS NULL
+         AND COALESCE(p.funding_source, 'standard') = 'gift_token'`,
+      )
+      .get(poemId, userId);
+  }
+
+  async function updatePoem({
+    poemId,
+    title,
+    recipientName,
+    occasion,
+    tone,
+    message,
+    versesJson,
+    status,
+    updatedAt,
+  }) {
+    return db
+      .prepare(
+        `UPDATE poems
+         SET title = ?,
+             recipient_name = ?,
+             occasion = ?,
+             tone = ?,
+             message = ?,
+             verses = ?,
+             status = ?,
+             updated_at = ?
+       WHERE id = ?`,
+      )
+      .run(
+        title,
+        recipientName,
+        occasion,
+        tone,
+        message,
+        versesJson,
+        status,
+        updatedAt,
+        poemId,
+      );
+  }
+
+  async function getPoemCreditBalance(userId) {
+    return db
+      .prepare("SELECT poems_remaining FROM entitlements WHERE user_id = ?")
+      .get(userId);
+  }
+
+  async function markPoemGenerated({ poemId, versesJson, updatedAt }) {
+    return db
+      .prepare(
+        "UPDATE poems SET verses = ?, status = ?, updated_at = ? WHERE id = ?",
+      )
+      .run(versesJson, "generated", updatedAt, poemId);
+  }
+
+  async function markPoemGenerationFailed(poemId) {
+    return db
+      .prepare("UPDATE poems SET status = 'generation_failed' WHERE id = ?")
+      .run(poemId);
+  }
+
+  async function updatePoemOgVariant({ poemId, variant, updatedAt }) {
+    return db
+      .prepare("UPDATE poems SET og_variant = ?, updated_at = ? WHERE id = ?")
+      .run(variant, updatedAt, poemId);
+  }
+
+  async function getGiftOrderContentSnapshot(giftOrderId) {
+    return db
+      .prepare("SELECT content_snapshot_json FROM gift_orders WHERE id = ?")
+      .get(giftOrderId);
+  }
+
+  async function getUserPresence(userId) {
+    return db.prepare("SELECT id FROM users WHERE id = ?").get(userId);
+  }
+
+  async function markPoemAudioGenerated({ poemId, generatedAt }) {
+    try {
+      return await db
+        .prepare(
+          "UPDATE poems SET audio_generated_at = ?, updated_at = ? WHERE id = ?",
+        )
+        .run(generatedAt, generatedAt, poemId);
+    } catch (err) {
+      if (
+        String(err?.message || "").includes(
+          "no such column: audio_generated_at",
+        )
+      ) {
+        return db
+          .prepare("UPDATE poems SET updated_at = ? WHERE id = ?")
+          .run(generatedAt, poemId);
+      }
+      throw err;
+    }
+  }
+
   async function upsertPoemLibraryEntry({
     userId,
     poemId,
@@ -98,6 +254,18 @@ function createPoemLibraryRepository(db) {
   }
 
   return {
+    createPoem,
+    getPoemById,
+    getLivePoemById,
+    getOwnedGiftTokenPoemForLibrary,
+    updatePoem,
+    getPoemCreditBalance,
+    markPoemGenerated,
+    markPoemGenerationFailed,
+    updatePoemOgVariant,
+    getGiftOrderContentSnapshot,
+    getUserPresence,
+    markPoemAudioGenerated,
     upsertPoemLibraryEntry,
     listPoemsForUser,
     removePoemFromLibrary,

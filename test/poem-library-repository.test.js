@@ -21,8 +21,11 @@ function createSchema(database) {
       occasion TEXT,
       tone TEXT,
       verses TEXT,
+      message TEXT,
       status TEXT,
       funding_source TEXT,
+      og_variant TEXT,
+      audio_generated_at TEXT,
       deleted_at TEXT,
       created_at TEXT,
       updated_at TEXT
@@ -36,6 +39,17 @@ function createSchema(database) {
       removed_at TEXT,
       updated_at TEXT NOT NULL,
       PRIMARY KEY (user_id, poem_id)
+    );
+    CREATE TABLE entitlements (
+      user_id TEXT PRIMARY KEY,
+      poems_remaining INTEGER
+    );
+    CREATE TABLE gift_orders (
+      id TEXT PRIMARY KEY,
+      content_snapshot_json TEXT
+    );
+    CREATE TABLE users (
+      id TEXT PRIMARY KEY
     );
   `);
 }
@@ -57,12 +71,15 @@ async function seedPoem({
         occasion,
         tone,
         verses,
+        message,
         status,
         funding_source,
+        og_variant,
+        audio_generated_at,
         deleted_at,
         created_at,
         updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       id,
@@ -72,8 +89,11 @@ async function seedPoem({
       "birthday",
       "heartfelt",
       JSON.stringify(["Line one"]),
+      null,
       "generated",
       fundingSource,
+      null,
+      null,
       deletedAt,
       "2026-06-28T04:00:00.000Z",
       "2026-06-28T04:00:00.000Z",
@@ -301,6 +321,110 @@ describe("PoemLibraryRepository", () => {
       share_token_id: "poem_share_upsert",
       added_at: "2026-06-28T04:22:00.000Z",
       removed_at: null,
+    });
+  });
+
+  test("createPoem and updatePoem persist route-owned poem fields", async () => {
+    await repository.createPoem({
+      id: "poem_created_repo",
+      userId: "user_repo",
+      title: "Draft Title",
+      recipientName: "Maya",
+      occasion: "birthday",
+      tone: "heartfelt",
+      versesJson: "[]",
+      message: "Draft message",
+      status: "draft",
+      createdAt: "2026-06-28T07:00:00.000Z",
+      updatedAt: "2026-06-28T07:00:00.000Z",
+    });
+
+    let row = await repository.getPoemById("poem_created_repo");
+    assert.equal(row.title, "Draft Title");
+    assert.equal(row.message, "Draft message");
+    assert.equal(row.status, "draft");
+
+    await repository.updatePoem({
+      poemId: "poem_created_repo",
+      title: "Updated Title",
+      recipientName: "Ada",
+      occasion: "anniversary",
+      tone: "funny",
+      message: "Updated message",
+      versesJson: JSON.stringify(["Updated line"]),
+      status: "published",
+      updatedAt: "2026-06-28T07:01:00.000Z",
+    });
+
+    row = await repository.getLivePoemById("poem_created_repo");
+    assert.equal(row.title, "Updated Title");
+    assert.equal(row.recipient_name, "Ada");
+    assert.equal(row.occasion, "anniversary");
+    assert.equal(row.tone, "funny");
+    assert.equal(row.message, "Updated message");
+    assert.equal(row.verses, JSON.stringify(["Updated line"]));
+    assert.equal(row.status, "published");
+    assert.equal(row.updated_at, "2026-06-28T07:01:00.000Z");
+  });
+
+  test("generation, OG variant, and audio timestamp helpers update poem state", async () => {
+    await seedPoem({
+      id: "poem_generation_repo",
+      userId: "user_repo",
+      title: "Generation Poem",
+    });
+
+    await repository.markPoemGenerated({
+      poemId: "poem_generation_repo",
+      versesJson: JSON.stringify(["Generated line"]),
+      updatedAt: "2026-06-28T08:00:00.000Z",
+    });
+    await repository.updatePoemOgVariant({
+      poemId: "poem_generation_repo",
+      variant: "whisper",
+      updatedAt: "2026-06-28T08:01:00.000Z",
+    });
+    await repository.markPoemAudioGenerated({
+      poemId: "poem_generation_repo",
+      generatedAt: "2026-06-28T08:02:00.000Z",
+    });
+
+    let row = await repository.getPoemById("poem_generation_repo");
+    assert.equal(row.status, "generated");
+    assert.equal(row.verses, JSON.stringify(["Generated line"]));
+    assert.equal(row.og_variant, "whisper");
+    assert.equal(row.audio_generated_at, "2026-06-28T08:02:00.000Z");
+    assert.equal(row.updated_at, "2026-06-28T08:02:00.000Z");
+
+    await repository.markPoemGenerationFailed("poem_generation_repo");
+    row = await repository.getPoemById("poem_generation_repo");
+    assert.equal(row.status, "generation_failed");
+  });
+
+  test("lookup helpers return gift snapshots, credits, and user presence", async () => {
+    await db
+      .prepare(
+        "INSERT INTO gift_orders (id, content_snapshot_json) VALUES (?, ?)",
+      )
+      .run("gift_repo", JSON.stringify({ title: "Gift Snapshot" }));
+    await db
+      .prepare(
+        "INSERT INTO entitlements (user_id, poems_remaining) VALUES (?, ?)",
+      )
+      .run("user_repo", 3);
+    await db.prepare("INSERT INTO users (id) VALUES (?)").run("user_repo");
+
+    assert.deepEqual(
+      await repository.getGiftOrderContentSnapshot("gift_repo"),
+      {
+        content_snapshot_json: JSON.stringify({ title: "Gift Snapshot" }),
+      },
+    );
+    assert.deepEqual(await repository.getPoemCreditBalance("user_repo"), {
+      poems_remaining: 3,
+    });
+    assert.deepEqual(await repository.getUserPresence("user_repo"), {
+      id: "user_repo",
     });
   });
 
