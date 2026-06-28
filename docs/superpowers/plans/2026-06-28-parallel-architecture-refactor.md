@@ -100,7 +100,9 @@ Root 1 is complete only when that scan has no direct persistence hits outside co
 - Root 6 attribution-health follow-up is committed as `2e371736`. The next
   Root 6 slice extracted admin gift-ops routes into
   `src/routes/admin/gift-ops.js`.
-- Next controller queue: commit the gift-ops route split, then continue with
+- Root 6 gift-ops route split is committed as `68a40107`. The next Root 6
+  slice extracted admin blog CMS routes into `src/routes/admin/blog.js`.
+- Next controller queue: commit the blog CMS route split, then continue with
   another characterized non-billing admin group. Provider/queue controls need
   route characterization first. Security config/App Store sync needs route
   characterization first; billing/entitlements remain last.
@@ -1709,6 +1711,14 @@ Gift-ops route slice completed locally:
 - Gift-ops schema migration error handling and read-role constants moved with
   the route group.
 - Existing gift-ops route and repository coverage remains green.
+
+Blog CMS route slice completed locally:
+
+- `src/routes/admin/blog.js` owns admin blog list/detail/create/update/preview,
+  autofill, review, repair, publish, and unpublish routes.
+- Blog payload validation and target-intent constants moved with the blog route
+  group.
+- Existing blog CMS and public blog lifecycle coverage remains green.
 
 - [ ] **Step 3: Run admin validation**
 
