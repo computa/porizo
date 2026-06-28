@@ -61,9 +61,12 @@ Root 1 is complete only when that scan has no direct persistence hits outside co
 - Root 6 music diagnostics route split is committed as `bfe7cd4e`. The next
   Root 6 slice extracted admin job/DLQ/step-history routes into
   `src/routes/admin/job-ops.js` and added route-level coverage.
-- Next controller queue: commit the job-ops route split, then continue one
-  non-billing admin route group per slice before the billing/admin entitlement
-  slice.
+- Root 6 job-ops route split is committed as `fcd528cf`. The next Root 6 slice
+  extracted admin feature-flag routes into `src/routes/admin/feature-flags.js`
+  and added route-level coverage.
+- Next controller queue: commit the feature-flag route split, then extract the
+  demo-share route group before continuing one non-billing admin route group per
+  slice ahead of the billing/admin entitlement slice.
 
 ## File Structure Map
 
@@ -1557,6 +1560,16 @@ Job-ops slice completed locally:
   admin DLQ reprocess requeues the same job while workflow DLQ reprocess creates
   a new job, DLQ list includes reprocessed entries, route failure envelopes are
   still broad 400s, and step-history returns empty for missing jobs.
+
+Feature-flag route slice completed locally:
+
+- `src/routes/admin/feature-flags.js` owns
+  `/admin/dashboard/feature-flags` GET/PUT.
+- `src/routes/admin.js` now registers the feature-flag module instead of
+  defining those handlers inline.
+- `test/admin-feature-flag-routes.test.js` pins the admin session gate,
+  superadmin-only mutation, empty-body validation, service-level validation
+  envelope, and successful persisted update behavior.
 
 - [ ] **Step 3: Run admin validation**
 
