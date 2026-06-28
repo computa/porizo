@@ -1478,8 +1478,11 @@ read-only admin story-session routes are also extracted locally into
 and detail payload behavior. Admin moderation queue/override routes are also
 extracted locally into `src/routes/admin/moderation.js`, preserving queue
 pagination, superadmin-only override authorization, reason validation, error
-envelopes, and audit behavior. Remaining Root 6 work is the rest of the admin
-route/service split by concern, with billing/entitlement left last.
+envelopes, and audit behavior. The read-only music diagnostics route is also
+extracted locally into `src/routes/admin/music-diagnostics.js`, preserving
+auth, filters, limit parsing, error envelope, and response shape. Remaining
+Root 6 work is the rest of the admin route/service split by concern, with
+billing/entitlement left last.
 **Boundary:** Do the `getAppConfig` eviction + non-billing splits first (🟡). Do the billing/entitlement admin slice **last** (⚠ 🔴) with production verification.
 
 ### Root 7 — Writer cycle + god-file decomposition 🟡 effort M

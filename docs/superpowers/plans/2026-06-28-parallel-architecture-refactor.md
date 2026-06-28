@@ -55,7 +55,10 @@ Root 1 is complete only when that scan has no direct persistence hits outside co
   slice extracted admin moderation queue/override routes into
   `src/routes/admin/moderation.js` and tightened route coverage for
   unauthenticated access plus superadmin-only override behavior.
-- Next controller queue: commit the moderation route split, then continue one
+- Root 6 moderation route split is committed as `4d1874ea`. The next Root 6
+  slice extracted the read-only music diagnostics route into
+  `src/routes/admin/music-diagnostics.js`.
+- Next controller queue: commit the music diagnostics route split, then continue one
   non-billing admin route group per slice before the billing/admin entitlement
   slice.
 
@@ -1527,6 +1530,14 @@ Moderation slice completed locally:
   those handlers inline.
 - `test/admin-moderation-routes.test.js` now covers unauthenticated queue
   access and verifies override remains superadmin-only before mutation.
+
+Music diagnostics slice completed locally:
+
+- `src/routes/admin/music-diagnostics.js` owns
+  `/admin/dashboard/music/diagnostics`.
+- `src/routes/admin.js` now registers the music diagnostics module instead of
+  defining the handler inline.
+- Existing focused route/repository diagnostics coverage remained green.
 
 - [ ] **Step 3: Run admin validation**
 
