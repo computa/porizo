@@ -19,6 +19,20 @@ function normalizeOccasion(value) {
   return trimText(value).toLowerCase().replace(/[\s_]+/g, "-");
 }
 
+/** Split normalized prose into sentence-like chunks. */
+function splitSentences(value, options = {}) {
+  const normalized = normalizeText(value);
+  if (!normalized) return [];
+  const sentences = normalized
+    .split(/(?<=[.!?])\s+/)
+    .map((sentence) => normalizeText(sentence))
+    .filter(Boolean);
+  const limit = Number(options.limit);
+  return Number.isFinite(limit) && limit >= 0
+    ? sentences.slice(0, limit)
+    : sentences;
+}
+
 /** Human-readable occasion display text (e.g., "happy_birthday" → "happy birthday"). */
 function displayOccasion(value) {
   return trimText(value || "celebration").replace(/[_-]+/g, " ");
@@ -33,4 +47,11 @@ function stripFormulaicOpener(text) {
   return text.replace(/^This\s+\w+\s+story\s+is\s+about\s+\w+[\w\s]*\.\s*/i, "").trim();
 }
 
-module.exports = { normalizeText, trimText, normalizeOccasion, displayOccasion, stripFormulaicOpener };
+module.exports = {
+  normalizeText,
+  trimText,
+  normalizeOccasion,
+  splitSentences,
+  displayOccasion,
+  stripFormulaicOpener,
+};

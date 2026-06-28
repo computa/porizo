@@ -21,7 +21,7 @@ const {
   narrativeCoversAnchors,
 } = require("./narrative");
 const { assessStateGrounding, createFactId } = require("./state");
-const { normalizeOccasion, normalizeText, stripFormulaicOpener } = require("./utils");
+const { normalizeOccasion, normalizeText, splitSentences, stripFormulaicOpener } = require("./utils");
 
 /**
  * Occasion-based suggestion chips for story questions.
@@ -354,16 +354,6 @@ const MAX_EXTRACTED_FACT_LENGTH = 220;
 const MAX_FALLBACK_SENTENCES = 16;
 const FACT_NEGATION_REGEX = /\b(?:not|never|no longer|didn't|couldn't|cannot|can't|wasn't|weren't|without)\b/i;
 
-function splitSentences(text) {
-  const normalized = normalizeText(text);
-  if (!normalized) return [];
-  return normalized
-    .split(/(?<=[.!?])\s+/)
-    .map(part => normalizeText(part))
-    .filter(Boolean)
-    .slice(0, MAX_FALLBACK_SENTENCES);
-}
-
 function findTurningPointSentence(sentences) {
   for (const sentence of sentences) {
     if (FALLBACK_TURN_REGEX.test(sentence)) return sentence;
@@ -452,7 +442,7 @@ function deriveFallbackPatch(state, userInput) {
   const text = normalizeText(userInput);
   if (!text) return null;
 
-  const sentences = splitSentences(text);
+  const sentences = splitSentences(text, { limit: MAX_FALLBACK_SENTENCES });
   const who = extractWho(text, state?.recipient_name);
   const where = extractPlace(sentences);
   const when = findSentenceByRegex(sentences, FALLBACK_TIME_REGEX) || "";

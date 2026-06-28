@@ -6,7 +6,7 @@
  * @module writer/v3/narrative
  */
 
-const { normalizeText } = require("./utils");
+const { normalizeText, splitSentences } = require("./utils");
 
 function isFactActive(fact) {
   if (!fact || typeof fact !== "object") return false;
@@ -16,13 +16,6 @@ function isFactActive(fact) {
 
 function getActiveFacts(facts) {
   return (Array.isArray(facts) ? facts : []).filter(isFactActive);
-}
-
-function splitSentences(text) {
-  return normalizeText(text)
-    .split(/(?<=[.!?])\s+/)
-    .map(sentence => sentence.replace(/\s+/g, " ").trim())
-    .filter(Boolean);
 }
 
 function ensureSentence(text) {
