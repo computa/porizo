@@ -1603,11 +1603,10 @@ writer `factText` through `story-semantics.js`. The songwriter↔v3
 contract-validation cycle is now gone; `v3/index.js` imports contract validation
 from the leaf module instead of lazy-requiring `songwriter.js`; deterministic
 semantic story package repair, runtime question helpers, and ready-confirmation
-text are also out of the god file, and turn-decision result assembly is ready for
-the larger `resolveTurnDecision` move. Focused V3/writer validation and lint
-passed for each slice. Remaining Root 7 work: extract the remaining legacy
-slot-analysis cluster from `quality.js`, extract the now-narrower
-`resolveTurnDecision` orchestration from `v3/index.js`, and add the later
+text are also out of the god file, and `resolveTurnDecision` now lives in
+`v3/turn-decision.js` with its canonical result assembler. Focused V3/writer
+validation and lint passed for each slice. Remaining Root 7 work: extract the
+remaining legacy slot-analysis cluster from `quality.js` and add the later
 test-file parity coverage for shared sanitizer/leaf helpers.
 **Boundary:** Do NOT alter LLM prompts or generation behavior — structural extraction only, with golden-output regression tests before/after.
 
