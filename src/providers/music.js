@@ -11,6 +11,7 @@ const {
   normalizeStringArray,
 } = require("./style-registry");
 const { writeWav } = require("../utils/audio");
+const { getVersionDir } = require("../utils/common");
 
 function deterministicRangeInt({ min, max, seed }) {
   if (!Number.isFinite(min) || !Number.isFinite(max) || max <= min) {
@@ -316,13 +317,7 @@ function buildMusicPlan({ style, durationTarget, provider, seed = null, styleOve
 }
 
 function renderInstrumental({ storageDir, track, trackVersion, kind }) {
-  const versionDir = path.join(
-    storageDir,
-    "tracks",
-    track.user_id,
-    track.id,
-    `v${trackVersion.version_num}`
-  );
+  const versionDir = getVersionDir(storageDir, track, trackVersion);
   const fileName = kind === "preview" ? "inst_preview.wav" : "inst_full.wav";
   writeWav(path.join(versionDir, fileName), {
     durationSec: kind === "preview" ? 6 : 12,
@@ -332,13 +327,7 @@ function renderInstrumental({ storageDir, track, trackVersion, kind }) {
 }
 
 function renderGuideVocal({ storageDir, track, trackVersion, kind }) {
-  const versionDir = path.join(
-    storageDir,
-    "tracks",
-    track.user_id,
-    track.id,
-    `v${trackVersion.version_num}`
-  );
+  const versionDir = getVersionDir(storageDir, track, trackVersion);
   const fileName = kind === "preview" ? "guide_vocal.wav" : "guide_vocal_full.wav";
   writeWav(path.join(versionDir, fileName), {
     durationSec: kind === "preview" ? 4 : 10,

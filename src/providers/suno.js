@@ -6,6 +6,7 @@ const { fetchJson, ensureDir } = require("./http");
 const { pollWithBackoff, createPollingConfig } = require("../utils/polling");
 const { normalizeStyle, getStyle } = require("./style-registry");
 const { trackProviderAudioKey } = require("../storage");
+const { getVersionDir } = require("../utils/common");
 const config = require("../config");
 const execFileAsync = promisify(execFile);
 
@@ -651,13 +652,7 @@ async function downloadSunoAudio({
   );
   console.log(`[Suno] Downloading audio from: ${audioUrl}`);
 
-  const versionDir = path.join(
-    storageDir,
-    "tracks",
-    track.user_id,
-    track.id,
-    `v${trackVersion.version_num}`,
-  );
+  const versionDir = getVersionDir(storageDir, track, trackVersion);
   ensureDir(versionDir);
 
   const audioResponse = await fetch(audioUrl);

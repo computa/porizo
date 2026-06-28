@@ -35,7 +35,8 @@ Root 1 is complete only when that scan has no direct persistence hits outside co
 - Root 4 Slice 3 routes `/health/providers` through the same normalized provider-config factory instead of direct `process.env` reads, and pins the admin route guard so valid admin access cannot hide a 500 behind a loose auth assertion.
 - Root 4 Slice 4 centralizes `music_provider_config` defaults, JSON parsing, lenient persisted-read normalization, strict admin patch validation, Suno-only routing normalization, Suno model allowlisting, reroll clamps, and style override sanitation in `src/providers/provider-config.js`; admin-service and runner now consume the same helpers.
 - Root 4 Slice 5 moves Whisper/OpenAI transcription credentials into normalized provider runtime config. Story audio routes and runner lyric alignment now pass explicit Whisper config, and `src/providers/whisper.js` no longer reads `process.env.OPENAI_API_KEY` directly.
-- Next controller queue: validate and commit Root 4 Slice 5, then continue Root 4 with provider storage path helper cleanup or enter the revenue-gated Root 2 path.
+- Root 4 Slice 6 replaces provider-side manual local track-version directory construction in `music.js` and `suno.js` with the shared `getVersionDir()` helper.
+- Next controller queue: validate and commit Root 4 Slice 6, then continue with the runner-only storage path helper cleanup or enter the revenue-gated Root 2 path.
 
 ## File Structure Map
 
