@@ -909,6 +909,11 @@ interface ShareToken {
 
 ### API Endpoints
 
+Public HTTP error responses use the flat envelope documented in
+[`docs/api/error-envelope.md`](api/error-envelope.md). Endpoint-specific
+top-level fields shown below are existing contracts; do not infer a nested
+`{ error: { code, message, details } }` envelope from these examples.
+
 ```
 # Creator creates share token
 POST /tracks/{id}/share
@@ -955,14 +960,14 @@ POST /share/{share_id}/claim
 	  app_save_allowed: true,
 	  expires_at: "2025-02-28T00:00:00Z"
 	}
-	Response (bound): { error: "TOKEN_ALREADY_BOUND" }
+	Response (bound): { error: "TOKEN_ALREADY_BOUND", message: "Share token is already bound." }
 
 # App stream (bound device only)
 GET /share/{share_id}/stream
 	Headers: { X-Device-Id: "...", X-Platform: "ios" }
 	Response (bound): { stream_url: "...", expires_at: "..." }
-	Response (unbound): { error: "NOT_CLAIMED" }
-	Response (different device): { error: "TOKEN_ALREADY_BOUND" }
+	Response (unbound): { error: "NOT_CLAIMED", message: "Share token has not been claimed." }
+	Response (different device): { error: "TOKEN_ALREADY_BOUND", message: "Share token is already bound to another device." }
 
 # Creator revokes access
 DELETE /tracks/{id}/share

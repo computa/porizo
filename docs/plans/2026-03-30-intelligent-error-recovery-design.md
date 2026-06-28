@@ -123,7 +123,7 @@ The classification matrix MUST be derived from `src/utils/step-classification.js
 |---------|---------------|----------|
 | Missing required detail (`can_confirm === false`) | User-must-act, permanent | `needs_input` with specific follow-up question from `missingBlocks` data |
 | Semantic integrity needs user input | User-must-act, permanent | Use existing exhaustion override mechanism (`MAX_REPEAT_SEMANTIC_ASKS = 1`). If user already answered once, the system auto-overrides. Don't bypass the ask — it's a quality signal. |
-| `STORY_REVISION_CLARIFY_REQUIRED` | User-must-act, permanent | Already a proto-`needs_input` pattern (returns `follow_up_question` in details). Upgrade to recovery envelope format. |
+| `STORY_REVISION_CLARIFY_REQUIRED` | User-must-act, permanent | Already a proto-`needs_input` pattern with endpoint-specific guidance fields. Keep top-level `error` and `message`, then document any top-level recovery fields per `docs/api/error-envelope.md`. |
 | LLM reasoning timeout | System-can-fix, transient | Auto-retry with shorter context — BUT only in async path. For sync confirm route, return `needs_input` immediately. |
 | Story version conflict | System-can-fix, transient | Auto-retry once (optimistic concurrency) — instant, no latency concern |
 | Content moderation on user input | User-must-act, permanent | `needs_input` with rephrasing suggestions |

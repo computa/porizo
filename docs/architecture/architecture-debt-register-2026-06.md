@@ -191,7 +191,10 @@ JWT expired.
 
 ### C2 — Error-envelope ↔ taxonomy mismatch (CRITICAL for API contract)
 
-Wire errors are a flat `{error, message, ...adhoc}` bag; the `E1xx/R2xx/B3xx/S5xx` taxonomy in CLAUDE.md is **not** what ships. iOS special-cases per endpoint (see the 422-vs-409 comment at tracks.js:1143).
+Wire errors are a flat `{error, message, ...adhoc}` bag documented in
+[`docs/api/error-envelope.md`](../api/error-envelope.md); the
+`E1xx/R2xx/B3xx/S5xx` taxonomy in CLAUDE.md is **not** what ships. iOS
+special-cases per endpoint (see the 422-vs-409 comment at tracks.js:1143).
 
 - **Smallest fix (non-breaking):** document the _actual_ current envelope as the official contract during Root 0, freeze ad-hoc top-level keys, and reconcile CLAUDE.md. A nested `{error:{code,message,details}}` migration is a separate, client-coordinated effort behind a version header.
 - **Gate:** client-coupled. Document-first; no wire change without iOS coordination.

@@ -1103,7 +1103,7 @@ Expected: one Root 2 commit.
 - Modify: `docs/architecture/architecture-debt-register-2026-06.md`
 - Modify or create: `docs/api/error-envelope.md`
 
-- [ ] **Step 1: Document actual current error envelope**
+- [x] **Step 1: Document actual current error envelope**
 
 Create or update `docs/api/error-envelope.md` with:
 
@@ -1122,16 +1122,16 @@ The current public HTTP error envelope is a flat object:
 Endpoint-specific top-level fields may exist for already-shipped contracts. New endpoints must not add undocumented top-level error fields. A nested versioned envelope is a future client-coordinated migration and is not part of this refactor.
 ````
 
-- [ ] **Step 2: Reconcile architecture docs**
+- [x] **Step 2: Reconcile architecture docs**
 
 Replace claims that the wire format is already `{ error: { code, message, details } }` with links to `docs/api/error-envelope.md`.
 
-- [ ] **Step 3: Commit C2 docs**
+- [x] **Step 3: Commit C2 docs**
 
 Run:
 
 ```bash
-git add CLAUDE.md docs/architecture-and-flows.md docs/architecture/architecture-debt-register-2026-06.md docs/api/error-envelope.md
+git add CLAUDE.md docs/architecture-and-flows.md docs/architecture/architecture-debt-register-2026-06.md docs/architecture/architecture-map-2026-06.md docs/api/error-envelope.md docs/plans/2026-03-30-intelligent-error-recovery-design.md docs/superpowers/plans/2026-06-28-parallel-architecture-refactor.md
 git commit -m "docs: freeze current API error envelope"
 ```
 

@@ -250,7 +250,7 @@ These are **not** cosmetic. They were surfaced by the formal review and must be 
   `requireUserId` to require a live, unrevoked session and reject soft-deleted
   users. Root 2 still needs to consolidate the duplicate guards into one
   middleware and production verification is still required.
-- **Error-envelope drift (CRITICAL for API contract).** The wire error shape is a flat `{error, message, ...adhoc-keys}` bag; the documented `E1xx/R2xx/B3xx/S5xx` taxonomy in CLAUDE.md **does not match the actual wire codes** (`RATE_LIMITED`, `VOICE_PROFILE_REQUIRED`, …). Clients special-case per endpoint.
+- **Error-envelope drift (CRITICAL for API contract).** The wire error shape is a flat `{error, message, ...adhoc-keys}` bag documented in [`docs/api/error-envelope.md`](../api/error-envelope.md); the documented `E1xx/R2xx/B3xx/S5xx` taxonomy in CLAUDE.md **does not match the actual wire codes** (`RATE_LIMITED`, `VOICE_PROFILE_REQUIRED`, ...). Clients special-case per endpoint.
 
 > These two live on the revenue path and require owner review plus production verification. C1 is patched locally but still needs production verification; C2 should be document-first with no wire change until iOS and API contracts are coordinated.
 
