@@ -1542,6 +1542,9 @@ Admin blog CMS route ownership is also extracted locally into
 `src/routes/admin/blog.js`, preserving blog list/detail/create/update/preview,
 autofill, review, repair, publish/unpublish, validation, audit, and public
 blog lifecycle behavior.
+Admin track-transfer route ownership is also extracted locally into
+`src/routes/admin/track-transfer.js`, preserving superadmin-only transfer,
+active-job, soft-deleted-user, audit, share-reset, and verification behavior.
 Security config/App Store sync and `/admin/auth/*` remain separate higher-risk
 slices. Remaining Root 6 work is the rest of the admin route/service split by
 concern, with billing/entitlement left last.
