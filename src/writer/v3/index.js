@@ -81,20 +81,21 @@ const { composeTurn } = require("./kernel/composer");
 const { buildBudgetTelemetry, buildPlannerTelemetry } = require("./kernel/telemetry");
 const { ensureNarrativeAfterStateUpdate, applyTurnStateUpdate } = require("./kernel/state-update");
 const {
-  deriveStoryBlockProfile,
-  evaluateNarrativeBlockCoverage,
-  repairNarrativeFromBlockProfile,
-  repairSongMapWithProfile,
+  MAX_REPEAT_SEMANTIC_ASKS,
+  getCanonicalNarrative,
+  buildSemanticBlockSignature,
+  ensureSemanticStoryIntegrity,
+  ensureCompletedStoryPackage,
+} = require("./semantic-story-package");
+const {
   extractRetainedDetails,
   computeDetailCoverage,
 } = require("../story-semantics");
-const { validateSongContract } = require("../song-contract");
 const { generateText, isAvailable: isLLMAvailable } = require("../../services/llm-provider");
 const { StoryVersionConflictError } = require("../../database/story-repository");
 
 // Engine version identifier
 const ENGINE_VERSION = "v3";
-const MAX_REPEAT_SEMANTIC_ASKS = 1;
 const SUPPORTED_RUNTIME_ENGINE_VERSIONS = new Set(["v2", "v3"]);
 const REVISION_SOURCES = new Set(["review_edit", "confirm_notes", "reopen_edit"]);
 const REVISION_OPERATION_TYPES = new Set(["append", "replace", "remove", "resolve_conflict", "final_notes"]);
@@ -369,17 +370,6 @@ function normalizeRuntimeEngineVersion(value, fallback = ENGINE_VERSION) {
   return fallback;
 }
 
-function getCanonicalNarrative(state) {
-  if (!state || typeof state !== "object") return "";
-  if (typeof state.narrative_current === "string" && state.narrative_current.trim()) {
-    return state.narrative_current;
-  }
-  if (typeof state.narrative === "string") {
-    return state.narrative;
-  }
-  return "";
-}
-
 function isRichStoryTurn(text) {
   const normalized = typeof text === "string" ? text.trim() : "";
   if (!normalized) return false;
@@ -403,20 +393,6 @@ function getReasoningCondenseLimit(text, { initial = false } = {}) {
     return 1700;
   }
   return initial ? 3200 : 2400;
-}
-
-function buildSemanticBlockSignature(semanticStory = {}) {
-  const missing = Array.isArray(semanticStory?.missing_narrative_blocks)
-    ? [...semanticStory.missing_narrative_blocks].sort()
-    : [];
-  const weak = Array.isArray(semanticStory?.weak_contract_sections)
-    ? [...semanticStory.weak_contract_sections].sort()
-    : [];
-  return JSON.stringify({
-    missing,
-    weak,
-    duplicated: Boolean(semanticStory?.duplicated_thesis),
-  });
 }
 
 function countConsecutiveSemanticAsks(history, signature) {
@@ -1042,263 +1018,6 @@ function buildDraftMetadataBundle(state, sessionId, engineVersion, { beforeScore
     pendingRevision: buildPendingRevision(state),
     storyProvenance: buildStoryProvenance(state, sessionId, engineVersion),
   };
-}
-
-function applySemanticNarrativeRepair(state, narrative, missingBlocks = []) {
-  const nextNarrative = typeof narrative === "string" ? narrative.trim() : "";
-  if (!nextNarrative || nextNarrative === getCanonicalNarrative(state)) {
-    return state;
-  }
-
-  const now = new Date().toISOString();
-  const nextVersion = Math.max(Number(state?.narrative_version || 0), 0) + 1;
-  const revisionEntry = {
-    version: nextVersion,
-    turn: state?.turn_count || 0,
-    narrative: nextNarrative,
-    timestamp: now,
-    integration: {
-      added_facts: [],
-      updated_facts: [],
-      superseded_facts: [],
-      semantic_repair: true,
-      repaired_blocks: [...missingBlocks],
-    },
-  };
-  const integrationDelta = {
-    turn: state?.turn_count || 0,
-    timestamp: now,
-    added_facts: [],
-    updated_facts: [],
-    superseded_facts: [],
-    conflicts_detected: [],
-    conflicts_resolved: [],
-    narrative_rewritten: true,
-    semantic_repair: true,
-    repaired_blocks: [...missingBlocks],
-  };
-
-  return {
-    ...state,
-    narrative: nextNarrative,
-    narrative_current: nextNarrative,
-    narrative_version: nextVersion,
-    narrative_revisions: [...(Array.isArray(state?.narrative_revisions) ? state.narrative_revisions : []), revisionEntry].slice(-40),
-    integration_history: [...(Array.isArray(state?.integration_history) ? state.integration_history : []), integrationDelta].slice(-40),
-    last_integration_delta: integrationDelta,
-    updated_at: now,
-  };
-}
-
-function ensureSemanticStoryIntegrity(state) {
-  if (!state || typeof state !== "object") return state;
-
-  const blockProfile = deriveStoryBlockProfile(state);
-  let nextState = state;
-  let repairedNarrative = false;
-  let repairedSongMap = false;
-  let narrativeCoverage = evaluateNarrativeBlockCoverage(getCanonicalNarrative(nextState), blockProfile);
-
-  if ((blockProfile.enforcedNarrativeBlocks || []).length > 0 && narrativeCoverage.missingBlocks.length > 0) {
-    const repaired = repairNarrativeFromBlockProfile(getCanonicalNarrative(nextState), blockProfile);
-    if (repaired.repaired && repaired.narrative) {
-      nextState = applySemanticNarrativeRepair(nextState, repaired.narrative, repaired.addedBlocks);
-      repairedNarrative = true;
-      narrativeCoverage = repaired.coverage;
-    }
-  }
-
-  const songMapRepair = repairSongMapWithProfile(nextState.song_map, nextState, { blockProfile });
-  if (songMapRepair.repaired) {
-    nextState = {
-      ...nextState,
-      song_map: songMapRepair.song_map,
-      updated_at: new Date().toISOString(),
-    };
-    repairedSongMap = true;
-  }
-
-  const baseSemanticValidity = {
-    rich_story: blockProfile.richStory,
-    required_blocks: blockProfile.requiredBlocks,
-    enforced_narrative_blocks: blockProfile.enforcedNarrativeBlocks || [],
-    missing_narrative_blocks: narrativeCoverage.missingBlocks,
-    contract_valid: songMapRepair.report.valid,
-    weak_contract_sections: songMapRepair.report.weakSections,
-    duplicated_thesis: songMapRepair.report.duplicatedThesis,
-    repaired_narrative: repairedNarrative,
-    repaired_song_map: repairedSongMap,
-  };
-  const semanticSignature = buildSemanticBlockSignature(baseSemanticValidity);
-  const overrideActive = state?.semantic_override?.signature === semanticSignature
-    && Number(state?.semantic_override?.count || 0) >= MAX_REPEAT_SEMANTIC_ASKS;
-  const nextSemanticValidity = {
-    ...baseSemanticValidity,
-    can_confirm: overrideActive || (narrativeCoverage.missingBlocks.length === 0 && songMapRepair.report.valid),
-    exhaustion_override: overrideActive,
-  };
-  const previousSemanticValidity = nextState.semantic_story && typeof nextState.semantic_story === "object"
-    ? { ...nextState.semantic_story }
-    : null;
-  if (previousSemanticValidity && typeof previousSemanticValidity === "object") {
-    delete previousSemanticValidity.updated_at;
-  }
-  const semanticValidity = previousSemanticValidity && isDeepStrictEqual(previousSemanticValidity, nextSemanticValidity)
-    ? nextState.semantic_story
-    : {
-      ...nextSemanticValidity,
-      updated_at: new Date().toISOString(),
-    };
-
-  return {
-    ...nextState,
-    semantic_story: semanticValidity,
-  };
-}
-
-/**
- * Build or update the completed story package on state.
- *
- * The package captures:
- * - retained_details: normalized inventory of concrete details from all sources
- * - detail_coverage_map: per-detail status (preserved/paraphrased/missing) vs prose
- * - semantic_block_profile: story block presence (setup, conflict, turn, transformation, meaning)
- * - prose: the authoritative completed story narrative
- *
- * Built once when narrative is first ready, then updated incrementally on follow-up turns.
- *
- * DESIGN: Two-tier narrative repair
- *
- *   Per-turn (this function): Append-only repair.
- *     Fast, no LLM call, keeps per-turn latency < 200ms.
- *     Missing required details are appended as sentences.
- *
- *   At confirmation (confirmStoryV3): LLM-powered rewrite.
- *     Weaves missing details naturally into prose. 8s timeout.
- *     Only fires when requiredMissing/requiredTotal < 0.4.
- *     Fallback: append-only result preserved on failure.
- *
- *   This is deliberate: per-turn LLM rewrite would add ~$0.02/turn
- *   (estimate) and 5-8s latency per chat message.
- *
- * @param {Object} state - V3 story state
- * @param {Object} context - Story context with facts, conversation, initial_prompt
- * @returns {{ state: Object, repaired: boolean, coverage: Object }}
- */
-const COMPLETED_STORY_SCHEMA_VERSION = 2;
-
-function ensureCompletedStoryPackage(state, context) {
-  if (!state || typeof state !== "object") {
-    return { state, repaired: false, coverage: null };
-  }
-
-  const narrative = getCanonicalNarrative(state);
-  if (!narrative) {
-    return { state, repaired: false, coverage: null };
-  }
-
-  // If package already exists, narrative hasn't changed, and schema is current, reuse it
-  const existing = state.completed_story_package;
-  if (
-    existing &&
-    typeof existing === "object" &&
-    existing.prose === narrative &&
-    existing.schema_version === COMPLETED_STORY_SCHEMA_VERSION &&
-    Array.isArray(existing.retained_details) &&
-    existing.retained_details.length > 0
-  ) {
-    // Lazy backfill: add content-hash IDs to existing details that lack them
-    if (existing.retained_details.some(d => !d.id)) {
-      const { detailId, normalizeKey } = require("../story-semantics");
-      existing.retained_details.forEach(d => {
-        if (!d.id) d.id = detailId(d.category, normalizeKey(d.text));
-      });
-    }
-    return { state, repaired: false, coverage: existing.detail_coverage_map };
-  }
-
-  // Extract retained details from all source material
-  const retainedDetails = extractRetainedDetails(context || state);
-  if (!retainedDetails.length) {
-    return { state, repaired: false, coverage: null };
-  }
-
-  // Compute coverage of retained details against current narrative
-  let coverage = computeDetailCoverage(retainedDetails, narrative);
-  let repairedNarrative = narrative;
-  let repaired = false;
-
-  // If required details are missing, attempt additive repair (one pass only)
-  if (coverage.stats.requiredMissing > 0) {
-    const missingSentences = coverage.missingRequired
-      .map((entry) => entry.text)
-      .filter((text) => typeof text === "string" && text.trim().length > 0);
-
-    if (missingSentences.length > 0) {
-      // Additive: append missing detail sentences to the narrative
-      const suffix = missingSentences.join(" ");
-      repairedNarrative = `${narrative.trimEnd()} ${suffix}`;
-      coverage = computeDetailCoverage(retainedDetails, repairedNarrative);
-      repaired = true;
-    }
-  }
-
-  const blockProfile = deriveStoryBlockProfile(context || state);
-
-  // Warn when condensation may have caused detail loss
-  const detailBudgetWarning =
-    repairedNarrative.length > 3000 && coverage.stats.coverageRate < 0.8
-      ? `Story is ${repairedNarrative.length} characters with ${coverage.stats.missing} details below coverage threshold. Consider focusing on the most important moments.`
-      : null;
-
-  const completedStoryPackage = {
-    prose: repairedNarrative,
-    retained_details: retainedDetails,
-    detail_coverage_map: coverage,
-    semantic_block_profile: blockProfile,
-    detail_budget_warning: detailBudgetWarning,
-    schema_version: COMPLETED_STORY_SCHEMA_VERSION,
-    built_at: new Date().toISOString(),
-  };
-
-  let nextState = state;
-
-  // If narrative was repaired, apply through the standard repair path
-  if (repaired && repairedNarrative !== narrative) {
-    nextState = applySemanticNarrativeRepair(nextState, repairedNarrative, ["detail_coverage_repair"]);
-  }
-
-  // Re-derive song_map from repaired prose (don't use stale pre-repair blockProfile)
-  if (repaired && nextState.song_map) {
-    const freshProfile = deriveStoryBlockProfile(nextState);
-    const reDerived = repairSongMapWithProfile(nextState.song_map, nextState, { blockProfile: freshProfile });
-
-    // Guard: only accept if re-derivation improves or maintains validity
-    const oldValid = validateSongContract?.(nextState)?.valid;
-    const newState = { ...nextState, song_map: reDerived.song_map };
-    const newValid = validateSongContract?.(newState)?.valid;
-
-    if (newValid || !oldValid) {
-      // Accept: either new is valid, or old wasn't valid either (can't get worse)
-      nextState = newState;
-    }
-    // else: keep original song_map (re-derivation would degrade)
-  }
-
-  nextState = {
-    ...nextState,
-    completed_story_package: completedStoryPackage,
-  };
-
-  console.log(
-    `[V3] Completed story package: ${coverage.stats.preserved}/${coverage.stats.total} preserved, ` +
-    `${coverage.stats.paraphrased} paraphrased, ${coverage.stats.requiredMissing} required missing` +
-    (repaired ? " (repaired)" : "") +
-    `${detailBudgetWarning ? ` warning=${detailBudgetWarning}` : ""}` +
-    `${coverage.missingRequired?.length ? ` missingPreview=${JSON.stringify(coverage.missingRequired.slice(0, 3))}` : ""}`,
-  );
-
-  return { state: nextState, repaired, coverage };
 }
 
 function getTurnProgressScore(state, gapAnalysis, action, elements) {
