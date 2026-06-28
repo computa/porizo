@@ -3,7 +3,7 @@
  */
 
 const { parseWavBuffer } = require("../utils/audio");
-const { calculateSNR, calculateClippingRatio, vadTrim } = require("../utils/qc");
+const { calculateSNR, calculateClippingRatio, vadTrim } = require("./enrollment-qc");
 
 // Quality thresholds by grade
 const QUALITY_THRESHOLDS = {

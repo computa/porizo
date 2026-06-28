@@ -138,7 +138,7 @@ const {
 const {
   classifyError,
   PROVIDER_STEPS,
-} = require("../utils/step-classification");
+} = require("./step-classification");
 const { createOrGetShareToken } = require("../services/share-service");
 const { upsertGiftIncident } = require("../services/gift-delivery-ops");
 const {

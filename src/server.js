@@ -1488,7 +1488,7 @@ function buildServer({
     return message;
   }
 
-  const { classifyError } = require("./utils/step-classification");
+  const { classifyError } = require("./workflows/step-classification");
 
   // Map fine-grained categories to backward-compatible wire values.
   // Old iOS clients only recognize: policy_content, policy_validation, quality_gate,
@@ -1779,7 +1779,7 @@ function buildServer({
       return null;
     }
 
-    const { classifyError } = require("./utils/step-classification");
+    const { classifyError } = require("./workflows/step-classification");
     const classification = classifyError(
       failedJob.error_message,
       failedJob.error_code,

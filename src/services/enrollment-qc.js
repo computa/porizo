@@ -2,7 +2,7 @@
  * Audio Quality Control functions for enrollment validation
  */
 
-const { parseWavBuffer } = require("./audio");
+const { parseWavBuffer } = require("../utils/audio");
 
 const WAV_HEADER_SIZE = 44;
 
