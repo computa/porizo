@@ -91,7 +91,10 @@ Root 1 is complete only when that scan has no direct persistence hits outside co
   `src/routes/admin/growth.js`.
 - Root 6 growth route split is committed as `aef0d568`. The next Root 6 slice
   extracted admin KPI dashboard routes into `src/routes/admin/kpis.js`.
-- Next controller queue: commit the KPI route split, then continue with
+- Root 6 KPI route split is committed as `480c104a`. The next Root 6 slice
+  extracted admin funnel analytics routes into
+  `src/routes/admin/analytics.js`.
+- Next controller queue: commit the analytics route split, then continue with
   another non-billing admin group. Security config/App Store sync needs
   route characterization first; billing/entitlements remain last.
 
@@ -1676,6 +1679,14 @@ KPI route slice completed locally:
 - `src/routes/admin.js` now injects `db` into the KPI module for aggregate job
   helper calls.
 - Existing KPI route coverage remains green.
+
+Analytics route slice completed locally:
+
+- `src/routes/admin/analytics.js` owns analytics overview, funnel, daily event,
+  and per-user event routes.
+- The route-level comment documenting cache and audit behavior moved with the
+  analytics routes.
+- Existing admin analytics route and service boundary coverage remains green.
 
 - [ ] **Step 3: Run admin validation**
 

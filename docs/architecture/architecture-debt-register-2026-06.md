@@ -1527,6 +1527,10 @@ existing growth/attribution suites.
 Admin KPI route ownership is also extracted locally into
 `src/routes/admin/kpis.js`, preserving aggregate and trend route contracts while
 keeping aggregate job helper calls explicit behind an injected database handle.
+Admin analytics route ownership is also extracted locally into
+`src/routes/admin/analytics.js`, preserving overview, funnel, daily event,
+per-user read, cache, clamp, and audit-log behavior covered by the existing
+analytics suite.
 Security config/App Store sync and `/admin/auth/*` remain separate higher-risk
 slices. Remaining Root 6 work is the rest of the admin route/service split by
 concern, with billing/entitlement left last.
