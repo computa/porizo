@@ -20,6 +20,7 @@ const {
 const { getStoryContextV3 } = require("./v3");
 const {
   deriveStoryBlockProfile,
+  factText,
   repairSongMapWithProfile,
   getSignificantWords,
 } = require("./story-semantics");
@@ -71,8 +72,6 @@ const STOP_WORDS_FOR_COVERAGE = new Set([
   "their", "they", "them", "you", "our", "her", "his", "she", "him", "was",
   "were", "are", "had", "has", "have", "but", "not", "all", "every", "just",
 ]);
-
-const factText = (f) => typeof f === "string" ? f : f?.text || "";
 
 const MUSIC_STYLES = Object.freeze(getStyleDisplayMap());
 
