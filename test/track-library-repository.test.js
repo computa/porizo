@@ -286,6 +286,63 @@ describe("TrackLibraryRepository", () => {
     assert.equal(row.can_delete, 1);
   });
 
+  test("getOwnedGiftTrackForLibrary returns owned gift tracks outside library", async () => {
+    await seedTrack({
+      id: "track_owned_gift",
+      userId: "user_repo",
+      title: "Owned Gift",
+      fundingSource: "gift_token",
+      shareTokenId: "share_owned_gift",
+    });
+    await seedTrack({
+      id: "track_standard",
+      userId: "user_repo",
+      title: "Standard Track",
+      fundingSource: "standard",
+    });
+    await seedTrack({
+      id: "track_other_gift",
+      userId: "other_user",
+      title: "Other Gift",
+      fundingSource: "gift_token",
+    });
+    await seedShareToken({
+      id: "share_owned_gift",
+      trackId: "track_owned_gift",
+      claimPin: "765432",
+    });
+
+    const row = await repository.getOwnedGiftTrackForLibrary({
+      userId: "user_repo",
+      trackId: "track_owned_gift",
+    });
+
+    assert.equal(row.id, "track_owned_gift");
+    assert.equal(row.library_origin, null);
+    assert.equal(row.library_added_at, null);
+    assert.equal(row.library_share_token_id, null);
+    assert.equal(row.share_claim_pin, "765432");
+    assert.equal(row.share_status, "active");
+    assert.equal(row.can_edit, 1);
+    assert.equal(row.can_share, 1);
+    assert.equal(row.can_delete, 1);
+
+    assert.equal(
+      await repository.getOwnedGiftTrackForLibrary({
+        userId: "user_repo",
+        trackId: "track_standard",
+      }),
+      undefined,
+    );
+    assert.equal(
+      await repository.getOwnedGiftTrackForLibrary({
+        userId: "user_repo",
+        trackId: "track_other_gift",
+      }),
+      undefined,
+    );
+  });
+
   test("upsertTrackLibraryEntry restores removed rows without downgrading created origin", async () => {
     await seedTrack({
       id: "track_restore",

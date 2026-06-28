@@ -5,6 +5,10 @@
  * generation starts, and reused for same-version full renders/retries.
  */
 
+process.env.JWT_SECRET = "test-jwt-secret-render-entitlement";
+process.env.ALLOW_ANON_USER_ID = "true";
+process.env.NODE_ENV = "test";
+
 const { describe, it, beforeEach, afterEach } = require("node:test");
 const assert = require("node:assert/strict");
 const { initDb } = require("../src/db");
@@ -82,9 +86,6 @@ describe("Song Generation Entitlement", async () => {
   }
 
   beforeEach(async () => {
-    process.env.JWT_SECRET = "test-jwt-secret-render-entitlement";
-    process.env.ALLOW_ANON_USER_ID = "true";
-    process.env.NODE_ENV = "test";
     db = await initDb();
     userId = `user_song_entitlement_${Date.now()}_${Math.random().toString(36).slice(2)}`;
     spendCalls = 0;
