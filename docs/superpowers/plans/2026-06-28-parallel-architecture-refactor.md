@@ -2213,7 +2213,7 @@ Status 2026-06-29:
 - PostgreSQL repair migration now aligns poem funding-source constraints with track constraints.
 - Validation passed: backend story/render contracts, gift/library repository tests, PG schema repair/parity, migration parity, lint, diff check, JS syntax checks, and XcodeBuildMCP simulator build.
 
-- [ ] **Step 4: Commit Root 11**
+- [x] **Step 4: Commit Root 11**
 
 Run:
 
@@ -2223,6 +2223,8 @@ git commit -m "refactor: align create flow contracts across backend and iOS"
 ```
 
 Expected: backend and iOS create-flow state ownership are aligned.
+
+Status 2026-06-29: committed as `0e10017e refactor: align create flow state and gift funding`.
 
 ## Final Verification Gate
 
