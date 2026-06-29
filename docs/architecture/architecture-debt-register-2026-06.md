@@ -27,6 +27,8 @@ Admin user-read service-boundary ownership is also extracted and validated
 locally.
 Admin user-mutation service-boundary ownership is also extracted and validated
 locally.
+Admin entitlement tier-update service-boundary ownership is also extracted and
+validated locally.
 Admin analytics service-boundary ownership is also extracted and validated
 locally.
 Admin growth/attribution service-boundary ownership is also extracted and
@@ -1730,6 +1732,16 @@ filtering, and attribution override before/after audit envelopes. Direct
 service tests pin validation-result envelopes, successful and missing-user
 paths, per-user and bulk audit ordering, empty attribution fallback, and facade
 delegation; route suites continue to pin admin role gates and HTTP envelopes.
+Admin entitlement tier-update service ownership is also extracted into
+`src/services/admin/entitlements-service.js`. `AdminService` remains a
+compatibility facade for `updateUserEntitlements`, while the new service owns
+tier allowlist validation, empty-update envelopes, repository timestamp
+injection for missing-row inserts, previous-tier defaulting, and
+`admin_update_entitlements` audit metadata. Direct service tests pin invalid
+tier/no-audit behavior, existing-row and inserted-row audit contracts, and
+facade delegation; route and subscription suites continue to pin superadmin
+gates, unchanged `updated_at` for existing rows, missing-row insert behavior,
+and billing entitlement semantics.
 Admin analytics service ownership is also extracted into
 `src/services/admin/analytics-service.js`. `AdminService` remains a
 compatibility facade for `getAnalyticsOverview`, `getAnalyticsDaily`,

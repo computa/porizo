@@ -109,6 +109,9 @@ const {
   createAdminMetricsService,
 } = require("./admin/metrics-service");
 const {
+  createAdminEntitlementsService,
+} = require("./admin/entitlements-service");
+const {
   createAdminAnalyticsService,
 } = require("./admin/analytics-service");
 const { safeBounds } = require("./admin/pagination");
@@ -486,6 +489,12 @@ class AdminService {
     this.adminEntitlementsRepository =
       options.adminEntitlementsRepository ||
       createAdminEntitlementsRepository(db);
+    this.adminEntitlementsService =
+      options.adminEntitlementsService ||
+      createAdminEntitlementsService({
+        adminEntitlementsRepository: this.adminEntitlementsRepository,
+        audit: (...args) => this._audit(...args),
+      });
     this.adminSecurityObservabilityRepository =
       options.adminSecurityObservabilityRepository ||
       createAdminSecurityObservabilityRepository(db);
@@ -823,28 +832,11 @@ class AdminService {
    * Update user entitlements (tier)
    */
   async updateUserEntitlements(userId, fields, adminId) {
-    const validTiers = ['free', 'trial', 'pro', 'plus'];
-
-    if (fields.tier && !validTiers.includes(fields.tier)) {
-      return { success: false, error: `tier must be one of: ${validTiers.join(', ')}` };
-    }
-
-    if (!fields.tier) {
-      return { success: false, error: 'No valid fields provided' };
-    }
-
-    const current = await this.adminEntitlementsRepository.upsertTier(
+    return this.adminEntitlementsService.updateUserEntitlements(
       userId,
-      fields.tier,
-      new Date().toISOString(),
+      fields,
+      adminId,
     );
-
-    await this._audit(adminId, 'admin_update_entitlements', 'user', userId, {
-      previous: current || { tier: 'free' },
-      updated: { tier: fields.tier },
-    });
-
-    return { success: true };
   }
 
   // ============ METRICS ============

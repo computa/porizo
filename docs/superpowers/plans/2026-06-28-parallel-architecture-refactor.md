@@ -1932,6 +1932,15 @@ action sequencing, profile allowlist filtering, and attribution override audit
 envelopes. Focused service and route validation passed for the admin user
 mutation contracts.
 
+Root 6 service-boundary follow-up: admin entitlement tier-update service
+ownership is now extracted into `src/services/admin/entitlements-service.js`.
+`AdminService` remains the compatibility facade for `updateUserEntitlements`,
+while the new service owns tier allowlist validation, empty-update envelopes,
+repository timestamp injection for missing entitlement rows, previous-tier
+defaulting, and `admin_update_entitlements` audit metadata. Focused service,
+route, user-read, and subscription-manager validation passed for the admin
+entitlement contracts.
+
 Root 6 service-boundary follow-up: admin analytics service ownership is now
 extracted into `src/services/admin/analytics-service.js`. `AdminService`
 remains the compatibility facade for analytics overview, daily event, funnel,
