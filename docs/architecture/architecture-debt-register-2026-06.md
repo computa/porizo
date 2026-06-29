@@ -21,6 +21,8 @@ locally. Admin security/app-update config service-boundary ownership is also
 extracted and validated locally. Admin provider/queue control-plane
 service-boundary ownership is also extracted and validated locally. Admin
 moderation service-boundary ownership is also extracted and validated locally.
+Admin job/DLQ operations service-boundary ownership is also extracted and
+validated locally.
 Admin job/DLQ operations persistence is also extracted and validated locally.
 Gift-dispatch scheduler polling/recovery persistence is also extracted and
 validated locally.
@@ -1670,6 +1672,15 @@ now live in `src/services/admin/pagination.js`. Direct service tests pin
 pagination bounds, successful override audit metadata, missing-version
 behavior, non-blocked behavior, and the no-audit contract for failed override
 attempts.
+Admin job/DLQ operations service ownership is also extracted into
+`src/services/admin/job-ops-service.js`. `AdminService` remains a compatibility
+facade for `getJobMetrics`, `listJobs`, `retryJob`, `listDLQ`,
+`reprocessDLQ`, and `getJobStepHistory`, while the new service owns
+clock-derived job-health windows, bounded job/DLQ listing, retry/reprocess
+result mapping, job-step history delegation, and admin audit emission only for
+successful mutations. Direct service tests pin metric windows, pagination
+bounds, retry audit/no-audit paths, DLQ reprocess audit/no-audit paths, and
+step-history delegation.
 **Boundary:** Do the `getAppConfig` eviction + non-billing splits first (🟡). Do the billing/entitlement admin slice **last** (⚠ 🔴) with production verification.
 
 ### Root 7 — Writer cycle + god-file decomposition 🟡 effort M

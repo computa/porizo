@@ -64,6 +64,7 @@ const {
 const {
   createAdminModerationService,
 } = require("./admin/moderation-service");
+const { createAdminJobOpsService } = require("./admin/job-ops-service");
 const {
   createAdminFeatureFlagService,
 } = require("./admin/feature-flag-service");
@@ -368,6 +369,12 @@ class AdminService {
       });
     this.adminJobOpsRepository =
       options.adminJobOpsRepository || createAdminJobOpsRepository(db);
+    this.adminJobOpsService =
+      options.adminJobOpsService ||
+      createAdminJobOpsService({
+        adminJobOpsRepository: this.adminJobOpsRepository,
+        audit: (...args) => this._audit(...args),
+      });
     this.adminStorySessionRepository =
       options.adminStorySessionRepository ||
       createAdminStorySessionRepository(db);
@@ -941,12 +948,7 @@ class AdminService {
    * Get job health metrics
    */
   async getJobMetrics() {
-    const thirtyMinAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString();
-    const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-    return await this.adminJobOpsRepository.getJobMetrics({
-      staleBefore: thirtyMinAgo,
-      failuresAfter: weekAgo,
-    });
+    return await this.adminJobOpsService.getJobMetrics();
   }
 
   /**
@@ -963,12 +965,11 @@ class AdminService {
    * List jobs with optional filters
    */
   async listJobs({ status, workflowType, limit = 50, offset = 0 }) {
-    const bounds = safeBounds(limit, offset);
-    return await this.adminJobOpsRepository.listJobs({
+    return await this.adminJobOpsService.listJobs({
       status,
       workflowType,
-      limit: bounds.limit,
-      offset: bounds.offset,
+      limit,
+      offset,
     });
   }
 
@@ -976,20 +977,7 @@ class AdminService {
    * Retry a failed job
    */
   async retryJob(jobId, adminId) {
-    const job = await this.adminJobOpsRepository.findJobById(jobId);
-    if (!job) return { success: false, error: 'Job not found' };
-    if (job.status !== 'failed') return { success: false, error: 'Job is not failed' };
-
-    const retryResult = await this.adminJobOpsRepository.retryFailedJob({
-      jobId,
-      now: new Date().toISOString(),
-    });
-    if (Number(retryResult?.changes ?? retryResult?.rowCount ?? 0) === 0) {
-      return { success: false, error: 'Job is not failed' };
-    }
-    await this._audit(adminId, 'admin_retry_job', 'job', jobId);
-
-    return { success: true };
+    return await this.adminJobOpsService.retryJob(jobId, adminId);
   }
 
   /**
@@ -997,43 +985,25 @@ class AdminService {
    * Note: DLQ not implemented in current schema, returns empty array
    */
   async listDLQ({ limit = 50, offset = 0 }) {
-    const bounds = safeBounds(limit, offset);
-    return await this.adminJobOpsRepository.listDLQ({
-      limit: bounds.limit,
-      offset: bounds.offset,
-    });
+    return await this.adminJobOpsService.listDLQ({ limit, offset });
   }
 
   /**
    * Reprocess a DLQ entry by re-queuing the original job
    */
   async reprocessDLQ(dlqId, adminId, reason) {
-    const entry = await this.adminJobOpsRepository.findDLQById(dlqId);
-    if (!entry) return { success: false, error: 'DLQ entry not found' };
-    if (entry.reprocessed_at) return { success: false, error: 'DLQ entry already reprocessed' };
+    return await this.adminJobOpsService.reprocessDLQ(
+      dlqId,
+      adminId,
+      reason,
+    );
+  }
 
-    const job = await this.adminJobOpsRepository.findJobById(entry.job_id);
-    if (!job) return { success: false, error: 'Job not found' };
-
-    const now = new Date().toISOString();
-    try {
-      await this.adminJobOpsRepository.reprocessDLQEntry({
-        dlqId,
-        jobId: entry.job_id,
-        now,
-      });
-    } catch (error) {
-      if (error.message === "Job not found") {
-        return { success: false, error: "Job not found" };
-      }
-      if (error.message === "DLQ entry not found or already reprocessed") {
-        return { success: false, error: "DLQ entry already reprocessed" };
-      }
-      throw error;
-    }
-
-    await this._audit(adminId, 'admin_reprocess_dlq', 'job', entry.job_id, { dlqId, reason });
-    return { success: true, jobId: entry.job_id, dlqId };
+  /**
+   * Get job step history for admin inspection
+   */
+  async getJobStepHistory(jobId) {
+    return await this.adminJobOpsService.getJobStepHistory(jobId);
   }
 
   // ============ MODERATION ============
@@ -2152,9 +2122,6 @@ class AdminService {
    */
   async updateFeatureFlags(updates, adminId) {
     return this.adminFeatureFlagService.updateFeatureFlags(updates, adminId);
-  }
-  async getJobStepHistory(jobId) {
-    return await this.adminJobOpsRepository.listJobStepHistory(jobId);
   }
 }
 
