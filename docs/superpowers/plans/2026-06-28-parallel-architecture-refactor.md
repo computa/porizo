@@ -2022,6 +2022,12 @@ call `adminUserSessionControlService` directly instead of passing through
 `revokeUserSession`, and `revokeAllUserSessions`; focused route, service, and
 repository validation passed.
 
+Root 6 facade-reduction follow-up: job/DLQ admin routes now call
+`adminJobOpsService` directly instead of passing through `AdminService`.
+Removed `AdminService.listJobs`, `retryJob`, `listDLQ`, `reprocessDLQ`, and
+`getJobStepHistory`; focused route, service, and repository-integration
+validation passed.
+
 ## Task 17: Root 7 Writer Decomposition
 
 **Owner:** One worker

@@ -431,7 +431,7 @@ function registerAdminRoutes(
   // --- Jobs ---
 
   registerAdminJobOpsRoutes(app, {
-    adminService,
+    jobOpsService: adminService.adminJobOpsService,
     parsePagination,
     requireAdminRole,
     requireAdminSession,

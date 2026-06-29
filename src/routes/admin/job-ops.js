@@ -2,14 +2,20 @@
 
 function registerAdminJobOpsRoutes(
   app,
-  { adminService, parsePagination, requireAdminRole, requireAdminSession, sendError },
+  {
+    jobOpsService,
+    parsePagination,
+    requireAdminRole,
+    requireAdminSession,
+    sendError,
+  },
 ) {
   app.get("/admin/dashboard/jobs", async (request, reply) => {
     const admin = await requireAdminSession(request, reply);
     if (!admin) return;
     const { status, workflowType } = request.query;
     reply.send({
-      jobs: await adminService.listJobs({
+      jobs: await jobOpsService.listJobs({
         status,
         workflowType,
         ...parsePagination(request.query),
@@ -23,7 +29,7 @@ function registerAdminJobOpsRoutes(
       "superadmin",
     ]);
     if (!admin) return;
-    const result = await adminService.retryJob(
+    const result = await jobOpsService.retryJob(
       request.params.id,
       admin.adminId,
     );
@@ -38,7 +44,7 @@ function registerAdminJobOpsRoutes(
     const admin = await requireAdminSession(request, reply);
     if (!admin) return;
     reply.send({
-      entries: await adminService.listDLQ(parsePagination(request.query)),
+      entries: await jobOpsService.listDLQ(parsePagination(request.query)),
     });
   });
 
@@ -46,7 +52,7 @@ function registerAdminJobOpsRoutes(
     const admin = await requireAdminRole(request, reply, ["superadmin"]);
     if (!admin) return;
     const { reason } = request.body || {};
-    const result = await adminService.reprocessDLQ(
+    const result = await jobOpsService.reprocessDLQ(
       request.params.id,
       admin.adminId,
       reason || "Admin reprocess",
@@ -61,7 +67,7 @@ function registerAdminJobOpsRoutes(
   app.get("/admin/dashboard/jobs/:id/steps", async (request, reply) => {
     const admin = await requireAdminSession(request, reply);
     if (!admin) return;
-    const steps = await adminService.getJobStepHistory(request.params.id);
+    const steps = await jobOpsService.getJobStepHistory(request.params.id);
     reply.send({ steps });
   });
 }

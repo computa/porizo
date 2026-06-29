@@ -1712,15 +1712,15 @@ Direct service and repository-integration tests pin pagination bounds,
 successful override audit metadata, missing-version behavior, non-blocked
 behavior, and the no-audit contract for failed override attempts.
 Admin job/DLQ operations service ownership is also extracted into
-`src/services/admin/job-ops-service.js`, and the admin metrics route now calls
-that service directly for job-health metrics instead of going through
-`AdminService.getJobMetrics`. `AdminService` remains a compatibility facade for
-`listJobs`, `retryJob`, `listDLQ`, `reprocessDLQ`, and `getJobStepHistory`,
-while the new service owns clock-derived job-health windows, bounded job/DLQ
-listing, retry/reprocess result mapping, job-step history delegation, and admin
-audit emission only for successful mutations. Direct service tests pin metric
-windows, pagination bounds, retry audit/no-audit paths, DLQ reprocess
-audit/no-audit paths, and step-history delegation.
+`src/services/admin/job-ops-service.js`, and admin job/DLQ route modules now
+call that service directly for job-health metrics, job listing, manual retry,
+DLQ listing/reprocess, and step history instead of going through `AdminService`.
+The service owns clock-derived job-health windows, bounded job/DLQ listing,
+retry/reprocess result mapping, job-step history delegation, and admin audit
+emission only for successful mutations. Direct service and
+repository-integration tests pin metric windows, pagination bounds, retry
+audit/no-audit paths, DLQ reprocess audit/no-audit paths, and step-history
+delegation.
 Admin user-read service ownership is also extracted into
 `src/services/admin/user-read-service.js`, and
 `src/routes/admin/users-read.js` now calls that service directly instead of

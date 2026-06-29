@@ -8,7 +8,13 @@ const { getDatabase } = require("../src/database");
 const {
   createAdminJobOpsRepository,
 } = require("../src/database/admin-job-ops-repository");
-const { AdminService } = require("../src/services/admin-service");
+const { createEventsRepository } = require("../src/database/events-repository");
+const {
+  createAdminAuditService,
+} = require("../src/services/admin/audit-service");
+const {
+  createAdminJobOpsService,
+} = require("../src/services/admin/job-ops-service");
 
 let db;
 let repository;
@@ -337,7 +343,7 @@ describe("AdminJobOpsRepository", () => {
   });
 });
 
-describe("AdminService job operations", () => {
+describe("AdminJobOpsService repository integration", () => {
   beforeEach(async () => {
     db = await getDatabase({
       provider: "sqlite",
@@ -360,7 +366,12 @@ describe("AdminService job operations", () => {
       errorCode: "E500",
       errorMessage: "provider failed",
     });
-    const service = new AdminService(db, { adminJobOpsRepository: repository });
+    const service = createAdminJobOpsService({
+      adminJobOpsRepository: repository,
+      audit: createAdminAuditService({
+        eventsRepository: createEventsRepository(db),
+      }).audit,
+    });
 
     const result = await service.retryJob("job_retry", "admin_ops");
 
@@ -395,11 +406,14 @@ describe("AdminService job operations", () => {
   });
 
   test("retryJob does not audit success when the repository update loses a race", async () => {
-    const service = new AdminService(db, {
+    const service = createAdminJobOpsService({
       adminJobOpsRepository: {
         findJobById: async () => ({ id: "job_race", status: "failed" }),
         retryFailedJob: async () => ({ changes: 0 }),
       },
+      audit: createAdminAuditService({
+        eventsRepository: createEventsRepository(db),
+      }).audit,
     });
 
     const result = await service.retryJob("job_race", "admin_ops");
@@ -433,7 +447,12 @@ describe("AdminService job operations", () => {
          VALUES ('dlq_service', 'job_dlq_service', 'failed', 'failed', 3, ?)`,
       )
       .run("2026-06-27T10:00:00.000Z");
-    const service = new AdminService(db, { adminJobOpsRepository: repository });
+    const service = createAdminJobOpsService({
+      adminJobOpsRepository: repository,
+      audit: createAdminAuditService({
+        eventsRepository: createEventsRepository(db),
+      }).audit,
+    });
 
     const result = await service.reprocessDLQ(
       "dlq_service",
@@ -473,7 +492,7 @@ describe("AdminService job operations", () => {
   });
 
   test("reprocessDLQ returns a failure result when the repository loses a race", async () => {
-    const service = new AdminService(db, {
+    const service = createAdminJobOpsService({
       adminJobOpsRepository: {
         findDLQById: async () => ({
           id: "dlq_race",
@@ -485,6 +504,9 @@ describe("AdminService job operations", () => {
           throw new Error("DLQ entry not found or already reprocessed");
         },
       },
+      audit: createAdminAuditService({
+        eventsRepository: createEventsRepository(db),
+      }).audit,
     });
 
     const result = await service.reprocessDLQ(
