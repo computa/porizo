@@ -1721,13 +1721,13 @@ successful mutations. Direct service tests pin metric windows, pagination
 bounds, retry audit/no-audit paths, DLQ reprocess audit/no-audit paths, and
 step-history delegation.
 Admin user-read service ownership is also extracted into
-`src/services/admin/user-read-service.js`. `AdminService` remains a
-compatibility facade for `searchUsers`, `getUserStats`, and `getUserDetail`,
-while the new service owns pagination bounds, attribution enrichment/merge,
-stats conversion-rate formatting, detail fan-out, and missing-user no-fanout
-behavior. Direct service tests pin bounded filter delegation, zero-user
-conversion formatting, canonical attribution merge behavior, and facade
-delegation; repository and route suites continue to pin SQL semantics, auth,
+`src/services/admin/user-read-service.js`, and
+`src/routes/admin/users-read.js` now calls that service directly instead of
+going through `AdminService`. The service owns pagination bounds, attribution
+enrichment/merge, stats conversion-rate formatting, detail fan-out, and
+missing-user no-fanout behavior. Direct service tests pin bounded filter
+delegation, zero-user conversion formatting, and canonical attribution merge
+behavior; repository and route suites continue to pin SQL semantics, auth,
 pagination metadata, and 404 envelopes.
 Admin user-mutation service ownership is also extracted into
 `src/services/admin/user-mutation-service.js`. `AdminService` remains a

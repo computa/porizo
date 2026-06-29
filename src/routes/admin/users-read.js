@@ -2,14 +2,14 @@
 
 function registerAdminUserReadRoutes(
   app,
-  { adminService, parsePagination, requireAdminSession, sendError },
+  { userReadService, parsePagination, requireAdminSession, sendError },
 ) {
   app.get("/admin/dashboard/users", async (request, reply) => {
     const admin = await requireAdminSession(request, reply);
     if (!admin) return;
     const { email, userId, riskLevel, tier, trackId, shareId, recipientName } =
       request.query;
-    const result = await adminService.searchUsers({
+    const result = await userReadService.searchUsers({
       email,
       userId,
       riskLevel,
@@ -25,14 +25,14 @@ function registerAdminUserReadRoutes(
   app.get("/admin/dashboard/users/stats", async (request, reply) => {
     const admin = await requireAdminSession(request, reply);
     if (!admin) return;
-    const stats = await adminService.getUserStats();
+    const stats = await userReadService.getUserStats();
     reply.send(stats);
   });
 
   app.get("/admin/dashboard/users/:id", async (request, reply) => {
     const admin = await requireAdminSession(request, reply);
     if (!admin) return;
-    const detail = await adminService.getUserDetail(request.params.id);
+    const detail = await userReadService.getUserDetail(request.params.id);
     if (!detail) {
       sendError(reply, 404, "NOT_FOUND", "User not found");
       return;

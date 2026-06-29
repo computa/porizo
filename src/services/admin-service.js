@@ -321,41 +321,6 @@ class AdminService {
     );
   }
 
-  // ============ USER MANAGEMENT ============
-
-  /**
-   * Search users with optional filters
-   * Returns user data with adoption metrics (tier, track_count, voice_status, last_active)
-   */
-  async searchUsers({ email, userId, riskLevel, tier, trackId, shareId, recipientName, limit = 50, offset = 0 }) {
-    return this.adminUserReadService.searchUsers({
-      email,
-      userId,
-      riskLevel,
-      tier,
-      trackId,
-      shareId,
-      recipientName,
-      limit,
-      offset,
-    });
-  }
-
-  /**
-   * Get aggregate user statistics for summary banner
-   * Returns counts by tier and conversion rate
-   */
-  async getUserStats() {
-    return this.adminUserReadService.getUserStats();
-  }
-
-  /**
-   * Get detailed user information with related data
-   */
-  async getUserDetail(userId) {
-    return this.adminUserReadService.getUserDetail(userId);
-  }
-
   async getAttributionHealth() {
     return this.adminGrowthService.getAttributionHealth();
   }

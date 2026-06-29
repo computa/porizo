@@ -3,7 +3,6 @@ process.env.NODE_ENV = "test";
 const assert = require("node:assert/strict");
 const { describe, test } = require("node:test");
 
-const { AdminService } = require("../src/services/admin-service");
 const {
   createAdminUserReadService,
 } = require("../src/services/admin/user-read-service");
@@ -247,56 +246,5 @@ describe("AdminUserReadService", () => {
 
     assert.equal(await service.getUserDetail("missing_service_user"), null);
     assert.equal(fanOutCalled, false);
-  });
-});
-
-describe("AdminService user-read facade", () => {
-  test("delegates user-read calls to the injected user-read service", async () => {
-    const calls = [];
-    const expected = {
-      search: { users: [] },
-      stats: { totalUsers: 1 },
-      detail: { user: { id: "user_1" } },
-    };
-    const service = new AdminService(
-      {},
-      {
-        adminUserReadService: {
-          async searchUsers(payload) {
-            calls.push(["searchUsers", payload]);
-            return expected.search;
-          },
-          async getUserStats() {
-            calls.push(["getUserStats"]);
-            return expected.stats;
-          },
-          async getUserDetail(userId) {
-            calls.push(["getUserDetail", userId]);
-            return expected.detail;
-          },
-        },
-      },
-    );
-
-    const searchPayload = { email: "owner", limit: 5, offset: 2 };
-
-    assert.deepEqual(await service.searchUsers(searchPayload), expected.search);
-    assert.deepEqual(await service.getUserStats(), expected.stats);
-    assert.deepEqual(await service.getUserDetail("user_1"), expected.detail);
-    assert.deepEqual(calls, [
-      ["searchUsers", {
-        email: "owner",
-        userId: undefined,
-        riskLevel: undefined,
-        tier: undefined,
-        trackId: undefined,
-        shareId: undefined,
-        recipientName: undefined,
-        limit: 5,
-        offset: 2,
-      }],
-      ["getUserStats"],
-      ["getUserDetail", "user_1"],
-    ]);
   });
 });

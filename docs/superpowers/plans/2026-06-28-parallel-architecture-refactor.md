@@ -1991,6 +1991,11 @@ moderation queue/override, story-session list/detail, webhook health, and recent
 music diagnostics. Focused route, service, and repository-integration validation
 passed for those admin boundaries.
 
+Root 6 facade-reduction follow-up: user-read admin routes now call
+`adminUserReadService` directly instead of passing through `AdminService`.
+Removed `AdminService.searchUsers`, `getUserStats`, and `getUserDetail`; focused
+user-read route, service, and repository validation passed.
+
 ## Task 17: Root 7 Writer Decomposition
 
 **Owner:** One worker

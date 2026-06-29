@@ -387,7 +387,7 @@ function registerAdminRoutes(
   // --- User Management ---
 
   registerAdminUserReadRoutes(app, {
-    adminService,
+    userReadService: adminService.adminUserReadService,
     parsePagination,
     requireAdminSession,
     sendError,
