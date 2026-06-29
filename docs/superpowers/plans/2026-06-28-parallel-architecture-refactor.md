@@ -1909,6 +1909,12 @@ risk metrics, while the new service owns deterministic metric windows and risk
 escalation metadata parsing. Focused repository/service and route validation
 passed for the admin metrics contracts.
 
+Root 6 service-boundary follow-up: teaser and share-growth metrics are now also
+owned by `src/services/admin/metrics-service.js`. `AdminService` remains the
+compatibility facade for `getTeaserMetrics` and `getShareMetrics`, while the
+metrics service owns growth metric windows and rate formatting. Focused
+repository/service and route validation passed for the growth metrics contracts.
+
 ## Task 17: Root 7 Writer Decomposition
 
 **Owner:** One worker

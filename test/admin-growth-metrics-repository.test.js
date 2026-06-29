@@ -9,8 +9,21 @@ const { getDatabase } = require("../src/database");
 const {
   createAdminMetricsRepository,
 } = require("../src/database/admin-metrics-repository");
+const {
+  createAdminMetricsService,
+} = require("../src/services/admin/metrics-service");
+const { AdminService } = require("../src/services/admin-service");
 
 const NOW = "2026-06-27T10:00:00.000Z";
+const WEEK_AGO = "2026-06-20T10:00:00.000Z";
+const THIRTY_DAYS_AGO = "2026-05-28T10:00:00.000Z";
+
+function createGrowthMetricsService(adminMetricsRepository) {
+  return createAdminMetricsService({
+    adminMetricsRepository,
+    now: () => new Date(NOW),
+  });
+}
 
 async function seedEvent(db, id, eventName, createdAt) {
   await db
@@ -109,5 +122,96 @@ describe("admin growth metrics repository", () => {
     );
     assert.equal(result.avgAccess, 3);
     assert.deepEqual(result.dailyCreated, [{ date: "2026-06-21", count: 2 }]);
+  });
+});
+
+describe("admin growth metrics service", () => {
+  test("teaser metrics delegate the cutoff and format conversion rates", async () => {
+    const calls = [];
+    const service = createGrowthMetricsService({
+      async getTeaserMetrics({ daysAgo }) {
+        calls.push({ daysAgo });
+        return {
+          teaserViews: 4,
+          shareClaims: 1,
+          shareStreams: 2,
+          dailyViews: [{ date: "2026-06-21", count: 4 }],
+        };
+      },
+    });
+
+    const result = await service.getTeaserMetrics(7);
+
+    assert.deepEqual(calls, [{ daysAgo: WEEK_AGO }]);
+    assert.deepEqual(result, {
+      teaserViews: 4,
+      shareClaims: 1,
+      shareStreams: 2,
+      viewToClaimRate: "25.00",
+      viewToStreamRate: "50.00",
+      dailyViews: [{ date: "2026-06-21", count: 4 }],
+    });
+  });
+
+  test("share metrics delegate the cutoff and format aggregate rates", async () => {
+    const calls = [];
+    const service = createGrowthMetricsService({
+      async getShareMetrics({ daysAgo }) {
+        calls.push({ daysAgo });
+        return {
+          created: 4,
+          claimed: 3,
+          byStatus: [{ status: "claimed", count: 3 }],
+          avgAccess: 2.25,
+          dailyCreated: [{ date: "2026-06-21", count: 4 }],
+        };
+      },
+    });
+
+    const result = await service.getShareMetrics(30);
+
+    assert.deepEqual(calls, [{ daysAgo: THIRTY_DAYS_AGO }]);
+    assert.deepEqual(result, {
+      created: 4,
+      claimed: 3,
+      claimRate: "75.00",
+      byStatus: [{ status: "claimed", count: 3 }],
+      avgAccessCount: "2.3",
+      dailyCreated: [{ date: "2026-06-21", count: 4 }],
+    });
+  });
+
+  test("AdminService delegates growth metrics to the injected metrics service", async () => {
+    const calls = [];
+    const expected = {
+      teaser: { teaserViews: 1 },
+      shares: { created: 2 },
+    };
+    const service = new AdminService(
+      {
+        prepare() {
+          throw new Error("AdminService facade should not read growth metrics");
+        },
+      },
+      {
+        adminMetricsService: {
+          async getTeaserMetrics(days) {
+            calls.push(["teaser", days]);
+            return expected.teaser;
+          },
+          async getShareMetrics(days) {
+            calls.push(["shares", days]);
+            return expected.shares;
+          },
+        },
+      },
+    );
+
+    assert.deepEqual(await service.getTeaserMetrics(9), expected.teaser);
+    assert.deepEqual(await service.getShareMetrics(31), expected.shares);
+    assert.deepEqual(calls, [
+      ["teaser", 9],
+      ["shares", 31],
+    ]);
   });
 });

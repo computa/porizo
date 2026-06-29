@@ -1653,20 +1653,7 @@ class AdminService {
    * @param {number} days - Number of days to look back
    */
   async getTeaserMetrics(days = 7) {
-    const daysAgo = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
-    const metrics = await this.adminMetricsRepository.getTeaserMetrics({
-      daysAgo,
-    });
-    const { teaserViews, shareClaims, shareStreams, dailyViews } = metrics;
-
-    return {
-      teaserViews,
-      shareClaims,
-      shareStreams,
-      viewToClaimRate: teaserViews > 0 ? ((shareClaims / teaserViews) * 100).toFixed(2) : '0.00',
-      viewToStreamRate: teaserViews > 0 ? ((shareStreams / teaserViews) * 100).toFixed(2) : '0.00',
-      dailyViews,
-    };
+    return this.adminMetricsService.getTeaserMetrics(days);
   }
 
   /**
@@ -1674,20 +1661,7 @@ class AdminService {
    * @param {number} days - Number of days to look back
    */
   async getShareMetrics(days = 30) {
-    const daysAgo = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
-    const metrics = await this.adminMetricsRepository.getShareMetrics({
-      daysAgo,
-    });
-    const { created, claimed, byStatus, avgAccess, dailyCreated } = metrics;
-
-    return {
-      created,
-      claimed,
-      claimRate: created > 0 ? ((claimed / created) * 100).toFixed(2) : '0.00',
-      byStatus,
-      avgAccessCount: avgAccess.toFixed(1),
-      dailyCreated,
-    };
+    return this.adminMetricsService.getShareMetrics(days);
   }
 
   // ============ FUNNEL ANALYTICS ============

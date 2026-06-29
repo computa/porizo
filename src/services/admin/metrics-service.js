@@ -84,12 +84,48 @@ function createAdminMetricsService({
     };
   }
 
+  async function getTeaserMetrics(days = 7) {
+    const metrics = await adminMetricsRepository.getTeaserMetrics({
+      daysAgo: isoAgo(days),
+    });
+    const { teaserViews, shareClaims, shareStreams, dailyViews } = metrics;
+
+    return {
+      teaserViews,
+      shareClaims,
+      shareStreams,
+      viewToClaimRate:
+        teaserViews > 0 ? ((shareClaims / teaserViews) * 100).toFixed(2) : "0.00",
+      viewToStreamRate:
+        teaserViews > 0 ? ((shareStreams / teaserViews) * 100).toFixed(2) : "0.00",
+      dailyViews,
+    };
+  }
+
+  async function getShareMetrics(days = 30) {
+    const metrics = await adminMetricsRepository.getShareMetrics({
+      daysAgo: isoAgo(days),
+    });
+    const { created, claimed, byStatus, avgAccess, dailyCreated } = metrics;
+
+    return {
+      created,
+      claimed,
+      claimRate: created > 0 ? ((claimed / created) * 100).toFixed(2) : "0.00",
+      byStatus,
+      avgAccessCount: avgAccess.toFixed(1),
+      dailyCreated,
+    };
+  }
+
   return {
     getOverviewMetrics,
     getCostMetrics,
     getEnrollmentMetrics,
     getRenderSuccessMetrics,
     getRiskMetrics,
+    getTeaserMetrics,
+    getShareMetrics,
   };
 }
 

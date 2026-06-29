@@ -986,10 +986,11 @@ quality metadata, and latest job error metadata. Focused validation passed in
 `test/admin-music-diagnostics-routes.test.js` (4 pass / 0 fail).
 The admin growth metrics follow-up now moves teaser funnel event counts and
 share-performance aggregate reads into `database/admin-metrics-repository.js`
-beside the other admin metrics slices. `AdminService` keeps the day-window
-calculation and rate formatting while the repository normalizes SQLite/Postgres
-count and average outputs to JavaScript numbers. Characterization pins the
-admin session gate, teaser/share route response shapes, event/share-token
+beside the other admin metrics slices. `AdminMetricsService` now keeps the
+day-window calculation and rate formatting while the repository normalizes
+SQLite/Postgres count and average outputs to JavaScript numbers. `AdminService`
+is only the compatibility facade. Characterization pins the admin session gate,
+teaser/share route response shapes, event/share-token
 windows, daily trend ordering, claimed-share semantics based on `bound_at`,
 rate strings, average access formatting, and status breakdown counts. Focused
 validation passed in `test/admin-growth-metrics-repository.test.js` and
@@ -1759,11 +1760,13 @@ health endpoint contract.
 Admin metrics service ownership is also extracted into
 `src/services/admin/metrics-service.js`. `AdminService` remains a compatibility
 facade for `getOverviewMetrics`, `getCostMetrics`, `getEnrollmentMetrics`,
-`getRenderSuccessMetrics`, and `getRiskMetrics`, while the new service owns
-overview/cost/enrollment/render/risk metric windows and risk escalation metadata
-parsing. Direct service coverage pins deterministic date windows and malformed
-risk metadata fallback; repository and route suites continue to pin aggregate
-semantics, admin auth, and response contracts.
+`getRenderSuccessMetrics`, `getRiskMetrics`, `getTeaserMetrics`, and
+`getShareMetrics`, while the new service owns overview/cost/enrollment/render/
+risk/teaser/share metric windows, growth rate formatting, and risk escalation
+metadata parsing. Direct service coverage pins deterministic date windows,
+malformed risk metadata fallback, teaser/share rate formatting, and facade
+delegation; repository and route suites continue to pin aggregate semantics,
+admin auth, and response contracts.
 **Boundary:** Do the `getAppConfig` eviction + non-billing splits first (🟡). Do the billing/entitlement admin slice **last** (⚠ 🔴) with production verification.
 
 ### Root 7 — Writer cycle + god-file decomposition 🟡 effort M
