@@ -1941,6 +1941,15 @@ defaulting, and `admin_update_entitlements` audit metadata. Focused service,
 route, user-read, and subscription-manager validation passed for the admin
 entitlement contracts.
 
+Root 6 service-boundary follow-up: admin billing/revenue read ownership is now
+extracted into `src/services/admin/billing-service.js`. `AdminService` remains
+the compatibility facade for revenue metrics, receipt-backed sales,
+subscription health, and billing transactions, while the new service owns
+product-catalog fallback, counted-sale filtering and pagination, subscriber
+normalization, currency-bucket aggregation, mixed-currency scalar fallback, and
+transaction projection. Focused service, route, repository, entitlement, and
+subscription-manager validation passed for the admin billing read contracts.
+
 Root 6 service-boundary follow-up: admin analytics service ownership is now
 extracted into `src/services/admin/analytics-service.js`. `AdminService`
 remains the compatibility facade for analytics overview, daily event, funnel,

@@ -29,6 +29,8 @@ Admin user-mutation service-boundary ownership is also extracted and validated
 locally.
 Admin entitlement tier-update service-boundary ownership is also extracted and
 validated locally.
+Admin billing/revenue read service-boundary ownership is also extracted and
+validated locally.
 Admin analytics service-boundary ownership is also extracted and validated
 locally.
 Admin growth/attribution service-boundary ownership is also extracted and
@@ -1742,6 +1744,18 @@ tier/no-audit behavior, existing-row and inserted-row audit contracts, and
 facade delegation; route and subscription suites continue to pin superadmin
 gates, unchanged `updated_at` for existing rows, missing-row insert behavior,
 and billing entitlement semantics.
+Admin billing/revenue read service ownership is also extracted into
+`src/services/admin/billing-service.js`. `AdminService` remains a compatibility
+facade for `getRevenueMetrics`, `getBillingSales`, `getSubscriptionHealth`,
+and `getBillingTransactions`, while the new service owns receipt-backed product
+catalog fallback, counted-sale filtering, sales pagination over counted rows,
+current-subscriber normalization, currency-bucket aggregation, mixed-currency
+scalar fallback, revenue metrics shaping, subscription-health date windows, and
+transaction projection. Direct service tests pin repository delegation, period
+and pagination bounds, active subscriber full-count versus preview-list
+behavior, receipt money extraction policy, and facade delegation; route and
+repository suites continue to pin verified-receipt SQL, strict period filtering,
+current subscriber semantics, and subscription-manager entitlement behavior.
 Admin analytics service ownership is also extracted into
 `src/services/admin/analytics-service.js`. `AdminService` remains a
 compatibility facade for `getAnalyticsOverview`, `getAnalyticsDaily`,
