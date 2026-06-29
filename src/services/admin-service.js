@@ -57,11 +57,8 @@ const { createEventsRepository } = require("../database/events-repository");
 const { createAppStoreConnectService } = require("./app-store-connect-service");
 const { AttributionService } = require("./attribution-service");
 const {
-  applyMusicProviderConfigPatch,
-  MUSIC_PROVIDER_CONFIG_KEY,
-  normalizeMusicProviderConfig,
-  parseMusicProviderConfigJson,
-} = require("../providers/provider-config");
+  createAdminProviderConfigService,
+} = require("./admin/provider-config-service");
 const { createClientConfigService } = require("./client-config-service");
 
 /**
@@ -317,6 +314,12 @@ class AdminService {
       options.attributionRepository || createAttributionRepository(db);
     this.appConfigRepository =
       options.appConfigRepository || createAppConfigRepository(db);
+    this.adminProviderConfigService =
+      options.adminProviderConfigService ||
+      createAdminProviderConfigService({
+        appConfigRepository: this.appConfigRepository,
+        audit: (...args) => this._audit(...args),
+      });
     this.clientConfigService =
       options.clientConfigService ||
       createClientConfigService({
@@ -2042,43 +2045,7 @@ class AdminService {
    * Returns the current primary/fallback provider settings and status
    */
   async getSTTConfig() {
-    // Get STT config from app_config table
-    const configRow = await this.appConfigRepository.findConfigValue("stt_config");
-
-    let config;
-    if (configRow) {
-      try {
-        config = JSON.parse(configRow.value_json);
-      } catch {
-        // Fallback to defaults if JSON is malformed
-        config = {
-          primary_provider: 'whisperkit',
-          fallback_provider: 'openai',
-          whisperkit_model: 'small',
-        };
-      }
-    } else {
-      config = {
-        primary_provider: 'whisperkit',
-        fallback_provider: 'openai',
-        whisperkit_model: 'small',
-      };
-    }
-
-    // Get provider status for all STT providers
-    const providerStatus = await this.appConfigRepository.listProviderStatusByNameLike("stt_%");
-
-    const statusMap = {};
-    for (const p of providerStatus) {
-      statusMap[p.provider_name] = p.status;
-    }
-
-    return {
-      primary_provider: config.primary_provider,
-      fallback_provider: config.fallback_provider,
-      whisperkit_model: config.whisperkit_model,
-      provider_status: statusMap,
-    };
+    return this.adminProviderConfigService.getSTTConfig();
   }
 
   /**
@@ -2090,40 +2057,7 @@ class AdminService {
    * @param {string} adminId - Admin user ID for audit
    */
   async setSTTConfig(config, adminId) {
-    const validProviders = ['apple', 'whisperkit', 'openai'];
-    const validModels = ['tiny', 'small', 'medium', 'large'];
-
-    // Validate providers
-    if (config.primary_provider && !validProviders.includes(config.primary_provider)) {
-      throw new Error(`Invalid primary_provider: ${config.primary_provider}`);
-    }
-    if (config.fallback_provider && !validProviders.includes(config.fallback_provider)) {
-      throw new Error(`Invalid fallback_provider: ${config.fallback_provider}`);
-    }
-    if (config.whisperkit_model && !validModels.includes(config.whisperkit_model)) {
-      throw new Error(`Invalid whisperkit_model: ${config.whisperkit_model}`);
-    }
-
-    const now = new Date().toISOString();
-
-    // Get existing config to merge
-    const existing = await this.getSTTConfig();
-    const newConfig = {
-      primary_provider: config.primary_provider || existing.primary_provider,
-      fallback_provider: config.fallback_provider || existing.fallback_provider,
-      whisperkit_model: config.whisperkit_model || existing.whisperkit_model,
-    };
-
-    await this.appConfigRepository.upsertConfigValue({
-      key: "stt_config",
-      valueJson: JSON.stringify(newConfig),
-      updatedAt: now,
-      updatedBy: adminId,
-    });
-
-    await this._audit(adminId, 'admin_update_stt_config', 'config', 'stt', newConfig);
-
-    return { success: true, config: newConfig };
+    return this.adminProviderConfigService.setSTTConfig(config, adminId);
   }
 
   /**
@@ -2131,28 +2065,7 @@ class AdminService {
    * Controls runtime default provider and auto style routing behavior.
    */
   async getMusicProviderConfig() {
-    const row = await this.appConfigRepository.findConfigValue(
-      MUSIC_PROVIDER_CONFIG_KEY,
-    );
-
-    if (!row) {
-      return normalizeMusicProviderConfig(
-        {},
-        {
-          includeMetadata: true,
-        },
-      );
-    }
-
-    const parsed = parseMusicProviderConfigJson(row.value_json, {
-      includeMetadata: true,
-      updatedAt: row.updated_at || null,
-      updatedBy: row.updated_by || null,
-    });
-    if (parsed.parseError) {
-      console.warn("[AdminService] Invalid music_provider_config JSON, using defaults");
-    }
-    return parsed.config;
+    return this.adminProviderConfigService.getMusicProviderConfig();
   }
 
   /**
@@ -2164,22 +2077,10 @@ class AdminService {
    * @param {string} adminId - Admin user ID for audit
    */
   async setMusicProviderConfig(config, adminId) {
-    const existing = await this.getMusicProviderConfig();
-    const next = applyMusicProviderConfigPatch(existing, config);
-
-    const now = new Date().toISOString();
-    const newConfig = next;
-
-    await this.appConfigRepository.upsertConfigValue({
-      key: MUSIC_PROVIDER_CONFIG_KEY,
-      valueJson: JSON.stringify(newConfig),
-      updatedAt: now,
-      updatedBy: adminId,
-    });
-
-    await this._audit(adminId, "admin_update_music_provider_config", "config", "music_provider", newConfig);
-
-    return { success: true, config: newConfig };
+    return this.adminProviderConfigService.setMusicProviderConfig(
+      config,
+      adminId,
+    );
   }
 
   /**

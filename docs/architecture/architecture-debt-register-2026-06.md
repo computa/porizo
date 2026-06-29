@@ -1601,6 +1601,14 @@ rate-limit helper. `src/routes/admin.js` now has no inline
 `app.get/post/put/delete/patch` handlers; it composes route registrars, shared
 guards, repositories, and services. Remaining Root 6 work is admin-service
 decomposition/service-boundary cleanup, not route-handler extraction.
+
+Admin provider-config service ownership is now extracted into
+`src/services/admin/provider-config-service.js`. `AdminService` remains a
+compatibility facade for `getSTTConfig`, `setSTTConfig`,
+`getMusicProviderConfig`, and `setMusicProviderConfig`, while the new service
+owns STT defaults/validation, music-provider config normalization/persistence,
+and admin audit emission through an injected audit function. Direct service
+tests pin invalid-JSON fallback, update persistence, and audit metadata.
 **Boundary:** Do the `getAppConfig` eviction + non-billing splits first (🟡). Do the billing/entitlement admin slice **last** (⚠ 🔴) with production verification.
 
 ### Root 7 — Writer cycle + god-file decomposition 🟡 effort M
