@@ -1655,12 +1655,13 @@ guards, repositories, and services. Remaining Root 6 work has narrowed to
 route-handler extraction.
 
 Admin provider-config service ownership is now extracted into
-`src/services/admin/provider-config-service.js`. `AdminService` remains a
-compatibility facade for `getSTTConfig`, `setSTTConfig`,
-`getMusicProviderConfig`, and `setMusicProviderConfig`, while the new service
-owns STT defaults/validation, music-provider config normalization/persistence,
-and admin audit emission through an injected audit function. Direct service
-tests pin invalid-JSON fallback, update persistence, and audit metadata.
+`src/services/admin/provider-config-service.js`, and
+`src/routes/admin/provider-config.js` now calls that service directly instead
+of going through `AdminService`. `clientConfigService` composition also reads
+STT/music provider config from the provider service directly. The service owns
+STT defaults/validation, music-provider config normalization/persistence, and
+admin audit emission through an injected audit function. Direct service tests
+pin invalid-JSON fallback, update persistence, and audit metadata.
 Admin audit-write ownership is now extracted into
 `src/services/admin/audit-service.js`. `AdminService._audit()` remains only as a
 compatibility delegate for route modules and tests that still call the historic

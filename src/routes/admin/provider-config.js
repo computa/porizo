@@ -2,12 +2,18 @@
 
 function registerAdminProviderConfigRoutes(
   app,
-  { appConfig, adminService, requireAdminRole, requireAdminSession, sendError },
+  {
+    appConfig,
+    providerConfigService,
+    requireAdminRole,
+    requireAdminSession,
+    sendError,
+  },
 ) {
   app.get("/admin/dashboard/stt/config", async (request, reply) => {
     const admin = await requireAdminSession(request, reply);
     if (!admin) return;
-    const config = await adminService.getSTTConfig();
+    const config = await providerConfigService.getSTTConfig();
     reply.send(config);
   });
 
@@ -18,7 +24,7 @@ function registerAdminProviderConfigRoutes(
       request.body || {};
 
     try {
-      const result = await adminService.setSTTConfig(
+      const result = await providerConfigService.setSTTConfig(
         { primary_provider, fallback_provider, whisperkit_model },
         admin.adminId,
       );
@@ -33,7 +39,7 @@ function registerAdminProviderConfigRoutes(
     if (!admin) return;
 
     try {
-      const config = await adminService.getMusicProviderConfig();
+      const config = await providerConfigService.getMusicProviderConfig();
       reply.send({
         ...config,
         available_providers: {
@@ -93,7 +99,7 @@ function registerAdminProviderConfigRoutes(
     }
 
     try {
-      const result = await adminService.setMusicProviderConfig(
+      const result = await providerConfigService.setMusicProviderConfig(
         {
           ...(default_provider !== undefined ? { default_provider } : {}),
           ...(suno_model !== undefined ? { suno_model } : {}),

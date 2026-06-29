@@ -2059,6 +2059,14 @@ through `AdminService`. Removed `AdminService.getSystemHealth`,
 focused security-observability, system-health, and adjacent job-ops validation
 passed.
 
+Root 6 facade-reduction follow-up: provider-config admin routes now call
+`adminProviderConfigService` directly instead of passing through
+`AdminService`; `clientConfigService` composition now reads STT/music provider
+config from that service directly. Removed `AdminService.getSTTConfig`,
+`setSTTConfig`, `getMusicProviderConfig`, and `setMusicProviderConfig`;
+focused provider-config route/service, STT config, music provider config,
+client config, and provider runtime validation passed.
+
 ## Task 17: Root 7 Writer Decomposition
 
 **Owner:** One worker

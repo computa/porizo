@@ -242,7 +242,7 @@ local repository boundary can prove.
 
 ### D2 — God modules
 
-`buildServer()` (3,092 lines), `runner.js` `startJobRunner` (still-large closure inside a 3,588-line file), `admin-service.js` (421-line compatibility facade), `writer/v3/index.js` (2,829), `songwriter.js` (3,569). The former `routes/admin.js` god controller is now a 611-line registrar shell over 28 admin route modules, Root 5 has moved render steps plus Suno task orchestration out of the runner, and Root 7 has moved `writer/v3/quality.js` down to a 650-line compatibility facade over leaf quality modules, so remaining D2 risk has shifted from route-handler and quality-policy concentration to service, workflow completion coordination, and unresolved writer orchestration/lyrics god files.
+`buildServer()` (3,092 lines), `runner.js` `startJobRunner` (still-large closure inside a 3,588-line file), `admin-service.js` (377-line compatibility facade), `writer/v3/index.js` (2,829), `songwriter.js` (3,569). The former `routes/admin.js` god controller is now a 611-line registrar shell over 28 admin route modules, Root 5 has moved render steps plus Suno task orchestration out of the runner, and Root 7 has moved `writer/v3/quality.js` down to a 650-line compatibility facade over leaf quality modules, so remaining D2 risk has shifted from route-handler and quality-policy concentration to service, workflow completion coordination, and unresolved writer orchestration/lyrics god files.
 
 ### D3 — Duplicated cross-cutting concerns (DRY)
 

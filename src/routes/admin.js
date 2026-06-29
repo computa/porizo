@@ -527,7 +527,7 @@ function registerAdminRoutes(
 
   registerAdminProviderConfigRoutes(app, {
     appConfig,
-    adminService,
+    providerConfigService: adminService.adminProviderConfigService,
     requireAdminRole,
     requireAdminSession,
     sendError,

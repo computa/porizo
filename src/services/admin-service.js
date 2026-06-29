@@ -167,8 +167,9 @@ class AdminService {
       createClientConfigService({
         appConfigRepository: this.appConfigRepository,
         db: this.db,
-        getMusicProviderConfig: () => this.getMusicProviderConfig(),
-        getSTTConfig: () => this.getSTTConfig(),
+        getMusicProviderConfig: () =>
+          this.adminProviderConfigService.getMusicProviderConfig(),
+        getSTTConfig: () => this.adminProviderConfigService.getSTTConfig(),
         resolveIOSAppUpdatePolicy: () =>
           this.adminSecurityConfigService.resolveIOSAppUpdatePolicy(),
       });
@@ -361,51 +362,6 @@ class AdminService {
    */
   async getBillingTransactions({ limit = 50, offset = 0 } = {}) {
     return this.adminBillingService.getBillingTransactions({ limit, offset });
-  }
-
-  // ============ STT PROVIDER CONFIG ============
-
-  /**
-   * Get STT provider configuration
-   * Returns the current primary/fallback provider settings and status
-   */
-  async getSTTConfig() {
-    return this.adminProviderConfigService.getSTTConfig();
-  }
-
-  /**
-   * Update STT provider configuration
-   * @param {Object} config - New configuration
-   * @param {string} config.primary_provider - Primary STT provider (apple, whisperkit, openai)
-   * @param {string} config.fallback_provider - Fallback STT provider
-   * @param {string} config.whisperkit_model - WhisperKit model size (tiny, small, medium)
-   * @param {string} adminId - Admin user ID for audit
-   */
-  async setSTTConfig(config, adminId) {
-    return this.adminProviderConfigService.setSTTConfig(config, adminId);
-  }
-
-  /**
-   * Get music provider routing configuration
-   * Controls runtime default provider and auto style routing behavior.
-   */
-  async getMusicProviderConfig() {
-    return this.adminProviderConfigService.getMusicProviderConfig();
-  }
-
-  /**
-   * Update music provider routing configuration
-   * @param {Object} config - New configuration
-   * @param {string} config.default_provider - elevenlabs|suno
-   * @param {string} config.suno_model - V4_5|V5|V5_5
-   * @param {boolean} config.auto_style_routing - Enable style-based provider auto-routing
-   * @param {string} adminId - Admin user ID for audit
-   */
-  async setMusicProviderConfig(config, adminId) {
-    return this.adminProviderConfigService.setMusicProviderConfig(
-      config,
-      adminId,
-    );
   }
 
   /**
