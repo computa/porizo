@@ -1,6 +1,6 @@
 /**
  * Tests for src/services/cold-email-service.js
- * Focus on pure decision logic (shouldFireToday) and payload-building.
+ * Focus on pure decision logic (shouldFireNow) and payload-building.
  * No live Resend calls; the HTTP submit is exercised separately via mocked fetch.
  */
 
@@ -150,8 +150,9 @@ describe("cold-email-service · shouldFireNow", () => {
     assert.match(r.reason, /interval not elapsed/i);
   });
 
-  it("shouldFireToday is a backwards-compatible alias for shouldFireNow", () => {
-    assert.equal(svc.shouldFireToday, svc.shouldFireNow);
+  it("exports only the current schedule gate name", () => {
+    assert.equal(typeof svc.shouldFireNow, "function");
+    assert.equal(Object.hasOwn(svc, "shouldFireToday"), false);
   });
 });
 

@@ -4,7 +4,7 @@
  * Replaces marketing/email/cold-daily-send.py + macOS launchd. State lives
  * in Postgres in production (cold_email_campaigns + cold_email_recipients).
  *
- * Pure decision logic (shouldFireToday, buildResendPayload, computeScheduleStart)
+ * Pure decision logic (shouldFireNow, buildResendPayload, computeScheduleStart)
  * lives separately from the I/O so it can be unit-tested without a DB or
  * Resend account.
  *
@@ -91,10 +91,6 @@ function shouldFireNow(campaign, now) {
   }
   return { fire: true, reason: "ok" };
 }
-
-// Backward-compatible alias. Anything in the codebase still calling
-// shouldFireToday now goes through the new interval-aware gate.
-const shouldFireToday = shouldFireNow;
 
 // Sandbox a campaign-provided template path to the templates root so a
 // DB-write attacker cannot exfiltrate arbitrary repo files (../../.env,
@@ -366,7 +362,6 @@ module.exports = {
   ymd,
   computeScheduleStart,
   shouldFireNow,
-  shouldFireToday, // alias for backwards compat
   buildResendPayload,
   // I/O (the orchestration entry point)
   loadCampaign,

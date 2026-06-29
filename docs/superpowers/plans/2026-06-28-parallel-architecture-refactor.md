@@ -2057,6 +2057,13 @@ rg -n "candidateExportOrPath" src test docs
 
 Expected: delete only when no runtime import or documented public contract remains.
 
+Slice 1 result: removed the obsolete internal `shouldFireToday` export from
+`src/services/cold-email-service.js`. Production, job, admin, script, and tool
+callers already use the canonical `shouldFireNow` schedule gate; the only
+remaining reference was a compatibility unit test, which now asserts the old
+alias is gone. Focused cold-email service/job validation passed: 40 tests, 40
+pass, 0 failures.
+
 - [ ] **Step 3: Run validation and commit**
 
 Run:
