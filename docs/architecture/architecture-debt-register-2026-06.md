@@ -23,6 +23,8 @@ service-boundary ownership is also extracted and validated locally. Admin
 moderation service-boundary ownership is also extracted and validated locally.
 Admin job/DLQ operations service-boundary ownership is also extracted and
 validated locally.
+Admin user session/voice-control service-boundary ownership is also extracted
+and validated locally.
 Admin job/DLQ operations persistence is also extracted and validated locally.
 Gift-dispatch scheduler polling/recovery persistence is also extracted and
 validated locally.
@@ -1681,6 +1683,15 @@ result mapping, job-step history delegation, and admin audit emission only for
 successful mutations. Direct service tests pin metric windows, pagination
 bounds, retry audit/no-audit paths, DLQ reprocess audit/no-audit paths, and
 step-history delegation.
+Admin user session/voice-control service ownership is also extracted into
+`src/services/admin/user-session-control-service.js`. `AdminService` remains a
+compatibility facade for `forceVoiceReverify`, `getUserSessions`,
+`revokeUserSession`, and `revokeAllUserSessions`, while the new service owns
+voice-profile reverify result mapping, session revocation timestamps,
+successful-only audit behavior for single-session revokes and voice reverify,
+and revoke-all audit count metadata. Direct service tests pin force-reverify
+audit/no-audit paths, session-list delegation, single-session revoke
+audit/no-audit paths, and revoke-all audit metadata.
 **Boundary:** Do the `getAppConfig` eviction + non-billing splits first (🟡). Do the billing/entitlement admin slice **last** (⚠ 🔴) with production verification.
 
 ### Root 7 — Writer cycle + god-file decomposition 🟡 effort M

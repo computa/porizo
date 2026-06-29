@@ -72,6 +72,9 @@ const {
   createAdminOnboardingSampleService,
 } = require("./admin/onboarding-sample-service");
 const {
+  createAdminUserSessionControlService,
+} = require("./admin/user-session-control-service");
+const {
   createAdminSecurityConfigService,
 } = require("./admin/security-config-service");
 const { safeBounds } = require("./admin/pagination");
@@ -399,6 +402,13 @@ class AdminService {
     this.adminUserSessionControlRepository =
       options.adminUserSessionControlRepository ||
       createAdminUserSessionControlRepository(db);
+    this.adminUserSessionControlService =
+      options.adminUserSessionControlService ||
+      createAdminUserSessionControlService({
+        adminUserSessionControlRepository:
+          this.adminUserSessionControlRepository,
+        audit: (...args) => this._audit(...args),
+      });
     this.adminMetricsRepository =
       options.adminMetricsRepository || createAdminMetricsRepository(db);
     this.adminEntitlementsRepository =
@@ -1275,26 +1285,11 @@ class AdminService {
    * Force a user's voice profile to require re-verification
    */
   async forceVoiceReverify(userId, adminId, reason) {
-    const profile =
-      await this.adminUserSessionControlRepository.findReverifiableVoiceProfile(
-        userId,
-      );
-
-    if (!profile) {
-      return { success: false, error: 'No active voice profile found' };
-    }
-
-    const result =
-      await this.adminUserSessionControlRepository.markVoiceProfilePendingReverification(
-        profile.id,
-      );
-    if (result.changes === 0) {
-      return { success: false, error: 'No active voice profile found' };
-    }
-
-    await this._audit(adminId, 'admin_force_reverify', 'voice_profile', profile.id, { targetUserId: userId, previousStatus: profile.status, reason });
-
-    return { success: true, voiceProfileId: profile.id };
+    return await this.adminUserSessionControlService.forceVoiceReverify(
+      userId,
+      adminId,
+      reason,
+    );
   }
 
   // ============ USER SESSION MANAGEMENT ============
@@ -1303,7 +1298,7 @@ class AdminService {
    * Get active sessions for a user
    */
   async getUserSessions(userId, limit = 20) {
-    return await this.adminUserSessionControlRepository.listActiveUserSessions(
+    return await this.adminUserSessionControlService.getUserSessions(
       userId,
       limit,
     );
@@ -1313,33 +1308,23 @@ class AdminService {
    * Revoke a specific user session
    */
   async revokeUserSession(userId, sessionId, adminId, reason) {
-    const result =
-      await this.adminUserSessionControlRepository.revokeUserSession({
-        userId,
-        sessionId,
-        revokedAt: new Date().toISOString(),
-      });
-
-    if (result.changes === 0) {
-      return { success: false, error: 'Session not found or already revoked' };
-    }
-
-    await this._audit(adminId, 'admin_revoke_session', 'session', sessionId, { targetUserId: userId, reason });
-    return { success: true };
+    return await this.adminUserSessionControlService.revokeUserSession(
+      userId,
+      sessionId,
+      adminId,
+      reason,
+    );
   }
 
   /**
    * Revoke all sessions for a user
    */
   async revokeAllUserSessions(userId, adminId, reason) {
-    const result =
-      await this.adminUserSessionControlRepository.revokeAllUserSessions({
-        userId,
-        revokedAt: new Date().toISOString(),
-      });
-
-    await this._audit(adminId, 'admin_revoke_all_sessions', 'user', userId, { sessionsRevoked: result.changes, reason });
-    return { success: true, sessionsRevoked: result.changes };
+    return await this.adminUserSessionControlService.revokeAllUserSessions(
+      userId,
+      adminId,
+      reason,
+    );
   }
 
   // ============ PROVIDER CONTROL PLANE ============
