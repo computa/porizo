@@ -1712,14 +1712,15 @@ Direct service and repository-integration tests pin pagination bounds,
 successful override audit metadata, missing-version behavior, non-blocked
 behavior, and the no-audit contract for failed override attempts.
 Admin job/DLQ operations service ownership is also extracted into
-`src/services/admin/job-ops-service.js`. `AdminService` remains a compatibility
-facade for `getJobMetrics`, `listJobs`, `retryJob`, `listDLQ`,
-`reprocessDLQ`, and `getJobStepHistory`, while the new service owns
-clock-derived job-health windows, bounded job/DLQ listing, retry/reprocess
-result mapping, job-step history delegation, and admin audit emission only for
-successful mutations. Direct service tests pin metric windows, pagination
-bounds, retry audit/no-audit paths, DLQ reprocess audit/no-audit paths, and
-step-history delegation.
+`src/services/admin/job-ops-service.js`, and the admin metrics route now calls
+that service directly for job-health metrics instead of going through
+`AdminService.getJobMetrics`. `AdminService` remains a compatibility facade for
+`listJobs`, `retryJob`, `listDLQ`, `reprocessDLQ`, and `getJobStepHistory`,
+while the new service owns clock-derived job-health windows, bounded job/DLQ
+listing, retry/reprocess result mapping, job-step history delegation, and admin
+audit emission only for successful mutations. Direct service tests pin metric
+windows, pagination bounds, retry audit/no-audit paths, DLQ reprocess
+audit/no-audit paths, and step-history delegation.
 Admin user-read service ownership is also extracted into
 `src/services/admin/user-read-service.js`, and
 `src/routes/admin/users-read.js` now calls that service directly instead of
@@ -1844,15 +1845,16 @@ delegation, and checked-at timestamp. Direct service coverage pins the window
 and normalized response; security route coverage continues to pin the admin
 health endpoint contract.
 Admin metrics service ownership is also extracted into
-`src/services/admin/metrics-service.js`. `AdminService` remains a compatibility
-facade for `getOverviewMetrics`, `getCostMetrics`, `getEnrollmentMetrics`,
-`getRenderSuccessMetrics`, `getRiskMetrics`, `getTeaserMetrics`, and
-`getShareMetrics`, while the new service owns overview/cost/enrollment/render/
-risk/teaser/share metric windows, growth rate formatting, and risk escalation
-metadata parsing. Direct service coverage pins deterministic date windows,
-malformed risk metadata fallback, teaser/share rate formatting, and facade
-delegation; repository and route suites continue to pin aggregate semantics,
-admin auth, and response contracts.
+`src/services/admin/metrics-service.js`, and
+`src/routes/admin/metrics.js` now calls it directly for overview, cost,
+enrollment, render-pipeline, and risk metrics instead of going through
+`AdminService`. `AdminService` remains a compatibility facade for
+`getTeaserMetrics` and `getShareMetrics`, while the new service owns
+overview/cost/enrollment/render/risk/teaser/share metric windows, growth rate
+formatting, and risk escalation metadata parsing. Direct service coverage pins
+deterministic date windows, malformed risk metadata fallback, and teaser/share
+rate formatting; repository and route suites continue to pin aggregate
+semantics, admin auth, and response contracts.
 **Boundary:** Do the `getAppConfig` eviction + non-billing splits first (🟡). Do the billing/entitlement admin slice **last** (⚠ 🔴) with production verification.
 
 ### Root 7 — Writer cycle + god-file decomposition 🟡 effort M

@@ -1,29 +1,32 @@
 "use strict";
 
-function registerAdminMetricsRoutes(app, { adminService, requireAdminSession }) {
+function registerAdminMetricsRoutes(
+  app,
+  { jobOpsService, metricsService, requireAdminSession },
+) {
   app.get("/admin/dashboard/metrics/overview", async (request, reply) => {
     const admin = await requireAdminSession(request, reply);
     if (!admin) return;
-    reply.send(await adminService.getOverviewMetrics());
+    reply.send(await metricsService.getOverviewMetrics());
   });
 
   app.get("/admin/dashboard/metrics/jobs", async (request, reply) => {
     const admin = await requireAdminSession(request, reply);
     if (!admin) return;
-    reply.send(await adminService.getJobMetrics());
+    reply.send(await jobOpsService.getJobMetrics());
   });
 
   app.get("/admin/dashboard/metrics/costs", async (request, reply) => {
     const admin = await requireAdminSession(request, reply);
     if (!admin) return;
     const { days } = request.query;
-    reply.send(await adminService.getCostMetrics(days ? parseInt(days) : 30));
+    reply.send(await metricsService.getCostMetrics(days ? parseInt(days) : 30));
   });
 
   app.get("/admin/dashboard/metrics/enrollment", async (request, reply) => {
     const admin = await requireAdminSession(request, reply);
     if (!admin) return;
-    reply.send(await adminService.getEnrollmentMetrics());
+    reply.send(await metricsService.getEnrollmentMetrics());
   });
 
   app.get(
@@ -31,14 +34,14 @@ function registerAdminMetricsRoutes(app, { adminService, requireAdminSession }) 
     async (request, reply) => {
       const admin = await requireAdminSession(request, reply);
       if (!admin) return;
-      reply.send(await adminService.getRenderSuccessMetrics());
+      reply.send(await metricsService.getRenderSuccessMetrics());
     },
   );
 
   app.get("/admin/dashboard/security/risk-metrics", async (request, reply) => {
     const admin = await requireAdminSession(request, reply);
     if (!admin) return;
-    reply.send(await adminService.getRiskMetrics());
+    reply.send(await metricsService.getRiskMetrics());
   });
 }
 

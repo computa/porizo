@@ -11,7 +11,6 @@ const {
 const {
   createAdminMetricsService,
 } = require("../src/services/admin/metrics-service");
-const { AdminService } = require("../src/services/admin-service");
 
 const DAY_AGO = "2026-06-26T10:00:00.000Z";
 const WEEK_AGO = "2026-06-20T10:00:00.000Z";
@@ -1065,62 +1064,5 @@ describe("AdminMetricsService risk metrics repository boundary", () => {
         },
       ],
     });
-  });
-});
-
-describe("AdminService metrics facade", () => {
-  test("delegates dashboard metrics to the injected metrics service", async () => {
-    const calls = [];
-    const expected = {
-      overview: { totalUsers: 1 },
-      cost: { dailyCosts: [] },
-      enrollment: { totalEnrollments: 2 },
-      render: { successRate: {} },
-      risk: { distribution: [] },
-    };
-    const service = new AdminService(
-      {
-        prepare() {
-          throw new Error("AdminService facade should not read metrics directly");
-        },
-      },
-      {
-        adminMetricsService: {
-          async getOverviewMetrics() {
-            calls.push(["overview"]);
-            return expected.overview;
-          },
-          async getCostMetrics(days) {
-            calls.push(["cost", days]);
-            return expected.cost;
-          },
-          async getEnrollmentMetrics() {
-            calls.push(["enrollment"]);
-            return expected.enrollment;
-          },
-          async getRenderSuccessMetrics() {
-            calls.push(["render"]);
-            return expected.render;
-          },
-          async getRiskMetrics() {
-            calls.push(["risk"]);
-            return expected.risk;
-          },
-        },
-      },
-    );
-
-    assert.deepEqual(await service.getOverviewMetrics(), expected.overview);
-    assert.deepEqual(await service.getCostMetrics(14), expected.cost);
-    assert.deepEqual(await service.getEnrollmentMetrics(), expected.enrollment);
-    assert.deepEqual(await service.getRenderSuccessMetrics(), expected.render);
-    assert.deepEqual(await service.getRiskMetrics(), expected.risk);
-    assert.deepEqual(calls, [
-      ["overview"],
-      ["cost", 14],
-      ["enrollment"],
-      ["render"],
-      ["risk"],
-    ]);
   });
 });

@@ -2003,6 +2003,13 @@ Removed `AdminService.getAnalyticsOverview`, `getAnalyticsDaily`,
 validation passed. The remaining `AdminService` audit-boundary test is deferred
 to the later audit facade cleanup.
 
+Root 6 facade-reduction follow-up: metrics admin routes now call
+`adminMetricsService` directly for overview, cost, enrollment, render-pipeline,
+and risk metrics, and `adminJobOpsService` directly for job metrics. Removed
+`AdminService.getOverviewMetrics`, `getJobMetrics`, `getCostMetrics`,
+`getEnrollmentMetrics`, `getRenderSuccessMetrics`, and `getRiskMetrics`;
+focused metrics route, repository, and service validation passed.
+
 ## Task 17: Root 7 Writer Decomposition
 
 **Owner:** One worker

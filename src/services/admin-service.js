@@ -391,29 +391,6 @@ class AdminService {
     );
   }
 
-  // ============ METRICS ============
-
-  /**
-   * Get overview dashboard metrics
-   */
-  async getOverviewMetrics() {
-    return this.adminMetricsService.getOverviewMetrics();
-  }
-
-  /**
-   * Get job health metrics
-   */
-  async getJobMetrics() {
-    return await this.adminJobOpsService.getJobMetrics();
-  }
-
-  /**
-   * Get cost metrics for specified number of days
-   */
-  async getCostMetrics(days = 30) {
-    return this.adminMetricsService.getCostMetrics(days);
-  }
-
   // ============ JOB MANAGEMENT ============
 
   /**
@@ -761,33 +738,6 @@ class AdminService {
    */
   async getShareMetrics(days = 30) {
     return this.adminMetricsService.getShareMetrics(days);
-  }
-
-  // ============ ENROLLMENT METRICS ============
-
-  /**
-   * Get voice enrollment metrics
-   */
-  async getEnrollmentMetrics() {
-    return this.adminMetricsService.getEnrollmentMetrics();
-  }
-
-  // ============ RENDER PIPELINE METRICS ============
-
-  /**
-   * Get render pipeline success metrics
-   */
-  async getRenderSuccessMetrics() {
-    return this.adminMetricsService.getRenderSuccessMetrics();
-  }
-
-  // ============ RISK METRICS ============
-
-  /**
-   * Get user risk distribution metrics
-   */
-  async getRiskMetrics() {
-    return this.adminMetricsService.getRiskMetrics();
   }
 
   // ============ STT PROVIDER CONFIG ============

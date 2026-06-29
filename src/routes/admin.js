@@ -422,7 +422,11 @@ function registerAdminRoutes(
 
   // --- Metrics ---
 
-  registerAdminMetricsRoutes(app, { adminService, requireAdminSession });
+  registerAdminMetricsRoutes(app, {
+    jobOpsService: adminService.adminJobOpsService,
+    metricsService: adminService.adminMetricsService,
+    requireAdminSession,
+  });
 
   // --- Jobs ---
 
