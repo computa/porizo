@@ -24,10 +24,7 @@ const KNOWN_DRIFT = {
     "112_letterbox_player_flag.sql",
     "116_viral_loop_metrics_view.sql",
   ],
-  legacyConsolidationSql: [
-    "001_init.sql",
-    "002_add_poems_subscriptions.sql",
-  ],
+  legacyConsolidationSql: [],
 };
 
 function readSqlBasenames(relativeDir) {

@@ -256,7 +256,7 @@ These are **not** cosmetic. They were surfaced by the formal review and must be 
 
 ### D6 — Migration-location divergence (test-fidelity hazard)
 
-Three migration locations: `migrations/` (SQLite, 118 SQL files), `migrations/pg/` (Postgres, 114 SQL files), `src/database/migrations/sql/` (2 SQL files + runner, **dead in production** — a test-only abandoned consolidation). **14 migration filenames exist in only one mirror** (9 SQLite-only, 5 Postgres-only) → tests run against a SQLite schema that differs from production Postgres. `npm run verify:migrations` now blocks new unreviewed filename drift while the known divergences are reconciled.
+Two canonical migration locations remain: `migrations/` (SQLite, 118 SQL files) and `migrations/pg/` (Postgres, 114 SQL files). The abandoned `src/database/migrations/` consolidation has been deleted after tests moved to the live `src/database/postgres.js` migration runner. **14 migration filenames exist in only one mirror** (9 SQLite-only, 5 Postgres-only) → tests run against a SQLite schema that differs from production Postgres. `npm run verify:migrations` now blocks new unreviewed filename drift while the known divergences are reconciled.
 
 ---
 
@@ -265,7 +265,7 @@ Three migration locations: `migrations/` (SQLite, 118 SQL files), `migrations/pg
 | Item                                          | Verdict                                                                            | Confidence |
 | --------------------------------------------- | ---------------------------------------------------------------------------------- | ---------- |
 | `src/writer/v2/`                              | **Deleted 2026-06-29** — had zero JS files and no live callers                      | ✓ VERIFIED |
-| `src/database/migrations/` (runner.js + sql/) | Production-dead abandoned consolidation; still test-live and deferred to Root 9/test-harness migration | ✓ VERIFIED |
+| `src/database/migrations/` (runner.js + sql/) | **Deleted 2026-06-29** after tests moved to the live `src/database/postgres.js` migration runner | ✓ VERIFIED |
 | `src/db.js`                                   | Production-dead legacy shim; still test-live and deferred until test harness migration | ✓ VERIFIED |
 | `src/providers/lyrics.js`                     | **Deleted 2026-06-29** after inlining runtime callers to `writer/songwriter.js`    | ✓ VERIFIED |
 | `writer/v3/reasoner.js` legacy path           | Live as fallback only; superseded by `kernel/`; needs observability before removal | ✓ VERIFIED |
