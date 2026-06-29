@@ -27,6 +27,8 @@ Admin user-read service-boundary ownership is also extracted and validated
 locally.
 Admin analytics service-boundary ownership is also extracted and validated
 locally.
+Admin growth/attribution service-boundary ownership is also extracted and
+validated locally.
 Admin user session/voice-control service-boundary ownership is also extracted
 and validated locally.
 Admin share-management service-boundary ownership is also extracted and
@@ -338,15 +340,17 @@ replacement semantics, Apple Ads token dedupe/failure/result persistence, and
 the deliberate difference between single-user developer-test filtering and bulk
 latest Apple Ads status filtering. The admin Apple Ads keyword-map follow-up now
 moves keyword-map list/upsert SQL into `database/attribution-repository.js`;
-`AdminService` keeps pagination bounds, payload validation, row normalization,
-bulk-sync audit logging, and the admin route response contract. Characterization
+`AdminGrowthService` now keeps pagination bounds, payload validation, row
+normalization, bulk-sync audit logging, and the admin route response contract
+while `AdminService` is only the compatibility facade. Characterization
 pins insert/update behavior, total counts, pagination, deterministic ordering,
 and the existing admin attribution route contract in
 `test/attribution-repository.test.js` and `test/admin-attribution.test.js`.
 The admin growth-attribution dashboard follow-up then moved share/download
 breakdown reads, Apple Ads campaign aggregation, and attribution total counters
-into `database/attribution-repository.js`; `AdminService` keeps the lookback
-window, row merge/sort policy, rate formatting, and route response shape.
+into `database/attribution-repository.js`; `AdminGrowthService` now keeps the
+lookback window, row merge/sort policy, rate formatting, and route response
+shape while `AdminService` is only the compatibility facade.
 Characterization pins share claim counts, download registration counts,
 developer-test Apple Ads filtering, keyword-map joins, totals, and dynamic-field
 rejection. Residual: keyword-map bulk sync is still not transactionally atomic.
@@ -1722,6 +1726,17 @@ Direct service tests pin cache hits, exact windows, funnel conversion behavior,
 user-event limit clamping, audit metadata, and facade delegation; route and
 repository suites continue to pin admin auth, SQL semantics, selected columns,
 and audit row shape.
+Admin growth/attribution service ownership is also extracted into
+`src/services/admin/growth-service.js`. `AdminService` remains a compatibility
+facade for `getAttributionHealth`, `getAttribution`,
+`getAppleAdsKeywordMap`, and `upsertAppleAdsKeywordMap`, while the new service
+owns attribution health delegation, UTM share/download merge-and-sort behavior,
+rate formatting, Apple Ads keyword-map bounds, keyword-row normalization, and
+bulk-sync audit metadata. Direct service tests pin breakdown fan-out, Apple Ads
+campaign limits, percentage formatting, keyword-map pagination, invalid-input
+no-audit behavior, row normalization, and facade delegation; route/repository
+suites continue to pin admin auth, Apple Ads attribution joins, SQL semantics,
+and producer paths.
 Admin user session/voice-control service ownership is also extracted into
 `src/services/admin/user-session-control-service.js`. `AdminService` remains a
 compatibility facade for `forceVoiceReverify`, `getUserSessions`,

@@ -1931,6 +1931,15 @@ days/limit clamping, funnel hop policy, conversion-rate formatting, and
 traceable analytics read audits. Focused repository/service and route validation
 passed for the admin analytics contracts.
 
+Root 6 service-boundary follow-up: admin growth/attribution service ownership is
+now extracted into `src/services/admin/growth-service.js`. `AdminService`
+remains the compatibility facade for attribution health, attribution dashboard,
+Apple Ads keyword-map reads, and Apple Ads keyword-map sync, while the new
+service owns UTM share/download merge-and-sort behavior, rate formatting,
+keyword-map bounds, keyword-row normalization, and bulk-sync audit metadata.
+Focused repository/service and route validation passed for the admin growth
+contracts.
+
 ## Task 17: Root 7 Writer Decomposition
 
 **Owner:** One worker

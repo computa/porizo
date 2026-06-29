@@ -62,6 +62,9 @@ const {
   createAdminControlPlaneService,
 } = require("./admin/control-plane-service");
 const {
+  createAdminGrowthService,
+} = require("./admin/growth-service");
+const {
   createAdminModerationService,
 } = require("./admin/moderation-service");
 const {
@@ -342,6 +345,13 @@ class AdminService {
     this.attributionService = options.attributionService || new AttributionService(db);
     this.attributionRepository =
       options.attributionRepository || createAttributionRepository(db);
+    this.adminGrowthService =
+      options.adminGrowthService ||
+      createAdminGrowthService({
+        attributionService: this.attributionService,
+        attributionRepository: this.attributionRepository,
+        audit: (...args) => this._audit(...args),
+      });
     this.appConfigRepository =
       options.appConfigRepository || createAppConfigRepository(db);
     this.adminProviderConfigService =
@@ -742,7 +752,7 @@ class AdminService {
   }
 
   async getAttributionHealth() {
-    return await this.attributionService.getAttributionHealth();
+    return this.adminGrowthService.getAttributionHealth();
   }
 
   /**
@@ -1473,142 +1483,15 @@ class AdminService {
    * @param {number} days - Number of days to look back
    */
   async getAttribution(days = 30) {
-    const daysAgo = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
-
-    const buildBreakdown = async (field) => {
-      const label = field;
-      const [shareRows, downloadRows] = await Promise.all([
-        this.attributionRepository.listShareAttributionBreakdown({
-          field,
-          since: daysAgo,
-        }),
-        this.attributionRepository.listDownloadAttributionBreakdown({
-          field,
-          since: daysAgo,
-        }),
-      ]);
-
-      const merged = new Map();
-      const ensure = (value) => {
-        const key = value || "";
-        if (!merged.has(key)) {
-          merged.set(key, {
-            [label]: value,
-            share_count: 0,
-            claim_count: 0,
-            download_count: 0,
-            registration_count: 0,
-          });
-        }
-        return merged.get(key);
-      };
-
-      for (const row of shareRows) {
-        const item = ensure(row.value);
-        item.share_count = Number(row.share_count || 0);
-        item.claim_count = Number(row.claim_count || 0);
-      }
-
-      for (const row of downloadRows) {
-        const item = ensure(row.value);
-        item.download_count = Number(row.download_count || 0);
-        item.registration_count = Number(row.registration_count || 0);
-      }
-
-      return Array.from(merged.values()).sort((a, b) => (
-        b.download_count - a.download_count
-        || b.registration_count - a.registration_count
-        || b.share_count - a.share_count
-      ));
-    };
-
-    const [bySource, byMedium, byCampaign, byContent, byTerm] = await Promise.all([
-      buildBreakdown("utm_source"),
-      buildBreakdown("utm_medium"),
-      buildBreakdown("utm_campaign"),
-      buildBreakdown("utm_content"),
-      buildBreakdown("utm_term"),
-    ]);
-
-    const [appleAdsByCampaign, totals] = await Promise.all([
-      this.attributionRepository.listAppleAdsCampaignAttribution({
-        since: daysAgo,
-        limit: 50,
-      }),
-      this.attributionRepository.getAttributionTotals({ since: daysAgo }),
-    ]);
-    const {
-      withAttribution,
-      totalShares,
-      downloadsWithAttribution,
-      totalDownloads,
-      attributedRegistrations,
-    } = totals;
-
-    return {
-      bySource,
-      byMedium,
-      byCampaign,
-      byContent,
-      byTerm,
-      appleAdsByCampaign,
-      withAttribution,
-      totalShares,
-      attributionRate: totalShares > 0 ? ((withAttribution / totalShares) * 100).toFixed(2) : '0.00',
-      downloadsWithAttribution,
-      totalDownloads,
-      attributedRegistrations,
-      downloadAttributionRate: totalDownloads > 0 ? ((downloadsWithAttribution / totalDownloads) * 100).toFixed(2) : '0.00',
-    };
+    return this.adminGrowthService.getAttribution(days);
   }
 
   async getAppleAdsKeywordMap({ limit = 500, offset = 0 } = {}) {
-    const bounds = safeBounds(limit, offset, 1000);
-    return this.attributionRepository.listAppleAdsKeywordMap(bounds);
+    return this.adminGrowthService.getAppleAdsKeywordMap({ limit, offset });
   }
 
   async upsertAppleAdsKeywordMap(rows, adminId = "system") {
-    if (!Array.isArray(rows)) {
-      throw new Error("keywords must be an array");
-    }
-    if (rows.length > 5000) {
-      throw new Error("keyword map sync is limited to 5000 rows per request");
-    }
-
-    const now = new Date().toISOString();
-    let upserted = 0;
-    for (const row of rows) {
-      const keywordId = String(row.keyword_id ?? row.keywordId ?? row.id ?? "").trim();
-      const keywordText = String(row.keyword_text ?? row.keyword ?? row.text ?? "").trim();
-      if (!keywordId || !keywordText) continue;
-
-      await this.attributionRepository.upsertAppleAdsKeywordMapRow({
-        keywordId,
-        campaignId: row.campaign_id != null ? String(row.campaign_id) : null,
-        campaignName: row.campaign_name || null,
-        adGroupId: row.ad_group_id != null ? String(row.ad_group_id) : null,
-        adGroupName: row.ad_group_name || null,
-        keywordText,
-        matchType: row.match_type || row.matchType || null,
-        bidAmount:
-          row.bid_amount != null
-            ? String(row.bid_amount)
-            : (row.bidAmount != null ? String(row.bidAmount) : null),
-        status: row.status || null,
-        source: row.source || "apple_ads_api",
-        lastSeenAt: row.last_seen_at || now,
-        now,
-      });
-      upserted += 1;
-    }
-
-    await this._audit(adminId, "admin_sync_apple_ads_keyword_map", "apple_ads_keyword_map", "bulk", {
-      rowCount: rows.length,
-      upserted,
-      contract: "apple-ads-keyword-map-v1",
-    });
-
-    return { upserted, skipped: rows.length - upserted };
+    return this.adminGrowthService.upsertAppleAdsKeywordMap(rows, adminId);
   }
 
   /**
