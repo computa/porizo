@@ -27,6 +27,8 @@ Admin user session/voice-control service-boundary ownership is also extracted
 and validated locally.
 Admin share-management service-boundary ownership is also extracted and
 validated locally.
+Admin security-observability service-boundary ownership is also extracted and
+validated locally.
 Admin job/DLQ operations persistence is also extracted and validated locally.
 Gift-dispatch scheduler polling/recovery persistence is also extracted and
 validated locally.
@@ -925,10 +927,12 @@ fail), and the delegated adversarial review returned zero P0/P1.
 The admin security-observability follow-up now moves auth-event search, auth
 event stats, Apple refresh-token audit stats, audit-log search, rate-limit
 reads, rate-limit row deletion, and consent-log reads into
-`database/admin-security-observability-repository.js`. `AdminService` keeps
+`database/admin-security-observability-repository.js`. The later
+`src/services/admin/security-observability-service.js` extraction now owns
 date-window calculation, pagination bounds, LIKE-pattern escaping, response
-normalization, and reset audit orchestration; `getSystemHealth` remains backed
-by `admin-job-ops-repository.js`. Characterization pins the admin session gate,
+normalization, and reset audit orchestration behind the `AdminService`
+compatibility facade; `getSystemHealth` remains backed by
+`admin-job-ops-repository.js`. Characterization pins the admin session gate,
 superadmin-only reset gate, auth-event filters/order/user email join, 24-hour
 auth stats, escaped audit action search, Apple refresh count/last-seen stats,
 near-limit ratio filtering, reset delete scope, reset audit metadata, and
@@ -1703,6 +1707,17 @@ attempt reset/revoke result mapping, and admin audit metadata for successful
 mutations. Direct service tests pin pagination bounds, share rebind
 audit/no-audit behavior, poem-share reset/revoke audit behavior, and missing or
 already-revoked no-audit paths.
+Admin security-observability service ownership is also extracted into
+`src/services/admin/security-observability-service.js`. `AdminService` remains
+a compatibility facade for `searchAuthEvents`, `getAuthEventStats`,
+`getAppleRefreshTokenStats`, `searchAuditLogs`, `getRateLimits`,
+`resetUserRateLimit`, and `getConsentLogs`, while the new service owns bounded
+observability searches, injected-clock date windows, auth/Apple stats
+normalization, audit action LIKE escaping, rate-limit reset audit metadata, and
+consent-log delegation. `getSystemHealth` intentionally remains outside this
+slice because it depends on job-ops persistence. Direct service tests pin
+wildcard escaping, pagination bounds, date-window construction, stats
+normalization, reset audit metadata, and consent-log filters.
 **Boundary:** Do the `getAppConfig` eviction + non-billing splits first (🟡). Do the billing/entitlement admin slice **last** (⚠ 🔴) with production verification.
 
 ### Root 7 — Writer cycle + god-file decomposition 🟡 effort M

@@ -80,15 +80,12 @@ const {
 const {
   createAdminSecurityConfigService,
 } = require("./admin/security-config-service");
+const {
+  createAdminSecurityObservabilityService,
+  escapeLikePattern,
+} = require("./admin/security-observability-service");
 const { safeBounds } = require("./admin/pagination");
 const { createClientConfigService } = require("./client-config-service");
-
-/**
- * Escape SQL LIKE wildcards to prevent pattern injection
- */
-function escapeLikePattern(str) {
-  return str.replace(/[%_\\]/g, "\\$&");
-}
 
 /**
  * Generate a secure audit log ID
@@ -426,6 +423,13 @@ class AdminService {
     this.adminSecurityObservabilityRepository =
       options.adminSecurityObservabilityRepository ||
       createAdminSecurityObservabilityRepository(db);
+    this.adminSecurityObservabilityService =
+      options.adminSecurityObservabilityService ||
+      createAdminSecurityObservabilityService({
+        adminSecurityObservabilityRepository:
+          this.adminSecurityObservabilityRepository,
+        audit: (...args) => this._audit(...args),
+      });
     this.adminMusicDiagnosticsRepository =
       options.adminMusicDiagnosticsRepository ||
       createAdminMusicDiagnosticsRepository(db);
@@ -1134,11 +1138,13 @@ class AdminService {
    * Search auth events (login attempts, token events, etc.)
    */
   async searchAuthEvents({ eventType, userId, startDate, endDate, limit = 50, offset = 0 }) {
-    const bounds = safeBounds(limit, offset);
-    return this.adminSecurityObservabilityRepository.searchAuthEvents({
-      filters: { eventType, userId, startDate, endDate },
-      limit: bounds.limit,
-      offset: bounds.offset,
+    return await this.adminSecurityObservabilityService.searchAuthEvents({
+      eventType,
+      userId,
+      startDate,
+      endDate,
+      limit,
+      offset,
     });
   }
 
@@ -1146,57 +1152,29 @@ class AdminService {
    * Get auth event statistics (last 24h)
    */
   async getAuthEventStats() {
-    const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-
-    const stats =
-      await this.adminSecurityObservabilityRepository.getAuthEventStats({
-        since: dayAgo,
-      });
-
-    const loginSuccess = stats.find(s => s.event_type === 'login_success')?.count || 0;
-    const loginFailed = stats.find(s => s.event_type === 'login_failed')?.count || 0;
-
-    return { byType: stats, loginSuccess, loginFailed };
+    return await this.adminSecurityObservabilityService.getAuthEventStats();
   }
 
   /**
    * Get Apple refresh-token audit stats (validation + failures)
    */
   async getAppleRefreshTokenStats(days = 7) {
-    const startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
-    const rows =
-      await this.adminSecurityObservabilityRepository.getAppleRefreshTokenStats({
-        startDate,
-      });
-
-    const validated = rows.find(r => r.action === 'apple_refresh_token_validated')?.count || 0;
-    const invalid = rows.find(r => r.action === 'apple_refresh_token_invalid')?.count || 0;
-    const lastValidated = rows.find(r => r.action === 'apple_refresh_token_validated')?.last_seen || null;
-    const lastInvalid = rows.find(r => r.action === 'apple_refresh_token_invalid')?.last_seen || null;
-
-    return {
-      validated,
-      invalid,
-      lastValidated,
-      lastInvalid,
-      byAction: rows,
-    };
+    return await this.adminSecurityObservabilityService.getAppleRefreshTokenStats(
+      days,
+    );
   }
 
   /**
    * Search admin action audit logs
    */
   async searchAuditLogs({ action, resourceType, startDate, endDate, limit = 50, offset = 0 }) {
-    const bounds = safeBounds(limit, offset);
-    return this.adminSecurityObservabilityRepository.searchAuditLogs({
-      filters: {
-        actionPattern: action ? `%${escapeLikePattern(action)}%` : null,
-        resourceType,
-        startDate,
-        endDate,
-      },
-      limit: bounds.limit,
-      offset: bounds.offset,
+    return await this.adminSecurityObservabilityService.searchAuditLogs({
+      action,
+      resourceType,
+      startDate,
+      endDate,
+      limit,
+      offset,
     });
   }
 
@@ -1204,16 +1182,12 @@ class AdminService {
    * Get rate limits with optional filters
    */
   async getRateLimits({ userId, actionType, nearLimit = false, limit = 50, offset = 0 }) {
-    const bounds = safeBounds(limit, offset);
-    return this.adminSecurityObservabilityRepository.getRateLimits({
-      filters: {
-        userId,
-        actionType,
-        nearLimit,
-        windowStartAfterMs: Date.now() - 86400000,
-      },
-      limit: bounds.limit,
-      offset: bounds.offset,
+    return await this.adminSecurityObservabilityService.getRateLimits({
+      userId,
+      actionType,
+      nearLimit,
+      limit,
+      offset,
     });
   }
 
@@ -1221,23 +1195,24 @@ class AdminService {
    * Reset a user's rate limit for specific action
    */
   async resetUserRateLimit(userId, actionType, adminId, reason) {
-    await this.adminSecurityObservabilityRepository.deleteRateLimitRows(
+    return await this.adminSecurityObservabilityService.resetUserRateLimit(
       userId,
       actionType,
+      adminId,
+      reason,
     );
-    await this._audit(adminId, 'admin_reset_rate_limit', 'user', userId, { actionType, reason });
-    return { success: true };
   }
 
   /**
    * Get voice profile consent logs
    */
   async getConsentLogs({ consentVersion, startDate, endDate, limit = 50, offset = 0 }) {
-    const bounds = safeBounds(limit, offset);
-    return this.adminSecurityObservabilityRepository.getConsentLogs({
-      filters: { consentVersion, startDate, endDate },
-      limit: bounds.limit,
-      offset: bounds.offset,
+    return await this.adminSecurityObservabilityService.getConsentLogs({
+      consentVersion,
+      startDate,
+      endDate,
+      limit,
+      offset,
     });
   }
 
