@@ -1772,16 +1772,16 @@ hits, exact windows, funnel conversion behavior, user-event limit clamping, and
 audit metadata; route and repository suites continue to pin admin auth, SQL
 semantics, selected columns, and audit row shape.
 Admin growth/attribution service ownership is also extracted into
-`src/services/admin/growth-service.js`. `AdminService` remains a compatibility
-facade for `getAttributionHealth`, `getAttribution`,
-`getAppleAdsKeywordMap`, and `upsertAppleAdsKeywordMap`, while the new service
-owns attribution health delegation, UTM share/download merge-and-sort behavior,
-rate formatting, Apple Ads keyword-map bounds, keyword-row normalization, and
-bulk-sync audit metadata. Direct service tests pin breakdown fan-out, Apple Ads
-campaign limits, percentage formatting, keyword-map pagination, invalid-input
-no-audit behavior, row normalization, and facade delegation; route/repository
-suites continue to pin admin auth, Apple Ads attribution joins, SQL semantics,
-and producer paths.
+`src/services/admin/growth-service.js`, and
+`src/routes/admin/growth.js` now calls `adminGrowthService` directly for
+attribution health/dashboard and Apple Ads keyword-map operations instead of
+going through `AdminService`. The service owns attribution health delegation,
+UTM share/download merge-and-sort behavior, rate formatting, Apple Ads
+keyword-map bounds, keyword-row normalization, and bulk-sync audit metadata.
+Direct service tests pin breakdown fan-out, Apple Ads campaign limits,
+percentage formatting, keyword-map pagination, invalid-input no-audit behavior,
+and row normalization; route/repository suites continue to pin admin auth,
+Apple Ads attribution joins, SQL semantics, and producer paths.
 Admin user session/voice-control service ownership is also extracted into
 `src/services/admin/user-session-control-service.js`, and
 `src/routes/admin/user-session-controls.js` now calls that service directly
@@ -1847,13 +1847,13 @@ Admin metrics service ownership is also extracted into
 `src/services/admin/metrics-service.js`, and
 `src/routes/admin/metrics.js` now calls it directly for overview, cost,
 enrollment, render-pipeline, and risk metrics instead of going through
-`AdminService`. `AdminService` remains a compatibility facade for
-`getTeaserMetrics` and `getShareMetrics`, while the new service owns
-overview/cost/enrollment/render/risk/teaser/share metric windows, growth rate
-formatting, and risk escalation metadata parsing. Direct service coverage pins
-deterministic date windows, malformed risk metadata fallback, and teaser/share
-rate formatting; repository and route suites continue to pin aggregate
-semantics, admin auth, and response contracts.
+`AdminService`; `src/routes/admin/growth.js` also calls it directly for teaser
+and share metrics. The service owns overview/cost/enrollment/render/risk/
+teaser/share metric windows, growth rate formatting, and risk escalation
+metadata parsing. Direct service coverage pins deterministic date windows,
+malformed risk metadata fallback, and teaser/share rate formatting; repository
+and route suites continue to pin aggregate semantics, admin auth, and response
+contracts.
 **Boundary:** Do the `getAppConfig` eviction + non-billing splits first (🟡). Do the billing/entitlement admin slice **last** (⚠ 🔴) with production verification.
 
 ### Root 7 — Writer cycle + god-file decomposition 🟡 effort M

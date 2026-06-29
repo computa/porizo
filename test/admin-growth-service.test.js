@@ -3,7 +3,6 @@ process.env.NODE_ENV = "test";
 const assert = require("node:assert/strict");
 const { describe, test } = require("node:test");
 
-const { AdminService } = require("../src/services/admin-service");
 const {
   createAdminGrowthService,
 } = require("../src/services/admin/growth-service");
@@ -209,59 +208,5 @@ describe("AdminGrowthService", () => {
       /limited to 5000 rows/,
     );
     assert.deepEqual(audits, []);
-  });
-});
-
-describe("AdminService growth facade", () => {
-  test("delegates growth methods to the injected growth service", async () => {
-    const calls = [];
-    const expected = {
-      health: { ok: true },
-      attribution: { bySource: [] },
-      map: { rows: [] },
-      sync: { upserted: 1, skipped: 0 },
-    };
-    const service = new AdminService(
-      {},
-      {
-        adminGrowthService: {
-          async getAttributionHealth() {
-            calls.push(["health"]);
-            return expected.health;
-          },
-          async getAttribution(days) {
-            calls.push(["attribution", days]);
-            return expected.attribution;
-          },
-          async getAppleAdsKeywordMap(payload) {
-            calls.push(["map", payload]);
-            return expected.map;
-          },
-          async upsertAppleAdsKeywordMap(rows, adminId) {
-            calls.push(["sync", rows, adminId]);
-            return expected.sync;
-          },
-        },
-      },
-    );
-
-    const rows = [{ keyword_id: "987", keyword_text: "gift song" }];
-
-    assert.deepEqual(await service.getAttributionHealth(), expected.health);
-    assert.deepEqual(await service.getAttribution(14), expected.attribution);
-    assert.deepEqual(
-      await service.getAppleAdsKeywordMap({ limit: 5, offset: 1 }),
-      expected.map,
-    );
-    assert.deepEqual(
-      await service.upsertAppleAdsKeywordMap(rows, "admin_1"),
-      expected.sync,
-    );
-    assert.deepEqual(calls, [
-      ["health"],
-      ["attribution", 14],
-      ["map", { limit: 5, offset: 1 }],
-      ["sync", rows, "admin_1"],
-    ]);
   });
 });

@@ -472,7 +472,8 @@ function registerAdminRoutes(
     requireAdminSession,
   });
   registerAdminGrowthRoutes(app, {
-    adminService,
+    growthService: adminService.adminGrowthService,
+    metricsService: adminService.adminMetricsService,
     requireAdminSession,
     sendError,
   });

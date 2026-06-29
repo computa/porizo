@@ -2,12 +2,12 @@
 
 function registerAdminGrowthRoutes(
   app,
-  { adminService, requireAdminSession, sendError },
+  { growthService, metricsService, requireAdminSession, sendError },
 ) {
   app.get("/admin/dashboard/attribution/health", async (request, reply) => {
     const admin = await requireAdminSession(request, reply);
     if (!admin) return;
-    const health = await adminService.getAttributionHealth();
+    const health = await growthService.getAttributionHealth();
     reply.send(health);
   });
 
@@ -15,7 +15,7 @@ function registerAdminGrowthRoutes(
     const admin = await requireAdminSession(request, reply);
     if (!admin) return;
     const days = parseInt(request.query.days, 10) || 30;
-    const attribution = await adminService.getAttribution(days);
+    const attribution = await growthService.getAttribution(days);
     reply.send(attribution);
   });
 
@@ -24,7 +24,7 @@ function registerAdminGrowthRoutes(
     async (request, reply) => {
       const admin = await requireAdminSession(request, reply);
       if (!admin) return;
-      const keywordMap = await adminService.getAppleAdsKeywordMap({
+      const keywordMap = await growthService.getAppleAdsKeywordMap({
         limit: request.query.limit,
         offset: request.query.offset,
       });
@@ -39,7 +39,7 @@ function registerAdminGrowthRoutes(
       if (!admin) return;
       try {
         const rows = request.body?.keywords ?? request.body?.rows;
-        const result = await adminService.upsertAppleAdsKeywordMap(
+        const result = await growthService.upsertAppleAdsKeywordMap(
           rows,
           admin.adminId,
         );
@@ -59,7 +59,7 @@ function registerAdminGrowthRoutes(
     const admin = await requireAdminSession(request, reply);
     if (!admin) return;
     const days = parseInt(request.query.days, 10) || 7;
-    const metrics = await adminService.getTeaserMetrics(days);
+    const metrics = await metricsService.getTeaserMetrics(days);
     reply.send(metrics);
   });
 
@@ -67,7 +67,7 @@ function registerAdminGrowthRoutes(
     const admin = await requireAdminSession(request, reply);
     if (!admin) return;
     const days = parseInt(request.query.days, 10) || 30;
-    const metrics = await adminService.getShareMetrics(days);
+    const metrics = await metricsService.getShareMetrics(days);
     reply.send(metrics);
   });
 }

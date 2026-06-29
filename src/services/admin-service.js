@@ -321,10 +321,6 @@ class AdminService {
     );
   }
 
-  async getAttributionHealth() {
-    return this.adminGrowthService.getAttributionHealth();
-  }
-
   /**
    * Update user risk level
    */
@@ -511,40 +507,6 @@ class AdminService {
    */
   async getBillingTransactions({ limit = 50, offset = 0 } = {}) {
     return this.adminBillingService.getBillingTransactions({ limit, offset });
-  }
-
-  // ============ GROWTH & ATTRIBUTION ============
-
-  /**
-   * Get UTM attribution breakdown
-   * @param {number} days - Number of days to look back
-   */
-  async getAttribution(days = 30) {
-    return this.adminGrowthService.getAttribution(days);
-  }
-
-  async getAppleAdsKeywordMap({ limit = 500, offset = 0 } = {}) {
-    return this.adminGrowthService.getAppleAdsKeywordMap({ limit, offset });
-  }
-
-  async upsertAppleAdsKeywordMap(rows, adminId = "system") {
-    return this.adminGrowthService.upsertAppleAdsKeywordMap(rows, adminId);
-  }
-
-  /**
-   * Get teaser funnel metrics (views → clicks → conversions)
-   * @param {number} days - Number of days to look back
-   */
-  async getTeaserMetrics(days = 7) {
-    return this.adminMetricsService.getTeaserMetrics(days);
-  }
-
-  /**
-   * Get share performance metrics
-   * @param {number} days - Number of days to look back
-   */
-  async getShareMetrics(days = 30) {
-    return this.adminMetricsService.getShareMetrics(days);
   }
 
   // ============ STT PROVIDER CONFIG ============

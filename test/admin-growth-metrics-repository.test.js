@@ -12,7 +12,6 @@ const {
 const {
   createAdminMetricsService,
 } = require("../src/services/admin/metrics-service");
-const { AdminService } = require("../src/services/admin-service");
 
 const NOW = "2026-06-27T10:00:00.000Z";
 const WEEK_AGO = "2026-06-20T10:00:00.000Z";
@@ -181,37 +180,4 @@ describe("admin growth metrics service", () => {
     });
   });
 
-  test("AdminService delegates growth metrics to the injected metrics service", async () => {
-    const calls = [];
-    const expected = {
-      teaser: { teaserViews: 1 },
-      shares: { created: 2 },
-    };
-    const service = new AdminService(
-      {
-        prepare() {
-          throw new Error("AdminService facade should not read growth metrics");
-        },
-      },
-      {
-        adminMetricsService: {
-          async getTeaserMetrics(days) {
-            calls.push(["teaser", days]);
-            return expected.teaser;
-          },
-          async getShareMetrics(days) {
-            calls.push(["shares", days]);
-            return expected.shares;
-          },
-        },
-      },
-    );
-
-    assert.deepEqual(await service.getTeaserMetrics(9), expected.teaser);
-    assert.deepEqual(await service.getShareMetrics(31), expected.shares);
-    assert.deepEqual(calls, [
-      ["teaser", 9],
-      ["shares", 31],
-    ]);
-  });
 });

@@ -1910,9 +1910,9 @@ escalation metadata parsing. Focused repository/service and route validation
 passed for the admin metrics contracts.
 
 Root 6 service-boundary follow-up: teaser and share-growth metrics are now also
-owned by `src/services/admin/metrics-service.js`. `AdminService` remains the
-compatibility facade for `getTeaserMetrics` and `getShareMetrics`, while the
-metrics service owns growth metric windows and rate formatting. Focused
+owned by `src/services/admin/metrics-service.js`. `src/routes/admin/growth.js`
+now calls that service directly for `getTeaserMetrics` and `getShareMetrics`;
+the metrics service owns growth metric windows and rate formatting. Focused
 repository/service and route validation passed for the growth metrics contracts.
 
 Root 6 service-boundary follow-up: admin user-read service ownership is now
@@ -1959,13 +1959,12 @@ traceable analytics read audits. Focused repository/service and route validation
 passed for the admin analytics contracts.
 
 Root 6 service-boundary follow-up: admin growth/attribution service ownership is
-now extracted into `src/services/admin/growth-service.js`. `AdminService`
-remains the compatibility facade for attribution health, attribution dashboard,
-Apple Ads keyword-map reads, and Apple Ads keyword-map sync, while the new
-service owns UTM share/download merge-and-sort behavior, rate formatting,
-keyword-map bounds, keyword-row normalization, and bulk-sync audit metadata.
-Focused repository/service and route validation passed for the admin growth
-contracts.
+now extracted into `src/services/admin/growth-service.js`. The follow-up
+facade-reduction slice now routes growth/attribution endpoints directly to
+`adminGrowthService` and teaser/share metrics directly to `adminMetricsService`,
+removing `AdminService` pass-throughs for attribution health, attribution
+dashboard, Apple Ads keyword-map reads/sync, and teaser/share metrics. Focused
+repository/service and route validation passed for the admin growth contracts.
 
 Root 6 service-boundary follow-up: admin audit-write ownership is now extracted
 into `src/services/admin/audit-service.js`. `AdminService._audit()` remains a
@@ -2034,6 +2033,14 @@ now call `adminSecurityConfigService` directly instead of passing through
 `updateSecurityConfig`, `syncIOSVersionFromAppStore`, and the unused
 `resolveIOSAppUpdatePolicy` compatibility method; focused route, service, and
 STT/client-config validation passed.
+
+Root 6 facade-reduction follow-up: growth/attribution admin routes now call
+`adminGrowthService` directly and teaser/share growth metrics now call
+`adminMetricsService` directly instead of passing through `AdminService`.
+Removed `AdminService.getAttributionHealth`, `getAttribution`,
+`getAppleAdsKeywordMap`, `upsertAppleAdsKeywordMap`, `getTeaserMetrics`, and
+`getShareMetrics`; focused attribution, growth-service, growth-metrics, and
+attribution-repository validation passed.
 
 ## Task 17: Root 7 Writer Decomposition
 
