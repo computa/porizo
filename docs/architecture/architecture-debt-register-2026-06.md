@@ -31,6 +31,8 @@ Admin security-observability service-boundary ownership is also extracted and
 validated locally.
 Admin music-diagnostics service-boundary ownership is also extracted and
 validated locally.
+Admin metrics service-boundary ownership is also extracted and validated
+locally.
 Admin job/DLQ operations persistence is also extracted and validated locally.
 Gift-dispatch scheduler polling/recovery persistence is also extracted and
 validated locally.
@@ -841,8 +843,9 @@ enrichment, action/resource selection, and timestamp ownership. The new
 boundary test uses a throwing DB stub to prove the service does not write
 `audit_logs` directly.
 The admin metrics follow-up now moves voice-enrollment dashboard metrics into
-`database/admin-metrics-repository.js` beside overview metrics. `AdminService`
-retains rolling-window calculation and route-facing delegation. Characterization
+`database/admin-metrics-repository.js` beside overview metrics. The later
+`AdminMetricsService` extraction now owns rolling-window calculation, while
+`AdminService` is only the route-facing compatibility facade. Characterization
 pins the admin auth gate, all-time enrollment totals, all-time abandonment
 counts, numeric completion/quality scores, quality bucket boundaries, null-score
 exclusion, current lack of deleted-profile filtering for quality metrics,
@@ -853,10 +856,11 @@ and adapter-stable numeric aggregate rows. Focused validation passed in
 `test/admin-overview-metrics-routes.test.js` (10 pass / 0 fail).
 The admin render-pipeline metrics follow-up now moves render success/error/
 latency/trend persistence into `database/admin-metrics-repository.js`.
-`AdminService` retains the rolling seven-day cutoff and route-facing
-delegation. Characterization pins the admin auth gate, all-time success-rate
-denominators, the current `status = 'ready'` success definition, seven-day
-job-error and step-latency windows, `updated_at`-based error recency,
+`AdminMetricsService` now retains the rolling seven-day cutoff; `AdminService`
+is only the route-facing compatibility facade. Characterization pins the admin
+auth gate, all-time success-rate denominators, the current `status = 'ready'`
+success definition, seven-day job-error and step-latency windows,
+`updated_at`-based error recency,
 `created_at`-based latency inclusion, the strict `>5` sample threshold for step
 latency, seven-day `completed_at` trend grouping, null-`completed_at`
 exclusion, and adapter-stable numeric aggregate rows. Focused validation passed
@@ -866,8 +870,9 @@ in `test/admin-metrics-repository.test.js`,
 `test/admin-overview-metrics-routes.test.js` (15 pass / 0 fail).
 The admin risk metrics follow-up now moves risk distribution, active lock
 count, and recent escalation reads into
-`database/admin-metrics-repository.js`. `AdminService` retains `now`/`weekAgo`
-cutoff construction and audit metadata parsing/fallback behavior.
+`database/admin-metrics-repository.js`. `AdminMetricsService` now retains
+`now`/`weekAgo` cutoff construction and audit metadata parsing/fallback
+behavior, while `AdminService` is only the compatibility facade.
 Characterization pins the admin auth gate, distribution filtering for
 non-deleted users, the current active-lock count behavior that includes
 soft-deleted locked users, exclusive `locked_until > now` semantics,
@@ -881,7 +886,7 @@ adapter-stable numeric counts. Focused validation passed in
 `test/admin-enrollment-metrics-routes.test.js`, and
 `test/admin-overview-metrics-routes.test.js` (20 pass / 0 fail).
 The admin cost metrics follow-up now moves cost aggregation into
-`database/admin-metrics-repository.js`. `AdminService` retains the
+`database/admin-metrics-repository.js`. `AdminMetricsService` now retains the
 route-provided `days` cutoff calculation and response delegation. The slice
 also fixes three verified correctness defects found during adversarial review:
 the previous SQL used PostgreSQL-only JSON casts and failed under SQLite, it
@@ -1751,6 +1756,14 @@ compatibility facade for `getSystemHealth`, while the new service owns the
 delegation, and checked-at timestamp. Direct service coverage pins the window
 and normalized response; security route coverage continues to pin the admin
 health endpoint contract.
+Admin metrics service ownership is also extracted into
+`src/services/admin/metrics-service.js`. `AdminService` remains a compatibility
+facade for `getOverviewMetrics`, `getCostMetrics`, `getEnrollmentMetrics`,
+`getRenderSuccessMetrics`, and `getRiskMetrics`, while the new service owns
+overview/cost/enrollment/render/risk metric windows and risk escalation metadata
+parsing. Direct service coverage pins deterministic date windows and malformed
+risk metadata fallback; repository and route suites continue to pin aggregate
+semantics, admin auth, and response contracts.
 **Boundary:** Do the `getAppConfig` eviction + non-billing splits first (🟡). Do the billing/entitlement admin slice **last** (⚠ 🔴) with production verification.
 
 ### Root 7 — Writer cycle + god-file decomposition 🟡 effort M

@@ -8,6 +8,9 @@ const { getDatabase } = require("../src/database");
 const {
   createAdminMetricsRepository,
 } = require("../src/database/admin-metrics-repository");
+const {
+  createAdminMetricsService,
+} = require("../src/services/admin/metrics-service");
 const { AdminService } = require("../src/services/admin-service");
 
 const DAY_AGO = "2026-06-26T10:00:00.000Z";
@@ -17,6 +20,13 @@ const RENDER_WEEK_AGO = "2026-06-20T10:00:00.000Z";
 const COST_DAYS_AGO = "2026-06-20T10:00:00.000Z";
 const RISK_NOW = "2026-06-27T10:00:00.000Z";
 const RISK_WEEK_AGO = "2026-06-20T10:00:00.000Z";
+
+function createMetricsService(adminMetricsRepository) {
+  return createAdminMetricsService({
+    adminMetricsRepository,
+    now: () => new Date(RISK_NOW),
+  });
+}
 
 let db;
 let repository;
@@ -869,37 +879,28 @@ describe("AdminMetricsRepository", () => {
   });
 });
 
-describe("AdminService overview metrics repository boundary", () => {
+describe("AdminMetricsService overview metrics repository boundary", () => {
   test("getOverviewMetrics delegates date windows without direct database access", async () => {
     const calls = [];
-    const service = new AdminService(
-      {
-        prepare() {
-          throw new Error("AdminService should not read overview metrics directly");
-        },
+    const service = createMetricsService({
+      async getOverviewMetrics({ dayAgo, weekAgo }) {
+        calls.push({ dayAgo, weekAgo });
+        return {
+          totalUsers: 8,
+          newUsersToday: 2,
+          newUsersWeek: 5,
+          tierDist: [{ tier: "pro", count: 3 }],
+          jobStats: [{ status: "queued", count: 1 }],
+          rendersToday: 4,
+        };
       },
-      {
-        adminMetricsRepository: {
-          async getOverviewMetrics({ dayAgo, weekAgo }) {
-            calls.push({ dayAgo, weekAgo });
-            return {
-              totalUsers: 8,
-              newUsersToday: 2,
-              newUsersWeek: 5,
-              tierDist: [{ tier: "pro", count: 3 }],
-              jobStats: [{ status: "queued", count: 1 }],
-              rendersToday: 4,
-            };
-          },
-        },
-      },
-    );
+    });
 
     const result = await service.getOverviewMetrics();
 
     assert.equal(calls.length, 1);
-    assert.match(calls[0].dayAgo, /^\d{4}-\d{2}-\d{2}T/);
-    assert.match(calls[0].weekAgo, /^\d{4}-\d{2}-\d{2}T/);
+    assert.equal(calls[0].dayAgo, DAY_AGO);
+    assert.equal(calls[0].weekAgo, WEEK_AGO);
     assert.deepEqual(result, {
       totalUsers: 8,
       newUsersToday: 2,
@@ -911,39 +912,30 @@ describe("AdminService overview metrics repository boundary", () => {
   });
 });
 
-describe("AdminService enrollment metrics repository boundary", () => {
+describe("AdminMetricsService enrollment metrics repository boundary", () => {
   test("getEnrollmentMetrics delegates the trend window without direct database access", async () => {
     const calls = [];
-    const service = new AdminService(
-      {
-        prepare() {
-          throw new Error("AdminService should not read enrollment metrics directly");
-        },
+    const service = createMetricsService({
+      async getEnrollmentMetrics({ weekAgo }) {
+        calls.push({ weekAgo });
+        return {
+          totalEnrollments: 4,
+          completedEnrollments: 3,
+          completionRate: 75,
+          averageQualityScore: 88.5,
+          qualityDistribution: [{ bucket: "Excellent (85+)", count: 2 }],
+          abandonmentByStep: [{ step: "recording", count: 1 }],
+          last7Days: [
+            { date: "2026-06-26", started: 4, completed: 3 },
+          ],
+        };
       },
-      {
-        adminMetricsRepository: {
-          async getEnrollmentMetrics({ weekAgo }) {
-            calls.push({ weekAgo });
-            return {
-              totalEnrollments: 4,
-              completedEnrollments: 3,
-              completionRate: 75,
-              averageQualityScore: 88.5,
-              qualityDistribution: [{ bucket: "Excellent (85+)", count: 2 }],
-              abandonmentByStep: [{ step: "recording", count: 1 }],
-              last7Days: [
-                { date: "2026-06-26", started: 4, completed: 3 },
-              ],
-            };
-          },
-        },
-      },
-    );
+    });
 
     const result = await service.getEnrollmentMetrics();
 
     assert.equal(calls.length, 1);
-    assert.match(calls[0].weekAgo, /^\d{4}-\d{2}-\d{2}T/);
+    assert.equal(calls[0].weekAgo, ENROLLMENT_WEEK_AGO);
     assert.deepEqual(result, {
       totalEnrollments: 4,
       completedEnrollments: 3,
@@ -956,39 +948,30 @@ describe("AdminService enrollment metrics repository boundary", () => {
   });
 });
 
-describe("AdminService cost metrics repository boundary", () => {
+describe("AdminMetricsService cost metrics repository boundary", () => {
   test("getCostMetrics delegates the cutoff without direct database access", async () => {
     const calls = [];
-    const service = new AdminService(
-      {
-        prepare() {
-          throw new Error("AdminService should not read cost metrics directly");
-        },
+    const service = createMetricsService({
+      async getCostMetrics({ daysAgo }) {
+        calls.push({ daysAgo });
+        return {
+          dailyCosts: [{ date: "2026-06-26", renders: 2, total_cost_usd: 4 }],
+          costByType: [
+            {
+              render_type: "preview",
+              count: 2,
+              avg_cost_usd: 2,
+              total_cost_usd: 4,
+            },
+          ],
+        };
       },
-      {
-        adminMetricsRepository: {
-          async getCostMetrics({ daysAgo }) {
-            calls.push({ daysAgo });
-            return {
-              dailyCosts: [{ date: "2026-06-26", renders: 2, total_cost_usd: 4 }],
-              costByType: [
-                {
-                  render_type: "preview",
-                  count: 2,
-                  avg_cost_usd: 2,
-                  total_cost_usd: 4,
-                },
-              ],
-            };
-          },
-        },
-      },
-    );
+    });
 
-    const result = await service.getCostMetrics(14);
+    const result = await service.getCostMetrics(7);
 
     assert.equal(calls.length, 1);
-    assert.match(calls[0].daysAgo, /^\d{4}-\d{2}-\d{2}T/);
+    assert.equal(calls[0].daysAgo, COST_DAYS_AGO);
     assert.deepEqual(result, {
       dailyCosts: [{ date: "2026-06-26", renders: 2, total_cost_usd: 4 }],
       costByType: [
@@ -1003,34 +986,25 @@ describe("AdminService cost metrics repository boundary", () => {
   });
 });
 
-describe("AdminService render pipeline metrics repository boundary", () => {
+describe("AdminMetricsService render pipeline metrics repository boundary", () => {
   test("getRenderSuccessMetrics delegates the trend window without direct database access", async () => {
     const calls = [];
-    const service = new AdminService(
-      {
-        prepare() {
-          throw new Error("AdminService should not read render metrics directly");
-        },
+    const service = createMetricsService({
+      async getRenderSuccessMetrics({ weekAgo }) {
+        calls.push({ weekAgo });
+        return {
+          successRate: { preview: 88.5, full: 50 },
+          errorBreakdown: [{ error_code: "E_TIMEOUT", count: 2 }],
+          stepLatency: [{ step: "mix", avg_ms: 3500, sample_count: 6 }],
+          dailyTrend: [{ date: "2026-06-26", success: 1, failed: 1 }],
+        };
       },
-      {
-        adminMetricsRepository: {
-          async getRenderSuccessMetrics({ weekAgo }) {
-            calls.push({ weekAgo });
-            return {
-              successRate: { preview: 88.5, full: 50 },
-              errorBreakdown: [{ error_code: "E_TIMEOUT", count: 2 }],
-              stepLatency: [{ step: "mix", avg_ms: 3500, sample_count: 6 }],
-              dailyTrend: [{ date: "2026-06-26", success: 1, failed: 1 }],
-            };
-          },
-        },
-      },
-    );
+    });
 
     const result = await service.getRenderSuccessMetrics();
 
     assert.equal(calls.length, 1);
-    assert.match(calls[0].weekAgo, /^\d{4}-\d{2}-\d{2}T/);
+    assert.equal(calls[0].weekAgo, RENDER_WEEK_AGO);
     assert.deepEqual(result, {
       successRate: { preview: 88.5, full: 50 },
       errorBreakdown: [{ error_code: "E_TIMEOUT", count: 2 }],
@@ -1040,48 +1014,39 @@ describe("AdminService render pipeline metrics repository boundary", () => {
   });
 });
 
-describe("AdminService risk metrics repository boundary", () => {
+describe("AdminMetricsService risk metrics repository boundary", () => {
   test("getRiskMetrics delegates cutoffs and parses escalation metadata without direct database access", async () => {
     const calls = [];
-    const service = new AdminService(
-      {
-        prepare() {
-          throw new Error("AdminService should not read risk metrics directly");
-        },
+    const service = createMetricsService({
+      async getRiskMetrics({ now, weekAgo }) {
+        calls.push({ now, weekAgo });
+        return {
+          distribution: [{ level: "high", count: 1 }],
+          lockedAccounts: 2,
+          recentEscalations: [
+            {
+              user_id: "risk_service_high",
+              metadata_json: JSON.stringify({
+                riskLevel: "high",
+                reason: "manual review",
+              }),
+              date: "2026-06-27T08:00:00.000Z",
+            },
+            {
+              user_id: "risk_service_unknown",
+              metadata_json: "{not-json",
+              date: "2026-06-27T07:00:00.000Z",
+            },
+          ],
+        };
       },
-      {
-        adminMetricsRepository: {
-          async getRiskMetrics({ now, weekAgo }) {
-            calls.push({ now, weekAgo });
-            return {
-              distribution: [{ level: "high", count: 1 }],
-              lockedAccounts: 2,
-              recentEscalations: [
-                {
-                  user_id: "risk_service_high",
-                  metadata_json: JSON.stringify({
-                    riskLevel: "high",
-                    reason: "manual review",
-                  }),
-                  date: "2026-06-27T08:00:00.000Z",
-                },
-                {
-                  user_id: "risk_service_unknown",
-                  metadata_json: "{not-json",
-                  date: "2026-06-27T07:00:00.000Z",
-                },
-              ],
-            };
-          },
-        },
-      },
-    );
+    });
 
     const result = await service.getRiskMetrics();
 
     assert.equal(calls.length, 1);
-    assert.match(calls[0].now, /^\d{4}-\d{2}-\d{2}T/);
-    assert.match(calls[0].weekAgo, /^\d{4}-\d{2}-\d{2}T/);
+    assert.equal(calls[0].now, RISK_NOW);
+    assert.equal(calls[0].weekAgo, RISK_WEEK_AGO);
     assert.deepEqual(result, {
       distribution: [{ level: "high", count: 1 }],
       lockedAccounts: 2,
@@ -1100,5 +1065,62 @@ describe("AdminService risk metrics repository boundary", () => {
         },
       ],
     });
+  });
+});
+
+describe("AdminService metrics facade", () => {
+  test("delegates dashboard metrics to the injected metrics service", async () => {
+    const calls = [];
+    const expected = {
+      overview: { totalUsers: 1 },
+      cost: { dailyCosts: [] },
+      enrollment: { totalEnrollments: 2 },
+      render: { successRate: {} },
+      risk: { distribution: [] },
+    };
+    const service = new AdminService(
+      {
+        prepare() {
+          throw new Error("AdminService facade should not read metrics directly");
+        },
+      },
+      {
+        adminMetricsService: {
+          async getOverviewMetrics() {
+            calls.push(["overview"]);
+            return expected.overview;
+          },
+          async getCostMetrics(days) {
+            calls.push(["cost", days]);
+            return expected.cost;
+          },
+          async getEnrollmentMetrics() {
+            calls.push(["enrollment"]);
+            return expected.enrollment;
+          },
+          async getRenderSuccessMetrics() {
+            calls.push(["render"]);
+            return expected.render;
+          },
+          async getRiskMetrics() {
+            calls.push(["risk"]);
+            return expected.risk;
+          },
+        },
+      },
+    );
+
+    assert.deepEqual(await service.getOverviewMetrics(), expected.overview);
+    assert.deepEqual(await service.getCostMetrics(14), expected.cost);
+    assert.deepEqual(await service.getEnrollmentMetrics(), expected.enrollment);
+    assert.deepEqual(await service.getRenderSuccessMetrics(), expected.render);
+    assert.deepEqual(await service.getRiskMetrics(), expected.risk);
+    assert.deepEqual(calls, [
+      ["overview"],
+      ["cost", 14],
+      ["enrollment"],
+      ["render"],
+      ["risk"],
+    ]);
   });
 });

@@ -96,6 +96,9 @@ const {
 const {
   createAdminSystemHealthService,
 } = require("./admin/system-health-service");
+const {
+  createAdminMetricsService,
+} = require("./admin/metrics-service");
 const { safeBounds } = require("./admin/pagination");
 const { createClientConfigService } = require("./client-config-service");
 
@@ -444,6 +447,11 @@ class AdminService {
       });
     this.adminMetricsRepository =
       options.adminMetricsRepository || createAdminMetricsRepository(db);
+    this.adminMetricsService =
+      options.adminMetricsService ||
+      createAdminMetricsService({
+        adminMetricsRepository: this.adminMetricsRepository,
+      });
     this.adminEntitlementsRepository =
       options.adminEntitlementsRepository ||
       createAdminEntitlementsRepository(db);
@@ -969,12 +977,7 @@ class AdminService {
    * Get overview dashboard metrics
    */
   async getOverviewMetrics() {
-    const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-    const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-    return this.adminMetricsRepository.getOverviewMetrics({
-      dayAgo,
-      weekAgo,
-    });
+    return this.adminMetricsService.getOverviewMetrics();
   }
 
   // ============ STORY SESSIONS ============
@@ -1009,8 +1012,7 @@ class AdminService {
    * Get cost metrics for specified number of days
    */
   async getCostMetrics(days = 30) {
-    const daysAgo = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
-    return this.adminMetricsRepository.getCostMetrics({ daysAgo });
+    return this.adminMetricsService.getCostMetrics(days);
   }
 
   // ============ JOB MANAGEMENT ============
@@ -1824,8 +1826,7 @@ class AdminService {
    * Get voice enrollment metrics
    */
   async getEnrollmentMetrics() {
-    const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-    return this.adminMetricsRepository.getEnrollmentMetrics({ weekAgo });
+    return this.adminMetricsService.getEnrollmentMetrics();
   }
 
   // ============ RENDER PIPELINE METRICS ============
@@ -1834,8 +1835,7 @@ class AdminService {
    * Get render pipeline success metrics
    */
   async getRenderSuccessMetrics() {
-    const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-    return this.adminMetricsRepository.getRenderSuccessMetrics({ weekAgo });
+    return this.adminMetricsService.getRenderSuccessMetrics();
   }
 
   // ============ RISK METRICS ============
@@ -1844,39 +1844,7 @@ class AdminService {
    * Get user risk distribution metrics
    */
   async getRiskMetrics() {
-    const now = new Date().toISOString();
-    const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-    const metrics = await this.adminMetricsRepository.getRiskMetrics({
-      now,
-      weekAgo,
-    });
-
-    // Parse escalations to extract from/to risk levels
-    const parsedEscalations = metrics.recentEscalations.map(e => {
-      try {
-        const meta = JSON.parse(e.metadata_json || '{}');
-        return {
-          user_id: e.user_id,
-          to: meta.riskLevel || 'unknown',
-          reason: meta.reason || '',
-          date: e.date,
-        };
-      } catch (parseError) {
-        console.warn(`[AdminService] Malformed metadata_json in audit_logs for user ${e.user_id}:`, parseError.message);
-        return {
-          user_id: e.user_id,
-          to: 'unknown',
-          reason: '[metadata parse error]',
-          date: e.date,
-        };
-      }
-    });
-
-    return {
-      distribution: metrics.distribution,
-      lockedAccounts: metrics.lockedAccounts,
-      recentEscalations: parsedEscalations,
-    };
+    return this.adminMetricsService.getRiskMetrics();
   }
 
   // ============ STT PROVIDER CONFIG ============

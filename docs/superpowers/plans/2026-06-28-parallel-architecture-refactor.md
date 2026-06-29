@@ -1902,6 +1902,13 @@ owns the 24-hour job/DLQ window, normalized operational counters, recent-error
 delegation, and checked timestamp. Focused service, route, and adjacent job-ops
 validation passed for the admin system-health contract.
 
+Root 6 service-boundary follow-up: admin metrics service ownership is now
+extracted into `src/services/admin/metrics-service.js`. `AdminService` remains
+the compatibility facade for overview, cost, enrollment, render-success, and
+risk metrics, while the new service owns deterministic metric windows and risk
+escalation metadata parsing. Focused repository/service and route validation
+passed for the admin metrics contracts.
+
 ## Task 17: Root 7 Writer Decomposition
 
 **Owner:** One worker
