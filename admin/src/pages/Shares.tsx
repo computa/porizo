@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { Share2, RefreshCw, Link2, Eye, Clock, Smartphone, BookOpen, ShieldAlert, RotateCcw, Ban, Megaphone, Copy, Check, Trash2, Plus } from 'lucide-react';
 import {
   createDemoShare,
@@ -15,6 +15,7 @@ import {
   type ShareToken,
 } from '../api/contracts/shares';
 import { useApi } from '../hooks/useApi';
+import { useAsyncResource } from '../hooks/useAsyncResource';
 import { getTimeSince } from '../utils/date';
 import { LoadingState } from '../components/LoadingState';
 import { ErrorState } from '../components/ErrorState';
@@ -25,44 +26,41 @@ const statusColors: Record<string, { bg: string; text: string }> = {
   revoked: { bg: 'bg-rose-500/10', text: 'text-rose-400' },
 };
 
+interface ShareDashboardData {
+  shares: ShareToken[];
+  poemShares: PoemShareToken[];
+  demoShares: DemoShare[];
+}
+
 export function Shares() {
-  const { get, post, loading, error } = useApi();
-  const [shares, setShares] = useState<ShareToken[]>([]);
-  const [poemShares, setPoemShares] = useState<PoemShareToken[]>([]);
+  const { get, post } = useApi();
   const [rebindData, setRebindData] = useState<Record<string, { deviceId: string; reason: string }>>({});
   const [rebinding, setRebinding] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
-  const [demoShares, setDemoShares] = useState<DemoShare[]>([]);
   const [demoForm, setDemoForm] = useState({ resource_type: 'song' as ShareResourceType, resource_id: '' });
   const [demoCreating, setDemoCreating] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  const fetchShares = useCallback(async () => {
-    try {
-      const data = await listShareTokens({ get });
-      setShares(data.shares || []);
-    } catch (err) {
-      console.error('Failed to fetch shares:', err);
-    }
-  }, [get]);
+  const loadShareDashboard = useCallback(async (): Promise<ShareDashboardData> => {
+    const [shareData, poemShareData, demoShareData] = await Promise.all([
+      listShareTokens({ get }),
+      listPoemShareTokens({ get }),
+      listDemoShares({ get }),
+    ]);
 
-  const fetchPoemShares = useCallback(async () => {
-    try {
-      const data = await listPoemShareTokens({ get });
-      setPoemShares(data.shares || []);
-    } catch (err) {
-      console.error('Failed to fetch poem shares:', err);
-    }
+    return {
+      shares: shareData.shares || [],
+      poemShares: poemShareData.shares || [],
+      demoShares: demoShareData.demo_shares || [],
+    };
   }, [get]);
+  const { data, isLoading, error, reload } = useAsyncResource(loadShareDashboard, {
+    initialData: { shares: [], poemShares: [], demoShares: [] },
+  });
 
-  const fetchDemoShares = useCallback(async () => {
-    try {
-      const data = await listDemoShares({ get });
-      setDemoShares(data.demo_shares || []);
-    } catch (err) {
-      console.error('Failed to fetch demo shares:', err);
-    }
-  }, [get]);
+  const shares = data?.shares ?? [];
+  const poemShares = data?.poemShares ?? [];
+  const demoShares = data?.demoShares ?? [];
 
   const handleCreateDemo = async () => {
     if (!demoForm.resource_id.trim()) return;
@@ -70,7 +68,7 @@ export function Shares() {
     try {
       await createDemoShare({ get, post }, demoForm);
       setDemoForm({ resource_type: 'song', resource_id: '' });
-      await fetchDemoShares();
+      reload();
     } catch (err) {
       console.error('Failed to create demo share:', err);
     } finally {
@@ -83,7 +81,7 @@ export function Shares() {
     setActionLoading(shareId);
     try {
       await revokeDemoShare({ get, post }, shareId);
-      await fetchDemoShares();
+      reload();
     } catch (err) {
       console.error('Failed to revoke demo share:', err);
     } finally {
@@ -97,12 +95,6 @@ export function Shares() {
     setTimeout(() => setCopiedId(null), 2000);
   };
 
-  useEffect(() => {
-    fetchShares().catch(console.error);
-    fetchPoemShares().catch(console.error);
-    fetchDemoShares().catch(console.error);
-  }, [fetchShares, fetchPoemShares, fetchDemoShares]);
-
   const handleResetAttempts = async (shareId: string) => {
     setActionLoading(shareId);
     try {
@@ -111,7 +103,7 @@ export function Shares() {
         shareId,
         'Admin reset via dashboard',
       );
-      await fetchPoemShares();
+      reload();
     } catch (err) {
       console.error('Failed to reset attempts:', err);
     } finally {
@@ -124,7 +116,7 @@ export function Shares() {
     setActionLoading(shareId);
     try {
       await revokePoemShare({ get, post }, shareId, 'Admin revoked via dashboard');
-      await fetchPoemShares();
+      reload();
     } catch (err) {
       console.error('Failed to revoke poem share:', err);
     } finally {
@@ -142,7 +134,7 @@ export function Shares() {
         newDeviceId: data.deviceId,
         reason: data.reason,
       });
-      await fetchShares();
+      reload();
       setRebindData(prev => {
         const next = { ...prev };
         delete next[shareId];
@@ -165,7 +157,7 @@ export function Shares() {
     }));
   };
 
-  if (loading && shares.length === 0) {
+  if (isLoading && shares.length === 0) {
     return <LoadingState message="Loading shares..." />;
   }
 
@@ -189,10 +181,10 @@ export function Shares() {
           <p className="text-slate-400 text-sm mt-1">Track sharing and access analytics</p>
         </div>
         <button
-          onClick={() => fetchShares()}
+          onClick={reload}
           className="flex items-center gap-2 px-4 py-2 bg-slate-700/50 hover:bg-slate-700 text-slate-300 rounded-lg transition-colors"
         >
-          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+          <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
           Refresh
         </button>
       </div>
@@ -466,10 +458,10 @@ export function Shares() {
           <p className="text-slate-400 text-sm mt-1">Poem sharing, PIN claims, and access management</p>
         </div>
         <button
-          onClick={() => fetchPoemShares()}
+          onClick={reload}
           className="flex items-center gap-2 px-4 py-2 bg-slate-700/50 hover:bg-slate-700 text-slate-300 rounded-lg transition-colors"
         >
-          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+          <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
           Refresh
         </button>
       </div>

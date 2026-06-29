@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback } from 'react';
 import { Activity, Flame, Repeat } from 'lucide-react';
 import {
   fetchAnalyticsDaily,
@@ -10,6 +10,7 @@ import {
   type OverviewResponse,
 } from '../api/contracts/analytics';
 import { useApi } from '../hooks/useApi';
+import { useAsyncResource } from '../hooks/useAsyncResource';
 import { FunnelCard } from './FunnelCard';
 
 // Time range is shared across all Growth sections for consistent admin scoping.
@@ -23,45 +24,28 @@ interface FunnelSectionProps {
 // emphasis. That's the moment the core value prop actually delivers.
 const HERO_HOP_INDEX = 2;
 
+interface FunnelSectionData {
+  funnel: FunnelResponse;
+  overview: OverviewResponse;
+  daily: DailyResponse;
+}
+
 export function FunnelSection({ days }: FunnelSectionProps) {
   const { get } = useApi();
-  const [funnel, setFunnel] = useState<FunnelResponse | null>(null);
-  const [overview, setOverview] = useState<OverviewResponse | null>(null);
-  const [daily, setDaily] = useState<DailyResponse | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const loadFunnelSection = useCallback(async (): Promise<FunnelSectionData> => {
+    const [funnel, overview, daily] = await Promise.all([
+      fetchAnalyticsFunnel({ get }, days),
+      fetchAnalyticsOverview({ get }, days),
+      fetchAnalyticsDaily({ get }, 'first_song_completed', days),
+    ]);
 
-  useEffect(() => {
-    let cancelled = false;
-    Promise.resolve()
-      .then(() => {
-        if (cancelled) return null;
-        setIsLoading(true);
-        setError(null);
-        return Promise.all([
-          fetchAnalyticsFunnel({ get }, days),
-          fetchAnalyticsOverview({ get }, days),
-          fetchAnalyticsDaily({ get }, 'first_song_completed', days),
-        ]);
-      })
-      .then((result) => {
-        if (cancelled || !result) return;
-        const [f, o, d] = result;
-        setFunnel(f);
-        setOverview(o);
-        setDaily(d);
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        setError(err instanceof Error ? err.message : String(err));
-      })
-      .finally(() => {
-        if (!cancelled) setIsLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
+    return { funnel, overview, daily };
   }, [get, days]);
+  const { data, isLoading, error } = useAsyncResource(loadFunnelSection);
+
+  const funnel = data?.funnel ?? null;
+  const overview = data?.overview ?? null;
+  const daily = data?.daily ?? null;
 
   const sessionResumedCount =
     overview?.counts.find((c) => c.event_name === 'session_resumed')?.count ?? 0;

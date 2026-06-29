@@ -112,7 +112,7 @@ Porizo is not only the Fastify API. The maintainability plan must account for ev
 │ Web player: web-player/**    │  │ Admin UI: admin/src/**                   │
 │ - Recipient share playback   │  │ - Ops, billing, users, marketing,        │
 │ - App-only save wall         │  │   security, jobs, blog controls          │
-│ - Device/session behavior    │  │ - Depends on stable admin API contracts  │
+│ - Device/session behavior    │  │ - Typed contracts + shared async reducer │
 └──────────────────────────────┘  └──────────────────────────────────────────┘
 ```
 
@@ -130,7 +130,7 @@ Porizo is not only the Fastify API. The maintainability plan must account for ev
 | ------- | ------------ | -------------- |
 | Backend API/worker | `src/server.js`, `src/workflows/runner.js`, fat routes, missing repositories | Shared correctness and testability bottleneck for every client |
 | iOS app | `RootView.swift`, `WarmCanvasFlowView.swift`, `GiftSendFlowView.swift`, `AuthManager.swift`, render/create controllers | State ownership and presentation payload drift can create stale launches, duplicate work, or failed handoffs |
-| Admin UI | large page components and one generic `useApi` hook | Admin behavior depends on unstated API contracts; repeated fetch/save/poll flows are hard to reason about |
+| Admin UI | large page components, typed API contracts, and shared async resource state for Growth/Shares/Funnel | Admin behavior depends on explicit backend envelopes; remaining large pages are future decomposition candidates, not Root 11 blockers |
 | Web player | `web-player/player.js` | Recipient app-only saving, device/session behavior, and share attribution are product constraints, not decorative UI |
 
 ---

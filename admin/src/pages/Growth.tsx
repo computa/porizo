@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import {
   TrendingUp,
   Share2,
@@ -19,25 +19,35 @@ import {
   type GrowthTeaserMetricsResponse,
 } from '../api/contracts/growth';
 import { useApi } from '../hooks/useApi';
+import { useAsyncResource } from '../hooks/useAsyncResource';
 import { formatShortDate, formatConversionRate } from '../utils/date';
 import { LoadingState } from '../components/LoadingState';
 import { ErrorState } from '../components/ErrorState';
 import { FunnelSection } from '../components/FunnelSection';
 
-export function Growth() {
-  const { get, loading, error } = useApi();
-  const [attribution, setAttribution] = useState<GrowthAttributionResponse | null>(null);
-  const [teasers, setTeasers] = useState<GrowthTeaserMetricsResponse | null>(null);
-  const [shares, setShares] = useState<GrowthShareMetricsResponse | null>(null);
-  const [days, setDays] = useState(30);
+interface GrowthDashboardData {
+  attribution: GrowthAttributionResponse;
+  teasers: GrowthTeaserMetricsResponse;
+  shares: GrowthShareMetricsResponse;
+}
 
-  useEffect(() => {
-    Promise.all([
-      fetchGrowthAttribution({ get }, days).then(setAttribution),
-      fetchGrowthTeasers({ get }, days).then(setTeasers),
-      fetchGrowthShares({ get }, days).then(setShares),
-    ]).catch(console.error);
+export function Growth() {
+  const { get } = useApi();
+  const [days, setDays] = useState(30);
+  const loadGrowthDashboard = useCallback(async (): Promise<GrowthDashboardData> => {
+    const [attribution, teasers, shares] = await Promise.all([
+      fetchGrowthAttribution({ get }, days),
+      fetchGrowthTeasers({ get }, days),
+      fetchGrowthShares({ get }, days),
+    ]);
+
+    return { attribution, teasers, shares };
   }, [get, days]);
+  const { data, isLoading, error } = useAsyncResource(loadGrowthDashboard);
+
+  const attribution = data?.attribution ?? null;
+  const teasers = data?.teasers ?? null;
+  const shares = data?.shares ?? null;
 
   const formatPercent = (value: string | number | undefined | null) => {
     if (value === undefined || value === null) return '—';
@@ -46,7 +56,7 @@ export function Growth() {
     return `${num.toFixed(1)}%`;
   };
 
-  if (loading && !attribution) {
+  if (isLoading && !data) {
     return <LoadingState message="Loading growth data..." />;
   }
 

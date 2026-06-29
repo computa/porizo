@@ -1943,7 +1943,9 @@ songwriter/v3 imports or Root 7 TODO/FIXME leftovers.
 
 **Status 2026-06-29, simulator recording slice:** Root 11 now has recorded Argent checkpoints for create, gift, and share simulator paths: `.argent/flows/root11-create-flow-fixture.yaml`, `.argent/flows/root11-gift-flow-fixture.yaml`, and `.argent/flows/root11-share-postcard-fixture.yaml`. The slice added DEBUG-only launch fixtures for direct share-postcard and gift-flow validation, and fixed the offline gift fixture so it no longer leaks backend reservation/schedule fetches into simulator recording. Evidence is summarized in `docs/validation/root11-simulator-flows-2026-06-29.md`.
 
-**Remaining Root 11 scope:** broader admin page-level reducer/context cleanup.
+**Status 2026-06-29, admin reducer slice:** Growth, Funnel, and Shares now load related dashboard data through `admin/src/hooks/useAsyncResource.ts`, a reducer-backed async resource boundary with stale-result protection. This removes page-local fetch/effect clusters from the Root 11 admin contract surfaces while preserving the typed API contract modules introduced earlier.
+
+**Root 11 closeout:** Closed for this architecture pass. Larger admin pages still have decomposition opportunities, but the cross-surface create/share/growth contract and state-ownership scope is complete.
 
 ---
 
