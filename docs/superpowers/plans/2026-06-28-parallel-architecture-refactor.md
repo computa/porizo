@@ -2090,6 +2090,12 @@ Root 6 facade-reduction follow-up: billing admin routes now call
 instead of passing through `AdminService._audit`; focused billing route,
 repository, and audit-service validation passed.
 
+Root 6 facade-reduction follow-up: gift-ops admin routes now call
+`adminAuditService.audit` directly for incident acknowledgement, retry, cancel,
+overdue-review, and manual-recovery-note audit writes instead of passing
+through `AdminService._audit`; focused gift-ops route/repository and
+audit-service validation passed.
+
 ## Task 17: Root 7 Writer Decomposition
 
 **Owner:** One worker

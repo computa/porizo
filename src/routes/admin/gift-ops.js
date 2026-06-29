@@ -38,7 +38,7 @@ function registerAdminGiftOpsRoutes(
   {
     db,
     adminGiftOpsService,
-    adminService,
+    auditService,
     parsePagination,
     requireAdminRole,
     sendError,
@@ -162,7 +162,7 @@ function registerAdminGiftOpsRoutes(
           incidentRecord.incident_key,
           admin.adminId,
         );
-        await adminService._audit(
+        await auditService.audit(
           admin.adminId,
           "gift_incident_acknowledged",
           "gift_incident",
@@ -190,7 +190,7 @@ function registerAdminGiftOpsRoutes(
           actorUserId: admin.adminId,
           actorType: "admin",
         });
-        await adminService._audit(
+        await auditService.audit(
           admin.adminId,
           "gift_dispatch_requeued",
           "gift_order",
@@ -241,7 +241,7 @@ function registerAdminGiftOpsRoutes(
           actorUserId: admin.adminId,
           actorType: "admin",
         });
-        await adminService._audit(
+        await auditService.audit(
           admin.adminId,
           "gift_cancelled_by_admin",
           "gift_order",
@@ -302,7 +302,7 @@ function registerAdminGiftOpsRoutes(
         `gift_overdue:${request.params.id}`,
         admin.adminId,
       );
-      await adminService._audit(
+      await auditService.audit(
         admin.adminId,
         "gift_overdue_acknowledged",
         "gift_order",
@@ -331,7 +331,7 @@ function registerAdminGiftOpsRoutes(
         );
         return;
       }
-      await adminService._audit(
+      await auditService.audit(
         admin.adminId,
         "gift_manual_recovery_note",
         "gift_order",

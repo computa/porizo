@@ -493,7 +493,7 @@ function registerAdminRoutes(
   registerAdminGiftOpsRoutes(app, {
     db,
     adminGiftOpsService,
-    adminService,
+    auditService: adminService.adminAuditService,
     parsePagination,
     requireAdminRole,
     sendError,
