@@ -6,6 +6,9 @@ const path = require("path");
 const REPO_ROOT = path.resolve(__dirname, "..");
 
 const KNOWN_DRIFT = {
+  // Historical local-only migrations. PostgreSQL receives their additive schema
+  // and flag effects through pg/122_migration_parity_backfill.sql so new
+  // low-number migrations do not run before the 088 repair migration.
   sqliteOnly: [
     "049_timbre_tint_v2_tuning.sql",
     "050_timbre_blend_strategies.sql",
@@ -17,12 +20,13 @@ const KNOWN_DRIFT = {
     "071_download_attribution.sql",
     "072_step_history.sql",
   ],
+  // Intentionally PostgreSQL-specific repair/destructive cleanup migrations.
+  // SQLite keeps the legacy billing columns/table until the local test harness
+  // and account-deletion fixtures are moved off them.
   postgresOnly: [
     "088_repair_core_workflow_tables.sql",
     "094_drop_legacy_credits_columns.sql",
     "095_drop_billing_holds.sql",
-    "112_letterbox_player_flag.sql",
-    "116_viral_loop_metrics_view.sql",
   ],
   legacyConsolidationSql: [],
 };

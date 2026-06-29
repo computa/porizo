@@ -256,7 +256,7 @@ These are **not** cosmetic. They were surfaced by the formal review and must be 
 
 ### D6 — Migration-location divergence (test-fidelity hazard)
 
-Two canonical migration locations remain: `migrations/` (SQLite, 118 SQL files) and `migrations/pg/` (Postgres, 114 SQL files). The abandoned `src/database/migrations/` consolidation has been deleted after tests moved to the live `src/database/postgres.js` migration runner. **14 migration filenames exist in only one mirror** (9 SQLite-only, 5 Postgres-only) → tests run against a SQLite schema that differs from production Postgres. `npm run verify:migrations` now blocks new unreviewed filename drift while the known divergences are reconciled.
+Two canonical migration locations remain: `migrations/` (SQLite, 121 SQL files) and `migrations/pg/` (Postgres, 115 SQL files). The abandoned `src/database/migrations/` consolidation has been deleted after tests moved to the live `src/database/postgres.js` migration runner. **12 migration filenames exist in only one mirror** (9 historical SQLite-only, 3 intentionally Postgres-only) after adding SQLite mirrors for the letterbox flags and viral-loop metrics view plus current-numbered PG backfill `122_migration_parity_backfill.sql` for the additive voice, OneSignal, download-attribution, and job-step-history schema/flag effects. `npm run verify:migrations` blocks new unreviewed filename drift while the remaining billing/repair divergences are reconciled.
 
 ---
 

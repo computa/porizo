@@ -52,4 +52,22 @@ describe("PostgreSQL schema parity", () => {
     assert.match(sql, /CREATE TABLE IF NOT EXISTS jobs/i);
     assert.match(sql, /ALTER TABLE tracks\s+DROP CONSTRAINT IF EXISTS tracks_funding_source_check;/i);
   });
+
+  it("backfills additive parity for historical SQLite-only migrations", () => {
+    const migrationPath = path.join(
+      __dirname,
+      "..",
+      "migrations",
+      "pg",
+      "122_migration_parity_backfill.sql"
+    );
+    const sql = fs.readFileSync(migrationPath, "utf8");
+
+    assert.match(sql, /ALTER TABLE voice_profiles ADD COLUMN IF NOT EXISTS elevenlabs_voice_id TEXT;/i);
+    assert.match(sql, /ALTER TABLE users ADD COLUMN IF NOT EXISTS onesignal_synced_at TEXT;/i);
+    assert.match(sql, /CREATE TABLE IF NOT EXISTS download_events/i);
+    assert.match(sql, /CREATE TABLE IF NOT EXISTS job_step_history/i);
+    assert.match(sql, /timbre_blend_strategy/i);
+    assert.match(sql, /elevenlabs_stability/i);
+  });
 });
