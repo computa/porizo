@@ -3510,7 +3510,7 @@ async function startJobRunner({
           );
 
           if (process.env.NODE_ENV === "production") {
-            // Use the standard failure path: update job, track_version, track, DLQ, and billing hold
+            // Use the standard failure path: update job, track_version, track, and DLQ.
             const readyStepIndex = steps.indexOf("ready");
             await jobDurabilityRepository.markJobFailed({
               jobId: job.id,

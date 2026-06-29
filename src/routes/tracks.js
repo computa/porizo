@@ -1056,7 +1056,6 @@ function registerTrackRoutes(
       if (trackVersion.status === "full_ready" && trackVersion.full_url) {
         reply.code(200).send({
           job_id: trackVersion.full_job_id || null,
-          credits_reserved: 0,
           estimated_completion_sec: 0,
         });
         return;
@@ -1078,7 +1077,6 @@ function registerTrackRoutes(
       if (isActiveJob(existingJob)) {
         reply.code(202).send({
           job_id: existingJob.id,
-          credits_reserved: 0,
           estimated_completion_sec: 180,
         });
         return;
@@ -1171,7 +1169,6 @@ function registerTrackRoutes(
           if (fallbackJob) {
             reply.code(202).send({
               job_id: fallbackJob.id,
-              credits_reserved: 0,
               estimated_completion_sec: 180,
             });
             return;
@@ -1212,7 +1209,6 @@ function registerTrackRoutes(
 
       reply.code(202).send({
         job_id: billingResult.jobId,
-        credits_reserved: 0,
         estimated_completion_sec: 180,
         user_voice_engine:
           personaPreflight.renderRequest?.user_voice_engine || null,

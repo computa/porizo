@@ -304,11 +304,6 @@ describe("AccountDeletionRepository", () => {
 
     await db
       .prepare(
-        "INSERT INTO billing_holds (id, user_id, track_version_id, credits_held, status, created_at, expires_at) VALUES (?, ?, ?, 1, 'held', ?, ?)",
-      )
-      .run("bh_delete_repo", userId, "tv_delete_repo", NOW, NOW);
-    await db
-      .prepare(
         "INSERT INTO credit_transactions (id, user_id, type, amount, balance_before, balance_after, created_at) VALUES (?, ?, 'spend', -1, 1, 0, ?)",
       )
       .run("ct_delete_repo", userId, NOW);
@@ -515,7 +510,6 @@ describe("AccountDeletionRepository", () => {
       ["gift_reservations", "user_id = ?", [userId]],
       ["gift_wallet_transactions", "user_id = ?", [userId]],
       ["gift_wallet", "user_id = ?", [userId]],
-      ["billing_holds", "user_id = ?", [userId]],
       ["credit_transactions", "user_id = ?", [userId]],
       ["song_transactions", "user_id = ?", [userId]],
       ["purchase_receipts", "user_id = ?", [userId]],

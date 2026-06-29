@@ -208,9 +208,6 @@ function createAccountDeletionRepository(db) {
   }
 
   async function deleteBillingRowsForUser(userId) {
-    if (!db.isPostgres) {
-      await db.prepare("DELETE FROM billing_holds WHERE user_id = ?").run(userId);
-    }
     await db.prepare("DELETE FROM credit_transactions WHERE user_id = ?").run(userId);
     await db.prepare("DELETE FROM song_transactions WHERE user_id = ?").run(userId);
     await db.prepare("DELETE FROM purchase_receipts WHERE user_id = ?").run(userId);

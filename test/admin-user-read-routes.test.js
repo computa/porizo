@@ -71,8 +71,8 @@ async function seedEntitlement(
   await db
     .prepare(
       `INSERT INTO entitlements (
-        user_id, tier, credits_balance, credits_used_total, gift_songs_used_total, updated_at
-      ) VALUES (?, ?, 0, 0, ?, ?)`,
+        user_id, tier, gift_songs_used_total, updated_at
+      ) VALUES (?, ?, ?, ?)`,
     )
     .run(userId, tier, giftSongsUsedTotal, updatedAt);
 }

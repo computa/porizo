@@ -20,9 +20,10 @@ const KNOWN_DRIFT = {
     "071_download_attribution.sql",
     "072_step_history.sql",
   ],
-  // Intentionally PostgreSQL-specific repair/destructive cleanup migrations.
-  // SQLite keeps the legacy billing columns/table until the local test harness
-  // and account-deletion fixtures are moved off them.
+  // Historical PostgreSQL-only migrations. 088 is a production repair. The
+  // SQLite effects for 094/095 are covered by
+  // 123_drop_sqlite_legacy_billing_artifacts.sql so old low-number destructive
+  // migrations are not introduced into existing local databases.
   postgresOnly: [
     "088_repair_core_workflow_tables.sql",
     "094_drop_legacy_credits_columns.sql",

@@ -53,8 +53,8 @@ async function seedEntitlement(db, userId, tier, updatedAt = NOW) {
   await db
     .prepare(
       `INSERT INTO entitlements (
-        user_id, tier, credits_balance, credits_used_total, updated_at
-      ) VALUES (?, ?, 7, 2, ?)`,
+        user_id, tier, updated_at
+      ) VALUES (?, ?, ?)`,
     )
     .run(userId, tier, updatedAt);
 }
@@ -166,14 +166,12 @@ describe("admin entitlement update route", () => {
 
     const entitlement = await db
       .prepare(
-        `SELECT tier, credits_balance, credits_used_total, updated_at
+        `SELECT tier, updated_at
          FROM entitlements
          WHERE user_id = ?`,
       )
       .get(userId);
     assert.equal(entitlement.tier, "plus");
-    assert.equal(entitlement.credits_balance, 7);
-    assert.equal(entitlement.credits_used_total, 2);
     assert.equal(entitlement.updated_at, oldUpdatedAt);
 
     const audit = await latestEntitlementAudit(db, userId);
@@ -199,14 +197,12 @@ describe("admin entitlement update route", () => {
 
     const entitlement = await db
       .prepare(
-        `SELECT tier, credits_balance, credits_used_total
+        `SELECT tier
          FROM entitlements
          WHERE user_id = ?`,
       )
       .get(userId);
     assert.equal(entitlement.tier, "pro");
-    assert.equal(entitlement.credits_balance, 1);
-    assert.equal(entitlement.credits_used_total, 0);
 
     const audit = await latestEntitlementAudit(db, userId);
     assert.deepEqual(audit.metadata.previous, { tier: "free" });

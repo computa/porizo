@@ -757,14 +757,14 @@ Response: { track_version_id, version_num: 1, status: "queued" }
 **Full render (FULL) follows same pipeline but:**
 - Complete lyrics (all verses, bridge, outro)
 - Section-by-section voice conversion for quality
-- Credits charged from billing hold
+- Uses the existing version entitlement stamp; legacy preview-ready versions spend once before queuing
 - Download enabled
 
 **API Calls:**
 ```
 POST /tracks/{id}/versions/{v}/render_full
 Request: { confirm_credit_spend: true }
-Response: { job_id, billing_hold_id, credits_reserved: 1, estimated_completion_sec: 180 }
+Response: { job_id, estimated_completion_sec: 180 }
 
 GET /jobs/{job_id} - Poll for completion
 Response: { status: "completed", download_url, stream_url }

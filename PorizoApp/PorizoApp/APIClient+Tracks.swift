@@ -205,7 +205,7 @@ extension APIClient {
     /// - Parameters:
     ///   - trackId: The track ID
     ///   - versionNum: Version number
-    /// - Returns: RenderFullResponse with job ID and billing hold info
+    /// - Returns: RenderFullResponse with job ID and estimated completion info
     func renderFull(trackId: String, versionNum: Int) async throws -> RenderFullResponse {
         return try await BackgroundTaskManager.shared.executeWithBackgroundTime(taskName: "renderFull") { [self] in
             let url = URL(string: "\(baseURL)/tracks/\(trackId)/versions/\(versionNum)/render_full")!

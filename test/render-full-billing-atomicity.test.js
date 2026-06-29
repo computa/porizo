@@ -255,7 +255,7 @@ describe("Song Generation Entitlement", async () => {
 
     assert.equal(response.statusCode, 202);
     assert.equal(spendCalls, 0);
-    assert.equal(response.json().credits_reserved, 0);
+    assert.equal("credits_reserved" in response.json(), false);
 
     const versionRows = await db.query(
       "SELECT status, full_job_id, song_entitlement_consumed_at FROM track_versions WHERE id = ?",
@@ -289,7 +289,7 @@ describe("Song Generation Entitlement", async () => {
 
     assert.equal(response.statusCode, 202);
     assert.equal(spendCalls, 1);
-    assert.equal(response.json().credits_reserved, 0);
+    assert.equal("credits_reserved" in response.json(), false);
 
     const versionRows = await db.query(
       "SELECT status, full_job_id, song_entitlement_consumed_at FROM track_versions WHERE id = ?",

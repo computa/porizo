@@ -27,13 +27,13 @@ async function seedUser({ id, createdAt, tier = null }) {
     .prepare("INSERT INTO users (id, created_at, risk_level) VALUES (?, ?, 'low')")
     .run(id, createdAt);
   if (tier) {
-    await db
-      .prepare(
-        `INSERT INTO entitlements (
-          user_id, tier, credits_balance, credits_used_total, updated_at
-        ) VALUES (?, ?, 0, 0, ?)`,
-      )
-      .run(id, tier, createdAt);
+      await db
+        .prepare(
+          `INSERT INTO entitlements (
+          user_id, tier, updated_at
+        ) VALUES (?, ?, ?)`,
+        )
+        .run(id, tier, createdAt);
   }
 }
 
