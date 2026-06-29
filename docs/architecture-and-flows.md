@@ -118,6 +118,8 @@ Porizo is a personalized song generation platform where users record their voice
 │  │ • Audit logs       │  │                    │  │                    │                 │
 │  │ • Share tokens     │  │                    │  │                    │                 │
 │  │ • Entitlements     │  │                    │  │                    │                 │
+│  │ • Gift wallet      │  │                    │  │                    │                 │
+│  │ • Funding source   │  │                    │  │                    │                 │
 │  └────────────────────┘  └────────────────────┘  └────────────────────┘                 │
 │                                                                                          │
 │  ┌────────────────────┐  ┌────────────────────┐                                         │
@@ -470,6 +472,12 @@ LOW QUALITY (similarity < 0.7):
 ### Overview
 User provides a message and occasion → System generates lyrics → User reviews/edits → Full song rendered (MVP) or preview then full render (Full).
 
+### Create-Flow Contracts
+
+- iOS create, gift, and upgrade launches carry selected payloads through item-based SwiftUI presentation (`.sheet(item:)`, `.fullScreenCover(item:)`, or typed `ActiveSheet` associated values). Do not split a selected create payload from a Boolean presentation flag.
+- Story-to-track and gift-funded create paths persist canonical content `funding_source = "gift_wallet"` for tracks and poems. Runtime reads that decide whether content is gift-funded remain backward-compatible with legacy `gift_token` rows.
+- Gift-funded renders skip subscription entitlement spend after validating the active gift reservation; standard renders still use the normal entitlement stamp path.
+
 ### Message-to-Song Flow
 
 ```
@@ -544,10 +552,13 @@ Request: {
   voice_mode: "user_voice",
   message: "I want to tell her she lights up...",
   must_include_lines: ["You light up every room"],
-  language: "en"
+  language: "en",
+  gift_reservation_id: null
 }
 Response: { track_id, status: "draft" }
 ```
+
+Gift-funded story/create requests pass the active `gift_reservation_id` and persist canonical `funding_source = "gift_wallet"` on the created track or poem. Legacy rows with `funding_source = "gift_token"` are still read-compatible for render and library behavior.
 
 ### Step 2: Lyrics Generation & Review
 
@@ -644,6 +655,8 @@ Request: {
 }
 Response: { track_version_id, version_num: 1, status: "queued" }
 ```
+
+Track versions inherit the track-level funding context. Gift-funded tracks keep their reservation binding through lyrics approval, render, and library/share handoff; standard tracks follow the normal entitlement path.
 
 ### Step 3: Preview Generation (15-25 seconds)
 
@@ -758,6 +771,7 @@ Response: { track_version_id, version_num: 1, status: "queued" }
 - Complete lyrics (all verses, bridge, outro)
 - Section-by-section voice conversion for quality
 - Uses the existing version entitlement stamp; legacy preview-ready versions spend once before queuing
+- Gift-funded renders validate the reservation and skip subscription spend for both canonical `gift_wallet` rows and legacy `gift_token` rows
 - Download enabled
 
 **API Calls:**
@@ -1163,6 +1177,8 @@ CREATE INDEX idx_share_access_log_created ON share_access_log(created_at);
 | **Auth** | JWT sessions + authoritative identity model | User authentication |
 | **Encryption** | AWS KMS | Per-user encryption |
 | **Monitoring** | Datadog / CloudWatch | Observability |
+
+SwiftUI state boundary: create-flow presentations that depend on selected payloads use item-driven presentation (`.sheet(item:)`, `.fullScreenCover(item:)`, or typed `ActiveSheet` associated values). Boolean presentation flags are only acceptable for payload-free UI.
 
 **MVP Decision:** No self-hosted GPU infrastructure. All GPU tasks (voice embedding, voice conversion) use cloud APIs (Replicate). Upgrade path: Kits AI for higher quality, or self-hosted RVC post-MVP.
 
