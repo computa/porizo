@@ -3,7 +3,6 @@ process.env.NODE_ENV = "test";
 const assert = require("node:assert/strict");
 const { describe, test } = require("node:test");
 
-const { AdminService } = require("../src/services/admin-service");
 const {
   createAdminAnalyticsService,
 } = require("../src/services/admin/analytics-service");
@@ -138,57 +137,5 @@ describe("AdminAnalyticsService", () => {
       target_user_id: "user_1",
       event_count: 1,
     });
-  });
-});
-
-describe("AdminService analytics facade", () => {
-  test("delegates analytics methods to the injected analytics service", async () => {
-    const calls = [];
-    const expected = {
-      overview: { days: 7 },
-      daily: { event_name: "auth_completed" },
-      funnel: { steps: [] },
-      user: { userId: "user_1" },
-    };
-    const service = new AdminService(
-      {},
-      {
-        adminAnalyticsService: {
-          async getAnalyticsOverview(days) {
-            calls.push(["overview", days]);
-            return expected.overview;
-          },
-          async getAnalyticsDaily(eventName, days) {
-            calls.push(["daily", eventName, days]);
-            return expected.daily;
-          },
-          async getFunnelCohort(days) {
-            calls.push(["funnel", days]);
-            return expected.funnel;
-          },
-          async getUserAnalytics(adminId, adminEmail, userId, limit) {
-            calls.push(["user", adminId, adminEmail, userId, limit]);
-            return expected.user;
-          },
-        },
-      },
-    );
-
-    assert.deepEqual(await service.getAnalyticsOverview(7), expected.overview);
-    assert.deepEqual(
-      await service.getAnalyticsDaily("auth_completed", 30),
-      expected.daily,
-    );
-    assert.deepEqual(await service.getFunnelCohort(14), expected.funnel);
-    assert.deepEqual(
-      await service.getUserAnalytics("admin_1", "admin@porizo.app", "user_1", 9),
-      expected.user,
-    );
-    assert.deepEqual(calls, [
-      ["overview", 7],
-      ["daily", "auth_completed", 30],
-      ["funnel", 14],
-      ["user", "admin_1", "admin@porizo.app", "user_1", 9],
-    ]);
   });
 });

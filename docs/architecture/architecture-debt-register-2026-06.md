@@ -1762,15 +1762,14 @@ behavior, receipt money extraction policy, and facade delegation; route and
 repository suites continue to pin verified-receipt SQL, strict period filtering,
 current subscriber semantics, and subscription-manager entitlement behavior.
 Admin analytics service ownership is also extracted into
-`src/services/admin/analytics-service.js`. `AdminService` remains a
-compatibility facade for `getAnalyticsOverview`, `getAnalyticsDaily`,
-`getFunnelCohort`, and `getUserAnalytics`, while the new service owns
-per-instance aggregate caching, days/limit clamping, funnel hop policy,
-conversion-rate formatting, and traceable `analytics.user.read` audit metadata.
-Direct service tests pin cache hits, exact windows, funnel conversion behavior,
-user-event limit clamping, audit metadata, and facade delegation; route and
-repository suites continue to pin admin auth, SQL semantics, selected columns,
-and audit row shape.
+`src/services/admin/analytics-service.js`, and
+`src/routes/admin/analytics.js` now calls that service directly instead of
+going through `AdminService`. The service owns per-instance aggregate caching,
+days/limit clamping, funnel hop policy, conversion-rate formatting, and
+traceable `analytics.user.read` audit metadata. Direct service tests pin cache
+hits, exact windows, funnel conversion behavior, user-event limit clamping, and
+audit metadata; route and repository suites continue to pin admin auth, SQL
+semantics, selected columns, and audit row shape.
 Admin growth/attribution service ownership is also extracted into
 `src/services/admin/growth-service.js`. `AdminService` remains a compatibility
 facade for `getAttributionHealth`, `getAttribution`,

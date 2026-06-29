@@ -1996,6 +1996,13 @@ Root 6 facade-reduction follow-up: user-read admin routes now call
 Removed `AdminService.searchUsers`, `getUserStats`, and `getUserDetail`; focused
 user-read route, service, and repository validation passed.
 
+Root 6 facade-reduction follow-up: analytics admin routes now call
+`adminAnalyticsService` directly instead of passing through `AdminService`.
+Removed `AdminService.getAnalyticsOverview`, `getAnalyticsDaily`,
+`getFunnelCohort`, and `getUserAnalytics`; focused analytics route and service
+validation passed. The remaining `AdminService` audit-boundary test is deferred
+to the later audit facade cleanup.
+
 ## Task 17: Root 7 Writer Decomposition
 
 **Owner:** One worker

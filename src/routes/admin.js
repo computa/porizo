@@ -477,7 +477,7 @@ function registerAdminRoutes(
     requireAdminSession,
   });
   registerAdminAnalyticsRoutes(app, {
-    adminService,
+    analyticsService: adminService.adminAnalyticsService,
     requireAdminSession,
   });
 

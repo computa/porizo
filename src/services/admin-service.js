@@ -763,54 +763,6 @@ class AdminService {
     return this.adminMetricsService.getShareMetrics(days);
   }
 
-  // ============ FUNNEL ANALYTICS ============
-
-  /**
-   * Event counts grouped by name for the selected window.
-   * Cached 60s per days value.
-   */
-  async getAnalyticsOverview(days) {
-    return this.adminAnalyticsService.getAnalyticsOverview(days);
-  }
-
-  /**
-   * Daily series for a single event name. Cached 60s per (eventName, days).
-   */
-  async getAnalyticsDaily(eventName, days) {
-    return this.adminAnalyticsService.getAnalyticsDaily(eventName, days);
-  }
-
-  /**
-   * Per-user cohort funnel conversion across the 4 critical hops:
-   *   auth_completed → create_started
-   *   create_started → create_completed
-   *   create_completed → first_song_completed
-   *   first_song_completed → share_create
-   *
-   * "startUsers" = distinct users who fired startEvent in the window.
-   * "convertedUsers" = of those, who also fired endEvent AFTER their startEvent.
-   *
-   * This is a true per-user cohort ratio — not aggregate-over-window.
-   * Cached 60s per days value.
-   */
-  async getFunnelCohort(days) {
-    return this.adminAnalyticsService.getFunnelCohort(days);
-  }
-
-  /**
-   * Per-user event timeline for support investigations.
-   * Writes an audit_logs row on every successful call — admin reads of user
-   * behavioral data must be traceable.
-   */
-  async getUserAnalytics(adminId, adminEmail, userId, limit) {
-    return this.adminAnalyticsService.getUserAnalytics(
-      adminId,
-      adminEmail,
-      userId,
-      limit,
-    );
-  }
-
   // ============ ENROLLMENT METRICS ============
 
   /**
