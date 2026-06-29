@@ -74,19 +74,55 @@ ALTER TABLE tracks ADD COLUMN IF NOT EXISTS voice_gender TEXT;
 ALTER TABLE tracks ADD COLUMN IF NOT EXISTS gift_reservation_id TEXT;
 ALTER TABLE tracks ADD COLUMN IF NOT EXISTS funding_source TEXT NOT NULL DEFAULT 'standard';
 
+CREATE TABLE IF NOT EXISTS poems (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  title TEXT NOT NULL,
+  recipient_name TEXT NOT NULL,
+  occasion TEXT NOT NULL,
+  tone TEXT NOT NULL DEFAULT 'heartfelt',
+  verses TEXT NOT NULL DEFAULT '[]',
+  message TEXT,
+  status TEXT NOT NULL DEFAULT 'draft',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT,
+  share_token_id TEXT,
+  audio_generated_at TIMESTAMPTZ,
+  og_variant TEXT,
+  gift_reservation_id TEXT,
+  funding_source TEXT NOT NULL DEFAULT 'standard'
+);
+
+ALTER TABLE poems ADD COLUMN IF NOT EXISTS share_token_id TEXT;
+ALTER TABLE poems ADD COLUMN IF NOT EXISTS audio_generated_at TIMESTAMPTZ;
+ALTER TABLE poems ADD COLUMN IF NOT EXISTS og_variant TEXT;
+ALTER TABLE poems ADD COLUMN IF NOT EXISTS gift_reservation_id TEXT;
+ALTER TABLE poems ADD COLUMN IF NOT EXISTS funding_source TEXT NOT NULL DEFAULT 'standard';
+
 -- Migrate any legacy 'gift_token' values (allowed by migration 082's constraint)
 -- to 'gift_wallet' (the renamed semantic equivalent in the new model).
 -- Must run BEFORE the new CHECK constraint, otherwise existing rows fail the check
 -- and the ALTER aborts the entire migration transaction.
 UPDATE tracks SET funding_source = 'gift_wallet' WHERE funding_source = 'gift_token';
+UPDATE poems SET funding_source = 'gift_wallet' WHERE funding_source = 'gift_token';
 
 ALTER TABLE tracks DROP CONSTRAINT IF EXISTS tracks_funding_source_check;
 ALTER TABLE tracks
   ADD CONSTRAINT tracks_funding_source_check
   CHECK (funding_source IN ('standard', 'gift_wallet', 'gift_link', 'admin_grant'));
 
+ALTER TABLE poems DROP CONSTRAINT IF EXISTS poems_funding_source_check;
+ALTER TABLE poems
+  ADD CONSTRAINT poems_funding_source_check
+  CHECK (funding_source IN ('standard', 'gift_wallet', 'gift_link', 'admin_grant'));
+
 CREATE UNIQUE INDEX IF NOT EXISTS idx_tracks_gift_reservation_active
   ON tracks(gift_reservation_id)
+  WHERE gift_reservation_id IS NOT NULL AND deleted_at IS NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_poems_gift_reservation_active
+  ON poems(gift_reservation_id)
   WHERE gift_reservation_id IS NOT NULL AND deleted_at IS NULL;
 
 CREATE TABLE IF NOT EXISTS track_versions (

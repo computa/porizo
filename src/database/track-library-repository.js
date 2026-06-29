@@ -49,7 +49,7 @@ function createTrackLibraryRepository(db) {
           AND tle.user_id = ?
           AND tle.removed_at IS NULL
          WHERE t.deleted_at IS NULL
-           AND NOT (COALESCE(t.funding_source, 'standard') = 'gift_token' AND tle.origin = 'created')
+           AND NOT (COALESCE(t.funding_source, 'standard') IN ('gift_wallet', 'gift_token') AND tle.origin = 'created')
          ORDER BY tle.added_at DESC
          LIMIT ? OFFSET ?`,
       )
@@ -79,7 +79,7 @@ function createTrackLibraryRepository(db) {
         AND st.status NOT IN ('revoked', 'expired')
        WHERE t.id = ?
          AND t.deleted_at IS NULL
-         AND NOT (COALESCE(t.funding_source, 'standard') = 'gift_token' AND tle.origin = 'created')`,
+         AND NOT (COALESCE(t.funding_source, 'standard') IN ('gift_wallet', 'gift_token') AND tle.origin = 'created')`,
       )
       .get(userId, userId, userId, trackId);
   }
@@ -104,7 +104,7 @@ function createTrackLibraryRepository(db) {
        WHERE t.id = ?
          AND t.user_id = ?
          AND t.deleted_at IS NULL
-         AND COALESCE(t.funding_source, 'standard') = 'gift_token'`,
+         AND COALESCE(t.funding_source, 'standard') IN ('gift_wallet', 'gift_token')`,
       )
       .get(trackId, userId);
   }

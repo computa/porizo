@@ -165,12 +165,12 @@ describe("PostgreSQL core schema repair migration", () => {
       const tables = await repairDb.query(`
         SELECT table_name
         FROM information_schema.tables
-        WHERE table_schema = $1 AND table_name IN ('users', 'tracks', 'track_versions', 'jobs')
+        WHERE table_schema = $1 AND table_name IN ('users', 'tracks', 'track_versions', 'jobs', 'poems')
         ORDER BY table_name
       `, [schema]);
       assert.deepStrictEqual(
         tables.rows.map((row) => row.table_name),
-        ["jobs", "track_versions", "tracks", "users"]
+        ["jobs", "poems", "track_versions", "tracks", "users"]
       );
 
       const jobsColumns = await repairDb.query(`
@@ -193,6 +193,17 @@ describe("PostgreSQL core schema repair migration", () => {
       assert.ok(
         tracksColumns.rows.some((row) => row.column_name === "funding_source"),
         "tracks repair should include funding_source"
+      );
+
+      const poemsColumns = await repairDb.query(`
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_schema = $1 AND table_name = 'poems'
+        ORDER BY ordinal_position
+      `, [schema]);
+      assert.ok(
+        poemsColumns.rows.some((row) => row.column_name === "funding_source"),
+        "poems repair should include funding_source"
       );
     } finally {
       await repairDb.close();

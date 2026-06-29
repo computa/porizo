@@ -156,6 +156,12 @@ describe("TrackLibraryRepository", () => {
       id: "track_gift_created",
       userId: "user_repo",
       title: "Gift Created Track",
+      fundingSource: "gift_wallet",
+    });
+    await seedTrack({
+      id: "track_legacy_gift_created",
+      userId: "user_repo",
+      title: "Legacy Gift Created Track",
       fundingSource: "gift_token",
     });
     await seedTrack({
@@ -194,6 +200,12 @@ describe("TrackLibraryRepository", () => {
       trackId: "track_gift_created",
       origin: "created",
       addedAt: "2026-06-28T04:05:00.000Z",
+    });
+    await seedLibraryEntry({
+      userId: "user_repo",
+      trackId: "track_legacy_gift_created",
+      origin: "created",
+      addedAt: "2026-06-28T04:05:30.000Z",
     });
     await seedLibraryEntry({
       userId: "user_repo",
@@ -341,6 +353,23 @@ describe("TrackLibraryRepository", () => {
       }),
       undefined,
     );
+  });
+
+  test("getOwnedGiftTrackForLibrary returns canonical gift wallet tracks", async () => {
+    await seedTrack({
+      id: "track_owned_wallet_gift",
+      userId: "user_repo",
+      title: "Owned Wallet Gift",
+      fundingSource: "gift_wallet",
+    });
+
+    const row = await repository.getOwnedGiftTrackForLibrary({
+      userId: "user_repo",
+      trackId: "track_owned_wallet_gift",
+    });
+
+    assert.equal(row.id, "track_owned_wallet_gift");
+    assert.equal(row.can_edit, 1);
   });
 
   test("upsertTrackLibraryEntry restores removed rows without downgrading created origin", async () => {

@@ -94,7 +94,6 @@ struct WarmCanvasFlowView: View {
     @AppStorage("hasCompletedFirstSong") private var hasCompletedFirstSong = false
     @State private var didCompleteVoiceEnrollment = false
     @State private var shouldResumeMyVoiceAfterEnrollment = false
-    @State private var pendingEntitlementFlowType: CreateFlowKind?
     @State private var myVoiceEnabled = true
     @State private var pendingSpeechText: String?
     @State private var isChatCollapsed = false
@@ -311,10 +310,9 @@ struct WarmCanvasFlowView: View {
                 handleVoiceEnrollmentDismissal()
             }
             // Upgrade sheet dismissed — re-check entitlements
-            if oldValue == "upgrade" && activeSheet?.id != "upgrade" {
-                let flowType = pendingEntitlementFlowType
-                pendingEntitlementFlowType = nil
-                guard let flowType else { return }
+            if let oldValue,
+               let flowType = upgradeFlowType(from: oldValue),
+               activeSheet?.id.hasPrefix("upgrade:") != true {
                 let state = storeKit.subscriptionState
                 if flowType == .poem {
                     if state.hasActiveSubscription {
@@ -984,8 +982,7 @@ struct WarmCanvasFlowView: View {
                 creationNoun: creationNoun,
                 onUpgrade: {
                     activeError = nil
-                    pendingEntitlementFlowType = resolvedSelectedType
-                    activeSheet = .upgrade
+                    activeSheet = .upgrade(resolvedSelectedType)
                 },
                 onRestore: {
                     Task { @MainActor in
@@ -1073,15 +1070,21 @@ struct WarmCanvasFlowView: View {
 
     // MARK: - Sheet Router
 
+    private func upgradeFlowType(from sheetId: String) -> CreateFlowKind? {
+        let prefix = "upgrade:"
+        guard sheetId.hasPrefix(prefix) else { return nil }
+        return CreateFlowKind(rawValue: String(sheetId.dropFirst(prefix.count)))
+    }
+
     @ViewBuilder
     private func sheetContent(for sheet: ActiveSheet) -> some View {
         switch sheet {
-        case .upgrade:
+        case .upgrade(let type):
             SubscriptionViewV2(
                 apiClient: apiClient,
                 storeKit: storeKit,
                 recipientName: setup.recipientName,
-                offerPayPerSong: resolvedSelectedType == .song
+                offerPayPerSong: type == .song
             )
 
         case .voiceEnrollment(let existingScore):
@@ -1267,7 +1270,6 @@ struct WarmCanvasFlowView: View {
                 if !isGiftFundedFlow {
                     let entitlements = try await apiClient.getBillingEntitlements()
                     guard entitlements.canMakeSong else {
-                        pendingEntitlementFlowType = .song
                         activeError = .noCredits
                         return
                     }
@@ -1644,7 +1646,6 @@ struct WarmCanvasFlowView: View {
             if entitlements.canMakeSong {
                 advanceAfterEntitlementCheck()
             } else {
-                pendingEntitlementFlowType = .song
                 activeError = .noCredits
             }
         } catch {
@@ -1662,7 +1663,6 @@ struct WarmCanvasFlowView: View {
             if entitlements.poemsRemaining > 0 {
                 withAnimation { moment = .wait }
             } else {
-                pendingEntitlementFlowType = .poem
                 activeError = .noCredits
             }
         } catch {
@@ -2006,7 +2006,7 @@ struct WarmCanvasFlowView: View {
             setup.recipientName = "Sarah"
             setup.occasion = .birthday
             selectedType = .song
-            activeSheet = .upgrade
+            activeSheet = .upgrade(.song)
             return
         }
         // Land directly on the song "out of credits" prompt (NoCreditsView) so the
@@ -2016,7 +2016,6 @@ struct WarmCanvasFlowView: View {
             setup.recipientName = "Sarah"
             setup.occasion = .birthday
             selectedType = .song
-            pendingEntitlementFlowType = .song
             activeError = .noCredits
             return
         }

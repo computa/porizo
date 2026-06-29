@@ -1923,6 +1923,10 @@ songwriter/v3 imports or Root 7 TODO/FIXME leftovers.
 **Why delayed:** It expands blast radius to iOS + admin + web-player and pulls in the `porizo-swiftui-release-workflow` + simulator-testing skills. It is the natural _follow-on_ once backend contracts are stabilized (Roots 1–7), not a prerequisite. If execution is intentionally backend-only, this root can be split into a separate program, but then the original whole-codebase goal is not complete.
 **Boundary:** Do NOT start before backend contracts are stable (Codex's P2-INFERRED: "admin/web-player cleanup should follow backend contract stabilization, not lead it"). Gate every cross-surface change on the create-flow contract tests from G1.
 
+**Status 2026-06-29:** First Root 11 slice implemented. Backend create/render contracts were re-verified, SwiftUI create/gift/upgrade presentations now carry selected payloads through `.fullScreenCover(item:)`, `.sheet(item:)`, or typed `ActiveSheet` associated values, and gift-funded story/create persistence now writes canonical `funding_source = 'gift_wallet'` for tracks and poems. Legacy `gift_token` rows remain readable in render and library paths. PostgreSQL repair/parity now covers poem funding-source constraints as well as tracks.
+
+**Remaining Root 11 scope:** typed admin API contracts + page-level reducer/context cleanup, web-player recipient/share contract audit, iOS preview/accessibility matrices, and simulator flow recording for create/gift/share paths.
+
 ---
 
 ## Recommended execution sequence (if you green-light execution later)

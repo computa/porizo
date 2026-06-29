@@ -2177,7 +2177,7 @@ Expected: storage adapter behavior is consistent and backend contracts are docum
 - Admin or web-player files only where create-flow contract assumptions are visible
 - Tests: backend story/track contract tests and Swift/Xcode validation appropriate to the touched app target
 
-- [ ] **Step 1: Confirm backend contract before iOS changes**
+- [x] **Step 1: Confirm backend contract before iOS changes**
 
 Run:
 
@@ -2187,7 +2187,7 @@ node --test --test-concurrency=1 test/story-to-track-contract.test.js test/rende
 
 Expected: all selected backend contract tests pass.
 
-- [ ] **Step 2: Replace boolean-plus-payload SwiftUI presentation**
+- [x] **Step 2: Replace boolean-plus-payload SwiftUI presentation**
 
 Use item-driven presentation for selected create payloads:
 
@@ -2199,11 +2199,19 @@ Use item-driven presentation for selected create payloads:
 
 Do not present a create flow from a Boolean when the payload can be stale or empty.
 
-- [ ] **Step 3: Run iOS validation**
+- [x] **Step 3: Run iOS validation**
 
 Run the repository-approved Xcode/SwiftUI validation from `docs/ios-swiftui-release-workflow.md` for touched targets.
 
 Expected: build/tests for the touched iOS target pass.
+
+Status 2026-06-29:
+- `MainTabView` gift send launch now uses `.fullScreenCover(item:)`.
+- `GiftSendFlowView` bundle picker now carries the requested `CreateFlowKind` in the sheet item instead of `showBundlePicker` plus `pendingCreateType`.
+- `WarmCanvasFlowView` upgrade sheet now carries `CreateFlowKind` in `ActiveSheet.upgrade(type)` instead of separate pending entitlement state.
+- Backend story/create routes now persist canonical `funding_source = 'gift_wallet'` for gift-funded tracks and poems, while render/library read paths keep legacy `gift_token` compatibility.
+- PostgreSQL repair migration now aligns poem funding-source constraints with track constraints.
+- Validation passed: backend story/render contracts, gift/library repository tests, PG schema repair/parity, migration parity, lint, diff check, JS syntax checks, and XcodeBuildMCP simulator build.
 
 - [ ] **Step 4: Commit Root 11**
 

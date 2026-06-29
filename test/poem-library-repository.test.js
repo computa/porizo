@@ -160,6 +160,12 @@ describe("PoemLibraryRepository", () => {
       id: "poem_gift_created",
       userId: "user_repo",
       title: "Gift Created Poem",
+      fundingSource: "gift_wallet",
+    });
+    await seedPoem({
+      id: "poem_legacy_gift_created",
+      userId: "user_repo",
+      title: "Legacy Gift Created Poem",
       fundingSource: "gift_token",
     });
 
@@ -193,6 +199,12 @@ describe("PoemLibraryRepository", () => {
       poemId: "poem_gift_created",
       origin: "created",
       addedAt: "2026-06-28T04:05:00.000Z",
+    });
+    await seedLibraryEntry({
+      userId: "user_repo",
+      poemId: "poem_legacy_gift_created",
+      origin: "created",
+      addedAt: "2026-06-28T04:05:30.000Z",
     });
     await seedLibraryEntry({
       userId: "user_repo",
@@ -244,6 +256,44 @@ describe("PoemLibraryRepository", () => {
         },
       ],
     );
+  });
+
+  test("getOwnedGiftTokenPoemForLibrary returns canonical and legacy gift-funded poems", async () => {
+    await seedPoem({
+      id: "poem_wallet_gift",
+      userId: "user_repo",
+      title: "Wallet Gift Poem",
+      fundingSource: "gift_wallet",
+    });
+    await seedPoem({
+      id: "poem_legacy_gift",
+      userId: "user_repo",
+      title: "Legacy Gift Poem",
+      fundingSource: "gift_token",
+    });
+    await seedPoem({
+      id: "poem_standard",
+      userId: "user_repo",
+      title: "Standard Poem",
+      fundingSource: "standard",
+    });
+
+    const walletRow = await repository.getOwnedGiftTokenPoemForLibrary({
+      userId: "user_repo",
+      poemId: "poem_wallet_gift",
+    });
+    const legacyRow = await repository.getOwnedGiftTokenPoemForLibrary({
+      userId: "user_repo",
+      poemId: "poem_legacy_gift",
+    });
+    const standardRow = await repository.getOwnedGiftTokenPoemForLibrary({
+      userId: "user_repo",
+      poemId: "poem_standard",
+    });
+
+    assert.equal(walletRow.id, "poem_wallet_gift");
+    assert.equal(legacyRow.id, "poem_legacy_gift");
+    assert.equal(standardRow, undefined);
   });
 
   test("getPoemForLibrary returns the same library row shape for one poem", async () => {

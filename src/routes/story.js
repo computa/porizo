@@ -3272,7 +3272,7 @@ function registerStoryRoutes(
           tone: finalTone,
           verses: result.lines,
           provenance,
-          fundingSource: giftFundingReservation ? "gift_token" : "standard",
+          fundingSource: giftFundingReservation ? "gift_wallet" : "standard",
           giftReservationId: giftFundingReservation?.id || null,
           createdAt: now,
         });
@@ -4041,7 +4041,7 @@ function registerStoryRoutes(
           }),
           voiceMode: requestedVoiceMode,
           voiceGender: request.body?.voice_gender || null,
-          fundingSource: giftFundingReservation ? "gift_token" : "standard",
+          fundingSource: giftFundingReservation ? "gift_wallet" : "standard",
           giftReservationId: giftFundingReservation?.id || null,
           paramsJson,
           paramsHash,

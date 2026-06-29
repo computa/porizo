@@ -47,7 +47,7 @@ enum WarmCanvasError: Equatable {
 
 /// Single slot for sheets and fullScreenCovers (mutually exclusive).
 enum ActiveSheet: Identifiable {
-    case upgrade
+    case upgrade(CreateFlowKind)
     case customLyrics
     case voiceEnrollment(existingScore: Double?)
     case share(ShareSheetPayload)
@@ -57,7 +57,7 @@ enum ActiveSheet: Identifiable {
 
     var id: String {
         switch self {
-        case .upgrade:          return "upgrade"
+        case .upgrade(let type): return "upgrade:\(type.rawValue)"
         case .customLyrics:     return "customLyrics"
         case .voiceEnrollment:  return "voiceEnrollment"
         case .share:            return "share"

@@ -51,6 +51,8 @@ describe("PostgreSQL schema parity", () => {
     assert.match(sql, /CREATE TABLE IF NOT EXISTS track_versions/i);
     assert.match(sql, /CREATE TABLE IF NOT EXISTS jobs/i);
     assert.match(sql, /ALTER TABLE tracks\s+DROP CONSTRAINT IF EXISTS tracks_funding_source_check;/i);
+    assert.match(sql, /ALTER TABLE poems\s+DROP CONSTRAINT IF EXISTS poems_funding_source_check;/i);
+    assert.match(sql, /UPDATE poems SET funding_source = 'gift_wallet' WHERE funding_source = 'gift_token';/i);
   });
 
   it("backfills additive parity for historical SQLite-only migrations", () => {

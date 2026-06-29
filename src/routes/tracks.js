@@ -270,7 +270,7 @@ function registerTrackRoutes(
     }
 
     const now = nowIso();
-    if (fundingSource === "gift_token") {
+    if (fundingSource === "gift_wallet" || fundingSource === "gift_token") {
       // Verify the gift reservation is still active (not expired/refunded)
       const reservationRow = await giftReservationRepository.getActiveForTrack({
         trackId,

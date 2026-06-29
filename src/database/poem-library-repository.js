@@ -58,7 +58,7 @@ function createPoemLibraryRepository(db) {
        WHERE p.id = ?
          AND p.user_id = ?
          AND p.deleted_at IS NULL
-         AND COALESCE(p.funding_source, 'standard') = 'gift_token'`,
+         AND COALESCE(p.funding_source, 'standard') IN ('gift_wallet', 'gift_token')`,
       )
       .get(poemId, userId);
   }
@@ -205,7 +205,7 @@ function createPoemLibraryRepository(db) {
           AND ple.user_id = ?
           AND ple.removed_at IS NULL
          WHERE p.deleted_at IS NULL
-           AND NOT (COALESCE(p.funding_source, 'standard') = 'gift_token' AND ple.origin = 'created')
+           AND NOT (COALESCE(p.funding_source, 'standard') IN ('gift_wallet', 'gift_token') AND ple.origin = 'created')
          ORDER BY ple.added_at DESC`,
       )
       .all(userId, userId, userId);
@@ -248,7 +248,7 @@ function createPoemLibraryRepository(db) {
         AND ple.removed_at IS NULL
        WHERE p.id = ?
          AND p.deleted_at IS NULL
-         AND NOT (COALESCE(p.funding_source, 'standard') = 'gift_token' AND ple.origin = 'created')`,
+         AND NOT (COALESCE(p.funding_source, 'standard') IN ('gift_wallet', 'gift_token') AND ple.origin = 'created')`,
       )
       .get(userId, userId, userId, poemId);
   }
