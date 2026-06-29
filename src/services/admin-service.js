@@ -4,7 +4,6 @@
  */
 
 const crypto = require("crypto");
-const config = require("../config");
 const {
   createAppConfigRepository,
 } = require("../database/app-config-repository");
@@ -65,6 +64,9 @@ const {
 const {
   createAdminOnboardingSampleService,
 } = require("./admin/onboarding-sample-service");
+const {
+  createAdminSecurityConfigService,
+} = require("./admin/security-config-service");
 const { createClientConfigService } = require("./client-config-service");
 
 /**
@@ -332,6 +334,13 @@ class AdminService {
         db: this.db,
         audit: (...args) => this._audit(...args),
       });
+    this.adminSecurityConfigService =
+      options.adminSecurityConfigService ||
+      createAdminSecurityConfigService({
+        appConfigRepository: this.appConfigRepository,
+        appStoreConnectService: this.appStoreConnectService,
+        audit: (...args) => this._audit(...args),
+      });
     this.clientConfigService =
       options.clientConfigService ||
       createClientConfigService({
@@ -339,7 +348,8 @@ class AdminService {
         db: this.db,
         getMusicProviderConfig: () => this.getMusicProviderConfig(),
         getSTTConfig: () => this.getSTTConfig(),
-        resolveIOSAppUpdatePolicy: () => this.resolveIOSAppUpdatePolicy(),
+        resolveIOSAppUpdatePolicy: () =>
+          this.adminSecurityConfigService.resolveIOSAppUpdatePolicy(),
       });
     this.adminControlRepository =
       options.adminControlRepository || createAdminControlRepository(db);
@@ -602,31 +612,6 @@ class AdminService {
       cancelled_at: row.cancelled_at,
       updated_at: row.updated_at,
     };
-  }
-
-  async _persistSecurityConfig(config, actorId, { audit = true } = {}) {
-    const now = new Date().toISOString();
-    await this.appConfigRepository.upsertSecurityConfig({
-      sessionDurationHours: config.sessionDurationHours,
-      maxFailedLoginAttempts: config.maxFailedLoginAttempts,
-      lockoutDurationMinutes: config.lockoutDurationMinutes,
-      rateLimitDefaultsJson: JSON.stringify(config.rateLimitDefaults),
-      iosMinSupportedVersion: config.iosMinSupportedVersion || null,
-      iosRecommendedVersion: config.iosRecommendedVersion || null,
-      iosUpdateMessage: config.iosUpdateMessage || null,
-      iosAutoRecommendedVersion: config.iosAutoRecommendedVersion ? 1 : 0,
-      iosLastAppStoreVersion: config.iosLastAppStoreVersion || null,
-      iosLastAppStoreSyncAt: config.iosLastAppStoreSyncAt || null,
-      iosAppStoreSyncError: config.iosAppStoreSyncError || null,
-      updatedAt: now,
-      updatedBy: actorId,
-    });
-
-    if (audit) {
-      await this._audit(actorId, 'admin_update_security_config', 'config', 'security', config);
-    }
-
-    return { success: true };
   }
 
   /**
@@ -1285,126 +1270,34 @@ class AdminService {
    * Get security configuration
    */
   async getSecurityConfig() {
-    const securityConfig = await this.appConfigRepository.findSecurityConfig("default");
-    if (securityConfig) {
-      return {
-        sessionDurationHours: securityConfig.session_duration_hours,
-        maxFailedLoginAttempts: securityConfig.max_failed_logins,
-        lockoutDurationMinutes: securityConfig.lockout_minutes,
-        rateLimitDefaults: JSON.parse(securityConfig.rate_limit_defaults_json || '{}'),
-        iosMinSupportedVersion: securityConfig.ios_min_supported_version || "",
-        iosRecommendedVersion: securityConfig.ios_recommended_version || "",
-        iosUpdateMessage: securityConfig.ios_update_message || "",
-        iosAutoRecommendedVersion: Boolean(securityConfig.ios_auto_recommended_version),
-        iosLastAppStoreVersion: securityConfig.ios_last_app_store_version || "",
-        iosLastAppStoreSyncAt: securityConfig.ios_last_app_store_sync_at || "",
-        iosAppStoreSyncError: securityConfig.ios_app_store_sync_error || "",
-      };
-    }
-    // Return defaults if no config exists
-    return {
-      sessionDurationHours: 8,
-      maxFailedLoginAttempts: 5,
-      lockoutDurationMinutes: 15,
-      rateLimitDefaults: {
-        enrollment_start: { limit: 3, windowSeconds: 86400 },
-        render_preview: { limit: 20, windowSeconds: 86400 },
-        track_create: { limit: 20, windowSeconds: 3600 }
-      },
-      iosMinSupportedVersion: "",
-      iosRecommendedVersion: "",
-      iosUpdateMessage: "",
-      iosAutoRecommendedVersion: false,
-      iosLastAppStoreVersion: "",
-      iosLastAppStoreSyncAt: "",
-      iosAppStoreSyncError: "",
-    };
+    return await this.adminSecurityConfigService.getSecurityConfig();
   }
 
   /**
    * Update security configuration
    */
   async updateSecurityConfig(config, adminId) {
-    return this._persistSecurityConfig(config, adminId, { audit: true });
+    return await this.adminSecurityConfigService.updateSecurityConfig(
+      config,
+      adminId,
+    );
   }
 
   async syncIOSVersionFromAppStore(adminId, { force = true } = {}) {
-    if (!this.appStoreConnectService?.isConfigured()) {
-      throw new Error("App Store Connect credentials are not configured");
-    }
-
-    const version = await this.appStoreConnectService.getLatestReadyIOSVersion({ force });
-    if (!version) {
-      throw new Error("No iOS App Store version in Ready for Distribution state was found");
-    }
-
-    const current = await this.getSecurityConfig();
-    const syncedAt = new Date().toISOString();
-    const nextConfig = {
-      ...current,
-      iosLastAppStoreVersion: version,
-      iosLastAppStoreSyncAt: syncedAt,
-      iosAppStoreSyncError: "",
-      iosRecommendedVersion: current.iosAutoRecommendedVersion ? current.iosRecommendedVersion : version,
-    };
-
-    await this._persistSecurityConfig(nextConfig, adminId, { audit: false });
-    await this._audit(adminId, "admin_sync_ios_version_from_app_store", "config", "security", {
-      version,
-      autoRecommendedVersion: current.iosAutoRecommendedVersion,
-    });
-
-    return {
-      success: true,
-      version,
-      syncedAt,
-    };
+    return await this.adminSecurityConfigService.syncIOSVersionFromAppStore(
+      adminId,
+      { force },
+    );
   }
 
   async resolveIOSAppUpdatePolicy({
     allowLiveAppStoreSync = false,
     exposeSyncError = false,
   } = {}) {
-    const securityConfig = await this.getSecurityConfig();
-    let recommendedVersion = securityConfig.iosRecommendedVersion || null;
-    let lastSyncedVersion = securityConfig.iosLastAppStoreVersion || null;
-    let lastSyncAt = securityConfig.iosLastAppStoreSyncAt || null;
-    let lastSyncError = securityConfig.iosAppStoreSyncError || null;
-
-    if (securityConfig.iosAutoRecommendedVersion && lastSyncedVersion) {
-      recommendedVersion = lastSyncedVersion;
-    }
-
-    if (
-      allowLiveAppStoreSync &&
-      securityConfig.iosAutoRecommendedVersion &&
-      this.appStoreConnectService?.isConfigured()
-    ) {
-      try {
-        const detectedVersion = await this.appStoreConnectService.getLatestReadyIOSVersion();
-        if (detectedVersion) {
-          recommendedVersion = detectedVersion;
-          lastSyncedVersion = detectedVersion;
-          lastSyncError = "";
-        }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : "App Store Connect sync failed";
-        lastSyncError = message;
-      }
-    }
-
-    return {
-      minimum_supported_version: securityConfig.iosMinSupportedVersion || null,
-      minimum_supported_build: config.IOS_MIN_SUPPORTED_BUILD > 0 ? config.IOS_MIN_SUPPORTED_BUILD : null,
-      recommended_version: recommendedVersion,
-      recommended_build: config.IOS_RECOMMENDED_BUILD > 0 ? config.IOS_RECOMMENDED_BUILD : null,
-      message: securityConfig.iosUpdateMessage || null,
-      app_store_url: config.APP_STORE_URL || null,
-      auto_recommended_version: securityConfig.iosAutoRecommendedVersion,
-      last_app_store_version: lastSyncedVersion,
-      last_app_store_sync_at: lastSyncAt,
-      ...(exposeSyncError ? { last_app_store_sync_error: lastSyncError } : {}),
-    };
+    return await this.adminSecurityConfigService.resolveIOSAppUpdatePolicy({
+      allowLiveAppStoreSync,
+      exposeSyncError,
+    });
   }
 
   // ============ VOICE PROFILE MANAGEMENT ============
