@@ -461,11 +461,11 @@ function registerAdminRoutes(
   // --- Share Management ---
 
   registerAdminShareRoutes(app, {
-    adminService,
     parsePagination,
     requireAdminRole,
     requireAdminSession,
     sendError,
+    shareManagementService: adminService.adminShareManagementService,
   });
   registerAdminWebhookHealthRoutes(app, {
     webhookHealthService: adminService.adminWebhookHealthService,

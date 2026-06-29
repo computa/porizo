@@ -2010,6 +2010,12 @@ and risk metrics, and `adminJobOpsService` directly for job metrics. Removed
 `getEnrollmentMetrics`, `getRenderSuccessMetrics`, and `getRiskMetrics`;
 focused metrics route, repository, and service validation passed.
 
+Root 6 facade-reduction follow-up: share-management admin routes now call
+`adminShareManagementService` directly instead of passing through
+`AdminService`. Removed `AdminService.listShares`, `rebindShare`,
+`listPoemShares`, `resetPoemShareAttempts`, and `revokePoemShare`; focused
+share route, service, and repository validation passed.
+
 ## Task 17: Root 7 Writer Decomposition
 
 **Owner:** One worker

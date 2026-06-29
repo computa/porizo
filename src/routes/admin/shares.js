@@ -2,13 +2,19 @@
 
 function registerAdminShareRoutes(
   app,
-  { adminService, parsePagination, requireAdminRole, requireAdminSession, sendError },
+  {
+    parsePagination,
+    requireAdminRole,
+    requireAdminSession,
+    sendError,
+    shareManagementService,
+  },
 ) {
   app.get("/admin/dashboard/shares", async (request, reply) => {
     const admin = await requireAdminSession(request, reply);
     if (!admin) return;
     const { status, trackId, userId } = request.query;
-    const shares = await adminService.listShares({
+    const shares = await shareManagementService.listShares({
       status,
       trackId,
       userId,
@@ -28,7 +34,7 @@ function registerAdminShareRoutes(
       sendError(reply, 400, "INVALID_PARAMS", "newDeviceId is required");
       return;
     }
-    const result = await adminService.rebindShare(
+    const result = await shareManagementService.rebindShare(
       request.params.id,
       newDeviceId,
       admin.adminId,
@@ -45,7 +51,7 @@ function registerAdminShareRoutes(
     const admin = await requireAdminSession(request, reply);
     if (!admin) return;
     const { status, poemId, userId } = request.query;
-    const shares = await adminService.listPoemShares({
+    const shares = await shareManagementService.listPoemShares({
       status,
       poemId,
       userId,
@@ -63,7 +69,7 @@ function registerAdminShareRoutes(
       ]);
       if (!admin) return;
       const { reason } = request.body || {};
-      const result = await adminService.resetPoemShareAttempts(
+      const result = await shareManagementService.resetPoemShareAttempts(
         request.params.id,
         admin.adminId,
         reason || "",
@@ -83,7 +89,7 @@ function registerAdminShareRoutes(
     ]);
     if (!admin) return;
     const { reason } = request.body || {};
-    const result = await adminService.revokePoemShare(
+    const result = await shareManagementService.revokePoemShare(
       request.params.id,
       admin.adminId,
       reason || "",

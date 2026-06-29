@@ -1792,14 +1792,13 @@ and revoke-all audit count metadata. Direct service tests pin force-reverify
 audit/no-audit paths, session-list delegation, single-session revoke
 audit/no-audit paths, and revoke-all audit metadata.
 Admin share-management service ownership is also extracted into
-`src/services/admin/share-management-service.js`. `AdminService` remains a
-compatibility facade for `listShares`, `rebindShare`, `listPoemShares`,
-`resetPoemShareAttempts`, and `revokePoemShare`, while the new service owns
-bounded song-share/poem-share listing, share rebind result mapping, poem-share
-attempt reset/revoke result mapping, and admin audit metadata for successful
-mutations. Direct service tests pin pagination bounds, share rebind
-audit/no-audit behavior, poem-share reset/revoke audit behavior, and missing or
-already-revoked no-audit paths.
+`src/services/admin/share-management-service.js`, and
+`src/routes/admin/shares.js` now calls that service directly instead of going
+through `AdminService`. The service owns bounded song-share/poem-share listing,
+share rebind result mapping, poem-share attempt reset/revoke result mapping, and
+admin audit metadata for successful mutations. Direct service tests pin
+pagination bounds, share rebind audit/no-audit behavior, poem-share reset/revoke
+audit behavior, and missing or already-revoked no-audit paths.
 Admin security-observability service ownership is also extracted into
 `src/services/admin/security-observability-service.js`. `AdminService` remains
 a compatibility facade for `searchAuthEvents`, `getAuthEventStats`,
