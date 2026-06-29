@@ -2028,6 +2028,13 @@ Removed `AdminService.listJobs`, `retryJob`, `listDLQ`, `reprocessDLQ`, and
 `getJobStepHistory`; focused route, service, and repository-integration
 validation passed.
 
+Root 6 facade-reduction follow-up: security config/App Store sync admin routes
+now call `adminSecurityConfigService` directly instead of passing through
+`AdminService`. Removed `AdminService.getSecurityConfig`,
+`updateSecurityConfig`, `syncIOSVersionFromAppStore`, and the unused
+`resolveIOSAppUpdatePolicy` compatibility method; focused route, service, and
+STT/client-config validation passed.
+
 ## Task 17: Root 7 Writer Decomposition
 
 **Owner:** One worker

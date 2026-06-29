@@ -506,9 +506,9 @@ function registerAdminRoutes(
   });
 
   registerAdminSecurityConfigRoutes(app, {
-    adminService,
     requireAdminRole,
     requireAdminSession,
+    securityConfigService: adminService.adminSecurityConfigService,
     sendError,
   });
 

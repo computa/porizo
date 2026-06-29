@@ -1684,16 +1684,16 @@ admin audit emission. Direct service tests pin trimmed create persistence with
 raw audit metadata, validation errors, allowlisted updates, missing-sample
 errors, activation/delete audit metadata, and active lookup fallback.
 Admin security/app-update config service ownership is also extracted into
-`src/services/admin/security-config-service.js`. `AdminService` remains a
-compatibility facade for `getSecurityConfig`, `updateSecurityConfig`,
-`syncIOSVersionFromAppStore`, and `resolveIOSAppUpdatePolicy`, while the new
-service owns default security config shaping, security-config persistence and
-audit emission, App Store Connect ready-version sync, sync-specific audit
-emission, and public iOS app-update policy projection. Direct service tests pin
-default rows, persisted-row JSON mapping, DB null conversion, generic audit
-suppression during sync, auto-recommended version behavior, public
-non-exposure of sync errors, optional live lookup error exposure, and no
-live lookup from the default public `/app/config` path.
+`src/services/admin/security-config-service.js`, and
+`src/routes/admin/security-config.js` now calls that service directly instead
+of going through `AdminService`. The service owns default security config
+shaping, security-config persistence and audit emission, App Store Connect
+ready-version sync, sync-specific audit emission, and public iOS app-update
+policy projection. Direct service tests pin default rows, persisted-row JSON
+mapping, DB null conversion, generic audit suppression during sync,
+auto-recommended version behavior, public non-exposure of sync errors,
+optional live lookup error exposure, and no live lookup from the default public
+`/app/config` path.
 Admin provider/queue control-plane service ownership is also extracted into
 `src/services/admin/control-plane-service.js`, and
 `src/routes/admin/provider-queue-control.js` now calls that service directly

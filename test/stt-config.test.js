@@ -32,7 +32,7 @@ describe("STT Configuration Service", async () => {
     adminService = new AdminService(db);
 
     // Seed the admin actor used as updated_by. security_config.updated_by has a
-    // FK to admin_users(id); updateSecurityConfig(..., "admin_test") fails with
+    // FK to admin_users(id); the security-config service update fails with a
     // FOREIGN KEY constraint without this row.
     await db
       .prepare(
@@ -304,7 +304,7 @@ describe("STT Configuration Service", async () => {
     });
 
     it("projects iOS app update policy from security config", async () => {
-      await adminService.updateSecurityConfig(
+      await adminService.adminSecurityConfigService.updateSecurityConfig(
         {
           sessionDurationHours: 8,
           maxFailedLoginAttempts: 5,
@@ -356,7 +356,7 @@ describe("STT Configuration Service", async () => {
         },
       });
 
-      await syncingAdminService.updateSecurityConfig(
+      await syncingAdminService.adminSecurityConfigService.updateSecurityConfig(
         {
           sessionDurationHours: 8,
           maxFailedLoginAttempts: 5,
@@ -511,7 +511,7 @@ describe("STT Provider Status", () => {
     adminService = new AdminService(db);
 
     // Seed the admin actor used as updated_by. security_config.updated_by has a
-    // FK to admin_users(id); updateSecurityConfig(..., "admin_test") fails with
+    // FK to admin_users(id); the security-config service update fails with a
     // FOREIGN KEY constraint without this row.
     await db
       .prepare(

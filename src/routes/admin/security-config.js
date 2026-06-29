@@ -6,12 +6,12 @@ function isValidVersionString(value) {
 
 function registerAdminSecurityConfigRoutes(
   app,
-  { adminService, requireAdminRole, requireAdminSession, sendError },
+  { requireAdminRole, requireAdminSession, securityConfigService, sendError },
 ) {
   app.get("/admin/dashboard/security/config", async (request, reply) => {
     const admin = await requireAdminSession(request, reply);
     if (!admin) return;
-    const config = await adminService.getSecurityConfig();
+    const config = await securityConfigService.getSecurityConfig();
     reply.send(config);
   });
 
@@ -138,7 +138,7 @@ function registerAdminSecurityConfigRoutes(
       iosAppStoreSyncError: String(config.iosAppStoreSyncError || "").trim(),
     };
 
-    const result = await adminService.updateSecurityConfig(
+    const result = await securityConfigService.updateSecurityConfig(
       sanitizedConfig,
       admin.adminId,
     );
@@ -152,7 +152,7 @@ function registerAdminSecurityConfigRoutes(
       if (!admin) return;
 
       try {
-        const result = await adminService.syncIOSVersionFromAppStore(
+        const result = await securityConfigService.syncIOSVersionFromAppStore(
           admin.adminId,
           { force: true },
         );

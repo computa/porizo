@@ -482,40 +482,6 @@ class AdminService {
     });
   }
 
-  /**
-   * Get security configuration
-   */
-  async getSecurityConfig() {
-    return await this.adminSecurityConfigService.getSecurityConfig();
-  }
-
-  /**
-   * Update security configuration
-   */
-  async updateSecurityConfig(config, adminId) {
-    return await this.adminSecurityConfigService.updateSecurityConfig(
-      config,
-      adminId,
-    );
-  }
-
-  async syncIOSVersionFromAppStore(adminId, { force = true } = {}) {
-    return await this.adminSecurityConfigService.syncIOSVersionFromAppStore(
-      adminId,
-      { force },
-    );
-  }
-
-  async resolveIOSAppUpdatePolicy({
-    allowLiveAppStoreSync = false,
-    exposeSyncError = false,
-  } = {}) {
-    return await this.adminSecurityConfigService.resolveIOSAppUpdatePolicy({
-      allowLiveAppStoreSync,
-      exposeSyncError,
-    });
-  }
-
   // ============ BILLING & REVENUE ============
 
   /**
