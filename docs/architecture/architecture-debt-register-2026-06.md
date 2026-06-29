@@ -16,7 +16,9 @@ lifecycle persistence, track-version allocation/render-read persistence, and
 render job-read persistence, plus admin marketing contact/campaign/push/engagement
 persistence, admin provider/queue control-plane persistence, and admin
 onboarding-sample persistence slices are extracted and validated locally. Admin
-job/DLQ operations persistence is also extracted and validated locally.
+onboarding-sample service-boundary ownership is also extracted and validated
+locally. Admin job/DLQ operations persistence is also extracted and validated
+locally.
 Gift-dispatch scheduler polling/recovery persistence is also extracted and
 validated locally.
 Server-owned gift-dispatch outbox/state-transition/receipt/lock/final-status
@@ -771,13 +773,19 @@ pass / 0 fail). P2 deferred: missing queue names still return success because
 that is pre-existing admin API behavior.
 The admin onboarding-sample follow-up now moves `onboarding_samples` admin
 CRUD and activation persistence into
-`database/admin-onboarding-sample-repository.js`; `AdminService` retains input
-validation, ID generation, audit emission, and route-facing result shapes. The
+`database/admin-onboarding-sample-repository.js`; the later service-boundary
+follow-up moves input validation, ID generation, active-sample fallback,
+persistence orchestration, and audit emission into
+`services/admin/onboarding-sample-service.js`, leaving `AdminService` as a
+compatibility facade for route-facing result shapes. The
 activation path is now transactional and verifies the target row inside the
 transaction before deactivating existing samples, closing the direct repository
 caller hazard that could otherwise leave no active onboarding sample. Focused
-validation passed in `test/admin-onboarding-sample-repository.test.js` (8 pass
-/ 0 fail).
+repository validation passed in `test/admin-onboarding-sample-repository.test.js`
+(8 pass / 0 fail), and focused service/route validation later passed in
+`test/admin-onboarding-sample-service.test.js`,
+`test/admin-onboarding-sample-routes.test.js`, and
+`test/admin-onboarding-sample-repository.test.js` (17 pass / 0 fail).
 The admin job-ops follow-up now moves admin job metrics, job listing/retry,
 DLQ listing/reprocess, system-health job snapshots, and job-step-history reads
 into `database/admin-job-ops-repository.js`; `AdminService` retains safe bounds,
@@ -1621,6 +1629,16 @@ decoration, value validation, partial-success update behavior, and bulk audit
 emission. Direct service tests pin metadata grouping, string-option decoration,
 number coercion-with-original-value persistence, partial validation errors,
 cache clearing, and audit metadata.
+Admin onboarding-sample service ownership is also extracted into
+`src/services/admin/onboarding-sample-service.js`. `AdminService` remains a
+compatibility facade for `getOnboardingSamples`, `getActiveOnboardingSample`,
+`createOnboardingSample`, `updateOnboardingSample`, `deleteOnboardingSample`,
+and `activateOnboardingSample`, while the new service owns validation,
+ID/timestamp generation, active-sample migration fallback, repository
+orchestration, and admin audit emission. Direct service tests pin trimmed
+create persistence with raw audit metadata, validation errors, allowlisted
+updates, missing-sample errors, activation/delete audit metadata, and active
+lookup fallback.
 **Boundary:** Do the `getAppConfig` eviction + non-billing splits first (🟡). Do the billing/entitlement admin slice **last** (⚠ 🔴) with production verification.
 
 ### Root 7 — Writer cycle + god-file decomposition 🟡 effort M

@@ -62,6 +62,9 @@ const {
 const {
   createAdminFeatureFlagService,
 } = require("./admin/feature-flag-service");
+const {
+  createAdminOnboardingSampleService,
+} = require("./admin/onboarding-sample-service");
 const { createClientConfigService } = require("./client-config-service");
 
 /**
@@ -343,6 +346,13 @@ class AdminService {
     this.adminOnboardingSampleRepository =
       options.adminOnboardingSampleRepository ||
       createAdminOnboardingSampleRepository(db);
+    this.adminOnboardingSampleService =
+      options.adminOnboardingSampleService ||
+      createAdminOnboardingSampleService({
+        onboardingSampleRepository: this.adminOnboardingSampleRepository,
+        appConfigRepository: this.appConfigRepository,
+        audit: (...args) => this._audit(...args),
+      });
     this.adminJobOpsRepository =
       options.adminJobOpsRepository || createAdminJobOpsRepository(db);
     this.adminStorySessionRepository =
@@ -2183,7 +2193,7 @@ class AdminService {
    * List all onboarding audio samples
    */
   async getOnboardingSamples() {
-    return await this.adminOnboardingSampleRepository.listAll();
+    return await this.adminOnboardingSampleService.getOnboardingSamples();
   }
 
   /**
@@ -2191,133 +2201,48 @@ class AdminService {
    * Returns null if none active
    */
   async getActiveOnboardingSample() {
-    try {
-      const row = await this.appConfigRepository.findActiveOnboardingSample();
-      return row || null;
-    } catch {
-      // Table may not exist yet if migration hasn't run
-      return null;
-    }
+    return await this.adminOnboardingSampleService.getActiveOnboardingSample();
   }
 
   /**
    * Create a new onboarding audio sample
    */
   async createOnboardingSample({ label, audio_url }, adminId) {
-    if (!label || typeof label !== 'string' || label.trim().length === 0) {
-      throw new Error('label is required');
-    }
-    if (!audio_url || typeof audio_url !== 'string') {
-      throw new Error('audio_url is required');
-    }
-    if (!audio_url.startsWith('/audio/') && !audio_url.startsWith('https://')) {
-      throw new Error('audio_url must start with /audio/ or be an HTTPS URL');
-    }
-    if (label.length > 200) {
-      throw new Error('label must be 200 characters or fewer');
-    }
-    if (audio_url.length > 500) {
-      throw new Error('audio_url must be 500 characters or fewer');
-    }
-
-    const id = 'os_' + require('crypto').randomBytes(6).toString('hex');
-    const now = new Date().toISOString();
-
-    await this.adminOnboardingSampleRepository.createSample({
-      id,
-      label: label.trim(),
-      audioUrl: audio_url.trim(),
-      now,
-      updatedBy: adminId,
-    });
-
-    await this._audit(adminId, 'admin_create_onboarding_sample', 'onboarding_sample', id, { label, audio_url });
-
-    return await this.adminOnboardingSampleRepository.findById(id);
+    return await this.adminOnboardingSampleService.createOnboardingSample(
+      { label, audio_url },
+      adminId,
+    );
   }
 
   /**
    * Update an onboarding sample (allowlisted fields only)
    */
   async updateOnboardingSample(id, fields, adminId) {
-    const allowedFields = ['label', 'audio_url'];
-    const filteredUpdates = {};
-    for (const field of allowedFields) {
-      if (fields[field] !== undefined) {
-        filteredUpdates[field] = fields[field];
-      }
-    }
-
-    if (Object.keys(filteredUpdates).length === 0) {
-      throw new Error('No valid fields to update');
-    }
-
-    if (filteredUpdates.audio_url) {
-      if (!filteredUpdates.audio_url.startsWith('/audio/') && !filteredUpdates.audio_url.startsWith('https://')) {
-        throw new Error('audio_url must start with /audio/ or be an HTTPS URL');
-      }
-    }
-    if (filteredUpdates.label && filteredUpdates.label.length > 200) {
-      throw new Error('label must be 200 characters or fewer');
-    }
-
-    const previous = await this.adminOnboardingSampleRepository.findById(id);
-    if (!previous) {
-      throw new Error('Onboarding sample not found');
-    }
-
-    await this.adminOnboardingSampleRepository.updateSample({
+    return await this.adminOnboardingSampleService.updateOnboardingSample(
       id,
-      fields: filteredUpdates,
-      now: new Date().toISOString(),
-      updatedBy: adminId,
-    });
-
-    await this._audit(adminId, 'admin_update_onboarding_sample', 'onboarding_sample', id, {
-      previous: { label: previous.label, audio_url: previous.audio_url },
-      updated: filteredUpdates,
-    });
-
-    return await this.adminOnboardingSampleRepository.findById(id);
+      fields,
+      adminId,
+    );
   }
 
   /**
    * Delete an onboarding sample
    */
   async deleteOnboardingSample(id, adminId) {
-    const existing = await this.adminOnboardingSampleRepository.findById(id);
-    if (!existing) {
-      throw new Error('Onboarding sample not found');
-    }
-
-    await this.adminOnboardingSampleRepository.deleteSample(id);
-    await this._audit(adminId, 'admin_delete_onboarding_sample', 'onboarding_sample', id, {
-      label: existing.label, audio_url: existing.audio_url,
-    });
-
-    return { success: true };
+    return await this.adminOnboardingSampleService.deleteOnboardingSample(
+      id,
+      adminId,
+    );
   }
 
   /**
    * Activate a single onboarding sample (transactional: deactivate all, then activate one)
    */
   async activateOnboardingSample(id, adminId) {
-    const existing = await this.adminOnboardingSampleRepository.findById(id);
-    if (!existing) {
-      throw new Error('Onboarding sample not found');
-    }
-
-    await this.adminOnboardingSampleRepository.activateSample({
+    return await this.adminOnboardingSampleService.activateOnboardingSample(
       id,
-      now: new Date().toISOString(),
-      updatedBy: adminId,
-    });
-
-    await this._audit(adminId, 'admin_activate_onboarding_sample', 'onboarding_sample', id, {
-      label: existing.label,
-    });
-
-    return await this.adminOnboardingSampleRepository.findById(id);
+      adminId,
+    );
   }
 
   /**
