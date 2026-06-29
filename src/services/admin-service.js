@@ -59,6 +59,9 @@ const {
   createAdminProviderConfigService,
 } = require("./admin/provider-config-service");
 const {
+  createAdminControlPlaneService,
+} = require("./admin/control-plane-service");
+const {
   createAdminFeatureFlagService,
 } = require("./admin/feature-flag-service");
 const {
@@ -353,6 +356,12 @@ class AdminService {
       });
     this.adminControlRepository =
       options.adminControlRepository || createAdminControlRepository(db);
+    this.adminControlPlaneService =
+      options.adminControlPlaneService ||
+      createAdminControlPlaneService({
+        adminControlRepository: this.adminControlRepository,
+        audit: (...args) => this._audit(...args),
+      });
     this.adminOnboardingSampleRepository =
       options.adminOnboardingSampleRepository ||
       createAdminOnboardingSampleRepository(db);
@@ -1379,24 +1388,19 @@ class AdminService {
    * Get status of all external providers
    */
   async getProviderStatus() {
-    return await this.adminControlRepository.listProviderStatus();
+    return await this.adminControlPlaneService.getProviderStatus();
   }
 
   /**
    * Set provider status (active, paused, disabled)
    */
   async setProviderStatus(providerName, status, adminId, reason) {
-    const now = new Date().toISOString();
-    await this.adminControlRepository.setProviderStatus({
+    return await this.adminControlPlaneService.setProviderStatus(
       providerName,
       status,
       adminId,
       reason,
-      now,
-    });
-
-    await this._audit(adminId, `admin_set_provider_${status}`, 'provider', providerName, { status, reason });
-    return { success: true };
+    );
   }
 
   // ============ QUEUE CONTROL PLANE ============
@@ -1405,24 +1409,19 @@ class AdminService {
    * Get status of all job queues
    */
   async getQueueStatus() {
-    return await this.adminControlRepository.listQueueStatus();
+    return await this.adminControlPlaneService.getQueueStatus();
   }
 
   /**
    * Set queue status (active, paused, draining)
    */
   async setQueueStatus(queueName, status, adminId, reason) {
-    const now = new Date().toISOString();
-    await this.adminControlRepository.setQueueStatus({
+    return await this.adminControlPlaneService.setQueueStatus(
       queueName,
       status,
       adminId,
       reason,
-      now,
-    });
-
-    await this._audit(adminId, `admin_set_queue_${status}`, 'queue', queueName, { status, reason });
-    return { success: true };
+    );
   }
 
   // ============ BILLING & REVENUE ============

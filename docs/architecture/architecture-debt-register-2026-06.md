@@ -18,8 +18,9 @@ persistence, admin provider/queue control-plane persistence, and admin
 onboarding-sample persistence slices are extracted and validated locally. Admin
 onboarding-sample service-boundary ownership is also extracted and validated
 locally. Admin security/app-update config service-boundary ownership is also
-extracted and validated locally. Admin job/DLQ operations persistence is also
-extracted and validated locally.
+extracted and validated locally. Admin provider/queue control-plane
+service-boundary ownership is also extracted and validated locally. Admin
+job/DLQ operations persistence is also extracted and validated locally.
 Gift-dispatch scheduler polling/recovery persistence is also extracted and
 validated locally.
 Server-owned gift-dispatch outbox/state-transition/receipt/lock/final-status
@@ -1651,6 +1652,14 @@ default rows, persisted-row JSON mapping, DB null conversion, generic audit
 suppression during sync, auto-recommended version behavior, public
 non-exposure of sync errors, optional live lookup error exposure, and no
 live lookup from the default public `/app/config` path.
+Admin provider/queue control-plane service ownership is also extracted into
+`src/services/admin/control-plane-service.js`. `AdminService` remains a
+compatibility facade for `getProviderStatus`, `setProviderStatus`,
+`getQueueStatus`, and `setQueueStatus`, while the new service owns provider
+and queue status read delegation, timestamp injection for status mutations,
+route-facing `{ success: true }` envelopes, and admin audit action naming.
+Direct service tests pin list delegation, provider audit metadata, queue audit
+metadata, and injected timestamps.
 **Boundary:** Do the `getAppConfig` eviction + non-billing splits first (🟡). Do the billing/entitlement admin slice **last** (⚠ 🔴) with production verification.
 
 ### Root 7 — Writer cycle + god-file decomposition 🟡 effort M
