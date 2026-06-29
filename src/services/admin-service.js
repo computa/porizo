@@ -84,6 +84,9 @@ const {
   createAdminSecurityObservabilityService,
   escapeLikePattern,
 } = require("./admin/security-observability-service");
+const {
+  createAdminMusicDiagnosticsService,
+} = require("./admin/music-diagnostics-service");
 const { safeBounds } = require("./admin/pagination");
 const { createClientConfigService } = require("./client-config-service");
 
@@ -433,6 +436,11 @@ class AdminService {
     this.adminMusicDiagnosticsRepository =
       options.adminMusicDiagnosticsRepository ||
       createAdminMusicDiagnosticsRepository(db);
+    this.adminMusicDiagnosticsService =
+      options.adminMusicDiagnosticsService ||
+      createAdminMusicDiagnosticsService({
+        adminMusicDiagnosticsRepository: this.adminMusicDiagnosticsRepository,
+      });
     this.eventsRepository =
       options.eventsRepository || createEventsRepository(db);
     // In-memory response cache for analytics aggregates. 60s TTL keeps
@@ -1915,84 +1923,11 @@ class AdminService {
    * Includes provider routing, style intent summary, and quality gate results.
    */
   async getRecentMusicDiagnostics({ limit = 30, provider = null, status = null }) {
-    const bounds = safeBounds(limit, 0, 100);
-    const rows =
-      await this.adminMusicDiagnosticsRepository.listRecentTrackVersions(
-        bounds.limit,
-      );
-    const jobRows =
-      await this.adminMusicDiagnosticsRepository.listLatestJobsForTrackVersions(
-        rows.map((row) => row.id),
-      );
-    const latestJobByTrackVersion = new Map();
-    for (const job of jobRows) {
-      if (!latestJobByTrackVersion.has(job.track_version_id)) {
-        latestJobByTrackVersion.set(job.track_version_id, job);
-      }
-    }
-
-    const diagnostics = [];
-    for (const row of rows) {
-      if (status && row.status !== status) {
-        continue;
-      }
-
-      const musicPlan = (() => {
-        try {
-          return row.music_plan_json ? JSON.parse(row.music_plan_json) : {};
-        } catch {
-          return {};
-        }
-      })();
-      const provenance = (() => {
-        try {
-          return row.provenance_json ? JSON.parse(row.provenance_json) : {};
-        } catch {
-          return {};
-        }
-      })();
-
-      const resolvedProvider =
-        musicPlan.provider_resolved ||
-        provenance?.music?.provider ||
-        provenance?.render?.provider ||
-        null;
-      if (provider && resolvedProvider !== provider) {
-        continue;
-      }
-
-      const latestJob = latestJobByTrackVersion.get(row.id);
-
-      diagnostics.push({
-        track_version_id: row.id,
-        track_id: row.track_id,
-        version_num: row.version_num,
-        user_id: row.user_id,
-        title: row.title,
-        style: row.style,
-        voice_mode: row.voice_mode,
-        status: row.status,
-        created_at: row.created_at,
-        completed_at: row.completed_at,
-        provider: resolvedProvider,
-        provider_support: musicPlan.provider_support || null,
-        provider_support_score: musicPlan.provider_support_score ?? null,
-        provider_resolution_reason: musicPlan.provider_resolution_reason || null,
-        generation_mode: musicPlan.generation_mode || null,
-        plan_schema_version: musicPlan.plan_schema_version || null,
-        style_prompt_compact: musicPlan.style_prompt_compact || null,
-        provider_style_hint: musicPlan.provider_style_hint || null,
-        style_negative_constraints: musicPlan.style_negative_constraints || null,
-        style_intent: musicPlan.style_intent || null,
-        quality_gate: provenance?.quality?.last_evaluation || null,
-        reroll_count: provenance?.quality?.reroll_count ?? 0,
-        last_error_code: latestJob?.error_code || null,
-        last_error_message: latestJob?.error_message || null,
-        last_error_at: latestJob?.updated_at || null,
-      });
-    }
-
-    return { diagnostics };
+    return await this.adminMusicDiagnosticsService.getRecentMusicDiagnostics({
+      limit,
+      provider,
+      status,
+    });
   }
 
   // ============ ONBOARDING SAMPLES ============

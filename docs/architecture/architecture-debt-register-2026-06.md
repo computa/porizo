@@ -29,6 +29,8 @@ Admin share-management service-boundary ownership is also extracted and
 validated locally.
 Admin security-observability service-boundary ownership is also extracted and
 validated locally.
+Admin music-diagnostics service-boundary ownership is also extracted and
+validated locally.
 Admin job/DLQ operations persistence is also extracted and validated locally.
 Gift-dispatch scheduler polling/recovery persistence is also extracted and
 validated locally.
@@ -1718,6 +1720,15 @@ consent-log delegation. `getSystemHealth` intentionally remains outside this
 slice because it depends on job-ops persistence. Direct service tests pin
 wildcard escaping, pagination bounds, date-window construction, stats
 normalization, reset audit metadata, and consent-log filters.
+Admin music-diagnostics service ownership is also extracted into
+`src/services/admin/music-diagnostics-service.js`. `AdminService` remains a
+compatibility facade for `getRecentMusicDiagnostics`, while the new service owns
+bounded recent-track selection, malformed JSON fallback, provider precedence,
+provider/status filtering, latest-job error attachment, and diagnostic response
+shaping. Direct service tests pin non-object JSON fallback, pagination bounds,
+provider precedence, defaulted quality fields, filtered result behavior, empty
+repository results, and latest-job error mapping; route/repository tests still
+cover the shared blend-analysis repository path.
 **Boundary:** Do the `getAppConfig` eviction + non-billing splits first (🟡). Do the billing/entitlement admin slice **last** (⚠ 🔴) with production verification.
 
 ### Root 7 — Writer cycle + god-file decomposition 🟡 effort M
