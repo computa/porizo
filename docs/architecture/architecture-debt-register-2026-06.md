@@ -1650,8 +1650,9 @@ Admin-auth route ownership is also extracted into
 change-password, forgot-password, and reset-password handlers plus the auth
 rate-limit helper. `src/routes/admin.js` now has no inline
 `app.get/post/put/delete/patch` handlers; it composes route registrars, shared
-guards, repositories, and services. Remaining Root 6 work is admin-service
-decomposition/service-boundary cleanup, not route-handler extraction.
+guards, repositories, and services. Remaining Root 6 work has narrowed to
+`admin-service.js` compatibility facade cleanup and constructor composition, not
+route-handler extraction.
 
 Admin provider-config service ownership is now extracted into
 `src/services/admin/provider-config-service.js`. `AdminService` remains a
@@ -1660,6 +1661,12 @@ compatibility facade for `getSTTConfig`, `setSTTConfig`,
 owns STT defaults/validation, music-provider config normalization/persistence,
 and admin audit emission through an injected audit function. Direct service
 tests pin invalid-JSON fallback, update persistence, and audit metadata.
+Admin audit-write ownership is now extracted into
+`src/services/admin/audit-service.js`. `AdminService._audit()` remains only as a
+compatibility delegate for route modules and tests that still call the historic
+facade method, while the new service owns audit ID generation, timestamp
+normalization, admin metadata enrichment, and `EventsRepository.insertAuditLog`
+payload construction.
 Admin feature-flag service ownership is also extracted into
 `src/services/admin/feature-flag-service.js`. `AdminService` remains a
 compatibility facade for `getAllFeatureFlags` and `updateFeatureFlags`, while

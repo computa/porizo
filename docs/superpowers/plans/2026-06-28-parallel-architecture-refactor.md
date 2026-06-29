@@ -1967,6 +1967,14 @@ keyword-map bounds, keyword-row normalization, and bulk-sync audit metadata.
 Focused repository/service and route validation passed for the admin growth
 contracts.
 
+Root 6 service-boundary follow-up: admin audit-write ownership is now extracted
+into `src/services/admin/audit-service.js`. `AdminService._audit()` remains a
+compatibility delegate for route modules and tests that still call the historic
+facade method, while the new service owns audit ID generation, timestamp
+normalization, admin metadata enrichment, and `EventsRepository.insertAuditLog`
+payload construction. Focused audit service, analytics, demo-share, share, and
+gift-ops validation passed for audit-writing contracts.
+
 ## Task 17: Root 7 Writer Decomposition
 
 **Owner:** One worker

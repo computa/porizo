@@ -3,7 +3,6 @@
  * Provides queries and actions for the admin dashboard.
  */
 
-const crypto = require("crypto");
 const {
   createAppConfigRepository,
 } = require("../database/app-config-repository");
@@ -117,18 +116,19 @@ const {
 const {
   createAdminAnalyticsService,
 } = require("./admin/analytics-service");
+const { createAdminAuditService } = require("./admin/audit-service");
 const { createClientConfigService } = require("./client-config-service");
-
-/**
- * Generate a secure audit log ID
- */
-function generateAuditId() {
-  return `audit_${crypto.randomBytes(12).toString("hex")}`;
-}
 
 class AdminService {
   constructor(db, options = {}) {
     this.db = db;
+    this.eventsRepository =
+      options.eventsRepository || createEventsRepository(db);
+    this.adminAuditService =
+      options.adminAuditService ||
+      createAdminAuditService({
+        eventsRepository: this.eventsRepository,
+      });
     this.appStoreConnectService =
       options.appStoreConnectService || createAppStoreConnectService();
     this.attributionService = options.attributionService || new AttributionService(db);
@@ -301,8 +301,6 @@ class AdminService {
       createAdminMusicDiagnosticsService({
         adminMusicDiagnosticsRepository: this.adminMusicDiagnosticsRepository,
       });
-    this.eventsRepository =
-      options.eventsRepository || createEventsRepository(db);
     this.adminAnalyticsService =
       options.adminAnalyticsService ||
       createAdminAnalyticsService({
@@ -314,20 +312,13 @@ class AdminService {
    * Insert an audit log entry (reduces repetitive audit logging code)
    */
   async _audit(adminId, action, resourceType, resourceId, metadata = {}) {
-    const enriched = {
-      actor: "admin",
-      admin_id: adminId,
-      ...metadata,
-    };
-    await this.eventsRepository.insertAuditLog({
-      id: generateAuditId(),
-      userId: adminId,
+    return this.adminAuditService.audit(
+      adminId,
       action,
       resourceType,
       resourceId,
-      metadataJson: JSON.stringify(enriched),
-      createdAt: new Date().toISOString(),
-    });
+      metadata,
+    );
   }
 
   // ============ USER MANAGEMENT ============
