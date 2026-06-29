@@ -2,7 +2,7 @@ const fs = require("fs");
 const path = require("path");
 const { execFile } = require("child_process");
 const { promisify } = require("util");
-const { fetchJson, ensureDir } = require("./http");
+const { fetchJson, fetchResponse, ensureDir } = require("./http");
 const { pollWithBackoff, createPollingConfig } = require("../utils/polling");
 const { normalizeStyle, getStyle } = require("./style-registry");
 const { trackProviderAudioKey } = require("../storage");
@@ -645,6 +645,7 @@ async function downloadSunoAudio({
   kind,
   statusResponse,
   storageProvider = null,
+  timeoutMs = 60000,
 }) {
   const { sunoData, firstTrack, audioUrl } = extractSunoTrack(
     statusResponse,
@@ -655,7 +656,15 @@ async function downloadSunoAudio({
   const versionDir = getVersionDir(storageDir, track, trackVersion);
   ensureDir(versionDir);
 
-  const audioResponse = await fetch(audioUrl);
+  const audioResponse = await fetchResponse(
+    audioUrl,
+    {},
+    {
+      timeoutMs,
+      retries: 2,
+      label: "Suno audio download",
+    },
+  );
   if (!audioResponse.ok) {
     throw new Error(
       `E302_SUNO_ERROR: Failed to download audio - ${audioResponse.status}`,
@@ -994,6 +1003,7 @@ async function generateMusicWithSuno({
       kind,
       statusResponse,
       storageProvider,
+      timeoutMs,
     });
   } catch (downloadErr) {
     const message = String(downloadErr?.message || "");

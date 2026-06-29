@@ -37,6 +37,9 @@ Root 1 is complete only when that scan has no direct persistence hits outside co
 - Root 4 Slice 5 moves Whisper/OpenAI transcription credentials into normalized provider runtime config. Story audio routes and runner lyric alignment now pass explicit Whisper config, and `src/providers/whisper.js` no longer reads `process.env.OPENAI_API_KEY` directly.
 - Root 4 Slice 6 replaces provider-side manual local track-version directory construction in `music.js` and `suno.js` with the shared `getVersionDir()` helper.
 - Root 4 Slice 7 replaces runner-side manual local track-version directory construction with `getVersionDir()` in S3 upload, placeholder output, DLQ auto-reprocess cleanup, ready cover generation, ready lyric alignment, and ready cleanup paths. The storage path scan for `path.join(storageDir, "tracks", ...)` is now clean across providers and runner.
+- Root 4 Slice 10 routes Suno provider audio artifact downloads through
+  `fetchResponse`, adding aborting timeout and retryable 502/503/504 handling
+  to the remaining raw provider download path.
 - Root 3b gift extraction is in progress locally: gift delivery helpers, provider dispatch, webhooks, route registration, and gift runtime startup moved from `server.js` into `src/plugins/gift-delivery.js`. Registration is intentionally synchronous from `buildServer()` to preserve existing direct test/runtime decorators such as `app.dispatchGiftById()` and `app.expireGiftReservations()`.
 - Root 5 step-handler extraction is committed. Step handlers now live under
   `src/workflows/steps/`, `runner.js` owns orchestration, and the remaining

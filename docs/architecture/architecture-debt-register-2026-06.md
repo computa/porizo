@@ -1462,6 +1462,10 @@ wires music routing to consume the registry's music-generation provider list.
 This pins the architectural rule that Suno is the only provider-complete song
 generator today while ElevenLabs remains available for TTS/voice conversion but
 is excluded from song-generation routing even when its runtime config is live.
+
+Slice 10 routes Suno provider audio artifact downloads through the shared
+`fetchResponse` transport, adding aborting timeout and retryable 502/503/504
+handling to the remaining raw provider `fetch()` path.
 **Why early:** Mostly off the revenue path, contained, and the first slice (whisper/elevenlabs-voice retry) removes real render-failure risk for low effort.
 **Boundary:** Do NOT rewrite provider business logic; only normalize transport + path construction.
 

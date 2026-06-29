@@ -412,8 +412,13 @@ describe("Suno Provider", () => {
         fs.rmSync(tmpDir, { recursive: true, force: true });
       });
 
+      let fetchCalls = 0;
       global.fetch = async (url) => {
+        fetchCalls += 1;
         assert.equal(url, "https://cdn.example.com/ready.mp3");
+        if (fetchCalls === 1) {
+          return new Response("temporary", { status: 503 });
+        }
         return new Response(providerBytes, { status: 200 });
       };
 
@@ -458,6 +463,7 @@ describe("Suno Provider", () => {
       assert.equal(result.raw.provider_audio_mirrored, true);
       assert.equal(uploads.length, 1);
       assert.equal(uploads[0].key, result.raw.provider_audio_key);
+      assert.equal(fetchCalls, 2);
     });
 
     test("downloadSunoAudio removes local provider MP3 when durable mirror fails", async (t) => {
