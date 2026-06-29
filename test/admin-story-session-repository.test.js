@@ -9,6 +9,9 @@ const {
   createAdminStorySessionRepository,
 } = require("../src/database/admin-story-session-repository");
 const { AdminService } = require("../src/services/admin-service");
+const {
+  createAdminStorySessionService,
+} = require("../src/services/admin/story-session-service");
 
 let db;
 let repository;
@@ -245,6 +248,46 @@ describe("AdminStorySessionRepository", () => {
         offset: 0,
       },
       { sessionId: "session_service" },
+    ]);
+  });
+
+  test("AdminStorySessionService owns story session bounds and repository delegation", async () => {
+    const calls = [];
+    const service = createAdminStorySessionService({
+      adminStorySessionRepository: {
+        async listSessions(args) {
+          calls.push(args);
+          return [{ id: "service_delegated" }];
+        },
+        async getSessionDetail(sessionId) {
+          calls.push({ sessionId });
+          return { session: { id: sessionId }, turns: [] };
+        },
+      },
+    });
+
+    assert.deepEqual(
+      await service.listStorySessions({
+        status: "confirmed",
+        engineVersion: "v3",
+        limit: 250,
+        offset: -5,
+      }),
+      [{ id: "service_delegated" }],
+    );
+    assert.deepEqual(await service.getStorySessionDetail("session_direct"), {
+      session: { id: "session_direct" },
+      turns: [],
+    });
+
+    assert.deepEqual(calls, [
+      {
+        status: "confirmed",
+        engineVersion: "v3",
+        limit: 100,
+        offset: 0,
+      },
+      { sessionId: "session_direct" },
     ]);
   });
 });

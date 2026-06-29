@@ -1729,6 +1729,14 @@ shaping. Direct service tests pin non-object JSON fallback, pagination bounds,
 provider precedence, defaulted quality fields, filtered result behavior, empty
 repository results, and latest-job error mapping; route/repository tests still
 cover the shared blend-analysis repository path.
+Admin story-session service ownership is also extracted into
+`src/services/admin/story-session-service.js`. `AdminService` remains a
+compatibility facade for `listStorySessions` and `getStorySessionDetail`, while
+the new service owns bounded story-session listing and detail-read delegation to
+the admin story-session repository. Direct service coverage pins pagination
+bounds and repository delegation; route/repository tests continue to pin auth,
+filters, ordering, detail payloads, turn isolation, and missing-session
+envelopes.
 **Boundary:** Do the `getAppConfig` eviction + non-billing splits first (🟡). Do the billing/entitlement admin slice **last** (⚠ 🔴) with production verification.
 
 ### Root 7 — Writer cycle + god-file decomposition 🟡 effort M

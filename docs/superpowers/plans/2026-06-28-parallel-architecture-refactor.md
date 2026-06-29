@@ -1881,6 +1881,13 @@ Actual: Root 6 route extraction was committed incrementally through
 registrar shell, `/app/config` lives in `src/routes/client-config.js`, and the
 architecture map records remaining Root 6 work as admin-service decomposition.
 
+Root 6 service-boundary follow-up: admin story-session service ownership is now
+extracted into `src/services/admin/story-session-service.js`. `AdminService`
+remains the compatibility facade for `listStorySessions` and
+`getStorySessionDetail`, while the new service owns pagination bounds and
+repository delegation. Focused repository/service and route validation passed
+for the admin story-session contract.
+
 ## Task 17: Root 7 Writer Decomposition
 
 **Owner:** One worker

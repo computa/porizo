@@ -64,6 +64,9 @@ const {
 const {
   createAdminModerationService,
 } = require("./admin/moderation-service");
+const {
+  createAdminStorySessionService,
+} = require("./admin/story-session-service");
 const { createAdminJobOpsService } = require("./admin/job-ops-service");
 const {
   createAdminShareManagementService,
@@ -384,6 +387,11 @@ class AdminService {
     this.adminStorySessionRepository =
       options.adminStorySessionRepository ||
       createAdminStorySessionRepository(db);
+    this.adminStorySessionService =
+      options.adminStorySessionService ||
+      createAdminStorySessionService({
+        adminStorySessionRepository: this.adminStorySessionRepository,
+      });
     this.adminModerationRepository =
       options.adminModerationRepository || createAdminModerationRepository(db);
     this.adminModerationService =
@@ -959,12 +967,11 @@ class AdminService {
    * List story sessions with optional filters
    */
   async listStorySessions({ status, engineVersion, limit = 50, offset = 0 }) {
-    const bounds = safeBounds(limit, offset);
-    return this.adminStorySessionRepository.listSessions({
+    return this.adminStorySessionService.listStorySessions({
       status,
       engineVersion,
-      limit: bounds.limit,
-      offset: bounds.offset,
+      limit,
+      offset,
     });
   }
 
@@ -972,7 +979,7 @@ class AdminService {
    * Get full story session details with turns
    */
   async getStorySessionDetail(sessionId) {
-    return this.adminStorySessionRepository.getSessionDetail(sessionId);
+    return this.adminStorySessionService.getStorySessionDetail(sessionId);
   }
 
   /**
