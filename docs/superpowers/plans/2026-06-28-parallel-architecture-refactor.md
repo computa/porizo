@@ -1923,6 +1923,15 @@ attribution enrichment/merge, stats conversion formatting, detail fan-out, and
 missing-user no-fanout behavior. Focused repository/service and route validation
 passed for the admin user-read contracts.
 
+Root 6 service-boundary follow-up: admin user-mutation service ownership is now
+extracted into `src/services/admin/user-mutation-service.js`. `AdminService`
+remains the compatibility facade for risk updates, lock/unlock, delete, bulk
+actions, and profile updates, while the new service owns risk/lock audit
+contracts, fixed one-year lock calculation, audit-before-delete ordering, bulk
+action sequencing, profile allowlist filtering, and attribution override audit
+envelopes. Focused service and route validation passed for the admin user
+mutation contracts.
+
 Root 6 service-boundary follow-up: admin analytics service ownership is now
 extracted into `src/services/admin/analytics-service.js`. `AdminService`
 remains the compatibility facade for analytics overview, daily event, funnel,

@@ -25,6 +25,8 @@ Admin job/DLQ operations service-boundary ownership is also extracted and
 validated locally.
 Admin user-read service-boundary ownership is also extracted and validated
 locally.
+Admin user-mutation service-boundary ownership is also extracted and validated
+locally.
 Admin analytics service-boundary ownership is also extracted and validated
 locally.
 Admin growth/attribution service-boundary ownership is also extracted and
@@ -958,14 +960,16 @@ consent-log filters/order/user email join. Focused validation passed in
 The admin user-mutation follow-up now moves direct `users` row mutation SQL for
 risk updates, lock/unlock, delete snapshots/deletes, profile updates, and
 profile attribution snapshots into `database/admin-user-mutation-repository.js`.
-`AdminService` keeps route-facing validation, bulk action orchestration,
-lock-duration calculation, audit-before-delete ordering, audit metadata, and
-the manual attribution override contract. Characterization pins the risk-level
-validation envelope, admin-vs-superadmin route gates, lock/unlock storage and
-audit behavior, ignored profile fields, allowed profile updates, attribution
-previous/next audit metadata, missing-user delete envelope, deletion snapshot,
-and audit-before-delete behavior. Focused validation passed in
-`test/admin-user-mutations-routes.test.js` (4 pass / 0 fail).
+`AdminUserMutationService` now keeps bulk action orchestration, lock-duration
+calculation, audit-before-delete ordering, audit metadata, and the manual
+attribution override contract while `AdminService` is only the compatibility
+facade. Characterization pins the risk-level validation envelope,
+admin-vs-superadmin route gates, lock/unlock storage and audit behavior,
+ignored profile fields, allowed profile updates, attribution previous/next
+audit metadata, missing-user delete envelope, deletion snapshot, and
+audit-before-delete behavior. Focused validation passed in
+`test/admin-user-mutation-service.test.js` and
+`test/admin-user-mutations-routes.test.js`.
 The admin user session/voice-control follow-up now moves active-session reads,
 single-session revocation, all-session revocation, and force voice
 reverification profile reads/updates into
@@ -1716,6 +1720,16 @@ behavior. Direct service tests pin bounded filter delegation, zero-user
 conversion formatting, canonical attribution merge behavior, and facade
 delegation; repository and route suites continue to pin SQL semantics, auth,
 pagination metadata, and 404 envelopes.
+Admin user-mutation service ownership is also extracted into
+`src/services/admin/user-mutation-service.js`. `AdminService` remains a
+compatibility facade for `updateUserRisk`, `lockUser`, `deleteUser`,
+`bulkUserAction`, and `updateUserProfile`, while the new service owns risk and
+lock audit contracts, fixed one-year lock calculation, audit-before-delete
+ordering, bulk action sequencing/summary audit metadata, profile allowlist
+filtering, and attribution override before/after audit envelopes. Direct
+service tests pin validation-result envelopes, successful and missing-user
+paths, per-user and bulk audit ordering, empty attribution fallback, and facade
+delegation; route suites continue to pin admin role gates and HTTP envelopes.
 Admin analytics service ownership is also extracted into
 `src/services/admin/analytics-service.js`. `AdminService` remains a
 compatibility facade for `getAnalyticsOverview`, `getAnalyticsDaily`,
