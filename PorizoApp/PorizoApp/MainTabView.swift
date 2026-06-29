@@ -243,10 +243,16 @@ struct MainTabView: View {
             if createFlowLaunch == nil,
                args.contains("--fixture-reveal") ||
                args.contains("--fixture-reveal-ready") ||
+               args.contains("--fixture-share-postcard") ||
                args.contains("--fixture-creating") ||
                args.contains("--fixture-nocredits") {
                 try? await Task.sleep(for: .seconds(0.5))
                 presentCreateFlow()
+            }
+            if giftFlowLaunch == nil,
+               args.contains("--fixture-gift-flow") {
+                try? await Task.sleep(for: .seconds(0.5))
+                giftFlowLaunch = GiftFlowLaunch()
             }
             #endif
         }

@@ -96,8 +96,8 @@ Porizo is not only the Fastify API. The maintainability plan must account for ev
 │ - SwiftUI create, gift, story, playback, share, auth, billing surfaces     │
 │ - Large state owners: RootView, WarmCanvasFlowView, GiftSendFlowView,      │
 │   AuthManager, RenderController                                            │
-│ - Root 11 started: create/gift/upgrade presentation payloads are now       │
-│   item/associated-value driven; admin/web-player contract work remains     │
+│ - Root 11: create/gift/upgrade presentations are item/associated-value     │
+│   driven; create/gift/share simulator checkpoints are recorded in Argent   │
 └───────────────────────────────┬────────────────────────────────────────────┘
                                 │ HTTP + deep links + StoreKit + push
                                 ▼

@@ -1,0 +1,14 @@
+executionPrerequisite: "Build and launch PorizoApp on iPhone 17 with launch
+  arguments: --bypass-auth --fixture-creating."
+steps:
+  - echo: "Root 11 create-flow fixture checkpoint: verify direct create flow
+      presentation opens the creating/wait state for Sarah without backend
+      dependency."
+  - tool: describe
+    args:
+      udid: AF9E4173-6532-4F57-A39E-4BD4861C8E34
+      bundleId: porizo.ios.app.PorizoApp
+  - tool: screenshot
+    args:
+      udid: AF9E4173-6532-4F57-A39E-4BD4861C8E34
+      scale: 0.5

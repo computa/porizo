@@ -1941,7 +1941,9 @@ songwriter/v3 imports or Root 7 TODO/FIXME leftovers.
 
 **Status 2026-06-29, iOS preview/accessibility slice:** SharePostcard hero artwork now has a useful VoiceOver label, decorative placeholder emoji is hidden from accessibility, and the privacy/PIN disclosure control announces expand/collapse intent. SharePostcard and WarmCanvas gallery now include long-name, accessibility Dynamic Type, dark-mode, and fixed-size preview matrices. XcodeBuildMCP simulator build/run succeeded after removing ignored `previewDevice` modifiers; the only remaining warning is the pre-existing PhoneNumberKit deprecation in `PhoneNumberNormalizer.swift`.
 
-**Remaining Root 11 scope:** broader admin page-level reducer/context cleanup and simulator flow recording for create/gift/share paths.
+**Status 2026-06-29, simulator recording slice:** Root 11 now has recorded Argent checkpoints for create, gift, and share simulator paths: `.argent/flows/root11-create-flow-fixture.yaml`, `.argent/flows/root11-gift-flow-fixture.yaml`, and `.argent/flows/root11-share-postcard-fixture.yaml`. The slice added DEBUG-only launch fixtures for direct share-postcard and gift-flow validation, and fixed the offline gift fixture so it no longer leaks backend reservation/schedule fetches into simulator recording. Evidence is summarized in `docs/validation/root11-simulator-flows-2026-06-29.md`.
+
+**Remaining Root 11 scope:** broader admin page-level reducer/context cleanup.
 
 ---
 

@@ -1974,7 +1974,7 @@ struct WarmCanvasFlowView: View {
             moment = .reveal
             return
         }
-        if fixtureArgs.contains("--fixture-reveal-ready") {
+        if fixtureArgs.contains("--fixture-reveal-ready") || fixtureArgs.contains("--fixture-share-postcard") {
             setup.recipientName = "Sarah"
             setup.occasion = .birthday
             selectedType = .song
@@ -1989,7 +1989,7 @@ struct WarmCanvasFlowView: View {
             )
             shareController = seededShareController
             didAcknowledgeLibrarySave = false
-            moment = .reveal
+            moment = fixtureArgs.contains("--fixture-share-postcard") ? .share : .reveal
             return
         }
         if fixtureArgs.contains("--fixture-creating") {

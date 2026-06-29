@@ -1348,6 +1348,17 @@ struct GiftSendFlowView: View {
     }
 
     private func refreshGiftSurface() async {
+        #if DEBUG
+        if SimulatorFixtures.has("--fixture-gift-flow") {
+            reservation = nil
+            scheduledGifts = []
+            if screen == .composer && createdGift == nil {
+                screen = .content
+            }
+            return
+        }
+        #endif
+
         do {
             async let reservationTask = apiClient.getActiveGiftReservation()
             async let giftsTask = apiClient.getGifts(limit: 20)
