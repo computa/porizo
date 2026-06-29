@@ -1939,7 +1939,9 @@ songwriter/v3 imports or Root 7 TODO/FIXME leftovers.
 
 **Status 2026-06-29, web-player contract slice:** `web-player/player.js` now maps backend share responses to UI modes through a single `resolveSharePresentation` boundary. App-only, claimed, unbound, teaser, and web-stream decisions now live in one auditable branch instead of scattered initialization conditionals.
 
-**Remaining Root 11 scope:** broader admin page-level reducer/context cleanup, iOS preview/accessibility matrices, and simulator flow recording for create/gift/share paths.
+**Status 2026-06-29, iOS preview/accessibility slice:** SharePostcard hero artwork now has a useful VoiceOver label, decorative placeholder emoji is hidden from accessibility, and the privacy/PIN disclosure control announces expand/collapse intent. SharePostcard and WarmCanvas gallery now include long-name, accessibility Dynamic Type, dark-mode, and fixed-size preview matrices. XcodeBuildMCP simulator build/run succeeded after removing ignored `previewDevice` modifiers; the only remaining warning is the pre-existing PhoneNumberKit deprecation in `PhoneNumberNormalizer.swift`.
+
+**Remaining Root 11 scope:** broader admin page-level reducer/context cleanup and simulator flow recording for create/gift/share paths.
 
 ---
 
