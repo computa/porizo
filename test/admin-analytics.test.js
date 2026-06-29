@@ -266,7 +266,7 @@ describe("admin analytics routes", () => {
 });
 
 describe("AdminService analytics repository boundary", () => {
-  test("delegates admin audit writes to EventsRepository", async () => {
+  test("composes admin audit writes through EventsRepository", async () => {
     let auditPayload;
     const fakeEventsRepository = {
       async insertAuditLog(payload) {
@@ -280,9 +280,13 @@ describe("AdminService analytics repository boundary", () => {
       { eventsRepository: fakeEventsRepository },
     );
 
-    await service._audit("admin_2", "admin_lock_user", "user", "user_2", {
-      reason: "risk review",
-    });
+    await service.adminAuditService.audit(
+      "admin_2",
+      "admin_lock_user",
+      "user",
+      "user_2",
+      { reason: "risk review" },
+    );
 
     assert.ok(auditPayload, "expected delegated audit insert");
     assert.match(auditPayload.id, /^audit_[a-f0-9]{24}$/);

@@ -853,11 +853,10 @@ null-user cohort exclusion, end-after-start conversion semantics, audit row
 shape, cache behavior, and `limit=999 -> 200` clamping. Focused validation
 passed in `test/events-repository.test.js` and `test/admin-analytics.test.js`
 (17 pass / 0 fail). The admin audit follow-up generalizes that same repository
-boundary with `insertAuditLog()`, and `AdminService._audit()` now delegates the
-generic admin audit insert while retaining audit ID generation, admin metadata
-enrichment, action/resource selection, and timestamp ownership. The new
-boundary test uses a throwing DB stub to prove the service does not write
-`audit_logs` directly.
+boundary with `insertAuditLog()` through `AdminAuditService`, which now owns
+audit ID generation, admin metadata enrichment, action/resource selection, and
+timestamp ownership. The boundary tests use a throwing DB stub to prove the
+service path does not write `audit_logs` directly.
 The admin metrics follow-up now moves voice-enrollment dashboard metrics into
 `database/admin-metrics-repository.js` beside overview metrics. The later
 `AdminMetricsService` extraction now owns rolling-window calculation, while
@@ -1665,17 +1664,16 @@ pin invalid-JSON fallback, update persistence, and audit metadata.
 Admin audit-write ownership is now extracted into
 `src/services/admin/audit-service.js`; `src/routes/admin/demo-shares.js` and
 `src/routes/admin/billing.js` now call that service directly for their audit
-writes instead of going through `AdminService._audit()`. Gift operations now do
-the same for incident acknowledgement, retry, cancel, overdue-review, and
-manual-recovery-note audit writes. Blog CMS routes now also call the audit
-service directly for create, update, review, repair, publish, and unpublish
-audit writes. Marketing routes now also call the audit service directly for
-contact upload/export, campaign create/update, push send, results import, and
-cold-email manual trigger/update audit writes. `AdminService._audit()` remains
-only as a compatibility delegate for tests that still call the historic facade
-method, while the new service owns audit ID generation, timestamp
-normalization, admin metadata enrichment, and
-`EventsRepository.insertAuditLog` payload construction.
+writes instead of going through the former `AdminService` audit facade. Gift
+operations now do the same for incident acknowledgement, retry, cancel,
+overdue-review, and manual-recovery-note audit writes. Blog CMS routes now also
+call the audit service directly for create, update, review, repair, publish,
+and unpublish audit writes. Marketing routes now also call the audit service
+directly for contact upload/export, campaign create/update, push send, results
+import, and cold-email manual trigger/update audit writes. `AdminService` now
+injects `adminAuditService.audit` directly into child admin services, while the
+new service owns audit ID generation, timestamp normalization, admin metadata
+enrichment, and `EventsRepository.insertAuditLog` payload construction.
 Admin feature-flag service ownership is also extracted into
 `src/services/admin/feature-flag-service.js`, and
 `src/routes/admin/feature-flags.js` now calls that service directly instead of

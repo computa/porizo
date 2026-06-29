@@ -7,7 +7,6 @@ const {
   createAdminAuditService,
   generateAuditId,
 } = require("../src/services/admin/audit-service");
-const { AdminService } = require("../src/services/admin-service");
 
 describe("AdminAuditService", () => {
   test("writes normalized admin audit payloads through EventsRepository", async () => {
@@ -56,32 +55,5 @@ describe("AdminAuditService", () => {
 
   test("generates audit-prefixed random IDs", () => {
     assert.match(generateAuditId(), /^audit_[a-f0-9]{24}$/);
-  });
-});
-
-describe("AdminService audit facade", () => {
-  test("delegates _audit to the injected audit service", async () => {
-    const calls = [];
-    const service = new AdminService(
-      { prepare: () => { throw new Error("unexpected db access"); } },
-      {
-        eventsRepository: { async insertAuditLog() {} },
-        adminAuditService: {
-          async audit(...args) {
-            calls.push(args);
-            return { changes: 1 };
-          },
-        },
-      },
-    );
-
-    const result = await service._audit("admin_2", "action", "thing", "id", {
-      ok: true,
-    });
-
-    assert.deepEqual(result, { changes: 1 });
-    assert.deepEqual(calls, [
-      ["admin_2", "action", "thing", "id", { ok: true }],
-    ]);
   });
 });

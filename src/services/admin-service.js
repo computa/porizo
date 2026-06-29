@@ -129,6 +129,7 @@ class AdminService {
       createAdminAuditService({
         eventsRepository: this.eventsRepository,
       });
+    const audit = (...args) => this.adminAuditService.audit(...args);
     this.appStoreConnectService =
       options.appStoreConnectService || createAppStoreConnectService();
     this.attributionService = options.attributionService || new AttributionService(db);
@@ -139,7 +140,7 @@ class AdminService {
       createAdminGrowthService({
         attributionService: this.attributionService,
         attributionRepository: this.attributionRepository,
-        audit: (...args) => this._audit(...args),
+        audit,
       });
     this.appConfigRepository =
       options.appConfigRepository || createAppConfigRepository(db);
@@ -147,20 +148,20 @@ class AdminService {
       options.adminProviderConfigService ||
       createAdminProviderConfigService({
         appConfigRepository: this.appConfigRepository,
-        audit: (...args) => this._audit(...args),
+        audit,
       });
     this.adminFeatureFlagService =
       options.adminFeatureFlagService ||
       createAdminFeatureFlagService({
         db: this.db,
-        audit: (...args) => this._audit(...args),
+        audit,
       });
     this.adminSecurityConfigService =
       options.adminSecurityConfigService ||
       createAdminSecurityConfigService({
         appConfigRepository: this.appConfigRepository,
         appStoreConnectService: this.appStoreConnectService,
-        audit: (...args) => this._audit(...args),
+        audit,
       });
     this.clientConfigService =
       options.clientConfigService ||
@@ -179,7 +180,7 @@ class AdminService {
       options.adminControlPlaneService ||
       createAdminControlPlaneService({
         adminControlRepository: this.adminControlRepository,
-        audit: (...args) => this._audit(...args),
+        audit,
       });
     this.adminOnboardingSampleRepository =
       options.adminOnboardingSampleRepository ||
@@ -189,7 +190,7 @@ class AdminService {
       createAdminOnboardingSampleService({
         onboardingSampleRepository: this.adminOnboardingSampleRepository,
         appConfigRepository: this.appConfigRepository,
-        audit: (...args) => this._audit(...args),
+        audit,
       });
     this.adminJobOpsRepository =
       options.adminJobOpsRepository || createAdminJobOpsRepository(db);
@@ -202,7 +203,7 @@ class AdminService {
       options.adminJobOpsService ||
       createAdminJobOpsService({
         adminJobOpsRepository: this.adminJobOpsRepository,
-        audit: (...args) => this._audit(...args),
+        audit,
       });
     this.adminStorySessionRepository =
       options.adminStorySessionRepository ||
@@ -218,7 +219,7 @@ class AdminService {
       options.adminModerationService ||
       createAdminModerationService({
         adminModerationRepository: this.adminModerationRepository,
-        audit: (...args) => this._audit(...args),
+        audit,
       });
     this.adminBillingRepository =
       options.adminBillingRepository || createAdminBillingRepository(db);
@@ -239,7 +240,7 @@ class AdminService {
       options.adminShareManagementService ||
       createAdminShareManagementService({
         adminShareManagementRepository: this.adminShareManagementRepository,
-        audit: (...args) => this._audit(...args),
+        audit,
       });
     this.adminUserReadRepository =
       options.adminUserReadRepository || createAdminUserReadRepository(db);
@@ -256,7 +257,7 @@ class AdminService {
       options.adminUserMutationService ||
       createAdminUserMutationService({
         adminUserMutationRepository: this.adminUserMutationRepository,
-        audit: (...args) => this._audit(...args),
+        audit,
       });
     this.adminUserSessionControlRepository =
       options.adminUserSessionControlRepository ||
@@ -266,7 +267,7 @@ class AdminService {
       createAdminUserSessionControlService({
         adminUserSessionControlRepository:
           this.adminUserSessionControlRepository,
-        audit: (...args) => this._audit(...args),
+        audit,
       });
     this.adminMetricsRepository =
       options.adminMetricsRepository || createAdminMetricsRepository(db);
@@ -282,7 +283,7 @@ class AdminService {
       options.adminEntitlementsService ||
       createAdminEntitlementsService({
         adminEntitlementsRepository: this.adminEntitlementsRepository,
-        audit: (...args) => this._audit(...args),
+        audit,
       });
     this.adminSecurityObservabilityRepository =
       options.adminSecurityObservabilityRepository ||
@@ -292,7 +293,7 @@ class AdminService {
       createAdminSecurityObservabilityService({
         adminSecurityObservabilityRepository:
           this.adminSecurityObservabilityRepository,
-        audit: (...args) => this._audit(...args),
+        audit,
       });
     this.adminMusicDiagnosticsRepository =
       options.adminMusicDiagnosticsRepository ||
@@ -307,19 +308,6 @@ class AdminService {
       createAdminAnalyticsService({
         eventsRepository: this.eventsRepository,
       });
-  }
-
-  /**
-   * Insert an audit log entry (reduces repetitive audit logging code)
-   */
-  async _audit(adminId, action, resourceType, resourceId, metadata = {}) {
-    return this.adminAuditService.audit(
-      adminId,
-      action,
-      resourceType,
-      resourceId,
-      metadata,
-    );
   }
 
   /**

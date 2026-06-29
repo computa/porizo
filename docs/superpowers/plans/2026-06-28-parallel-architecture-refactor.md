@@ -1972,11 +1972,11 @@ repository/service and route validation passed for the admin growth contracts.
 Root 6 service-boundary follow-up: admin audit-write ownership is now extracted
 into `src/services/admin/audit-service.js`. `src/routes/admin/demo-shares.js`
 and `src/routes/admin/billing.js` now call that service directly for their
-audit writes instead of going through `AdminService._audit()`.
-`AdminService._audit()` remains a compatibility delegate for larger route
-modules and tests that still call the historic facade method, while the new
-service owns audit ID generation, timestamp normalization, admin metadata
-enrichment, and `EventsRepository.insertAuditLog` payload construction.
+audit writes instead of going through the former `AdminService` audit facade.
+`AdminService` now injects `adminAuditService.audit` directly into child admin
+services, while the audit service owns audit ID generation, timestamp
+normalization, admin metadata enrichment, and
+`EventsRepository.insertAuditLog` payload construction.
 Focused audit service, analytics, demo-share, share, and gift-ops validation
 passed for audit-writing contracts.
 
@@ -2082,30 +2082,31 @@ writes now also call `adminAuditService.audit` directly.
 
 Root 6 facade-reduction follow-up: demo-share admin routes now call
 `adminAuditService.audit` directly for create/revoke audit writes instead of
-passing through `AdminService._audit`; focused demo-share route/repository and
-audit-service validation passed.
+passing through the former `AdminService` audit facade; focused demo-share
+route/repository and audit-service validation passed.
 
 Root 6 facade-reduction follow-up: billing admin routes now call
 `adminAuditService.audit` directly for plan and gift-bundle audit writes
-instead of passing through `AdminService._audit`; focused billing route,
-repository, and audit-service validation passed.
+instead of passing through the former `AdminService` audit facade; focused
+billing route, repository, and audit-service validation passed.
 
 Root 6 facade-reduction follow-up: gift-ops admin routes now call
 `adminAuditService.audit` directly for incident acknowledgement, retry, cancel,
 overdue-review, and manual-recovery-note audit writes instead of passing
-through `AdminService._audit`; focused gift-ops route/repository and
-audit-service validation passed.
+through the former `AdminService` audit facade; focused gift-ops
+route/repository and audit-service validation passed.
 
 Root 6 facade-reduction follow-up: blog CMS admin routes now call
 `adminAuditService.audit` directly for create, update, review, repair, publish,
-and unpublish audit writes instead of passing through `AdminService._audit`;
-focused blog route/service/repository and audit-service validation passed.
+and unpublish audit writes instead of passing through the former `AdminService`
+audit facade; focused blog route/service/repository and audit-service
+validation passed.
 
 Root 6 facade-reduction follow-up: marketing admin routes now call
 `adminAuditService.audit` directly for contact upload/export, campaign
 create/update, push send, results import, and cold-email manual trigger/update
-audit writes instead of passing through `AdminService._audit`; focused
-marketing route/repository and audit-service validation passed.
+audit writes instead of passing through the former `AdminService` audit facade;
+focused marketing route/repository and audit-service validation passed.
 
 ## Task 17: Root 7 Writer Decomposition
 
