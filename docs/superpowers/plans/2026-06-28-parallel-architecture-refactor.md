@@ -2067,13 +2067,14 @@ Expected: lint and full test suite pass.
 **Owner:** One worker plus controller review
 
 **Files:**
-- Modify: `src/database/migrations/runner.js`
-- Modify migration files under `migrations/` only when convergence needs it
+- Modify: `tools/verify-migration-parity.js`
+- Modify migration files under `migrations/` and `migrations/pg/` only when convergence needs it
+- Document intentional migration filename drift in architecture docs
 - Test: `test/database/migration-runner.test.js`
 - Test: `test/postgres-schema-parity.test.js`
 - Test: `test/database/postgres-migration.test.js`
 
-- [ ] **Step 1: Run migration characterization tests**
+- [x] **Step 1: Run migration characterization tests**
 
 Run:
 
@@ -2083,28 +2084,30 @@ node --test --test-concurrency=1 test/database/migration-runner.test.js test/pos
 
 Expected: all selected tests pass.
 
-- [ ] **Step 2: Consolidate migration runner behavior**
+- [x] **Step 2: Consolidate migration runner behavior**
 
-Keep SQLite/PostgreSQL dialect decisions in migration infrastructure, not routes or services. Use explicit adapter functions:
+The stale `src/database/migrations/runner.js` target no longer exists. Tests now
+exercise the live migration infrastructure in `src/database/postgres.js`; the
+abandoned `src/database/migrations/` consolidation has been deleted. Migration
+filename drift is guarded by `tools/verify-migration-parity.js` and documented
+as reviewed exceptions rather than left as untracked divergence.
 
-```js
-function isPostgresDatabase(db) {
-  return Boolean(db && db.dialect === "postgres");
-}
-```
-
-- [ ] **Step 3: Run validation and commit**
+- [x] **Step 3: Run validation and commit**
 
 Run:
 
 ```bash
+npm run verify:migrations
 node --test --test-concurrency=1 test/database/migration-runner.test.js test/postgres-schema-parity.test.js test/database/postgres-migration.test.js
 npm run lint
-git add src/database/migrations migrations test/database test/postgres-schema-parity.test.js
+git add tools/verify-migration-parity.js migrations migrations/pg test/database test/postgres-schema-parity.test.js docs/architecture
 git commit -m "refactor: converge database migration boundaries"
 ```
 
 Expected: migration behavior is centralized and validated.
+
+2026-06-29 closure pass: `npm run verify:migrations` passed and the migration
+runner/schema suites passed 14/14. No production migration was applied.
 
 ## Task 20: Root 10 Storage Interface Parity And OpenAPI
 
