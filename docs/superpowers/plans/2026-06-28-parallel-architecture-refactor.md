@@ -2366,6 +2366,8 @@ Status 2026-06-29:
 - Validation passed: backend story/render contracts, gift/library repository tests, PG schema repair/parity, migration parity, lint, diff check, JS syntax checks, and XcodeBuildMCP simulator build.
 - Admin dashboard Growth/Shares/Funnel now use typed API contract modules under `admin/src/api/contracts/`; Growth was corrected to the backend's camelCase metrics response (`created`, `claimed`, `teaserViews`, `shareStreams`, `dailyCreated`) instead of stale page-local snake_case guesses.
 - Validation passed for the admin contract slice: `npm run admin:build`, root lint, admin lint, admin growth/share/demo route and repository/service suites, and `git diff --check`.
+- Web-player share routing now uses a single `resolveSharePresentation` resolver for backend response fields (`status`, `app_only`, `web_stream_url`, `teaser_url`, `can_access`) before choosing app-wall, player, teaser, expired, or error UI.
+- Validation passed for the web-player contract slice: `node --check web-player/player.js`, root lint, and share-flow/share-embed contract suites.
 
 - [x] **Step 4: Commit Root 11**
 

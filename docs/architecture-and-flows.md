@@ -478,6 +478,7 @@ User provides a message and occasion → System generates lyrics → User review
 - Story-to-track and gift-funded create paths persist canonical content `funding_source = "gift_wallet"` for tracks and poems. Runtime reads that decide whether content is gift-funded remain backward-compatible with legacy `gift_token` rows.
 - Gift-funded renders skip subscription entitlement spend after validating the active gift reservation; standard renders still use the normal entitlement stamp path.
 - Admin dashboard create/share/growth assumptions are represented through typed frontend API contract modules in `admin/src/api/contracts/`, not page-local response shapes. The Growth dashboard consumes the backend's current camelCase metrics contract (`created`, `claimed`, `teaserViews`, `shareStreams`, `dailyCreated`) so UI drift is caught at the boundary.
+- Web-player recipient behavior is selected by `resolveSharePresentation` in `web-player/player.js`, which maps share response fields (`status`, `app_only`, `web_stream_url`, `teaser_url`, `can_access`) to app-wall/player/teaser/expired/error UI. Browser app-only shares must not create an audio element.
 
 ### Message-to-Song Flow
 

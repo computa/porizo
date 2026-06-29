@@ -1937,7 +1937,9 @@ songwriter/v3 imports or Root 7 TODO/FIXME leftovers.
 
 **Status 2026-06-29, admin contract slice:** Admin dashboard Growth/Shares/Funnel surfaces now consume typed API contract modules under `admin/src/api/contracts/`. This removed page-local response guesses, fixed Growth dashboard drift from old snake_case metric names to the backend's current camelCase metrics contract, and regenerated the tracked admin build assets.
 
-**Remaining Root 11 scope:** broader admin page-level reducer/context cleanup, web-player recipient/share contract audit, iOS preview/accessibility matrices, and simulator flow recording for create/gift/share paths.
+**Status 2026-06-29, web-player contract slice:** `web-player/player.js` now maps backend share responses to UI modes through a single `resolveSharePresentation` boundary. App-only, claimed, unbound, teaser, and web-stream decisions now live in one auditable branch instead of scattered initialization conditionals.
+
+**Remaining Root 11 scope:** broader admin page-level reducer/context cleanup, iOS preview/accessibility matrices, and simulator flow recording for create/gift/share paths.
 
 ---
 

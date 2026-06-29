@@ -1196,6 +1196,66 @@
     window.location.href = receiverSaveUrl || link.href;
   }
 
+  function resolveSharePresentation(data) {
+    if (!data || typeof data !== "object") {
+      return { mode: "error", message: "Invalid share link" };
+    }
+
+    if (data.status === "expired") {
+      return { mode: "expired" };
+    }
+
+    if (data.app_only === true) {
+      return { mode: "appWall" };
+    }
+
+    if (data.status === "claimed") {
+      if (data.can_access) {
+        return { mode: "player", claimed: true };
+      }
+      if (data.web_stream_url) {
+        return { mode: "player", claimed: false };
+      }
+      return {
+        mode: "error",
+        message:
+          "This link has already been claimed on another device. Ask the sender for a new link.",
+        action: {
+          label: "Get the app",
+          href: receiverSaveUrl || buildReceiverSaveFallbackUrl("app_bar"),
+        },
+      };
+    }
+
+    if (data.status === "unbound") {
+      if (!data.web_stream_url && data.teaser_url) {
+        return { mode: "teaser" };
+      }
+      if (data.web_stream_url) {
+        return { mode: "player", claimed: false };
+      }
+      return {
+        mode: "error",
+        message:
+          "Web playback is disabled for this song. Open the Porizo app to claim and listen.",
+        action: {
+          label: "Get the app",
+          href: receiverSaveUrl || buildReceiverSaveFallbackUrl("app_bar"),
+        },
+      };
+    }
+
+    return {
+      mode: "error",
+      message:
+        "This link has already been claimed on another device. Ask the sender for a new link.",
+      action: {
+        label: "Get the app",
+        href: receiverSaveUrl || buildReceiverSaveFallbackUrl("app_bar"),
+      },
+    };
+  }
+
   // Screen Handlers
   async function initializePlayer() {
     try {
@@ -1222,48 +1282,29 @@
       });
       updateDownloadLinks();
 
-      if (shareData.status === "expired") {
+      const presentation = resolveSharePresentation(shareData);
+
+      if (presentation.mode === "expired") {
         showScreen("expired");
         return;
       }
 
-      // App-only shares (every non-demo share) have no browser playback surface.
-      // Show the "Open in Porizo" app-wall and never create an <audio> element.
-      if (shareData.app_only === true) {
+      if (presentation.mode === "appWall") {
         loadAppWall();
         return;
       }
 
-      // Claimed shares can still offer public browser playback while
-      // app ownership remains device-bound.
-      if (shareData.status === "claimed") {
-        if (shareData.can_access) {
-          await loadPlayer(true);
-          return;
-        }
-        if (shareData.web_stream_url) {
-          await loadPlayer(false);
-          return;
-        }
-      }
-
-      // For unclaimed shares
-      if (shareData.status === "unbound") {
-        if (!shareData.web_stream_url && shareData.teaser_url) {
-          await loadTeaser();
-          return;
-        }
-        await loadPlayer(false);
+      if (presentation.mode === "player") {
+        await loadPlayer(Boolean(presentation.claimed));
         return;
       }
-      // Claimed by another device with no public browser listening surface
-      showError(
-        "This link has already been claimed on another device. Ask the sender for a new link.",
-        {
-          label: "Get the app",
-          href: receiverSaveUrl || buildReceiverSaveFallbackUrl("app_bar"),
-        },
-      );
+
+      if (presentation.mode === "teaser") {
+        await loadTeaser();
+        return;
+      }
+
+      showError(presentation.message, presentation.action);
     } catch (error) {
       console.error("Init error:", error);
       if (error.message === "SHARE_NOT_FOUND") {
