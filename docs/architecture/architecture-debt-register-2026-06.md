@@ -1593,7 +1593,7 @@ decomposition/service-boundary cleanup, not route-handler extraction.
 
 **Closes:** D2 (writer), the songwriter↔v3 cycle.
 **Scope:** Break the circular dep by extracting `validateSongContract` + contract types into a leaf `writer/contracts.js` (both sides depend on the leaf; the lazy require disappears). Split `quality.js` into `quality/song-gaps.js` + `quality/poem-readiness.js`. Extract `resolveTurnDecision` + narrative-repair out of `v3/index.js`. Consolidate `splitSentences`/`factText` duplicates.
-**Status 2026-06-29:** In progress. Completed code-first slices:
+**Status 2026-06-29:** Completed. Code-first slices:
 `songwriter/prompt-budget.js`, `song-contract.js`,
 `v3/quality/poem-readiness.js`, `v3/quality/question-targeting.js`,
 `v3/quality/labov-gap-analysis.js`, `v3/quality/slot-gap-model.js`,
@@ -1609,9 +1609,11 @@ text are also out of the god file, and `resolveTurnDecision` now lives in
 `v3/turn-decision.js` with its canonical result assembler. Legacy slot-gap
 policy, story gap analysis, and story element scoring are now out of
 `quality.js`, leaving it as a 650-line compatibility facade over leaf modules.
-Focused V3/writer validation and lint passed for each slice. Remaining Root 7
-work: add the later test-file parity coverage for shared sanitizer/leaf helpers,
-then run a cleanup/review pass for any now-dead imports or docs.
+Focused V3/writer validation and lint passed for each slice. The final
+test-parity pass added direct coverage for the extracted contract sanitizer and
+validation helpers, runtime question guards, ready-confirmation text, V3 text
+utilities, and shared `factText` behavior. Cleanup review found no remaining
+Root 7 lazy songwriter/v3 imports or Root 7 TODO/FIXME leftovers.
 **Boundary:** Do NOT alter LLM prompts or generation behavior — structural extraction only, with golden-output regression tests before/after.
 
 ---
