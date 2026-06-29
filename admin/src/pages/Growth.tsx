@@ -10,74 +10,32 @@ import {
   Megaphone,
   ArrowRight,
 } from 'lucide-react';
+import {
+  fetchGrowthAttribution,
+  fetchGrowthShares,
+  fetchGrowthTeasers,
+  type GrowthAttributionResponse,
+  type GrowthShareMetricsResponse,
+  type GrowthTeaserMetricsResponse,
+} from '../api/contracts/growth';
 import { useApi } from '../hooks/useApi';
 import { formatShortDate, formatConversionRate } from '../utils/date';
 import { LoadingState } from '../components/LoadingState';
 import { ErrorState } from '../components/ErrorState';
 import { FunnelSection } from '../components/FunnelSection';
 
-interface Attribution {
-  bySource: Array<{
-    utm_source: string | null;
-    share_count: number;
-    claim_count: number;
-    download_count: number;
-    registration_count: number;
-  }>;
-  byMedium: Array<{
-    utm_medium: string | null;
-    share_count: number;
-    claim_count: number;
-    download_count: number;
-    registration_count: number;
-  }>;
-  byCampaign: Array<{
-    utm_campaign: string | null;
-    share_count: number;
-    claim_count: number;
-    download_count: number;
-    registration_count: number;
-  }>;
-  downloadsWithAttribution: number;
-  totalDownloads: number;
-  attributedRegistrations: number;
-  downloadAttributionRate: string;
-}
-
-interface TeaserMetrics {
-  total_views: number;
-  total_clicks: number;
-  click_rate: string;
-  byDay: Array<{
-    date: string;
-    views: number;
-    clicks: number;
-  }>;
-}
-
-interface ShareMetrics {
-  total_created: number;
-  total_claimed: number;
-  claim_rate: string;
-  byDay: Array<{
-    date: string;
-    created: number;
-    claimed: number;
-  }>;
-}
-
 export function Growth() {
   const { get, loading, error } = useApi();
-  const [attribution, setAttribution] = useState<Attribution | null>(null);
-  const [teasers, setTeasers] = useState<TeaserMetrics | null>(null);
-  const [shares, setShares] = useState<ShareMetrics | null>(null);
+  const [attribution, setAttribution] = useState<GrowthAttributionResponse | null>(null);
+  const [teasers, setTeasers] = useState<GrowthTeaserMetricsResponse | null>(null);
+  const [shares, setShares] = useState<GrowthShareMetricsResponse | null>(null);
   const [days, setDays] = useState(30);
 
   useEffect(() => {
     Promise.all([
-      get<Attribution>(`/growth/attribution?days=${days}`).then(setAttribution),
-      get<TeaserMetrics>(`/growth/teasers?days=${days}`).then(setTeasers),
-      get<ShareMetrics>(`/growth/shares?days=${days}`).then(setShares),
+      fetchGrowthAttribution({ get }, days).then(setAttribution),
+      fetchGrowthTeasers({ get }, days).then(setTeasers),
+      fetchGrowthShares({ get }, days).then(setShares),
     ]).catch(console.error);
   }, [get, days]);
 
@@ -128,7 +86,7 @@ export function Growth() {
             <div>
               <p className="text-sm font-medium text-slate-400 mb-1">Shares Created</p>
               <p className="text-3xl font-bold text-white font-data">
-                {(shares?.total_created || 0).toLocaleString()}
+                {(shares?.created || 0).toLocaleString()}
               </p>
               <p className="text-slate-500 text-sm mt-2">Last {days} days</p>
             </div>
@@ -143,7 +101,7 @@ export function Growth() {
             <div>
               <p className="text-sm font-medium text-slate-400 mb-1">Teaser Views</p>
               <p className="text-3xl font-bold text-white font-data">
-                {(teasers?.total_views || 0).toLocaleString()}
+                {(teasers?.teaserViews || 0).toLocaleString()}
               </p>
               <p className="text-slate-500 text-sm mt-2">Preview page loads</p>
             </div>
@@ -156,12 +114,12 @@ export function Growth() {
         <div className="card rounded-xl p-5">
           <div className="flex items-start justify-between">
             <div>
-              <p className="text-sm font-medium text-slate-400 mb-1">Teaser Clicks</p>
+              <p className="text-sm font-medium text-slate-400 mb-1">Stream Starts</p>
               <p className="text-3xl font-bold text-white font-data">
-                {(teasers?.total_clicks || 0).toLocaleString()}
+                {(teasers?.shareStreams || 0).toLocaleString()}
               </p>
               <p className="text-slate-500 text-sm mt-2">
-                {teasers ? formatPercent(teasers.click_rate) : '0%'} click rate
+                {teasers ? formatPercent(teasers.viewToStreamRate) : '0%'} stream rate
               </p>
             </div>
             <div className="p-3 rounded-lg bg-rose-500/10">
@@ -175,10 +133,10 @@ export function Growth() {
             <div>
               <p className="text-sm font-medium text-slate-400 mb-1">Share Claims</p>
               <p className="text-3xl font-bold text-white font-data">
-                {(shares?.total_claimed || 0).toLocaleString()}
+                {(shares?.claimed || 0).toLocaleString()}
               </p>
               <p className="text-slate-500 text-sm mt-2">
-                {shares ? formatPercent(shares.claim_rate) : '0%'} claim rate
+                {shares ? formatPercent(shares.claimRate) : '0%'} claim rate
               </p>
             </div>
             <div className="p-3 rounded-lg bg-emerald-500/10">
@@ -197,7 +155,7 @@ export function Growth() {
               <Share2 className="w-10 h-10 text-sky-400" />
             </div>
             <p className="text-2xl font-bold text-white font-data">
-              {(shares?.total_created || 0).toLocaleString()}
+              {(shares?.created || 0).toLocaleString()}
             </p>
             <p className="text-sm text-slate-400">Created</p>
           </div>
@@ -207,7 +165,7 @@ export function Growth() {
               <Eye className="w-10 h-10 text-amber-400" />
             </div>
             <p className="text-2xl font-bold text-white font-data">
-              {(teasers?.total_views || 0).toLocaleString()}
+              {(teasers?.teaserViews || 0).toLocaleString()}
             </p>
             <p className="text-sm text-slate-400">Viewed</p>
           </div>
@@ -217,9 +175,9 @@ export function Growth() {
               <MousePointer className="w-10 h-10 text-rose-400" />
             </div>
             <p className="text-2xl font-bold text-white font-data">
-              {(teasers?.total_clicks || 0).toLocaleString()}
+              {(teasers?.shareStreams || 0).toLocaleString()}
             </p>
-            <p className="text-sm text-slate-400">Clicked</p>
+            <p className="text-sm text-slate-400">Streamed</p>
           </div>
           <ArrowRight className="w-8 h-8 text-slate-600" />
           <div className="text-center">
@@ -227,7 +185,7 @@ export function Growth() {
               <UserPlus className="w-10 h-10 text-emerald-400" />
             </div>
             <p className="text-2xl font-bold text-white font-data">
-              {(shares?.total_claimed || 0).toLocaleString()}
+              {(shares?.claimed || 0).toLocaleString()}
             </p>
             <p className="text-sm text-slate-400">Claimed</p>
           </div>
@@ -379,7 +337,7 @@ export function Growth() {
       </div>
 
       {/* Daily Breakdown */}
-      {shares?.byDay && shares.byDay.length > 0 && (
+      {shares?.dailyCreated && shares.dailyCreated.length > 0 && (
         <div className="card rounded-xl p-6">
           <h2 className="text-lg font-semibold text-white mb-4">Daily Activity</h2>
           <div className="overflow-x-auto">
@@ -389,20 +347,16 @@ export function Growth() {
                   <th>Date</th>
                   <th>Shares Created</th>
                   <th>Teaser Views</th>
-                  <th>Teaser Clicks</th>
-                  <th>Claims</th>
                 </tr>
               </thead>
               <tbody>
-                {shares.byDay.slice(0, 14).map((day) => {
-                  const teaserDay = teasers?.byDay?.find(t => t.date === day.date);
+                {shares.dailyCreated.slice(0, 14).map((day) => {
+                  const teaserDay = teasers?.dailyViews?.find(t => t.date === day.date);
                   return (
                     <tr key={day.date}>
                       <td className="text-slate-300">{formatShortDate(day.date)}</td>
-                      <td className="font-data text-sky-400">{day.created}</td>
-                      <td className="font-data text-amber-400">{teaserDay?.views || 0}</td>
-                      <td className="font-data text-rose-400">{teaserDay?.clicks || 0}</td>
-                      <td className="font-data text-emerald-400">{day.claimed}</td>
+                      <td className="font-data text-sky-400">{day.count}</td>
+                      <td className="font-data text-amber-400">{teaserDay?.count || 0}</td>
                     </tr>
                   );
                 })}
@@ -413,7 +367,7 @@ export function Growth() {
       )}
 
       {/* Empty State */}
-      {(!shares?.byDay || shares.byDay.length === 0) && (
+      {(!shares?.dailyCreated || shares.dailyCreated.length === 0) && (
         <div className="card rounded-xl p-12 text-center">
           <div className="w-16 h-16 rounded-full bg-slate-700/50 flex items-center justify-center mx-auto mb-4">
             <TrendingUp className="w-8 h-8 text-slate-500" />

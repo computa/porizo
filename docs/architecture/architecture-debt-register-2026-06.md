@@ -1935,7 +1935,9 @@ songwriter/v3 imports or Root 7 TODO/FIXME leftovers.
 
 **Status 2026-06-29:** First Root 11 slice implemented. Backend create/render contracts were re-verified, SwiftUI create/gift/upgrade presentations now carry selected payloads through `.fullScreenCover(item:)`, `.sheet(item:)`, or typed `ActiveSheet` associated values, and gift-funded story/create persistence now writes canonical `funding_source = 'gift_wallet'` for tracks and poems. Legacy `gift_token` rows remain readable in render and library paths. PostgreSQL repair/parity now covers poem funding-source constraints as well as tracks.
 
-**Remaining Root 11 scope:** typed admin API contracts + page-level reducer/context cleanup, web-player recipient/share contract audit, iOS preview/accessibility matrices, and simulator flow recording for create/gift/share paths.
+**Status 2026-06-29, admin contract slice:** Admin dashboard Growth/Shares/Funnel surfaces now consume typed API contract modules under `admin/src/api/contracts/`. This removed page-local response guesses, fixed Growth dashboard drift from old snake_case metric names to the backend's current camelCase metrics contract, and regenerated the tracked admin build assets.
+
+**Remaining Root 11 scope:** broader admin page-level reducer/context cleanup, web-player recipient/share contract audit, iOS preview/accessibility matrices, and simulator flow recording for create/gift/share paths.
 
 ---
 

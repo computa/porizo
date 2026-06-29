@@ -2364,6 +2364,8 @@ Status 2026-06-29:
 - Backend story/create routes now persist canonical `funding_source = 'gift_wallet'` for gift-funded tracks and poems, while render/library read paths keep legacy `gift_token` compatibility.
 - PostgreSQL repair migration now aligns poem funding-source constraints with track constraints.
 - Validation passed: backend story/render contracts, gift/library repository tests, PG schema repair/parity, migration parity, lint, diff check, JS syntax checks, and XcodeBuildMCP simulator build.
+- Admin dashboard Growth/Shares/Funnel now use typed API contract modules under `admin/src/api/contracts/`; Growth was corrected to the backend's camelCase metrics response (`created`, `claimed`, `teaserViews`, `shareStreams`, `dailyCreated`) instead of stale page-local snake_case guesses.
+- Validation passed for the admin contract slice: `npm run admin:build`, root lint, admin lint, admin growth/share/demo route and repository/service suites, and `git diff --check`.
 
 - [x] **Step 4: Commit Root 11**
 

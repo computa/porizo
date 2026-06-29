@@ -1,44 +1,19 @@
 import { useEffect, useState } from 'react';
 import { Activity, Flame, Repeat } from 'lucide-react';
+import {
+  fetchAnalyticsDaily,
+  fetchAnalyticsFunnel,
+  fetchAnalyticsOverview,
+  type DailyBucket,
+  type DailyResponse,
+  type FunnelResponse,
+  type OverviewResponse,
+} from '../api/contracts/analytics';
 import { useApi } from '../hooks/useApi';
 import { FunnelCard } from './FunnelCard';
 
 // Time range is shared across all Growth sections for consistent admin scoping.
 // Per-section scoping is a follow-up if admins ask for it.
-
-interface FunnelStep {
-  from: string;
-  to: string;
-  startUsers: number;
-  convertedUsers: number;
-  conversionRate: string;
-}
-
-interface FunnelResponse {
-  days: number;
-  steps: FunnelStep[];
-}
-
-interface EventCount {
-  event_name: string;
-  count: number;
-}
-
-interface OverviewResponse {
-  days: number;
-  counts: EventCount[];
-}
-
-interface DailyBucket {
-  date: string;
-  count: number;
-}
-
-interface DailyResponse {
-  event_name: string;
-  days: number;
-  byDay: DailyBucket[];
-}
 
 interface FunnelSectionProps {
   days: number;
@@ -64,9 +39,9 @@ export function FunnelSection({ days }: FunnelSectionProps) {
         setIsLoading(true);
         setError(null);
         return Promise.all([
-          get<FunnelResponse>(`/analytics/funnel?days=${days}`),
-          get<OverviewResponse>(`/analytics/overview?days=${days}`),
-          get<DailyResponse>(`/analytics/daily/first_song_completed?days=${days}`),
+          fetchAnalyticsFunnel({ get }, days),
+          fetchAnalyticsOverview({ get }, days),
+          fetchAnalyticsDaily({ get }, 'first_song_completed', days),
         ]);
       })
       .then((result) => {

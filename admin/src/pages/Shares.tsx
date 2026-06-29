@@ -1,53 +1,23 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Share2, RefreshCw, Link2, Eye, Clock, Smartphone, BookOpen, ShieldAlert, RotateCcw, Ban, Megaphone, Copy, Check, Trash2, Plus } from 'lucide-react';
+import {
+  createDemoShare,
+  listDemoShares,
+  listPoemShareTokens,
+  listShareTokens,
+  rebindShare,
+  resetPoemShareAttempts,
+  revokeDemoShare,
+  revokePoemShare,
+  type DemoShare,
+  type PoemShareToken,
+  type ShareResourceType,
+  type ShareToken,
+} from '../api/contracts/shares';
 import { useApi } from '../hooks/useApi';
 import { getTimeSince } from '../utils/date';
 import { LoadingState } from '../components/LoadingState';
 import { ErrorState } from '../components/ErrorState';
-
-interface DemoShare {
-  id: string;
-  resource_id: string;
-  resource_type: 'song' | 'poem';
-  title: string | null;
-  access_count: number;
-  created_at: string;
-  status: string;
-  share_url: string;
-}
-
-interface ShareToken {
-  id: string;
-  track_id: string;
-  track_title: string;
-  status: string;
-  access_count: number;
-  bound_device_id: string | null;
-  stream_key: string;
-  created_at: string;
-  expires_at: string | null;
-}
-
-interface PoemShareToken {
-  id: string;
-  poem_id: string;
-  poem_title: string;
-  recipient_name: string;
-  creator_id: string;
-  status: string;
-  claim_pin: string | null;
-  claim_attempts: number;
-  access_count: number;
-  bound_user_id: string | null;
-  allow_save: boolean;
-  claim_policy: string | null;
-  created_at: string;
-  expires_at: string | null;
-}
-
-interface SharesResponse {
-  shares: ShareToken[];
-}
 
 const statusColors: Record<string, { bg: string; text: string }> = {
   active: { bg: 'bg-emerald-500/10', text: 'text-emerald-400' },
@@ -63,13 +33,13 @@ export function Shares() {
   const [rebinding, setRebinding] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [demoShares, setDemoShares] = useState<DemoShare[]>([]);
-  const [demoForm, setDemoForm] = useState({ resource_type: 'song' as 'song' | 'poem', resource_id: '' });
+  const [demoForm, setDemoForm] = useState({ resource_type: 'song' as ShareResourceType, resource_id: '' });
   const [demoCreating, setDemoCreating] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const fetchShares = useCallback(async () => {
     try {
-      const data = await get<SharesResponse>('/shares?limit=100');
+      const data = await listShareTokens({ get });
       setShares(data.shares || []);
     } catch (err) {
       console.error('Failed to fetch shares:', err);
@@ -78,7 +48,7 @@ export function Shares() {
 
   const fetchPoemShares = useCallback(async () => {
     try {
-      const data = await get<{ shares: PoemShareToken[] }>('/poem-shares?limit=100');
+      const data = await listPoemShareTokens({ get });
       setPoemShares(data.shares || []);
     } catch (err) {
       console.error('Failed to fetch poem shares:', err);
@@ -87,7 +57,7 @@ export function Shares() {
 
   const fetchDemoShares = useCallback(async () => {
     try {
-      const data = await get<{ demo_shares: DemoShare[] }>('/demo-shares');
+      const data = await listDemoShares({ get });
       setDemoShares(data.demo_shares || []);
     } catch (err) {
       console.error('Failed to fetch demo shares:', err);
@@ -98,7 +68,7 @@ export function Shares() {
     if (!demoForm.resource_id.trim()) return;
     setDemoCreating(true);
     try {
-      await post('/demo-shares', demoForm);
+      await createDemoShare({ get, post }, demoForm);
       setDemoForm({ resource_type: 'song', resource_id: '' });
       await fetchDemoShares();
     } catch (err) {
@@ -112,7 +82,7 @@ export function Shares() {
     if (!confirm('Revoke this demo link? It may be used in marketing materials.')) return;
     setActionLoading(shareId);
     try {
-      await post(`/demo-share/${shareId}/revoke`, {});
+      await revokeDemoShare({ get, post }, shareId);
       await fetchDemoShares();
     } catch (err) {
       console.error('Failed to revoke demo share:', err);
@@ -136,7 +106,11 @@ export function Shares() {
   const handleResetAttempts = async (shareId: string) => {
     setActionLoading(shareId);
     try {
-      await post(`/poem-share/${shareId}/reset-attempts`, { reason: 'Admin reset via dashboard' });
+      await resetPoemShareAttempts(
+        { get, post },
+        shareId,
+        'Admin reset via dashboard',
+      );
       await fetchPoemShares();
     } catch (err) {
       console.error('Failed to reset attempts:', err);
@@ -149,7 +123,7 @@ export function Shares() {
     if (!confirm('Revoke this poem share? The recipient will no longer be able to access it.')) return;
     setActionLoading(shareId);
     try {
-      await post(`/poem-share/${shareId}/revoke`, { reason: 'Admin revoked via dashboard' });
+      await revokePoemShare({ get, post }, shareId, 'Admin revoked via dashboard');
       await fetchPoemShares();
     } catch (err) {
       console.error('Failed to revoke poem share:', err);
@@ -164,7 +138,7 @@ export function Shares() {
 
     setRebinding(shareId);
     try {
-      await post(`/share/${shareId}/rebind`, {
+      await rebindShare({ get, post }, shareId, {
         newDeviceId: data.deviceId,
         reason: data.reason,
       });
@@ -241,7 +215,7 @@ export function Shares() {
         <div className="flex items-center gap-3 mb-4">
           <select
             value={demoForm.resource_type}
-            onChange={(e) => setDemoForm(prev => ({ ...prev, resource_type: e.target.value as 'song' | 'poem' }))}
+            onChange={(e) => setDemoForm(prev => ({ ...prev, resource_type: e.target.value as ShareResourceType }))}
             className="bg-slate-800/50 border border-slate-600/50 rounded-lg px-3 py-2 text-sm text-white"
           >
             <option value="song">Song</option>
