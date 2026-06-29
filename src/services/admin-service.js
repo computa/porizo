@@ -93,6 +93,9 @@ const {
 const {
   createAdminWebhookHealthService,
 } = require("./admin/webhook-health-service");
+const {
+  createAdminSystemHealthService,
+} = require("./admin/system-health-service");
 const { safeBounds } = require("./admin/pagination");
 const { createClientConfigService } = require("./client-config-service");
 
@@ -381,6 +384,11 @@ class AdminService {
       });
     this.adminJobOpsRepository =
       options.adminJobOpsRepository || createAdminJobOpsRepository(db);
+    this.adminSystemHealthService =
+      options.adminSystemHealthService ||
+      createAdminSystemHealthService({
+        adminJobOpsRepository: this.adminJobOpsRepository,
+      });
     this.adminJobOpsService =
       options.adminJobOpsService ||
       createAdminJobOpsService({
@@ -1145,16 +1153,7 @@ class AdminService {
    * Get system health metrics (jobs, DLQ, recent errors)
    */
   async getSystemHealth() {
-    const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-    const { jobs, dlqCount, recentErrors } =
-      await this.adminJobOpsRepository.getSystemHealth({ since: dayAgo });
-
-    return {
-      jobs: { running: jobs?.running || 0, queued: jobs?.queued || 0, failed: jobs?.failed || 0 },
-      dlqCount,
-      recentErrors,
-      checkedAt: new Date().toISOString()
-    };
+    return this.adminSystemHealthService.getSystemHealth();
   }
 
   /**

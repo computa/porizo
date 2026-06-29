@@ -1744,6 +1744,13 @@ compatibility facade for `getWebhookHealth`, while the new service owns the
 billing repository. Direct service coverage pins the time window and response
 shape; route/repository tests continue to pin admin auth, webhook type counts,
 failed-webhook counting, and old/non-webhook exclusion.
+Admin system-health service ownership is also extracted into
+`src/services/admin/system-health-service.js`. `AdminService` remains a
+compatibility facade for `getSystemHealth`, while the new service owns the
+24-hour job/DLQ health window, default operational counters, recent-error
+delegation, and checked-at timestamp. Direct service coverage pins the window
+and normalized response; security route coverage continues to pin the admin
+health endpoint contract.
 **Boundary:** Do the `getAppConfig` eviction + non-billing splits first (🟡). Do the billing/entitlement admin slice **last** (⚠ 🔴) with production verification.
 
 ### Root 7 — Writer cycle + god-file decomposition 🟡 effort M
