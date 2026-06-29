@@ -1466,10 +1466,14 @@ runner-injected contract guards, provider routing, policy preflight, provider
 audio URL/key helpers, provenance helpers, Suno polling/recovery callbacks,
 generic provider rendering, local fallback instrumental/guide-vocal renderers,
 and job task attachment. No workflow step handlers remain inline in `runner.js`;
-the closure-heavy Suno polling/recovery helpers remain in the runner for a
-smaller follow-up extraction. Direct step-factory tests, ready ordering/reroll
-validation, focused workflow/render endpoint validation, voice-routing
-validation, MVP flow, diff hygiene, and lint pass locally.
+`src/workflows/suno-task-orchestrator.js` now owns the extracted Suno task
+state machine, including submit attach, existing-task heartbeat polling,
+incomplete-success reconciliation, policy-failure telemetry, artifact download,
+and recovery-provenance merge behavior. No Suno polling/recovery helpers remain
+inline in `runner.js`. Direct step-factory tests, Suno task-orchestrator
+characterization tests, ready ordering/reroll validation, focused
+workflow/render endpoint validation, voice-routing validation, MVP flow, diff
+hygiene, and lint pass locally.
 
 **Closes:** D2 (runner), D3 (instrumental/guide_vocal duplication), the 3-way idempotency inconsistency.
 **Scope:** Extract the 12 inline step handlers into `workflows/steps/*.js`, each `{name, run(ctx), shouldSkip(ctx)}`, registered in an ordered array; runner becomes a generic loop. Unify `instrumental`+`instrumental_full` and `guide_vocal`+`guide_vocal_full` (~860 lines of near-duplicate). Pick ONE canonical idempotency mechanism. Extract `pollOrSubmitSunoTask` (200 lines) and the error-classifier helpers.

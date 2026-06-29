@@ -550,6 +550,7 @@ describe("instrumental steps", () => {
   });
 
   test("recovers Suno output after incomplete-output error", async () => {
+    let recoveryArgs = null;
     const { instrumental, baseTrack, baseTrackVersion } = createInstrumentalStep({
       getMusicProviderConfig: async () => ({
         provider: "suno",
@@ -558,9 +559,12 @@ describe("instrumental steps", () => {
       pollOrSubmitSunoTask: async () => {
         throw new Error("E302_SUNO_INCOMPLETE_OUTPUT: status=complete");
       },
-      recoverSunoResultFromExistingTask: async () => ({
-        instrumental_url: "https://provider.test/recovered.mp3",
-      }),
+      recoverSunoResultFromExistingTask: async (args) => {
+        recoveryArgs = args;
+        return {
+          instrumental_url: "https://provider.test/recovered.mp3",
+        };
+      },
     });
 
     const result = await instrumental({
@@ -570,6 +574,13 @@ describe("instrumental steps", () => {
     });
 
     assert.equal(result.instrumental_url, "https://provider.test/recovered.mp3");
+    assert.equal(recoveryArgs.kind, "preview");
+    assert.equal(recoveryArgs.step, "instrumental");
+    assert.equal(recoveryArgs.renderContract.pipeline, "provider_complete_audio");
+    assert.deepEqual(recoveryArgs.routingMetadata, {
+      provider: "suno",
+      reason: "pinned_provider",
+    });
   });
 
   test("generic provider result includes provenance and attaches task id", async () => {
