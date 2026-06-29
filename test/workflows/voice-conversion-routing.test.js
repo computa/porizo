@@ -174,25 +174,35 @@ describe("performVoiceConversion routing", () => {
     assert.ok(result.output_url.includes("elevenlabs"));
   });
 
-  test("throws E305 when ElevenLabs selected but no API key", async () => {
+  test("throws E305 when ElevenLabs selected but normalized config has no API key", async () => {
     const db = createMockDb({ voice_conversion_provider: "elevenlabs" });
     const durabilityService = createMockDurabilityService();
+    const previousEnvKey = process.env.ELEVENLABS_API_KEY;
+    process.env.ELEVENLABS_API_KEY = "ambient_env_key_should_not_be_used";
 
-    await assert.rejects(
-      () => performVoiceConversion({
-        db,
-        track: { id: "t1", user_id: "u1" },
-        trackVersion: { version_num: 1 },
-        kind: "preview",
-        versionDir: tempDir,
-        conversionSourceUrl: "https://example.com/guide.wav",
-        providerConfig: { replicate: { token: "test" } },
-        durabilityService,
-        storageDir: tempDir,
-        storageProvider: null,
-      }),
-      { message: /E305_ELEVENLABS_VOICE_ERROR.*ELEVENLABS_API_KEY/ },
-    );
+    try {
+      await assert.rejects(
+        () => performVoiceConversion({
+          db,
+          track: { id: "t1", user_id: "u1" },
+          trackVersion: { version_num: 1 },
+          kind: "preview",
+          versionDir: tempDir,
+          conversionSourceUrl: "https://example.com/guide.wav",
+          providerConfig: { replicate: { token: "test" } },
+          durabilityService,
+          storageDir: tempDir,
+          storageProvider: null,
+        }),
+        { message: /E305_ELEVENLABS_VOICE_ERROR.*ELEVENLABS_API_KEY/ },
+      );
+    } finally {
+      if (previousEnvKey === undefined) {
+        delete process.env.ELEVENLABS_API_KEY;
+      } else {
+        process.env.ELEVENLABS_API_KEY = previousEnvKey;
+      }
+    }
   });
 
   test("throws E305 when ElevenLabs selected but no voice clone", async () => {

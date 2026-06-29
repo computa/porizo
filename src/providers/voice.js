@@ -519,8 +519,8 @@ async function convertPersonalizedVoice({
   let isolatedVocalsPath;
   let instrumentalPath;
 
-  // Check if we have Replicate token for Demucs
-  const replicateToken = seedvcConfig.replicateToken || process.env.REPLICATE_API_TOKEN;
+  // Seed-VC runtime config must be injected by the runner/provider config factory.
+  const replicateToken = seedvcConfig.replicateToken;
   if (!replicateToken) {
     throw new Error(
       "E302_VOICE_ERROR: Stem separation required for personalized voice conversion. " +

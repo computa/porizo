@@ -28,6 +28,7 @@ const {
 } = require("../providers/music");
 const {
   MUSIC_PROVIDER_CONFIG_KEY,
+  createVoiceConversionRuntimeConfig,
   createWhisperRuntimeConfig,
   normalizeMusicProviderConfig,
   parseMusicProviderConfigJson,
@@ -602,10 +603,11 @@ async function performVoiceConversion({
   console.log(
     `[JobRunner] Voice conversion provider (${kind}): ${voiceConversionProvider}`,
   );
+  const voiceConversionConfig =
+    createVoiceConversionRuntimeConfig(providerConfig);
 
   if (voiceConversionProvider === "elevenlabs") {
-    const elevenlabsApiKey =
-      providerConfig.elevenlabs?.apiKey || process.env.ELEVENLABS_API_KEY;
+    const elevenlabsApiKey = voiceConversionConfig.elevenlabs.apiKey;
     if (!elevenlabsApiKey) {
       throw new Error(
         "E305_ELEVENLABS_VOICE_ERROR: ELEVENLABS_API_KEY not configured",
@@ -673,7 +675,7 @@ async function performVoiceConversion({
           voiceId: voiceProfile.elevenlabs_voice_id,
           sourceAudioPath: compressedPath,
           outputPath,
-          timeoutMs: providerConfig.replicate?.timeoutMs || 300000,
+          timeoutMs: voiceConversionConfig.elevenlabs.timeoutMs,
           settings: {
             stability,
             similarityBoost,
@@ -725,11 +727,7 @@ async function performVoiceConversion({
         providerConfig: providerConfig.replicate,
         inputUrl: conversionSourceUrl,
         seedvcConfig: {
-          timeoutMs: providerConfig.replicate?.timeoutMs || 300000,
-          hfToken: providerConfig.hfToken || null,
-          replicateToken: providerConfig.replicate?.token || null,
-          demucsModel: providerConfig.replicate?.demucsModel || null,
-          demucsShifts: providerConfig.replicate?.demucsShifts,
+          ...voiceConversionConfig.seedvc,
           params: {
             diffusionSteps,
             lengthAdjust: 1.0,

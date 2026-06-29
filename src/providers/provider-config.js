@@ -279,11 +279,38 @@ function createWhisperRuntimeConfig(providerConfig = {}, options = {}) {
   };
 }
 
+function createVoiceConversionRuntimeConfig(providerConfig = {}, options = {}) {
+  const elevenlabs = providerConfig.elevenlabs || {};
+  const replicate = providerConfig.replicate || {};
+  const seedvcTimeoutMs =
+    options.seedvcTimeoutMs || replicate.timeoutMs || 300000;
+  const elevenlabsTimeoutMs =
+    options.elevenlabsTimeoutMs ||
+    elevenlabs.timeoutMs ||
+    replicate.timeoutMs ||
+    300000;
+
+  return {
+    elevenlabs: {
+      apiKey: elevenlabs.apiKey || "",
+      timeoutMs: elevenlabsTimeoutMs,
+    },
+    seedvc: {
+      timeoutMs: seedvcTimeoutMs,
+      hfToken: providerConfig.hfToken || null,
+      replicateToken: replicate.token || "",
+      demucsModel: replicate.demucsModel || null,
+      demucsShifts: replicate.demucsShifts,
+    },
+  };
+}
+
 module.exports = {
   applyMusicProviderConfigPatch,
   createHealthCheckRuntimeConfig,
   createProviderRuntimeConfig,
   createStorageRuntimeConfig,
+  createVoiceConversionRuntimeConfig,
   createWhisperRuntimeConfig,
   ELEVENLABS_GENERATION_MODES,
   getDefaultMusicProviderConfig,

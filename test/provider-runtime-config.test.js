@@ -5,6 +5,7 @@ const {
   createHealthCheckRuntimeConfig,
   createProviderRuntimeConfig,
   createStorageRuntimeConfig,
+  createVoiceConversionRuntimeConfig,
   createWhisperRuntimeConfig,
   isLiveProvidersEnabled,
   normalizeMusicProviderConfig,
@@ -261,6 +262,40 @@ describe("Provider runtime config factory", () => {
         .timeoutMs,
       120000,
     );
+  });
+
+  test("derives voice-conversion config from normalized provider config", () => {
+    const { providerConfig } = createProviderRuntimeConfig({
+      ELEVENLABS_API_KEY: "elevenlabs-key",
+      ELEVENLABS_BASE_URL: "https://elevenlabs.example",
+      REPLICATE_API_TOKEN: "replicate-token",
+      REPLICATE_MODEL_VERSION: "replicate-version",
+      REPLICATE_BASE_URL: "https://replicate.example",
+      PROVIDER_TIMEOUT_MS: 1234,
+      DEMUCS_SEPARATION_MODEL: "htdemucs_ft",
+      DEMUCS_SHIFTS: 3,
+      HF_TOKEN: "hf-token",
+    });
+
+    assert.deepEqual(createVoiceConversionRuntimeConfig(providerConfig), {
+      elevenlabs: {
+        apiKey: "elevenlabs-key",
+        timeoutMs: 1234,
+      },
+      seedvc: {
+        timeoutMs: 1234,
+        hfToken: "hf-token",
+        replicateToken: "replicate-token",
+        demucsModel: "htdemucs_ft",
+        demucsShifts: 3,
+      },
+    });
+    const overridden = createVoiceConversionRuntimeConfig(providerConfig, {
+      elevenlabsTimeoutMs: 999,
+      seedvcTimeoutMs: 888,
+    });
+    assert.equal(overridden.elevenlabs.timeoutMs, 999);
+    assert.equal(overridden.seedvc.timeoutMs, 888);
   });
 
   test("passes storage credentials through one shared boot-path shape", () => {

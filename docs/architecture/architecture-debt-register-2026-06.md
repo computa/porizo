@@ -1403,6 +1403,14 @@ with `getVersionDir()` in S3 upload, placeholder output, DLQ auto-reprocess
 cleanup, ready cover generation, ready lyric alignment, and ready cleanup paths.
 The storage path scan for `path.join(storageDir, "tracks", ...)` is now clean
 across providers and runner.
+
+Slice 8 centralizes voice-conversion runtime config in
+`src/providers/provider-config.js`. Runner-side ElevenLabs voice conversion and
+Seed-VC/Demucs config now flow through `createVoiceConversionRuntimeConfig()`
+instead of ad hoc fallback reads from ambient environment. The direct
+`REPLICATE_API_TOKEN` fallback inside `src/providers/voice.js` is removed so
+personalized voice conversion fails against the injected runtime contract rather
+than silently succeeding with stale process state.
 **Why early:** Mostly off the revenue path, contained, and the first slice (whisper/elevenlabs-voice retry) removes real render-failure risk for low effort.
 **Boundary:** Do NOT rewrite provider business logic; only normalize transport + path construction.
 
