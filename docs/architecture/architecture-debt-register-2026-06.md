@@ -25,6 +25,8 @@ Admin job/DLQ operations service-boundary ownership is also extracted and
 validated locally.
 Admin user-read service-boundary ownership is also extracted and validated
 locally.
+Admin analytics service-boundary ownership is also extracted and validated
+locally.
 Admin user session/voice-control service-boundary ownership is also extracted
 and validated locally.
 Admin share-management service-boundary ownership is also extracted and
@@ -253,8 +255,9 @@ retaining event-id generation, bounds normalization, and public return-shape
 behavior. The admin analytics follow-up also moved dashboard event counts,
 daily buckets, cohort conversion reads, selected user-event reads, and the
 `analytics.user.read` audit insert into the same event-table repository while
-`AdminService` retains cache ownership, days/limit clamping, funnel hop policy,
-audit metadata assembly, and route-facing response shapes; share-followup
+`AdminAnalyticsService` retains cache ownership, days/limit clamping, funnel hop
+policy, audit metadata assembly, and route-facing response shapes while
+`AdminService` is only the compatibility facade; share-followup
 persistence now lives in
 `database/share-followup-repository.js`, with `share-service.js` keeping
 schedule construction and `share-followups-daily.js` keeping email
@@ -831,9 +834,10 @@ validation passed in `test/admin-moderation-repository.test.js`,
 and `test/admin-story-session-routes.test.js` (22 pass / 0 fail).
 The admin analytics events follow-up now moves dashboard event-count, daily
 event-count, cohort-funnel, selected user-event read, and `analytics.user.read`
-audit persistence into `database/events-repository.js`; `AdminService` retains
-cache ownership, day/limit clamping, funnel hop policy, audit metadata
-assembly, and response formatting. Characterization pins strict
+audit persistence into `database/events-repository.js`; `AdminAnalyticsService`
+now retains cache ownership, day/limit clamping, funnel hop policy, audit
+metadata assembly, and response formatting while `AdminService` is only the
+compatibility facade. Characterization pins strict
 `created_at > cutoff` semantics, non-leaking selected user-event columns,
 null-user cohort exclusion, end-after-start conversion semantics, audit row
 shape, cache behavior, and `limit=999 -> 200` clamping. Focused validation
@@ -1708,6 +1712,16 @@ behavior. Direct service tests pin bounded filter delegation, zero-user
 conversion formatting, canonical attribution merge behavior, and facade
 delegation; repository and route suites continue to pin SQL semantics, auth,
 pagination metadata, and 404 envelopes.
+Admin analytics service ownership is also extracted into
+`src/services/admin/analytics-service.js`. `AdminService` remains a
+compatibility facade for `getAnalyticsOverview`, `getAnalyticsDaily`,
+`getFunnelCohort`, and `getUserAnalytics`, while the new service owns
+per-instance aggregate caching, days/limit clamping, funnel hop policy,
+conversion-rate formatting, and traceable `analytics.user.read` audit metadata.
+Direct service tests pin cache hits, exact windows, funnel conversion behavior,
+user-event limit clamping, audit metadata, and facade delegation; route and
+repository suites continue to pin admin auth, SQL semantics, selected columns,
+and audit row shape.
 Admin user session/voice-control service ownership is also extracted into
 `src/services/admin/user-session-control-service.js`. `AdminService` remains a
 compatibility facade for `forceVoiceReverify`, `getUserSessions`,

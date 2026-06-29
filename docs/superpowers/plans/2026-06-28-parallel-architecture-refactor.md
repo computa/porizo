@@ -1923,6 +1923,14 @@ attribution enrichment/merge, stats conversion formatting, detail fan-out, and
 missing-user no-fanout behavior. Focused repository/service and route validation
 passed for the admin user-read contracts.
 
+Root 6 service-boundary follow-up: admin analytics service ownership is now
+extracted into `src/services/admin/analytics-service.js`. `AdminService`
+remains the compatibility facade for analytics overview, daily event, funnel,
+and per-user event reads, while the new service owns aggregate caching,
+days/limit clamping, funnel hop policy, conversion-rate formatting, and
+traceable analytics read audits. Focused repository/service and route validation
+passed for the admin analytics contracts.
+
 ## Task 17: Root 7 Writer Decomposition
 
 **Owner:** One worker

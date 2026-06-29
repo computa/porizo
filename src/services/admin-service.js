@@ -102,6 +102,9 @@ const {
 const {
   createAdminMetricsService,
 } = require("./admin/metrics-service");
+const {
+  createAdminAnalyticsService,
+} = require("./admin/analytics-service");
 const { safeBounds } = require("./admin/pagination");
 const { createClientConfigService } = require("./client-config-service");
 
@@ -484,35 +487,16 @@ class AdminService {
       });
     this.eventsRepository =
       options.eventsRepository || createEventsRepository(db);
-    // In-memory response cache for analytics aggregates. 60s TTL keeps
-    // dashboards responsive without hammering events table on every days-selector flick.
-    // Cleared on process restart; acceptable for admin-only endpoints.
-    this._analyticsCache = new Map();
-    this._analyticsCacheTTLMs = 60 * 1000;
-  }
-
-  _analyticsCacheGet(key) {
-    const entry = this._analyticsCache.get(key);
-    if (!entry) return null;
-    if (entry.expiresAt <= Date.now()) {
-      this._analyticsCache.delete(key);
-      return null;
-    }
-    return entry.payload;
-  }
-
-  _analyticsCacheSet(key, payload) {
-    this._analyticsCache.set(key, { payload, expiresAt: Date.now() + this._analyticsCacheTTLMs });
+    this.adminAnalyticsService =
+      options.adminAnalyticsService ||
+      createAdminAnalyticsService({
+        eventsRepository: this.eventsRepository,
+      });
   }
 
   _clampDays(days) {
     const n = Number.isFinite(Number(days)) ? Math.trunc(Number(days)) : 30;
     return Math.max(1, Math.min(365, n));
-  }
-
-  _clampLimit(limit, max = 200) {
-    const n = Number.isFinite(Number(limit)) ? Math.trunc(Number(limit)) : 50;
-    return Math.max(1, Math.min(max, n));
   }
 
   _parseSalesPeriod(days) {
@@ -1650,37 +1634,14 @@ class AdminService {
    * Cached 60s per days value.
    */
   async getAnalyticsOverview(days) {
-    const clampedDays = this._clampDays(days);
-    const cacheKey = `overview:${clampedDays}`;
-    const cached = this._analyticsCacheGet(cacheKey);
-    if (cached) return cached;
-
-    const daysAgo = new Date(Date.now() - clampedDays * 24 * 60 * 60 * 1000).toISOString();
-    const counts = await this.eventsRepository.getAdminEventCountsAfter(daysAgo);
-
-    const payload = { days: clampedDays, counts };
-    this._analyticsCacheSet(cacheKey, payload);
-    return payload;
+    return this.adminAnalyticsService.getAnalyticsOverview(days);
   }
 
   /**
    * Daily series for a single event name. Cached 60s per (eventName, days).
    */
   async getAnalyticsDaily(eventName, days) {
-    const clampedDays = this._clampDays(days);
-    const cacheKey = `daily:${eventName}:${clampedDays}`;
-    const cached = this._analyticsCacheGet(cacheKey);
-    if (cached) return cached;
-
-    const daysAgo = new Date(Date.now() - clampedDays * 24 * 60 * 60 * 1000).toISOString();
-    const byDay = await this.eventsRepository.getAdminDailyEventCountsAfter(
-      eventName,
-      daysAgo,
-    );
-
-    const payload = { event_name: eventName, days: clampedDays, byDay };
-    this._analyticsCacheSet(cacheKey, payload);
-    return payload;
+    return this.adminAnalyticsService.getAnalyticsDaily(eventName, days);
   }
 
   /**
@@ -1697,48 +1658,7 @@ class AdminService {
    * Cached 60s per days value.
    */
   async getFunnelCohort(days) {
-    const clampedDays = this._clampDays(days);
-    const cacheKey = `funnel:${clampedDays}`;
-    const cached = this._analyticsCacheGet(cacheKey);
-    if (cached) return cached;
-
-    const daysAgo = new Date(Date.now() - clampedDays * 24 * 60 * 60 * 1000).toISOString();
-    const hops = [
-      ["auth_completed", "create_started"],
-      ["create_started", "create_completed"],
-      ["create_completed", "first_song_completed"],
-      ["first_song_completed", "share_create"],
-    ];
-
-    const steps = [];
-    for (const [from, to] of hops) {
-      const startRow = await this.eventsRepository.countDistinctUsersForEventAfter(
-        from,
-        daysAgo,
-      );
-      const startUsers = startRow?.c ?? 0;
-
-      // Converted users: had startEvent in window, then endEvent at or after their earliest startEvent.
-      const convertedRow =
-        await this.eventsRepository.countDistinctUsersConvertedAfter(
-          from,
-          to,
-          daysAgo,
-        );
-      const convertedUsers = convertedRow?.c ?? 0;
-
-      steps.push({
-        from,
-        to,
-        startUsers,
-        convertedUsers,
-        conversionRate: startUsers > 0 ? ((convertedUsers / startUsers) * 100).toFixed(2) : "0.00",
-      });
-    }
-
-    const payload = { days: clampedDays, steps };
-    this._analyticsCacheSet(cacheKey, payload);
-    return payload;
+    return this.adminAnalyticsService.getFunnelCohort(days);
   }
 
   /**
@@ -1747,30 +1667,12 @@ class AdminService {
    * behavioral data must be traceable.
    */
   async getUserAnalytics(adminId, adminEmail, userId, limit) {
-    const clampedLimit = this._clampLimit(limit, 200);
-    const events = await this.eventsRepository.getAdminUserEvents(
-      userId,
-      clampedLimit,
-    );
-
-    // Audit trail — not conditional on whether events exist.
-    const auditId = `audit_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
-    const now = new Date().toISOString();
-    const metadata = JSON.stringify({
-      admin_id: adminId,
-      admin_email: adminEmail,
-      target_user_id: userId,
-      event_count: events.length,
-    });
-    await this.eventsRepository.insertUserAnalyticsReadAudit({
-      id: auditId,
+    return this.adminAnalyticsService.getUserAnalytics(
       adminId,
-      targetUserId: userId,
-      metadataJson: metadata,
-      createdAt: now,
-    });
-
-    return { userId, limit: clampedLimit, events };
+      adminEmail,
+      userId,
+      limit,
+    );
   }
 
   // ============ ENROLLMENT METRICS ============
