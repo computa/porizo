@@ -20,7 +20,8 @@ onboarding-sample service-boundary ownership is also extracted and validated
 locally. Admin security/app-update config service-boundary ownership is also
 extracted and validated locally. Admin provider/queue control-plane
 service-boundary ownership is also extracted and validated locally. Admin
-job/DLQ operations persistence is also extracted and validated locally.
+moderation service-boundary ownership is also extracted and validated locally.
+Admin job/DLQ operations persistence is also extracted and validated locally.
 Gift-dispatch scheduler polling/recovery persistence is also extracted and
 validated locally.
 Server-owned gift-dispatch outbox/state-transition/receipt/lock/final-status
@@ -1660,6 +1661,15 @@ and queue status read delegation, timestamp injection for status mutations,
 route-facing `{ success: true }` envelopes, and admin audit action naming.
 Direct service tests pin list delegation, provider audit metadata, queue audit
 metadata, and injected timestamps.
+Admin moderation service ownership is also extracted into
+`src/services/admin/moderation-service.js`. `AdminService` remains a
+compatibility facade for `getModerationQueue` and `overrideModeration`, while
+the new service owns moderation override result mapping and admin audit emission
+only for successful blocked-version approvals. Shared admin limit/offset bounds
+now live in `src/services/admin/pagination.js`. Direct service tests pin
+pagination bounds, successful override audit metadata, missing-version
+behavior, non-blocked behavior, and the no-audit contract for failed override
+attempts.
 **Boundary:** Do the `getAppConfig` eviction + non-billing splits first (🟡). Do the billing/entitlement admin slice **last** (⚠ 🔴) with production verification.
 
 ### Root 7 — Writer cycle + god-file decomposition 🟡 effort M

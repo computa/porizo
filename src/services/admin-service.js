@@ -62,6 +62,9 @@ const {
   createAdminControlPlaneService,
 } = require("./admin/control-plane-service");
 const {
+  createAdminModerationService,
+} = require("./admin/moderation-service");
+const {
   createAdminFeatureFlagService,
 } = require("./admin/feature-flag-service");
 const {
@@ -70,6 +73,7 @@ const {
 const {
   createAdminSecurityConfigService,
 } = require("./admin/security-config-service");
+const { safeBounds } = require("./admin/pagination");
 const { createClientConfigService } = require("./client-config-service");
 
 /**
@@ -84,16 +88,6 @@ function escapeLikePattern(str) {
  */
 function generateAuditId() {
   return `audit_${crypto.randomBytes(12).toString("hex")}`;
-}
-
-/**
- * Apply bounds to limit/offset to prevent DoS
- */
-function safeBounds(limit, offset, maxLimit = 100) {
-  return {
-    limit: Math.min(Math.max(parseInt(limit) || 50, 1), maxLimit),
-    offset: Math.max(parseInt(offset) || 0, 0),
-  };
 }
 
 function parseMaybeJson(value) {
@@ -379,6 +373,12 @@ class AdminService {
       createAdminStorySessionRepository(db);
     this.adminModerationRepository =
       options.adminModerationRepository || createAdminModerationRepository(db);
+    this.adminModerationService =
+      options.adminModerationService ||
+      createAdminModerationService({
+        adminModerationRepository: this.adminModerationRepository,
+        audit: (...args) => this._audit(...args),
+      });
     this.adminBillingRepository =
       options.adminBillingRepository || createAdminBillingRepository(db);
     this.adminShareManagementRepository =
@@ -1042,31 +1042,21 @@ class AdminService {
    * Get moderation queue (blocked content)
    */
   async getModerationQueue({ limit = 50, offset = 0 }) {
-    const bounds = safeBounds(limit, offset);
-    return this.adminModerationRepository.listBlockedVersions(bounds);
+    return await this.adminModerationService.getModerationQueue({
+      limit,
+      offset,
+    });
   }
 
   /**
    * Override moderation decision (approve blocked content)
    */
   async overrideModeration(versionId, adminId, reason) {
-    const result = await this.adminModerationRepository.approveBlockedVersion({
+    return await this.adminModerationService.overrideModeration(
       versionId,
+      adminId,
       reason,
-    });
-    if (result.status === "not_found") {
-      return { success: false, error: "Track version not found" };
-    }
-    if (result.status === "not_blocked") {
-      return {
-        success: false,
-        error: "Track version is not blocked",
-        moderationStatus: result.moderationStatus,
-      };
-    }
-
-    await this._audit(adminId, 'admin_moderation_override', 'track_version', versionId, { reason });
-    return { success: true };
+    );
   }
 
   // ============ SHARE MANAGEMENT ============
