@@ -1613,6 +1613,14 @@ compatibility facade for `getSTTConfig`, `setSTTConfig`,
 owns STT defaults/validation, music-provider config normalization/persistence,
 and admin audit emission through an injected audit function. Direct service
 tests pin invalid-JSON fallback, update persistence, and audit metadata.
+Admin feature-flag service ownership is also extracted into
+`src/services/admin/feature-flag-service.js`. `AdminService` remains a
+compatibility facade for `getAllFeatureFlags` and `updateFeatureFlags`, while
+the new service owns admin cache clearing, grouped metadata shaping, option
+decoration, value validation, partial-success update behavior, and bulk audit
+emission. Direct service tests pin metadata grouping, string-option decoration,
+number coercion-with-original-value persistence, partial validation errors,
+cache clearing, and audit metadata.
 **Boundary:** Do the `getAppConfig` eviction + non-billing splits first (🟡). Do the billing/entitlement admin slice **last** (⚠ 🔴) with production verification.
 
 ### Root 7 — Writer cycle + god-file decomposition 🟡 effort M

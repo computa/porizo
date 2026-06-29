@@ -59,6 +59,9 @@ const { AttributionService } = require("./attribution-service");
 const {
   createAdminProviderConfigService,
 } = require("./admin/provider-config-service");
+const {
+  createAdminFeatureFlagService,
+} = require("./admin/feature-flag-service");
 const { createClientConfigService } = require("./client-config-service");
 
 /**
@@ -318,6 +321,12 @@ class AdminService {
       options.adminProviderConfigService ||
       createAdminProviderConfigService({
         appConfigRepository: this.appConfigRepository,
+        audit: (...args) => this._audit(...args),
+      });
+    this.adminFeatureFlagService =
+      options.adminFeatureFlagService ||
+      createAdminFeatureFlagService({
+        db: this.db,
         audit: (...args) => this._audit(...args),
       });
     this.clientConfigService =
@@ -2326,42 +2335,7 @@ class AdminService {
    * Returns flags grouped by category with current values and defaults
    */
   async getAllFeatureFlags() {
-    const { DEFAULTS, FLAG_METADATA, getFeatureFlags, clearCache } = require('./feature-flags');
-
-    // Clear cache to ensure admin UI always shows current DB values
-    clearCache();
-
-    const flagIds = Object.keys(DEFAULTS);
-    // Use throwOnError for admin UI - we want to surface DB errors, not hide them
-    const currentValues = await getFeatureFlags(this.db, flagIds, { throwOnError: true });
-
-    // Group flags by category
-    const byCategory = {};
-    for (const flagId of flagIds) {
-      const meta = FLAG_METADATA[flagId] || { category: 'other' };
-      const category = meta.category || 'other';
-
-      if (!byCategory[category]) {
-        byCategory[category] = [];
-      }
-
-      // Transform string options to { value, label } format for admin UI
-      const transformedMeta = { ...meta };
-      if (meta.options && Array.isArray(meta.options)) {
-        transformedMeta.options = meta.options.map(opt => 
-          typeof opt === 'string' ? { value: opt, label: opt } : opt
-        );
-      }
-
-      byCategory[category].push({
-        id: flagId,
-        value: currentValues[flagId],
-        defaultValue: DEFAULTS[flagId],
-        ...transformedMeta,
-      });
-    }
-
-    return { flags: byCategory };
+    return this.adminFeatureFlagService.getAllFeatureFlags();
   }
 
   /**
@@ -2370,67 +2344,7 @@ class AdminService {
    * @param {string} adminId - Admin user ID for audit
    */
   async updateFeatureFlags(updates, adminId) {
-    const { DEFAULTS, FLAG_METADATA, setFeatureFlag, clearCache } = require('./feature-flags');
-
-    const validFlagIds = Object.keys(DEFAULTS);
-    const results = [];
-    const errors = [];
-
-    for (const [flagId, value] of Object.entries(updates)) {
-      // Validate flag exists
-      if (!validFlagIds.includes(flagId)) {
-        errors.push({ flagId, error: `Unknown flag: ${flagId}` });
-        continue;
-      }
-
-      // Validate value based on metadata
-      const meta = FLAG_METADATA[flagId];
-      if (meta) {
-        if (meta.type === 'number') {
-          const numValue = Number(value);
-          if (isNaN(numValue)) {
-            errors.push({ flagId, error: `Value must be a number` });
-            continue;
-          }
-          if (meta.min !== undefined && numValue < meta.min) {
-            errors.push({ flagId, error: `Value must be >= ${meta.min}` });
-            continue;
-          }
-          if (meta.max !== undefined && numValue > meta.max) {
-            errors.push({ flagId, error: `Value must be <= ${meta.max}` });
-            continue;
-          }
-        } else if (meta.type === 'boolean') {
-          if (typeof value !== 'boolean') {
-            errors.push({ flagId, error: `Value must be a boolean` });
-            continue;
-          }
-        }
-      }
-
-      // Set the flag
-      try {
-        await setFeatureFlag(this.db, flagId, value, adminId);
-        results.push({ flagId, value, success: true });
-      } catch (err) {
-        errors.push({ flagId, error: err.message });
-      }
-    }
-
-    // Clear cache to ensure all workers pick up new values
-    clearCache();
-
-    // Audit the bulk update
-    await this._audit(adminId, 'admin_update_feature_flags', 'feature_flags', 'bulk', {
-      updated: results.map(r => r.flagId),
-      errors: errors.length > 0 ? errors : undefined,
-    });
-
-    return {
-      success: errors.length === 0,
-      updated: results,
-      errors: errors.length > 0 ? errors : undefined,
-    };
+    return this.adminFeatureFlagService.updateFeatureFlags(updates, adminId);
   }
   async getJobStepHistory(jobId) {
     return await this.adminJobOpsRepository.listJobStepHistory(jobId);
