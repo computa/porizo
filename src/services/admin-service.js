@@ -81,6 +81,9 @@ const {
   createAdminUserSessionControlService,
 } = require("./admin/user-session-control-service");
 const {
+  createAdminUserReadService,
+} = require("./admin/user-read-service");
+const {
   createAdminSecurityConfigService,
 } = require("./admin/security-config-service");
 const {
@@ -432,6 +435,12 @@ class AdminService {
       });
     this.adminUserReadRepository =
       options.adminUserReadRepository || createAdminUserReadRepository(db);
+    this.adminUserReadService =
+      options.adminUserReadService ||
+      createAdminUserReadService({
+        adminUserReadRepository: this.adminUserReadRepository,
+        attributionService: this.attributionService,
+      });
     this.adminUserMutationRepository =
       options.adminUserMutationRepository ||
       createAdminUserMutationRepository(db);
@@ -720,8 +729,7 @@ class AdminService {
    * Returns user data with adoption metrics (tier, track_count, voice_status, last_active)
    */
   async searchUsers({ email, userId, riskLevel, tier, trackId, shareId, recipientName, limit = 50, offset = 0 }) {
-    const bounds = safeBounds(limit, offset);
-    const { users, total } = await this.adminUserReadRepository.searchUsers({
+    return this.adminUserReadService.searchUsers({
       email,
       userId,
       riskLevel,
@@ -729,15 +737,9 @@ class AdminService {
       trackId,
       shareId,
       recipientName,
-      limit: bounds.limit,
-      offset: bounds.offset,
+      limit,
+      offset,
     });
-    return {
-      users: await this.attributionService.attachAttributionToUsers(users),
-      total,
-      limit: bounds.limit,
-      offset: bounds.offset,
-    };
   }
 
   /**
@@ -745,37 +747,14 @@ class AdminService {
    * Returns counts by tier and conversion rate
    */
   async getUserStats() {
-    const stats = await this.adminUserReadRepository.getUserStats();
-    return {
-      ...stats,
-      conversionRate: stats.totalUsers > 0
-        ? ((stats.paidUsers / stats.totalUsers) * 100).toFixed(1)
-        : '0.0',
-    };
+    return this.adminUserReadService.getUserStats();
   }
 
   /**
    * Get detailed user information with related data
    */
   async getUserDetail(userId) {
-    const user = await this.adminUserReadRepository.getUserById(userId);
-
-    if (!user) return null;
-
-    const [voiceProfile, entitlements, subscription, tracks, shares, attribution, appleAdsAttribution, canonicalAttribution] = await Promise.all([
-      this.adminUserReadRepository.getUserVoiceProfile(userId),
-      this.adminUserReadRepository.getUserEntitlements(userId),
-      this.adminUserReadRepository.getLatestUserSubscription(userId),
-      this.adminUserReadRepository.listUserTracks(userId),
-      this.adminUserReadRepository.listUserShares(userId),
-      this.adminUserReadRepository.getLatestUserDownloadAttribution(userId),
-      this.adminUserReadRepository.getLatestResolvedAppleAdsAttribution(userId),
-      this.attributionService.getUserAttribution(user),
-    ]);
-
-    Object.assign(user, canonicalAttribution);
-
-    return { user, voiceProfile, entitlements, subscription, tracks, shares, attribution, appleAdsAttribution };
+    return this.adminUserReadService.getUserDetail(userId);
   }
 
   async getAttributionHealth() {

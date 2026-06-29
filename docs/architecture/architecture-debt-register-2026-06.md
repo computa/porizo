@@ -23,6 +23,8 @@ service-boundary ownership is also extracted and validated locally. Admin
 moderation service-boundary ownership is also extracted and validated locally.
 Admin job/DLQ operations service-boundary ownership is also extracted and
 validated locally.
+Admin user-read service-boundary ownership is also extracted and validated
+locally.
 Admin user session/voice-control service-boundary ownership is also extracted
 and validated locally.
 Admin share-management service-boundary ownership is also extracted and
@@ -744,10 +746,10 @@ the pre-existing behavior reads status before an unconditional update; fixing
 that requires changing mutation semantics outside this movement-only slice.
 The admin user-read follow-up now moves admin user search, user-detail, and
 stats read persistence into `database/admin-user-read-repository.js`;
-`AdminService`
-retains pagination bounds, attribution attachment/merge, route-facing response
-shapes, stats conversion-rate formatting, and the unrelated user mutation
-methods. Characterization
+`AdminUserReadService` now retains pagination bounds, attribution
+attachment/merge, route-facing response shapes, and stats conversion-rate
+formatting, while `AdminService` is only the compatibility facade and still
+owns unrelated user mutation methods. Characterization
 pins search filters, free-tier-without-entitlement semantics, selected adoption
 metrics, detail fan-out rows, latest subscription/download/Apple Ads reads, and
 the missing-user 404 envelope. The stats follow-up pins admin auth, bare JSON
@@ -1697,6 +1699,15 @@ result mapping, job-step history delegation, and admin audit emission only for
 successful mutations. Direct service tests pin metric windows, pagination
 bounds, retry audit/no-audit paths, DLQ reprocess audit/no-audit paths, and
 step-history delegation.
+Admin user-read service ownership is also extracted into
+`src/services/admin/user-read-service.js`. `AdminService` remains a
+compatibility facade for `searchUsers`, `getUserStats`, and `getUserDetail`,
+while the new service owns pagination bounds, attribution enrichment/merge,
+stats conversion-rate formatting, detail fan-out, and missing-user no-fanout
+behavior. Direct service tests pin bounded filter delegation, zero-user
+conversion formatting, canonical attribution merge behavior, and facade
+delegation; repository and route suites continue to pin SQL semantics, auth,
+pagination metadata, and 404 envelopes.
 Admin user session/voice-control service ownership is also extracted into
 `src/services/admin/user-session-control-service.js`. `AdminService` remains a
 compatibility facade for `forceVoiceReverify`, `getUserSessions`,

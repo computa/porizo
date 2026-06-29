@@ -1915,6 +1915,14 @@ compatibility facade for `getTeaserMetrics` and `getShareMetrics`, while the
 metrics service owns growth metric windows and rate formatting. Focused
 repository/service and route validation passed for the growth metrics contracts.
 
+Root 6 service-boundary follow-up: admin user-read service ownership is now
+extracted into `src/services/admin/user-read-service.js`. `AdminService`
+remains the compatibility facade for `searchUsers`, `getUserStats`, and
+`getUserDetail`, while the new service owns bounded filter delegation,
+attribution enrichment/merge, stats conversion formatting, detail fan-out, and
+missing-user no-fanout behavior. Focused repository/service and route validation
+passed for the admin user-read contracts.
+
 ## Task 17: Root 7 Writer Decomposition
 
 **Owner:** One worker
