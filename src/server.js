@@ -139,6 +139,7 @@ const {
   giftDeliveryPlugin,
   startGiftDeliveryRuntime,
 } = require("./plugins/gift-delivery");
+const { registerOpenApi } = require("./plugins/openapi");
 const { validationSchemas } = require("./schemas/http-validation");
 
 /**
@@ -324,6 +325,7 @@ function buildServer({
     twilioStatusCallbackBaseUrl,
   });
   registerHostAllowlist(app, { appConfig, allowedHosts });
+  registerOpenApi(app, { publicBaseUrl });
 
   // Cache HTML templates at startup to avoid readFileSync on every request
   const webPlayerTemplate = fs.readFileSync(
