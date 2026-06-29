@@ -42,6 +42,16 @@ const {
   roughTokenEstimate,
   summarizePromptCompactionText,
 } = require("./songwriter/prompt-budget");
+const {
+  sanitizeInput,
+  sanitizeLongStoryForPrompt,
+  sanitizeLongStoryInput,
+} = require("./songwriter/text-normalization");
+const {
+  getSectionText,
+  serializeLyricsDraftForPrompt,
+  summarizeExistingSections,
+} = require("./songwriter/prompt-serialization");
 
 // Syllable constraints for singability
 const MIN_SYLLABLES_PER_LINE = 3;
@@ -59,8 +69,6 @@ const LYRICS_LLM_REPAIR_MAX_OUTPUT_TOKENS = Math.max(
   1500,
   Math.ceil(LYRICS_LLM_MAX_OUTPUT_TOKENS * 0.6),
 );
-const SHORT_FIELD_CHAR_LIMIT = 2000;
-const LONG_STORY_CHAR_LIMIT = 12000;
 const PROMPT_STORY_EXCERPT_CHAR_LIMIT = 2400;
 const PROMPT_LEDGER_MAX_ENTRIES = 40;
 const FIDELITY_LEDGER_MAX_ENTRIES = 80;
@@ -118,48 +126,6 @@ YOUR VOICE:
 - Nostalgic but not cheesy
 - Allow contrast or surprise when it deepens the emotion
 - Every line should feel inevitable, not forced`;
-
-/**
- * Sanitize input text for safe LLM processing
- * Removes control characters, excessive whitespace, and dangerous patterns
- * @param {string} text - Raw input text
- * @returns {string} - Sanitized text
- */
-function sanitizeText(text, maxLength = SHORT_FIELD_CHAR_LIMIT) {
-  if (!text || typeof text !== "string") return "";
-
-  return text
-    // Remove control characters except newlines and tabs
-    // eslint-disable-next-line no-control-regex
-    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "")
-    // Remove zero-width characters first (potential injection vectors)
-    .replace(/[\u200B-\u200D\uFEFF]/g, "")
-    // Normalize unicode whitespace to regular spaces (excluding zero-width already removed)
-    .replace(/[\u00A0\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200A\u2028\u2029\u202F\u205F\u3000]/g, " ")
-    // Collapse multiple spaces to single space
-    .replace(/\s+/g, " ")
-    // Limit length for the caller's field type.
-    .slice(0, maxLength)
-    .trim();
-}
-
-function sanitizeInput(text) {
-  return sanitizeText(text, SHORT_FIELD_CHAR_LIMIT);
-}
-
-function sanitizeLongStoryInput(text, maxLength = LONG_STORY_CHAR_LIMIT) {
-  return sanitizeText(text, maxLength);
-}
-
-function sanitizeLongStoryForPrompt(text) {
-  let sanitized = sanitizeLongStoryInput(text);
-  sanitized = sanitized.replace(/\r\n/g, "\n").replace(/\n{3,}/g, "\n\n");
-  sanitized = sanitized.replace(/<[^>]*>/g, "");
-  sanitized = sanitized.replace(/```[^`]*```/g, "");
-  sanitized = sanitized.replace(/###[^\n]*/g, "");
-  sanitized = sanitized.replace(/\[\[[^\]]*\]\]/g, "");
-  return sanitized.trim();
-}
 
 /**
  * Validate style against known MUSIC_STYLES
@@ -1387,19 +1353,6 @@ function flattenLyricsText(lyrics) {
     .join("\n");
 }
 
-function serializeLyricsDraftForPrompt(lyrics) {
-  if (!lyrics || typeof lyrics !== "object" || !Array.isArray(lyrics.sections)) return "";
-  const sections = lyrics.sections
-    .map((section) => {
-      const name = sanitizeInput(section?.name || "section").toUpperCase();
-      const lines = Array.isArray(section?.lines) ? section.lines : [];
-      if (lines.length === 0) return "";
-      return `${name}:\n${lines.map((line) => `- ${sanitizeForPrompt(typeof line === "string" ? line : (line && line.text) || "")}`).join("\n")}`;
-    })
-    .filter(Boolean);
-  return sections.join("\n\n");
-}
-
 function aggregateUsage(total = {}, usage = {}) {
   const next = { ...total };
   for (const [key, value] of Object.entries(usage || {})) {
@@ -1468,33 +1421,6 @@ function formatSectionContractEntries(entries, factMap) {
     .map((entry) => formatSongMapEntry(entry, factMap))
     .filter(Boolean);
   return formatted.length > 0 ? formatted.join("\n") : "";
-}
-
-function summarizeExistingSections(sections = []) {
-  if (!Array.isArray(sections) || sections.length === 0) return "";
-  return sections
-    .filter((section) => section && Array.isArray(section.lines) && section.lines.length > 0)
-    .map((section) => {
-      const name = sanitizeInput(section.name || "section").toUpperCase();
-      const lines = section.lines
-        .map((line) => sanitizeForPrompt(typeof line === "string" ? line : (line && line.text) || ""))
-        .filter(Boolean);
-      return lines.length > 0
-        ? `${name}:\n${lines.map((line) => `- ${line}`).join("\n")}`
-        : "";
-    })
-    .filter(Boolean)
-    .join("\n\n");
-}
-
-function getSectionText(lyrics, sectionName) {
-  if (!lyrics || !Array.isArray(lyrics.sections)) return "";
-  const section = lyrics.sections.find((entry) => String(entry?.name || "").toLowerCase() === String(sectionName || "").toLowerCase());
-  if (!section || !Array.isArray(section.lines)) return "";
-  return section.lines
-    .map((line) => typeof line === "string" ? line : (line && line.text) || "")
-    .filter(Boolean)
-    .join("\n");
 }
 
 function buildSectionRepairNote(sectionName, fidelity, previousDraft) {

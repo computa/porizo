@@ -1977,7 +1977,7 @@ contracts.
 - Test: `test/writer/songwriter-fidelity.test.js`
 - Test: `test/writer/e2e-story-to-lyrics.test.js`
 
-- [ ] **Step 1: Run writer characterization tests**
+- [x] **Step 1: Run writer characterization tests**
 
 Run:
 
@@ -1987,7 +1987,7 @@ node --test --test-concurrency=1 test/writer/songwriter-fidelity.test.js test/wr
 
 Expected: all selected tests pass.
 
-- [ ] **Step 2: Move serialization and prompt-building helpers**
+- [x] **Step 2: Move serialization and prompt-building helpers**
 
 Use focused module exports:
 
@@ -2003,7 +2003,12 @@ module.exports = { buildSongPrompt };
 
 Keep provider invocation in the orchestration file.
 
-- [ ] **Step 3: Run writer validation and commit**
+2026-06-29 code-first slice: moved LLM input normalization to
+`src/writer/songwriter/text-normalization.js` and lyrics draft / prior-section
+serialization to `src/writer/songwriter/prompt-serialization.js`. Provider
+invocation and generation orchestration remain in `songwriter.js`.
+
+- [x] **Step 3: Run writer validation and commit**
 
 Run:
 

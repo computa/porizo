@@ -1854,7 +1854,8 @@ admin auth, and response contracts.
 **Closes:** D2 (writer), the songwriter↔v3 cycle.
 **Scope:** Break the circular dep by extracting `validateSongContract` + contract types into a leaf `writer/contracts.js` (both sides depend on the leaf; the lazy require disappears). Split `quality.js` into `quality/song-gaps.js` + `quality/poem-readiness.js`. Extract `resolveTurnDecision` + narrative-repair out of `v3/index.js`. Consolidate `splitSentences`/`factText` duplicates.
 **Status 2026-06-29:** Completed. Code-first slices:
-`songwriter/prompt-budget.js`, `song-contract.js`,
+`songwriter/prompt-budget.js`, `songwriter/text-normalization.js`,
+`songwriter/prompt-serialization.js`, `song-contract.js`,
 `v3/quality/poem-readiness.js`, `v3/quality/question-targeting.js`,
 `v3/quality/labov-gap-analysis.js`, `v3/quality/slot-gap-model.js`,
 `v3/quality/story-gap-analysis.js`, `v3/quality/story-elements.js`,
@@ -1872,8 +1873,11 @@ policy, story gap analysis, and story element scoring are now out of
 Focused V3/writer validation and lint passed for each slice. The final
 test-parity pass added direct coverage for the extracted contract sanitizer and
 validation helpers, runtime question guards, ready-confirmation text, V3 text
-utilities, and shared `factText` behavior. Cleanup review found no remaining
-Root 7 lazy songwriter/v3 imports or Root 7 TODO/FIXME leftovers.
+utilities, and shared `factText` behavior. A follow-up code-first slice moved
+LLM input normalization and lyrics draft / section serialization out of
+`songwriter.js` while keeping provider invocation and generation orchestration
+in the live lyrics layer. Cleanup review found no remaining Root 7 lazy
+songwriter/v3 imports or Root 7 TODO/FIXME leftovers.
 **Boundary:** Do NOT alter LLM prompts or generation behavior — structural extraction only, with golden-output regression tests before/after.
 
 ---
