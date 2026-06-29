@@ -323,48 +323,6 @@ class AdminService {
   }
 
   /**
-   * Update user entitlements (tier)
-   */
-  async updateUserEntitlements(userId, fields, adminId) {
-    return this.adminEntitlementsService.updateUserEntitlements(
-      userId,
-      fields,
-      adminId,
-    );
-  }
-
-  // ============ BILLING & REVENUE ============
-
-  /**
-   * Get revenue metrics for dashboard
-   * @param {number} days - Number of days to look back
-   */
-  async getRevenueMetrics(days = 30) {
-    return this.adminBillingService.getRevenueMetrics(days);
-  }
-
-  /**
-   * Get receipt-backed Apple sales and current subscriber visibility.
-   */
-  async getBillingSales({ days = 30, limit = 50, offset = 0 } = {}) {
-    return this.adminBillingService.getBillingSales({ days, limit, offset });
-  }
-
-  /**
-   * Get subscription health metrics
-   */
-  async getSubscriptionHealth() {
-    return this.adminBillingService.getSubscriptionHealth();
-  }
-
-  /**
-   * Get recent billing transactions
-   */
-  async getBillingTransactions({ limit = 50, offset = 0 } = {}) {
-    return this.adminBillingService.getBillingTransactions({ limit, offset });
-  }
-
-  /**
    * Get app config for public consumption (mobile apps)
    * Returns a curated subset of configuration safe for clients
    */

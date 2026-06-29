@@ -5,6 +5,8 @@ function registerAdminBillingRoutes(
   {
     adminBillingRepo,
     adminService,
+    billingService,
+    entitlementsService,
     planConfigService,
     requireAdminRole,
     requireAdminSession,
@@ -17,7 +19,7 @@ function registerAdminBillingRoutes(
     const admin = await requireAdminRole(request, reply, ["superadmin"]);
     if (!admin) return;
     const fields = request.body || {};
-    const result = await adminService.updateUserEntitlements(
+    const result = await entitlementsService.updateUserEntitlements(
       request.params.id,
       fields,
       admin.adminId,
@@ -119,21 +121,21 @@ function registerAdminBillingRoutes(
     const admin = await requireAdminSession(request, reply);
     if (!admin) return;
     const days = parseInt(request.query.days) || 30;
-    const metrics = await adminService.getRevenueMetrics(days);
+    const metrics = await billingService.getRevenueMetrics(days);
     reply.send(metrics);
   });
 
   app.get("/admin/dashboard/billing/subscriptions", async (request, reply) => {
     const admin = await requireAdminSession(request, reply);
     if (!admin) return;
-    const health = await adminService.getSubscriptionHealth();
+    const health = await billingService.getSubscriptionHealth();
     reply.send(health);
   });
 
   app.get("/admin/dashboard/billing/sales", async (request, reply) => {
     const admin = await requireAdminSession(request, reply);
     if (!admin) return;
-    const sales = await adminService.getBillingSales({
+    const sales = await billingService.getBillingSales({
       days: request.query.days || 30,
       limit: request.query.limit,
       offset: request.query.offset,
@@ -145,7 +147,7 @@ function registerAdminBillingRoutes(
     const admin = await requireAdminSession(request, reply);
     if (!admin) return;
     const { limit, offset } = request.query;
-    const transactions = await adminService.getBillingTransactions({
+    const transactions = await billingService.getBillingTransactions({
       limit,
       offset,
     });

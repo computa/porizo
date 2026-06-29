@@ -1936,20 +1936,21 @@ mutation contracts.
 
 Root 6 service-boundary follow-up: admin entitlement tier-update service
 ownership is now extracted into `src/services/admin/entitlements-service.js`.
-`AdminService` remains the compatibility facade for `updateUserEntitlements`,
-while the new service owns tier allowlist validation, empty-update envelopes,
-repository timestamp injection for missing entitlement rows, previous-tier
-defaulting, and `admin_update_entitlements` audit metadata. Focused service,
-route, user-read, and subscription-manager validation passed for the admin
-entitlement contracts.
+`src/routes/admin/billing.js` now calls that service directly for
+`updateUserEntitlements` instead of passing through `AdminService`. The service
+owns tier allowlist validation, empty-update envelopes, repository timestamp
+injection for missing entitlement rows, previous-tier defaulting, and
+`admin_update_entitlements` audit metadata. Focused service, route, user-read,
+and subscription-manager validation passed for the admin entitlement contracts.
 
 Root 6 service-boundary follow-up: admin billing/revenue read ownership is now
-extracted into `src/services/admin/billing-service.js`. `AdminService` remains
-the compatibility facade for revenue metrics, receipt-backed sales,
-subscription health, and billing transactions, while the new service owns
-product-catalog fallback, counted-sale filtering and pagination, subscriber
-normalization, currency-bucket aggregation, mixed-currency scalar fallback, and
-transaction projection. Focused service, route, repository, entitlement, and
+extracted into `src/services/admin/billing-service.js`.
+`src/routes/admin/billing.js` now calls that service directly for revenue
+metrics, receipt-backed sales, subscription health, and billing transactions
+instead of passing through `AdminService`. The service owns product-catalog
+fallback, counted-sale filtering and pagination, subscriber normalization,
+currency-bucket aggregation, mixed-currency scalar fallback, and transaction
+projection. Focused service, route, repository, entitlement, and
 subscription-manager validation passed for the admin billing read contracts.
 
 Root 6 service-boundary follow-up: admin analytics service ownership is now
@@ -2066,6 +2067,15 @@ config from that service directly. Removed `AdminService.getSTTConfig`,
 `setSTTConfig`, `getMusicProviderConfig`, and `setMusicProviderConfig`;
 focused provider-config route/service, STT config, music provider config,
 client config, and provider runtime validation passed.
+
+Root 6 facade-reduction follow-up: billing admin routes now call
+`adminEntitlementsService` for entitlement updates and `adminBillingService`
+for revenue, sales, subscription health, and billing transactions instead of
+passing through `AdminService`. Removed `AdminService.updateUserEntitlements`,
+`getRevenueMetrics`, `getBillingSales`, `getSubscriptionHealth`, and
+`getBillingTransactions`; focused entitlement, billing service, billing
+repository, and billing route validation passed. Existing `adminService._audit`
+calls in the same route remain for the later audit-route cleanup.
 
 ## Task 17: Root 7 Writer Decomposition
 

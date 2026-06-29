@@ -6,7 +6,6 @@ const path = require("node:path");
 const { afterEach, beforeEach, describe, test } = require("node:test");
 
 const { getDatabase } = require("../src/database");
-const { AdminService } = require("../src/services/admin-service");
 const {
   createAdminBillingService,
 } = require("../src/services/admin/billing-service");
@@ -557,58 +556,5 @@ describe("AdminBillingService", () => {
     assert.ok(calls.some(([name]) => name === "subscriber-count"));
     assert.ok(calls.some(([name]) => name === "subscriptions-by-tier"));
     assert.ok(calls.some(([name]) => name === "health"));
-  });
-});
-
-describe("AdminService billing facade", () => {
-  test("delegates billing read methods to the injected billing service", async () => {
-    const calls = [];
-    const expected = {
-      revenue: { totalRevenue: 42 },
-      sales: { recentSales: [] },
-      health: { totalActive: 3 },
-      transactions: [{ id: "tx_1" }],
-    };
-    const service = new AdminService(
-      { prepare: () => { throw new Error("unexpected db access"); } },
-      {
-        adminBillingService: {
-          async getRevenueMetrics(days) {
-            calls.push(["revenue", days]);
-            return expected.revenue;
-          },
-          async getBillingSales(payload) {
-            calls.push(["sales", payload]);
-            return expected.sales;
-          },
-          async getSubscriptionHealth() {
-            calls.push(["health"]);
-            return expected.health;
-          },
-          async getBillingTransactions(payload) {
-            calls.push(["transactions", payload]);
-            return expected.transactions;
-          },
-        },
-      },
-    );
-
-    assert.deepEqual(await service.getRevenueMetrics(14), expected.revenue);
-    assert.deepEqual(
-      await service.getBillingSales({ days: "all", limit: 5, offset: 1 }),
-      expected.sales,
-    );
-    assert.deepEqual(await service.getSubscriptionHealth(), expected.health);
-    assert.deepEqual(
-      await service.getBillingTransactions({ limit: 3, offset: 2 }),
-      expected.transactions,
-    );
-
-    assert.deepEqual(calls, [
-      ["revenue", 14],
-      ["sales", { days: "all", limit: 5, offset: 1 }],
-      ["health"],
-      ["transactions", { limit: 3, offset: 2 }],
-    ]);
   });
 });

@@ -3,7 +3,6 @@ process.env.NODE_ENV = "test";
 const assert = require("node:assert/strict");
 const { describe, test } = require("node:test");
 
-const { AdminService } = require("../src/services/admin-service");
 const {
   createAdminEntitlementsService,
 } = require("../src/services/admin/entitlements-service");
@@ -102,33 +101,5 @@ describe("AdminEntitlementsService", () => {
       previous: { tier: "free" },
       updated: { tier: "pro" },
     });
-  });
-});
-
-describe("AdminService entitlements facade", () => {
-  test("delegates entitlement updates to the injected entitlements service", async () => {
-    const calls = [];
-    const expected = { success: true };
-    const service = new AdminService(
-      {},
-      {
-        adminEntitlementsService: {
-          async updateUserEntitlements(userId, fields, adminId) {
-            calls.push(["update", userId, fields, adminId]);
-            return expected;
-          },
-        },
-      },
-    );
-
-    const fields = { tier: "plus" };
-
-    assert.deepEqual(
-      await service.updateUserEntitlements("user_entitlements", fields, "admin_ops"),
-      expected,
-    );
-    assert.deepEqual(calls, [
-      ["update", "user_entitlements", fields, "admin_ops"],
-    ]);
   });
 });

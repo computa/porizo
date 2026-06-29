@@ -403,6 +403,8 @@ function registerAdminRoutes(
   registerAdminBillingRoutes(app, {
     adminBillingRepo,
     adminService,
+    billingService: adminService.adminBillingService,
+    entitlementsService: adminService.adminEntitlementsService,
     planConfigService,
     requireAdminRole,
     requireAdminSession,

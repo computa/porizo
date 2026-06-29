@@ -1742,26 +1742,27 @@ validation-result envelopes, successful and missing-user paths, per-user and
 bulk audit ordering, and empty attribution fallback; route suites continue to
 pin admin role gates and HTTP envelopes.
 Admin entitlement tier-update service ownership is also extracted into
-`src/services/admin/entitlements-service.js`. `AdminService` remains a
-compatibility facade for `updateUserEntitlements`, while the new service owns
-tier allowlist validation, empty-update envelopes, repository timestamp
-injection for missing-row inserts, previous-tier defaulting, and
-`admin_update_entitlements` audit metadata. Direct service tests pin invalid
-tier/no-audit behavior, existing-row and inserted-row audit contracts, and
-facade delegation; route and subscription suites continue to pin superadmin
-gates, unchanged `updated_at` for existing rows, missing-row insert behavior,
-and billing entitlement semantics.
+`src/services/admin/entitlements-service.js`, and
+`src/routes/admin/billing.js` now calls it directly for admin entitlement
+updates instead of going through `AdminService`. The service owns tier allowlist
+validation, empty-update envelopes, repository timestamp injection for
+missing-row inserts, previous-tier defaulting, and `admin_update_entitlements`
+audit metadata. Direct service tests pin invalid tier/no-audit behavior and
+existing-row and inserted-row audit contracts; route and subscription suites
+continue to pin superadmin gates, unchanged `updated_at` for existing rows,
+missing-row insert behavior, and billing entitlement semantics.
 Admin billing/revenue read service ownership is also extracted into
-`src/services/admin/billing-service.js`. `AdminService` remains a compatibility
-facade for `getRevenueMetrics`, `getBillingSales`, `getSubscriptionHealth`,
-and `getBillingTransactions`, while the new service owns receipt-backed product
-catalog fallback, counted-sale filtering, sales pagination over counted rows,
-current-subscriber normalization, currency-bucket aggregation, mixed-currency
-scalar fallback, revenue metrics shaping, subscription-health date windows, and
-transaction projection. Direct service tests pin repository delegation, period
-and pagination bounds, active subscriber full-count versus preview-list
-behavior, receipt money extraction policy, and facade delegation; route and
-repository suites continue to pin verified-receipt SQL, strict period filtering,
+`src/services/admin/billing-service.js`, and `src/routes/admin/billing.js` now
+calls it directly for revenue metrics, receipt-backed sales, subscription
+health, and billing transactions instead of going through `AdminService`. The
+service owns receipt-backed product catalog fallback, counted-sale filtering,
+sales pagination over counted rows, current-subscriber normalization,
+currency-bucket aggregation, mixed-currency scalar fallback, revenue metrics
+shaping, subscription-health date windows, and transaction projection. Direct
+service tests pin repository delegation, period and pagination bounds, active
+subscriber full-count versus preview-list behavior, and receipt money extraction
+policy; route and repository suites continue to pin verified-receipt SQL,
+strict period filtering,
 current subscriber semantics, and subscription-manager entitlement behavior.
 Admin analytics service ownership is also extracted into
 `src/services/admin/analytics-service.js`, and
