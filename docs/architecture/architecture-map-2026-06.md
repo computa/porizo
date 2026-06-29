@@ -256,7 +256,7 @@ These are **not** cosmetic. They were surfaced by the formal review and must be 
 
 ### D6 — Migration-location divergence (test-fidelity hazard)
 
-Three migration locations: `migrations/` (SQLite, 116 files), `migrations/pg/` (Postgres, 112 files), `src/database/migrations/sql/` (3 files, **dead in production** — a test-only abandoned consolidation). **9 migrations exist in one mirror but not the other** → tests run against a SQLite schema that differs from production Postgres. CI has no check comparing the two file lists.
+Three migration locations: `migrations/` (SQLite, 118 SQL files), `migrations/pg/` (Postgres, 114 SQL files), `src/database/migrations/sql/` (2 SQL files + runner, **dead in production** — a test-only abandoned consolidation). **14 migration filenames exist in only one mirror** (9 SQLite-only, 5 Postgres-only) → tests run against a SQLite schema that differs from production Postgres. `npm run verify:migrations` now blocks new unreviewed filename drift while the known divergences are reconciled.
 
 ---
 

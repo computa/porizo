@@ -1630,7 +1630,8 @@ Root 7 lazy songwriter/v3 imports or Root 7 TODO/FIXME leftovers.
 ### Root 9 — Migration-location convergence 🟡 effort S–M
 
 **Closes:** D6 (test-fidelity hazard).
-**Scope:** Reconcile the 9 divergent migrations between `migrations/` (SQLite) and `migrations/pg/`; add a CI check comparing the two file lists; delete the dead `src/database/migrations/sql/` consolidation.
+**Scope:** Reconcile the 14 divergent migration filenames between `migrations/` (SQLite) and `migrations/pg/` (9 SQLite-only, 5 Postgres-only); keep `npm run verify:migrations` passing as the filename drift gate; delete the dead `src/database/migrations/sql/` consolidation after its two test consumers are migrated.
+**Status 2026-06-29:** Started. Added `tools/verify-migration-parity.js` and `npm run verify:migrations`, with an exact allowlist for the current known filename drift and legacy consolidation files. The guard now fails on any new unreviewed migration-list divergence while Root 9 reconciles the existing drift in reviewed slices.
 **Boundary:** ⚠ Touches schema tooling. Per the migration-safety rule: compare local vs prod schema first, confirm non-destructive, never auto-apply a data-wiping migration. Document each divergence's intent before deleting.
 
 ### Root 10 — Storage interface parity + OpenAPI 🟢 effort S–M
