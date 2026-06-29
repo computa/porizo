@@ -1668,23 +1668,21 @@ facade method, while the new service owns audit ID generation, timestamp
 normalization, admin metadata enrichment, and `EventsRepository.insertAuditLog`
 payload construction.
 Admin feature-flag service ownership is also extracted into
-`src/services/admin/feature-flag-service.js`. `AdminService` remains a
-compatibility facade for `getAllFeatureFlags` and `updateFeatureFlags`, while
-the new service owns admin cache clearing, grouped metadata shaping, option
-decoration, value validation, partial-success update behavior, and bulk audit
-emission. Direct service tests pin metadata grouping, string-option decoration,
-number coercion-with-original-value persistence, partial validation errors,
-cache clearing, and audit metadata.
+`src/services/admin/feature-flag-service.js`, and
+`src/routes/admin/feature-flags.js` now calls that service directly instead of
+going through `AdminService`. The service owns admin cache clearing, grouped
+metadata shaping, option decoration, value validation, partial-success update
+behavior, and bulk audit emission. Direct service tests pin metadata grouping,
+string-option decoration, number coercion-with-original-value persistence,
+partial validation errors, cache clearing, and audit metadata.
 Admin onboarding-sample service ownership is also extracted into
-`src/services/admin/onboarding-sample-service.js`. `AdminService` remains a
-compatibility facade for `getOnboardingSamples`, `getActiveOnboardingSample`,
-`createOnboardingSample`, `updateOnboardingSample`, `deleteOnboardingSample`,
-and `activateOnboardingSample`, while the new service owns validation,
-ID/timestamp generation, active-sample migration fallback, repository
-orchestration, and admin audit emission. Direct service tests pin trimmed
-create persistence with raw audit metadata, validation errors, allowlisted
-updates, missing-sample errors, activation/delete audit metadata, and active
-lookup fallback.
+`src/services/admin/onboarding-sample-service.js`, and
+`src/routes/admin/onboarding-samples.js` now calls that service directly instead
+of going through `AdminService`. The service owns validation, ID/timestamp
+generation, active-sample migration fallback, repository orchestration, and
+admin audit emission. Direct service tests pin trimmed create persistence with
+raw audit metadata, validation errors, allowlisted updates, missing-sample
+errors, activation/delete audit metadata, and active lookup fallback.
 Admin security/app-update config service ownership is also extracted into
 `src/services/admin/security-config-service.js`. `AdminService` remains a
 compatibility facade for `getSecurityConfig`, `updateSecurityConfig`,

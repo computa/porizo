@@ -11,14 +11,14 @@ function isOnboardingSampleValidationError(err) {
 
 function registerAdminOnboardingSampleRoutes(
   app,
-  { adminService, requireAdminRole, requireAdminSession, sendError },
+  { onboardingSampleService, requireAdminRole, requireAdminSession, sendError },
 ) {
   app.get("/admin/dashboard/onboarding-samples", async (request, reply) => {
     const admin = await requireAdminSession(request, reply);
     if (!admin) return;
 
     try {
-      const samples = await adminService.getOnboardingSamples();
+      const samples = await onboardingSampleService.getOnboardingSamples();
       reply.send({ samples });
     } catch (err) {
       request.log.error({ err }, "[Admin] Get onboarding samples error");
@@ -33,7 +33,7 @@ function registerAdminOnboardingSampleRoutes(
     const { label, audio_url } = request.body || {};
 
     try {
-      const sample = await adminService.createOnboardingSample(
+      const sample = await onboardingSampleService.createOnboardingSample(
         { label, audio_url },
         admin.adminId,
       );
@@ -56,7 +56,7 @@ function registerAdminOnboardingSampleRoutes(
     const updates = request.body || {};
 
     try {
-      const sample = await adminService.updateOnboardingSample(
+      const sample = await onboardingSampleService.updateOnboardingSample(
         id,
         updates,
         admin.adminId,
@@ -85,7 +85,7 @@ function registerAdminOnboardingSampleRoutes(
       const { id } = request.params;
 
       try {
-        const sample = await adminService.activateOnboardingSample(
+        const sample = await onboardingSampleService.activateOnboardingSample(
           id,
           admin.adminId,
         );
@@ -110,7 +110,7 @@ function registerAdminOnboardingSampleRoutes(
       const { id } = request.params;
 
       try {
-        const result = await adminService.deleteOnboardingSample(
+        const result = await onboardingSampleService.deleteOnboardingSample(
           id,
           admin.adminId,
         );

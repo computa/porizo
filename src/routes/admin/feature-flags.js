@@ -2,13 +2,13 @@
 
 function registerAdminFeatureFlagRoutes(
   app,
-  { adminService, requireAdminRole, requireAdminSession, sendError },
+  { featureFlagService, requireAdminRole, requireAdminSession, sendError },
 ) {
   app.get("/admin/dashboard/feature-flags", async (request, reply) => {
     const admin = await requireAdminSession(request, reply);
     if (!admin) return;
     try {
-      const flags = await adminService.getAllFeatureFlags();
+      const flags = await featureFlagService.getAllFeatureFlags();
       reply.send(flags);
     } catch (err) {
       console.error(
@@ -39,7 +39,7 @@ function registerAdminFeatureFlagRoutes(
     }
 
     try {
-      const result = await adminService.updateFeatureFlags(
+      const result = await featureFlagService.updateFeatureFlags(
         updates,
         admin.adminId,
       );

@@ -1975,6 +1975,14 @@ normalization, admin metadata enrichment, and `EventsRepository.insertAuditLog`
 payload construction. Focused audit service, analytics, demo-share, share, and
 gift-ops validation passed for audit-writing contracts.
 
+Root 6 facade-reduction follow-up: feature-flag and onboarding-sample admin
+routes now call their dedicated services directly instead of passing through
+`AdminService` delegate methods. Removed `AdminService.getAllFeatureFlags`,
+`updateFeatureFlags`, `getOnboardingSamples`, `getActiveOnboardingSample`,
+`createOnboardingSample`, `updateOnboardingSample`, `deleteOnboardingSample`,
+and `activateOnboardingSample`; focused feature-flag, onboarding-sample, and
+public app-config validation passed.
+
 ## Task 17: Root 7 Writer Decomposition
 
 **Owner:** One worker

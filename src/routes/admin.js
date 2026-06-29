@@ -536,7 +536,7 @@ function registerAdminRoutes(
   // --- Feature Flags Config ---
 
   registerAdminFeatureFlagRoutes(app, {
-    adminService,
+    featureFlagService: adminService.adminFeatureFlagService,
     requireAdminRole,
     requireAdminSession,
     sendError,
@@ -547,7 +547,7 @@ function registerAdminRoutes(
   });
 
   registerAdminOnboardingSampleRoutes(app, {
-    adminService,
+    onboardingSampleService: adminService.adminOnboardingSampleService,
     requireAdminRole,
     requireAdminSession,
     sendError,

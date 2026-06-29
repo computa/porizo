@@ -8,7 +8,13 @@ const { getDatabase } = require("../src/database");
 const {
   createAdminOnboardingSampleRepository,
 } = require("../src/database/admin-onboarding-sample-repository");
-const { AdminService } = require("../src/services/admin-service");
+const { createEventsRepository } = require("../src/database/events-repository");
+const {
+  createAdminAuditService,
+} = require("../src/services/admin/audit-service");
+const {
+  createAdminOnboardingSampleService,
+} = require("../src/services/admin/onboarding-sample-service");
 
 let db;
 let repository;
@@ -197,7 +203,7 @@ describe("AdminOnboardingSampleRepository", () => {
   });
 });
 
-describe("AdminService onboarding samples", () => {
+describe("AdminOnboardingSampleService repository integration", () => {
   beforeEach(async () => {
     db = await getDatabase({
       provider: "sqlite",
@@ -213,8 +219,13 @@ describe("AdminService onboarding samples", () => {
 
   test("createOnboardingSample delegates persistence and keeps audit contract", async () => {
     await db.prepare("DELETE FROM onboarding_samples").run();
-    const service = new AdminService(db, {
-      adminOnboardingSampleRepository: repository,
+    const auditService = createAdminAuditService({
+      eventsRepository: createEventsRepository(db),
+    });
+    const service = createAdminOnboardingSampleService({
+      onboardingSampleRepository: repository,
+      appConfigRepository: { findActiveOnboardingSample: async () => null },
+      audit: auditService.audit,
     });
 
     const sample = await service.createOnboardingSample(
@@ -254,8 +265,13 @@ describe("AdminService onboarding samples", () => {
       updatedBy: "admin_seed",
     });
 
-    const service = new AdminService(db, {
-      adminOnboardingSampleRepository: repository,
+    const auditService = createAdminAuditService({
+      eventsRepository: createEventsRepository(db),
+    });
+    const service = createAdminOnboardingSampleService({
+      onboardingSampleRepository: repository,
+      appConfigRepository: { findActiveOnboardingSample: async () => null },
+      audit: auditService.audit,
     });
 
     const sample = await service.activateOnboardingSample(

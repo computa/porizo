@@ -1023,64 +1023,6 @@ class AdminService {
     });
   }
 
-  // ============ ONBOARDING SAMPLES ============
-
-  /**
-   * List all onboarding audio samples
-   */
-  async getOnboardingSamples() {
-    return await this.adminOnboardingSampleService.getOnboardingSamples();
-  }
-
-  /**
-   * Get the currently active onboarding sample (for app config)
-   * Returns null if none active
-   */
-  async getActiveOnboardingSample() {
-    return await this.adminOnboardingSampleService.getActiveOnboardingSample();
-  }
-
-  /**
-   * Create a new onboarding audio sample
-   */
-  async createOnboardingSample({ label, audio_url }, adminId) {
-    return await this.adminOnboardingSampleService.createOnboardingSample(
-      { label, audio_url },
-      adminId,
-    );
-  }
-
-  /**
-   * Update an onboarding sample (allowlisted fields only)
-   */
-  async updateOnboardingSample(id, fields, adminId) {
-    return await this.adminOnboardingSampleService.updateOnboardingSample(
-      id,
-      fields,
-      adminId,
-    );
-  }
-
-  /**
-   * Delete an onboarding sample
-   */
-  async deleteOnboardingSample(id, adminId) {
-    return await this.adminOnboardingSampleService.deleteOnboardingSample(
-      id,
-      adminId,
-    );
-  }
-
-  /**
-   * Activate a single onboarding sample (transactional: deactivate all, then activate one)
-   */
-  async activateOnboardingSample(id, adminId) {
-    return await this.adminOnboardingSampleService.activateOnboardingSample(
-      id,
-      adminId,
-    );
-  }
-
   /**
    * Get app config for public consumption (mobile apps)
    * Returns a curated subset of configuration safe for clients
@@ -1089,24 +1031,6 @@ class AdminService {
     return this.clientConfigService.getClientConfig();
   }
 
-  // ============ FEATURE FLAGS ============
-
-  /**
-   * Get all feature flags with metadata for admin UI
-   * Returns flags grouped by category with current values and defaults
-   */
-  async getAllFeatureFlags() {
-    return this.adminFeatureFlagService.getAllFeatureFlags();
-  }
-
-  /**
-   * Update feature flags
-   * @param {Object} updates - Object with flag IDs as keys and new values
-   * @param {string} adminId - Admin user ID for audit
-   */
-  async updateFeatureFlags(updates, adminId) {
-    return this.adminFeatureFlagService.updateFeatureFlags(updates, adminId);
-  }
 }
 
 module.exports = { AdminService, escapeLikePattern };
