@@ -1411,6 +1411,12 @@ instead of ad hoc fallback reads from ambient environment. The direct
 `REPLICATE_API_TOKEN` fallback inside `src/providers/voice.js` is removed so
 personalized voice conversion fails against the injected runtime contract rather
 than silently succeeding with stale process state.
+
+Slice 9 adds `src/providers/index.js` as the provider capability registry and
+wires music routing to consume the registry's music-generation provider list.
+This pins the architectural rule that Suno is the only provider-complete song
+generator today while ElevenLabs remains available for TTS/voice conversion but
+is excluded from song-generation routing even when its runtime config is live.
 **Why early:** Mostly off the revenue path, contained, and the first slice (whisper/elevenlabs-voice retry) removes real render-failure risk for low effort.
 **Boundary:** Do NOT rewrite provider business logic; only normalize transport + path construction.
 
