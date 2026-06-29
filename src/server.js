@@ -2522,18 +2522,10 @@ function buildServer({
     incidentSummary = null,
   }) {
     if (!providerMessageId) {
-      await createGiftIncident({
-        incidentKey: `gift_unknown_receipt:${providerName}:${crypto.createHash("sha1").update(toJson(receiptPayload)).digest("hex")}`,
-        incidentType: "gift_unknown_receipt",
-        severity: "warning",
-        resourceType: "gift_receipt",
-        resourceId: providerName,
-        summary:
-          incidentSummary ||
-          "Gift delivery receipt could not be matched to an outbox row",
-        detail: `Unknown provider message id for ${providerName}`,
-        metadata: { provider_name: providerName },
-      });
+      // No provider_message_id means this webhook event can't correspond to any
+      // gift outbox row (we always store a message id on real gift sends). It's
+      // a non-gift / unmatchable event — acknowledge benignly rather than raising
+      // a false gift incident. See the matched-lookup case below for context.
       return { updated: false, reason: "missing_provider_message_id" };
     }
 
@@ -2549,22 +2541,14 @@ function buildServer({
       .get(providerMessageId);
 
     if (!delivery) {
-      await createGiftIncident({
-        incidentKey: `gift_unknown_receipt:${providerName}:${providerMessageId}`,
-        incidentType: "gift_unknown_receipt",
-        severity: "warning",
-        resourceType: "gift_receipt",
-        resourceId: providerMessageId,
-        summary:
-          incidentSummary ||
-          "Gift delivery receipt could not be matched to an outbox row",
-        detail: `No outbox row matched provider message id ${providerMessageId}`,
-        metadata: {
-          provider_name: providerName,
-          provider_message_id: providerMessageId,
-        },
-      });
-      return { updated: false, reason: "unknown_provider_message_id" };
+      // The provider webhook (Resend/Twilio) fires for ALL outbound messages —
+      // cold-email campaigns, nurture sequences, transactional mail — not just
+      // gift deliveries. A receipt whose provider_message_id is absent from the
+      // gift outbox simply isn't a gift receipt; acknowledge it and move on.
+      // Raising an incident here produced thousands of false "unknown receipt"
+      // warnings (one per non-gift email) that buried real signal. We only
+      // record provider_message_id on real gift sends, so a miss here is benign.
+      return { updated: false, reason: "not_a_gift_receipt" };
     }
 
     const nextState = chooseReceiptState({

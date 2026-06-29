@@ -66,7 +66,10 @@ describe("gift delivery webhook routes", () => {
         message: "Webhook gift testing",
       },
     });
-    assert.ok([200, 201].includes(trackResponse.statusCode), trackResponse.body);
+    assert.ok(
+      [200, 201].includes(trackResponse.statusCode),
+      trackResponse.body,
+    );
     const track = trackResponse.json();
 
     const versionResponse = await app.inject({
@@ -75,16 +78,21 @@ describe("gift delivery webhook routes", () => {
       headers: { "x-user-id": userId },
       payload: {},
     });
-    assert.ok([200, 201].includes(versionResponse.statusCode), versionResponse.body);
+    assert.ok(
+      [200, 201].includes(versionResponse.statusCode),
+      versionResponse.body,
+    );
     const version = versionResponse.json();
 
-    await db.prepare(
-      "UPDATE track_versions SET preview_url = ? WHERE track_id = ? AND version_num = ?"
-    ).run(
-      "http://stream.local/test-preview.m3u8",
-      track.track_id,
-      version.version_num
-    );
+    await db
+      .prepare(
+        "UPDATE track_versions SET preview_url = ? WHERE track_id = ? AND version_num = ?",
+      )
+      .run(
+        "http://stream.local/test-preview.m3u8",
+        track.track_id,
+        version.version_num,
+      );
 
     return {
       trackId: track.track_id,
@@ -142,9 +150,11 @@ describe("gift delivery webhook routes", () => {
       billingServices: { appleValidator: appleValidatorStub },
     });
 
-    await db.prepare(
-      "INSERT OR IGNORE INTO users (id, created_at, risk_level) VALUES (?, ?, ?)"
-    ).run(userId, nowIso(), "low");
+    await db
+      .prepare(
+        "INSERT OR IGNORE INTO users (id, created_at, risk_level) VALUES (?, ?, ?)",
+      )
+      .run(userId, nowIso(), "low");
   });
 
   afterEach(async () => {
@@ -158,13 +168,19 @@ describe("gift delivery webhook routes", () => {
   });
 
   test("rejects invalid Twilio signatures and updates matching outbox rows on valid receipts", async () => {
-    const gift = await createScheduledGift("sms", { recipient_phone: "+61406371221" });
-    const outbox = await db.prepare(
-      "SELECT id FROM gift_delivery_outbox WHERE gift_order_id = ? AND channel = 'sms'"
-    ).get(gift.id);
-    await db.prepare(
-      "UPDATE gift_delivery_outbox SET provider_name = 'twilio', provider_message_id = ?, status = 'sent' WHERE id = ?"
-    ).run("SM123", outbox.id);
+    const gift = await createScheduledGift("sms", {
+      recipient_phone: "+61406371221",
+    });
+    const outbox = await db
+      .prepare(
+        "SELECT id FROM gift_delivery_outbox WHERE gift_order_id = ? AND channel = 'sms'",
+      )
+      .get(gift.id);
+    await db
+      .prepare(
+        "UPDATE gift_delivery_outbox SET provider_name = 'twilio', provider_message_id = ?, status = 'sent' WHERE id = ?",
+      )
+      .run("SM123", outbox.id);
 
     const payloadObject = {
       MessageSid: "SM123",
@@ -187,7 +203,7 @@ describe("gift delivery webhook routes", () => {
     const expectedSignature = twilio.getExpectedTwilioSignature(
       twilioAuthToken,
       `${publicBaseUrl}/gifts/webhooks/twilio-status`,
-      payloadObject
+      payloadObject,
     );
     const validResponse = await app.inject({
       method: "POST",
@@ -201,9 +217,11 @@ describe("gift delivery webhook routes", () => {
     assert.equal(validResponse.statusCode, 200, validResponse.body);
     assert.equal(validResponse.json().updated, true);
 
-    const updated = await db.prepare(
-      "SELECT receipt_status, receipt_event_at, receipt_updated_at FROM gift_delivery_outbox WHERE id = ?"
-    ).get(outbox.id);
+    const updated = await db
+      .prepare(
+        "SELECT receipt_status, receipt_event_at, receipt_updated_at FROM gift_delivery_outbox WHERE id = ?",
+      )
+      .get(outbox.id);
     assert.equal(updated.receipt_status, "delivered");
     assert.ok(updated.receipt_event_at);
     assert.ok(updated.receipt_updated_at);
@@ -232,13 +250,19 @@ describe("gift delivery webhook routes", () => {
       billingServices: { appleValidator: appleValidatorStub },
     });
 
-    const gift = await createScheduledGift("sms", { recipient_phone: "+61406371221" });
-    const outbox = await db.prepare(
-      "SELECT id FROM gift_delivery_outbox WHERE gift_order_id = ? AND channel = 'sms'"
-    ).get(gift.id);
-    await db.prepare(
-      "UPDATE gift_delivery_outbox SET provider_name = 'twilio', provider_message_id = ?, status = 'sent' WHERE id = ?"
-    ).run("SM_CALLBACK_OVERRIDE", outbox.id);
+    const gift = await createScheduledGift("sms", {
+      recipient_phone: "+61406371221",
+    });
+    const outbox = await db
+      .prepare(
+        "SELECT id FROM gift_delivery_outbox WHERE gift_order_id = ? AND channel = 'sms'",
+      )
+      .get(gift.id);
+    await db
+      .prepare(
+        "UPDATE gift_delivery_outbox SET provider_name = 'twilio', provider_message_id = ?, status = 'sent' WHERE id = ?",
+      )
+      .run("SM_CALLBACK_OVERRIDE", outbox.id);
 
     const payloadObject = {
       MessageSid: "SM_CALLBACK_OVERRIDE",
@@ -250,7 +274,7 @@ describe("gift delivery webhook routes", () => {
     const signature = twilio.getExpectedTwilioSignature(
       twilioAuthToken,
       `${callbackBaseUrl}/gifts/webhooks/twilio-status`,
-      payloadObject
+      payloadObject,
     );
     const response = await app.inject({
       method: "POST",
@@ -266,13 +290,19 @@ describe("gift delivery webhook routes", () => {
   });
 
   test("keeps strongest Twilio receipt state across duplicate and out-of-order callbacks", async () => {
-    const gift = await createScheduledGift("sms", { recipient_phone: "+61406371221" });
-    const outbox = await db.prepare(
-      "SELECT id FROM gift_delivery_outbox WHERE gift_order_id = ? AND channel = 'sms'"
-    ).get(gift.id);
-    await db.prepare(
-      "UPDATE gift_delivery_outbox SET provider_name = 'twilio', provider_message_id = ?, status = 'sent' WHERE id = ?"
-    ).run("SM_STRONGEST", outbox.id);
+    const gift = await createScheduledGift("sms", {
+      recipient_phone: "+61406371221",
+    });
+    const outbox = await db
+      .prepare(
+        "SELECT id FROM gift_delivery_outbox WHERE gift_order_id = ? AND channel = 'sms'",
+      )
+      .get(gift.id);
+    await db
+      .prepare(
+        "UPDATE gift_delivery_outbox SET provider_name = 'twilio', provider_message_id = ?, status = 'sent' WHERE id = ?",
+      )
+      .run("SM_STRONGEST", outbox.id);
 
     const deliveredAt = new Date(Date.now() + 1000).toISOString();
     const sentAt = new Date(Date.now()).toISOString();
@@ -286,7 +316,7 @@ describe("gift delivery webhook routes", () => {
     const deliveredSignature = twilio.getExpectedTwilioSignature(
       twilioAuthToken,
       `${publicBaseUrl}/gifts/webhooks/twilio-status`,
-      deliveredPayload
+      deliveredPayload,
     );
     const deliveredResponse = await app.inject({
       method: "POST",
@@ -309,7 +339,7 @@ describe("gift delivery webhook routes", () => {
     const staleSignature = twilio.getExpectedTwilioSignature(
       twilioAuthToken,
       `${publicBaseUrl}/gifts/webhooks/twilio-status`,
-      stalePayload
+      stalePayload,
     );
     const staleResponse = await app.inject({
       method: "POST",
@@ -323,14 +353,16 @@ describe("gift delivery webhook routes", () => {
     assert.equal(staleResponse.statusCode, 200, staleResponse.body);
     assert.equal(staleResponse.json().updated, false);
 
-    const updated = await db.prepare(
-      "SELECT receipt_status, receipt_event_at FROM gift_delivery_outbox WHERE id = ?"
-    ).get(outbox.id);
+    const updated = await db
+      .prepare(
+        "SELECT receipt_status, receipt_event_at FROM gift_delivery_outbox WHERE id = ?",
+      )
+      .get(outbox.id);
     assert.equal(updated.receipt_status, "delivered");
     assert.equal(updated.receipt_event_at, deliveredAt);
   });
 
-  test("records incidents for unknown provider message ids and post-cancel receipts", async () => {
+  test("ignores non-gift receipts and records incidents only for post-cancel receipts", async () => {
     const unknownPayload = {
       MessageSid: "SM_UNKNOWN",
       MessageStatus: "failed",
@@ -341,7 +373,7 @@ describe("gift delivery webhook routes", () => {
     const unknownSignature = twilio.getExpectedTwilioSignature(
       twilioAuthToken,
       `${publicBaseUrl}/gifts/webhooks/twilio-status`,
-      unknownPayload
+      unknownPayload,
     );
     const unknownResponse = await app.inject({
       method: "POST",
@@ -355,21 +387,40 @@ describe("gift delivery webhook routes", () => {
     assert.equal(unknownResponse.statusCode, 200, unknownResponse.body);
     assert.equal(unknownResponse.json().updated, false);
 
-    const unknownIncident = await db.prepare(
-      "SELECT incident_type FROM gift_delivery_incidents WHERE incident_key = ?"
-    ).get("gift_unknown_receipt:twilio:SM_UNKNOWN");
-    assert.equal(unknownIncident.incident_type, "gift_unknown_receipt");
+    // A receipt whose provider_message_id matches no gift outbox row is a
+    // non-gift message — the provider webhook fires for ALL outbound mail/SMS
+    // (cold-email, nurture, transactional), not just gifts. It must be
+    // acknowledged WITHOUT raising an incident, or every non-gift event floods
+    // the dashboard (this previously produced thousands of false warnings).
+    const unknownIncident = await db
+      .prepare(
+        "SELECT incident_type FROM gift_delivery_incidents WHERE incident_key = ?",
+      )
+      .get("gift_unknown_receipt:twilio:SM_UNKNOWN");
+    assert.equal(
+      unknownIncident,
+      undefined,
+      "unknown (non-gift) receipt must not create an incident",
+    );
 
-    const gift = await createScheduledGift("sms", { recipient_phone: "+61406371221" });
-    const outbox = await db.prepare(
-      "SELECT id FROM gift_delivery_outbox WHERE gift_order_id = ? AND channel = 'sms'"
-    ).get(gift.id);
-    await db.prepare(
-      "UPDATE gift_delivery_outbox SET provider_name = 'twilio', provider_message_id = ?, status = 'sent' WHERE id = ?"
-    ).run("SM_CANCELLED", outbox.id);
-    await db.prepare(
-      "UPDATE gift_orders SET status = 'cancelled', dispatch_status = 'cancelled', cancelled_at = ? WHERE id = ?"
-    ).run(nowIso(), gift.id);
+    const gift = await createScheduledGift("sms", {
+      recipient_phone: "+61406371221",
+    });
+    const outbox = await db
+      .prepare(
+        "SELECT id FROM gift_delivery_outbox WHERE gift_order_id = ? AND channel = 'sms'",
+      )
+      .get(gift.id);
+    await db
+      .prepare(
+        "UPDATE gift_delivery_outbox SET provider_name = 'twilio', provider_message_id = ?, status = 'sent' WHERE id = ?",
+      )
+      .run("SM_CANCELLED", outbox.id);
+    await db
+      .prepare(
+        "UPDATE gift_orders SET status = 'cancelled', dispatch_status = 'cancelled', cancelled_at = ? WHERE id = ?",
+      )
+      .run(nowIso(), gift.id);
 
     const cancelledPayload = {
       MessageSid: "SM_CANCELLED",
@@ -381,7 +432,7 @@ describe("gift delivery webhook routes", () => {
     const cancelledSignature = twilio.getExpectedTwilioSignature(
       twilioAuthToken,
       `${publicBaseUrl}/gifts/webhooks/twilio-status`,
-      cancelledPayload
+      cancelledPayload,
     );
     const cancelledResponse = await app.inject({
       method: "POST",
@@ -394,26 +445,37 @@ describe("gift delivery webhook routes", () => {
     });
     assert.equal(cancelledResponse.statusCode, 200, cancelledResponse.body);
 
-    const cancelledIncident = await db.prepare(
-      "SELECT incident_type, status FROM gift_delivery_incidents WHERE incident_key = ?"
-    ).get(`gift_receipt_after_cancel:${outbox.id}`);
+    const cancelledIncident = await db
+      .prepare(
+        "SELECT incident_type, status FROM gift_delivery_incidents WHERE incident_key = ?",
+      )
+      .get(`gift_receipt_after_cancel:${outbox.id}`);
     assert.equal(cancelledIncident.incident_type, "gift_receipt_after_cancel");
     assert.equal(cancelledIncident.status, "open");
   });
 
   test("rejects invalid Resend signatures and updates matching outbox rows on valid receipts", async () => {
-    const gift = await createScheduledGift("email", { recipient_email: "recipient@example.com" });
-    const outbox = await db.prepare(
-      "SELECT id FROM gift_delivery_outbox WHERE gift_order_id = ? AND channel = 'email'"
-    ).get(gift.id);
-    await db.prepare(
-      "UPDATE gift_delivery_outbox SET provider_name = 'resend', provider_message_id = ?, status = 'sent' WHERE id = ?"
-    ).run("re_123", outbox.id);
+    const gift = await createScheduledGift("email", {
+      recipient_email: "recipient@example.com",
+    });
+    const outbox = await db
+      .prepare(
+        "SELECT id FROM gift_delivery_outbox WHERE gift_order_id = ? AND channel = 'email'",
+      )
+      .get(gift.id);
+    await db
+      .prepare(
+        "UPDATE gift_delivery_outbox SET provider_name = 'resend', provider_message_id = ?, status = 'sent' WHERE id = ?",
+      )
+      .run("re_123", outbox.id);
 
     const invalidResponse = await app.inject({
       method: "POST",
       url: "/gifts/webhooks/resend-events",
-      payload: { type: "email.delivered", data: { email_id: "re_123", created_at: nowIso() } },
+      payload: {
+        type: "email.delivered",
+        data: { email_id: "re_123", created_at: nowIso() },
+      },
     });
     assert.equal(invalidResponse.statusCode, 401, invalidResponse.body);
 
@@ -448,9 +510,11 @@ describe("gift delivery webhook routes", () => {
     assert.equal(validResponse.statusCode, 200, validResponse.body);
     assert.equal(validResponse.json().updated, true);
 
-    const updated = await db.prepare(
-      "SELECT receipt_status, receipt_event_at, receipt_updated_at FROM gift_delivery_outbox WHERE id = ?"
-    ).get(outbox.id);
+    const updated = await db
+      .prepare(
+        "SELECT receipt_status, receipt_event_at, receipt_updated_at FROM gift_delivery_outbox WHERE id = ?",
+      )
+      .get(outbox.id);
     assert.equal(updated.receipt_status, "delivered");
     assert.ok(updated.receipt_event_at);
     assert.ok(updated.receipt_updated_at);
