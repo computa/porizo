@@ -500,10 +500,11 @@ function registerAdminRoutes(
   // --- Security Section ---
 
   registerAdminSecurityObservabilityRoutes(app, {
-    adminService,
     parsePagination,
     requireAdminRole,
     requireAdminSession,
+    securityObservabilityService: adminService.adminSecurityObservabilityService,
+    systemHealthService: adminService.adminSystemHealthService,
   });
 
   registerAdminSecurityConfigRoutes(app, {

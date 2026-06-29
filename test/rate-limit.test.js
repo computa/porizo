@@ -507,7 +507,7 @@ describe("Rate Limiting", () => {
       const blocked = await consumeRateLimit(db, userId, "admin_reset_test", limit, 60);
       assert.strictEqual(blocked.allowed, false, "should be blocked after limit");
 
-      // Simulate admin reset (same as adminService.resetUserRateLimit)
+      // Simulate the admin reset service deleting the scoped limiter row.
       await db
         .prepare("DELETE FROM rate_limits WHERE user_id = ? AND action_type = ?")
         .run(userId, "admin_reset_test");

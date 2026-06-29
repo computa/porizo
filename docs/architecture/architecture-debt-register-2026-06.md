@@ -1800,16 +1800,14 @@ admin audit metadata for successful mutations. Direct service tests pin
 pagination bounds, share rebind audit/no-audit behavior, poem-share reset/revoke
 audit behavior, and missing or already-revoked no-audit paths.
 Admin security-observability service ownership is also extracted into
-`src/services/admin/security-observability-service.js`. `AdminService` remains
-a compatibility facade for `searchAuthEvents`, `getAuthEventStats`,
-`getAppleRefreshTokenStats`, `searchAuditLogs`, `getRateLimits`,
-`resetUserRateLimit`, and `getConsentLogs`, while the new service owns bounded
-observability searches, injected-clock date windows, auth/Apple stats
-normalization, audit action LIKE escaping, rate-limit reset audit metadata, and
-consent-log delegation. `getSystemHealth` intentionally remains outside this
-slice because it depends on job-ops persistence. Direct service tests pin
-wildcard escaping, pagination bounds, date-window construction, stats
-normalization, reset audit metadata, and consent-log filters.
+`src/services/admin/security-observability-service.js`, and
+`src/routes/admin/security-observability.js` now calls that service directly
+instead of going through `AdminService`. The service owns bounded observability
+searches, injected-clock date windows, auth/Apple stats normalization, audit
+action LIKE escaping, rate-limit reset audit metadata, and consent-log
+delegation. Direct service tests pin wildcard escaping, pagination bounds,
+date-window construction, stats normalization, reset audit metadata, and
+consent-log filters.
 Admin music-diagnostics service ownership is also extracted into
 `src/services/admin/music-diagnostics-service.js`, and
 `src/routes/admin/music-diagnostics.js` now calls that service directly instead
@@ -1837,9 +1835,10 @@ service coverage pins the time window and response shape; route/repository
 tests continue to pin admin auth, webhook type counts, failed-webhook counting,
 and old/non-webhook exclusion.
 Admin system-health service ownership is also extracted into
-`src/services/admin/system-health-service.js`. `AdminService` remains a
-compatibility facade for `getSystemHealth`, while the new service owns the
-24-hour job/DLQ health window, default operational counters, recent-error
+`src/services/admin/system-health-service.js`, and
+`src/routes/admin/security-observability.js` now calls it directly for the
+admin health endpoint instead of going through `AdminService`. The service owns
+the 24-hour job/DLQ health window, default operational counters, recent-error
 delegation, and checked-at timestamp. Direct service coverage pins the window
 and normalized response; security route coverage continues to pin the admin
 health endpoint contract.

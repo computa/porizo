@@ -1896,11 +1896,12 @@ service, repository, and route validation passed for the admin webhook-health
 contract.
 
 Root 6 service-boundary follow-up: admin system-health service ownership is now
-extracted into `src/services/admin/system-health-service.js`. `AdminService`
-remains the compatibility facade for `getSystemHealth`, while the new service
-owns the 24-hour job/DLQ window, normalized operational counters, recent-error
-delegation, and checked timestamp. Focused service, route, and adjacent job-ops
-validation passed for the admin system-health contract.
+extracted into `src/services/admin/system-health-service.js`.
+`src/routes/admin/security-observability.js` now calls that service directly
+for the admin health endpoint instead of passing through `AdminService`. The
+service owns the 24-hour job/DLQ window, normalized operational counters,
+recent-error delegation, and checked timestamp. Focused service, route, and
+adjacent job-ops validation passed for the admin system-health contract.
 
 Root 6 service-boundary follow-up: admin metrics service ownership is now
 extracted into `src/services/admin/metrics-service.js`. `AdminService` remains
@@ -2048,6 +2049,15 @@ Root 6 facade-reduction follow-up: user mutation admin routes now call
 Removed `AdminService.updateUserRisk`, `lockUser`, `deleteUser`,
 `bulkUserAction`, and `updateUserProfile`; focused user-mutation route,
 service, repository, and attribution-contract validation passed.
+
+Root 6 facade-reduction follow-up: security observability admin routes now call
+`adminSecurityObservabilityService` directly and the admin security health
+endpoint now calls `adminSystemHealthService` directly instead of passing
+through `AdminService`. Removed `AdminService.getSystemHealth`,
+`searchAuthEvents`, `getAuthEventStats`, `getAppleRefreshTokenStats`,
+`searchAuditLogs`, `getRateLimits`, `resetUserRateLimit`, and `getConsentLogs`;
+focused security-observability, system-health, and adjacent job-ops validation
+passed.
 
 ## Task 17: Root 7 Writer Decomposition
 
