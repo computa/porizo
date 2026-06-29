@@ -25,6 +25,8 @@ Admin job/DLQ operations service-boundary ownership is also extracted and
 validated locally.
 Admin user session/voice-control service-boundary ownership is also extracted
 and validated locally.
+Admin share-management service-boundary ownership is also extracted and
+validated locally.
 Admin job/DLQ operations persistence is also extracted and validated locally.
 Gift-dispatch scheduler polling/recovery persistence is also extracted and
 validated locally.
@@ -1692,6 +1694,15 @@ successful-only audit behavior for single-session revokes and voice reverify,
 and revoke-all audit count metadata. Direct service tests pin force-reverify
 audit/no-audit paths, session-list delegation, single-session revoke
 audit/no-audit paths, and revoke-all audit metadata.
+Admin share-management service ownership is also extracted into
+`src/services/admin/share-management-service.js`. `AdminService` remains a
+compatibility facade for `listShares`, `rebindShare`, `listPoemShares`,
+`resetPoemShareAttempts`, and `revokePoemShare`, while the new service owns
+bounded song-share/poem-share listing, share rebind result mapping, poem-share
+attempt reset/revoke result mapping, and admin audit metadata for successful
+mutations. Direct service tests pin pagination bounds, share rebind
+audit/no-audit behavior, poem-share reset/revoke audit behavior, and missing or
+already-revoked no-audit paths.
 **Boundary:** Do the `getAppConfig` eviction + non-billing splits first (🟡). Do the billing/entitlement admin slice **last** (⚠ 🔴) with production verification.
 
 ### Root 7 — Writer cycle + god-file decomposition 🟡 effort M

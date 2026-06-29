@@ -66,6 +66,9 @@ const {
 } = require("./admin/moderation-service");
 const { createAdminJobOpsService } = require("./admin/job-ops-service");
 const {
+  createAdminShareManagementService,
+} = require("./admin/share-management-service");
+const {
   createAdminFeatureFlagService,
 } = require("./admin/feature-flag-service");
 const {
@@ -394,6 +397,12 @@ class AdminService {
     this.adminShareManagementRepository =
       options.adminShareManagementRepository ||
       createAdminShareManagementRepository(db);
+    this.adminShareManagementService =
+      options.adminShareManagementService ||
+      createAdminShareManagementService({
+        adminShareManagementRepository: this.adminShareManagementRepository,
+        audit: (...args) => this._audit(...args),
+      });
     this.adminUserReadRepository =
       options.adminUserReadRepository || createAdminUserReadRepository(db);
     this.adminUserMutationRepository =
@@ -1045,13 +1054,12 @@ class AdminService {
    * List share tokens with optional filters
    */
   async listShares({ status, trackId, userId, limit = 50, offset = 0 }) {
-    const bounds = safeBounds(limit, offset);
-    return this.adminShareManagementRepository.listShares({
+    return await this.adminShareManagementService.listShares({
       status,
       trackId,
       userId,
-      limit: bounds.limit,
-      offset: bounds.offset,
+      limit,
+      offset,
     });
   }
 
@@ -1059,16 +1067,12 @@ class AdminService {
    * Rebind a share token to a new device
    */
   async rebindShare(shareId, newDeviceId, adminId, reason) {
-    const share = await this.adminShareManagementRepository.getShareById(shareId);
-    if (!share) return { success: false, error: 'Share not found' };
-
-    const oldDeviceId = share.bound_device_id;
-    await this.adminShareManagementRepository.rebindShareDevice({
+    return await this.adminShareManagementService.rebindShare(
       shareId,
       newDeviceId,
-    });
-    await this._audit(adminId, 'share_rebound', 'share_token', shareId, { oldDeviceId, newDeviceId, reason });
-    return { success: true, oldDeviceId, newDeviceId };
+      adminId,
+      reason,
+    );
   }
 
   // ============ POEM SHARE MANAGEMENT ============
@@ -1077,13 +1081,12 @@ class AdminService {
    * List poem share tokens with optional filters
    */
   async listPoemShares({ status, poemId, userId, limit = 50, offset = 0 }) {
-    const bounds = safeBounds(limit, offset);
-    return this.adminShareManagementRepository.listPoemShares({
+    return await this.adminShareManagementService.listPoemShares({
       status,
       poemId,
       userId,
-      limit: bounds.limit,
-      offset: bounds.offset,
+      limit,
+      offset,
     });
   }
 
@@ -1091,29 +1094,22 @@ class AdminService {
    * Reset claim attempts on a poem share token (unlocks a locked-out recipient)
    */
   async resetPoemShareAttempts(shareId, adminId, reason) {
-    const share =
-      await this.adminShareManagementRepository.getPoemShareById(shareId);
-    if (!share) return { success: false, error: 'Poem share not found' };
-
-    const oldAttempts = share.claim_attempts;
-    await this.adminShareManagementRepository.resetPoemShareAttempts(shareId);
-    await this._audit(adminId, 'poem_share_attempts_reset', 'poem_share_token', shareId, { oldAttempts, reason });
-    return { success: true, oldAttempts };
+    return await this.adminShareManagementService.resetPoemShareAttempts(
+      shareId,
+      adminId,
+      reason,
+    );
   }
 
   /**
    * Revoke a poem share token
    */
   async revokePoemShare(shareId, adminId, reason) {
-    const share =
-      await this.adminShareManagementRepository.getPoemShareById(shareId);
-    if (!share) return { success: false, error: 'Poem share not found' };
-    if (share.status === 'revoked') return { success: false, error: 'Already revoked' };
-
-    const oldStatus = share.status;
-    await this.adminShareManagementRepository.revokePoemShare(shareId);
-    await this._audit(adminId, 'poem_share_revoked', 'poem_share_token', shareId, { oldStatus, reason });
-    return { success: true, oldStatus };
+    return await this.adminShareManagementService.revokePoemShare(
+      shareId,
+      adminId,
+      reason,
+    );
   }
 
   // ============ SYSTEM HEALTH & SECURITY ============
