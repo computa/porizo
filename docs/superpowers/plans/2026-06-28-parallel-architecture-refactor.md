@@ -42,8 +42,9 @@ Root 1 is complete only when that scan has no direct persistence hits outside co
   to the remaining raw provider download path.
 - Root 3b gift extraction is in progress locally: gift delivery helpers, provider dispatch, webhooks, route registration, and gift runtime startup moved from `server.js` into `src/plugins/gift-delivery.js`. Registration is intentionally synchronous from `buildServer()` to preserve existing direct test/runtime decorators such as `app.dispatchGiftById()` and `app.expireGiftReservations()`.
 - Root 5 step-handler extraction is committed. Step handlers now live under
-  `src/workflows/steps/`, `runner.js` owns orchestration, and the remaining
-  Root 5 cleanup candidate is the Suno polling/recovery helper pair.
+  `src/workflows/steps/`, `runner.js` owns orchestration, and
+  `src/workflows/suno-task-orchestrator.js` owns Suno submit/poll/recovery
+  state.
 - Root 6 Step 1 moved public mobile app-config composition out of
   `AdminService` into `src/services/client-config-service.js`; the later Root 6
   facade-reduction pass removed the legacy compatibility delegate.
@@ -1492,9 +1493,8 @@ Slice 9 result: `src/workflows/steps/instrumental.js` now owns
 extracted family injects contract guards, provider routing, policy preflight,
 provider audio URL/key helpers, provenance helpers, Suno polling/recovery
 callbacks, generic provider rendering, local fallback instrumental/guide-vocal
-renderers, and job task attachment from the runner. The slice deliberately keeps
-the closure-heavy Suno polling/recovery helpers in `runner.js` for a smaller
-follow-up cleanup, but no workflow step handlers remain inline in the runner.
+renderers, and job task attachment from the runner. No workflow step handlers
+remain inline in the runner.
 Direct tests cover preview cache reuse, missing lyrics for preview/full,
 personalized guard execution, Suno pending/success/recovery, generic provider
 task/provenance handling, changed/blocked policy preflight, and no-provider
@@ -1505,10 +1505,14 @@ pass), adjacent contract/DLQ/persona/hydration tests passed (45 tests, 45 pass),
 ready/MVP/classification tests passed (41 tests, 41 pass), endpoint/voice-routing
 tests passed (29 tests, 29 pass), and syntax checks passed.
 
-Next Root 5 cleanup candidate: extract the Suno polling/recovery helper pair out
-of `runner.js` now that the step handlers themselves are module-owned.
+Root 5 follow-up result: `src/workflows/suno-task-orchestrator.js` owns the
+Suno submit/poll/recovery state machine, including task attach, heartbeat
+polling, incomplete-success reconciliation, policy-failure telemetry, artifact
+download, and recovery-provenance merge behavior. `runner.js` now only wires the
+orchestrator and passes the resulting callbacks into the instrumental step
+family.
 
-- [ ] **Step 4: Commit each Root 5 slice**
+- [x] **Step 4: Commit each Root 5 slice**
 
 Run:
 
@@ -1517,7 +1521,11 @@ git add src/workflows/runner.js src/workflows/steps test/workflows/render-contra
 git commit -m "refactor: introduce workflow step registry"
 ```
 
-Expected: runner orchestration is smaller and step dispatch is registry-backed.
+Actual: Root 5 was committed incrementally across the step-registry,
+step-family extraction, and Suno task-orchestrator slices. Runner orchestration
+is smaller, step dispatch is registry-backed, no workflow step handlers remain
+inline in `runner.js`, and Suno submit/poll/recovery helpers live in
+`src/workflows/suno-task-orchestrator.js`.
 
 ## Task 16: Root 6 Admin Split And Client Config Boundary
 
