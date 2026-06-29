@@ -1888,6 +1888,13 @@ remains the compatibility facade for `listStorySessions` and
 repository delegation. Focused repository/service and route validation passed
 for the admin story-session contract.
 
+Root 6 service-boundary follow-up: admin webhook-health service ownership is now
+extracted into `src/services/admin/webhook-health-service.js`. `AdminService`
+remains the compatibility facade for `getWebhookHealth`, while the new service
+owns the 24-hour audit window and pending-retry placeholder decoration. Focused
+service, repository, and route validation passed for the admin webhook-health
+contract.
+
 ## Task 17: Root 7 Writer Decomposition
 
 **Owner:** One worker

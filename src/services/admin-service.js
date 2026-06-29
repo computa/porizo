@@ -90,6 +90,9 @@ const {
 const {
   createAdminMusicDiagnosticsService,
 } = require("./admin/music-diagnostics-service");
+const {
+  createAdminWebhookHealthService,
+} = require("./admin/webhook-health-service");
 const { safeBounds } = require("./admin/pagination");
 const { createClientConfigService } = require("./client-config-service");
 
@@ -402,6 +405,11 @@ class AdminService {
       });
     this.adminBillingRepository =
       options.adminBillingRepository || createAdminBillingRepository(db);
+    this.adminWebhookHealthService =
+      options.adminWebhookHealthService ||
+      createAdminWebhookHealthService({
+        adminBillingRepository: this.adminBillingRepository,
+      });
     this.adminShareManagementRepository =
       options.adminShareManagementRepository ||
       createAdminShareManagementRepository(db);
@@ -1491,15 +1499,7 @@ class AdminService {
    * Get webhook health metrics
    */
   async getWebhookHealth() {
-    const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-    const health = await this.adminBillingRepository.getWebhookHealth({
-      since: dayAgo,
-    });
-
-    return {
-      ...health,
-      pendingRetries: 0, // Would need a webhook retry queue table
-    };
+    return this.adminWebhookHealthService.getWebhookHealth();
   }
 
   // ============ GROWTH & ATTRIBUTION ============

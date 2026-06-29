@@ -1737,6 +1737,13 @@ the admin story-session repository. Direct service coverage pins pagination
 bounds and repository delegation; route/repository tests continue to pin auth,
 filters, ordering, detail payloads, turn isolation, and missing-session
 envelopes.
+Admin webhook-health service ownership is also extracted into
+`src/services/admin/webhook-health-service.js`. `AdminService` remains a
+compatibility facade for `getWebhookHealth`, while the new service owns the
+24-hour audit window and pending-retry placeholder decoration over the admin
+billing repository. Direct service coverage pins the time window and response
+shape; route/repository tests continue to pin admin auth, webhook type counts,
+failed-webhook counting, and old/non-webhook exclusion.
 **Boundary:** Do the `getAppConfig` eviction + non-billing splits first (🟡). Do the billing/entitlement admin slice **last** (⚠ 🔴) with production verification.
 
 ### Root 7 — Writer cycle + god-file decomposition 🟡 effort M
