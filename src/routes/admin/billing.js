@@ -4,7 +4,7 @@ function registerAdminBillingRoutes(
   app,
   {
     adminBillingRepo,
-    adminService,
+    auditService,
     billingService,
     entitlementsService,
     planConfigService,
@@ -278,7 +278,7 @@ function registerAdminBillingRoutes(
         return;
       }
 
-      await adminService._audit(
+      await auditService.audit(
         admin.adminId,
         "admin_update_plan",
         "subscription_plan",
@@ -382,7 +382,7 @@ function registerAdminBillingRoutes(
       });
 
       // Audit with previous + new values
-      await adminService._audit(
+      await auditService.audit(
         admin.adminId,
         "admin_update_gift_bundle",
         "gift_bundle",

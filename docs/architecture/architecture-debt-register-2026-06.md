@@ -1663,9 +1663,9 @@ STT defaults/validation, music-provider config normalization/persistence, and
 admin audit emission through an injected audit function. Direct service tests
 pin invalid-JSON fallback, update persistence, and audit metadata.
 Admin audit-write ownership is now extracted into
-`src/services/admin/audit-service.js`, and `src/routes/admin/demo-shares.js`
-now calls that service directly for demo-share create/revoke audit writes
-instead of going through `AdminService._audit()`. `AdminService._audit()`
+`src/services/admin/audit-service.js`; `src/routes/admin/demo-shares.js` and
+`src/routes/admin/billing.js` now call that service directly for their audit
+writes instead of going through `AdminService._audit()`. `AdminService._audit()`
 remains only as a compatibility delegate for larger route modules and tests
 that still call the historic facade method, while the new service owns audit ID
 generation, timestamp normalization, admin metadata enrichment, and

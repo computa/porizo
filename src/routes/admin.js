@@ -402,7 +402,7 @@ function registerAdminRoutes(
 
   registerAdminBillingRoutes(app, {
     adminBillingRepo,
-    adminService,
+    auditService: adminService.adminAuditService,
     billingService: adminService.adminBillingService,
     entitlementsService: adminService.adminEntitlementsService,
     planConfigService,
