@@ -1669,10 +1669,12 @@ writes instead of going through `AdminService._audit()`. Gift operations now do
 the same for incident acknowledgement, retry, cancel, overdue-review, and
 manual-recovery-note audit writes. Blog CMS routes now also call the audit
 service directly for create, update, review, repair, publish, and unpublish
-audit writes. `AdminService._audit()` remains only as a compatibility delegate
-for larger route modules and tests that still call the historic facade method,
-while the new service owns audit ID generation, timestamp normalization, admin
-metadata enrichment, and
+audit writes. Marketing routes now also call the audit service directly for
+contact upload/export, campaign create/update, push send, results import, and
+cold-email manual trigger/update audit writes. `AdminService._audit()` remains
+only as a compatibility delegate for tests that still call the historic facade
+method, while the new service owns audit ID generation, timestamp
+normalization, admin metadata enrichment, and
 `EventsRepository.insertAuditLog` payload construction.
 Admin feature-flag service ownership is also extracted into
 `src/services/admin/feature-flag-service.js`, and

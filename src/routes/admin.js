@@ -584,7 +584,7 @@ function registerAdminRoutes(
 
   registerAdminMarketingRoutes(app, {
     adminMarketingRepository,
-    adminService,
+    auditService: adminService.adminAuditService,
     db,
     newUuid,
     nowIso,

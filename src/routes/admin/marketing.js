@@ -7,7 +7,7 @@ function registerAdminMarketingRoutes(
   app,
   {
     adminMarketingRepository,
-    adminService,
+    auditService,
     db,
     newUuid,
     nowIso,
@@ -426,7 +426,7 @@ function registerAdminMarketingRoutes(
           now,
         });
 
-      await adminService._audit(
+      await auditService.audit(
         admin.adminId,
         "marketing_contacts_upload",
         "marketing_contacts",
@@ -508,7 +508,7 @@ function registerAdminMarketingRoutes(
           log: (msg) => app.log.info(msg),
         });
         try {
-          await adminService._audit(
+          await auditService.audit(
             admin.adminId,
             "cold_email_manual_trigger",
             "cold_email_campaigns",
@@ -763,7 +763,7 @@ function registerAdminMarketingRoutes(
           before[f] = existing[f];
           after[f] = updated[f];
         }
-        await adminService._audit(
+        await auditService.audit(
           admin.adminId,
           "cold_email_campaign_update",
           "cold_email_campaigns",
@@ -838,7 +838,7 @@ function registerAdminMarketingRoutes(
       now,
     });
 
-    await adminService._audit(
+    await auditService.audit(
       admin.adminId,
       "marketing_campaign_create",
       "marketing_campaigns",
@@ -970,7 +970,7 @@ function registerAdminMarketingRoutes(
       updates.updated_at = nowIso();
       await adminMarketingRepository.updateCampaign(request.params.id, updates);
 
-      await adminService._audit(
+      await auditService.audit(
         admin.adminId,
         "marketing_campaign_update",
         "marketing_campaigns",
@@ -1158,7 +1158,7 @@ function registerAdminMarketingRoutes(
         recipients,
       });
 
-      await adminService._audit(
+      await auditService.audit(
         admin.adminId,
         "marketing_push_send",
         "marketing_campaigns",
@@ -1276,7 +1276,7 @@ function registerAdminMarketingRoutes(
         now,
       });
 
-      await adminService._audit(
+      await auditService.audit(
         admin.adminId,
         "marketing_results_import",
         "marketing_campaigns",
@@ -1384,7 +1384,7 @@ function registerAdminMarketingRoutes(
         );
       }
 
-      await adminService._audit(
+      await auditService.audit(
         admin.adminId,
         "marketing_contacts_export",
         "marketing_contacts",

@@ -2101,6 +2101,12 @@ Root 6 facade-reduction follow-up: blog CMS admin routes now call
 and unpublish audit writes instead of passing through `AdminService._audit`;
 focused blog route/service/repository and audit-service validation passed.
 
+Root 6 facade-reduction follow-up: marketing admin routes now call
+`adminAuditService.audit` directly for contact upload/export, campaign
+create/update, push send, results import, and cold-email manual trigger/update
+audit writes instead of passing through `AdminService._audit`; focused
+marketing route/repository and audit-service validation passed.
+
 ## Task 17: Root 7 Writer Decomposition
 
 **Owner:** One worker
