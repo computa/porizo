@@ -1970,12 +1970,15 @@ dashboard, Apple Ads keyword-map reads/sync, and teaser/share metrics. Focused
 repository/service and route validation passed for the admin growth contracts.
 
 Root 6 service-boundary follow-up: admin audit-write ownership is now extracted
-into `src/services/admin/audit-service.js`. `AdminService._audit()` remains a
-compatibility delegate for route modules and tests that still call the historic
-facade method, while the new service owns audit ID generation, timestamp
-normalization, admin metadata enrichment, and `EventsRepository.insertAuditLog`
-payload construction. Focused audit service, analytics, demo-share, share, and
-gift-ops validation passed for audit-writing contracts.
+into `src/services/admin/audit-service.js`. `src/routes/admin/demo-shares.js`
+now calls that service directly for demo-share create/revoke audit writes
+instead of going through `AdminService._audit()`. `AdminService._audit()`
+remains a compatibility delegate for larger route modules and tests that still
+call the historic facade method, while the new service owns audit ID
+generation, timestamp normalization, admin metadata enrichment, and
+`EventsRepository.insertAuditLog` payload construction. Focused audit service,
+analytics, demo-share, share, and gift-ops validation passed for audit-writing
+contracts.
 
 Root 6 facade-reduction follow-up: feature-flag and onboarding-sample admin
 routes now call their dedicated services directly instead of passing through
@@ -2076,6 +2079,11 @@ passing through `AdminService`. Removed `AdminService.updateUserEntitlements`,
 `getBillingTransactions`; focused entitlement, billing service, billing
 repository, and billing route validation passed. Existing `adminService._audit`
 calls in the same route remain for the later audit-route cleanup.
+
+Root 6 facade-reduction follow-up: demo-share admin routes now call
+`adminAuditService.audit` directly for create/revoke audit writes instead of
+passing through `AdminService._audit`; focused demo-share route/repository and
+audit-service validation passed.
 
 ## Task 17: Root 7 Writer Decomposition
 

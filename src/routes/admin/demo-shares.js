@@ -17,8 +17,8 @@ function registerAdminDemoShareRoutes(
   app,
   {
     adminDemoShareRepo,
-    adminService,
     appConfig,
+    auditService,
     newUuid,
     nowIso,
     requireAdminRole,
@@ -85,7 +85,7 @@ function registerAdminDemoShareRoutes(
         });
       }
 
-      await adminService._audit(
+      await auditService.audit(
         admin.adminId,
         "admin_create_demo_share",
         "share_token",
@@ -131,7 +131,7 @@ function registerAdminDemoShareRoutes(
         });
       }
 
-      await adminService._audit(
+      await auditService.audit(
         admin.adminId,
         "admin_create_demo_share",
         "poem_share_token",
@@ -177,7 +177,7 @@ function registerAdminDemoShareRoutes(
     let share = await adminDemoShareRepo.getSongDemoShareById(shareId);
     if (share) {
       await adminDemoShareRepo.revokeSongDemoShare(shareId);
-      await adminService._audit(
+      await auditService.audit(
         admin.adminId,
         "admin_revoke_demo_share",
         "share_token",
@@ -193,7 +193,7 @@ function registerAdminDemoShareRoutes(
     share = await adminDemoShareRepo.getPoemDemoShareById(shareId);
     if (share) {
       await adminDemoShareRepo.revokePoemDemoShare(shareId);
-      await adminService._audit(
+      await auditService.audit(
         admin.adminId,
         "admin_revoke_demo_share",
         "poem_share_token",

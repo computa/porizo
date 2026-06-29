@@ -573,8 +573,8 @@ function registerAdminRoutes(
 
   registerAdminDemoShareRoutes(app, {
     adminDemoShareRepo,
-    adminService,
     appConfig,
+    auditService: adminService.adminAuditService,
     newUuid,
     nowIso,
     requireAdminRole,
