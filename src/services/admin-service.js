@@ -322,61 +322,6 @@ class AdminService {
   }
 
   /**
-   * Update user risk level
-   */
-  async updateUserRisk(userId, riskLevel, adminId, reason) {
-    return this.adminUserMutationService.updateUserRisk(
-      userId,
-      riskLevel,
-      adminId,
-      reason,
-    );
-  }
-
-  /**
-   * Lock or unlock a user account
-   */
-  async lockUser(userId, locked, adminId, reason) {
-    return this.adminUserMutationService.lockUser(
-      userId,
-      locked,
-      adminId,
-      reason,
-    );
-  }
-
-  /**
-   * Permanently delete a user and all associated data.
-   * All child tables use ON DELETE CASCADE, so a single DELETE suffices.
-   */
-  async deleteUser(userId, adminId, reason) {
-    return this.adminUserMutationService.deleteUser(userId, adminId, reason);
-  }
-
-  /**
-   * Bulk action on multiple users (delete, lock, unlock)
-   */
-  async bulkUserAction(userIds, action, adminId, reason) {
-    return this.adminUserMutationService.bulkUserAction(
-      userIds,
-      action,
-      adminId,
-      reason,
-    );
-  }
-
-  /**
-   * Update user profile and attribution override fields.
-   */
-  async updateUserProfile(userId, fields, adminId) {
-    return this.adminUserMutationService.updateUserProfile(
-      userId,
-      fields,
-      adminId,
-    );
-  }
-
-  /**
    * Update user entitlements (tier)
    */
   async updateUserEntitlements(userId, fields, adminId) {

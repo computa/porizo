@@ -1731,15 +1731,15 @@ delegation, zero-user conversion formatting, and canonical attribution merge
 behavior; repository and route suites continue to pin SQL semantics, auth,
 pagination metadata, and 404 envelopes.
 Admin user-mutation service ownership is also extracted into
-`src/services/admin/user-mutation-service.js`. `AdminService` remains a
-compatibility facade for `updateUserRisk`, `lockUser`, `deleteUser`,
-`bulkUserAction`, and `updateUserProfile`, while the new service owns risk and
-lock audit contracts, fixed one-year lock calculation, audit-before-delete
-ordering, bulk action sequencing/summary audit metadata, profile allowlist
-filtering, and attribution override before/after audit envelopes. Direct
-service tests pin validation-result envelopes, successful and missing-user
-paths, per-user and bulk audit ordering, empty attribution fallback, and facade
-delegation; route suites continue to pin admin role gates and HTTP envelopes.
+`src/services/admin/user-mutation-service.js`, and
+`src/routes/admin/user-mutations.js` now calls that service directly instead
+of going through `AdminService`. The service owns risk and lock audit
+contracts, fixed one-year lock calculation, audit-before-delete ordering, bulk
+action sequencing/summary audit metadata, profile allowlist filtering, and
+attribution override before/after audit envelopes. Direct service tests pin
+validation-result envelopes, successful and missing-user paths, per-user and
+bulk audit ordering, and empty attribution fallback; route suites continue to
+pin admin role gates and HTTP envelopes.
 Admin entitlement tier-update service ownership is also extracted into
 `src/services/admin/entitlements-service.js`. `AdminService` remains a
 compatibility facade for `updateUserEntitlements`, while the new service owns

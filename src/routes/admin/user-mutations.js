@@ -2,7 +2,7 @@
 
 function registerAdminUserMutationRoutes(
   app,
-  { adminService, requireAdminRole, requireAdminSession, sendError },
+  { requireAdminRole, requireAdminSession, sendError, userMutationService },
 ) {
   app.put("/admin/dashboard/users/:id/risk", async (request, reply) => {
     const admin = await requireAdminSession(request, reply);
@@ -17,7 +17,7 @@ function registerAdminUserMutationRoutes(
       );
       return;
     }
-    const result = await adminService.updateUserRisk(
+    const result = await userMutationService.updateUserRisk(
       request.params.id,
       riskLevel,
       admin.adminId,
@@ -30,7 +30,7 @@ function registerAdminUserMutationRoutes(
     const admin = await requireAdminRole(request, reply, ["superadmin"]);
     if (!admin) return;
     const { locked, reason } = request.body || {};
-    const result = await adminService.lockUser(
+    const result = await userMutationService.lockUser(
       request.params.id,
       Boolean(locked),
       admin.adminId,
@@ -43,7 +43,7 @@ function registerAdminUserMutationRoutes(
     const admin = await requireAdminRole(request, reply, ["superadmin"]);
     if (!admin) return;
     const { reason } = request.body || {};
-    const result = await adminService.deleteUser(
+    const result = await userMutationService.deleteUser(
       request.params.id,
       admin.adminId,
       reason || "Admin deletion",
@@ -68,7 +68,7 @@ function registerAdminUserMutationRoutes(
       );
       return;
     }
-    const result = await adminService.bulkUserAction(
+    const result = await userMutationService.bulkUserAction(
       userIds,
       action,
       admin.adminId,
@@ -81,7 +81,7 @@ function registerAdminUserMutationRoutes(
     const admin = await requireAdminRole(request, reply, ["superadmin"]);
     if (!admin) return;
     const fields = request.body || {};
-    const result = await adminService.updateUserProfile(
+    const result = await userMutationService.updateUserProfile(
       request.params.id,
       fields,
       admin.adminId,

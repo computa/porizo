@@ -3,7 +3,6 @@ process.env.NODE_ENV = "test";
 const assert = require("node:assert/strict");
 const { describe, test } = require("node:test");
 
-const { AdminService } = require("../src/services/admin-service");
 const {
   EMPTY_ATTRIBUTION,
   createAdminUserMutationService,
@@ -345,90 +344,5 @@ describe("AdminUserMutationService", () => {
     );
     assert.deepEqual(audits[1][4].previous, EMPTY_ATTRIBUTION);
     assert.deepEqual(audits[1][4].next, EMPTY_ATTRIBUTION);
-  });
-});
-
-describe("AdminService user mutation facade", () => {
-  test("delegates mutation methods to the injected user mutation service", async () => {
-    const calls = [];
-    const expected = {
-      risk: { success: true },
-      lock: { success: true, lockedUntil: LOCKED_UNTIL },
-      delete: { success: true, deleted: { id: "user_delete" } },
-      bulk: { succeeded: ["user_lock"], failed: [] },
-      profile: { success: true, updated: { display_name: "New Profile" } },
-    };
-    const service = new AdminService(
-      {},
-      {
-        adminUserMutationService: {
-          async updateUserRisk(userId, riskLevel, adminId, reason) {
-            calls.push(["risk", userId, riskLevel, adminId, reason]);
-            return expected.risk;
-          },
-          async lockUser(userId, locked, adminId, reason) {
-            calls.push(["lock", userId, locked, adminId, reason]);
-            return expected.lock;
-          },
-          async deleteUser(userId, adminId, reason) {
-            calls.push(["delete", userId, adminId, reason]);
-            return expected.delete;
-          },
-          async bulkUserAction(userIds, action, adminId, reason) {
-            calls.push(["bulk", userIds, action, adminId, reason]);
-            return expected.bulk;
-          },
-          async updateUserProfile(userId, fields, adminId) {
-            calls.push(["profile", userId, fields, adminId]);
-            return expected.profile;
-          },
-        },
-      },
-    );
-
-    const profileFields = { display_name: "New Profile" };
-
-    assert.deepEqual(
-      await service.updateUserRisk(
-        "user_risk",
-        "high",
-        "admin_ops",
-        "chargeback pattern",
-      ),
-      expected.risk,
-    );
-    assert.deepEqual(
-      await service.lockUser("user_lock", true, "admin_ops", "manual review"),
-      expected.lock,
-    );
-    assert.deepEqual(
-      await service.deleteUser(
-        "user_delete",
-        "admin_ops",
-        "user requested admin purge",
-      ),
-      expected.delete,
-    );
-    assert.deepEqual(
-      await service.bulkUserAction(
-        ["user_lock"],
-        "lock",
-        "admin_ops",
-        "bulk risk review",
-      ),
-      expected.bulk,
-    );
-    assert.deepEqual(
-      await service.updateUserProfile("user_profile", profileFields, "admin_ops"),
-      expected.profile,
-    );
-
-    assert.deepEqual(calls, [
-      ["risk", "user_risk", "high", "admin_ops", "chargeback pattern"],
-      ["lock", "user_lock", true, "admin_ops", "manual review"],
-      ["delete", "user_delete", "admin_ops", "user requested admin purge"],
-      ["bulk", ["user_lock"], "lock", "admin_ops", "bulk risk review"],
-      ["profile", "user_profile", profileFields, "admin_ops"],
-    ]);
   });
 });

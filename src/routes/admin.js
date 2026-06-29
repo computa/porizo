@@ -394,10 +394,10 @@ function registerAdminRoutes(
   });
 
   registerAdminUserMutationRoutes(app, {
-    adminService,
     requireAdminRole,
     requireAdminSession,
     sendError,
+    userMutationService: adminService.adminUserMutationService,
   });
 
   registerAdminBillingRoutes(app, {
