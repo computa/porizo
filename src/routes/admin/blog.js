@@ -110,7 +110,7 @@ function registerAdminBlogRoutes(
   app,
   {
     appConfig,
-    adminService,
+    auditService,
     blogService,
     parsePagination,
     requireAdminSession,
@@ -180,7 +180,7 @@ function registerAdminBlogRoutes(
 
     try {
       const post = await blogService.createPost(normalized, admin.adminId);
-      await adminService._audit(
+      await auditService.audit(
         admin.adminId,
         "blog_post_create",
         "blog_post",
@@ -225,7 +225,7 @@ function registerAdminBlogRoutes(
       if (!post) {
         return sendError(reply, 404, "NOT_FOUND", "Blog post not found");
       }
-      await adminService._audit(
+      await auditService.audit(
         admin.adminId,
         "blog_post_update",
         "blog_post",
@@ -299,7 +299,7 @@ function registerAdminBlogRoutes(
       }
       throw error;
     }
-    await adminService._audit(
+    await auditService.audit(
       admin.adminId,
       "blog_post_review",
       "blog_post",
@@ -369,7 +369,7 @@ function registerAdminBlogRoutes(
         return sendError(reply, 404, "NOT_FOUND", "Blog post not found");
       }
 
-      await adminService._audit(
+      await auditService.audit(
         admin.adminId,
         "blog_post_repair_draft_applied",
         "blog_post",
@@ -396,7 +396,7 @@ function registerAdminBlogRoutes(
         { expectedRevisionNumber: repairedRevisionNumber },
       );
 
-      await adminService._audit(
+      await auditService.audit(
         admin.adminId,
         "blog_post_repair",
         "blog_post",
@@ -443,7 +443,7 @@ function registerAdminBlogRoutes(
         if (!post) {
           return sendError(reply, 404, "NOT_FOUND", "Blog post not found");
         }
-        await adminService._audit(
+        await auditService.audit(
           admin.adminId,
           "blog_post_publish",
           "blog_post",
@@ -476,7 +476,7 @@ function registerAdminBlogRoutes(
       if (!post) {
         return sendError(reply, 404, "NOT_FOUND", "Blog post not found");
       }
-      await adminService._audit(
+      await auditService.audit(
         admin.adminId,
         "blog_post_unpublish",
         "blog_post",

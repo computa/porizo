@@ -377,7 +377,7 @@ function registerAdminRoutes(
 
   registerAdminBlogRoutes(app, {
     appConfig,
-    adminService,
+    auditService: adminService.adminAuditService,
     blogService,
     parsePagination,
     requireAdminSession,

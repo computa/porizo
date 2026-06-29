@@ -2096,6 +2096,11 @@ overdue-review, and manual-recovery-note audit writes instead of passing
 through `AdminService._audit`; focused gift-ops route/repository and
 audit-service validation passed.
 
+Root 6 facade-reduction follow-up: blog CMS admin routes now call
+`adminAuditService.audit` directly for create, update, review, repair, publish,
+and unpublish audit writes instead of passing through `AdminService._audit`;
+focused blog route/service/repository and audit-service validation passed.
+
 ## Task 17: Root 7 Writer Decomposition
 
 **Owner:** One worker
