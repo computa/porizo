@@ -435,27 +435,6 @@ class AdminService {
     return this.adminMetricsService.getOverviewMetrics();
   }
 
-  // ============ STORY SESSIONS ============
-
-  /**
-   * List story sessions with optional filters
-   */
-  async listStorySessions({ status, engineVersion, limit = 50, offset = 0 }) {
-    return this.adminStorySessionService.listStorySessions({
-      status,
-      engineVersion,
-      limit,
-      offset,
-    });
-  }
-
-  /**
-   * Get full story session details with turns
-   */
-  async getStorySessionDetail(sessionId) {
-    return this.adminStorySessionService.getStorySessionDetail(sessionId);
-  }
-
   /**
    * Get job health metrics
    */
@@ -515,29 +494,6 @@ class AdminService {
    */
   async getJobStepHistory(jobId) {
     return await this.adminJobOpsService.getJobStepHistory(jobId);
-  }
-
-  // ============ MODERATION ============
-
-  /**
-   * Get moderation queue (blocked content)
-   */
-  async getModerationQueue({ limit = 50, offset = 0 }) {
-    return await this.adminModerationService.getModerationQueue({
-      limit,
-      offset,
-    });
-  }
-
-  /**
-   * Override moderation decision (approve blocked content)
-   */
-  async overrideModeration(versionId, adminId, reason) {
-    return await this.adminModerationService.overrideModeration(
-      versionId,
-      adminId,
-      reason,
-    );
   }
 
   // ============ SHARE MANAGEMENT ============
@@ -777,48 +733,6 @@ class AdminService {
     );
   }
 
-  // ============ PROVIDER CONTROL PLANE ============
-
-  /**
-   * Get status of all external providers
-   */
-  async getProviderStatus() {
-    return await this.adminControlPlaneService.getProviderStatus();
-  }
-
-  /**
-   * Set provider status (active, paused, disabled)
-   */
-  async setProviderStatus(providerName, status, adminId, reason) {
-    return await this.adminControlPlaneService.setProviderStatus(
-      providerName,
-      status,
-      adminId,
-      reason,
-    );
-  }
-
-  // ============ QUEUE CONTROL PLANE ============
-
-  /**
-   * Get status of all job queues
-   */
-  async getQueueStatus() {
-    return await this.adminControlPlaneService.getQueueStatus();
-  }
-
-  /**
-   * Set queue status (active, paused, draining)
-   */
-  async setQueueStatus(queueName, status, adminId, reason) {
-    return await this.adminControlPlaneService.setQueueStatus(
-      queueName,
-      status,
-      adminId,
-      reason,
-    );
-  }
-
   // ============ BILLING & REVENUE ============
 
   /**
@@ -848,13 +762,6 @@ class AdminService {
    */
   async getBillingTransactions({ limit = 50, offset = 0 } = {}) {
     return this.adminBillingService.getBillingTransactions({ limit, offset });
-  }
-
-  /**
-   * Get webhook health metrics
-   */
-  async getWebhookHealth() {
-    return this.adminWebhookHealthService.getWebhookHealth();
   }
 
   // ============ GROWTH & ATTRIBUTION ============
@@ -1009,18 +916,6 @@ class AdminService {
       config,
       adminId,
     );
-  }
-
-  /**
-   * Diagnostics feed for recent music generations (success + failure).
-   * Includes provider routing, style intent summary, and quality gate results.
-   */
-  async getRecentMusicDiagnostics({ limit = 30, provider = null, status = null }) {
-    return await this.adminMusicDiagnosticsService.getRecentMusicDiagnostics({
-      limit,
-      provider,
-      status,
-    });
   }
 
   /**

@@ -2,12 +2,12 @@
 
 function registerAdminProviderQueueControlRoutes(
   app,
-  { adminService, requireAdminRole, requireAdminSession, sendError },
+  { controlPlaneService, requireAdminRole, requireAdminSession, sendError },
 ) {
   app.get("/admin/dashboard/providers", async (request, reply) => {
     const admin = await requireAdminSession(request, reply);
     if (!admin) return;
-    const providers = await adminService.getProviderStatus();
+    const providers = await controlPlaneService.getProviderStatus();
     reply.send({ providers });
   });
 
@@ -29,7 +29,7 @@ function registerAdminProviderQueueControlRoutes(
         return;
       }
 
-      const result = await adminService.setProviderStatus(
+      const result = await controlPlaneService.setProviderStatus(
         providerName,
         status,
         admin.adminId,
@@ -42,7 +42,7 @@ function registerAdminProviderQueueControlRoutes(
   app.get("/admin/dashboard/queues", async (request, reply) => {
     const admin = await requireAdminSession(request, reply);
     if (!admin) return;
-    const queues = await adminService.getQueueStatus();
+    const queues = await controlPlaneService.getQueueStatus();
     reply.send({ queues });
   });
 
@@ -64,7 +64,7 @@ function registerAdminProviderQueueControlRoutes(
         return;
       }
 
-      const result = await adminService.setQueueStatus(
+      const result = await controlPlaneService.setQueueStatus(
         queueName,
         status,
         admin.adminId,

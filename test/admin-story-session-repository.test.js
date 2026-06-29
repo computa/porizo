@@ -8,7 +8,6 @@ const { getDatabase } = require("../src/database");
 const {
   createAdminStorySessionRepository,
 } = require("../src/database/admin-story-session-repository");
-const { AdminService } = require("../src/services/admin-service");
 const {
   createAdminStorySessionService,
 } = require("../src/services/admin/story-session-service");
@@ -209,46 +208,6 @@ describe("AdminStorySessionRepository", () => {
 
   test("getSessionDetail returns null for missing sessions without reading turns", async () => {
     assert.equal(await repository.getSessionDetail("missing_session"), null);
-  });
-
-  test("AdminService delegates story session reads through the repository with safe bounds", async () => {
-    const calls = [];
-    const service = new AdminService(db, {
-      adminStorySessionRepository: {
-        async listSessions(args) {
-          calls.push(args);
-          return [{ id: "delegated" }];
-        },
-        async getSessionDetail(sessionId) {
-          calls.push({ sessionId });
-          return { session: { id: sessionId }, turns: [] };
-        },
-      },
-    });
-
-    assert.deepEqual(
-      await service.listStorySessions({
-        status: "active",
-        engineVersion: "v3",
-        limit: 500,
-        offset: -25,
-      }),
-      [{ id: "delegated" }],
-    );
-    assert.deepEqual(await service.getStorySessionDetail("session_service"), {
-      session: { id: "session_service" },
-      turns: [],
-    });
-
-    assert.deepEqual(calls, [
-      {
-        status: "active",
-        engineVersion: "v3",
-        limit: 100,
-        offset: 0,
-      },
-      { sessionId: "session_service" },
-    ]);
   });
 
   test("AdminStorySessionService owns story session bounds and repository delegation", async () => {

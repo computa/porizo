@@ -3,7 +3,7 @@
 function registerAdminModerationRoutes(
   app,
   {
-    adminService,
+    moderationService,
     parsePagination,
     requireAdminRole,
     requireAdminSession,
@@ -15,7 +15,7 @@ function registerAdminModerationRoutes(
     const admin = await requireAdminSession(request, reply);
     if (!admin) return;
     reply.send({
-      items: await adminService.getModerationQueue(
+      items: await moderationService.getModerationQueue(
         parsePagination(request.query),
       ),
     });
@@ -31,7 +31,7 @@ function registerAdminModerationRoutes(
       if (!trimmedReason) {
         return;
       }
-      const result = await adminService.overrideModeration(
+      const result = await moderationService.overrideModeration(
         request.params.versionId,
         admin.adminId,
         trimmedReason,

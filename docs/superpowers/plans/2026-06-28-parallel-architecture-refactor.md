@@ -1983,6 +1983,14 @@ routes now call their dedicated services directly instead of passing through
 and `activateOnboardingSample`; focused feature-flag, onboarding-sample, and
 public app-config validation passed.
 
+Root 6 facade-reduction follow-up: provider/queue control, moderation,
+story-session, webhook-health, and music-diagnostics admin routes now call their
+dedicated services directly instead of passing through `AdminService` delegate
+methods. Removed the matching facade methods for provider/queue status,
+moderation queue/override, story-session list/detail, webhook health, and recent
+music diagnostics. Focused route, service, and repository-integration validation
+passed for those admin boundaries.
+
 ## Task 17: Root 7 Writer Decomposition
 
 **Owner:** One worker

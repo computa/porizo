@@ -2,12 +2,12 @@
 
 function registerAdminWebhookHealthRoutes(
   app,
-  { adminService, requireAdminSession },
+  { webhookHealthService, requireAdminSession },
 ) {
   app.get("/admin/dashboard/webhooks/health", async (request, reply) => {
     const admin = await requireAdminSession(request, reply);
     if (!admin) return;
-    const health = await adminService.getWebhookHealth();
+    const health = await webhookHealthService.getWebhookHealth();
     reply.send(health);
   });
 }

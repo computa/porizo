@@ -8,7 +8,13 @@ const { getDatabase } = require("../src/database");
 const {
   createAdminModerationRepository,
 } = require("../src/database/admin-moderation-repository");
-const { AdminService } = require("../src/services/admin-service");
+const { createEventsRepository } = require("../src/database/events-repository");
+const {
+  createAdminAuditService,
+} = require("../src/services/admin/audit-service");
+const {
+  createAdminModerationService,
+} = require("../src/services/admin/moderation-service");
 
 let db;
 let repository;
@@ -177,7 +183,7 @@ describe("AdminModerationRepository", () => {
   });
 });
 
-describe("AdminService moderation", () => {
+describe("AdminModerationService repository integration", () => {
   beforeEach(async () => {
     db = await getDatabase({
       provider: "sqlite",
@@ -192,13 +198,14 @@ describe("AdminService moderation", () => {
 
   test("getModerationQueue delegates bounded pagination to the repository", async () => {
     const calls = [];
-    const service = new AdminService(db, {
+    const service = createAdminModerationService({
       adminModerationRepository: {
         listBlockedVersions: async (args) => {
           calls.push(args);
           return [{ id: "version_from_repo" }];
         },
       },
+      audit: async () => {},
     });
 
     assert.deepEqual(await service.getModerationQueue({ limit: 500, offset: -10 }), [
@@ -214,8 +221,11 @@ describe("AdminService moderation", () => {
       status: "blocked",
       createdAt: "2026-06-27T09:00:00.000Z",
     });
-    const service = new AdminService(db, {
+    const service = createAdminModerationService({
       adminModerationRepository: createAdminModerationRepository(db),
+      audit: createAdminAuditService({
+        eventsRepository: createEventsRepository(db),
+      }).audit,
     });
 
     assert.deepEqual(

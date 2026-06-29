@@ -2,13 +2,13 @@
 
 function registerAdminStorySessionRoutes(
   app,
-  { adminService, parsePagination, requireAdminSession, sendError },
+  { storySessionService, parsePagination, requireAdminSession, sendError },
 ) {
   app.get("/admin/dashboard/story/sessions", async (request, reply) => {
     const admin = await requireAdminSession(request, reply);
     if (!admin) return;
     const { status, engineVersion } = request.query;
-    const sessions = await adminService.listStorySessions({
+    const sessions = await storySessionService.listStorySessions({
       status,
       engineVersion,
       ...parsePagination(request.query),
@@ -19,7 +19,7 @@ function registerAdminStorySessionRoutes(
   app.get("/admin/dashboard/story/sessions/:id", async (request, reply) => {
     const admin = await requireAdminSession(request, reply);
     if (!admin) return;
-    const detail = await adminService.getStorySessionDetail(request.params.id);
+    const detail = await storySessionService.getStorySessionDetail(request.params.id);
     if (!detail) {
       sendError(reply, 404, "NOT_FOUND", "Story session not found");
       return;

@@ -1695,22 +1695,22 @@ suppression during sync, auto-recommended version behavior, public
 non-exposure of sync errors, optional live lookup error exposure, and no
 live lookup from the default public `/app/config` path.
 Admin provider/queue control-plane service ownership is also extracted into
-`src/services/admin/control-plane-service.js`. `AdminService` remains a
-compatibility facade for `getProviderStatus`, `setProviderStatus`,
-`getQueueStatus`, and `setQueueStatus`, while the new service owns provider
-and queue status read delegation, timestamp injection for status mutations,
-route-facing `{ success: true }` envelopes, and admin audit action naming.
-Direct service tests pin list delegation, provider audit metadata, queue audit
-metadata, and injected timestamps.
+`src/services/admin/control-plane-service.js`, and
+`src/routes/admin/provider-queue-control.js` now calls that service directly
+instead of going through `AdminService`. The service owns provider and queue
+status read delegation, timestamp injection for status mutations, route-facing
+`{ success: true }` envelopes, and admin audit action naming. Direct service
+and repository-integration tests pin list delegation, provider audit metadata,
+queue audit metadata, and injected timestamps.
 Admin moderation service ownership is also extracted into
-`src/services/admin/moderation-service.js`. `AdminService` remains a
-compatibility facade for `getModerationQueue` and `overrideModeration`, while
-the new service owns moderation override result mapping and admin audit emission
-only for successful blocked-version approvals. Shared admin limit/offset bounds
-now live in `src/services/admin/pagination.js`. Direct service tests pin
-pagination bounds, successful override audit metadata, missing-version
-behavior, non-blocked behavior, and the no-audit contract for failed override
-attempts.
+`src/services/admin/moderation-service.js`, and
+`src/routes/admin/moderation.js` now calls that service directly instead of
+going through `AdminService`. The service owns moderation override result
+mapping and admin audit emission only for successful blocked-version approvals.
+Shared admin limit/offset bounds now live in `src/services/admin/pagination.js`.
+Direct service and repository-integration tests pin pagination bounds,
+successful override audit metadata, missing-version behavior, non-blocked
+behavior, and the no-audit contract for failed override attempts.
 Admin job/DLQ operations service ownership is also extracted into
 `src/services/admin/job-ops-service.js`. `AdminService` remains a compatibility
 facade for `getJobMetrics`, `listJobs`, `retryJob`, `listDLQ`,
@@ -1812,29 +1812,31 @@ slice because it depends on job-ops persistence. Direct service tests pin
 wildcard escaping, pagination bounds, date-window construction, stats
 normalization, reset audit metadata, and consent-log filters.
 Admin music-diagnostics service ownership is also extracted into
-`src/services/admin/music-diagnostics-service.js`. `AdminService` remains a
-compatibility facade for `getRecentMusicDiagnostics`, while the new service owns
-bounded recent-track selection, malformed JSON fallback, provider precedence,
-provider/status filtering, latest-job error attachment, and diagnostic response
-shaping. Direct service tests pin non-object JSON fallback, pagination bounds,
-provider precedence, defaulted quality fields, filtered result behavior, empty
-repository results, and latest-job error mapping; route/repository tests still
-cover the shared blend-analysis repository path.
+`src/services/admin/music-diagnostics-service.js`, and
+`src/routes/admin/music-diagnostics.js` now calls that service directly instead
+of going through `AdminService`. The service owns bounded recent-track
+selection, malformed JSON fallback, provider precedence, provider/status
+filtering, latest-job error attachment, and diagnostic response shaping. Direct
+service tests pin non-object JSON fallback, pagination bounds, provider
+precedence, defaulted quality fields, filtered result behavior, empty repository
+results, and latest-job error mapping; route/repository tests still cover the
+shared blend-analysis repository path.
 Admin story-session service ownership is also extracted into
-`src/services/admin/story-session-service.js`. `AdminService` remains a
-compatibility facade for `listStorySessions` and `getStorySessionDetail`, while
-the new service owns bounded story-session listing and detail-read delegation to
-the admin story-session repository. Direct service coverage pins pagination
-bounds and repository delegation; route/repository tests continue to pin auth,
-filters, ordering, detail payloads, turn isolation, and missing-session
-envelopes.
+`src/services/admin/story-session-service.js`, and
+`src/routes/admin/story-sessions.js` now calls that service directly instead of
+going through `AdminService`. The service owns bounded story-session listing and
+detail-read delegation to the admin story-session repository. Direct service
+coverage pins pagination bounds and repository delegation; route/repository
+tests continue to pin auth, filters, ordering, detail payloads, turn isolation,
+and missing-session envelopes.
 Admin webhook-health service ownership is also extracted into
-`src/services/admin/webhook-health-service.js`. `AdminService` remains a
-compatibility facade for `getWebhookHealth`, while the new service owns the
-24-hour audit window and pending-retry placeholder decoration over the admin
-billing repository. Direct service coverage pins the time window and response
-shape; route/repository tests continue to pin admin auth, webhook type counts,
-failed-webhook counting, and old/non-webhook exclusion.
+`src/services/admin/webhook-health-service.js`, and
+`src/routes/admin/webhook-health.js` now calls that service directly instead of
+going through `AdminService`. The service owns the 24-hour audit window and
+pending-retry placeholder decoration over the admin billing repository. Direct
+service coverage pins the time window and response shape; route/repository
+tests continue to pin admin auth, webhook type counts, failed-webhook counting,
+and old/non-webhook exclusion.
 Admin system-health service ownership is also extracted into
 `src/services/admin/system-health-service.js`. `AdminService` remains a
 compatibility facade for `getSystemHealth`, while the new service owns the

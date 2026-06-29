@@ -8,7 +8,13 @@ const { getDatabase } = require("../src/database");
 const {
   createAdminControlRepository,
 } = require("../src/database/admin-control-repository");
-const { AdminService } = require("../src/services/admin-service");
+const { createEventsRepository } = require("../src/database/events-repository");
+const {
+  createAdminAuditService,
+} = require("../src/services/admin/audit-service");
+const {
+  createAdminControlPlaneService,
+} = require("../src/services/admin/control-plane-service");
 
 let db;
 let repository;
@@ -176,7 +182,7 @@ describe("AdminControlRepository", () => {
   });
 });
 
-describe("AdminService admin control plane", () => {
+describe("AdminControlPlaneService repository integration", () => {
   beforeEach(async () => {
     db = await getDatabase({
       provider: "sqlite",
@@ -191,7 +197,12 @@ describe("AdminService admin control plane", () => {
   });
 
   test("setProviderStatus delegates persistence and keeps the audit contract", async () => {
-    const service = new AdminService(db, { adminControlRepository: repository });
+    const service = createAdminControlPlaneService({
+      adminControlRepository: repository,
+      audit: createAdminAuditService({
+        eventsRepository: createEventsRepository(db),
+      }).audit,
+    });
 
     const result = await service.setProviderStatus(
       "replicate",
@@ -230,7 +241,12 @@ describe("AdminService admin control plane", () => {
   });
 
   test("setQueueStatus delegates persistence and keeps the audit contract", async () => {
-    const service = new AdminService(db, { adminControlRepository: repository });
+    const service = createAdminControlPlaneService({
+      adminControlRepository: repository,
+      audit: createAdminAuditService({
+        eventsRepository: createEventsRepository(db),
+      }).audit,
+    });
 
     const result = await service.setQueueStatus(
       "q.moderation.cpu",

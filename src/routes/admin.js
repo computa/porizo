@@ -437,7 +437,7 @@ function registerAdminRoutes(
   // --- Moderation ---
 
   registerAdminModerationRoutes(app, {
-    adminService,
+    moderationService: adminService.adminModerationService,
     parsePagination,
     requireAdminRole,
     requireAdminSession,
@@ -448,7 +448,7 @@ function registerAdminRoutes(
   // --- Story Sessions ---
 
   registerAdminStorySessionRoutes(app, {
-    adminService,
+    storySessionService: adminService.adminStorySessionService,
     parsePagination,
     requireAdminSession,
     sendError,
@@ -464,7 +464,7 @@ function registerAdminRoutes(
     sendError,
   });
   registerAdminWebhookHealthRoutes(app, {
-    adminService,
+    webhookHealthService: adminService.adminWebhookHealthService,
     requireAdminSession,
   });
   registerAdminGrowthRoutes(app, {
@@ -511,7 +511,7 @@ function registerAdminRoutes(
   // --- Provider Control Plane ---
 
   registerAdminProviderQueueControlRoutes(app, {
-    adminService,
+    controlPlaneService: adminService.adminControlPlaneService,
     requireAdminRole,
     requireAdminSession,
     sendError,
@@ -528,7 +528,7 @@ function registerAdminRoutes(
   });
 
   registerAdminMusicDiagnosticsRoutes(app, {
-    adminService,
+    musicDiagnosticsService: adminService.adminMusicDiagnosticsService,
     requireAdminSession,
     sendError,
   });

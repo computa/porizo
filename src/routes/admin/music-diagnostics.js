@@ -2,7 +2,7 @@
 
 function registerAdminMusicDiagnosticsRoutes(
   app,
-  { adminService, requireAdminSession, sendError },
+  { musicDiagnosticsService, requireAdminSession, sendError },
 ) {
   app.get("/admin/dashboard/music/diagnostics", async (request, reply) => {
     const admin = await requireAdminSession(request, reply);
@@ -17,7 +17,7 @@ function registerAdminMusicDiagnosticsRoutes(
       typeof request.query.status === "string" ? request.query.status : null;
 
     try {
-      const diagnostics = await adminService.getRecentMusicDiagnostics({
+      const diagnostics = await musicDiagnosticsService.getRecentMusicDiagnostics({
         limit,
         provider,
         status,
