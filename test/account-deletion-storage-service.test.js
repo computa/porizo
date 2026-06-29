@@ -105,6 +105,45 @@ describe("account deletion storage cleanup", () => {
     assert.equal(result.deletedKeys.length, 2);
   });
 
+  test("prefers listObjects over listKeys when both are available", async () => {
+    const deleted = [];
+    const listKeysCalls = [];
+    const storageProvider = {
+      deleteObject: async ({ key }) => {
+        deleted.push(key);
+      },
+      listObjects: async ({ prefix }) =>
+        prefix === "tracks/user_delete_storage/"
+          ? {
+              keys: ["tracks/user_delete_storage/track_1/v1/preview.m4a"],
+              prefixes: ["tracks/user_delete_storage/track_1/v1/hls/"],
+            }
+          : prefix === "tracks/user_delete_storage/track_1/v1/hls/"
+            ? {
+                keys: ["tracks/user_delete_storage/track_1/v1/hls/segment_000.ts"],
+                prefixes: [],
+              }
+            : { keys: [], prefixes: [] },
+      listKeys: async ({ prefix }) => {
+        listKeysCalls.push(prefix);
+        return [];
+      },
+    };
+
+    const result = await deleteAccountStorageArtifacts({
+      storageProvider,
+      userId: "user_delete_storage",
+      logger: null,
+    });
+
+    assert.deepEqual(listKeysCalls, []);
+    assert.deepEqual(deleted, [
+      "tracks/user_delete_storage/track_1/v1/preview.m4a",
+      "tracks/user_delete_storage/track_1/v1/hls/segment_000.ts",
+    ]);
+    assert.equal(result.deletedKeys.length, 2);
+  });
+
   test("walks every paginated listObjects page before deleting", async () => {
     const listCalls = [];
     const deleted = [];

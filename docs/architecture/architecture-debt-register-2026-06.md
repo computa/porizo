@@ -1639,6 +1639,7 @@ Root 7 lazy songwriter/v3 imports or Root 7 TODO/FIXME leftovers.
 **Closes:** storage drift, D5/C2 (API discoverability).
 **Scope:** Add `listKeys` + `verifyPresignedRequest` (or an explicit `type`-branch contract) to the S3 adapter so it matches local; standardize Fastify `{schema}` validation across endpoints and emit OpenAPI via `@fastify/swagger` as the single discoverable contract.
 **Boundary:** OpenAPI is additive (no wire change). S3 parity is needed before any real S3 cutover.
+**Status 2026-06-29:** In progress. Storage parity slice complete: S3 now exposes `listKeys` by paging through `listObjects` and fails closed on truncated pages without a continuation token. `verifyPresignedRequest` is intentionally not added to S3 because `/storage/upload` is local-dev only and returns 404 for S3 storage before signature verification; production S3/R2 uploads are verified by the object store against the generated SigV4 URL. Remaining Root 10 work is API discoverability/OpenAPI.
 
 ---
 

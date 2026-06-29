@@ -85,6 +85,9 @@ describe('S3 Storage Provider', async () => {
     assert.strictEqual(typeof storage.downloadToFile, 'function');
     assert.strictEqual(typeof storage.putFile, 'function');
     assert.strictEqual(typeof storage.deleteObject, 'function');
+    assert.strictEqual(typeof storage.listKeys, 'function');
+    assert.strictEqual(typeof storage.listObjects, 'function');
+    assert.strictEqual(typeof storage.verifyPresignedRequest, 'undefined');
   });
 
   test('createPresignedUpload generates valid signed URL', () => {
@@ -130,6 +133,85 @@ describe('S3 Storage Provider', async () => {
     assert.ok(result.url.includes('X-Amz-Signature='));
     assert.ok(result.url.includes('X-Amz-Expires=3600'));
     assert.strictEqual(result.method, 'GET');
+  });
+
+  test('listKeys pages S3 listObjects results', async () => {
+    const { createS3Storage } = require('../../src/storage/s3.js');
+    const originalFetch = global.fetch;
+    let callCount = 0;
+
+    global.fetch = async (url) => {
+      callCount += 1;
+      if (callCount === 1) {
+        assert.ok(url.includes('prefix=tracks%2Fuser123%2F'));
+        return {
+          ok: true,
+          text: async () =>
+            '<ListBucketResult>' +
+            '<Contents><Key>tracks/user123/a.wav</Key></Contents>' +
+            '<IsTruncated>true</IsTruncated>' +
+            '<NextContinuationToken>next-page</NextContinuationToken>' +
+            '</ListBucketResult>',
+        };
+      }
+      assert.ok(url.includes('continuation-token=next-page'));
+      return {
+        ok: true,
+        text: async () =>
+          '<ListBucketResult>' +
+          '<Contents><Key>tracks/user123/b.wav</Key></Contents>' +
+          '<IsTruncated>false</IsTruncated>' +
+          '</ListBucketResult>',
+      };
+    };
+
+    try {
+      const storage = createS3Storage({
+        S3_ACCESS_KEY_ID: 'test',
+        S3_SECRET_ACCESS_KEY: 'test',
+        S3_BUCKET: 'test-bucket',
+        S3_REGION: 'us-east-1',
+      });
+
+      const keys = await storage.listKeys({ prefix: 'tracks/user123/' });
+      assert.deepStrictEqual(keys, [
+        'tracks/user123/a.wav',
+        'tracks/user123/b.wav',
+      ]);
+      assert.strictEqual(callCount, 2);
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
+  test('listKeys rejects truncated S3 results without a continuation token', async () => {
+    const { createS3Storage } = require('../../src/storage/s3.js');
+    const originalFetch = global.fetch;
+
+    global.fetch = async () => ({
+      ok: true,
+      text: async () =>
+        '<ListBucketResult>' +
+        '<Contents><Key>tracks/user123/a.wav</Key></Contents>' +
+        '<IsTruncated>true</IsTruncated>' +
+        '</ListBucketResult>',
+    });
+
+    try {
+      const storage = createS3Storage({
+        S3_ACCESS_KEY_ID: 'test',
+        S3_SECRET_ACCESS_KEY: 'test',
+        S3_BUCKET: 'test-bucket',
+        S3_REGION: 'us-east-1',
+      });
+
+      await assert.rejects(
+        () => storage.listKeys({ prefix: 'tracks/user123/' }),
+        /truncated page without continuation token/,
+      );
+    } finally {
+      global.fetch = originalFetch;
+    }
   });
 
   test('presigned URLs work with custom endpoint (LocalStack)', async (t) => {

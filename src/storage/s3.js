@@ -417,6 +417,28 @@ function createS3Storage(config = {}) {
     };
   }
 
+  async function listKeys({ prefix, maxKeys = 1000, continuationToken = null } = {}) {
+    const keys = [];
+    let nextToken = continuationToken;
+    do {
+      const result = await listObjects({
+        prefix,
+        maxKeys,
+        continuationToken: nextToken,
+      });
+      if (Array.isArray(result.keys)) {
+        keys.push(...result.keys);
+      }
+      if (result.isTruncated && !result.nextContinuationToken) {
+        throw new Error(
+          `S3 listKeys received a truncated page without continuation token for ${prefix || ""}`,
+        );
+      }
+      nextToken = result.nextContinuationToken || null;
+    } while (nextToken);
+    return keys;
+  }
+
   /**
    * Check if a path requires encryption
    * @param {string} key - S3 object key
@@ -442,6 +464,7 @@ function createS3Storage(config = {}) {
     downloadToFile,
     putFile,
     deleteObject,
+    listKeys,
     listObjects,
     // Encryption helpers
     getPathEncryptionInfo,
