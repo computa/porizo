@@ -209,9 +209,9 @@ describe("STT Configuration Service", async () => {
     });
   });
 
-  describe("getAppConfig", () => {
+  describe("clientConfigService.getClientConfig", () => {
     it("returns stt config in response", async () => {
-      const appConfig = await adminService.getAppConfig();
+      const appConfig = await adminService.clientConfigService.getClientConfig();
 
       assert.ok(appConfig.stt, "Should have stt property");
       assert.ok(appConfig.stt.primary_provider, "Should have primary_provider");
@@ -233,7 +233,7 @@ describe("STT Configuration Service", async () => {
         "admin_test",
       );
 
-      const appConfig = await adminService.getAppConfig();
+      const appConfig = await adminService.clientConfigService.getClientConfig();
 
       assert.equal(appConfig.stt.primary_provider, "openai");
       assert.equal(appConfig.stt.fallback_provider, "apple");
@@ -245,7 +245,8 @@ describe("STT Configuration Service", async () => {
       await db
         .prepare("DELETE FROM feature_flags WHERE id = 'my_voice_enabled'")
         .run();
-      const defaultConfig = await adminService.getAppConfig();
+      const defaultConfig =
+        await adminService.clientConfigService.getClientConfig();
       assert.equal(defaultConfig.flags.my_voice_enabled, true);
 
       // Explicitly disable My Voice and verify /app/config projection reflects it.
@@ -255,7 +256,8 @@ describe("STT Configuration Service", async () => {
         )
         .run(JSON.stringify(false));
 
-      const disabledConfig = await adminService.getAppConfig();
+      const disabledConfig =
+        await adminService.clientConfigService.getClientConfig();
       assert.equal(disabledConfig.flags.my_voice_enabled, false);
     });
 
@@ -282,7 +284,7 @@ describe("STT Configuration Service", async () => {
         )
         .run();
 
-      const appConfig = await adminService.getAppConfig();
+      const appConfig = await adminService.clientConfigService.getClientConfig();
 
       assert.deepEqual(appConfig.gift_bundles, [
         {
@@ -325,7 +327,7 @@ describe("STT Configuration Service", async () => {
         "admin_test",
       );
 
-      const appConfig = await adminService.getAppConfig();
+      const appConfig = await adminService.clientConfigService.getClientConfig();
 
       assert.deepEqual(appConfig.app_update, {
         minimum_supported_version: "1.2.0",
@@ -377,7 +379,8 @@ describe("STT Configuration Service", async () => {
         "admin_test",
       );
 
-      const appConfig = await syncingAdminService.getAppConfig();
+      const appConfig =
+        await syncingAdminService.clientConfigService.getClientConfig();
 
       assert.equal(appConfig.app_update.recommended_version, "1.5.0");
       assert.equal(appConfig.app_update.auto_recommended_version, true);
@@ -465,7 +468,7 @@ describe("STT Configuration Service", async () => {
         "admin_test",
       );
 
-      const appConfig = await adminService.getAppConfig();
+      const appConfig = await adminService.clientConfigService.getClientConfig();
 
       assert.equal(
         appConfig.stt.primary_provider,
@@ -486,7 +489,7 @@ describe("STT Configuration Service", async () => {
         "admin_test",
       );
 
-      const appConfig = await adminService.getAppConfig();
+      const appConfig = await adminService.clientConfigService.getClientConfig();
 
       assert.equal(appConfig.stt.primary_provider, "openai");
       assert.equal(appConfig.stt.fallback_provider, "whisperkit");

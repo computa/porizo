@@ -1338,9 +1338,8 @@ step registry, Root 6 admin split, Root 7 writer cycle, and the later migration,
 storage/OpenAPI, cleanup, and cross-surface roots. Full gift-dispatch
 provider/orchestration extraction is a Root 3b service-boundary task, not
 remaining Root 1 persistence.
-Public/admin app-config persistence is done;
-full `getAppConfig` ownership should still move out of
-`admin-service.js` in Root 6.
+Public/admin app-config persistence is done; full client-config ownership has
+moved out of `admin-service.js` in Root 6.
 Provider-side remote artifacts that live outside the configured storage
 provider still need empirical
 provider-contract validation before they can be called fully erased.
@@ -1533,9 +1532,9 @@ hygiene, and lint pass locally.
 **Execution status:** Client-config eviction is implemented in this
 slice. `src/services/client-config-service.js` now owns the public mobile
 config composition, `/app/config` is wired to that service boundary, and
-`AdminService.getAppConfig()` remains only as a compatibility delegate for
-existing callers/tests. The read-only admin metrics routes are also extracted
-into `src/routes/admin/metrics.js`, including overview, jobs, cost,
+the later facade-reduction pass removed the old `AdminService` compatibility
+delegate. The read-only admin metrics routes are also extracted into
+`src/routes/admin/metrics.js`, including overview, jobs, cost,
 enrollment, render-pipeline, and risk-metrics route registration. The
 read-only admin story-session routes are also extracted into
 `src/routes/admin/story-sessions.js`, preserving auth, pagination, 404, list,

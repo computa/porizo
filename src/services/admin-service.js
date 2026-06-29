@@ -310,14 +310,6 @@ class AdminService {
       });
   }
 
-  /**
-   * Get app config for public consumption (mobile apps)
-   * Returns a curated subset of configuration safe for clients
-   */
-  async getAppConfig() {
-    return this.clientConfigService.getClientConfig();
-  }
-
 }
 
 module.exports = { AdminService, escapeLikePattern };

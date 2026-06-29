@@ -41,9 +41,9 @@ Root 1 is complete only when that scan has no direct persistence hits outside co
 - Root 5 step-handler extraction is committed. Step handlers now live under
   `src/workflows/steps/`, `runner.js` owns orchestration, and the remaining
   Root 5 cleanup candidate is the Suno polling/recovery helper pair.
-- Root 6 Step 1 is in progress: public mobile app-config composition is moving
-  out of `AdminService` into `src/services/client-config-service.js`, with the
-  legacy `AdminService.getAppConfig()` kept as a compatibility delegate.
+- Root 6 Step 1 moved public mobile app-config composition out of
+  `AdminService` into `src/services/client-config-service.js`; the later Root 6
+  facade-reduction pass removed the legacy compatibility delegate.
 - Root 6 Step 1 is committed as `f6faea73`. The next Root 6 slice extracted
   the read-only admin metrics routes into `src/routes/admin/metrics.js` and
   added route-level coverage for `/admin/dashboard/metrics/jobs`.
@@ -1555,8 +1555,9 @@ Completed locally in this slice:
 - `src/services/client-config-service.js` now composes the safe public
   `/app/config` contract from injected config helpers and app-config repository
   reads.
-- `AdminService.getAppConfig()` delegates to the new service for backwards
-  compatibility with existing service callers.
+- Existing tests now target `clientConfigService.getClientConfig()` directly;
+  the old `AdminService` compatibility delegate was removed in the later Root 6
+  facade-reduction pass.
 - `/app/config` uses the client-config service instance rather than the admin
   service method.
 - Focused coverage added in `test/client-config-service.test.js`.
