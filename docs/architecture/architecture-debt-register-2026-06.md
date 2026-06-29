@@ -1783,14 +1783,14 @@ no-audit behavior, row normalization, and facade delegation; route/repository
 suites continue to pin admin auth, Apple Ads attribution joins, SQL semantics,
 and producer paths.
 Admin user session/voice-control service ownership is also extracted into
-`src/services/admin/user-session-control-service.js`. `AdminService` remains a
-compatibility facade for `forceVoiceReverify`, `getUserSessions`,
-`revokeUserSession`, and `revokeAllUserSessions`, while the new service owns
-voice-profile reverify result mapping, session revocation timestamps,
-successful-only audit behavior for single-session revokes and voice reverify,
-and revoke-all audit count metadata. Direct service tests pin force-reverify
-audit/no-audit paths, session-list delegation, single-session revoke
-audit/no-audit paths, and revoke-all audit metadata.
+`src/services/admin/user-session-control-service.js`, and
+`src/routes/admin/user-session-controls.js` now calls that service directly
+instead of going through `AdminService`. The service owns voice-profile reverify
+result mapping, session revocation timestamps, successful-only audit behavior
+for single-session revokes and voice reverify, and revoke-all audit count
+metadata. Direct service tests pin force-reverify audit/no-audit paths,
+session-list delegation, single-session revoke audit/no-audit paths, and
+revoke-all audit metadata.
 Admin share-management service ownership is also extracted into
 `src/services/admin/share-management-service.js`, and
 `src/routes/admin/shares.js` now calls that service directly instead of going

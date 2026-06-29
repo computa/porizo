@@ -2,13 +2,18 @@
 
 function registerAdminUserSessionControlRoutes(
   app,
-  { adminService, requireAdminRole, requireAdminSession, sendError },
+  {
+    requireAdminRole,
+    requireAdminSession,
+    sendError,
+    userSessionControlService,
+  },
 ) {
   app.get("/admin/dashboard/users/:userId/sessions", async (request, reply) => {
     const admin = await requireAdminSession(request, reply);
     if (!admin) return;
     const { userId } = request.params;
-    const sessions = await adminService.getUserSessions(userId);
+    const sessions = await userSessionControlService.getUserSessions(userId);
     reply.send({ sessions });
   });
 
@@ -19,7 +24,7 @@ function registerAdminUserSessionControlRoutes(
       if (!admin) return;
       const { userId, sessionId } = request.params;
       const { reason } = request.body || {};
-      const result = await adminService.revokeUserSession(
+      const result = await userSessionControlService.revokeUserSession(
         userId,
         sessionId,
         admin.adminId,
@@ -40,7 +45,7 @@ function registerAdminUserSessionControlRoutes(
       if (!admin) return;
       const { userId } = request.params;
       const { reason } = request.body || {};
-      const result = await adminService.revokeAllUserSessions(
+      const result = await userSessionControlService.revokeAllUserSessions(
         userId,
         admin.adminId,
         reason || "Admin revocation",
@@ -56,7 +61,7 @@ function registerAdminUserSessionControlRoutes(
       if (!admin) return;
       const { userId } = request.params;
       const { reason } = request.body || {};
-      const result = await adminService.forceVoiceReverify(
+      const result = await userSessionControlService.forceVoiceReverify(
         userId,
         admin.adminId,
         reason || "Admin-initiated re-verification",

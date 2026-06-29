@@ -414,10 +414,10 @@ function registerAdminRoutes(
   // --- User Session Management ---
 
   registerAdminUserSessionControlRoutes(app, {
-    adminService,
     requireAdminRole,
     requireAdminSession,
     sendError,
+    userSessionControlService: adminService.adminUserSessionControlService,
   });
 
   // --- Metrics ---

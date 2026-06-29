@@ -2016,6 +2016,12 @@ Root 6 facade-reduction follow-up: share-management admin routes now call
 `listPoemShares`, `resetPoemShareAttempts`, and `revokePoemShare`; focused
 share route, service, and repository validation passed.
 
+Root 6 facade-reduction follow-up: user session/voice-control admin routes now
+call `adminUserSessionControlService` directly instead of passing through
+`AdminService`. Removed `AdminService.forceVoiceReverify`, `getUserSessions`,
+`revokeUserSession`, and `revokeAllUserSessions`; focused route, service, and
+repository validation passed.
+
 ## Task 17: Root 7 Writer Decomposition
 
 **Owner:** One worker

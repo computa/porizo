@@ -563,54 +563,6 @@ class AdminService {
     });
   }
 
-  // ============ VOICE PROFILE MANAGEMENT ============
-
-  /**
-   * Force a user's voice profile to require re-verification
-   */
-  async forceVoiceReverify(userId, adminId, reason) {
-    return await this.adminUserSessionControlService.forceVoiceReverify(
-      userId,
-      adminId,
-      reason,
-    );
-  }
-
-  // ============ USER SESSION MANAGEMENT ============
-
-  /**
-   * Get active sessions for a user
-   */
-  async getUserSessions(userId, limit = 20) {
-    return await this.adminUserSessionControlService.getUserSessions(
-      userId,
-      limit,
-    );
-  }
-
-  /**
-   * Revoke a specific user session
-   */
-  async revokeUserSession(userId, sessionId, adminId, reason) {
-    return await this.adminUserSessionControlService.revokeUserSession(
-      userId,
-      sessionId,
-      adminId,
-      reason,
-    );
-  }
-
-  /**
-   * Revoke all sessions for a user
-   */
-  async revokeAllUserSessions(userId, adminId, reason) {
-    return await this.adminUserSessionControlService.revokeAllUserSessions(
-      userId,
-      adminId,
-      reason,
-    );
-  }
-
   // ============ BILLING & REVENUE ============
 
   /**
