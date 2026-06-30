@@ -40,6 +40,7 @@ This matters because Porizo already ranks well for several exact song-gift phras
 - [x] (2026-06-03 10:13Z) Verified Gift, Anniversary, and Custom CPP versions are `APPROVED`.
 - [x] (2026-06-03 10:13Z) Verified all six ASC screenshot sets still contain five `COMPLETE` screenshots.
 - [x] (2026-06-03 10:13Z) Verified the public Gift, Anniversary, and Custom CPP URLs return HTTP 200 and include the approved promotional text snippets.
+- [x] (2026-06-30) Re-audited this plan and companion map after cleanup; clarified completed CPP work versus future/deferred items.
 
 ## Surprises & Discoveries
 
@@ -113,6 +114,62 @@ This matters because Porizo already ranks well for several exact song-gift phras
 First implementation milestone completed on 2026-06-02. The durable artifacts created in this directory define the organic relevance plan, the keyword-to-surface map, and the CPP/screenshot briefs that should drive App Store Connect setup. The local metadata source now has the correct Father's Day date, the existing Dad CPP brief now matches the organic-search CPP strategy, and the screenshot generator has Gift, Custom, and Anniversary variants wired.
 
 Second implementation milestone completed on 2026-06-02 and approval was verified on 2026-06-03. App Store Connect now has approved CPP versions for Gift, Anniversary, and Custom, with updated promotional text, deep links, and uploaded iPhone/iPad screenshot sets. Anniversary and Custom keyword assignments were accepted. Gift keyword assignment is blocked until a future editable app version includes `gift` in the hidden keyword field. Review submission `4300e74c-e67b-4a0e-934a-74a9ce923966` is `COMPLETE`.
+
+Status audit on 2026-06-30: the core submitted CPP work is complete. Remaining items are not cleanup for that submission: Gift CPP keyword assignment waits for a future editable app version that includes `gift` in the hidden keyword field; the default-page screenshot refresh is specified but not recorded as submitted; and the 2026 Father's Day seasonal window ended on Sunday, June 21, 2026, so Dad/Father's Day work should now be treated as post-season review or next-cycle planning.
+
+## Open Items
+
+These are not cleanup for review submission `4300e74c-e67b-4a0e-934a-74a9ce923966`; they are future work or measurement gates.
+
+- Gift CPP keyword assignment: blocked until the next editable app version includes `gift` in the hidden keyword field, then assign the Gift CPP search keywords where App Store Connect permits it.
+- Default-page screenshot refresh: specified for `song gift`, birthday, and recipient searches, but this directory does not record a submitted default-listing screenshot update.
+- Dad/Father's Day surface: local copy and CPP brief were corrected, but no live 2026 Dad seasonal submission is recorded; since Father's Day 2026 was Sunday, June 21, treat this as post-season analysis or next-cycle planning.
+- Rank and conversion measurement: continue weekly rank checks and App Store Connect CPP metrics; do not judge a CPP from fewer than 1,000 product-page views unless there is an operational failure.
+- Optional AI Song Gift CPP: deferred unless gift-first surfaces justify broadening and the app version keyword field can support `generator` without weakening the default `song gift` lane.
+
+## Verification Plan
+
+Use this plan before claiming a metadata, screenshot, create-flow, share-flow, or broader app refactor did not break Porizo's flows or system.
+
+1. Repository baseline:
+   - `git status --short`
+   - `npm run lint`
+   - `npm test`
+   - `npm run verify:migrations`
+   - `npm run appconfig:smoke`
+   - `npm run verify:share-audio -- --share-id <known-share-fixture-or-prod-smoke-share-id>`
+
+2. API and workflow smoke:
+   - Start Postgres with `npm run db:up` and run the API with `npm run dev`.
+   - Verify `/health` and provider status are sane.
+   - Exercise auth/session, story or track creation, lyrics approval, render request, job polling, library/readback, share creation, share open, claim, stream, revoke, and billing entitlement/preflight paths using seeded fixtures or a staging account.
+   - Confirm failed or blocked jobs leave resumable state and do not consume entitlements incorrectly.
+
+3. Share and app-only playback:
+   - Validate unbound web playback, claimed same-device playback, different-device denial, expired/revoked links, and app-only gift shares.
+   - Confirm browser app-only shares do not create an audio element and route to app install/open behavior.
+   - Confirm share access events are logged for open, claim success, claim failure, stream, denial, and revoke.
+
+4. iOS flow regression:
+   - Use the repo-local `porizo-swiftui-release-workflow` entry point when iOS code or fixture behavior changes.
+   - Build and run simulator checks for onboarding/auth, selected-payload create presentation, gift-funded create, render status, library playback, share claim, subscription/paywall, error states, dark mode, Dynamic Type, and VoiceOver labels on touched screens.
+   - Re-check any `.sheet` or `.fullScreenCover` changes for item-driven payload presentation so stale create payloads cannot launch.
+
+5. Web/admin surfaces:
+   - If web player or admin contracts changed, run the relevant admin build and browser smoke checks.
+   - Verify `resolveSharePresentation` still maps unbound, claimed, app-only, teaser, expired, revoked, and error responses to the expected UI.
+   - Confirm dashboard contract modules still match API response shapes.
+
+6. ASO and App Store surfaces:
+   - In `marketing/appstore/screenshots/generator-designed`, run the generator build and capture any changed variants.
+   - Confirm generated images have App Store dimensions, no alpha channel, readable first-slide text at thumbnail size, and no obvious overlap.
+   - Verify public CPP URLs return HTTP 200 and include the submitted promotional text.
+   - Refresh OpenASO rank snapshots after enough indexing delay to avoid treating one-day volatility as a regression.
+
+7. Acceptance gate:
+   - No new lint, test, build, migration, or smoke failures.
+   - No share-once, app-only saving, entitlement, selected-payload presentation, or audit-log regression.
+   - Any full-repo validation failure is in scope unless explicitly identified as pre-existing and deliberately deferred by Ambrose.
 
 Generated assets exist under:
 

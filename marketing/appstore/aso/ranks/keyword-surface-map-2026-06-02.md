@@ -29,18 +29,18 @@ Tracking only terms are broad AI/music terms where relevance exists but competit
 | Keyword or Cluster | Current Signal | Primary Surface | Organic Relevance Action | Status |
 | --- | --- | --- | --- | --- |
 | `song gift` | Live OpenASO #3 on 2026-06-02; local CSV #5 on 2026-06-01 | Default page | Keep title `Porizo: Song Gift Maker`; default screenshot 1 keeps `song gift` phrase | In place |
-| `birthday song gift` | Live OpenASO #1 on 2026-06-02; screenshot showed #46 earlier | Default page and birthday-oriented default screenshots | Keep birthday in subtitle and description; make one default screenshot use `birthday song gift` language | Needs screenshot update |
-| `anniversary song gift` | Live OpenASO #1 on 2026-06-02; local CSV #18 on 2026-06-01 | Anniversary CPP | Add CPP with anniversary-specific screenshots and copy; keep `anniversary` in keyword field | Spec started |
-| `custom song gift` | Live OpenASO #2 on 2026-06-02; screenshot showed #71 earlier | Custom Song Gift CPP | Add CPP with custom-story screenshots; include `custom song gift` as assigned search combination | Spec started |
-| `gift song` | Local/screenshot rank around #37; live keyword sample did not return Porizo in top 10 on 2026-06-02 | Gift Song CPP | Add CPP with exact `gift song` copy; route owned web pages for gift-song language to it | Spec started |
-| `song gift for dad` | Live OpenASO #1 on 2026-06-02 | Existing Dad CPP and Dad/Father's Day surfaces | Update stale CPP language; verify Dad screenshot set and promotional date | Partially implemented |
+| `birthday song gift` | Live OpenASO #1 on 2026-06-02; screenshot showed #46 earlier | Default page and birthday-oriented default screenshots | Keep birthday in subtitle and description; make one default screenshot use `birthday song gift` language | Proposed default refresh; not submitted |
+| `anniversary song gift` | Live OpenASO #1 on 2026-06-02; local CSV #18 on 2026-06-01 | Anniversary CPP | Add CPP with anniversary-specific screenshots and copy; keep `anniversary` in keyword field | CPP approved |
+| `custom song gift` | Live OpenASO #2 on 2026-06-02; screenshot showed #71 earlier | Custom Song Gift CPP | Add CPP with custom-story screenshots; include `custom song gift` as assigned search combination | CPP approved |
+| `gift song` | Local/screenshot rank around #37; live keyword sample did not return Porizo in top 10 on 2026-06-02 | Gift Song CPP | Add CPP with exact `gift song` copy; route owned web pages for gift-song language to it | CPP approved; keyword assignment blocked until `gift` is in hidden keywords |
+| `song gift for dad` | Live OpenASO #1 on 2026-06-02 | Existing Dad CPP and Dad/Father's Day surfaces | Update stale CPP language; verify Dad screenshot set and promotional date | Local brief updated; seasonal submission not recorded |
 | `song gift for mom` | Live OpenASO #1 on 2026-06-02 | Default page initially; future Mom CPP near Mother's Day | Keep `mom` and `mothers` tokens; do not create Mom CPP until seasonal timing returns | Deferred |
-| `father's day song` | Screenshot/local rank around #47; seasonal opportunity before 2026-06-21 | Existing Dad CPP plus In-App Event | Correct Father's Day date; update Dad CPP note about organic search; use Dad screenshots | Partially implemented |
-| `father's day song for dad` | Screenshot/local rank around #83 | Existing Dad CPP plus In-App Event | Same as above; prioritize first-slide headline `Make Dad a Father's Day song` | Partially implemented |
+| `father's day song` | Screenshot/local rank around #47; seasonal opportunity before 2026-06-21 | Existing Dad CPP plus In-App Event | Correct Father's Day date; update Dad CPP note about organic search; use Dad screenshots | Local copy fixed; 2026 season passed |
+| `father's day song for dad` | Screenshot/local rank around #83 | Existing Dad CPP plus In-App Event | Same as above; prioritize first-slide headline `Make Dad a Father's Day song` | Local brief updated; 2026 season passed |
 | `birthday song` | Screenshot rank #112; broad and noisy | Tracking plus default birthday screenshot | Do not optimize default metadata around this alone; use birthday song gift phrasing | Tracking |
 | `custom song` | Unranked or weak; broad AI/music intent | Tracking only | Keep `custom` token but do not make default page about generic custom songs | Tracking |
 | `personalized song` | Screenshot rank #175; broad creator intent | Tracking only | Keep `personalized` token; push `personalized song gift` via CPP/default copy | Tracking |
-| `personalized song gift` | Live OpenASO #1 on 2026-06-02 | Custom Song Gift CPP and default description | Use as supporting keyword in Custom Song Gift CPP | Spec started |
+| `personalized song gift` | Live OpenASO #1 on 2026-06-02 | Custom Song Gift CPP and default description | Use as supporting keyword in Custom Song Gift CPP | CPP approved via Custom surface |
 | `birthday gift ideas` | ASA evidence had installs; App Store result set broad | Web SEO | Use web pages and smart banner/download attribution, not App Store default metadata | Web only |
 | `birthday gift` | ASA evidence had installs; App Store result set broad | Web SEO | Same as above; App Store keyword field can keep birthday via subtitle, not hidden field | Web only |
 | `ai song generator` | High popularity, top results are Suno/Muzio/Donna/Mozart/Zona; Porizo not competitive | Optional AI support CPP later | Add `generator` only if shipping AI support CPP; do not alter default title | Deferred |
@@ -61,6 +61,8 @@ Optional AI-support keyword field if an AI support CPP is shipped:
 This is 97 characters. It drops `graduation` to add `generator`. Do not use this version unless the default listing or a CPP has screenshots that make the AI-generator promise clear.
 
 ## Screenshot Implementation Notes
+
+The CPP screenshot variants below were generated and the Gift, Custom, and Anniversary surfaces were approved. The default screenshot changes remain a proposed refresh; this directory does not record a submitted default-page screenshot update.
 
 Default screenshot slot 1 should stay:
 
