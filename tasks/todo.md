@@ -30,3 +30,54 @@ This is **Step 1 of the architectural-loop**: identify the architectural roots. 
 - No edits to `src/**` this pass (analysis only).
 - Verify claims by reading code (per claim-verification rule) — no grep-only assertions in the map.
 - Don't re-litigate the completed feature-audit; this is structural, not feature-level.
+
+---
+
+# Deferred — tackle later (found during refactor verification + TestFlight deploy, 2026-06-30)
+
+> Context: `refactor` branch is deployed to Railway prod (`api.porizo.co`) via `railway up`, smoke-verified, and a real song rendered end-to-end. iOS 1.5.26 (146) is on TestFlight. These issues are NOT refactor regressions — pre-existing ops/config gaps surfaced by the live test. `main` is unchanged (rollback anchor: deployment `b86b2b73`).
+
+## D-A — APNs render-completion push not configured in production (the ~100s "song ready" delay)
+
+**Root cause (verified):** Production has 0 of the required `APNS_*` vars (checked 92 Railway prod vars). `pushNotification.isConfigured()` (`src/services/push-notification.js:40`) returns false → the push block in `src/workflows/runner.js:3338` is skipped → no render-completion push is ever sent. The app then only learns the song is ready via its own poll loop, which backs off to a 30s max interval on long renders (`PorizoApp/.../Controllers/RenderController.swift:19-38`), causing a ~100s gap between server-side completion and the app showing the result.
+**iOS + server code are both correct and complete** — this is purely missing prod config. Not a refactor regression (missing on `main` too).
+**Fix:** Set 5 Railway prod vars:
+
+- [ ] `APNS_TEAM_ID=5VCH6937XM`
+- [ ] `APNS_BUNDLE_ID=porizo.ios.app.PorizoApp`
+- [ ] `APNS_PRODUCTION=true`
+- [ ] `APNS_KEY_ID=<the APNs auth key's id>` — **BLOCKER: identify which `.p8` is an APNs key** (5 found on disk: `684S2UP4C8`, `7Q8RMW3LUM`, `83HHTLB8MR`=ASC, `46753BLRQ7`, `V5B5WV9H3B`). Check developer.apple.com → Keys for the one with "Apple Push Notifications service (APNs)" capability, or create one.
+- [ ] `APNS_PRIVATE_KEY=<.p8 contents of that key>`
+- [ ] No app rebuild needed once set — the shipped TestFlight build already registers + uploads the APNs token.
+
+## D-B — OpenAI quota exhausted (429) → lyric word-timing/alignment fails
+
+**Symptom in prod render:** `[JobRunner] Lyrics alignment failed: E401_WHISPER_ERROR: API error 429 - You exceeded your current quota`. Degrades gracefully (song still completes, `master.m4a` uploaded), but the timed/karaoke lyrics are missing.
+
+- [ ] Top up / raise OpenAI quota (Whisper alignment uses `OPENAI_API_KEY`).
+- [ ] Optional: verify alignment populates once quota restored.
+
+## D-C — Anthropic API credit exhausted → artwork-vars fall back to defaults
+
+**Symptom in prod render:** `[LLM] anthropic ... Your credit balance is too low` → `[artwork-vars] Haiku failed ... using defaults`. Degrades gracefully (artwork still generated via flux), but variable extraction quality drops.
+
+- [ ] Top up Anthropic API credits (artwork-vars extractor uses `claude-haiku-4-5`).
+
+## D-D — OneSignal tag-sync 404 on boot (pre-existing noise)
+
+**Symptom:** Startup batch `[OneSignal] Tag sync completed updated=0 errors=76 total=76` — 404s syncing tags for 76 users. `[INFO]` level, present before the refactor. Low priority.
+
+- [ ] Investigate why OneSignal tag sync 404s for these users (stale OneSignal IDs?).
+
+## D-E — Optional iOS mitigation: render-poll backoff is aggressive on long renders
+
+Even with APNs fixed, the foreground poll caps at 30s (`RenderController.swift` `backoffIntervalsNs`). If push is the primary signal this is fine; if we want snappier in-app fallback, consider capping backoff at 10s or shrinking intervals near expected completion. Lower priority than D-A.
+
+- [ ] Decide whether to tighten poll backoff after D-A (APNs push) lands.
+
+## D-F — Merge decision: `refactor` → `main` (HELD by user)
+
+Backend deployed + song rendered successfully, but user is validating more in-app before merging. 189 commits ahead of `main`.
+
+- [ ] Confirm in-app experience is good (playback, share, gift flows).
+- [ ] Then merge `refactor` → `main` (style TBD: merge-commit vs squash vs PR) — OR `railway redeploy` to roll back to `main` if issues found.
