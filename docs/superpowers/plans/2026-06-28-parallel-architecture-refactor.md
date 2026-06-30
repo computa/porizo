@@ -154,31 +154,31 @@ Root 1 is complete only when that scan has no direct persistence hits outside co
 
 ### Existing Files To Modify
 
-- `src/routes/sharing.js`  
+- `src/routes/sharing.js`
   Owns share/player/claim HTTP contracts. It should delegate all share-token, track, track-version, gift-order, receiver-session, and notification lookup/update persistence.
 
-- `src/routes/tracks.js`  
+- `src/routes/tracks.js`
   Owns track API contracts, render request validation, billing/service orchestration, and response mapping. It should delegate track, track-version, entitlement, usage, and library persistence.
 
-- `src/routes/poems.js`  
+- `src/routes/poems.js`
   Owns poem API contracts, poem generation orchestration, OG variant dispatching, and response mapping. It should delegate poem, entitlement, gift snapshot, share-token, and library persistence.
 
-- `src/routes/story.js`  
+- `src/routes/story.js`
   Owns story flow API contracts and orchestration. It should delegate story-session, display-name, track/poem bridge, and entitlement persistence to `src/database/story-repository.js`.
 
-- `src/routes/enrollment.js`  
+- `src/routes/enrollment.js`
   Owns enrollment HTTP contracts, upload validation, audio/provider orchestration, and response mapping. It should delegate the remaining enrollment-session/artifact persistence to `src/database/enrollment-session-repository.js`.
 
-- `src/routes/billing.js` and `src/services/subscription-manager.js`  
+- `src/routes/billing.js` and `src/services/subscription-manager.js`
   Own billing HTTP contracts and subscription reconciliation orchestration. They should delegate subscriptions, entitlements, plan, trial, receipt, and tombstone persistence to billing/subscription repositories.
 
-- `src/workflows/runner.js`  
+- `src/workflows/runner.js`
   Owns render workflow orchestration. It should delegate job selection, job claims, step history, track/track-version updates, user risk updates, audit insertions, blocked-user reads, and provider artifact persistence.
 
-- `src/jobs/artwork-job.js`  
+- `src/jobs/artwork-job.js`
   Owns scheduled artwork job orchestration. It should delegate any direct artwork-job row persistence to `src/database/artwork-job-repository.js`.
 
-- `src/routes/admin.js`  
+- `src/routes/admin.js`
   Owns admin HTTP contracts and authorization. It should not regain broad SQL ownership; remaining direct persistence should move to the existing `admin-*` repositories.
 
 ### Repository Files To Extend Or Create
@@ -333,8 +333,8 @@ Expected: counts remain concentrated in `src/routes/sharing.js`, `src/routes/tra
 
 ## Task 2: Wave 1 Agent A - Share Route Repository Extraction
 
-**Owner:** Worker Agent A  
-**Worktree:** `.worktrees/root1-sharing`  
+**Owner:** Worker Agent A
+**Worktree:** `.worktrees/root1-sharing`
 **Branch:** `refactor-root1-sharing-20260628`
 
 **Files:**
@@ -431,8 +431,8 @@ Expected: worker reports commit SHA, files changed, tests run, direct persistenc
 
 ## Task 3: Wave 1 Agent B - Track Route Repository Extraction
 
-**Owner:** Worker Agent B  
-**Worktree:** `.worktrees/root1-tracks`  
+**Owner:** Worker Agent B
+**Worktree:** `.worktrees/root1-tracks`
 **Branch:** `refactor-root1-tracks-20260628`
 
 **Files:**
@@ -515,8 +515,8 @@ Expected: worker reports commit SHA, files changed, tests run, and remaining `tr
 
 ## Task 4: Wave 1 Agent C - Poem Route Repository Extraction
 
-**Owner:** Worker Agent C  
-**Worktree:** `.worktrees/root1-poems`  
+**Owner:** Worker Agent C
+**Worktree:** `.worktrees/root1-poems`
 **Branch:** `refactor-root1-poems-20260628`
 
 **Files:**
@@ -664,8 +664,8 @@ Expected: commit is skipped if the merge commits already include the exact docs 
 
 ## Task 6: Wave 2 Agent D - Story Route Repository Extraction
 
-**Owner:** Worker Agent D  
-**Worktree:** `.worktrees/root1-story`  
+**Owner:** Worker Agent D
+**Worktree:** `.worktrees/root1-story`
 **Branch:** `refactor-root1-story-20260628`
 
 **Files:**
@@ -729,8 +729,8 @@ Expected: worker reports commit SHA, files changed, tests run, and remaining `st
 
 ## Task 7: Wave 2 Agent E - Enrollment, Artwork Job, And Admin Small Leftovers
 
-**Owner:** Worker Agent E  
-**Worktree:** `.worktrees/root1-enrollment-small`  
+**Owner:** Worker Agent E
+**Worktree:** `.worktrees/root1-enrollment-small`
 **Branch:** `refactor-root1-enrollment-small-20260628`
 
 **Files:**
@@ -822,8 +822,8 @@ Expected: worker reports commit SHA, files changed, tests run, and any deferred 
 
 ## Task 8: Wave 2 Agent F - Billing And Subscription Repository Extraction
 
-**Owner:** Worker Agent F  
-**Worktree:** `.worktrees/root1-billing`  
+**Owner:** Worker Agent F
+**Worktree:** `.worktrees/root1-billing`
 **Branch:** `refactor-root1-billing-20260628`
 
 **Files:**
@@ -982,8 +982,8 @@ Wave 2 repository extraction moved additional story, enrollment, artwork-job, ad
 
 ## Task 10: Wave 3 Agent G - Workflow Runner Persistence Exit
 
-**Owner:** Worker Agent G  
-**Worktree:** `.worktrees/root1-runner`  
+**Owner:** Worker Agent G
+**Worktree:** `.worktrees/root1-runner`
 **Branch:** `refactor-root1-runner-20260628`
 
 **Files:**
@@ -1126,7 +1126,7 @@ Expected: commit records Root 1 closure.
 
 ## Task 12: Root 2 Auth And Rate-Limit Consolidation
 
-**Owner:** Controller plus one worker after Root 1 is closed  
+**Owner:** Controller plus one worker after Root 1 is closed
 **Risk:** Revenue/auth path
 
 **Files:**
@@ -1250,7 +1250,7 @@ Expected: C2 is document-closed without changing wire behavior.
 
 ## Task 14: Root 3b Gift Subsystem Extraction
 
-**Owner:** One worker plus controller review  
+**Owner:** One worker plus controller review
 **Risk:** Revenue-adjacent gift path
 
 **Files:**
