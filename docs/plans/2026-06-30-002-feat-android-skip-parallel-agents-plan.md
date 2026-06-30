@@ -166,6 +166,9 @@ docs/plans/
 ├── 2026-06-30-001-feat-android-via-skip-plan.md      # decision source (unchanged)
 ├── 2026-06-30-002-feat-android-skip-parallel-agents-plan.md  # this file
 ├── android-skip-gate-a-findings.md                   # Gate A verdict (created in U1/U2)
+├── android-skip-gate-a-blocker-tracker.md            # open blockers while Gate A is not passed
+├── android-skip-gate-a-runtime-runbook.md            # physical-device runtime checklist
+├── android-skip-legal-review-packet.md               # legal/toolchain signoff packet
 └── android-third-party-ledger.md                     # SDK + legal/toolchain ledger (U0)
 ```
 

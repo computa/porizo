@@ -66,6 +66,8 @@ Conclusion: U1 cannot finish locally until Ambrose attaches a physical Android d
 
 Runtime execution checklist: `docs/plans/android-skip-gate-a-runtime-runbook.md`.
 
+Current blocker tracker: `docs/plans/android-skip-gate-a-blocker-tracker.md`.
+
 ## Gate A Inputs From U0
 
 | Input | Status | Notes |
