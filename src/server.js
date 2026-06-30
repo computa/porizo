@@ -345,6 +345,21 @@ function buildServer({
     throw new Error("Storage provider is required.");
   }
   const storageProvider = storage;
+  async function createStorageDownloadUrl({ key, expiresInSec }) {
+    if (typeof storageProvider.createPresignedDownload === "function") {
+      const download = await storageProvider.createPresignedDownload({
+        key,
+        expiresInSec,
+      });
+      return download?.url;
+    }
+
+    if (typeof storageProvider.getSignedUrl === "function") {
+      return storageProvider.getSignedUrl(key, { expiresInSec });
+    }
+
+    throw new Error("Storage provider does not support signed downloads.");
+  }
   const allowAnonUserId =
     appConfig.ALLOW_ANON_USER_ID ??
     (process.env.ALLOW_ANON_USER_ID === "true"
@@ -2144,7 +2159,7 @@ function buildServer({
   ) {
     // R2 is the source of truth — proxy the response to avoid CORS issues
     if (storageProvider.type !== "local") {
-      const download = storageProvider.createPresignedDownload({
+      const downloadUrl = await createStorageDownloadUrl({
         key: s3Key,
         expiresInSec: 300,
       });
@@ -2157,7 +2172,7 @@ function buildServer({
         // HEAD upstream returns 403. Fastify auto-strips the body for HEAD
         // downstream, which means HEAD pays the R2 download cost. Acceptable:
         // HEAD requests are rare from real audio elements (browsers GET).
-        const r2Response = await fetch(download.url, {
+        const r2Response = await fetch(downloadUrl, {
           headers: fetchHeaders,
           signal: AbortSignal.timeout(30_000),
         });
@@ -2445,11 +2460,11 @@ function buildServer({
 
     if (storageProvider.type !== "local") {
       const key = `${trackVersionKey({ userId: track.user_id, trackId: track.id, versionNum: trackVersion.version_num })}/cover_${size}.jpg`;
-      const download = storageProvider.createPresignedDownload({
+      const downloadUrl = await createStorageDownloadUrl({
         key,
         expiresInSec: 300,
       });
-      reply.redirect(download.url);
+      reply.redirect(downloadUrl);
       return;
     }
     const versionDir = getVersionDir(track, trackVersion);

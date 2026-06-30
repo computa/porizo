@@ -130,11 +130,11 @@ async function getKPIAggregates(db, days = 30) {
  * Calculate week-over-week trends
  * @param {Object} db - Database instance
  */
-async function getKPITrends(db) {
+async function getKPITrends(db, now = new Date()) {
   const dailyAggregatesRepository = createDailyAggregatesRepository(db);
 
   // Calculate date boundaries in JS for consistent date handling
-  const today = new Date();
+  const today = new Date(now);
   const weekAgo = new Date(today);
   weekAgo.setDate(today.getDate() - 7);
   const twoWeeksAgo = new Date(today);

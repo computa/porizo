@@ -217,7 +217,7 @@ describe("daily aggregate computations", () => {
       revenueCents: 500,
     });
 
-    const trends = await getKPITrends(db);
+    const trends = await getKPITrends(db, new Date("2026-06-29T12:00:00.000Z"));
 
     assert.equal(Number(trends.thisWeek.total_dau), 10);
     assert.equal(Number(trends.lastWeek.total_dau), 5);
