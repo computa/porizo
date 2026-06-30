@@ -10,11 +10,11 @@ depth: deep
 
 ## Summary
 
-Porizo today is a single native SwiftUI iOS app (258 Swift files, ~70k LOC) talking to a shared Railway backend over a clean REST API. The goal is genuinely-native iOS **and** Android apps with the _least_ separately-built code. This plan adopts **Skip Fuse** (skip.tools) — which compiles Swift natively for Android and renders SwiftUI as real Jetpack Compose — so the iOS Swift codebase becomes the single source of truth for both platforms. The backend is reused verbatim; no second client backend, no rewrite.
+Porizo today is a single native SwiftUI iOS app (258 Swift files, ~70k LOC) talking to a shared Railway backend over a REST API. The goal is genuinely-native iOS **and** Android apps with the _least_ separately-built code. This plan keeps **Skip Fuse** (skip.tools) as the leading bet — Swift compiled natively for Android with SwiftUI rendered as Jetpack Compose — but no longer treats the iOS app or backend as drop-in portable. The backend is reused as the authority, with explicit production migrations for push, Android App Links, passwordless email auth, Android device trust, and Google consumable receipts.
 
-The honest core of this plan: Skip's docs explicitly discourage "migrating an existing Xcode project." The real work is therefore **modularizing the existing iOS app into Swift Package modules** (which improves the iOS app regardless), then onboarding those modules to Skip one at a time, and writing a _small, enumerable_ set of Porizo's hardest platform features per-platform behind clean Compose bridges. Those bridge features are known up front: in-app purchases (StoreKit → Play Billing, no Skip module), custom now-playing/lockscreen, live waveform metering, background upload/scheduling, on-device speech-to-text, and deep-link OS registration.
+The honest core of this plan: Skip's docs explicitly discourage "migrating an existing Xcode project." The real work is therefore **purifying and modularizing** the existing iOS app into Swift Package modules, then onboarding those modules to Skip one at a time, and writing a _small, enumerable_ set of Porizo's hardest platform features per-platform behind clean bridges. The shared API client is not portable as-is: it currently reaches into UIKit, Keychain, `Bundle.main`, background-task wrappers, and push-token plumbing. That has to be removed before `PorizoAPI` can be called shared code.
 
-This is a Deep, phased plan with **two gates**. Gate A (~1 week) ports real Warm Canvas screens _through SkipUI_ — driving go/no-go off the SwiftUI→Compose result, the actual bet — plus the hardest bridged features. Gate B re-checks at scale before the irreversible modularization lands. The **recipient (viral-loop) path ships first**, since fixing the dead-ended Android gift is the product reason for the project.
+This is a Deep, phased plan with **two gates**. Gate A ports real interaction-heavy screens _through SkipUI_ with hard pass/fail thresholds before any Skip-shaped code is committed. Gate B re-checks a recipient vertical slice before the bulk module split. The first shippable Android release is **Recipient MVP**: an Android recipient can receive, claim, bind to the correct device, and play a gift. That milestone depends on a thin API/Core/UI/platform slice plus Android auth/device trust; it is not blocked on migrating existing iOS APNs users to FCM.
 
 ---
 
@@ -24,10 +24,10 @@ Porizo is iOS-only. Android is a large untapped market and a hard requirement fo
 
 Two structural facts make this tractable:
 
-1. **The backend is already the shared layer.** ~23k LOC across 18 route files (`src/routes/`) — auth, tracks, story/create, rendering jobs, gifts, sharing, billing, enrollment — is server-authoritative. The iOS app is a thin-ish client over a 12-extension API client (`APIClient+*.swift`). Android reuses this 1:1.
+1. **The backend is already the authority, not a no-op dependency.** ~23k LOC across 18 route files (`src/routes/`) — auth, tracks, story/create, rendering jobs, gifts, sharing, billing, enrollment — remains server-authoritative. Android reuses the same contracts, but the plan must add server migrations for Android App Links, typed push tokens, passwordless email, Play consumables, and Android claim/device trust.
 2. **The iOS UI is SwiftUI + `@Observable`.** Skip's whole value proposition is SwiftUI → native Compose. The closer the app stays to standard SwiftUI, the more transfers for free.
 
-The risk is equally concrete: Porizo's _differentiated_ features are precisely the ones Skip does **not** abstract (IAP, bespoke audio now-playing, live waveform, background transfer). Those will be built twice no matter what. The plan's job is to make that "twice" set as small and well-bounded as possible, and to prove the bridging cost before committing.
+The risk is equally concrete: Porizo's _differentiated_ features are precisely the ones that drive platform-specific work: device-bound claiming, app-only playback, purchases, bespoke audio now-playing, live waveform, background transfer, push, and auth/deep-link OS policy. Some of that will be built twice no matter what. The plan's job is to make that "twice" set small, explicit, and validated before committing to Skip.
 
 ---
 
@@ -37,24 +37,32 @@ The risk is equally concrete: Porizo's _differentiated_ features are precisely t
 
 - KTD2. **Do not migrate the Xcode project in place; restructure into a Skip-style multi-module SwiftPM project.** Run `skip create` to generate a fresh dual-platform SwiftPM workspace, then pull existing code in as modules (UI module → SkipFuseUI, logic module → SkipFuse + SkipModel). This is invasive and front-loaded — it _is_ the project — but the modularization independently improves the iOS app's testability and build times. _(Skip docs explicitly: "we do not recommend trying to migrate an existing Xcode project.")_
 
-- KTD3. **Reuse the backend verbatim; share the API client.** No second backend. Two corrections to the original framing, grounded in the code:
+- KTD3. **Reuse the backend as the authority; do not call it verbatim.** No second backend. The actual backend work is a set of production migrations around otherwise-shared contracts:
   - **Passwordless email is NOT yet supported server-side.** `src/routes/auth.js` has phone-OTP, password login, and social (`/auth/social`) — but no email magic-link/OTP path (grep confirms). So the Android primary login is **new, security-sensitive server work**, not shared-client work. It is specified as its own unit (U8a) following the existing phone-registration-token pattern (hash-at-rest, single-use, short TTL, enumeration-neutral, rate-limited), delivered over a **verified App Link** (never the `porizo://` custom scheme).
-  - **Google Play receipt validation already exists.** `POST /billing/receipt/google` + `src/services/google-receipt-validator.js` (Android Publisher API v3, `requireUserId`, 10/min rate limit, cross-account guard) is live and wired into `billing.js` as `googleValidator`. The genuinely-new server work is only the Google **consumable** (gift-bundle) path — there is no `/billing/receipt/google/consumable` today. Android's net-new backend surface is therefore: the email-auth path (U8a), the Google consumable receipt path (U6), and binding FCM tokens on the existing `/device/register` (U8).
+  - **Google Play validators partly exist.** `POST /billing/receipt/google` + `src/services/google-receipt-validator.js` already validate Google subscriptions, and the validator also has one-time product verification/acknowledgement helpers. The genuinely-new server work is the Google **consumable route and ledger flow**: product catalog mapping, replay/cross-account/concurrency protection, transaction identity, wallet credit in one transaction, and acknowledgement/consume semantics.
+  - **Push/device registration is a migration, not an additive field.** `/device/register` currently issues anonymous device tokens and conditionally stores an untyped `push_token`. Android FCM needs provider/type/environment, longer token validation, ownership transfer, stale-token cleanup, and APNs+FCM dual-send support.
+  - **Android App Links and device trust are new server/domain work.** The server serves Apple AASA today, not `assetlinks.json`; receiver/auth links need HTTPS App Links on every host used. Android claim binding also needs App Set ID + Play Integrity validation to preserve the share-once/app-only contract.
 
-- KTD4. **Standardize push on FCM via SkipFirebase — and treat it as a migration, not an additive change.** One `SkipFirebase` Messaging integration covers both platforms, but the iOS backend send path today is **APNs-only** (`@parse/node-apn`; `devices.push_token` is documented as an APNs device token) and a separate **OneSignal** stack exists on client (`AuthManager`) and server (`src/services/onesignal.js`). Moving iOS to FCM means: (a) the backend send path is rewritten to FCM, (b) existing users' stored APNs tokens are re-registered as FCM tokens (a live-user migration with a cutover plan so in-flight render-complete pushes aren't lost), and (c) OneSignal's role (marketing pushes, tag-sync, external-ID linking) is explicitly reconciled — keep it, or fold it into FCM. This is real work, gated in U8; do not treat KTD4 as "additive." It does, as a side effect, resolve the unconfigured-APNs prod gap (D-A).
+- KTD4. **Push is dual-stack first; iOS APNs migration is not on the recipient critical path.** Android gets FCM support without forcing existing iOS users off APNs. The first backend step is typed push-token storage and provider-aware send (`apns`, `fcm`, environment, platform, last seen, stale cleanup). Existing iOS APNs continues until a separate migration unit proves dual-send metrics, rollback, token re-registration, and OneSignal external-ID/tag reconciliation. This keeps the Android recipient fix from being blocked by a live-user iOS notification migration.
 
-- KTD5. **iOS keeps native StoreKit 2; only Android adopts a Play-Billing path — both behind a shared `PurchaseProviding` protocol.** Skip has **no** StoreKit→Play Billing module (skiptools discussion #196). The shared protocol (defined in U4) is the single abstraction; it does **not** require routing iOS through a third party. iOS keeps its working, server-authoritative `StoreKitManager.swift` (StoreKit 2, `Transaction.updates`, C6/C11 dedup) untouched; the Android adapter uses **RevenueCat or Play Billing directly** for the Play purchase, then feeds the existing server validators (`googleValidator`). The existing entitlement model (`plan_products`, `ProductID` enum, atomic `WHERE balance>0`) stays the source of truth. This keeps the working iOS revenue path out of scope entirely — minimizing blast radius and duplication, per the project goal.
+- KTD5. **iOS keeps StoreKit 2; Android purchase implementation is a gated adapter choice.** The current Skip ecosystem now includes marketplace/IAP options, so the old "no Skip module" statement is no longer safe. Gate A must verify current Skip Marketplace/StoreKit/Play Billing viability against Porizo's server-authoritative entitlement model. Regardless of client library, iOS keeps `StoreKitManager.swift` untouched; Android uses the chosen adapter only to obtain Google purchase tokens, then feeds Porizo's server validators and wallet/subscription ledgers. RevenueCat remains optional purchase-broker infrastructure, not an entitlement authority.
 
-- KTD6. **Bridge the irreducible platform features with `#if SKIP` + embedded Compose/Kotlin; the bridge protocols are owned by U4.** Skip's escape hatches (`#if SKIP` Swift blocks that call Kotlin/Compose; raw `.kt` files in `Sources/<Module>/Skip/`) are how now-playing, waveform, background upload, and on-device STT get their Android implementations. The shared protocols (`AudioPlaying`, `PurchaseProviding`, `PushRegistering`) are **defined once in U4** (net-new — they don't exist in the codebase today) and **consumed** by U6 (IAP) and U7 (the native bridges). iOS keeps its existing implementation injected behind each protocol; Android gets a Compose/Kotlin sibling.
+- KTD6. **Bridge irreducible platform features with protocols plus native Android implementations.** Skip escape hatches (`#if SKIP`, embedded Compose/Kotlin, or native Android source under `Sources/<Module>/Skip/`) are how now-playing, waveform, background upload, STT, push, device trust, and purchases get Android implementations. The shared protocols (`SecureStore`, `AppMetadataProviding`, `BackgroundExecutionProviding`, `PushTokenProviding`, `AudioPlaying`, `PurchaseProviding`, `DeviceTrustProviding`) are defined before extraction in a thin U3a/U4 slice. iOS keeps existing implementations injected behind those protocols; Android gets native siblings.
 
-- KTD7. **Two gates, not one — and the gate that matters tests SwiftUI→Compose at real-screen scale.** The original single-spike gate measured only _bridged_ features (now-playing + IAP), which by definition bypass SkipUI — so it validated the build-twice cost the plan already concedes, not the actual bet (does SkipUI render Porizo's real Warm Canvas screens). Corrected to two gates:
-  - **Gate A (U1, ~1 week):** spike now-playing + one IAP **and** port 3–5 real Warm Canvas screens (a V2Story create step, My Songs, a Settings screen) _through SkipUI to Compose_. Measure the unsupported-construct rate on actual app UI, font/token fidelity, full-clean Fuse build time extrapolated to 70k LOC, and bridging LOC. Go/no-go is driven by the **SwiftUI→Compose result**, since that is what U5 and parity depend on.
-  - **Gate B (after a thin U5 slice, before the bulk of U3/U4 lands in the shippable app):** onboard a few more real screens end-to-end on an Android device. Only after Gate B passes is full modularization committed. This prevents the failure mode where U3/U4 sink an irreversible 70k-LOC refactor _before_ SwiftUI→Compose is proven at scale.
+- KTD7. **Two gates with thresholds, not subjective checkpoints.** The old Gate A measured useful things but had no pass/fail standard. Corrected gates:
+  - **Gate A (U1/U2):** throwaway spike only. It must include recipient claim/play UI, web/app handoff, one dense Warm Canvas creator screen, settings/auth/subscription sheet behavior, and one native escape-hatch feature. Hard thresholds are set before work starts: unsupported SwiftUI construct count, native escape-hatch count, bridge LOC per screen, clean/incremental build time, release APK size, physical-device crash-free run, visual/accessibility parity, toolchain reproducibility, and legal/license approval.
+  - **Gate B:** before bulk module moves, implement a reversible recipient vertical slice through Skip on Android: purified API slice, minimal Core protocols, claim/play UI, auth return, device trust stub/real path, and playback shim. If this cannot pass on hardware, switch to the Compose fallback before the codebase is Skip-shaped.
   - If either gate fails, the fallback — **shared backend + separate native Compose UI** — is a co-equal candidate costed on the same axes (see Alternatives), not an undescribed contingency.
 
-- KTD8. **Sequence the recipient (viral-loop) path first; it is the product reason for the project.** The stated problem is that gifts to Android recipients dead-end — a defect on the _receive→claim→play_ path (U8), which depends only on U3. That path is therefore the **first shippable Android milestone** (after Gate A), ahead of creator-side surfaces (full create/story flow, waveform, STT). Full parity remains the launch target, but value lands at the recipient path, not at "a song generates end-to-end."
+- KTD8. **Recipient-first means a scoped Android Recipient MVP, not "U8 depends only on U3."** The product reason is the Android gift dead-end. The first shippable milestone is therefore an Android Recipient MVP: receive link, preserve deferred handoff, authenticate or resume auth, bind to Android device identity, claim idempotently for the same bound device only, stream/play, and log/share analytics. It requires a thin API/Core/UI/platform slice plus passwordless/social auth and device trust. Full creator-side parity comes after.
 
-- KTD9. **Reconcile with the in-flight `refactor` branch before modularizing.** A separate architecture-debt refactor is live on the `refactor` branch (deployed to prod + TestFlight 2026-06-30) and is re-carving the same iOS target. Two concurrent invasive module splits will collide and make the "iOS-as-oracle" characterization unreliable. Phase 2 has a hard prerequisite: land/freeze that refactor (or merge it to `main`) and reconcile its module boundaries with U3/U4's **before** extraction begins.
+- KTD9. **Baseline and branch freeze before module work.** This plan is being reviewed on the `refactor` branch after the 2026-06-30 refactor verification/TestFlight work. Before any U3a/U3 module move starts, pick and record the exact baseline commit and target branch (`refactor` vs `main`), freeze other architecture-shaping refactors, and assign a single owner for module boundaries. "iOS as oracle" is only reliable against that frozen baseline.
+
+- KTD10. **Android share/device trust is non-negotiable.** Porizo's core constraints are user-voice output, share-once with device claim, app-only saving, and auditability. Android must implement App Set ID + Play Integrity token generation, server validation, freshness/replay checks, bound stream/key access, wrong-device denial, same-device retry, revoked/expired/already-claimed states, and `share_access_log`/analytics before Recipient MVP is considered shippable.
+
+- KTD11. **Third-party SDKs are a launch ledger, not a footnote.** Firebase, Amplitude, AppsFlyer, Facebook, OneSignal, TikTok, PhoneNumberKit, ATT/AdServices equivalents, and any Skip modules must be classified before Gate A: native Android SDK, Swift bridge, web/server replacement, or deferred. Each entry needs event parity, initialization lifecycle, privacy/data-safety impact, secrets classification, and launch-blocking status.
+
+- KTD12. **Two releases: Recipient MVP and Full Parity.** "Minimize duplicated components" remains the tiebreaker, but it cannot hide launch-critical scope. Recipient MVP has a P0 list around auth, claim/play, device trust, playback, analytics, crash logging, and support. Android Full Parity later adds creator create/render/enrollment, purchases, push polish, settings, and store readiness. U9 verifies the full parity release, not the recipient MVP.
 
 ---
 
@@ -67,17 +75,19 @@ flowchart TB
   subgraph Shared["Shared Swift (single source of truth)"]
     M["Models / params / versioning"]
     L["Business logic + view-models"]
-    API["API client (URLSession) — 12 endpoint groups"]
+    API["Purified API client (URLSession) — 12 endpoint groups"]
     UI["SwiftUI screens → SkipUI → Compose"]
   end
   subgraph Bridged["Per-platform behind shared protocols (#if SKIP) — iOS keeps its impl, Android gets a sibling"]
-    IAP["IAP: StoreKit (iOS, untouched) | Play Billing (Android)"]
+    IAP["IAP: StoreKit (iOS, untouched) | Play Billing adapter (Android)"]
     NP["Now-playing / lockscreen: MPNowPlaying | MediaSession"]
     WAVE["Live waveform: AVAudioEngine | AudioRecord"]
     BG["Background upload/poll: BGTask+URLSession | WorkManager"]
     STT["On-device STT: SFSpeech | Android SpeechRecognizer"]
     AUTH["Auth: SIWA (iOS) | email + social + SIWA-web (Android, email path NEW)"]
     LINK["Deep-link OS registration: AASA | assetlinks.json"]
+    TRUST["Device trust: DeviceCheck-ish iOS status quo | App Set ID + Play Integrity"]
+    PUSH["Push transport: APNs+OneSignal | FCM dual-stack"]
   end
   subgraph Modules["Skip modules (shared, off-the-shelf)"]
     AV["SkipAV (playback/record)"]
@@ -89,7 +99,7 @@ flowchart TB
   Shared --> Bridged
   iOSApp["iOS app (Swift/SwiftUI, native)"] --> Shared
   AndroidApp["Android app (native Swift + Compose)"] --> Shared
-  Shared --> Backend["Railway backend (REST) — REUSED VERBATIM"]
+  Shared --> Backend["Railway backend (REST) — shared authority + explicit migrations"]
 ```
 
 ### Coverage matrix — what transfers vs. what is built twice
@@ -98,24 +108,25 @@ The plan's value is making the right column small and bounded. Grounded in the a
 
 | iOS feature (file)                                                                                     | Skip coverage                     | Android approach                                                  | Cost     |
 | ------------------------------------------------------------------------------------------------------ | --------------------------------- | ----------------------------------------------------------------- | -------- |
-| API client (`APIClient+*.swift`, 12 groups)                                                            | ✅ SkipFoundation URLSession      | Shared verbatim                                                   | Low      |
-| Models / params (`Models/`)                                                                            | ✅ Native Swift (Fuse)            | Shared verbatim                                                   | Low      |
+| API client (`APIClient+*.swift`, 12 groups)                                                            | ✅ After purification             | Inject Keychain/platform/background/push providers first          | Low–Med  |
+| Models / params (`Models/`)                                                                            | ✅ After extraction cleanup        | Keep pure Codable/value types; move stores out                    | Low–Med  |
 | Most SwiftUI screens (`Flows/`, `V2Story/`, `Components/`, `Tabs/`)                                    | ✅ SkipUI → Compose               | Shared (within SwiftUI coverage)                                  | Low–Med  |
 | Keychain (`Services/Keychain/KeychainHelper.swift`)                                                    | ✅ skip-keychain → Keystore       | Shared                                                            | Low      |
 | Audio playback (`AudioPlayerService.swift`, AVPlayer)                                                  | ✅ SkipAV → ExoPlayer/media3      | Shared (playback only)                                            | Low      |
 | Audio recording (`AudioRecorder.swift`)                                                                | ✅ SkipAV → MediaRecorder (basic) | Shared (basic capture)                                            | Low–Med  |
-| Push (`PushTokenManager.swift`, APNs + OneSignal)                                                      | ✅ SkipFirebase FCM               | iOS migrates APNs→FCM + OneSignal reconcile                       | **High** |
-| **IAP (`StoreKitManager.swift`, StoreKit 2)**                                                          | ❌ No module                      | iOS keeps StoreKit; Android Play Billing via protocol             | **High** |
+| Push (`PushTokenManager.swift`, APNs + OneSignal)                                                      | ⚠️ SkipFirebase helps Android FCM | Dual-stack APNs+FCM first; iOS migration separate                 | **High** |
+| **IAP (`StoreKitManager.swift`, StoreKit 2)**                                                          | ⚠️ Current Skip Marketplace must be verified | iOS keeps StoreKit; Android adapter feeds server validators | **High** |
 | **Now-playing (`NowPlayingManager.swift`, MPNowPlaying)**                                              | ⚠️ None                           | MediaSession via Compose bridge                                   | **High** |
 | **Live waveform (`LiveAudioAnalyzer.swift`)**                                                          | ⚠️ None                           | AudioRecord/Visualizer bridge                                     | **High** |
 | **Background upload/poll (`BackgroundURLSessionManager.swift`, `RenderPollingService.swift`, BGTask)** | ⚠️ Weak                           | WorkManager/foreground service bridge                             | **High** |
 | **On-device STT (`AppleSpeechProvider.swift`, `WhisperKitProvider.swift`)**                            | ⚠️ None                           | Android SpeechRecognizer / per-platform Whisper                   | **High** |
 | Deep/universal links (`ReceiverDeepLinkService.swift`; `porizo://`, `applinks:*.porizo.co`, OneLink)   | ⚠️ Config only                    | App Links + AppsFlyer Android SDK + intent filters                | Med      |
+| Device-bound claim / app-only saving (`ReceiverClaimView`, share stream/key contracts)                 | ❌ Platform trust                 | App Set ID + Play Integrity + server validation                   | **High** |
 | Sign in with Apple (`AuthManager.swift`, `/auth/social`)                                               | ✅ Backend verifies id_token      | iOS native SIWA; Android web-credential → existing `/auth/social` | Low–Med  |
 | Passwordless email login                                                                               | ❌ Not built server-side          | New email-auth path (U8a) + Android UI (new server + client)      | **High** |
-| Analytics / AppsFlyer (`AnalyticsService.swift`)                                                       | ⚠️ Per-SDK                        | AppsFlyer + PostHog Android SDKs bridged                          | Med      |
+| Analytics / attribution / social SDKs (`AnalyticsService.swift`, AppsFlyer/Facebook/TikTok/etc.)       | ⚠️ Per-SDK                        | Third-party parity ledger before Gate A                           | Med      |
 
-The "High" rows are the bounded duplication/migration budget: Android-only platform work (now-playing, live waveform, on-device STT, Play-Billing adapter), one cross-platform **migration** (push: iOS APNs→FCM + OneSignal reconcile), background work, and the new email-auth path. iOS-side IAP stays on StoreKit and is _not_ rewritten (see KTD5). Deep-link is a Med bridge (OS config + shared claim logic), sitting just below the budget line. Everything else transfers or is config. The plan's job is to keep this column bounded and known up front — which it is.
+The "High" rows are the bounded duplication/migration budget: Android device trust/share enforcement, Android-only platform work (now-playing, live waveform, on-device STT, Play-Billing adapter), push dual-stack and later iOS migration, background work, and the new email-auth path. iOS-side IAP stays on StoreKit and is _not_ rewritten (see KTD5). Deep-link is a Med bridge only if assetlinks and AppsFlyer ownership are resolved early. Everything else transfers only after the API/model purification work.
 
 ---
 
@@ -133,11 +144,13 @@ PorizoSkip/                       # new SwiftPM workspace from `skip create`
 │   ├── PorizoUI/                 # SwiftUI screens → SkipUI
 │   │   └── Skip/                 # embedded .kt for Compose-bridged views
 │   └── PorizoPlatform/           # #if SKIP bridge protocols + impls
-│       ├── IAP/                  # RevenueCat wrapper (both stores)
+│       ├── IAP/                  # StoreKit wrapper | Play Billing/marketplace adapter
 │       ├── NowPlaying/           # MPNowPlaying | MediaSession
 │       ├── Waveform/             # AVAudioEngine | AudioRecord
 │       ├── Background/           # BGTask+URLSession | WorkManager
 │       ├── STT/                  # SFSpeech | SpeechRecognizer
+│       ├── DeviceTrust/          # iOS status quo | App Set ID + Play Integrity
+│       ├── Push/                 # APNs/OneSignal | FCM
 │       └── Auth/                 # SIWA (iOS) | passwordless/social adapter (U8)
 ├── Android/                      # generated Gradle project + assetlinks.json
 └── Darwin/                       # generated Xcode project (iOS)
@@ -149,189 +162,277 @@ This is a scope declaration, not a constraint — the implementer adjusts bounda
 
 ## Implementation Units
 
-Five phases. Phase 1 is **Gate A** (validate the SwiftUI→Compose bet). The recipient/viral-loop path (Phase 2) is the **first shippable Android milestone**. **Gate B** sits inside Phase 3, before the bulk of modularization. U-IDs are stable; phase order reflects value sequencing, not U-ID numbering (U8/U8a precede U4–U7).
+Six phases. Phase 1 is **Gate A** (prove or reject Skip before committing generated/Skip-shaped code). Phase 2 creates a reversible shared-client foundation. Phase 3 ships the **Android Recipient MVP**. Phase 4 moves into full parity. U-IDs remain stable where possible, but the review added U0/U3a/U8b/U8c/U8d because the original U8 was doing too much too early.
 
-### Phase 1 — Gate A: validate SwiftUI→Compose at real-screen scale
+### Phase 0 — Review hardening and baseline freeze
 
-### U1. Skip Fuse spike — bridged features AND real screens
+### U0. Lock baseline, launch ledger, and release scope
 
-- Goal: Drive the go/no-go off the actual bet (does SkipUI render Porizo's real screens), not just bridging cost. Produce a verdict with measured evidence.
-- Requirements: KTD7, KTD1, KTD6
+- Goal: Convert this strategy into an execution-ready baseline before any code moves.
+- Requirements: KTD9, KTD11, KTD12
 - Dependencies: none
+- Files: update this plan; create `docs/plans/android-skip-gate-a-findings.md` and `docs/plans/android-third-party-ledger.md` during execution.
+- Approach:
+  - Record exact branch/commit for Android work and freeze concurrent architecture refactors.
+  - Define two release targets:
+    - **Android Recipient MVP P0:** App Link/deferred handoff, auth/session, Android device trust, claim/play, bound stream/key access, playback failure states, analytics/audit/crash logging, support path.
+    - **Android Full Parity P0:** creator create/render, voice enrollment, purchases/entitlements, push polish, settings/account, accessibility basics, Play packaging.
+    - **P1 / v1.1 candidates:** tablet/foldable layout, Android Auto/Wear OS, non-critical creator polish, optional on-device Whisper if SpeechRecognizer quality is acceptable.
+  - Build the third-party SDK ledger: Firebase, Amplitude, AppsFlyer, Facebook, OneSignal, TikTok, PhoneNumberKit, ATT/AdServices equivalents, RevenueCat/Skip Marketplace if used.
+  - Build the legal/toolchain ledger: Skip CLI, Skip Fuse/skipstone, Skip libraries, Swift Android SDK, Gradle plugins, Play Billing, optional RevenueCat. Separate MPL/AGPL/commercial obligations by component and define which generated artifacts may enter the repo.
+- Verification: Ambrose can point to the exact baseline commit, release scope table, SDK ledger, and legal/toolchain decision before Gate A starts.
+
+### Phase 1 — Gate A: validate Skip with thresholds
+
+### U1. Skip Fuse spike — real interaction slice plus native escape hatches
+
+- Goal: Drive the go/no-go off the actual bet: can SkipUI/Skip Fuse handle Porizo's real interaction-heavy UI and native bridge requirements at an acceptable cost?
+- Requirements: KTD1, KTD5, KTD7, KTD10
+- Dependencies: U0
 - Files: new throwaway `spikes/skip-fuse-spike/` workspace (not merged into the app)
-- Approach: `skip create` a fresh dual-platform project, then build TWO things: (a) **3–5 real Warm Canvas screens** ported _through SkipUI to Compose_ — a V2Story create step, My Songs list, a Settings screen — to measure the unsupported-SwiftUI-construct rate and font/token fidelity on actual app UI; (b) the hardest _bridged_ features — now-playing/lockscreen (`NowPlayingManager.swift` reference) via `#if SKIP`/MediaSession, and one Play purchase via the Android billing path. Run on a physical Android device + an iOS device. Record: per-screen unsupported-construct count, Warm Canvas font/token fidelity, **full-clean Fuse build time extrapolated to 70k LOC**, APK size, bridging LOC, and Android-side debugging friction.
-- Execution note: Measurement spike — optimize for learning, throw it away. The go/no-go is driven by the **SwiftUI→Compose screen result**, since that is what U5 and parity depend on; bridging cost is secondary (already conceded as build-twice).
-- Patterns to follow: `WarmCanvas/`, `DesignTokens.swift`, `MySongsView.swift`, `NowPlayingManager.swift` as iOS references to mirror.
+- Approach: `skip create` a fresh dual-platform project. Build a throwaway slice containing:
+  - Recipient claim/play UI, including expired/already-claimed/wrong-device-looking states.
+  - Web/app handoff surface for deferred install and App Link return.
+  - One dense Warm Canvas creator screen with tokens/fonts.
+  - Settings → auth/subscription sheet behavior.
+  - One native escape-hatch feature: now-playing lockscreen or recording/STT shell.
+  - One Android purchase token proof using the currently available Skip Marketplace/Play Billing/RevenueCat/direct Play path, whichever U2 chooses for the spike.
+- Pass/fail thresholds set before implementation:
+  - unsupported SwiftUI constructs: <= 2 blocking constructs per screen, each with a documented fix;
+  - native escape hatches: <= 1 unplanned native bridge per screen;
+  - bridge LOC: <= 150 LOC per screen average outside planned platform features;
+  - build: clean Android debug build <= 10 minutes on the local machine, incremental UI edit <= 90 seconds, release APK/AAB successfully produced;
+  - size: APK/AAB size projection acceptable for Play pre-launch and install conversion, with actual number recorded;
+  - runtime: 30-minute physical-device run with no crash on the spike flows;
+  - parity: fonts/tokens visually acceptable against iOS screenshots, Dynamic Type/accessibility basics not broken;
+  - legal/toolchain: no unresolved license or reproducibility blocker.
 - Test scenarios:
-  - Each ported Warm Canvas screen renders on Android with correct fonts (Fraunces + SF Pro fallback decided), colors, and spacing — or the gap is logged with its resolution.
-  - Now-playing controls (play/pause/seek) function on the Android lockscreen/notification.
-  - A Play sandbox purchase completes and the entitlement reflects server-side via the existing `googleValidator`.
-  - Test expectation: spike — formal automated tests deferred; the deliverable is the measured verdict doc.
-- Verification: A written go/no-go (`docs/plans/skip-spike-findings.md`) with the screen-rendering numbers front and centre and an explicit recommendation. Phases 2+ proceed only on "go."
+  - Recipient claim/play spike launches on Android hardware via App Link and shows the right state.
+  - Warm Canvas screen renders with acceptable typography and spacing or logs exact remediations.
+  - Native bridge proof runs on hardware and survives app background/foreground once.
+  - Purchase token proof reaches the server sandbox path or records the exact missing piece.
+- Verification: `docs/plans/android-skip-gate-a-findings.md` contains the numbers above and a clear "Skip", "Compose fallback", or "more spike required" recommendation. No Phase 2 work starts without a "Skip" decision.
 
-### U2. Resolve the pre-commit open questions
+### U2. Resolve platform research before Gate A verdict
 
-- Goal: Verify the research caveats a spike alone won't surface.
-- Requirements: KTD5, KTD1
-- Dependencies: U1 (concurrent within Phase 1 — feeds the go/no-go verdict)
-- Files: append to `docs/plans/skip-spike-findings.md`
-- Approach: Confirm against current Skip module READMEs — not search snippets — (a) `SkipAV` recording/metering completeness, (b) `SkipFoundation` URLSession _background_ session support (decides how much of U7 Background is bridged), (c) the third-party-SDK gap: which of the iOS Package.swift deps (AppsFlyer, PostHog/Amplitude, Firebase, OneSignal, TikTok SDK) have Android-Swift equivalents vs. need bridging — this is bridge work the matrix does not yet enumerate. Also: does enrollment quality actually depend on Whisper-grade STT (gates the Android on-device-Whisper deferral)?
-- Test scenarios: Test expectation: none — research/verification unit.
-- Verification: Each question answered with a doc link and a one-line conclusion, before the Gate A verdict.
+- Goal: Answer the non-code questions that materially change the path.
+- Requirements: KTD5, KTD7, KTD11
+- Dependencies: U0; concurrent with U1
+- Files: append to `docs/plans/android-skip-gate-a-findings.md` and `docs/plans/android-third-party-ledger.md`
+- Approach: Confirm against current primary READMEs/docs:
+  - SkipAV playback/recording/metering completeness and Android MediaSession fit.
+  - SkipFoundation URLSession background support vs. WorkManager necessity.
+  - Skip Marketplace/StoreKit/Play Billing viability and limitations.
+  - AppsFlyer deferred deep-link ownership on Android and exact OneLink handoff fields.
+  - Firebase/OneSignal split: push transport vs. marketing tags/external ID.
+  - Whether enrollment quality requires Whisper-grade STT or Android SpeechRecognizer is acceptable for MVP.
+- Verification: Each question has a doc link, conclusion, owner, and "blocks Gate A?" flag.
 
-### Phase 2 — Recipient (viral-loop) path: the first shippable milestone
+### Phase 2 — Reversible shared-client foundation
 
-This phase delivers the product reason for the project — an Android recipient can receive→claim→play a gift — on the smallest module base, ahead of full modularization. Depends only on U3 (model/API) + the minimal screens it needs.
+### U3a. Purify API/model dependencies before extraction
 
-### U3. Extract the model + API layer into SwiftPM modules
+- Goal: Make the shared API/model layer actually portable before claiming it is shared.
+- Requirements: KTD2, KTD3, KTD6
+- Dependencies: Gate A "Skip" decision
+- Files: `PorizoApp/PorizoApp/APIClient.swift`, `APIClient+*.swift`, selected `Models/*.swift`, new protocol files under the existing iOS target before extraction.
+- Approach:
+  - Introduce `SecureStore`, `PlatformIdentityStore`, `BackgroundExecutionProviding`, `PushTokenProviding`, `AppMetadataProviding`, `ClientPlatform`, and token-redaction helpers.
+  - Remove UIKit/Keychain/`Bundle.main`/push/background direct imports from the API slice.
+  - Split impure stores out of model files (for example `@Observable` stores in model directories) before moving pure Codable/value types.
+  - Expand logging redaction to refresh tokens, APNs/FCM tokens, Google purchase tokens, magic-link tokens, receipts, email, and passwords.
+- Test scenarios:
+  - Existing iOS auth refresh, proactive refresh, and request retry behavior remain identical.
+  - API logs redact every sensitive token class.
+  - iOS simulator app builds/runs after protocol injection.
+- Verification: `PorizoAPI` candidate files can compile in a temporary SwiftPM target with zero UIKit/PushTokenManager/BackgroundTaskManager imports; iOS `xcodebuild test` passes.
 
-- Goal: Carve `PorizoModel` and `PorizoAPI` out of the Xcode target as clean modules the iOS app still consumes.
+### U3. Extract `PorizoModel` and `PorizoAPI`
+
+- Goal: Carve the purified model + API layer into SwiftPM modules the iOS app still consumes.
 - Requirements: KTD2, KTD3, KTD9
-- Dependencies: U1 (go verdict); **KTD9 prerequisite — the in-flight `refactor` branch is landed/frozen and its module boundaries reconciled with this extraction before starting.**
-- Files: new `Sources/PorizoModel/`, `Sources/PorizoAPI/`; move from `PorizoApp/PorizoApp/Models/`, `APIClient*.swift`, `APIClient+*.swift`; update iOS target to depend on the packages.
-- Approach: Pure refactor — no behavior change. API client (Bearer/refresh + 12 extensions) and models move first (most reusable, least platform-coupled). The Android refresh path must inherit the iOS redaction (refresh tokens never logged).
-- Execution note: Characterization-first — iOS app is the oracle. Snapshot behavior before, confirm identical after. (Reliable only once KTD9's prerequisite holds.)
-- Patterns to follow: the 12-extension split is already module-shaped; preserve it.
+- Dependencies: U3a
+- Files: new `Sources/PorizoModel/`, `Sources/PorizoAPI/`; move purified files from `PorizoApp/PorizoApp/Models/`, `APIClient*.swift`, `APIClient+*.swift`; update iOS target/package dependencies.
+- Approach: Pure refactor with iOS as oracle. Keep the 12-extension API shape; preserve auth retry/redaction behavior; keep platform adapters in the app target until U4.
 - Test scenarios:
-  - iOS app builds and launches after extraction (no regressions).
-  - API client unit tests (refresh on 401, proactive refresh near expiry, refresh-token redaction in logs) pass unchanged against the moved module.
-  - A create→render→library round trip works on simulator post-extraction.
-- Verification: iOS app green; modules compile standalone (`swift build`).
+  - `swift build` and `swift test` for the new modules.
+  - iOS simulator build/test green.
+  - Create/render/library smoke still works against local or fixture backend.
+- Verification: Standalone modules compile; iOS behavior unchanged; rollback is still a file-move revert, not a broad architecture rewrite.
 
-### U8. Recipient path — deep-link claim, FCM push, and the screens it needs
+### U4a/U5a. Thin recipient Core/UI/platform slice for Gate B
 
-- Goal: An Android recipient can receive a gift link, claim, and play — the viral loop, end to end.
-- Requirements: KTD4, KTD8, full feature parity (viral loop)
+- Goal: Prove the recipient path through Skip before full `PorizoCore`/`PorizoUI` extraction.
+- Requirements: KTD7, KTD8, KTD10
 - Dependencies: U3
-- Files: `Sources/PorizoCore/` claim + push registration (shared `receiverHandoffId` logic from `ReceiverDeepLinkService.swift`); `Sources/PorizoPlatform/Background/` FCM via SkipFirebase; `Android/` intent filters + `assetlinks.json`; AppsFlyer Android SDK; minimal claim/play/auth screens onboarded via U5's mechanism; backend: bind FCM tokens on `/device/register` (additive).
+- Files: minimal `Sources/PorizoCore/` claim/play state; minimal `Sources/PorizoUI/` recipient screens; minimal `Sources/PorizoPlatform/` playback/device trust abstractions.
+- Approach: Extract only what the Recipient MVP needs: receiver handoff resolution, auth-return resume state, claim state machine, playback URL/key access, and the smallest set of UI components needed for claim/play/error/support.
+- Gate B verification:
+  - Android hardware opens a verified App Link into the Skip-rendered claim screen.
+  - Login return resumes the pending claim.
+  - Same-device retry resumes; wrong-device replay is blocked or stubbed with the real server contract documented.
+  - Playback starts on hardware.
+  - iOS app still passes build/test.
+- Decision: If Gate B fails, stop Skip modularization and switch to shared backend + native Compose UI before bulk U4/U5.
+
+### Phase 3 — Android Recipient MVP
+
+### U8a. Android login — passwordless email + social + SIWA-web
+
+- Goal: Provide Android authentication that can complete a claim and persist across relaunch.
+- Requirements: KTD3, KTD8
+- Dependencies: U3, U4a/U5a
+- Files: new backend email-auth token repository/service/routes in `src/routes/auth.js` or split auth module; Android auth adapter/screens; App Link return handling.
 - Approach:
-  - Push: integrate `SkipFirebase` Messaging. **This is a migration, not additive** (KTD4): the iOS send path moves APNs→FCM with a live-user token re-registration + cutover plan, and OneSignal's role is reconciled. FCM token registration MUST require an authenticated user (Bearer) and bind the token to `request.userId`, replacing any prior owner.
-  - Deep links: register `porizo://`, `porizo-oauth://`, and verified App Links for `porizo.co`/`*.porizo.co`/OneLink via intent filters + `assetlinks.json`; AppsFlyer Android SDK for the OneLink deferred handoff. The claim token stays server-bound + single-use (existing `sharing.js` `consumedAt` guard).
-  - **Recipient first-run states (design):** enumerate all four entry states — (1) app installed → claim screen with token; (2) app not installed → Play Store via deferred deep link, token preserved through install→first-run; (3) App Link unverified / opened in browser → web landing that hands off to the app; (4) token expired / already-claimed → explicit "already claimed / link expired" landing. Specify which surface owns each.
-- Execution note: Auth/identity path — bind FCM tokens to the authenticated user; do not weaken token-refresh race protections.
+  - Email magic links are new server work. Define token table fields (`token_hash`, `email_normalized`, `user_id` nullable until consume, `purpose`, `expires_at`, `consumed_at`, `created_ip`, `user_agent`), hashing, expiry, consumption, and audit events.
+  - Send endpoint returns enumeration-neutral responses and is rate-limited per email + IP.
+  - Magic link uses HTTPS verified App Links only; never place auth tokens in `porizo://` or `/download?deep_link=porizo://...`.
+  - On consume, reuse `createSessionAndTokens`; do not fork session issuance. Explicitly handle existing email/password accounts, phone-created accounts with verified email contact, relay email, duplicate-account prevention, and account-link confirmation.
+  - Social: Google via existing `/auth/social`; SIWA on Android via web credential/id_token into existing `/auth/social`.
 - Test scenarios:
-  - Tapping a shared gift link on Android (cold start) routes to the claim screen with the correct `receiverHandoffId`.
-  - App-not-installed: token survives Play-Store install → first run → claim.
-  - Expired/already-claimed token shows the explicit landing, not a silent drop.
-  - A render-complete FCM push arrives on Android and foregrounds the finished song; a render-complete push only routes to devices bound to the track owner.
-  - Existing iOS push tests still pass after the FCM migration; in-flight pushes survive the cutover.
-- Verification: A real cross-device gift (iOS sender → Android recipient) completes receive→claim→play on physical hardware. **This is the project's headline success criterion.**
+  - Email login completes, persists, and resumes pending recipient claim.
+  - Token replay, expired token, wrong email/account collision, and rate limit all return safe states.
+  - Existing Apple-account user signs into Android via SIWA-web and reaches library/claim.
+- Verification: Android-only email user and existing Apple user can both authenticate and resume a pending claim on hardware; backend auth tests and full `npm test` pass.
 
-### U8a. Android login — passwordless email (new server work) + social + SIWA
+### U8b. Android App Links, device trust, and share/device contract
 
-- Goal: A cross-platform login for Android, where Sign in with Apple can't be primary.
-- Requirements: KTD3, full feature parity (account access)
-- Dependencies: U3
-- Files: NEW backend email-auth path in `src/routes/auth.js` (+ email-auth-token repository/service); `Sources/PorizoPlatform/Auth/` Android adapter; email-login screens via U5's mechanism.
+- Goal: Preserve Porizo's share-once, app-only, auditable claim model on Android.
+- Requirements: KTD10
+- Dependencies: U3, U8a
+- Files: backend `/.well-known/assetlinks.json` route/static config; Android intent filters; server Play Integrity/App Set ID validation service; share/receiver claim tests; claim/play UI state matrix.
 - Approach:
-  - **Email path is net-new server work** (no email magic-link/OTP exists today). Follow the existing phone-registration-token pattern: token hashed at rest, single-use, short TTL, enumeration-neutral send responses, rate-limited (reuse `consumeAuthRateLimit`), delivered over a **verified App Link** (never the `porizo://` custom scheme any app can claim).
-  - Social: Google via the existing `/auth/social`. SIWA on Android: obtain an Apple `id_token` via the web-credential flow and POST to the **existing** `/auth/social` (nonce + id_token already verified server-side) — no new auth infra, no Auth0 dependency.
-  - **Login states (design):** spec the email flow as a state machine — email-entry (with validation), submitting, sent/"check your inbox", send-error (invalid/rate-limited/network), magic-link return (valid → signed-in; expired/invalid → re-request CTA). Note which are full screens vs. sheets.
-- Execution note: New revenue/identity surface — security-review the email-auth endpoints; reuse the shared `createSessionAndTokens` path, don't fork session issuance.
+  - Serve `assetlinks.json` from every real host used for receiver/auth links, with debug/internal/release package names and SHA-256 cert fingerprints.
+  - Add Android device identity fields and Play Integrity token validation with nonce/freshness/replay checks.
+  - Reword and implement claim semantics as: **single-use handoff; consumed claim token may resume only for the same bound device**.
+  - Define the `Recipient Android State Matrix`: installed, not installed/deferred link, browser fallback, App Link unverified, auth required, auth cancelled, magic link expired, claim expired, already claimed by same device, already claimed by other device, revoked share, stream/key denied, offline/playback failure, support escalation.
+  - Instrument share funnel/audit events: link opened, install/deferred recovered, claim started/succeeded/failed reason, stream started, playback failed, wrong-device denied, support opened.
 - Test scenarios:
-  - Passwordless email login completes on Android and persists across relaunch.
-  - Send endpoint returns enumeration-neutral responses and rate-limits; a magic link is single-use and rejects after TTL/replay.
-  - An Apple-account user signs into Android via the web SIWA flow into existing `/auth/social`.
-- Verification: An Android-only user (email) and an existing Apple-account user can both sign in and reach their library.
+  - Expired token, replay from wrong device, anonymous `SIGN_IN_REQUIRED`, same-device retry, revoked share, and stream/key denial all hit distinct UI states.
+  - Forged/stale Play Integrity token is rejected server-side.
+  - `share_access_log`/analytics can prove Android claim/play outcomes.
+- Verification: Real iOS sender → Android recipient claim/play succeeds on hardware; wrong-device replay fails; audit/funnel query shows the complete path.
 
-### Phase 3 — Gate B, then full modularization
+### U8c. Recipient claim/play vertical slice
 
-### U4. Extract business logic + view-models into `PorizoCore` (owns the bridge protocols)
+- Goal: Ship the Android Recipient MVP without waiting for creator-side full parity.
+- Requirements: KTD8, KTD10, KTD12
+- Dependencies: U8a, U8b, U4a/U5a
+- Files: recipient screens, playback shim, support path, minimal analytics/crash reporting, claim/play API usage.
+- Approach: Implement only the recipient flow end to end: open gift link, preserve handoff through install/login, claim, bind, play, recover from errors, and show support. Do not include create/render/enrollment unless Gate B proves they are needed for recipient playback.
+- Test scenarios:
+  - iOS sender creates/sends gift; Android recipient installs if needed, claims, and plays.
+  - Relaunch after claim still plays for the same bound device.
+  - Wrong-device, expired, revoked, no-network, stream/key failure, and playback error states are visible and logged.
+- Verification: Physical Android hardware passes the Recipient Android State Matrix; backend targeted tests + full `npm test`; iOS build/test unchanged.
 
-- Goal: Move stores/controllers/view-models into a platform-agnostic logic module, and **define the bridge protocols here**.
+### U8d. Additive Android FCM and push transport dual-stack
+
+- Goal: Support Android notifications without forcing an iOS APNs migration.
+- Requirements: KTD4, KTD11
+- Dependencies: U3a; can run after U8c if not needed for Recipient MVP
+- Files: device schema/repository/routes; `src/services/push-notification.js` split or provider-aware transport; Android FCM adapter; OneSignal reconciliation notes.
+- Approach:
+  - Split anonymous device-token issuance from authenticated push-token binding.
+  - Add token provider/type/environment/platform, longer FCM token validation, ownership transfer, stale cleanup, and token refresh handling.
+  - Add provider-aware send with APNs and FCM. Keep iOS APNs active; run any future iOS FCM migration as a separate cutover with dual-run metrics and rollback.
+  - Reconcile OneSignal as marketing/external-ID/tag sync vs. product push transport.
+- Test scenarios:
+  - Android FCM render-complete notification routes to the finished song.
+  - APNs render-complete still works for iOS.
+  - Token reassignment to a new user/device does not leak notifications to old owner.
+  - Stale/invalid tokens are cleaned safely.
+- Verification: FCM test on hardware; APNs regression test; provider-aware backend tests; full `npm test`.
+
+### Phase 4 — Full modularization and build-twice features
+
+### U4. Extract full `PorizoCore`
+
+- Goal: Move stores/controllers/view-models into a platform-agnostic logic module after Gate B passes.
 - Requirements: KTD2, KTD6
-- Dependencies: U3; **Gate B passed** (a thin U5 slice of real screens proven on Android before this bulk extraction lands in the shippable app).
-- Files: new `Sources/PorizoCore/`; move from `Controllers/`, `Services/CreateFlowStore.swift`, view-model logic.
-- Approach: Invert platform dependencies behind protocols **defined in this unit** — `AudioPlaying`, `PurchaseProviding`, `PushRegistering` (net-new; they don't exist today). U6 and U7 _consume_ these; there is no forward reference to U7. iOS injects the existing implementations.
-- Test scenarios:
-  - Render-polling backoff (`RenderController` intervals) unit-tested with a mock clock.
-  - Create-flow state machine transitions tested with no SwiftUI/AVFoundation dependency.
-  - Gift-claim draft resolution tested against `ReceiverDeepLinkPayload`.
-- Verification: `PorizoCore` builds with zero direct platform-framework imports; the three protocols compile and are consumed by U6/U7; iOS app green.
+- Dependencies: Gate B, U8c if Recipient MVP is intentionally shipped first
+- Files: `Sources/PorizoCore/`; move from `Controllers/`, `Services/CreateFlowStore.swift`, view-model logic.
+- Approach: Expand the thin protocols into full app coverage. Keep platform frameworks out of `PorizoCore`; inject iOS and Android implementations.
+- Verification: `PorizoCore` builds with zero platform-framework imports; render polling, create-flow state, claim draft resolution, and token refresh tests pass; iOS app green.
 
-### U5. Onboard SwiftUI screens into `PorizoUI` under Skip
+### U5. Onboard full SwiftUI screen layer into `PorizoUI`
 
-- Goal: Bring the full screen layer under Skip so it renders as Compose on Android. The **thin front slice of this unit is Gate B**.
+- Goal: Bring the full screen layer under Skip so Android renders native Compose where the Skip path remains viable.
 - Requirements: KTD1, KTD2
-- Dependencies: U4 (full unit); the Gate-B slice runs before U4's bulk.
-- Files: new `Sources/PorizoUI/` (+ `Sources/PorizoUI/Skip/` embedded Compose); move from `Flows/`, `V2Story/`, `Components/`, `Tabs/`, `Onboarding/`, `Settings/`, `WarmCanvas/`, design tokens.
-- Approach: Onboard in dependency order (leaf components → flows). For each screen SkipUI can't render, adjust to supported SwiftUI or drop an embedded `@Composable`. **Fonts:** bundle the Warm Canvas typefaces (Fraunces; SF Pro → Roboto-or-bundled fallback decided in U1) as Android font resources and map them into Compose typography — "fonts render correctly" is an explicit parity item, not folded into "tokens port." **Fallback-design rule:** when pixel-parity is impossible, the Composable must preserve the screen's information architecture and Warm Canvas tokens (color/spacing/type); the logged "resolution" records the intended visual, not just "replaced."
-- Execution note: Incremental at the screen level — keep the iOS app shippable throughout; never a big-bang UI move.
-- Test scenarios:
-  - Core screens (My Songs, Create flow, Now Playing, Share, Settings, Voice Enrollment) render on Android without layout breakage.
-  - Snapshot/visual parity on 5 key screens iOS vs Android, **including font fidelity**.
-  - Navigation between tabs works on Android.
-  - Each unsupported SwiftUI construct logged with its resolution (intended visual, not just "replaced").
-- Verification: All in-scope screens render on Android; iOS visual parity preserved.
+- Dependencies: U4
+- Files: `Sources/PorizoUI/` and `Sources/PorizoUI/Skip/`; move from `Flows/`, `V2Story/`, `Components/`, `Tabs/`, `Onboarding/`, `Settings/`, `WarmCanvas/`, design tokens.
+- Approach: Onboard in dependency order. For unsupported SwiftUI, adjust to supported SwiftUI or use embedded Composables. Preserve information architecture and Warm Canvas tokens when pixel parity is impossible. Bundle/type-map Fraunces and the chosen SF Pro/Roboto fallback.
+- Verification: My Songs, Create, Now Playing, Share, Settings, Voice Enrollment, subscription/paywall, and recipient screens pass visual/interaction parity on Android hardware and iOS simulator.
 
-### Phase 4 — Build-twice platform features (the bounded budget)
+### U6. Android billing and Play catalog
 
-### U6. Play-Billing IAP behind the shared `PurchaseProviding` protocol (Android only on iOS-untouched)
-
-- Goal: Add the Android purchase path without touching the working iOS StoreKit flow.
-- Requirements: KTD5, full feature parity (gifts/subscriptions)
-- Dependencies: U4 (`PurchaseProviding`)
-- Files: `Sources/PorizoPlatform/IAP/` Android adapter (Play Billing / RevenueCat); iOS adapter is a thin wrapper over the **unchanged** `StoreKitManager.swift`; backend: NEW Google **consumable** receipt path only (the subscription path `/billing/receipt/google` + `googleValidator` already exists).
-- Approach: Android purchases flow through Play Billing, then feed the existing `googleValidator` (subscriptions) and the new consumable path (gift bundles). The entitlement model (`plan_products`, atomic `WHERE balance>0`) stays authoritative. iOS keeps StoreKit 2 verbatim behind the protocol — the working App Store path is genuinely untouched.
-- Execution note: Revenue path — reuse `requireUserId` + rate-limit + replay-dedup + atomic gift-funding for the new consumable endpoint; security-review it. Do not introduce a second entitlement authority — RevenueCat (if used) is a purchase broker, not the source of truth.
-- Test scenarios:
-  - Sandbox subscription purchase grants the correct tier server-side on Android; iOS unchanged.
-  - Gift-bundle (consumable) purchase funds the correct token count and respects `blocksRepeatPurchase`.
-  - The new consumable receipt path rejects a forged/replayed receipt (server-side, against Google).
-  - Restore-purchases reconciles entitlements on a fresh Android install.
-  - Existing iOS billing tests still pass (StoreKit path untouched).
-- Verification: Android purchases reflect identical server entitlements; one source of truth per purchase; iOS billing tests green.
-
-### U7. Native bridges — now-playing, waveform, background, STT (with Android states)
-
-- Goal: Implement the remaining Android-only platform features behind the U4 protocols, including the Android-divergent states.
-- Requirements: full feature parity (playback polish, enrollment, render delivery)
-- Dependencies: U4 (protocols), U1 (now-playing pattern proven)
-- Files: `Sources/PorizoPlatform/NowPlaying/`, `Waveform/`, `Background/` (Background may already be partly built in U8 for FCM), `STT/`.
+- Goal: Add Android purchases without touching working iOS StoreKit behavior.
+- Requirements: KTD5
+- Dependencies: U4
+- Files: `Sources/PorizoPlatform/IAP/`; backend Google consumable route; Play catalog migrations/config.
 - Approach:
-  - Now-playing: Android `MediaSession`/`MediaSessionService` notification via Compose bridge — spec action-button layout and ongoing-vs-dismissible behavior.
-  - Waveform: Android `AudioRecord` + metering — spec the `RECORD_AUDIO` permission-denied path (in-flow rationale + settings deep-link) and the silence/no-input visual.
-  - Background: Android `WorkManager` + foreground service for upload (with its visible foreground-service notification); FCM (U8) is the primary render-completion signal, polling is fallback. (How much is bridged depends on U2's `SkipFoundation` background-session finding.)
-  - STT: Android `SpeechRecognizer` — spec the permission-denied and no-match/no-network error states. On-device Whisper deferred unless U2 shows enrollment needs it.
+  - Choose client adapter after U1/U2: Skip Marketplace, direct Play Billing, or RevenueCat broker.
+  - Verify Play Console product IDs match server mappings. Existing seed data uses bare Google IDs like `plus_monthly`; iOS uses `com.porizo.*`, so add a catalog verification/migration task.
+  - Subscriptions use existing Google validation. Consumables use a new route modeled on Apple consumables but Google-specific: validate product against `gift_bundles`, reject forged/replayed/wrong-account/concurrent duplicate, define transaction identity (purchase token hash and/or Google order ID), credit wallet transactionally, then acknowledge/consume.
 - Test scenarios:
-  - Lockscreen transport controls function on Android; notification shows the right actions.
-  - `RECORD_AUDIO` denied → rationale + settings path appears for both waveform and STT (test per path).
-  - Live waveform animates during enrollment; silence shows the no-input state.
-  - A render started then app-backgrounded surfaces a completion on Android via FCM; background upload survives suspension (WorkManager retry).
-  - SpeechRecognizer no-match / no-network shows the error copy.
-- Verification: Each feature works on a physical Android device, including the permission/failure states; iOS unchanged.
+  - Sandbox subscription grants correct tier.
+  - Gift bundle funds correct wallet balance exactly once.
+  - Forged token, reused token, wrong product, cross-account reuse, concurrent double-submit, rollback, and already-consumed purchases are rejected or reconciled safely.
+  - iOS billing tests still pass.
+- Verification: Android purchases reflect server entitlements; full backend billing tests + `npm test`; iOS StoreKit unchanged.
 
-### Phase 5 — Store readiness
+### U7. Native Android bridges — playback, now-playing, waveform, background, STT
 
-### U9. Android store packaging, parity QA, and Play submission
-
-- Goal: A submittable Android build at feature parity, parity verified against iOS.
+- Goal: Implement Android platform features behind U4 protocols.
 - Requirements: full feature parity
-- Dependencies: U5, U6, U7, U8, U8a
-- Files: `Android/` Gradle config, signing, Play Console metadata; `docs/appstore/` Android Data Safety form; secrets note (client SDK keys bundled as public config; Play service-account JSON + signing keys stay server/CI-only).
-- Approach: Configure release signing, the Play Data Safety form (mirroring the iOS privacy manifest), and Play Billing products mirroring the `ProductID` catalog. Run a full parity QA pass across every iOS flow on Android. File parity gaps as fix units.
+- Dependencies: U4, U5
+- Files: `Sources/PorizoPlatform/NowPlaying/`, `Waveform/`, `Background/`, `STT/`, `Playback/`.
+- Approach:
+  - Playback/now-playing: ExoPlayer/Media3, `MediaSessionService`, notification channels, audio focus/noisy-route handling, seek/play/pause, artwork.
+  - Waveform/recording: `AudioRecord`, WAV parity with iOS export, silence/no-input state.
+  - Background: WorkManager plus foreground service type/notification for upload where needed; account for Doze/app standby.
+  - STT: Android SpeechRecognizer availability, permission denied/permanent denied, no-match/no-network. Defer on-device Whisper unless U2 proves it is required.
+  - API/device matrix: test across current supported Android API levels and at least one physical low/mid device.
+- Verification: Each bridge works on physical Android hardware with permission/failure states; iOS unchanged.
+
+### Phase 5 — Android Full Parity and Play readiness
+
+### U9. Packaging, parity QA, and Play submission
+
+- Goal: A submittable Android full-parity build, verified against iOS.
+- Requirements: KTD12
+- Dependencies: U5, U6, U7, U8c, U8d
+- Files: `Android/` Gradle config, signing, Play Console metadata, Data Safety form, release docs.
+- Approach: Configure release signing, Play Data Safety, Play Billing products, crash/analytics, and pre-launch report handling. Run a full parity QA matrix across every iOS flow. Client SDK keys are public config; Play service-account JSON and signing keys remain server/CI-only.
 - Test scenarios:
-  - Every iOS flow has a passing Android counterpart in the QA matrix.
-  - The cross-device gift loop (iOS→Android) passes on hardware (re-asserts U8's headline criterion at release).
-  - A real end-to-end song generation completes on a physical Android device.
-  - Play pre-launch report shows no blocking issues; no server secret is embedded in the APK.
-- Verification: Internal-testing build installs; the viral loop and a song generation both complete on Android hardware; parity matrix green.
+  - Every P0 iOS flow has a passing Android counterpart.
+  - Cross-device gift loop passes again on hardware.
+  - A real end-to-end song generation completes on Android hardware.
+  - Play pre-launch report has no blockers; no server secret is embedded.
+- Verification: Internal-testing build installs; Recipient MVP and full create/render flows pass; parity matrix green.
 
 ---
 
 ## Scope Boundaries
 
-In scope: native Android app at full iOS feature parity via Skip Fuse, **sequenced recipient-path-first** (the viral-loop fix ships before creator-side parity); backend reused verbatim except three additive/new surfaces (FCM token binding, the Google consumable-receipt path, and the **new** email-auth path); iOS app modularization (a beneficial side effect, gated on reconciling the in-flight `refactor` branch). iOS-side IAP, push-send rewrite aside, and the working StoreKit path stay untouched.
+In scope: native Android app via Skip Fuse **only if Gate A/B pass**; Android Recipient MVP before creator-side parity; backend kept as the shared authority with explicit migrations for typed push tokens, Android App Links, passwordless email auth, Android device trust, and Google consumable receipts; iOS app purification/modularization as a necessary shared-code step. iOS-side StoreKit stays untouched. Existing iOS APNs product push stays active until a separate, measured migration proves FCM is better.
 
-**Goal tiebreaker:** the two halves of the stated goal — "minimize separately-built components" and "full feature parity" — can conflict. When they do, **minimize-duplication wins**: prefer deferring a creator-side feature to a v1.1 over expanding the build-twice budget. Full parity is the launch _target_, not a constraint that overrides the duplication goal.
+**Goal tiebreaker:** the two halves of the stated goal — "minimize separately-built components" and "full feature parity" — can conflict. When they do, **minimize-duplication wins only outside P0 scope**. Recipient MVP P0 cannot drop auth/session, share/device trust, app-only playback, auditability, analytics/crash logging, support, or basic accessibility. Full parity remains the later launch target for creator-side Android.
+
+### Specialist Review Findings Applied
+
+- Android/Skip feasibility: U8 was not independent of U4/U5; the plan now uses a thin recipient Core/UI/platform slice and Gate B before bulk modularization.
+- Backend/security: FCM is not additive with the current single `push_token`; the plan now requires typed token storage, dual APNs/FCM send, Android App Links, Play Integrity/App Set ID, and stronger Google consumable replay/consume semantics.
+- Product/scope/design: recipient-first now means a concrete Recipient MVP with a state matrix, analytics/audit proof, and share/device invariant coverage, not just "a song opens."
+- Adversarial review: API sharing is no longer described as verbatim; U3a purifies UIKit/Keychain/background/push dependencies first. Licensing/toolchain and third-party SDKs are Gate A inputs, not late risks.
 
 ### Deferred to Follow-Up Work
 
 - On-device Whisper on Android (use `SpeechRecognizer` first; revisit only if enrollment quality requires it — gated by U2 findings).
-- Creator-side polish features that aren't viral-loop-critical may slip to v1.1 if Gate A/B reveal the duplication budget is larger than estimated (per the goal tiebreaker above).
+- Creator-side polish features outside the Full Parity P0 table may slip to v1.1 if Gate A/B reveal the duplication budget is larger than estimated.
 - Tablet/foldable-optimized layouts (ship phone parity first).
 - Wear OS / Android Auto now-playing surfaces.
-- Removing OneSignal entirely (if FCM subsumes it) — reconciled in U8, full removal is follow-up cleanup.
+- Removing OneSignal entirely (if FCM subsumes it) — reconciled in U8d, full removal is follow-up cleanup.
 
 ### Outside this product's identity
 
@@ -343,9 +444,9 @@ In scope: native Android app at full iOS feature parity via Skip Fuse, **sequenc
 
 ## Alternatives Considered
 
-The Skip bet is load-bearing, so the two real alternatives are costed on the same axes rather than dismissed. The six "High" build-twice features are constant across all three paths — so the only variable is the _easy_ code (API client, models, UI glue) plus toolchain risk and tooling maturity.
+The Skip bet is load-bearing, so the two real alternatives are costed on the same axes rather than dismissed. The hard platform work is mostly constant across both credible paths — device trust, auth/deep links, purchases, push, playback, background, recording/STT — so the variable is how much "easy" code Skip saves versus the toolchain tax it adds.
 
-- **Skip Fuse (chosen).** Shares the low-cost column (API client, models, keychain, playback) and most SwiftUI screens as one Swift codebase. Cost: a young toolchain (open-sourced Jan 2026), Fuse double-compile build tax, no native-Swift debugging on Android, AGPL-engine review, and whole-team Swift+Kotlin literacy for every escape hatch. Wins only if the shared-easy-code savings exceed that standing tax — which **Gate A is designed to measure** (the screen-render result + extrapolated 70k-LOC build time). Adopt only on a Gate-A "go."
+- **Skip Fuse (leading bet, not adopted until Gate A/B).** Shares purified API/model/core code and most SwiftUI screens as one Swift codebase if the gates pass. Cost: young toolchain, Fuse double-compile build tax, limited Android-side Swift debugging, legal/toolchain review by component, and Swift+Kotlin literacy for escape hatches. Wins only if shared-code savings exceed that standing tax. Adopt only on Gate A and Gate B "go."
 - **Shared backend + separate native Compose UI (co-equal fallback, not a contingency).** Rewrite the easy code (API client + models + glue) in Kotlin; build the Android UI natively in Compose. Sidesteps the entire Skip bet: no toolchain risk, no SwiftUI-coverage gap, no double-compile, mature Android tooling — and shares the same backend Skip would. Cost: the easy-code duplication Skip avoids (a bounded, well-understood rewrite). If Gate A or B fails, this is the path — and if Gate A shows the Skip tax is high relative to the easy-code delta, it may be the better path even on a marginal "go." The U1 verdict chooses between _these two costed paths_, not "Skip vs. an undescribed fallback."
 - **Flutter / React Native — rejected.** Fails the "genuinely native" requirement (own rendering engine / JS bridge), and would still build the six hard features per-platform.
 - **From-scratch native Kotlin app — rejected.** Maximal duplication; fails "minimize separately-built components."
@@ -354,33 +455,38 @@ The Skip bet is load-bearing, so the two real alternatives are costed on the sam
 
 ## Risk Analysis & Mitigation
 
-- Risk: **The spike validates bridging but not the actual bet.** Mitigation: Gate A (U1) now ports 3–5 real Warm Canvas screens _through SkipUI_ and drives the verdict off the SwiftUI→Compose result, not the bridged features (KTD7).
-- Risk: **Irreversible modularization sunk before SwiftUI→Compose is proven at scale.** Mitigation: Gate B (KTD7) — a thin U5 screen slice proves rendering on Android _before_ the bulk of U3/U4 lands in the shippable app.
-- Risk: **The project ships at parity but the viral loop is still broken.** Mitigation: the recipient path (U8) is the first milestone and the headline success criterion is a real cross-device gift (iOS→Android), not "a song generates" (KTD8).
-- Risk: **`refactor`-branch collision corrupts the modularization baseline.** Mitigation: KTD9 prerequisite — land/freeze that refactor and reconcile module boundaries before U3/U4.
-- Risk: **Push migration breaks live users' notifications.** Mitigation: KTD4 treats FCM as a migration — APNs→FCM token re-registration with a cutover plan, OneSignal reconciled, FCM tokens bound to the authenticated user; existing iOS push tests must still pass.
-- Risk: **Revenue path — two entitlement authorities or a touched iOS billing flow.** Mitigation: iOS keeps StoreKit verbatim (KTD5); Android feeds the _existing_ `googleValidator`; the new consumable endpoint reuses `requireUserId` + rate-limit + replay-dedup; one source of truth per purchase.
-- Risk: **Email-auth is a new account-takeover surface.** Mitigation: U8a builds it on the existing phone-registration-token pattern (single-use, short-TTL, hashed-at-rest, enumeration-neutral, rate-limited) over a verified App Link, security-reviewed.
-- Risk: **Whole-app double-compile build cost.** Mitigation: U1 measures a clean full-app-scale build extrapolation; modularization only mitigates _incremental_ dev builds, not the full release/CI double-compile — an unacceptable projection is a Gate-A no-go.
-- Risk: **AGPL-3.0 on Skip's engine.** Mitigation: governs the transpiler/engine tooling, not typically app output — legal sanity-check **before** Phase 2 sunk cost (a wrong reading is expensive after the codebase is Skip-shaped).
-- Risk: **Third-party SDK secrets shipped in the APK.** Mitigation: U9 secrets note — client SDK keys (RevenueCat public, AppsFlyer, `google-services.json`) bundle as public config; the Play service-account JSON + signing keys stay server/CI-only.
+- Risk: **The spike validates pretty rendering but not product-critical interaction.** Mitigation: Gate A includes recipient claim/play, web/app handoff, settings/auth/subscription behavior, and a native escape hatch with thresholds.
+- Risk: **Irreversible modularization happens before Skip proves itself.** Mitigation: Gate B uses a reversible recipient vertical slice before bulk U4/U5 extraction.
+- Risk: **Recipient MVP violates share-once/app-only saving.** Mitigation: U8b makes App Set ID + Play Integrity, bound stream/key access, same-device retry, wrong-device denial, revoked/expired states, and audit logs mandatory.
+- Risk: **API/model extraction drags iOS platform dependencies into shared modules.** Mitigation: U3a purifies UIKit/Keychain/`Bundle.main`/background/push dependencies before U3.
+- Risk: **Push migration breaks live iOS users.** Mitigation: Android FCM is additive dual-stack first; existing iOS APNs remains active until a separate migration proves dual-run metrics and rollback.
+- Risk: **Revenue path creates two entitlement authorities or credits consumables twice.** Mitigation: iOS StoreKit untouched; Android client only obtains Google purchase tokens; server validates product/catalog, rejects replay/cross-account/concurrent duplicates, credits wallet transactionally, and acknowledges/consumes.
+- Risk: **Email-auth is a new account-takeover surface.** Mitigation: U8a defines token schema, hashing, expiry, rate limits, audit, existing-account collision handling, verified App Links, and shared session issuance.
+- Risk: **Whole-app double-compile build cost.** Mitigation: U1 measures clean/incremental build and release artifact creation; unacceptable projection is a Gate-A no-go.
+- Risk: **Skip license/toolchain obligations are misunderstood.** Mitigation: U0/U2 separate Skip CLI/skipstone, Skip libraries, Swift Android SDK, Gradle plugins, Play Billing, and optional RevenueCat before any generated code is committed.
+- Risk: **Third-party SDK secrets or privacy obligations are missed.** Mitigation: U0/U9 classify public client config vs. server/CI-only secrets and update Play Data Safety before internal testing.
 
 ---
 
 ## Dependencies / Prerequisites
 
-- Skip toolchain (free/OSS as of Jan 2026) + Android Studio + Swift Android SDK.
+- Skip toolchain + Android Studio + Swift Android SDK, pinned in Gate A findings.
 - Play Console account + signing keys; Firebase project (FCM); optional RevenueCat account (purchase broker only, not entitlement authority).
 - AppsFlyer Android SDK key (OneLink already configured server-side).
-- Physical Android device for U1/U7/U8/U9 (emulator insufficient for audio/push/background/deep-link).
-- Backend: additive surfaces only (FCM token binding, Google consumable-receipt path, the new email-auth path) — no schema-destructive migrations; the existing `/billing/receipt/google` + `/auth/social` paths are reused.
-- The in-flight `refactor` branch landed/frozen and reconciled before Phase 2 (KTD9).
+- Physical Android device for U1/Gate B/U7/U8/U9 (emulator insufficient for audio/push/background/deep-link confidence).
+- Backend migrations: typed push token storage and dual-send, `assetlinks.json`, passwordless email auth, Android device trust, Google consumable route/catalog mapping. Existing `/billing/receipt/google` and `/auth/social` are reused where valid.
+- Frozen baseline commit/branch before Phase 2 (KTD9).
 
 ---
 
 ## Sources & Research
 
-- Skip viability research brief (this session): Skip Fuse vs Lite, module coverage, escape hatches, existing-app migration guidance, IAP gap, 2026 open-source/free status. Load-bearing for KTD1, KTD2, KTD5, KTD6, KTD7 and the coverage matrix.
-- Key source docs: skip.dev/docs (modes, status, gettingstarted, porting, platformcustomization, debugging); skiptools GitHub modules (skip-av, skip-keychain, skip-firebase, skip-kit, skip-foundation); skiptools discussion #196 (no IAP module); InfoQ Jan 2026 (Skip open-sourced).
-- Codebase grounding (verified during review): iOS surface (258 Swift files), `Services/` platform layer, `APIClient+*.swift` (12 groups), `StoreKitManager.swift` (StoreKit 2 + `ProductID`), `AudioPlayerService.swift` (AVPlayer + MediaPlayer), `ReceiverDeepLinkService.swift`, `Info.plist`/entitlements. Backend reality corrected by the 7-reviewer pass: `src/routes/auth.js` has phone-OTP + password + social (`/auth/social` verifies Apple `id_token`) but **no** email-passwordless path (it is new work); `src/services/google-receipt-validator.js` + `/billing/receipt/google` already validate Google **subscriptions** (only the consumable path is new); the push send path is **APNs-only** (`@parse/node-apn`) with a separate OneSignal stack (`src/services/onesignal.js`); `/device/register` issues an unbound device token when unauthenticated (FCM tokens must be user-bound).
-- Review provenance: this plan was hardened by a 7-persona ce-doc-review (coherence, feasibility, security-lens, scope-guardian, adversarial, product-lens, design-lens); the corrections above (factual auth/billing/push reality, two-gate spike, recipient-first sequencing, `refactor`-branch reconciliation, protocol ownership, Android UI states) were applied from that pass.
+- Skip viability research brief (initial draft + 2026-06-30 review): Skip Fuse vs Lite, module coverage, escape hatches, existing-app migration guidance, current marketplace/IAP status, current license/toolchain status. Load-bearing for KTD1, KTD2, KTD5, KTD6, KTD7 and the coverage matrix.
+- Key source docs: skip.dev/docs (modes/status/getting started/porting/platform customization/debugging), skiptools GitHub modules (skip-av, skip-keychain, skip-firebase, skip-foundation, current marketplace/IAP docs), Skip licensing/docs for component-specific legal review.
+- Codebase grounding (verified during review): iOS surface (258 Swift files, ~70,296 LOC), `APIClient+*.swift`, UIKit/Keychain/background dependencies in API client, `StoreKitManager.swift`, `AudioPlayerService.swift`, `NowPlayingManager.swift`, `AudioRecorder.swift`, `LiveAudioAnalyzer.swift`, `ReceiverDeepLinkService.swift`, push/APNs/OneSignal paths, and backend auth/billing/sharing/device routes.
+- Review provenance: updated after four specialist/adversarial passes on 2026-06-30:
+  - Android/Skip feasibility reviewer;
+  - backend/security reviewer;
+  - product/scope/design reviewer;
+  - adversarial "do not proceed as written" reviewer.
+  Their findings are applied in KTD3-KTD12 and U0-U9.
