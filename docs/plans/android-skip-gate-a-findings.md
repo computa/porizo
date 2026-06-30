@@ -87,7 +87,7 @@ These thresholds are copied from the source plan and must be filled with measure
 | Release APK/AAB | Produced successfully, size recorded and acceptable for Play/install conversion | Release APK/AAB produced. Reported 364.8 MB APK and 125.9 MB AAB; disk sizes 348M and 120M. APK is a universal local artifact with three large ABI payloads; bundletool estimates Play-style split downloads at <=43.12 MB for supported non-x86 phone ABIs in this spike. | Pass for spike; repeat on real Recipient MVP |
 | Runtime stability | 30-minute physical-device run with no crash on spike flows | Blocked: no Android device attached and no local AVD/emulator package available. | Blocked |
 | Visual/accessibility parity | Fonts/tokens visually acceptable against iOS screenshots; Dynamic Type/accessibility basics not broken | Pending U1 | Pending |
-| Legal/toolchain | No unresolved license or reproducibility blocker | U2 found no technical no-go, but SkipStone AGPL-3.0 legal review remains unresolved. | Blocked |
+| Legal/toolchain | No unresolved license or reproducibility blocker | U2 found no technical no-go, but SkipStone AGPL-3.0 / Skip Fuse LGPL / generated-artifact legal review remains unresolved. Evidence packet: `android-skip-legal-review-packet.md`. | Blocked |
 
 U1 spike files were generated under local throwaway workspace `spikes/skip-fuse-spike/` and are not merged into the app. Main authored spike files:
 
@@ -172,9 +172,9 @@ Blocking evidence:
 - `skip devices` listed no Android device.
 - Argent `list-devices` returned no Android devices and no AVDs; the local Android SDK has no emulator package to boot.
 - U1 runtime, visual/accessibility, App Link, audio, and native escape-hatch checks did not run on Android hardware.
-- SkipStone AGPL-3.0 / generated-artifact legal review is not signed off.
+- SkipStone AGPL-3.0 / Skip Fuse LGPL / generated-artifact legal review is not signed off.
 Follow-up tasks:
 - Attach a physical Android device and rerun U1 runtime checks. An emulator may supplement this, but cannot replace the physical-device Gate A proof.
-- Complete SkipStone/generated-artifact legal review.
+- Complete SkipStone / Skip Fuse / generated-artifact legal review using `android-skip-legal-review-packet.md`.
 - Repeat bundletool/Play Console size review on the real Recipient MVP build and revisit Skip Fuse vs. Compose if that build materially exceeds the 43 MB spike estimate.
 ```

@@ -36,6 +36,8 @@ execution_plan: docs/plans/2026-06-30-002-feat-android-skip-parallel-agents-plan
 | --- | --- | --- | --- |
 | Skip CLI / SkipStone | Local `skip version` -> 1.9.4. GitHub API for `skiptools/skipstone` reports `AGPL-3.0`. | Treat `skipstone` as AGPL-3.0 build tooling/plugin. Legal review must confirm whether generated artifacts and build-time use are acceptable before committing generated Skip project output. | Blocks Gate A verdict until reviewed. |
 | Skip Fuse UI | GitHub API for `skiptools/skip-fuse-ui` reports `MPL-2.0`; Skip docs show Fuse dependency `https://source.skip.tools/skip-fuse-ui.git`. | MPL-2.0 component; preserve notices and source availability for modified MPL-covered files. | Review required before merged dependency. |
+| Skip Fuse | Export zip contains `skip-fuse/LICENSE.LGPL` with LGPL3 plus a special combined-work exception. | Legal review must confirm the exception is sufficient for closed-source app distribution and what notices/source obligations remain if modified. | Blocks Gate A verdict until reviewed. |
+| swift-jni | Export zip contains `swift-jni/LICENSE.txt` with Apache License 2.0. | Standard Apache notice handling likely applies; include in third-party notices if shipped. | Review required before merged dependency. |
 | SkipAV | GitHub API for `skiptools/skip-av` reports `MPL-2.0`. | MPL-2.0 component; review Android playback/recording scope in U2. | Review required before U7. |
 | skip-keychain | GitHub API for `skiptools/skip-keychain` reports `MPL-2.0`. | MPL-2.0 component; candidate for Android Keystore-backed secure storage. | Review required before U3a/U4. |
 | Skip Marketplace | Skip docs show active module releases through `0.4.1` on 2026-06-27. | Candidate purchase adapter only; not entitlement authority. Must verify Play Billing fit in U2/U1. | Blocks billing adapter choice, not Recipient MVP. |
@@ -53,6 +55,7 @@ Primary references:
 - `https://github.com/skiptools/skip-fuse-ui`
 - `https://github.com/skiptools/skip-av`
 - `https://github.com/skiptools/skip-keychain`
+- `docs/plans/android-skip-legal-review-packet.md`
 
 ## Backend Migration Reservations
 
