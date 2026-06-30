@@ -401,7 +401,7 @@ Flat, checkable. Each task = one source unit (or unit-half), tagged with stream,
 
 **Pre-stream**
 
-- [ ] **U0** (S0) — Lock baseline commit, release-scope table, SDK + legal/toolchain ledgers.
+- [x] **U0** (S0) — Lock baseline commit, release-scope table, SDK + legal/toolchain ledgers.
 
 **Gate A barrier** (dispatch both after U0; ∥)
 
