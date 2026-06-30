@@ -2388,6 +2388,8 @@ Status 2026-06-29: committed as `0e10017e refactor: align create flow state and 
 
 **Owner:** Controller
 
+Expanded whole-refactor verification plan: `docs/validation/refactor-verification-plan-2026-06-30.md`. Use that plan as the controlling gate before claiming the full refactor did not break Porizo's flows or system behavior; the checklist below is the original minimum gate.
+
 - [ ] **Step 1: Ensure no workers remain open**
 
 Close any completed worker with `close_agent`. If a worker is blocked, close it after recording the blocker in the plan status section.
