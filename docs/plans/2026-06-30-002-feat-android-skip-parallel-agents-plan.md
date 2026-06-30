@@ -408,7 +408,7 @@ Flat, checkable. Each task = one source unit (or unit-half), tagged with stream,
 
 **Gate A barrier** (dispatch both after U0; ∥)
 
-- [ ] **U1** (Gate A) — Skip Fuse spike in `spikes/skip-fuse-spike/`, fill thresholds on hardware. Local build/export completed; no Android device/AVD/emulator package is available; split-delivery size review and physical-device runbook are documented.
+- [ ] **U1** (Gate A) — Skip Fuse spike in `spikes/skip-fuse-spike/`, fill thresholds on hardware. Local build/export, split-delivery size review, runtime runbook, and emulator smoke are complete. AVD `Porizo_GateA_API36` can install/run the spike, but Gate A remains blocked by physical-device runtime proof, strict App Link failure (`porizo.app: legacy_failure`), missing Android icon mappings, native probe hardware proof, and legal signoff.
 - [x] **U2** (Gate A) — Platform research; each question gets link/conclusion/owner/blocks-flag.
 - [x] **Gate A verdict** — owner writes "Skip" / "Compose fallback" / "more spike required" into `android-skip-gate-a-findings.md`. Current verdict: `more spike required`; **blocks all of S1/S2/S4.**
 
@@ -482,7 +482,7 @@ Inherited from the source plan: tablet/foldable layout, Android Auto / Wear OS, 
 
 ## Dependencies / Prerequisites
 
-- The source plan's prerequisites carry over verbatim: Skip toolchain + Android Studio + Swift Android SDK (pinned in Gate A findings); a physical Android device for U1 / Gate B / U7 / U8 / U9.
+- The source plan's prerequisites carry over verbatim: Skip toolchain + Android Studio + Swift Android SDK (pinned in Gate A findings); a physical Android device for U1 / Gate B / U7 / U8 / U9. Local emulator support now exists via AVD `Porizo_GateA_API36`, but emulator proof is supplemental only.
 - **This plan additionally requires:** the Gate A and Gate B verdict files exist and are readable by any dispatched agent (the gate-as-file contract), and U0's ledger has pre-assigned migration sequence numbers before S1 fans out.
 
 ---
