@@ -1,7 +1,7 @@
 ---
 title: "Android Skip Gate A Findings"
 date: 2026-06-30
-status: pre-gate
+status: gate-a-more-spike-required
 source_plan: docs/plans/2026-06-30-001-feat-android-via-skip-plan.md
 execution_plan: docs/plans/2026-06-30-002-feat-android-skip-parallel-agents-plan.md
 ---
@@ -10,7 +10,14 @@ execution_plan: docs/plans/2026-06-30-002-feat-android-skip-parallel-agents-plan
 
 ## Gate State
 
-**Verdict:** `pending`
+**Verdict:** `more spike required`
+
+**Gate A passed:** No.
+
+Gate A cannot release S1/S2/S4 yet. Local Skip Fuse build/export evidence is materially positive, and U2 did not find a platform-research no-go, but two Gate A pass criteria remain unresolved:
+
+- No physical Android device/emulator was available for the 30-minute runtime, visual/accessibility, App Link, audio, and native escape-hatch proof.
+- SkipStone AGPL-3.0 / generated-artifact legal signoff is still pending.
 
 No Phase 2+ stream may start until this file contains an explicit Gate A verdict of `Skip`.
 
@@ -39,6 +46,8 @@ Allowed verdict values:
 | Skip doctor | Pass outside the workspace sandbox | `skip doctor` passed with Skip 1.9.4, Swift 6.3.2, Xcode 26.5, Gradle 9.6.1, Java 26.0.1, ADB 1.0.41, Android SDK 37.0.0. The sandboxed run produced false negatives from native-cache/sysctl restrictions. |
 | Stable Xcode lane | Pass | `xcodebuild -version` -> Xcode 26.5, build 17F42. |
 | Android devices | Blocked for hardware verdict | `adb devices -l` returned no attached Android devices on 2026-06-30. `skip devices` listed iOS simulators/devices only. |
+| U1 debug export | Pass | `skip export --debug --android --no-ios` completed in 414.05s. Reported APK/AAB/source zip: 217.3 MB / 65.5 MB / 22.6 MB. Disk sizes: 207M / 63M / 22M. |
+| U1 release export | Pass | `skip export --release --android --no-ios` completed in 212.47s. Reported APK/AAB/source zip: 364.8 MB / 125.9 MB / 22.6 MB. Disk sizes: 348M / 120M / 22M. |
 
 ## Gate A Inputs From U0
 
@@ -55,15 +64,21 @@ These thresholds are copied from the source plan and must be filled with measure
 
 | Threshold | Pass Standard | Measured Result | Status |
 | --- | --- | --- | --- |
-| Unsupported SwiftUI constructs | <= 2 blocking constructs per screen, each with a documented fix | Pending U1 | Pending |
-| Native escape hatches | <= 1 unplanned native bridge per screen | Pending U1 | Pending |
-| Bridge LOC | <= 150 LOC per screen average outside planned platform features | Pending U1 | Pending |
-| Clean Android debug build | <= 10 minutes on local machine | Pending U1 | Pending |
-| Incremental UI edit build | <= 90 seconds | Pending U1 | Pending |
-| Release APK/AAB | Produced successfully, size recorded and acceptable for Play/install conversion | Pending U1 | Pending |
+| Unsupported SwiftUI constructs | <= 2 blocking constructs per screen, each with a documented fix | One initial Skip bridge compile issue: `private @State` was rejected; U1 fixed it before successful builds. No broader unsupported-screen no-go found locally. | Pass locally |
+| Native escape hatches | <= 1 unplanned native bridge per screen | One planned native escape hatch placeholder: `RecordingEscapeHatchView` uses `ComposeView` + `ContentComposer`; Android runtime not proven. | Partial |
+| Bridge LOC | <= 150 LOC per screen average outside planned platform features | Approx. 28 Swift lines for the `ComposeView`/`ContentComposer` placeholder plus manifest App Link/audio permission entries. | Pass locally |
+| Clean Android debug build | <= 10 minutes on local machine | Passed in 23.68s after fixing `private @State`. | Pass |
+| Incremental UI edit build | <= 90 seconds | Passed in 3.98s. | Pass |
+| Release APK/AAB | Produced successfully, size recorded and acceptable for Play/install conversion | Release APK/AAB produced. Reported 364.8 MB APK and 125.9 MB AAB; disk sizes 348M and 120M. Size is high and needs product/install-conversion review. | Produced; size review required |
 | Runtime stability | 30-minute physical-device run with no crash on spike flows | Blocked: no Android device attached | Blocked |
 | Visual/accessibility parity | Fonts/tokens visually acceptable against iOS screenshots; Dynamic Type/accessibility basics not broken | Pending U1 | Pending |
-| Legal/toolchain | No unresolved license or reproducibility blocker | Pending U2 + legal review | Pending |
+| Legal/toolchain | No unresolved license or reproducibility blocker | U2 found no technical no-go, but SkipStone AGPL-3.0 legal review remains unresolved. | Blocked |
+
+U1 spike files were generated under local throwaway workspace `spikes/skip-fuse-spike/` and are not merged into the app. Main authored spike files:
+
+- `spikes/skip-fuse-spike/Sources/PorizoSkipSpike/ContentView.swift`
+- `spikes/skip-fuse-spike/Sources/PorizoSkipSpike/ViewModel.swift`
+- `spikes/skip-fuse-spike/Android/app/src/main/AndroidManifest.xml`
 
 ## U2 Research Questions
 
@@ -71,22 +86,29 @@ U2 must fill the following table with primary-source links, conclusions, owners,
 
 | Question | Source Links | Conclusion | Owner | Blocks Gate A? |
 | --- | --- | --- | --- | --- |
-| SkipAV playback/recording/metering completeness and Android MediaSession fit | Pending U2 | Pending | U2 | Yes |
-| SkipFoundation URLSession background support vs. WorkManager necessity | Pending U2 | Pending | U2 | Yes |
-| Skip Marketplace/StoreKit/Play Billing viability and limitations | Pending U2 | Pending | U2 | Yes |
-| AppsFlyer deferred deep-link ownership on Android and exact OneLink handoff fields | Pending U2 | Pending | U2 | Yes |
-| Firebase/OneSignal split: push transport vs. marketing tags/external ID | Pending U2 | Pending | U2 | Yes |
-| Enrollment-quality need for Whisper-grade STT vs. Android SpeechRecognizer | Pending U2 | Pending | U2 | No for Recipient MVP; Yes for Full Parity |
+| SkipAV playback/recording/metering completeness and Android MediaSession fit | `https://skip.dev/docs/modules/skip-av/`, `https://github.com/skiptools/skip-av`, `https://developer.android.com/media/media3/session/background-playback` | SkipAV looks adequate for in-app `AVAudioPlayer`, `AVAudioRecorder`, and metering; Android lock-screen/notification/background controls still need a native Media3/MediaSession bridge. | U1 validates basic audio; S3/U7 owns Media3 bridge. | No research blocker; hardware proof still blocks pass. |
+| SkipFoundation URLSession background support vs. WorkManager necessity | `https://skip.dev/docs/modules/skip-foundation/`, `https://developer.android.com/develop/background-work/background-tasks/data-transfer-options`, `https://developer.android.com/develop/background-work/background-tasks/persistent/getting-started` | No evidence of iOS-style background `URLSession` parity on Android. Use WorkManager/foreground service behind protocols. | S2/U3a protocol; S3/U7 WorkManager bridge. | No if WorkManager bridge is accepted. |
+| Skip Marketplace/StoreKit/Play Billing viability and limitations | `https://skip.dev/docs/modules/skip-marketplace/`, `https://developer.android.com/google/play/billing/integrate`, `https://developers.google.com/android-publisher/api-ref/rest/v3/purchases.products/get`, `https://developers.google.com/android-publisher/api-ref/rest/v3/purchases.subscriptionsv2/get` | Skip Marketplace may be viable only for client purchase UI/token acquisition. Direct Play Billing remains fallback; backend stays entitlement authority. | S1/U6-server and S3/U6-client. | No for Recipient MVP; blocks Full Parity billing choice. |
+| AppsFlyer deferred deep-link ownership on Android and exact OneLink handoff fields | `https://dev.appsflyer.com/hc/docs/dl_android_unified_deep_linking`, `https://dev.appsflyer.com/hc/docs/android-sample-payloads`, `https://developer.android.com/training/app-links/verify-applinks` | AppsFlyer owns deferred install attribution/OneLink resolution; Android App Links own verified installed-app routing. Existing server fields look sufficient: `deep_link_value`, `deep_link_sub1`, `deep_link_sub2`, `deep_link_sub3`, `pid`, `c`. | S4/U8a-client, S4/U8b-client, S1/U8b-server. | No research blocker; physical deferred-install/App Link proof still blocks pass. |
+| Firebase/OneSignal split: push transport vs. marketing tags/external ID | `https://firebase.google.com/docs/cloud-messaging`, `https://firebase.google.com/docs/cloud-messaging/android/client`, `https://documentation.onesignal.com/docs/users`, `https://documentation.onesignal.com/docs/tags` | Keep FCM for Android transactional push and OneSignal for marketing segmentation/campaigns. Matches current APNs transactional service and separate OneSignal marketing service. | S1/U8d backend; Android FCM client; marketing push stream. | No for Recipient MVP unless push becomes MVP scope. |
+| Enrollment-quality need for Whisper-grade STT vs. Android SpeechRecognizer | `https://developer.android.com/reference/android/speech/SpeechRecognizer`, `https://developer.android.com/reference/android/speech/RecognizerIntent`, `https://platform.openai.com/docs/guides/speech-to-text`, `PorizoApp/PorizoApp/Services/STTRouter.swift:60`, `docs/feature-audit/verify-p2p3/voiceenrollment.md:25` | Android `SpeechRecognizer` is acceptable for low-risk dictation UX, but not as the only enrollment-quality/full-parity STT path. Voice enrollment/safety still needs Whisper-grade backend transcription. | S3/U7 for Android dictation; backend/enrollment safety for Whisper. | No for Recipient MVP; yes if Full Parity tries to replace Whisper. |
 
-## Gate A Verdict Template
+## Gate A Verdict
 
-Fill this section only after U1 and U2 are complete.
+This is the current Gate A verdict after U1 local build/export work and U2 research.
 
 ```text
-Gate A verdict: <Skip | Compose fallback | more spike required>
-Date:
-Owner:
-Rationale:
+Gate A verdict: more spike required
+Date: 2026-06-30
+Owner: Codex
+Rationale: Local Skip Fuse compile/build/export and U2 research are promising enough to continue Gate A, but the mandatory physical Android runtime proof and SkipStone legal review are missing.
 Blocking evidence:
+- `adb devices -l` returned no Android device.
+- `skip devices` listed no Android device.
+- U1 runtime, visual/accessibility, App Link, audio, and native escape-hatch checks did not run on Android hardware.
+- SkipStone AGPL-3.0 / generated-artifact legal review is not signed off.
 Follow-up tasks:
+- Attach a physical Android device or approved emulator and rerun U1 runtime checks.
+- Complete SkipStone/generated-artifact legal review.
+- Reassess APK/AAB size against Play pre-launch/install-conversion targets.
 ```
