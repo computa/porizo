@@ -405,7 +405,7 @@ Flat, checkable. Each task = one source unit (or unit-half), tagged with stream,
 
 **Gate A barrier** (dispatch both after U0; ∥)
 
-- [ ] **U1** (Gate A) — Skip Fuse spike in `spikes/skip-fuse-spike/`, fill thresholds on hardware. Local build/export completed; no Android device/AVD/emulator package is available; split-delivery size review is now documented.
+- [ ] **U1** (Gate A) — Skip Fuse spike in `spikes/skip-fuse-spike/`, fill thresholds on hardware. Local build/export completed; no Android device/AVD/emulator package is available; split-delivery size review and physical-device runbook are documented.
 - [x] **U2** (Gate A) — Platform research; each question gets link/conclusion/owner/blocks-flag.
 - [x] **Gate A verdict** — owner writes "Skip" / "Compose fallback" / "more spike required" into `android-skip-gate-a-findings.md`. Current verdict: `more spike required`; **blocks all of S1/S2/S4.**
 

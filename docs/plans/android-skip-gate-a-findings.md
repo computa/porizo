@@ -64,6 +64,8 @@ Follow-up check on 2026-06-30:
 
 Conclusion: U1 cannot finish locally until Ambrose attaches a physical Android device. Installing/configuring an emulator/AVD would help with partial UI smoke testing and bundle-install rehearsal, but emulator-only evidence is insufficient for the Gate A `Skip` verdict because the source plan requires physical hardware for runtime, audio, push, background, and deep-link confidence.
 
+Runtime execution checklist: `docs/plans/android-skip-gate-a-runtime-runbook.md`.
+
 ## Gate A Inputs From U0
 
 | Input | Status | Notes |
