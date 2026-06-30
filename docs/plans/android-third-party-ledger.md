@@ -41,7 +41,7 @@ execution_plan: docs/plans/2026-06-30-002-feat-android-skip-parallel-agents-plan
 | Skip Marketplace | Skip docs show active module releases through `0.4.1` on 2026-06-27. | Candidate purchase adapter only; not entitlement authority. Must verify Play Billing fit in U2/U1. | Blocks billing adapter choice, not Recipient MVP. |
 | SkipFirebase | Skip docs show active module releases through `0.20.0` on 2026-06-17. | Candidate Firebase wrapper for Android FCM/crash/analytics. Must verify whether direct native SDK is simpler. | Blocks U8d/U9 choice, not Recipient MVP. |
 | Local Android toolchain | `skip doctor` passed outside sandbox with Gradle 9.6.1, Java 26.0.1, Android SDK 37.0.0, ADB 1.0.41. | Toolchain is reproducible locally, but sandboxed Gradle can false-fail because of native-cache restrictions. | Ready for build/spike; hardware still missing. |
-| Physical Android hardware | `adb devices -l` returned no attached Android devices; `skip devices` listed no Android devices. | Required for U1 30-minute run, Gate B, U7/U8/U9 hardware confidence. | Blocks Gate A pass until attached. |
+| Physical Android hardware / emulator | `adb devices -l` returned no attached Android devices; `skip devices` listed no Android devices. Follow-up Argent `list-devices` returned no devices and no AVDs, and the local SDK has no `emulator/` package installed. | Physical hardware is required for U1 30-minute run, Gate B, U7/U8/U9 hardware confidence. Emulator can supplement UI smoke testing, but cannot replace the physical-device Gate A proof. | Blocks Gate A pass until a physical Android device is attached and tested. |
 
 Primary references:
 
