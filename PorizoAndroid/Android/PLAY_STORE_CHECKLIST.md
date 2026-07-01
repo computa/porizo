@@ -19,19 +19,21 @@
 - Launcher icon and adaptive icon layers are tracked for the internal Android build.
 - Auth sessions and device JWTs use Android Keystore-backed encrypted storage on
   Android, with legacy local token migration.
-- Settings exposes native readiness states for secure storage, recording/STT,
+- Settings exposes native readiness states for secure storage, voice enrollment recording,
   push, Play Billing, App Links, and release signing before phone QA.
-- Play Billing package configuration still needs real Play Console product IDs and
-  a native purchase-token acquisition adapter. Backend validation is wired through
-  `POST /billing/receipt/google`.
-- Push provider choice is still open between direct FCM and OneSignal Android.
-  The app exposes the backend boundary through `/device/register` with `push_token`;
-  the provider SDK/config values must supply that token.
+- Play Billing 9.1 is wired for subscription product query, purchase launch,
+  active-purchase token lookup, backend `POST /billing/receipt/google` sync, and
+  entitlement refresh. Real purchases still need Play Console products and a
+  store-signed/internal-testing install.
+- Android gift-bundle purchases still need a backend Google consumable receipt
+  endpoint before gift wallet credit can match the iOS Apple consumable path.
+- OneSignal Android is wired as the first push-provider path. Real push delivery
+  still requires Android/FCM credentials in the OneSignal dashboard.
 - Backend Google validation requires `GOOGLE_PLAY_PACKAGE_NAME` and service-account
   credentials in the backend environment.
-- FCM requires `google-services.json` or equivalent build-time Firebase config if
-  direct FCM is selected. OneSignal requires the Android app ID and notification
-  service setup if OneSignal is selected.
+- Voice enrollment is wired with Android microphone permission, WAV prompt
+  recording, presigned upload, chunk notification, completion, and profile status
+  checks. Physical-device QA must still verify real microphone behavior.
 - Verify App Links after `assetlinks.json` includes the Android signing certificate fingerprint.
 - Run physical-device smoke tests before uploading an internal testing build.
 
@@ -43,4 +45,5 @@
 - ADB lists the physical phone as `device`, not `unauthorized` or empty.
 - Smoke test auth, secure token persistence across restart, create draft recovery,
   render auto-polling, app-link claim routing, share claim errors, billing receipt
-  error handling, push-token registration, and Settings readiness states.
+  error handling, OneSignal token registration, Play Billing subscription sync,
+  voice enrollment recording/upload/complete, and Settings readiness states.

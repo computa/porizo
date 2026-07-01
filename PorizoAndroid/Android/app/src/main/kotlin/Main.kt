@@ -58,6 +58,9 @@ open class MainActivity: AppCompatActivity {
         super.onCreate(savedInstanceState)
         logger.info("starting activity")
         UIApplication.launch(this)
+        PorizoNativePushBridge.setActivity(this)
+        PorizoNativeBillingBridge.setActivity(this)
+        PorizoNativeRecorderBridge.setActivity(this)
         enableEdgeToEdge()
         handleIntent(intent)
 
@@ -96,6 +99,9 @@ open class MainActivity: AppCompatActivity {
 
     override fun onResume() {
         super.onResume()
+        PorizoNativePushBridge.setActivity(this)
+        PorizoNativeBillingBridge.setActivity(this)
+        PorizoNativeRecorderBridge.setActivity(this)
         AppDelegate.shared.onResume()
     }
 
@@ -110,6 +116,9 @@ open class MainActivity: AppCompatActivity {
     }
 
     override fun onDestroy() {
+        PorizoNativePushBridge.setActivity(null)
+        PorizoNativeBillingBridge.setActivity(null)
+        PorizoNativeRecorderBridge.setActivity(null)
         super.onDestroy()
         AppDelegate.shared.onDestroy()
     }

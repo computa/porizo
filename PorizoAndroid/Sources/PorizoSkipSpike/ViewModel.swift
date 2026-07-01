@@ -149,6 +149,7 @@ enum ActiveSettingsSheet: String, Identifiable {
     case auth
     case subscription
     case push
+    case voiceEnrollment
 
     var id: String { rawValue }
 }
@@ -197,7 +198,7 @@ enum AndroidNativeCapability: String, CaseIterable, Identifiable {
     var label: String {
         switch self {
         case .secureStorage: return "Secure token storage"
-        case .recordingSTT: return "Recording and STT"
+        case .recordingSTT: return "Voice enrollment recording"
         case .pushProvider: return "Push provider"
         case .playBilling: return "Play Billing"
         case .appLinks: return "App Links"
@@ -208,9 +209,9 @@ enum AndroidNativeCapability: String, CaseIterable, Identifiable {
     var status: String {
         switch self {
         case .secureStorage: return "wired"
-        case .recordingSTT: return "adapter pending"
-        case .pushProvider: return "provider pending"
-        case .playBilling: return "provider pending"
+        case .recordingSTT: return "wired"
+        case .pushProvider: return "wired"
+        case .playBilling: return "wired"
         case .appLinks: return "wired"
         case .releaseSigning: return "template only"
         }
@@ -221,11 +222,11 @@ enum AndroidNativeCapability: String, CaseIterable, Identifiable {
         case .secureStorage:
             return "Auth session JSON and device JWTs are stored through the Android secure-store adapter on Android, with legacy UserDefaults migration."
         case .recordingSTT:
-            return "The UI boundary is present; the Android microphone recorder and backend audio/STT handoff still need provider-backed implementation."
+            return "Android microphone recording now writes WAV chunks and uploads through the same voice-enrollment start/upload/complete contract used by iOS."
         case .pushProvider:
-            return "Backend token registration is wired. Choose FCM or OneSignal before adding the SDK and runtime notification flow."
+            return "OneSignal SDK initialization, external-id login/logout, runtime permission, token lookup, and backend device registration are wired. Delivery still requires OneSignal FCM configuration."
         case .playBilling:
-            return "Backend Google receipt validation is wired. Native Play Billing purchase-token acquisition still needs the SDK and Play Console products."
+            return "Play Billing 9.1 product query, purchase launch, restore token lookup, and backend Google receipt validation are wired. Real purchases still require Play Console products and store-signed install."
         case .appLinks:
             return "Manifest routes /s, /play, /poem, and /receiver-handoff into the SwiftUI claim/library surfaces."
         case .releaseSigning:

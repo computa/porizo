@@ -1,11 +1,12 @@
 # Skip configuration for the Porizo Android module.
 #
 # Kotlin dependencies and Gradle build options for this module can be configured here
-#build:
-#  contents:
-#    - block: 'dependencies'
-#      contents:
-#        - 'implementation("androidx.compose.runtime:runtime")'
+build:
+  contents:
+    - block: 'dependencies'
+      contents:
+        - 'implementation("com.onesignal:OneSignal:[5.6.1, 5.9.99]")'
+        - 'implementation("com.android.billingclient:billing:9.1.0")'
 
 # this is a natively-compiled Skip Fuse module
 skip:

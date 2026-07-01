@@ -10,6 +10,21 @@ enum AndroidAppConfig {
     static let apiBaseURLOverrideKey = "porizo_android_api_base_url_override"
     static let shareHost = "porizo.app"
     static let platformDeviceLabel = "android-device"
+    static let oneSignalAppId = "67365cfb-f88a-44cc-ba25-29a9a01d01f0"
+
+    static let subscriptionProductIds = [
+        "com.porizo.plus_monthly",
+        "com.porizo.plus_annual",
+        "com.porizo.pro_monthly",
+        "com.porizo.pro_annual",
+    ]
+
+    static let oneTimeProductIds = [
+        "com.porizo.gift_token_oneoff",
+        "com.porizo.gift_bundle_1",
+        "com.porizo.gift_bundle_3",
+        "com.porizo.gift_bundle_5",
+    ]
 
     static var apiBaseURL: String {
         #if DEBUG

@@ -332,8 +332,119 @@ actor AndroidAPIClient {
         return try await send(path: "/billing/receipt/google", method: "POST", requiresAuth: true, body: Body(purchaseToken: purchaseToken, subscriptionId: subscriptionId))
     }
 
+    func getBillingPlans() async throws -> PorizoPlansResponse {
+        try await send(path: "/billing/plans", method: "GET", requiresAuth: false)
+    }
+
+    func getSubscriptionStatus() async throws -> PorizoSubscriptionStatusResponse {
+        try await send(path: "/billing/subscription-status", method: "GET", requiresAuth: true)
+    }
+
     func registerPushToken(_ pushToken: String) async throws -> PorizoDeviceRegistrationResponse {
         try await registerDevice(pushToken: pushToken)
+    }
+
+    func startEnrollment(consentAccepted: Bool) async throws -> PorizoEnrollmentSession {
+        struct Body: Encodable {
+            let consentAccepted: Bool
+            let consentVersion: String
+            let consentScopes: [String]
+            let voiceSunoPersonaConsent: Bool
+
+            enum CodingKeys: String, CodingKey {
+                case consentAccepted = "consent_accepted"
+                case consentVersion = "consent_version"
+                case consentScopes = "consent_scopes"
+                case voiceSunoPersonaConsent = "voice_suno_persona_consent"
+            }
+        }
+        return try await send(
+            path: "/voice/enrollment/start",
+            method: "POST",
+            requiresAuth: true,
+            body: Body(
+                consentAccepted: consentAccepted,
+                consentVersion: "android_v1",
+                consentScopes: consentAccepted ? ["voice_suno_persona_v1"] : [],
+                voiceSunoPersonaConsent: consentAccepted
+            )
+        )
+    }
+
+    func uploadEnrollmentChunk(
+        sessionId: String,
+        chunkId: String,
+        audioData: Data,
+        uploadURL: PorizoUploadURL,
+        durationSec: Double,
+        checksum: String?
+    ) async throws -> PorizoChunkUploadResponse {
+        guard let url = URL(string: uploadURL.url) else {
+            throw AndroidAPIClientError.invalidURL(uploadURL.url)
+        }
+
+        var uploadRequest = URLRequest(url: url)
+        uploadRequest.httpMethod = uploadURL.method ?? "PUT"
+        uploadURL.headers?.forEach { key, value in
+            uploadRequest.setValue(value, forHTTPHeaderField: key)
+        }
+        if uploadRequest.value(forHTTPHeaderField: "Content-Type") == nil {
+            uploadRequest.setValue("audio/wav", forHTTPHeaderField: "Content-Type")
+        }
+        let (_, uploadResponse) = try await URLSession.shared.upload(for: uploadRequest, from: audioData)
+        guard let uploadHTTP = uploadResponse as? HTTPURLResponse,
+              (200..<300).contains(uploadHTTP.statusCode) else {
+            let status = (uploadResponse as? HTTPURLResponse)?.statusCode ?? 0
+            throw AndroidAPIClientError.server(status: status, code: "UPLOAD_FAILED", message: "Audio upload failed with status \(status).")
+        }
+
+        struct Body: Encodable {
+            let sessionId: String
+            let chunkId: String
+            let durationSec: Double
+            let clientChecksum: String?
+
+            enum CodingKeys: String, CodingKey {
+                case sessionId = "session_id"
+                case chunkId = "chunk_id"
+                case durationSec = "duration_sec"
+                case clientChecksum = "client_checksum"
+            }
+        }
+        return try await send(
+            path: "/voice/enrollment/chunk_uploaded",
+            method: "POST",
+            requiresAuth: true,
+            body: Body(sessionId: sessionId, chunkId: chunkId, durationSec: durationSec, clientChecksum: checksum)
+        )
+    }
+
+    func completeEnrollment(sessionId: String) async throws -> PorizoVoiceProfile {
+        struct Body: Encodable {
+            let sessionId: String
+            let consentScopes: [String]
+            let voiceSunoPersonaConsent: Bool
+
+            enum CodingKeys: String, CodingKey {
+                case sessionId = "session_id"
+                case consentScopes = "consent_scopes"
+                case voiceSunoPersonaConsent = "voice_suno_persona_consent"
+            }
+        }
+        return try await send(
+            path: "/voice/enrollment/complete",
+            method: "POST",
+            requiresAuth: true,
+            body: Body(
+                sessionId: sessionId,
+                consentScopes: ["voice_suno_persona_v1"],
+                voiceSunoPersonaConsent: true
+            )
+        )
+    }
+
+    func getVoiceProfile() async throws -> PorizoVoiceProfileStatus {
+        try await send(path: "/voice/profile", method: "GET", requiresAuth: true)
     }
 
     private func ensureDeviceToken() async throws -> String {

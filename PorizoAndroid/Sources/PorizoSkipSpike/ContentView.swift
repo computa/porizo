@@ -797,6 +797,11 @@ struct SettingsView: View {
                 } label: {
                     Label("Register push token", systemImage: "bell.badge")
                 }
+                Button {
+                    activeSheet = .voiceEnrollment
+                } label: {
+                    Label("Open voice enrollment", systemImage: "mic.badge.plus")
+                }
             }
 
             Section("Appearance") {
@@ -903,6 +908,8 @@ struct SettingsView: View {
                 SubscriptionSheetView()
             case .push:
                 PushTokenSheetView()
+            case .voiceEnrollment:
+                VoiceEnrollmentSheetView()
             }
         }
     }
@@ -921,6 +928,7 @@ struct AuthSheetView: View {
     @State var isWorking = false
     private let apiClient = AndroidAPIClient()
     private let sessionStore = AndroidSessionStore()
+    private let pushProvider = AndroidPushProvider()
 
     var body: some View {
         NavigationStack {
@@ -1039,6 +1047,10 @@ struct AuthSheetView: View {
                 registrationToken = token
                 statusText = "Phone verified. Register this new account to finish sign-in."
             } else if response.accessToken != nil {
+                if let signedInUserId = sessionStore.loadAuthSession()?.userId {
+                    _ = pushProvider.initialize()
+                    _ = pushProvider.login(userId: signedInUserId)
+                }
                 statusText = "Signed in existing phone account."
             } else {
                 statusText = response.verified ? "Phone verified." : "Verification failed."
@@ -1050,6 +1062,8 @@ struct AuthSheetView: View {
     private func registerAccount() async {
         await runAuthAction {
             let session = try await apiClient.registerPhoneAccount(registrationToken: clean(registrationToken), phoneNumber: clean(phoneNumber))
+            _ = pushProvider.initialize()
+            _ = pushProvider.login(userId: session.userId)
             statusText = "Registered user \(session.userId)."
             reloadSession()
         }
@@ -1064,6 +1078,7 @@ struct AuthSheetView: View {
     }
 
     private func clearSession() {
+        _ = pushProvider.logout()
         sessionStore.clearAuthSession()
         sessionStore.clearDeviceToken()
         reloadSession()
@@ -1088,20 +1103,30 @@ struct AuthSheetView: View {
 struct SubscriptionSheetView: View {
     @Environment(\.dismiss) var dismiss
     @State var entitlements: PorizoBillingEntitlements?
+    @State var subscriptionStatus: PorizoSubscriptionStatusResponse?
+    @State var plans: [PorizoSubscriptionPlan] = []
+    @State var loadedProducts: [AndroidPlayProductSummary] = []
     @State var purchaseToken = ""
-    @State var subscriptionId = "porizo_plus_monthly"
-    @State var statusText = "Load entitlements after sign-in. Validate Google receipts with a Play Billing purchase token."
+    @State var selectedProductId = AndroidAppConfig.subscriptionProductIds.first ?? ""
+    @State var statusText = "Load plans, query Play Billing products, then purchase or restore a subscription."
     @State var isWorking = false
     private let apiClient = AndroidAPIClient()
+    private let billingProvider = AndroidPlayBillingProvider()
+    private let sessionStore = AndroidSessionStore()
 
     var body: some View {
         NavigationStack {
             Form {
-                Section("Entitlement") {
+                Section("Entitlement and subscription") {
                     HStack {
                         Text("Plan")
                         Spacer()
                         Text(entitlements?.tier ?? "unknown")
+                    }
+                    HStack {
+                        Text("Active subscription")
+                        Spacer()
+                        Text((subscriptionStatus?.hasActiveSubscription ?? subscriptionStatus?.hasSubscription) == true ? "yes" : "unknown")
                     }
                     HStack {
                         Text("Song credits")
@@ -1119,23 +1144,90 @@ struct SubscriptionSheetView: View {
                         Label("Load entitlements", systemImage: "arrow.clockwise")
                     }
                     .disabled(isWorking)
+
+                    Button {
+                        Task { await loadSubscriptionStatus() }
+                    } label: {
+                        Label("Load subscription status", systemImage: "person.text.rectangle")
+                    }
+                    .disabled(isWorking)
                 }
-                Section("Android purchase proof") {
+
+                Section("Plans and Play products") {
+                    Button {
+                        Task { await loadBillingCatalog() }
+                    } label: {
+                        Label("Load plans and Play products", systemImage: "list.bullet.rectangle")
+                    }
+                    .disabled(isWorking)
+
+                    Picker("Product", selection: $selectedProductId) {
+                        ForEach(productChoices, id: \.self) { productId in
+                            Text(productId).tag(productId)
+                        }
+                    }
+
+                    if !plans.isEmpty {
+                        ForEach(plans) { plan in
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(plan.name)
+                                    .font(.headline)
+                                Text("\(plan.songsPerMonth) songs/month • \(plan.poemsPerMonth) poems/month")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                Text(plan.googleSubscriptionProductIds.joined(separator: " • "))
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+
+                    if !loadedProducts.isEmpty {
+                        ForEach(loadedProducts) { product in
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(product.title)
+                                    .font(.subheadline)
+                                Text("\(product.id) • \(product.productType) • \(product.price)")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+
+                Section("Play Billing purchase") {
+                    Button {
+                        Task { await launchPurchase() }
+                    } label: {
+                        Label("Open Play purchase sheet", systemImage: "cart")
+                    }
+                    .disabled(isWorking || selectedProductId.isEmpty)
+
+                    Button {
+                        Task { await refreshPlayPurchases() }
+                    } label: {
+                        Label("Refresh Play purchases", systemImage: "arrow.triangle.2.circlepath")
+                    }
+                    .disabled(isWorking)
+
                     TextField("Purchase token", text: $purchaseToken)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
-                    TextField("Subscription ID", text: $subscriptionId)
+                    TextField("Subscription product ID", text: $selectedProductId)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                     Button {
                         Task { await validateGoogleReceipt() }
                     } label: {
-                        Label("Validate Google receipt", systemImage: "cart.badge.checkmark")
+                        Label("Sync Google receipt with backend", systemImage: "checkmark.seal")
                     }
-                    .disabled(isWorking || purchaseToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || subscriptionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(isWorking || purchaseToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || selectedProductId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
                     Text(statusText)
                         .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    Text("Gift bundle purchases still need a backend Google consumable receipt endpoint before Android can grant gift wallet credit.")
+                        .font(.caption)
                         .foregroundStyle(.secondary)
                 }
             }
@@ -1150,6 +1242,13 @@ struct SubscriptionSheetView: View {
         }
     }
 
+    private var productChoices: [String] {
+        let loaded = loadedProducts.map(\.id)
+        let planIds = plans.flatMap(\.googleSubscriptionProductIds)
+        let all = loaded + planIds + AndroidAppConfig.subscriptionProductIds
+        return Array(Set(all)).sorted()
+    }
+
     private func loadEntitlements() async {
         await runBillingAction {
             entitlements = try await apiClient.getBillingEntitlements()
@@ -1157,11 +1256,71 @@ struct SubscriptionSheetView: View {
         }
     }
 
+    private func loadSubscriptionStatus() async {
+        await runBillingAction {
+            subscriptionStatus = try await apiClient.getSubscriptionStatus()
+            entitlements = subscriptionStatus?.entitlements ?? entitlements
+            statusText = "Subscription status loaded."
+        }
+    }
+
+    private func loadBillingCatalog() async {
+        await runBillingAction {
+            let response = try await apiClient.getBillingPlans()
+            plans = response.plans
+            let planProductIds = response.plans.flatMap(\.googleSubscriptionProductIds)
+            let subscriptionIds = planProductIds.isEmpty ? AndroidAppConfig.subscriptionProductIds : Array(Set(planProductIds)).sorted()
+            if selectedProductId.isEmpty {
+                selectedProductId = subscriptionIds.first ?? ""
+            }
+            statusText = billingProvider.queryProducts(
+                subscriptionIds: subscriptionIds,
+                oneTimeIds: AndroidAppConfig.oneTimeProductIds
+            )
+            try? await Task.sleep(nanoseconds: 1_200_000_000)
+            loadedProducts = billingProvider.loadedProducts()
+            if loadedProducts.contains(where: { $0.id == selectedProductId }) == false,
+               let first = loadedProducts.first(where: { $0.productType == "subs" })?.id ?? subscriptionIds.first {
+                selectedProductId = first
+            }
+            statusText = billingProvider.status()
+        }
+    }
+
+    private func launchPurchase() async {
+        await runBillingAction {
+            let userId = sessionStore.loadAuthSession()?.userId
+            statusText = billingProvider.launchPurchase(
+                productId: selectedProductId.trimmingCharacters(in: .whitespacesAndNewlines),
+                obfuscatedAccountId: userId.map { String($0.prefix(64)) }
+            )
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            if let token = billingProvider.lastPurchaseToken(productId: selectedProductId) {
+                purchaseToken = token
+                statusText = "Purchase token captured. Sync it with the backend to activate entitlements."
+            }
+        }
+    }
+
+    private func refreshPlayPurchases() async {
+        await runBillingAction {
+            statusText = billingProvider.queryActivePurchases()
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            if let token = billingProvider.lastPurchaseToken(productId: selectedProductId) {
+                purchaseToken = token
+                statusText = "Active purchase token loaded for \(selectedProductId)."
+            } else {
+                statusText = billingProvider.status()
+            }
+            loadedProducts = billingProvider.loadedProducts()
+        }
+    }
+
     private func validateGoogleReceipt() async {
         await runBillingAction {
             let response = try await apiClient.validateGoogleSubscription(
                 purchaseToken: purchaseToken.trimmingCharacters(in: .whitespacesAndNewlines),
-                subscriptionId: subscriptionId.trimmingCharacters(in: .whitespacesAndNewlines)
+                subscriptionId: selectedProductId.trimmingCharacters(in: .whitespacesAndNewlines)
             )
             entitlements = response.entitlements
             statusText = response.success ? "Google subscription synced." : "Google validation returned unsuccessful."
@@ -1182,15 +1341,54 @@ struct SubscriptionSheetView: View {
 struct PushTokenSheetView: View {
     @Environment(\.dismiss) var dismiss
     @State var pushToken = ""
-    @State var statusText = "Paste the token from the chosen Android push provider. The backend stores it through /device/register."
+    @State var subscriptionId = ""
+    @State var statusText = "Initialize OneSignal, request permission, then register the device token with the backend."
     @State var isWorking = false
     private let apiClient = AndroidAPIClient()
+    private let sessionStore = AndroidSessionStore()
+    private let pushProvider = AndroidPushProvider()
 
     var body: some View {
         NavigationStack {
             Form {
-                Section("Android push boundary") {
-                    TextField("FCM or OneSignal device token", text: $pushToken)
+                Section("OneSignal Android") {
+                    HStack {
+                        Text("App ID")
+                        Spacer()
+                        Text(AndroidAppConfig.oneSignalAppId)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Button {
+                        initializeOneSignal()
+                    } label: {
+                        Label("Initialize OneSignal", systemImage: "bell.and.waves.left.and.right")
+                    }
+                    .disabled(isWorking)
+
+                    Button {
+                        requestPermission()
+                    } label: {
+                        Label("Request notification permission", systemImage: "checkmark.shield")
+                    }
+                    .disabled(isWorking)
+
+                    Button {
+                        optInAndReadToken()
+                    } label: {
+                        Label("Read OneSignal token", systemImage: "key.viewfinder")
+                    }
+                    .disabled(isWorking)
+
+                    if !subscriptionId.isEmpty {
+                        Text("Subscription: \(subscriptionId)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Section("Backend device registration") {
+                    TextField("OneSignal push token", text: $pushToken)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                     Button {
@@ -1215,6 +1413,31 @@ struct PushTokenSheetView: View {
         }
     }
 
+    private func initializeOneSignal() {
+        isWorking = true
+        defer { isWorking = false }
+        var messages = [pushProvider.initialize()]
+        if let userId = sessionStore.loadAuthSession()?.userId, !userId.isEmpty {
+            messages.append(pushProvider.login(userId: userId))
+        }
+        statusText = messages.joined(separator: " ")
+    }
+
+    private func requestPermission() {
+        isWorking = true
+        defer { isWorking = false }
+        statusText = pushProvider.requestPermission()
+    }
+
+    private func optInAndReadToken() {
+        isWorking = true
+        defer { isWorking = false }
+        let optInStatus = pushProvider.optIn()
+        pushToken = pushProvider.pushToken() ?? pushToken
+        subscriptionId = pushProvider.subscriptionId() ?? subscriptionId
+        statusText = pushToken.isEmpty ? "\(optInStatus) Token is not available yet; reopen after FCM registration completes." : "\(optInStatus) Token loaded."
+    }
+
     private func registerPushToken() async {
         isWorking = true
         defer { isWorking = false }
@@ -1227,31 +1450,300 @@ struct PushTokenSheetView: View {
     }
 }
 
+struct VoiceEnrollmentSheetView: View {
+    @Environment(\.dismiss) var dismiss
+    @State var consentAccepted = false
+    @State var session: PorizoEnrollmentSession?
+    @State var uploadUrlsByChunkId: [String: PorizoUploadURL] = [:]
+    @State var uploadedChunkIds: Set<String> = []
+    @State var currentPromptIndex = 0
+    @State var currentRecording: AndroidNativeRecording?
+    @State var voiceProfile: PorizoVoiceProfileStatus?
+    @State var completionProfile: PorizoVoiceProfile?
+    @State var statusText = "Accept voice consent, start enrollment, then record each prompt."
+    @State var isRecording = false
+    @State var isWorking = false
+    private let apiClient = AndroidAPIClient()
+    private let recorder = AndroidRecorderProvider()
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Consent") {
+                    Toggle("I consent to record my voice for Porizo My Voice songs", isOn: $consentAccepted)
+                    Text("Consent is sent to the backend with the same voice_suno_persona_v1 scope as iOS.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+
+                Section("Enrollment session") {
+                    Button {
+                        Task { await startEnrollment() }
+                    } label: {
+                        Label(isWorking ? "Starting..." : "Start voice enrollment", systemImage: "mic.badge.plus")
+                    }
+                    .disabled(isWorking || !consentAccepted)
+
+                    Button {
+                        Task { await loadVoiceProfile() }
+                    } label: {
+                        Label("Check voice profile", systemImage: "person.wave.2")
+                    }
+                    .disabled(isWorking)
+
+                    if let session {
+                        Text("Session: \(session.sessionId)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text("Expires: \(session.sessionExpiresAt)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    if let voiceProfile {
+                        Text("Profile: \(voiceProfile.status ?? "unknown") • ready: \(voiceProfile.myVoiceReady == true ? "yes" : "no")")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Section("Prompt recording") {
+                    if let prompt = currentPrompt {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Phrase \(currentPromptIndex + 1) of \(prompts.count)")
+                                .font(.headline)
+                            Text(prompt.text)
+                            if prompt.type == "sung" {
+                                Text(prompt.pitchHint ?? "Sing slowly and hold each note.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Text("Minimum: \(Int(currentPromptMinimumDuration)) seconds")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        Button {
+                            requestMicrophonePermission()
+                        } label: {
+                            Label("Request microphone permission", systemImage: "checkmark.shield")
+                        }
+                        .disabled(isWorking || isRecording)
+
+                        Button {
+                            startRecording()
+                        } label: {
+                            Label("Start recording", systemImage: "record.circle")
+                        }
+                        .disabled(isWorking || isRecording)
+
+                        Button {
+                            stopRecording()
+                        } label: {
+                            Label("Stop recording", systemImage: "stop.circle")
+                        }
+                        .disabled(!isRecording)
+
+                        if let currentRecording {
+                            Text("Recorded \(String(format: "%.1f", currentRecording.durationSec))s, \(currentRecording.bytes) bytes")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        Button {
+                            Task { await uploadCurrentRecording() }
+                        } label: {
+                            Label("Upload current prompt", systemImage: "icloud.and.arrow.up")
+                        }
+                        .disabled(isWorking || currentRecording == nil)
+                    } else {
+                        Text(session == nil ? "Start a session to load prompts." : "All prompts are uploaded.")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Section("Complete") {
+                    HStack {
+                        Text("Uploaded")
+                        Spacer()
+                        Text("\(uploadedChunkIds.count) / \(prompts.count)")
+                    }
+
+                    Button {
+                        Task { await completeEnrollment() }
+                    } label: {
+                        Label("Complete enrollment", systemImage: "checkmark.seal")
+                    }
+                    .disabled(isWorking || session == nil || prompts.isEmpty || uploadedChunkIds.count < prompts.count)
+
+                    if let completionProfile {
+                        Text("Completion: \(completionProfile.status) • score \(completionProfile.qualityScore.map { String(format: "%.0f", $0) } ?? "pending")")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Text(statusText)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .navigationTitle("Voice")
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
+
+    private var prompts: [PorizoEnrollmentPrompt] {
+        session?.prompts ?? []
+    }
+
+    private var currentPrompt: PorizoEnrollmentPrompt? {
+        guard currentPromptIndex < prompts.count else { return nil }
+        return prompts[currentPromptIndex]
+    }
+
+    private var currentPromptMinimumDuration: Double {
+        guard let prompt = currentPrompt else { return 2 }
+        if prompt.type == "sung" {
+            return max(6, Double(prompt.durationHintSec ?? 8) - 0.5)
+        }
+        return 2
+    }
+
+    private func startEnrollment() async {
+        guard consentAccepted else {
+            statusText = "Consent is required before voice enrollment can start."
+            return
+        }
+        await runVoiceAction {
+            let response = try await apiClient.startEnrollment(consentAccepted: consentAccepted)
+            session = response
+            uploadUrlsByChunkId = Dictionary(uniqueKeysWithValues: (response.uploadUrls ?? []).map { ($0.chunkId, $0) })
+            uploadedChunkIds = []
+            currentPromptIndex = 0
+            currentRecording = nil
+            completionProfile = nil
+            statusText = "Enrollment started with \(response.prompts?.count ?? 0) prompts."
+        }
+    }
+
+    private func requestMicrophonePermission() {
+        statusText = recorder.requestMicrophonePermission()
+    }
+
+    private func startRecording() {
+        if !recorder.hasMicrophonePermission() {
+            statusText = recorder.requestMicrophonePermission()
+            return
+        }
+        let result = recorder.startRecording()
+        if result.hasPrefix("OK|") {
+            isRecording = true
+            currentRecording = nil
+            statusText = "Recording started."
+        } else {
+            statusText = result.replacingOccurrences(of: "ERROR|", with: "")
+        }
+    }
+
+    private func stopRecording() {
+        do {
+            let recording = try recorder.stopRecording()
+            isRecording = false
+            if recording.durationSec < currentPromptMinimumDuration {
+                _ = recorder.delete(recording: recording)
+                currentRecording = nil
+                statusText = "Recording was too short. Record the full prompt before uploading."
+            } else {
+                currentRecording = recording
+                statusText = "Recording captured. Upload it before moving to the next phrase."
+            }
+        } catch {
+            isRecording = false
+            statusText = String(describing: error)
+        }
+    }
+
+    private func uploadCurrentRecording() async {
+        guard let session, let prompt = currentPrompt, let recording = currentRecording else {
+            statusText = "No recording is ready to upload."
+            return
+        }
+        guard let uploadURL = uploadUrlsByChunkId[prompt.id] else {
+            statusText = "Upload URL for \(prompt.id) is missing. Restart enrollment to refresh presigned URLs."
+            return
+        }
+        await runVoiceAction {
+            let audioData = try recorder.data(for: recording)
+            let response = try await apiClient.uploadEnrollmentChunk(
+                sessionId: session.sessionId,
+                chunkId: prompt.id,
+                audioData: audioData,
+                uploadURL: uploadURL,
+                durationSec: recording.durationSec,
+                checksum: recording.checksum
+            )
+            if response.status == "accepted" {
+                uploadedChunkIds.insert(prompt.id)
+            }
+            if let nextUploadUrl = response.nextUploadUrl {
+                uploadUrlsByChunkId[nextUploadUrl.chunkId] = nextUploadUrl
+            }
+            _ = recorder.delete(recording: recording)
+            currentRecording = nil
+            if currentPromptIndex < prompts.count - 1 {
+                currentPromptIndex += 1
+                statusText = "Prompt uploaded. Continue with phrase \(currentPromptIndex + 1)."
+            } else {
+                statusText = "All prompts uploaded. Complete enrollment."
+            }
+        }
+    }
+
+    private func completeEnrollment() async {
+        guard let session else {
+            statusText = "Start enrollment first."
+            return
+        }
+        await runVoiceAction {
+            completionProfile = try await apiClient.completeEnrollment(sessionId: session.sessionId)
+            statusText = "Enrollment completion started. Check voice profile readiness next."
+        }
+    }
+
+    private func loadVoiceProfile() async {
+        await runVoiceAction {
+            voiceProfile = try await apiClient.getVoiceProfile()
+            statusText = "Voice profile loaded."
+        }
+    }
+
+    private func runVoiceAction(_ action: @escaping () async throws -> Void) async {
+        isWorking = true
+        defer { isWorking = false }
+        do {
+            try await action()
+        } catch {
+            statusText = String(describing: error)
+        }
+    }
+}
+
 struct RecordingEscapeHatchView: View {
     var body: some View {
-        #if os(Android)
-        ComposeView {
-            RecordingShellComposer()
-        }
-        .frame(height: 56)
-        #else
         HStack {
             Image(systemName: "mic.circle")
-            VStack(alignment: .leading) {
-                Text("Recording shell placeholder")
-                Text("Android recording and STT adapter remains provider-backed work.")
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Voice enrollment adapter")
+                Text("Android WAV recording is wired through the Settings voice sheet.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
         }
-        #endif
     }
 }
-
-#if SKIP
-struct RecordingShellComposer: ContentComposer {
-    @Composable func Compose(context: ComposeContext) {
-        androidx.compose.material3.Text("Recording/STT adapter pending provider wiring", modifier: context.modifier)
-    }
-}
-#endif

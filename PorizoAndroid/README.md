@@ -83,6 +83,12 @@ To inspect the generated debug APK:
   PorizoAndroid/.build/Android/app/outputs/apk/debug/app-debug.apk
 ```
 
+Current generated artifact paths:
+
+- Debug APK: `PorizoAndroid/.build/Android/app/outputs/apk/debug/app-debug.apk`
+- Release APK: `PorizoAndroid/.build/Android/app/outputs/apk/release/app-release.apk`
+- Release AAB: `PorizoAndroid/.build/Android/app/outputs/bundle/release/app-release.aab`
+
 To install on a physical phone once USB debugging is enabled and the device is
 authorized:
 
@@ -117,6 +123,21 @@ configured for development, but the artifact is not Play Store uploadable.
   then consumed by SwiftUI to open share, receiver-handoff, or poem routes.
 - Phone auth, device registration, share/claim, create, render status, billing,
   and push-token registration are implemented through `AndroidAPIClient`.
+- OneSignal Android is the first push-provider path, matching the iOS
+  marketing/engagement SDK. The app initializes the SDK, maps the signed-in
+  Porizo user as the OneSignal external ID, requests notification permission,
+  opts in the push subscription, reads the OneSignal token, and sends it through
+  `/device/register`.
+- Play Billing 9.1 is wired for subscription product query, purchase launch,
+  active-purchase token lookup, and backend `/billing/receipt/google` sync.
+  Real subscription purchase testing still requires Play Console products and a
+  store-signed/internal-testing install. Android gift-bundle purchases still need
+  a backend Google consumable receipt endpoint before they can grant gift wallet
+  credit.
+- Voice enrollment is wired through an Android native recorder that writes WAV
+  prompt chunks, uploads them to backend presigned URLs, calls
+  `/voice/enrollment/chunk_uploaded`, completes through
+  `/voice/enrollment/complete`, and checks `/voice/profile`.
 - Auth session JSON and device JWTs are stored through `AndroidSecretStore`,
   which bridges to a Kotlin Android Keystore AES/GCM helper under
   `Sources/PorizoSkipSpike/Skip/`.
@@ -124,5 +145,7 @@ configured for development, but the artifact is not Play Store uploadable.
   store because they are recoverable non-secret local state.
 - Preview/full renders use bounded automatic polling with pending-job recovery
   and explicit terminal/still-running surfaces.
-- Recording/STT and real push-provider SDK integration remain native adapter work;
-  the current app keeps those boundaries explicit instead of copying iOS-only APIs.
+- Remaining release blockers are external configuration and validation: OneSignal
+  Android/FCM dashboard setup, Play Console products, a real release keystore,
+  `assetlinks.json` for the Play-signing fingerprint, and physical-phone smoke
+  tests once ADB sees an authorized device.

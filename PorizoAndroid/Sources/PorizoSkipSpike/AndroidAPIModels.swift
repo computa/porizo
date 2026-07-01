@@ -369,3 +369,207 @@ struct PorizoGoogleReceiptResponse: Codable, Sendable {
     let subscription: PorizoGoogleSubscriptionSummary?
     let entitlements: PorizoBillingEntitlements?
 }
+
+struct PorizoPlansResponse: Codable, Sendable {
+    let plans: [PorizoSubscriptionPlan]
+}
+
+struct PorizoPlanProductIds: Codable, Sendable {
+    let monthly: String?
+    let annual: String?
+}
+
+struct PorizoSubscriptionPlan: Codable, Sendable, Identifiable {
+    let id: String
+    let name: String
+    let tier: String
+    let songsPerMonth: Int
+    let poemsPerMonth: Int
+    let priceMonthly: Int?
+    let priceAnnual: Int?
+    let description: String?
+    let features: [String]
+    let isActive: Bool
+    let sortOrder: Int
+    let googleProductIds: PorizoPlanProductIds?
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, tier, description, features
+        case songsPerMonth = "songs_per_month"
+        case poemsPerMonth = "poems_per_month"
+        case priceMonthly = "price_monthly_cents"
+        case priceAnnual = "price_annual_cents"
+        case isActive = "is_active"
+        case sortOrder = "sort_order"
+        case googleProductIds = "google_product_ids"
+    }
+
+    var googleSubscriptionProductIds: [String] {
+        [googleProductIds?.monthly, googleProductIds?.annual].compactMap { value in
+            guard let value, !value.isEmpty else { return nil }
+            return value
+        }
+    }
+}
+
+struct PorizoSubscriptionStatusResponse: Codable, Sendable {
+    let hasActiveSubscription: Bool?
+    let hasSubscription: Bool?
+    let subscription: PorizoSubscriptionStatusSummary?
+    let entitlements: PorizoBillingEntitlements?
+
+    enum CodingKeys: String, CodingKey {
+        case hasActiveSubscription
+        case hasSubscription = "has_subscription"
+        case subscription
+        case entitlements
+    }
+}
+
+struct PorizoSubscriptionStatusSummary: Codable, Sendable {
+    let id: String?
+    let tier: String?
+    let status: String?
+    let productId: String?
+    let platform: String?
+    let expiresAt: String?
+    let autoRenewEnabled: Bool?
+    let isInGracePeriod: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case id, tier, status, platform
+        case productId = "product_id"
+        case expiresAt = "expires_at"
+        case autoRenewEnabled = "auto_renew_enabled"
+        case isInGracePeriod = "is_in_grace_period"
+    }
+}
+
+struct PorizoEnrollmentSession: Codable, Sendable {
+    let sessionId: String
+    let sessionExpiresAt: String
+    let prompts: [PorizoEnrollmentPrompt]?
+    let promptSetId: String?
+    let uploadUrls: [PorizoUploadURL]?
+    let recordingSettings: PorizoRecordingSettings?
+
+    enum CodingKeys: String, CodingKey {
+        case sessionId = "session_id"
+        case sessionExpiresAt = "session_expires_at"
+        case prompts
+        case promptSetId = "prompt_set_id"
+        case uploadUrls = "upload_urls"
+        case recordingSettings = "recording_settings"
+    }
+}
+
+struct PorizoEnrollmentPrompt: Codable, Sendable, Identifiable {
+    let id: String
+    let text: String
+    let type: String
+    let durationHintSec: Int?
+    let pitchHint: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, text, type
+        case durationHintSec = "duration_hint_sec"
+        case pitchHint = "pitch_hint"
+    }
+}
+
+struct PorizoUploadURL: Codable, Sendable {
+    let chunkId: String
+    let url: String
+    let method: String?
+    let headers: [String: String]?
+    let expiresAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case chunkId = "chunk_id"
+        case url, method, headers
+        case expiresAt = "expires_at"
+    }
+}
+
+struct PorizoRecordingSettings: Codable, Sendable {
+    let sampleRate: Int
+    let channels: Int
+    let format: String
+    let maxChunkDurationSec: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case sampleRate = "sample_rate"
+        case channels
+        case format
+        case maxChunkDurationSec = "max_chunk_duration_sec"
+    }
+}
+
+struct PorizoChunkUploadResponse: Codable, Sendable {
+    let status: String
+    let qcJobId: String?
+    let nextUploadUrl: PorizoUploadURL?
+    let chunkId: String?
+    let durationSec: Double?
+
+    enum CodingKeys: String, CodingKey {
+        case status
+        case qcJobId = "qc_job_id"
+        case nextUploadUrl = "next_upload_url"
+        case chunkId = "chunk_id"
+        case durationSec = "duration_sec"
+    }
+}
+
+struct PorizoVoiceProfile: Codable, Sendable {
+    let voiceProfileId: String
+    let qualityScore: Double?
+    let status: String
+    let jobId: String?
+    let estimatedCompletionSec: Int?
+    let outcome: String?
+    let quality: PorizoEnrollmentQuality?
+
+    enum CodingKeys: String, CodingKey {
+        case voiceProfileId = "voice_profile_id"
+        case qualityScore = "quality_score"
+        case status
+        case jobId = "job_id"
+        case estimatedCompletionSec = "estimated_completion_sec"
+        case outcome
+        case quality
+    }
+}
+
+struct PorizoEnrollmentQuality: Codable, Sendable {
+    let tier: String?
+    let score: Double?
+    let label: String?
+    let disclosure: String?
+    let canImprove: Bool?
+    let improvementTips: [String]?
+
+    enum CodingKeys: String, CodingKey {
+        case tier, score, label, disclosure
+        case canImprove = "can_improve"
+        case improvementTips = "improvement_tips"
+    }
+}
+
+struct PorizoVoiceProfileStatus: Codable, Sendable {
+    let profileId: String?
+    let status: String?
+    let qualityScore: Double?
+    let qualityTier: String?
+    let createdAt: String?
+    let myVoiceReady: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case profileId = "profile_id"
+        case status
+        case qualityScore = "quality_score"
+        case qualityTier = "quality_tier"
+        case createdAt = "created_at"
+        case myVoiceReady = "my_voice_ready"
+    }
+}
