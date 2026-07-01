@@ -421,14 +421,10 @@ struct RenderPreviewResponse: Codable, Sendable {
 /// Response from POST /tracks/:id/versions/:version/render_full
 struct RenderFullResponse: Codable, Sendable {
     let jobId: String?
-    let billingHoldId: String?
-    let creditsReserved: Int?
     let estimatedCompletionSec: Int?
 
     enum CodingKeys: String, CodingKey {
         case jobId = "job_id"
-        case billingHoldId = "billing_hold_id"
-        case creditsReserved = "credits_reserved"
         case estimatedCompletionSec = "estimated_completion_sec"
     }
 }

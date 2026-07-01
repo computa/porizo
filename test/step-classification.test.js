@@ -5,7 +5,7 @@ const {
   isProviderStep,
   isLocalStep,
   PROVIDER_STEPS,
-} = require("../src/utils/step-classification");
+} = require("../src/workflows/step-classification");
 
 describe("step-classification", () => {
   // ── Step classification ──

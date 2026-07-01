@@ -7,6 +7,10 @@
 // suite and any non-PG runtime) keeps the exponential polling fallback.
 
 const { EventEmitter } = require("events");
+const {
+  createArtworkBarrierRepository,
+  SQL_CHECK_ARTWORK_READY,
+} = require("../database/artwork-barrier-repository");
 
 const TIMEOUT_DEFAULT_MS = 60_000;
 const TIMEOUT_MIN_MS = 5_000;
@@ -36,10 +40,6 @@ const ARTWORK_BARRIER_POLL_MS = clampInt(
   POLL_MIN_MS,
   POLL_MAX_MS,
 );
-
-const SQL_CHECK_ARTWORK_READY = `
-  SELECT artwork_ready FROM track_versions WHERE id = ?
-`;
 
 // PG NOTIFY plumbing — one shared listener per process, fanning out to local
 // waiters via an EventEmitter. Avoids pool exhaustion under concurrent renders
@@ -112,9 +112,12 @@ async function waitForArtworkReady({
     throw new Error("waitForArtworkReady requires db and trackVersionId");
   }
 
+  const repository = createArtworkBarrierRepository(db);
+
   if (db.isPostgres) {
     const ok = await waitViaListen({
       db,
+      repository,
       trackVersionId,
       timeoutMs,
       logger,
@@ -125,6 +128,7 @@ async function waitForArtworkReady({
 
   return waitViaPolling({
     db,
+    repository,
     trackVersionId,
     timeoutMs,
     pollMs,
@@ -133,7 +137,7 @@ async function waitForArtworkReady({
   });
 }
 
-async function waitViaListen({ db, trackVersionId, timeoutMs, logger }) {
+async function waitViaListen({ db, repository, trackVersionId, timeoutMs, logger }) {
   await ensureListener(db, logger);
   if (!listenerClient) return null; // setup failed; caller will fall back
 
@@ -142,7 +146,7 @@ async function waitViaListen({ db, trackVersionId, timeoutMs, logger }) {
   // throw — we'd rather wait via LISTEN than fail the barrier on a transient
   // hiccup.
   try {
-    if (await checkArtworkReady(db, trackVersionId, logger)) return true;
+    if (await checkArtworkReady(repository, trackVersionId, logger)) return true;
   } catch {
     // proceed to LISTEN wait
   }
@@ -159,7 +163,7 @@ async function waitViaListen({ db, trackVersionId, timeoutMs, logger }) {
       // dropped (rare) but the row IS updated. Must be try/catch — a throw
       // here would leave the outer promise unresolved forever.
       try {
-        const ready = await checkArtworkReady(db, trackVersionId, logger);
+        const ready = await checkArtworkReady(repository, trackVersionId, logger);
         if (ready) {
           resolve(true);
           return;
@@ -181,7 +185,7 @@ async function waitViaListen({ db, trackVersionId, timeoutMs, logger }) {
 }
 
 async function waitViaPolling({
-  db,
+  repository,
   trackVersionId,
   timeoutMs,
   pollMs,
@@ -197,7 +201,7 @@ async function waitViaPolling({
   while (Date.now() < deadline) {
     let ready;
     try {
-      ready = await checkArtworkReady(db, trackVersionId, logger);
+      ready = await checkArtworkReady(repository, trackVersionId, logger);
     } catch (err) {
       logger.warn(
         `[ArtworkBarrier] Query failed for ${trackVersionId}: ${err.message}. ` +
@@ -225,10 +229,9 @@ async function waitViaPolling({
   return false;
 }
 
-async function checkArtworkReady(db, trackVersionId, logger) {
+async function checkArtworkReady(repository, trackVersionId, logger) {
   try {
-    const row = await db.prepare(SQL_CHECK_ARTWORK_READY).get(trackVersionId);
-    return !!(row && rowIsTrue(row.artwork_ready));
+    return await repository.isArtworkReady(trackVersionId);
   } catch (err) {
     if (logger) {
       logger.warn(`[ArtworkBarrier] check query failed: ${err.message}`);
@@ -251,20 +254,13 @@ async function notifyArtworkReady({ db, trackVersionId, logger = console }) {
   if (!db || !trackVersionId) return;
   if (!db.isPostgres) return;
   try {
-    await db
-      .prepare("SELECT pg_notify('artwork_ready', ?) AS notified")
-      .get(String(trackVersionId));
+    await createArtworkBarrierRepository(db).notifyArtworkReady(trackVersionId);
   } catch (err) {
     logger.warn(
       `[ArtworkBarrier] pg_notify failed for ${trackVersionId}: ${err.message}. ` +
         `Polling fallback will still catch the row update.`,
     );
   }
-}
-
-function rowIsTrue(v) {
-  // PG returns boolean true; SQLite returns integer 1
-  return v === true || v === 1 || v === "1" || v === "t" || v === "true";
 }
 
 function sleep(ms) {

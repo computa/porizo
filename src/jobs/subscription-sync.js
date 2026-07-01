@@ -8,6 +8,9 @@
  */
 
 const DEFAULT_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
+const {
+  createSubscriptionSyncRepository,
+} = require("../database/subscription-sync-repository");
 
 /**
  * Sync subscriptions that may need renewal verification
@@ -22,6 +25,7 @@ async function syncPendingRenewals({
   subscriptionManager,
   appleValidator,
   googleValidator,
+  repository = null,
 }) {
   const errors = [];
   let processed = 0;
@@ -30,6 +34,8 @@ async function syncPendingRenewals({
 
   const now = new Date().toISOString();
   const BATCH_SIZE = 100;
+  const subscriptionSyncRepository =
+    repository || createSubscriptionSyncRepository(db);
 
   try {
     // H6: Cursor-based pagination to avoid OFFSET drift.
@@ -41,22 +47,12 @@ async function syncPendingRenewals({
     console.log(`[SubscriptionSync] Processing subscriptions (batch size: ${BATCH_SIZE})`);
 
     do {
-      const stmt = await db.prepare(`
-        SELECT s.*, e.subscription_renews_at
-        FROM subscriptions s
-        LEFT JOIN entitlements e ON e.user_id = s.user_id
-        WHERE s.status IN ('active', 'grace_period')
-          AND s.auto_renew_enabled = 1
-          AND s.id > ?
-          AND (
-            (s.expires_at IS NOT NULL AND s.expires_at < ?)
-            OR (e.subscription_renews_at IS NOT NULL AND e.subscription_renews_at < ?)
-          )
-        ORDER BY s.id ASC
-        LIMIT ?
-      `);
-
-      const pendingSubscriptions = await stmt.all(cursor, now, now, BATCH_SIZE);
+      const pendingSubscriptions =
+        await subscriptionSyncRepository.listPendingRenewalSubscriptions({
+          cursor,
+          now,
+          limit: BATCH_SIZE,
+        });
       batchCount = pendingSubscriptions.length;
 
       for (const subscription of pendingSubscriptions) {
@@ -180,13 +176,10 @@ async function syncPendingRenewals({
     } while (batchCount === BATCH_SIZE);
 
     // Also check for grace period expirations
-    const gracePeriodStmt = await db.prepare(`
-      SELECT id FROM subscriptions
-      WHERE status = 'grace_period'
-        AND grace_period_expires_at IS NOT NULL
-        AND grace_period_expires_at < ?
-    `);
-    const gracePeriodExpired = await gracePeriodStmt.all(now);
+    const gracePeriodExpired =
+      await subscriptionSyncRepository.listExpiredGracePeriodSubscriptions({
+        now,
+      });
 
     for (const sub of gracePeriodExpired) {
       try {

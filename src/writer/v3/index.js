@@ -58,57 +58,49 @@ const {
   ORIENTATION_REGEX,
   COMPLICATING_REGEX,
   RESOLUTION_REGEX,
-  generateTargetedFallbackQuestion,
-  validateQuestionRelevance,
   generateStorySpecificSuggestions,
 } = require("./quality");
 const { condenseForReasoning } = require("./condense");
 const { generateElementGuidance } = require("./guidance");
 const { normalizeStyle } = require("../../providers/style-registry");
 const {
-  detectRepeatedQuestionTheme,
-  shouldForceForwardProgressConfirm,
-  buildTargetDecisionMeta,
-  selectRuntimeQuestionTarget,
-  selectAlternativeQuestionTarget,
   summarizeTargetAlternatives,
   buildPlanningContext,
   planTurn,
 } = require("./kernel/planner");
-const { createTurnDecision } = require("./kernel/types");
 const { ingestTurn } = require("./kernel/ingestor");
 const { composeTurn } = require("./kernel/composer");
 const { buildBudgetTelemetry, buildPlannerTelemetry } = require("./kernel/telemetry");
 const { ensureNarrativeAfterStateUpdate, applyTurnStateUpdate } = require("./kernel/state-update");
 const {
-  deriveStoryBlockProfile,
-  evaluateNarrativeBlockCoverage,
-  repairNarrativeFromBlockProfile,
-  repairSongMapWithProfile,
+  MAX_REPEAT_SEMANTIC_ASKS,
+  getCanonicalNarrative,
+  buildSemanticBlockSignature,
+  ensureSemanticStoryIntegrity,
+  ensureCompletedStoryPackage,
+} = require("./semantic-story-package");
+const {
+  inferAskedQuestionElement,
+  chooseRuntimeFallbackQuestion,
+} = require("./runtime-questions");
+const { buildReadyConfirmation } = require("./ready-confirmation");
+const {
+  deriveLlmReadySignal,
+  resolveTurnDecision,
+} = require("./turn-decision");
+const {
   extractRetainedDetails,
   computeDetailCoverage,
 } = require("../story-semantics");
-// NOTE: validateSongContract is lazy-required inside ensureCompletedStoryPackage
-// to break the circular dependency: songwriter.js → ./v3 → ../songwriter
 const { generateText, isAvailable: isLLMAvailable } = require("../../services/llm-provider");
 const { StoryVersionConflictError } = require("../../database/story-repository");
 
 // Engine version identifier
 const ENGINE_VERSION = "v3";
-const MAX_REPEAT_SEMANTIC_ASKS = 1;
 const SUPPORTED_RUNTIME_ENGINE_VERSIONS = new Set(["v2", "v3"]);
 const REVISION_SOURCES = new Set(["review_edit", "confirm_notes", "reopen_edit"]);
 const REVISION_OPERATION_TYPES = new Set(["append", "replace", "remove", "resolve_conflict", "final_notes"]);
 const REVISION_TARGET_TYPES = new Set(["narrative", "fact", "beat", "section", "conflict"]);
-const LABOV_QUESTION_ELEMENTS = ["orientation", "complicating_action", "evaluation", "resolution"];
-const QUESTION_DETAIL_STOP_WORDS = new Set([
-  "about", "after", "again", "always", "because", "before", "being", "between",
-  "could", "every", "first", "from", "have", "into", "just", "made", "make",
-  "more", "really", "should", "something", "still", "that", "their", "them",
-  "there", "they", "this", "what", "when", "where", "which", "while", "with",
-  "would", "your", "you", "were", "then", "than", "like", "felt", "feel",
-]);
-const GENERIC_LLM_QUESTION_REGEX = /\b(tell me more|can you tell me more|share more|say more|what else|anything else|more about|what's something|could you tell me a bit more)\b/i;
 const TURN_LOG_PREVIEW_LIMIT = 220;
 
 // Repository instance (set by initialize)
@@ -253,16 +245,6 @@ function initialize(repo) {
   storyRepo = repo;
 }
 
-function tokenizeQuestionKeywords(text) {
-  if (typeof text !== "string") return [];
-  return text
-    .toLowerCase()
-    .replace(/[^a-z0-9'\s-]/g, " ")
-    .split(/\s+/)
-    .map((token) => token.trim())
-    .filter((token) => token.length >= 4 && !QUESTION_DETAIL_STOP_WORDS.has(token));
-}
-
 function previewTurnText(text, maxLength = TURN_LOG_PREVIEW_LIMIT) {
   if (typeof text !== "string") return null;
   const normalized = text.replace(/\s+/g, " ").trim();
@@ -284,71 +266,6 @@ function logStoryTurnEvent(label, fields = {}) {
   console.log(`[V3 Turn] ${label}${payload ? ` ${payload}` : ""}`);
 }
 
-function inferAskedQuestionElement(question) {
-  for (const element of LABOV_QUESTION_ELEMENTS) {
-    if (validateQuestionRelevance(question, element)) return element;
-  }
-  return null;
-}
-
-function getQuestionDetailSignal(question, state, userMessage) {
-  const questionKeywords = new Set(tokenizeQuestionKeywords(question));
-  if (questionKeywords.size === 0) {
-    return { hasRecipientMatch: false, hasStoryDetailMatch: false };
-  }
-
-  const recipientKeywords = new Set(
-    String(state?.recipient_name || state?.atoms?.who || "")
-      .split(/\s+/)
-      .map((token) => token.toLowerCase().replace(/[^a-z0-9']/g, ""))
-      .filter((token) => token.length >= 3)
-  );
-
-  const detailKeywords = new Set();
-  for (const token of tokenizeQuestionKeywords(userMessage || "")) detailKeywords.add(token);
-  const activeFacts = Array.isArray(state?.facts)
-    ? state.facts.filter((fact) => (fact?.status || "active") === "active").slice(-6)
-    : [];
-  for (const fact of activeFacts) {
-    for (const token of tokenizeQuestionKeywords(fact?.text || "")) {
-      detailKeywords.add(token);
-    }
-  }
-  for (const detail of Array.isArray(state?.story_state?.sensoryDetails) ? state.story_state.sensoryDetails : []) {
-    for (const token of tokenizeQuestionKeywords(detail)) {
-      detailKeywords.add(token);
-    }
-  }
-
-  let hasRecipientMatch = false;
-  let hasStoryDetailMatch = false;
-  for (const token of questionKeywords) {
-    if (recipientKeywords.has(token)) hasRecipientMatch = true;
-    if (detailKeywords.has(token)) hasStoryDetailMatch = true;
-  }
-
-  return { hasRecipientMatch, hasStoryDetailMatch };
-}
-
-function isSubstantiveQuestion(question) {
-  const words = String(question || "").trim().split(/\s+/).filter(Boolean);
-  return words.length >= 6 || String(question || "").trim().length >= 32;
-}
-
-function shouldSoftPassQuestion(question, state, userMessage) {
-  const detailSignal = getQuestionDetailSignal(question, state, userMessage);
-  return isSubstantiveQuestion(question)
-    && !GENERIC_LLM_QUESTION_REGEX.test(question)
-    && (detailSignal.hasStoryDetailMatch || detailSignal.hasRecipientMatch);
-}
-
-function chooseRuntimeFallbackQuestion(targetElement, state, userMessage, gapQuestion) {
-  const recipientFirst = (state?.recipient_name || "them").split(/\s/)[0];
-  return generateTargetedFallbackQuestion(targetElement, state, userMessage)
-    || gapQuestion?.prompt
-    || `What's something about ${recipientFirst} that always stays with you?`;
-}
-
 function getResponsePromptText(response) {
   return response?.question || response?.confirmation || null;
 }
@@ -368,17 +285,6 @@ function normalizeRuntimeEngineVersion(value, fallback = ENGINE_VERSION) {
     return ENGINE_VERSION;
   }
   return fallback;
-}
-
-function getCanonicalNarrative(state) {
-  if (!state || typeof state !== "object") return "";
-  if (typeof state.narrative_current === "string" && state.narrative_current.trim()) {
-    return state.narrative_current;
-  }
-  if (typeof state.narrative === "string") {
-    return state.narrative;
-  }
-  return "";
 }
 
 function isRichStoryTurn(text) {
@@ -404,20 +310,6 @@ function getReasoningCondenseLimit(text, { initial = false } = {}) {
     return 1700;
   }
   return initial ? 3200 : 2400;
-}
-
-function buildSemanticBlockSignature(semanticStory = {}) {
-  const missing = Array.isArray(semanticStory?.missing_narrative_blocks)
-    ? [...semanticStory.missing_narrative_blocks].sort()
-    : [];
-  const weak = Array.isArray(semanticStory?.weak_contract_sections)
-    ? [...semanticStory.weak_contract_sections].sort()
-    : [];
-  return JSON.stringify({
-    missing,
-    weak,
-    duplicated: Boolean(semanticStory?.duplicated_thesis),
-  });
 }
 
 function countConsecutiveSemanticAsks(history, signature) {
@@ -459,52 +351,6 @@ async function persistSemanticStateIfChanged(sessionId, session, previousState, 
     status: nextState.status || session.status || "active",
     expectedVersion: session.version,
   });
-}
-
-function deriveLlmReadySignal(response, state) {
-  const action = response?.action;
-  if (action === "STOP") return true;
-
-  const readiness = state?.last_reasoning?.story_readiness;
-  const userState = state?.last_reasoning?.user_state;
-  const strongCount = Array.isArray(readiness?.strong_elements) ? readiness.strong_elements.length : 0;
-  const weakCount = Array.isArray(readiness?.weak_elements) ? readiness.weak_elements.length : 0;
-  const primitives = state?.primitives || {};
-  const atoms = state?.atoms || {};
-  const hasPayoff = [
-    primitives.resolution,
-    primitives.theme,
-    atoms.after,
-  ].some(value => typeof value === "string" && value.trim());
-  const hasTurn = [
-    primitives.turning_point,
-    atoms.turn,
-  ].some(value => typeof value === "string" && value.trim());
-
-  if (action === "CONFIRM") {
-    return hasPayoff && (hasTurn || strongCount >= 3);
-  }
-
-  if (readiness?.has_emotional_depth === true && hasPayoff && strongCount >= 2 && weakCount <= 2) {
-    return true;
-  }
-
-  if (userState?.seems_done === true && readiness?.has_emotional_depth === true && hasPayoff && strongCount >= 1) {
-    return true;
-  }
-
-  return false;
-}
-
-function buildReadyConfirmation(state, gapAnalysis) {
-  const recipient = state?.recipient_name || "them";
-  const narrative = getCanonicalNarrative(state);
-  if (narrative) {
-    return `I’ve integrated your story into one coherent narrative for ${recipient}. It feels complete and ready. Should I lock this in for lyrics?`;
-  }
-
-  const covered = (gapAnalysis?.slots || []).filter((slot) => slot.status === "covered").length;
-  return `I have enough detail to move forward for ${recipient} (${covered} core story elements covered). Should I lock this in for lyrics?`;
 }
 
 function buildSemanticClarificationPrompt(state) {
@@ -1045,265 +891,6 @@ function buildDraftMetadataBundle(state, sessionId, engineVersion, { beforeScore
   };
 }
 
-function applySemanticNarrativeRepair(state, narrative, missingBlocks = []) {
-  const nextNarrative = typeof narrative === "string" ? narrative.trim() : "";
-  if (!nextNarrative || nextNarrative === getCanonicalNarrative(state)) {
-    return state;
-  }
-
-  const now = new Date().toISOString();
-  const nextVersion = Math.max(Number(state?.narrative_version || 0), 0) + 1;
-  const revisionEntry = {
-    version: nextVersion,
-    turn: state?.turn_count || 0,
-    narrative: nextNarrative,
-    timestamp: now,
-    integration: {
-      added_facts: [],
-      updated_facts: [],
-      superseded_facts: [],
-      semantic_repair: true,
-      repaired_blocks: [...missingBlocks],
-    },
-  };
-  const integrationDelta = {
-    turn: state?.turn_count || 0,
-    timestamp: now,
-    added_facts: [],
-    updated_facts: [],
-    superseded_facts: [],
-    conflicts_detected: [],
-    conflicts_resolved: [],
-    narrative_rewritten: true,
-    semantic_repair: true,
-    repaired_blocks: [...missingBlocks],
-  };
-
-  return {
-    ...state,
-    narrative: nextNarrative,
-    narrative_current: nextNarrative,
-    narrative_version: nextVersion,
-    narrative_revisions: [...(Array.isArray(state?.narrative_revisions) ? state.narrative_revisions : []), revisionEntry].slice(-40),
-    integration_history: [...(Array.isArray(state?.integration_history) ? state.integration_history : []), integrationDelta].slice(-40),
-    last_integration_delta: integrationDelta,
-    updated_at: now,
-  };
-}
-
-function ensureSemanticStoryIntegrity(state) {
-  if (!state || typeof state !== "object") return state;
-
-  const blockProfile = deriveStoryBlockProfile(state);
-  let nextState = state;
-  let repairedNarrative = false;
-  let repairedSongMap = false;
-  let narrativeCoverage = evaluateNarrativeBlockCoverage(getCanonicalNarrative(nextState), blockProfile);
-
-  if ((blockProfile.enforcedNarrativeBlocks || []).length > 0 && narrativeCoverage.missingBlocks.length > 0) {
-    const repaired = repairNarrativeFromBlockProfile(getCanonicalNarrative(nextState), blockProfile);
-    if (repaired.repaired && repaired.narrative) {
-      nextState = applySemanticNarrativeRepair(nextState, repaired.narrative, repaired.addedBlocks);
-      repairedNarrative = true;
-      narrativeCoverage = repaired.coverage;
-    }
-  }
-
-  const songMapRepair = repairSongMapWithProfile(nextState.song_map, nextState, { blockProfile });
-  if (songMapRepair.repaired) {
-    nextState = {
-      ...nextState,
-      song_map: songMapRepair.song_map,
-      updated_at: new Date().toISOString(),
-    };
-    repairedSongMap = true;
-  }
-
-  const baseSemanticValidity = {
-    rich_story: blockProfile.richStory,
-    required_blocks: blockProfile.requiredBlocks,
-    enforced_narrative_blocks: blockProfile.enforcedNarrativeBlocks || [],
-    missing_narrative_blocks: narrativeCoverage.missingBlocks,
-    contract_valid: songMapRepair.report.valid,
-    weak_contract_sections: songMapRepair.report.weakSections,
-    duplicated_thesis: songMapRepair.report.duplicatedThesis,
-    repaired_narrative: repairedNarrative,
-    repaired_song_map: repairedSongMap,
-  };
-  const semanticSignature = buildSemanticBlockSignature(baseSemanticValidity);
-  const overrideActive = state?.semantic_override?.signature === semanticSignature
-    && Number(state?.semantic_override?.count || 0) >= MAX_REPEAT_SEMANTIC_ASKS;
-  const nextSemanticValidity = {
-    ...baseSemanticValidity,
-    can_confirm: overrideActive || (narrativeCoverage.missingBlocks.length === 0 && songMapRepair.report.valid),
-    exhaustion_override: overrideActive,
-  };
-  const previousSemanticValidity = nextState.semantic_story && typeof nextState.semantic_story === "object"
-    ? { ...nextState.semantic_story }
-    : null;
-  if (previousSemanticValidity && typeof previousSemanticValidity === "object") {
-    delete previousSemanticValidity.updated_at;
-  }
-  const semanticValidity = previousSemanticValidity && isDeepStrictEqual(previousSemanticValidity, nextSemanticValidity)
-    ? nextState.semantic_story
-    : {
-      ...nextSemanticValidity,
-      updated_at: new Date().toISOString(),
-    };
-
-  return {
-    ...nextState,
-    semantic_story: semanticValidity,
-  };
-}
-
-/**
- * Build or update the completed story package on state.
- *
- * The package captures:
- * - retained_details: normalized inventory of concrete details from all sources
- * - detail_coverage_map: per-detail status (preserved/paraphrased/missing) vs prose
- * - semantic_block_profile: story block presence (setup, conflict, turn, transformation, meaning)
- * - prose: the authoritative completed story narrative
- *
- * Built once when narrative is first ready, then updated incrementally on follow-up turns.
- *
- * DESIGN: Two-tier narrative repair
- *
- *   Per-turn (this function): Append-only repair.
- *     Fast, no LLM call, keeps per-turn latency < 200ms.
- *     Missing required details are appended as sentences.
- *
- *   At confirmation (confirmStoryV3): LLM-powered rewrite.
- *     Weaves missing details naturally into prose. 8s timeout.
- *     Only fires when requiredMissing/requiredTotal < 0.4.
- *     Fallback: append-only result preserved on failure.
- *
- *   This is deliberate: per-turn LLM rewrite would add ~$0.02/turn
- *   (estimate) and 5-8s latency per chat message.
- *
- * @param {Object} state - V3 story state
- * @param {Object} context - Story context with facts, conversation, initial_prompt
- * @returns {{ state: Object, repaired: boolean, coverage: Object }}
- */
-const COMPLETED_STORY_SCHEMA_VERSION = 2;
-
-function ensureCompletedStoryPackage(state, context) {
-  if (!state || typeof state !== "object") {
-    return { state, repaired: false, coverage: null };
-  }
-
-  const narrative = getCanonicalNarrative(state);
-  if (!narrative) {
-    return { state, repaired: false, coverage: null };
-  }
-
-  // If package already exists, narrative hasn't changed, and schema is current, reuse it
-  const existing = state.completed_story_package;
-  if (
-    existing &&
-    typeof existing === "object" &&
-    existing.prose === narrative &&
-    existing.schema_version === COMPLETED_STORY_SCHEMA_VERSION &&
-    Array.isArray(existing.retained_details) &&
-    existing.retained_details.length > 0
-  ) {
-    // Lazy backfill: add content-hash IDs to existing details that lack them
-    if (existing.retained_details.some(d => !d.id)) {
-      const { detailId, normalizeKey } = require("../story-semantics");
-      existing.retained_details.forEach(d => {
-        if (!d.id) d.id = detailId(d.category, normalizeKey(d.text));
-      });
-    }
-    return { state, repaired: false, coverage: existing.detail_coverage_map };
-  }
-
-  // Extract retained details from all source material
-  const retainedDetails = extractRetainedDetails(context || state);
-  if (!retainedDetails.length) {
-    return { state, repaired: false, coverage: null };
-  }
-
-  // Compute coverage of retained details against current narrative
-  let coverage = computeDetailCoverage(retainedDetails, narrative);
-  let repairedNarrative = narrative;
-  let repaired = false;
-
-  // If required details are missing, attempt additive repair (one pass only)
-  if (coverage.stats.requiredMissing > 0) {
-    const missingSentences = coverage.missingRequired
-      .map((entry) => entry.text)
-      .filter((text) => typeof text === "string" && text.trim().length > 0);
-
-    if (missingSentences.length > 0) {
-      // Additive: append missing detail sentences to the narrative
-      const suffix = missingSentences.join(" ");
-      repairedNarrative = `${narrative.trimEnd()} ${suffix}`;
-      coverage = computeDetailCoverage(retainedDetails, repairedNarrative);
-      repaired = true;
-    }
-  }
-
-  const blockProfile = deriveStoryBlockProfile(context || state);
-
-  // Warn when condensation may have caused detail loss
-  const detailBudgetWarning =
-    repairedNarrative.length > 3000 && coverage.stats.coverageRate < 0.8
-      ? `Story is ${repairedNarrative.length} characters with ${coverage.stats.missing} details below coverage threshold. Consider focusing on the most important moments.`
-      : null;
-
-  const completedStoryPackage = {
-    prose: repairedNarrative,
-    retained_details: retainedDetails,
-    detail_coverage_map: coverage,
-    semantic_block_profile: blockProfile,
-    detail_budget_warning: detailBudgetWarning,
-    schema_version: COMPLETED_STORY_SCHEMA_VERSION,
-    built_at: new Date().toISOString(),
-  };
-
-  let nextState = state;
-
-  // If narrative was repaired, apply through the standard repair path
-  if (repaired && repairedNarrative !== narrative) {
-    nextState = applySemanticNarrativeRepair(nextState, repairedNarrative, ["detail_coverage_repair"]);
-  }
-
-  // Re-derive song_map from repaired prose (don't use stale pre-repair blockProfile)
-  if (repaired && nextState.song_map) {
-    // Lazy require to break circular dependency: songwriter.js → ./v3 → ../songwriter
-    const { validateSongContract } = require("../songwriter");
-    const freshProfile = deriveStoryBlockProfile(nextState);
-    const reDerived = repairSongMapWithProfile(nextState.song_map, nextState, { blockProfile: freshProfile });
-
-    // Guard: only accept if re-derivation improves or maintains validity
-    const oldValid = validateSongContract?.(nextState)?.valid;
-    const newState = { ...nextState, song_map: reDerived.song_map };
-    const newValid = validateSongContract?.(newState)?.valid;
-
-    if (newValid || !oldValid) {
-      // Accept: either new is valid, or old wasn't valid either (can't get worse)
-      nextState = newState;
-    }
-    // else: keep original song_map (re-derivation would degrade)
-  }
-
-  nextState = {
-    ...nextState,
-    completed_story_package: completedStoryPackage,
-  };
-
-  console.log(
-    `[V3] Completed story package: ${coverage.stats.preserved}/${coverage.stats.total} preserved, ` +
-    `${coverage.stats.paraphrased} paraphrased, ${coverage.stats.requiredMissing} required missing` +
-    (repaired ? " (repaired)" : "") +
-    `${detailBudgetWarning ? ` warning=${detailBudgetWarning}` : ""}` +
-    `${coverage.missingRequired?.length ? ` missingPreview=${JSON.stringify(coverage.missingRequired.slice(0, 3))}` : ""}`,
-  );
-
-  return { state: nextState, repaired, coverage };
-}
-
 function getTurnProgressScore(state, gapAnalysis, action, elements) {
   if (!elements) elements = computeStoryElements(gapAnalysis);
   const requiredEls = elements.filter(el => el.is_required);
@@ -1316,295 +903,6 @@ function getTurnProgressScore(state, gapAnalysis, action, elements) {
     return Math.max(score, 90);
   }
   return score;
-}
-
-function resolveTurnDecision(response, state, options = {}) {
-  const ctx = buildPlanningContext({
-    state,
-    response,
-    inputMode: options.inputMode,
-    llmReadySignal: deriveLlmReadySignal(response, state),
-  });
-  const { gapAnalysis, gapQuestion, llmReadySignal, hardSafetyBlock, hardBlockConfirm } = ctx;
-  const userMessage = options.userMessage || null;
-  const kernelDecision = options.turnDecision || null;
-  const kernelTargetDecision = options.targetDecision || null;
-  const isKernelDecision = Boolean(kernelDecision?.source);
-  let adjustedResponse = { ...response };
-  let forcedGapQuestion = false;
-  let forcedConfirm = false;
-  let decisionSource = isKernelDecision ? kernelDecision.source : "llm";
-  let llmSuggestions = Array.isArray(response.suggestions) ? response.suggestions : [];
-  let targetElement = kernelDecision?.targetElement || null;
-  let repeatEscapeApplied = false;
-  let targetDecision = kernelTargetDecision || null;
-
-  const llmHasQuestion = typeof response.question === "string" && response.question.trim().length > 0;
-  // Compute semantic block signature for analytics tracking (attachGapTelemetry uses it)
-  ctx._semanticBlockSignature = buildSemanticBlockSignature(state?.semantic_story);
-  const turnCount = state?.turn_count ?? 0;
-  const stateNarrative = state?.narrative_current || state?.narrative || "";
-  const narrativeLen = Math.max(stateNarrative.length, (adjustedResponse.narrative || "").length);
-  const factCount = Array.isArray(state?.facts) ? state.facts.filter(f => (f?.status || "active") === "active").length : 0;
-
-  // --- STOP is always pass-through ---
-  if (adjustedResponse.action === "STOP") {
-    return buildDecisionResult({ adjustedResponse, ctx, decisionSource: "user_stop", llmSuggestions });
-  }
-
-  // --- Safety block: absolute override (profanity, impersonation) ---
-  if (hardSafetyBlock) {
-    const recipientFirst = (state?.recipient_name || "them").split(/\s/)[0];
-    adjustedResponse = {
-      action: "CLARIFY",
-      question: `I want to help create something beautiful for ${recipientFirst}. Could you share a bit more about what they mean to you?`,
-      narrative: adjustedResponse.narrative,
-    };
-    llmSuggestions = [];
-    forcedGapQuestion = true;
-    return buildDecisionResult({ adjustedResponse, ctx, decisionSource: "safety_block", llmSuggestions, forcedGapQuestion });
-  }
-
-  // --- Grounding block: no facts at all (hallucination guard) ---
-  // Force fallback question — LLM's question may reference hallucinated details
-  if (hardBlockConfirm) {
-    adjustedResponse = {
-      action: "CLARIFY",
-      question: "I want to make sure I capture your story right. Could you tell me more?",
-      narrative: adjustedResponse.narrative,
-    };
-    forcedGapQuestion = true;
-    return buildDecisionResult({ adjustedResponse, ctx, decisionSource: "grounding_block", llmSuggestions, forcedGapQuestion });
-  }
-
-  // --- LLM says ASK or CLARIFY: trust the LLM's question ---
-  if (adjustedResponse.action === "ASK" || adjustedResponse.action === "CLARIFY") {
-    targetElement = targetElement || selectRuntimeQuestionTarget(adjustedResponse, gapAnalysis, state?.story_state);
-    targetDecision = targetDecision || buildTargetDecisionMeta(gapAnalysis, state?.story_state, adjustedResponse, targetElement);
-    if (llmHasQuestion) {
-      const trimmedQuestion = adjustedResponse.question.trim();
-      const targetLedger = targetDecision?.winner || null;
-      const directTarget = targetDecision?.directTarget || null;
-      const directTargetLedger = directTarget
-        ? [targetDecision?.winner, ...(targetDecision?.alternatives || [])]
-          .find((candidate) => candidate?.element === directTarget) || null
-        : null;
-      const repeatedElementCount = targetLedger?.substantiveAnswerCount || 0;
-      const sufficientAnswerCount = targetLedger?.sufficientAnswerCount || 0;
-      const directTargetSufficientCount = directTargetLedger?.sufficientAnswerCount || 0;
-      const repeatedTheme = detectRepeatedQuestionTheme(trimmedQuestion, targetElement, state?.story_state);
-      const repeatedCurrentElement = Boolean(repeatedTheme)
-        && (!targetElement || repeatedTheme.priorElement === targetElement);
-      const shouldPromoteWinner = Boolean(
-        directTarget
-          && targetElement
-          && directTarget !== targetElement
-          && directTargetSufficientCount >= 2
-          && ((targetDecision?.winner?.missingSlotCount || 0) > 0 || (targetDecision?.winner?.weakSlotCount || 0) > 0)
-      );
-      const shouldForceForwardProgress =
-        repeatedCurrentElement
-        || repeatedElementCount >= 2
-        || sufficientAnswerCount >= 2
-        || shouldPromoteWinner;
-
-      if (shouldForceForwardProgress) {
-        if (shouldForceForwardProgressConfirm(ctx, state, Math.max(repeatedElementCount, sufficientAnswerCount, directTargetSufficientCount))) {
-          adjustedResponse = {
-            ...adjustedResponse,
-            action: "CONFIRM",
-            confirmation: adjustedResponse.confirmation || buildReadyConfirmation(state, gapAnalysis),
-            question: undefined,
-          };
-          llmSuggestions = [];
-          forcedConfirm = true;
-          decisionSource = isKernelDecision ? "kernel_forward_progress_confirm" : "forward_progress_confirm";
-          repeatEscapeApplied = true;
-          return buildDecisionResult({
-            adjustedResponse,
-            ctx,
-            decisionSource,
-            llmSuggestions,
-            forcedGapQuestion,
-            forcedConfirm,
-            targetElement,
-            targetDecision,
-            repeatEscapeApplied,
-          });
-        }
-
-        if (shouldPromoteWinner) {
-          adjustedResponse = {
-            ...adjustedResponse,
-            question: chooseRuntimeFallbackQuestion(targetElement, state, userMessage, gapQuestion),
-          };
-          llmSuggestions = [];
-          forcedGapQuestion = true;
-          decisionSource = isKernelDecision ? "kernel_forward_progress_retarget" : "forward_progress_retarget";
-          repeatEscapeApplied = true;
-          return buildDecisionResult({
-            adjustedResponse,
-            ctx,
-            decisionSource,
-            llmSuggestions,
-            forcedGapQuestion,
-            targetElement,
-            targetDecision,
-            repeatEscapeApplied,
-          });
-        }
-
-        const alternateTarget = selectAlternativeQuestionTarget(
-          gapAnalysis,
-          state?.story_state,
-          new Set(targetElement ? [targetElement] : [])
-        );
-
-        if (alternateTarget && alternateTarget !== targetElement) {
-          adjustedResponse = {
-            ...adjustedResponse,
-            question: chooseRuntimeFallbackQuestion(alternateTarget, state, userMessage, gapQuestion),
-          };
-          llmSuggestions = [];
-          forcedGapQuestion = true;
-          decisionSource = isKernelDecision ? "kernel_forward_progress_retarget" : "forward_progress_retarget";
-          targetElement = alternateTarget;
-          targetDecision = buildTargetDecisionMeta(gapAnalysis, state?.story_state, adjustedResponse, targetElement);
-          repeatEscapeApplied = true;
-          return buildDecisionResult({
-            adjustedResponse,
-            ctx,
-            decisionSource,
-            llmSuggestions,
-            forcedGapQuestion,
-            targetElement,
-            targetDecision,
-            repeatEscapeApplied,
-          });
-        }
-      }
-
-      const isRelevant = targetElement
-        ? validateQuestionRelevance(trimmedQuestion, targetElement)
-        : true;
-      const strongerUnresolvedTargetExists = Boolean(
-        directTarget &&
-        targetDecision?.winner
-          && targetDecision.winner.element !== directTarget
-          && (targetDecision.winner.missingSlotCount > 0 || targetDecision.winner.weakSlotCount > 0)
-      );
-
-      if (!isRelevant && shouldSoftPassQuestion(trimmedQuestion, state, userMessage) && !strongerUnresolvedTargetExists) {
-        adjustedResponse = { ...adjustedResponse, question: trimmedQuestion };
-        decisionSource = isKernelDecision ? "kernel_soft_pass" : "llm_soft_pass";
-      } else if (!isRelevant) {
-        adjustedResponse = {
-          ...adjustedResponse,
-          question: chooseRuntimeFallbackQuestion(targetElement, state, userMessage, gapQuestion),
-        };
-        llmSuggestions = [];
-        forcedGapQuestion = true;
-        decisionSource = isKernelDecision ? "kernel_off_target_fallback" : "llm_off_target_fallback";
-      } else {
-        adjustedResponse = { ...adjustedResponse, question: trimmedQuestion };
-        decisionSource = isKernelDecision ? "kernel_validated" : "llm_validated";
-      }
-    } else {
-      // LLM decided to ask but didn't produce a question — fallback
-      const fallback = chooseRuntimeFallbackQuestion(targetElement, state, userMessage, gapQuestion);
-      adjustedResponse = { ...adjustedResponse, question: fallback };
-      llmSuggestions = [];
-      forcedGapQuestion = true;
-      decisionSource = isKernelDecision ? "kernel_missing_question_fallback" : "llm_missing_question_fallback";
-    }
-    return buildDecisionResult({ adjustedResponse, ctx, decisionSource, llmSuggestions, forcedGapQuestion, targetElement, targetDecision, repeatEscapeApplied });
-  }
-
-  // --- LLM says CONFIRM: apply lightweight quality gates ---
-  if (adjustedResponse.action === "CONFIRM") {
-    // Gate: too early (less than 2 turns), too thin narrative, too few facts
-    const tooEarly = turnCount < 2;
-    const tooThin = narrativeLen < 100;
-    const tooFewFacts = factCount < 2;
-
-    if (tooEarly || tooThin || tooFewFacts) {
-      // Downgrade to ASK — use LLM's own question if it has one, else fallback
-      if (llmHasQuestion) {
-        adjustedResponse = { ...adjustedResponse, action: "ASK", confirmation: undefined };
-        decisionSource = "min_quality_gate_with_llm_question";
-      } else {
-        const fallback = chooseRuntimeFallbackQuestion(null, state, userMessage, gapQuestion);
-        adjustedResponse = { ...adjustedResponse, action: "ASK", question: fallback, confirmation: undefined };
-        llmSuggestions = [];
-        forcedGapQuestion = true;
-        decisionSource = "min_quality_gate_fallback";
-      }
-    } else {
-      // LLM says CONFIRM and quality gates pass — trust it
-      adjustedResponse = {
-        ...adjustedResponse,
-        confirmation: adjustedResponse.confirmation || buildReadyConfirmation(state, gapAnalysis),
-        question: undefined,
-      };
-      forcedConfirm = adjustedResponse.action !== response.action;
-      decisionSource = isKernelDecision
-        ? (kernelDecision.source || "kernel_confirm")
-        : (llmReadySignal ? "llm_ready" : "llm_confirm");
-    }
-    return buildDecisionResult({
-      adjustedResponse,
-      ctx,
-      decisionSource,
-      llmSuggestions,
-      forcedGapQuestion,
-      forcedConfirm,
-      targetElement: targetElement || kernelDecision?.targetElement || null,
-      targetDecision,
-      repeatEscapeApplied,
-    });
-  }
-
-  // Fallback: unknown action — pass through
-  return buildDecisionResult({ adjustedResponse, ctx, decisionSource: "llm_passthrough", llmSuggestions });
-}
-
-// Assemble the canonical return shape for resolveTurnDecision.
-// Keeps all analytics fields present for downstream consumers (telemetry, iOS, tests).
-function buildDecisionResult({ adjustedResponse, ctx, decisionSource, llmSuggestions = [], forcedGapQuestion = false, forcedConfirm = false, targetElement = null, targetDecision = null, repeatEscapeApplied = false }) {
-  const { gapAnalysis, gapQuestion, elements, elementBlock, hardElementBlock,
-    llmReadySignal, hybridReady, hardCriticalBlock, criticalCoverage,
-    hardSemanticBlock } = ctx;
-  const turnDecision = createTurnDecision({
-    action: adjustedResponse?.action,
-    targetElement,
-    targetSlot: adjustedResponse?.targetSlot || gapQuestion?.targetSlot || null,
-    reason: targetDecision?.winner?.reason || decisionSource,
-    alternatives: targetDecision?.alternatives || [],
-    confidence: adjustedResponse?.action === "CONFIRM" ? 0.85 : 0.7,
-    source: decisionSource,
-  });
-  return {
-    response: adjustedResponse,
-    turnDecision,
-    gapAnalysis,
-    gapQuestion,
-    forcedGapQuestion,
-    forcedConfirm,
-    repeatEscapeApplied,
-    decisionSource,
-    targetElement,
-    targetDecision,
-    llmSuggestions,
-    llmReadySignal,
-    hybridReady,
-    criticalSlotBlock: hardCriticalBlock,
-    criticalBlockingSlots: criticalCoverage.blockingSlots,
-    elements,
-    elementBlock: hardElementBlock,
-    blockedElements: elementBlock.blockedElements,
-    semanticBlock: hardSemanticBlock,
-    semanticBlockSignature: ctx._semanticBlockSignature || null,
-  };
 }
 
 async function runKernelTurnFlow({ state, normalizedAnswer, condensedAnswer, inputMode, userMessage, priorAssistantMessage }) {

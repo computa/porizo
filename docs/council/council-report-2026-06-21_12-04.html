@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LLM Council — Share Link Binding</title>
+<style>
+  :root{
+    --bg:#fbfaf8; --ink:#1a1614; --muted:#6b635c; --line:#e7e1d9;
+    --accent:#c0582a; --accent2:#2a6f6b; --warn:#b4451f; --ok:#2a7a4a;
+    --card:#ffffff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    line-height:1.6;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:840px;margin:0 auto;padding:48px 24px 80px}
+  .kicker{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);font-weight:600}
+  h1{font-size:30px;line-height:1.2;margin:8px 0 6px;letter-spacing:-.02em}
+  .sub{color:var(--muted);font-size:15px;margin-bottom:28px}
+  .stat-row{display:flex;gap:12px;flex-wrap:wrap;margin:24px 0 36px}
+  .stat{flex:1;min-width:150px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 18px}
+  .stat .n{font-size:28px;font-weight:700;letter-spacing:-.02em}
+  .stat .l{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}
+  .stat.bad .n{color:var(--warn)}
+  .verdict{background:var(--card);border:1px solid var(--line);
+    border-radius:14px;padding:26px 28px;margin-bottom:30px}
+  .verdict h2{margin:0 0 6px;font-size:13px;letter-spacing:.12em;text-transform:uppercase;color:var(--accent)}
+  .verdict h3{margin:22px 0 6px;font-size:17px}
+  .verdict h3:first-of-type{margin-top:14px}
+  .verdict p,.verdict li{font-size:15px}
+  .rec{background:#fdf4ee;border:1px solid #f0d9c9;border-radius:12px;padding:18px 20px;margin-top:18px}
+  .rec .lab{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);font-weight:700}
+  .first{background:#eef6f2;border:1px solid #cfe7dc;border-radius:12px;padding:18px 20px;margin-top:14px}
+  .first .lab{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--ok);font-weight:700}
+  .spectrum{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:22px 24px;margin-bottom:30px}
+  .spectrum h2{font-size:13px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin:0 0 16px}
+  .adv{display:flex;align-items:flex-start;gap:14px;padding:12px 0;border-top:1px solid var(--line)}
+  .adv:first-of-type{border-top:none}
+  .badge{flex:0 0 auto;width:120px;font-weight:700;font-size:13px}
+  .pos{font-size:13.5px;color:var(--muted)}
+  .tag{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;margin-left:8px;vertical-align:middle}
+  .tag.win{background:#e3f3ea;color:var(--ok)}
+  .tag.blind{background:#fbe6dc;color:var(--warn)}
+  details{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:0 18px;margin-bottom:12px}
+  details summary{cursor:pointer;padding:14px 0;font-weight:600;font-size:15px;list-style:none;display:flex;justify-content:space-between;align-items:center}
+  details summary::-webkit-details-marker{display:none}
+  details summary::after{content:"+";color:var(--muted);font-size:20px}
+  details[open] summary::after{content:"–"}
+  details .body{padding:0 0 18px;font-size:14.5px;color:#2c2620;border-top:1px solid var(--line);margin-top:0;padding-top:14px}
+  .sec-title{font-size:13px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin:34px 0 12px;font-weight:600}
+  footer{margin-top:48px;padding-top:20px;border-top:1px solid var(--line);font-size:13px;color:var(--muted)}
+  code{background:#f1ece5;padding:1px 6px;border-radius:5px;font-size:13px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="kicker">LLM Council · Verdict</div>
+  <h1>Why share links don't bind — and what to do</h1>
+  <div class="sub">Porizo viral loop · 5 advisors · peer-reviewed · 2026-06-21</div>
+
+  <div class="stat-row">
+    <div class="stat"><div class="n">605</div><div class="l">Share views</div></div>
+    <div class="stat bad"><div class="n">10</div><div class="l">Device bound</div></div>
+    <div class="stat bad"><div class="n">~1.7%</div><div class="l">Bind rate</div></div>
+    <div class="stat"><div class="n">5</div><div class="l">Gates to bind</div></div>
+  </div>
+
+  <div class="verdict">
+    <h2>Council Verdict</h2>
+
+    <h3>Where the council agrees</h3>
+    <p>The free web player <strong>satisfies the recipient's entire need</strong>: hear the gift. Binding then offers nothing they don't already have (the link is lifetime; they can replay forever). 1.7% is not a bug; it's the arithmetic of a multi-gate funnel guarding a prize the user already holds.</p>
+    <ul>
+      <li>The <strong>PIN</strong> (buried in the sender's message) and the <strong>forced Apple sign-in</strong> are the two most destructive, least-justified gates. Both fire <em>before</em> any value, and both fail silently (logged as generic "unbound").</li>
+      <li>The recipient's strongest impulse is to <strong>reciprocate ("make one back")</strong>, not to "claim." The product optimizes the wrong verb.</li>
+    </ul>
+
+    <h3>Where the council clashes</h3>
+    <p><strong>Build a web create/buy flow</strong> (the Expansionist's storefront, $1.99, no app) <strong>vs. don't</strong>: 4 of 5 reviewers flagged it collides with Apple's IAP rules and is effectively a second product. <em>Resolved against the pure web-storefront for now.</em></p>
+    <p><strong>Optimize the funnel now</strong> (Executor) <strong>vs. validate the loop converts at all first</strong> (Contrarian). The chairman sides with the Contrarian as the gating step, then the Executor's fixes.</p>
+
+    <h3>Blind spots the peer round caught</h3>
+    <ul>
+      <li><strong>605 is probably inflated.</strong> iMessage/WhatsApp auto-fetch link previews, the sender re-checking, and bots all count as <code>web_player_opened</code>. The real human denominator is unknown.</li>
+      <li>An unknown share of views are <strong>desktop/web, structurally unable to bind</strong> (<code>platform != "web"</code> hard block).</li>
+      <li>Nobody is <strong>re-engaging the sender</strong>, the one proven buyer. "Your gift was played 4×" is the warmest re-purchase trigger you have.</li>
+      <li>The funnel is <strong>uninstrumented</strong>, so we cannot see which 401 dominates.</li>
+    </ul>
+
+    <div class="rec">
+      <div class="lab">The Recommendation</div>
+      <p style="margin:.5em 0 0">Diagnose before building. The numbers are too small and too suspect to optimize blind. Then ship the cheap, high-leverage fixes that move the gate <em>after</em> the emotional payoff: <strong>pre-fill the PIN</strong> through the deep link, <strong>defer sign-in</strong> until after the song is saved to the device, and <strong>reframe the CTA</strong> from "claim your song" to "make one back."</p>
+    </div>
+
+    <div class="first">
+      <div class="lab">The One Thing To Do First</div>
+      <p style="margin:.5em 0 0">Run the diagnostic SQL on production before writing any product code: (1) segment the 605 by device type and dedupe link-preview hits, (2) check whether <em>any</em> recipient ever became a sender, (3) count which claim error (<code>SIGN_IN_REQUIRED</code> vs <code>INVALID_PIN</code> vs no-attempt) dominates.</p>
+    </div>
+  </div>
+
+  <div class="spectrum">
+    <h2>Advisor positions at a glance</h2>
+    <div class="adv"><div class="badge" style="color:#b4451f">Contrarian</div><div class="pos">"Bound" may be a vanity metric. Prove the loop converts before optimizing it.<span class="tag win">strongest ×5</span></div></div>
+    <div class="adv"><div class="badge" style="color:#7a5cc0">First Principles</div><div class="pos">Wrong verb. Skip claiming entirely, drive "make one back," delete the PIN.</div></div>
+    <div class="adv"><div class="badge" style="color:#2a6f6b">Expansionist</div><div class="pos">The web player is a storefront, not a turnstile. Sell on it.<span class="tag blind">biggest blind spot ×4</span></div></div>
+    <div class="adv"><div class="badge" style="color:#c08a2a">Outsider</div><div class="pos">You gave me the good part free; the app download to "keep" it is the wall.</div></div>
+    <div class="adv"><div class="badge" style="color:#2a7a4a">Executor</div><div class="pos">Pre-fill PIN + instrument the funnel this week. Defer auth.</div></div>
+  </div>
+
+  <div class="sec-title">Full advisor responses</div>
+
+  <details><summary>The Contrarian — "polishing the lock on an empty vault"</summary>
+  <div class="body">The mechanism isn't broken — the design is. The web player is too good: it plays the song free, instantly, zero friction. The recipient's entire need is satisfied in the browser, so binding offers nothing they don't already have (it's lifetime — they can replay forever). Stack the friction: install → Apple sign-in → find PIN buried in a text → 14-day handoff token. Four cliffs, each halves survivors. The PIN is the assassin — it lives in the sender's message; if forwarded/screenshotted/scrolled past, binding is impossible and you log it as generic failure. You're probably bleeding people at INVALID_PIN. Hard question you're avoiding: is "bound" even the right metric? Senders are the buyers. Has a single recipient of 605 ever become a sender? If zero did, fixing binding to 50 changes nothing. Prove the loop converts at all before optimizing the funnel.</div></details>
+
+  <details><summary>The First Principles Thinker — "you're optimizing the wrong verb"</summary>
+  <div class="body">You're asking why recipients don't bind. Wrong question. You designed a claim flow and accidentally measured friction. The viral loop needs recipients to become senders, not to "bind tokens." A recipient who loved the song wants to make one back. Three assumptions to kill: (1) recipients shouldn't claim the sender's song at all — it's not theirs; go web player → "Make one back" → app. (2) The PIN protects nothing worth 98% of your funnel — delete it. (3) "Free listen in browser" isn't a feature, it's the leak; the web player should be a trailer, not the whole movie. Real question: what makes a recipient send?</div></details>
+
+  <details><summary>The Expansionist — "the 605 are screaming to buy, not to claim"</summary>
+  <div class="body">The web player isn't a leak — it's the most undervalued asset Porizo owns. 605 warm humans, each handed a personalized song made for someone they love, who sat through it and felt something — that's 60× the entire paid base. The asset isn't the library slot, it's the intent to reciprocate. (1) Highest-converting next action: "make one back, right now, on this same web page" — pick occasion, type a name, hear a 15s preview, pay $1.99. The player becomes a storefront. (2) Every play is a testimonial — capture a reaction / "send one back" referral that re-engages the sender too. (3) Drop binding as the conversion goal entirely. <em>[Council caveat: a pure web pay flow collides with Apple's IAP rules and is a second product — treat as a later bet, not a Monday fix.]</em></div></details>
+
+  <details><summary>The Outsider — "there's no reason left to do the hard part"</summary>
+  <div class="body">You hand me a link, I tap it, the song plays. Done. My friend made me a thing, I heard it, I felt it, I sent back a heart emoji. Why keep going? You lose me the moment "Save to Library" throws me at the App Store — downloading an app is a big ask, and signing in with Apple ID makes it feel like signing up, not receiving a gift. A 6-digit PIN from up in the text? I've lost that text in the thread; I'm not scrolling back. You already gave me the good part for free. What would move me: let me save it without an account first (text/email me the link to keep), pre-fill the PIN so I never type anything, and give me a reason about ME — "make one back for them" beats "claim your song." Biggest fix: kill the forced app download to keep something I already own.</div></details>
+
+  <details><summary>The Executor — "Monday: pre-fill the PIN, instrument the funnel"</summary>
+  <div class="body">The web player is where 605 views go to die. Attack it first. Monday task: change the song-end state to a hard wall — "This song was made for YOU. Claim it free, keep it forever" — with the PIN pre-filled into the deep link. Then in priority order: (1) <strong>Pre-fill the PIN</strong> — it's in the share message already; pass it through the OneLink so claim views auto-populate. One day; server already accepts it. (2) <strong>Soften SIGN_IN_REQUIRED</strong> — bind to the device first, prompt sign-in to "save permanently" after. (3) <strong>Instrument the funnel</strong> — log OneLink click, app open, claim attempt, which 401 fired. Do #1 and #3 this week. Don't touch the token TTLs — not the bottleneck.</div></details>
+
+  <details><summary>Peer review highlights</summary>
+  <div class="body">
+  <p><strong>Strongest (unanimous, 5/5): the Contrarian.</strong> Only response that refuses to optimize before validating the premise with a falsifiable test ("has a single recipient become a sender?").</p>
+  <p><strong>Biggest blind spot (4/5): the Expansionist.</strong> The web storefront abandons the iOS distribution surface, collides with App Store IAP / the 30%, and assumes buy-intent with zero evidence.</p>
+  <p><strong>What everyone missed:</strong> (1) the <em>data itself</em> — 605 views likely inflated by iMessage/WhatsApp link previews, the sender, and bots; (2) the device-type split (web views can never bind); (3) <em>sender re-engagement</em> — the proven buyer, ignored by all; (4) the simplest test: just ask a few recipients why they stopped.</p>
+  </div></details>
+
+  <footer>
+    Counciled 2026-06-21 · 5 advisors (Contrarian, First Principles, Expansionist, Outsider, Executor) · 2 rounds (independent + anonymized peer review) · chairman synthesis.<br>
+    Source mechanism verified against <code>src/services/share-service.js</code>, <code>src/routes/sharing.js</code>, iOS <code>ShareClaimView</code>/<code>ReceiverClaimView</code>. Full transcript: <code>council-transcript-2026-06-21_12-04.md</code>.
+  </footer>
+
+</div>
+</body>
+</html>

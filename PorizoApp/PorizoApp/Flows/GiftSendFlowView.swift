@@ -51,9 +51,8 @@ struct GiftSendFlowView: View {
     @State private var isReserving = false
     @State private var errorMessage: String?
 
-    @State private var showBundlePicker = false
+    @State private var bundlePickerPresentation: BundlePickerPresentation?
     @State private var bundlePickerState: BundlePickerState = .selecting
-    @State private var pendingCreateType: CreateFlowKind?
     @State private var isCreatingContent = false
     @State private var showCloseConfirmation = false
     @State private var showCountryPicker = false
@@ -150,8 +149,8 @@ struct GiftSendFlowView: View {
                 }
             }
         }
-        .sheet(isPresented: $showBundlePicker) {
-            bundlePickerSheet
+        .sheet(item: $bundlePickerPresentation) { presentation in
+            bundlePickerSheet(for: presentation)
         }
         .sheet(isPresented: $showCountryPicker) {
             CountryPickerSheet(
@@ -976,10 +975,8 @@ struct GiftSendFlowView: View {
                 }
                 return
             }
-            pendingCreateType = type
-            let ready = await ensureReservationForCreation()
+            let ready = await ensureReservationForCreation(createTypeForBundlePrompt: type)
             if ready {
-                pendingCreateType = nil
                 openCreateFlow(type: type)
             }
         }
@@ -1038,7 +1035,7 @@ struct GiftSendFlowView: View {
     }
 
     @MainActor
-    private func ensureReservationForCreation() async -> Bool {
+    private func ensureReservationForCreation(createTypeForBundlePrompt: CreateFlowKind? = nil) async -> Bool {
         if hasActiveReservation {
             return true
         }
@@ -1057,9 +1054,11 @@ struct GiftSendFlowView: View {
             self.walletBalance = response.walletBalance
             return true
         } catch {
-            if shouldPromptGiftUnlock(for: error), AppConfig.enableGiftPurchaseUI {
+            if shouldPromptGiftUnlock(for: error),
+               AppConfig.enableGiftPurchaseUI,
+               let createTypeForBundlePrompt {
                 bundlePickerState = .selecting
-                showBundlePicker = true
+                bundlePickerPresentation = BundlePickerPresentation(createType: createTypeForBundlePrompt)
                 return false
             }
             errorMessage = mapError(error)
@@ -1349,6 +1348,17 @@ struct GiftSendFlowView: View {
     }
 
     private func refreshGiftSurface() async {
+        #if DEBUG
+        if SimulatorFixtures.has("--fixture-gift-flow") {
+            reservation = nil
+            scheduledGifts = []
+            if screen == .composer && createdGift == nil {
+                screen = .content
+            }
+            return
+        }
+        #endif
+
         do {
             async let reservationTask = apiClient.getActiveGiftReservation()
             async let giftsTask = apiClient.getGifts(limit: 20)
@@ -1599,7 +1609,7 @@ struct GiftSendFlowView: View {
 
     // MARK: - Bundle Picker Sheet
 
-    private var bundlePickerSheet: some View {
+    private func bundlePickerSheet(for presentation: BundlePickerPresentation) -> some View {
         NavigationStack {
             ZStack {
                 DesignTokens.background.ignoresSafeArea()
@@ -1628,7 +1638,7 @@ struct GiftSendFlowView: View {
                             .padding(.vertical, 32)
                         } else {
                             ForEach(storeKit.giftBundleProducts, id: \.id) { product in
-                                bundleCard(for: product)
+                                bundleCard(for: product, presentation: presentation)
                             }
                         }
 
@@ -1652,7 +1662,7 @@ struct GiftSendFlowView: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
                         bundlePickerState = .cancelled
-                        showBundlePicker = false
+                        bundlePickerPresentation = nil
                     }
                     .disabled(bundlePickerState == .purchasing)
                 }
@@ -1667,12 +1677,12 @@ struct GiftSendFlowView: View {
         }
     }
 
-    private func bundleCard(for product: Product) -> some View {
+    private func bundleCard(for product: Product, presentation: BundlePickerPresentation) -> some View {
         let config = AppConfig.giftBundles.first { $0.productId == product.id }
         let isBestValue = product.id == ProductID.giftBundle3.rawValue
 
         return Button {
-            Task { await purchaseBundle(product) }
+            Task { await purchaseBundle(product, presentation: presentation) }
         } label: {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
@@ -1736,7 +1746,7 @@ struct GiftSendFlowView: View {
     }
 
     @MainActor
-    private func purchaseBundle(_ product: Product) async {
+    private func purchaseBundle(_ product: Product, presentation: BundlePickerPresentation) async {
         bundlePickerState = .purchasing
 
         let purchased = await storeKit.purchase(product)
@@ -1774,14 +1784,11 @@ struct GiftSendFlowView: View {
 
         // Brief success animation then auto-dismiss and proceed
         try? await Task.sleep(for: .milliseconds(1500))
-        showBundlePicker = false
+        bundlePickerPresentation = nil
 
-        if let type = pendingCreateType {
-            pendingCreateType = nil
-            let ready = await ensureReservationForCreation()
-            if ready {
-                openCreateFlow(type: type)
-            }
+        let ready = await ensureReservationForCreation(createTypeForBundlePrompt: presentation.createType)
+        if ready {
+            openCreateFlow(type: presentation.createType)
         }
     }
 
@@ -1809,5 +1816,10 @@ struct GiftSendFlowView: View {
         let id = UUID()
         let type: CreateFlowKind
         let reservationId: String
+    }
+
+    private struct BundlePickerPresentation: Identifiable {
+        let id = UUID()
+        let createType: CreateFlowKind
     }
 }

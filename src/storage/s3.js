@@ -2,10 +2,7 @@ const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const { getKeyForPath, getS3EncryptionHeaders } = require("./kms");
-
-function ensureDir(dirPath) {
-  fs.mkdirSync(dirPath, { recursive: true });
-}
+const { ensureDir } = require("../utils/common");
 
 function hashSha256(value) {
   return crypto.createHash("sha256").update(value).digest("hex");
@@ -24,6 +21,23 @@ function getSignatureKey(secret, dateStamp, region, service) {
 
 function encodeKey(key) {
   return key.split("/").map(encodeURIComponent).join("/");
+}
+
+function decodeXmlEntities(value) {
+  return String(value || "")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&#39;/g, "'");
+}
+
+function firstXmlText(xml, tagName) {
+  const match = xml.match(
+    new RegExp(`<${tagName}(?:\\s[^>]*)?>([^<]*)</${tagName}>`),
+  );
+  return match ? decodeXmlEntities(match[1]) : null;
 }
 
 function buildS3Endpoint({ endpoint, bucket, key, forcePathStyle, region }) {
@@ -300,9 +314,9 @@ function createS3Storage(config = {}) {
    * @param {Object} options
    * @param {string} options.prefix - Prefix to filter objects
    * @param {number} options.maxKeys - Max number of keys to return (default 1000)
-   * @returns {Promise<{keys: string[], prefixes: string[]}>} List of object keys and common prefixes
+   * @returns {Promise<{keys: string[], prefixes: string[], isTruncated: boolean, nextContinuationToken: string | null}>} List of object keys and common prefixes
    */
-  async function listObjects({ prefix, maxKeys = 1000 }) {
+  async function listObjects({ prefix, maxKeys = 1000, continuationToken = null }) {
     const amzDate = new Date().toISOString().replace(/[:-]|\.\d{3}/g, "");
     const dateStamp = amzDate.slice(0, 8);
 
@@ -319,6 +333,9 @@ function createS3Storage(config = {}) {
       "max-keys": String(maxKeys),
       "delimiter": "/",
     };
+    if (continuationToken) {
+      queryParams["continuation-token"] = continuationToken;
+    }
 
     const sortedQuery = Object.keys(queryParams)
       .sort()
@@ -379,19 +396,47 @@ function createS3Storage(config = {}) {
     // Extract object keys
     const keyMatches = xml.matchAll(/<Key>([^<]+)<\/Key>/g);
     for (const match of keyMatches) {
-      keys.push(match[1]);
+      keys.push(decodeXmlEntities(match[1]));
     }
 
     // Extract common prefixes (directories)
     const prefixMatches = xml.matchAll(/<Prefix>([^<]+)<\/Prefix>/g);
     for (const match of prefixMatches) {
+      const decodedPrefix = decodeXmlEntities(match[1]);
       // Skip the query prefix itself
-      if (match[1] !== prefix) {
-        prefixes.push(match[1]);
+      if (decodedPrefix !== prefix) {
+        prefixes.push(decodedPrefix);
       }
     }
 
-    return { keys, prefixes };
+    return {
+      keys,
+      prefixes,
+      isTruncated: firstXmlText(xml, "IsTruncated") === "true",
+      nextContinuationToken: firstXmlText(xml, "NextContinuationToken"),
+    };
+  }
+
+  async function listKeys({ prefix, maxKeys = 1000, continuationToken = null } = {}) {
+    const keys = [];
+    let nextToken = continuationToken;
+    do {
+      const result = await listObjects({
+        prefix,
+        maxKeys,
+        continuationToken: nextToken,
+      });
+      if (Array.isArray(result.keys)) {
+        keys.push(...result.keys);
+      }
+      if (result.isTruncated && !result.nextContinuationToken) {
+        throw new Error(
+          `S3 listKeys received a truncated page without continuation token for ${prefix || ""}`,
+        );
+      }
+      nextToken = result.nextContinuationToken || null;
+    } while (nextToken);
+    return keys;
   }
 
   /**
@@ -419,6 +464,7 @@ function createS3Storage(config = {}) {
     downloadToFile,
     putFile,
     deleteObject,
+    listKeys,
     listObjects,
     // Encryption helpers
     getPathEncryptionInfo,

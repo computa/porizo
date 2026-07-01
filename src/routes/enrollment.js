@@ -30,6 +30,7 @@ const {
   findActiveProviderProfileForUser,
   findLatestPendingProviderProfileForUser,
   getLatestVoiceProviderJobForProfile,
+  listProviderProfilesForVoiceProfile,
   softDeleteProviderProfilesForVoiceProfile,
 } = require("../services/voice-provider-profile-service");
 const { getFeatureFlags } = require("../services/feature-flags");
@@ -41,6 +42,13 @@ const {
 const {
   revokeAllEnrollmentSessionTokensForUser,
 } = require("../services/enrollment-session-service");
+const {
+  createEnrollmentSessionRepository,
+} = require("../database/enrollment-session-repository");
+const { createDeviceRepository } = require("../database/device-repository");
+const {
+  createVoiceProviderProfileRepository,
+} = require("../database/voice-provider-profile-repository");
 
 /**
  * SVC-10: Validate audio file magic bytes to reject non-audio uploads.
@@ -411,6 +419,9 @@ function registerEnrollmentRoutes(app, deps) {
     deviceTokenTtlDays,
     enableDebugRoutes,
   } = deps;
+  const enrollmentSessionRepository = createEnrollmentSessionRepository(db);
+  const deviceRepository = createDeviceRepository(db);
+  const voiceProfileRepository = createVoiceProviderProfileRepository(db);
 
   // ---- Enrollment clean.wav endpoint ----
 
@@ -420,9 +431,9 @@ function registerEnrollmentRoutes(app, deps) {
       sendError(reply, 403, "FORBIDDEN", "Missing enrollment token.");
       return;
     }
-    const session = await db
-      .prepare("SELECT * FROM enrollment_sessions WHERE id = ?")
-      .get(request.params.sessionId);
+    const session = await enrollmentSessionRepository.findById(
+      request.params.sessionId,
+    );
     const expected = Buffer.from(String(session?.access_token || ""), "utf8");
     const actual = Buffer.from(String(token || ""), "utf8");
     const tokenMatches =
@@ -508,51 +519,15 @@ function registerEnrollmentRoutes(app, deps) {
       const now = nowIso();
 
       if (userId) {
-        const existing = await db
-          .prepare("SELECT id FROM devices WHERE user_id = ? AND device_id = ?")
-          .get(userId, device_id);
-
-        if (existing) {
-          if (push_token) {
-            await db
-              .prepare(
-                "UPDATE devices SET platform = ?, app_version = ?, last_seen_at = ?, push_token = ?, push_token_updated_at = ?, updated_at = ? WHERE id = ?",
-              )
-              .run(
-                platform,
-                app_version || null,
-                now,
-                push_token,
-                now,
-                now,
-                existing.id,
-              );
-          } else {
-            await db
-              .prepare(
-                "UPDATE devices SET platform = ?, app_version = ?, last_seen_at = ?, updated_at = ? WHERE id = ?",
-              )
-              .run(platform, app_version || null, now, now, existing.id);
-          }
-        } else {
-          const deviceRecordId = newUuid();
-          await db
-            .prepare(
-              "INSERT INTO devices (id, user_id, device_id, platform, app_version, last_seen_at, push_token, push_token_updated_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            )
-            .run(
-              deviceRecordId,
-              userId,
-              device_id,
-              platform,
-              app_version || null,
-              now,
-              push_token || null,
-              push_token ? now : null,
-              now,
-              now,
-            );
-        }
+        await deviceRepository.registerDevice({
+          id: newUuid(),
+          userId,
+          deviceId: device_id,
+          platform,
+          appVersion: app_version || null,
+          pushToken: push_token || null,
+          now,
+        });
       }
 
       const deviceToken = issueDeviceToken({
@@ -806,25 +781,17 @@ function registerEnrollmentRoutes(app, deps) {
         request.body,
         consent_accepted === true,
       );
-      await db
-        .prepare(
-          "INSERT INTO enrollment_sessions (id, user_id, status, prompt_set_id, prompts_json, chunk_count, quality_metrics, failure_reason, started_at, completed_at, expires_at, consent_version, consent_scopes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        )
-        .run(
-          sessionId,
-          userId,
-          "recording",
-          promptSetId,
-          toJson(prompts),
-          0,
-          toJson({}),
-          null,
-          nowIso(),
-          null,
-          expiresAt,
-          consent_version || "1.0",
-          consentScopes,
-        );
+      await enrollmentSessionRepository.createSession({
+        id: sessionId,
+        userId,
+        promptSetId,
+        promptsJson: toJson(prompts),
+        qualityMetricsJson: toJson({}),
+        startedAt: nowIso(),
+        expiresAt,
+        consentVersion: consent_version || "1.0",
+        consentScopes,
+      });
 
       await addAuditEntry({
         userId,
@@ -864,9 +831,7 @@ function registerEnrollmentRoutes(app, deps) {
       sendError(reply, 400, "MISSING_CHUNK_ID", "chunk_id is required.");
       return;
     }
-    const session = await db
-      .prepare("SELECT * FROM enrollment_sessions WHERE id = ?")
-      .get(session_id);
+    const session = await enrollmentSessionRepository.findById(session_id);
     if (!session || session.user_id !== userId) {
       sendError(
         reply,
@@ -877,9 +842,10 @@ function registerEnrollmentRoutes(app, deps) {
       return;
     }
     if (new Date(session.expires_at) < new Date()) {
-      await db
-        .prepare("UPDATE enrollment_sessions SET status = ? WHERE id = ?")
-        .run("expired", session_id);
+      await enrollmentSessionRepository.markStatus({
+        sessionId: session_id,
+        status: "expired",
+      });
       sendError(reply, 410, "SESSION_EXPIRED", "Enrollment session expired.");
       return;
     }
@@ -938,11 +904,10 @@ function registerEnrollmentRoutes(app, deps) {
         reason: "INVALID_PROMPT_CHUNK",
         duration_sec: resolvedDuration,
       };
-      await db
-        .prepare(
-          "UPDATE enrollment_sessions SET quality_metrics = ? WHERE id = ?",
-        )
-        .run(toJson(metrics), session_id);
+      await enrollmentSessionRepository.setQualityMetrics({
+        sessionId: session_id,
+        qualityMetricsJson: toJson(metrics),
+      });
       sendError(reply, 400, "QC_FAILED", "Audio chunk failed QC.", {
         reason: "INVALID_PROMPT_CHUNK",
         re_record: true,
@@ -970,11 +935,10 @@ function registerEnrollmentRoutes(app, deps) {
         duration_sec: resolvedDuration,
         min_duration_sec: minDurationSec,
       };
-      await db
-        .prepare(
-          "UPDATE enrollment_sessions SET quality_metrics = ? WHERE id = ?",
-        )
-        .run(toJson(metrics), session_id);
+      await enrollmentSessionRepository.setQualityMetrics({
+        sessionId: session_id,
+        qualityMetricsJson: toJson(metrics),
+      });
       sendError(
         reply,
         400,
@@ -1002,11 +966,10 @@ function registerEnrollmentRoutes(app, deps) {
         reason: "CHECKSUM_MISMATCH",
         duration_sec: resolvedDuration,
       };
-      await db
-        .prepare(
-          "UPDATE enrollment_sessions SET quality_metrics = ? WHERE id = ?",
-        )
-        .run(toJson(metrics), session_id);
+      await enrollmentSessionRepository.setQualityMetrics({
+        sessionId: session_id,
+        qualityMetricsJson: toJson(metrics),
+      });
       sendError(reply, 400, "QC_FAILED", "Audio chunk checksum mismatch.", {
         reason: "CHECKSUM_MISMATCH",
         re_record: true,
@@ -1019,11 +982,11 @@ function registerEnrollmentRoutes(app, deps) {
       client_checksum,
       storage_key: storageKey,
     };
-    await db
-      .prepare(
-        "UPDATE enrollment_sessions SET chunk_count = chunk_count + 1, status = ?, quality_metrics = ? WHERE id = ?",
-      )
-      .run("processing", toJson(metrics), session_id);
+    await enrollmentSessionRepository.incrementChunkCountAndSetQualityMetrics({
+      sessionId: session_id,
+      status: "processing",
+      qualityMetricsJson: toJson(metrics),
+    });
 
     reply.send({
       status: "accepted",
@@ -1152,9 +1115,7 @@ function registerEnrollmentRoutes(app, deps) {
         return;
       }
 
-      const session = await db
-        .prepare("SELECT * FROM enrollment_sessions WHERE id = ?")
-        .get(sessionId);
+      const session = await enrollmentSessionRepository.findById(sessionId);
 
       if (!session || session.user_id !== userId) {
         sendError(
@@ -1226,11 +1187,10 @@ function registerEnrollmentRoutes(app, deps) {
 
       const metrics = parseJson(session.quality_metrics, {});
       metrics[chunkId] = { accepted: true, duration_sec: durationSec };
-      await db
-        .prepare(
-          "UPDATE enrollment_sessions SET chunk_count = chunk_count + 1, quality_metrics = ? WHERE id = ?",
-        )
-        .run(toJson(metrics), sessionId);
+      await enrollmentSessionRepository.incrementChunkCountAndSetQualityMetrics({
+        sessionId,
+        qualityMetricsJson: toJson(metrics),
+      });
 
       reply.send({
         status: "accepted",
@@ -1252,9 +1212,7 @@ function registerEnrollmentRoutes(app, deps) {
       }
       const { session_id } = request.body || {};
 
-      let session = await db
-        .prepare("SELECT * FROM enrollment_sessions WHERE id = ?")
-        .get(session_id);
+      let session = await enrollmentSessionRepository.findById(session_id);
       if (!session || session.user_id !== userId) {
         sendError(
           reply,
@@ -1272,9 +1230,10 @@ function registerEnrollmentRoutes(app, deps) {
       });
 
       if (new Date(session.expires_at) < new Date()) {
-        await db
-          .prepare("UPDATE enrollment_sessions SET status = ? WHERE id = ?")
-          .run("expired", session_id);
+        await enrollmentSessionRepository.markStatus({
+          sessionId: session_id,
+          status: "expired",
+        });
         sendError(reply, 410, "SESSION_EXPIRED", "Enrollment session expired.");
         return;
       }
@@ -1287,11 +1246,10 @@ function registerEnrollmentRoutes(app, deps) {
         );
         return;
       }
-      const claimResult = await db
-        .prepare(
-          "UPDATE enrollment_sessions SET status = ? WHERE id = ? AND user_id = ? AND status IN ('recording', 'processing')",
-        )
-        .run("finalizing", session_id, userId);
+      const claimResult = await enrollmentSessionRepository.claimForFinalization({
+        sessionId: session_id,
+        userId,
+      });
       if (!claimResult?.changes) {
         sendError(
           reply,
@@ -1301,9 +1259,7 @@ function registerEnrollmentRoutes(app, deps) {
         );
         return;
       }
-      session = await db
-        .prepare("SELECT * FROM enrollment_sessions WHERE id = ?")
-        .get(session_id);
+      session = await enrollmentSessionRepository.findById(session_id);
 
       // Late-grant: a client that didn't include the persona scope at /start
       // can grant it here, but only after the session is known valid.
@@ -1313,14 +1269,11 @@ function registerEnrollmentRoutes(app, deps) {
       if (!session.consent_scopes && hasLatePersonaGrant) {
         const lateScope = resolvePersonaConsentScopes(request.body, true);
         if (lateScope) {
-          await db
-            .prepare(
-              "UPDATE enrollment_sessions SET consent_scopes = ? WHERE id = ? AND consent_scopes IS NULL",
-            )
-            .run(lateScope, session_id);
-          session = await db
-            .prepare("SELECT * FROM enrollment_sessions WHERE id = ?")
-            .get(session_id);
+          await enrollmentSessionRepository.setConsentScopesIfMissing({
+            sessionId: session_id,
+            consentScopes: lateScope,
+          });
+          session = await enrollmentSessionRepository.findById(session_id);
         }
       }
 
@@ -1340,11 +1293,11 @@ function registerEnrollmentRoutes(app, deps) {
           },
           "[Enrollment:complete] Failed to resolve uploaded audio files",
         );
-        await db
-          .prepare(
-            "UPDATE enrollment_sessions SET status = ?, completed_at = ? WHERE id = ?",
-          )
-          .run("failed_internal", nowIso(), session_id);
+        await enrollmentSessionRepository.markCompletedStatus({
+          sessionId: session_id,
+          status: "failed_internal",
+          completedAt: nowIso(),
+        });
         sendError(
           reply,
           500,
@@ -1366,11 +1319,11 @@ function registerEnrollmentRoutes(app, deps) {
           { sessionId: session_id, missingChunks },
           "[Enrollment:complete] No files found",
         );
-        await db
-          .prepare(
-            "UPDATE enrollment_sessions SET status = ?, completed_at = ? WHERE id = ?",
-          )
-          .run("failed_internal", nowIso(), session_id);
+        await enrollmentSessionRepository.markCompletedStatus({
+          sessionId: session_id,
+          status: "failed_internal",
+          completedAt: nowIso(),
+        });
         sendError(
           reply,
           500,
@@ -1380,6 +1333,11 @@ function registerEnrollmentRoutes(app, deps) {
         return;
       }
       let qcResult;
+      let elevenlabsVoiceId = null;
+      // Tracks whether the voice_profile row (which owns elevenlabsVoiceId)
+      // was committed. If we create a clone but never persist it, the catch
+      // compensates by deleting the orphaned ElevenLabs clone.
+      let profilePersisted = false;
       try {
         qcResult = await validateEnrollmentWithGrading({
           userId,
@@ -1398,11 +1356,11 @@ function registerEnrollmentRoutes(app, deps) {
             { errors: criticalErrors, grade: qcResult.grade },
             "[Enrollment:complete] QC failed",
           );
-          await db
-            .prepare(
-              "UPDATE enrollment_sessions SET status = ?, completed_at = ? WHERE id = ?",
-            )
-            .run("failed_quality", nowIso(), session_id);
+          await enrollmentSessionRepository.markCompletedStatus({
+            sessionId: session_id,
+            status: "failed_quality",
+            completedAt: nowIso(),
+          });
 
           const errorCode = criticalErrors[0].split(":")[0];
           sendError(reply, 422, errorCode, "Audio quality check failed.", {
@@ -1413,11 +1371,10 @@ function registerEnrollmentRoutes(app, deps) {
         }
 
         if (qcResult.metrics.chunk_results) {
-          await db
-            .prepare(
-              "UPDATE enrollment_sessions SET chunk_quality_json = ? WHERE id = ?",
-            )
-            .run(JSON.stringify(qcResult.metrics.chunk_results), session_id);
+          await enrollmentSessionRepository.setChunkQualityJson({
+            sessionId: session_id,
+            chunkQualityJson: JSON.stringify(qcResult.metrics.chunk_results),
+          });
           attachChunkQualityResults(chunkEntries, qcResult);
         }
 
@@ -1441,11 +1398,11 @@ function registerEnrollmentRoutes(app, deps) {
             },
             "[Enrollment:complete] QC below threshold — rejecting",
           );
-          await db
-            .prepare(
-              "UPDATE enrollment_sessions SET status = ?, completed_at = ? WHERE id = ?",
-            )
-            .run("failed_quality", nowIso(), session_id);
+          await enrollmentSessionRepository.markCompletedStatus({
+            sessionId: session_id,
+            status: "failed_quality",
+            completedAt: nowIso(),
+          });
           sendError(
             reply,
             422,
@@ -1537,11 +1494,11 @@ function registerEnrollmentRoutes(app, deps) {
             { sessionId: session_id },
             "[Enrollment:complete] Clean audio unavailable for Suno persona",
           );
-          await db
-            .prepare(
-              "UPDATE enrollment_sessions SET status = ?, completed_at = ? WHERE id = ?",
-            )
-            .run("failed_internal", nowIso(), session_id);
+          await enrollmentSessionRepository.markCompletedStatus({
+            sessionId: session_id,
+            status: "failed_internal",
+            completedAt: nowIso(),
+          });
           sendError(
             reply,
             500,
@@ -1564,11 +1521,11 @@ function registerEnrollmentRoutes(app, deps) {
             { sessionId: session_id },
             "[Enrollment:complete] Sung calibration upload failed for Suno persona",
           );
-          await db
-            .prepare(
-              "UPDATE enrollment_sessions SET status = ?, completed_at = ? WHERE id = ?",
-            )
-            .run("failed_internal", nowIso(), session_id);
+          await enrollmentSessionRepository.markCompletedStatus({
+            sessionId: session_id,
+            status: "failed_internal",
+            completedAt: nowIso(),
+          });
           sendError(
             reply,
             500,
@@ -1590,11 +1547,11 @@ function registerEnrollmentRoutes(app, deps) {
             },
             "[Enrollment:complete] Sung calibration unavailable for Suno persona",
           );
-          await db
-            .prepare(
-              "UPDATE enrollment_sessions SET status = ?, completed_at = ? WHERE id = ?",
-            )
-            .run("failed_quality", nowIso(), session_id);
+          await enrollmentSessionRepository.markCompletedStatus({
+            sessionId: session_id,
+            status: "failed_quality",
+            completedAt: nowIso(),
+          });
           sendError(
             reply,
             422,
@@ -1614,11 +1571,10 @@ function registerEnrollmentRoutes(app, deps) {
         let cleanAudioAccessToken = session.access_token || null;
         if (shouldEmbed || (shouldQueueSunoPersona && hasProviderConsent)) {
           cleanAudioAccessToken = crypto.randomBytes(16).toString("hex");
-          await db
-            .prepare(
-              "UPDATE enrollment_sessions SET access_token = ? WHERE id = ?",
-            )
-            .run(cleanAudioAccessToken, session_id);
+          await enrollmentSessionRepository.setAccessTokenBySessionId({
+            sessionId: session_id,
+            accessToken: cleanAudioAccessToken,
+          });
         }
 
         if (shouldEmbed) {
@@ -1656,11 +1612,11 @@ function registerEnrollmentRoutes(app, deps) {
               { err },
               "[Enrollment:complete] Embedding failed",
             );
-            await db
-              .prepare(
-                "UPDATE enrollment_sessions SET status = ?, completed_at = ? WHERE id = ?",
-              )
-              .run("failed_verification", nowIso(), session_id);
+            await enrollmentSessionRepository.markCompletedStatus({
+              sessionId: session_id,
+              status: "failed_verification",
+              completedAt: nowIso(),
+            });
             sendError(
               reply,
               502,
@@ -1671,12 +1627,6 @@ function registerEnrollmentRoutes(app, deps) {
           }
         }
 
-        let elevenlabsVoiceId = null;
-        // Tracks whether the voice_profile row (which owns elevenlabsVoiceId)
-        // was committed. If we create a clone but never persist it — e.g. the
-        // transaction below throws — the clone is orphaned at ElevenLabs
-        // (cost + voice-slot quota leak). The catch compensates by deleting it.
-        let profilePersisted = false;
         const shouldCreateElevenLabsClone =
           appConfig.LIVE_PROVIDERS && Boolean(appConfig.ELEVENLABS_API_KEY);
         if (shouldCreateElevenLabsClone) {
@@ -1696,11 +1646,10 @@ function registerEnrollmentRoutes(app, deps) {
                 deleteVoiceClone,
               } = require("../providers/elevenlabs-voice");
 
-              const existingWithClone = await db
-                .prepare(
-                  "SELECT elevenlabs_voice_id FROM voice_profiles WHERE user_id = ? AND status = 'active' AND elevenlabs_voice_id IS NOT NULL",
-                )
-                .get(userId);
+              const existingWithClone =
+                await enrollmentSessionRepository.findActiveVoiceCloneForUser(
+                  userId,
+                );
               if (existingWithClone?.elevenlabs_voice_id) {
                 console.log(
                   `[Enrollment:complete] Deleting existing ElevenLabs clone: ${existingWithClone.elevenlabs_voice_id}`,
@@ -1739,11 +1688,10 @@ function registerEnrollmentRoutes(app, deps) {
           }
         }
 
-        const existingProfile = await db
-          .prepare(
-            "SELECT id, quality_score FROM voice_profiles WHERE user_id = ? AND status = 'active' LIMIT 1",
-          )
-          .get(userId);
+        const existingProfile =
+          await enrollmentSessionRepository.findActiveVoiceProfileSummaryForUser(
+            userId,
+          );
 
         let outcome = "new";
         const existingScore = existingProfile?.quality_score || 0;
@@ -1769,11 +1717,13 @@ function registerEnrollmentRoutes(app, deps) {
 
         await db.transaction(async (query) => {
           const txDb = dbFromQuery(query);
-          await txDb
-            .prepare(
-              "UPDATE enrollment_sessions SET status = ?, completed_at = ? WHERE id = ?",
-            )
-            .run("completed", nowIso(), session_id);
+          const txEnrollmentSessionRepository =
+            createEnrollmentSessionRepository(txDb);
+          await txEnrollmentSessionRepository.markCompletedStatus({
+            sessionId: session_id,
+            status: "completed",
+            completedAt: nowIso(),
+          });
 
           if (existingProfile) {
             if (shouldEnqueuePersona) {
@@ -1793,35 +1743,30 @@ function registerEnrollmentRoutes(app, deps) {
                 userId,
                 reason: "voice_profile_replaced",
               });
-              await txDb
-                .prepare(
-                  "UPDATE voice_profiles SET status = ?, deleted_at = ? WHERE id = ?",
-                )
-                .run("deleted", nowIso(), existingProfile.id);
+              await txEnrollmentSessionRepository.markVoiceProfileReplaced({
+                profileId: existingProfile.id,
+                deletedAt: nowIso(),
+              });
             }
           }
 
-          await txDb
-            .prepare(
-              "INSERT INTO voice_profiles (id, user_id, status, embedding_ref, quality_score, quality_tier, quality_metrics_json, model_version, consent_version, consent_at, last_verified_at, created_at, elevenlabs_voice_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            )
-            .run(
-              profileId,
-              userId,
-              newVoiceStatus,
-              embeddingRef,
-              qualityScore,
-              qualityTier,
-              JSON.stringify(qcResult.metrics),
-              shouldEmbed
-                ? appConfig.REPLICATE_EMBEDDING_MODEL_VERSION
-                : "embed_stub",
-              session.consent_version,
-              session.started_at,
-              nowIso(),
-              nowIso(),
-              elevenlabsVoiceId,
-            );
+          await txEnrollmentSessionRepository.insertVoiceProfile({
+            id: profileId,
+            userId,
+            status: newVoiceStatus,
+            embeddingRef,
+            qualityScore,
+            qualityTier,
+            qualityMetricsJson: JSON.stringify(qcResult.metrics),
+            modelVersion: shouldEmbed
+              ? appConfig.REPLICATE_EMBEDDING_MODEL_VERSION
+              : "embed_stub",
+            consentVersion: session.consent_version,
+            consentAt: session.started_at,
+            lastVerifiedAt: nowIso(),
+            createdAt: nowIso(),
+            elevenlabsVoiceId,
+          });
 
           if (shouldEnqueuePersona) {
             const providerProfile = await createPendingProviderProfile(txDb, {
@@ -1869,17 +1814,13 @@ function registerEnrollmentRoutes(app, deps) {
             };
           }
 
-          await txDb
-            .prepare(
-              "INSERT INTO audit_logs (id, user_id, action, resource_type, resource_id, metadata_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            )
-            .run(
-              newUuid(),
-              userId,
-              "enrollment_completed",
-              "voice_profile",
-              profileId,
-              toJson({
+          await txEnrollmentSessionRepository.insertAuditLog({
+            id: newUuid(),
+            userId,
+            action: "enrollment_completed",
+            resourceType: "voice_profile",
+            resourceId: profileId,
+            metadataJson: toJson({
                 quality_score: qualityScore,
                 existing_score: existingProfile ? existingScore : null,
                 outcome: outcome,
@@ -1892,9 +1833,9 @@ function registerEnrollmentRoutes(app, deps) {
                       job_id: providerProfileResult.job_id || null,
                     }
                   : null,
-              }),
-              nowIso(),
-            );
+            }),
+            createdAt: nowIso(),
+          });
         });
         profilePersisted = true;
 
@@ -1960,11 +1901,11 @@ function registerEnrollmentRoutes(app, deps) {
             ),
           );
         }
-        await db
-          .prepare(
-            "UPDATE enrollment_sessions SET status = ?, completed_at = ? WHERE id = ?",
-          )
-          .run("failed_internal", nowIso(), session_id);
+        await enrollmentSessionRepository.markCompletedStatus({
+          sessionId: session_id,
+          status: "failed_internal",
+          completedAt: nowIso(),
+        });
         sendError(
           reply,
           500,
@@ -1999,18 +1940,13 @@ function registerEnrollmentRoutes(app, deps) {
       );
       return;
     }
-    const activeProfile = await db
-      .prepare(
-        "SELECT * FROM voice_profiles WHERE user_id = ? AND status = 'active' AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 1",
-      )
-      .get(userId);
+    const activeProfile =
+      await voiceProfileRepository.findActiveVoiceProfileForUser(userId);
     const profile =
       activeProfile ||
-      (await db
-        .prepare(
-          "SELECT * FROM voice_profiles WHERE user_id = ? AND status != 'deleted' AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 1",
-        )
-        .get(userId));
+      (await voiceProfileRepository.findLatestNonDeletedVoiceProfileForUser(
+        userId,
+      ));
     if (!profile) {
       sendError(reply, 404, "NO_VOICE_PROFILE", "Voice profile not found.");
       return;
@@ -2067,11 +2003,8 @@ function registerEnrollmentRoutes(app, deps) {
     if (!userId) {
       return;
     }
-    const profile = await db
-      .prepare(
-        "SELECT id FROM voice_profiles WHERE user_id = ? AND status = 'active'",
-      )
-      .get(userId);
+    const profile =
+      await voiceProfileRepository.findActiveVoiceProfileIdForUser(userId);
     if (!profile) {
       sendError(reply, 404, "NO_VOICE_PROFILE", "Voice profile not found.");
       return;
@@ -2116,11 +2049,8 @@ function registerEnrollmentRoutes(app, deps) {
       );
       return;
     }
-    const profile = await db
-      .prepare(
-        "SELECT * FROM voice_profiles WHERE user_id = ? AND status != 'deleted'",
-      )
-      .get(userId);
+    const profile =
+      await voiceProfileRepository.findDeletableVoiceProfileForUser(userId);
     if (!profile) {
       sendError(reply, 404, "NO_VOICE_PROFILE", "Voice profile not found.");
       return;
@@ -2144,13 +2074,10 @@ function registerEnrollmentRoutes(app, deps) {
       }
     }
 
-    const providerProfiles = await db
-      .prepare(
-        `SELECT id, voice_profile_id, provider, status
-         FROM voice_provider_profiles
-        WHERE voice_profile_id = ? AND user_id = ? AND deleted_at IS NULL`,
-      )
-      .all(profile.id, userId);
+    const providerProfiles = await listProviderProfilesForVoiceProfile(db, {
+      voiceProfileId: profile.id,
+      userId,
+    });
     await softDeleteProviderProfilesForVoiceProfile(db, {
       voiceProfileId: profile.id,
       userId,
@@ -2164,11 +2091,10 @@ function registerEnrollmentRoutes(app, deps) {
     // U3: token revocation goes through enrollment-domain service.
     await revokeAllEnrollmentSessionTokensForUser(db, userId);
 
-    await db
-      .prepare(
-        "UPDATE voice_profiles SET status = ?, embedding_ref = ?, elevenlabs_voice_id = ?, deleted_at = ? WHERE id = ?",
-      )
-      .run("deleted", null, null, nowIso(), profile.id);
+    await enrollmentSessionRepository.deleteVoiceProfileAndClearAssets({
+      profileId: profile.id,
+      deletedAt: nowIso(),
+    });
     await addAuditEntry({
       userId,
       action: "voice_profile_deleted",

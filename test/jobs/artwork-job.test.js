@@ -560,7 +560,7 @@ test("enqueueArtworkJob returns synchronously and isolates errors", async () => 
     }),
   };
   const before = Date.now();
-  enqueueArtworkJob({
+  const handle = enqueueArtworkJob({
     db: fakeDb,
     trackId: "t-1",
     trackVersionId: "tv-1",
@@ -571,8 +571,9 @@ test("enqueueArtworkJob returns synchronously and isolates errors", async () => 
     elapsed < 50,
     `enqueueArtworkJob should return synchronously (took ${elapsed}ms)`,
   );
-  await new Promise((r) => setImmediate(r));
-  await new Promise((r) => setTimeout(r, 10));
+  assert.equal(typeof handle.jobId, "string");
+  assert.ok(handle.promise);
+  await handle.promise;
 });
 
 test("enqueueArtworkJob is a no-op when trackVersionId is missing", async () => {
@@ -618,6 +619,80 @@ test("runArtworkJob with jobId persists running → completed on success", async
   assert.equal(calls.markJobCompleted.length, 1, "job marked completed");
   assert.equal(calls.markJobCompleted[0][2], "job-1");
   assert.equal(calls.markJobFailed.length, 0);
+});
+
+test("runArtworkJob with jobId aborts when the jobs row is no longer claimable", async () => {
+  let getTrackCalled = false;
+  let generateCalled = false;
+  const artworkJobRepository = {
+    markJobRunning: async () => ({ changes: 0 }),
+    getTrack: async () => {
+      getTrackCalled = true;
+      return SAMPLE_TRACK;
+    },
+  };
+
+  const result = await runArtworkJob({
+    db: {},
+    artworkJobRepository,
+    trackId: SAMPLE_TRACK.id,
+    trackVersionId: "tv-1",
+    jobId: "job-terminal-race",
+    generateFn: async () => {
+      generateCalled = true;
+      return SAMPLE_RESULT;
+    },
+    logger: SILENT_LOGGER,
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.skipped, true);
+  assert.equal(result.stale, true);
+  assert.match(result.error.message, /no longer claimable/);
+  assert.equal(getTrackCalled, false);
+  assert.equal(generateCalled, false);
+});
+
+test("runArtworkJob with jobId aborts retry immediately when requeue loses the race", async () => {
+  await withFastBackoff(async () => {
+    let markRunningCalls = 0;
+    let requeueCalls = 0;
+    const artworkJobRepository = {
+      markJobRunning: async () => {
+        markRunningCalls += 1;
+        return { changes: 1 };
+      },
+      getTrack: async () => SAMPLE_TRACK,
+      getEntitlement: async () => ({ tier: "free" }),
+      getVersionLyrics: async () => null,
+      requeueJob: async () => {
+        requeueCalls += 1;
+        return { changes: 0 };
+      },
+    };
+    let attempts = 0;
+
+    const result = await runArtworkJob({
+      db: {},
+      artworkJobRepository,
+      trackId: SAMPLE_TRACK.id,
+      trackVersionId: "tv-1",
+      jobId: "job-terminal-during-retry",
+      generateFn: async () => {
+        attempts += 1;
+        throw new Error("transient");
+      },
+      logger: SILENT_LOGGER,
+    });
+
+    assert.equal(result.ok, false);
+    assert.equal(result.skipped, true);
+    assert.equal(result.stale, true);
+    assert.match(result.error.message, /no longer retryable/);
+    assert.equal(attempts, 1);
+    assert.equal(markRunningCalls, 1);
+    assert.equal(requeueCalls, 1);
+  });
 });
 
 test("runArtworkJob with jobId persists failed on permanent error", async () => {

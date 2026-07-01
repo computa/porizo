@@ -40,7 +40,38 @@ async function dbRun(db, sql, params = []) {
   };
 }
 
+function rowsFromQueryResult(result) {
+  if (Array.isArray(result)) {
+    return result;
+  }
+  return Array.isArray(result?.rows) ? result.rows : [];
+}
+
+function createPreparedDbFromQuery(query, parentDb) {
+  return {
+    isPostgres: Boolean(parentDb?.isPostgres),
+    prepare(sql) {
+      return {
+        async get(...params) {
+          const result = await query(sql, params);
+          return rowsFromQueryResult(result)[0];
+        },
+        async all(...params) {
+          const result = await query(sql, params);
+          return rowsFromQueryResult(result);
+        },
+        async run(...params) {
+          const result = await query(sql, params);
+          const changes = Number(result?.rowCount ?? result?.changes ?? 0);
+          return { changes, rowCount: changes };
+        },
+      };
+    },
+  };
+}
+
 module.exports = {
+  createPreparedDbFromQuery,
   dbQuery,
   dbGet,
   dbAll,

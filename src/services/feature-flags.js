@@ -2,6 +2,8 @@
  * Feature Flags Service - Runtime configuration with DB-backed storage and caching
  */
 
+const { createFeatureFlagsRepository } = require("../database/feature-flags-repository");
+
 const CACHE_TTL_MS = 60_000;
 
 // Cache stores { value, fetchedAt } per flag for correct per-flag TTL
@@ -627,7 +629,14 @@ const FLAG_METADATA = {
  * @param {boolean} options.throwOnError - If true, throws on DB errors instead of falling back to defaults
  * @returns {Promise<any>} Flag value (parsed from JSON)
  */
-async function getFeatureFlag(db, flagId, { throwOnError = false } = {}) {
+async function getFeatureFlag(
+  db,
+  flagId,
+  {
+    throwOnError = false,
+    repository = createFeatureFlagsRepository(db),
+  } = {},
+) {
   const now = Date.now();
   const cached = cache.get(flagId);
 
@@ -637,9 +646,7 @@ async function getFeatureFlag(db, flagId, { throwOnError = false } = {}) {
   }
 
   try {
-    const row = await db
-      .prepare("SELECT value FROM feature_flags WHERE id = ?")
-      .get(flagId);
+    const row = await repository.findValueById(flagId);
 
     if (row && row.value) {
       const parsed = JSON.parse(row.value);
@@ -671,21 +678,27 @@ async function getFeatureFlag(db, flagId, { throwOnError = false } = {}) {
  * @param {boolean} options.throwOnError - If true, throws on DB errors instead of falling back to defaults
  * @returns {Promise<Object>} Object with flag values keyed by flag ID
  */
-async function getFeatureFlags(db, flagIds, { throwOnError = false } = {}) {
+async function getFeatureFlags(
+  db,
+  flagIds,
+  {
+    throwOnError = false,
+    repository = createFeatureFlagsRepository(db),
+  } = {},
+) {
   const result = {};
 
   try {
-    const placeholders = flagIds.map(() => "?").join(",");
-    const statement = db.prepare(
-      `SELECT id, value FROM feature_flags WHERE id IN (${placeholders})`,
-    );
-    if (typeof statement.all !== "function") {
+    const rows = await repository.findValuesByIds(flagIds);
+    if (rows === null) {
       for (const flagId of flagIds) {
-        result[flagId] = await getFeatureFlag(db, flagId, { throwOnError });
+        result[flagId] = await getFeatureFlag(db, flagId, {
+          throwOnError,
+          repository,
+        });
       }
       return result;
     }
-    const rows = await statement.all(...flagIds);
 
     const dbValues = new Map();
     const now = Date.now();
@@ -734,21 +747,23 @@ async function getFeatureFlags(db, flagIds, { throwOnError = false } = {}) {
  * @param {string} updatedBy - User/system that updated the flag
  * @returns {Promise<void>}
  */
-async function setFeatureFlag(db, flagId, value, updatedBy = "system") {
+async function setFeatureFlag(
+  db,
+  flagId,
+  value,
+  updatedBy = "system",
+  { repository = createFeatureFlagsRepository(db) } = {},
+) {
   const jsonValue = JSON.stringify(value);
   const now = new Date().toISOString();
 
   try {
-    await db
-      .prepare(
-        `INSERT INTO feature_flags (id, value, updated_at, updated_by)
-       VALUES (?, ?, ?, ?)
-       ON CONFLICT (id) DO UPDATE SET
-         value = excluded.value,
-         updated_at = excluded.updated_at,
-         updated_by = excluded.updated_by`,
-      )
-      .run(flagId, jsonValue, now, updatedBy);
+    await repository.upsertValue({
+      flagId,
+      value: jsonValue,
+      updatedAt: now,
+      updatedBy,
+    });
 
     // Only update cache after successful DB write
     cache.set(flagId, { value, fetchedAt: Date.now() });

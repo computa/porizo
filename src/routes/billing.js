@@ -2,6 +2,12 @@
 
 const crypto = require("crypto");
 const { nowIso, toJson, parseJson } = require("../utils/common");
+const {
+  createAdminBillingRepository,
+} = require("../database/admin-billing-repository");
+const {
+  createSubscriptionEntitlementsRepository,
+} = require("../database/subscription-entitlements-repository");
 const { getFeatureFlag } = require("../services/feature-flags");
 
 // Frozen wire-format constant, NOT a feature toggle. Pay-per-song is a permanent
@@ -100,11 +106,20 @@ function registerBillingRoutes(
     googleValidator,
     giftTokenProductId,
     getGiftWalletSummary,
+    hasGiftWalletReceiptCredit,
     applyGiftWalletTransaction,
     appleWebhookHandler,
     planConfigService,
+    adminBillingRepository,
+    subscriptionEntitlementsRepository,
   },
 ) {
+  const adminBillingRepo =
+    adminBillingRepository || createAdminBillingRepository(db);
+  const subscriptionEntitlementsRepo =
+    subscriptionEntitlementsRepository ||
+    createSubscriptionEntitlementsRepository(db);
+
   // ============ Billing API Routes ============
 
   function parseBooleanQuery(value) {
@@ -248,11 +263,10 @@ function registerBillingRoutes(
     }
 
     try {
-      const bundle = await db
-        .prepare(
-          "SELECT token_count, display_name FROM gift_bundles WHERE product_id = ?",
-        )
-        .get(normalizedProductId);
+      const bundle =
+        await subscriptionEntitlementsRepo.findGiftBundleByProductId(
+          normalizedProductId,
+        );
 
       if (bundle) {
         const tokenCount = Number(bundle.token_count || 0);
@@ -375,11 +389,10 @@ function registerBillingRoutes(
     }
 
     try {
-      const existingReceipt = await db
-        .prepare(
-          "SELECT id, user_id, product_id FROM purchase_receipts WHERE transaction_id = ?",
-        )
-        .get(effectiveTransactionId);
+      const existingReceipt =
+        await subscriptionEntitlementsRepo.findPurchaseReceiptByTransactionId(
+          effectiveTransactionId,
+        );
       if (existingReceipt) {
         if (existingReceipt.user_id !== userId) {
           sendError(
@@ -392,16 +405,10 @@ function registerBillingRoutes(
         }
 
         let recoveredMissingCredit = false;
-        const existingCredit = await db
-          .prepare(
-            `SELECT id
-         FROM gift_wallet_transactions
-         WHERE user_id = ?
-           AND reference_type = 'receipt'
-           AND reference_id = ?
-         LIMIT 1`,
-          )
-          .get(userId, existingReceipt.id);
+        const existingCredit = await hasGiftWalletReceiptCredit({
+          userId,
+          receiptId: existingReceipt.id,
+        });
 
         if (!existingCredit) {
           let existingBundle;
@@ -1335,11 +1342,10 @@ function registerBillingRoutes(
       const subscriptionId = subNotification.subscriptionId || null;
       const notificationType = Number(subNotification.notificationType);
 
-      const existing = await db
-        .prepare(
-          "SELECT id, user_id FROM subscriptions WHERE platform = 'google' AND original_transaction_id = ? LIMIT 1",
-        )
-        .get(purchaseToken);
+      const existing =
+        await subscriptionEntitlementsRepo.findLinkedGoogleSubscriptionByPurchaseToken(
+          purchaseToken,
+        );
 
       if (!existing?.user_id) {
         reply.send({
@@ -1401,24 +1407,13 @@ function registerBillingRoutes(
         await subscriptionManager.getEntitlements(targetUserId);
       const activeSubscription =
         await subscriptionManager.getActiveSubscription(targetUserId);
-      const latestSubscription = await db
-        .prepare(
-          `SELECT * FROM subscriptions
-       WHERE user_id = ?
-       ORDER BY updated_at DESC, created_at DESC
-       LIMIT 1`,
-        )
-        .get(targetUserId);
-      const recentReceipts = await db
-        .prepare(
-          `SELECT transaction_id, original_transaction_id, product_id, platform,
-              verification_status, purchase_date, expires_date, created_at
-       FROM purchase_receipts
-       WHERE user_id = ?
-       ORDER BY created_at DESC
-       LIMIT 20`,
-        )
-        .all(targetUserId);
+      const latestSubscription =
+        await adminBillingRepo.getLatestSubscriptionForUser(targetUserId);
+      const recentReceipts =
+        await adminBillingRepo.listRecentReceiptsForUser({
+          userId: targetUserId,
+          limit: 20,
+        });
 
       reply.send({
         userId: targetUserId,
@@ -1732,11 +1727,10 @@ function registerBillingRoutes(
     }
 
     try {
-      const result = await db
-        .prepare(
-          "UPDATE entitlements SET preview_count_today = 0, updated_at = ? WHERE user_id = ?",
-        )
-        .run(nowIso(), targetUserId);
+      const result = await adminBillingRepo.resetPreviewCount({
+        userId: targetUserId,
+        updatedAt: nowIso(),
+      });
 
       if (result.changes === 0) {
         sendError(
@@ -1795,11 +1789,10 @@ function registerBillingRoutes(
       }
 
       try {
-        const result = await db
-          .prepare(
-            "UPDATE entitlements SET preview_count_today = 0, updated_at = ? WHERE user_id = ?",
-          )
-          .run(nowIso(), userId);
+        const result = await adminBillingRepo.resetPreviewCount({
+          userId,
+          updatedAt: nowIso(),
+        });
 
         if (result.changes === 0) {
           sendError(reply, 404, "NOT_FOUND", "User entitlements not found");

@@ -459,7 +459,7 @@ Naming similarity on a remote platform ("thanks mom.mp3" vs `marketing/audio hoo
 
 **Mistake (latent, in package.json):** `"test": "node --test test/**/*.test.js"` — unquoted. npm runs scripts via `/bin/sh`, where `**` is NOT globstar; it collapses to `*`, matching only `test/<onedir>/*.test.js`. Result: only 54 of 208 files ran (~26%), and ALL 114 top-level `test/*.test.js` files were silently skipped. Every "npm test passes" claim only ever covered a quarter of the suite; newly-added top-level test files never ran in CI.
 
-**Rule:** When a test/build npm script uses a `**` glob, QUOTE it (`"test/**/*.test.js"`) so the *tool* (node --test, jest, etc.) expands it with real globstar — never rely on the shell. Verify suite size with `find ... -name '*.test.js' | wc -l` vs. what the runner reports; a large gap means the glob is under-matching. The Bash tool here runs zsh (where `**` works), which MASKS the bug — always reproduce script globs under `/bin/sh -c` to see what npm actually runs.
+**Rule:** When a test/build npm script uses a `**` glob, QUOTE it (`"test/**/*.test.js"`) so the _tool_ (node --test, jest, etc.) expands it with real globstar — never rely on the shell. Verify suite size with `find ... -name '*.test.js' | wc -l` vs. what the runner reports; a large gap means the glob is under-matching. The Bash tool here runs zsh (where `**` works), which MASKS the bug — always reproduce script globs under `/bin/sh -c` to see what npm actually runs.
 
 ---
 
@@ -470,3 +470,11 @@ Naming similarity on a remote platform ("thanks mom.mp3" vs `marketing/audio hoo
 **Mistake:** That change fought a DELIBERATE design — expiry of an abandoned gift draft refunds the credit AND soft-deletes the orphaned draft via `deleteGiftFundedReservationContent`, with an existing test ("deletes gift-funded content when a reservation expires") asserting exactly that. Worse, production data showed the race has NEVER fired: only 1 gift-funded track has ever existed (266 standard vs 1 gift_wallet). The real leak is an iOS client gap (it doesn't send `gift_reservation_id` on song-create, so songs are never linked to the reservation) — a CLIENT problem the backend already supports. I was about to break intentional GC to fix a theoretical race that doesn't occur.
 
 **Rule:** Before changing behavior to fix a "race"/"bug," confirm with PRODUCTION DATA that it actually occurs at meaningful volume. If an existing test + helper function encode the current behavior, treat it as intentional design until proven otherwise — the question is "which behavior is right and does the bad one actually happen?", not "could this theoretically be a problem?". A subagent's plausible diagnosis is a hypothesis, not a verified fact — verify the blast radius against real data first. Reverted; kept only the verified, isolated fix (false gift incidents).
+
+---
+
+## 2026-06-30 — PG verification harness must not load .env
+
+**Trigger:** Building a "run the test suite against real Postgres" harness (Gate 1 of refactor verification).
+**Mistake:** Added `-r dotenv/config` to load JWT_SECRET for PG runs. This pulled in `.env`'s production auth values (overrode ALLOW_ANON_USER_ID and friends), causing `billing-restore-path.test.js` to return 401 instead of 200/400 — a FALSE failure. The test mocks its own DB and never touches Postgres; it relies on the clean `NODE_ENV=test` + explicit-flag env that `npm test` provides.
+**Rule:** To force tests onto real PG, set `NODE_ENV=test DB_PROVIDER=postgres POSTGRES_*=...` and KEEP the standard test flags (`ALLOW_ANON_USER_ID=true ALLOW_DEVICE_TOKEN_FALLBACK=true`). Do NOT load `.env` (no `dotenv/config`). `DB_PROVIDER` wins over the `NODE_ENV==='test'→sqlite` default in `getDatabase()`, so the DB flips to PG while the rest of the test contract stays intact. Tests that inject a mock `db` into `buildServer({db})` ignore the DB env entirely.

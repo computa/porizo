@@ -9,12 +9,12 @@ ALTER TABLE poems ADD COLUMN IF NOT EXISTS funding_source TEXT NOT NULL DEFAULT 
 ALTER TABLE tracks DROP CONSTRAINT IF EXISTS tracks_funding_source_check;
 ALTER TABLE tracks
   ADD CONSTRAINT tracks_funding_source_check
-  CHECK (funding_source IN ('standard', 'gift_token'));
+  CHECK (funding_source IN ('standard', 'gift_wallet', 'gift_token'));
 
 ALTER TABLE poems DROP CONSTRAINT IF EXISTS poems_funding_source_check;
 ALTER TABLE poems
   ADD CONSTRAINT poems_funding_source_check
-  CHECK (funding_source IN ('standard', 'gift_token'));
+  CHECK (funding_source IN ('standard', 'gift_wallet', 'gift_token'));
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_tracks_gift_reservation_active
   ON tracks(gift_reservation_id)

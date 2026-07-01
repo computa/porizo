@@ -34,6 +34,118 @@ function convertQuestionMarkPlaceholders(sql, params = []) {
   return { sql: convertedSql, params };
 }
 
+function splitSqlStatements(sql) {
+  const statements = [];
+  let current = "";
+  let i = 0;
+  let singleQuote = false;
+  let doubleQuote = false;
+  let lineComment = false;
+  let blockComment = false;
+  let dollarQuoteTag = null;
+
+  while (i < sql.length) {
+    const char = sql[i];
+    const next = sql[i + 1];
+
+    if (lineComment) {
+      current += char;
+      if (char === "\n") lineComment = false;
+      i += 1;
+      continue;
+    }
+
+    if (blockComment) {
+      current += char;
+      if (char === "*" && next === "/") {
+        current += next;
+        blockComment = false;
+        i += 2;
+      } else {
+        i += 1;
+      }
+      continue;
+    }
+
+    if (dollarQuoteTag) {
+      if (sql.startsWith(dollarQuoteTag, i)) {
+        current += dollarQuoteTag;
+        i += dollarQuoteTag.length;
+        dollarQuoteTag = null;
+      } else {
+        current += char;
+        i += 1;
+      }
+      continue;
+    }
+
+    if (!singleQuote && !doubleQuote && char === "-" && next === "-") {
+      current += char + next;
+      lineComment = true;
+      i += 2;
+      continue;
+    }
+
+    if (!singleQuote && !doubleQuote && char === "/" && next === "*") {
+      current += char + next;
+      blockComment = true;
+      i += 2;
+      continue;
+    }
+
+    if (!singleQuote && !doubleQuote && char === "$") {
+      const tagMatch = sql.slice(i).match(/^\$[A-Za-z_][A-Za-z0-9_]*\$|^\$\$/);
+      if (tagMatch) {
+        dollarQuoteTag = tagMatch[0];
+        current += dollarQuoteTag;
+        i += dollarQuoteTag.length;
+        continue;
+      }
+    }
+
+    if (!doubleQuote && char === "'" && !singleQuote) {
+      singleQuote = true;
+      current += char;
+      i += 1;
+      continue;
+    }
+
+    if (singleQuote) {
+      current += char;
+      if (char === "'" && next === "'") {
+        current += next;
+        i += 2;
+        continue;
+      }
+      if (char === "'") singleQuote = false;
+      i += 1;
+      continue;
+    }
+
+    if (!singleQuote && char === '"') {
+      doubleQuote = !doubleQuote;
+      current += char;
+      i += 1;
+      continue;
+    }
+
+    if (!singleQuote && !doubleQuote && char === ";") {
+      const statement = current.trim();
+      if (statement.length > 0) statements.push(statement);
+      current = "";
+      i += 1;
+      continue;
+    }
+
+    current += char;
+    i += 1;
+  }
+
+  const finalStatement = current.trim();
+  if (finalStatement.length > 0) statements.push(finalStatement);
+  return statements;
+}
+
 /**
  * Create a PostgreSQL connection pool
  *
@@ -296,7 +408,7 @@ async function runMigrations(db, migrationsDir) {
 
     try {
       await db.transaction(async (query) => {
-        const statements = sql.split(';').map(s => s.trim()).filter(s => s.length > 0);
+        const statements = splitSqlStatements(sql);
         for (const stmt of statements) {
           await query(stmt);
         }
@@ -313,4 +425,5 @@ async function runMigrations(db, migrationsDir) {
 module.exports = {
   createPool,
   runMigrations,
+  splitSqlStatements,
 };

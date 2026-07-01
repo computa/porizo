@@ -9,7 +9,7 @@
 
 const fs = require("fs");
 const path = require("path");
-const { analyzeAudioQuality } = require("../utils/qc");
+const { analyzeAudioQuality } = require("./enrollment-qc");
 const { parseWavBuffer } = require("../utils/audio");
 const { assessAudioQuality, calculateQualityGrade, GRADE_VALUES } = require("./audio-quality");
 const { preprocessBatch } = require("./audio-preprocessing");

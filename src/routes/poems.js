@@ -16,6 +16,12 @@ const {
   ensurePoemShareToken,
   healAndCheckShare,
 } = require("../services/share-service");
+const {
+  createPoemLibraryRepository,
+} = require("../database/poem-library-repository");
+const {
+  createShareTokenRepository,
+} = require("../database/share-token-repository");
 
 function registerPoemRoutes(
   app,
@@ -30,9 +36,7 @@ function registerPoemRoutes(
     eventsService,
     sendMediaFile,
     ensureDir,
-    upsertPoemLibraryEntry,
     withPoemLibraryFlags,
-    getPoemForLibrary,
     buildPoemShareUrl,
     buildShareAppDownloadUrl,
     normalizeVariantName,
@@ -46,6 +50,9 @@ function registerPoemRoutes(
     subscriptionManager,
   },
 ) {
+  const poemLibraryRepository = createPoemLibraryRepository(db);
+  const shareTokenRepository = createShareTokenRepository(db);
+
   function resolveGiftReadyAt(shareRow) {
     if (!shareRow || shareRow.delivery_source !== "gift") {
       return null;
@@ -61,14 +68,8 @@ function registerPoemRoutes(
   }
 
   async function resolveValidPoemShare(shareId, reply) {
-    const share = await db
-      .prepare(
-        `SELECT pst.*, go.send_at AS gift_send_at
-         FROM poem_share_tokens pst
-         LEFT JOIN gift_orders go ON go.id = pst.gift_order_id
-        WHERE pst.id = ?`,
-      )
-      .get(shareId);
+    const share =
+      await shareTokenRepository.getPoemShareTokenWithGiftSendAt(shareId);
     if (!share || share.status === "revoked") {
       sendError(reply, 404, "SHARE_NOT_FOUND", "Poem share not found.");
       return null;
@@ -146,9 +147,9 @@ function registerPoemRoutes(
   // ============ Poems ============
 
   async function resolveGiftPoemContent(share) {
-    const livePoem = await db
-      .prepare("SELECT * FROM poems WHERE id = ? AND deleted_at IS NULL")
-      .get(share.poem_id);
+    const livePoem = await poemLibraryRepository.getLivePoemById(
+      share.poem_id,
+    );
     if (!share?.gift_order_id) {
       return {
         poem: livePoem,
@@ -160,9 +161,9 @@ function registerPoemRoutes(
       };
     }
 
-    const giftOrder = await db
-      .prepare("SELECT content_snapshot_json FROM gift_orders WHERE id = ?")
-      .get(share.gift_order_id);
+    const giftOrder = await poemLibraryRepository.getGiftOrderContentSnapshot(
+      share.gift_order_id,
+    );
     const snapshot = parseJson(
       giftOrder?.content_snapshot_json,
       null,
@@ -262,25 +263,20 @@ function registerPoemRoutes(
     const poemId = newUuid();
     const now = nowIso();
 
-    await db
-      .prepare(
-        `INSERT INTO poems (id, user_id, title, recipient_name, occasion, tone, verses, message, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        poemId,
-        userId,
-        title,
-        recipient_name,
-        occasion,
-        tone || "heartfelt",
-        "[]", // Empty verses for draft
-        message || null,
-        "draft",
-        now,
-        now,
-      );
-    await upsertPoemLibraryEntry({
+    await poemLibraryRepository.createPoem({
+      id: poemId,
+      userId,
+      title,
+      recipientName: recipient_name,
+      occasion,
+      tone: tone || "heartfelt",
+      versesJson: "[]",
+      message: message || null,
+      status: "draft",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await poemLibraryRepository.upsertPoemLibraryEntry({
       userId,
       poemId,
       origin: "created",
@@ -318,25 +314,7 @@ function registerPoemRoutes(
       return;
     }
 
-    const poems = await db
-      .prepare(
-        `SELECT p.*,
-                ple.origin AS library_origin,
-                ple.added_at AS library_added_at,
-                ple.share_token_id AS library_share_token_id,
-                CASE WHEN p.user_id = ? THEN 1 ELSE 0 END AS can_edit,
-                CASE WHEN p.user_id = ? THEN 1 ELSE 0 END AS can_share,
-                1 AS can_delete
-         FROM poems p
-         JOIN poem_library_entries ple
-           ON ple.poem_id = p.id
-          AND ple.user_id = ?
-          AND ple.removed_at IS NULL
-         WHERE p.deleted_at IS NULL
-           AND NOT (COALESCE(p.funding_source, 'standard') = 'gift_token' AND ple.origin = 'created')
-         ORDER BY ple.added_at DESC`,
-      )
-      .all(userId, userId, userId);
+    const poems = await poemLibraryRepository.listPoemsForUser(userId);
 
     // Parse verses JSON for each poem
     const parsedPoems = poems.map((row) => ({
@@ -356,24 +334,16 @@ function registerPoemRoutes(
       return;
     }
 
-    let poemRow = await getPoemForLibrary(userId, request.params.id);
+    let poemRow = await poemLibraryRepository.getPoemForLibrary({
+      userId,
+      poemId: request.params.id,
+    });
     if (!poemRow) {
-      const ownedGiftPoem = await db
-        .prepare(
-          `SELECT p.*,
-                NULL AS library_origin,
-                NULL AS library_added_at,
-                NULL AS library_share_token_id,
-                1 AS can_edit,
-                1 AS can_share,
-                1 AS can_delete
-           FROM poems p
-          WHERE p.id = ?
-            AND p.user_id = ?
-            AND p.deleted_at IS NULL
-            AND COALESCE(p.funding_source, 'standard') = 'gift_token'`,
-        )
-        .get(request.params.id, userId);
+      const ownedGiftPoem =
+        await poemLibraryRepository.getOwnedGiftTokenPoemForLibrary({
+          userId,
+          poemId: request.params.id,
+        });
       poemRow = ownedGiftPoem || null;
     }
 
@@ -400,9 +370,7 @@ function registerPoemRoutes(
       return;
     }
 
-    const poem = await db
-      .prepare("SELECT * FROM poems WHERE id = ?")
-      .get(request.params.id);
+    const poem = await poemLibraryRepository.getPoemById(request.params.id);
     if (!poem || poem.user_id !== userId || poem.deleted_at) {
       sendError(reply, 404, "POEM_NOT_FOUND", "Poem not found.");
       return;
@@ -481,21 +449,17 @@ function registerPoemRoutes(
       }
     }
 
-    await db
-      .prepare(
-        `UPDATE poems SET title = ?, recipient_name = ?, occasion = ?, tone = ?, message = ?, verses = ?, status = ?, updated_at = ? WHERE id = ?`,
-      )
-      .run(
-        updatedTitle,
-        updatedRecipientName,
-        updatedOccasion,
-        updatedTone,
-        updatedMessage,
-        updatedVerses,
-        updatedStatus,
-        now,
-        poem.id,
-      );
+    await poemLibraryRepository.updatePoem({
+      poemId: poem.id,
+      title: updatedTitle,
+      recipientName: updatedRecipientName,
+      occasion: updatedOccasion,
+      tone: updatedTone,
+      message: updatedMessage,
+      versesJson: updatedVerses,
+      status: updatedStatus,
+      updatedAt: now,
+    });
 
     await addAuditEntry({
       userId,
@@ -530,18 +494,21 @@ function registerPoemRoutes(
       return;
     }
 
-    const poem = await getPoemForLibrary(userId, request.params.id);
+    const poem = await poemLibraryRepository.getPoemForLibrary({
+      userId,
+      poemId: request.params.id,
+    });
     if (!poem) {
       sendError(reply, 404, "POEM_NOT_FOUND", "Poem not found.");
       return;
     }
 
     const now = nowIso();
-    await db
-      .prepare(
-        "UPDATE poem_library_entries SET removed_at = ?, updated_at = ? WHERE user_id = ? AND poem_id = ? AND removed_at IS NULL",
-      )
-      .run(now, now, userId, poem.id);
+    await poemLibraryRepository.removePoemFromLibrary({
+      userId,
+      poemId: poem.id,
+      removedAt: now,
+    });
 
     await addAuditEntry({
       userId,
@@ -577,18 +544,18 @@ function registerPoemRoutes(
       return;
     }
 
-    const poem = await db
-      .prepare("SELECT * FROM poems WHERE id = ? AND deleted_at IS NULL")
-      .get(request.params.id);
+    const poem = await poemLibraryRepository.getLivePoemById(
+      request.params.id,
+    );
     if (!poem || poem.user_id !== userId) {
       sendError(reply, 404, "POEM_NOT_FOUND", "Poem not found.");
       return;
     }
 
     // Pre-check: gate access before expensive LLM call
-    const entitlements = await db
-      .prepare("SELECT poems_remaining FROM entitlements WHERE user_id = ?")
-      .get(userId);
+    const entitlements = await poemLibraryRepository.getPoemCreditBalance(
+      userId,
+    );
     if (!entitlements || entitlements.poems_remaining <= 0) {
       console.warn(
         "[SecurityGuard:CreditCheck] Poem credit check blocked for user",
@@ -614,20 +581,18 @@ function registerPoemRoutes(
       const now = nowIso();
       const versesJson = toJson(result.verses);
 
-      await db
-        .prepare(
-          `UPDATE poems SET verses = ?, status = ?, updated_at = ? WHERE id = ?`,
-        )
-        .run(versesJson, "generated", now, poem.id);
+      await poemLibraryRepository.markPoemGenerated({
+        poemId: poem.id,
+        versesJson,
+        updatedAt: now,
+      });
 
       // Entitlement check: spend credit after successful generation
       try {
         await subscriptionManager.spendPoem(userId, poem.id);
       } catch (spendErr) {
         // Generation succeeded but credit spend failed — don't give away free content
-        await db
-          .prepare("UPDATE poems SET status = 'generation_failed' WHERE id = ?")
-          .run(poem.id);
+        await poemLibraryRepository.markPoemGenerationFailed(poem.id);
         return sendError(
           reply,
           503,
@@ -691,9 +656,9 @@ function registerPoemRoutes(
       return;
     }
 
-    const poem = await db
-      .prepare("SELECT * FROM poems WHERE id = ? AND deleted_at IS NULL")
-      .get(request.params.id);
+    const poem = await poemLibraryRepository.getLivePoemById(
+      request.params.id,
+    );
     if (!poem || poem.user_id !== userId) {
       sendError(reply, 404, "POEM_NOT_FOUND", "Poem not found.");
       return;
@@ -725,9 +690,11 @@ function registerPoemRoutes(
         );
         return;
       }
-      await db
-        .prepare("UPDATE poems SET og_variant = ?, updated_at = ? WHERE id = ?")
-        .run(normalizedVariant, nowIso(), poem.id);
+      await poemLibraryRepository.updatePoemOgVariant({
+        poemId: poem.id,
+        variant: normalizedVariant,
+        updatedAt: nowIso(),
+      });
     }
 
     const utmSource = request.query.utm_source || body.utm_source || null;
@@ -791,9 +758,9 @@ function registerPoemRoutes(
     const userId = await requireUserId(request, reply);
     if (!userId) return;
 
-    const poem = await db
-      .prepare("SELECT * FROM poems WHERE id = ? AND deleted_at IS NULL")
-      .get(request.params.id);
+    const poem = await poemLibraryRepository.getLivePoemById(
+      request.params.id,
+    );
     if (!poem || poem.user_id !== userId) {
       sendError(reply, 404, "POEM_NOT_FOUND", "Poem not found.");
       return;
@@ -844,9 +811,9 @@ function registerPoemRoutes(
     const userId = await requireUserId(request, reply);
     if (!userId) return;
 
-    const poem = await db
-      .prepare("SELECT * FROM poems WHERE id = ? AND deleted_at IS NULL")
-      .get(request.params.id);
+    const poem = await poemLibraryRepository.getLivePoemById(
+      request.params.id,
+    );
     if (!poem || poem.user_id !== userId) {
       sendError(reply, 404, "POEM_NOT_FOUND", "Poem not found.");
       return;
@@ -895,29 +862,24 @@ function registerPoemRoutes(
       return;
     }
 
-    const creator = await db
-      .prepare("SELECT id FROM users WHERE id = ?")
-      .get(share.creator_id);
+    const creator = await poemLibraryRepository.getUserPresence(
+      share.creator_id,
+    );
 
     // Update access tracking
-    await db
-      .prepare(
-        "UPDATE poem_share_tokens SET last_accessed_at = ?, access_count = access_count + 1 WHERE id = ?",
-      )
-      .run(nowIso(), share.id);
+    await shareTokenRepository.markPoemShareAccessed({
+      shareTokenId: share.id,
+      accessedAt: nowIso(),
+    });
 
     // Log access
-    await db
-      .prepare(
-        "INSERT INTO poem_share_access_log (id, poem_share_token_id, event_type, metadata, created_at) VALUES (?, ?, ?, ?, ?)",
-      )
-      .run(
-        newUuid(),
-        share.id,
-        "view",
-        toJson({ ip: extractClientIp(request) }),
-        nowIso(),
-      );
+    await shareTokenRepository.insertPoemShareAccessLog({
+      id: newUuid(),
+      shareTokenId: share.id,
+      eventType: "view",
+      metadata: toJson({ ip: extractClientIp(request) }),
+      createdAt: nowIso(),
+    });
 
     const appRequired = share.claim_policy === "app_only";
 
@@ -1032,11 +994,11 @@ function registerPoemRoutes(
 
     // Check if already claimed by this user — return 409 if already in library
     if (userId && share.bound_user_id === userId) {
-      const existingEntry = await db
-        .prepare(
-          "SELECT 1 FROM poem_library_entries WHERE user_id = ? AND poem_id = ? AND removed_at IS NULL",
-        )
-        .get(userId, share.poem_id);
+      const existingEntry =
+        await poemLibraryRepository.getActivePoemLibraryEntry({
+          userId,
+          poemId: share.poem_id,
+        });
       if (existingEntry) {
         sendError(
           reply,
@@ -1046,11 +1008,9 @@ function registerPoemRoutes(
         );
         return;
       }
-      const poem = await db
-        .prepare("SELECT * FROM poems WHERE id = ?")
-        .get(share.poem_id);
+      const poem = await poemLibraryRepository.getPoemById(share.poem_id);
       if (share.allow_save) {
-        await upsertPoemLibraryEntry({
+        await poemLibraryRepository.upsertPoemLibraryEntry({
           userId,
           poemId: share.poem_id,
           origin: "received",
@@ -1098,17 +1058,13 @@ function registerPoemRoutes(
       }
 
       if (share.claim_attempts >= 5) {
-        await db
-          .prepare(
-            "INSERT INTO poem_share_access_log (id, poem_share_token_id, event_type, metadata, created_at) VALUES (?, ?, ?, ?, ?)",
-          )
-          .run(
-            newUuid(),
-            share.id,
-            "claim_failed",
-            toJson({ reason: "too_many_attempts" }),
-            nowIso(),
-          );
+        await shareTokenRepository.insertPoemShareAccessLog({
+          id: newUuid(),
+          shareTokenId: share.id,
+          eventType: "claim_failed",
+          metadata: toJson({ reason: "too_many_attempts" }),
+          createdAt: nowIso(),
+        });
         sendError(
           reply,
           429,
@@ -1126,22 +1082,15 @@ function registerPoemRoutes(
           Buffer.from(share.claim_pin),
         );
       if (!pinMatch) {
-        const attemptResult = await db
-          .prepare(
-            "UPDATE poem_share_tokens SET claim_attempts = claim_attempts + 1 WHERE id = ? AND claim_attempts < 5 AND status = 'active'",
-          )
-          .run(share.id);
-        await db
-          .prepare(
-            "INSERT INTO poem_share_access_log (id, poem_share_token_id, event_type, metadata, created_at) VALUES (?, ?, ?, ?, ?)",
-          )
-          .run(
-            newUuid(),
-            share.id,
-            "claim_failed",
-            toJson({ reason: "invalid_pin" }),
-            nowIso(),
-          );
+        const attemptResult =
+          await shareTokenRepository.incrementPoemShareClaimAttempts(share.id);
+        await shareTokenRepository.insertPoemShareAccessLog({
+          id: newUuid(),
+          shareTokenId: share.id,
+          eventType: "claim_failed",
+          metadata: toJson({ reason: "invalid_pin" }),
+          createdAt: nowIso(),
+        });
         if (!attemptResult || Number(attemptResult.changes || 0) === 0) {
           sendError(
             reply,
@@ -1159,14 +1108,14 @@ function registerPoemRoutes(
     // Claim the share — bind to user only if authenticated
     const now = nowIso();
     if (userId) {
-      await db
-        .prepare(
-          "UPDATE poem_share_tokens SET status = ?, bound_user_id = ?, bound_at = ?, claim_attempts = 0 WHERE id = ?",
-        )
-        .run("claimed", userId, now, share.id);
+      await shareTokenRepository.claimPoemShareForUser({
+        shareTokenId: share.id,
+        userId,
+        claimedAt: now,
+      });
 
       if (share.allow_save) {
-        await upsertPoemLibraryEntry({
+        await poemLibraryRepository.upsertPoemLibraryEntry({
           userId,
           poemId: share.poem_id,
           origin: "received",
@@ -1193,17 +1142,13 @@ function registerPoemRoutes(
     }
     // Anonymous unlocks: do NOT reset claim_attempts — prevents brute-force bypass
 
-    await db
-      .prepare(
-        "INSERT INTO poem_share_access_log (id, poem_share_token_id, event_type, metadata, created_at) VALUES (?, ?, ?, ?, ?)",
-      )
-      .run(
-        newUuid(),
-        share.id,
-        userId ? "claim_success" : "pin_unlock",
-        toJson({ user_id: userId }),
-        nowIso(),
-      );
+    await shareTokenRepository.insertPoemShareAccessLog({
+      id: newUuid(),
+      shareTokenId: share.id,
+      eventType: userId ? "claim_success" : "pin_unlock",
+      metadata: toJson({ user_id: userId }),
+      createdAt: nowIso(),
+    });
 
     const { poem, verses } = await resolveGiftPoemContent(share);
 
@@ -1243,7 +1188,10 @@ function registerPoemRoutes(
     const userId = await requireUserId(request, reply);
     if (!userId) return;
 
-    const poem = await getPoemForLibrary(userId, request.params.id);
+    const poem = await poemLibraryRepository.getPoemForLibrary({
+      userId,
+      poemId: request.params.id,
+    });
     if (!poem) {
       sendError(reply, 404, "POEM_NOT_FOUND", "Poem not found.");
       return;
@@ -1337,26 +1285,10 @@ function registerPoemRoutes(
       });
 
       const generatedAt = nowIso();
-      try {
-        await db
-          .prepare(
-            "UPDATE poems SET audio_generated_at = ?, updated_at = ? WHERE id = ?",
-          )
-          .run(generatedAt, generatedAt, poem.id);
-      } catch (err) {
-        if (
-          String(err?.message || "").includes(
-            "no such column: audio_generated_at",
-          )
-        ) {
-          // SQLite migrations in some environments do not yet include this optional column.
-          await db
-            .prepare("UPDATE poems SET updated_at = ? WHERE id = ?")
-            .run(generatedAt, poem.id);
-        } else {
-          throw err;
-        }
-      }
+      await poemLibraryRepository.markPoemAudioGenerated({
+        poemId: poem.id,
+        generatedAt,
+      });
 
       await addAuditEntry({
         userId,
@@ -1393,7 +1325,10 @@ function registerPoemRoutes(
     const userId = await requireUserId(request, reply);
     if (!userId) return;
 
-    const poem = await getPoemForLibrary(userId, request.params.id);
+    const poem = await poemLibraryRepository.getPoemForLibrary({
+      userId,
+      poemId: request.params.id,
+    });
     if (!poem) {
       sendError(reply, 404, "POEM_NOT_FOUND", "Poem not found.");
       return;

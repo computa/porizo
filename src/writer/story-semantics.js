@@ -1129,5 +1129,6 @@ module.exports = {
   computeDetailCoverage,
   getSignificantWords,
   detailId,
+  factText,
   normalizeKey,
 };

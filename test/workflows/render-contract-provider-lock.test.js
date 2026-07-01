@@ -120,11 +120,14 @@ describe("provider lock integrity", () => {
 });
 
 describe("cross-provider fallback removal regression guard", () => {
-  test("runner.js does not contain cross-provider fallback functions", () => {
-    const runnerSource = fs.readFileSync(
+  test("workflow render sources do not contain cross-provider fallback functions", () => {
+    const workflowSources = [
       path.join(__dirname, "..", "..", "src", "workflows", "runner.js"),
-      "utf-8"
-    );
+      path.join(__dirname, "..", "..", "src", "workflows", "steps", "instrumental.js"),
+      path.join(__dirname, "..", "..", "src", "workflows", "steps", "mix.js"),
+    ]
+      .map((sourcePath) => fs.readFileSync(sourcePath, "utf-8"))
+      .join("\n");
 
     const forbiddenPatterns = [
       "shouldFallbackFromElevenLabsToSuno",
@@ -135,22 +138,32 @@ describe("cross-provider fallback removal regression guard", () => {
 
     for (const pattern of forbiddenPatterns) {
       assert.ok(
-        !runnerSource.includes(pattern),
-        `runner.js must NOT contain "${pattern}" — cross-provider fallback was removed by design`
+        !workflowSources.includes(pattern),
+        `workflow render sources must NOT contain "${pattern}" — cross-provider fallback was removed by design`
       );
     }
   });
 
   test("provider_complete_audio mix branch accepts wav fallback outputs", () => {
+    const mixSource = fs.readFileSync(
+      path.join(__dirname, "..", "..", "src", "workflows", "steps", "mix.js"),
+      "utf-8"
+    );
+
+    assert.ok(
+      mixSource.includes('path.join(versionDir, isFull ? "inst_full.wav" : "inst_preview.wav")'),
+      "provider_complete_audio mix branch must accept local wav outputs"
+    );
+  });
+
+  test("runner no longer defines inline instrumental handlers", () => {
     const runnerSource = fs.readFileSync(
       path.join(__dirname, "..", "..", "src", "workflows", "runner.js"),
       "utf-8"
     );
 
-    assert.ok(
-      runnerSource.includes('path.join(versionDir, isFull ? "inst_full.wav" : "inst_preview.wav")'),
-      "provider_complete_audio mix branch must accept local wav outputs"
-    );
+    assert.equal(runnerSource.includes("instrumental: async"), false);
+    assert.equal(runnerSource.includes("instrumental_full: async"), false);
   });
 });
 

@@ -14,8 +14,10 @@ xcrun simctl terminate "$UDID" porizo.ios.app.PorizoApp 2>/dev/null
 xcrun simctl launch "$UDID" porizo.ios.app.PorizoApp --bypass-auth --mock-payperson --fixture-paywall
 ```
 
-Then drive the UI with XcodeBuildMCP (`snapshot_ui` → `tap` by elementRef → `screenshot`).
-Build/install first via `build_sim` + `install_app_sim` (or `build_run_sim`, which installs but launches without args — relaunch via simctl).
+Then drive the UI with Argent or XcodeBuildMCP discovery tools before tapping.
+`build_run_sim` can pass `launchArgs` in current XcodeBuildMCP sessions; if a
+tool drops arguments, relaunch with `simctl` and verify
+`ProcessInfo.processInfo.arguments` through the visible fixture state.
 
 ## Launch flags
 
@@ -28,6 +30,8 @@ Build/install first via `build_sim` + `install_app_sim` (or `build_run_sim`, whi
 | `--mock-no-credits`                                                  | Mock: free, 0 credits, flag OFF (subscription-only wall).                                                                                               |
 | `--fixture-paywall`                                                  | On entering the create flow, present the create-flow wall (`SubscriptionView`) directly — combine with `--mock-payperson` to see the pay-per-song hero. |
 | `--fixture-reveal` / `--fixture-reveal-ready` / `--fixture-creating` | Jump to the song reveal/creating screens (screenshot fixtures).                                                                                         |
+| `--fixture-share-postcard`                                           | Jump directly to the seeded share postcard state with a fixture share URL and PIN.                                                                       |
+| `--fixture-gift-flow`                                                | Present the gift-send flow directly from `MainTabView` for simulator recording.                                                                          |
 | `--design-samples`                                                   | Open the design catalog.                                                                                                                                |
 
 ### Verify the pay-per-song hero (example)

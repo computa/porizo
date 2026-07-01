@@ -2,6 +2,9 @@ const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
 const { trackArtworkKey } = require("../storage");
+const {
+  createArtworkAccessRepository,
+} = require("../database/artwork-access-repository");
 
 const TRACK_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 
@@ -160,9 +163,12 @@ function registerArtworkRoutes(
     sendError,
     storageProvider,
     ensureLocalFileFromStorage,
+    artworkAccessRepository,
   } = {},
 ) {
   const respondError = sendError || defaultSendError;
+  const accessRepository =
+    artworkAccessRepository || createArtworkAccessRepository(db);
 
   app.get("/tracks/:trackId/artwork.jpg", async (request, reply) => {
     const { trackId } = request.params;
@@ -188,11 +194,8 @@ function registerArtworkRoutes(
       ) {
         if (shareToken) {
           try {
-            const share = await db
-              .prepare(
-                "SELECT track_id, status, expires_at FROM share_tokens WHERE id = ?",
-              )
-              .get(shareToken);
+            const share =
+              await accessRepository.getShareTokenForArtwork(shareToken);
             if (
               share &&
               share.track_id === trackId &&
@@ -222,11 +225,7 @@ function registerArtworkRoutes(
     // and audio capabilities can be revoked separately.
     if (!authorized && shareToken && !sig) {
       try {
-        const share = await db
-          .prepare(
-            "SELECT track_id, status, expires_at FROM share_tokens WHERE id = ?",
-          )
-          .get(shareToken);
+        const share = await accessRepository.getShareTokenForArtwork(shareToken);
         if (
           share &&
           share.track_id === trackId &&
@@ -255,9 +254,7 @@ function registerArtworkRoutes(
         const userId = await requireUserId(request, reply);
         if (reply.sent) return;
         if (userId) {
-          const owner = await db
-            .prepare("SELECT user_id FROM tracks WHERE id = ?")
-            .get(trackId);
+          const owner = await accessRepository.getTrackOwnerForArtwork(trackId);
           if (owner && owner.user_id === userId) {
             authorized = true;
           }
@@ -281,9 +278,7 @@ function registerArtworkRoutes(
     // via cross-track enumeration attempts.
     let userId;
     try {
-      const owner = await db
-        .prepare("SELECT user_id FROM tracks WHERE id = ?")
-        .get(trackId);
+      const owner = await accessRepository.getTrackOwnerForArtwork(trackId);
       if (!owner) {
         return respondError(
           reply,

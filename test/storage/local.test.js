@@ -36,6 +36,9 @@ describe("Local Storage Provider", () => {
     assert.strictEqual(typeof storage.downloadToFile, "function");
     assert.strictEqual(typeof storage.putFile, "function");
     assert.strictEqual(typeof storage.deleteObject, "function");
+    assert.strictEqual(typeof storage.listKeys, "function");
+    assert.strictEqual(typeof storage.listObjects, "function");
+    assert.strictEqual(typeof storage.verifyPresignedRequest, "function");
     assert.strictEqual(typeof storage.getPathEncryptionInfo, "function");
     assert.strictEqual(typeof storage.isEncryptionEnabled, "function");
   });
@@ -108,6 +111,7 @@ describe("Local Storage Provider", () => {
     const storage = createLocalStorage({
       STORAGE_DIR: testDir,
       STREAM_BASE_URL: "http://localhost:3000",
+      UPLOAD_SIGNING_SECRET: "test-secret",
     });
 
     const result = storage.createPresignedUpload({
@@ -120,6 +124,28 @@ describe("Local Storage Provider", () => {
     assert.ok(result.url.includes("test%2Ffile.wav") || result.url.includes("test/file.wav"));
     assert.ok(result.url.includes("sig="));
     assert.strictEqual(result.method, "PUT");
+
+    const parsedUrl = new URL(result.url);
+    assert.strictEqual(
+      storage.verifyPresignedRequest({
+        key: parsedUrl.searchParams.get("key"),
+        expiresAt: Number(parsedUrl.searchParams.get("expires")),
+        signature: parsedUrl.searchParams.get("sig"),
+        contentType: parsedUrl.searchParams.get("content_type"),
+        purpose: "upload",
+      }),
+      true,
+    );
+    assert.strictEqual(
+      storage.verifyPresignedRequest({
+        key: parsedUrl.searchParams.get("key"),
+        expiresAt: Number(parsedUrl.searchParams.get("expires")),
+        signature: "0".repeat(64),
+        contentType: parsedUrl.searchParams.get("content_type"),
+        purpose: "upload",
+      }),
+      false,
+    );
   });
 
   test("createPresignedDownload generates valid URL", () => {

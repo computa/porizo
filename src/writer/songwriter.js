@@ -20,11 +20,38 @@ const {
 const { getStoryContextV3 } = require("./v3");
 const {
   deriveStoryBlockProfile,
+  factText,
   repairSongMapWithProfile,
   getSignificantWords,
 } = require("./story-semantics");
+const {
+  buildFactMap,
+  getSongMapIdea,
+  getSongMapSourceFacts,
+  hasSongMapContent,
+  normalizeSongMapEntry,
+  sanitizeFactId,
+  sanitizeSongMap,
+  significantWordOverlap,
+  validateSongContract,
+} = require("./song-contract");
 const { summarizeLyricsContextForLog } = require("./lyrics-context");
 const { extractFirstJsonObject } = require("../utils/common");
+const {
+  applySongwriterPromptBudget,
+  roughTokenEstimate,
+  summarizePromptCompactionText,
+} = require("./songwriter/prompt-budget");
+const {
+  sanitizeInput,
+  sanitizeLongStoryForPrompt,
+  sanitizeLongStoryInput,
+} = require("./songwriter/text-normalization");
+const {
+  getSectionText,
+  serializeLyricsDraftForPrompt,
+  summarizeExistingSections,
+} = require("./songwriter/prompt-serialization");
 
 // Syllable constraints for singability
 const MIN_SYLLABLES_PER_LINE = 3;
@@ -42,8 +69,6 @@ const LYRICS_LLM_REPAIR_MAX_OUTPUT_TOKENS = Math.max(
   1500,
   Math.ceil(LYRICS_LLM_MAX_OUTPUT_TOKENS * 0.6),
 );
-const SHORT_FIELD_CHAR_LIMIT = 2000;
-const LONG_STORY_CHAR_LIMIT = 12000;
 const PROMPT_STORY_EXCERPT_CHAR_LIMIT = 2400;
 const PROMPT_LEDGER_MAX_ENTRIES = 40;
 const FIDELITY_LEDGER_MAX_ENTRIES = 80;
@@ -55,8 +80,6 @@ const STOP_WORDS_FOR_COVERAGE = new Set([
   "their", "they", "them", "you", "our", "her", "his", "she", "him", "was",
   "were", "are", "had", "has", "have", "but", "not", "all", "every", "just",
 ]);
-
-const factText = (f) => typeof f === "string" ? f : f?.text || "";
 
 const MUSIC_STYLES = Object.freeze(getStyleDisplayMap());
 
@@ -105,48 +128,6 @@ YOUR VOICE:
 - Every line should feel inevitable, not forced`;
 
 /**
- * Sanitize input text for safe LLM processing
- * Removes control characters, excessive whitespace, and dangerous patterns
- * @param {string} text - Raw input text
- * @returns {string} - Sanitized text
- */
-function sanitizeText(text, maxLength = SHORT_FIELD_CHAR_LIMIT) {
-  if (!text || typeof text !== "string") return "";
-
-  return text
-    // Remove control characters except newlines and tabs
-    // eslint-disable-next-line no-control-regex
-    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "")
-    // Remove zero-width characters first (potential injection vectors)
-    .replace(/[\u200B-\u200D\uFEFF]/g, "")
-    // Normalize unicode whitespace to regular spaces (excluding zero-width already removed)
-    .replace(/[\u00A0\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200A\u2028\u2029\u202F\u205F\u3000]/g, " ")
-    // Collapse multiple spaces to single space
-    .replace(/\s+/g, " ")
-    // Limit length for the caller's field type.
-    .slice(0, maxLength)
-    .trim();
-}
-
-function sanitizeInput(text) {
-  return sanitizeText(text, SHORT_FIELD_CHAR_LIMIT);
-}
-
-function sanitizeLongStoryInput(text, maxLength = LONG_STORY_CHAR_LIMIT) {
-  return sanitizeText(text, maxLength);
-}
-
-function sanitizeLongStoryForPrompt(text) {
-  let sanitized = sanitizeLongStoryInput(text);
-  sanitized = sanitized.replace(/\r\n/g, "\n").replace(/\n{3,}/g, "\n\n");
-  sanitized = sanitized.replace(/<[^>]*>/g, "");
-  sanitized = sanitized.replace(/```[^`]*```/g, "");
-  sanitized = sanitized.replace(/###[^\n]*/g, "");
-  sanitized = sanitized.replace(/\[\[[^\]]*\]\]/g, "");
-  return sanitized.trim();
-}
-
-/**
  * Validate style against known MUSIC_STYLES
  * @param {string} style - Style to validate
  * @returns {{ valid: boolean, normalized: string }} - Validation result with normalized style
@@ -168,14 +149,6 @@ function validateStyle(style) {
   }
 
   return { valid: false, normalized: "pop" }; // Default to pop if unknown
-}
-
-function summarizePromptCompactionText(text, maxLen = 160) {
-  const value = String(text || "").replace(/\s+/g, " ").trim();
-  if (value.length <= maxLen) {
-    return value;
-  }
-  return `${value.slice(0, maxLen - 1)}…`;
 }
 
 function summarizeArrayPreview(values, maxItems = 4) {
@@ -263,10 +236,6 @@ function summarizeFidelityForLog(fidelity) {
     flattened_emotional_arc: summarizePromptCompactionText(fidelity.flattened_emotional_arc || "", 120),
     feedback: summarizePromptCompactionText(fidelity.feedback || "", 160),
   };
-}
-
-function roughTokenEstimate(text) {
-  return Math.ceil((text || "").length / 4);
 }
 
 function normalizeLedgerText(text) {
@@ -807,147 +776,6 @@ function buildRequiredDetailTokenFrequency(requiredDetails) {
   return frequency;
 }
 
-function applySongwriterPromptBudget(prompt, {
-  narrativeText = "",
-  tokenBudget = 5500,
-} = {}) {
-  const compactions = [];
-  let finalPrompt = String(prompt || "").trim();
-  const initialChars = finalPrompt.length;
-  const initialTokens = roughTokenEstimate(finalPrompt);
-  let tokens = initialTokens;
-
-  if (tokens > tokenBudget) {
-    const overBy = tokens - tokenBudget;
-    const charsToRemove = overBy * 4;
-    if (narrativeText && narrativeText.length > charsToRemove + 100) {
-      const targetLength = Math.max(900, narrativeText.length - charsToRemove - 50);
-      const headLength = Math.ceil(targetLength * 0.55);
-      const tailLength = Math.max(250, Math.floor(targetLength * 0.35));
-      const head = narrativeText.slice(0, headLength);
-      const tail = narrativeText.slice(Math.max(headLength, narrativeText.length - tailLength));
-      const cleanNarrative = `${head.trim()}\n[Story prose compacted. Required details are preserved in the binding detail ledger.]\n${tail.trim()}`;
-      finalPrompt = finalPrompt.replace(narrativeText, cleanNarrative);
-      const nextTokens = roughTokenEstimate(finalPrompt);
-      compactions.push({
-        stage: "narrative_trim",
-        removedChars: Math.max(0, narrativeText.length - cleanNarrative.length),
-        removedPreview: summarizePromptCompactionText(narrativeText.slice(head.length, Math.max(head.length, narrativeText.length - tail.length))),
-        beforeTokens: tokens,
-        afterTokens: nextTokens,
-      });
-      tokens = nextTokens;
-    }
-  }
-
-  if (tokens > tokenBudget) {
-    const supportIdx = finalPrompt.indexOf("SUPPORTING STORY CONTEXT:");
-    const altIdx = finalPrompt.indexOf("STORY-GROUNDED DETAILS:");
-    const removeIdx = supportIdx !== -1 ? supportIdx : altIdx;
-    if (removeIdx !== -1) {
-      const nextSection = finalPrompt.indexOf("\n## ", removeIdx + 1);
-      if (nextSection !== -1) {
-        const removedSection = finalPrompt.slice(removeIdx, nextSection);
-        finalPrompt = finalPrompt.slice(0, removeIdx) + finalPrompt.slice(nextSection);
-        const nextTokens = roughTokenEstimate(finalPrompt);
-        compactions.push({
-          stage: "supporting_context_removed",
-          removedSection: removedSection.split("\n")[0].replace(/:$/, ""),
-          removedPreview: summarizePromptCompactionText(removedSection),
-          beforeTokens: tokens,
-          afterTokens: nextTokens,
-        });
-        tokens = nextTokens;
-      }
-    }
-  }
-
-  if (tokens > tokenBudget) {
-    const detailsIdx = finalPrompt.indexOf("KEY DETAILS:");
-    if (detailsIdx !== -1) {
-      const detailsEnd = finalPrompt.indexOf("\n", detailsIdx + 200);
-      const detailsSection = finalPrompt.slice(detailsIdx, detailsEnd !== -1 ? detailsEnd : undefined);
-      const lines = detailsSection.split("\n").filter(l => l.startsWith("- "));
-      if (lines.length > 5) {
-        const droppedLines = lines.slice(5);
-        const truncated = `KEY DETAILS:\n${lines.slice(0, 5).join("\n")}`;
-        finalPrompt = finalPrompt.replace(detailsSection, truncated);
-        const nextTokens = roughTokenEstimate(finalPrompt);
-        compactions.push({
-          stage: "key_details_trimmed",
-          keptCount: 5,
-          droppedCount: droppedLines.length,
-          droppedPreview: summarizePromptCompactionText(droppedLines.join(" | ")),
-          beforeTokens: tokens,
-          afterTokens: nextTokens,
-        });
-        tokens = nextTokens;
-      }
-    }
-  }
-
-  if (tokens > tokenBudget && narrativeText) {
-    const proseOmission = "[Full story prose omitted after extracting the binding detail ledger and song map. Use the ledger as the source of truth.]";
-    const beforeChars = finalPrompt.length;
-    if (finalPrompt.includes(narrativeText)) {
-      finalPrompt = finalPrompt.replace(narrativeText, proseOmission);
-    } else {
-      finalPrompt = finalPrompt.replace(/\[Story prose compacted\. Required details are preserved in the binding detail ledger\.\][\s\S]*?(?=\n[A-Z][A-Z\s()/-]+:|\n## |\n$)/, proseOmission);
-    }
-    const nextTokens = roughTokenEstimate(finalPrompt);
-    if (nextTokens < tokens) {
-      compactions.push({
-        stage: "story_prose_replaced_by_ledger",
-        removedChars: Math.max(0, beforeChars - finalPrompt.length),
-        removedPreview: "Full prose removed after ledger extraction",
-        beforeTokens: tokens,
-        afterTokens: nextTokens,
-      });
-      tokens = nextTokens;
-    }
-  }
-
-  if (tokens > tokenBudget) {
-    const briefIdx = finalPrompt.indexOf("## SONG BRIEF");
-    const taskIdx = finalPrompt.indexOf("## YOUR TASK");
-    if (briefIdx !== -1 && taskIdx !== -1 && taskIdx > briefIdx) {
-      const header = finalPrompt.slice(0, briefIdx);
-      const brief = finalPrompt.slice(briefIdx, taskIdx);
-      const tail = finalPrompt.slice(taskIdx);
-      const headerTokens = roughTokenEstimate(header);
-      const tailTokens = roughTokenEstimate(tail);
-      const briefBudget = (tokenBudget - headerTokens - tailTokens) * 4;
-      if (briefBudget > 200) {
-        const truncatedBrief = brief.slice(0, briefBudget);
-        const lastNewline = truncatedBrief.lastIndexOf("\n");
-        const cleanBrief = lastNewline > 100 ? truncatedBrief.slice(0, lastNewline + 1) : truncatedBrief;
-        const removedBriefTail = brief.slice(cleanBrief.length);
-        finalPrompt = `${header}${cleanBrief}\n\n${tail}`;
-        const nextTokens = roughTokenEstimate(finalPrompt);
-        compactions.push({
-          stage: "song_brief_hard_cap",
-          removedChars: Math.max(0, removedBriefTail.length),
-          removedPreview: summarizePromptCompactionText(removedBriefTail),
-          beforeTokens: tokens,
-          afterTokens: nextTokens,
-        });
-        tokens = nextTokens;
-      }
-    }
-  }
-
-  return {
-    prompt: finalPrompt,
-    tokens,
-    tokenBudget,
-    initialTokens,
-    initialChars,
-    finalChars: finalPrompt.length,
-    removedCharsTotal: Math.max(0, initialChars - finalPrompt.length),
-    compactions,
-  };
-}
-
 /**
  * Count syllables in a word (approximate)
  */
@@ -1151,82 +979,6 @@ function sanitizeJsonValue(value, depth = 0) {
   return null;
 }
 
-function buildFactMap(facts = []) {
-  const entries = Array.isArray(facts) ? facts : [];
-  return new Map(
-    entries
-      .filter((fact) => fact && fact.id && fact.text)
-      .map((fact) => [String(fact.id), fact])
-  );
-}
-
-function sanitizeFactId(value) {
-  return sanitizeInput(typeof value === "string" ? value : String(value || ""));
-}
-
-function normalizeSongMapEntry(value, factMap) {
-  if (typeof value === "string") {
-    const idea = sanitizeInput(value);
-    return idea ? { idea, source_facts: [] } : null;
-  }
-  if (!value || typeof value !== "object") return null;
-
-  const idea = sanitizeInput(value.idea || value.text || value.line || "");
-  if (!idea) return null;
-
-  const rawSourceFacts = Array.isArray(value.source_facts)
-    ? value.source_facts
-    : Array.isArray(value.facts)
-      ? value.facts
-      : typeof value.source_facts === "string"
-        ? [value.source_facts]
-        : typeof value.facts === "string"
-          ? [value.facts]
-          : [];
-
-  const sourceFacts = rawSourceFacts
-    .map(sanitizeFactId)
-    .filter((factId) => factId && (!factMap.size || factMap.has(factId)));
-
-  return {
-    idea,
-    source_facts: [...new Set(sourceFacts)],
-  };
-}
-
-function sanitizeSongMap(songMap, facts = []) {
-  if (!songMap || typeof songMap !== "object") return null;
-  const factMap = buildFactMap(facts);
-  const handleArray = (value) => {
-    if (!Array.isArray(value)) return [];
-    return value
-      .map((entry) => normalizeSongMapEntry(entry, factMap))
-      .filter(Boolean);
-  };
-  const normalized = {
-    hook: normalizeSongMapEntry(songMap.hook, factMap),
-    verse1: handleArray(songMap.verse1),
-    pre: handleArray(songMap.pre),
-    chorus: handleArray(songMap.chorus),
-    verse2: handleArray(songMap.verse2),
-    bridge: handleArray(songMap.bridge),
-    motifs: sanitizeStringArray(songMap.motifs),
-    key_lines: handleArray(songMap.key_lines),
-  };
-  const hasContent = Object.values(normalized).some((value) =>
-    (value && typeof value === "object" && !Array.isArray(value) && typeof value.idea === "string" && value.idea) ||
-    (Array.isArray(value) && value.length > 0)
-  );
-  return hasContent ? normalized : null;
-}
-
-function hasSongMapContent(songMap) {
-  return !!(songMap && Object.values(songMap).some((value) =>
-    (value && typeof value === "object" && !Array.isArray(value) && typeof value.idea === "string" && value.idea) ||
-    (Array.isArray(value) && value.length > 0)
-  ));
-}
-
 function hasStructuredStoryData(context) {
   if (!context || typeof context !== "object") return false;
   if (hasSongMapContent(context.song_map)) return true;
@@ -1251,32 +1003,6 @@ function hasStructuredStoryData(context) {
   return objectHasValue(context.atoms)
     || objectHasValue(context.primitives)
     || objectHasValue(context.elements);
-}
-
-function hasCitedSongMap(songMap) {
-  if (!songMap || typeof songMap !== "object") return false;
-  const entries = [
-    songMap.hook,
-    ...(songMap.verse1 || []),
-    ...(songMap.pre || []),
-    ...(songMap.chorus || []),
-    ...(songMap.verse2 || []),
-    ...(songMap.bridge || []),
-    ...(songMap.key_lines || []),
-  ].filter(Boolean);
-  return entries.some((entry) => Array.isArray(entry.source_facts) && entry.source_facts.length > 0);
-}
-
-function getSongMapIdea(entry) {
-  if (!entry) return "";
-  if (typeof entry === "string") return entry;
-  if (typeof entry === "object" && typeof entry.idea === "string") return entry.idea;
-  return "";
-}
-
-function getSongMapSourceFacts(entry) {
-  if (!entry || typeof entry !== "object" || !Array.isArray(entry.source_facts)) return [];
-  return entry.source_facts.filter(Boolean);
 }
 
 function formatSongMapTextForPrompt(text, maxChars = 220) {
@@ -1331,27 +1057,6 @@ function inferSourceFactsForIdea(idea, facts, preferredBeats = []) {
   if (preferredFacts.length > 0) return [...new Set(preferredFacts)];
 
   return (facts || []).slice(0, 2).map((fact) => fact.id).filter(Boolean);
-}
-
-/**
- * Compute fraction of significant words in `text` that appear in `referenceWordSet`.
- * Returns 0-1. Used to gate contract ideas and facts against completed story prose.
- *
- * LIMITATION: Lexical matching only. Semantically equivalent phrases using
- * different words (e.g., "became stronger" vs "grew into someone better")
- * score 0 overlap. Future work: embedding-based semantic similarity.
- *
- * Thresholds used across the system:
- *   0.3  — judge certification block (more permissive, broader context)
- *   0.4  — songwriter prompt suppression + contract validation
- *   0.5  — detail coverage "paraphrased" classification
- */
-function significantWordOverlap(text, referenceWordSet) {
-  if (!text || !referenceWordSet || referenceWordSet.size === 0) return 0;
-  const words = getSignificantWords(text);
-  if (words.length === 0) return 0;
-  const matching = words.filter((w) => referenceWordSet.has(w));
-  return matching.length / words.length;
 }
 
 function filterFactsForPrompt(facts, narrativeText) {
@@ -1422,115 +1127,6 @@ function normalizeContractSectionEntries(entries, facts, preferredBeats = []) {
       };
     })
     .filter(Boolean);
-}
-
-function sectionEntriesSupportBeats(entries, factMap, preferredBeats = []) {
-  const preferred = new Set(preferredBeats.map((beat) => String(beat || "").toLowerCase()));
-  return (Array.isArray(entries) ? entries : []).some((entry) =>
-    getSongMapSourceFacts(entry).some((factId) => preferred.has(String(factMap.get(factId)?.beat || "").toLowerCase()))
-  );
-}
-
-function validateSongContract(context, options = {}) {
-  const facts = Array.isArray(context?.facts) ? context.facts : [];
-  const factMap = buildFactMap(facts);
-  const songMap = context?.song_map;
-  const blockProfile = options.blockProfile || deriveStoryBlockProfile(context);
-  const requiredSectionEntries = {
-    verse1: Array.isArray(songMap?.verse1) ? songMap.verse1 : [],
-    chorus: Array.isArray(songMap?.chorus) ? songMap.chorus : [],
-    verse2: Array.isArray(songMap?.verse2) ? songMap.verse2 : [],
-    bridge: Array.isArray(songMap?.bridge) ? songMap.bridge : [],
-  };
-
-  const missingSections = [];
-  if (requiredSectionEntries.verse1.length === 0) missingSections.push("verse1");
-  if (requiredSectionEntries.chorus.length === 0) missingSections.push("chorus");
-  if (requiredSectionEntries.verse2.length === 0 && requiredSectionEntries.bridge.length === 0) {
-    missingSections.push("verse2_or_bridge");
-  }
-
-  const uncitedSections = [];
-  const brokenCitations = [];
-  for (const [sectionName, entries] of Object.entries(requiredSectionEntries)) {
-    if (entries.length === 0) continue;
-    const citedEntries = entries.filter((entry) => getSongMapSourceFacts(entry).length > 0);
-    if (citedEntries.length === 0) {
-      uncitedSections.push(sectionName);
-    }
-    for (const entry of citedEntries) {
-      const invalid = getSongMapSourceFacts(entry).filter((factId) => !factMap.has(factId));
-      if (invalid.length > 0) {
-        brokenCitations.push({
-          section: sectionName,
-          idea: getSongMapIdea(entry),
-          source_facts: invalid,
-        });
-      }
-    }
-  }
-
-  // Validate contract ideas against completed story prose when available
-  const unsupportedIdeas = [];
-  const completedProse = context?.completed_story_package?.prose || "";
-  if (completedProse) {
-    const proseWordSet = new Set(getSignificantWords(completedProse));
-    for (const [sectionName, entries] of Object.entries(requiredSectionEntries)) {
-      for (const entry of entries) {
-        const idea = getSongMapIdea(entry);
-        if (!idea) continue;
-        const overlap = significantWordOverlap(idea, proseWordSet);
-        if (overlap < 0.3) {
-          unsupportedIdeas.push({ section: sectionName, idea, overlap: Number(overlap.toFixed(2)) });
-        }
-      }
-    }
-  }
-
-  const payoffPresent = sectionEntriesSupportBeats(
-    [...requiredSectionEntries.chorus, ...requiredSectionEntries.bridge],
-    factMap,
-    ["meaning", "impact", "detail"]
-  ) || !!sanitizeInput(
-    context?.primitives?.resolution ||
-    context?.primitives?.theme ||
-    context?.atoms?.after ||
-    ""
-  );
-  const turnPresent = sectionEntriesSupportBeats(
-    [...requiredSectionEntries.verse2, ...requiredSectionEntries.bridge],
-    factMap,
-    ["turning_point", "impact", "stakes", "moment"]
-  ) || !!sanitizeInput(
-    context?.primitives?.turning_point ||
-    context?.atoms?.turn ||
-    ""
-  );
-  const valid = missingSections.length === 0
-    && uncitedSections.length === 0
-    && brokenCitations.length === 0
-    && unsupportedIdeas.length === 0
-    && payoffPresent
-    && turnPresent;
-  const semanticReport = options.semanticReport
-    || repairSongMapWithProfile(songMap, context, { blockProfile }).report;
-  const finalValid = valid
-    && semanticReport.valid
-    && !semanticReport.duplicatedThesis;
-
-  return {
-    valid: finalValid,
-    hasCitedContract: hasCitedSongMap(songMap),
-    missingSections,
-    uncitedSections,
-    brokenCitations,
-    unsupportedIdeas,
-    payoffPresent,
-    turnPresent,
-    weakSections: semanticReport.weakSections,
-    sectionScores: semanticReport.sectionScores,
-    duplicatedThesis: semanticReport.duplicatedThesis,
-  };
 }
 
 function repairSongContract(context) {
@@ -1757,19 +1353,6 @@ function flattenLyricsText(lyrics) {
     .join("\n");
 }
 
-function serializeLyricsDraftForPrompt(lyrics) {
-  if (!lyrics || typeof lyrics !== "object" || !Array.isArray(lyrics.sections)) return "";
-  const sections = lyrics.sections
-    .map((section) => {
-      const name = sanitizeInput(section?.name || "section").toUpperCase();
-      const lines = Array.isArray(section?.lines) ? section.lines : [];
-      if (lines.length === 0) return "";
-      return `${name}:\n${lines.map((line) => `- ${sanitizeForPrompt(typeof line === "string" ? line : (line && line.text) || "")}`).join("\n")}`;
-    })
-    .filter(Boolean);
-  return sections.join("\n\n");
-}
-
 function aggregateUsage(total = {}, usage = {}) {
   const next = { ...total };
   for (const [key, value] of Object.entries(usage || {})) {
@@ -1838,33 +1421,6 @@ function formatSectionContractEntries(entries, factMap) {
     .map((entry) => formatSongMapEntry(entry, factMap))
     .filter(Boolean);
   return formatted.length > 0 ? formatted.join("\n") : "";
-}
-
-function summarizeExistingSections(sections = []) {
-  if (!Array.isArray(sections) || sections.length === 0) return "";
-  return sections
-    .filter((section) => section && Array.isArray(section.lines) && section.lines.length > 0)
-    .map((section) => {
-      const name = sanitizeInput(section.name || "section").toUpperCase();
-      const lines = section.lines
-        .map((line) => sanitizeForPrompt(typeof line === "string" ? line : (line && line.text) || ""))
-        .filter(Boolean);
-      return lines.length > 0
-        ? `${name}:\n${lines.map((line) => `- ${line}`).join("\n")}`
-        : "";
-    })
-    .filter(Boolean)
-    .join("\n\n");
-}
-
-function getSectionText(lyrics, sectionName) {
-  if (!lyrics || !Array.isArray(lyrics.sections)) return "";
-  const section = lyrics.sections.find((entry) => String(entry?.name || "").toLowerCase() === String(sectionName || "").toLowerCase());
-  if (!section || !Array.isArray(section.lines)) return "";
-  return section.lines
-    .map((line) => typeof line === "string" ? line : (line && line.text) || "")
-    .filter(Boolean)
-    .join("\n");
 }
 
 function buildSectionRepairNote(sectionName, fidelity, previousDraft) {

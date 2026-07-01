@@ -39,7 +39,7 @@ struct MainTabView: View {
         return .home
     }()
     @State private var createFlowLaunch: CreateFlowLaunch?
-    @State private var showGiftFlow = false
+    @State private var giftFlowLaunch: GiftFlowLaunch?
     // Upgrade gating lives inside WarmCanvasFlowView
 
     // Global player state (shared across all tabs)
@@ -121,7 +121,7 @@ struct MainTabView: View {
                         },
                         onSendGift: {
                             guard AppConfig.enableGiftPurchaseUI else { return }
-                            showGiftFlow = true
+                            giftFlowLaunch = GiftFlowLaunch()
                         },
                         showsGiftSendEntry: AppConfig.enableGiftPurchaseUI,
                         onSeeAllSongs: {
@@ -214,17 +214,12 @@ struct MainTabView: View {
                 }
             )
         }
-        .fullScreenCover(
-            isPresented: Binding(
-                get: { AppConfig.enableGiftPurchaseUI && showGiftFlow },
-                set: { showGiftFlow = $0 }
-            )
-        ) {
+        .fullScreenCover(item: $giftFlowLaunch) { _ in
             GiftSendFlowView(
                 apiClient: apiClient,
                 storeKit: storeKitManager,
-                onComplete: { showGiftFlow = false },
-                onCancel: { showGiftFlow = false }
+                onComplete: { giftFlowLaunch = nil },
+                onCancel: { giftFlowLaunch = nil }
             )
         }
         .fullScreenCover(isPresented: $showNowPlaying) {
@@ -248,10 +243,16 @@ struct MainTabView: View {
             if createFlowLaunch == nil,
                args.contains("--fixture-reveal") ||
                args.contains("--fixture-reveal-ready") ||
+               args.contains("--fixture-share-postcard") ||
                args.contains("--fixture-creating") ||
                args.contains("--fixture-nocredits") {
                 try? await Task.sleep(for: .seconds(0.5))
                 presentCreateFlow()
+            }
+            if giftFlowLaunch == nil,
+               args.contains("--fixture-gift-flow") {
+                try? await Task.sleep(for: .seconds(0.5))
+                giftFlowLaunch = GiftFlowLaunch()
             }
             #endif
         }
@@ -443,6 +444,10 @@ struct MainTabView: View {
         selectedTab = .poems
     }
 
+}
+
+private struct GiftFlowLaunch: Identifiable {
+    let id = UUID()
 }
 
 #Preview {

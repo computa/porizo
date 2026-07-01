@@ -35,6 +35,16 @@ const dbStub = {
       },
       get: async (...args) => {
         executed.push({ sql, args, read: true });
+        if (sql.includes("SELECT * FROM gift_reservations")) {
+          return {
+            id: args[0],
+            user_id: TEST_USER_ID,
+            status: "reserved",
+            content_type: "song",
+            gift_order_id: null,
+            expires_at: new Date(Date.now() + 60_000).toISOString(),
+          };
+        }
         if (sql.includes("SELECT id FROM voice_profiles")) {
           return { id: "voice_profile_1" };
         }
@@ -191,6 +201,49 @@ describe("POST /story/:story_id/to-track contract", () => {
     assert.ok(versionInsert, "expected version insert");
     const params = JSON.parse(versionInsert.args[2]);
     assert.equal(params.style, "igbo_highlife");
+  });
+
+  test("persists canonical gift wallet funding source for gift-funded tracks", async () => {
+    executed.length = 0;
+    writer.getStoryState = async () => ({
+      id: "story_track_gift",
+      userId: TEST_USER_ID,
+    });
+    writer.getStoryContext = async () => ({
+      sessionId: "story_track_gift",
+      engineVersion: "v3",
+      recipientName: "Amina",
+      occasion: "birthday",
+      style: "pop",
+      eventType: "celebration",
+      initialPrompt: "She should feel seen and celebrated.",
+      facts: [{ id: "f_context", text: "She makes everyone feel welcome." }],
+      summary: {
+        text: "She makes everyone feel welcome.",
+        factCount: 1,
+        beatsUncovered: 0,
+      },
+      status: "confirmed",
+      narrativeVersion: 3,
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/story/story_track_gift/to-track",
+      payload: {
+        voice_mode: "ai_voice",
+        gift_reservation_id: "gift_reservation_story_track",
+      },
+    });
+
+    assert.equal(response.statusCode, 200, response.body);
+
+    const trackInsert = executed.find((entry) =>
+      entry.sql.includes("INSERT INTO tracks"),
+    );
+    assert.ok(trackInsert, "expected track insert");
+    assert.equal(trackInsert.args[12], "gift_wallet");
+    assert.equal(trackInsert.args[13], "gift_reservation_story_track");
   });
 
   test("passes includeReadiness: false to getStoryContext", async () => {

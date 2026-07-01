@@ -25,6 +25,8 @@ before(async () => {
     STORAGE_PROVIDER: "local",
     UPLOAD_SIGNING_SECRET: "test-upload-secret",
     UPLOAD_URL_TTL_SEC: 900,
+    enqueueArtworkJobFn: () => {},
+    generateLyricsFn: generateTestLyrics,
   };
   db = await initDb({
     dbPath: ":memory:",
@@ -45,6 +47,7 @@ before(async () => {
 });
 
 after(async () => {
+  await waitForRunnerIdle();
   runner.stop();
   await app.close();
   db.close();
@@ -76,12 +79,108 @@ function createTestWav(durationSec = 3) {
   return buffer;
 }
 
+function seedSongEntitlements(userId, songsRemaining = 2) {
+  const now = new Date().toISOString();
+  db.prepare(
+    "INSERT OR IGNORE INTO users (id, created_at, risk_level) VALUES (?, ?, ?)",
+  ).run(userId, now, "low");
+  db.prepare(
+    `INSERT INTO entitlements (
+       user_id, tier, songs_remaining, poems_remaining,
+       preview_count_today, preview_count_reset_at, updated_at
+     )
+     VALUES (?, 'free', ?, 0, 0, ?, ?)
+     ON CONFLICT(user_id) DO UPDATE SET
+       songs_remaining = MAX(entitlements.songs_remaining, excluded.songs_remaining),
+       updated_at = excluded.updated_at`,
+  ).run(userId, songsRemaining, now, now);
+}
+
+function generateTestLyrics(context = {}) {
+  const recipientName = context.recipient_name || "Sam";
+  return {
+    lyrics: {
+      title: `A Song For ${recipientName}`,
+      style: "pop",
+      sections: [
+        {
+          name: "verse1",
+          lines: [
+            `Morning light finds ${recipientName}`,
+            "Every small kindness stays",
+            "Laughter fills the quiet room",
+            "Turning ordinary days",
+          ],
+        },
+        {
+          name: "chorus",
+          lines: [
+            `${recipientName}, this song is for you`,
+            "A bright note carried through",
+            "Thanks for the love you give",
+            "And the way you help us live",
+          ],
+        },
+        {
+          name: "verse2",
+          lines: [
+            "Candles glow across the table",
+            "Friends are gathered near",
+            "Every memory keeps on ringing",
+            "Clear enough to hear",
+          ],
+        },
+        {
+          name: "chorus2",
+          lines: [
+            `${recipientName}, this song is for you`,
+            "A bright note carried through",
+            "Thanks for the love you give",
+            "And the way you help us live",
+          ],
+        },
+      ],
+      anchor_line: `${recipientName}, this song is for you`,
+    },
+    lyrics_status: "generated",
+    provider: "test",
+    model: "fixture",
+    usage: { input_tokens: 0, output_tokens: 0 },
+  };
+}
+
+function markArtworkReady(trackId, versionNum = 1) {
+  const trackVersion = db
+    .prepare(
+      "SELECT id FROM track_versions WHERE track_id = ? AND version_num = ?",
+    )
+    .get(trackId, versionNum);
+  assert.ok(trackVersion, "Expected track version to exist");
+  db.prepare("UPDATE track_versions SET artwork_ready = 1 WHERE id = ?").run(
+    trackVersion.id,
+  );
+}
+
+async function waitForRunnerIdle(maxWaitMs = 5000) {
+  if (!runner || typeof runner.getActiveJobs !== "function") {
+    return;
+  }
+
+  const deadline = Date.now() + maxWaitMs;
+  while (runner.getActiveJobs() > 0 && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+}
+
 // Helper to run MVP flow with specified voice mode
 async function runMvpFlow(voiceMode, userId) {
-  async function waitForJobCompletion(jobId, maxTicks = 200) {
-    let lastJob = null;
+  seedSongEntitlements(userId);
 
-    for (let i = 0; i < maxTicks; i += 1) {
+  async function waitForJobCompletion(jobId, timeoutMs = 30000) {
+    let lastJob = null;
+    const deadline = Date.now() + timeoutMs;
+
+    while (Date.now() < deadline) {
       await runner.tick();
       const jobRes = await app.inject({
         method: "GET",
@@ -95,7 +194,12 @@ async function runMvpFlow(voiceMode, userId) {
         return lastJob;
       }
 
-      await new Promise((resolve) => setTimeout(resolve, 25));
+      const processingJobIds =
+        typeof runner.getProcessingJobIds === "function"
+          ? runner.getProcessingJobIds()
+          : [];
+      const pollMs = processingJobIds.includes(jobId) ? 50 : 25;
+      await new Promise((resolve) => setTimeout(resolve, pollMs));
     }
 
     return lastJob;
@@ -164,6 +268,7 @@ async function runMvpFlow(voiceMode, userId) {
     payload: { params: { lyrics_style: "heartfelt" }, render_type: "preview" },
   });
   assert.equal(version.statusCode, 201);
+  markArtworkReady(trackId);
 
   const generateLyrics = await app.inject({
     method: "POST",
@@ -250,7 +355,7 @@ async function runMvpFlow(voiceMode, userId) {
   const key = await app.inject({
     method: "GET",
     url: `/share/${shareId}/key`,
-    headers: { "x-device-id": "ios-idfv-123", "x-platform": "ios" },
+    headers: { "x-device-token": recipientToken },
   });
   assert.equal(key.statusCode, 200);
 

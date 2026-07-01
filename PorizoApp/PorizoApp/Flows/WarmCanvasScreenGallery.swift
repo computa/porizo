@@ -1328,3 +1328,15 @@ struct WarmCanvasScreenGallery: View {
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(DesignTokens.border, lineWidth: 0.5))
     }
 }
+
+#Preview("Gallery matrix, small accessibility") {
+    WarmCanvasScreenGallery()
+        .environment(\.dynamicTypeSize, .accessibility3)
+        .frame(width: 375, height: 667)
+}
+
+#Preview("Gallery matrix, dark large") {
+    WarmCanvasScreenGallery()
+        .preferredColorScheme(.dark)
+        .frame(width: 430, height: 932)
+}

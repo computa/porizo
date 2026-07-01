@@ -10,6 +10,10 @@
  */
 
 require("dotenv/config");
+process.env.NODE_ENV = "test";
+process.env.JWT_SECRET ||= "test-jwt-secret-with-at-least-32-chars";
+process.env.ALLOW_ANON_USER_ID ||= "true";
+process.env.ALLOW_DEVICE_TOKEN_FALLBACK ||= "true";
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
@@ -48,8 +52,8 @@ before(async () => {
 });
 
 after(async () => {
-  await app.close();
-  db.close();
+  await app?.close?.();
+  db?.close?.();
 });
 
 describe("Poems API", () => {
@@ -388,7 +392,7 @@ describe("Poems API", () => {
       if (response.statusCode === 503) {
         const data = response.json();
         assert.equal(
-          data.code,
+          data.code || data.error,
           "AI_UNAVAILABLE",
           "Should return AI_UNAVAILABLE when no LLM configured",
         );

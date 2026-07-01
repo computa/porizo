@@ -12,6 +12,82 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+async function seedColdEmailCampaign(db, overrides = {}) {
+  const now = overrides.created_at || nowIso();
+  const campaign = {
+    id: "cold-route-campaign",
+    campaign_tag: "cold-route",
+    subject: "Cold route subject",
+    template_html_path: "marketing/email/cold-intro.html",
+    template_text_path: "marketing/email/cold-intro.txt",
+    from_address: "Porizo <hello@porizo.app>",
+    reply_to: "hello@porizo.app",
+    per_day: 10,
+    schedule_pace_seconds: 60,
+    schedule_offset_minutes: 30,
+    earliest_run_date_utc: "2026-06-01",
+    fire_after_utc_hour: 9,
+    active: 1,
+    created_at: now,
+    updated_at: now,
+    ...overrides,
+  };
+
+  await db
+    .prepare(
+      `INSERT INTO cold_email_campaigns (
+        id,
+        campaign_tag,
+        subject,
+        template_html_path,
+        template_text_path,
+        from_address,
+        reply_to,
+        per_day,
+        schedule_pace_seconds,
+        schedule_offset_minutes,
+        earliest_run_date_utc,
+        fire_after_utc_hour,
+        active,
+        created_at,
+        updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      campaign.id,
+      campaign.campaign_tag,
+      campaign.subject,
+      campaign.template_html_path,
+      campaign.template_text_path,
+      campaign.from_address,
+      campaign.reply_to,
+      campaign.per_day,
+      campaign.schedule_pace_seconds,
+      campaign.schedule_offset_minutes,
+      campaign.earliest_run_date_utc,
+      campaign.fire_after_utc_hour,
+      campaign.active,
+      campaign.created_at,
+      campaign.updated_at,
+    );
+
+  return campaign;
+}
+
+async function seedColdEmailRecipient(db, { campaignId, indexPos, sentAt = null }) {
+  await db
+    .prepare(
+      "INSERT INTO cold_email_recipients (campaign_id, index_pos, email, first_name, sent_at) VALUES (?, ?, ?, ?, ?)",
+    )
+    .run(
+      campaignId,
+      indexPos,
+      `cold-${campaignId}-${indexPos}@example.com`,
+      "Test",
+      sentAt,
+    );
+}
+
 describe("admin marketing routes", () => {
   let db;
   let app;
@@ -129,6 +205,144 @@ describe("admin marketing routes", () => {
 
     assert.equal(response.statusCode, 400);
     assert.match(response.body, /status must be one of/i);
+  });
+
+  test("surfaces custom cold-email templates referenced by campaigns", async () => {
+    await seedColdEmailCampaign(db, {
+      id: "cold-custom-template",
+      template_html_path: "marketing/email/custom-route.html",
+      template_text_path: "marketing/email/custom-route.txt",
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/admin/dashboard/marketing/email-templates",
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
+
+    assert.equal(response.statusCode, 200, response.body);
+    const custom = response
+      .json()
+      .cold_email_templates.find((template) => template.id === "custom:custom-route.html");
+    assert.ok(custom);
+    assert.equal(custom.custom, true);
+    assert.equal(custom.file, "custom-route.html");
+  });
+
+  test("lists all cold-email campaigns while preserving active pending_count behavior", async () => {
+    await seedColdEmailCampaign(db, {
+      id: "cold-active",
+      active: 1,
+      created_at: "2026-06-27T10:00:00.000Z",
+      updated_at: "2026-06-27T10:00:00.000Z",
+    });
+    await seedColdEmailCampaign(db, {
+      id: "cold-inactive",
+      active: 0,
+      created_at: "2026-06-27T11:00:00.000Z",
+      updated_at: "2026-06-27T11:00:00.000Z",
+    });
+    await seedColdEmailRecipient(db, { campaignId: "cold-active", indexPos: 0 });
+    await seedColdEmailRecipient(db, { campaignId: "cold-active", indexPos: 1 });
+    await seedColdEmailRecipient(db, { campaignId: "cold-inactive", indexPos: 0 });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/admin/dashboard/marketing/cold-email",
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
+
+    assert.equal(response.statusCode, 200, response.body);
+    const campaigns = response.json().campaigns;
+    assert.deepEqual(
+      campaigns.map((campaign) => campaign.id),
+      ["cold-inactive", "cold-active"],
+    );
+    assert.equal(
+      campaigns.find((campaign) => campaign.id === "cold-active").pending_count,
+      2,
+    );
+    assert.equal(
+      campaigns.find((campaign) => campaign.id === "cold-inactive").pending_count,
+      0,
+    );
+  });
+
+  test("patches cold-email campaigns with optimistic concurrency and audit metadata", async () => {
+    await seedColdEmailCampaign(db, {
+      id: "cold-patch",
+      subject: "Original subject",
+      per_day: 10,
+      earliest_run_date_utc: "2026-06-01",
+      updated_at: "2026-06-27T10:00:00.000Z",
+    });
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: "/admin/dashboard/marketing/cold-email/cold-patch",
+      headers: {
+        Authorization: `Bearer ${adminToken}`,
+        "If-Match": "2026-06-27T10:00:00.000Z",
+      },
+      payload: {
+        subject: "Updated subject",
+        per_day: 7,
+        earliest_run_date_utc: null,
+      },
+    });
+
+    assert.equal(response.statusCode, 200, response.body);
+    const campaign = response.json().campaign;
+    assert.equal(campaign.subject, "Updated subject");
+    assert.equal(campaign.per_day, 7);
+    assert.equal(campaign.earliest_run_date_utc, null);
+    assert.notEqual(campaign.updated_at, "2026-06-27T10:00:00.000Z");
+
+    const audit = await db
+      .prepare(
+        "SELECT resource_type, metadata_json FROM audit_logs WHERE action = ? AND resource_id = ?",
+      )
+      .get("cold_email_campaign_update", "cold-patch");
+    assert.equal(audit.resource_type, "cold_email_campaigns");
+    const metadata = JSON.parse(audit.metadata_json);
+    assert.deepEqual(metadata.before, {
+      subject: "Original subject",
+      per_day: 10,
+      earliest_run_date_utc: "2026-06-01",
+    });
+    assert.deepEqual(metadata.after, {
+      subject: "Updated subject",
+      per_day: 7,
+      earliest_run_date_utc: null,
+    });
+  });
+
+  test("rejects stale cold-email PATCH without mutating the campaign", async () => {
+    await seedColdEmailCampaign(db, {
+      id: "cold-stale",
+      subject: "Original subject",
+      updated_at: "2026-06-27T10:00:00.000Z",
+    });
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: "/admin/dashboard/marketing/cold-email/cold-stale",
+      headers: {
+        Authorization: `Bearer ${adminToken}`,
+        "If-Match": "2026-06-27T09:59:00.000Z",
+      },
+      payload: { subject: "Stale subject" },
+    });
+
+    assert.equal(response.statusCode, 409, response.body);
+    assert.equal(response.json().error, "STALE_UPDATE");
+    const row = await db
+      .prepare("SELECT subject, updated_at FROM cold_email_campaigns WHERE id = ?")
+      .get("cold-stale");
+    assert.deepEqual(row, {
+      subject: "Original subject",
+      updated_at: "2026-06-27T10:00:00.000Z",
+    });
   });
 
   test("sends push campaigns through OneSignal and records the notification", async () => {

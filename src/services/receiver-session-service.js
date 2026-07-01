@@ -1,6 +1,9 @@
 "use strict";
 
 const crypto = require("node:crypto");
+const {
+  createReceiverSessionRepository,
+} = require("../database/receiver-session-repository");
 const { generatePrefixedId } = require("../utils/ids");
 
 const ALLOWED_EVENTS = new Set([
@@ -82,13 +85,13 @@ function validateReceiverClaimToken(token) {
   return typeof token === "string" && /^rc_[a-f0-9]{32}$/.test(token) ? token : null;
 }
 
-function createReceiverSessionService(db) {
+function createReceiverSessionService(db, options = {}) {
+  const repository = options.repository || createReceiverSessionRepository(db);
+
   async function getSessionForShare(receiverSessionId, shareId, receiverSessionSecret = null) {
     const sessionId = normalizeSessionId(receiverSessionId);
     if (!sessionId || !shareId) return null;
-    const row = await db
-      .prepare("SELECT * FROM receiver_sessions WHERE id = ?")
-      .get(sessionId);
+    const row = await repository.findSessionById(sessionId);
     if (!row || row.share_id !== shareId) return null;
     const secret = validateSessionSecret(receiverSessionSecret);
     if (!secret || !row.receiver_session_secret_hash) return null;
@@ -98,16 +101,12 @@ function createReceiverSessionService(db) {
   async function getTrustedSessionForShare(receiverSessionId, shareId) {
     const sessionId = normalizeSessionId(receiverSessionId);
     if (!sessionId || !shareId) return null;
-    const row = await db
-      .prepare("SELECT * FROM receiver_sessions WHERE id = ?")
-      .get(sessionId);
+    const row = await repository.findSessionById(sessionId);
     return row && row.share_id === shareId ? row : null;
   }
 
   async function assertSessionEventCapacity(sessionId) {
-    const row = await db.prepare("SELECT COUNT(*) AS count FROM receiver_session_events WHERE receiver_session_id = ?")
-      .get(sessionId);
-    if (Number(row?.count || 0) >= 250) {
+    if ((await repository.countEventsForSession(sessionId)) >= 250) {
       const err = new Error("RECEIVER_SESSION_EVENT_LIMIT");
       err.code = "RECEIVER_SESSION_EVENT_LIMIT";
       throw err;
@@ -125,19 +124,17 @@ function createReceiverSessionService(db) {
       const now = new Date().toISOString();
       const receiverHandoffId = generatePrefixedId("rh", 12);
       const handoffExpiresAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
-      const result = await db.prepare(`UPDATE receiver_sessions
-        SET receiver_handoff_id = ?, handoff_expires_at = ?, handoff_resolved_at = NULL, updated_at = ?
-        WHERE id = ?
-          AND receiver_handoff_id = ?
-          AND (
-            handoff_resolved_at IS NOT NULL
-            OR (handoff_expires_at IS NOT NULL AND handoff_expires_at < ?)
-          )`)
-        .run(receiverHandoffId, handoffExpiresAt, now, currentSession.id, previousHandoffId, now);
+      const result = await repository.rotateResolvedOrExpiredHandoff({
+        receiverHandoffId,
+        handoffExpiresAt,
+        now,
+        sessionId: currentSession.id,
+        previousHandoffId,
+      });
       if (result && Number(result.changes || 0) > 0) {
         return receiverHandoffId;
       }
-      currentSession = await db.prepare("SELECT * FROM receiver_sessions WHERE id = ?").get(currentSession.id);
+      currentSession = await repository.findSessionById(currentSession.id);
       if (!currentSession) return null;
     }
     return currentSession.receiver_handoff_id;
@@ -186,48 +183,41 @@ function createReceiverSessionService(db) {
       sessionSecret = createSessionSecret();
       receiverHandoffId = generatePrefixedId("rh", 12);
       const handoffExpiresAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
-      await db.prepare(`INSERT INTO receiver_sessions
-        (id, share_id, content_kind, receiver_handoff_id, receiver_session_secret_hash, handoff_expires_at, first_event_name, last_event_name, first_ip_address, last_ip_address, first_user_agent, last_user_agent, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-        .run(
-          sessionId,
-          shareId,
-          kind,
-          receiverHandoffId,
-          hashSessionSecret(sessionSecret),
-          handoffExpiresAt,
-          eventName,
-          eventName,
-          ip || null,
-          ip || null,
-          userAgent || null,
-          userAgent || null,
-          now,
-          now,
-        );
+      await repository.createSession({
+        sessionId,
+        shareId,
+        contentKind: kind,
+        receiverHandoffId,
+        receiverSessionSecretHash: hashSessionSecret(sessionSecret),
+        handoffExpiresAt,
+        eventName,
+        ip,
+        userAgent,
+        now,
+      });
     } else {
-      await db.prepare(`UPDATE receiver_sessions
-        SET last_event_name = ?, last_ip_address = ?, last_user_agent = ?, updated_at = ?
-        WHERE id = ?`)
-        .run(eventName, ip || null, userAgent || null, now, sessionId);
+      await repository.updateSessionLastEvent({
+        sessionId,
+        eventName,
+        ip,
+        userAgent,
+        now,
+      });
     }
 
     await assertSessionEventCapacity(sessionId);
 
     const eventId = generatePrefixedId("rse", 12);
-    await db.prepare(`INSERT INTO receiver_session_events
-      (id, receiver_session_id, share_id, event_name, metadata_json, ip_address, user_agent, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(
-        eventId,
-        sessionId,
-        shareId,
-        eventName,
-        safeMetadataJson(metadata),
-        ip || null,
-        userAgent || null,
-        now,
-      );
+    await repository.createEvent({
+      eventId,
+      receiverSessionId: sessionId,
+      shareId,
+      eventName,
+      metadataJson: safeMetadataJson(metadata),
+      ip,
+      userAgent,
+      now,
+    });
 
     return { receiverSessionId: sessionId, receiverSessionSecret: sessionSecret || null, receiverHandoffId, eventId, recorded: true };
   }
@@ -240,9 +230,7 @@ function createReceiverSessionService(db) {
     if (typeof handoffId !== "string" || !/^rh_[a-f0-9]{24}$/.test(handoffId)) {
       return null;
     }
-    const row = await db.prepare(`SELECT id, share_id, content_kind, handoff_expires_at, handoff_resolved_at
-      FROM receiver_sessions
-      WHERE receiver_handoff_id = ?`).get(handoffId);
+    const row = await repository.findHandoff(handoffId);
     if (!row) return null;
     if (isExpiredIso(row.handoff_expires_at)) return null;
     return {
@@ -258,8 +246,7 @@ function createReceiverSessionService(db) {
       return false;
     }
     const now = new Date().toISOString();
-    const result = await db.prepare("UPDATE receiver_sessions SET handoff_resolved_at = ?, updated_at = ? WHERE receiver_handoff_id = ? AND handoff_resolved_at IS NULL")
-      .run(now, now, handoffId);
+    const result = await repository.consumeHandoff(handoffId, now);
     return Boolean(result && Number(result.changes || 0) > 0);
   }
 
@@ -283,8 +270,11 @@ function createReceiverSessionService(db) {
       trustedReceiverSession: true,
     });
     if (userId && result.receiverSessionId) {
-      await db.prepare("UPDATE receiver_sessions SET matched_user_id = ?, updated_at = ? WHERE id = ?")
-        .run(userId, new Date().toISOString(), result.receiverSessionId);
+      await repository.setMatchedUser({
+        sessionId: result.receiverSessionId,
+        userId,
+        now: new Date().toISOString(),
+      });
     }
     return result;
   }
@@ -297,17 +287,25 @@ function createReceiverSessionService(db) {
     const claimToken = generatePrefixedId("rc", 16);
     const now = new Date().toISOString();
     const claimTokenExpiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
-    const result = await db.prepare(`UPDATE receiver_sessions
-      SET receiver_claim_token_hash = ?, claim_token_expires_at = ?, updated_at = ?
-      WHERE id = ? AND share_id = ?`)
-      .run(hashSessionSecret(claimToken), claimTokenExpiresAt, now, session.id, shareId);
+    const claimTokenHash = hashSessionSecret(claimToken);
+    const result = await repository.setReceiverClaimToken({
+      sessionId: session.id,
+      shareId,
+      claimTokenHash,
+      claimTokenExpiresAt,
+      now,
+    });
     if (!result || Number(result.changes || 0) === 0) {
       return null;
     }
-    await db.prepare(`INSERT INTO receiver_claim_tokens
-      (token_hash, receiver_session_id, share_id, content_kind, expires_at, created_at)
-      VALUES (?, ?, ?, ?, ?, ?)`)
-      .run(hashSessionSecret(claimToken), session.id, shareId, normalizeContentKind(contentKind), claimTokenExpiresAt, now);
+    await repository.createReceiverClaimToken({
+      claimTokenHash,
+      receiverSessionId: session.id,
+      shareId,
+      contentKind: normalizeContentKind(contentKind),
+      expiresAt: claimTokenExpiresAt,
+      now,
+    });
     return {
       receiverClaimToken: claimToken,
       expiresAt: claimTokenExpiresAt,
@@ -317,10 +315,8 @@ function createReceiverSessionService(db) {
   async function lookupReceiverClaimToken(claimToken, { allowConsumed = false } = {}) {
     const token = validateReceiverClaimToken(claimToken);
     if (!token) return null;
-    const tokenRow = await db.prepare(`SELECT receiver_session_id, share_id, content_kind, expires_at, consumed_at
-      FROM receiver_claim_tokens
-      WHERE token_hash = ?`)
-      .get(hashSessionSecret(token));
+    const claimTokenHash = hashSessionSecret(token);
+    const tokenRow = await repository.findReceiverClaimToken(claimTokenHash);
     if (tokenRow) {
       if (isExpiredIso(tokenRow.expires_at) || (!allowConsumed && tokenRow.consumed_at)) {
         return null;
@@ -334,10 +330,7 @@ function createReceiverSessionService(db) {
       };
     }
 
-    const row = await db.prepare(`SELECT id, share_id, content_kind, claim_token_expires_at
-      FROM receiver_sessions
-      WHERE receiver_claim_token_hash = ?`)
-      .get(hashSessionSecret(token));
+    const row = await repository.findSessionClaimToken(claimTokenHash);
     if (!row || isExpiredIso(row.claim_token_expires_at)) {
       return null;
     }
@@ -353,19 +346,17 @@ function createReceiverSessionService(db) {
     const token = validateReceiverClaimToken(claimToken);
     if (!token) return false;
     const now = new Date().toISOString();
-    const row = await db.prepare(`SELECT receiver_session_id
-      FROM receiver_claim_tokens
-      WHERE token_hash = ? AND consumed_at IS NULL`)
-      .get(hashSessionSecret(token));
+    const claimTokenHash = hashSessionSecret(token);
+    const row = await repository.findUnconsumedReceiverClaimToken(claimTokenHash);
     if (!row) return false;
-    await db.prepare(`UPDATE receiver_claim_tokens
-      SET consumed_at = ?
-      WHERE token_hash = ? AND consumed_at IS NULL`)
-      .run(now, hashSessionSecret(token));
-    await db.prepare(`UPDATE receiver_sessions
-      SET handoff_resolved_at = COALESCE(handoff_resolved_at, ?), updated_at = ?
-      WHERE id = ?`)
-      .run(now, now, row.receiver_session_id);
+    const result = await repository.consumeReceiverClaimToken(claimTokenHash, now);
+    if (!result || Number(result.changes || 0) === 0) {
+      return false;
+    }
+    await repository.markHandoffResolvedIfUnset({
+      receiverSessionId: row.receiver_session_id,
+      now,
+    });
     return true;
   }
 

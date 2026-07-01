@@ -6,6 +6,9 @@
  */
 
 const crypto = require("crypto");
+const {
+  createPhoneVerificationRepository,
+} = require("../database/phone-verification-repository");
 const { smsLogger } = require("../utils/logger");
 
 // Configuration
@@ -24,6 +27,7 @@ let twilioClient = null;
 
 // Database instance (initialized via initialize())
 let db = null;
+let phoneVerificationRepository = null;
 
 /**
  * Initialize the SMS service with database instance
@@ -31,6 +35,7 @@ let db = null;
  */
 function initialize(database) {
   db = database;
+  phoneVerificationRepository = createPhoneVerificationRepository(database);
 }
 
 /**
@@ -121,24 +126,19 @@ async function checkRateLimit(phoneNumber) {
   const oneHourAgo = new Date();
   oneHourAgo.setHours(oneHourAgo.getHours() - 1);
 
-  const result = await db
-    .prepare(
-      `SELECT COUNT(*) as count FROM phone_verifications
-       WHERE phone_number = ? AND created_at > ?`
-    )
-    .get(phoneNumber, oneHourAgo.toISOString());
+  const result = await phoneVerificationRepository.countRecentCodes({
+    phoneNumber,
+    createdAfter: oneHourAgo.toISOString(),
+  });
 
   const count = result?.count || 0;
 
   if (count >= config.maxCodesPerHour) {
     // Find the oldest code in the window to calculate retry time
-    const oldest = await db
-      .prepare(
-        `SELECT created_at FROM phone_verifications
-         WHERE phone_number = ? AND created_at > ?
-         ORDER BY created_at ASC LIMIT 1`
-      )
-      .get(phoneNumber, oneHourAgo.toISOString());
+    const oldest = await phoneVerificationRepository.getOldestRecentCode({
+      phoneNumber,
+      createdAfter: oneHourAgo.toISOString(),
+    });
 
     if (oldest) {
       const oldestTime = new Date(oldest.created_at);
@@ -179,13 +179,9 @@ async function sendVerificationCode(phoneNumber) {
   }
 
   // Invalidate any existing unused codes for this phone
-  await db
-    .prepare(
-      `UPDATE phone_verifications
-       SET verified_at = CURRENT_TIMESTAMP
-       WHERE phone_number = ? AND verified_at IS NULL AND expires_at > CURRENT_TIMESTAMP`
-    )
-    .run(normalizedPhone);
+  await phoneVerificationRepository.markActiveCodesVerified({
+    phoneNumber: normalizedPhone,
+  });
 
   // Generate new code
   const code = generateVerificationCode();
@@ -232,17 +228,12 @@ async function sendVerificationCode(phoneNumber) {
   }
 
   // SMS delivered — now persist the verification record
-  await db
-    .prepare(
-      `INSERT INTO phone_verifications (id, phone_number, code_hash, expires_at, attempts)
-       VALUES (?, ?, ?, ?, 0)`
-    )
-    .run(
-      verificationId,
-      normalizedPhone,
-      hashCode(code),
-      expiresAt.toISOString()
-    );
+  await phoneVerificationRepository.insertVerification({
+    id: verificationId,
+    phoneNumber: normalizedPhone,
+    codeHash: hashCode(code),
+    expiresAt: expiresAt.toISOString(),
+  });
 
   smsLogger.info(
     { phone: maskPhoneNumber(normalizedPhone), verificationId },
@@ -280,13 +271,9 @@ async function verifyCode(phoneNumber, code) {
   const codeHash = hashCode(code);
 
   // Find active verification record for this phone
-  const verification = await db
-    .prepare(
-      `SELECT id, code_hash, attempts FROM phone_verifications
-       WHERE phone_number = ? AND verified_at IS NULL AND expires_at > CURRENT_TIMESTAMP
-       ORDER BY created_at DESC LIMIT 1`
-    )
-    .get(normalizedPhone);
+  const verification = await phoneVerificationRepository.getLatestActiveVerification({
+    phoneNumber: normalizedPhone,
+  });
 
   if (!verification) {
     smsLogger.warn(
@@ -307,9 +294,7 @@ async function verifyCode(phoneNumber, code) {
       "Max verification attempts exceeded"
     );
     // Mark as used to prevent further attempts
-    await db
-      .prepare("UPDATE phone_verifications SET verified_at = CURRENT_TIMESTAMP WHERE id = ?")
-      .run(verification.id);
+    await phoneVerificationRepository.markVerified({ id: verification.id });
 
     return {
       success: true,
@@ -320,9 +305,7 @@ async function verifyCode(phoneNumber, code) {
   }
 
   // Increment attempt counter
-  await db
-    .prepare("UPDATE phone_verifications SET attempts = attempts + 1 WHERE id = ?")
-    .run(verification.id);
+  await phoneVerificationRepository.incrementAttempts({ id: verification.id });
 
   // Check code using constant-time comparison
   const isValid = crypto.timingSafeEqual(
@@ -332,9 +315,7 @@ async function verifyCode(phoneNumber, code) {
 
   if (isValid) {
     // Mark as used
-    await db
-      .prepare("UPDATE phone_verifications SET verified_at = CURRENT_TIMESTAMP WHERE id = ?")
-      .run(verification.id);
+    await phoneVerificationRepository.markVerified({ id: verification.id });
 
     smsLogger.info(
       { phone: maskPhoneNumber(normalizedPhone), verificationId: verification.id },
@@ -378,13 +359,9 @@ async function getRemainingAttempts(phoneNumber) {
 
   const normalizedPhone = normalizePhoneNumber(phoneNumber);
 
-  const verification = await db
-    .prepare(
-      `SELECT attempts FROM phone_verifications
-       WHERE phone_number = ? AND verified_at IS NULL AND expires_at > CURRENT_TIMESTAMP
-       ORDER BY created_at DESC LIMIT 1`
-    )
-    .get(normalizedPhone);
+  const verification = await phoneVerificationRepository.getLatestActiveAttempts({
+    phoneNumber: normalizedPhone,
+  });
 
   if (!verification) {
     return {
@@ -418,9 +395,9 @@ async function cleanupExpiredCodes() {
   const oneDayAgo = new Date();
   oneDayAgo.setDate(oneDayAgo.getDate() - 1);
 
-  const result = await db
-    .prepare("DELETE FROM phone_verifications WHERE created_at < ?")
-    .run(oneDayAgo.toISOString());
+  const result = await phoneVerificationRepository.deleteCreatedBefore({
+    createdBefore: oneDayAgo.toISOString(),
+  });
 
   const deleted = result.changes || 0;
 

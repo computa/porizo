@@ -6,7 +6,7 @@ const fs = require("fs");
 const path = require("path");
 const { spawn } = require("child_process");
 const os = require("os");
-const { vadTrim } = require("../utils/qc");
+const { vadTrim } = require("./enrollment-qc");
 const {
   assessAudioQuality,
   calculateQualityGrade,

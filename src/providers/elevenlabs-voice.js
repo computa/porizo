@@ -10,9 +10,22 @@
 
 const fs = require("fs");
 const path = require("path");
-const { ensureDir } = require("./http");
+const { ensureDir, fetchResponse } = require("./http");
 
 const ELEVENLABS_API_BASE = "https://api.elevenlabs.io";
+
+async function requestElevenLabs(
+  url,
+  options,
+  { timeoutMs = 60000, retries = 2, retryDelayMs } = {},
+) {
+  return fetchResponse(url, options, {
+    timeoutMs,
+    retries,
+    retryDelayMs,
+    label: "ElevenLabs:Voice",
+  });
+}
 
 /**
  * Create an Instant Voice Clone from audio file
@@ -24,7 +37,15 @@ const ELEVENLABS_API_BASE = "https://api.elevenlabs.io";
  * @param {string} options.description - Optional description
  * @returns {Promise<{voice_id: string, name: string}>}
  */
-async function createVoiceClone({ apiKey, audioPath, name, description = "" }) {
+async function createVoiceClone({
+  apiKey,
+  audioPath,
+  name,
+  description = "",
+  timeoutMs = 60000,
+  retries = 0,
+  retryDelayMs,
+}) {
   if (!apiKey) {
     throw new Error("E305_ELEVENLABS_VOICE_ERROR: API key is required");
   }
@@ -46,13 +67,17 @@ async function createVoiceClone({ apiKey, audioPath, name, description = "" }) {
   }
   form.append("remove_background_noise", "true");
 
-  const response = await fetch(`${ELEVENLABS_API_BASE}/v1/voices/add`, {
-    method: "POST",
-    headers: {
-      "xi-api-key": apiKey,
+  const response = await requestElevenLabs(
+    `${ELEVENLABS_API_BASE}/v1/voices/add`,
+    {
+      method: "POST",
+      headers: {
+        "xi-api-key": apiKey,
+      },
+      body: form,
     },
-    body: form,
-  });
+    { timeoutMs, retries, retryDelayMs },
+  );
 
   if (!response.ok) {
     const errorText = await response.text();
@@ -77,7 +102,13 @@ async function createVoiceClone({ apiKey, audioPath, name, description = "" }) {
  * @param {string} options.voiceId - Voice ID to delete
  * @returns {Promise<boolean>}
  */
-async function deleteVoiceClone({ apiKey, voiceId }) {
+async function deleteVoiceClone({
+  apiKey,
+  voiceId,
+  timeoutMs = 30000,
+  retries = 0,
+  retryDelayMs,
+}) {
   if (!apiKey || !voiceId) {
     return false;
   }
@@ -85,12 +116,16 @@ async function deleteVoiceClone({ apiKey, voiceId }) {
   console.log(`[ElevenLabs:Voice] Deleting voice clone: ${voiceId}`);
 
   try {
-    const response = await fetch(`${ELEVENLABS_API_BASE}/v1/voices/${voiceId}`, {
-      method: "DELETE",
-      headers: {
-        "xi-api-key": apiKey,
+    const response = await requestElevenLabs(
+      `${ELEVENLABS_API_BASE}/v1/voices/${voiceId}`,
+      {
+        method: "DELETE",
+        headers: {
+          "xi-api-key": apiKey,
+        },
       },
-    });
+      { timeoutMs, retries, retryDelayMs },
+    );
 
     if (response.ok) {
       console.log(`[ElevenLabs:Voice] Voice clone deleted: ${voiceId}`);
@@ -126,6 +161,8 @@ async function convertVoice({
   sourceAudioPath,
   outputPath,
   timeoutMs = 300000,
+  retries = 2,
+  retryDelayMs,
   settings = {},
 }) {
   if (!apiKey) {
@@ -157,11 +194,8 @@ async function convertVoice({
     }));
   }
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-
   try {
-    const response = await fetch(
+    const response = await requestElevenLabs(
       `${ELEVENLABS_API_BASE}/v1/speech-to-speech/${voiceId}`,
       {
         method: "POST",
@@ -169,11 +203,9 @@ async function convertVoice({
           "xi-api-key": apiKey,
         },
         body: form,
-        signal: controller.signal,
-      }
+      },
+      { timeoutMs, retries, retryDelayMs },
     );
-
-    clearTimeout(timeout);
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -201,9 +233,7 @@ async function convertVoice({
       output_path: outputPath,
     };
   } catch (error) {
-    clearTimeout(timeout);
-
-    if (error.name === "AbortError") {
+    if (error.message === "request_timeout") {
       throw new Error("E305_ELEVENLABS_VOICE_ERROR: Voice conversion timed out");
     }
 
@@ -221,10 +251,17 @@ async function convertVoice({
  * @param {string} apiKey - ElevenLabs API key
  * @returns {Promise<Array>}
  */
-async function getVoices(apiKey) {
-  const response = await fetch(`${ELEVENLABS_API_BASE}/v1/voices`, {
-    headers: { "xi-api-key": apiKey },
-  });
+async function getVoices(
+  apiKey,
+  { timeoutMs = 30000, retries = 2, retryDelayMs } = {},
+) {
+  const response = await requestElevenLabs(
+    `${ELEVENLABS_API_BASE}/v1/voices`,
+    {
+      headers: { "xi-api-key": apiKey },
+    },
+    { timeoutMs, retries, retryDelayMs },
+  );
 
   if (!response.ok) {
     throw new Error(`Failed to get voices: ${response.status}`);

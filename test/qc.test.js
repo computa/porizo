@@ -3,8 +3,7 @@ const assert = require("node:assert");
 const fs = require("fs");
 const path = require("path");
 
-// Test will fail until we implement the module
-const { analyzeAudioQuality, vadTrim, calculateSNR, calculateClippingRatio } = require("../src/utils/qc");
+const { analyzeAudioQuality, vadTrim, calculateSNR, calculateClippingRatio } = require("../src/services/enrollment-qc");
 const { writeWav } = require("../src/utils/audio");
 
 const TEST_DIR = path.join(__dirname, "..", "storage", "test-qc");

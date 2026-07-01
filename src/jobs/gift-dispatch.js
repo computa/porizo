@@ -5,6 +5,7 @@
  * The callback is responsible for all business logic and side effects.
  */
 
+const { createGiftDispatchRepository } = require("../database/gift-dispatch-repository");
 const { upsertGiftIncident, resolveGiftIncident } = require("../services/gift-delivery-ops");
 
 const DEFAULT_INTERVAL_MS = 30 * 1000;
@@ -19,6 +20,7 @@ function startGiftDispatchJob({
   batchSize = DEFAULT_BATCH_SIZE,
   staleDispatchMs = DEFAULT_STALE_DISPATCH_MS,
   overdueGraceMs = DEFAULT_OVERDUE_GRACE_MS,
+  repository = createGiftDispatchRepository(db),
 }) {
   if (!db) {
     throw new Error("startGiftDispatchJob requires db");
@@ -43,27 +45,8 @@ function startGiftDispatchJob({
       const staleCutoff = new Date(Date.now() - staleDispatchMs).toISOString();
       const overdueCutoff = new Date(Date.now() - overdueGraceMs).toISOString();
 
-      const staleDispatching = await db
-        .prepare(
-          `SELECT id
-           FROM gift_orders
-           WHERE status = 'dispatching'
-             AND dispatch_started_at IS NOT NULL
-             AND dispatch_started_at <= ?`
-        )
-        .all(staleCutoff);
-      await db.prepare(
-        `UPDATE gift_orders
-         SET status = 'dispatch_retry',
-             dispatch_status = 'error',
-             dispatch_started_at = NULL,
-             next_retry_at = ?,
-             last_dispatch_error = COALESCE(last_dispatch_error, 'stale_dispatch_recovered'),
-             updated_at = ?
-         WHERE status = 'dispatching'
-           AND dispatch_started_at IS NOT NULL
-           AND dispatch_started_at <= ?`
-      ).run(now, now, staleCutoff);
+      const staleDispatching = await repository.listStaleDispatching({ staleCutoff });
+      await repository.recoverStaleDispatching({ staleCutoff, now });
 
       for (const row of staleDispatching) {
         await upsertGiftIncident(db, {
@@ -79,26 +62,8 @@ function startGiftDispatchJob({
         });
       }
 
-      const staleSending = await db
-        .prepare(
-          `SELECT id, gift_order_id
-           FROM gift_delivery_outbox
-           WHERE status = 'sending'
-             AND locked_at IS NOT NULL
-             AND locked_at <= ?`
-        )
-        .all(staleCutoff);
-      await db.prepare(
-        `UPDATE gift_delivery_outbox
-         SET status = 'failed',
-             last_error = COALESCE(last_error, 'stale_channel_send_recovered'),
-             next_retry_at = ?,
-             locked_at = NULL,
-             updated_at = ?
-         WHERE status = 'sending'
-           AND locked_at IS NOT NULL
-           AND locked_at <= ?`
-      ).run(now, now, staleCutoff);
+      const staleSending = await repository.listStaleSending({ staleCutoff });
+      await repository.recoverStaleSending({ staleCutoff, now });
 
       for (const row of staleSending) {
         await upsertGiftIncident(db, {
@@ -115,26 +80,10 @@ function startGiftDispatchJob({
         });
       }
 
-      const overdueRows = await db
-        .prepare(
-          `SELECT go.id
-           FROM gift_orders go
-           LEFT JOIN gift_delivery_outbox gdo
-             ON gdo.gift_order_id = go.id AND gdo.status = 'sent'
-           WHERE go.status IN ('scheduled', 'dispatch_retry')
-             AND COALESCE(go.next_retry_at, go.send_at) <= ?
-           GROUP BY go.id
-           HAVING COUNT(gdo.id) = 0`
-        )
-        .all(overdueCutoff);
+      const overdueRows = await repository.listOverdueUndelivered({ overdueCutoff });
 
       for (const row of overdueRows) {
-        await db.prepare(
-          `UPDATE gift_orders
-           SET overdue_detected_at = COALESCE(overdue_detected_at, ?),
-               updated_at = ?
-           WHERE id = ?`
-        ).run(now, now, row.id);
+        await repository.markGiftOverdue({ giftOrderId: row.id, now });
 
         await upsertGiftIncident(db, {
           incidentKey: `gift_overdue:${row.id}`,
@@ -149,16 +98,7 @@ function startGiftDispatchJob({
         });
       }
 
-      const dueGifts = await db
-        .prepare(
-          `SELECT id
-           FROM gift_orders
-           WHERE status IN ('scheduled', 'dispatch_retry')
-             AND COALESCE(next_retry_at, send_at) <= ?
-           ORDER BY send_at ASC
-           LIMIT ?`
-        )
-        .all(now, batchSize);
+      const dueGifts = await repository.listDueGifts({ now, batchSize });
 
       for (const row of dueGifts) {
         processed += 1;

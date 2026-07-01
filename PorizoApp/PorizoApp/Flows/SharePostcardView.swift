@@ -123,6 +123,8 @@ struct SharePostcardView: View {
         .shadow(color: DesignTokens.gold.opacity(0.20), radius: 32, y: 8)
         .shadow(color: Color.black.opacity(0.06), radius: 8, y: 2)
         .frame(maxWidth: .infinity, alignment: .center)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(artworkAccessibilityLabel)
     }
 
     private var artworkPlaceholder: some View {
@@ -137,7 +139,15 @@ struct SharePostcardView: View {
             .overlay(
                 Text(occasion.flatMap { Occasion(rawValue: $0)?.emoji } ?? "🎵")
                     .font(.system(size: 48))
+                    .accessibilityHidden(true)
             )
+    }
+
+    private var artworkAccessibilityLabel: String {
+        if let phrase = occasionDisplay {
+            return "Share artwork for \(phrase.lowercased()) for \(recipientName)"
+        }
+        return "Share artwork for \(recipientName)"
     }
 
     // MARK: - Meta Caption
@@ -189,6 +199,8 @@ struct SharePostcardView: View {
                 .padding(.horizontal, DesignTokens.spacing16)
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Shared via private link and PIN")
+            .accessibilityHint(showHowItWorks ? "Double tap to hide sharing details" : "Double tap to show sharing details")
 
             if showHowItWorks {
                 VStack(alignment: .leading, spacing: DesignTokens.spacing8) {
@@ -602,4 +614,36 @@ private enum ShareTarget {
         onCopyLink: {},
         onSkip: {}
     )
+}
+
+#Preview("Long name, accessibility size") {
+    SharePostcardView(
+        recipientName: "Alexandria-Jane Oluwaseun Montgomery",
+        occasion: "graduation",
+        shareURL: "https://porizo.app/s/long-name-preview",
+        claimPIN: "9071",
+        artworkURL: nil,
+        onSend: {},
+        onSaveToPhotos: {},
+        onCopyLink: {},
+        onSkip: {}
+    )
+    .environment(\.dynamicTypeSize, .accessibility3)
+    .frame(width: 375, height: 667)
+}
+
+#Preview("Missing link, dark mode") {
+    SharePostcardView(
+        recipientName: "Nana",
+        occasion: nil,
+        shareURL: nil,
+        claimPIN: nil,
+        artworkURL: nil,
+        onSend: {},
+        onSaveToPhotos: {},
+        onCopyLink: {},
+        onSkip: {}
+    )
+    .preferredColorScheme(.dark)
+    .frame(width: 430, height: 932)
 }

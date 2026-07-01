@@ -171,6 +171,10 @@ storage/
 
 ## Error Codes
 
+Current public HTTP errors use the flat envelope documented in
+`docs/api/error-envelope.md`. The taxonomy below is internal planning language,
+not the shipped wire contract.
+
 | Range | Category   | Examples                                              |
 | ----- | ---------- | ----------------------------------------------------- |
 | E1xx  | Enrollment | E101_AUDIO_TOO_NOISY, E105_VERIFICATION_FAILED        |

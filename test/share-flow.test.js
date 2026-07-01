@@ -8,6 +8,8 @@
  * - Stream authorization
  */
 
+process.env.NODE_ENV = "test";
+
 require("dotenv/config");
 const { describe, it, before, after } = require("node:test");
 const assert = require("node:assert");
@@ -80,6 +82,7 @@ describe("Share Flow", () => {
       STORAGE_PROVIDER: "local",
       UPLOAD_SIGNING_SECRET: "test-upload-secret",
       UPLOAD_URL_TTL_SEC: 900,
+      ALLOW_ANON_USER_ID: true,
       ALLOW_DEVICE_TOKEN_FALLBACK: true,
     };
     db = await initDb({

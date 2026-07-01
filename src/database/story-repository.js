@@ -25,6 +25,10 @@ class StoryVersionConflictError extends Error {
 // Default session TTL: 24 hours
 const DEFAULT_SESSION_TTL_HOURS = 24;
 
+function serializeOptionalJson(value) {
+  return value === null || value === undefined ? null : JSON.stringify(value);
+}
+
 /**
  * Safely parse JSON with fallback value
  * Prevents crashes from corrupted or malformed JSON in database
@@ -456,6 +460,414 @@ function createStoryRepository(db) {
     return rows.map(hydrateSession);
   }
 
+  async function claimUnownedSession({ sessionId, userId }) {
+    const claimResult = await db
+      .prepare("UPDATE story_sessions SET user_id = ? WHERE id = ? AND user_id IS NULL")
+      .run(userId, sessionId);
+
+    if (claimResult.changes > 0) {
+      return { claimed: true, userId };
+    }
+
+    const fresh = await db
+      .prepare("SELECT user_id FROM story_sessions WHERE id = ?")
+      .get(sessionId);
+
+    return {
+      claimed: false,
+      userId: fresh?.user_id || null,
+    };
+  }
+
+  async function getStoryGiftPoem(poemId) {
+    const row = await db
+      .prepare(
+        `SELECT id, user_id, title, recipient_name, occasion, tone, verses, status, created_at, updated_at
+         FROM poems
+         WHERE id = ? AND deleted_at IS NULL`,
+      )
+      .get(poemId);
+
+    return row ? hydrateStoryGiftPoem(row) : null;
+  }
+
+  async function createStoryPoem({
+    poemId,
+    userId,
+    title,
+    recipientName,
+    occasion,
+    tone,
+    verses,
+    provenance,
+    fundingSource,
+    giftReservationId,
+    createdAt,
+  }) {
+    await db
+      .prepare(
+        `INSERT INTO poems (id, user_id, title, recipient_name, occasion, tone, verses, message, status, funding_source, gift_reservation_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        poemId,
+        userId,
+        title,
+        recipientName,
+        occasion,
+        tone,
+        JSON.stringify(verses),
+        JSON.stringify(provenance),
+        "generated",
+        fundingSource,
+        giftReservationId,
+        createdAt,
+        createdAt,
+      );
+
+    return {
+      id: poemId,
+      user_id: userId,
+      title,
+      recipient_name: recipientName,
+      occasion,
+      tone,
+      verses,
+      status: "generated",
+      created_at: createdAt,
+      updated_at: createdAt,
+    };
+  }
+
+  async function markStoryPoemGenerationFailed(poemId) {
+    return db
+      .prepare("UPDATE poems SET status = 'generation_failed' WHERE id = ?")
+      .run(poemId);
+  }
+
+  async function findTrackVersionForGiftReuse({ trackId, versionNum }) {
+    return db
+      .prepare(
+        `SELECT id, version_num
+         FROM track_versions
+         WHERE track_id = ? AND version_num = ?
+         LIMIT 1`,
+      )
+      .get(trackId, versionNum);
+  }
+
+  async function findActiveVoiceProfileForUser(userId) {
+    return db
+      .prepare("SELECT id FROM voice_profiles WHERE user_id = ? AND status = 'active'")
+      .get(userId);
+  }
+
+  async function getUserDisplayName(userId) {
+    return db.prepare("SELECT display_name FROM users WHERE id = ?").get(userId);
+  }
+
+  async function createStoryTrackDraftWithVersion({
+    trackId,
+    versionId,
+    userId,
+    title,
+    occasion,
+    recipientName,
+    recipientPhone = null,
+    recipientChannel = null,
+    style = null,
+    message = null,
+    storyContextPayload,
+    voiceMode,
+    voiceGender = null,
+    fundingSource,
+    giftReservationId = null,
+    paramsJson,
+    paramsHash,
+    createdAt,
+  }) {
+    await db
+      .prepare(
+        `
+        INSERT INTO tracks (id, user_id, status, title, occasion, recipient_name, recipient_phone, recipient_channel, style, message, story_context_json, voice_mode, voice_gender, funding_source, gift_reservation_id, latest_version, created_at, updated_at)
+        VALUES (?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+      `,
+      )
+      .run(
+        trackId,
+        userId,
+        title,
+        occasion,
+        recipientName,
+        recipientPhone,
+        recipientChannel,
+        style,
+        message,
+        JSON.stringify(storyContextPayload),
+        voiceMode,
+        voiceGender,
+        fundingSource,
+        giftReservationId,
+        createdAt,
+        createdAt,
+      );
+
+    await db
+      .prepare(
+        `
+        INSERT INTO track_versions (id, track_id, version_num, status, render_type, params_json, params_hash, created_at)
+        VALUES (?, ?, 1, 'draft', 'preview', ?, ?, ?)
+      `,
+      )
+      .run(versionId, trackId, paramsJson, paramsHash, createdAt);
+  }
+
+  async function upsertTrackLibraryEntry({
+    userId,
+    trackId,
+    origin,
+    shareTokenId = null,
+    addedAt = new Date().toISOString(),
+  }) {
+    const now = new Date().toISOString();
+    const updateResult = await db
+      .prepare(
+        `UPDATE track_library_entries
+       SET origin = CASE WHEN origin = 'created' THEN origin ELSE ? END,
+           share_token_id = COALESCE(?, share_token_id),
+           added_at = CASE WHEN removed_at IS NOT NULL THEN ? ELSE added_at END,
+           removed_at = NULL, updated_at = ?
+       WHERE user_id = ? AND track_id = ?`,
+      )
+      .run(origin, shareTokenId, addedAt, now, userId, trackId);
+
+    if (updateResult.changes > 0) {
+      return;
+    }
+
+    await db
+      .prepare(
+        `INSERT INTO track_library_entries
+       (user_id, track_id, origin, share_token_id, added_at, removed_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, NULL, ?)`,
+      )
+      .run(userId, trackId, origin, shareTokenId, addedAt, now);
+  }
+
+  async function upsertPoemLibraryEntry({
+    userId,
+    poemId,
+    origin,
+    shareTokenId = null,
+    addedAt = new Date().toISOString(),
+  }) {
+    const now = new Date().toISOString();
+    const updateResult = await db
+      .prepare(
+        `UPDATE poem_library_entries
+       SET origin = CASE WHEN origin = 'created' THEN origin ELSE ? END,
+           share_token_id = COALESCE(?, share_token_id),
+           added_at = CASE WHEN removed_at IS NOT NULL THEN ? ELSE added_at END,
+           removed_at = NULL, updated_at = ?
+       WHERE user_id = ? AND poem_id = ?`,
+      )
+      .run(origin, shareTokenId, addedAt, now, userId, poemId);
+
+    if (updateResult.changes > 0) {
+      return;
+    }
+
+    await db
+      .prepare(
+        `INSERT INTO poem_library_entries
+       (user_id, poem_id, origin, share_token_id, added_at, removed_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, NULL, ?)`,
+      )
+      .run(userId, poemId, origin, shareTokenId, addedAt, now);
+  }
+
+  async function removeTrackLibraryEntry({
+    userId,
+    trackId,
+    removedAt = new Date().toISOString(),
+  }) {
+    await db
+      .prepare(
+        `UPDATE track_library_entries
+       SET removed_at = COALESCE(removed_at, ?), updated_at = ?
+       WHERE user_id = ? AND track_id = ? AND removed_at IS NULL`,
+      )
+      .run(removedAt, removedAt, userId, trackId);
+  }
+
+  async function removePoemLibraryEntry({
+    userId,
+    poemId,
+    removedAt = new Date().toISOString(),
+  }) {
+    await db
+      .prepare(
+        `UPDATE poem_library_entries
+       SET removed_at = COALESCE(removed_at, ?), updated_at = ?
+       WHERE user_id = ? AND poem_id = ? AND removed_at IS NULL`,
+      )
+      .run(removedAt, removedAt, userId, poemId);
+  }
+
+  async function createOrchestrationExecution({
+    executionId,
+    adminId,
+    status,
+    endpoint,
+    runtimeMode,
+    requestPayload,
+    replayOf = null,
+    createdAt = new Date().toISOString(),
+  }) {
+    await db
+      .prepare(
+        `INSERT INTO orchestration_executions
+       (id, admin_id, status, endpoint, runtime_mode, request_json, result_json, debug_json, error_json, replay_of, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?, ?)`,
+      )
+      .run(
+        executionId,
+        adminId,
+        status,
+        endpoint,
+        runtimeMode,
+        JSON.stringify(requestPayload || {}),
+        replayOf,
+        createdAt,
+        createdAt,
+      );
+  }
+
+  async function updateOrchestrationExecution({
+    executionId,
+    status,
+    result = null,
+    debug = null,
+    error = null,
+    updatedAt = new Date().toISOString(),
+  }) {
+    await db
+      .prepare(
+        `UPDATE orchestration_executions
+       SET status = ?, result_json = ?, debug_json = ?, error_json = ?, updated_at = ?
+       WHERE id = ?`,
+      )
+      .run(
+        status,
+        serializeOptionalJson(result),
+        serializeOptionalJson(debug),
+        serializeOptionalJson(error),
+        updatedAt,
+        executionId,
+      );
+  }
+
+  async function appendOrchestrationExecutionEvent({
+    executionId,
+    sequence,
+    eventType,
+    level = "info",
+    message = "",
+    payload = null,
+    eventId = newUuid(),
+    createdAt = new Date().toISOString(),
+  }) {
+    await db
+      .prepare(
+        `INSERT INTO orchestration_execution_events
+       (id, execution_id, sequence, event_type, level, message, payload_json, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        eventId,
+        executionId,
+        sequence,
+        eventType,
+        level,
+        message || null,
+        serializeOptionalJson(payload),
+        createdAt,
+      );
+  }
+
+  async function getOrchestrationExecution(executionId) {
+    return db
+      .prepare("SELECT * FROM orchestration_executions WHERE id = ?")
+      .get(executionId);
+  }
+
+  async function listOrchestrationExecutions({
+    status = null,
+    limit,
+    offset,
+  }) {
+    const whereSql = status ? "WHERE status = ?" : "";
+    const countRow = status
+      ? await db
+          .prepare(
+            `SELECT COUNT(*) as total FROM orchestration_executions ${whereSql}`,
+          )
+          .get(status)
+      : await db
+          .prepare("SELECT COUNT(*) as total FROM orchestration_executions")
+          .get();
+
+    const rows = status
+      ? await db
+          .prepare(
+            `SELECT id, admin_id, status, endpoint, runtime_mode, replay_of, created_at, updated_at
+       FROM orchestration_executions ${whereSql}
+       ORDER BY created_at DESC
+       LIMIT ? OFFSET ?`,
+          )
+          .all(status, limit, offset)
+      : await db
+          .prepare(
+            `SELECT id, admin_id, status, endpoint, runtime_mode, replay_of, created_at, updated_at
+       FROM orchestration_executions
+       ORDER BY created_at DESC
+       LIMIT ? OFFSET ?`,
+          )
+          .all(limit, offset);
+
+    return {
+      rows,
+      total: Number(countRow?.total || 0),
+    };
+  }
+
+  async function listOrchestrationExecutionEvents({
+    executionId,
+    limit,
+    offset,
+  }) {
+    const countRow = await db
+      .prepare(
+        "SELECT COUNT(*) as total FROM orchestration_execution_events WHERE execution_id = ?",
+      )
+      .get(executionId);
+
+    const rows = await db
+      .prepare(
+        `SELECT id, execution_id, sequence, event_type, level, message, payload_json, created_at
+       FROM orchestration_execution_events
+       WHERE execution_id = ?
+       ORDER BY sequence ASC, created_at ASC
+       LIMIT ? OFFSET ?`,
+      )
+      .all(executionId, limit, offset);
+
+    return {
+      rows,
+      total: Number(countRow?.total || 0),
+    };
+  }
+
   /**
    * Hydrate a session row from database format
    * Uses safeJsonParse to prevent crashes from corrupted JSON
@@ -508,6 +920,21 @@ function createStoryRepository(db) {
     };
   }
 
+  function hydrateStoryGiftPoem(row) {
+    return {
+      id: row.id,
+      user_id: row.user_id,
+      title: row.title,
+      recipient_name: row.recipient_name,
+      occasion: row.occasion,
+      tone: row.tone,
+      verses: JSON.parse(row.verses || "[]"),
+      status: row.status,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+    };
+  }
+
   return {
     createSession,
     getSession,
@@ -519,6 +946,24 @@ function createStoryRepository(db) {
     getLatestUnansweredTurn,
     expireStaleSessions,
     getActiveSessionsForUser,
+    claimUnownedSession,
+    getStoryGiftPoem,
+    createStoryPoem,
+    markStoryPoemGenerationFailed,
+    findTrackVersionForGiftReuse,
+    findActiveVoiceProfileForUser,
+    getUserDisplayName,
+    createStoryTrackDraftWithVersion,
+    upsertTrackLibraryEntry,
+    upsertPoemLibraryEntry,
+    removeTrackLibraryEntry,
+    removePoemLibraryEntry,
+    createOrchestrationExecution,
+    updateOrchestrationExecution,
+    appendOrchestrationExecutionEvent,
+    getOrchestrationExecution,
+    listOrchestrationExecutions,
+    listOrchestrationExecutionEvents,
   };
 }
 

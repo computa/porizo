@@ -31,7 +31,7 @@ describe("Music Provider Config", () => {
 
   it("returns defaults with fidelity fields", async () => {
     await db.prepare("DELETE FROM app_config WHERE key = 'music_provider_config'").run();
-    const config = await adminService.getMusicProviderConfig();
+    const config = await adminService.adminProviderConfigService.getMusicProviderConfig();
     assert.equal(config.default_provider, "suno");
     assert.equal(config.suno_model, "V5");
     assert.equal(config.auto_style_routing, true);
@@ -55,13 +55,13 @@ describe("Music Provider Config", () => {
         "admin_test"
       );
 
-    const config = await adminService.getMusicProviderConfig();
+    const config = await adminService.adminProviderConfigService.getMusicProviderConfig();
     assert.equal(config.default_provider, "suno");
     assert.equal(config.suno_model, "V4_5");
   });
 
   it("supports fidelity updates and sanitizes overrides", async () => {
-    await adminService.setMusicProviderConfig(
+    await adminService.adminProviderConfigService.setMusicProviderConfig(
       {
         default_provider: "suno",
         suno_model: "V5_5",
@@ -83,7 +83,7 @@ describe("Music Provider Config", () => {
       "admin_test"
     );
 
-    const config = await adminService.getMusicProviderConfig();
+    const config = await adminService.adminProviderConfigService.getMusicProviderConfig();
     assert.equal(config.default_provider, "suno");
     assert.equal(config.suno_model, "V5_5");
     assert.equal(config.auto_style_routing, false);
@@ -103,7 +103,7 @@ describe("Music Provider Config", () => {
   it("rejects invalid generation mode", async () => {
     await assert.rejects(
       () =>
-        adminService.setMusicProviderConfig(
+        adminService.adminProviderConfigService.setMusicProviderConfig(
           {
             elevenlabs_generation_mode: "legacy_prompt",
           },
@@ -116,7 +116,7 @@ describe("Music Provider Config", () => {
   it("rejects invalid suno model", async () => {
     await assert.rejects(
       () =>
-        adminService.setMusicProviderConfig(
+        adminService.adminProviderConfigService.setMusicProviderConfig(
           {
             suno_model: "V6",
           },
@@ -129,7 +129,7 @@ describe("Music Provider Config", () => {
   it("rejects switching default provider away from suno", async () => {
     await assert.rejects(
       () =>
-        adminService.setMusicProviderConfig(
+        adminService.adminProviderConfigService.setMusicProviderConfig(
           {
             default_provider: "elevenlabs",
           },

@@ -91,6 +91,28 @@ function seedDownloadEvent(
   return id;
 }
 
+function seedReceiverSession(db, {
+  id = "rs_aaaaaaaaaaaaaaaaaaaaaaaa",
+  receiverHandoffId = "rh_bbbbbbbbbbbbbbbbbbbbbbbb",
+  handoffExpiresAt = new Date(Date.now() + 86_400_000).toISOString(),
+} = {}) {
+  db.prepare(`
+    INSERT INTO receiver_sessions (
+      id, share_id, content_kind, receiver_handoff_id, handoff_expires_at,
+      first_event_name, last_event_name, created_at, updated_at
+    ) VALUES (?, ?, 'song', ?, ?, 'receiver_save_cta_clicked',
+      'receiver_save_cta_clicked', ?, ?)
+  `).run(
+    id,
+    `share_${id}`,
+    receiverHandoffId,
+    handoffExpiresAt,
+    new Date().toISOString(),
+    new Date().toISOString(),
+  );
+  return { id, receiverHandoffId };
+}
+
 function matchedDownloadUserId(db, eventId) {
   return db
     .prepare("SELECT matched_user_id FROM download_events WHERE id = ?")
@@ -217,12 +239,12 @@ test("download attribution matcher does not steal already matched events", async
   assert.equal(await pollUserAcquisitionSource(db, nextUserId, { timeoutMs: 50 }), null);
 });
 
-test("/download appends an App Store campaign token and logs human clicks", async (t) => {
+test("/download appends an App Store campaign token and logs the install-intent envelope", async (t) => {
   const { app, db } = await makeApp(t);
 
   const response = await app.inject({
     method: "GET",
-    url: "/download?utm_source=seo&utm_medium=landing_page&utm_campaign=song_gift&utm_content=hero_badge",
+    url: "/download?utm_source=seo&utm_medium=landing_page&utm_campaign=song_gift&utm_content=hero_badge&utm_term=custom%20birthday%20song&ref=https%3A%2F%2Fporizo.co%2Fbirthday-song-maker",
     headers: {
       "user-agent":
         "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148",
@@ -235,15 +257,24 @@ test("/download appends an App Store campaign token and logs human clicks", asyn
   assert.equal(location.searchParams.get("ct"), "song_gift_hero_badge");
 
   const row = db.prepare(`
-    SELECT utm_source, utm_medium, utm_campaign, utm_content
+    SELECT id, user_agent, utm_source, utm_medium, utm_campaign, utm_content,
+           utm_term, referrer_url, receiver_session_id
     FROM download_events
     ORDER BY created_at DESC
     LIMIT 1
   `).get();
+  assert.match(row.id, /^dl_[a-f0-9]{16}$/);
+  assert.equal(
+    row.user_agent,
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148",
+  );
   assert.equal(row.utm_source, "seo");
   assert.equal(row.utm_medium, "landing_page");
   assert.equal(row.utm_campaign, "song_gift");
   assert.equal(row.utm_content, "hero_badge");
+  assert.equal(row.utm_term, "custom birthday song");
+  assert.equal(row.referrer_url, "https://porizo.co/birthday-song-maker");
+  assert.equal(row.receiver_session_id, null);
 });
 
 test("/download redirects bots without logging install intent", async (t) => {
@@ -258,6 +289,33 @@ test("/download redirects bots without logging install intent", async (t) => {
   });
 
   assert.equal(response.statusCode, 302, response.body);
+  const count = db
+    .prepare("SELECT COUNT(*) AS count FROM download_events")
+    .get();
+  assert.equal(Number(count.count), 0);
+});
+
+test("/download bot requests with receiver handoff do not consume receiver attribution", async (t) => {
+  const { app, db } = await makeApp(t);
+  const receiverSession = seedReceiverSession(db);
+
+  const response = await app.inject({
+    method: "GET",
+    url:
+      `/download?deep_link=${encodeURIComponent(`porizo:///receiver-handoff/${receiverSession.receiverHandoffId}`)}` +
+      `&receiver_session_id=${encodeURIComponent(receiverSession.id)}`,
+    headers: {
+      "user-agent": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
+    },
+  });
+
+  assert.equal(response.statusCode, 200, response.body);
+  const session = db
+    .prepare(
+      "SELECT download_attributed_at FROM receiver_sessions WHERE id = ?",
+    )
+    .get(receiverSession.id);
+  assert.equal(session.download_attributed_at, null);
   const count = db
     .prepare("SELECT COUNT(*) AS count FROM download_events")
     .get();

@@ -1008,7 +1008,7 @@ describe("Render Endpoints", async () => {
     );
     await db.query(
       `UPDATE tracks
-       SET funding_source = 'gift_token',
+       SET funding_source = 'gift_wallet',
            gift_reservation_id = 'gres_render_gift'
        WHERE id = ?`,
       [trackId],
@@ -1051,6 +1051,14 @@ describe("Render Endpoints", async () => {
       "Gift-funded render should still mark version as funded",
     );
 
+    const trackRows = await db.query(
+      "SELECT funding_source, gift_reservation_id FROM tracks WHERE id = ?",
+      [trackId],
+    );
+    assert.equal(trackRows.rows.length, 1);
+    assert.equal(trackRows.rows[0].funding_source, "gift_wallet");
+    assert.equal(trackRows.rows[0].gift_reservation_id, "gres_render_gift");
+
     // S10: verify the gift reservation is still bound to this track + version
     // on the funding code path. Per migration 059, the gift status enum is
     // `reserved | content_ready | finalized | cancelled | expired`. The
@@ -1085,6 +1093,61 @@ describe("Render Endpoints", async () => {
       giftRows.rows[0].content_id,
       trackId,
       "Gift reservation must remain bound to the track it funded",
+    );
+  });
+
+  it("POST /tracks/:id/versions/:version/render_full — legacy gift token source still skips subscription spend", async () => {
+    const { trackId, trackVersionId } = await createTrackAndVersion();
+
+    await db.query(
+      `INSERT INTO gift_reservations (
+        id, user_id, status, content_type, content_id, version_num,
+        token_transaction_id, expires_at, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        "gres_render_legacy_gift",
+        userId,
+        "reserved",
+        "song",
+        trackId,
+        1,
+        "gift_tx_render_legacy",
+        new Date(Date.now() + 60_000).toISOString(),
+        new Date().toISOString(),
+        new Date().toISOString(),
+      ],
+    );
+    await db.query(
+      `UPDATE tracks
+       SET funding_source = 'gift_token',
+           gift_reservation_id = 'gres_render_legacy_gift'
+       WHERE id = ?`,
+      [trackId],
+    );
+    await db.query(
+      `UPDATE track_versions
+       SET status = 'queued',
+           lyrics_status = 'approved'
+       WHERE id = ?`,
+      [trackVersionId],
+    );
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/tracks/${trackId}/versions/1/render_full`,
+      headers: { "x-user-id": userId },
+      payload: {},
+    });
+
+    assert.equal(
+      response.statusCode,
+      202,
+      `Expected 202, got ${response.statusCode}: ${response.body}`,
+    );
+    assert.equal(
+      spendCalls,
+      0,
+      "Legacy gift-funded render should not consume subscription entitlement",
     );
   });
 

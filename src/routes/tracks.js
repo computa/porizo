@@ -8,13 +8,14 @@ const {
   moderationCheck,
   validateGeneratedLyrics,
 } = require("../providers/moderation");
-const { generateLyrics } = require("../providers/lyrics");
+const { generateLyrics } = require("../writer/songwriter");
 const {
   buildLyricsContext,
   summarizeLyricsContextForLog,
 } = require("../writer/lyrics-context");
 const { getFeatureFlag } = require("../services/feature-flags");
 const {
+  findActiveVoiceProfileForUser,
   findActiveProviderProfileForUser,
   findLatestPendingProviderProfileForUser,
   findLatestProviderProfileForVoiceProfile,
@@ -27,6 +28,14 @@ const {
 // (e.g., a future "personalized_v2") were added.
 const { PERSONALIZED_VOICE_MODES } = require("../workflows/render-contract");
 const { enqueueArtworkJob } = require("../jobs/artwork-job");
+const { createTrackVersionRepository } = require("../database/track-version-repository");
+const { createShareTokenRepository } = require("../database/share-token-repository");
+const {
+  createTrackLibraryRepository,
+} = require("../database/track-library-repository");
+const {
+  createGiftReservationRepository,
+} = require("../database/gift-reservation-repository");
 
 const SUNO_PERSONA_PREPARING_STATUSES = new Set([
   "pending",
@@ -56,11 +65,8 @@ function registerTrackRoutes(
     getUserRiskLevel,
     setRiskLevel,
     computeParamsHash,
-    findTrackVersion,
     getTrackVersions,
-    getTrackForLibrary,
     withTrackLibraryFlags,
-    upsertTrackLibraryEntry,
     hydrateTrackCoverImages,
     findJob,
     findActiveJobForVersion,
@@ -69,7 +75,6 @@ function registerTrackRoutes(
     isActiveJob,
     isTerminalFailedJobStatus,
     isTerminalTrackFailureStatus,
-    incrementTrackVersion,
     extractLyricsText,
     normalizeVariantName,
     SONG_VARIANT_NAMES,
@@ -78,6 +83,19 @@ function registerTrackRoutes(
     subscriptionManager,
   },
 ) {
+  const activeArtworkJobs = new Set();
+  const trackVersionRepository = createTrackVersionRepository(db);
+  const shareTokenRepository = createShareTokenRepository(db);
+  const trackLibraryRepository = createTrackLibraryRepository(db);
+  const giftReservationRepository = createGiftReservationRepository(db);
+  app.addHook("onClose", async () => {
+    if (activeArtworkJobs.size === 0) return;
+    await Promise.race([
+      Promise.allSettled([...activeArtworkJobs]),
+      new Promise((resolve) => setTimeout(resolve, 5000)),
+    ]);
+  });
+
   async function kickArtworkJob(trackId, trackVersionId, userId) {
     // Defense-in-depth rate limit. The render_preview / render_full endpoints
     // already cap at 20/day (free) and 50/day (paid), so the worst-case paid
@@ -99,7 +117,11 @@ function registerTrackRoutes(
         );
       }
     }
-    enqueueArtworkJob({
+    const enqueueArtworkJobFn =
+      typeof config?.enqueueArtworkJobFn === "function"
+        ? config.enqueueArtworkJobFn
+        : enqueueArtworkJob;
+    const enqueueResult = enqueueArtworkJobFn({
       db,
       trackId,
       trackVersionId,
@@ -108,6 +130,11 @@ function registerTrackRoutes(
         : undefined,
       generateDependencies: { storageProvider },
     });
+    const backgroundJob = enqueueResult?.promise;
+    if (backgroundJob && typeof backgroundJob.finally === "function") {
+      activeArtworkJobs.add(backgroundJob);
+      backgroundJob.finally(() => activeArtworkJobs.delete(backgroundJob));
+    }
   }
 
   function mergeProvenanceJson(existingJson, patch) {
@@ -136,11 +163,7 @@ function registerTrackRoutes(
     if (!PERSONALIZED_VOICE_MODES.has(track?.voice_mode)) {
       return { ok: true };
     }
-    const voiceProfile = await db
-      .prepare(
-        "SELECT id FROM voice_profiles WHERE user_id = ? AND status = 'active' ORDER BY created_at DESC LIMIT 1",
-      )
-      .get(userId);
+    const voiceProfile = await findActiveVoiceProfileForUser(db, { userId });
     if (!voiceProfile) {
       return {
         ok: false,
@@ -247,24 +270,20 @@ function registerTrackRoutes(
     }
 
     const now = nowIso();
-    if (fundingSource === "gift_token") {
+    if (fundingSource === "gift_wallet" || fundingSource === "gift_token") {
       // Verify the gift reservation is still active (not expired/refunded)
-      const giftReservation = await query(
-        `SELECT id, status FROM gift_reservations
-         WHERE id = (SELECT gift_reservation_id FROM tracks WHERE id = ?)
-         AND status IN ('reserved', 'content_ready', 'finalized')`,
-        [trackId],
-      );
-      const reservationRow = Array.isArray(giftReservation)
-        ? giftReservation[0]
-        : giftReservation;
+      const reservationRow = await giftReservationRepository.getActiveForTrack({
+        trackId,
+        query,
+      });
       if (!reservationRow) {
         // Reservation expired or was refunded — fall through to subscription spend
       } else {
-        await query(
-          "UPDATE track_versions SET song_entitlement_consumed_at = ? WHERE id = ?",
-          [now, trackVersionId],
-        );
+        await trackVersionRepository.markSongEntitlementConsumed({
+          trackVersionId,
+          consumedAt: now,
+          query,
+        });
         return { consumed: false, consumedAt: now };
       }
     }
@@ -278,33 +297,26 @@ function registerTrackRoutes(
     }
 
     await spendInTransaction(query, userId, trackId, trackVersionId);
-    await query(
-      "UPDATE track_versions SET song_entitlement_consumed_at = ? WHERE id = ?",
-      [now, trackVersionId],
-    );
+    await trackVersionRepository.markSongEntitlementConsumed({
+      trackVersionId,
+      consumedAt: now,
+      query,
+    });
     return { consumed: true, consumedAt: now };
   }
 
   async function findActiveTrackShare(track, creatorId) {
     let existingShare = null;
     if (track?.share_token_id) {
-      existingShare = await db
-        .prepare("SELECT * FROM share_tokens WHERE id = ?")
-        .get(track.share_token_id);
+      existingShare = await shareTokenRepository.getSongShareTokenById(
+        track.share_token_id,
+      );
     }
     if (!existingShare) {
-      existingShare = await db
-        .prepare(
-          `SELECT *
-             FROM share_tokens
-            WHERE track_id = ?
-              AND creator_id = ?
-              AND COALESCE(delivery_source, 'manual') != 'gift'
-              AND status != 'revoked'
-            ORDER BY created_at DESC
-            LIMIT 1`,
-        )
-        .get(track.id, creatorId);
+      existingShare = await shareTokenRepository.getLatestManualSongShare({
+        trackId: track.id,
+        creatorId,
+      });
     }
     if (!existingShare) {
       return null;
@@ -314,19 +326,21 @@ function registerTrackRoutes(
     const isValid = isDemo || new Date(existingShare.expires_at) > new Date();
     if (!isValid) {
       if (!isDemo && existingShare.status !== "expired") {
-        await db
-          .prepare("UPDATE share_tokens SET status = ? WHERE id = ?")
-          .run("expired", existingShare.id);
+        await shareTokenRepository.updateShareStatus(
+          "share_tokens",
+          existingShare.id,
+          "expired",
+        );
       }
       return null;
     }
 
     if (!track.share_token_id || track.share_token_id !== existingShare.id) {
-      await db
-        .prepare(
-          "UPDATE tracks SET share_token_id = ?, updated_at = ? WHERE id = ?",
-        )
-        .run(existingShare.id, nowIso(), track.id);
+      await shareTokenRepository.setTrackShareToken({
+        trackId: track.id,
+        shareTokenId: existingShare.id,
+        updatedAt: nowIso(),
+      });
       track.share_token_id = existingShare.id;
     }
 
@@ -461,31 +475,27 @@ function registerTrackRoutes(
       const storyContextJson =
         Object.keys(storyContext).length > 0 ? toJson(storyContext) : null;
 
-      await db
-        .prepare(
-          "INSERT INTO tracks (id, user_id, status, title, occasion, recipient_name, recipient_phone, recipient_channel, style, duration_target, voice_mode, voice_gender, message, story_context_json, share_token_id, latest_version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        )
-        .run(
-          trackId,
-          userId,
-          "draft",
-          body.title || null,
-          body.occasion || null,
-          body.recipient_name || null,
-          body.recipient_phone || null,
-          body.recipient_channel || null,
-          body.style || null,
-          body.duration_target || 60,
-          requestedVoiceMode,
-          body.voice_gender || null,
-          body.message || null,
-          storyContextJson,
-          null,
-          0,
-          now,
-          now,
-        );
-      await upsertTrackLibraryEntry({
+      await trackVersionRepository.createTrack({
+        id: trackId,
+        userId,
+        status: "draft",
+        title: body.title || null,
+        occasion: body.occasion || null,
+        recipientName: body.recipient_name || null,
+        recipientPhone: body.recipient_phone || null,
+        recipientChannel: body.recipient_channel || null,
+        style: body.style || null,
+        durationTarget: body.duration_target || 60,
+        voiceMode: requestedVoiceMode,
+        voiceGender: body.voice_gender || null,
+        message: body.message || null,
+        storyContextJson,
+        shareTokenId: null,
+        latestVersion: 0,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await trackLibraryRepository.upsertTrackLibraryEntry({
         userId,
         trackId,
         origin: "created",
@@ -517,26 +527,11 @@ function registerTrackRoutes(
       Math.max(1, Number(request.query?.limit || 50) || 50),
     );
     const offset = Math.max(0, Number(request.query?.offset || 0) || 0);
-    const tracks = await db
-      .prepare(
-        `SELECT t.*,
-                tle.origin AS library_origin,
-                tle.added_at AS library_added_at,
-                tle.share_token_id AS library_share_token_id,
-                CASE WHEN t.user_id = ? THEN 1 ELSE 0 END AS can_edit,
-                CASE WHEN t.user_id = ? THEN 1 ELSE 0 END AS can_share,
-                1 AS can_delete
-         FROM tracks t
-         JOIN track_library_entries tle
-           ON tle.track_id = t.id
-          AND tle.user_id = ?
-          AND tle.removed_at IS NULL
-         WHERE t.deleted_at IS NULL
-           AND NOT (COALESCE(t.funding_source, 'standard') = 'gift_token' AND tle.origin = 'created')
-         ORDER BY tle.added_at DESC
-         LIMIT ? OFFSET ?`,
-      )
-      .all(userId, userId, userId, limit, offset);
+    const tracks = await trackLibraryRepository.listTracksForUser({
+      userId,
+      limit,
+      offset,
+    });
     const hydrated = await hydrateTrackCoverImages(tracks);
     reply.send({ tracks: hydrated.map(withTrackLibraryFlags) });
   });
@@ -546,30 +541,16 @@ function registerTrackRoutes(
     if (!userId) {
       return;
     }
-    let trackRow = await getTrackForLibrary(userId, request.params.id);
+    let trackRow = await trackLibraryRepository.getTrackForLibrary({
+      userId,
+      trackId: request.params.id,
+    });
     if (!trackRow) {
-      const ownedGiftTrack = await db
-        .prepare(
-          `SELECT t.*,
-                NULL AS library_origin,
-                NULL AS library_added_at,
-                NULL AS library_share_token_id,
-                st.claim_pin AS share_claim_pin,
-                st.expires_at AS share_expires_at,
-                st.status AS share_status,
-                1 AS can_edit,
-                1 AS can_share,
-                1 AS can_delete
-           FROM tracks t
-           LEFT JOIN share_tokens st
-             ON st.id = t.share_token_id
-            AND st.status NOT IN ('revoked', 'expired')
-          WHERE t.id = ?
-            AND t.user_id = ?
-            AND t.deleted_at IS NULL
-            AND COALESCE(t.funding_source, 'standard') = 'gift_token'`,
-        )
-        .get(request.params.id, userId);
+      const ownedGiftTrack =
+        await trackLibraryRepository.getOwnedGiftTrackForLibrary({
+          userId,
+          trackId: request.params.id,
+        });
       trackRow = ownedGiftTrack || null;
     }
     const [hydratedTrack] = await hydrateTrackCoverImages(
@@ -591,17 +572,20 @@ function registerTrackRoutes(
     if (!userId) {
       return;
     }
-    const track = await getTrackForLibrary(userId, request.params.id);
+    const track = await trackLibraryRepository.getTrackForLibrary({
+      userId,
+      trackId: request.params.id,
+    });
     if (!track) {
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;
     }
     const deletedAt = nowIso();
-    await db
-      .prepare(
-        "UPDATE track_library_entries SET removed_at = ?, updated_at = ? WHERE user_id = ? AND track_id = ? AND removed_at IS NULL",
-      )
-      .run(deletedAt, deletedAt, userId, track.id);
+    await trackLibraryRepository.removeTrackFromLibrary({
+      userId,
+      trackId: track.id,
+      removedAt: deletedAt,
+    });
 
     await addAuditEntry({
       userId,
@@ -618,9 +602,9 @@ function registerTrackRoutes(
     if (!userId) {
       return;
     }
-    const track = await db
-      .prepare("SELECT * FROM tracks WHERE id = ?")
-      .get(request.params.id);
+    const track = await trackVersionRepository.findTrackById(
+      request.params.id,
+    );
     if (!track || track.user_id !== userId || track.deleted_at) {
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;
@@ -667,9 +651,11 @@ function registerTrackRoutes(
       }
     }
 
-    await db
-      .prepare("UPDATE tracks SET voice_mode = ?, updated_at = ? WHERE id = ?")
-      .run(effectiveVoiceMode, nowIso(), track.id);
+    await trackVersionRepository.updateTrackVoiceMode({
+      trackId: track.id,
+      voiceMode: effectiveVoiceMode,
+      updatedAt: nowIso(),
+    });
 
     console.log(
       `[Track] Updated voice_mode to '${effectiveVoiceMode}' for track ${track.id}`,
@@ -685,9 +671,7 @@ function registerTrackRoutes(
       if (!userId) {
         return;
       }
-      const track = await db
-        .prepare("SELECT * FROM tracks WHERE id = ?")
-        .get(request.params.id);
+      const track = await trackVersionRepository.findTrackById(request.params.id);
       if (!track || track.user_id !== userId || track.deleted_at) {
         sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
         return;
@@ -696,11 +680,11 @@ function registerTrackRoutes(
       const paramsHash = computeParamsHash(body.params || {});
       const renderType = body.render_type || "preview";
       const streamBaseUrl = getBaseUrl(request);
-      const existing = await db
-        .prepare(
-          "SELECT id, version_num FROM track_versions WHERE track_id = ? AND params_hash = ? AND render_type = ?",
-        )
-        .get(track.id, paramsHash, renderType);
+      const existing = await trackVersionRepository.findDuplicateVersion({
+        trackId: track.id,
+        paramsHash,
+        renderType,
+      });
       if (existing) {
         sendError(
           reply,
@@ -714,37 +698,23 @@ function registerTrackRoutes(
         );
         return;
       }
-      // Transaction ensures version increment + insert are atomic
       const trackVersionId = newUuid();
-      const versionNum = await db.transaction(async () => {
-        const num = await incrementTrackVersion(track.id);
-        await db
-          .prepare(
-            "INSERT INTO track_versions (id, track_id, version_num, parent_version_id, status, render_type, params_json, params_hash, cost_estimate_json, actual_cost_json, storage_ref, created_at, completed_at, preview_url, full_url, lyrics_status, lyrics_updated_at, lyrics_approved_at, guide_access_token, stream_base_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-          )
-          .run(
-            trackVersionId,
-            track.id,
-            num,
-            body.parent_version_id || null,
-            "queued",
-            renderType,
-            toJson(body.params || {}),
-            paramsHash,
-            toJson({ credits: 1, usd: renderType === "full" ? 0.25 : 0.15 }),
-            null,
-            `tracks/${userId}/${track.id}/v${num}`,
-            nowIso(),
-            null,
-            null,
-            null,
-            "draft",
-            nowIso(),
-            null,
-            null,
-            streamBaseUrl,
-          );
-        return num;
+      const now = nowIso();
+      const { versionNum } = await trackVersionRepository.createVersionWithNextNumber({
+        id: trackVersionId,
+        trackId: track.id,
+        parentVersionId: body.parent_version_id || null,
+        renderType,
+        paramsJson: toJson(body.params || {}),
+        paramsHash,
+        costEstimateJson: toJson({
+          credits: 1,
+          usd: renderType === "full" ? 0.25 : 0.15,
+        }),
+        storageRefPrefix: `tracks/${userId}/${track.id}/v`,
+        createdAt: now,
+        lyricsUpdatedAt: now,
+        streamBaseUrl,
       });
       reply.code(201).send({
         track_version_id: trackVersionId,
@@ -759,35 +729,32 @@ function registerTrackRoutes(
   app.post(
     "/tracks/:id/versions/:version/render_preview",
     async (request, reply) => {
-      console.log(
-        `[render_preview] START: trackId=${request.params.id}, version=${request.params.version}`,
-      );
       const userId = await requireUserId(request, reply);
       if (!userId) {
-        console.log(`[render_preview] No userId, returning early`);
         return;
       }
-      console.log(`[render_preview] userId=${userId}`);
-      const track = await db
-        .prepare("SELECT * FROM tracks WHERE id = ?")
-        .get(request.params.id);
-      console.log(
-        `[render_preview] track exists: ${!!track}, user_id match: ${track?.user_id === userId}`,
+      const track = await trackVersionRepository.findTrackById(
+        request.params.id,
       );
       if (!track || track.user_id !== userId || track.deleted_at) {
         sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
         return;
       }
       const versionNum = Number(request.params.version);
-      const trackVersion = await findTrackVersion(track.id, versionNum);
+      const trackVersion =
+        await trackVersionRepository.findByTrackIdAndVersion({
+          trackId: track.id,
+          versionNum,
+        });
       if (!trackVersion) {
         sendError(reply, 404, "VERSION_NOT_FOUND", "Track version not found.");
         return;
       }
       const streamBaseUrl = getBaseUrl(request);
-      await db
-        .prepare("UPDATE track_versions SET stream_base_url = ? WHERE id = ?")
-        .run(streamBaseUrl, trackVersion.id);
+      await trackVersionRepository.updateStreamBaseUrl({
+        trackVersionId: trackVersion.id,
+        streamBaseUrl,
+      });
       if (trackVersion.moderation_status === "blocked") {
         sendError(
           reply,
@@ -840,11 +807,11 @@ function registerTrackRoutes(
 
           if (!lyricsChangedSinceFailure) {
             existingJob = latestFailedPreviewJob;
-            await db
-              .prepare(
-                "UPDATE track_versions SET preview_job_id = ? WHERE id = ?",
-              )
-              .run(existingJob.id, trackVersion.id);
+            await trackVersionRepository.linkRenderJobToVersion({
+              trackVersionId: trackVersion.id,
+              workflowType: "preview_render",
+              jobId: existingJob.id,
+            });
           }
         }
       }
@@ -854,11 +821,11 @@ function registerTrackRoutes(
           "preview_render",
         );
         if (existingJob) {
-          await db
-            .prepare(
-              "UPDATE track_versions SET preview_job_id = ? WHERE id = ?",
-            )
-            .run(existingJob.id, trackVersion.id);
+          await trackVersionRepository.linkRenderJobToVersion({
+            trackVersionId: trackVersion.id,
+            workflowType: "preview_render",
+            jobId: existingJob.id,
+          });
         }
       }
       if (isActiveJob(existingJob)) {
@@ -919,10 +886,12 @@ function registerTrackRoutes(
       let previewResult;
       try {
         previewResult = await db.transaction(async (query) => {
-          const updateResult = await query(
-            "UPDATE track_versions SET status = 'processing' WHERE id = ? AND status NOT IN ('processing','preview_ready')",
-            [trackVersion.id],
-          );
+          const updateResult =
+            await trackVersionRepository.markVersionProcessingForRender({
+              trackVersionId: trackVersion.id,
+              workflowType: "preview_render",
+              query,
+            });
 
           if (!(updateResult?.changes ?? updateResult?.rowCount ?? 0)) {
             throw new Error("ALREADY_RENDERING");
@@ -937,37 +906,15 @@ function registerTrackRoutes(
           });
 
           const now = nowIso();
-          await query(
-            "UPDATE tracks SET status = ?, updated_at = ? WHERE id = ?",
-            ["rendering", now, track.id],
-          );
-          await query(
-            "INSERT INTO jobs (id, track_version_id, workflow_type, status, step, attempts, max_attempts, step_index, step_data, error_code, error_message, progress_pct, started_at, completed_at, last_heartbeat_at, external_task_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            [
-              jobId,
-              trackVersion.id,
-              "preview_render",
-              "queued",
-              "queued",
-              0,
-              3,
-              0,
-              renderRequestStepData,
-              null,
-              null,
-              0,
-              null,
-              null,
-              null,
-              null,
-              now,
-              now,
-            ],
-          );
-          await query(
-            "UPDATE track_versions SET preview_job_id = ? WHERE id = ?",
-            [jobId, trackVersion.id],
-          );
+          await trackVersionRepository.insertRenderJobForVersion({
+            trackId: track.id,
+            trackVersionId: trackVersion.id,
+            jobId,
+            workflowType: "preview_render",
+            stepData: renderRequestStepData,
+            createdAt: now,
+            query,
+          });
           return { jobId };
         });
 
@@ -1037,9 +984,6 @@ function registerTrackRoutes(
         resourceId: trackVersion.id,
         metadata: { render_type: "preview" },
       });
-      console.log(
-        `[render_preview] Job created: jobId=${previewResult.jobId}, trackVersionId=${trackVersion.id}`,
-      );
       reply.code(202).send({
         job_id: previewResult.jobId,
         estimated_completion_sec: 90,
@@ -1066,23 +1010,28 @@ function registerTrackRoutes(
         );
         return;
       }
-      const track = await db
-        .prepare("SELECT * FROM tracks WHERE id = ?")
-        .get(request.params.id);
+      const track = await trackVersionRepository.findTrackById(
+        request.params.id,
+      );
       if (!track || track.user_id !== userId || track.deleted_at) {
         sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
         return;
       }
       const versionNum = Number(request.params.version);
-      const trackVersion = await findTrackVersion(track.id, versionNum);
+      const trackVersion =
+        await trackVersionRepository.findByTrackIdAndVersion({
+          trackId: track.id,
+          versionNum,
+        });
       if (!trackVersion) {
         sendError(reply, 404, "VERSION_NOT_FOUND", "Track version not found.");
         return;
       }
       const streamBaseUrl = getBaseUrl(request);
-      await db
-        .prepare("UPDATE track_versions SET stream_base_url = ? WHERE id = ?")
-        .run(streamBaseUrl, trackVersion.id);
+      await trackVersionRepository.updateStreamBaseUrl({
+        trackVersionId: trackVersion.id,
+        streamBaseUrl,
+      });
       if (trackVersion.moderation_status === "blocked") {
         sendError(
           reply,
@@ -1107,7 +1056,6 @@ function registerTrackRoutes(
       if (trackVersion.status === "full_ready" && trackVersion.full_url) {
         reply.code(200).send({
           job_id: trackVersion.full_job_id || null,
-          credits_reserved: 0,
           estimated_completion_sec: 0,
         });
         return;
@@ -1119,15 +1067,16 @@ function registerTrackRoutes(
           "full_render",
         );
         if (existingJob) {
-          await db
-            .prepare("UPDATE track_versions SET full_job_id = ? WHERE id = ?")
-            .run(existingJob.id, trackVersion.id);
+          await trackVersionRepository.linkRenderJobToVersion({
+            trackVersionId: trackVersion.id,
+            workflowType: "full_render",
+            jobId: existingJob.id,
+          });
         }
       }
       if (isActiveJob(existingJob)) {
         reply.code(202).send({
           job_id: existingJob.id,
-          credits_reserved: 0,
           estimated_completion_sec: 180,
         });
         return;
@@ -1158,10 +1107,12 @@ function registerTrackRoutes(
       let billingResult;
       try {
         billingResult = await db.transaction(async (query) => {
-          const updateResult = await query(
-            "UPDATE track_versions SET status = 'processing' WHERE id = ? AND status NOT IN ('processing', 'full_ready')",
-            [trackVersion.id],
-          );
+          const updateResult =
+            await trackVersionRepository.markVersionProcessingForRender({
+              trackVersionId: trackVersion.id,
+              workflowType: "full_render",
+              query,
+            });
 
           if (!(updateResult?.changes ?? updateResult?.rowCount ?? 0)) {
             throw new Error("ALREADY_RENDERING");
@@ -1177,39 +1128,15 @@ function registerTrackRoutes(
 
           const now = nowIso();
 
-          await query(
-            "UPDATE tracks SET status = ?, updated_at = ? WHERE id = ?",
-            ["rendering", now, track.id],
-          );
-
-          await query(
-            "INSERT INTO jobs (id, track_version_id, workflow_type, status, step, attempts, max_attempts, step_index, step_data, error_code, error_message, progress_pct, started_at, completed_at, last_heartbeat_at, external_task_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            [
-              jobId,
-              trackVersion.id,
-              "full_render",
-              "queued",
-              "queued",
-              0,
-              3,
-              0,
-              renderRequestStepData,
-              null,
-              null,
-              0,
-              null,
-              null,
-              null,
-              null,
-              now,
-              now,
-            ],
-          );
-
-          await query(
-            "UPDATE track_versions SET full_job_id = ? WHERE id = ?",
-            [jobId, trackVersion.id],
-          );
+          await trackVersionRepository.insertRenderJobForVersion({
+            trackId: track.id,
+            trackVersionId: trackVersion.id,
+            jobId,
+            workflowType: "full_render",
+            stepData: renderRequestStepData,
+            createdAt: now,
+            query,
+          });
 
           return { success: true, jobId };
         });
@@ -1242,7 +1169,6 @@ function registerTrackRoutes(
           if (fallbackJob) {
             reply.code(202).send({
               job_id: fallbackJob.id,
-              credits_reserved: 0,
               estimated_completion_sec: 180,
             });
             return;
@@ -1281,12 +1207,8 @@ function registerTrackRoutes(
         metadata: { render_type: "full" },
       });
 
-      const job = await db
-        .prepare("SELECT * FROM jobs WHERE id = ?")
-        .get(billingResult.jobId);
       reply.code(202).send({
-        job_id: job.id,
-        credits_reserved: 0,
+        job_id: billingResult.jobId,
         estimated_completion_sec: 180,
         user_voice_engine:
           personaPreflight.renderRequest?.user_voice_engine || null,
@@ -1299,15 +1221,19 @@ function registerTrackRoutes(
     if (!userId) {
       return;
     }
-    const track = await db
-      .prepare("SELECT * FROM tracks WHERE id = ?")
-      .get(request.params.id);
+    const track = await trackVersionRepository.findTrackById(
+      request.params.id,
+    );
     if (!track || track.user_id !== userId || track.deleted_at) {
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;
     }
     const versionNum = Number(request.params.version);
-    const trackVersion = await findTrackVersion(track.id, versionNum);
+    const trackVersion =
+      await trackVersionRepository.findByTrackIdAndVersion({
+        trackId: track.id,
+        versionNum,
+      });
     if (!trackVersion) {
       sendError(reply, 404, "VERSION_NOT_FOUND", "Track version not found.");
       return;
@@ -1383,15 +1309,19 @@ function registerTrackRoutes(
     if (!userId) {
       return;
     }
-    const track = await db
-      .prepare("SELECT * FROM tracks WHERE id = ?")
-      .get(request.params.id);
+    const track = await trackVersionRepository.findTrackById(
+      request.params.id,
+    );
     if (!track || track.user_id !== userId || track.deleted_at) {
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;
     }
     const versionNum = Number(request.params.version);
-    const trackVersion = await findTrackVersion(track.id, versionNum);
+    const trackVersion =
+      await trackVersionRepository.findByTrackIdAndVersion({
+        trackId: track.id,
+        versionNum,
+      });
     if (!trackVersion) {
       sendError(reply, 404, "VERSION_NOT_FOUND", "Track version not found.");
       return;
@@ -1415,35 +1345,11 @@ function registerTrackRoutes(
 
     const now = nowIso();
     try {
-      await db.transaction(async () => {
-        const cancelResult = await db
-          .prepare(
-            "UPDATE jobs SET status = 'cancelled', completed_at = ?, error_code = 'USER_CANCELLED', error_message = 'Cancelled by user', updated_at = ? WHERE id = ? AND status IN ('queued','running')",
-          )
-          .run(now, now, activeJob.id);
-
-        // TOCTOU guard: if job completed between check and update, abort
-        if (cancelResult.changes === 0) {
-          throw Object.assign(new Error("Job already finalized"), {
-            code: "NO_ACTIVE_RENDER",
-          });
-        }
-
-        // Reset track version status so the user can re-render.
-        // NOTE: track_versions has no updated_at column (only created_at +
-        // lyrics_updated_at). Writing updated_at here threw Postgres 42703 on
-        // every cancel; removed to match the schema and all other tv updates.
-        await db
-          .prepare(
-            "UPDATE track_versions SET status = 'cancelled' WHERE id = ?",
-          )
-          .run(trackVersion.id);
-
-        await db
-          .prepare(
-            "UPDATE tracks SET status = 'draft', updated_at = ? WHERE id = ?",
-          )
-          .run(now, track.id);
+      await trackVersionRepository.cancelActiveRender({
+        trackId: track.id,
+        trackVersionId: trackVersion.id,
+        jobId: activeJob.id,
+        cancelledAt: now,
       });
 
       await addAuditEntry({
@@ -1501,15 +1407,19 @@ function registerTrackRoutes(
     if (!userId) {
       return;
     }
-    const track = await db
-      .prepare("SELECT * FROM tracks WHERE id = ?")
-      .get(request.params.id);
+    const track = await trackVersionRepository.findTrackById(
+      request.params.id,
+    );
     if (!track || track.user_id !== userId || track.deleted_at) {
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;
     }
     const versionNum = Number(request.params.version);
-    const trackVersion = await findTrackVersion(track.id, versionNum);
+    const trackVersion =
+      await trackVersionRepository.findByTrackIdAndVersion({
+        trackId: track.id,
+        versionNum,
+      });
     if (!trackVersion) {
       sendError(reply, 404, "VERSION_NOT_FOUND", "Track version not found.");
       return;
@@ -1530,15 +1440,19 @@ function registerTrackRoutes(
       });
       return;
     }
-    const track = await db
-      .prepare("SELECT * FROM tracks WHERE id = ?")
-      .get(request.params.id);
+    const track = await trackVersionRepository.findTrackById(
+      request.params.id,
+    );
     if (!track || track.user_id !== userId || track.deleted_at) {
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;
     }
     const versionNum = Number(request.params.version);
-    const trackVersion = await findTrackVersion(track.id, versionNum);
+    const trackVersion =
+      await trackVersionRepository.findByTrackIdAndVersion({
+        trackId: track.id,
+        versionNum,
+      });
     if (!trackVersion) {
       sendError(reply, 404, "VERSION_NOT_FOUND", "Track version not found.");
       return;
@@ -1582,11 +1496,11 @@ function registerTrackRoutes(
       );
       return;
     }
-    await db
-      .prepare(
-        "UPDATE track_versions SET lyrics_json = ?, lyrics_status = ?, lyrics_updated_at = ? WHERE id = ?",
-      )
-      .run(toJson(body.lyrics), "draft", nowIso(), trackVersion.id);
+    await trackVersionRepository.updateDraftLyrics({
+      trackVersionId: trackVersion.id,
+      lyricsJson: toJson(body.lyrics),
+      lyricsUpdatedAt: nowIso(),
+    });
     reply.send({ updated: true });
   });
 
@@ -1612,15 +1526,19 @@ function registerTrackRoutes(
         );
         return;
       }
-      const track = await db
-        .prepare("SELECT * FROM tracks WHERE id = ?")
-        .get(request.params.id);
+      const track = await trackVersionRepository.findTrackById(
+        request.params.id,
+      );
       if (!track || track.user_id !== userId || track.deleted_at) {
         sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
         return;
       }
       const versionNum = Number(request.params.version);
-      const trackVersion = await findTrackVersion(track.id, versionNum);
+      const trackVersion =
+        await trackVersionRepository.findByTrackIdAndVersion({
+          trackId: track.id,
+          versionNum,
+        });
       if (!trackVersion) {
         sendError(reply, 404, "VERSION_NOT_FOUND", "Track version not found.");
         return;
@@ -1687,11 +1605,10 @@ function registerTrackRoutes(
       );
       if (!validation.allowed) {
         // Mark version as blocked in database
-        await db
-          .prepare(
-            "UPDATE track_versions SET moderation_status = ?, moderation_reason = ? WHERE id = ?",
-          )
-          .run("blocked", validation.reason, trackVersion.id);
+        await trackVersionRepository.blockModeration({
+          trackVersionId: trackVersion.id,
+          reason: validation.reason,
+        });
         await addAuditEntry({
           userId,
           action: "llm_moderation_blocked",
@@ -1740,17 +1657,13 @@ function registerTrackRoutes(
           },
         ],
       });
-      await db
-        .prepare(
-          "UPDATE track_versions SET lyrics_json = ?, lyrics_status = ?, lyrics_updated_at = ?, provenance_json = ? WHERE id = ?",
-        )
-        .run(
-          toJson(result.lyrics),
-          lyricsStatus,
-          nowIso(),
-          provenanceJson,
-          trackVersion.id,
-        );
+      await trackVersionRepository.updateGeneratedLyrics({
+        trackVersionId: trackVersion.id,
+        lyricsJson: toJson(result.lyrics),
+        lyricsStatus,
+        lyricsUpdatedAt: nowIso(),
+        provenanceJson,
+      });
       reply.send({
         lyrics: result.lyrics,
         lyrics_status: lyricsStatus,
@@ -1785,15 +1698,19 @@ function registerTrackRoutes(
         );
         return;
       }
-      const track = await db
-        .prepare("SELECT * FROM tracks WHERE id = ?")
-        .get(request.params.id);
+      const track = await trackVersionRepository.findTrackById(
+        request.params.id,
+      );
       if (!track || track.user_id !== userId || track.deleted_at) {
         sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
         return;
       }
       const versionNum = Number(request.params.version);
-      const trackVersion = await findTrackVersion(track.id, versionNum);
+      const trackVersion =
+        await trackVersionRepository.findByTrackIdAndVersion({
+          trackId: track.id,
+          versionNum,
+        });
       if (!trackVersion) {
         sendError(reply, 404, "VERSION_NOT_FOUND", "Track version not found.");
         return;
@@ -1817,11 +1734,10 @@ function registerTrackRoutes(
       const moderation = moderationCheck({ lyrics: lyricsText });
       if (!moderation.allowed) {
         await setRiskLevel(userId, "medium");
-        await db
-          .prepare(
-            "UPDATE track_versions SET moderation_status = ?, moderation_reason = ? WHERE id = ?",
-          )
-          .run("blocked", moderation.reason, trackVersion.id);
+        await trackVersionRepository.blockModeration({
+          trackVersionId: trackVersion.id,
+          reason: moderation.reason,
+        });
         await addAuditEntry({
           userId,
           action: "moderation_blocked",
@@ -1852,11 +1768,11 @@ function registerTrackRoutes(
         resourceId: trackVersion.id,
         metadata: { has_anchor: validation.hasAnchor },
       });
-      await db
-        .prepare(
-          "UPDATE track_versions SET lyrics_status = ?, lyrics_approved_at = ?, moderation_status = ? WHERE id = ?",
-        )
-        .run("approved", nowIso(), "passed", trackVersion.id);
+      await trackVersionRepository.approveLyrics({
+        trackVersionId: trackVersion.id,
+        lyricsApprovedAt: nowIso(),
+        moderationStatus: "passed",
+      });
       console.log(
         `[lyrics_approve] Lyrics approved: trackId=${track.id}, versionId=${trackVersion.id}`,
       );
@@ -1869,9 +1785,9 @@ function registerTrackRoutes(
     if (!userId) {
       return;
     }
-    const track = await db
-      .prepare("SELECT * FROM tracks WHERE id = ?")
-      .get(request.params.id);
+    const track = await trackVersionRepository.findTrackById(
+      request.params.id,
+    );
     if (!track || track.user_id !== userId || track.deleted_at) {
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;
@@ -1895,11 +1811,11 @@ function registerTrackRoutes(
         );
         return;
       }
-      await db
-        .prepare(
-          "UPDATE tracks SET og_variant = ?, updated_at = ? WHERE id = ?",
-        )
-        .run(normalizedVariant, nowIso(), track.id);
+      await trackVersionRepository.updateTrackOgVariant({
+        trackId: track.id,
+        ogVariant: normalizedVariant,
+        updatedAt: nowIso(),
+      });
     }
 
     // require_pin defaults to true for backward-compat. When the caller opts
@@ -1927,7 +1843,11 @@ function registerTrackRoutes(
 
     // Idempotency check is handled inside createOrGetShareToken
     const versionNum = body.version_num || track.latest_version;
-    const trackVersion = await findTrackVersion(track.id, versionNum);
+    const trackVersion =
+      await trackVersionRepository.findByTrackIdAndVersion({
+        trackId: track.id,
+        versionNum,
+      });
     if (!trackVersion) {
       sendError(reply, 404, "VERSION_NOT_FOUND", "Track version not found.");
       return;

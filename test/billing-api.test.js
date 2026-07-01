@@ -11,6 +11,7 @@ const { getDatabase } = require("../src/database");
 const { buildServer } = require("../src/server");
 const { buildEntitlementsPayload } = require("../src/routes/billing");
 const { clearCache, setFeatureFlag } = require("../src/services/feature-flags");
+const authService = require("../src/services/auth-service");
 
 describe("Billing API", async () => {
   let db;
@@ -250,6 +251,31 @@ describe("Billing API", async () => {
       assert.equal(response.statusCode, 503);
       const body = JSON.parse(response.body);
       assert.equal(body.error, "APPLE_NOT_CONFIGURED");
+    });
+
+    it("rejects revoked JWT sessions before receipt validation", async () => {
+      const session = await authService.createSession(testUserId, {
+        deviceName: "billing-test",
+        ipAddress: "127.0.0.1",
+        userAgent: "billing-api-test",
+      });
+      const accessToken = authService.generateAccessToken(testUserId, {
+        sessionId: session.id,
+      });
+      await authService.revokeSession(session.id);
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/billing/receipt/apple",
+        headers: {
+          authorization: `Bearer ${accessToken}`,
+        },
+        payload: { transactionId: "test-tx-revoked-session" },
+      });
+
+      assert.equal(response.statusCode, 401);
+      const body = JSON.parse(response.body);
+      assert.equal(body.error, "INVALID_TOKEN");
     });
 
     it("requires transactionId", async () => {

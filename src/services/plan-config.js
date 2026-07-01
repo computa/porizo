@@ -18,6 +18,9 @@
  */
 
 const crypto = require("crypto");
+const {
+  createPlanConfigRepository,
+} = require("../database/plan-config-repository");
 
 /**
  * Default cache TTL in milliseconds (5 minutes)
@@ -33,6 +36,8 @@ const DEFAULT_CACHE_TTL = 5 * 60 * 1000;
  */
 function createPlanConfigService(db, options = {}) {
   const cacheTTL = options.cacheTTL || DEFAULT_CACHE_TTL;
+  const repository =
+    options.repository || createPlanConfigRepository(db);
 
   // In-memory cache
   let plansCache = null;
@@ -68,19 +73,8 @@ function createPlanConfigService(db, options = {}) {
       return plansCache;
     }
 
-    const whereClause = includeInactive ? "" : "WHERE is_active = 1";
-    const result = await db.query(
-      `SELECT
-        id, name, tier, songs_per_month, poems_per_month, previews_per_day,
-        price_monthly_cents, price_annual_cents,
-        description, features_json, is_active, sort_order,
-        created_at, updated_at
-      FROM subscription_plans
-      ${whereClause}
-      ORDER BY sort_order ASC, id ASC`
-    );
-
-    const plans = result.rows.map((row) => ({
+    const rows = await repository.listPlans({ includeInactive });
+    const plans = rows.map((row) => ({
       ...row,
       features: row.features_json ? JSON.parse(row.features_json) : [],
       is_active: Boolean(row.is_active),
@@ -126,17 +120,10 @@ function createPlanConfigService(db, options = {}) {
       return productMappingCache;
     }
 
-    const result = await db.query(
-      `SELECT
-        pp.id, pp.plan_id, pp.platform, pp.product_id, pp.billing_period,
-        sp.tier, sp.name as plan_name, sp.songs_per_month, sp.poems_per_month, sp.previews_per_day
-      FROM plan_products pp
-      JOIN subscription_plans sp ON sp.id = pp.plan_id
-      WHERE sp.is_active = 1`
-    );
+    const rows = await repository.listActiveProductMappings();
 
     const mapping = new Map();
-    for (const row of result.rows) {
+    for (const row of rows) {
       const key = `${row.platform}:${row.product_id}`;
       mapping.set(key, {
         plan_id: row.plan_id,
@@ -210,11 +197,9 @@ function createPlanConfigService(db, options = {}) {
       return trialCache;
     }
 
-    const result = await db.query(
-      "SELECT songs_allowed, duration_days, is_active, updated_at FROM trial_config WHERE id = 1"
-    );
+    const row = await repository.getTrialConfig();
 
-    if (result.rows.length === 0) {
+    if (!row) {
       // Fail closed: free users get the one-time signup grant, not trial songs.
       trialCache = {
         songs_allowed: 0,
@@ -223,10 +208,10 @@ function createPlanConfigService(db, options = {}) {
       };
     } else {
       trialCache = {
-        songs_allowed: result.rows[0].songs_allowed,
-        duration_days: result.rows[0].duration_days,
-        is_active: Boolean(result.rows[0].is_active),
-        updated_at: result.rows[0].updated_at,
+        songs_allowed: row.songs_allowed,
+        duration_days: row.duration_days,
+        is_active: Boolean(row.is_active),
+        updated_at: row.updated_at,
       };
     }
 
@@ -241,48 +226,7 @@ function createPlanConfigService(db, options = {}) {
    * @returns {Promise<Object>} Updated plan
    */
   async function updatePlan(planId, updates) {
-    const allowedFields = [
-      "name",
-      "songs_per_month",
-      "poems_per_month",
-      "previews_per_day",
-      "price_monthly_cents",
-      "price_annual_cents",
-      "description",
-      "features_json",
-      "is_active",
-      "sort_order",
-    ];
-
-    const setClause = [];
-    const values = [];
-
-    for (const field of allowedFields) {
-      if (updates[field] === undefined) continue;
-
-      setClause.push(`${field} = ?`);
-
-      if (field === "features_json" && Array.isArray(updates[field])) {
-        values.push(JSON.stringify(updates[field]));
-      } else if (field === "is_active") {
-        values.push(updates[field] ? 1 : 0);
-      } else {
-        values.push(updates[field]);
-      }
-    }
-
-    if (setClause.length === 0) {
-      throw new Error("No valid fields to update");
-    }
-
-    setClause.push("updated_at = CURRENT_TIMESTAMP");
-    values.push(planId);
-
-    await db.query(
-      `UPDATE subscription_plans SET ${setClause.join(", ")} WHERE id = ?`,
-      values
-    );
-
+    await repository.updatePlan(planId, updates);
     invalidateCache();
     return getPlanById(planId);
   }
@@ -304,26 +248,20 @@ function createPlanConfigService(db, options = {}) {
     const newIsActive = is_active !== undefined ? (is_active ? 1 : 0) : (current.is_active ? 1 : 0);
 
     // Check if record exists
-    const existsResult = await db.query("SELECT id FROM trial_config WHERE id = 1");
-
-    if (existsResult.rows.length === 0) {
+    if (!(await repository.trialConfigExists())) {
       // Insert new record
-      await db.query(
-        `INSERT INTO trial_config (id, songs_allowed, duration_days, is_active, updated_at)
-         VALUES (1, ?, ?, ?, CURRENT_TIMESTAMP)`,
-        [newSongsAllowed, newDurationDays, newIsActive]
-      );
+      await repository.insertTrialConfig({
+        songsAllowed: newSongsAllowed,
+        durationDays: newDurationDays,
+        isActive: newIsActive,
+      });
     } else {
       // Update existing record
-      await db.query(
-        `UPDATE trial_config SET
-           songs_allowed = ?,
-           duration_days = ?,
-           is_active = ?,
-           updated_at = CURRENT_TIMESTAMP
-         WHERE id = 1`,
-        [newSongsAllowed, newDurationDays, newIsActive]
-      );
+      await repository.updateTrialConfig({
+        songsAllowed: newSongsAllowed,
+        durationDays: newDurationDays,
+        isActive: newIsActive,
+      });
     }
 
     return getTrialConfig();
@@ -336,27 +274,27 @@ function createPlanConfigService(db, options = {}) {
    */
   async function addProductMapping({ plan_id, platform, product_id, billing_period }) {
     // Check if mapping already exists
-    const existing = await db.query(
-      "SELECT id FROM plan_products WHERE platform = ? AND product_id = ?",
-      [platform, product_id]
-    );
+    const existing = await repository.findProductMapping(platform, product_id);
 
     let id;
-    if (existing.rows.length > 0) {
+    if (existing) {
       // Update existing mapping
-      id = existing.rows[0].id;
-      await db.query(
-        `UPDATE plan_products SET plan_id = ?, billing_period = ? WHERE id = ?`,
-        [plan_id, billing_period, id]
-      );
+      id = existing.id;
+      await repository.updateProductMapping({
+        id,
+        planId: plan_id,
+        billingPeriod: billing_period,
+      });
     } else {
       // Insert new mapping
       id = `${platform}_${plan_id}_${billing_period}_${Date.now()}`;
-      await db.query(
-        `INSERT INTO plan_products (id, plan_id, platform, product_id, billing_period, created_at)
-         VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
-        [id, plan_id, platform, product_id, billing_period]
-      );
+      await repository.insertProductMapping({
+        id,
+        planId: plan_id,
+        platform,
+        productId: product_id,
+        billingPeriod: billing_period,
+      });
     }
 
     invalidateCache();
@@ -369,10 +307,7 @@ function createPlanConfigService(db, options = {}) {
    * @param {string} productId - Product ID
    */
   async function removeProductMapping(platform, productId) {
-    await db.query(
-      "DELETE FROM plan_products WHERE platform = ? AND product_id = ?",
-      [platform, productId]
-    );
+    await repository.removeProductMapping(platform, productId);
     invalidateCache();
   }
 
@@ -382,13 +317,7 @@ function createPlanConfigService(db, options = {}) {
    * @returns {Promise<Array>} Product mappings
    */
   async function getProductsForPlan(planId) {
-    const result = await db.query(
-      `SELECT id, platform, product_id, billing_period, created_at
-       FROM plan_products
-       WHERE plan_id = ?`,
-      [planId]
-    );
-    return result.rows;
+    return repository.listProductsForPlan(planId);
   }
 
   /**
@@ -399,27 +328,20 @@ function createPlanConfigService(db, options = {}) {
   async function createPlan(plan) {
     const id = plan.id || `plan_${crypto.randomBytes(8).toString("hex")}`;
 
-    await db.query(
-      `INSERT INTO subscription_plans (
-        id, name, tier, songs_per_month, poems_per_month, previews_per_day,
-        price_monthly_cents, price_annual_cents, description,
-        features_json, is_active, sort_order, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-      [
-        id,
-        plan.name,
-        plan.tier,
-        plan.songs_per_month,
-        plan.poems_per_month ?? 0,
-        plan.previews_per_day ?? -1,
-        plan.price_monthly_cents ?? null,
-        plan.price_annual_cents ?? null,
-        plan.description ?? null,
-        plan.features_json ? JSON.stringify(plan.features_json) : null,
-        plan.is_active !== false ? 1 : 0,
-        plan.sort_order ?? 0,
-      ]
-    );
+    await repository.createPlan({
+      id,
+      name: plan.name,
+      tier: plan.tier,
+      songsPerMonth: plan.songs_per_month,
+      poemsPerMonth: plan.poems_per_month ?? 0,
+      previewsPerDay: plan.previews_per_day ?? -1,
+      priceMonthlyCents: plan.price_monthly_cents ?? null,
+      priceAnnualCents: plan.price_annual_cents ?? null,
+      description: plan.description ?? null,
+      featuresJson: plan.features_json ? JSON.stringify(plan.features_json) : null,
+      isActive: plan.is_active !== false ? 1 : 0,
+      sortOrder: plan.sort_order ?? 0,
+    });
 
     invalidateCache();
     return getPlanById(id);

@@ -21,13 +21,21 @@
  */
 
 const crypto = require("crypto");
+const {
+  createDeadLetterQueueRepository,
+  currentStepForJob,
+  lastErrorForJob,
+  retryCountForJob,
+} = require("../database/dead-letter-queue-repository");
 
 /**
  * Create a DLQ service instance
  * @param {Object} db - Database connection
  * @returns {Object} DLQ service interface
  */
-function createDLQService(db) {
+function createDLQService(db, { repository } = {}) {
+  const dlqRepository = repository || createDeadLetterQueueRepository(db);
+
   /**
    * Move a failed job to the dead-letter queue
    * @param {Object} params
@@ -36,59 +44,34 @@ function createDLQService(db) {
    * @returns {Object} The created DLQ entry
    */
   async function moveToDeadLetter({ jobId, reason }) {
-    // Get job details
-    const jobResult = await db.query(
-      "SELECT * FROM jobs WHERE id = $1",
-      [jobId]
-    );
+    const job = await dlqRepository.getJobById(jobId);
 
-    if (jobResult.rows.length === 0) {
+    if (!job) {
       throw new Error(`Job not found: ${jobId}`);
     }
 
-    const job = jobResult.rows[0];
     const dlqId = `dlq_${crypto.randomBytes(12).toString("hex")}`;
+    const failureCount = retryCountForJob(job);
+    const lastError = lastErrorForJob(job);
 
-    // Upsert into DLQ — idempotent on job_id to handle:
-    //   - crash-recovery (DLQ inserted but job status not yet updated)
-    //   - worker races (two workers DLQ the same job)
-    //   - replayed/reprocessed jobs that fail again with the same job_id
-    const upsertResult = await db.query(
-      `INSERT INTO dead_letter_queue (
-        id, job_id, original_status, failure_reason, failure_count, last_error, moved_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)
-      ON CONFLICT (job_id) DO UPDATE SET
-        failure_reason = EXCLUDED.failure_reason,
-        failure_count = EXCLUDED.failure_count,
-        last_error = EXCLUDED.last_error,
-        moved_at = CURRENT_TIMESTAMP
-      RETURNING id`,
-      [
-        dlqId,
-        jobId,
-        job.status,
-        reason,
-        job.retry_count || 0,
-        job.last_error || null,
-      ]
-    );
+    const dlqEntry = await dlqRepository.upsertEntry({
+      id: dlqId,
+      job,
+      jobId,
+      reason,
+      failureCount,
+      lastError,
+    });
 
-    // Use the returned ID (existing entry ID on conflict, new ID on insert)
-    const finalDlqId = upsertResult.rows?.[0]?.id || dlqId;
-
-    // Update job status to dead_letter
-    await db.query(
-      "UPDATE jobs SET status = 'dead_letter', updated_at = CURRENT_TIMESTAMP WHERE id = $1",
-      [jobId]
-    );
+    await dlqRepository.markJobDeadLetter(jobId);
 
     return {
-      id: finalDlqId,
+      id: dlqEntry?.id || dlqId,
       job_id: jobId,
       original_status: job.status,
       failure_reason: reason,
-      failure_count: job.retry_count || 0,
-      last_error: job.last_error,
+      failure_count: failureCount,
+      last_error: lastError,
     };
   }
 
@@ -100,18 +83,7 @@ function createDLQService(db) {
    * @returns {Array} List of DLQ entries
    */
   async function listDeadLetters({ unprocessedOnly = false, limit = 100 } = {}) {
-    let query = "SELECT * FROM dead_letter_queue";
-    const params = [];
-
-    if (unprocessedOnly) {
-      query += " WHERE reprocessed_at IS NULL";
-    }
-
-    query += " ORDER BY moved_at DESC LIMIT $1";
-    params.push(limit);
-
-    const result = await db.query(query, params);
-    return result.rows;
+    return dlqRepository.listEntries({ unprocessedOnly, limit });
   }
 
   /**
@@ -120,26 +92,17 @@ function createDLQService(db) {
    * @returns {Object} DLQ entry with job details
    */
   async function getDeadLetter(dlqId) {
-    const dlqResult = await db.query(
-      "SELECT * FROM dead_letter_queue WHERE id = $1",
-      [dlqId]
-    );
+    const dlqEntry = await dlqRepository.findEntryById(dlqId);
 
-    if (dlqResult.rows.length === 0) {
+    if (!dlqEntry) {
       return null;
     }
 
-    const dlqEntry = dlqResult.rows[0];
-
-    // Get associated job
-    const jobResult = await db.query(
-      "SELECT * FROM jobs WHERE id = $1",
-      [dlqEntry.job_id]
-    );
+    const job = await dlqRepository.getJobById(dlqEntry.job_id);
 
     return {
       ...dlqEntry,
-      job: jobResult.rows[0] || null,
+      job,
     };
   }
 
@@ -151,57 +114,34 @@ function createDLQService(db) {
    * @returns {Object} { newJobId, dlqEntryId }
    */
   async function reprocess({ jobId, fromStep = null }) {
-    // Get DLQ entry
-    const dlqResult = await db.query(
-      "SELECT * FROM dead_letter_queue WHERE job_id = $1",
-      [jobId]
-    );
+    const dlqEntry = await dlqRepository.findEntryByJobId(jobId);
 
-    if (dlqResult.rows.length === 0) {
+    if (!dlqEntry) {
       throw new Error(`No DLQ entry found for job: ${jobId}`);
     }
-
-    const dlqEntry = dlqResult.rows[0];
 
     if (dlqEntry.reprocessed_at) {
       throw new Error(`Job ${jobId} has already been reprocessed`);
     }
 
-    // Get original job
-    const jobResult = await db.query(
-      "SELECT * FROM jobs WHERE id = $1",
-      [jobId]
-    );
+    const originalJob = await dlqRepository.getJobById(jobId);
 
-    if (jobResult.rows.length === 0) {
+    if (!originalJob) {
       throw new Error(`Original job not found: ${jobId}`);
     }
 
-    const originalJob = jobResult.rows[0];
-
-    // Create new job
     const newJobId = `job_${crypto.randomBytes(12).toString("hex")}`;
-    const startStep = fromStep || originalJob.current_step || "pending";
+    const startStep = fromStep || currentStepForJob(originalJob);
 
-    await db.query(
-      `INSERT INTO jobs (
-        id, track_version_id, status, current_step, retry_count, max_retries, created_at, updated_at
-      ) VALUES ($1, $2, 'pending', $3, 0, $4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-      [
-        newJobId,
-        originalJob.track_version_id,
-        startStep,
-        originalJob.max_retries || 5,
-      ]
-    );
-
-    // Update DLQ entry
-    await db.query(
-      `UPDATE dead_letter_queue
-       SET reprocessed_at = CURRENT_TIMESTAMP, reprocess_job_id = $1
-       WHERE id = $2`,
-      [newJobId, dlqEntry.id]
-    );
+    await dlqRepository.createReprocessJob({
+      id: newJobId,
+      originalJob,
+      startStep,
+    });
+    await dlqRepository.markEntryReprocessed({
+      dlqId: dlqEntry.id,
+      newJobId,
+    });
 
     return {
       newJobId,
@@ -214,16 +154,10 @@ function createDLQService(db) {
    * @returns {Object} Statistics { total, unprocessed, reprocessed }
    */
   async function getStats() {
-    const totalResult = await db.query(
-      "SELECT COUNT(*) as count FROM dead_letter_queue"
-    );
-
-    const unprocessedResult = await db.query(
-      "SELECT COUNT(*) as count FROM dead_letter_queue WHERE reprocessed_at IS NULL"
-    );
-
-    const total = Number(totalResult.rows[0].count || 0);
-    const unprocessed = Number(unprocessedResult.rows[0].count || 0);
+    const total = await dlqRepository.countEntries();
+    const unprocessed = await dlqRepository.countEntries({
+      unprocessedOnly: true,
+    });
 
     return {
       total,
@@ -239,16 +173,13 @@ function createDLQService(db) {
    * @returns {Object} { count: number of entries deleted }
    */
   async function purge({ olderThanDays = 7 } = {}) {
-    const result = await db.query(
-      `DELETE FROM dead_letter_queue
-       WHERE reprocessed_at IS NOT NULL
-       AND reprocessed_at < NOW() - INTERVAL '1 day' * $1`,
-      [olderThanDays]
-    );
+    const cutoff = new Date(
+      Date.now() - olderThanDays * 24 * 60 * 60 * 1000,
+    ).toISOString();
+    const count = await dlqRepository.purgeReprocessedBefore(cutoff);
 
-    // Return the affected rows count
     return {
-      count: result.changes || result.rowCount || 0,
+      count,
     };
   }
 

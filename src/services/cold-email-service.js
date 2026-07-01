@@ -4,7 +4,7 @@
  * Replaces marketing/email/cold-daily-send.py + macOS launchd. State lives
  * in Postgres in production (cold_email_campaigns + cold_email_recipients).
  *
- * Pure decision logic (shouldFireToday, buildResendPayload, computeScheduleStart)
+ * Pure decision logic (shouldFireNow, buildResendPayload, computeScheduleStart)
  * lives separately from the I/O so it can be unit-tested without a DB or
  * Resend account.
  *
@@ -15,6 +15,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const { createColdEmailRepository } = require("../database/cold-email-repository");
 
 const REPO_ROOT = path.resolve(__dirname, "..", "..");
 const TEMPLATES_ROOT = path.resolve(REPO_ROOT, "marketing", "email");
@@ -91,10 +92,6 @@ function shouldFireNow(campaign, now) {
   return { fire: true, reason: "ok" };
 }
 
-// Backward-compatible alias. Anything in the codebase still calling
-// shouldFireToday now goes through the new interval-aware gate.
-const shouldFireToday = shouldFireNow;
-
 // Sandbox a campaign-provided template path to the templates root so a
 // DB-write attacker cannot exfiltrate arbitrary repo files (../../.env,
 // secrets.json, …) by setting template_html_path to a traversal string.
@@ -125,6 +122,7 @@ function buildResendPayload(rows, options) {
       scheduleStart.getTime() + queueIndex * pace * 1000,
     );
     out.push({
+      source_index_pos: row.index_pos,
       from: campaign.from_address,
       to: [email],
       reply_to: campaign.reply_to,
@@ -144,63 +142,40 @@ function buildResendPayload(rows, options) {
 
 // ---------- I/O layer ----------
 
-async function loadCampaign(db, campaignId) {
-  const camp = await db
-    .prepare("SELECT * FROM cold_email_campaigns WHERE id = ?")
-    .get(campaignId);
-  if (!camp) return null;
-  const pending = await db
-    .prepare(
-      "SELECT COUNT(*) AS n FROM cold_email_recipients WHERE campaign_id = ? AND sent_at IS NULL",
-    )
-    .get(campaignId);
-  return {
-    ...camp,
-    active: Number(camp.active) === 1 ? 1 : 0,
-    pending_count: Number(pending?.n ?? 0),
-  };
+function getRepository(db, options = {}) {
+  return options.repository || createColdEmailRepository(db);
 }
 
-async function listActiveCampaigns(db) {
-  // Single query with LEFT JOIN of pending counts — avoids N+1.
-  const rows = await db
-    .prepare(
-      `SELECT c.*, COALESCE(p.n, 0) AS pending_count
-       FROM cold_email_campaigns c
-       LEFT JOIN (
-         SELECT campaign_id, COUNT(*) AS n
-         FROM cold_email_recipients
-         WHERE sent_at IS NULL
-         GROUP BY campaign_id
-       ) p ON p.campaign_id = c.id
-       WHERE c.active = 1`,
-    )
-    .all();
-  return rows.map((row) => ({
-    ...row,
-    active: Number(row.active) === 1 ? 1 : 0,
-    pending_count: Number(row.pending_count ?? 0),
-  }));
+async function loadCampaign(db, campaignId, options = {}) {
+  return getRepository(db, options).loadCampaign(campaignId);
 }
 
-async function listPendingRecipients(db, campaignId, limit) {
-  // Suppress any recipient whose email belongs to a user who unsubscribed
-  // (one-click unsubscribe sets users.unsubscribed_at). Without this, an
-  // unsubscribed user on a cold list keeps receiving cold email — a compliance
-  // and trust problem. Match case-insensitively against the verified-primary
-  // mirror (users.email).
-  return db
-    .prepare(
-      `SELECT * FROM cold_email_recipients r
-       WHERE r.campaign_id = ? AND r.sent_at IS NULL
-         AND NOT EXISTS (
-           SELECT 1 FROM users u
-           WHERE LOWER(u.email) = LOWER(r.email)
-             AND u.unsubscribed_at IS NOT NULL
-         )
-       ORDER BY r.index_pos ASC LIMIT ?`,
-    )
-    .all(campaignId, limit);
+async function listActiveCampaigns(db, options = {}) {
+  return getRepository(db, options).listActiveCampaigns();
+}
+
+async function listAllCampaigns(db, options = {}) {
+  return getRepository(db, options).listAllCampaigns();
+}
+
+async function listTemplateReferences(db, options = {}) {
+  return getRepository(db, options).listTemplateReferences();
+}
+
+async function updateCampaignFields(
+  db,
+  campaignId,
+  changes,
+  expectedUpdatedAt,
+  updatedAt,
+  options = {},
+) {
+  return getRepository(db, options).updateCampaignFields(
+    campaignId,
+    changes,
+    expectedUpdatedAt,
+    updatedAt,
+  );
 }
 
 async function loadTemplates(campaign) {
@@ -255,79 +230,9 @@ async function submitToResend(payload, apiKey, fetchImpl = globalThis.fetch) {
 // through `.toISOString()` (UTC, millisecond precision) — lex order ≡
 // chronological order for that format. Don't change a writer to emit
 // `YYYY-MM-DD HH:MM:SS+00` or this gate breaks.
-async function claimRunSlot(db, campaignId, nowIso, todayUtc, minMinutes) {
-  const cutoffMs = new Date(nowIso).getTime() - minMinutes * 60_000;
-  const cutoffIso = new Date(cutoffMs).toISOString();
-  const result = await db
-    .prepare(
-      `UPDATE cold_email_campaigns
-       SET last_run_at = ?, last_run_date_utc = ?, updated_at = ?
-       WHERE id = ?
-         AND active = 1
-         AND (last_run_at IS NULL OR last_run_at <= ?)`,
-    )
-    .run(nowIso, todayUtc, nowIso, campaignId, cutoffIso);
-  return (result?.changes ?? 0) > 0;
-}
-
-async function releaseRunSlot(
-  db,
-  campaignId,
-  previousLastRunAt,
-  previousLastRunDateUtc,
-) {
-  // Restore previous state if we claimed but couldn't submit. The next poll
-  // will re-evaluate the interval gate against the restored last_run_at.
-  await db
-    .prepare(
-      "UPDATE cold_email_campaigns SET last_run_at = ?, last_run_date_utc = ?, updated_at = ? WHERE id = ?",
-    )
-    .run(
-      previousLastRunAt,
-      previousLastRunDateUtc,
-      new Date().toISOString(),
-      campaignId,
-    );
-}
-
-async function markBatchSent(
-  db,
-  campaignId,
-  rows,
-  payload,
-  resendResp,
-  nowIso,
-) {
-  const items = Array.isArray(resendResp?.data) ? resendResp.data : [];
-  const update = db.prepare(
-    "UPDATE cold_email_recipients SET sent_at = ?, resend_email_id = ?, scheduled_at = ? WHERE campaign_id = ? AND index_pos = ?",
-  );
-  let ok = 0;
-  for (let i = 0; i < rows.length && i < items.length; i++) {
-    const id = items[i]?.id;
-    if (!id) continue;
-    await update.run(
-      nowIso,
-      id,
-      payload[i].scheduled_at,
-      campaignId,
-      rows[i].index_pos,
-    );
-    ok++;
-  }
-  return ok;
-}
-
-async function recordRunStats(db, campaignId, nowIso, batchSize) {
-  await db
-    .prepare(
-      "UPDATE cold_email_campaigns SET last_run_at = ?, last_batch_size = ?, total_queued = total_queued + ?, started_at = COALESCE(started_at, ?), updated_at = ? WHERE id = ?",
-    )
-    .run(nowIso, batchSize, batchSize, nowIso, nowIso, campaignId);
-}
-
 async function processCampaign(db, campaign, options) {
   const { apiKey, now = new Date(), fetchImpl, log = () => {} } = options;
+  const repository = getRepository(db, options);
 
   // Gate first — cheap reads that filter out the obvious skips.
   const decision = shouldFireNow(campaign, now);
@@ -345,8 +250,7 @@ async function processCampaign(db, campaign, options) {
   // Atomic claim — the WHERE predicate enforces the interval gate at the
   // DB level so only one caller per (campaign, interval window) wins. Guards
   // multi-replica races, admin-trigger-vs-scheduler races, and double-clicks.
-  const claimed = await claimRunSlot(
-    db,
+  const claimed = await repository.claimRunSlot(
     campaign.id,
     nowIso,
     todayUtc,
@@ -362,11 +266,10 @@ async function processCampaign(db, campaign, options) {
   let rows;
   let payload;
   try {
-    rows = await listPendingRecipients(db, campaign.id, campaign.per_day);
+    rows = await repository.listPendingRecipients(campaign.id, campaign.per_day);
     if (rows.length === 0) {
       log(`[cold-email:${campaign.id}] skip: no pending rows (post-claim)`);
-      await releaseRunSlot(
-        db,
+      await repository.releaseRunSlot(
         campaign.id,
         previousLastRunAt,
         previousLastRunDateUtc,
@@ -394,8 +297,7 @@ async function processCampaign(db, campaign, options) {
 
     if (payload.length === 0) {
       log(`[cold-email:${campaign.id}] skip: payload empty after filtering`);
-      await releaseRunSlot(
-        db,
+      await repository.releaseRunSlot(
         campaign.id,
         previousLastRunAt,
         previousLastRunDateUtc,
@@ -407,8 +309,7 @@ async function processCampaign(db, campaign, options) {
       `[cold-email:${campaign.id}] submitting ${payload.length} emails, scheduleStart=${scheduleStart.toISOString()}`,
     );
     const resp = await submitToResend(payload, apiKey, fetchImpl);
-    const sent = await markBatchSent(
-      db,
+    const sent = await repository.markBatchSent(
       campaign.id,
       rows,
       payload,
@@ -419,8 +320,7 @@ async function processCampaign(db, campaign, options) {
     // If Resend accepted with no usable ids (empty data, all errors), treat as
     // failure — release the claim so the next interval retries this cohort.
     if (sent === 0) {
-      await releaseRunSlot(
-        db,
+      await repository.releaseRunSlot(
         campaign.id,
         previousLastRunAt,
         previousLastRunDateUtc,
@@ -430,7 +330,7 @@ async function processCampaign(db, campaign, options) {
       );
     }
 
-    await recordRunStats(db, campaign.id, nowIso, sent);
+    await repository.recordRunStats(campaign.id, nowIso, sent);
     log(`[cold-email:${campaign.id}] queued ${sent}/${payload.length}`);
     if (sent < payload.length) {
       log(
@@ -442,8 +342,7 @@ async function processCampaign(db, campaign, options) {
     // Anything between claim and successful submit/mark releases the claim so
     // the next interval picks up where we left off.
     try {
-      await releaseRunSlot(
-        db,
+      await repository.releaseRunSlot(
         campaign.id,
         previousLastRunAt,
         previousLastRunDateUtc,
@@ -463,11 +362,13 @@ module.exports = {
   ymd,
   computeScheduleStart,
   shouldFireNow,
-  shouldFireToday, // alias for backwards compat
   buildResendPayload,
   // I/O (the orchestration entry point)
   loadCampaign,
   listActiveCampaigns,
+  listAllCampaigns,
+  listTemplateReferences,
+  updateCampaignFields,
   processCampaign,
   // exported for advanced callers / tests
   RESEND_BATCH_MAX,

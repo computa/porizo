@@ -11,6 +11,30 @@ const smsService = require("../services/sms-service");
 const gdprAuditService = require("../services/gdpr-audit-service");
 const identityService = require("../services/identity-service");
 const { AttributionService } = require("../services/attribution-service");
+const {
+  createAuthSessionRepository,
+} = require("../database/auth-session-repository");
+const {
+  createAuthRateLimitRepository,
+} = require("../database/auth-rate-limit-repository");
+const {
+  createAuthProfileRepository,
+} = require("../database/auth-profile-repository");
+const {
+  createAuthProviderLinkingRepository,
+} = require("../database/auth-provider-linking-repository");
+const {
+  createAuthCredentialRepository,
+} = require("../database/auth-credential-repository");
+const { createIdentityRepository } = require("../database/identity-repository");
+const {
+  createPhoneRegistrationTokenRepository,
+} = require("../database/phone-registration-token-repository");
+const {
+  createReceiverSessionRepository,
+} = require("../database/receiver-session-repository");
+const { createRequireUser } = require("../middleware/require-user");
+const { sendError } = require("../utils/http-error");
 const geoip = require("geoip-lite");
 const {
   verifySocialToken,
@@ -23,11 +47,27 @@ const { exchangeAppleAuthorizationCode } = require("../services/apple-signin");
 const crypto = require("crypto");
 const { getClientIp: extractClientIp } = require("../utils/client-ip");
 
-// In-memory rate limit cache — first-pass check to avoid DB round-trip on every request.
-// The authoritative rate limit state is in the DB (rate_limits table), which survives
-// restarts and is shared across instances. The in-memory Map is a performance optimization only.
-const rateLimits = new Map();
-let authRouteDb = null;
+let authRouteSessionRepository = null;
+let authRouteRateLimitRepository = null;
+let authRouteProfileRepository = null;
+let authRouteProviderLinkingRepository = null;
+let authRouteCredentialRepository = null;
+let authRouteReceiverSessionRepository = null;
+let requireAuthUser = null;
+
+function phoneRegistrationTokenRepositoryFor(dbOrRepository) {
+  if (dbOrRepository?.isPhoneRegistrationTokenRepository) {
+    return dbOrRepository;
+  }
+  return createPhoneRegistrationTokenRepository(dbOrRepository);
+}
+
+function authRateLimitRepositoryFor(dbOrRepository) {
+  if (dbOrRepository?.isAuthRateLimitRepository) {
+    return dbOrRepository;
+  }
+  return createAuthRateLimitRepository(dbOrRepository);
+}
 
 // HMAC key for hashing phone numbers in registration tokens (derived from JWT_SECRET)
 const PHONE_HMAC_KEY =
@@ -43,15 +83,11 @@ const PHONE_HMAC_KEY =
  * Clears both in-memory cache and DB entries for auth-keyed rate limits.
  */
 async function clearRateLimits(db) {
-  rateLimits.clear();
+  if (authRouteRateLimitRepository) {
+    await authRouteRateLimitRepository.clearAuthLimits();
+  }
   if (db) {
-    try {
-      await db
-        .prepare("DELETE FROM rate_limits WHERE action_type LIKE 'auth:%'")
-        .run();
-    } catch {
-      /* DB may not have the table in some test setups */
-    }
+    await authRateLimitRepositoryFor(db).clearAuthLimits();
   }
 }
 
@@ -60,7 +96,7 @@ async function clearRateLimits(db) {
  */
 async function clearRegistrationTokens(db) {
   if (db) {
-    await db.prepare("DELETE FROM phone_registration_tokens").run();
+    await phoneRegistrationTokenRepositoryFor(db).deleteAll();
   }
 }
 
@@ -81,7 +117,8 @@ function hashPhoneNumber(phoneNumber) {
  * @param {string} ipAddress - Client IP address
  * @returns {Promise<string>} Registration token
  */
-async function createRegistrationToken(db, phoneNumber, ipAddress) {
+async function createRegistrationToken(dbOrRepository, phoneNumber, ipAddress) {
+  const repository = phoneRegistrationTokenRepositoryFor(dbOrRepository);
   const token = crypto.randomBytes(32).toString("hex");
   const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
   const phoneHash = hashPhoneNumber(phoneNumber);
@@ -91,12 +128,13 @@ async function createRegistrationToken(db, phoneNumber, ipAddress) {
   const now = toDbTimestamp(new Date());
   const expiresAt = toDbTimestamp(new Date(Date.now() + 15 * 60 * 1000));
 
-  await db
-    .prepare(
-      `INSERT INTO phone_registration_tokens (token_hash, phone_number_hash, ip_address, verified_at, expires_at)
-     VALUES (?, ?, ?, ?, ?)`,
-    )
-    .run(tokenHash, phoneHash, ipAddress || null, now, expiresAt);
+  await repository.insert({
+    tokenHash,
+    phoneNumberHash: phoneHash,
+    ipAddress: ipAddress || null,
+    verifiedAt: now,
+    expiresAt,
+  });
 
   return token;
 }
@@ -108,24 +146,19 @@ async function createRegistrationToken(db, phoneNumber, ipAddress) {
  * @param {string} phoneNumber - Phone number to verify against
  * @returns {Promise<{ valid: boolean, phone_number?: string }>}
  */
-async function consumeRegistrationToken(db, token, phoneNumber, ipAddress) {
+async function consumeRegistrationToken(dbOrRepository, token, phoneNumber, ipAddress) {
+  const repository = phoneRegistrationTokenRepositoryFor(dbOrRepository);
   const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
   const expectedHash = hashPhoneNumber(phoneNumber);
 
   // Atomic consume: UPDATE only if unconsumed, unexpired, phone matches, and IP matches.
   // The ip_address IS NULL fallback handles tokens created before IP-binding was added.
   // Returns the updated row count — if 0, token was already consumed or invalid.
-  const result = await db
-    .prepare(
-      `UPDATE phone_registration_tokens
-     SET consumed_at = CURRENT_TIMESTAMP
-     WHERE token_hash = ?
-       AND consumed_at IS NULL
-       AND expires_at > CURRENT_TIMESTAMP
-       AND phone_number_hash = ?
-       AND (ip_address = ? OR ip_address IS NULL)`,
-    )
-    .run(tokenHash, expectedHash, ipAddress || null);
+  const result = await repository.consume({
+    tokenHash,
+    phoneNumberHash: expectedHash,
+    ipAddress: ipAddress || null,
+  });
 
   // result.changes (PG adapter) or result (SQLite) indicates rows affected
   const rowsAffected = result?.changes ?? result?.rowCount ?? 0;
@@ -168,7 +201,7 @@ function isValidUsername(username) {
  * @returns {Promise<{ exists: boolean, userId?: string, authMethods?: string[], maskedEmail?: string, maskedPhone?: string }>}
  */
 async function findExistingAccountByIdentifiers(
-  db,
+  identityRepository,
   { email, phone, providerType, providerUserId } = {},
 ) {
   let matchedUserId = null;
@@ -176,14 +209,10 @@ async function findExistingAccountByIdentifiers(
 
   // Check email → user_contacts (verified only)
   if (email) {
-    const row = await db
-      .prepare(
-        `SELECT uc.user_id as id FROM user_contacts uc
-       JOIN users u ON u.id = uc.user_id AND u.deleted_at IS NULL
-       WHERE uc.type = 'email' AND uc.value_normalized = ? AND uc.verified_at IS NOT NULL
-       LIMIT 1`,
-      )
-      .get(email.toLowerCase());
+    const row = await identityRepository.findActiveUserByVerifiedContact(
+      "email",
+      email.toLowerCase(),
+    );
     if (row) {
       matchedUserId = row.id;
       matchedVia = "email";
@@ -192,14 +221,11 @@ async function findExistingAccountByIdentifiers(
 
   // Check phone → user_auth_providers
   if (!matchedUserId && phone) {
-    const row = await db
-      .prepare(
-        `SELECT uap.user_id as id FROM user_auth_providers uap
-       JOIN users u ON u.id = uap.user_id AND u.deleted_at IS NULL
-       WHERE uap.provider = 'phone' AND uap.provider_user_id = ? AND uap.status = 'active'
-       LIMIT 1`,
-      )
-      .get(phone);
+    const row = await identityRepository.findActiveUserByProvider(
+      "phone",
+      phone,
+      { status: "active" },
+    );
     if (row) {
       matchedUserId = row.id;
       matchedVia = "phone";
@@ -208,15 +234,12 @@ async function findExistingAccountByIdentifiers(
 
   // Check social provider → user_auth_providers
   if (!matchedUserId && providerType && providerUserId) {
-    const row = await db
-      .prepare(
-        `SELECT uap.user_id FROM user_auth_providers uap
-       JOIN users u ON u.id = uap.user_id AND u.deleted_at IS NULL
-       WHERE uap.provider = ? AND uap.provider_user_id = ?`,
-      )
-      .get(providerType, providerUserId);
+    const row = await identityRepository.findActiveUserByProvider(
+      providerType,
+      providerUserId,
+    );
     if (row) {
-      matchedUserId = row.user_id;
+      matchedUserId = row.id;
       matchedVia = "social";
     }
   }
@@ -226,14 +249,11 @@ async function findExistingAccountByIdentifiers(
   }
 
   // Fetch auth methods and profile info for the matched account
-  const providerRows = await db
-    .prepare("SELECT provider FROM user_auth_providers WHERE user_id = ?")
-    .all(matchedUserId);
+  const providerRows =
+    await identityRepository.listAuthProvidersForUser(matchedUserId);
   const authMethods = providerRows.map((p) => p.provider);
 
-  const user = await db
-    .prepare("SELECT email, phone_number FROM users WHERE id = ?")
-    .get(matchedUserId);
+  const user = await identityRepository.findUserContactMirrors(matchedUserId);
 
   // Mask identifiers for privacy-safe display
   let maskedEmail = null;
@@ -257,46 +277,6 @@ async function findExistingAccountByIdentifiers(
     maskedEmail,
     maskedPhone,
   };
-}
-
-/**
- * In-memory rate limit check (fast-path cache only).
- * Used as a quick pre-check before the authoritative DB query.
- * @param {string} key - Rate limit key
- * @param {number} maxAttempts - Maximum attempts in window
- * @param {number} windowMs - Time window in milliseconds
- * @returns {boolean} - true if rate limited (may be stale after restart)
- */
-function isRateLimited(key, maxAttempts, windowMs) {
-  const now = Date.now();
-  const record = rateLimits.get(key);
-
-  if (!record) {
-    rateLimits.set(key, { count: 1, windowStart: now });
-    return false;
-  }
-
-  if (now - record.windowStart > windowMs) {
-    rateLimits.set(key, { count: 1, windowStart: now });
-    return false;
-  }
-
-  if (record.count >= maxAttempts) {
-    return true;
-  }
-
-  record.count++;
-  return false;
-}
-
-/**
- * Helper to send standardized error response
- */
-function sendError(reply, statusCode, errorCode, message) {
-  return reply.status(statusCode).send({
-    error: errorCode,
-    message,
-  });
 }
 
 /**
@@ -354,81 +334,44 @@ async function createSessionAndTokens(userId, request, clientIp) {
  * Sets request.userId if valid, returns 401 error if not
  */
 async function requireAuth(request, reply) {
-  const authHeader = request.headers.authorization;
-  if (!authHeader?.startsWith("Bearer ")) {
-    return sendError(
-      reply,
-      401,
-      "UNAUTHORIZED",
-      "Missing authorization header.",
-    );
+  if (!requireAuthUser) {
+    throw new Error("Auth routes have not been registered");
   }
-  try {
-    const payload = authService.verifyAccessToken(authHeader.substring(7));
-    const user = await authRouteDb
-      .prepare("SELECT id FROM users WHERE id = ? AND deleted_at IS NULL")
-      .get(payload.sub);
-    if (!user) {
-      return sendError(
-        reply,
-        401,
-        "INVALID_TOKEN",
-        "Invalid or expired access token.",
-      );
-    }
-    if (!payload.sid) {
-      return sendError(
-        reply,
-        401,
-        "INVALID_TOKEN",
-        "Invalid or expired access token.",
-      );
-    }
-    const session = await authRouteDb
-      .prepare(
-        "SELECT id FROM user_sessions WHERE id = ? AND user_id = ? AND revoked_at IS NULL",
-      )
-      .get(payload.sid, payload.sub);
-    if (!session) {
-      return sendError(
-        reply,
-        401,
-        "INVALID_TOKEN",
-        "Invalid or expired access token.",
-      );
-    }
-    request.sessionId = payload.sid;
-    request.userId = payload.sub;
-  } catch {
-    return sendError(
-      reply,
-      401,
-      "INVALID_TOKEN",
-      "Invalid or expired access token.",
-    );
-  }
+  return requireAuthUser(request, reply);
 }
 
 /**
  * Register auth routes on Fastify app
  */
-function registerAuthRoutes(app, { db, subscriptionManager }) {
-  authRouteDb = db;
+function registerAuthRoutes(app, { db, subscriptionManager, storageProvider = null } = {}) {
+  authRouteSessionRepository = createAuthSessionRepository(db);
+  authRouteRateLimitRepository = createAuthRateLimitRepository(db);
+  authRouteProfileRepository = createAuthProfileRepository(db);
+  authRouteProviderLinkingRepository =
+    createAuthProviderLinkingRepository(db);
+  authRouteCredentialRepository = createAuthCredentialRepository(db);
+  authRouteReceiverSessionRepository = createReceiverSessionRepository(db);
   const attributionService = new AttributionService(db);
+  const identityRepository = createIdentityRepository(db);
+  const phoneRegistrationTokenRepository =
+    createPhoneRegistrationTokenRepository(db);
   // Initialize services with database
   authService.initialize(db);
   gdprAuditService.initialize(db);
   smsService.initialize(db);
+  requireAuthUser = createRequireUser({
+    authService,
+    sendError,
+    missingTokenCode: "UNAUTHORIZED",
+    missingTokenMessage: "Missing authorization header.",
+    attachUserId: true,
+  });
 
   // Clean up expired registration tokens periodically (every 6 hours)
   const tokenCleanupInterval = setInterval(
     async () => {
       try {
-        await db
-          .prepare(
-            "DELETE FROM phone_registration_tokens WHERE expires_at < CURRENT_TIMESTAMP",
-          )
-          .run();
+        await phoneRegistrationTokenRepository.deleteExpired();
       } catch {
         /* non-critical cleanup */
       }
@@ -442,18 +385,7 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
   const rateLimitCleanupInterval = setInterval(
     async () => {
       const cutoff = Date.now() - 60 * 60 * 1000;
-      for (const [key, entry] of rateLimits) {
-        if (entry.windowStart < cutoff) rateLimits.delete(key);
-      }
-      try {
-        await db
-          .prepare(
-            "DELETE FROM rate_limits WHERE action_type LIKE 'auth:%' AND window_start_ms < ?",
-          )
-          .run(cutoff);
-      } catch {
-        /* non-critical cleanup */
-      }
+      await authRouteRateLimitRepository.cleanupExpiredAuthEntries(cutoff);
     },
     30 * 60 * 1000,
   );
@@ -474,70 +406,12 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
    * @returns {Promise<boolean>} - true if rate limited
    */
   async function consumeAuthRateLimit(key, limit, windowMs, options = {}) {
-    // Fast-path: in-memory check catches most cases without DB round-trip
-    if (isRateLimited(key, limit, windowMs)) {
-      return true;
-    }
-
-    // Authoritative check: DB-backed sliding window (survives restarts)
-    try {
-      const windowSeconds = Math.ceil(windowMs / 1000);
-      const now = Date.now();
-      const currentWindowStart = Math.floor(now / windowMs) * windowMs;
-      const actionKey = `auth:${key}`;
-
-      // Atomic increment current window
-      await db
-        .prepare(
-          `INSERT INTO rate_limits (user_id, action_type, window_start_ms, window_seconds, count, limit_count)
-         VALUES (?, ?, ?, ?, 1, ?)
-         ON CONFLICT(user_id, action_type, window_start_ms)
-         DO UPDATE SET count = rate_limits.count + 1`,
-        )
-        .run(key, actionKey, currentWindowStart, windowSeconds, limit);
-
-      // Read current + previous window for sliding window approximation
-      const currentWindow = await db
-        .prepare(
-          "SELECT count FROM rate_limits WHERE user_id = ? AND action_type = ? AND window_start_ms = ?",
-        )
-        .get(key, actionKey, currentWindowStart);
-
-      const previousWindowStart = currentWindowStart - windowMs;
-      const previousWindow = await db
-        .prepare(
-          "SELECT count FROM rate_limits WHERE user_id = ? AND action_type = ? AND window_start_ms = ?",
-        )
-        .get(key, actionKey, previousWindowStart);
-
-      const currentCount = currentWindow?.count || 0;
-      const previousCount = previousWindow?.count || 0;
-      const elapsedInWindow = now - currentWindowStart;
-      const windowProgress = elapsedInWindow / windowMs;
-      const weightedCount = currentCount + previousCount * (1 - windowProgress);
-
-      if (weightedCount > limit) {
-        // Roll back increment and deny
-        await db
-          .prepare(
-            `UPDATE rate_limits SET count = MAX(count - 1, 0)
-           WHERE user_id = ? AND action_type = ? AND window_start_ms = ?`,
-          )
-          .run(key, actionKey, currentWindowStart);
-        return true;
-      }
-
-      return false;
-    } catch (err) {
-      console.error(
-        "[AuthRateLimit] DB error, falling back to in-memory:",
-        err.message,
-      );
-      // fail-closed callers (login/signup) block on DB error rather than
-      // silently disabling throttling; everyone else falls back to the
-      // permissive in-memory result (already checked above and passed).
-      return options.failClosed === true;
-    }
+    return authRouteRateLimitRepository.consume({
+      key,
+      limit,
+      windowMs,
+      failClosed: options.failClosed === true,
+    });
   }
 
   /**
@@ -554,25 +428,23 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
       // user B claim it via pending_phone_link from a different IP.
       const cutoff = new Date(Date.now() - 15 * 60 * 1000).toISOString();
       const phoneHash = hashPhoneNumber(phoneNumber);
-      const recentVerification = await db
-        .prepare(
-          `SELECT token_hash FROM phone_registration_tokens
-         WHERE phone_number_hash = ? AND verified_at > ?
-           AND (ip_address = ? OR ip_address IS NULL)
-         ORDER BY verified_at DESC LIMIT 1`,
-        )
-        .get(phoneHash, cutoff, clientIp);
+      const recentVerification =
+        await phoneRegistrationTokenRepository.findRecentVerification({
+          phoneNumberHash: phoneHash,
+          verifiedAfter: cutoff,
+          ipAddress: clientIp,
+        });
 
       if (!recentVerification) {
         return; // No recent verification from this IP — skip
       }
 
       // Check if phone is already linked to another account
-      const existingLink = await db
-        .prepare(
-          "SELECT user_id FROM user_auth_providers WHERE provider = 'phone' AND provider_user_id = ?",
-        )
-        .get(phoneNumber);
+      const existingLink =
+        await authRouteProviderLinkingRepository.findAnyProviderLink(
+          "phone",
+          phoneNumber,
+        );
 
       if (existingLink) {
         return; // Already linked (to this or another user) — skip
@@ -629,27 +501,13 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
     if (!clientIp || clientIp === "unknown") return;
     try {
       const cutoff = new Date(Date.now() - 72 * 60 * 60 * 1000).toISOString();
-      const session = await db
-        .prepare(
-          `SELECT id
-         FROM receiver_sessions
-         WHERE matched_user_id IS NULL
-           AND (last_ip_address = ? OR first_ip_address = ?)
-           AND created_at > ?
-         ORDER BY updated_at DESC LIMIT 1`,
-        )
-        .get(clientIp, clientIp, cutoff);
-
-      if (!session) return;
-
       const now = new Date().toISOString();
-      await db
-        .prepare(
-          `UPDATE receiver_sessions
-         SET matched_user_id = ?, updated_at = ?
-         WHERE id = ? AND matched_user_id IS NULL`,
-        )
-        .run(userId, now, session.id);
+      await authRouteReceiverSessionRepository.matchRecentUnmatchedSessionByIp({
+        userId,
+        clientIp,
+        cutoff,
+        now,
+      });
     } catch (err) {
       console.error("Receiver attribution matching failed:", err.message);
     }
@@ -832,14 +690,10 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
     try {
       // Check if email already exists with a verified contact (exclude soft-deleted and unverified claims)
       // Unverified emails from phone registration don't block legitimate email/password signup
-      const existing = await db
-        .prepare(
-          `SELECT uc.user_id as id FROM user_contacts uc
-         JOIN users u ON u.id = uc.user_id AND u.deleted_at IS NULL
-         WHERE uc.type = 'email' AND uc.value_normalized = ? AND uc.verified_at IS NOT NULL
-         LIMIT 1`,
-        )
-        .get(email.toLowerCase());
+      const existing = await identityRepository.findActiveUserByVerifiedContact(
+        "email",
+        email.toLowerCase(),
+      );
       if (existing) {
         return sendError(
           reply,
@@ -880,12 +734,11 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
 
       // Store password credential + entitlements — compensate on failure to avoid orphaned user
       try {
-        await db
-          .prepare(
-            `INSERT INTO user_credentials (user_id, password_hash, created_at)
-           VALUES (?, ?, ?)`,
-          )
-          .run(userId, passwordHash, now);
+        await authRouteCredentialRepository.createPasswordCredential({
+          userId,
+          passwordHash,
+          createdAt: now,
+        });
 
         await subscriptionManager.createFreeEntitlements(userId, {
           now,
@@ -899,13 +752,7 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
           "[EmailSignup] Post-creation failed, cleaning up orphaned user:",
           err.message,
         );
-        await db
-          .prepare("DELETE FROM user_contacts WHERE user_id = ?")
-          .run(userId);
-        await db
-          .prepare("DELETE FROM user_auth_providers WHERE user_id = ?")
-          .run(userId);
-        await db.prepare("DELETE FROM users WHERE id = ?").run(userId);
+        await identityRepository.deleteUserIdentityBootstrapRows(userId);
         throw err;
       }
 
@@ -1044,11 +891,7 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
 
       // Use constant-time verification even if user doesn't exist
       const credentials = user
-        ? await db
-            .prepare(
-              "SELECT password_hash FROM user_credentials WHERE user_id = ?",
-            )
-            .get(user.id)
+        ? await authRouteCredentialRepository.findPasswordCredential(user.id)
         : null;
       const isValid = await authService.verifyPassword(
         password,
@@ -1410,19 +1253,13 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
 
         // Handle orphaned provider rows pointing to deleted users
         if (!resolved) {
-          const orphan = await db
-            .prepare(
-              `SELECT uap.id FROM user_auth_providers uap
-           JOIN users u ON u.id = uap.user_id
-           WHERE uap.provider = ? AND uap.provider_user_id = ? AND u.deleted_at IS NOT NULL`,
-            )
-            .get(provider, providerUserId);
+          const orphan =
+            await authRouteProviderLinkingRepository.findProviderForDeletedUser(
+              provider,
+              providerUserId,
+            );
           if (orphan) {
-            await db
-              .prepare(
-                "UPDATE user_auth_providers SET status = 'revoked' WHERE id = ?",
-              )
-              .run(orphan.id);
+            await authRouteProviderLinkingRepository.revokeProvider(orphan.id);
             console.warn(
               `[SocialAuth] Revoked orphaned provider ${orphan.id} for deleted user`,
             );
@@ -1457,11 +1294,10 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
             }
             providerData.apple_refresh_token = appleRefreshToken;
             providerData.apple_refresh_obtained_at = new Date().toISOString();
-            await db
-              .prepare(
-                "UPDATE user_auth_providers SET provider_data = ? WHERE id = ?",
-              )
-              .run(JSON.stringify(providerData), identityId);
+            await authRouteProviderLinkingRepository.updateProviderData(
+              identityId,
+              providerData,
+            );
           }
 
           // If Apple provides email, ensure contact exists
@@ -1480,14 +1316,11 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
           // Check if email already exists via contacts (link accounts, exclude soft-deleted)
           // Only auto-link if the existing account's email is verified AND user confirms
           if (userEmail) {
-            const existingUser = await db
-              .prepare(
-                `SELECT uc.user_id as id FROM user_contacts uc
-             JOIN users u ON u.id = uc.user_id AND u.deleted_at IS NULL
-             WHERE uc.type = 'email' AND uc.value_normalized = ? AND uc.verified_at IS NOT NULL
-             LIMIT 1`,
-              )
-              .get(userEmail.toLowerCase());
+            const existingUser =
+              await identityRepository.findActiveUserByVerifiedContact(
+                "email",
+                userEmail.toLowerCase(),
+              );
             if (existingUser) {
               if (!request.body.confirm_link) {
                 // Require explicit confirmation before linking to existing account
@@ -1560,13 +1393,7 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
                 "[SocialAuth] Entitlement creation failed, cleaning up orphaned user:",
                 err.message,
               );
-              await db
-                .prepare("DELETE FROM user_contacts WHERE user_id = ?")
-                .run(userId);
-              await db
-                .prepare("DELETE FROM user_auth_providers WHERE user_id = ?")
-                .run(userId);
-              await db.prepare("DELETE FROM users WHERE id = ?").run(userId);
+              await identityRepository.deleteUserIdentityBootstrapRows(userId);
               throw err;
             }
           } else {
@@ -1687,9 +1514,8 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
             "Invalid or expired refresh token.",
           );
         }
-        const user = await db
-          .prepare("SELECT id, deleted_at FROM users WHERE id = ?")
-          .get(result.userId);
+        const user =
+          await authRouteSessionRepository.findUserAccountState(result.userId);
         if (!user || user.deleted_at) {
           request.log.error(
             {
@@ -1699,16 +1525,8 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
             },
             "Refresh token resolved to missing/deleted user",
           );
-          await db
-            .prepare(
-              "UPDATE refresh_tokens SET revoked_at = CURRENT_TIMESTAMP WHERE user_id = ? AND revoked_at IS NULL",
-            )
-            .run(result.userId);
-          await db
-            .prepare(
-              "UPDATE token_families SET compromised_at = CURRENT_TIMESTAMP WHERE user_id = ? AND compromised_at IS NULL",
-            )
-            .run(result.userId);
+          await authService.revokeAllRefreshTokensForUser(result.userId);
+          await authService.compromiseAllTokenFamiliesForUser(result.userId);
           return sendError(
             reply,
             401,
@@ -1724,13 +1542,10 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
 
         // Record identity usage on refresh (non-blocking)
         // Find the identity associated with this user's most recent sign-in method
-        const recentIdentity = await db
-          .prepare(
-            `SELECT id FROM user_auth_providers
-         WHERE user_id = ? AND status = 'active'
-         ORDER BY last_used_at DESC LIMIT 1`,
-          )
-          .get(result.userId);
+        const recentIdentity =
+          await identityRepository.findMostRecentActiveIdentityForUser(
+            result.userId,
+          );
         if (recentIdentity) {
           identityService
             .recordIdentityUsage(db, recentIdentity.id)
@@ -1838,12 +1653,7 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
       // Revoke all refresh tokens for user (security: prevents token reuse)
       await authService.revokeAllRefreshTokensForUser(payload.sub);
 
-      // Batch revoke all sessions (replaces N+1 query pattern)
-      await db
-        .prepare(
-          "UPDATE user_sessions SET revoked_at = CURRENT_TIMESTAMP WHERE user_id = ? AND revoked_at IS NULL",
-        )
-        .run(payload.sub);
+      await authRouteSessionRepository.revokeActiveSessionsForUser(payload.sub);
 
       // Log logout
       await authService.logAuthEvent({
@@ -1945,11 +1755,10 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
         const passwordHash = await authService.hashPassword(new_password);
 
         // Update password
-        await db
-          .prepare(
-            "UPDATE user_credentials SET password_hash = ?, password_changed_at = CURRENT_TIMESTAMP WHERE user_id = ?",
-          )
-          .run(passwordHash, userId);
+        await authRouteCredentialRepository.updatePasswordCredential(
+          userId,
+          passwordHash,
+        );
 
         // Mark token as used
         await authService.markPasswordResetTokenUsed(tokenId);
@@ -1962,12 +1771,7 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
         await authService.revokeAllRefreshTokensForUser(userId);
         await authService.compromiseAllTokenFamiliesForUser(userId);
 
-        // Batch revoke all sessions (replaces N+1 query pattern)
-        await db
-          .prepare(
-            "UPDATE user_sessions SET revoked_at = CURRENT_TIMESTAMP WHERE user_id = ? AND revoked_at IS NULL",
-          )
-          .run(userId);
+        await authRouteSessionRepository.revokeActiveSessionsForUser(userId);
 
         // Log event
         await authService.logAuthEvent({
@@ -1978,9 +1782,7 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
 
         // Send security alert email
         if (emailService.isConfigured()) {
-          const user = await db
-            .prepare("SELECT email FROM users WHERE id = ?")
-            .get(userId);
+          const user = await authRouteProfileRepository.findUserEmail(userId);
           if (user?.email) {
             emailService
               .sendSecurityAlertEmail(user.email, {
@@ -2025,8 +1827,7 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
         } = await authService.verifyEmailVerificationToken(token);
         const emailToVerify =
           emailNormalized ||
-          (await db.prepare("SELECT email FROM users WHERE id = ?").get(userId))
-            ?.email;
+          (await authRouteProfileRepository.findUserEmail(userId))?.email;
         if (emailToVerify) {
           await identityService.verifyContact(
             db,
@@ -2090,25 +1891,13 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
   // ==================== USER PROFILE HELPERS ====================
 
   async function buildUserProfileResponse(userId) {
-    const user = await db
-      .prepare(
-        `SELECT u.id, u.email, u.display_name, u.avatar_url, u.email_verified,
-                u.phone_number, u.username, u.created_at, u.profile_completion_skipped_at
-         FROM users u
-         WHERE u.id = ?
-           AND u.deleted_at IS NULL`,
-      )
-      .get(userId);
+    const user = await authRouteProfileRepository.findActiveUserProfile(userId);
 
     if (!user) return null;
 
     // Auth methods with linked_at and last_used_at
-    const providerRows = await db
-      .prepare(
-        `SELECT provider, provider_user_id, linked_at, last_used_at
-         FROM user_auth_providers WHERE user_id = ? AND status = 'active'`,
-      )
-      .all(userId);
+    const providerRows =
+      await authRouteProfileRepository.listActiveAuthProviders(userId);
     const providers = providerRows.map((p) => p.provider);
 
     const authMethods = providerRows.map((p) => {
@@ -2126,12 +1915,7 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
     });
 
     // Contacts from user_contacts table
-    const contactRows = await db
-      .prepare(
-        `SELECT id, type, value_normalized, value_display, verified_at, is_primary, is_relay
-         FROM user_contacts WHERE user_id = ?`,
-      )
-      .all(userId);
+    const contactRows = await authRouteProfileRepository.listContacts(userId);
 
     const contacts = contactRows.map((c) => ({
       type: c.type,
@@ -2221,9 +2005,9 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
       }
 
       // Fetch current user once for change detection (avoids redundant queries)
-      const currentUser = await db
-        .prepare("SELECT email FROM users WHERE id = ?")
-        .get(request.userId);
+      const currentUser = await authRouteProfileRepository.findUserEmail(
+        request.userId,
+      );
 
       // Validate email format if provided
       if (contact_email != null) {
@@ -2238,13 +2022,11 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
         }
         // Check uniqueness only if email actually changed
         if (!currentUser || currentUser.email !== emailStr) {
-          const existing = await db
-            .prepare(
-              `SELECT uc.user_id as id FROM user_contacts uc
-           WHERE uc.type = 'email' AND uc.value_normalized = ? AND uc.verified_at IS NOT NULL AND uc.user_id != ?
-           LIMIT 1`,
-            )
-            .get(emailStr, request.userId);
+          const existing =
+            await authRouteProfileRepository.findVerifiedEmailOwner({
+              emailNormalized: emailStr,
+              excludeUserId: request.userId,
+            });
           if (existing) {
             return sendError(
               reply,
@@ -2267,9 +2049,10 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
             "Display name must be 100 characters or fewer.",
           );
         }
-        await db
-          .prepare("UPDATE users SET display_name = ? WHERE id = ?")
-          .run(trimmedName, request.userId);
+        await authRouteProfileRepository.updateDisplayName(
+          request.userId,
+          trimmedName,
+        );
       }
 
       // Handle email via identity service — creates/updates UNVERIFIED contact.
@@ -2324,11 +2107,9 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
     async (request, reply) => {
       // Analytics-only: records skip timestamp but does NOT affect needs_profile_completion.
       // buildUserProfileResponse uses computeProfileCompleteness() which ignores skip state.
-      await db
-        .prepare(
-          "UPDATE users SET profile_completion_skipped_at = CURRENT_TIMESTAMP WHERE id = ?",
-        )
-        .run(request.userId);
+      await authRouteProfileRepository.markProfileCompletionSkipped(
+        request.userId,
+      );
 
       return reply.send({ success: true });
     },
@@ -2383,12 +2164,11 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
         }
 
         // Check if phone is already linked to THIS user (idempotent)
-        const existingSelf = await db
-          .prepare(
-            `SELECT id FROM user_auth_providers
-         WHERE user_id = ? AND provider = 'phone' AND provider_user_id = ?`,
-          )
-          .get(request.userId, phone_number);
+        const existingSelf =
+          await authRouteProfileRepository.findLinkedPhoneForUser({
+            userId: request.userId,
+            phoneNumber: phone_number,
+          });
 
         if (existingSelf) {
           const profile = await buildUserProfileResponse(request.userId);
@@ -2539,11 +2319,10 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
             if (exchange.refresh_token) {
               providerData.apple_refresh_token = exchange.refresh_token;
               providerData.apple_refresh_obtained_at = now;
-              await db
-                .prepare(
-                  "UPDATE user_auth_providers SET provider_data = ? WHERE id = ?",
-                )
-                .run(JSON.stringify(providerData), identityId);
+              await authRouteProviderLinkingRepository.updateProviderData(
+                identityId,
+                providerData,
+              );
             }
           } catch (exchangeError) {
             console.warn(
@@ -2630,13 +2409,10 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
 
       try {
         // Get current user's unverified email from user_contacts
-        const unverifiedEmail = await db
-          .prepare(
-            `SELECT value_normalized FROM user_contacts
-         WHERE user_id = ? AND type = 'email' AND verified_at IS NULL
-         ORDER BY created_at DESC LIMIT 1`,
-          )
-          .get(request.userId);
+        const unverifiedEmail =
+          await authRouteProfileRepository.findLatestUnverifiedEmail(
+            request.userId,
+          );
 
         if (!unverifiedEmail) {
           return sendError(
@@ -2713,9 +2489,9 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
       const sessionId = request.params.id;
 
       // Verify session belongs to user
-      const session = await db
-        .prepare("SELECT user_id FROM user_sessions WHERE id = ?")
-        .get(sessionId);
+      const session = await authRouteSessionRepository.findSessionOwner(
+        sessionId,
+      );
       if (!session || session.user_id !== request.userId) {
         return sendError(reply, 404, "SESSION_NOT_FOUND", "Session not found.");
       }
@@ -2901,7 +2677,7 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
 
           // New phone - create registration token for signup
           const registrationToken = await createRegistrationToken(
-            db,
+            phoneRegistrationTokenRepository,
             phone_number,
             clientIp,
           );
@@ -2967,7 +2743,7 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
       try {
         // Validate registration token against provided phone number
         const tokenResult = await consumeRegistrationToken(
-          db,
+          phoneRegistrationTokenRepository,
           registration_token,
           phone_number,
           clientIp,
@@ -2985,10 +2761,13 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
 
         // Cross-identifier dedup: check phone AND email (if provided) against existing accounts
         // Email cross-check only matches verified emails (prevents unverified email claims)
-        const existingAccount = await findExistingAccountByIdentifiers(db, {
-          phone: phoneNumber,
-          ...(normalizedEmail ? { email: normalizedEmail } : {}),
-        });
+        const existingAccount = await findExistingAccountByIdentifiers(
+          identityRepository,
+          {
+            phone: phoneNumber,
+            ...(normalizedEmail ? { email: normalizedEmail } : {}),
+          },
+        );
 
         if (existingAccount.exists) {
           // Privacy: caller verified ownership of THIS phone via OTP. If the matched
@@ -3052,13 +2831,7 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
             "[PhoneRegister] Entitlement creation failed, cleaning up orphaned user:",
             err.message,
           );
-          await db
-            .prepare("DELETE FROM user_contacts WHERE user_id = ?")
-            .run(userId);
-          await db
-            .prepare("DELETE FROM user_auth_providers WHERE user_id = ?")
-            .run(userId);
-          await db.prepare("DELETE FROM users WHERE id = ?").run(userId);
+          await identityRepository.deleteUserIdentityBootstrapRows(userId);
           throw err;
         }
 
@@ -3168,11 +2941,10 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
         const normalizedUsername = username.toLowerCase();
 
         // Check if username exists
-        const existing = await db
-          .prepare(
-            "SELECT id FROM users WHERE username = ? AND deleted_at IS NULL",
-          )
-          .get(normalizedUsername);
+        const existing =
+          await authRouteProfileRepository.findActiveUserByUsername(
+            normalizedUsername,
+          );
 
         if (existing) {
           // Generate suggestions
@@ -3183,11 +2955,10 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
             const suffix = crypto.randomBytes(2).toString("hex").slice(0, 3);
             const suggestion = `${base}_${suffix}`;
             if (isValidUsername(suggestion)) {
-              const suggestionExists = await db
-                .prepare(
-                  "SELECT id FROM users WHERE username = ? AND deleted_at IS NULL",
-                )
-                .get(suggestion);
+              const suggestionExists =
+                await authRouteProfileRepository.findActiveUserByUsername(
+                  suggestion,
+                );
               if (!suggestionExists) {
                 suggestions.push(suggestion);
               }
@@ -3240,11 +3011,17 @@ function registerAuthRoutes(app, { db, subscriptionManager }) {
       }
 
       try {
-        // Perform cascading deletion
-        await authService.deleteUserAccount(request.userId);
+        const accountDeletionAuditLog =
+          gdprAuditService.createAccountDeletionAuditLog(
+            request.userId,
+            clientIp,
+          );
 
-        // Log GDPR compliance event
-        await gdprAuditService.logAccountDeletion(request.userId, clientIp);
+        // Perform cascading deletion and write the GDPR audit row atomically.
+        await authService.deleteUserAccount(request.userId, {
+          accountDeletionAuditLog,
+          storageProvider,
+        });
 
         // Return 204 No Content on success
         return reply.code(204).send();

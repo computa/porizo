@@ -1,7 +1,7 @@
 "use strict";
 
 const crypto = require("crypto");
-const { nowIso, toJson } = require("../utils/common");
+const { nowIso } = require("../utils/common");
 const { loadPublicFile } = require("../utils/public-files");
 const { getFeatureFlag } = require("../services/feature-flags");
 const {
@@ -9,11 +9,26 @@ const {
   findGiftFundingContent,
 } = require("../services/gift-funding");
 const {
-  dbGet,
   upsertGiftIncident,
   redactGiftContacts,
 } = require("../services/gift-delivery-ops");
 const { createGiftOpsMonitor } = require("../services/gift-ops-monitoring");
+const { createGiftContentRepository } = require("../database/gift-content-repository");
+const {
+  createGiftReservationRepository,
+} = require("../database/gift-reservation-repository");
+const {
+  createGiftDispatchRepository,
+} = require("../database/gift-dispatch-repository");
+const {
+  createGiftOrderRepository,
+} = require("../database/gift-order-repository");
+const {
+  createShareTokenRepository,
+} = require("../database/share-token-repository");
+const {
+  createIdentityRepository,
+} = require("../database/identity-repository");
 
 const ACTIVE_RESERVATION_STATUSES = new Set(["reserved", "content_ready"]);
 const publicGiftIndexPage = loadPublicFile("gifts/index.html", {
@@ -39,6 +54,7 @@ function registerGiftRoutes(app, {
   parseGiftChannelsJson,
   renderGiftSummary,
   ensureGiftWalletRow,
+  getGiftWalletBalance,
   applyGiftWalletTransaction,
   ensureTrackGiftShareToken,
   ensurePoemGiftShareToken,
@@ -49,6 +65,12 @@ function registerGiftRoutes(app, {
 }) {
 
   const reservationTtlMs = Math.max(5, Number(giftReservationTtlMinutes) || 45) * 60 * 1000;
+  const giftContentRepository = createGiftContentRepository(db);
+  const giftReservationRepository = createGiftReservationRepository(db);
+  const giftDispatchRepository = createGiftDispatchRepository(db);
+  const giftOrderRepository = createGiftOrderRepository(db);
+  const shareTokenRepository = createShareTokenRepository(db);
+  const identityRepository = createIdentityRepository(db);
 
   function isReservationActiveStatus(status) {
     return ACTIVE_RESERVATION_STATUSES.has(String(status || "").toLowerCase());
@@ -156,23 +178,21 @@ function registerGiftRoutes(app, {
   const logGiftLifecycle = giftOpsMonitor.logGiftLifecycle;
 
   async function verifyGiftFinalizeIntegrity(giftOrderId, query = null) {
-    const runner = query || db.query.bind(db);
-    const gift = await dbGet(runner, "SELECT * FROM gift_orders WHERE id = ?", [giftOrderId]);
+    const gift = await giftOrderRepository.findById(giftOrderId, query);
     if (!gift) {
       return { ok: false, errors: ["missing_gift_order"], gift: null, outboxRows: [], shareRow: null };
     }
 
-    const outboxRows = (await runner(
-      "SELECT id, channel, recipient, status, send_after, next_retry_at FROM gift_delivery_outbox WHERE gift_order_id = ? ORDER BY created_at ASC",
-      [giftOrderId]
-    ))?.rows || [];
+    const outboxRows = await giftDispatchRepository.listFinalizeIntegrityRows({
+      giftOrderId,
+      query,
+    });
     const channels = parseGiftChannelsJson(gift.channels_json);
-    const shareTable = gift.content_type === "poem" ? "poem_share_tokens" : "share_tokens";
-    const shareRow = await dbGet(
-      runner,
-      `SELECT id, gift_order_id, delivery_source, dispatch_at FROM ${shareTable} WHERE id = ?`,
-      [gift.share_token_id]
-    );
+    const shareRow = await shareTokenRepository.getGiftShareBinding({
+      contentType: gift.content_type,
+      shareTokenId: gift.share_token_id,
+      query,
+    });
 
     const errors = [];
     if (!gift.share_token_id || !shareRow) {
@@ -231,14 +251,9 @@ function registerGiftRoutes(app, {
     });
   }
 
-  async function queryGet(query, sql, params = []) {
-    const result = await query(sql, params);
-    return result?.rows?.[0] || null;
-  }
-
   async function readGiftWalletBalance(userId, query = null) {
     if (query) {
-      return Number((await queryGet(query, "SELECT balance FROM gift_wallet WHERE user_id = ?", [userId]))?.balance || 0);
+      return getGiftWalletBalance(userId, { query });
     }
     return (await ensureGiftWalletRow(userId)).balance;
   }
@@ -303,7 +318,7 @@ function registerGiftRoutes(app, {
 
   async function validateGiftContent({ userId, contentType, contentId, versionNum = null }) {
     if (contentType === "song") {
-      const track = await db.prepare("SELECT id, user_id, title, recipient_name, occasion, latest_version, deleted_at FROM tracks WHERE id = ?").get(contentId);
+      const track = await giftContentRepository.getTrackForGiftContent(contentId);
       if (!track || track.user_id !== userId || track.deleted_at) {
         const err = new Error("TRACK_NOT_FOUND");
         err.code = "TRACK_NOT_FOUND";
@@ -311,9 +326,10 @@ function registerGiftRoutes(app, {
       }
 
       const resolvedVersionNum = Number(versionNum || track.latest_version || 1);
-      const trackVersion = await db
-        .prepare("SELECT id, preview_url, full_url FROM track_versions WHERE track_id = ? AND version_num = ?")
-        .get(track.id, resolvedVersionNum);
+      const trackVersion = await giftContentRepository.getTrackVersionForGiftContent({
+        trackId: track.id,
+        versionNum: resolvedVersionNum,
+      });
 
       if (!trackVersion) {
         const err = new Error("VERSION_NOT_FOUND");
@@ -340,9 +356,7 @@ function registerGiftRoutes(app, {
     }
 
     if (contentType === "poem") {
-      const poem = await db
-        .prepare("SELECT id, user_id, title, recipient_name, occasion, tone, verses, message, deleted_at FROM poems WHERE id = ?")
-        .get(contentId);
+      const poem = await giftContentRepository.getPoemForGiftContent(contentId);
       if (!poem || poem.user_id !== userId || poem.deleted_at) {
         const err = new Error("POEM_NOT_FOUND");
         err.code = "POEM_NOT_FOUND";
@@ -400,11 +414,13 @@ function registerGiftRoutes(app, {
       refundTxId = refundTx.transactionId;
     }
 
-    await db.prepare(
-      `UPDATE gift_reservations
-       SET status = ?, refund_transaction_id = COALESCE(?, refund_transaction_id), cancel_reason = ?, updated_at = ?
-       WHERE id = ?`
-    ).run(status, refundTxId, cancelReason, nowIso(), reservation.id);
+    await giftReservationRepository.markRefunded({
+      reservationId: reservation.id,
+      status,
+      refundTransactionId: refundTxId,
+      cancelReason,
+      updatedAt: nowIso(),
+    });
 
     await emitGiftActivity({
       userId: reservation.user_id,
@@ -415,7 +431,7 @@ function registerGiftRoutes(app, {
       metadata: { refund_transaction_id: refundTxId, reason: cancelReason },
     });
 
-    return await db.prepare("SELECT * FROM gift_reservations WHERE id = ?").get(reservation.id);
+    return giftReservationRepository.getById(reservation.id);
   }
 
   async function expireReservationIfNeeded(reservation) {
@@ -452,23 +468,15 @@ function registerGiftRoutes(app, {
       return reservation;
     }
 
-    await db.prepare(
-      `UPDATE gift_reservations
-       SET status = 'content_ready',
-           content_type = ?,
-           content_id = ?,
-           version_num = ?,
-           updated_at = ?
-       WHERE id = ?`
-    ).run(
-      recovered.contentType,
-      recovered.contentId,
-      recovered.versionNum,
-      nowIso(),
-      reservation.id
-    );
+    await giftReservationRepository.attachContent({
+      reservationId: reservation.id,
+      contentType: recovered.contentType,
+      contentId: recovered.contentId,
+      versionNum: recovered.versionNum,
+      updatedAt: nowIso(),
+    });
 
-    return await db.prepare("SELECT * FROM gift_reservations WHERE id = ?").get(reservation.id);
+    return giftReservationRepository.getById(reservation.id);
   }
 
   async function createGiftOrderFromPayload({
@@ -502,7 +510,7 @@ function registerGiftRoutes(app, {
     // Resolve sender display name: explicit override → user profile → email prefix → "A friend"
     let resolvedSenderDisplayName = typeof senderDisplayName === "string" ? senderDisplayName.trim() : "";
     if (!resolvedSenderDisplayName) {
-      const senderUser = await db.prepare("SELECT display_name, email FROM users WHERE id = ?").get(userId);
+      const senderUser = await identityRepository.findUserDisplayProfile(userId);
       const profileName = typeof senderUser?.display_name === "string" ? senderUser.display_name.trim() : "";
       const emailLocal = typeof senderUser?.email === "string" ? senderUser.email.split("@")[0]?.trim() : "";
       resolvedSenderDisplayName = profileName || emailLocal || "A friend";
@@ -510,11 +518,11 @@ function registerGiftRoutes(app, {
 
     const executeCreate = async (query) => {
       if (idempotencyKey) {
-        const existing = await queryGet(
+        const existing = await giftOrderRepository.findBySenderAndIdempotencyKey({
+          userId,
+          idempotencyKey,
           query,
-          "SELECT * FROM gift_orders WHERE sender_user_id = ? AND idempotency_key = ? LIMIT 1",
-          [userId, idempotencyKey]
-        );
+        });
         if (existing) {
           return { gift: existing, idempotent: true };
         }
@@ -577,50 +585,32 @@ function registerGiftRoutes(app, {
         }
 
         const timestamp = nowIso();
-        await query(
-          `INSERT INTO gift_orders (
-            id, sender_user_id, content_type, content_id, status, dispatch_status, delivery_mode,
-            send_at, sender_timezone, recipient_name, sender_display_name, channels_json, recipient_phone, recipient_email, message,
-            share_token_id, share_url, claim_pin, claim_policy, expires_in_days, dispatch_attempts,
-            last_dispatch_error, dispatched_at, cancelled_at, token_transaction_id, refund_transaction_id,
-            version_num, content_snapshot_json, next_retry_at, dispatch_started_at, idempotency_key, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [
-            giftOrderId,
-            userId,
-            validated.contentType,
-            validated.contentId,
-            "scheduled",
-            "pending",
-            deliveryMode,
-            sendAtIso,
-            senderTimezone,
-            resolvedRecipientName,
-            resolvedSenderDisplayName,
-            toJson(channels),
-            recipientPhone,
-            recipientEmail,
-            message || null,
-            share.shareId,
-            share.shareUrl,
-            share.claimPin,
-            requireAppClaim ? "app_only" : "default",
-            expiresInDays,
-            0,
-            null,
-            null,
-            null,
-            resolvedTokenTxId,
-            null,
-            validated.versionNum,
-            validated.contentSnapshot ? toJson(validated.contentSnapshot) : null,
-            sendAtIso,
-            null,
-            idempotencyKey,
-            timestamp,
-            timestamp,
-          ]
-        );
+        await giftOrderRepository.insertScheduled({
+          id: giftOrderId,
+          senderUserId: userId,
+          contentType: validated.contentType,
+          contentId: validated.contentId,
+          deliveryMode,
+          sendAt: sendAtIso,
+          senderTimezone,
+          recipientName: resolvedRecipientName,
+          senderDisplayName: resolvedSenderDisplayName,
+          channels,
+          recipientPhone,
+          recipientEmail,
+          message,
+          shareTokenId: share.shareId,
+          shareUrl: share.shareUrl,
+          claimPin: share.claimPin,
+          claimPolicy: requireAppClaim ? "app_only" : "default",
+          expiresInDays,
+          tokenTransactionId: resolvedTokenTxId,
+          versionNum: validated.versionNum,
+          contentSnapshot: validated.contentSnapshot,
+          idempotencyKey,
+          timestamp,
+          query,
+        });
 
         await createGiftDeliveryOutboxRows({
           giftOrderId,
@@ -683,7 +673,7 @@ function registerGiftRoutes(app, {
 
     if (deliveryMode === "immediate" && !skipDispatch && created.gift?.id) {
       await dispatchGiftById(created.gift.id);
-      created.gift = await db.prepare("SELECT * FROM gift_orders WHERE id = ?").get(created.gift.id);
+      created.gift = await giftOrderRepository.findById(created.gift.id);
     }
 
     return {
@@ -735,14 +725,10 @@ function registerGiftRoutes(app, {
 
   async function expireGiftReservations({ limit = 50 } = {}) {
     const now = new Date().toISOString();
-    const rows = await db.prepare(
-      `SELECT *
-       FROM gift_reservations
-       WHERE status IN ('reserved', 'content_ready')
-         AND expires_at <= ?
-       ORDER BY expires_at ASC
-       LIMIT ?`
-    ).all(now, Math.max(1, Number(limit) || 50));
+    const rows = await giftReservationRepository.listExpiredActive({
+      now,
+      limit,
+    });
 
     let processed = 0;
     let refunded = 0;
@@ -776,7 +762,7 @@ function registerGiftRoutes(app, {
     actorUserId,
     actorType = "user",
   }) {
-    const gift = await db.prepare("SELECT * FROM gift_orders WHERE id = ?").get(giftId);
+    const gift = await giftOrderRepository.findById(giftId);
     if (!gift) {
       const err = new Error("GIFT_NOT_FOUND");
       err.code = "GIFT_NOT_FOUND";
@@ -801,9 +787,9 @@ function registerGiftRoutes(app, {
       throw err;
     }
 
-    const sentDelivery = await db.prepare(
-      "SELECT id FROM gift_delivery_outbox WHERE gift_order_id = ? AND status = 'sent' LIMIT 1"
-    ).get(gift.id);
+    const sentDelivery = await giftDispatchRepository.hasSentDelivery({
+      giftOrderId: gift.id,
+    });
     if (sentDelivery) {
       const err = new Error("GIFT_ALREADY_PARTIALLY_DISPATCHED");
       err.code = "GIFT_ALREADY_PARTIALLY_DISPATCHED";
@@ -827,17 +813,11 @@ function registerGiftRoutes(app, {
     }
 
     const timestamp = nowIso();
-    const cancelResult = await db.prepare(
-      `UPDATE gift_orders
-       SET status = 'cancelled',
-           dispatch_status = 'cancelled',
-           cancelled_at = ?,
-           refund_transaction_id = ?,
-           next_retry_at = NULL,
-           dispatch_started_at = NULL,
-           updated_at = ?
-       WHERE id = ? AND status IN ('scheduled', 'dispatch_retry', 'cancelled')`
-    ).run(timestamp, refundTxId, timestamp, gift.id);
+    const cancelResult = await giftOrderRepository.markCancelled({
+      giftId: gift.id,
+      refundTransactionId: refundTxId,
+      timestamp,
+    });
 
     if (!cancelResult.changes) {
       // Gift transitioned to dispatching/dispatched between SELECT and UPDATE
@@ -846,28 +826,17 @@ function registerGiftRoutes(app, {
       throw err;
     }
 
-    await db.prepare(
-      `UPDATE gift_delivery_outbox
-       SET status = 'cancelled',
-           next_retry_at = NULL,
-           locked_at = NULL,
-           updated_at = ?
-       WHERE gift_order_id = ? AND status IN ('pending', 'failed', 'sending')`
-    ).run(timestamp, gift.id);
+    await giftDispatchRepository.cancelUnsentRows({
+      giftOrderId: gift.id,
+      updatedAt: timestamp,
+    });
 
-    if (gift.content_type === "song") {
-      await db.prepare(
-        `UPDATE share_tokens
-         SET status = 'revoked', web_stream_allowed = 0, expires_at = ?, dispatched_at = NULL
-         WHERE id = ? AND gift_order_id = ? AND delivery_source = 'gift'`
-      ).run(timestamp, gift.share_token_id, gift.id);
-    } else if (gift.content_type === "poem") {
-      await db.prepare(
-        `UPDATE poem_share_tokens
-         SET status = 'revoked', expires_at = ?, dispatched_at = NULL
-         WHERE id = ? AND gift_order_id = ? AND delivery_source = 'gift'`
-      ).run(timestamp, gift.share_token_id, gift.id);
-    }
+    await shareTokenRepository.revokeGiftShare({
+      contentType: gift.content_type,
+      shareTokenId: gift.share_token_id,
+      giftOrderId: gift.id,
+      expiresAt: timestamp,
+    });
 
     logGiftLifecycle("warn", "cancelled", {
       gift_id: gift.id,
@@ -876,7 +845,7 @@ function registerGiftRoutes(app, {
       refund_transaction_id: refundTxId,
     });
 
-    const updated = await db.prepare("SELECT * FROM gift_orders WHERE id = ?").get(gift.id);
+    const updated = await giftOrderRepository.findById(gift.id);
     return {
       gift: updated,
       walletBalance: (await ensureGiftWalletRow(gift.sender_user_id)).balance,
@@ -890,7 +859,7 @@ function registerGiftRoutes(app, {
     actorUserId,
     actorType = "admin",
   } = {}) {
-    const gift = await db.prepare("SELECT * FROM gift_orders WHERE id = ?").get(giftId);
+    const gift = await giftOrderRepository.findById(giftId);
     if (!gift) {
       const err = new Error("GIFT_NOT_FOUND");
       err.code = "GIFT_NOT_FOUND";
@@ -907,9 +876,9 @@ function registerGiftRoutes(app, {
       throw err;
     }
 
-    const sentDelivery = await db.prepare(
-      "SELECT id FROM gift_delivery_outbox WHERE gift_order_id = ? AND status = 'sent' LIMIT 1"
-    ).get(gift.id);
+    const sentDelivery = await giftDispatchRepository.hasSentDelivery({
+      giftOrderId: gift.id,
+    });
     if (sentDelivery) {
       const err = new Error("GIFT_ALREADY_PARTIALLY_DISPATCHED");
       err.code = "GIFT_ALREADY_PARTIALLY_DISPATCHED";
@@ -917,26 +886,17 @@ function registerGiftRoutes(app, {
     }
 
     const timestamp = nowIso();
-    await db.prepare(
-      `UPDATE gift_delivery_outbox
-       SET status = 'pending',
-           next_retry_at = ?,
-           locked_at = NULL,
-           last_error = CASE WHEN status = 'failed' THEN last_error ELSE NULL END,
-           updated_at = ?
-       WHERE gift_order_id = ?
-         AND status IN ('failed', 'pending')`
-    ).run(timestamp, timestamp, gift.id);
+    await giftDispatchRepository.resetRetryableRows({
+      giftOrderId: gift.id,
+      nextRetryAt: timestamp,
+      updatedAt: timestamp,
+    });
 
-    const retryResult = await db.prepare(
-      `UPDATE gift_orders
-       SET status = 'dispatch_retry',
-           dispatch_status = 'retrying',
-           next_retry_at = ?,
-           dispatch_started_at = NULL,
-           updated_at = ?
-       WHERE id = ? AND status IN ('scheduled', 'dispatch_retry', 'failed')`
-    ).run(timestamp, timestamp, gift.id);
+    const retryResult = await giftOrderRepository.markRetrying({
+      giftId: gift.id,
+      retryAt: timestamp,
+      updatedAt: timestamp,
+    });
 
     if (!retryResult.changes) {
       const err = new Error("GIFT_STATUS_CHANGED");
@@ -950,7 +910,7 @@ function registerGiftRoutes(app, {
       actor_user_id: actorUserId || null,
     });
 
-    return await db.prepare("SELECT * FROM gift_orders WHERE id = ?").get(gift.id);
+    return await giftOrderRepository.findById(gift.id);
   }
 
   app.decorate("retryGiftOrderById", retryGiftOrderById);
@@ -977,9 +937,10 @@ function registerGiftRoutes(app, {
       null;
 
     if (idempotencyKey) {
-      const existing = await db
-        .prepare("SELECT * FROM gift_reservations WHERE user_id = ? AND idempotency_key = ? LIMIT 1")
-        .get(userId, idempotencyKey);
+      const existing = await giftReservationRepository.findByIdempotencyKey({
+        userId,
+        idempotencyKey,
+      });
       if (existing) {
         const maybeExpired = await expireReservationIfNeeded(existing);
         const reservation = isReservationActiveStatus(maybeExpired.status)
@@ -994,14 +955,7 @@ function registerGiftRoutes(app, {
       }
     }
 
-    const activeReservation = await db.prepare(
-      `SELECT *
-       FROM gift_reservations
-       WHERE user_id = ?
-         AND status IN ('reserved', 'content_ready')
-       ORDER BY created_at DESC
-       LIMIT 1`
-    ).get(userId);
+    const activeReservation = await giftReservationRepository.findActiveForUser(userId);
 
     if (activeReservation) {
       const resolved = await expireReservationIfNeeded(activeReservation);
@@ -1031,28 +985,15 @@ function registerGiftRoutes(app, {
         idempotencyKey: idempotencyKey ? `gift_reserve_${idempotencyKey}` : null,
       });
 
-      await db.prepare(
-        `INSERT INTO gift_reservations (
-          id, user_id, status, content_type, content_id, version_num,
-          token_transaction_id, refund_transaction_id, gift_order_id,
-          idempotency_key, expires_at, cancel_reason, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      ).run(
-        reservationId,
+      const createdAt = nowIso();
+      await giftReservationRepository.createReservation({
+        id: reservationId,
         userId,
-        "reserved",
-        null,
-        null,
-        null,
-        tokenTx.transactionId,
-        null,
-        null,
         idempotencyKey,
-        expiresAtFromNow(),
-        null,
-        nowIso(),
-        nowIso()
-      );
+        tokenTransactionId: tokenTx.transactionId,
+        expiresAt: expiresAtFromNow(),
+        createdAt,
+      });
 
       await emitGiftActivity({
         userId,
@@ -1062,7 +1003,7 @@ function registerGiftRoutes(app, {
         metadata: { expires_in_minutes: Math.round(reservationTtlMs / 60000) },
       });
 
-      const reservation = await db.prepare("SELECT * FROM gift_reservations WHERE id = ?").get(reservationId);
+      const reservation = await giftReservationRepository.getById(reservationId);
       reply.send({
         reservation: renderGiftReservation(reservation),
         wallet_balance: (await ensureGiftWalletRow(userId)).balance,
@@ -1081,14 +1022,7 @@ function registerGiftRoutes(app, {
     const userId = await requireUserId(request, reply);
     if (!userId) return;
 
-    const activeReservation = await db.prepare(
-      `SELECT *
-       FROM gift_reservations
-       WHERE user_id = ?
-         AND status IN ('reserved', 'content_ready')
-       ORDER BY created_at DESC
-       LIMIT 1`
-    ).get(userId);
+    const activeReservation = await giftReservationRepository.findActiveForUser(userId);
 
     if (!activeReservation) {
       reply.send({ reservation: null, wallet_balance: (await ensureGiftWalletRow(userId)).balance });
@@ -1113,7 +1047,7 @@ function registerGiftRoutes(app, {
     const userId = await requireUserId(request, reply);
     if (!userId) return;
 
-    const reservation = await db.prepare("SELECT * FROM gift_reservations WHERE id = ?").get(request.params.id);
+    const reservation = await giftReservationRepository.getById(request.params.id);
     if (!reservation || reservation.user_id !== userId) {
       sendError(reply, 404, "RESERVATION_NOT_FOUND", "Gift reservation not found.");
       return;
@@ -1159,15 +1093,13 @@ function registerGiftRoutes(app, {
         versionNum,
       });
 
-      await db.prepare(
-        `UPDATE gift_reservations
-         SET status = 'content_ready',
-             content_type = ?,
-             content_id = ?,
-             version_num = ?,
-             updated_at = ?
-         WHERE id = ?`
-      ).run(validated.contentType, validated.contentId, validated.versionNum, nowIso(), refreshed.id);
+      await giftReservationRepository.attachContent({
+        reservationId: refreshed.id,
+        contentType: validated.contentType,
+        contentId: validated.contentId,
+        versionNum: validated.versionNum,
+        updatedAt: nowIso(),
+      });
 
       await emitGiftActivity({
         userId,
@@ -1181,7 +1113,7 @@ function registerGiftRoutes(app, {
         },
       });
 
-      const updated = await db.prepare("SELECT * FROM gift_reservations WHERE id = ?").get(refreshed.id);
+      const updated = await giftReservationRepository.getById(refreshed.id);
       reply.send({
         reservation: renderGiftReservation(updated),
         wallet_balance: (await ensureGiftWalletRow(userId)).balance,
@@ -1199,7 +1131,7 @@ function registerGiftRoutes(app, {
     const userId = await requireUserId(request, reply);
     if (!userId) return;
 
-    const reservation = await db.prepare("SELECT * FROM gift_reservations WHERE id = ?").get(request.params.id);
+    const reservation = await giftReservationRepository.getById(request.params.id);
     if (!reservation || reservation.user_id !== userId) {
       sendError(reply, 404, "RESERVATION_NOT_FOUND", "Gift reservation not found.");
       return;
@@ -1210,7 +1142,9 @@ function registerGiftRoutes(app, {
         sendError(reply, 409, "RESERVATION_FINALIZE_INCOMPLETE", "Reservation has already been finalized.");
         return;
       }
-      const existingGift = await db.prepare("SELECT * FROM gift_orders WHERE id = ?").get(reservation.gift_order_id);
+      const existingGift = await giftOrderRepository.findById(
+        reservation.gift_order_id,
+      );
       if (!existingGift || existingGift.sender_user_id !== userId) {
         sendError(reply, 409, "RESERVATION_FINALIZE_INCOMPLETE", "Reservation has already been finalized.");
         return;
@@ -1260,10 +1194,9 @@ function registerGiftRoutes(app, {
 
     try {
       const created = await db.transaction(async (query) => {
-        const latestReservation = await queryGet(
+        const latestReservation = await giftReservationRepository.getById(
+          reconciled.id,
           query,
-          "SELECT * FROM gift_reservations WHERE id = ?",
-          [reconciled.id]
         );
         if (!latestReservation || latestReservation.user_id !== userId) {
           const err = new Error("RESERVATION_NOT_FOUND");
@@ -1271,7 +1204,10 @@ function registerGiftRoutes(app, {
           throw err;
         }
         if (latestReservation.status === "finalized" && latestReservation.gift_order_id) {
-          const existingGift = await queryGet(query, "SELECT * FROM gift_orders WHERE id = ?", [latestReservation.gift_order_id]);
+          const existingGift = await giftOrderRepository.findById(
+            latestReservation.gift_order_id,
+            query,
+          );
           return { gift: existingGift, idempotent: true };
         }
         if (!isReservationActiveStatus(latestReservation.status)) {
@@ -1302,14 +1238,12 @@ function registerGiftRoutes(app, {
           skipSideEffects: true,
         });
 
-        await query(
-          `UPDATE gift_reservations
-           SET status = 'finalized',
-               gift_order_id = ?,
-               updated_at = ?
-           WHERE id = ?`,
-          [createdGift.gift.id, nowIso(), latestReservation.id]
-        );
+        await giftReservationRepository.markFinalized({
+          reservationId: latestReservation.id,
+          giftOrderId: createdGift.gift.id,
+          updatedAt: nowIso(),
+          query,
+        });
 
         return createdGift;
       });
@@ -1340,7 +1274,7 @@ function registerGiftRoutes(app, {
       let responseGift = created.gift;
       if (deliveryMode === "immediate" && created.gift?.id && !created.idempotent) {
         await dispatchGiftById(created.gift.id);
-        responseGift = await db.prepare("SELECT * FROM gift_orders WHERE id = ?").get(created.gift.id);
+        responseGift = await giftOrderRepository.findById(created.gift.id);
       }
 
       reply.send({
@@ -1361,7 +1295,7 @@ function registerGiftRoutes(app, {
     const userId = await requireUserId(request, reply);
     if (!userId) return;
 
-    const reservation = await db.prepare("SELECT * FROM gift_reservations WHERE id = ?").get(request.params.id);
+    const reservation = await giftReservationRepository.getById(request.params.id);
     if (!reservation || reservation.user_id !== userId) {
       sendError(reply, 404, "RESERVATION_NOT_FOUND", "Gift reservation not found.");
       return;
@@ -1517,22 +1451,12 @@ function registerGiftRoutes(app, {
     const status = typeof request.query?.status === "string" ? request.query.status.trim() : null;
 
     try {
-      let rows;
-      if (status) {
-        rows = await db.prepare(
-          `SELECT * FROM gift_orders
-           WHERE sender_user_id = ? AND status = ?
-           ORDER BY created_at DESC
-           LIMIT ? OFFSET ?`
-        ).all(userId, status, limit, offset);
-      } else {
-        rows = await db.prepare(
-          `SELECT * FROM gift_orders
-           WHERE sender_user_id = ?
-           ORDER BY created_at DESC
-           LIMIT ? OFFSET ?`
-        ).all(userId, limit, offset);
-      }
+      const rows = await giftOrderRepository.listForUser({
+        userId,
+        status,
+        limit,
+        offset,
+      });
 
       reply.send({
         gifts: rows.map(renderGiftSummary),
@@ -1548,7 +1472,7 @@ function registerGiftRoutes(app, {
     const userId = await requireUserId(request, reply);
     if (!userId) return;
 
-    const gift = await db.prepare("SELECT * FROM gift_orders WHERE id = ?").get(request.params.id);
+    const gift = await giftOrderRepository.findById(request.params.id);
     if (!gift || gift.sender_user_id !== userId) {
       sendError(reply, 404, "GIFT_NOT_FOUND", "Gift not found.");
       return;
@@ -1557,9 +1481,9 @@ function registerGiftRoutes(app, {
       sendError(reply, 409, "GIFT_NOT_EDITABLE", "Gift can no longer be edited.");
       return;
     }
-    const sentDelivery = await db.prepare(
-      "SELECT id FROM gift_delivery_outbox WHERE gift_order_id = ? AND status = 'sent' LIMIT 1"
-    ).get(gift.id);
+    const sentDelivery = await giftDispatchRepository.hasSentDelivery({
+      giftOrderId: gift.id,
+    });
     if (sentDelivery) {
       sendError(reply, 409, "GIFT_ALREADY_PARTIALLY_DISPATCHED", "Gift delivery already started and can no longer be edited.");
       return;
@@ -1609,24 +1533,19 @@ function registerGiftRoutes(app, {
 
     const nextExpiresAt = computeGiftShareExpiresAt(nextSendAt, gift.expires_in_days);
 
-    await db.prepare(
-      `UPDATE gift_orders
-       SET send_at = ?, sender_timezone = ?, recipient_name = ?, channels_json = ?, recipient_phone = ?, recipient_email = ?, message = ?, next_retry_at = ?, updated_at = ?
-       WHERE id = ?`
-    ).run(
-      nextSendAt,
-      nextTimezone,
-      nextRecipientName || null,
-      toJson(nextChannels),
-      nextPhone,
-      nextEmail,
-      nextMessage || null,
-      nextSendAt,
-      nowIso(),
-      gift.id
-    );
+    await giftOrderRepository.updateSchedule({
+      giftId: gift.id,
+      sendAt: nextSendAt,
+      senderTimezone: nextTimezone,
+      recipientName: nextRecipientName,
+      channels: nextChannels,
+      recipientPhone: nextPhone,
+      recipientEmail: nextEmail,
+      message: nextMessage,
+      updatedAt: nowIso(),
+    });
 
-    await db.prepare("DELETE FROM gift_delivery_outbox WHERE gift_order_id = ? AND status IN ('pending', 'failed', 'cancelled')").run(gift.id);
+    await giftDispatchRepository.deleteUnsentRows({ giftOrderId: gift.id });
     await createGiftDeliveryOutboxRows({
       giftOrderId: gift.id,
       channels: nextChannels,
@@ -1635,19 +1554,13 @@ function registerGiftRoutes(app, {
       sendAtIso: nextSendAt,
     });
 
-    if (gift.content_type === "song") {
-      await db.prepare(
-        `UPDATE share_tokens
-         SET dispatch_at = ?, expires_at = ?, dispatched_at = NULL
-         WHERE id = ? AND gift_order_id = ? AND delivery_source = 'gift'`
-      ).run(nextSendAt, nextExpiresAt, gift.share_token_id, gift.id);
-    } else if (gift.content_type === "poem") {
-      await db.prepare(
-        `UPDATE poem_share_tokens
-         SET dispatch_at = ?, expires_at = ?, dispatched_at = NULL
-         WHERE id = ? AND gift_order_id = ? AND delivery_source = 'gift'`
-      ).run(nextSendAt, nextExpiresAt, gift.share_token_id, gift.id);
-    }
+    await shareTokenRepository.updateGiftShareSchedule({
+      contentType: gift.content_type,
+      shareTokenId: gift.share_token_id,
+      giftOrderId: gift.id,
+      dispatchAt: nextSendAt,
+      expiresAt: nextExpiresAt,
+    });
 
     await emitGiftActivity({
       userId,
@@ -1657,7 +1570,7 @@ function registerGiftRoutes(app, {
       metadata: { send_at: nextSendAt, channels: nextChannels },
     });
 
-    const updated = await db.prepare("SELECT * FROM gift_orders WHERE id = ?").get(gift.id);
+    const updated = await giftOrderRepository.findById(gift.id);
     reply.send({ gift: renderGiftSummary(updated) });
   });
 
@@ -1665,7 +1578,7 @@ function registerGiftRoutes(app, {
     const userId = await requireUserId(request, reply);
     if (!userId) return;
 
-    const gift = await db.prepare("SELECT * FROM gift_orders WHERE id = ?").get(request.params.id);
+    const gift = await giftOrderRepository.findById(request.params.id);
     if (!gift || gift.sender_user_id !== userId) {
       sendError(reply, 404, "GIFT_NOT_FOUND", "Gift not found.");
       return;

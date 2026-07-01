@@ -5,6 +5,10 @@
  * generation starts, and reused for same-version full renders/retries.
  */
 
+process.env.JWT_SECRET = "test-jwt-secret-render-entitlement";
+process.env.ALLOW_ANON_USER_ID = "true";
+process.env.NODE_ENV = "test";
+
 const { describe, it, beforeEach, afterEach } = require("node:test");
 const assert = require("node:assert/strict");
 const { initDb } = require("../src/db");
@@ -82,9 +86,6 @@ describe("Song Generation Entitlement", async () => {
   }
 
   beforeEach(async () => {
-    process.env.JWT_SECRET = "test-jwt-secret-render-entitlement";
-    process.env.ALLOW_ANON_USER_ID = "true";
-    process.env.NODE_ENV = "test";
     db = await initDb();
     userId = `user_song_entitlement_${Date.now()}_${Math.random().toString(36).slice(2)}`;
     spendCalls = 0;
@@ -254,7 +255,7 @@ describe("Song Generation Entitlement", async () => {
 
     assert.equal(response.statusCode, 202);
     assert.equal(spendCalls, 0);
-    assert.equal(response.json().credits_reserved, 0);
+    assert.equal("credits_reserved" in response.json(), false);
 
     const versionRows = await db.query(
       "SELECT status, full_job_id, song_entitlement_consumed_at FROM track_versions WHERE id = ?",
@@ -288,7 +289,7 @@ describe("Song Generation Entitlement", async () => {
 
     assert.equal(response.statusCode, 202);
     assert.equal(spendCalls, 1);
-    assert.equal(response.json().credits_reserved, 0);
+    assert.equal("credits_reserved" in response.json(), false);
 
     const versionRows = await db.query(
       "SELECT status, full_job_id, song_entitlement_consumed_at FROM track_versions WHERE id = ?",

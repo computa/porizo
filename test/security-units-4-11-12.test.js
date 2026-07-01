@@ -387,6 +387,10 @@ describe("Unit 12: Cover auth + admin + CORS + misc", () => {
         ![401, 403].includes(response.statusCode),
         `Share token should bypass auth, got ${response.statusCode}`,
       );
+      assert.ok(
+        response.statusCode < 500,
+        `Share-token cover access should not hit a server error, got ${response.statusCode}`,
+      );
     });
 
     it("rejects cover access via revoked share token", async () => {
@@ -462,11 +466,11 @@ describe("Unit 12: Cover auth + admin + CORS + misc", () => {
         headers: { authorization: `Bearer ${adminToken}` },
       });
 
-      // Admin should get through auth — may get 503 if providers not configured,
-      // but not 401/403
+      // Admin should get through auth; missing provider credentials should be
+      // a health result, not an auth failure or server error.
       assert.ok(
-        ![401, 403].includes(response.statusCode),
-        `Admin should pass auth, got ${response.statusCode}`,
+        [200, 503].includes(response.statusCode),
+        `Admin health check should return 200/503, got ${response.statusCode}`,
       );
     });
   });

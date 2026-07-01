@@ -5,6 +5,62 @@
  * Supports: m4a, mp3, wav, webm, mp4, mpeg, mpga, oga, ogg, flac
  */
 
+const { fetchResponse } = require("./http");
+
+const WHISPER_TRANSCRIPTION_URL =
+  "https://api.openai.com/v1/audio/transcriptions";
+
+async function requestWhisper({
+  form,
+  apiKey,
+  timeoutMs,
+  retries,
+  retryDelayMs,
+  timeoutMessage,
+}) {
+  try {
+    return await fetchResponse(
+      WHISPER_TRANSCRIPTION_URL,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          // Do not set Content-Type; fetch adds the FormData boundary.
+        },
+        body: form,
+      },
+      {
+        timeoutMs,
+        retries,
+        retryDelayMs,
+        label: "Whisper",
+      },
+    );
+  } catch (err) {
+    if (err?.message === "request_timeout") {
+      throw new Error(`E401_WHISPER_ERROR: ${timeoutMessage}`);
+    }
+    const message = String(err?.message || "network_error").replace(
+      /^provider_error:network:/,
+      "",
+    );
+    console.error(`[Whisper] Network error: ${message}`);
+    throw new Error(`E401_WHISPER_ERROR: Network error - ${message}`);
+  }
+}
+
+async function readWhisperErrorMessage(response) {
+  let errorBody;
+  try {
+    errorBody = await response.json();
+  } catch {
+    errorBody = await response.text();
+  }
+  return typeof errorBody === "object"
+    ? errorBody.error?.message
+    : errorBody;
+}
+
 /**
  * Transcribe audio using OpenAI's Whisper API
  *
@@ -13,7 +69,7 @@
  * @param {string} [options.language] - ISO-639-1 language code (e.g., 'en', 'es'). Auto-detected if not provided
  * @param {string} [options.prompt] - Optional context hint to improve transcription accuracy
  * @param {string} [options.filename] - Filename with extension for format detection (default: 'audio.m4a')
- * @param {string} [options.apiKey] - OpenAI API key (falls back to OPENAI_API_KEY env var)
+ * @param {string} [options.apiKey] - OpenAI API key
  * @param {number} [options.timeoutMs] - Request timeout in milliseconds (default: 60000)
  * @returns {Promise<{text: string, language: string, duration: number|null}>}
  */
@@ -22,8 +78,10 @@ async function transcribeAudio(audioBuffer, options = {}) {
     language,
     prompt,
     filename = "audio.m4a",
-    apiKey = process.env.OPENAI_API_KEY,
+    apiKey,
     timeoutMs = 60000,
+    retries = 2,
+    retryDelayMs,
   } = options;
 
   // Input validation
@@ -62,43 +120,18 @@ async function transcribeAudio(audioBuffer, options = {}) {
     form.append("prompt", prompt);
   }
 
-  // Make API request with timeout
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-
-  let response;
-  try {
-    response = await fetch("https://api.openai.com/v1/audio/transcriptions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        // Note: Don't set Content-Type - fetch sets it automatically with boundary for FormData
-      },
-      body: form,
-      signal: controller.signal,
-    });
-  } catch (err) {
-    clearTimeout(timeoutId);
-    if (err.name === "AbortError") {
-      throw new Error("E401_WHISPER_ERROR: Request timeout");
-    }
-    const message = err?.message || "network_error";
-    console.error(`[Whisper] Network error: ${message}`);
-    throw new Error(`E401_WHISPER_ERROR: Network error - ${message}`);
-  } finally {
-    clearTimeout(timeoutId);
-  }
+  const response = await requestWhisper({
+    form,
+    apiKey,
+    timeoutMs,
+    retries,
+    retryDelayMs,
+    timeoutMessage: "Request timeout",
+  });
 
   // Handle API errors
   if (!response.ok) {
-    let errorBody;
-    try {
-      errorBody = await response.json();
-    } catch {
-      errorBody = await response.text();
-    }
-
-    const errorMessage = typeof errorBody === "object" ? errorBody.error?.message : errorBody;
+    const errorMessage = await readWhisperErrorMessage(response);
     console.error(`[Whisper] API error ${response.status}: ${errorMessage}`);
 
     // Map common errors to structured codes
@@ -167,14 +200,16 @@ function getMimeType(ext) {
  * @param {string} audioPath - Path to the rendered audio file (m4a, mp3, wav)
  * @param {string} lyricsText - Plain text of the lyrics (used as Whisper prompt)
  * @param {Object} [options] - Options
- * @param {string} [options.apiKey] - OpenAI API key (falls back to OPENAI_API_KEY env var)
+ * @param {string} [options.apiKey] - OpenAI API key
  * @param {number} [options.timeoutMs] - Request timeout (default: 120000 for longer songs)
  * @returns {Promise<{segments: Array<{text: string, start: number, end: number}>, words: Array<{word: string, start: number, end: number}>}>}
  */
 async function alignLyrics(audioPath, lyricsText, options = {}) {
   const {
-    apiKey = process.env.OPENAI_API_KEY,
+    apiKey,
     timeoutMs = 120000,
+    retries = 2,
+    retryDelayMs,
   } = options;
 
   if (!apiKey) {
@@ -210,31 +245,17 @@ async function alignLyrics(audioPath, lyricsText, options = {}) {
     form.append("prompt", truncated);
   }
 
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-
-  let response;
-  try {
-    response = await fetch("https://api.openai.com/v1/audio/transcriptions", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}` },
-      body: form,
-      signal: controller.signal,
-    });
-  } catch (err) {
-    clearTimeout(timeoutId);
-    if (err.name === "AbortError") {
-      throw new Error("E401_WHISPER_ERROR: Alignment request timeout");
-    }
-    throw new Error(`E401_WHISPER_ERROR: Network error - ${err?.message || "unknown"}`);
-  } finally {
-    clearTimeout(timeoutId);
-  }
+  const response = await requestWhisper({
+    form,
+    apiKey,
+    timeoutMs,
+    retries,
+    retryDelayMs,
+    timeoutMessage: "Alignment request timeout",
+  });
 
   if (!response.ok) {
-    let errorBody;
-    try { errorBody = await response.json(); } catch { errorBody = await response.text(); }
-    const errorMessage = typeof errorBody === "object" ? errorBody.error?.message : errorBody;
+    const errorMessage = await readWhisperErrorMessage(response);
     throw new Error(`E401_WHISPER_ERROR: API error ${response.status} - ${errorMessage}`);
   }
 

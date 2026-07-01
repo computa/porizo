@@ -1,5 +1,7 @@
 "use strict";
 
+const { createAttributionRepository } = require("../database/attribution-repository");
+
 function clean(value) {
   if (value === null || value === undefined) return null;
   const text = String(value).trim();
@@ -79,10 +81,6 @@ function withinBackfillWindow(userCreatedAt, attributionCreatedAt, maxAgeMs = 48
   return attributionTime - userTime <= maxAgeMs;
 }
 
-function placeholders(count) {
-  return Array.from({ length: count }, () => "?").join(", ");
-}
-
 const DOWNLOAD_ATTRIBUTION_WINDOW_MS = 72 * 60 * 60 * 1000;
 
 function usableClientIp(value) {
@@ -91,8 +89,9 @@ function usableClientIp(value) {
 }
 
 class AttributionService {
-  constructor(db) {
+  constructor(db, { repository } = {}) {
     this.db = db;
+    this.repository = repository || createAttributionRepository(db);
   }
 
   resolveUserAttribution(user, { appleAdsAttribution = null, latestAppleAdsAttribution = null, downloadAttribution = null } = {}) {
@@ -207,31 +206,11 @@ class AttributionService {
   }
 
   async getLatestAppleAdsAttributionForUser(userId, { resolvedOnly = false } = {}) {
-    const statusClause = resolvedOnly ? "AND status = 'resolved'" : "";
-    return await this.db.prepare(`
-      SELECT id, user_id, status, campaign_id, ad_group_id, keyword_id, org_id, conversion_type,
-             country_or_region, click_date, last_error, created_at, resolved_at
-      FROM apple_ads_attribution
-      WHERE user_id = ? ${statusClause}
-        AND status <> 'test'
-        AND NOT (
-          COALESCE(org_id, -1) = 1234567890
-          AND COALESCE(campaign_id, -1) = 1234567890
-          AND COALESCE(ad_group_id, -1) = 1234567890
-        )
-      ORDER BY created_at DESC
-      LIMIT 1
-    `).get(userId);
+    return await this.repository.findLatestAppleAdsAttributionForUser(userId, { resolvedOnly });
   }
 
   async getLatestDownloadAttributionForUser(userId) {
-    return await this.db.prepare(`
-      SELECT id, utm_source, utm_medium, utm_campaign, utm_content, utm_term, country, referrer_url, created_at
-      FROM download_events
-      WHERE matched_user_id = ?
-      ORDER BY created_at DESC
-      LIMIT 1
-    `).get(userId);
+    return await this.repository.findLatestDownloadAttributionForUser(userId);
   }
 
   async matchRecentDownloadEventForUser(userId, clientIp, { now = new Date(), windowMs = DOWNLOAD_ATTRIBUTION_WINDOW_MS } = {}) {
@@ -243,25 +222,13 @@ class AttributionService {
     const nowMs = now instanceof Date ? now.getTime() : Date.parse(now);
     const baseMs = Number.isFinite(nowMs) ? nowMs : Date.now();
     const cutoff = new Date(baseMs - windowMs).toISOString();
-    const event = await this.db.prepare(`
-      SELECT id, utm_source, utm_medium, utm_campaign, utm_content, utm_term, country, referrer_url, created_at
-      FROM download_events
-      WHERE ip_address = ?
-        AND created_at > ?
-        AND matched_user_id IS NULL
-      ORDER BY created_at DESC
-      LIMIT 1
-    `).get(ip, cutoff);
+    const event = await this.repository.findRecentUnmatchedDownloadEventByIp(ip, cutoff);
 
     if (!event) {
       return null;
     }
 
-    const result = await this.db.prepare(`
-      UPDATE download_events
-      SET matched_user_id = ?
-      WHERE id = ? AND matched_user_id IS NULL
-    `).run(userId, event.id);
+    const result = await this.repository.claimDownloadEventForUser(userId, event.id);
 
     if (Number(result?.changes || 0) === 0) {
       return null;
@@ -301,44 +268,10 @@ class AttributionService {
       }));
     }
 
-    const idsSql = placeholders(userIds.length);
-
     const [appleRows, latestAppleRows, downloadRows] = await Promise.all([
-      this.db.prepare(`
-        SELECT user_id, status, campaign_id, ad_group_id, keyword_id, country_or_region, click_date, created_at, resolved_at
-        FROM (
-          SELECT user_id, status, campaign_id, ad_group_id, keyword_id, country_or_region, click_date, created_at, resolved_at,
-                 ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY created_at DESC) as rn
-          FROM apple_ads_attribution
-          WHERE status = 'resolved' AND user_id IN (${idsSql})
-            AND NOT (
-              COALESCE(org_id, -1) = 1234567890
-              AND COALESCE(campaign_id, -1) = 1234567890
-              AND COALESCE(ad_group_id, -1) = 1234567890
-            )
-        ) ranked_apple_ads
-        WHERE rn = 1
-      `).all(...userIds),
-      this.db.prepare(`
-        SELECT user_id, status, campaign_id, ad_group_id, keyword_id, country_or_region, click_date, last_error, created_at, resolved_at
-        FROM (
-          SELECT user_id, status, campaign_id, ad_group_id, keyword_id, country_or_region, click_date, last_error, created_at, resolved_at,
-                 ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY created_at DESC) as rn
-          FROM apple_ads_attribution
-          WHERE user_id IN (${idsSql}) AND status <> 'test'
-        ) ranked_apple_ads
-        WHERE rn = 1
-      `).all(...userIds),
-      this.db.prepare(`
-        SELECT matched_user_id as user_id, utm_source, utm_medium, utm_campaign, utm_content, utm_term, country, referrer_url, created_at
-        FROM (
-          SELECT matched_user_id, utm_source, utm_medium, utm_campaign, utm_content, utm_term, country, referrer_url, created_at,
-                 ROW_NUMBER() OVER (PARTITION BY matched_user_id ORDER BY created_at DESC) as rn
-          FROM download_events
-          WHERE matched_user_id IN (${idsSql})
-        ) ranked_downloads
-        WHERE rn = 1
-      `).all(...userIds),
+      this.repository.findLatestResolvedAppleAdsForUsers(userIds),
+      this.repository.findLatestAppleAdsForUsers(userIds),
+      this.repository.findLatestDownloadsForUsers(userIds),
     ]);
 
     const appleByUser = new Map(appleRows.map((row) => [row.user_id, row]));
@@ -360,38 +293,23 @@ class AttributionService {
       return;
     }
 
-    const user = await this.db.prepare(`
-      SELECT id, acquisition_source, acquisition_medium, acquisition_campaign, acquisition_content,
-             acquisition_term, acquisition_country, acquisition_referrer, acquisition_at, created_at
-      FROM users
-      WHERE id = ?
-    `).get(row.user_id);
+    const user = await this.repository.findUserAcquisitionForAppleAds(row.user_id);
 
     if (!user || !withinBackfillWindow(user.created_at, row.created_at)) {
       return;
     }
 
     const campaign = campaignFromAppleAds(row);
-    await this.db.prepare(`
-      UPDATE users
-      SET acquisition_source = COALESCE(acquisition_source, ?),
-          acquisition_medium = COALESCE(acquisition_medium, ?),
-          acquisition_campaign = COALESCE(acquisition_campaign, ?),
-          acquisition_content = COALESCE(acquisition_content, ?),
-          acquisition_term = COALESCE(acquisition_term, ?),
-          acquisition_country = COALESCE(acquisition_country, ?),
-          acquisition_at = COALESCE(acquisition_at, ?)
-      WHERE id = ?
-    `).run(
-      "Apple Ads",
-      "cpc",
-      campaign,
-      clean(row.ad_group_id),
-      clean(row.keyword_id),
-      clean(row.country_or_region),
-      clean(row.click_date) || clean(row.resolved_at) || clean(row.created_at),
-      row.user_id
-    );
+    await this.repository.backfillUserFromAppleAds({
+      userId: row.user_id,
+      acquisitionSource: "Apple Ads",
+      acquisitionMedium: "cpc",
+      acquisitionCampaign: campaign,
+      acquisitionContent: clean(row.ad_group_id),
+      acquisitionTerm: clean(row.keyword_id),
+      acquisitionCountry: clean(row.country_or_region),
+      acquisitionAt: clean(row.click_date) || clean(row.resolved_at) || clean(row.created_at),
+    });
   }
 
   async backfillUserAcquisitionFromDownload(userId, row) {
@@ -399,12 +317,7 @@ class AttributionService {
       return;
     }
 
-    const user = await this.db.prepare(`
-      SELECT id, acquisition_source, acquisition_medium, acquisition_campaign, acquisition_content,
-             acquisition_term, acquisition_country, acquisition_referrer, acquisition_at, country
-      FROM users
-      WHERE id = ?
-    `).get(userId);
+    const user = await this.repository.findUserAcquisitionForDownload(userId);
 
     if (!user) {
       return;
@@ -424,97 +337,22 @@ class AttributionService {
     const next = applyDownloadAttribution({ ...current }, row, { overwriteAppleAds });
     next.acquisition_country = next.acquisition_country || clean(user.country);
 
-    await this.db.prepare(`
-      UPDATE users
-      SET acquisition_source = ?,
-          acquisition_medium = ?,
-          acquisition_campaign = ?,
-          acquisition_content = ?,
-          acquisition_term = ?,
-          acquisition_country = ?,
-          acquisition_referrer = ?,
-          acquisition_at = ?
-      WHERE id = ?
-    `).run(
-      next.acquisition_source,
-      next.acquisition_medium,
-      next.acquisition_campaign,
-      next.acquisition_content,
-      next.acquisition_term,
-      next.acquisition_country,
-      next.acquisition_referrer,
-      next.acquisition_at,
-      userId
-    );
+    await this.repository.replaceUserAcquisitionFromDownload({
+      userId,
+      acquisitionSource: next.acquisition_source,
+      acquisitionMedium: next.acquisition_medium,
+      acquisitionCampaign: next.acquisition_campaign,
+      acquisitionContent: next.acquisition_content,
+      acquisitionTerm: next.acquisition_term,
+      acquisitionCountry: next.acquisition_country,
+      acquisitionReferrer: next.acquisition_referrer,
+      acquisitionAt: next.acquisition_at,
+    });
   }
 
   async getAttributionHealth() {
-    const [users, appleAds, backfillMismatch, downloads] = await Promise.all([
-      this.db.prepare(`
-        SELECT
-          COUNT(*) as total_users,
-          SUM(CASE WHEN acquisition_source IS NOT NULL OR acquisition_campaign IS NOT NULL OR acquisition_country IS NOT NULL THEN 1 ELSE 0 END) as users_with_stored_attribution,
-          SUM(CASE WHEN acquisition_source IS NULL AND acquisition_campaign IS NULL AND acquisition_country IS NULL THEN 1 ELSE 0 END) as users_without_stored_attribution
-        FROM users
-      `).get(),
-      this.db.prepare(`
-        SELECT
-          COUNT(*) as total_tokens,
-          SUM(CASE WHEN status = 'resolved' THEN 1 ELSE 0 END) as resolved,
-          SUM(CASE WHEN status = 'resolved' AND country_or_region IS NOT NULL AND country_or_region <> '' THEN 1 ELSE 0 END) as resolved_with_country,
-          SUM(CASE WHEN status = 'resolved' AND (country_or_region IS NULL OR country_or_region = '') THEN 1 ELSE 0 END) as resolved_missing_country,
-          COUNT(DISTINCT CASE WHEN status = 'resolved' THEN user_id END) as resolved_users,
-          SUM(CASE WHEN status = 'not_found' THEN 1 ELSE 0 END) as not_found,
-          SUM(CASE WHEN status = 'test' THEN 1 ELSE 0 END) as test_data,
-          SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending,
-          SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed
-        FROM apple_ads_attribution
-      `).get(),
-      this.db.prepare(`
-        SELECT COUNT(DISTINCT aaa.user_id) as resolved_rows_not_backfilled
-        FROM apple_ads_attribution aaa
-        JOIN users u ON u.id = aaa.user_id
-        WHERE aaa.status = 'resolved'
-          AND NOT (
-            COALESCE(aaa.org_id, -1) = 1234567890
-            AND COALESCE(aaa.campaign_id, -1) = 1234567890
-            AND COALESCE(aaa.ad_group_id, -1) = 1234567890
-          )
-          AND (
-            (u.acquisition_source IS NULL)
-            OR (aaa.campaign_id IS NOT NULL AND u.acquisition_campaign IS NULL)
-            OR (aaa.ad_group_id IS NOT NULL AND u.acquisition_content IS NULL)
-            OR (aaa.keyword_id IS NOT NULL AND u.acquisition_term IS NULL)
-            OR (aaa.country_or_region IS NOT NULL AND aaa.country_or_region <> '' AND u.acquisition_country IS NULL)
-          )
-      `).get(),
-      this.db.prepare(`
-        SELECT
-          COUNT(*) as total_events,
-          SUM(CASE WHEN matched_user_id IS NOT NULL THEN 1 ELSE 0 END) as matched_events,
-          COUNT(DISTINCT CASE WHEN matched_user_id IS NOT NULL THEN matched_user_id END) as matched_users,
-          SUM(CASE WHEN matched_user_id IS NULL
-                    AND (utm_source IS NOT NULL OR utm_medium IS NOT NULL OR utm_campaign IS NOT NULL)
-                   THEN 1 ELSE 0 END) as unmatched_attributed_events
-        FROM download_events
-      `).get(),
-    ]);
-
-    const canonical = await this.db.prepare(`
-      SELECT COUNT(*) as users_with_any_attribution_signal
-      FROM users u
-      WHERE u.acquisition_source IS NOT NULL
-         OR u.acquisition_campaign IS NOT NULL
-         OR u.acquisition_country IS NOT NULL
-         OR EXISTS (
-            SELECT 1 FROM apple_ads_attribution aaa
-           WHERE aaa.user_id = u.id AND aaa.status IN ('resolved', 'not_found', 'pending', 'failed')
-         )
-         OR EXISTS (
-           SELECT 1 FROM download_events de
-           WHERE de.matched_user_id = u.id
-         )
-    `).get();
+    const { users, appleAds, backfillMismatch, downloads, canonical } =
+      await this.repository.getAttributionHealthRows();
 
     const totalUsers = Number(users?.total_users || 0);
     const usersWithAnyAttributionSignal = Number(canonical?.users_with_any_attribution_signal || 0);

@@ -1,5 +1,8 @@
 const { generatePrefixedId } = require("../utils/ids");
 const { parseJson } = require("../utils/common");
+const {
+  createVoiceProviderProfileRepository,
+} = require("../database/voice-provider-profile-repository");
 
 const DEFAULT_PROVIDER = "suno";
 // U9: COVER_SUBMITTED added to distinguish file-upload submission from
@@ -48,10 +51,12 @@ function requireField(value, name) {
   return value.trim();
 }
 
+function repositoryFor(db) {
+  return createVoiceProviderProfileRepository(db);
+}
+
 async function getProviderProfileById(db, id) {
-  return db
-    .prepare("SELECT * FROM voice_provider_profiles WHERE id = ?")
-    .get(id);
+  return repositoryFor(db).getProviderProfileById(id);
 }
 
 async function createPendingProviderProfile(
@@ -67,24 +72,17 @@ async function createPendingProviderProfile(
 ) {
   const createdAt = nowIso();
   const normalizedProvider = normalizeProvider(provider);
-  await db
-    .prepare(
-      `INSERT INTO voice_provider_profiles (
-      id, voice_profile_id, user_id, provider, status, consent_scope,
-      metadata_json, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .run(
-      id,
-      requireField(voiceProfileId, "voiceProfileId"),
-      requireField(userId, "userId"),
-      normalizedProvider,
-      STATUS.PENDING,
-      consentScope || null,
-      toJson(metadata),
-      createdAt,
-      createdAt,
-    );
+  await repositoryFor(db).insertProviderProfile({
+    id,
+    voiceProfileId: requireField(voiceProfileId, "voiceProfileId"),
+    userId: requireField(userId, "userId"),
+    provider: normalizedProvider,
+    status: STATUS.PENDING,
+    consentScope: consentScope || null,
+    metadataJson: toJson(metadata),
+    createdAt,
+    updatedAt: createdAt,
+  });
   return getProviderProfileById(db, id);
 }
 
@@ -92,77 +90,75 @@ async function findLatestProviderProfileForVoiceProfile(
   db,
   { voiceProfileId, provider = DEFAULT_PROVIDER, includeDeleted = false } = {},
 ) {
-  const deletedClause = includeDeleted ? "" : "AND deleted_at IS NULL";
-  return db
-    .prepare(
-      `SELECT * FROM voice_provider_profiles
-     WHERE voice_profile_id = ? AND provider = ? ${deletedClause}
-     ORDER BY created_at DESC
-     LIMIT 1`,
-    )
-    .get(
-      requireField(voiceProfileId, "voiceProfileId"),
-      normalizeProvider(provider),
-    );
+  return repositoryFor(db).findLatestProviderProfileForVoiceProfile({
+    voiceProfileId: requireField(voiceProfileId, "voiceProfileId"),
+    provider: normalizeProvider(provider),
+    includeDeleted,
+  });
 }
 
 async function findActiveProviderProfileForUser(
   db,
   { userId, provider = DEFAULT_PROVIDER } = {},
 ) {
-  return db
-    .prepare(
-      `SELECT vpp.*
-       FROM voice_provider_profiles vpp
-       JOIN voice_profiles vp
-         ON vp.id = vpp.voice_profile_id
-        AND vp.user_id = vpp.user_id
-        AND vp.status = 'active'
-      WHERE vpp.user_id = ?
-        AND vpp.provider = ?
-        AND vpp.status = 'active'
-        AND vpp.deleted_at IS NULL
-      ORDER BY vpp.activated_at DESC, vpp.created_at DESC
-      LIMIT 1`,
-    )
-    .get(requireField(userId, "userId"), normalizeProvider(provider));
+  return repositoryFor(db).findActiveProviderProfileForUser({
+    userId: requireField(userId, "userId"),
+    provider: normalizeProvider(provider),
+  });
+}
+
+async function findActiveVoiceProfileForUser(db, { userId } = {}) {
+  return repositoryFor(db).findActiveVoiceProfileForUser(
+    requireField(userId, "userId"),
+  );
 }
 
 async function findLatestPendingProviderProfileForUser(
   db,
   { userId, provider = DEFAULT_PROVIDER } = {},
 ) {
-  return db
-    .prepare(
-      `SELECT vpp.*
-       FROM voice_provider_profiles vpp
-       JOIN voice_profiles vp
-         ON vp.id = vpp.voice_profile_id
-        AND vp.user_id = vpp.user_id
-      WHERE vpp.user_id = ?
-        AND vpp.provider = ?
-        AND vpp.status IN ('pending', 'upload_submitted', 'cover_submitted', 'persona_submitted', 'failed', 'manual_cleanup_required')
-        AND vpp.deleted_at IS NULL
-        AND vp.deleted_at IS NULL
-      ORDER BY vpp.created_at DESC
-      LIMIT 1`,
-    )
-    .get(requireField(userId, "userId"), normalizeProvider(provider));
+  return repositoryFor(db).findLatestPendingProviderProfileForUser({
+    userId: requireField(userId, "userId"),
+    provider: normalizeProvider(provider),
+    statuses: [
+      STATUS.PENDING,
+      STATUS.UPLOAD_SUBMITTED,
+      STATUS.COVER_SUBMITTED,
+      STATUS.PERSONA_SUBMITTED,
+      STATUS.FAILED,
+      STATUS.MANUAL_CLEANUP_REQUIRED,
+    ],
+  });
 }
 
 async function getLatestVoiceProviderJobForProfile(db, providerProfileId) {
   if (!providerProfileId) {
     return null;
   }
-  return db
-    .prepare(
-      `SELECT *
-         FROM voice_provider_jobs
-        WHERE voice_provider_profile_id = ?
-        ORDER BY updated_at DESC, created_at DESC
-        LIMIT 1`,
-    )
-    .get(providerProfileId);
+  return repositoryFor(db).getLatestVoiceProviderJobForProfile(
+    providerProfileId,
+  );
+}
+
+async function listProviderProfilesForVoiceProfile(
+  db,
+  { voiceProfileId, userId, includeDeleted = false } = {},
+) {
+  return repositoryFor(db).listProviderProfilesForVoiceProfile({
+    voiceProfileId: requireField(voiceProfileId, "voiceProfileId"),
+    userId: requireField(userId, "userId"),
+    includeDeleted,
+  });
+}
+
+async function listProviderProfilesForUser(
+  db,
+  { userId, includeDeleted = false } = {},
+) {
+  return repositoryFor(db).listProviderProfilesForUser({
+    userId: requireField(userId, "userId"),
+    includeDeleted,
+  });
 }
 
 async function patchProviderProfileMetadata(db, id, patch = {}, error = null) {
@@ -172,19 +168,12 @@ async function patchProviderProfileMetadata(db, id, patch = {}, error = null) {
   }
   const metadata = parseJson(existing.metadata_json, {}, "metadata_json") || {};
   const updatedAt = nowIso();
-  await db
-    .prepare(
-      `UPDATE voice_provider_profiles
-          SET metadata_json = ?, last_error = COALESCE(?, last_error),
-              updated_at = ?
-        WHERE id = ?`,
-    )
-    .run(
-      JSON.stringify({ ...metadata, ...patch }),
-      error ? sanitizeProviderError(error) : null,
-      updatedAt,
-      requireField(id, "id"),
-    );
+  await repositoryFor(db).updateProviderProfileMetadata({
+    id: requireField(id, "id"),
+    metadataJson: JSON.stringify({ ...metadata, ...patch }),
+    lastError: error ? sanitizeProviderError(error) : null,
+    updatedAt,
+  });
   return getProviderProfileById(db, id);
 }
 
@@ -194,19 +183,15 @@ async function retireOlderActiveVoiceProfilesForUser(
 ) {
   const normalizedProvider = normalizeProvider(provider);
   const updatedAt = nowIso();
-  const oldProfiles = await db
-    .prepare(
-      `SELECT id
-         FROM voice_profiles
-        WHERE user_id = ?
-          AND status = 'active'
-          AND id != ?
-          AND deleted_at IS NULL`,
-    )
-    .all(
-      requireField(userId, "userId"),
-      requireField(activeVoiceProfileId, "activeVoiceProfileId"),
-    );
+  const oldProfiles = await repositoryFor(db).listOlderActiveVoiceProfilesForUser(
+    {
+      userId: requireField(userId, "userId"),
+      activeVoiceProfileId: requireField(
+        activeVoiceProfileId,
+        "activeVoiceProfileId",
+      ),
+    },
+  );
 
   for (const profile of oldProfiles) {
     await softDeleteProviderProfilesForVoiceProfile(db, {
@@ -215,11 +200,12 @@ async function retireOlderActiveVoiceProfilesForUser(
       provider: normalizedProvider,
       reason: "voice_profile_replaced",
     });
-    await db
-      .prepare(
-        "UPDATE voice_profiles SET status = ?, deleted_at = ? WHERE id = ? AND user_id = ?",
-      )
-      .run(STATUS.DELETED, updatedAt, profile.id, userId);
+    await repositoryFor(db).markVoiceProfileDeleted({
+      id: profile.id,
+      userId,
+      status: STATUS.DELETED,
+      deletedAt: updatedAt,
+    });
   }
 
   return oldProfiles.length;
@@ -231,22 +217,14 @@ async function markProviderProfileUploadSubmitted(
   { sourceUploadUrl, metadata = null } = {},
 ) {
   const updatedAt = nowIso();
-  const result = await db
-    .prepare(
-      `UPDATE voice_provider_profiles
-        SET status = ?, source_upload_url = ?, metadata_json = COALESCE(?, metadata_json),
-            last_error = NULL, updated_at = ?
-      WHERE id = ?
-        AND deleted_at IS NULL
-        AND status IN ('pending', 'upload_submitted')`,
-    )
-    .run(
-      STATUS.UPLOAD_SUBMITTED,
-      sourceUploadUrl || null,
-      toJson(metadata),
-      updatedAt,
-      requireField(id, "id"),
-    );
+  const result = await repositoryFor(db).updateProviderProfileUploadSubmitted({
+    id: requireField(id, "id"),
+    status: STATUS.UPLOAD_SUBMITTED,
+    sourceUploadUrl: sourceUploadUrl || null,
+    metadataJson: toJson(metadata),
+    updatedAt,
+    allowedStatuses: [STATUS.PENDING, STATUS.UPLOAD_SUBMITTED],
+  });
   if (!result?.changes) {
     throw new Error(
       "VOICE_PROVIDER_PROFILE_INVALID_TRANSITION: upload_submitted",
@@ -261,27 +239,17 @@ async function markProviderProfileCoverSubmitted(
   { sourceTaskId, model = null, metadata = null } = {},
 ) {
   const updatedAt = nowIso();
-  const result = await db
-    .prepare(
-      `UPDATE voice_provider_profiles
-        SET status = ?, source_task_id = ?,
-            model = COALESCE(?, model),
-            metadata_json = COALESCE(?, metadata_json), last_error = NULL,
-            updated_at = ?
-      WHERE id = ?
-        AND deleted_at IS NULL
-        AND status IN ('upload_submitted', 'cover_submitted')`,
-    )
-    .run(
-      // U9: store COVER_SUBMITTED (was UPLOAD_SUBMITTED — wrong status for
-      // the cover-generation stage of the state machine).
-      STATUS.COVER_SUBMITTED,
-      requireField(sourceTaskId, "sourceTaskId"),
-      model || null,
-      toJson(metadata),
-      updatedAt,
-      requireField(id, "id"),
-    );
+  const result = await repositoryFor(db).updateProviderProfileCoverSubmitted({
+    id: requireField(id, "id"),
+    // U9: store COVER_SUBMITTED (was UPLOAD_SUBMITTED -- wrong status for
+    // the cover-generation stage of the state machine).
+    status: STATUS.COVER_SUBMITTED,
+    sourceTaskId: requireField(sourceTaskId, "sourceTaskId"),
+    model: model || null,
+    metadataJson: toJson(metadata),
+    updatedAt,
+    allowedStatuses: [STATUS.UPLOAD_SUBMITTED, STATUS.COVER_SUBMITTED],
+  });
   if (!result?.changes) {
     throw new Error(
       "VOICE_PROVIDER_PROFILE_INVALID_TRANSITION: cover_submitted",
@@ -296,24 +264,16 @@ async function markProviderProfilePersonaSubmitted(
   { sourceTaskId, sourceAudioId, model = null, metadata = null } = {},
 ) {
   const updatedAt = nowIso();
-  const result = await db
-    .prepare(
-      `UPDATE voice_provider_profiles
-        SET status = ?, source_task_id = ?, source_audio_id = ?, source_upload_url = NULL, model = ?,
-            metadata_json = COALESCE(?, metadata_json), last_error = NULL, updated_at = ?
-      WHERE id = ?
-        AND deleted_at IS NULL
-        AND status IN ('cover_submitted', 'persona_submitted')`,
-    )
-    .run(
-      STATUS.PERSONA_SUBMITTED,
-      requireField(sourceTaskId, "sourceTaskId"),
-      requireField(sourceAudioId, "sourceAudioId"),
-      model || null,
-      toJson(metadata),
-      updatedAt,
-      requireField(id, "id"),
-    );
+  const result = await repositoryFor(db).updateProviderProfilePersonaSubmitted({
+    id: requireField(id, "id"),
+    status: STATUS.PERSONA_SUBMITTED,
+    sourceTaskId: requireField(sourceTaskId, "sourceTaskId"),
+    sourceAudioId: requireField(sourceAudioId, "sourceAudioId"),
+    model: model || null,
+    metadataJson: toJson(metadata),
+    updatedAt,
+    allowedStatuses: [STATUS.COVER_SUBMITTED, STATUS.PERSONA_SUBMITTED],
+  });
   if (!result?.changes) {
     throw new Error(
       "VOICE_PROVIDER_PROFILE_INVALID_TRANSITION: persona_submitted",
@@ -328,39 +288,27 @@ async function markProviderProfileActive(
   { providerProfileId, model = null, metadata = null } = {},
 ) {
   const updatedAt = nowIso();
-  const result = await db
-    .prepare(
-      `UPDATE voice_provider_profiles
-        SET status = ?, provider_profile_id = ?, model = COALESCE(?, model),
-            metadata_json = COALESCE(?, metadata_json), last_error = NULL,
-            activated_at = ?, updated_at = ?
-      WHERE id = ?
-        AND deleted_at IS NULL
-        AND status IN ('persona_submitted', 'active')`,
-    )
-    .run(
-      STATUS.ACTIVE,
-      requireField(providerProfileId, "providerProfileId"),
-      model || null,
-      toJson(metadata),
-      updatedAt,
-      updatedAt,
-      requireField(id, "id"),
-    );
+  const result = await repositoryFor(db).updateProviderProfileActive({
+    id: requireField(id, "id"),
+    status: STATUS.ACTIVE,
+    providerProfileId: requireField(providerProfileId, "providerProfileId"),
+    model: model || null,
+    metadataJson: toJson(metadata),
+    activatedAt: updatedAt,
+    updatedAt,
+    allowedStatuses: [STATUS.PERSONA_SUBMITTED, STATUS.ACTIVE],
+  });
   if (!result?.changes) {
     throw new Error("VOICE_PROVIDER_PROFILE_INVALID_TRANSITION: active");
   }
   const active = await getProviderProfileById(db, id);
   if (active?.voice_profile_id && active?.user_id) {
-    await db
-      .prepare(
-        `UPDATE voice_profiles
-            SET status = 'active', last_verified_at = COALESCE(last_verified_at, ?)
-          WHERE id = ?
-            AND user_id = ?
-            AND status IN ('pending_provider', 'active')`,
-      )
-      .run(updatedAt, active.voice_profile_id, active.user_id);
+    await repositoryFor(db).markVoiceProfileActive({
+      voiceProfileId: active.voice_profile_id,
+      userId: active.user_id,
+      lastVerifiedAt: updatedAt,
+      allowedStatuses: ["pending_provider", STATUS.ACTIVE],
+    });
     await retireOlderActiveVoiceProfilesForUser(db, {
       userId: active.user_id,
       activeVoiceProfileId: active.voice_profile_id,
@@ -382,23 +330,15 @@ async function markProviderProfileFailed(
   } = {},
 ) {
   const updatedAt = nowIso();
-  const deletedClause = includeDeleted ? "" : "AND deleted_at IS NULL";
-  await db
-    .prepare(
-      `UPDATE voice_provider_profiles
-        SET status = ?, provider_profile_id = COALESCE(?, provider_profile_id),
-            last_error = ?, metadata_json = COALESCE(?, metadata_json),
-            updated_at = ?
-      WHERE id = ? ${deletedClause}`,
-    )
-    .run(
-      status,
-      providerProfileId || null,
-      sanitizeProviderError(error),
-      toJson(metadata),
-      updatedAt,
-      requireField(id, "id"),
-    );
+  await repositoryFor(db).updateProviderProfileFailed({
+    id: requireField(id, "id"),
+    status,
+    providerProfileId: providerProfileId || null,
+    lastError: sanitizeProviderError(error),
+    metadataJson: toJson(metadata),
+    updatedAt,
+    includeDeleted,
+  });
   return getProviderProfileById(db, id);
 }
 
@@ -420,27 +360,22 @@ async function markProviderProfileManualCleanupRequired(
   );
   if (profile) {
     try {
-      await db
-        .prepare(
-          "INSERT INTO audit_logs (id, user_id, action, resource_type, resource_id, metadata_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        )
-        .run(
-          generatePrefixedId("aud", 12),
-          profile.user_id || null,
-          "voice_provider_manual_cleanup_required",
-          "voice_provider_profile",
-          profile.id,
-          toJson({
-            provider: profile.provider,
-            provider_profile_id:
-              providerProfileId || profile.provider_profile_id,
-            error: sanitizeProviderError(
-              error || "remote_persona_manual_cleanup_required",
-            ),
-            metadata,
-          }),
-          nowIso(),
-        );
+      await repositoryFor(db).insertAuditLog({
+        id: generatePrefixedId("aud", 12),
+        userId: profile.user_id || null,
+        action: "voice_provider_manual_cleanup_required",
+        resourceType: "voice_provider_profile",
+        resourceId: profile.id,
+        metadataJson: toJson({
+          provider: profile.provider,
+          provider_profile_id: providerProfileId || profile.provider_profile_id,
+          error: sanitizeProviderError(
+            error || "remote_persona_manual_cleanup_required",
+          ),
+          metadata,
+        }),
+        createdAt: nowIso(),
+      });
     } catch (_err) {
       // Best-effort audit trail; the profile status is the source of truth.
     }
@@ -459,36 +394,50 @@ async function softDeleteProviderProfilesForVoiceProfile(
 ) {
   const updatedAt = nowIso();
   const normalizedProvider = provider ? normalizeProvider(provider) : null;
-  const params = [
-    STATUS.DELETED,
-    String(reason || "deleted").slice(0, 1000),
+  return repositoryFor(db).softDeleteProviderProfilesForVoiceProfile({
+    voiceProfileId: requireField(voiceProfileId, "voiceProfileId"),
+    userId: requireField(userId, "userId"),
+    provider: normalizedProvider,
+    status: STATUS.DELETED,
+    lastError: String(reason || "deleted").slice(0, 1000),
+    deletedAt: updatedAt,
     updatedAt,
-    updatedAt,
-    requireField(voiceProfileId, "voiceProfileId"),
-    requireField(userId, "userId"),
-  ];
-  let providerClause = "";
-  if (normalizedProvider) {
-    providerClause = "AND provider = ?";
-    params.push(normalizedProvider);
-  }
-  const result = await db
-    .prepare(
-      `UPDATE voice_provider_profiles
-        SET status = ?, provider_profile_id = NULL, source_upload_url = NULL,
-            source_task_id = NULL, source_audio_id = NULL, last_error = ?,
-            deleted_at = ?, updated_at = ?
-      WHERE voice_profile_id = ?
-        AND user_id = ?
-        AND deleted_at IS NULL
-        ${providerClause}`,
-    )
-    .run(...params);
-  return result?.changes || 0;
+  });
+}
+
+async function softDeleteProviderProfilesForUser(
+  db,
+  { userId, reason = "account_deletion", deletedAt = nowIso() } = {},
+) {
+  return repositoryFor(db).softDeleteProviderProfilesForUser({
+    userId: requireField(userId, "userId"),
+    status: STATUS.DELETED,
+    lastError: String(reason || "deleted").slice(0, 1000),
+    deletedAt,
+    updatedAt: deletedAt,
+  });
 }
 
 async function getVoiceProviderJobById(db, id) {
-  return db.prepare("SELECT * FROM voice_provider_jobs WHERE id = ?").get(id);
+  return repositoryFor(db).getVoiceProviderJobById(id);
+}
+
+async function findVoiceProfileStatus(db, { voiceProfileId, userId } = {}) {
+  return repositoryFor(db).findVoiceProfileStatus({
+    voiceProfileId: requireField(voiceProfileId, "voiceProfileId"),
+    userId: requireField(userId, "userId"),
+  });
+}
+
+async function getVoiceProviderJobExecutionContext(
+  db,
+  { jobId, providerProfileId, sessionId = null } = {},
+) {
+  return repositoryFor(db).getVoiceProviderJobExecutionContext({
+    jobId: requireField(jobId, "jobId"),
+    providerProfileId: requireField(providerProfileId, "providerProfileId"),
+    sessionId,
+  });
 }
 
 async function createVoiceProviderJob(
@@ -505,64 +454,70 @@ async function createVoiceProviderJob(
   } = {},
 ) {
   const createdAt = nowIso();
-  await db
-    .prepare(
-      `INSERT INTO voice_provider_jobs (
-      id, voice_profile_id, user_id, provider, voice_provider_profile_id, status,
-      step, attempts, max_attempts, step_data, next_attempt_at, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, NULL, ?, ?)`,
-    )
-    .run(
-      id,
-      requireField(voiceProfileId, "voiceProfileId"),
-      requireField(userId, "userId"),
-      normalizeProvider(provider),
-      voiceProviderProfileId || null,
-      STATUS.PENDING,
-      step || "prepare_persona",
-      Math.max(1, Number(maxAttempts) || 3),
-      toJson(stepData),
-      createdAt,
-      createdAt,
-    );
+  await repositoryFor(db).insertVoiceProviderJob({
+    id,
+    voiceProfileId: requireField(voiceProfileId, "voiceProfileId"),
+    userId: requireField(userId, "userId"),
+    provider: normalizeProvider(provider),
+    voiceProviderProfileId: voiceProviderProfileId || null,
+    status: STATUS.PENDING,
+    step: step || "prepare_persona",
+    maxAttempts: Math.max(1, Number(maxAttempts) || 3),
+    stepDataJson: toJson(stepData),
+    createdAt,
+    updatedAt: createdAt,
+  });
   return getVoiceProviderJobById(db, id);
+}
+
+async function listDueVoiceProviderJobs(
+  db,
+  { provider = DEFAULT_PROVIDER, now = nowIso(), limit = 1 } = {},
+) {
+  return repositoryFor(db).listDueVoiceProviderJobs({
+    provider: normalizeProvider(provider),
+    status: STATUS.PENDING,
+    now,
+    limit: Math.max(0, Number(limit) || 0),
+  });
 }
 
 async function markVoiceProviderJobRunning(db, id, { lockedBy = null } = {}) {
   const updatedAt = nowIso();
-  const result = await db
-    .prepare(
-      `UPDATE voice_provider_jobs
-        SET status = ?, attempts = attempts + 1, locked_at = ?, locked_by = ?,
-            last_error = NULL, updated_at = ?
-      WHERE id = ?
-        AND status = ?
-        AND attempts < max_attempts`,
-    )
-    .run(
-      "running",
-      updatedAt,
-      lockedBy || null,
-      updatedAt,
-      requireField(id, "id"),
-      STATUS.PENDING,
-    );
+  const result = await repositoryFor(db).markVoiceProviderJobRunning({
+    id: requireField(id, "id"),
+    status: "running",
+    pendingStatus: STATUS.PENDING,
+    lockedAt: updatedAt,
+    lockedBy: lockedBy || null,
+    updatedAt,
+  });
   if (!result?.changes) {
     return null;
   }
   return getVoiceProviderJobById(db, id);
 }
 
+async function heartbeatVoiceProviderJob(
+  db,
+  { id, lockedBy, runningStatus = "running" } = {},
+) {
+  return repositoryFor(db).heartbeatVoiceProviderJob({
+    id: requireField(id, "id"),
+    lockedBy: requireField(lockedBy, "lockedBy"),
+    runningStatus,
+    lockedAt: nowIso(),
+  });
+}
+
 async function markVoiceProviderJobStep(db, id, step) {
   const updatedAt = nowIso();
-  const result = await db
-    .prepare(
-      `UPDATE voice_provider_jobs
-        SET step = ?, updated_at = ?
-      WHERE id = ? AND status = ?`,
-    )
-    .run(step, updatedAt, requireField(id, "id"), "running");
-  return result?.changes ?? result?.rowCount ?? 0;
+  return repositoryFor(db).markVoiceProviderJobStep({
+    id: requireField(id, "id"),
+    step,
+    runningStatus: "running",
+    updatedAt,
+  });
 }
 
 async function recoverStaleVoiceProviderJobs(
@@ -570,75 +525,48 @@ async function recoverStaleVoiceProviderJobs(
   { staleBefore, provider = DEFAULT_PROVIDER } = {},
 ) {
   const updatedAt = nowIso();
-  const terminal = await db
-    .prepare(
-      `UPDATE voice_provider_jobs
-        SET status = ?, last_error = ?, locked_at = NULL, locked_by = NULL,
-            next_attempt_at = NULL, updated_at = ?
-      WHERE status = ?
-        AND provider = ?
-        AND locked_at IS NOT NULL
-        AND locked_at < ?
-        AND (attempts >= max_attempts OR step = ?)`,
-    )
-    .run(
-      STATUS.FAILED,
+  const normalizedProvider = normalizeProvider(provider);
+  const terminal = await repositoryFor(db).markTerminalStaleVoiceProviderJobs({
+    status: STATUS.FAILED,
+    lastError:
       "E302_SUNO_PERSONA_MANUAL_RECOVERY_REQUIRED: stale job stopped after persona generation may have been submitted",
-      updatedAt,
-      "running",
-      normalizeProvider(provider),
-      staleBefore || updatedAt,
-      "generate_persona",
-    );
-  const retryable = await db
-    .prepare(
-      `UPDATE voice_provider_jobs
-        SET status = ?, locked_at = NULL, locked_by = NULL,
-            next_attempt_at = ?, updated_at = ?
-      WHERE status = ?
-        AND provider = ?
-        AND locked_at IS NOT NULL
-        AND locked_at < ?
-        AND attempts < max_attempts`,
-    )
-    .run(
-      STATUS.PENDING,
-      updatedAt,
-      updatedAt,
-      "running",
-      normalizeProvider(provider),
-      staleBefore || updatedAt,
-    );
+    updatedAt,
+    runningStatus: "running",
+    provider: normalizedProvider,
+    staleBefore: staleBefore || updatedAt,
+    terminalStep: "generate_persona",
+  });
+  const retryable = await repositoryFor(db).markRetryableStaleVoiceProviderJobs({
+    status: STATUS.PENDING,
+    nextAttemptAt: updatedAt,
+    updatedAt,
+    runningStatus: "running",
+    provider: normalizedProvider,
+    staleBefore: staleBefore || updatedAt,
+  });
 
   // Propagate terminal job failure to the provider profile so the user's
   // enrollment doesn't sit on "preparing" forever after a worker crash. Only
   // fail profiles still in an in-progress provider state, and NEVER one that
   // still has a queued/running retry (that would prematurely kill a valid
   // recovery). readiness then resolves to needs_recapture instead of preparing.
-  await db
-    .prepare(
-      `UPDATE voice_provider_profiles
-          SET status = ?, last_error = ?, updated_at = ?
-        WHERE deleted_at IS NULL
-          AND status IN ('pending', 'upload_submitted', 'cover_submitted', 'persona_submitted')
-          AND id IN (
-            SELECT voice_provider_profile_id FROM voice_provider_jobs
-             WHERE provider = ? AND status = ? AND voice_provider_profile_id IS NOT NULL
-          )
-          AND id NOT IN (
-            SELECT voice_provider_profile_id FROM voice_provider_jobs
-             WHERE status IN ('pending', 'running') AND voice_provider_profile_id IS NOT NULL
-          )`,
-    )
-    .run(
-      STATUS.FAILED,
+  await repositoryFor(db).failProviderProfilesForTerminalJobs({
+    status: STATUS.FAILED,
+    lastError:
       "E399_STALE_JOB_RECOVERY: provider job stalled and was failed by recovery sweep",
-      updatedAt,
-      normalizeProvider(provider),
-      STATUS.FAILED,
-    );
+    updatedAt,
+    provider: normalizedProvider,
+    failedJobStatus: STATUS.FAILED,
+    inProgressStatuses: [
+      STATUS.PENDING,
+      STATUS.UPLOAD_SUBMITTED,
+      STATUS.COVER_SUBMITTED,
+      STATUS.PERSONA_SUBMITTED,
+    ],
+    activeJobStatuses: [STATUS.PENDING, "running"],
+  });
 
-  return (terminal?.changes || 0) + (retryable?.changes || 0);
+  return terminal + retryable;
 }
 
 async function markVoiceProviderJobCompleted(
@@ -647,21 +575,14 @@ async function markVoiceProviderJobCompleted(
   { step = "completed", stepData = null } = {},
 ) {
   const updatedAt = nowIso();
-  await db
-    .prepare(
-      `UPDATE voice_provider_jobs
-        SET status = ?, step = ?, step_data = COALESCE(?, step_data),
-            completed_at = ?, locked_at = NULL, locked_by = NULL, updated_at = ?
-      WHERE id = ?`,
-    )
-    .run(
-      "completed",
-      step || "completed",
-      toJson(stepData),
-      updatedAt,
-      updatedAt,
-      requireField(id, "id"),
-    );
+  await repositoryFor(db).markVoiceProviderJobCompleted({
+    id: requireField(id, "id"),
+    status: "completed",
+    step: step || "completed",
+    stepDataJson: toJson(stepData),
+    completedAt: updatedAt,
+    updatedAt,
+  });
   return getVoiceProviderJobById(db, id);
 }
 
@@ -688,22 +609,49 @@ async function markVoiceProviderJobFailed(
     retryable && attempts < maxAttempts ? STATUS.PENDING : STATUS.FAILED;
   const nextAttemptAt =
     status === STATUS.PENDING ? computeRetryAt(attempts) : null;
-  await db
-    .prepare(
-      `UPDATE voice_provider_jobs
-        SET status = ?, step = COALESCE(?, step), last_error = ?,
-            next_attempt_at = ?, locked_at = NULL, locked_by = NULL, updated_at = ?
-      WHERE id = ?`,
-    )
-    .run(
-      status,
-      step || null,
-      sanitizeProviderError(error),
-      nextAttemptAt,
-      updatedAt,
-      requireField(id, "id"),
-    );
+  await repositoryFor(db).updateVoiceProviderJobFailed({
+    id: requireField(id, "id"),
+    status,
+    step: step || null,
+    lastError: sanitizeProviderError(error),
+    nextAttemptAt,
+    updatedAt,
+  });
   return getVoiceProviderJobById(db, id);
+}
+
+async function resetProviderProfileSourceAudioForRetry(
+  db,
+  { id, error, metadata = null } = {},
+) {
+  await repositoryFor(db).resetProviderProfileSourceAudioForRetry({
+    id: requireField(id, "id"),
+    status: STATUS.COVER_SUBMITTED,
+    lastError: sanitizeProviderError(error),
+    metadataJson: toJson(metadata),
+    updatedAt: nowIso(),
+    allowedStatuses: [STATUS.PERSONA_SUBMITTED, STATUS.FAILED],
+  });
+  return getProviderProfileById(db, id);
+}
+
+async function resetProviderProfileFreshCoverForRetry(
+  db,
+  { id, error, metadata = null } = {},
+) {
+  await repositoryFor(db).resetProviderProfileFreshCoverForRetry({
+    id: requireField(id, "id"),
+    status: STATUS.UPLOAD_SUBMITTED,
+    lastError: sanitizeProviderError(error),
+    metadataJson: toJson(metadata),
+    updatedAt: nowIso(),
+    allowedStatuses: [
+      STATUS.PERSONA_SUBMITTED,
+      STATUS.COVER_SUBMITTED,
+      STATUS.FAILED,
+    ],
+  });
+  return getProviderProfileById(db, id);
 }
 
 async function cancelVoiceProviderJobsForVoiceProfile(
@@ -711,25 +659,22 @@ async function cancelVoiceProviderJobsForVoiceProfile(
   { voiceProfileId, userId, reason = "voice_profile_deleted" } = {},
 ) {
   const updatedAt = nowIso();
-  const result = await db
-    .prepare(
-      `UPDATE voice_provider_jobs
-        SET status = ?, last_error = ?, locked_at = NULL, locked_by = NULL,
-            cancellation_requested_at = ?, cancelled_at = ?, updated_at = ?
-      WHERE voice_profile_id = ?
-        AND user_id = ?
-        AND status IN ('pending', 'running')`,
-    )
-    .run(
-      STATUS.CANCELLED,
-      sanitizeProviderError(reason),
-      updatedAt,
-      updatedAt,
-      updatedAt,
-      requireField(voiceProfileId, "voiceProfileId"),
-      requireField(userId, "userId"),
-    );
-  return result?.changes || 0;
+  return repositoryFor(db).cancelVoiceProviderJobsForVoiceProfile({
+    voiceProfileId: requireField(voiceProfileId, "voiceProfileId"),
+    userId: requireField(userId, "userId"),
+    status: STATUS.CANCELLED,
+    lastError: sanitizeProviderError(reason),
+    cancellationRequestedAt: updatedAt,
+    cancelledAt: updatedAt,
+    updatedAt,
+    cancellableStatuses: [STATUS.PENDING, "running"],
+  });
+}
+
+async function deleteVoiceProviderJobsForUser(db, { userId } = {}) {
+  return repositoryFor(db).deleteVoiceProviderJobsForUser({
+    userId: requireField(userId, "userId"),
+  });
 }
 
 module.exports = {
@@ -738,8 +683,15 @@ module.exports = {
   findLatestProviderProfileForVoiceProfile,
   findLatestPendingProviderProfileForUser,
   findActiveProviderProfileForUser,
+  findActiveVoiceProfileForUser,
   getLatestVoiceProviderJobForProfile,
   getProviderProfileById,
+  findVoiceProfileStatus,
+  getVoiceProviderJobExecutionContext,
+  heartbeatVoiceProviderJob,
+  listDueVoiceProviderJobs,
+  listProviderProfilesForUser,
+  listProviderProfilesForVoiceProfile,
   patchProviderProfileMetadata,
   markProviderProfileUploadSubmitted,
   markProviderProfileCoverSubmitted,
@@ -754,6 +706,10 @@ module.exports = {
   markVoiceProviderJobStep,
   markVoiceProviderJobCompleted,
   markVoiceProviderJobFailed,
+  resetProviderProfileFreshCoverForRetry,
+  resetProviderProfileSourceAudioForRetry,
   recoverStaleVoiceProviderJobs,
   cancelVoiceProviderJobsForVoiceProfile,
+  deleteVoiceProviderJobsForUser,
+  softDeleteProviderProfilesForUser,
 };

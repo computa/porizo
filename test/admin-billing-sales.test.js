@@ -6,6 +6,9 @@ const path = require("node:path");
 const { afterEach, beforeEach, describe, test } = require("node:test");
 
 const { getDatabase } = require("../src/database");
+const {
+  createAdminBillingService,
+} = require("../src/services/admin/billing-service");
 const { buildServer } = require("../src/server");
 
 function buildTestApp(db) {
@@ -409,5 +412,149 @@ describe("admin billing sales dashboard", () => {
     assert.equal(body.summary.totalSalesCount, 0);
     assert.equal(body.summary.activeSubscriberCount, 101);
     assert.equal(body.currentSubscribers.length, 100);
+  });
+});
+
+describe("AdminBillingService", () => {
+  test("delegates admin billing reads to AdminBillingRepository and keeps service-owned policy", async () => {
+    const calls = [];
+    const receiptRow = {
+      id: "receipt_boundary",
+      user_id: "user_boundary",
+      subscription_id: "sub_boundary",
+      transaction_id: "tx_boundary",
+      original_transaction_id: "orig_boundary",
+      product_id: "com.porizo.plus_monthly",
+      platform: "apple",
+      verification_status: "verified",
+      verification_response: JSON.stringify({
+        price_millis: 6990,
+        currency: "USD",
+      }),
+      purchase_date: "2026-06-25T12:00:00.000Z",
+      expires_date: "2026-07-25T12:00:00.000Z",
+      is_trial: 0,
+      created_at: "2026-06-25T12:00:00.000Z",
+      user_email: "billing@example.com",
+      user_display_name: "Billing User",
+      primary_email: null,
+      subscription_status: "active",
+      subscription_tier: "plus",
+      subscription_expires_at: "2026-07-25T12:00:00.000Z",
+      subscription_grace_period_expires_at: null,
+      auto_renew_enabled: 1,
+      subscription_cancelled_at: null,
+      latest_transaction_id: "tx_boundary",
+      gift_wallet_transaction_id: null,
+      gift_tokens_granted: null,
+    };
+    const subscriberRow = {
+      id: "sub_boundary",
+      user_id: "user_boundary",
+      product_id: "com.porizo.plus_monthly",
+      tier: "plus",
+      status: "active",
+      platform: "apple",
+      original_transaction_id: "orig_boundary",
+      latest_transaction_id: "tx_boundary",
+      original_purchase_date: "2026-06-25T12:00:00.000Z",
+      expires_at: "2026-07-25T12:00:00.000Z",
+      auto_renew_enabled: 1,
+      grace_period_expires_at: null,
+      cancelled_at: null,
+      updated_at: "2026-06-25T12:00:00.000Z",
+      user_email: "billing@example.com",
+      user_display_name: "Billing User",
+      primary_email: null,
+    };
+    const fakeAdminBillingRepository = {
+      async listGiftBundleProducts() {
+        calls.push(["gift-products"]);
+        return [];
+      },
+      async listPlanProducts() {
+        calls.push(["plan-products"]);
+        return [];
+      },
+      async listReceiptSaleRows({ since, limit, offset }) {
+        calls.push(["receipt-rows", since, limit, offset]);
+        if (offset > 0) return [];
+        return [receiptRow];
+      },
+      async countCurrentSubscribers({ now }) {
+        calls.push(["subscriber-count", now]);
+        return 7;
+      },
+      async listCurrentSubscribers({ now, limit }) {
+        calls.push(["subscribers", now, limit]);
+        return [subscriberRow];
+      },
+      async listSubscriptionsByTierSince({ since }) {
+        calls.push(["subscriptions-by-tier", since]);
+        return [{ tier: "plus", count: 2, active_count: 1 }];
+      },
+      async getTrialConversionStatsSince({ since }) {
+        calls.push(["trial-conversions", since]);
+        return { current_trials: 1, converted_trials: 2 };
+      },
+      async countCancelledSubscriptionsSince({ since }) {
+        calls.push(["cancelled", since]);
+        return 1;
+      },
+      async countActiveSubscriptions() {
+        calls.push(["active-count"]);
+        return 4;
+      },
+      async getSubscriptionHealthCounts({ now, weekFromNow, weekAgo }) {
+        calls.push(["health", now, weekFromNow, weekAgo]);
+        return {
+          activeSubscriptions: [{ tier: "plus", count: 3 }],
+          trialCount: 1,
+          expiringThisWeek: 2,
+          recentCancellations: 1,
+          inGracePeriod: 1,
+        };
+      },
+    };
+
+    const service = createAdminBillingService({
+      adminBillingRepository: fakeAdminBillingRepository,
+      now: () => new Date("2026-06-29T12:00:00.000Z"),
+    });
+
+    const sales = await service.getBillingSales({
+      days: 0,
+      limit: 999,
+      offset: -5,
+    });
+    assert.equal(sales.period.days, 1);
+    assert.equal(sales.pagination.limit, 200);
+    assert.equal(sales.pagination.offset, 0);
+    assert.equal(sales.summary.activeSubscriberCount, 7);
+    assert.equal(sales.summary.totalSalesCount, 1);
+    assert.equal(sales.recentSales[0].id, "receipt_boundary");
+    assert.equal(sales.currentSubscribers[0].id, "sub_boundary");
+
+    const revenue = await service.getRevenueMetrics(7);
+    assert.equal(revenue.totalRevenue, 6.99);
+    assert.equal(revenue.trialCount, 1);
+    assert.equal(revenue.trialConversions, 2);
+    assert.equal(revenue.cancellations, 1);
+    assert.equal(revenue.churnRate, "25.00");
+
+    const health = await service.getSubscriptionHealth();
+    assert.deepEqual(health, {
+      activeSubscriptions: [{ tier: "plus", count: 3 }],
+      totalActive: 3,
+      trialCount: 1,
+      expiringThisWeek: 2,
+      recentCancellations: 1,
+      inGracePeriod: 1,
+    });
+
+    assert.ok(calls.some(([name]) => name === "receipt-rows"));
+    assert.ok(calls.some(([name]) => name === "subscriber-count"));
+    assert.ok(calls.some(([name]) => name === "subscriptions-by-tier"));
+    assert.ok(calls.some(([name]) => name === "health"));
   });
 });

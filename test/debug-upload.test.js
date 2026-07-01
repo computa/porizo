@@ -1,3 +1,4 @@
+process.env.NODE_ENV = "test";
 require("dotenv/config");
 const assert = require("node:assert/strict");
 const crypto = require("node:crypto");
@@ -54,6 +55,7 @@ before(async () => {
     STORAGE_PROVIDER: "local",
     UPLOAD_SIGNING_SECRET: "test-upload-secret",
     UPLOAD_URL_TTL_SEC: 900,
+    ALLOW_ANON_USER_ID: true,
   };
   storage = createStorageProvider(config);
   db = await initDb({
@@ -138,6 +140,38 @@ describe("Presigned Upload Endpoint", () => {
     });
 
     assert.equal(uploadRes.statusCode, 400, "Should fail without signature");
+  });
+
+  test("PUT /storage/upload is unavailable for S3 storage", async () => {
+    const s3App = buildServer({
+      db,
+      config: {
+        ...config,
+        STORAGE_PROVIDER: "s3",
+      },
+      storage: {
+        type: "s3",
+        verifyPresignedRequest: () => {
+          throw new Error("S3 upload route must not verify local signatures");
+        },
+      },
+    });
+
+    try {
+      const uploadRes = await s3App.inject({
+        method: "PUT",
+        url:
+          "/storage/upload?key=enrollment/raw/user/session/chunk.wav&expires=1&sig=test",
+        headers: {
+          "content-type": "audio/wav",
+        },
+        payload: createTestWav(2),
+      });
+
+      assert.equal(uploadRes.statusCode, 404, "S3 uploads should go direct to S3");
+    } finally {
+      await s3App.close();
+    }
   });
 });
 

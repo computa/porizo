@@ -291,6 +291,77 @@ describe("ready step upload-before-commit ordering", () => {
     );
   });
 
+  test("ready quality failure under reroll limit requeues before final completion", async () => {
+    const { startJobRunner, restore } = loadRunnerWithMockedAlignLyrics();
+    restoreRunnerModule = restore;
+    const fixture = await seedReadyFixture({
+      musicPlanJson: JSON.stringify({
+        style: "pop",
+        provider_resolved: "suno",
+        provider_support: "strong",
+        duration_sec: 60,
+        generation_mode: "compose_detailed",
+        style_prompt_compact: "Warm pop celebration",
+        provider_style_hint: "Clear vocal-forward pop arrangement",
+        render_contract: {
+          provider_locked: "suno",
+          voice_mode: "ai_voice",
+          pipeline: "provider_complete_audio",
+          fallback_allowed_until_step: "instrumental",
+          voice_conversion_provider: null,
+          user_voice_engine: null,
+          voice_provider_profile_id: null,
+        },
+      }),
+    });
+    await setMusicProviderConfig({
+      default_provider: "suno",
+      auto_style_routing: true,
+      auto_reroll_enabled: true,
+      quality_threshold: 80,
+      max_rerolls: 1,
+    });
+
+    runner = await startJobRunner({
+      db,
+      storageDir,
+      streamBaseUrl: "http://stream.local",
+      intervalMs: 1_000_000,
+      providerConfig: { suno: { live: true } },
+    });
+
+    await runner.tick();
+
+    const version = await db.prepare("SELECT status, preview_url, full_url, music_plan_json, provenance_json FROM track_versions WHERE id = ?").get(fixture.versionId);
+    const track = await db.prepare("SELECT status FROM tracks WHERE id = ?").get(fixture.trackId);
+    const job = await db.prepare("SELECT status, step, step_index, completed_at, step_data FROM jobs WHERE id = ?").get(fixture.jobId);
+    const plan = JSON.parse(version.music_plan_json);
+    const provenance = JSON.parse(version.provenance_json);
+    const stepData = JSON.parse(job.step_data);
+
+    assert.equal(version.status, "processing");
+    assert.equal(version.preview_url, null);
+    assert.equal(version.full_url, null);
+    assert.equal(track.status, "rendering");
+    assert.equal(job.status, "queued");
+    assert.equal(job.step, "instrumental");
+    assert.equal(job.completed_at, null);
+    assert.equal(stepData.reroll_count, 1);
+    assert.match(stepData.reroll_reason, /Quality gate failed/);
+    assert.equal(stepData.quality_gate.passed, false);
+    assert.equal(provenance.quality.reroll_count, 1);
+    assert.equal(provenance.timeline[0].event, "quality_gate_failed");
+    assert.equal(plan.generation_mode, "compose_detailed");
+    assert.equal(plan.plan_schema_version, 2);
+    assert.ok(
+      plan.style_negative_constraints.includes(
+        "preserve cultural rhythmic signature and instrumentation",
+      ),
+    );
+    assert.equal(Number.isInteger(job.step_index), true);
+    assert.ok(job.step_index >= 0);
+  });
+
   test("provider-complete Suno final audio fails ready gate when output is not valid audio", async () => {
     const { startJobRunner, restore } = loadRunnerWithMockedAlignLyrics();
     restoreRunnerModule = restore;

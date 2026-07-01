@@ -4,17 +4,9 @@
 const { spawn } = require("child_process");
 const path = require("path");
 const fs = require("fs");
+const { getFFmpegPath } = require("./ffmpeg");
 
 const DEFAULT_TIMEOUT_MS = 60000; // 1 minute
-
-function getFFmpegPath() {
-  try {
-    return require("ffmpeg-static");
-  } catch (err) {
-    console.warn("[watermark] ffmpeg-static not found, falling back to system ffmpeg");
-    return "ffmpeg";
-  }
-}
 
 function getFFprobePath() {
   try {

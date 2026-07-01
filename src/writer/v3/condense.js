@@ -83,16 +83,7 @@ const STOP_WORDS = new Set([
   "and", "but", "if", "or", "because", "so", "than", "too", "very",
 ]);
 
-const { normalizeText } = require("./utils");
-
-function splitSentences(text) {
-  const normalized = normalizeText(text);
-  if (!normalized) return [];
-  return normalized
-    .split(/(?<=[.!?])\s+|(?:\s*\n+\s*)/g)
-    .map((part) => part.trim())
-    .filter(Boolean);
-}
+const { normalizeText, splitSentences } = require("./utils");
 
 function tokenize(text) {
   return normalizeText(text)

@@ -7,7 +7,7 @@ const { recoverOrphanedArtworkJobs } = require("../jobs/artwork-job");
 const {
   generateLyrics,
   assessRequiredDetailCoverage,
-} = require("../providers/lyrics");
+} = require("../writer/songwriter");
 const { moderationCheck } = require("../providers/moderation");
 const { writeWav } = require("../utils/audio");
 const {
@@ -26,17 +26,14 @@ const {
   renderGuideVocal,
   renderWithProvider,
 } = require("../providers/music");
-const { resolveMusicProvider } = require("../providers/provider-style-routing");
-const { sanitizeStyleOverrides } = require("../providers/style-registry");
 const {
-  submitSunoTask,
-  pollSunoTaskOnce,
-  downloadSunoAudio,
-  logSunoCreditUsage,
-  isSunoPolicyError,
-  classifySunoStatus,
-  inspectSunoAudioReadiness,
-} = require("../providers/suno");
+  MUSIC_PROVIDER_CONFIG_KEY,
+  createVoiceConversionRuntimeConfig,
+  createWhisperRuntimeConfig,
+  normalizeMusicProviderConfig,
+  parseMusicProviderConfigJson,
+} = require("../providers/provider-config");
+const { resolveMusicProvider } = require("../providers/provider-style-routing");
 const { generateSpeech, lyricsToText } = require("../providers/elevenlabs");
 const { convertVoice } = require("../providers/voice");
 const {
@@ -62,6 +59,41 @@ const {
 const { CircuitBreaker } = require("./circuit-breaker");
 const { createDLQService } = require("./dlq");
 const { createJobDurabilityService } = require("./durability");
+const { createStepRegistry } = require("./steps");
+const { createGuideVocalSteps } = require("./steps/guide-vocal");
+const { createInstrumentalSteps } = require("./steps/instrumental");
+const { createLyricsSteps } = require("./steps/lyrics");
+const {
+  createMixSteps,
+  hydrateProviderCompleteAudio,
+} = require("./steps/mix");
+const { createMusicPlanSteps } = require("./steps/music-plan");
+const { createModerationSteps } = require("./steps/moderation");
+const {
+  createVoiceConversionSteps,
+} = require("./steps/voice-conversion");
+const { createWatermarkSteps } = require("./steps/watermark");
+const { createReadySteps } = require("./steps/ready");
+const {
+  createSunoTaskOrchestrator,
+} = require("./suno-task-orchestrator");
+const {
+  createAppConfigRepository,
+} = require("../database/app-config-repository");
+const {
+  createAuthSecurityRepository,
+} = require("../database/auth-security-repository");
+const {
+  createDeadLetterQueueRepository,
+} = require("../database/dead-letter-queue-repository");
+const { createDeviceRepository } = require("../database/device-repository");
+const { createEventsRepository } = require("../database/events-repository");
+const {
+  createJobDurabilityRepository,
+} = require("../database/job-durability-repository");
+const {
+  createTrackVersionRepository,
+} = require("../database/track-version-repository");
 const {
   getFeatureFlag,
   getFeatureFlags,
@@ -101,12 +133,15 @@ const {
 const {
   classifyError,
   PROVIDER_STEPS,
-} = require("../utils/step-classification");
+} = require("./step-classification");
 const { createOrGetShareToken } = require("../services/share-service");
 const { upsertGiftIncident } = require("../services/gift-delivery-ops");
 const {
+  findActiveVoiceProfileForUser,
   findActiveProviderProfileForUser,
   getProviderProfileById,
+  heartbeatVoiceProviderJob: heartbeatVoiceProviderJobInStore,
+  listDueVoiceProviderJobs,
   recoverStaleVoiceProviderJobs,
 } = require("../services/voice-provider-profile-service");
 const {
@@ -562,21 +597,20 @@ async function performVoiceConversion({
   console.log(
     `[JobRunner] Voice conversion provider (${kind}): ${voiceConversionProvider}`,
   );
+  const voiceConversionConfig =
+    createVoiceConversionRuntimeConfig(providerConfig);
 
   if (voiceConversionProvider === "elevenlabs") {
-    const elevenlabsApiKey =
-      providerConfig.elevenlabs?.apiKey || process.env.ELEVENLABS_API_KEY;
+    const elevenlabsApiKey = voiceConversionConfig.elevenlabs.apiKey;
     if (!elevenlabsApiKey) {
       throw new Error(
         "E305_ELEVENLABS_VOICE_ERROR: ELEVENLABS_API_KEY not configured",
       );
     }
 
-    const voiceProfile = await db
-      .prepare(
-        "SELECT elevenlabs_voice_id FROM voice_profiles WHERE user_id = ? AND status = 'active'",
-      )
-      .get(track.user_id);
+    const voiceProfile = await findActiveVoiceProfileForUser(db, {
+      userId: track.user_id,
+    });
 
     if (!voiceProfile?.elevenlabs_voice_id) {
       throw new Error(
@@ -635,7 +669,7 @@ async function performVoiceConversion({
           voiceId: voiceProfile.elevenlabs_voice_id,
           sourceAudioPath: compressedPath,
           outputPath,
-          timeoutMs: providerConfig.replicate?.timeoutMs || 300000,
+          timeoutMs: voiceConversionConfig.elevenlabs.timeoutMs,
           settings: {
             stability,
             similarityBoost,
@@ -687,11 +721,7 @@ async function performVoiceConversion({
         providerConfig: providerConfig.replicate,
         inputUrl: conversionSourceUrl,
         seedvcConfig: {
-          timeoutMs: providerConfig.replicate?.timeoutMs || 300000,
-          hfToken: providerConfig.hfToken || null,
-          replicateToken: providerConfig.replicate?.token || null,
-          demucsModel: providerConfig.replicate?.demucsModel || null,
-          demucsShifts: providerConfig.replicate?.demucsShifts,
+          ...voiceConversionConfig.seedvc,
           params: {
             diffusionSteps,
             lengthAdjust: 1.0,
@@ -820,13 +850,7 @@ async function uploadTrackOutputsToS3({
   trackVersion,
   kind,
 }) {
-  const versionDir = path.join(
-    storageDir,
-    "tracks",
-    track.user_id,
-    track.id,
-    `v${trackVersion.version_num}`,
-  );
+  const versionDir = getVersionDir(storageDir, track, trackVersion);
 
   const isPreview = kind === "preview";
   const audioFileName = isPreview ? "preview.m4a" : "full.m4a";
@@ -914,50 +938,6 @@ async function uploadTrackOutputsToS3({
   return uploadedKeys;
 }
 
-async function hydrateProviderCompleteAudio({
-  providerLocalPath,
-  providerAudioKey = null,
-  providerAudioUrl = null,
-  storageProvider = null,
-  httpDownloadToFile = null,
-}) {
-  if (fs.existsSync(providerLocalPath)) {
-    return { source: "local", key: null, url: null };
-  }
-
-  if (providerAudioKey) {
-    if (!storageProvider || typeof storageProvider.downloadToFile !== "function") {
-      throw new Error(
-        `E301_PROVIDER_AUDIO_MIRROR_UNAVAILABLE: Durable provider audio key exists but storage download is unavailable (${providerAudioKey})`,
-      );
-    }
-    try {
-      await storageProvider.downloadToFile({
-        key: providerAudioKey,
-        filePath: providerLocalPath,
-      });
-    } catch (err) {
-      throw new Error(
-        `E301_PROVIDER_AUDIO_MIRROR_UNAVAILABLE: Failed to hydrate durable provider audio (${providerAudioKey}) - ${err?.message || err}`,
-      );
-    }
-    console.log(
-      `[Mix] Hydrated provider-complete audio from storage: ${providerAudioKey}`,
-    );
-    return { source: "storage", key: providerAudioKey, url: null };
-  }
-
-  if (providerAudioUrl) {
-    const download =
-      httpDownloadToFile ||
-      require("../providers/http").downloadToFile;
-    await download(providerAudioUrl, providerLocalPath, 120000);
-    return { source: "provider_url", key: null, url: providerAudioUrl };
-  }
-
-  return { source: null, key: null, url: null };
-}
-
 function writePlaceholderOutputs({
   storageDir,
   track,
@@ -965,13 +945,7 @@ function writePlaceholderOutputs({
   kind,
   devMode = false,
 }) {
-  const versionDir = path.join(
-    storageDir,
-    "tracks",
-    track.user_id,
-    track.id,
-    `v${trackVersion.version_num}`,
-  );
+  const versionDir = getVersionDir(storageDir, track, trackVersion);
   ensureDir(versionDir);
   const audioName = kind === "preview" ? "preview.m4a" : "full.m4a";
   const audioPath = path.join(versionDir, audioName);
@@ -1066,6 +1040,19 @@ async function startJobRunner({
   voiceProviderJobRunner = runSunoVoicePersonaJob,
 }) {
   const runnerId = workerId || crypto.randomUUID();
+  const appConfigRepository = createAppConfigRepository(db);
+  const authSecurityRepository = createAuthSecurityRepository(db);
+  const deadLetterQueueRepository = createDeadLetterQueueRepository(db);
+  const deviceRepository = createDeviceRepository(db);
+  const eventsRepository = createEventsRepository(db);
+  const lyricsAlignmentWhisperConfig = createWhisperRuntimeConfig(
+    providerConfig,
+    {
+      timeoutMs: 120000,
+    },
+  );
+  const jobDurabilityRepository = createJobDurabilityRepository(db);
+  const trackVersionRepository = createTrackVersionRepository(db);
   const sunoPollIntervalSec = 10;
   const MAX_CONCURRENT_VOICE_PROVIDER_JOBS = Math.max(
     0,
@@ -1079,37 +1066,18 @@ async function startJobRunner({
     halfOpenRequests: durabilityConfig.halfOpenRequests || 1,
   });
 
-  // Adapter for sync await db.prepare to async db.query interface (shared by DLQ and durability)
-  const asyncDbAdapter = {
-    async query(sql, params = []) {
-      const isSelect = sql.trim().toUpperCase().startsWith("SELECT");
-      const stmt = db.prepare(sql);
-      if (isSelect) {
-        const rows = params.length
-          ? await stmt.all(...params)
-          : await stmt.all();
-        return { rows };
-      } else {
-        const result = params.length
-          ? await stmt.run(...params)
-          : await stmt.run();
-        return { changes: result.changes, rowCount: result.changes };
-      }
-    },
-  };
-
   // DLQ service - lazily initialized
   let dlqService = null;
   const getDLQService = () => {
     if (!dlqService) {
-      dlqService = createDLQService(asyncDbAdapter);
+      dlqService = createDLQService(db);
     }
     return dlqService;
   };
 
   // Durability service for provider calls
   const durabilityService = createJobDurabilityService({
-    db: asyncDbAdapter,
+    db,
     circuitBreaker,
     dlq: getDLQService(),
   });
@@ -1662,21 +1630,12 @@ async function startJobRunner({
       return cachedMusicRoutingConfig;
     }
 
-    const envDefaultProvider = providerConfig.suno?.live
-      ? "suno"
-      : providerConfig.elevenlabs?.live
-        ? "elevenlabs"
-        : config.MUSIC_PROVIDER || "suno";
-    const fallback = {
-      default_provider: envDefaultProvider,
-      suno_model: config.SUNO_MODEL || "V5",
-      auto_style_routing: true,
-      elevenlabs_generation_mode: "composition_plan",
-      auto_reroll_enabled: true,
-      quality_threshold: 72,
-      max_rerolls: 1,
-      style_overrides: {},
-    };
+    const fallback = normalizeMusicProviderConfig(
+      {},
+      {
+        sunoModel: config.SUNO_MODEL,
+      },
+    );
 
     let value = fallback;
     // U8: persona feature flags fold into the cached routing config to avoid
@@ -1706,34 +1665,20 @@ async function startJobRunner({
       );
     }
     try {
-      const row = await db
-        .prepare(
-          "SELECT value_json FROM app_config WHERE key = 'music_provider_config'",
-        )
-        .get();
-      if (row?.value_json) {
-        const parsed = parseJson(row.value_json, {}, "music_provider_config");
-        const parsedMaxRerolls = Number(parsed?.max_rerolls);
-        value = {
-          default_provider: "suno", // ElevenLabs removed from music generation pipeline
-          suno_model:
-            parsed?.suno_model === "V4_5" ||
-            parsed?.suno_model === "V5" ||
-            parsed?.suno_model === "V5_5"
-              ? parsed.suno_model
-              : fallback.suno_model,
-          auto_style_routing: parsed?.auto_style_routing !== false,
-          elevenlabs_generation_mode:
-            parsed?.elevenlabs_generation_mode === "compose_detailed"
-              ? "compose_detailed"
-              : "composition_plan",
-          auto_reroll_enabled: parsed?.auto_reroll_enabled !== false,
-          quality_threshold: clampNumber(parsed?.quality_threshold, 0, 100, 72),
-          max_rerolls: Number.isInteger(parsedMaxRerolls)
-            ? Math.max(0, Math.min(3, parsedMaxRerolls))
-            : 1,
-          style_overrides: sanitizeStyleOverrides(parsed?.style_overrides),
-        };
+      const row = await appConfigRepository.findConfigValue(
+        MUSIC_PROVIDER_CONFIG_KEY,
+      );
+      if (row) {
+        const parsed = parseMusicProviderConfigJson(row.value_json, {
+          fallback,
+        });
+        if (parsed.parseError) {
+          console.warn(
+            "[JobRunner] Invalid music_provider_config JSON, using normalized fallback:",
+            parsed.parseError.message,
+          );
+        }
+        value = parsed.config;
       }
     } catch (err) {
       console.warn(
@@ -1800,352 +1745,23 @@ async function startJobRunner({
     };
   }
 
-  // Helper to handle Suno task polling with circuit breaker
-  async function pollOrSubmitSunoTask({
-    musicConfig,
-    job,
-    lyrics,
-    musicPlan,
-    track,
-    trackVersion,
-    kind,
-    routingMetadata,
-    sunoPersona = null,
-  }) {
-    const taskId = job?.external_task_id || null;
-    const existingStepData = parseJson(job?.step_data, {}, "suno_step_data");
-    const incompleteSuccessPolls = Number(
-      existingStepData?.incomplete_success_polls || 0,
-    );
-    // Wait up to ~6 minutes for Suno audio to finalize (36 polls × 10s).
-    // Only declare failure when Suno itself returns FAILED/ERROR status.
-    const maxIncompleteSuccessPolls = 36;
-
-    const touchHeartbeat = async () => {
-      if (!job) return;
-      const stamp = new Date().toISOString();
-      await updateJobHeartbeat.run(stamp, stamp, job.id, runnerId);
-    };
-
-    const submitTaskForLyrics = async (lyricsPayload) =>
-      durabilityService.executeWithDurability({
-        provider: PROVIDERS.SUNO,
-        fn: () =>
-          submitSunoTask({
-            baseUrl: musicConfig.baseUrl,
-            apiKey: musicConfig.apiKey,
-            sunoModel: musicConfig.sunoModel,
-            lyrics: lyricsPayload,
-            musicPlan,
-            track,
-            timeoutMs: musicConfig.timeoutMs,
-            sunoPersona,
-          }),
-      });
-
-    function buildPendingResponse({
-      taskIdValue,
-      status = null,
-      incompleteReason = null,
-      incompletePolls = incompleteSuccessPolls,
-      retryAfterSec = sunoPollIntervalSec,
-      reconciling = false,
-    }) {
-      return {
-        pending: true,
-        retry_after_sec: retryAfterSec,
-        provider: musicConfig.provider,
-        task_id: taskIdValue,
-        kind,
-        suno_reconciling: reconciling,
-        incomplete_success_polls: incompletePolls,
-        last_suno_status: status,
-        last_incomplete_reason: incompleteReason,
-        routing: routingMetadata || null,
-      };
-    }
-
-    function computeNextIncompletePolls({ status, reason }) {
-      const nextIncompletePolls = incompleteSuccessPolls + 1;
-      if (nextIncompletePolls >= maxIncompleteSuccessPolls) {
-        // Only declare failure after exhausting all patience — Suno may still be processing
-        console.warn(
-          `[Suno] Exhausted ${maxIncompleteSuccessPolls} incomplete polls for task ${taskId || "unknown"} (status=${status || "unknown"}, reason=${reason || "unknown"})`,
-        );
-        throw new Error(
-          `E302_SUNO_INCOMPLETE_OUTPUT: status=${status || "unknown"}, task=${taskId || "unknown"}, reason=${reason || "unknown"}`,
-        );
-      }
-      if (nextIncompletePolls % 6 === 0) {
-        console.log(
-          `[Suno] Still waiting for audio: task=${taskId}, poll ${nextIncompletePolls}/${maxIncompleteSuccessPolls}, reason=${reason || "unknown"}`,
-        );
-      }
-      return nextIncompletePolls;
-    }
-
-    // Poll existing task
-    if (taskId) {
-      const pollResult = await durabilityService.executeWithDurability({
-        provider: PROVIDERS.SUNO,
-        fn: () =>
-          pollSunoTaskOnce({
-            baseUrl: musicConfig.baseUrl,
-            apiKey: musicConfig.apiKey,
-            taskId,
-            timeoutMs: 30000,
-            onHeartbeat: touchHeartbeat,
-          }),
-      });
-
-      const status = pollResult.status;
-      console.log(`[Suno] Poll status for ${taskId}: ${status}`);
-      const statusInfo = classifySunoStatus(status);
-
-      if (
-        statusInfo.phase === "audio_success" ||
-        statusInfo.phase === "provisional_success"
-      ) {
-        const readiness = inspectSunoAudioReadiness(pollResult.response);
-        if (!readiness.ready) {
-          const nextIncompletePolls = computeNextIncompletePolls({
-            status,
-            reason: readiness.reason,
-          });
-          console.warn(
-            `[Suno] Poll status ${status} for task ${taskId} but audio not ready (${readiness.reason}); poll ${nextIncompletePolls}/${maxIncompleteSuccessPolls}`,
-          );
-          return buildPendingResponse({
-            taskIdValue: taskId,
-            status,
-            incompleteReason: readiness.reason,
-            incompletePolls: nextIncompletePolls,
-            retryAfterSec: Math.max(12, sunoPollIntervalSec),
-            reconciling: true,
-          });
-        }
-
-        let result;
-        try {
-          result = await downloadSunoAudio({
-            storageDir,
-            track,
-            trackVersion,
-            kind,
-            statusResponse: pollResult.response,
-            storageProvider,
-          });
-        } catch (downloadErr) {
-          const downloadMessage = String(downloadErr?.message || "");
-          if (
-            downloadMessage.startsWith("E302_SUNO_AUDIO_NOT_READY:") ||
-            downloadMessage.startsWith("E302_SUNO_INCOMPLETE_OUTPUT:")
-          ) {
-            const nextIncompletePolls = computeNextIncompletePolls({
-              status,
-              reason: "audio_not_ready",
-            });
-            console.warn(
-              `[Suno] Audio artifact not finalized for task ${taskId}; reconciling ${nextIncompletePolls}/${maxIncompleteSuccessPolls}`,
-            );
-            return buildPendingResponse({
-              taskIdValue: taskId,
-              status,
-              incompleteReason: "audio_not_ready",
-              incompletePolls: nextIncompletePolls,
-              retryAfterSec: Math.max(15, sunoPollIntervalSec),
-              reconciling: true,
-            });
-          }
-          throw downloadErr;
-        }
-        logSunoCreditUsage(taskId, pollResult.response);
-        return {
-          instrumental_url: result?.raw?.instrumental_url || null,
-          guide_vocal_url: result?.raw?.guide_vocal_url || null,
-          provider_audio_key: result?.raw?.provider_audio_key || null,
-        };
-      }
-
-      if (statusInfo.phase === "failed") {
-        const errorMsg = pollResult.response?.data?.errorMessage || status;
-        if (isSunoPolicyError(errorMsg)) {
-          logProviderRejection({
-            provider: "suno",
-            errorCode: "E302_SUNO_POLICY_ERROR",
-            errorStatus: "poll_failed",
-            rejectedTerms: extractPolicyTermsFromMessage(errorMsg),
-            lyricsHash: lyricsHashSha256(lyrics),
-            style: musicPlan?.style || null,
-            step: kind === "full" ? "instrumental_full" : "instrumental",
-            trackId: track?.id,
-          });
-          throw new Error(
-            `E302_SUNO_POLICY_ERROR: Generation failed - ${errorMsg}`,
-          );
-        }
-        throw new Error(`E302_SUNO_ERROR: Generation failed - ${errorMsg}`);
-      }
-
-      return buildPendingResponse({
-        taskIdValue: taskId,
-        status,
-        retryAfterSec: sunoPollIntervalSec,
-      });
-    }
-
-    // Submit new task — preflight sanitization via generic provider policy
-    const baseSanitized = sanitizeLyricsForProviderPolicy({
-      lyrics,
-      provider: "suno",
-      recipientName: track?.recipient_name || null,
+  const { pollOrSubmitSunoTask, recoverSunoResultFromExistingTask } =
+    createSunoTaskOrchestrator({
+      durabilityService,
+      jobDurabilityRepository,
+      runnerId,
+      storageDir,
+      storageProvider,
+      PROVIDERS,
+      sunoPollIntervalSec,
+      logProviderRejection,
+      lyricsHashSha256,
+      extractProviderAudioUrl,
+      mergeProvenanceJson,
+      getProviderAudioUrl,
+      getProviderAudioKey,
+      nowIso,
     });
-    const lyricsForSubmission = baseSanitized.lyrics;
-    if (baseSanitized.changed) {
-      console.log(
-        `[Suno] Applied preflight lyric normalization (${baseSanitized.change_count} change(s)) before submission`,
-      );
-    }
-    let newTaskId;
-    try {
-      newTaskId = await submitTaskForLyrics(lyricsForSubmission);
-    } catch (submitErr) {
-      const submitMessage = String(submitErr?.message || "");
-      if (isSunoPolicyError(submitMessage)) {
-        logProviderRejection({
-          provider: "suno",
-          errorCode: "E302_SUNO_POLICY_ERROR",
-          errorStatus: "submit_failed",
-          rejectedTerms: extractPolicyTermsFromMessage(submitMessage),
-          lyricsHash: lyricsHashSha256(lyricsForSubmission),
-          style: musicPlan?.style || null,
-          step: kind === "full" ? "instrumental_full" : "instrumental",
-          trackId: track?.id,
-        });
-        throw new Error(`E302_SUNO_POLICY_ERROR: ${submitMessage}`);
-      }
-      throw submitErr;
-    }
-
-    if (job) {
-      const payload = {
-        provider: musicConfig.provider,
-        task_id: newTaskId,
-        kind,
-        suno_reconciling: false,
-        routing: routingMetadata || null,
-      };
-      const stamp = new Date().toISOString();
-      await updateJobExternalTask.run(
-        newTaskId,
-        toJson(payload),
-        stamp,
-        stamp,
-        job.id,
-        runnerId,
-      );
-    }
-
-    return buildPendingResponse({
-      taskIdValue: newTaskId,
-      retryAfterSec: sunoPollIntervalSec,
-    });
-  }
-
-  async function recoverSunoResultFromExistingTask({
-    musicConfig,
-    job,
-    track,
-    trackVersion,
-    kind,
-    routingMetadata,
-    renderContract,
-    step,
-  }) {
-    const taskId = job?.external_task_id;
-    if (!taskId || !musicConfig || musicConfig.provider !== "suno") {
-      return null;
-    }
-
-    try {
-      const pollResult = await pollSunoTaskOnce({
-        baseUrl: musicConfig.baseUrl,
-        apiKey: musicConfig.apiKey,
-        taskId,
-        timeoutMs: 30000,
-      });
-      const status = pollResult?.status;
-      const statusInfo = classifySunoStatus(status);
-      if (
-        !(
-          statusInfo.phase === "audio_success" ||
-          statusInfo.phase === "provisional_success"
-        )
-      ) {
-        return null;
-      }
-
-      const readiness = inspectSunoAudioReadiness(pollResult.response);
-      if (!readiness.ready) {
-        return null;
-      }
-
-      logSunoCreditUsage(taskId, pollResult.response);
-      const recovered = await downloadSunoAudio({
-        storageDir,
-        track,
-        trackVersion,
-        kind,
-        statusResponse: pollResult.response,
-        storageProvider,
-      });
-      const providerAudioUrl = extractProviderAudioUrl(recovered?.raw || {});
-      const providerAudioKey = recovered?.raw?.provider_audio_key || null;
-      const provenance_json = mergeProvenanceJson(
-        trackVersion.provenance_json,
-        {
-          music: {
-            ...(parseJson(trackVersion.provenance_json, {}, "prov_suno_recover")
-              ?.music || {}),
-            provider: "suno",
-            routing: routingMetadata || null,
-            render_contract: renderContract,
-            provider_audio_url:
-              providerAudioUrl || getProviderAudioUrl(trackVersion),
-            provider_audio_key:
-              providerAudioKey || getProviderAudioKey(trackVersion),
-          },
-          timeline: [
-            {
-              at: nowIso(),
-              step,
-              event: "suno_result_reconciled",
-              provider: "suno",
-              task_id: taskId,
-              status,
-            },
-          ],
-        },
-      );
-
-      return {
-        instrumental_url:
-          providerAudioUrl || recovered?.raw?.instrumental_url || null,
-        guide_vocal_url:
-          renderContract.pipeline === "guide_tts_and_voice_convert"
-            ? recovered?.raw?.guide_vocal_url || null
-            : null,
-        provider_audio_key: providerAudioKey,
-        provider_routing: routingMetadata || null,
-        provenance_json,
-      };
-    } catch (err) {
-      console.warn(
-        `[JobRunner] Suno reconciliation probe failed for task ${taskId}: ${err?.message || err}`,
-      );
-      return null;
-    }
-  }
 
   async function resolveSunoPersonaForRender({ track, renderContract }) {
     // U8: cached routing config shared with music_provider_config (1 DB call,
@@ -2162,18 +1778,6 @@ async function startJobRunner({
   // Stale job recovery: reset jobs stuck in 'running' status
   // This handles cases where process crashed mid-step
   // Note: Compute cutoff in JavaScript for database-agnostic comparison
-  const recoverStaleJobsStmt = await db.prepare(`
-    UPDATE jobs
-    SET status = 'queued',
-        attempts = attempts + 1,
-        locked_by = NULL,
-        locked_at = NULL,
-        updated_at = ?
-    WHERE status = 'running'
-      AND COALESCE(last_heartbeat_at, locked_at, updated_at) < ?
-  `);
-  let cleanOrphanedStepHistory = null;
-
   async function performStaleJobRecovery() {
     if (!recoverStaleJobs) return;
     try {
@@ -2182,18 +1786,21 @@ async function startJobRunner({
       const cutoffTime = new Date(
         Date.now() - staleJobTimeoutMinutes * 60 * 1000,
       ).toISOString();
-      const result = await recoverStaleJobsStmt.run(now, cutoffTime);
-      if (result.changes > 0) {
+      const recoveredJobs = await jobDurabilityRepository.recoverStaleJobs({
+        now,
+        thresholdTime: cutoffTime,
+      });
+      if (recoveredJobs > 0) {
         console.warn(
-          `[JobRunner] Recovered ${result.changes} stale jobs stuck in 'running' status`,
+          `[JobRunner] Recovered ${recoveredJobs} stale jobs stuck in 'running' status`,
         );
         // Clean orphaned step history entries left 'running' by crashed workers
-        if (cleanOrphanedStepHistory) {
-          try {
-            await cleanOrphanedStepHistory.run(now);
-          } catch (_) {
-            /* best-effort */
-          }
+        try {
+          await jobDurabilityRepository.markOrphanedStepHistoryFailed({
+            completedAt: now,
+          });
+        } catch (_) {
+          /* best-effort */
         }
       }
       await recoverStaleVoiceProviderJobs(db, {
@@ -2222,18 +1829,11 @@ async function startJobRunner({
   async function performDLQAutoReprocess() {
     try {
       const cooldownCutoff = new Date(Date.now() - 5 * 60 * 1000).toISOString();
-      const candidates = await db
-        .prepare(
-          `SELECT dlq.*, j.step, j.error_code, j.error_message, j.track_version_id, j.workflow_type
-         FROM dead_letter_queue dlq
-         JOIN jobs j ON j.id = dlq.job_id
-         WHERE dlq.reprocessed_at IS NULL
-           AND dlq.auto_reprocess_count < 2
-           AND dlq.moved_at < ?
-         ORDER BY dlq.moved_at ASC
-         LIMIT 5`,
-        )
-        .all(cooldownCutoff);
+      const candidates =
+        await deadLetterQueueRepository.listAutoReprocessCandidates({
+          cooldownCutoff,
+          limit: 5,
+        });
 
       for (const entry of candidates) {
         // Skip non-retryable errors — delegate to the shared classifier (single source of truth)
@@ -2249,33 +1849,26 @@ async function startJobRunner({
         }
 
         const now = new Date().toISOString();
-        const tv = await db
-          .prepare("SELECT * FROM track_versions WHERE id = ?")
-          .get(entry.track_version_id);
+        const tv = await trackVersionRepository.findById(
+          entry.track_version_id,
+        );
         const track = tv
-          ? await db
-              .prepare("SELECT * FROM tracks WHERE id = ?")
-              .get(tv.track_id)
+          ? await trackVersionRepository.findTrackById(tv.track_id)
           : null;
 
         // Clean stale files before re-queuing
         if (track && tv && entry.step) {
-          const versionDir = path.join(
-            storageDir,
-            "tracks",
-            track.user_id,
-            track.id,
-            `v${tv.version_num}`,
-          );
+          const versionDir = getVersionDir(storageDir, track, tv);
           cleanStaleStepFiles(versionDir, entry.step);
         }
 
         // Reset job to queued (WHERE status guard prevents race with iOS "Try Again")
-        const jobReset = await db
-          .prepare(
-            "UPDATE jobs SET status = 'queued', step = 'queued', step_index = 0, attempts = 0, error_code = NULL, error_message = NULL, progress_pct = 0, completed_at = NULL, next_attempt_at = NULL, locked_by = NULL, locked_at = NULL, updated_at = ? WHERE id = ? AND status IN ('failed', 'dead_letter')",
-          )
-          .run(now, entry.job_id);
+        const jobReset = await jobDurabilityRepository.resetJobForAutoReprocess(
+          {
+            now,
+            jobId: entry.job_id,
+          },
+        );
 
         // Only update DLQ counter and track statuses if the job was actually reset
         if (!jobReset || jobReset.changes === 0) {
@@ -2286,26 +1879,24 @@ async function startJobRunner({
         }
 
         // Update DLQ entry
-        await db
-          .prepare(
-            "UPDATE dead_letter_queue SET reprocessed_at = ?, reprocess_job_id = ?, auto_reprocess_count = auto_reprocess_count + 1 WHERE id = ?",
-          )
-          .run(now, entry.job_id, entry.id);
+        await deadLetterQueueRepository.markAutoReprocessed({
+          now,
+          jobId: entry.job_id,
+          dlqId: entry.id,
+        });
 
         // Reset track_version + track status
         if (tv) {
-          await db
-            .prepare(
-              "UPDATE track_versions SET status = 'processing' WHERE id = ?",
-            )
-            .run(tv.id);
+          await trackVersionRepository.markVersionProcessingForAutoReprocess({
+            trackVersionId: tv.id,
+          });
         }
         if (track) {
-          await db
-            .prepare(
-              "UPDATE tracks SET status = 'rendering', updated_at = ? WHERE id = ?",
-            )
-            .run(now, track.id);
+          await trackVersionRepository.updateTrackStatus({
+            trackId: track.id,
+            status: "rendering",
+            updatedAt: now,
+          });
         }
 
         const attempt = (entry.auto_reprocess_count || 0) + 1;
@@ -2333,102 +1924,6 @@ async function startJobRunner({
   };
   const artworkRecoveryTimer = setInterval(artworkRecoverySweep, 60 * 1000);
   const artworkRecoveryStartupTimer = setTimeout(artworkRecoverySweep, 5000); // Run shortly after startup
-
-  // FOR UPDATE SKIP LOCKED prevents race conditions between workers:
-  // - Locks selected rows so other workers won't select them
-  // - SKIP LOCKED means workers don't block, they just skip locked rows
-  // - LIMIT ensures we only lock what we need (availableSlots)
-  // Exclude artwork_render — those jobs are owned by src/jobs/artwork-job.js
-  // and dispatched via recoverOrphanedArtworkJobs() / enqueueArtworkJob().
-  // Leaving them in this claim query would pull them into the audio pipeline
-  // which has no artwork step handler.
-  const selectJobsQuery = db.isPostgres
-    ? "SELECT * FROM jobs WHERE status = 'queued' AND workflow_type <> 'artwork_render' AND (next_attempt_at IS NULL OR next_attempt_at <= $1) ORDER BY created_at ASC LIMIT $2 FOR UPDATE SKIP LOCKED"
-    : "SELECT * FROM jobs WHERE status = 'queued' AND workflow_type <> 'artwork_render' AND (next_attempt_at IS NULL OR next_attempt_at <= $1) ORDER BY created_at ASC LIMIT $2";
-  const selectJobs = await db.prepare(selectJobsQuery);
-  const claimJob = await db.prepare(
-    "UPDATE jobs SET status = 'running', locked_by = ?, locked_at = ?, started_at = COALESCE(started_at, ?), last_heartbeat_at = ?, progress_pct = ?, updated_at = ? WHERE id = ? AND status = 'queued' AND (next_attempt_at IS NULL OR next_attempt_at <= ?)",
-  );
-  // All job updates include ownership verification (AND locked_by = ?) to prevent
-  // data integrity issues when workers lose ownership mid-processing
-  const updateJobStep = await db.prepare(
-    "UPDATE jobs SET step = ?, step_index = ?, progress_pct = ?, last_heartbeat_at = ?, updated_at = ? WHERE id = ? AND locked_by = ?",
-  );
-  const updateJob = await db.prepare(
-    "UPDATE jobs SET status = ?, step = ?, step_index = ?, step_data = ?, progress_pct = ?, last_heartbeat_at = ?, next_attempt_at = NULL, locked_by = NULL, locked_at = NULL, updated_at = ? WHERE id = ? AND locked_by = ?",
-  );
-  const updateJobReroll = await db.prepare(
-    "UPDATE jobs SET status = ?, step = ?, step_index = ?, step_data = ?, external_task_id = NULL, progress_pct = ?, last_heartbeat_at = ?, next_attempt_at = NULL, locked_by = NULL, locked_at = NULL, updated_at = ? WHERE id = ? AND locked_by = ?",
-  );
-  const updateJobPending = await db.prepare(
-    "UPDATE jobs SET status = ?, step = ?, step_index = ?, step_data = ?, progress_pct = ?, last_heartbeat_at = ?, next_attempt_at = ?, locked_by = NULL, locked_at = NULL, updated_at = ? WHERE id = ? AND locked_by = ?",
-  );
-  const updateJobStatus = await db.prepare(
-    "UPDATE jobs SET status = ?, progress_pct = ?, completed_at = ?, locked_by = NULL, locked_at = NULL, updated_at = ? WHERE id = ? AND locked_by = ?",
-  );
-  const updateJobHeartbeat = await db.prepare(
-    "UPDATE jobs SET last_heartbeat_at = ?, updated_at = ? WHERE id = ? AND locked_by = ?",
-  );
-  const updateJobFailure = await db.prepare(
-    "UPDATE jobs SET status = ?, step = ?, step_index = ?, error_code = ?, error_message = ?, progress_pct = ?, completed_at = ?, next_attempt_at = NULL, locked_by = NULL, locked_at = NULL, updated_at = ? WHERE id = ? AND locked_by = ?",
-  );
-  const updateJobFailureNoLock = await db.prepare(
-    "UPDATE jobs SET status = ?, step = ?, step_index = ?, error_code = ?, error_message = ?, progress_pct = ?, completed_at = ?, next_attempt_at = NULL, locked_by = NULL, locked_at = NULL, updated_at = ? WHERE id = ?",
-  );
-  const updateJobAttempt = await db.prepare(
-    "UPDATE jobs SET attempts = attempts + 1, status = ?, progress_pct = ?, last_heartbeat_at = ?, next_attempt_at = ?, locked_by = NULL, locked_at = NULL, updated_at = ? WHERE id = ? AND locked_by = ?",
-  );
-  const updateJobExternalTask = await db.prepare(
-    "UPDATE jobs SET external_task_id = ?, step_data = ?, last_heartbeat_at = ?, updated_at = ? WHERE id = ? AND locked_by = ?",
-  );
-  const getTrackVersion = await db.prepare(
-    "SELECT * FROM track_versions WHERE id = ?",
-  );
-  const getTrack = await db.prepare("SELECT * FROM tracks WHERE id = ?");
-  const updateTrackVersion = await db.prepare(
-    "UPDATE track_versions SET status = ?, completed_at = ?, preview_url = COALESCE(?, preview_url), full_url = COALESCE(?, full_url), lyrics_json = COALESCE(?, lyrics_json), lyrics_status = COALESCE(?, lyrics_status), lyrics_updated_at = COALESCE(?, lyrics_updated_at), lyrics_approved_at = COALESCE(?, lyrics_approved_at), music_plan_json = COALESCE(?, music_plan_json), moderation_status = COALESCE(?, moderation_status), moderation_reason = COALESCE(?, moderation_reason), instrumental_url = COALESCE(?, instrumental_url), guide_vocal_url = COALESCE(?, guide_vocal_url), guide_access_token = COALESCE(?, guide_access_token), voice_conversion_url = COALESCE(?, voice_conversion_url), provenance_json = COALESCE(?, provenance_json) WHERE id = ?",
-  );
-  const updateTrack = await db.prepare(
-    "UPDATE tracks SET status = ?, updated_at = ? WHERE id = ?",
-  );
-  const updateUserRisk = await db.prepare(
-    "UPDATE users SET risk_level = ? WHERE id = ?",
-  );
-  const insertAuditLog = await db.prepare(
-    "INSERT INTO audit_logs (id, user_id, action, resource_type, resource_id, metadata_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-  );
-  const updateTrackVersionCover = await db.prepare(
-    "UPDATE track_versions SET cover_image_url = ?, cover_image_small_url = ?, cover_image_large_url = ? WHERE id = ?",
-  );
-  const updateTrackVersionLyricsOnly = await db.prepare(
-    "UPDATE track_versions SET lyrics_json = ? WHERE id = ?",
-  );
-
-  // Phase 3: Per-user concurrency — find users at capacity
-  const getBlockedUsers = await db.prepare(
-    `SELECT t.user_id FROM jobs j
-     JOIN track_versions tv ON j.track_version_id = tv.id
-     JOIN tracks t ON tv.track_id = t.id
-     WHERE j.status = 'running' AND j.last_heartbeat_at > ?
-     GROUP BY t.user_id HAVING COUNT(*) >= ?`,
-  );
-
-  // Phase 2: Step history — observability for each step execution
-  const insertStepHistory = await db.prepare(
-    "INSERT INTO job_step_history (id, job_id, step_name, attempt, status, started_at, completed_at, duration_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-  );
-  const updateStepHistory = await db.prepare(
-    "UPDATE job_step_history SET status = ?, error_message = ?, completed_at = ?, duration_ms = ? WHERE id = ?",
-  );
-  // Orphan cleanup — mark step history entries as failed when their job is no longer running
-  try {
-    cleanOrphanedStepHistory = await db.prepare(
-      `UPDATE job_step_history SET status = 'failed', error_message = 'Worker crashed', completed_at = ?, duration_ms = 0
-       WHERE status = 'running' AND job_id IN (SELECT id FROM jobs WHERE status != 'running')`,
-    );
-  } catch (_) {
-    /* table may not exist yet before migration 072 */
-  }
 
   function getErrorInfo(err) {
     const rawMessage =
@@ -2643,10 +2138,6 @@ async function startJobRunner({
       return false;
     }
     return (
-      message.includes("E302_SEEDVC_ERROR: GPU task aborted") ||
-      message.includes(
-        "Personalized voice conversion failed: E302_SEEDVC_ERROR: GPU task aborted",
-      ) ||
       message.includes("download_error:corrupted:File too small") ||
       message.startsWith("download_error:network:") ||
       message.startsWith("download_error:503:") ||
@@ -2759,1769 +2250,153 @@ async function startJobRunner({
     return Math.max(configuredMaxAttempts, 6);
   }
 
-  const stepHandlers = {
-    moderation: ({ track, trackVersion }) => {
-      if (trackVersion.moderation_status) {
-        return { moderation_status: trackVersion.moderation_status };
-      }
-      const lyrics = parseJson(
-        trackVersion.lyrics_json,
-        null,
-        "moderation_lyrics",
-      );
-      const moderation = moderationCheck({
-        title: track.title,
-        recipient_name: track.recipient_name,
-        message: track.message,
-        lyrics: lyrics ? JSON.stringify(lyrics) : null,
-      });
-      if (!moderation.allowed) {
-        return {
-          moderation_status: "blocked",
-          moderation_reason: moderation.reason,
-          status_override: "blocked",
-        };
-      }
-      return { moderation_status: "passed", moderation_reason: null };
-    },
-
-    lyrics: async ({ track, trackVersion }) => {
-      const existing = parseJson(trackVersion.lyrics_json, null, "lyrics_json");
-      if (existing) {
-        const existingProvenance = parseJson(
-          trackVersion.provenance_json,
-          {},
-          "provenance_json",
-        );
-        console.log(
-          `[JobRunner] Skipping lyrics regeneration: existing lyrics_json found ${JSON.stringify(
-            {
-              quality_score: existingProvenance?.lyrics?.quality_score ?? null,
-              acceptance_reason:
-                existingProvenance?.lyrics?.acceptance_reason || null,
-              provider: existingProvenance?.lyrics?.provider || null,
-              model: existingProvenance?.lyrics?.model || null,
-              filtered_fact_count:
-                existingProvenance?.lyrics?.filtered_fact_count ?? null,
-              prompt_budget: existingProvenance?.lyrics?.prompt_budget || null,
-              lyrics_summary:
-                existingProvenance?.lyrics?.lyrics_summary || null,
-              story_context_summary:
-                existingProvenance?.lyrics?.story_context_summary || null,
-              fidelity: existingProvenance?.lyrics?.fidelity || null,
-            },
-          )}`,
-        );
-        return { lyrics_json: trackVersion.lyrics_json };
-      }
-
-      try {
-        const lyricsContext = buildLyricsContext(track);
-        const lyricsContextSummary =
-          summarizeLyricsContextForLog(lyricsContext);
-        console.log(
-          `[JobRunner] Lyrics context summary=${JSON.stringify(lyricsContextSummary)}`,
-        );
-
-        const result = await generateLyrics(lyricsContext);
-        const compliance = sanitizeLyricsForAllMusicProviders(result.lyrics, {
-          recipientName: track?.recipient_name || null,
-        });
-        if (compliance.changed) {
-          console.warn(
-            `[JobRunner] Lyrics compliance sanitizer applied ${compliance.change_count} edit(s) across providers`,
-          );
-          assertPolicySanitizerPreservedStoryDetails({
-            originalLyrics: result.lyrics,
-            sanitizedLyrics: compliance.lyrics,
-            storyContext: lyricsContext,
-            provider: "all",
-            step: "lyrics",
-            trackId: track.id,
-          });
-        }
-        if (compliance.blocked) {
-          const blockedTerms = compliance.reports
-            .flatMap((report) => report.violation_terms || [])
-            .filter(Boolean)
-            .slice(0, 8);
-          throw new Error(
-            `E302_PROVIDER_POLICY_ERROR: Generated lyrics still contain restricted terms (${blockedTerms.join(", ") || "unknown"}).`,
-          );
-        }
-        const lyricsProvenance = mergeProvenanceJson(
-          trackVersion.provenance_json,
-          {
-            lyrics: {
-              compliance_sanitized: compliance.changed,
-              compliance_change_count: compliance.change_count,
-              compliance_reports: compliance.reports,
-              provider: result.provider || null,
-              model: result.model || null,
-              usage: result.usage || null,
-              quality_score: result.quality_score ?? null,
-              acceptance_reason: result.acceptance_reason || null,
-              filtered_fact_count: Number.isFinite(result.filtered_fact_count)
-                ? result.filtered_fact_count
-                : null,
-              story_context_summary: lyricsContextSummary,
-              prompt_input_summary: result.prompt_input_summary || null,
-              prompt_budget: result.prompt_budget || null,
-              lyrics_summary: result.lyrics_summary || null,
-              contract_validation: result.contract_validation || null,
-              fidelity: result.fidelity_debug || null,
-            },
-            timeline: compliance.changed
-              ? [
-                  {
-                    at: nowIso(),
-                    step: "lyrics",
-                    event: "lyrics_policy_sanitized",
-                    change_count: compliance.change_count,
-                  },
-                ]
-              : [],
-          },
-        );
-
-        return {
-          lyrics_json: toJson(compliance.lyrics),
-          lyrics_status: result.lyrics_status,
-          lyrics_updated_at: new Date().toISOString(),
-          provenance_json: lyricsProvenance,
-        };
-      } catch (err) {
-        if (
-          err &&
-          (err.code === "AI_UNAVAILABLE" || err.message === "AI_UNAVAILABLE")
-        ) {
-          throw new Error("E201_LYRICS_ERROR: AI_UNAVAILABLE");
-        }
-        if (err && err.code === "LYRICS_QUALITY_LOW") {
-          const qualityScore = Number.isFinite(err.quality_score)
-            ? err.quality_score
-            : "unknown";
-          throw new Error(
-            `E201_LYRICS_ERROR: LYRICS_QUALITY_LOW: quality score ${qualityScore}`,
-          );
-        }
-        if (err && err.code === "LYRICS_FIDELITY_LOW") {
-          const fidelityReason =
-            err.fidelity?.feedback || "story fidelity below threshold";
-          throw new Error(
-            `E201_LYRICS_ERROR: LYRICS_FIDELITY_LOW: ${fidelityReason}`,
-          );
-        }
-        throw err;
-      }
-    },
-
-    music_plan: async ({ track, trackVersion, job }) => {
-      const musicConfig = await getMusicProviderConfig({
-        requestedStyle: track.style,
-      });
-      const runtimeMusicConfig = musicConfig?.runtimeConfig || {
-        elevenlabs_generation_mode: "composition_plan",
-        style_overrides: {},
-      };
-      if (musicConfig?.routing) {
-        console.log(
-          `[JobRunner] Music provider routing: style=${musicConfig.routing.style} requested=${musicConfig.routing.requested_provider} resolved=${musicConfig.routing.provider} support=${musicConfig.routing.support} reason=${musicConfig.routing.reason}`,
-        );
-      }
-      const plan = buildMusicPlan({
-        style: track.style,
-        durationTarget: track.duration_target,
-        provider: musicConfig?.provider || null,
-        seed: `${track.id}:${track.latest_version || "v"}:${track.style || "style"}`,
-        styleOverrides: runtimeMusicConfig.style_overrides,
-        generationMode: runtimeMusicConfig.elevenlabs_generation_mode,
-      });
-      if (musicConfig?.routing) {
-        plan.provider_requested = musicConfig.routing.requested_provider;
-        plan.provider_resolved = musicConfig.routing.provider;
-        plan.provider_support = musicConfig.routing.support;
-        plan.provider_support_score = musicConfig.routing.support_score;
-        plan.provider_auto_switched = Boolean(musicConfig.routing.switched);
-        plan.provider_resolution_reason = musicConfig.routing.reason;
-        plan.style_support_degraded = Boolean(musicConfig.routing.degraded);
-      }
-      // Thread voice_gender into music plan so Suno receives vocal metatags
-      if (track.voice_gender) {
-        plan.voice_gender = track.voice_gender;
-      }
-      let voiceConversionProvider = null;
-      let userVoiceEngine = null;
-      let voiceProviderProfileId = null;
-      if (PERSONALIZED_VOICE_MODES.has(track.voice_mode)) {
-        const activeVoiceProfile = await db
-          .prepare(
-            "SELECT id FROM voice_profiles WHERE user_id = ? AND status = 'active' ORDER BY created_at DESC LIMIT 1",
-          )
-          .get(track.user_id);
-        if (!activeVoiceProfile) {
-          throw new Error(
-            "E302_VOICE_PROFILE_REQUIRED: Active voice profile required for My Voice.",
-          );
-        }
-        const renderRequest =
-          parseJson(job?.step_data, {}, "render_request_step_data")
-            ?.render_request || {};
-        const frozenEngine =
-          typeof renderRequest.user_voice_engine === "string"
-            ? renderRequest.user_voice_engine
-            : null;
-        let sunoProviderProfile = null;
-        if (
-          frozenEngine === "suno_voice_persona" &&
-          renderRequest.voice_provider_profile_id
-        ) {
-          sunoProviderProfile = await getProviderProfileById(
-            db,
-            renderRequest.voice_provider_profile_id,
-          );
-          if (
-            sunoProviderProfile?.user_id !== track.user_id ||
-            sunoProviderProfile?.provider !== "suno" ||
-            sunoProviderProfile?.status !== "active"
-          ) {
-            sunoProviderProfile = null;
-          }
-        } else {
-          sunoProviderProfile = await findActiveProviderProfileForUser(db, {
-            userId: track.user_id,
-            provider: "suno",
-          });
-        }
-        if (
-          (!frozenEngine || frozenEngine === "suno_voice_persona") &&
-          sunoProviderProfile &&
-          sunoProviderProfile.provider_profile_id &&
-          hasPersonaConsentScope(sunoProviderProfile.consent_scope)
-        ) {
-          userVoiceEngine = "suno_voice_persona";
-          voiceProviderProfileId = sunoProviderProfile.id;
-        } else {
-          if (frozenEngine && frozenEngine !== "suno_voice_persona") {
-            throw new Error(
-              `E302_PERSONALIZED_VOICE_CONVERSION_DISABLED: My Voice no longer supports '${frozenEngine}' voice conversion. Recreate the render after Suno voice persona is ready.`,
-            );
-          }
-          throw new Error(
-            "E302_SUNO_PERSONA_NOT_READY: Active Suno voice persona is required for My Voice renders.",
-          );
-        }
-      }
-      const renderContract = buildRenderContract({
-        provider: plan.provider_resolved || musicConfig?.provider || null,
-        voiceMode: track.voice_mode,
-        voiceConversionProvider,
-        userVoiceEngine,
-        voiceProviderProfileId,
-      });
-      console.log(
-        `[JobRunner] Render contract: track=${track.id} voice_mode=${renderContract.voice_mode} pipeline=${renderContract.pipeline} user_voice_engine=${renderContract.user_voice_engine || "none"} provider_profile=${renderContract.voice_provider_profile_id ? "present" : "none"}`,
-      );
-      plan.render_contract = renderContract;
-      const provenance_json = mergeProvenanceJson(
-        trackVersion?.provenance_json || null,
-        {
-          music: {
-            provider: plan.provider_resolved || musicConfig?.provider || null,
-            requested_provider: plan.provider_requested || null,
-            routing_reason: plan.provider_resolution_reason || null,
-            support: plan.provider_support || null,
-            support_score: plan.provider_support_score ?? null,
-            generation_mode: plan.generation_mode || "composition_plan",
-            plan_schema_version: plan.plan_schema_version || null,
-            style_prompt_compact: plan.style_prompt_compact || null,
-            provider_style_hint: plan.provider_style_hint || null,
-            style_intent: plan.style_intent || null,
-            render_contract: renderContract,
-          },
-          timeline: [
-            {
-              at: nowIso(),
-              step: "music_plan",
-              event: "music_plan_built",
-              provider: plan.provider_resolved || musicConfig?.provider || null,
-              style: plan.style,
-              generation_mode: plan.generation_mode || "composition_plan",
-              voice_mode: renderContract.voice_mode,
-              pipeline: renderContract.pipeline,
-            },
-          ],
-        },
-      );
-      return { music_plan_json: toJson(plan), provenance_json };
-    },
-
-    instrumental: async ({ track, trackVersion, job }) => {
-      const versionDir = getVersionDir(storageDir, track, trackVersion);
-      const instFile = path.join(versionDir, "inst_preview.mp3");
-
-      // Reuse existing file if present (saves API credits)
-      if (fs.existsSync(instFile)) {
-        console.log(
-          `[JobRunner] Reusing existing instrumental: inst_preview.mp3`,
-        );
-        return {};
-      }
-
-      const lyrics = parseJson(
-        trackVersion.lyrics_json,
-        null,
-        "instrumental_lyrics",
-      );
-      const musicPlan = parseJson(
-        trackVersion.music_plan_json,
-        null,
-        "instrumental_music_plan",
-      );
-      const renderContract = resolveRenderContract({ track, musicPlan });
-      const isPersonalized = renderContract.voice_mode === "user_voice";
-      if (isPersonalized) {
-        assertFrozenContract(musicPlan);
-        assertPersonalizedContract(renderContract, "instrumental");
-      }
-      if (!lyrics) {
-        throw new Error(
-          "E302_WORKFLOW_ERROR: lyrics_json is required before instrumental step",
-        );
-      }
-
-      const pinnedProvider =
-        renderContract.provider_locked || musicPlan?.provider_resolved || null;
-      const musicConfig = await getMusicProviderConfig({
-        requestedStyle: musicPlan?.style || track.style,
-        pinnedProvider,
-      });
-      const routingMetadata = sanitizeProviderRoutingForContract(
-        musicConfig?.routing || null,
-        renderContract,
-      );
-      const policyPreflight = musicConfig
-        ? sanitizeLyricsForProviderPolicy({
-            lyrics,
-            provider: musicConfig.provider,
-            recipientName: track?.recipient_name || null,
-          })
-        : null;
-      const lyricsForProvider = policyPreflight?.lyrics || lyrics;
-      const policyPreflightMeta = policyPreflight
-        ? {
-            provider: musicConfig.provider,
-            changed: Boolean(policyPreflight.changed),
-            blocked: Boolean(policyPreflight.blocked),
-            rewrite_passes: policyPreflight.rewrite_passes || 0,
-            change_count: policyPreflight.change_count || 0,
-            violation_terms: summarizePolicyTerms(
-              policyPreflight.violations || [],
-              8,
-            ),
-            violation_count: Array.isArray(policyPreflight.violations)
-              ? policyPreflight.violations.length
-              : 0,
-          }
-        : null;
-
-      if (policyPreflight?.changed) {
-        console.log(
-          `[JobRunner] Policy preflight adjusted lyrics for provider=${musicConfig.provider} (${policyPreflight.change_count} edits, passes=${policyPreflight.rewrite_passes})`,
-        );
-        assertPolicySanitizerPreservedStoryDetails({
-          originalLyrics: lyrics,
-          sanitizedLyrics: lyricsForProvider,
-          storyContext: buildLyricsContext(track),
-          provider: musicConfig.provider,
-          step: "instrumental",
-          trackId: track.id,
-        });
-        logSanitizerIntervention({
-          provider: musicConfig.provider,
-          changeCount: policyPreflight.change_count,
-          rewritePasses: policyPreflight.rewrite_passes,
-          violationTerms: summarizePolicyTerms(
-            policyPreflight.violations || [],
-            8,
-          ),
-          style: musicPlan?.style || track.style,
-          step: "instrumental",
-          trackId: track.id,
-        });
-      }
-      if (policyPreflight?.blocked) {
-        logProviderRejection({
-          provider: musicConfig.provider,
-          errorCode: "E302_PROVIDER_POLICY_ERROR",
-          errorStatus: "preflight_blocked",
-          rejectedTerms: summarizePolicyTerms(
-            policyPreflight.violations || [],
-            8,
-          ),
-          lyricsHash: lyricsHashSha256(trackVersion.lyrics_json),
-          style: musicPlan?.style || track.style,
-          step: "instrumental",
-          trackId: track.id,
-        });
-        throw buildPolicyPreflightError(policyPreflight);
-      }
-
-      if (musicConfig && musicConfig.provider === "suno") {
-        const sunoPersona = await resolveSunoPersonaForRender({
-          track,
-          renderContract,
-        });
-        try {
-          const sunoResult = await pollOrSubmitSunoTask({
-            musicConfig,
-            job,
-            lyrics: lyricsForProvider,
-            musicPlan,
-            track,
-            trackVersion,
-            kind: "preview",
-            routingMetadata,
-            sunoPersona,
-          });
-          if (sunoResult?.pending) {
-            return sunoResult;
-          }
-          const providerAudioUrl =
-            sunoResult?.instrumental_url || sunoResult?.guide_vocal_url || null;
-          const providerAudioKey = sunoResult?.provider_audio_key || null;
-          const provenance_json = mergeProvenanceJson(
-            trackVersion.provenance_json,
-            {
-              music: {
-                ...(parseJson(
-                  trackVersion.provenance_json,
-                  {},
-                  "prov_preview_music_suno",
-                )?.music || {}),
-                provider: musicConfig.provider,
-                routing: routingMetadata,
-                render_contract: renderContract,
-                provider_audio_url:
-                  providerAudioUrl || getProviderAudioUrl(trackVersion),
-                provider_audio_key:
-                  providerAudioKey || getProviderAudioKey(trackVersion),
-                policy_preflight: policyPreflightMeta || null,
-              },
-              timeline: [
-                policyPreflightMeta
-                  ? {
-                      at: nowIso(),
-                      step: "instrumental",
-                      event: "policy_preflight_applied",
-                      provider: musicConfig.provider,
-                      changed: policyPreflightMeta.changed,
-                      blocked: policyPreflightMeta.blocked,
-                      change_count: policyPreflightMeta.change_count,
-                      violation_count: policyPreflightMeta.violation_count,
-                    }
-                  : null,
-                {
-                  at: nowIso(),
-                  step: "instrumental",
-                  event: "music_generated",
-                  provider: musicConfig.provider,
-                  pipeline: renderContract.pipeline,
-                },
-              ].filter(Boolean),
-            },
-          );
-          const normalizedSunoResult = {
-            ...sunoResult,
-            instrumental_url: providerAudioUrl,
-            guide_vocal_url:
-              renderContract.pipeline === "guide_tts_and_voice_convert"
-                ? sunoResult?.guide_vocal_url || null
-                : null,
-            provider_routing: routingMetadata,
-            provenance_json,
-          };
-          if (policyPreflightMeta) {
-            return {
-              ...normalizedSunoResult,
-              policy_preflight: policyPreflightMeta,
-            };
-          }
-          return normalizedSunoResult;
-        } catch (sunoErr) {
-          if (
-            String(sunoErr?.message || "").includes(
-              "E302_SUNO_INCOMPLETE_OUTPUT",
-            )
-          ) {
-            const recoveredResult = await recoverSunoResultFromExistingTask({
-              musicConfig,
-              job,
-              track,
-              trackVersion,
-              kind: "preview",
-              routingMetadata,
-              renderContract,
-              step: "instrumental",
-            });
-            if (recoveredResult) {
-              console.warn(
-                `[JobRunner] Recovered Suno output from existing task for track ${track.id} after incomplete-output error`,
-              );
-              return recoveredResult;
-            }
-          }
-          throw sunoErr;
-        }
-      }
-
-      if (musicConfig) {
-        const onTaskId = job
-          ? async (taskId) => {
-              const payload = {
-                provider: musicConfig.provider,
-                task_id: taskId,
-                kind: "preview",
-                routing: routingMetadata,
-              };
-              const stamp = new Date().toISOString();
-              await updateJobExternalTask.run(
-                taskId,
-                toJson(payload),
-                stamp,
-                stamp,
-                job.id,
-                runnerId,
-              );
-            }
-          : null;
-        const result = await durabilityService.executeWithDurability({
-          provider:
-            musicConfig.provider === "suno"
-              ? PROVIDERS.SUNO
-              : PROVIDERS.ELEVENLABS,
-          fn: async () =>
-            renderWithProvider({
-              storageDir,
-              track,
-              trackVersion,
-              kind: "preview",
-              providerConfig: musicConfig,
-              lyrics: lyricsForProvider,
-              musicPlan,
-              onTaskId,
-              sunoPersona: await resolveSunoPersonaForRender({
-                track,
-                renderContract,
-              }),
-              storageProvider,
-            }),
-        });
-        const providerMetadata = result?.raw || {};
-        const providerAudioUrl = extractProviderAudioUrl(providerMetadata);
-        const providerAudioKey = providerMetadata.provider_audio_key || null;
-        const useGuideUrl =
-          renderContract.pipeline === "guide_tts_and_voice_convert";
-        const provenance_json = mergeProvenanceJson(
-          trackVersion.provenance_json,
-          {
-            music: {
-              ...(parseJson(
-                trackVersion.provenance_json,
-                {},
-                "prov_preview_music",
-              )?.music || {}),
-              provider: musicConfig.provider,
-              routing: routingMetadata,
-              render_contract: renderContract,
-              provider_audio_url:
-                providerAudioUrl || getProviderAudioUrl(trackVersion),
-              provider_audio_key:
-                providerAudioKey || getProviderAudioKey(trackVersion),
-              generation_mode:
-                providerMetadata.generation_mode ||
-                musicPlan?.generation_mode ||
-                musicConfig?.runtimeConfig?.elevenlabs_generation_mode ||
-                "composition_plan",
-              model_id: providerMetadata.model_id || null,
-              plan_endpoint: providerMetadata.plan_endpoint || null,
-              compose_endpoint: providerMetadata.compose_endpoint || null,
-              composition_plan_summary:
-                providerMetadata.composition_plan_summary || null,
-              response_bytes: providerMetadata.response_bytes || null,
-              policy_preflight: policyPreflightMeta || null,
-            },
-            timeline: [
-              policyPreflightMeta
-                ? {
-                    at: nowIso(),
-                    step: "instrumental",
-                    event: "policy_preflight_applied",
-                    provider: musicConfig.provider,
-                    changed: policyPreflightMeta.changed,
-                    blocked: policyPreflightMeta.blocked,
-                    change_count: policyPreflightMeta.change_count,
-                    violation_count: policyPreflightMeta.violation_count,
-                  }
-                : null,
-              {
-                at: nowIso(),
-                step: "instrumental",
-                event: "music_generated",
-                provider: musicConfig.provider,
-                generation_mode:
-                  providerMetadata.generation_mode ||
-                  musicPlan?.generation_mode ||
-                  musicConfig?.runtimeConfig?.elevenlabs_generation_mode ||
-                  "composition_plan",
-                pipeline: renderContract.pipeline,
-              },
-            ].filter(Boolean),
-          },
-        );
-        return {
-          instrumental_url:
-            providerAudioUrl || result?.raw?.instrumental_url || null,
-          guide_vocal_url: useGuideUrl
-            ? result?.raw?.guide_vocal_url || null
-            : null,
-          provider_routing: routingMetadata,
-          provenance_json,
-        };
-      }
-
-      if (isPersonalized) {
-        throw new Error(
-          "E302_PERSONALIZED_NO_PROVIDER: Personalized render requires a live music provider.",
-        );
-      }
-      renderInstrumental({ storageDir, track, trackVersion, kind: "preview" });
-      renderGuideVocal({ storageDir, track, trackVersion, kind: "preview" });
-      return {};
-    },
-
-    instrumental_full: async ({ track, trackVersion, job }) => {
-      const lyrics = parseJson(
-        trackVersion.lyrics_json,
-        null,
-        "instrumental_full_lyrics",
-      );
-      const musicPlan = parseJson(
-        trackVersion.music_plan_json,
-        null,
-        "instrumental_full_music_plan",
-      );
-      const renderContract = resolveRenderContract({ track, musicPlan });
-      const isPersonalized = renderContract.voice_mode === "user_voice";
-      if (isPersonalized) {
-        assertFrozenContract(musicPlan);
-        assertPersonalizedContract(renderContract, "instrumental_full");
-      }
-      if (!lyrics) {
-        throw new Error(
-          "E302_WORKFLOW_ERROR: lyrics_json is required before instrumental_full step",
-        );
-      }
-
-      const pinnedProvider =
-        renderContract.provider_locked || musicPlan?.provider_resolved || null;
-      const musicConfig = await getMusicProviderConfig({
-        requestedStyle: musicPlan?.style || track.style,
-        pinnedProvider,
-      });
-      const routingMetadata = sanitizeProviderRoutingForContract(
-        musicConfig?.routing || null,
-        renderContract,
-      );
-      const policyPreflight = musicConfig
-        ? sanitizeLyricsForProviderPolicy({
-            lyrics,
-            provider: musicConfig.provider,
-            recipientName: track?.recipient_name || null,
-          })
-        : null;
-      const lyricsForProvider = policyPreflight?.lyrics || lyrics;
-      const policyPreflightMeta = policyPreflight
-        ? {
-            provider: musicConfig.provider,
-            changed: Boolean(policyPreflight.changed),
-            blocked: Boolean(policyPreflight.blocked),
-            rewrite_passes: policyPreflight.rewrite_passes || 0,
-            change_count: policyPreflight.change_count || 0,
-            violation_terms: summarizePolicyTerms(
-              policyPreflight.violations || [],
-              8,
-            ),
-            violation_count: Array.isArray(policyPreflight.violations)
-              ? policyPreflight.violations.length
-              : 0,
-          }
-        : null;
-
-      if (policyPreflight?.changed) {
-        console.log(
-          `[JobRunner] Policy preflight adjusted lyrics for provider=${musicConfig.provider} (${policyPreflight.change_count} edits, passes=${policyPreflight.rewrite_passes})`,
-        );
-        assertPolicySanitizerPreservedStoryDetails({
-          originalLyrics: lyrics,
-          sanitizedLyrics: lyricsForProvider,
-          storyContext: buildLyricsContext(track),
-          provider: musicConfig.provider,
-          step: "instrumental_full",
-          trackId: track.id,
-        });
-        logSanitizerIntervention({
-          provider: musicConfig.provider,
-          changeCount: policyPreflight.change_count,
-          rewritePasses: policyPreflight.rewrite_passes,
-          violationTerms: summarizePolicyTerms(
-            policyPreflight.violations || [],
-            8,
-          ),
-          style: musicPlan?.style || track.style,
-          step: "instrumental_full",
-          trackId: track.id,
-        });
-      }
-      if (policyPreflight?.blocked) {
-        logProviderRejection({
-          provider: musicConfig.provider,
-          errorCode: "E302_PROVIDER_POLICY_ERROR",
-          errorStatus: "preflight_blocked",
-          rejectedTerms: summarizePolicyTerms(
-            policyPreflight.violations || [],
-            8,
-          ),
-          lyricsHash: lyricsHashSha256(trackVersion.lyrics_json),
-          style: musicPlan?.style || track.style,
-          step: "instrumental_full",
-          trackId: track.id,
-        });
-        throw buildPolicyPreflightError(policyPreflight);
-      }
-
-      if (musicConfig && musicConfig.provider === "suno") {
-        const sunoPersona = await resolveSunoPersonaForRender({
-          track,
-          renderContract,
-        });
-        try {
-          const sunoResult = await pollOrSubmitSunoTask({
-            musicConfig,
-            job,
-            lyrics: lyricsForProvider,
-            musicPlan,
-            track,
-            trackVersion,
-            kind: "full",
-            routingMetadata,
-            sunoPersona,
-          });
-          if (sunoResult?.pending) {
-            return sunoResult;
-          }
-          const providerAudioUrl =
-            sunoResult?.instrumental_url || sunoResult?.guide_vocal_url || null;
-          const providerAudioKey = sunoResult?.provider_audio_key || null;
-          const provenance_json = mergeProvenanceJson(
-            trackVersion.provenance_json,
-            {
-              music: {
-                ...(parseJson(
-                  trackVersion.provenance_json,
-                  {},
-                  "prov_full_music_suno",
-                )?.music || {}),
-                provider: musicConfig.provider,
-                routing: routingMetadata,
-                render_contract: renderContract,
-                provider_audio_url:
-                  providerAudioUrl || getProviderAudioUrl(trackVersion),
-                provider_audio_key:
-                  providerAudioKey || getProviderAudioKey(trackVersion),
-                policy_preflight: policyPreflightMeta || null,
-              },
-              timeline: [
-                policyPreflightMeta
-                  ? {
-                      at: nowIso(),
-                      step: "instrumental_full",
-                      event: "policy_preflight_applied",
-                      provider: musicConfig.provider,
-                      changed: policyPreflightMeta.changed,
-                      blocked: policyPreflightMeta.blocked,
-                      change_count: policyPreflightMeta.change_count,
-                      violation_count: policyPreflightMeta.violation_count,
-                    }
-                  : null,
-                {
-                  at: nowIso(),
-                  step: "instrumental_full",
-                  event: "music_generated",
-                  provider: musicConfig.provider,
-                  pipeline: renderContract.pipeline,
-                },
-              ].filter(Boolean),
-            },
-          );
-          const normalizedSunoResult = {
-            ...sunoResult,
-            instrumental_url: providerAudioUrl,
-            guide_vocal_url:
-              renderContract.pipeline === "guide_tts_and_voice_convert"
-                ? sunoResult?.guide_vocal_url || null
-                : null,
-            provider_routing: routingMetadata,
-            provenance_json,
-          };
-          if (policyPreflightMeta) {
-            return {
-              ...normalizedSunoResult,
-              policy_preflight: policyPreflightMeta,
-            };
-          }
-          return normalizedSunoResult;
-        } catch (sunoErr) {
-          if (
-            String(sunoErr?.message || "").includes(
-              "E302_SUNO_INCOMPLETE_OUTPUT",
-            )
-          ) {
-            const recoveredResult = await recoverSunoResultFromExistingTask({
-              musicConfig,
-              job,
-              track,
-              trackVersion,
-              kind: "full",
-              routingMetadata,
-              renderContract,
-              step: "instrumental_full",
-            });
-            if (recoveredResult) {
-              console.warn(
-                `[JobRunner] Recovered Suno full output from existing task for track ${track.id} after incomplete-output error`,
-              );
-              return recoveredResult;
-            }
-          }
-          throw sunoErr;
-        }
-      }
-
-      if (musicConfig) {
-        const onTaskId = job
-          ? async (taskId) => {
-              const payload = {
-                provider: musicConfig.provider,
-                task_id: taskId,
-                kind: "full",
-                routing: routingMetadata,
-              };
-              const stamp = new Date().toISOString();
-              await updateJobExternalTask.run(
-                taskId,
-                toJson(payload),
-                stamp,
-                stamp,
-                job.id,
-                runnerId,
-              );
-            }
-          : null;
-        const result = await durabilityService.executeWithDurability({
-          provider:
-            musicConfig.provider === "suno"
-              ? PROVIDERS.SUNO
-              : PROVIDERS.ELEVENLABS,
-          fn: async () =>
-            renderWithProvider({
-              storageDir,
-              track,
-              trackVersion,
-              kind: "full",
-              providerConfig: musicConfig,
-              lyrics: lyricsForProvider,
-              musicPlan,
-              onTaskId,
-              sunoPersona: await resolveSunoPersonaForRender({
-                track,
-                renderContract,
-              }),
-              storageProvider,
-            }),
-        });
-        const providerMetadata = result?.raw || {};
-        const providerAudioUrl = extractProviderAudioUrl(providerMetadata);
-        const providerAudioKey = providerMetadata.provider_audio_key || null;
-        const useGuideUrl =
-          renderContract.pipeline === "guide_tts_and_voice_convert";
-        const provenance_json = mergeProvenanceJson(
-          trackVersion.provenance_json,
-          {
-            music: {
-              ...(parseJson(trackVersion.provenance_json, {}, "prov_full_music")
-                ?.music || {}),
-              provider: musicConfig.provider,
-              routing: routingMetadata,
-              render_contract: renderContract,
-              provider_audio_url:
-                providerAudioUrl || getProviderAudioUrl(trackVersion),
-              provider_audio_key:
-                providerAudioKey || getProviderAudioKey(trackVersion),
-              generation_mode:
-                providerMetadata.generation_mode ||
-                musicPlan?.generation_mode ||
-                musicConfig?.runtimeConfig?.elevenlabs_generation_mode ||
-                "composition_plan",
-              model_id: providerMetadata.model_id || null,
-              plan_endpoint: providerMetadata.plan_endpoint || null,
-              compose_endpoint: providerMetadata.compose_endpoint || null,
-              composition_plan_summary:
-                providerMetadata.composition_plan_summary || null,
-              response_bytes: providerMetadata.response_bytes || null,
-              policy_preflight: policyPreflightMeta || null,
-            },
-            timeline: [
-              policyPreflightMeta
-                ? {
-                    at: nowIso(),
-                    step: "instrumental_full",
-                    event: "policy_preflight_applied",
-                    provider: musicConfig.provider,
-                    changed: policyPreflightMeta.changed,
-                    blocked: policyPreflightMeta.blocked,
-                    change_count: policyPreflightMeta.change_count,
-                    violation_count: policyPreflightMeta.violation_count,
-                  }
-                : null,
-              {
-                at: nowIso(),
-                step: "instrumental_full",
-                event: "music_generated",
-                provider: musicConfig.provider,
-                generation_mode:
-                  providerMetadata.generation_mode ||
-                  musicPlan?.generation_mode ||
-                  musicConfig?.runtimeConfig?.elevenlabs_generation_mode ||
-                  "composition_plan",
-                pipeline: renderContract.pipeline,
-              },
-            ].filter(Boolean),
-          },
-        );
-        return {
-          instrumental_url:
-            providerAudioUrl || result?.raw?.instrumental_url || null,
-          guide_vocal_url: useGuideUrl
-            ? result?.raw?.guide_vocal_url || null
-            : null,
-          provider_routing: routingMetadata,
-          provenance_json,
-        };
-      }
-
-      if (isPersonalized) {
-        throw new Error(
-          "E302_PERSONALIZED_NO_PROVIDER: Personalized render requires a live music provider.",
-        );
-      }
-      renderInstrumental({ storageDir, track, trackVersion, kind: "full" });
-      renderGuideVocal({ storageDir, track, trackVersion, kind: "full" });
-      return {};
-    },
-
-    guide_vocal: async ({ track, trackVersion }) => {
-      const musicPlan = parseJson(
-        trackVersion.music_plan_json,
-        null,
-        "guide_vocal_music_plan",
-      );
-      const renderContract = resolveRenderContract({ track, musicPlan });
-      const isPersonalized = renderContract.voice_mode === "user_voice";
-      if (isPersonalized) {
-        assertFrozenContract(musicPlan);
-        assertPersonalizedContract(renderContract, "guide_vocal");
-      }
-      if (shouldSkipStep("guide_vocal", renderContract.pipeline)) {
-        console.log(
-          `[JobRunner] Skipping guide_vocal for track ${track.id}: pipeline=${renderContract.pipeline}`,
-        );
-        return {};
-      }
-
-      const versionDir = getVersionDir(storageDir, track, trackVersion);
-      ensureDir(versionDir);
-      const token =
-        trackVersion.guide_access_token ||
-        crypto.randomBytes(16).toString("hex");
-      const guideUrl = `${streamBaseUrl}/guide/${trackVersion.id}?token=${token}`;
-      const fileName = "guide_vocal.mp3";
-      const filePath = path.join(versionDir, fileName);
-
-      // Reuse existing file if present (saves API credits)
-      if (fs.existsSync(filePath)) {
-        console.log(`[JobRunner] Reusing existing guide vocal: ${fileName}`);
-        return {
-          guide_vocal_url: guideUrl,
-          guide_access_token: token,
-        };
-      }
-
-      // TTS is always via ElevenLabs (Suno doesn't do TTS)
-      const musicConfig = await getMusicProviderConfig({
-        requestedStyle: musicPlan?.style || track.style,
-        pinnedProvider:
-          renderContract.provider_locked ||
-          musicPlan?.provider_resolved ||
-          null,
-      });
-      const hasTtsConfig =
-        providerConfig.elevenlabs?.ttsVoiceId &&
-        providerConfig.elevenlabs?.apiKey;
-      if (musicConfig && hasTtsConfig) {
-        const lyrics = parseJson(
-          trackVersion.lyrics_json,
-          null,
-          "guide_vocal_lyrics",
-        );
-        // For preview, only use chorus section to reduce TTS API costs
-        const text = lyricsToText(lyrics, { chorusOnly: true });
-        if (!text) {
-          throw new Error(
-            "E301_GUIDE_VOCAL_MISSING: Lyrics unavailable for guide vocal",
-          );
-        }
-        console.log(
-          `[JobRunner] Generating TTS guide vocal (chorus only) for track ${track.id}`,
-        );
-        await durabilityService.executeWithDurability({
-          provider: PROVIDERS.ELEVENLABS,
-          fn: () =>
-            generateSpeech({
-              baseUrl: providerConfig.elevenlabs.baseUrl,
-              apiKey: providerConfig.elevenlabs.apiKey,
-              voiceId: providerConfig.elevenlabs.ttsVoiceId,
-              text: text,
-              outputPath: filePath,
-              timeoutMs: providerConfig.elevenlabs.timeoutMs,
-            }),
-        });
-        return {
-          guide_vocal_url: guideUrl,
-          guide_access_token: token,
-        };
-      }
-
-      if (isPersonalized) {
-        throw new Error(
-          "E302_PERSONALIZED_NO_TTS: Personalized ElevenLabs render requires TTS config for guide vocal.",
-        );
-      }
-      console.log(
-        `[JobRunner] Using placeholder guide vocal for track ${track.id} (no live provider)`,
-      );
-      const wavPath = path.join(versionDir, "guide_vocal.wav");
-      if (!fs.existsSync(wavPath)) {
-        writeWav(wavPath, { durationSec: 6, frequencyHz: 440 });
-      }
-      return {
-        guide_vocal_url: guideUrl,
-        guide_access_token: token,
-      };
-    },
-    guide_vocal_full: async ({ track, trackVersion }) => {
-      const musicPlan = parseJson(
-        trackVersion.music_plan_json,
-        null,
-        "guide_vocal_full_music_plan",
-      );
-      const renderContract = resolveRenderContract({ track, musicPlan });
-      const isPersonalized = renderContract.voice_mode === "user_voice";
-      if (isPersonalized) {
-        assertFrozenContract(musicPlan);
-        assertPersonalizedContract(renderContract, "guide_vocal_full");
-      }
-      if (shouldSkipStep("guide_vocal_full", renderContract.pipeline)) {
-        console.log(
-          `[JobRunner] Skipping guide_vocal_full for track ${track.id}: pipeline=${renderContract.pipeline}`,
-        );
-        return {};
-      }
-
-      const versionDir = getVersionDir(storageDir, track, trackVersion);
-      ensureDir(versionDir);
-      const token =
-        trackVersion.guide_access_token ||
-        crypto.randomBytes(16).toString("hex");
-      const guideUrl = `${streamBaseUrl}/guide/${trackVersion.id}?token=${token}&kind=full`;
-
-      // TTS is always via ElevenLabs (Suno doesn't do TTS)
-      const musicConfig = await getMusicProviderConfig({
-        requestedStyle: musicPlan?.style || track.style,
-        pinnedProvider:
-          renderContract.provider_locked ||
-          musicPlan?.provider_resolved ||
-          null,
-      });
-      const hasTtsConfig =
-        providerConfig.elevenlabs?.ttsVoiceId &&
-        providerConfig.elevenlabs?.apiKey;
-      if (musicConfig && hasTtsConfig) {
-        const lyrics = parseJson(
-          trackVersion.lyrics_json,
-          null,
-          "guide_vocal_full_lyrics",
-        );
-        const text = lyricsToText(lyrics);
-        if (!text) {
-          throw new Error(
-            "E301_GUIDE_VOCAL_MISSING: Lyrics unavailable for guide vocal",
-          );
-        }
-        console.log(
-          `[JobRunner] Generating TTS full guide vocal for track ${track.id}`,
-        );
-        const fileName = "guide_vocal_full.mp3";
-        const filePath = path.join(versionDir, fileName);
-        await durabilityService.executeWithDurability({
-          provider: PROVIDERS.ELEVENLABS,
-          fn: () =>
-            generateSpeech({
-              baseUrl: providerConfig.elevenlabs.baseUrl,
-              apiKey: providerConfig.elevenlabs.apiKey,
-              voiceId: providerConfig.elevenlabs.ttsVoiceId,
-              text: text,
-              outputPath: filePath,
-              timeoutMs: providerConfig.elevenlabs.timeoutMs,
-            }),
-        });
-        return {
-          guide_vocal_url: guideUrl,
-          guide_access_token: token,
-        };
-      }
-
-      if (isPersonalized) {
-        throw new Error(
-          "E302_PERSONALIZED_NO_TTS: Personalized ElevenLabs render requires TTS config for guide vocal.",
-        );
-      }
-      const wavPath = path.join(versionDir, "guide_vocal_full.wav");
-      if (!fs.existsSync(wavPath)) {
-        writeWav(wavPath, { durationSec: 12, frequencyHz: 440 });
-      }
-      return {
-        guide_vocal_url: guideUrl,
-        guide_access_token: token,
-      };
-    },
-
-    voice_convert: async ({ track, trackVersion }) => {
-      const versionDir = getVersionDir(storageDir, track, trackVersion);
-      const outputFile = path.join(versionDir, "user_vocal.wav");
-
-      // Reuse existing file if present (saves API credits)
-      if (fs.existsSync(outputFile)) {
-        console.log(
-          `[JobRunner] Reusing existing voice conversion: user_vocal.wav`,
-        );
-        return { voice_conversion_url: null };
-      }
-
-      const musicPlan = parseJson(
-        trackVersion.music_plan_json,
-        null,
-        "voice_convert_music_plan",
-      );
-      const renderContract = resolveRenderContract({ track, musicPlan });
-      const isPersonalized = renderContract.voice_mode === "user_voice";
-      if (isPersonalized) {
-        assertFrozenContract(musicPlan);
-        assertPersonalizedContract(renderContract, "voice_convert");
-      }
-      if (shouldSkipStep("voice_convert", renderContract.pipeline)) {
-        console.log(
-          `[JobRunner] Skipping voice_convert for track ${track.id}: pipeline=${renderContract.pipeline}`,
-        );
-        return {};
-      }
-      const guideUrl = trackVersion.guide_vocal_url;
-      const providerAudioUrl = getProviderAudioUrl(trackVersion);
-      const conversionSourceUrl =
-        renderContract.pipeline === "provider_audio_personalized_convert"
-          ? providerAudioUrl
-          : guideUrl;
-
-      // AI voice (non-personalized): use guide vocal for voice conversion
-      if (!isPersonalized) {
-        if (providerConfig.replicate?.live && guideUrl) {
-          const result = await durabilityService.executeWithDurability({
-            provider: PROVIDERS.REPLICATE,
-            fn: () =>
-              convertVoice({
-                storageDir,
-                track,
-                trackVersion,
-                kind: "preview",
-                providerConfig: providerConfig.replicate,
-                inputUrl: guideUrl,
-              }),
-          });
-          return {
-            voice_conversion_url: result?.output_url || guideUrl || null,
-          };
-        }
-        const ensured = await ensureUserVocalFromGuide({
-          versionDir,
-          kind: "preview",
-        });
-        if (!ensured) {
-          throw new Error(
-            "E301_GUIDE_VOCAL_MISSING: guide vocal required for AI voice conversion",
-          );
-        }
-        return { voice_conversion_url: guideUrl || null };
-      }
-
-      // Personalized mode requires source audio for voice conversion
-      if (!conversionSourceUrl) {
-        throw new Error(
-          `E301_VOICE_CONVERT_MISSING_INPUT: ${
-            renderContract.pipeline === "provider_audio_personalized_convert"
-              ? "Provider audio URL"
-              : "Guide vocal URL"
-          } required for voice conversion`,
-        );
-      }
-
-      const result = await performVoiceConversion({
-        db,
-        track,
-        trackVersion,
-        kind: "preview",
-        versionDir,
-        conversionSourceUrl,
-        providerConfig,
-        durabilityService,
-        storageDir,
-        storageProvider,
-        renderContract,
-      });
-
-      await applyVocalPolish({ db, outputFile, versionDir, kind: "preview" });
-
-      return { voice_conversion_url: result?.output_url || null };
-    },
-
-    voice_convert_sections: async ({ track, trackVersion }) => {
-      const versionDir = getVersionDir(storageDir, track, trackVersion);
-      const outputFile = path.join(versionDir, "user_vocal_full.wav");
-
-      // Reuse existing file if present (saves API credits)
-      if (fs.existsSync(outputFile)) {
-        console.log(
-          `[JobRunner] Reusing existing voice conversion: user_vocal_full.wav`,
-        );
-        return { voice_conversion_url: null };
-      }
-
-      const musicPlan = parseJson(
-        trackVersion.music_plan_json,
-        null,
-        "voice_convert_sections_music_plan",
-      );
-      const renderContract = resolveRenderContract({ track, musicPlan });
-      const isPersonalized = renderContract.voice_mode === "user_voice";
-      if (isPersonalized) {
-        assertFrozenContract(musicPlan);
-        assertPersonalizedContract(renderContract, "voice_convert_sections");
-      }
-      if (shouldSkipStep("voice_convert_sections", renderContract.pipeline)) {
-        console.log(
-          `[JobRunner] Skipping voice_convert_sections for track ${track.id}: pipeline=${renderContract.pipeline}`,
-        );
-        return {};
-      }
-      const guideUrl = trackVersion.guide_vocal_url;
-      const providerAudioUrl = getProviderAudioUrl(trackVersion);
-      const conversionSourceUrl =
-        renderContract.pipeline === "provider_audio_personalized_convert"
-          ? providerAudioUrl
-          : guideUrl;
-
-      // AI voice (non-personalized): use guide vocal for voice conversion
-      if (!isPersonalized) {
-        if (providerConfig.replicate?.live && guideUrl) {
-          const result = await durabilityService.executeWithDurability({
-            provider: PROVIDERS.REPLICATE,
-            fn: () =>
-              convertVoice({
-                storageDir,
-                track,
-                trackVersion,
-                kind: "full",
-                providerConfig: providerConfig.replicate,
-                inputUrl: guideUrl,
-              }),
-          });
-          return {
-            voice_conversion_url: result?.output_url || guideUrl || null,
-          };
-        }
-        const ensured = await ensureUserVocalFromGuide({
-          versionDir,
-          kind: "full",
-        });
-        if (!ensured) {
-          throw new Error(
-            "E301_GUIDE_VOCAL_MISSING: guide vocal required for AI voice conversion",
-          );
-        }
-        return { voice_conversion_url: guideUrl || null };
-      }
-
-      // Personalized mode requires source audio for voice conversion
-      if (!conversionSourceUrl) {
-        throw new Error(
-          `E301_VOICE_CONVERT_MISSING_INPUT: ${
-            renderContract.pipeline === "provider_audio_personalized_convert"
-              ? "Provider audio URL"
-              : "Guide vocal URL"
-          } required for voice conversion`,
-        );
-      }
-
-      const result = await performVoiceConversion({
-        db,
-        track,
-        trackVersion,
-        kind: "full",
-        versionDir,
-        conversionSourceUrl,
-        providerConfig,
-        durabilityService,
-        storageDir,
-        storageProvider,
-        renderContract,
-      });
-
-      await applyVocalPolish({ db, outputFile, versionDir, kind: "full" });
-
-      return { voice_conversion_url: result?.output_url || null };
-    },
-
-    mix: async ({ track, trackVersion, workflow }) => {
-      const versionDir = getVersionDir(storageDir, track, trackVersion);
-      ensureDir(versionDir);
-
-      const isFull = workflow === "full_render";
-      const vocalFileName = isFull ? "user_vocal_full.wav" : "user_vocal.wav";
-      const vocalPath = path.join(versionDir, vocalFileName);
-      const mixPath = path.join(versionDir, "mix.wav");
-
-      const musicPlan = parseJson(
-        trackVersion.music_plan_json,
-        null,
-        "mix_music_plan",
-      );
-      const renderContract = resolveRenderContract({ track, musicPlan });
-      const isPersonalized = renderContract.voice_mode === "user_voice";
-      if (isPersonalized) {
-        assertFrozenContract(musicPlan);
-        assertPersonalizedContract(renderContract, "mix");
-      }
-      const musicConfig = await getMusicProviderConfig({
-        requestedStyle: musicPlan?.style || track.style,
-        pinnedProvider:
-          renderContract.provider_locked ||
-          musicPlan?.provider_resolved ||
-          null,
-      });
-      const providerAudioUrl = getProviderAudioUrl(trackVersion);
-      const providerAudioKey = getProviderAudioKey(trackVersion);
-
-      if (isProviderCompleteAudioPipeline(renderContract.pipeline)) {
-        const providerLocalPath = path.join(
-          versionDir,
-          `${renderContract.provider_locked}_complete.mp3`,
-        );
-        await hydrateProviderCompleteAudio({
-          providerLocalPath,
-          providerAudioKey,
-          providerAudioUrl,
-          storageProvider,
-        });
-        const providerFallbackPaths = [
-          path.join(versionDir, isFull ? "inst_full.mp3" : "inst_preview.mp3"),
-          path.join(versionDir, isFull ? "inst_full.wav" : "inst_preview.wav"),
-        ];
-        const sourcePath = fs.existsSync(providerLocalPath)
-          ? providerLocalPath
-          : providerFallbackPaths.find((candidatePath) =>
-              fs.existsSync(candidatePath),
-            ) || null;
-        if (!sourcePath) {
-          throw new Error(
-            `E301_MISSING_INPUTS: Provider-complete audio missing for ${isPersonalized ? "user voice" : "AI voice"} mix`,
-          );
-        }
-        await runFFmpeg([
-          "-y",
-          "-i",
-          sourcePath,
-          "-ar",
-          "44100",
-          "-ac",
-          "2",
-          mixPath,
-        ]);
-        console.log(
-          `[Mix] ${isPersonalized ? "User voice persona" : "AI voice"}: using provider-complete audio directly (provider=${renderContract.provider_locked})`,
-        );
-        return {};
-      }
-
-      if (!isPersonalized && !fs.existsSync(vocalPath)) {
-        const ensured = await ensureUserVocalFromGuide({
-          versionDir,
-          kind: isFull ? "full" : "preview",
-        });
-        if (ensured) {
-          console.log(
-            `[Mix] AI voice: built missing vocal from guide for track ${track.id}`,
-          );
-        }
-      }
-
-      const instBaseName = isFull ? "inst_full" : "inst_preview";
-
-      // Personalized Suno: Demucs instrumental is REQUIRED (no silent fallback)
-      if (
-        isPersonalized &&
-        renderContract.provider_locked === "suno" &&
-        fs.existsSync(vocalPath)
-      ) {
-        const separatedInstPath = path.join(
-          versionDir,
-          "stems",
-          "instrumental.wav",
-        );
-        if (!fs.existsSync(separatedInstPath)) {
-          throw new Error(
-            "E301_MISSING_STEMS: Demucs stem separation required for personalized Suno voice. " +
-              "Voice conversion produces vocals-only; instrumental stems must exist.",
-          );
-        }
-
-        // Timbre blending: mix original AI vocals with converted vocals before final mix
-        // Batch-fetch all blend flags in one query to avoid N+1
-        const blendFlags = await getFeatureFlags(db, [
-          "timbre_blend_ratio",
-          "timbre_blend_strategy",
-          "spectral_crossover_low_hz",
-          "spectral_crossover_high_hz",
-          "spectral_mid_blend_ratio",
-          "doubling_level",
-          "doubling_presence_cut_freq",
-          "doubling_presence_cut_gain",
-          "formant_transfer_strength",
-          "formant_max_gain_db",
-          "perceptual_ai_influence",
-          "perceptual_ducking_strength",
-          "perceptual_attack_ms",
-          "perceptual_release_ms",
-        ]);
-        const blendRatio = blendFlags["timbre_blend_ratio"] ?? 0.25;
-        const blendStrategy =
-          blendFlags["timbre_blend_strategy"] ?? "amplitude";
-        const originalVocalsPath = path.join(versionDir, "stems", "vocals.wav");
-        let finalVocalPath = vocalPath;
-
-        if (blendRatio < 1.0 && fs.existsSync(originalVocalsPath)) {
-          const blendedPath = path.join(versionDir, "blended_vocal.wav");
-
-          // Map strategy names to their flag-sourced params
-          const strategyParamsMap = {
-            spectral_crossover: {
-              lowCrossover: blendFlags["spectral_crossover_low_hz"] ?? 300,
-              highCrossover: blendFlags["spectral_crossover_high_hz"] ?? 3000,
-              midBlendRatio: blendFlags["spectral_mid_blend_ratio"] ?? 0.3,
-            },
-            vocal_doubling: {
-              doublingLevel: blendFlags["doubling_level"] ?? 0.12,
-              presenceCutFreq: blendFlags["doubling_presence_cut_freq"] ?? 4000,
-              presenceCutGain: blendFlags["doubling_presence_cut_gain"] ?? -8,
-            },
-            formant_transfer: {
-              transferStrength: blendFlags["formant_transfer_strength"] ?? 0.5,
-              maxGainDb: blendFlags["formant_max_gain_db"] ?? 12,
-            },
-            perceptual_primary: {
-              aiInfluence: blendFlags["perceptual_ai_influence"] ?? 0.15,
-              duckingStrength:
-                blendFlags["perceptual_ducking_strength"] ?? 0.85,
-              attackMs: blendFlags["perceptual_attack_ms"] ?? 10,
-              releaseMs: blendFlags["perceptual_release_ms"] ?? 150,
-            },
-          };
-          const strategyParams = strategyParamsMap[blendStrategy] || {};
-
-          console.log(
-            `[Mix] Timbre blending: strategy=${blendStrategy}, blend=${blendRatio}, params=${JSON.stringify(strategyParams)}`,
-          );
-          try {
-            await blendVocals({
-              originalVocalPath: originalVocalsPath,
-              convertedVocalPath: vocalPath,
-              outputPath: blendedPath,
-              blendRatio,
-              strategy: blendStrategy,
-              strategyParams,
-            });
-            finalVocalPath = blendedPath;
-          } catch (blendErr) {
-            console.error(
-              `[Mix] Timbre blend (${blendStrategy}) failed, falling back to 100% converted:`,
-              blendErr,
-            );
-          }
-        } else if (blendRatio < 1.0) {
-          console.warn(
-            `[Mix] Timbre blend requested but stems/vocals.wav missing — using 100% converted`,
-          );
-        }
-
-        console.log(
-          `[Mix] Personalized voice: mixing ${blendRatio < 1.0 ? "blended" : "converted"} vocals with Demucs instrumental`,
-        );
-        await mixTracksPersonalized({
-          vocalPath: finalVocalPath,
-          instrumentalPath: separatedInstPath,
-          outputPath: mixPath,
-          vocalGain: 1.0,
-          instrumentalGain: 0.62,
-        });
-        return {};
-      }
-
-      // Standard path: find instrumental in order of preference
-      let instPath = path.join(versionDir, "stems", "instrumental.wav");
-      if (!fs.existsSync(instPath)) {
-        instPath = path.join(versionDir, `${instBaseName}.mp3`);
-      }
-      if (!fs.existsSync(instPath)) {
-        instPath = path.join(versionDir, `${instBaseName}.wav`);
-      }
-
-      if (fs.existsSync(vocalPath) && fs.existsSync(instPath)) {
-        if (isPersonalized) {
-          await mixTracksPersonalized({
-            vocalPath,
-            instrumentalPath: instPath,
-            outputPath: mixPath,
-            vocalGain: 0.95,
-            instrumentalGain: 0.62,
-          });
-        } else {
-          // Standard mixing: separate vocal + instrumental tracks
-          await mixTracks({
-            vocalPath,
-            instrumentalPath: instPath,
-            outputPath: mixPath,
-            vocalGain: 0.85,
-            instrumentalGain: 0.65,
-          });
-        }
-      } else {
-        const requireRealAudio = musicConfig || providerConfig.replicate?.live;
-        if (requireRealAudio) {
-          throw new Error(
-            "E301_MISSING_INPUTS: Vocal or instrumental missing for mix",
-          );
-        }
-        writeWav(mixPath, { durationSec: isFull ? 12 : 6, frequencyHz: 260 });
-      }
-
-      return {};
-    },
-
-    watermark: async ({ track, trackVersion, workflow }) => {
-      const versionDir = getVersionDir(storageDir, track, trackVersion);
-      ensureDir(versionDir);
-
-      const isFull = workflow === "full_render";
-      const musicPlan = parseJson(
-        trackVersion.music_plan_json,
-        null,
-        "watermark_music_plan",
-      );
-      const musicConfig = await getMusicProviderConfig({
-        requestedStyle: musicPlan?.style || track.style,
-        pinnedProvider: musicPlan?.provider_resolved || null,
-      });
-      const mixPath = path.join(versionDir, "mix.wav");
-      const watermarkedPath = path.join(versionDir, "watermarked.wav");
-      const outputFileName = isFull ? "full.m4a" : "preview.m4a";
-      const outputPath = path.join(versionDir, outputFileName);
-
-      if (fs.existsSync(mixPath)) {
-        await embedWatermark(mixPath, watermarkedPath, trackVersion.id);
-        await encodeToAAC(watermarkedPath, outputPath, "128k");
-
-        const hlsDir = path.join(versionDir, "hls");
-        try {
-          await createHLSPlaylist(outputPath, hlsDir, 4);
-        } catch (err) {
-          console.error(
-            `[JobRunner] HLS playlist creation failed for track ${track.id}:`,
-            err.message,
-          );
-          // HLS is optional - streaming may be unavailable but download will work
-        }
-      } else {
-        const requireRealAudio = musicConfig || providerConfig.replicate?.live;
-        if (requireRealAudio) {
-          throw new Error("E301_MISSING_INPUTS: Mix missing for watermark");
-        }
-        writeWav(outputPath, {
-          durationSec: isFull ? 12 : 6,
-          frequencyHz: 280,
-        });
-      }
-
-      // SVC-10: Clean up intermediate files after successful watermark
-      try {
-        const intermediateMixPath = path.join(versionDir, "mix.wav");
-        if (fs.existsSync(intermediateMixPath))
-          fs.unlinkSync(intermediateMixPath);
-      } catch (e) {
-        /* best-effort cleanup — preserve on failure for retry */
-      }
-      try {
-        if (fs.existsSync(watermarkedPath)) fs.unlinkSync(watermarkedPath);
-      } catch (e) {
-        /* best-effort cleanup */
-      }
-
-      return {};
-    },
-
-    ready: async ({ track, trackVersion, workflow }) => {
-      const runtimeConfig = await getRuntimeMusicRoutingConfig();
-      const qualityThreshold = clampNumber(
-        runtimeConfig.quality_threshold,
-        0,
-        100,
-        72,
-      );
-      const maxRerolls = Math.max(
-        0,
-        Math.min(3, Number(runtimeConfig.max_rerolls ?? 1) || 0),
-      );
-      const rerollEnabled = runtimeConfig.auto_reroll_enabled !== false;
-      const musicPlan = parseJson(
-        trackVersion.music_plan_json,
-        null,
-        "ready_music_plan",
-      );
-      const provenanceState = parseJson(
-        trackVersion.provenance_json,
-        {},
-        "ready_provenance",
-      );
-      const rerollCount = Number(provenanceState?.quality?.reroll_count || 0);
-      const liveMusicProviderAvailable =
-        Boolean(providerConfig?.elevenlabs?.live) ||
-        Boolean(providerConfig?.suno?.live);
-
-      if (!liveMusicProviderAvailable) {
-        const skippedQuality = {
-          passed: true,
-          skipped: true,
-          reason: "live_music_provider_unavailable",
-          threshold: qualityThreshold,
-          total_score: 100,
-        };
-        const provenance_json = mergeProvenanceJson(
-          trackVersion.provenance_json,
-          {
-            quality: {
-              threshold: qualityThreshold,
-              last_evaluation: skippedQuality,
-              reroll_count: rerollCount,
-            },
-            timeline: [
-              {
-                at: nowIso(),
-                step: "ready",
-                event: "quality_gate_skipped",
-              },
-            ],
-          },
-        );
-        return { provenance_json, quality_gate: skippedQuality };
-      }
-
-      const qualityReport = await evaluateRenderQuality({
-        track,
-        trackVersion,
-        workflowType: workflow,
-        musicPlan,
-        qualityThreshold,
-      });
-
-      const provenance_json = mergeProvenanceJson(
-        trackVersion.provenance_json,
-        {
-          quality: {
-            threshold: qualityThreshold,
-            last_evaluation: qualityReport,
-            reroll_count: qualityReport.passed
-              ? rerollCount
-              : rerollEnabled && rerollCount < maxRerolls
-                ? rerollCount + 1
-                : rerollCount,
-          },
-          timeline: [
-            {
-              at: nowIso(),
-              step: "ready",
-              event: qualityReport.passed
-                ? "quality_gate_passed"
-                : "quality_gate_failed",
-              score: qualityReport.total_score,
-              threshold: qualityThreshold,
-              reroll_count: rerollCount,
-            },
-          ],
-        },
-      );
-
-      if (qualityReport.passed) {
-        return {
-          provenance_json,
-          quality_gate: qualityReport,
-        };
-      }
-
-      if (rerollEnabled && rerollCount < maxRerolls) {
-        const tightenedPlan = tightenMusicPlanForReroll(
-          musicPlan,
-          qualityReport,
-        );
-        return {
-          reroll_requested: true,
-          reroll_count: rerollCount + 1,
-          reroll_reason: qualityReport.summary,
-          music_plan_json: tightenedPlan ? toJson(tightenedPlan) : null,
-          quality_gate: qualityReport,
-          provenance_json,
-        };
-      }
-
-      throw new Error(`E302_QUALITY_GATE_FAILED: ${qualityReport.summary}`);
-    },
-  };
+  const stepRegistry = createStepRegistry({
+    ...createModerationSteps({ moderationCheck, parseJson }),
+    ...createLyricsSteps({
+      assertPolicySanitizerPreservedStoryDetails,
+      buildLyricsContext,
+      generateLyrics,
+      mergeProvenanceJson,
+      nowIso,
+      parseJson,
+      sanitizeLyricsForAllMusicProviders,
+      summarizeLyricsContextForLog,
+      toJson,
+    }),
+    ...createMusicPlanSteps({
+      buildMusicPlan,
+      buildRenderContract,
+      db,
+      findActiveProviderProfileForUser,
+      findActiveVoiceProfileForUser,
+      getMusicProviderConfig,
+      getProviderProfileById,
+      hasPersonaConsentScope,
+      mergeProvenanceJson,
+      nowIso,
+      parseJson,
+      PERSONALIZED_VOICE_MODES,
+      toJson,
+    }),
+    ...createInstrumentalSteps({
+      assertFrozenContract,
+      assertPersonalizedContract,
+      assertPolicySanitizerPreservedStoryDetails,
+      buildLyricsContext,
+      buildPolicyPreflightError,
+      durabilityService,
+      extractProviderAudioUrl,
+      getMusicProviderConfig,
+      getProviderAudioKey,
+      getProviderAudioUrl,
+      getVersionDir,
+      jobDurabilityRepository,
+      logProviderRejection,
+      logSanitizerIntervention,
+      lyricsHashSha256,
+      mergeProvenanceJson,
+      nowIso,
+      parseJson,
+      pollOrSubmitSunoTask,
+      PROVIDERS,
+      recoverSunoResultFromExistingTask,
+      renderGuideVocal,
+      renderInstrumental,
+      renderWithProvider,
+      resolveRenderContract,
+      resolveSunoPersonaForRender,
+      runnerId,
+      sanitizeLyricsForProviderPolicy,
+      sanitizeProviderRoutingForContract,
+      storageDir,
+      storageProvider,
+      summarizePolicyTerms,
+      toJson,
+    }),
+    ...createGuideVocalSteps({
+      assertFrozenContract,
+      assertPersonalizedContract,
+      durabilityService,
+      ensureDir,
+      generateSpeech,
+      getMusicProviderConfig,
+      getVersionDir,
+      lyricsToText,
+      parseJson,
+      providerConfig,
+      PROVIDERS,
+      resolveRenderContract,
+      shouldSkipStep,
+      storageDir,
+      streamBaseUrl,
+      writeWav,
+    }),
+    ...createVoiceConversionSteps({
+      applyVocalPolish,
+      assertFrozenContract,
+      assertPersonalizedContract,
+      convertVoice,
+      db,
+      durabilityService,
+      ensureUserVocalFromGuide,
+      getProviderAudioUrl,
+      getVersionDir,
+      parseJson,
+      performVoiceConversion,
+      providerConfig,
+      PROVIDERS,
+      resolveRenderContract,
+      shouldSkipStep,
+      storageDir,
+      storageProvider,
+    }),
+    ...createMixSteps({
+      assertFrozenContract,
+      assertPersonalizedContract,
+      blendVocals,
+      db,
+      ensureDir,
+      ensureUserVocalFromGuide,
+      getFeatureFlags,
+      getMusicProviderConfig,
+      getProviderAudioKey,
+      getProviderAudioUrl,
+      getVersionDir,
+      isProviderCompleteAudioPipeline,
+      mixTracks,
+      mixTracksPersonalized,
+      parseJson,
+      providerConfig,
+      resolveRenderContract,
+      runFFmpeg,
+      storageDir,
+      storageProvider,
+      writeWav,
+    }),
+    ...createWatermarkSteps({
+      createHLSPlaylist,
+      embedWatermark,
+      encodeToAAC,
+      ensureDir,
+      getMusicProviderConfig,
+      getVersionDir,
+      parseJson,
+      providerConfig,
+      storageDir,
+      writeWav,
+    }),
+    ...createReadySteps({
+      clampNumber,
+      evaluateRenderQuality,
+      getRuntimeMusicRoutingConfig,
+      mergeProvenanceJson,
+      nowIso,
+      parseJson,
+      providerConfig,
+      tightenMusicPlanForReroll,
+      toJson,
+    }),
+  });
 
   // Concurrent job processing configuration
   const MAX_CONCURRENT = parseInt(process.env.MAX_CONCURRENT_JOBS || "3", 10);
@@ -4545,19 +2420,25 @@ async function startJobRunner({
     const nextStep = steps[nextIndex] || null;
     const nextPct = computeProgress(nextIndex, steps.length);
     if (nextStep) {
-      await updateJob.run(
-        "queued",
-        nextStep,
-        nextIndex,
-        stepData ? toJson(stepData) : null,
-        nextPct,
-        now,
-        now,
-        job.id,
+      await jobDurabilityRepository.advanceJobToStep({
+        jobId: job.id,
         runnerId,
-      );
+        status: "queued",
+        step: nextStep,
+        stepIndex: nextIndex,
+        stepDataJson: stepData ? toJson(stepData) : null,
+        progressPct: nextPct,
+        now,
+      });
     } else {
-      await updateJobStatus.run("completed", 100, now, now, job.id, runnerId);
+      await jobDurabilityRepository.markJobTerminal({
+        jobId: job.id,
+        runnerId,
+        status: "completed",
+        progressPct: 100,
+        completedAt: now,
+        updatedAt: now,
+      });
     }
   }
 
@@ -4571,30 +2452,26 @@ async function startJobRunner({
       job.workflow_type === "full_render" ? FULL_STEPS : PREVIEW_STEPS;
     const stepIndex = job.step_index || 0;
     const progressPct = computeProgress(stepIndex, steps.length);
-    const claim = await claimJob.run(
+    const claim = await jobDurabilityRepository.claimQueuedJob({
+      jobId: job.id,
       runnerId,
       now,
-      now,
-      now,
       progressPct,
-      now,
-      job.id,
-      now,
-    );
+    });
     if (claim.changes === 0) {
       return;
     }
     job.status = "running";
     const stepName = steps[stepIndex];
     if (!stepName) {
-      const terminalUpdate = await updateJobStatus.run(
-        "completed",
-        100,
-        now,
-        now,
-        job.id,
+      const terminalUpdate = await jobDurabilityRepository.markJobTerminal({
+        jobId: job.id,
         runnerId,
-      );
+        status: "completed",
+        progressPct: 100,
+        completedAt: now,
+        updatedAt: now,
+      });
       if (!terminalUpdate || terminalUpdate.changes === 0) {
         console.warn(
           `[JobRunner] Could not complete terminal job ${job.id}; lock ownership lost`,
@@ -4602,24 +2479,25 @@ async function startJobRunner({
       }
       return;
     }
-    const stepUpdate = await updateJobStep.run(
-      stepName,
+    const stepUpdate = await jobDurabilityRepository.markJobStepRunning({
+      jobId: job.id,
+      runnerId,
+      step: stepName,
       stepIndex,
       progressPct,
       now,
-      now,
-      job.id,
-      runnerId,
-    );
+    });
     if (stepUpdate.changes === 0) {
       console.warn(
         `[JobRunner] Lost ownership of job ${job.id} during step update, skipping`,
       );
       return;
     }
-    const trackVersion = await getTrackVersion.get(job.track_version_id);
+    const trackVersion = await trackVersionRepository.findById(
+      job.track_version_id,
+    );
     const track = trackVersion
-      ? await getTrack.get(trackVersion.track_id)
+      ? await trackVersionRepository.findTrackById(trackVersion.track_id)
       : null;
 
     // Fail job if track or trackVersion was deleted during processing
@@ -4627,18 +2505,18 @@ async function startJobRunner({
       console.error(
         `[JobRunner] Job ${job.id} failed: track or trackVersion not found (may have been deleted)`,
       );
-      await updateJobFailure.run(
-        "failed",
-        stepName,
-        stepIndex,
-        "E404_RESOURCE_DELETED",
-        "Track or track version was deleted during processing",
-        100,
-        now,
-        now,
-        job.id,
+      await jobDurabilityRepository.markJobFailed({
+        jobId: job.id,
         runnerId,
-      );
+        status: "failed",
+        step: stepName,
+        stepIndex,
+        errorCode: "E404_RESOURCE_DELETED",
+        errorMessage: "Track or track version was deleted during processing",
+        progressPct: 100,
+        completedAt: now,
+        updatedAt: now,
+      });
       return;
     }
 
@@ -4683,18 +2561,18 @@ async function startJobRunner({
         console.error(
           `[JobRunner] Job ${job.id} exceeded max circuit breaker parks (${parkCount}), failing to DLQ`,
         );
-        await updateJobFailure.run(
-          "failed",
-          stepName,
-          stepIndex,
-          "S503_PROVIDER_UNAVAILABLE",
-          `All providers unavailable after ${parkCount} circuit breaker parks`,
-          progressPct,
-          now,
-          now,
-          job.id,
+        await jobDurabilityRepository.markJobFailed({
+          jobId: job.id,
           runnerId,
-        );
+          status: "failed",
+          step: stepName,
+          stepIndex,
+          errorCode: "S503_PROVIDER_UNAVAILABLE",
+          errorMessage: `All providers unavailable after ${parkCount} circuit breaker parks`,
+          progressPct,
+          completedAt: now,
+          updatedAt: now,
+        });
         try {
           const dlq = getDLQService();
           await dlq.moveToDeadLetter({
@@ -4722,18 +2600,18 @@ async function startJobRunner({
       console.warn(
         `[JobRunner] All providers circuit-open for ${stepName}, parking job ${job.id} (park ${parkCount + 1}/${MAX_CIRCUIT_PARKS})`,
       );
-      await updateJobPending.run(
-        "queued",
-        stepName,
-        stepIndex,
-        updatedStepData,
-        progressPct,
-        now,
-        nextAttemptAt,
-        now,
-        job.id,
+      await jobDurabilityRepository.parkJobUntil({
+        jobId: job.id,
         runnerId,
-      );
+        status: "queued",
+        step: stepName,
+        stepIndex,
+        stepDataJson: updatedStepData,
+        progressPct,
+        heartbeatAt: now,
+        nextAttemptAt,
+        updatedAt: now,
+      });
       return;
     }
 
@@ -4762,16 +2640,16 @@ async function startJobRunner({
             `[JobRunner] Skipping memoized step "${stepName}" for job ${job.id} (${memo.field} exists)`,
           );
           try {
-            await insertStepHistory.run(
-              generatePrefixedId("sh"),
-              job.id,
+            await jobDurabilityRepository.createStepHistory({
+              id: generatePrefixedId("sh"),
+              jobId: job.id,
               stepName,
-              0,
-              "skipped",
-              now,
-              now,
-              0,
-            );
+              attempt: 0,
+              status: "skipped",
+              startedAt: now,
+              completedAt: now,
+              durationMs: 0,
+            });
           } catch (_) {
             /* best-effort */
           }
@@ -4812,18 +2690,18 @@ async function startJobRunner({
             `[JobRunner] Missing intermediate files for step "${stepName}": [${missing.join(", ")}]. ` +
               `Resetting job ${job.id} to step "${resetStep}" (container restart recovery).`,
           );
-          await updateJobPending.run(
-            "queued",
-            resetStep,
-            resetIndex,
-            null,
-            progressPct,
-            now,
-            null,
-            now,
-            job.id,
+          await jobDurabilityRepository.parkJobUntil({
+            jobId: job.id,
             runnerId,
-          );
+            status: "queued",
+            step: resetStep,
+            stepIndex: resetIndex,
+            stepDataJson: null,
+            progressPct,
+            heartbeatAt: now,
+            nextAttemptAt: null,
+            updatedAt: now,
+          });
           return;
         }
       }
@@ -4832,21 +2710,19 @@ async function startJobRunner({
     let stepData = null;
     let isPending = false;
     if (track && trackVersion) {
-      const handler = stepHandlers[stepName];
+      const handler = stepRegistry.get(stepName);
       if (handler) {
         const stepHistoryId = generatePrefixedId("sh");
         const stepStartMs = Date.now();
         try {
-          await insertStepHistory.run(
-            stepHistoryId,
-            job.id,
+          await jobDurabilityRepository.createStepHistory({
+            id: stepHistoryId,
+            jobId: job.id,
             stepName,
-            (job.attempts || 0) + 1,
-            "running",
-            now,
-            null,
-            null,
-          );
+            attempt: (job.attempts || 0) + 1,
+            status: "running",
+            startedAt: now,
+          });
         } catch (_) {
           /* best-effort */
         }
@@ -4859,25 +2735,23 @@ async function startJobRunner({
           });
           isPending = Boolean(updates && updates.pending);
           if (!isPending && updates && Object.keys(updates).length) {
-            await updateTrackVersion.run(
-              trackVersion.status,
-              trackVersion.completed_at,
-              null,
-              null,
-              updates.lyrics_json || null,
-              updates.lyrics_status || null,
-              updates.lyrics_updated_at || null,
-              updates.lyrics_approved_at || null,
-              updates.music_plan_json || null,
-              updates.moderation_status || null,
-              updates.moderation_reason || null,
-              updates.instrumental_url || null,
-              updates.guide_vocal_url || null,
-              updates.guide_access_token || null,
-              updates.voice_conversion_url || null,
-              updates.provenance_json || null,
-              trackVersion.id,
-            );
+            await trackVersionRepository.applyRenderStepUpdates({
+              trackVersionId: trackVersion.id,
+              status: trackVersion.status,
+              completedAt: trackVersion.completed_at,
+              lyricsJson: updates.lyrics_json || null,
+              lyricsStatus: updates.lyrics_status || null,
+              lyricsUpdatedAt: updates.lyrics_updated_at || null,
+              lyricsApprovedAt: updates.lyrics_approved_at || null,
+              musicPlanJson: updates.music_plan_json || null,
+              moderationStatus: updates.moderation_status || null,
+              moderationReason: updates.moderation_reason || null,
+              instrumentalUrl: updates.instrumental_url || null,
+              guideVocalUrl: updates.guide_vocal_url || null,
+              guideAccessToken: updates.guide_access_token || null,
+              voiceConversionUrl: updates.voice_conversion_url || null,
+              provenanceJson: updates.provenance_json || null,
+            });
           }
           stepData = updates || null;
           if (job?.id && updates && Object.keys(updates).length > 0) {
@@ -4895,26 +2769,25 @@ async function startJobRunner({
           }
           const stepEndMs = Date.now();
           try {
-            await updateStepHistory.run(
-              "completed",
-              null,
-              new Date(stepEndMs).toISOString(),
-              stepEndMs - stepStartMs,
-              stepHistoryId,
-            );
+            await jobDurabilityRepository.finishStepHistory({
+              id: stepHistoryId,
+              status: "completed",
+              completedAt: new Date(stepEndMs).toISOString(),
+              durationMs: stepEndMs - stepStartMs,
+            });
           } catch (_) {
             /* best-effort */
           }
         } catch (err) {
           const stepEndMs = Date.now();
           try {
-            await updateStepHistory.run(
-              "failed",
-              err.message,
-              new Date(stepEndMs).toISOString(),
-              stepEndMs - stepStartMs,
-              stepHistoryId,
-            );
+            await jobDurabilityRepository.finishStepHistory({
+              id: stepHistoryId,
+              status: "failed",
+              errorMessage: err.message,
+              completedAt: new Date(stepEndMs).toISOString(),
+              durationMs: stepEndMs - stepStartMs,
+            });
           } catch (_) {
             /* best-effort */
           }
@@ -4941,15 +2814,15 @@ async function startJobRunner({
             console.warn(
               `[JobRunner] Retrying job ${job.id} after ${retryAfter}s (attempt ${attemptNumber}/${maxAttempts})`,
             );
-            await updateJobAttempt.run(
-              "queued",
-              progressPct,
-              now,
-              nextAttemptAt,
-              now,
-              job.id,
+            await jobDurabilityRepository.requeueJobAttempt({
+              jobId: job.id,
               runnerId,
-            );
+              status: "queued",
+              progressPct,
+              heartbeatAt: now,
+              nextAttemptAt,
+              updatedAt: now,
+            });
             return;
           }
           if (nonRetryablePolicyError || attemptNumber >= maxAttempts) {
@@ -4973,54 +2846,44 @@ async function startJobRunner({
               });
             }
             const errorInfo = getErrorInfo(err);
-            const failureUpdate = await updateJobFailure.run(
-              "failed",
-              stepName,
-              stepIndex,
-              errorInfo.code,
-              errorInfo.message,
-              100,
-              now,
-              now,
-              job.id,
+            const failureUpdate = await jobDurabilityRepository.markJobFailed({
+              jobId: job.id,
               runnerId,
-            );
+              status: "failed",
+              step: stepName,
+              stepIndex,
+              errorCode: errorInfo.code,
+              errorMessage: errorInfo.message,
+              progressPct: 100,
+              completedAt: now,
+              updatedAt: now,
+            });
             if (!failureUpdate || failureUpdate.changes === 0) {
               console.error(
                 `[JobRunner] Lost ownership while marking job ${job.id} failed; forcing terminal failure state`,
               );
-              await updateJobFailureNoLock.run(
-                "failed",
-                stepName,
+              await jobDurabilityRepository.forceMarkJobFailed({
+                jobId: job.id,
+                status: "failed",
+                step: stepName,
                 stepIndex,
-                errorInfo.code,
-                errorInfo.message,
-                100,
-                now,
-                now,
-                job.id,
-              );
+                errorCode: errorInfo.code,
+                errorMessage: errorInfo.message,
+                progressPct: 100,
+                completedAt: now,
+                updatedAt: now,
+              });
             }
-            await updateTrackVersion.run(
-              "failed",
-              now,
-              null,
-              null,
-              null,
-              null,
-              null,
-              null,
-              null,
-              null,
-              null,
-              null,
-              null,
-              null,
-              null,
-              null,
-              trackVersion.id,
-            );
-            await updateTrack.run("failed", now, track.id);
+            await trackVersionRepository.applyRenderStepUpdates({
+              trackVersionId: trackVersion.id,
+              status: "failed",
+              completedAt: now,
+            });
+            await trackVersionRepository.updateTrackStatus({
+              trackId: track.id,
+              status: "failed",
+              updatedAt: now,
+            });
 
             // Move to DLQ for debugging and potential reprocessing
             try {
@@ -5039,11 +2902,11 @@ async function startJobRunner({
                 dlqErr.message,
               );
               try {
-                await db
-                  .prepare(
-                    "UPDATE jobs SET error_message = error_message || ' [DLQ_INSERT_FAILED: ' || ? || ']', updated_at = ? WHERE id = ?",
-                  )
-                  .run(dlqErr.message, now, job.id);
+                await jobDurabilityRepository.appendDlqInsertFailure({
+                  jobId: job.id,
+                  errorMessage: dlqErr.message,
+                  now,
+                });
               } catch (updateErr) {
                 console.error(
                   `[JobRunner] Failed to update job ${job.id} with DLQ error:`,
@@ -5052,15 +2915,15 @@ async function startJobRunner({
               }
             }
           } else {
-            await updateJobAttempt.run(
-              "queued",
-              progressPct,
-              now,
-              null,
-              now,
-              job.id,
+            await jobDurabilityRepository.requeueJobAttempt({
+              jobId: job.id,
               runnerId,
-            );
+              status: "queued",
+              progressPct,
+              heartbeatAt: now,
+              nextAttemptAt: null,
+              updatedAt: now,
+            });
           }
           return;
         }
@@ -5071,52 +2934,66 @@ async function startJobRunner({
       const nextAttemptAt = new Date(
         Date.now() + retryAfterSec * 1000,
       ).toISOString();
-      await updateJobPending.run(
-        "queued",
-        stepName,
-        stepIndex,
-        stepData ? toJson(stepData) : null,
-        progressPct,
-        now,
-        nextAttemptAt,
-        now,
-        job.id,
+      await jobDurabilityRepository.parkJobUntil({
+        jobId: job.id,
         runnerId,
-      );
+        status: "queued",
+        step: stepName,
+        stepIndex,
+        stepDataJson: stepData ? toJson(stepData) : null,
+        progressPct,
+        heartbeatAt: now,
+        nextAttemptAt,
+        updatedAt: now,
+      });
       return;
     }
     if (stepData && stepData.status_override === "blocked") {
-      await updateTrackVersion.run(
-        "blocked",
-        now,
-        null,
-        null,
-        stepData.lyrics_json || null,
-        stepData.lyrics_status || null,
-        stepData.lyrics_updated_at || null,
-        stepData.lyrics_approved_at || null,
-        stepData.music_plan_json || null,
-        stepData.moderation_status || "blocked",
-        stepData.moderation_reason || "blocked",
-        stepData.instrumental_url || null,
-        stepData.guide_vocal_url || null,
-        stepData.guide_access_token || null,
-        stepData.voice_conversion_url || null,
-        stepData.provenance_json || null,
-        trackVersion.id,
-      );
-      await updateTrack.run("failed", now, track.id);
-      await updateUserRisk.run("high", track.user_id);
-      await updateJobStatus.run("blocked", 100, now, now, job.id, runnerId);
-      await insertAuditLog.run(
-        crypto.randomUUID(),
-        track.user_id,
-        "moderation_blocked",
-        "track_version",
-        trackVersion.id,
-        JSON.stringify({ reason: stepData.moderation_reason || "blocked" }),
-        now,
-      );
+      await trackVersionRepository.applyRenderStepUpdates({
+        trackVersionId: trackVersion.id,
+        status: "blocked",
+        completedAt: now,
+        lyricsJson: stepData.lyrics_json || null,
+        lyricsStatus: stepData.lyrics_status || null,
+        lyricsUpdatedAt: stepData.lyrics_updated_at || null,
+        lyricsApprovedAt: stepData.lyrics_approved_at || null,
+        musicPlanJson: stepData.music_plan_json || null,
+        moderationStatus: stepData.moderation_status || "blocked",
+        moderationReason: stepData.moderation_reason || "blocked",
+        instrumentalUrl: stepData.instrumental_url || null,
+        guideVocalUrl: stepData.guide_vocal_url || null,
+        guideAccessToken: stepData.guide_access_token || null,
+        voiceConversionUrl: stepData.voice_conversion_url || null,
+        provenanceJson: stepData.provenance_json || null,
+      });
+      await trackVersionRepository.updateTrackStatus({
+        trackId: track.id,
+        status: "failed",
+        updatedAt: now,
+      });
+      await authSecurityRepository.setUserRiskLevel({
+        userId: track.user_id,
+        riskLevel: "high",
+      });
+      await jobDurabilityRepository.markJobTerminal({
+        jobId: job.id,
+        runnerId,
+        status: "blocked",
+        progressPct: 100,
+        completedAt: now,
+        updatedAt: now,
+      });
+      await eventsRepository.insertAuditLog({
+        id: crypto.randomUUID(),
+        userId: track.user_id,
+        action: "moderation_blocked",
+        resourceType: "track_version",
+        resourceId: trackVersion.id,
+        metadataJson: JSON.stringify({
+          reason: stepData.moderation_reason || "blocked",
+        }),
+        createdAt: now,
+      });
       return;
     }
 
@@ -5129,39 +3006,56 @@ async function startJobRunner({
       const rerollProgress = computeProgress(rerollStepIndex, steps.length);
       const versionDir = getVersionDir(storageDir, track, trackVersion);
       cleanupForReroll(versionDir, job.workflow_type);
-      await updateJobReroll.run(
-        "queued",
-        rerollStepName,
-        rerollStepIndex,
-        toJson({
+      await jobDurabilityRepository.advanceJobForReroll({
+        jobId: job.id,
+        runnerId,
+        status: "queued",
+        step: rerollStepName,
+        stepIndex: rerollStepIndex,
+        stepDataJson: toJson({
           reroll_count: stepData.reroll_count || 1,
           reroll_reason: stepData.reroll_reason || "quality_gate_failed",
           quality_gate: stepData.quality_gate || null,
         }),
-        rerollProgress,
+        progressPct: rerollProgress,
         now,
-        now,
-        job.id,
-        runnerId,
-      );
+      });
       return;
     }
 
     if (stepName === "ready") {
-      const trackVersionReady = await getTrackVersion.get(job.track_version_id);
+      const trackVersionReady = await trackVersionRepository.findById(
+        job.track_version_id,
+      );
       if (!trackVersionReady) {
         console.error(
           `[JobRunner] Job ${job.id} ready step: trackVersion ${job.track_version_id} not found`,
         );
-        await updateJobStatus.run("failed", 100, now, now, job.id, runnerId);
+        await jobDurabilityRepository.markJobTerminal({
+          jobId: job.id,
+          runnerId,
+          status: "failed",
+          progressPct: 100,
+          completedAt: now,
+          updatedAt: now,
+        });
         return;
       }
-      const trackReady = await getTrack.get(trackVersionReady.track_id);
+      const trackReady = await trackVersionRepository.findTrackById(
+        trackVersionReady.track_id,
+      );
       if (!trackReady) {
         console.error(
           `[JobRunner] Job ${job.id} ready step: track ${trackVersionReady.track_id} not found`,
         );
-        await updateJobStatus.run("failed", 100, now, now, job.id, runnerId);
+        await jobDurabilityRepository.markJobTerminal({
+          jobId: job.id,
+          runnerId,
+          status: "failed",
+          progressPct: 100,
+          completedAt: now,
+          updatedAt: now,
+        });
         return;
       }
       const isFull = job.workflow_type === "full_render";
@@ -5173,15 +3067,13 @@ async function startJobRunner({
 
       // Generate cover images before upload so storage sync can include them, but do not
       // publish cover URLs until the render commit succeeds.
+      const versionDir = getVersionDir(
+        storageDir,
+        trackReady,
+        trackVersionReady,
+      );
       if (isSharpAvailable()) {
         try {
-          const versionDir = path.join(
-            storageDir,
-            "tracks",
-            trackReady.user_id,
-            trackReady.id,
-            `v${trackVersionReady.version_num}`,
-          );
           generatedCover = await generateCover({
             versionDir,
             track: trackReady,
@@ -5214,20 +3106,17 @@ async function startJobRunner({
             sections.length > 0 &&
             sections[0].startTime === undefined
           ) {
-            const vDir = path.join(
-              storageDir,
-              "tracks",
-              trackReady.user_id,
-              trackReady.id,
-              `v${trackVersionReady.version_num}`,
-            );
             const audioFile = path.join(
-              vDir,
+              versionDir,
               isFull ? "full.m4a" : "preview.m4a",
             );
             if (fs.existsSync(audioFile)) {
               const lyricsText = sectionsToText(sections);
-              const whisperResult = await alignLyrics(audioFile, lyricsText);
+              const whisperResult = await alignLyrics(
+                audioFile,
+                lyricsText,
+                lyricsAlignmentWhisperConfig,
+              );
               const enriched = alignSectionsToTimestamps(
                 sections,
                 whisperResult,
@@ -5236,10 +3125,10 @@ async function startJobRunner({
                 ? { ...lyricsData, sections: enriched }
                 : enriched;
               const enrichedJson = toJson(enrichedData);
-              await updateTrackVersionLyricsOnly.run(
-                enrichedJson,
-                trackVersionReady.id,
-              );
+              await trackVersionRepository.updateVersionLyricsJson({
+                trackVersionId: trackVersionReady.id,
+                lyricsJson: enrichedJson,
+              });
               trackVersionReady.lyrics_json = enrichedJson;
               console.log(
                 `[JobRunner] Lyrics aligned for track ${trackReady.id} (${whisperResult.words?.length || 0} words matched)`,
@@ -5279,40 +3168,30 @@ async function startJobRunner({
           );
 
           if (process.env.NODE_ENV === "production") {
-            // Use the standard failure path: update job, track_version, track, DLQ, and billing hold
+            // Use the standard failure path: update job, track_version, track, and DLQ.
             const readyStepIndex = steps.indexOf("ready");
-            await updateJobFailure.run(
-              "failed",
-              "ready",
-              readyStepIndex,
-              "S3_UPLOAD_FAILED",
-              s3Error.message,
-              100,
-              now,
-              now,
-              job.id,
+            await jobDurabilityRepository.markJobFailed({
+              jobId: job.id,
               runnerId,
-            );
-            await updateTrackVersion.run(
-              "failed",
-              now,
-              null,
-              null,
-              null,
-              null,
-              null,
-              null,
-              null,
-              null,
-              null,
-              null,
-              null,
-              null,
-              null,
-              null,
-              trackVersionReady.id,
-            );
-            await updateTrack.run("failed", now, trackReady.id);
+              status: "failed",
+              step: "ready",
+              stepIndex: readyStepIndex,
+              errorCode: "S3_UPLOAD_FAILED",
+              errorMessage: s3Error.message,
+              progressPct: 100,
+              completedAt: now,
+              updatedAt: now,
+            });
+            await trackVersionRepository.applyRenderStepUpdates({
+              trackVersionId: trackVersionReady.id,
+              status: "failed",
+              completedAt: now,
+            });
+            await trackVersionRepository.updateTrackStatus({
+              trackId: trackReady.id,
+              status: "failed",
+              updatedAt: now,
+            });
             try {
               const dlq = getDLQService();
               await dlq.moveToDeadLetter({
@@ -5378,50 +3257,41 @@ async function startJobRunner({
       }
 
       // Commit ready-state only after upload success (or dev-mode local fallback).
-      await updateTrackVersion.run(
+      await trackVersionRepository.applyRenderStepUpdates({
+        trackVersionId: trackVersionReady.id,
         status,
-        now,
-        isFull ? null : url,
-        isFull ? url : null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        completionProvenance,
-        trackVersionReady.id,
-      );
-      await updateTrack.run(
-        isFull ? "ready" : "preview_ready",
-        now,
-        trackReady.id,
-      );
+        completedAt: now,
+        previewUrl: isFull ? null : url,
+        fullUrl: isFull ? url : null,
+        provenanceJson: completionProvenance,
+      });
+      await trackVersionRepository.updateTrackStatus({
+        trackId: trackReady.id,
+        status: isFull ? "ready" : "preview_ready",
+        updatedAt: now,
+      });
       if (generatedCover) {
-        await updateTrackVersionCover.run(
-          generatedCover.coverUrl,
-          generatedCover.smallUrl,
-          generatedCover.largeUrl,
-          trackVersionReady.id,
-        );
+        await trackVersionRepository.updateVersionCoverImages({
+          trackVersionId: trackVersionReady.id,
+          coverImageUrl: generatedCover.coverUrl,
+          coverImageSmallUrl: generatedCover.smallUrl,
+          coverImageLargeUrl: generatedCover.largeUrl,
+        });
       }
       // Song entitlement is consumed when a version first starts generation.
       // Full render on the same version reuses that entitlement, so the runner
       // should never deduct again at completion.
-      await insertAuditLog.run(
-        crypto.randomUUID(),
-        trackReady.user_id,
-        "render_completed",
-        "track_version",
-        trackVersionReady.id,
-        JSON.stringify({ render_type: isFull ? "full" : "preview" }),
-        now,
-      );
+      await eventsRepository.insertAuditLog({
+        id: crypto.randomUUID(),
+        userId: trackReady.user_id,
+        action: "render_completed",
+        resourceType: "track_version",
+        resourceId: trackVersionReady.id,
+        metadataJson: JSON.stringify({
+          render_type: isFull ? "full" : "preview",
+        }),
+        createdAt: now,
+      });
       writePlaceholderOutputs({
         storageDir,
         track: trackReady,
@@ -5442,13 +3312,6 @@ async function startJobRunner({
       // Clean up intermediate files only after fully successful render (including S3)
       // In dev mode with S3 failure, keep temp files for debugging
       if (s3UploadSucceeded) {
-        const versionDir = path.join(
-          storageDir,
-          "tracks",
-          trackReady.user_id,
-          trackReady.id,
-          `v${trackVersionReady.version_num}`,
-        );
         cleanupTempFiles(versionDir);
       }
 
@@ -5474,11 +3337,9 @@ async function startJobRunner({
       // Send push notification to user's devices (fire-and-forget)
       if (pushNotification.isConfigured()) {
         try {
-          const devices = await db
-            .prepare(
-              "SELECT push_token FROM devices WHERE user_id = ? AND push_token IS NOT NULL",
-            )
-            .all(trackReady.user_id);
+          const devices = await deviceRepository.listPushTokensForUser(
+            trackReady.user_id,
+          );
           for (const device of devices || []) {
             if (device.push_token) {
               pushNotification
@@ -5504,7 +3365,14 @@ async function startJobRunner({
         }
       }
 
-      await updateJobStatus.run("completed", 100, now, now, job.id, runnerId);
+      await jobDurabilityRepository.markJobTerminal({
+        jobId: job.id,
+        runnerId,
+        status: "completed",
+        progressPct: 100,
+        completedAt: now,
+        updatedAt: now,
+      });
       return;
     }
 
@@ -5514,7 +3382,7 @@ async function startJobRunner({
   };
 
   // Tick function dispatches jobs to available concurrent slots
-  const tick = async () => {
+  const tick = async ({ waitForCompletion = true } = {}) => {
     const now = new Date().toISOString();
     const availableSlots = MAX_CONCURRENT - activeJobs;
     if (availableSlots <= 0) return;
@@ -5526,28 +3394,26 @@ async function startJobRunner({
       const heartbeatCutoff = new Date(
         Date.now() - 2 * 60 * 1000,
       ).toISOString();
-      const blockedUsers = await getBlockedUsers.all(
-        heartbeatCutoff,
-        MAX_CONCURRENT_PER_USER,
-      );
+      const blockedUsers =
+        await jobDurabilityRepository.listRunningUserIdsAtCapacity({
+          heartbeatCutoff,
+          maxConcurrent: MAX_CONCURRENT_PER_USER,
+        });
       blockedUserIds = new Set(blockedUsers.map((r) => r.user_id));
     }
 
     // Fetch extra candidates to compensate for user filtering
     const fetchLimit = availableSlots + blockedUserIds.size;
-    const candidates = await selectJobs.all(now, fetchLimit);
+    const candidates = await jobDurabilityRepository.listQueuedRunnableJobs({
+      now,
+      limit: fetchLimit,
+    });
     let candidateUsersByJobId = new Map();
     if (blockedUserIds.size > 0 && candidates.length > 0) {
       const ids = candidates.map((job) => job.track_version_id).filter(Boolean);
       if (ids.length > 0) {
-        const placeholders = ids.map(() => "?").join(",");
-        const { rows } = await db.query(
-          `SELECT tv.id AS track_version_id, t.user_id
-             FROM track_versions tv
-             JOIN tracks t ON t.id = tv.track_id
-            WHERE tv.id IN (${placeholders})`,
-          ids,
-        );
+        const rows =
+          await jobDurabilityRepository.listUserIdsForTrackVersionIds(ids);
         candidateUsersByJobId = new Map(
           rows.map((row) => [row.track_version_id, row.user_id]),
         );
@@ -5571,32 +3437,34 @@ async function startJobRunner({
       );
     }
 
+    const dispatchedJobPromises = [];
     for (const job of eligibleJobs) {
       processingJobs.add(job.id);
       activeJobs++;
 
-      // Process job in background (don't await)
-      processJob(job)
+      const jobPromise = processJob(job)
         .catch((err) => console.error(`[JobRunner] Job ${job.id} error:`, err))
         .finally(() => {
           activeJobs--;
           processingJobs.delete(job.id);
         });
+      dispatchedJobPromises.push(jobPromise);
+    }
+
+    if (waitForCompletion && dispatchedJobPromises.length > 0) {
+      await Promise.all(dispatchedJobPromises);
     }
   };
 
   const voiceProviderProcessingJobs = new Set();
   let activeVoiceProviderJobs = 0;
   let voiceProviderLaneDisabled = false;
-  let selectVoiceProviderJobs = null;
 
   const heartbeatVoiceProviderJob = async (jobId) => {
-    const heartbeatAt = new Date().toISOString();
-    await db
-      .prepare(
-        "UPDATE voice_provider_jobs SET locked_at = ? WHERE id = ? AND locked_by = ? AND status = ?",
-      )
-      .run(heartbeatAt, jobId, runnerId, "running");
+    await heartbeatVoiceProviderJobInStore(db, {
+      id: jobId,
+      lockedBy: runnerId,
+    });
   };
 
   const tickVoiceProviderJobs = async () => {
@@ -5609,33 +3477,13 @@ async function startJobRunner({
       return;
     }
     const now = new Date().toISOString();
-    try {
-      if (!selectVoiceProviderJobs) {
-        selectVoiceProviderJobs = db.prepare(
-          `SELECT *
-             FROM voice_provider_jobs
-            WHERE status = 'pending'
-              AND provider = 'suno'
-              AND attempts < max_attempts
-              AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
-            ORDER BY updated_at ASC, created_at ASC
-            LIMIT ?`,
-        );
-      }
-    } catch (err) {
-      const message = String(err?.message || err || "");
-      if (/voice_provider_jobs|no such table|does not exist/i.test(message)) {
-        voiceProviderLaneDisabled = true;
-        console.warn(
-          "[JobRunner] Suno voice persona job lane disabled; voice_provider_jobs table is unavailable.",
-        );
-        return;
-      }
-      throw err;
-    }
     let candidates = [];
     try {
-      candidates = await selectVoiceProviderJobs.all(now, availableSlots);
+      candidates = await listDueVoiceProviderJobs(db, {
+        provider: "suno",
+        now,
+        limit: availableSlots,
+      });
     } catch (err) {
       const message = String(err?.message || err || "");
       if (/voice_provider_jobs|no such table|does not exist/i.test(message)) {
@@ -5693,7 +3541,7 @@ async function startJobRunner({
 
   const timer = setInterval(async () => {
     try {
-      await tick();
+      await tick({ waitForCompletion: false });
       await tickVoiceProviderJobs();
     } catch (err) {
       console.error("[JobRunner] Unhandled error in tick:", err);

@@ -4,6 +4,7 @@ const assert = require("node:assert/strict");
 const {
   deriveStoryBlockProfile,
   evaluateNarrativeBlockCoverage,
+  factText,
   repairNarrativeFromBlockProfile,
   repairSongMapWithProfile,
   scoreSectionPurposeFitness,
@@ -101,4 +102,11 @@ test("repairSongMapWithProfile can recover a distinct bridge without reusing the
   assert.equal(repaired.report.valid, true);
   assert.notEqual(repaired.song_map.bridge[0].idea, repaired.song_map.chorus[0].idea);
   assert.match(repaired.song_map.bridge[0].idea, /grew steadier|changed everything|partnership/i);
+});
+
+test("factText preserves shared string and object fact text behavior", () => {
+  assert.equal(factText("plain fact"), "plain fact");
+  assert.equal(factText({ text: "object fact" }), "object fact");
+  assert.equal(factText({ content: "ignored legacy content" }), "");
+  assert.equal(factText(null), "");
 });

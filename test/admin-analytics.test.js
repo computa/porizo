@@ -7,6 +7,7 @@ const { beforeEach, afterEach, describe, test } = require("node:test");
 
 const { getDatabase } = require("../src/database");
 const { buildServer } = require("../src/server");
+const { AdminService } = require("../src/services/admin-service");
 const { newUuid } = require("../src/utils/ids");
 
 function buildTestApp(db) {
@@ -262,4 +263,43 @@ describe("admin analytics routes", () => {
     });
     assert.equal(response.statusCode, 401);
   });
+});
+
+describe("AdminService analytics repository boundary", () => {
+  test("composes admin audit writes through EventsRepository", async () => {
+    let auditPayload;
+    const fakeEventsRepository = {
+      async insertAuditLog(payload) {
+        auditPayload = payload;
+        return { changes: 1 };
+      },
+    };
+
+    const service = new AdminService(
+      { prepare: () => { throw new Error("unexpected db access"); } },
+      { eventsRepository: fakeEventsRepository },
+    );
+
+    await service.adminAuditService.audit(
+      "admin_2",
+      "admin_lock_user",
+      "user",
+      "user_2",
+      { reason: "risk review" },
+    );
+
+    assert.ok(auditPayload, "expected delegated audit insert");
+    assert.match(auditPayload.id, /^audit_[a-f0-9]{24}$/);
+    assert.equal(auditPayload.userId, "admin_2");
+    assert.equal(auditPayload.action, "admin_lock_user");
+    assert.equal(auditPayload.resourceType, "user");
+    assert.equal(auditPayload.resourceId, "user_2");
+    assert.match(auditPayload.createdAt, /^\d{4}-\d{2}-\d{2}T/);
+    assert.deepEqual(JSON.parse(auditPayload.metadataJson), {
+      actor: "admin",
+      admin_id: "admin_2",
+      reason: "risk review",
+    });
+  });
+
 });

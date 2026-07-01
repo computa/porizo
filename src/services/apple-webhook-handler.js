@@ -17,6 +17,9 @@
  */
 
 const crypto = require("crypto");
+const {
+  createAppleWebhookRepository,
+} = require("../database/apple-webhook-repository");
 
 /**
  * Apple notification types
@@ -76,24 +79,7 @@ function createAppleWebhookHandler(db, options = {}) {
     throw new Error("subscriptionManager is required");
   }
 
-  /**
-   * Get query function based on database type
-   */
-  function getQuery() {
-    if (typeof db.query === "function") {
-      return db.query.bind(db);
-    }
-    return async (sql, params) => {
-      const stmt = await db.prepare(sql);
-      if (sql.trim().toUpperCase().startsWith("SELECT")) {
-        return { rows: stmt.all(...(params || [])) };
-      }
-      const result = stmt.run(...(params || []));
-      return { changes: result.changes };
-    };
-  }
-
-  const query = getQuery();
+  const repository = createAppleWebhookRepository(db);
 
   /**
    * Check if a notification has already been processed (idempotency)
@@ -102,11 +88,7 @@ function createAppleWebhookHandler(db, options = {}) {
    * @returns {Promise<boolean>} True if already processed
    */
   async function isNotificationProcessed(notificationUUID) {
-    const result = await query(
-      "SELECT id FROM webhook_notifications WHERE platform = 'apple' AND notification_uuid = ?",
-      [notificationUUID],
-    );
-    return result.rows.length > 0;
+    return repository.isNotificationProcessed(notificationUUID);
   }
 
   /**
@@ -121,17 +103,11 @@ function createAppleWebhookHandler(db, options = {}) {
     status,
     result = null,
   ) {
-    const payloadUpdate = result ? `, payload_json = ?` : "";
-    const params = result
-      ? [status, JSON.stringify(result), notificationUUID]
-      : [status, notificationUUID];
-
-    await query(
-      `UPDATE webhook_notifications
-       SET status = ?, processed_at = CURRENT_TIMESTAMP${payloadUpdate}
-       WHERE platform = 'apple' AND notification_uuid = ?`,
-      params,
-    );
+    await repository.updateNotificationStatus({
+      notificationUUID,
+      status,
+      payloadJson: result ? JSON.stringify(result) : null,
+    });
   }
 
   /**
@@ -146,24 +122,14 @@ function createAppleWebhookHandler(db, options = {}) {
 
     try {
       // Try to insert or update existing DLQ entry
-      await query(
-        `INSERT INTO webhook_dead_letter_queue
-         (id, platform, notification_type, notification_uuid, raw_payload, error_message, error_stack)
-         VALUES (?, 'apple', ?, ?, ?, ?, ?)
-         ON CONFLICT(platform, notification_uuid) DO UPDATE SET
-           attempt_count = attempt_count + 1,
-           last_failed_at = CURRENT_TIMESTAMP,
-           error_message = excluded.error_message,
-           error_stack = excluded.error_stack`,
-        [
-          id,
-          notification.notificationType,
-          notification.notificationUUID,
-          rawPayload,
-          error.message,
-          error.stack || null,
-        ],
-      );
+      await repository.upsertDeadLetterNotification({
+        id,
+        notificationType: notification.notificationType,
+        notificationUUID: notification.notificationUUID,
+        rawPayload,
+        errorMessage: error.message,
+        errorStack: error.stack || null,
+      });
 
       console.error(
         `[Apple Webhook] Moved to DLQ: ${notification.notificationType} (${notification.notificationUUID})`,
@@ -188,14 +154,9 @@ function createAppleWebhookHandler(db, options = {}) {
    * @returns {Promise<Object|null>} Subscription and user info
    */
   async function findSubscriptionByOriginalTxId(originalTransactionId) {
-    const result = await query(
-      `SELECT s.*, u.id as user_id
-       FROM subscriptions s
-       JOIN users u ON s.user_id = u.id
-       WHERE s.original_transaction_id = ?`,
-      [originalTransactionId],
+    return repository.findSubscriptionByOriginalTransactionId(
+      originalTransactionId,
     );
-    return result.rows[0] || null;
   }
 
   /**
@@ -308,18 +269,12 @@ function createAppleWebhookHandler(db, options = {}) {
 
     // SQLite's sql.js adapter routes INSERT...RETURNING through .run() which doesn't
     // return rows, so we use INSERT ON CONFLICT DO NOTHING and check `changes` instead.
-    const claimResult = await query(
-      `INSERT INTO webhook_notifications
-       (id, platform, notification_type, notification_uuid, subscription_id, user_id, payload_json, status, processed_at, created_at)
-       VALUES (?, 'apple', ?, ?, NULL, NULL, ?, 'pending', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-       ON CONFLICT (platform, notification_uuid) DO NOTHING`,
-      [claimId, notificationType, notificationUUID, payloadJson],
-    );
-
-    // Check if our insert won (changes > 0) or another process already claimed it
-    const inserted =
-      claimResult.changes > 0 ||
-      (claimResult.rowCount != null && claimResult.rowCount > 0);
+    const inserted = await repository.claimNotification({
+      id: claimId,
+      notificationType,
+      notificationUUID,
+      payloadJson,
+    });
 
     if (!inserted) {
       return {
@@ -624,14 +579,7 @@ function createAppleWebhookHandler(db, options = {}) {
     }
 
     // Billing retry without grace period
-    await query(
-      `UPDATE subscriptions SET
-         status = 'billing_retry',
-         is_in_billing_retry = 1,
-         updated_at = CURRENT_TIMESTAMP
-       WHERE id = ?`,
-      [subscription.id],
-    );
+    await repository.markSubscriptionBillingRetry(subscription.id);
 
     return {
       handled: true,
@@ -745,13 +693,10 @@ function createAppleWebhookHandler(db, options = {}) {
     }
 
     // Record the pending change - actual tier change happens at next renewal
-    await query(
-      `UPDATE subscriptions SET
-         pending_product_id = ?,
-         updated_at = CURRENT_TIMESTAMP
-       WHERE id = ?`,
-      [txInfo.autoRenewProductId, subscription.id],
-    );
+    await repository.updateSubscriptionPendingProduct({
+      subscriptionId: subscription.id,
+      pendingProductId: txInfo.autoRenewProductId,
+    });
 
     return {
       handled: true,
@@ -776,13 +721,10 @@ function createAppleWebhookHandler(db, options = {}) {
     const autoRenewEnabled =
       subtype === NOTIFICATION_SUBTYPES.AUTO_RENEW_ENABLED;
 
-    await query(
-      `UPDATE subscriptions SET
-         auto_renew_enabled = ?,
-         updated_at = CURRENT_TIMESTAMP
-       WHERE id = ?`,
-      [autoRenewEnabled ? 1 : 0, subscription.id],
-    );
+    await repository.updateSubscriptionAutoRenewEnabled({
+      subscriptionId: subscription.id,
+      autoRenewEnabled,
+    });
 
     return {
       handled: true,
@@ -832,22 +774,12 @@ function createAppleWebhookHandler(db, options = {}) {
    * Get webhook processing statistics
    */
   async function getStats() {
-    const result = await query(`
-      SELECT
-        notification_type,
-        COUNT(*) as count,
-        MIN(created_at) as first_received,
-        MAX(created_at) as last_received
-      FROM webhook_notifications
-      WHERE platform = 'apple'
-      GROUP BY notification_type
-      ORDER BY count DESC
-    `);
+    const rows = await repository.listNotificationStatsByType();
 
     return {
       platform: "apple",
-      byType: result.rows,
-      total: result.rows.reduce((sum, row) => sum + row.count, 0),
+      byType: rows,
+      total: rows.reduce((sum, row) => sum + row.count, 0),
     };
   }
 

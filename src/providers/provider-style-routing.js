@@ -4,10 +4,11 @@ const {
   normalizeStyle,
   getSupportScore,
 } = require("./style-registry");
+const { MUSIC_PROVIDER_ORDER } = require("./index");
 
 // ElevenLabs removed from music generation routing — only Suno is used for song generation.
 // ElevenLabs remains available for TTS (guide vocals) via providerConfig.elevenlabs.
-const DEFAULT_PROVIDER_ORDER = Object.freeze(["suno"]);
+const DEFAULT_PROVIDER_ORDER = MUSIC_PROVIDER_ORDER;
 const LOW_SUPPORT_THRESHOLD = getSupportScore("medium");
 
 function listAvailableProviders(providerConfig = {}) {

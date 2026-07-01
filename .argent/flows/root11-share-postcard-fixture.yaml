@@ -1,0 +1,14 @@
+executionPrerequisite: "Build and launch PorizoApp on iPhone 17 with launch
+  arguments: --bypass-auth --fixture-share-postcard. If the ATT dialog appears,
+  dismiss it with Ask App Not to Track before running this checkpoint."
+steps:
+  - echo: "Root 11 share-postcard fixture checkpoint: verify seeded share state,
+      privacy/PIN disclosure, and share targets are visible."
+  - tool: describe
+    args:
+      udid: AF9E4173-6532-4F57-A39E-4BD4861C8E34
+      bundleId: porizo.ios.app.PorizoApp
+  - tool: screenshot
+    args:
+      udid: AF9E4173-6532-4F57-A39E-4BD4861C8E34
+      scale: 0.5

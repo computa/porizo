@@ -31,9 +31,15 @@ const SUNO_PERSONA_FAILED_STATUSES = new Set([
   "failed",
   "manual_cleanup_required",
 ]);
-const { generatePoemFromStory } = require("../writer/poem");
+const {
+  generatePoemFromStory: defaultGeneratePoemFromStory,
+} = require("../writer/poem");
 const { evaluatePoemReadiness } = require("../writer/v3/quality");
 const { transcribeAudio } = require("../providers/whisper");
+const {
+  createProviderRuntimeConfig,
+  createWhisperRuntimeConfig,
+} = require("../providers/provider-config");
 const {
   buildPlanningEnvelope,
   normalizePlanningOutput,
@@ -56,6 +62,7 @@ const {
 const {
   buildTrackStoryContextPayload,
 } = require("../writer/story-context-serialization");
+const { createStoryRepository } = require("../database/story-repository");
 
 const STORY_INITIAL_PROMPT_WARNING_THRESHOLD = 8000;
 const STORY_INITIAL_PROMPT_MAX_LENGTH = 12000;
@@ -254,27 +261,29 @@ function sanitizeStoryStateForClient(state) {
  * @param {Object} reply - Fastify reply object
  * @returns {Object|null} Story state if authorized, null if error sent
  */
-async function verifyStoryOwnership(storyId, userId, sendError, reply, db) {
+async function verifyStoryOwnership(
+  storyId,
+  userId,
+  sendError,
+  reply,
+  storyRepository,
+) {
   try {
     const state = await writer.getStoryState(storyId);
     if (!state) {
       sendError(reply, 404, "STORY_NOT_FOUND", "Story session not found.");
       return null;
     }
-    if (!state.userId && db) {
-      const claimResult = await db
-        .prepare(
-          "UPDATE story_sessions SET user_id = ? WHERE id = ? AND user_id IS NULL",
-        )
-        .run(userId, storyId);
-      if (claimResult.changes > 0) {
+    if (!state.userId && storyRepository) {
+      const claimResult = await storyRepository.claimUnownedSession({
+        sessionId: storyId,
+        userId,
+      });
+      if (claimResult.claimed) {
         state.userId = userId;
         console.warn("[Story] Claimed unowned session:", { storyId, userId });
-      } else if (claimResult.changes === 0 && !state.userId) {
-        const fresh = await db
-          .prepare("SELECT user_id FROM story_sessions WHERE id = ?")
-          .get(storyId);
-        state.userId = fresh?.user_id;
+      } else if (!state.userId) {
+        state.userId = claimResult.userId;
       }
     }
     if (state.userId !== userId) {
@@ -991,9 +1000,21 @@ function registerStoryRoutes(
     orchestrationExternalCommandJson = "",
     orchestrationExternalTimeoutMs = 120000,
     storyEngineDefault: _storyEngineDefault = "v3",
+    generatePoemFromStory = defaultGeneratePoemFromStory,
+    providerConfig = null,
+    appConfig = {},
   },
 ) {
   const normalizedStoryEngineDefault = "v3";
+  const storyRepository = createStoryRepository(db);
+  const storyProviderConfig =
+    providerConfig || createProviderRuntimeConfig(appConfig).providerConfig;
+  const transcriptionWhisperConfig = createWhisperRuntimeConfig(
+    storyProviderConfig,
+    {
+      timeoutMs: 60000,
+    },
+  );
 
   async function upsertTrackLibraryEntry({
     userId,
@@ -1002,29 +1023,13 @@ function registerStoryRoutes(
     shareTokenId = null,
     addedAt = new Date().toISOString(),
   }) {
-    const now = new Date().toISOString();
-    const updateResult = await db
-      .prepare(
-        `UPDATE track_library_entries
-       SET origin = CASE WHEN origin = 'created' THEN origin ELSE ? END,
-           share_token_id = COALESCE(?, share_token_id),
-           added_at = CASE WHEN removed_at IS NOT NULL THEN ? ELSE added_at END,
-           removed_at = NULL, updated_at = ?
-       WHERE user_id = ? AND track_id = ?`,
-      )
-      .run(origin, shareTokenId, addedAt, now, userId, trackId);
-
-    if (updateResult.changes > 0) {
-      return;
-    }
-
-    await db
-      .prepare(
-        `INSERT INTO track_library_entries
-       (user_id, track_id, origin, share_token_id, added_at, removed_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, NULL, ?)`,
-      )
-      .run(userId, trackId, origin, shareTokenId, addedAt, now);
+    await storyRepository.upsertTrackLibraryEntry({
+      userId,
+      trackId,
+      origin,
+      shareTokenId,
+      addedAt,
+    });
   }
 
   async function upsertPoemLibraryEntry({
@@ -1034,29 +1039,13 @@ function registerStoryRoutes(
     shareTokenId = null,
     addedAt = new Date().toISOString(),
   }) {
-    const now = new Date().toISOString();
-    const updateResult = await db
-      .prepare(
-        `UPDATE poem_library_entries
-       SET origin = CASE WHEN origin = 'created' THEN origin ELSE ? END,
-           share_token_id = COALESCE(?, share_token_id),
-           added_at = CASE WHEN removed_at IS NOT NULL THEN ? ELSE added_at END,
-           removed_at = NULL, updated_at = ?
-       WHERE user_id = ? AND poem_id = ?`,
-      )
-      .run(origin, shareTokenId, addedAt, now, userId, poemId);
-
-    if (updateResult.changes > 0) {
-      return;
-    }
-
-    await db
-      .prepare(
-        `INSERT INTO poem_library_entries
-       (user_id, poem_id, origin, share_token_id, added_at, removed_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, NULL, ?)`,
-      )
-      .run(userId, poemId, origin, shareTokenId, addedAt, now);
+    await storyRepository.upsertPoemLibraryEntry({
+      userId,
+      poemId,
+      origin,
+      shareTokenId,
+      addedAt,
+    });
   }
 
   async function removeTrackLibraryEntry({
@@ -1064,13 +1053,11 @@ function registerStoryRoutes(
     trackId,
     removedAt = new Date().toISOString(),
   }) {
-    await db
-      .prepare(
-        `UPDATE track_library_entries
-       SET removed_at = COALESCE(removed_at, ?), updated_at = ?
-       WHERE user_id = ? AND track_id = ? AND removed_at IS NULL`,
-      )
-      .run(removedAt, removedAt, userId, trackId);
+    await storyRepository.removeTrackLibraryEntry({
+      userId,
+      trackId,
+      removedAt,
+    });
   }
 
   async function removePoemLibraryEntry({
@@ -1078,13 +1065,11 @@ function registerStoryRoutes(
     poemId,
     removedAt = new Date().toISOString(),
   }) {
-    await db
-      .prepare(
-        `UPDATE poem_library_entries
-       SET removed_at = COALESCE(removed_at, ?), updated_at = ?
-       WHERE user_id = ? AND poem_id = ? AND removed_at IS NULL`,
-      )
-      .run(removedAt, removedAt, userId, poemId);
+    await storyRepository.removePoemLibraryEntry({
+      userId,
+      poemId,
+      removedAt,
+    });
   }
 
   async function requireV3OrchestrationAdmin(request, reply) {
@@ -1109,24 +1094,15 @@ function registerStoryRoutes(
     requestPayload,
     replayOf = null,
   }) {
-    const now = new Date().toISOString();
-    await db
-      .prepare(
-        `INSERT INTO orchestration_executions
-       (id, admin_id, status, endpoint, runtime_mode, request_json, result_json, debug_json, error_json, replay_of, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?, ?)`,
-      )
-      .run(
-        executionId,
-        adminId,
-        status,
-        endpoint,
-        runtimeMode,
-        JSON.stringify(requestPayload || {}),
-        replayOf,
-        now,
-        now,
-      );
+    await storyRepository.createOrchestrationExecution({
+      executionId,
+      adminId,
+      status,
+      endpoint,
+      runtimeMode,
+      requestPayload,
+      replayOf,
+    });
   }
 
   async function updateOrchestrationExecutionRecord({
@@ -1136,20 +1112,13 @@ function registerStoryRoutes(
     debug = null,
     error = null,
   }) {
-    await db
-      .prepare(
-        `UPDATE orchestration_executions
-       SET status = ?, result_json = ?, debug_json = ?, error_json = ?, updated_at = ?
-       WHERE id = ?`,
-      )
-      .run(
-        status,
-        result ? JSON.stringify(result) : null,
-        debug ? JSON.stringify(debug) : null,
-        error ? JSON.stringify(error) : null,
-        new Date().toISOString(),
-        executionId,
-      );
+    await storyRepository.updateOrchestrationExecution({
+      executionId,
+      status,
+      result,
+      debug,
+      error,
+    });
   }
 
   async function appendOrchestrationExecutionEvent({
@@ -1161,22 +1130,14 @@ function registerStoryRoutes(
     payload = null,
   }) {
     try {
-      await db
-        .prepare(
-          `INSERT INTO orchestration_execution_events
-         (id, execution_id, sequence, event_type, level, message, payload_json, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        )
-        .run(
-          crypto.randomUUID(),
-          executionId,
-          sequence,
-          eventType,
-          level,
-          message || null,
-          payload ? JSON.stringify(payload) : null,
-          new Date().toISOString(),
-        );
+      await storyRepository.appendOrchestrationExecutionEvent({
+        executionId,
+        sequence,
+        eventType,
+        level,
+        message,
+        payload,
+      });
     } catch (err) {
       console.warn(
         "[Story V3 Orchestration] failed to persist execution event:",
@@ -1217,28 +1178,18 @@ function registerStoryRoutes(
     );
     const safeOffset = clampInt(offset, 0, 1000000, 0);
 
-    const countRow = await db
-      .prepare(
-        "SELECT COUNT(*) as total FROM orchestration_execution_events WHERE execution_id = ?",
-      )
-      .get(executionId);
-
-    const rows = await db
-      .prepare(
-        `SELECT id, execution_id, sequence, event_type, level, message, payload_json, created_at
-       FROM orchestration_execution_events
-       WHERE execution_id = ?
-       ORDER BY sequence ASC, created_at ASC
-       LIMIT ? OFFSET ?`,
-      )
-      .all(executionId, safeLimit, safeOffset);
+    const timeline = await storyRepository.listOrchestrationExecutionEvents({
+      executionId,
+      limit: safeLimit,
+      offset: safeOffset,
+    });
 
     return {
-      items: rows.map(toExecutionEventResponseRecord),
+      items: timeline.rows.map(toExecutionEventResponseRecord),
       pagination: {
         limit: safeLimit,
         offset: safeOffset,
-        total: Number(countRow?.total || 0),
+        total: timeline.total,
       },
     };
   }
@@ -1265,9 +1216,7 @@ function registerStoryRoutes(
     executionId,
     { includeEvents = false, eventLimit = 100, eventOffset = 0 } = {},
   ) {
-    const row = await db
-      .prepare("SELECT * FROM orchestration_executions WHERE id = ?")
-      .get(executionId);
+    const row = await storyRepository.getOrchestrationExecution(executionId);
     const record = toExecutionResponseRecord(row);
     if (!record || !includeEvents) {
       return record;
@@ -1738,43 +1687,19 @@ function registerStoryRoutes(
               ? request.query.status.trim()
               : null;
 
-          const whereSql = statusFilter ? "WHERE status = ?" : "";
-          const countRow = statusFilter
-            ? await db
-                .prepare(
-                  `SELECT COUNT(*) as total FROM orchestration_executions ${whereSql}`,
-                )
-                .get(statusFilter)
-            : await db
-                .prepare(
-                  "SELECT COUNT(*) as total FROM orchestration_executions",
-                )
-                .get();
-
-          const rows = statusFilter
-            ? await db
-                .prepare(
-                  `SELECT id, admin_id, status, endpoint, runtime_mode, replay_of, created_at, updated_at
-               FROM orchestration_executions ${whereSql}
-               ORDER BY created_at DESC
-               LIMIT ? OFFSET ?`,
-                )
-                .all(statusFilter, limit, offset)
-            : await db
-                .prepare(
-                  `SELECT id, admin_id, status, endpoint, runtime_mode, replay_of, created_at, updated_at
-               FROM orchestration_executions
-               ORDER BY created_at DESC
-               LIMIT ? OFFSET ?`,
-                )
-                .all(limit, offset);
+          const executions =
+            await storyRepository.listOrchestrationExecutions({
+              status: statusFilter,
+              limit,
+              offset,
+            });
 
           reply.send({
-            items: rows,
+            items: executions.rows,
             pagination: {
               limit,
               offset,
-              total: Number(countRow?.total || 0),
+              total: executions.total,
             },
           });
         } catch (err) {
@@ -2310,7 +2235,7 @@ function registerStoryRoutes(
       userId,
       sendError,
       reply,
-      db,
+      storyRepository,
     );
     if (!state) return;
 
@@ -2335,7 +2260,7 @@ function registerStoryRoutes(
         userId,
         sendError,
         reply,
-        db,
+        storyRepository,
       );
       if (!state) return;
 
@@ -2405,7 +2330,7 @@ function registerStoryRoutes(
         userId,
         sendError,
         reply,
-        db,
+        storyRepository,
       );
       if (!state) return;
 
@@ -2533,7 +2458,7 @@ function registerStoryRoutes(
       userId,
       sendError,
       reply,
-      db,
+      storyRepository,
     );
     if (!state) return;
 
@@ -2592,7 +2517,7 @@ function registerStoryRoutes(
         userId,
         sendError,
         reply,
-        db,
+        storyRepository,
       );
       if (!state) return;
 
@@ -2744,7 +2669,7 @@ function registerStoryRoutes(
         userId,
         sendError,
         reply,
-        db,
+        storyRepository,
       );
       if (!state) return;
 
@@ -2836,7 +2761,7 @@ function registerStoryRoutes(
         userId,
         sendError,
         reply,
-        db,
+        storyRepository,
       );
       if (!state) return;
 
@@ -2933,7 +2858,7 @@ function registerStoryRoutes(
         userId,
         sendError,
         reply,
-        db,
+        storyRepository,
       );
       if (!state) return;
 
@@ -2984,7 +2909,7 @@ function registerStoryRoutes(
         userId,
         sendError,
         reply,
-        db,
+        storyRepository,
       );
       if (!state) return;
 
@@ -3038,7 +2963,7 @@ function registerStoryRoutes(
       userId,
       sendError,
       reply,
-      db,
+      storyRepository,
     );
     if (!state) return;
 
@@ -3204,31 +3129,16 @@ function registerStoryRoutes(
           })
         : null;
       if (existingGiftPoem?.contentType === "poem") {
-        const existingPoem = await db
-          .prepare(
-            `SELECT id, user_id, title, recipient_name, occasion, tone, verses, status, created_at, updated_at
-         FROM poems
-         WHERE id = ? AND deleted_at IS NULL`,
-          )
-          .get(existingGiftPoem.contentId);
+        const existingPoem = await storyRepository.getStoryGiftPoem(
+          existingGiftPoem.contentId,
+        );
         if (existingPoem && existingPoem.user_id === userId) {
           await removePoemLibraryEntry({
             userId,
             poemId: existingPoem.id,
           });
           reply.send({
-            poem: {
-              id: existingPoem.id,
-              user_id: existingPoem.user_id,
-              title: existingPoem.title,
-              recipient_name: existingPoem.recipient_name,
-              occasion: existingPoem.occasion,
-              tone: existingPoem.tone,
-              verses: JSON.parse(existingPoem.verses || "[]"),
-              status: existingPoem.status,
-              created_at: existingPoem.created_at,
-              updated_at: existingPoem.updated_at,
-            },
+            poem: existingPoem,
             provider: null,
             model: null,
             idempotent: true,
@@ -3291,7 +3201,7 @@ function registerStoryRoutes(
         userId,
         sendError,
         reply,
-        db,
+        storyRepository,
       );
       if (!state) return;
 
@@ -3353,26 +3263,19 @@ function registerStoryRoutes(
           style: finalStyle,
         };
 
-        await db
-          .prepare(
-            `INSERT INTO poems (id, user_id, title, recipient_name, occasion, tone, verses, message, status, funding_source, gift_reservation_id, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          )
-          .run(
-            poemId,
-            userId,
-            result.title || `For ${context.recipientName || "you"}`,
-            context.recipientName,
-            context.occasion,
-            finalTone,
-            JSON.stringify(result.lines),
-            JSON.stringify(provenance),
-            "generated",
-            giftFundingReservation ? "gift_token" : "standard",
-            giftFundingReservation?.id || null,
-            now,
-            now,
-          );
+        const poem = await storyRepository.createStoryPoem({
+          poemId,
+          userId,
+          title: result.title || `For ${context.recipientName || "you"}`,
+          recipientName: context.recipientName,
+          occasion: context.occasion,
+          tone: finalTone,
+          verses: result.lines,
+          provenance,
+          fundingSource: giftFundingReservation ? "gift_wallet" : "standard",
+          giftReservationId: giftFundingReservation?.id || null,
+          createdAt: now,
+        });
         if (giftFundingReservation) {
           await removePoemLibraryEntry({
             userId,
@@ -3395,11 +3298,7 @@ function registerStoryRoutes(
             await subscriptionManager.spendPoem(userId, poemId);
           } catch (spendErr) {
             // Generation succeeded but credit spend failed — don't give away free content
-            await db
-              .prepare(
-                "UPDATE poems SET status = 'generation_failed' WHERE id = ?",
-              )
-              .run(poemId);
+            await storyRepository.markStoryPoemGenerationFailed(poemId);
             sendError(
               reply,
               503,
@@ -3430,18 +3329,7 @@ function registerStoryRoutes(
         }
 
         reply.send({
-          poem: {
-            id: poemId,
-            user_id: userId,
-            title: result.title || `For ${context.recipientName || "you"}`,
-            recipient_name: context.recipientName,
-            occasion: context.occasion,
-            tone: finalTone,
-            verses: result.lines,
-            status: "generated",
-            created_at: now,
-            updated_at: now,
-          },
+          poem,
           provider: result.provider,
           model: result.model,
         });
@@ -3526,7 +3414,7 @@ function registerStoryRoutes(
         userId,
         sendError,
         reply,
-        db,
+        storyRepository,
       );
       if (!state) return;
 
@@ -3610,7 +3498,10 @@ function registerStoryRoutes(
           size: audioBuffer.length,
           format: ext,
         });
-        transcription = await transcribeAudio(audioBuffer, { filename });
+        transcription = await transcribeAudio(audioBuffer, {
+          ...transcriptionWhisperConfig,
+          filename,
+        });
       } catch (err) {
         console.error("[Story Audio] Transcription failed:", {
           storyId,
@@ -3767,7 +3658,10 @@ function registerStoryRoutes(
         size: audioBuffer.length,
         format: ext,
       });
-      transcription = await transcribeAudio(audioBuffer, { filename });
+      transcription = await transcribeAudio(audioBuffer, {
+        ...transcriptionWhisperConfig,
+        filename,
+      });
     } catch (err) {
       console.error("[Audio Transcribe] Transcription failed:", {
         userId,
@@ -3901,14 +3795,11 @@ function registerStoryRoutes(
           })
         : null;
       if (existingGiftTrack?.contentType === "song") {
-        const existingVersion = await db
-          .prepare(
-            `SELECT id, version_num
-         FROM track_versions
-         WHERE track_id = ? AND version_num = ?
-         LIMIT 1`,
-          )
-          .get(existingGiftTrack.contentId, existingGiftTrack.versionNum || 1);
+        const existingVersion =
+          await storyRepository.findTrackVersionForGiftReuse({
+            trackId: existingGiftTrack.contentId,
+            versionNum: existingGiftTrack.versionNum || 1,
+          });
         if (existingVersion) {
           await removeTrackLibraryEntry({
             userId,
@@ -3945,7 +3836,7 @@ function registerStoryRoutes(
         userId,
         sendError,
         reply,
-        db,
+        storyRepository,
       );
       if (!state) return;
 
@@ -4029,11 +3920,8 @@ function registerStoryRoutes(
             return;
           }
 
-          const profile = await db
-            .prepare(
-              "SELECT id FROM voice_profiles WHERE user_id = ? AND status = 'active'",
-            )
-            .get(userId);
+          const profile =
+            await storyRepository.findActiveVoiceProfileForUser(userId);
           if (!profile) {
             sendError(
               reply,
@@ -4122,9 +4010,7 @@ function registerStoryRoutes(
 
         // Match the onboarding title format: "A {Occasion} Song for {Name} by {Sender}".
         // One extra single-row read; runs once per track creation.
-        const trackOwner = await db
-          .prepare("SELECT display_name FROM users WHERE id = ?")
-          .get(userId);
+        const trackOwner = await storyRepository.getUserDisplayName(userId);
         // Canonical mapping handles apostrophes + multi-word occasions
         // ("mothers_day" → "Mother's Day"). null fallback so we can omit
         // the occasion clause when there's no real one.
@@ -4137,35 +4023,30 @@ function registerStoryRoutes(
           senderFirstName: firstName(trackOwner?.display_name),
         });
 
-        await db
-          .prepare(
-            `
-        INSERT INTO tracks (id, user_id, status, title, occasion, recipient_name, recipient_phone, recipient_channel, style, message, story_context_json, voice_mode, voice_gender, funding_source, gift_reservation_id, latest_version, created_at, updated_at)
-        VALUES (?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
-      `,
-          )
-          .run(
-            trackId,
-            userId,
-            composedTitle,
-            storyContext.occasion,
-            storyContext.recipientName,
-            request.body?.recipient_phone || null,
-            request.body?.recipient_channel || null,
-            effectiveStyle,
-            storyContext.initialPrompt,
-            JSON.stringify(
-              buildTrackStoryContextPayload(storyContext, {
-                storyId: story_id,
-              }),
-            ),
-            requestedVoiceMode,
-            request.body?.voice_gender || null,
-            giftFundingReservation ? "gift_token" : "standard",
-            giftFundingReservation?.id || null,
-            now,
-            now,
-          );
+        // Create initial version with all required fields
+        const versionId = newUuid();
+        await storyRepository.createStoryTrackDraftWithVersion({
+          trackId,
+          versionId,
+          userId,
+          title: composedTitle,
+          occasion: storyContext.occasion,
+          recipientName: storyContext.recipientName,
+          recipientPhone: request.body?.recipient_phone || null,
+          recipientChannel: request.body?.recipient_channel || null,
+          style: effectiveStyle,
+          message: storyContext.initialPrompt,
+          storyContextPayload: buildTrackStoryContextPayload(storyContext, {
+            storyId: story_id,
+          }),
+          voiceMode: requestedVoiceMode,
+          voiceGender: request.body?.voice_gender || null,
+          fundingSource: giftFundingReservation ? "gift_wallet" : "standard",
+          giftReservationId: giftFundingReservation?.id || null,
+          paramsJson,
+          paramsHash,
+          createdAt: now,
+        });
         if (giftFundingReservation) {
           await removeTrackLibraryEntry({
             userId,
@@ -4181,17 +4062,6 @@ function registerStoryRoutes(
             addedAt: now,
           });
         }
-
-        // Create initial version with all required fields
-        const versionId = newUuid();
-        await db
-          .prepare(
-            `
-        INSERT INTO track_versions (id, track_id, version_num, status, render_type, params_json, params_hash, created_at)
-        VALUES (?, ?, 1, 'draft', 'preview', ?, ?, ?)
-      `,
-          )
-          .run(versionId, trackId, paramsJson, paramsHash, now);
 
         addAuditEntry({
           userId,

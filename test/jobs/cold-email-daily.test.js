@@ -480,6 +480,37 @@ describe("cold-email-daily job", () => {
     assert.equal(camp.last_run_date_utc, null);
   });
 
+  it("mixed invalid and valid emails mark only the sent valid source rows", async () => {
+    await seedCampaign({ per_day: 2 });
+    await db
+      .prepare(
+        "UPDATE cold_email_recipients SET email = 'invalid' WHERE campaign_id = ? AND index_pos = 0",
+      )
+      .run("test-campaign");
+    const { fetchImpl } = mockResendFetch();
+    const job = startColdEmailJob({
+      db,
+      apiKey: "re_test",
+      intervalMs: 1_000_000,
+      fetchImpl,
+      now: () => new Date("2026-05-13T10:00:00Z"),
+      log: () => {},
+    });
+
+    const r = await job.runNow();
+    job.stop();
+
+    assert.equal(r.campaigns[0].fired, true);
+    assert.equal(r.campaigns[0].queued, 1);
+    const rows = await db
+      .prepare(
+        "SELECT index_pos, sent_at, resend_email_id FROM cold_email_recipients WHERE campaign_id = ? ORDER BY index_pos",
+      )
+      .all("test-campaign");
+    assert.equal(rows[0].sent_at, null, "invalid recipient must remain unsent");
+    assert.equal(rows[1].resend_email_id, "re_0", "valid recipient should receive the ack id");
+  });
+
   it("inactive campaign is filtered out by listActiveCampaigns", async () => {
     await seedCampaign({ active: 0 });
     const { fetchImpl, calls } = mockResendFetch();

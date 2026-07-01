@@ -1,5 +1,6 @@
 const crypto = require("crypto");
 const config = require("../config");
+const { getOpenApiDocument } = require("../plugins/openapi");
 const { loadPublicFile } = require("../utils/public-files");
 const { cardJson: mcpServerCard } = require("../utils/mcp-card");
 
@@ -97,7 +98,8 @@ function registerWellKnownRoutes(app) {
   });
 
   app.get("/openapi.json", async (_request, reply) => {
-    serveJson(reply, openapiDoc, "application/openapi+json");
+    const generatedOpenApiDoc = getOpenApiDocument(app);
+    serveJson(reply, generatedOpenApiDoc || openapiDoc, "application/openapi+json");
   });
 
   // Single source of truth for the public plan tiers — read by the MCP

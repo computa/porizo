@@ -5,6 +5,7 @@
  */
 
 const crypto = require("crypto");
+const { createEventsRepository } = require("../database/events-repository");
 
 /**
  * Generate a unique event ID
@@ -14,8 +15,8 @@ function generateEventId() {
 }
 
 class EventsService {
-  constructor(db) {
-    this.db = db;
+  constructor(db, { repository } = {}) {
+    this.repository = repository || createEventsRepository(db);
   }
 
   /**
@@ -35,13 +36,16 @@ class EventsService {
     const eventId = id || generateEventId();
     const metadataJson = metadata ? JSON.stringify(metadata) : null;
 
-    const result = this.db
-      .prepare(
-        `INSERT INTO events (id, event_name, user_id, resource_type, resource_id, metadata_json, ip_address, user_agent, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-         ON CONFLICT (id) DO NOTHING`
-      )
-      .run(eventId, eventName, userId || null, resourceType || null, resourceId || null, metadataJson, ip || null, userAgent || null);
+    const result = await this.repository.insertEvent({
+      id: eventId,
+      eventName,
+      userId: userId || null,
+      resourceType: resourceType || null,
+      resourceId: resourceId || null,
+      metadataJson,
+      ip: ip || null,
+      userAgent: userAgent || null,
+    });
 
     // SQLite and Postgres report 0 changes when ON CONFLICT fires.
     const changes = typeof result?.changes === "number" ? result.changes : Number(result?.rowCount ?? 0);
@@ -68,38 +72,16 @@ class EventsService {
       offset: Math.max(parseInt(offset) || 0, 0),
     };
 
-    let sql = "SELECT * FROM events WHERE 1=1";
-    const params = [];
-
-    if (eventName) {
-      sql += " AND event_name = ?";
-      params.push(eventName);
-    }
-    if (userId) {
-      sql += " AND user_id = ?";
-      params.push(userId);
-    }
-    if (resourceType) {
-      sql += " AND resource_type = ?";
-      params.push(resourceType);
-    }
-    if (resourceId) {
-      sql += " AND resource_id = ?";
-      params.push(resourceId);
-    }
-    if (startDate) {
-      sql += " AND created_at >= ?";
-      params.push(startDate);
-    }
-    if (endDate) {
-      sql += " AND created_at <= ?";
-      params.push(endDate);
-    }
-
-    sql += " ORDER BY created_at DESC LIMIT ? OFFSET ?";
-    params.push(safeBounds.limit, safeBounds.offset);
-
-    return await this.db.prepare(sql).all(...params);
+    return this.repository.queryEvents({
+      eventName,
+      userId,
+      resourceType,
+      resourceId,
+      startDate,
+      endDate,
+      limit: safeBounds.limit,
+      offset: safeBounds.offset,
+    });
   }
 
   /**
@@ -110,9 +92,7 @@ class EventsService {
    */
   async countByName(eventName, days = 7) {
     const startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
-    const result = this.db
-      .prepare("SELECT COUNT(*) as count FROM events WHERE event_name = ? AND created_at >= ?")
-      .get(eventName, startDate);
+    const result = await this.repository.countByNameSince(eventName, startDate);
     return result?.count || 0;
   }
 
@@ -123,15 +103,7 @@ class EventsService {
    */
   async getEventCounts(days = 7) {
     const startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
-    return this.db
-      .prepare(
-        `SELECT event_name, COUNT(*) as count
-         FROM events
-         WHERE created_at >= ?
-         GROUP BY event_name
-         ORDER BY count DESC`
-      )
-      .all(startDate);
+    return this.repository.getEventCountsSince(startDate);
   }
 
   /**
@@ -142,15 +114,7 @@ class EventsService {
    */
   async getDailyEventCounts(eventName, days = 30) {
     const startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
-    return this.db
-      .prepare(
-        `SELECT DATE(created_at) as date, COUNT(*) as count
-         FROM events
-         WHERE event_name = ? AND created_at >= ?
-         GROUP BY DATE(created_at)
-         ORDER BY date ASC`
-      )
-      .all(eventName, startDate);
+    return this.repository.getDailyEventCountsSince(eventName, startDate);
   }
 
   /**
@@ -162,14 +126,11 @@ class EventsService {
    */
   async getFunnelMetrics(startEvent, endEvent, days = 7) {
     const startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
-
-    const startCount = this.db
-      .prepare("SELECT COUNT(*) as count FROM events WHERE event_name = ? AND created_at >= ?")
-      .get(startEvent, startDate)?.count || 0;
-
-    const endCount = this.db
-      .prepare("SELECT COUNT(*) as count FROM events WHERE event_name = ? AND created_at >= ?")
-      .get(endEvent, startDate)?.count || 0;
+    const { startCount, endCount } = await this.repository.getFunnelCountsSince(
+      startEvent,
+      endEvent,
+      startDate,
+    );
 
     return {
       startCount,
@@ -185,9 +146,7 @@ class EventsService {
    * @returns {Array} Array of events for the user
    */
   async getUserEvents(userId, limit = 50) {
-    return this.db
-      .prepare("SELECT * FROM events WHERE user_id = ? ORDER BY created_at DESC LIMIT ?")
-      .all(userId, Math.min(limit, 200));
+    return this.repository.getUserEvents(userId, Math.min(limit, 200));
   }
 }
 

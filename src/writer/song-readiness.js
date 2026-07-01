@@ -16,9 +16,9 @@ const {
   normalizeContext,
   buildStoryDetailLedger,
   buildSongwriterPrompt,
-  validateSongContract,
   CANONICAL_REQUIRED_DETAIL_LIMIT,
 } = require("./songwriter");
+const { validateSongContract } = require("./song-contract");
 
 function buildSongReadinessFollowUp(blocker) {
   const detail = blocker?.detail || blocker?.message || "";

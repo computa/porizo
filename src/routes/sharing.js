@@ -14,6 +14,10 @@ const {
   healAndCheckShare,
 } = require("../services/share-service");
 const pushNotification = require("../services/push-notification");
+const { createDeviceRepository } = require("../database/device-repository");
+const {
+  createShareTokenRepository,
+} = require("../database/share-token-repository");
 
 const CLIENT_RECEIVER_EVENTS = new Set([
   "receiver_link_opened",
@@ -94,6 +98,8 @@ function registerSharingRoutes(
     consumeRateLimit,
   },
 ) {
+  const deviceRepository = createDeviceRepository(db);
+  const shareTokenRepository = createShareTokenRepository(db);
   let sharpForImageValidation = null;
   function getSharpForImageValidation() {
     if (sharpForImageValidation !== null) return sharpForImageValidation;
@@ -292,9 +298,9 @@ function registerSharingRoutes(
 
   // Shared guard: lookup share token + reject revoked/expired. Returns share or null (error already sent).
   async function resolveValidShare(request, reply) {
-    const share = await db
-      .prepare("SELECT * FROM share_tokens WHERE id = ?")
-      .get(request.params.shareId);
+    const share = await shareTokenRepository.getSongShareTokenById(
+      request.params.shareId,
+    );
     if (!share || share.status === "revoked") {
       sendError(reply, 404, "SHARE_NOT_FOUND", "Share token not found.");
       return null;
@@ -314,11 +320,13 @@ function registerSharingRoutes(
     eventType,
     metadata,
   }) {
-    await db
-      .prepare(
-        "INSERT INTO poem_share_access_log (id, poem_share_token_id, event_type, metadata, created_at) VALUES (?, ?, ?, ?, ?)",
-      )
-      .run(newUuid(), poemShareTokenId, eventType, toJson(metadata), nowIso());
+    await shareTokenRepository.addPoemShareAccessLog({
+      id: newUuid(),
+      poemShareTokenId,
+      eventType,
+      metadataJson: toJson(metadata),
+      createdAt: nowIso(),
+    });
   }
 
   async function enforceReceiverRateLimit(
@@ -396,9 +404,9 @@ function registerSharingRoutes(
     }
     let giftSendAt = null;
     if (share.gift_order_id) {
-      const gift = await db
-        .prepare("SELECT send_at FROM gift_orders WHERE id = ?")
-        .get(share.gift_order_id);
+      const gift = await shareTokenRepository.getGiftOrderSendAt(
+        share.gift_order_id,
+      );
       giftSendAt = gift?.send_at || null;
     }
     return resolveGiftReadyAt({ ...share, gift_send_at: giftSendAt });
@@ -559,9 +567,7 @@ function registerSharingRoutes(
     const userId = await requireUserId(request, reply);
     if (!userId) return;
 
-    const track = await db
-      .prepare("SELECT * FROM tracks WHERE id = ?")
-      .get(request.params.id);
+    const track = await shareTokenRepository.getTrackById(request.params.id);
     if (!track || track.user_id !== userId || track.deleted_at) {
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;
@@ -613,9 +619,7 @@ function registerSharingRoutes(
     const userId = await requireUserId(request, reply);
     if (!userId) return;
 
-    const track = await db
-      .prepare("SELECT * FROM tracks WHERE id = ?")
-      .get(request.params.id);
+    const track = await shareTokenRepository.getTrackById(request.params.id);
     if (!track || track.user_id !== userId || track.deleted_at) {
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;
@@ -658,17 +662,9 @@ function registerSharingRoutes(
   // Generates a dynamic 1200×630 social share card with the poem text
   // Supports variant dispatch and disk caching
   app.get("/poem/:shareId/og-image.png", async (request, reply) => {
-    const share = await db
-      .prepare(
-        `SELECT pst.id, pst.status, pst.expires_at, pst.share_type, pst.delivery_source,
-            pst.dispatch_at, pst.dispatched_at, pst.gift_order_id, go.send_at AS gift_send_at,
-            p.id AS poem_id, p.user_id, p.title, p.recipient_name, p.occasion, p.verses, p.og_variant
-       FROM poem_share_tokens pst
-       JOIN poems p ON p.id = pst.poem_id
-       LEFT JOIN gift_orders go ON go.id = pst.gift_order_id
-      WHERE pst.id = ?`,
-      )
-      .get(request.params.shareId);
+    const share = await shareTokenRepository.getPoemShareForOgImage(
+      request.params.shareId,
+    );
     if (!share) return reply.status(404).send("Not found");
     if (
       share.status === "revoked" ||
@@ -754,17 +750,7 @@ function registerSharingRoutes(
     const shareId = request.params.shareId;
 
     // Validate share exists and fetch poem metadata for OG tags
-    const share = await db
-      .prepare(
-        `SELECT pst.id, pst.status, pst.expires_at, pst.share_type, pst.delivery_source,
-            pst.dispatch_at, pst.dispatched_at, pst.gift_order_id, go.send_at AS gift_send_at,
-            pst.poem_id, p.title, p.recipient_name, p.occasion, p.verses
-       FROM poem_share_tokens pst
-       LEFT JOIN poems p ON p.id = pst.poem_id
-       LEFT JOIN gift_orders go ON go.id = pst.gift_order_id
-      WHERE pst.id = ?`,
-      )
-      .get(shareId);
+    const share = await shareTokenRepository.getPoemShareForViewer(shareId);
     if (!share) {
       return reply
         .status(404)
@@ -848,18 +834,9 @@ function registerSharingRoutes(
     const shareId = request.params.shareId;
 
     // Validate share exists and fetch track metadata for OG tags
-    const share = await db
-      .prepare(
-        `SELECT st.id, st.status, st.expires_at, st.share_type, st.track_id, st.track_version_id, st.gift_order_id,
-            st.delivery_source, st.dispatch_at, st.dispatched_at,
-            t.title, t.recipient_name, t.occasion,
-            go.sender_display_name, go.recipient_name AS gift_recipient_name
-       FROM share_tokens st
-       LEFT JOIN tracks t ON t.id = st.track_id
-       LEFT JOIN gift_orders go ON go.id = st.gift_order_id
-      WHERE st.id = ?`,
-      )
-      .get(shareId);
+    const share = await shareTokenRepository.getSongShareWithTrackDetails(
+      shareId,
+    );
     if (!share) {
       return reply
         .status(404)
@@ -908,12 +885,10 @@ function registerSharingRoutes(
     let track = null;
     let trackVersion = null;
     if (share.track_id && share.track_version_id) {
-      track = await db
-        .prepare("SELECT * FROM tracks WHERE id = ?")
-        .get(share.track_id);
-      trackVersion = await db
-        .prepare("SELECT * FROM track_versions WHERE id = ?")
-        .get(share.track_version_id);
+      ({ track, trackVersion } = await shareTokenRepository.getShareTrackPair({
+        trackId: share.track_id,
+        trackVersionId: share.track_version_id,
+      }));
     }
 
     const userAgent = request.headers["user-agent"];
@@ -1069,15 +1044,10 @@ function registerSharingRoutes(
     const tokenTable =
       resolved.contentKind === "poem" ? "poem_share_tokens" : "share_tokens";
     const activeStatus = resolved.contentKind === "poem" ? "active" : "unbound";
-    const token = await db
-      .prepare(
-        `SELECT st.id, st.status, st.expires_at, st.share_type, st.delivery_source,
-            st.dispatch_at, st.dispatched_at, st.gift_order_id, go.send_at AS gift_send_at
-       FROM ${tokenTable} st
-       LEFT JOIN gift_orders go ON go.id = st.gift_order_id
-      WHERE st.id = ?`,
-      )
-      .get(resolved.shareId);
+    const token = await shareTokenRepository.getContentShareReadyFields({
+      contentType: resolved.contentKind,
+      shareTokenId: resolved.shareId,
+    });
     if (
       !token ||
       token.status === "revoked" ||
@@ -1176,11 +1146,9 @@ function registerSharingRoutes(
         );
         return;
       }
-      const share = await db
-        .prepare(
-          "SELECT status, bound_device_id, bound_device_platform, expires_at FROM share_tokens WHERE id = ?",
-        )
-        .get(resolved.shareId);
+      const share = await shareTokenRepository.getSongShareDeviceState(
+        resolved.shareId,
+      );
       if (
         !share ||
         share.status !== "claimed" ||
@@ -1290,11 +1258,9 @@ function registerSharingRoutes(
       required: true,
     });
     if (!deviceToken) return;
-    const share = await db
-      .prepare(
-        "SELECT status, bound_device_id, bound_device_platform FROM share_tokens WHERE id = ?",
-      )
-      .get(resolved.shareId);
+    const share = await shareTokenRepository.getSongShareDeviceState(
+      resolved.shareId,
+    );
     if (
       !share ||
       share.status !== "claimed" ||
@@ -1337,15 +1303,10 @@ function registerSharingRoutes(
       return;
     }
 
-    const song = await db
-      .prepare(
-        `SELECT st.id, st.status, st.expires_at, st.share_type, st.delivery_source,
-            st.dispatch_at, st.dispatched_at, st.gift_order_id, go.send_at AS gift_send_at
-       FROM share_tokens st
-       LEFT JOIN gift_orders go ON go.id = st.gift_order_id
-      WHERE st.id = ?`,
-      )
-      .get(shareId);
+    const song = await shareTokenRepository.getContentShareReadyFields({
+      contentType: "song",
+      shareTokenId: shareId,
+    });
     if (
       song &&
       song.status !== "revoked" &&
@@ -1360,15 +1321,10 @@ function registerSharingRoutes(
       return;
     }
 
-    const poem = await db
-      .prepare(
-        `SELECT pst.id, pst.status, pst.expires_at, pst.share_type, pst.delivery_source,
-            pst.dispatch_at, pst.dispatched_at, pst.gift_order_id, go.send_at AS gift_send_at
-       FROM poem_share_tokens pst
-       LEFT JOIN gift_orders go ON go.id = pst.gift_order_id
-      WHERE pst.id = ?`,
-      )
-      .get(shareId);
+    const poem = await shareTokenRepository.getContentShareReadyFields({
+      contentType: "poem",
+      shareTokenId: shareId,
+    });
     if (
       poem &&
       poem.status !== "revoked" &&
@@ -1393,15 +1349,10 @@ function registerSharingRoutes(
     const qs = sv ? `?sv=${encodeURIComponent(sv)}` : "";
 
     // Check song share_tokens first (more common)
-    const songShare = await db
-      .prepare(
-        `SELECT st.id, st.status, st.expires_at, st.share_type, st.delivery_source, st.dispatch_at, st.dispatched_at, st.gift_order_id,
-            go.send_at AS gift_send_at
-       FROM share_tokens st
-       LEFT JOIN gift_orders go ON go.id = st.gift_order_id
-      WHERE st.id = ?`,
-      )
-      .get(shareId);
+    const songShare = await shareTokenRepository.getContentShareReadyFields({
+      contentType: "song",
+      shareTokenId: shareId,
+    });
     if (songShare) {
       if (
         songShare.status === "revoked" ||
@@ -1431,15 +1382,10 @@ function registerSharingRoutes(
     }
 
     // Check poem share_tokens
-    const poemShare = await db
-      .prepare(
-        `SELECT pst.id, pst.status, pst.expires_at, pst.share_type, pst.delivery_source, pst.dispatch_at, pst.dispatched_at, pst.gift_order_id,
-            go.send_at AS gift_send_at
-       FROM poem_share_tokens pst
-       LEFT JOIN gift_orders go ON go.id = pst.gift_order_id
-      WHERE pst.id = ?`,
-      )
-      .get(shareId);
+    const poemShare = await shareTokenRepository.getContentShareReadyFields({
+      contentType: "poem",
+      shareTokenId: shareId,
+    });
     if (poemShare) {
       if (
         poemShare.status === "revoked" ||
@@ -1474,16 +1420,9 @@ function registerSharingRoutes(
   // Embed player for Twitter Player Card iframes and oEmbed
   app.get("/embed/:shareId", async (request, reply) => {
     const shareId = request.params.shareId;
-    const share = await db
-      .prepare(
-        `SELECT st.id, st.status, st.expires_at, st.share_type, st.track_id, st.track_version_id,
-            st.delivery_source, st.dispatch_at, st.dispatched_at, st.gift_order_id,
-            t.title, t.recipient_name, t.occasion
-       FROM share_tokens st
-       LEFT JOIN tracks t ON t.id = st.track_id
-      WHERE st.id = ?`,
-      )
-      .get(shareId);
+    const share = await shareTokenRepository.getSongShareWithTrackDetails(
+      shareId,
+    );
     if (!share) {
       return reply
         .status(404)
@@ -1568,16 +1507,9 @@ function registerSharingRoutes(
     }
     const shareId = match[1];
 
-    const share = await db
-      .prepare(
-        `SELECT st.id, st.status, st.expires_at, st.share_type, st.track_id, st.track_version_id,
-            st.delivery_source, st.dispatch_at, st.dispatched_at, st.gift_order_id,
-            t.title, t.recipient_name, t.occasion, t.user_id
-       FROM share_tokens st
-       LEFT JOIN tracks t ON t.id = st.track_id
-      WHERE st.id = ?`,
-      )
-      .get(shareId);
+    const share = await shareTokenRepository.getSongShareWithTrackDetails(
+      shareId,
+    );
     if (!share) {
       sendError(reply, 404, "SHARE_NOT_FOUND", "Share not found.");
       return;
@@ -1619,21 +1551,20 @@ function registerSharingRoutes(
   app.get("/share/:shareId", async (request, reply) => {
     const share = await resolveValidShare(request, reply);
     if (!share) return;
-    const track = await db
-      .prepare("SELECT * FROM tracks WHERE id = ?")
-      .get(share.track_id);
-    const trackVersion = await db
-      .prepare("SELECT * FROM track_versions WHERE id = ?")
-      .get(share.track_version_id);
+    const { track, trackVersion } = await shareTokenRepository.getShareTrackPair(
+      {
+        trackId: share.track_id,
+        trackVersionId: share.track_version_id,
+      },
+    );
     if (!track || !trackVersion) {
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;
     }
-    await db
-      .prepare(
-        "UPDATE share_tokens SET last_accessed_at = ?, access_count = access_count + 1 WHERE id = ?",
-      )
-      .run(nowIso(), share.id);
+    await shareTokenRepository.incrementSongShareAccess({
+      shareTokenId: share.id,
+      accessedAt: nowIso(),
+    });
     await addShareAccessLog({
       shareTokenId: share.id,
       eventType: "link_opened",
@@ -1644,20 +1575,18 @@ function registerSharingRoutes(
     const requestDeviceId = deviceToken?.device_id || null;
     const requestPlatform = deviceToken?.platform || null;
     const giftOrder = share.gift_order_id
-      ? await db
-          .prepare(
-            "SELECT sender_display_name, recipient_name FROM gift_orders WHERE id = ?",
-          )
-          .get(share.gift_order_id)
+      ? await shareTokenRepository.getGiftOrderSenderSummary(
+          share.gift_order_id,
+        )
       : null;
     // V4 fallback: when there's no gift order (legacy direct shares), surface
     // the track owner's display_name so the letterbox indicator can render
     // "In {name}'s voice" instead of dropping to the recipient-only fallback.
     let trackOwnerDisplayName = null;
     if (!giftOrder?.sender_display_name && track?.user_id) {
-      const owner = await db
-        .prepare("SELECT display_name FROM users WHERE id = ?")
-        .get(track.user_id);
+      const owner = await shareTokenRepository.getUserDisplayName(
+        track.user_id,
+      );
       trackOwnerDisplayName = owner?.display_name?.trim() || null;
     }
     const [hydratedSharedTrack] = await hydrateTrackCoverImages(
@@ -1846,19 +1775,15 @@ function registerSharingRoutes(
       ) {
         (async () => {
           try {
-            const devices = await db
-              .prepare(
-                "SELECT push_token FROM devices WHERE user_id = ? AND push_token IS NOT NULL",
-              )
-              .all(share.creator_id);
+            const devices = await deviceRepository.listPushTokensForUser(
+              share.creator_id,
+            );
             if (!devices || devices.length === 0) return;
 
             const track = share.track_id
-              ? await db
-                  .prepare(
-                    "SELECT title, recipient_name FROM tracks WHERE id = ?",
-                  )
-                  .get(share.track_id)
+              ? await shareTokenRepository.getTrackNotificationMetadata(
+                  share.track_id,
+                )
               : null;
 
             const trackTitle = track?.title || "your song";
@@ -2086,11 +2011,10 @@ function registerSharingRoutes(
             Buffer.from(share.claim_pin),
           );
         if (!pinMatch) {
-          const attemptResult = await db
-            .prepare(
-              "UPDATE share_tokens SET claim_attempts = claim_attempts + 1 WHERE id = ? AND claim_attempts < 5 AND status = 'unbound'",
-            )
-            .run(share.id);
+          const attemptResult =
+            await shareTokenRepository.incrementSongShareClaimAttempts(
+              share.id,
+            );
           await addShareAccessLog({
             shareTokenId: share.id,
             eventType: "claim_failed",
@@ -2190,20 +2114,15 @@ function registerSharingRoutes(
       const claimAt = nowIso();
       // Atomic claim: WHERE guards prevent TOCTOU race — two concurrent claims
       // will both pass the JS checks above, but only one UPDATE will match.
-      const claimResult = await db
-        .prepare(
-          "UPDATE share_tokens SET status = ?, bound_device_id = ?, bound_device_platform = ?, bound_app_version = ?, bound_user_id = COALESCE(?, bound_user_id), bound_at = ?, web_stream_allowed = ?, claim_attempts = 0 WHERE id = ? AND bound_device_id IS NULL AND status = 'unbound'",
-        )
-        .run(
-          "claimed",
-          deviceId,
-          platform,
-          appVersion,
-          claimUserId,
-          claimAt,
-          share.web_stream_allowed ? 1 : 0,
-          share.id,
-        );
+      const claimResult = await shareTokenRepository.claimSongShare({
+        shareTokenId: share.id,
+        deviceId,
+        platform,
+        appVersion,
+        claimUserId,
+        claimAt,
+        webStreamAllowed: share.web_stream_allowed,
+      });
       if (claimResult.changes === 0) {
         console.warn(
           "[SecurityGuard:ClaimRace] Concurrent claim rejected for share",
@@ -2289,12 +2208,12 @@ function registerSharingRoutes(
     const baseUrl = getBaseUrl(request);
 
     // Get track info (needed for all paths)
-    const track = await db
-      .prepare("SELECT * FROM tracks WHERE id = ?")
-      .get(share.track_id);
-    const trackVersion = await db
-      .prepare("SELECT * FROM track_versions WHERE id = ?")
-      .get(share.track_version_id);
+    const { track, trackVersion } = await shareTokenRepository.getShareTrackPair(
+      {
+        trackId: share.track_id,
+        trackVersionId: share.track_version_id,
+      },
+    );
 
     // For CLAIMED shares, require device match
     if (share.status === "claimed") {
@@ -2471,12 +2390,12 @@ function registerSharingRoutes(
       );
       return;
     }
-    const track = await db
-      .prepare("SELECT * FROM tracks WHERE id = ?")
-      .get(share.track_id);
-    const trackVersion = await db
-      .prepare("SELECT * FROM track_versions WHERE id = ?")
-      .get(share.track_version_id);
+    const { track, trackVersion } = await shareTokenRepository.getShareTrackPair(
+      {
+        trackId: share.track_id,
+        trackVersionId: share.track_version_id,
+      },
+    );
     if (!track || !trackVersion) {
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;
@@ -2513,12 +2432,12 @@ function registerSharingRoutes(
       return;
     }
 
-    const track = await db
-      .prepare("SELECT * FROM tracks WHERE id = ?")
-      .get(share.track_id);
-    const trackVersion = await db
-      .prepare("SELECT * FROM track_versions WHERE id = ?")
-      .get(share.track_version_id);
+    const { track, trackVersion } = await shareTokenRepository.getShareTrackPair(
+      {
+        trackId: share.track_id,
+        trackVersionId: share.track_version_id,
+      },
+    );
     if (!track || !trackVersion) {
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;
@@ -2546,12 +2465,12 @@ function registerSharingRoutes(
       "assets",
       "og-song.png",
     );
-    const track = await db
-      .prepare("SELECT * FROM tracks WHERE id = ?")
-      .get(share.track_id);
-    const trackVersion = await db
-      .prepare("SELECT * FROM track_versions WHERE id = ?")
-      .get(share.track_version_id);
+    const { track, trackVersion } = await shareTokenRepository.getShareTrackPair(
+      {
+        trackId: share.track_id,
+        trackVersionId: share.track_version_id,
+      },
+    );
     if (!track || !trackVersion) {
       const generatedFallback = await generateSongOgImage({
         title: track?.title,
@@ -2790,12 +2709,12 @@ function registerSharingRoutes(
   app.get("/share/:shareId/share.mp4", async (request, reply) => {
     const share = await resolveValidShare(request, reply);
     if (!share) return;
-    const track = await db
-      .prepare("SELECT * FROM tracks WHERE id = ?")
-      .get(share.track_id);
-    const trackVersion = await db
-      .prepare("SELECT * FROM track_versions WHERE id = ?")
-      .get(share.track_version_id);
+    const { track, trackVersion } = await shareTokenRepository.getShareTrackPair(
+      {
+        trackId: share.track_id,
+        trackVersionId: share.track_version_id,
+      },
+    );
     if (!track || !trackVersion) {
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;
@@ -2828,9 +2747,7 @@ function registerSharingRoutes(
       return;
     }
 
-    const share = await db
-      .prepare("SELECT * FROM share_tokens WHERE id = ?")
-      .get(shareId);
+    const share = await shareTokenRepository.getSongShareTokenById(shareId);
     if (!share || share.status === "revoked") {
       sendError(reply, 404, "SHARE_NOT_FOUND", "Share token not found.");
       return;
@@ -2881,12 +2798,12 @@ function registerSharingRoutes(
       return;
     }
 
-    const track = await db
-      .prepare("SELECT * FROM tracks WHERE id = ?")
-      .get(share.track_id);
-    const trackVersion = await db
-      .prepare("SELECT * FROM track_versions WHERE id = ?")
-      .get(share.track_version_id);
+    const { track, trackVersion } = await shareTokenRepository.getShareTrackPair(
+      {
+        trackId: share.track_id,
+        trackVersionId: share.track_version_id,
+      },
+    );
     if (!track || !trackVersion) {
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;
@@ -2950,12 +2867,12 @@ function registerSharingRoutes(
       );
       return;
     }
-    const track = await db
-      .prepare("SELECT * FROM tracks WHERE id = ?")
-      .get(share.track_id);
-    const trackVersion = await db
-      .prepare("SELECT * FROM track_versions WHERE id = ?")
-      .get(share.track_version_id);
+    const { track, trackVersion } = await shareTokenRepository.getShareTrackPair(
+      {
+        trackId: share.track_id,
+        trackVersionId: share.track_version_id,
+      },
+    );
     if (!track || !trackVersion) {
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;
@@ -3026,12 +2943,12 @@ function registerSharingRoutes(
       sendError(reply, 400, "INVALID_SEGMENT", "Invalid segment name.");
       return;
     }
-    const track = await db
-      .prepare("SELECT * FROM tracks WHERE id = ?")
-      .get(share.track_id);
-    const trackVersion = await db
-      .prepare("SELECT * FROM track_versions WHERE id = ?")
-      .get(share.track_version_id);
+    const { track, trackVersion } = await shareTokenRepository.getShareTrackPair(
+      {
+        trackId: share.track_id,
+        trackVersionId: share.track_version_id,
+      },
+    );
     if (!track || !trackVersion) {
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;
@@ -3102,9 +3019,7 @@ function registerSharingRoutes(
     if (!userId) {
       return;
     }
-    const track = await db
-      .prepare("SELECT * FROM tracks WHERE id = ?")
-      .get(request.params.id);
+    const track = await shareTokenRepository.getTrackById(request.params.id);
     if (!track || track.user_id !== userId || track.deleted_at) {
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;
@@ -3113,9 +3028,11 @@ function registerSharingRoutes(
       sendError(reply, 404, "SHARE_NOT_FOUND", "Share token not found.");
       return;
     }
-    await db
-      .prepare("UPDATE share_tokens SET status = ? WHERE id = ?")
-      .run("revoked", track.share_token_id);
+    await shareTokenRepository.updateShareStatus(
+      "share_tokens",
+      track.share_token_id,
+      "revoked",
+    );
     await addShareAccessLog({
       shareTokenId: track.share_token_id,
       eventType: "revoked",
@@ -3136,9 +3053,7 @@ function registerSharingRoutes(
     if (!userId) {
       return;
     }
-    const track = await db
-      .prepare("SELECT * FROM tracks WHERE id = ?")
-      .get(request.params.id);
+    const track = await shareTokenRepository.getTrackById(request.params.id);
     if (!track || track.user_id !== userId || track.deleted_at) {
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;
@@ -3153,20 +3068,18 @@ function registerSharingRoutes(
       return;
     }
 
-    const share = await db
-      .prepare("SELECT * FROM share_tokens WHERE id = ?")
-      .get(track.share_token_id);
+    const share = await shareTokenRepository.getSongShareTokenById(
+      track.share_token_id,
+    );
     if (!share) {
       sendError(reply, 404, "SHARE_NOT_FOUND", "Share token not found.");
       return;
     }
 
     // Get access log summary
-    const accessLogs = await db
-      .prepare(
-        "SELECT event_type, COUNT(*) as count, MAX(created_at) as last_at FROM share_access_log WHERE share_token_id = ? GROUP BY event_type",
-      )
-      .all(share.id);
+    const accessLogs = await shareTokenRepository.getShareAccessSummary(
+      share.id,
+    );
 
     const eventCounts = {};
     let totalEvents = 0;
@@ -3181,11 +3094,7 @@ function registerSharingRoutes(
 
     // Get recent access log entries (last 10)
     const recentActivity = (
-      await db
-        .prepare(
-          "SELECT event_type, metadata, created_at FROM share_access_log WHERE share_token_id = ? ORDER BY created_at DESC LIMIT 10",
-        )
-        .all(share.id)
+      await shareTokenRepository.getRecentShareAccessActivity(share.id)
     ).map((row) => ({
       event_type: row.event_type,
       metadata: parseJson(row.metadata),
@@ -3220,9 +3129,7 @@ function registerSharingRoutes(
     if (!userId) {
       return;
     }
-    const track = await db
-      .prepare("SELECT * FROM tracks WHERE id = ?")
-      .get(request.params.id);
+    const track = await shareTokenRepository.getTrackById(request.params.id);
     if (!track || track.user_id !== userId || track.deleted_at) {
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;
@@ -3237,9 +3144,9 @@ function registerSharingRoutes(
       return;
     }
 
-    const share = await db
-      .prepare("SELECT * FROM share_tokens WHERE id = ?")
-      .get(track.share_token_id);
+    const share = await shareTokenRepository.getSongShareTokenById(
+      track.share_token_id,
+    );
     if (!share) {
       sendError(reply, 404, "SHARE_NOT_FOUND", "Share token not found.");
       return;
@@ -3303,9 +3210,7 @@ function registerSharingRoutes(
     if (!userId) {
       return;
     }
-    const track = await db
-      .prepare("SELECT * FROM tracks WHERE id = ?")
-      .get(request.params.id);
+    const track = await shareTokenRepository.getTrackById(request.params.id);
     if (!track || track.user_id !== userId || track.deleted_at) {
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;
@@ -3320,9 +3225,9 @@ function registerSharingRoutes(
       return;
     }
 
-    const share = await db
-      .prepare("SELECT * FROM share_tokens WHERE id = ?")
-      .get(track.share_token_id);
+    const share = await shareTokenRepository.getSongShareTokenById(
+      track.share_token_id,
+    );
     if (!share) {
       sendError(reply, 404, "SHARE_NOT_FOUND", "Share token not found.");
       return;
@@ -3373,9 +3278,7 @@ function registerSharingRoutes(
     if (!userId) {
       return;
     }
-    const track = await db
-      .prepare("SELECT * FROM tracks WHERE id = ?")
-      .get(request.params.id);
+    const track = await shareTokenRepository.getTrackById(request.params.id);
     if (!track || track.user_id !== userId || track.deleted_at) {
       sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
       return;
@@ -3393,9 +3296,7 @@ function registerSharingRoutes(
       if (!userId) {
         return;
       }
-      const track = await db
-        .prepare("SELECT * FROM tracks WHERE id = ?")
-        .get(request.params.id);
+      const track = await shareTokenRepository.getTrackById(request.params.id);
       if (!track || track.user_id !== userId || track.deleted_at) {
         sendError(reply, 404, "TRACK_NOT_FOUND", "Track not found.");
         return;
