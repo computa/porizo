@@ -451,6 +451,8 @@ struct CreateSongView: View {
     @State var jobId = ""
     @State var createStatus = "Draft is local until you create the song."
     @State var renderStatus = "No render started."
+    @State var automaticPollingEnabled = true
+    @State var pollAttempts = 0
     @State var isWorking = false
     private let apiClient = AndroidAPIClient()
     private let draftStore = AndroidCreateDraftStore()
@@ -554,6 +556,14 @@ struct CreateSongView: View {
                 }
                 .disabled(isWorking || jobId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
+                Toggle("Auto-poll new render jobs", isOn: $automaticPollingEnabled)
+
+                if pollAttempts > 0 {
+                    Text("Automatic polls: \(pollAttempts)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
                 Text(renderStatus)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
@@ -639,6 +649,9 @@ struct CreateSongView: View {
             jobId = render.jobId ?? ""
             persistPendingRender(renderType: "preview")
             renderStatus = "Preview render queued. Job: \(jobId.isEmpty ? "unknown" : jobId)."
+            if automaticPollingEnabled {
+                await pollRenderWithRetry(renderType: "preview")
+            }
         }
     }
 
@@ -648,20 +661,73 @@ struct CreateSongView: View {
             jobId = render.jobId ?? ""
             persistPendingRender(renderType: "full")
             renderStatus = "Full render queued. Job: \(jobId.isEmpty ? "unknown" : jobId)."
+            if automaticPollingEnabled {
+                await pollRenderWithRetry(renderType: "full")
+            }
         }
     }
 
     private func pollRenderStatus() async {
         await runCreateAction {
             let status = try await apiClient.getJobStatus(jobId: clean(jobId))
-            let progressText = status.progress.map { "\($0)%" } ?? "progress unknown"
-            renderStatus = "Job \(status.status): \(progressText). \(status.errorMessage ?? status.step ?? "")"
-            if status.status == "completed" || status.status == "failed" {
-                renderStore.clear()
-            } else {
-                persistPendingRender(renderType: status.workflowType ?? "render")
+            applyRenderStatus(status)
+        }
+    }
+
+    private func pollRenderWithRetry(renderType: String) async {
+        let delays: [UInt64] = [2, 4, 8, 12, 20]
+        let cleanedJobId = clean(jobId)
+        guard !cleanedJobId.isEmpty else {
+            renderStatus = "Render queued, but no job ID was returned. Open Songs later to check server status."
+            return
+        }
+
+        for (index, delay) in delays.enumerated() {
+            pollAttempts = index + 1
+            renderStatus = "Render queued. Waiting \(delay)s before poll \(pollAttempts) of \(delays.count)."
+            try? await Task.sleep(nanoseconds: delay * 1_000_000_000)
+            do {
+                let status = try await apiClient.getJobStatus(jobId: cleanedJobId)
+                applyRenderStatus(status)
+                if isTerminalJobStatus(status.status) {
+                    return
+                }
+                persistPendingRender(renderType: status.workflowType ?? renderType)
+            } catch {
+                renderStatus = "Poll \(pollAttempts) failed: \(String(describing: error))"
             }
         }
+
+        if !isTerminalRenderMessage(renderStatus) {
+            renderStatus = "\(renderStatus) Automatic polling paused; the pending job is saved and can be checked again."
+        }
+    }
+
+    private func applyRenderStatus(_ status: PorizoJobStatus) {
+        let progressText = status.progress.map { "\($0)%" } ?? "progress unknown"
+        let detail = status.errorMessage ?? status.step ?? ""
+        renderStatus = "Job \(status.status): \(progressText). \(detail)"
+        if isTerminalJobStatus(status.status) {
+            renderStore.clear()
+        } else {
+            persistPendingRender(renderType: status.workflowType ?? "render")
+        }
+    }
+
+    private func isTerminalJobStatus(_ status: String) -> Bool {
+        switch status.lowercased() {
+        case "completed", "complete", "failed", "cancelled", "canceled":
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func isTerminalRenderMessage(_ message: String) -> Bool {
+        message.localizedCaseInsensitiveContains("completed") ||
+            message.localizedCaseInsensitiveContains("failed") ||
+            message.localizedCaseInsensitiveContains("cancelled") ||
+            message.localizedCaseInsensitiveContains("canceled")
     }
 
     private func persistPendingRender(renderType: String) {
@@ -710,6 +776,8 @@ struct SettingsView: View {
     @Binding var appearance: String
     @State var activeSheet: ActiveSettingsSheet?
     @State var probeStatus = NativeProbeStatus.idle
+    @State var apiBaseOverride = ""
+    @State var apiBaseStatus = "Uses production unless a debug override is saved."
 
     var body: some View {
         Form {
@@ -739,6 +807,40 @@ struct SettingsView: View {
                 }
             }
 
+            #if DEBUG
+            Section("Backend target") {
+                HStack {
+                    Text("Active")
+                    Spacer()
+                    Text(AndroidAppConfig.apiBaseURL)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                TextField("https://api.porizo.co", text: $apiBaseOverride)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                HStack {
+                    Button {
+                        AndroidAppConfig.saveDebugAPIBaseURLOverride(apiBaseOverride)
+                        apiBaseStatus = "Saved. Reopen a screen to create clients with the new API base."
+                    } label: {
+                        Label("Save API base", systemImage: "network")
+                    }
+                    Spacer()
+                    Button(role: .destructive) {
+                        apiBaseOverride = ""
+                        AndroidAppConfig.saveDebugAPIBaseURLOverride("")
+                        apiBaseStatus = "Cleared. New clients use production."
+                    } label: {
+                        Label("Clear", systemImage: "xmark.circle")
+                    }
+                }
+                Text(apiBaseStatus)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+            #endif
+
             Section("Android native adapters") {
                 RecordingEscapeHatchView()
                 Picker("Probe state", selection: $probeStatus) {
@@ -749,6 +851,24 @@ struct SettingsView: View {
                 Text(probeStatus.detail)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
+            }
+
+            Section("Phone test readiness") {
+                ForEach(AndroidNativeCapability.allCases) { capability in
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text(capability.label)
+                            Spacer()
+                            Text(capability.status)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Text(capability.detail)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.vertical, 4)
+                }
             }
 
             Section("App identity") {
@@ -772,6 +892,9 @@ struct SettingsView: View {
             }
         }
         .navigationTitle("Settings")
+        .task {
+            apiBaseOverride = UserDefaults.standard.string(forKey: AndroidAppConfig.apiBaseURLOverrideKey) ?? ""
+        }
         .sheet(item: $activeSheet) { sheet in
             switch sheet {
             case .auth:
@@ -854,7 +977,7 @@ struct AuthSheetView: View {
                     HStack {
                         Text("Device token")
                         Spacer()
-                        Text(deviceToken.isEmpty ? "not registered" : "stored")
+                        Text(deviceToken.isEmpty ? "not registered" : "stored securely")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -1116,7 +1239,7 @@ struct RecordingEscapeHatchView: View {
             Image(systemName: "mic.circle")
             VStack(alignment: .leading) {
                 Text("Recording shell placeholder")
-                Text("Android recording and STT will use a native adapter.")
+                Text("Android recording and STT adapter remains provider-backed work.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -1128,7 +1251,7 @@ struct RecordingEscapeHatchView: View {
 #if SKIP
 struct RecordingShellComposer: ContentComposer {
     @Composable func Compose(context: ComposeContext) {
-        androidx.compose.material3.Text("Android native recording and STT adapter pending", modifier: context.modifier)
+        androidx.compose.material3.Text("Recording/STT adapter pending provider wiring", modifier: context.modifier)
     }
 }
 #endif

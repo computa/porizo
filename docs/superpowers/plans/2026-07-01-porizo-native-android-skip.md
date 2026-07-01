@@ -17,6 +17,8 @@
 - The spike UI is fixture-only and intentionally says there are no backend calls.
 - Existing iOS code has production contracts for auth, create flow, share/claim, billing, push, and storage, but much of it is iOS-only and must be adapted, not blindly copied.
 - A physical Android phone is not visible to ADB as of 2026-07-01 09:55 AWST, so install validation is blocked until USB debugging/authorization is fixed and rechecked.
+- Android Studio should open `PorizoAndroid/Android` directly. Skip documentation says custom Kotlin/Java files belong under `Sources/<ModuleName>/Skip`, while generated `.build` sources must be treated as disposable output.
+- The app is only ready for a meaningful physical-phone test when auth/device-token storage, render polling, native-adapter readiness, provider configuration gates, and App Link routes are visible and testable in the app.
 
 ## Adversarial Review
 
@@ -92,8 +94,8 @@
 - [x] Implement create endpoint and library read endpoints used by the Android shell.
 - [x] Implement render/version/status endpoints used by iOS tracks API.
 - [x] Add local draft storage and pending-create recovery.
-- [ ] Add render polling state with retry/backoff and explicit failure surfaces.
-  - Manual polling and pending-job recovery are implemented; automatic retry/backoff remains a follow-up.
+- [x] Add render polling state with retry/backoff and explicit failure surfaces.
+  - Manual polling, bounded automatic retry/backoff, pending-job recovery, and terminal/still-running states are implemented.
 - [x] Keep audio upload/recording behind a platform adapter until Android recording is fully implemented.
 
 ### Slice 6: Billing and Push
@@ -102,6 +104,15 @@
 - [x] Integrate backend Google billing validation endpoint without StoreKit assumptions.
 - [x] Add Android push token registration boundary for FCM or OneSignal Android.
 - [x] Document provider choice and required environment/config values.
+- [x] Add in-app readiness states for Play Billing, push provider, recording/STT, secure token storage, App Links, and Android Studio phone QA so physical-device testing does not depend on tribal knowledge.
+
+### Slice 6b: Secure Android Session Storage
+
+- [x] Add an Android-native secure string store backed by Android Keystore AES/GCM and SharedPreferences ciphertext, using a Kotlin file under `PorizoAndroid/Sources/PorizoSkipSpike/Skip/`.
+- [x] Bridge secure get/set/remove helpers through `#if SKIP` so compiled Swift can call them without editing generated `.build` output.
+- [x] Move auth session JSON and device JWT storage from direct `UserDefaults` writes to the secure adapter.
+- [x] Migrate any legacy `UserDefaults` auth/device token values into secure storage on first read, then remove the legacy copies.
+- [x] Keep non-secret local recovery state, such as create drafts and pending render jobs, in `UserDefaults`.
 
 ### Slice 7: Icons, Release Build, Play Store Config
 
@@ -112,8 +123,10 @@
 - [x] Add Play Store metadata/config checklist.
 - [x] Document build/install/release commands.
 
-### Slice 8: Physical Phone QA
+### Slice 8: Android Studio and Physical Phone QA
 
+- [ ] Open `PorizoAndroid/Android` in Android Studio and confirm Gradle sync succeeds with the bundled JDK.
+- [ ] Select the connected physical phone in Android Studio and run the `app` debug variant.
 - [ ] Confirm ADB sees the physical phone with `adb devices -l`. Current result on 2026-07-01: no devices listed, so install is blocked until USB debugging/authorization is fixed.
 - [ ] Install the debug APK with `adb install -r -g`.
 - [ ] Launch the app and smoke test:
@@ -121,8 +134,27 @@
   - app link routes to recipient claim
   - auth surface loads
   - create form persists state
+  - preview/full render starts and auto-polling reaches a terminal or explicit still-running state
+  - settings shows native-adapter readiness for secure storage, recording/STT, push, billing, App Links, and release signing
   - share/claim handles success and error envelopes
 - [ ] Record unresolved device, billing, push, and release blockers.
+
+### Slice 9: Native Provider Completion Before Store Release
+
+- [ ] Choose and configure the Android push provider:
+  - FCM path requires Firebase app registration, `google-services.json`, Gradle plugin wiring, runtime notification permission flow, and backend token registration.
+  - OneSignal path requires app ID configuration, SDK Gradle dependency, runtime permission flow, and backend token registration.
+- [ ] Implement Play Billing purchase-token acquisition:
+  - Add Google Play Billing dependency.
+  - Query configured products.
+  - Launch purchase flow.
+  - Send purchase token and subscription ID to `/billing/receipt/google`.
+  - Refresh `/billing/entitlements`.
+- [ ] Implement recording/STT native adapter:
+  - Request microphone permission from the create flow.
+  - Record and persist a temporary audio sample.
+  - Hand recorded audio to the backend-supported upload/STT path once that endpoint is confirmed for Android.
+- [ ] Configure release signing with a real keystore and publish `assetlinks.json` for the Play-signing fingerprint before Play upload.
 
 ## Validation Commands
 

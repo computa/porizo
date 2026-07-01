@@ -31,6 +31,7 @@ struct AndroidSessionStore: Sendable {
     private static let authSessionKey = "porizo_android_auth_session"
     private static let deviceTokenKey = "porizo_android_device_token"
     private static let deviceTokenExpiryKey = "porizo_android_device_token_expiry"
+    private let secretStore = AndroidSecretStore()
 
     func getOrCreateDeviceId() -> String {
         if let existing = UserDefaults.standard.string(forKey: Self.deviceIdKey), !existing.isEmpty {
@@ -42,36 +43,48 @@ struct AndroidSessionStore: Sendable {
     }
 
     func loadAuthSession() -> PorizoAuthSession? {
-        guard let data = UserDefaults.standard.data(forKey: Self.authSessionKey) else { return nil }
-        return try? JSONDecoder().decode(PorizoAuthSession.self, from: data)
+        if let encoded = secretStore.string(forKey: Self.authSessionKey),
+           let data = encoded.data(using: .utf8),
+           let session = try? JSONDecoder().decode(PorizoAuthSession.self, from: data) {
+            return session
+        }
+
+        guard let legacyData = UserDefaults.standard.data(forKey: Self.authSessionKey),
+              let session = try? JSONDecoder().decode(PorizoAuthSession.self, from: legacyData) else {
+            return nil
+        }
+        saveAuthSession(session)
+        UserDefaults.standard.removeObject(forKey: Self.authSessionKey)
+        return session
     }
 
     func saveAuthSession(_ session: PorizoAuthSession) {
-        if let data = try? JSONEncoder().encode(session) {
-            UserDefaults.standard.set(data, forKey: Self.authSessionKey)
+        if let data = try? JSONEncoder().encode(session),
+           let encoded = String(data: data, encoding: .utf8) {
+            secretStore.setString(encoded, forKey: Self.authSessionKey)
         }
     }
 
     func clearAuthSession() {
-        UserDefaults.standard.removeObject(forKey: Self.authSessionKey)
+        secretStore.removeString(forKey: Self.authSessionKey)
     }
 
     func loadDeviceTokenExpiry() -> String? {
-        UserDefaults.standard.string(forKey: Self.deviceTokenExpiryKey)
+        secretStore.string(forKey: Self.deviceTokenExpiryKey)
     }
 
     func currentDeviceToken() -> String? {
-        UserDefaults.standard.string(forKey: Self.deviceTokenKey)
+        secretStore.string(forKey: Self.deviceTokenKey)
     }
 
     func saveDeviceToken(_ token: String, expiresAt: String) {
-        UserDefaults.standard.set(token, forKey: Self.deviceTokenKey)
-        UserDefaults.standard.set(expiresAt, forKey: Self.deviceTokenExpiryKey)
+        secretStore.setString(token, forKey: Self.deviceTokenKey)
+        secretStore.setString(expiresAt, forKey: Self.deviceTokenExpiryKey)
     }
 
     func clearDeviceToken() {
-        UserDefaults.standard.removeObject(forKey: Self.deviceTokenKey)
-        UserDefaults.standard.removeObject(forKey: Self.deviceTokenExpiryKey)
+        secretStore.removeString(forKey: Self.deviceTokenKey)
+        secretStore.removeString(forKey: Self.deviceTokenExpiryKey)
     }
 }
 

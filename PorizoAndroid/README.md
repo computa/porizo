@@ -29,6 +29,11 @@ run the app in the iOS simulator / Android emulator.
 An Android emulator must already be running, which can be launched from
 Android Studio's Device Manager.
 
+For physical-phone work, open `PorizoAndroid/Android` directly in Android
+Studio, let Gradle sync, select the USB-authorized phone, select the `app`
+debug variant, and press Run. The same project builds the production Android
+application ID `com.porizo.app`.
+
 The project can be opened and run in Xcode from
 `Project.xcworkspace`, which also enables parallel development of Skip library
 dependencies.
@@ -65,6 +70,11 @@ gradle :app:assembleDebug
 ```
 
 The production Android application ID is `com.porizo.app`.
+
+Debug builds default to `https://api.porizo.co`, but Settings includes a debug
+API-base override for staging or tunneled local backend testing. Reopen the
+target screen after saving an override so newly constructed API clients pick it
+up.
 
 To inspect the generated debug APK:
 
@@ -107,8 +117,12 @@ configured for development, but the artifact is not Play Store uploadable.
   then consumed by SwiftUI to open share, receiver-handoff, or poem routes.
 - Phone auth, device registration, share/claim, create, render status, billing,
   and push-token registration are implemented through `AndroidAPIClient`.
+- Auth session JSON and device JWTs are stored through `AndroidSecretStore`,
+  which bridges to a Kotlin Android Keystore AES/GCM helper under
+  `Sources/PorizoSkipSpike/Skip/`.
 - Local create drafts and pending render jobs use `UserDefaults` as an MVP Android
-  store. Auth/device tokens should move behind an Android Keystore adapter before
-  production rollout.
+  store because they are recoverable non-secret local state.
+- Preview/full renders use bounded automatic polling with pending-job recovery
+  and explicit terminal/still-running surfaces.
 - Recording/STT and real push-provider SDK integration remain native adapter work;
   the current app keeps those boundaries explicit instead of copying iOS-only APIs.

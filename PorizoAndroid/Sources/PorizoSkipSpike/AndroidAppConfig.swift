@@ -7,6 +7,7 @@ enum AndroidAppConfig {
     static let platform = "android"
     static let marketingVersion = "0.1.0"
     static let productionAPIBaseURL = "https://api.porizo.co"
+    static let apiBaseURLOverrideKey = "porizo_android_api_base_url_override"
     static let shareHost = "porizo.app"
     static let platformDeviceLabel = "android-device"
 
@@ -16,8 +17,23 @@ enum AndroidAppConfig {
            !override.isEmpty {
             return override
         }
+        if let override = UserDefaults.standard.string(forKey: apiBaseURLOverrideKey)?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !override.isEmpty {
+            return override
+        }
         #endif
         return productionAPIBaseURL
+    }
+
+    static func saveDebugAPIBaseURLOverride(_ value: String) {
+        #if DEBUG
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            UserDefaults.standard.removeObject(forKey: apiBaseURLOverrideKey)
+        } else {
+            UserDefaults.standard.set(trimmed, forKey: apiBaseURLOverrideKey)
+        }
+        #endif
     }
 
     static let appLinkPathPrefixes = [

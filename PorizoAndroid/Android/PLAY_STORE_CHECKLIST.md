@@ -17,6 +17,10 @@
 ## Store Readiness
 
 - Launcher icon and adaptive icon layers are tracked for the internal Android build.
+- Auth sessions and device JWTs use Android Keystore-backed encrypted storage on
+  Android, with legacy local token migration.
+- Settings exposes native readiness states for secure storage, recording/STT,
+  push, Play Billing, App Links, and release signing before phone QA.
 - Play Billing package configuration still needs real Play Console product IDs and
   a native purchase-token acquisition adapter. Backend validation is wired through
   `POST /billing/receipt/google`.
@@ -37,5 +41,6 @@
 - `aapt dump badging` reports package `com.porizo.app`, label `Porizo`, and version `0.1.0`.
 - `:app:assembleRelease` and `:app:bundleRelease` succeed on a signing-configured machine.
 - ADB lists the physical phone as `device`, not `unauthorized` or empty.
-- Smoke test auth, create draft recovery, app-link claim routing, share claim errors,
-  billing receipt error handling, and push-token registration.
+- Smoke test auth, secure token persistence across restart, create draft recovery,
+  render auto-polling, app-link claim routing, share claim errors, billing receipt
+  error handling, push-token registration, and Settings readiness states.
