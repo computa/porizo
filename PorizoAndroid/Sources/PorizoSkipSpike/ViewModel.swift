@@ -46,11 +46,11 @@ enum ClaimState: String, CaseIterable, Identifiable {
 
     var symbol: String {
         switch self {
-        case .readyToClaim: return "gift"
-        case .claimedHere: return "checkmark.seal.fill"
+        case .readyToClaim: return "heart.fill"
+        case .claimedHere: return "checkmark.circle.fill"
         case .alreadyClaimed: return "exclamationmark.triangle"
-        case .expired: return "clock.badge.exclamationmark"
-        case .wrongDevice: return "iphone.slash"
+        case .expired: return "exclamationmark.triangle"
+        case .wrongDevice: return "lock"
         }
     }
 
