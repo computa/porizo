@@ -37,6 +37,11 @@ let logger: Logger = Logger(subsystem: AndroidAppConfig.applicationId, category:
         logger.debug("onLaunch")
     }
 
+    /* SKIP @bridge */public func onOpenURL(_ rawURL: String) {
+        logger.info("onOpenURL")
+        AndroidDeepLinkStore().save(rawURL: rawURL)
+    }
+
     /* SKIP @bridge */public func onResume() {
         logger.debug("onResume")
     }

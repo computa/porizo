@@ -66,8 +66,49 @@ gradle :app:assembleDebug
 
 The production Android application ID is `com.porizo.app`.
 
+To inspect the generated debug APK:
+
+```bash
+/Users/ao/Library/Android/sdk/build-tools/36.0.0/aapt dump badging \
+  PorizoAndroid/.build/Android/app/outputs/apk/debug/app-debug.apk
+```
+
+To install on a physical phone once USB debugging is enabled and the device is
+authorized:
+
+```bash
+/Users/ao/Library/Android/sdk/platform-tools/adb devices -l
+/Users/ao/Library/Android/sdk/platform-tools/adb install -r -g \
+  PorizoAndroid/.build/Android/app/outputs/apk/debug/app-debug.apk
+```
+
+Release validation uses the same environment:
+
+```bash
+JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" \
+ANDROID_HOME="/Users/ao/Library/Android/sdk" \
+ANDROID_SDK_ROOT="/Users/ao/Library/Android/sdk" \
+GRADLE_USER_HOME="/private/tmp/porizo-gradle-cache" \
+PATH="/Users/ao/Library/Android/sdk/platform-tools:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
+gradle :app:assembleRelease :app:bundleRelease
+```
+
 ## Signing
 
 Release signing reads `Android/app/keystore.properties` when present. That file
 and `Android/app/keystore.jks` are intentionally ignored. Start from
 `Android/app/keystore.properties.example` when configuring a release machine.
+Without that file, release validation may build with the local fallback signing
+configured for development, but the artifact is not Play Store uploadable.
+
+## Android Integration Surface
+
+- App Links are delivered by `MainActivity` into `PorizoSkipSpikeAppDelegate.onOpenURL`,
+  then consumed by SwiftUI to open share, receiver-handoff, or poem routes.
+- Phone auth, device registration, share/claim, create, render status, billing,
+  and push-token registration are implemented through `AndroidAPIClient`.
+- Local create drafts and pending render jobs use `UserDefaults` as an MVP Android
+  store. Auth/device tokens should move behind an Android Keystore adapter before
+  production rollout.
+- Recording/STT and real push-provider SDK integration remain native adapter work;
+  the current app keeps those boundaries explicit instead of copying iOS-only APIs.

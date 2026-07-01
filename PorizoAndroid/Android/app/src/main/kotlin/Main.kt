@@ -7,6 +7,7 @@ import skip.ui.*
 
 import android.Manifest
 import android.app.Application
+import android.content.Intent
 import android.graphics.Color as AndroidColor
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -58,6 +59,7 @@ open class MainActivity: AppCompatActivity {
         logger.info("starting activity")
         UIApplication.launch(this)
         enableEdgeToEdge()
+        handleIntent(intent)
 
         setContent {
             val saveableStateHolder = rememberSaveableStateHolder()
@@ -84,6 +86,12 @@ open class MainActivity: AppCompatActivity {
     override fun onStart() {
         logger.info("onStart")
         super.onStart()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleIntent(intent)
     }
 
     override fun onResume() {
@@ -127,6 +135,12 @@ open class MainActivity: AppCompatActivity {
     override fun onRequestPermissionsResult(requestCode: Int, permissions: kotlin.Array<String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         logger.info("onRequestPermissionsResult: ${requestCode}")
+    }
+
+    private fun handleIntent(intent: Intent?) {
+        val rawURL = intent?.data?.toString() ?: return
+        logger.info("received app link: ${rawURL}")
+        AppDelegate.shared.onOpenURL(rawURL)
     }
 
     companion object {

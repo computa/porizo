@@ -16,7 +16,7 @@
 - The spike builds an APK, but it identifies as `com.porizo.skipfusespike` / `PorizoSkipSpike`.
 - The spike UI is fixture-only and intentionally says there are no backend calls.
 - Existing iOS code has production contracts for auth, create flow, share/claim, billing, push, and storage, but much of it is iOS-only and must be adapted, not blindly copied.
-- A physical Android phone is not currently visible to ADB, so install validation is blocked until USB debugging/authorization is fixed.
+- A physical Android phone is not visible to ADB as of 2026-07-01 09:55 AWST, so install validation is blocked until USB debugging/authorization is fixed and rechecked.
 
 ## Adversarial Review
 
@@ -76,43 +76,45 @@
 - [x] Add Android HTTP client infrastructure with JSON encoding/decoding and API error envelope handling.
 - [x] Implement phone auth endpoints from `APIClient+Auth.swift`.
 - [x] Add local session adapter for Android MVP, with a follow-up to bridge Android Keystore.
-- [ ] Add full auth state view model and settings account surface.
+- [x] Add full auth state view model and settings account surface.
 
 ### Slice 4: Share, Claim, and App Links
 
 - [x] Implement device ID and device token registration for Android.
 - [x] Implement `GET /share/:shareId`, `POST /share/:shareId/claim`, receiver handoff resolution, receiver claim, and claimed stream URL retrieval.
 - [x] Use platform value `android` in all claim/stream calls.
-- [ ] Parse Android App Link intents into share/receiver claim state.
+- [x] Parse Android App Link intents into share/receiver claim state.
 - [ ] Validate share-once behavior against backend contract tests or smoke calls.
 
 ### Slice 5: Create Flow, Storage, and Render Status
 
 - [x] Port create form state into a Skip-compatible view model.
 - [x] Implement create endpoint and library read endpoints used by the Android shell.
-- [ ] Implement render/version/status endpoints used by iOS tracks API.
-- [ ] Add local draft storage and pending-create recovery.
+- [x] Implement render/version/status endpoints used by iOS tracks API.
+- [x] Add local draft storage and pending-create recovery.
 - [ ] Add render polling state with retry/backoff and explicit failure surfaces.
-- [ ] Keep audio upload/recording behind a platform adapter until Android recording is fully implemented.
+  - Manual polling and pending-job recovery are implemented; automatic retry/backoff remains a follow-up.
+- [x] Keep audio upload/recording behind a platform adapter until Android recording is fully implemented.
 
 ### Slice 6: Billing and Push
 
 - [x] Define Android billing adapter boundary for Play Billing purchase tokens.
 - [x] Integrate backend Google billing validation endpoint without StoreKit assumptions.
-- [ ] Add Android push token registration boundary for FCM or OneSignal Android.
-- [ ] Document provider choice and required environment/config values.
+- [x] Add Android push token registration boundary for FCM or OneSignal Android.
+- [x] Document provider choice and required environment/config values.
 
 ### Slice 7: Icons, Release Build, Play Store Config
 
-- [ ] Add production Android launcher icon assets.
-- [ ] Add release signing template and `keystore.properties.example`.
-- [ ] Produce `assembleRelease` and app bundle build once signing config is available.
-- [ ] Add Play Store metadata/config checklist.
-- [ ] Document build/install/release commands.
+- [x] Add production Android launcher icon assets.
+- [x] Add release signing template and `keystore.properties.example`.
+- [x] Produce `assembleRelease` and app bundle build for validation.
+  - Play upload still requires a real release keystore and matching App Links `assetlinks.json` fingerprint.
+- [x] Add Play Store metadata/config checklist.
+- [x] Document build/install/release commands.
 
 ### Slice 8: Physical Phone QA
 
-- [ ] Confirm ADB sees the physical phone with `adb devices -l`. Current result: no devices listed, so install is blocked until USB debugging/authorization is fixed.
+- [ ] Confirm ADB sees the physical phone with `adb devices -l`. Current result on 2026-07-01: no devices listed, so install is blocked until USB debugging/authorization is fixed.
 - [ ] Install the debug APK with `adb install -r -g`.
 - [ ] Launch the app and smoke test:
   - app opens as Porizo
@@ -133,6 +135,17 @@ ANDROID_SDK_ROOT="/Users/ao/Library/Android/sdk" \
 GRADLE_USER_HOME="/private/tmp/porizo-gradle-cache" \
 PATH="/Users/ao/Library/Android/sdk/platform-tools:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
 gradle :app:assembleDebug
+```
+
+Release APK/AAB validation:
+
+```bash
+JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" \
+ANDROID_HOME="/Users/ao/Library/Android/sdk" \
+ANDROID_SDK_ROOT="/Users/ao/Library/Android/sdk" \
+GRADLE_USER_HOME="/private/tmp/porizo-gradle-cache" \
+PATH="/Users/ao/Library/Android/sdk/platform-tools:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
+gradle :app:assembleRelease :app:bundleRelease
 ```
 
 Inspect APK:

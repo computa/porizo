@@ -56,6 +56,10 @@ struct AndroidSessionStore: Sendable {
         UserDefaults.standard.removeObject(forKey: Self.authSessionKey)
     }
 
+    func loadDeviceTokenExpiry() -> String? {
+        UserDefaults.standard.string(forKey: Self.deviceTokenExpiryKey)
+    }
+
     func currentDeviceToken() -> String? {
         UserDefaults.standard.string(forKey: Self.deviceTokenKey)
     }
@@ -117,6 +121,7 @@ actor AndroidAPIClient {
            let accessToken = response.accessToken,
            let refreshToken = response.refreshToken {
             sessionStore.saveAuthSession(PorizoAuthSession(userId: userId, accessToken: accessToken, refreshToken: refreshToken, expiresIn: 3600))
+            sessionStore.clearDeviceToken()
         }
         return response
     }
@@ -131,8 +136,28 @@ actor AndroidAPIClient {
                 case phoneNumber = "phone_number"
             }
         }
-        let session: PorizoAuthSession = try await send(path: "/auth/phone/register", method: "POST", body: Body(registrationToken: registrationToken, phoneNumber: phoneNumber))
+        let response: PorizoPhoneRegisterResponse = try await send(path: "/auth/phone/register", method: "POST", body: Body(registrationToken: registrationToken, phoneNumber: phoneNumber))
+        guard let userId = response.userId,
+              let accessToken = response.accessToken,
+              let refreshToken = response.refreshToken else {
+            if response.accountExists == true {
+                let methods = response.authMethods?.joined(separator: ", ") ?? "another sign-in method"
+                throw AndroidAPIClientError.server(
+                    status: 409,
+                    code: "ACCOUNT_EXISTS",
+                    message: "This phone matches an existing account. Sign in with \(methods)."
+                )
+            }
+            throw AndroidAPIClientError.decoding("Phone registration did not include auth tokens.")
+        }
+        let session = PorizoAuthSession(
+            userId: userId,
+            accessToken: accessToken,
+            refreshToken: refreshToken,
+            expiresIn: response.expiresIn ?? 3600
+        )
         sessionStore.saveAuthSession(session)
+        sessionStore.clearDeviceToken()
         return session
     }
 
@@ -171,6 +196,44 @@ actor AndroidAPIClient {
 
     func createTrack(_ request: PorizoCreateTrackRequest) async throws -> PorizoCreateTrackResponse {
         try await send(path: "/tracks", method: "POST", requiresAuth: true, body: request)
+    }
+
+    func createVersion(trackId: String, renderType: String = "preview") async throws -> PorizoCreateVersionResponse {
+        struct Body: Encodable {
+            let renderType: String
+
+            enum CodingKeys: String, CodingKey {
+                case renderType = "render_type"
+            }
+        }
+        return try await send(
+            path: "/tracks/\(encodedPathComponent(trackId))/versions",
+            method: "POST",
+            requiresAuth: true,
+            body: Body(renderType: renderType)
+        )
+    }
+
+    func renderPreview(trackId: String, versionNum: Int) async throws -> PorizoRenderPreviewResponse {
+        try await send(
+            path: "/tracks/\(encodedPathComponent(trackId))/versions/\(versionNum)/render_preview",
+            method: "POST",
+            requiresAuth: true,
+            body: EmptyJSONBody()
+        )
+    }
+
+    func renderFull(trackId: String, versionNum: Int) async throws -> PorizoRenderFullResponse {
+        try await send(
+            path: "/tracks/\(encodedPathComponent(trackId))/versions/\(versionNum)/render_full",
+            method: "POST",
+            requiresAuth: true,
+            body: EmptyJSONBody()
+        )
+    }
+
+    func getJobStatus(jobId: String) async throws -> PorizoJobStatus {
+        try await send(path: "/jobs/\(encodedPathComponent(jobId))", method: "GET", requiresAuth: true)
     }
 
     func getPoems() async throws -> PorizoGetPoemsResponse {
@@ -243,7 +306,7 @@ actor AndroidAPIClient {
         try await send(path: "/billing/entitlements", method: "GET", requiresAuth: true)
     }
 
-    func validateGoogleSubscription(purchaseToken: String, subscriptionId: String) async throws -> PorizoBillingEntitlements {
+    func validateGoogleSubscription(purchaseToken: String, subscriptionId: String) async throws -> PorizoGoogleReceiptResponse {
         struct Body: Encodable {
             let purchaseToken: String
             let subscriptionId: String
@@ -254,6 +317,10 @@ actor AndroidAPIClient {
             }
         }
         return try await send(path: "/billing/receipt/google", method: "POST", requiresAuth: true, body: Body(purchaseToken: purchaseToken, subscriptionId: subscriptionId))
+    }
+
+    func registerPushToken(_ pushToken: String) async throws -> PorizoDeviceRegistrationResponse {
+        try await registerDevice(pushToken: pushToken)
     }
 
     private func ensureDeviceToken() async throws -> String {
@@ -323,3 +390,5 @@ actor AndroidAPIClient {
         value.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? value
     }
 }
+
+private struct EmptyJSONBody: Encodable, Sendable {}

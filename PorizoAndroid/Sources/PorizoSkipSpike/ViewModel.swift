@@ -135,11 +135,20 @@ enum VoiceSource: String, CaseIterable, Identifiable {
         case .instrumentalOnly: return "Instrumental only"
         }
     }
+
+    var apiValue: String {
+        switch self {
+        case .creatorVoice: return "user_voice"
+        case .aiGuide: return "ai_voice"
+        case .instrumentalOnly: return "instrumental"
+        }
+    }
 }
 
 enum ActiveSettingsSheet: String, Identifiable {
     case auth
     case subscription
+    case push
 
     var id: String { rawValue }
 }
