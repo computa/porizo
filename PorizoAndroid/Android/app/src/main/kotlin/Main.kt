@@ -156,6 +156,37 @@ open class MainActivity: AppCompatActivity {
     }
 }
 
+/// Fraunces display-text escape hatch (KTD-F5).
+///
+/// SkipUI's `Font.custom("fraunces_regular")` resolves the resource but Compose renders the
+/// system font anyway (a Skip 1.9.4 FontFamily(Typeface) limitation). This renders the title
+/// text with the Fraunces serif via the raw Compose font API, which honors res/font correctly.
+/// Bridged into SwiftUI via `ComposeView { FrauncesTextComposer(...) }`.
+class FrauncesTextComposer(
+    private val text: String,
+    private val fontSizeSp: Double,
+    private val weightValue: Int,
+    private val colorArgb: Long
+) : skip.ui.ContentComposer {
+    @Composable
+    override fun Compose(context: skip.ui.ComposeContext) {
+        val family = androidx.compose.ui.text.font.FontFamily(
+            androidx.compose.ui.text.font.Font(R.font.fraunces_regular)
+        )
+        val weight = androidx.compose.ui.text.font.FontWeight(weightValue)
+        androidx.compose.material3.Text(
+            text = text,
+            fontFamily = family,
+            fontWeight = weight,
+            fontSize = androidx.compose.ui.unit.TextUnit(fontSizeSp.toFloat(), androidx.compose.ui.unit.TextUnitType.Sp),
+            // colorArgb is a plain 0xAARRGGBB int packed in a Long; Color(Int) is the ARGB ctor.
+            // (Color(ULong) expects a different high-bits-packed format — do NOT use it here.)
+            color = androidx.compose.ui.graphics.Color(colorArgb.toInt()),
+            modifier = context.modifier
+        )
+    }
+}
+
 @Composable
 internal fun SyncSystemBarsWithTheme() {
     val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f

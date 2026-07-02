@@ -4,5 +4,9 @@
 <dict>
     <key>ITSAppUsesNonExemptEncryption</key>
     <false/>
+    <key>UIAppFonts</key>
+    <array>
+        <string>Fraunces-Variable.ttf</string>
+    </array>
 </dict>
 </plist>

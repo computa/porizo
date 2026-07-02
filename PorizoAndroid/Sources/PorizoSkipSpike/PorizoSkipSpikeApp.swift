@@ -14,6 +14,9 @@ let logger: Logger = Logger(subsystem: AndroidAppConfig.applicationId, category:
 
     public var body: some View {
         ContentView()
+            // App-wide accent = Warm Canvas coral, matching iOS. Without this, Skip/Compose
+            // tints default controls (buttons, links, toggles, progress) with its own blue.
+            .tint(DesignTokens.gold)
             .task {
                 logger.info("Porizo Android logs can be viewed in Android Studio or using adb logcat")
             }

@@ -1,20 +1,24 @@
 import SwiftUI
 
+// PorizoAndroidTheme is now a thin alias layer over the canonical DesignTokens (UF1).
+// Its former values were hand-approximated and hue-wrong (gold read as mustard ~#C79438
+// instead of the real Warm Canvas coral #E07850); aliasing corrects the whole app in one move.
+// Radius aliases map the old 10/14/18 scale onto the iOS scale (12/14/16) for parity.
 enum PorizoAndroidTheme {
-    static let background = Color(red: 0.96, green: 0.94, blue: 0.88)
-    static let surface = Color(red: 1.0, green: 0.99, blue: 0.96)
-    static let surfaceElevated = Color(red: 0.99, green: 0.97, blue: 0.92)
-    static let textPrimary = Color(red: 0.12, green: 0.10, blue: 0.08)
-    static let textSecondary = Color(red: 0.42, green: 0.37, blue: 0.31)
-    static let textTertiary = Color(red: 0.58, green: 0.52, blue: 0.45)
-    static let gold = Color(red: 0.78, green: 0.58, blue: 0.22)
-    static let goldDark = Color(red: 0.45, green: 0.31, blue: 0.12)
-    static let border = Color(red: 0.86, green: 0.80, blue: 0.70)
-    static let accentBlue = Color(red: 0.28, green: 0.37, blue: 0.61)
+    static let background = DesignTokens.background
+    static let surface = DesignTokens.surface
+    static let surfaceElevated = DesignTokens.surfaceElevated
+    static let textPrimary = DesignTokens.textPrimary
+    static let textSecondary = DesignTokens.textSecondary
+    static let textTertiary = DesignTokens.textTertiary
+    static let gold = DesignTokens.gold
+    static let goldDark = DesignTokens.goldDark
+    static let border = DesignTokens.border
+    static let accentBlue = DesignTokens.statusInfo
 
-    static let radiusSmall: CGFloat = 10
-    static let radiusMedium: CGFloat = 14
-    static let radiusLarge: CGFloat = 18
+    static let radiusSmall: CGFloat = DesignTokens.radiusMedium   // 10 -> 12
+    static let radiusMedium: CGFloat = DesignTokens.radiusCTA     // 14 -> 14
+    static let radiusLarge: CGFloat = DesignTokens.radiusLarge    // 18 -> 16
 }
 
 enum ContentTab: String, Hashable, CaseIterable, Identifiable {
@@ -172,9 +176,7 @@ struct AndroidExploreView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("Explore")
-                            .font(.system(size: 34, weight: .bold))
-                            .foregroundStyle(PorizoAndroidTheme.textPrimary)
+                        FrauncesTitle(text: "Explore", size: 34, weight: .bold)
                         Text("Make something personal, then send it as an app-only gift.")
                             .font(.system(size: 15))
                             .foregroundStyle(PorizoAndroidTheme.textSecondary)
@@ -290,31 +292,31 @@ struct AndroidExploreView: View {
 
 struct FeaturedSongCard: View {
     var body: some View {
-        ZStack(alignment: .bottomLeading) {
+        // Gradient is a .background of the content (not a sibling ZStack layer): the content's
+        // padded intrinsic height drives the card size, so the display-font title can wrap without
+        // clipping (old fixed frame(height:154)) or overlapping the subtitle (bottom-aligned ZStack).
+        HStack(alignment: .bottom) {
+            VStack(alignment: .leading, spacing: 6) {
+                FrauncesTitle(text: "Every moment deserves a song", size: 22, weight: .bold, color: .onAccent)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("Create from a memory, a voice, and one clear feeling.")
+                    .font(.system(size: 14))
+                    .foregroundStyle(Color.white.opacity(0.86))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer()
+            StaticBarsView()
+                .frame(width: 78, height: 56)
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, minHeight: 154, alignment: .bottomLeading)
+        .background(
             LinearGradient(
                 colors: [PorizoAndroidTheme.gold, PorizoAndroidTheme.goldDark],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
-
-            HStack(alignment: .bottom) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Every moment deserves a song")
-                        .font(.system(size: 22, weight: .bold))
-                        .foregroundStyle(Color.white)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Text("Create from a memory, a voice, and one clear feeling.")
-                        .font(.system(size: 14))
-                        .foregroundStyle(Color.white.opacity(0.86))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer()
-                StaticBarsView()
-                    .frame(width: 78, height: 56)
-            }
-            .padding(20)
-        }
-        .frame(height: 154)
+        )
         .clipShape(RoundedRectangle(cornerRadius: PorizoAndroidTheme.radiusLarge))
     }
 }
@@ -893,9 +895,7 @@ struct CreateSongView: View {
                 .accessibilityLabel("Back to Explore")
             }
 
-            Text("Create")
-                .font(.system(size: 34, weight: .bold))
-                .foregroundStyle(PorizoAndroidTheme.textPrimary)
+            FrauncesTitle(text: "Create", size: 34, weight: .bold)
             Text("Turn one private memory into a song they can preview, claim, and save in the app.")
                 .font(.system(size: 15))
                 .foregroundStyle(PorizoAndroidTheme.textSecondary)
@@ -1441,9 +1441,7 @@ struct PorizoScreenHeader: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
-            Text(title)
-                .font(.system(size: 34, weight: .bold))
-                .foregroundStyle(PorizoAndroidTheme.textPrimary)
+            FrauncesTitle(text: title, size: 34, weight: .bold)
             Text(subtitle)
                 .font(.system(size: 15))
                 .foregroundStyle(PorizoAndroidTheme.textSecondary)

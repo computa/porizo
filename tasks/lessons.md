@@ -459,10 +459,22 @@ Naming similarity on a remote platform ("thanks mom.mp3" vs `marketing/audio hoo
 
 **Mistake (latent, in package.json):** `"test": "node --test test/**/*.test.js"` — unquoted. npm runs scripts via `/bin/sh`, where `**` is NOT globstar; it collapses to `*`, matching only `test/<onedir>/*.test.js`. Result: only 54 of 208 files ran (~26%), and ALL 114 top-level `test/*.test.js` files were silently skipped. Every "npm test passes" claim only ever covered a quarter of the suite; newly-added top-level test files never ran in CI.
 
-**Rule:** When a test/build npm script uses a `**` glob, QUOTE it (`"test/**/*.test.js"`) so the *tool* (node --test, jest, etc.) expands it with real globstar — never rely on the shell. Verify suite size with `find ... -name '*.test.js' | wc -l` vs. what the runner reports; a large gap means the glob is under-matching. The Bash tool here runs zsh (where `**` works), which MASKS the bug — always reproduce script globs under `/bin/sh -c` to see what npm actually runs.
+**Rule:** When a test/build npm script uses a `**` glob, QUOTE it (`"test/**/*.test.js"`) so the _tool_ (node --test, jest, etc.) expands it with real globstar — never rely on the shell. Verify suite size with `find ... -name '*.test.js' | wc -l` vs. what the runner reports; a large gap means the glob is under-matching. The Bash tool here runs zsh (where `**` works), which MASKS the bug — always reproduce script globs under `/bin/sh -c` to see what npm actually runs.
 
 ## 2026-06-30 — PG verification harness must not load .env
 
 **Trigger:** Building a "run the test suite against real Postgres" harness (Gate 1 of refactor verification).
 **Mistake:** Added `-r dotenv/config` to load JWT_SECRET for PG runs. This pulled in `.env`'s production auth values (overrode ALLOW_ANON_USER_ID and friends), causing `billing-restore-path.test.js` to return 401 instead of 200/400 — a FALSE failure. The test mocks its own DB and never touches Postgres; it relies on the clean `NODE_ENV=test` + explicit-flag env that `npm test` provides.
 **Rule:** To force tests onto real PG, set `NODE_ENV=test DB_PROVIDER=postgres POSTGRES_*=...` and KEEP the standard test flags (`ALLOW_ANON_USER_ID=true ALLOW_DEVICE_TOKEN_FALLBACK=true`). Do NOT load `.env` (no `dotenv/config`). `DB_PROVIDER` wins over the `NODE_ENV==='test'→sqlite` default in `getDatabase()`, so the DB flips to PG while the rest of the test contract stays intact. Tests that inject a mock `db` into `buildServer({db})` ignore the DB env entirely.
+
+## 2026-07-02 — Skip `skip export` exit 0 does NOT prove your Swift edits are in the APK (stale transpile) + APK reinstall can no-op
+
+**Trigger:** UF1 Android replica loop — fixed Fraunces font name + added a global `.tint`, rebuilt with `skip export --debug --android` (exit 0), reinstalled, re-screenshotted. The screenshots were byte-identical to pre-fix. I nearly reported "verify failed, fix didn't work" and started re-editing.
+
+**Mistake:** Two compounding traps. (1) **Stale transpile:** `skip export` incrementally reuses `skipstone` transpiled Kotlin. My edited `DesignTokens.swift`/`PorizoSkipSpikeApp.swift` did NOT re-transpile — the generated `.build/plugins/outputs/.../*.kt` timestamps proved it (`DesignTokens.kt` was from the _previous_ build, `PorizoSkipSpikeApp.kt` was from the day before). The APK "built successfully" around stale Kotlin, so my fixes were physically absent. (2) **No-op reinstall:** `adb install -r -g` returned `Success` but `dumpsys package … lastUpdateTime` didn't advance (same versionName `0.0.1` → treated as already-installed), so the emulator kept running the old APK. Both made an unchanged screen look like "the fix didn't work" when the fix was never actually deployed.
+
+**Rule:**
+
+1. After `skip export`, PROVE your edit transpiled before screenshotting: `grep` the generated Kotlin (`.build/plugins/outputs/<proj>/<Module>/destination/skipstone/.../src/main/kotlin/.../*.kt`) for a token unique to your change, and check its mtime is newer than your Swift edit. If not, force a clean transpile: `rm -rf .build/plugins/outputs/.../skipstone` (+ `touch` the edited `.swift`) and rebuild.
+2. For emulator install, prefer `adb uninstall <pkg>` then `adb install -g` (clean), OR bump `CURRENT_PROJECT_VERSION` in `Skip.env`, so the new APK actually replaces the running one. Confirm with `dumpsys package <pkg> | grep lastUpdateTime` advancing.
+3. "Build exit 0 + install Success" is NOT verification. The screenshot of freshly-loaded code is. An unchanged screenshot means "not deployed" at least as often as "fix wrong" — check deployment before re-editing.
