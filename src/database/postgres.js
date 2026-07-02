@@ -10,11 +10,13 @@
  * - Backwards compatibility with prepare() API
  */
 
-const { Pool } = require('pg');
+const { Pool } = require("pg");
 
 // Query logging configuration
-const LOG_QUERIES = process.env.DB_LOG_QUERIES === 'true' || process.env.NODE_ENV === 'development';
-const LOG_SLOW_QUERIES_MS = parseInt(process.env.DB_LOG_SLOW_MS || '100', 10);
+const LOG_QUERIES =
+  process.env.DB_LOG_QUERIES === "true" ||
+  process.env.NODE_ENV === "development";
+const LOG_SLOW_QUERIES_MS = parseInt(process.env.DB_LOG_SLOW_MS || "100", 10);
 
 function sanitizeSchemaName(schema) {
   if (typeof schema !== "string") {
@@ -25,7 +27,7 @@ function sanitizeSchemaName(schema) {
 }
 
 function convertQuestionMarkPlaceholders(sql, params = []) {
-  if (typeof sql !== 'string' || !sql.includes('?') || params.length === 0) {
+  if (typeof sql !== "string" || !sql.includes("?") || params.length === 0) {
     return { sql, params };
   }
 
@@ -161,16 +163,24 @@ function splitSqlStatements(sql) {
  * @returns {Object} Database instance with query(), transaction(), close() methods
  */
 function createPool(config = {}) {
-  const schema = sanitizeSchemaName(config.schema || process.env.POSTGRES_SCHEMA);
+  const schema = sanitizeSchemaName(
+    config.schema || process.env.POSTGRES_SCHEMA,
+  );
   const poolConfig = {
-    host: config.host || process.env.POSTGRES_HOST || 'localhost',
-    port: parseInt(config.port || process.env.POSTGRES_PORT || '5432', 10),
-    database: config.database || process.env.POSTGRES_DB || 'porizo',
-    user: config.user || process.env.POSTGRES_USER || 'porizo',
+    host: config.host || process.env.POSTGRES_HOST || "localhost",
+    port: parseInt(config.port || process.env.POSTGRES_PORT || "5432", 10),
+    database: config.database || process.env.POSTGRES_DB || "porizo",
+    user: config.user || process.env.POSTGRES_USER || "porizo",
     password: config.password || process.env.POSTGRES_PASSWORD,
-    max: config.maxConnections || parseInt(process.env.DB_MAX_CONNECTIONS || '20', 10),
-    idleTimeoutMillis: config.idleTimeoutMillis || parseInt(process.env.DB_IDLE_TIMEOUT_MS || '30000', 10),
-    connectionTimeoutMillis: config.connectionTimeoutMillis || parseInt(process.env.DB_CONNECTION_TIMEOUT_MS || '5000', 10),
+    max:
+      config.maxConnections ||
+      parseInt(process.env.DB_MAX_CONNECTIONS || "20", 10),
+    idleTimeoutMillis:
+      config.idleTimeoutMillis ||
+      parseInt(process.env.DB_IDLE_TIMEOUT_MS || "30000", 10),
+    connectionTimeoutMillis:
+      config.connectionTimeoutMillis ||
+      parseInt(process.env.DB_CONNECTION_TIMEOUT_MS || "5000", 10),
   };
 
   if (schema) {
@@ -186,8 +196,8 @@ function createPool(config = {}) {
   const pool = new Pool(poolConfig);
 
   // Handle pool errors
-  pool.on('error', (err) => {
-    console.error('[PostgreSQL] Pool error:', err.message);
+  pool.on("error", (err) => {
+    console.error("[PostgreSQL] Pool error:", err.message);
   });
 
   /**
@@ -205,10 +215,10 @@ function createPool(config = {}) {
 
     if (LOG_QUERIES) {
       const duration = Date.now() - startTime;
-      const sqlPreview = converted.sql.replace(/\s+/g, ' ').slice(0, 80);
+      const sqlPreview = converted.sql.replace(/\s+/g, " ").slice(0, 80);
       if (duration >= LOG_SLOW_QUERIES_MS) {
         console.log(`[DB SLOW ${duration}ms] ${sqlPreview}...`);
-      } else if (process.env.DB_LOG_ALL === 'true') {
+      } else if (process.env.DB_LOG_ALL === "true") {
         console.log(`[DB ${duration}ms] ${sqlPreview}`);
       }
     }
@@ -228,7 +238,7 @@ function createPool(config = {}) {
   async function transaction(fn) {
     const client = await pool.connect();
     try {
-      await client.query('BEGIN');
+      await client.query("BEGIN");
 
       // Create a query function scoped to this client
       const clientQuery = async (sql, params = []) => {
@@ -238,10 +248,10 @@ function createPool(config = {}) {
       };
 
       const result = await fn(clientQuery);
-      await client.query('COMMIT');
+      await client.query("COMMIT");
       return result;
     } catch (err) {
-      await client.query('ROLLBACK');
+      await client.query("ROLLBACK");
       throw err;
     } finally {
       client.release();
@@ -278,12 +288,12 @@ function createPool(config = {}) {
       const client = await Promise.race([
         pool.connect(),
         new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('Connection timeout')), timeoutMs)
+          setTimeout(() => reject(new Error("Connection timeout")), timeoutMs),
         ),
       ]);
 
       try {
-        await client.query('SELECT 1');
+        await client.query("SELECT 1");
         const latencyMs = Date.now() - startTime;
         return { healthy: true, latencyMs };
       } finally {
@@ -372,14 +382,72 @@ function createPool(config = {}) {
 }
 
 /**
+ * Wait for the database to accept connections, retrying on transient failures.
+ *
+ * At boot on Railway, the private network (`*.railway.internal`) or the
+ * Postgres instance itself can be momentarily unroutable, causing the first
+ * connection to time out. Without a retry, that timeout throws out of
+ * runMigrations, crashes start(), and the container restarts — often into the
+ * same race — leaving the whole backend down (Cloudflare 502) indefinitely.
+ *
+ * This probes with a cheap `SELECT 1` and exponential backoff. It only guards
+ * the "is the DB reachable?" question; migrations still run exactly once and
+ * are never retried here.
+ *
+ * @param {Object} db - Database instance from createPool
+ * @param {Object} [opts]
+ * @param {number} [opts.maxAttempts] - Total attempts before giving up (default: DB_CONNECT_MAX_ATTEMPTS or 15)
+ * @param {number} [opts.baseDelayMs] - Initial backoff delay (default: DB_CONNECT_BASE_DELAY_MS or 500)
+ * @param {number} [opts.maxDelayMs] - Backoff cap (default: DB_CONNECT_MAX_DELAY_MS or 5000)
+ * @param {Function} [opts.sleep] - Injectable sleep(ms) for testing
+ * @param {Function} [opts.log] - Injectable logger for testing
+ * @returns {Promise<void>} Resolves once a probe succeeds; rejects with the last error otherwise.
+ */
+async function waitForConnection(db, opts = {}) {
+  const maxAttempts =
+    opts.maxAttempts ||
+    parseInt(process.env.DB_CONNECT_MAX_ATTEMPTS || "15", 10);
+  const baseDelayMs =
+    opts.baseDelayMs ||
+    parseInt(process.env.DB_CONNECT_BASE_DELAY_MS || "500", 10);
+  const maxDelayMs =
+    opts.maxDelayMs ||
+    parseInt(process.env.DB_CONNECT_MAX_DELAY_MS || "5000", 10);
+  const sleep =
+    opts.sleep || ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+  const log = opts.log || ((msg) => console.log(msg));
+
+  let lastError;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      await db.query("SELECT 1");
+      if (attempt > 1) {
+        log(`[PostgreSQL] Connected after ${attempt} attempts`);
+      }
+      return;
+    } catch (err) {
+      lastError = err;
+      if (attempt >= maxAttempts) break;
+      const delay = Math.min(baseDelayMs * 2 ** (attempt - 1), maxDelayMs);
+      log(
+        `[PostgreSQL] Connection attempt ${attempt}/${maxAttempts} failed (${err.message}); retrying in ${delay}ms`,
+      );
+      await sleep(delay);
+    }
+  }
+
+  throw lastError;
+}
+
+/**
  * Run migrations from a directory
  *
  * @param {Object} db - Database instance from createPool
  * @param {string} migrationsDir - Path to migrations directory
  */
 async function runMigrations(db, migrationsDir) {
-  const fs = require('fs');
-  const path = require('path');
+  const fs = require("fs");
+  const path = require("path");
 
   // Create migrations table if not exists
   await db.exec(`
@@ -390,12 +458,13 @@ async function runMigrations(db, migrationsDir) {
   `);
 
   // Get applied migrations
-  const { rows } = await db.query('SELECT id FROM schema_migrations');
-  const appliedSet = new Set(rows.map(r => r.id));
+  const { rows } = await db.query("SELECT id FROM schema_migrations");
+  const appliedSet = new Set(rows.map((r) => r.id));
 
   // Get migration files
-  const files = fs.readdirSync(migrationsDir)
-    .filter(name => name.endsWith('.sql'))
+  const files = fs
+    .readdirSync(migrationsDir)
+    .filter((name) => name.endsWith(".sql"))
     .sort();
 
   for (const file of files) {
@@ -404,7 +473,7 @@ async function runMigrations(db, migrationsDir) {
     }
 
     console.log(`[PostgreSQL] Running migration: ${file}`);
-    const sql = fs.readFileSync(path.join(migrationsDir, file), 'utf8');
+    const sql = fs.readFileSync(path.join(migrationsDir, file), "utf8");
 
     try {
       await db.transaction(async (query) => {
@@ -412,7 +481,7 @@ async function runMigrations(db, migrationsDir) {
         for (const stmt of statements) {
           await query(stmt);
         }
-        await query('INSERT INTO schema_migrations (id) VALUES ($1)', [file]);
+        await query("INSERT INTO schema_migrations (id) VALUES ($1)", [file]);
       });
       console.log(`[PostgreSQL] Migration complete: ${file}`);
     } catch (err) {
@@ -425,5 +494,6 @@ async function runMigrations(db, migrationsDir) {
 module.exports = {
   createPool,
   runMigrations,
+  waitForConnection,
   splitSqlStatements,
 };

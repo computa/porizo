@@ -26,17 +26,30 @@ const path = require("path");
  * @returns {Promise<Object>} Database instance with query(), transaction(), close() methods
  */
 async function getDatabase(config = {}) {
-  const provider = config.provider || process.env.DB_PROVIDER || (process.env.NODE_ENV === "test" ? "sqlite" : "postgres");
+  const provider =
+    config.provider ||
+    process.env.DB_PROVIDER ||
+    (process.env.NODE_ENV === "test" ? "sqlite" : "postgres");
 
   if (provider === "sqlite") {
     const { initDb } = require("./sqlite.js");
     const sqlitePath = config.dbPath || process.env.DB_PATH || ":memory:";
-    const migrationsDir = config.migrationsDir || path.join(process.cwd(), "migrations");
+    const migrationsDir =
+      config.migrationsDir || path.join(process.cwd(), "migrations");
     return initDb({ dbPath: sqlitePath, migrationsDir });
   }
 
-  const { createPool, runMigrations } = require("./postgres.js");
+  const {
+    createPool,
+    runMigrations,
+    waitForConnection,
+  } = require("./postgres.js");
   const db = createPool(config.postgres || {});
+
+  // Guard against transient boot-time DB unreachability (e.g. Railway private
+  // network not yet routable) so a connection timeout retries instead of
+  // crash-looping the whole process before migrations.
+  await waitForConnection(db);
 
   if (config.migrationsDir) {
     const pgMigrationsDir = path.join(config.migrationsDir, "pg");
