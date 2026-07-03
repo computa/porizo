@@ -69,12 +69,16 @@ struct ContentView: View {
         accessTokenProvider: { AndroidSessionStore().loadAuthSession()?.accessToken }
     )
     @State var showsNowPlaying = false
+    // Shared auth state (U4). Injected so Settings/Songs can trigger sign-in.
+    @State var auth = AndroidAuthModel()
+    @State var showsAuth = false
 
     var body: some View {
         VStack(spacing: 0) {
             currentTabView
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .environment(player)
+                .environment(auth)
 
             MiniPlayerBar(player: player) { showsNowPlaying = true }
 
@@ -83,10 +87,23 @@ struct ContentView: View {
         .background(PorizoAndroidTheme.background)
         .preferredColorScheme(appearance == "dark" ? .dark : appearance == "light" ? .light : nil)
         .task {
+            auth.restore()
             consumePendingDeepLink()
+        }
+        .onChange(of: auth.wantsAuthSheet) { _, wants in
+            showsAuth = wants
+        }
+        .onChange(of: auth.isAuthenticated) { _, authed in
+            if authed { showsAuth = false; auth.wantsAuthSheet = false }
         }
         .sheet(isPresented: $showsNowPlaying) {
             NowPlayingView(player: player) { showsNowPlaying = false }
+        }
+        .sheet(isPresented: $showsAuth) {
+            AuthView(auth: auth) {
+                showsAuth = false
+                auth.wantsAuthSheet = false
+            }
         }
     }
 
@@ -379,6 +396,7 @@ struct PorizoInfoCard: View {
 struct SongsView: View {
     // Not `private` — Skip Fuse cannot bridge private @Environment on a bridged View.
     @Environment(AndroidPlayerModel.self) var player
+    @Environment(AndroidAuthModel.self) var auth
 
     enum LoadState: Equatable { case idle, loading, loaded, error(String) }
 
@@ -417,6 +435,9 @@ struct SongsView: View {
         .task {
             if case .idle = loadState { await loadSongs() }
         }
+        .onChange(of: auth.isAuthenticated) { _, authed in
+            if authed { Task { await loadSongs() } }
+        }
     }
 
     private var filterPicker: some View {
@@ -440,13 +461,24 @@ struct SongsView: View {
         case .error(let message):
             PorizoSectionCard(title: "Library") {
                 VStack(alignment: .leading, spacing: 12) {
-                    PorizoEmptyStateCard(
-                        symbol: "exclamationmark.triangle",
-                        title: "Couldn't load your songs",
-                        detail: message
-                    )
-                    PorizoActionButton(title: "Try again", symbol: "arrow.clockwise.circle") {
-                        Task { await loadSongs() }
+                    if !auth.isAuthenticated {
+                        PorizoEmptyStateCard(
+                            symbol: "person.crop.circle",
+                            title: "Sign in to see your songs",
+                            detail: "Your library and protected playback are tied to your account."
+                        )
+                        PorizoActionButton(title: "Sign in", symbol: "person.crop.circle") {
+                            auth.beginAuthSheet()
+                        }
+                    } else {
+                        PorizoEmptyStateCard(
+                            symbol: "exclamationmark.triangle",
+                            title: "Couldn't load your songs",
+                            detail: message
+                        )
+                        PorizoActionButton(title: "Try again", symbol: "arrow.clockwise.circle") {
+                            Task { await loadSongs() }
+                        }
                     }
                 }
             }

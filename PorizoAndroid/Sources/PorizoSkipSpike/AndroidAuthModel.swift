@@ -23,6 +23,15 @@ final class AndroidAuthModel {
     private(set) var phase: Phase = .signedOut
     private(set) var isWorking = false
     private(set) var errorMessage: String?
+    /// Set by any screen that wants the sign-in sheet; ContentView observes it.
+    var wantsAuthSheet = false
+
+    /// Request the sign-in sheet (resets to the options screen first).
+    func beginAuthSheet() {
+        if !isAuthenticated { phase = .signedOut }
+        errorMessage = nil
+        wantsAuthSheet = true
+    }
 
     var isAuthenticated: Bool {
         if case .authenticated = phase { return true }
@@ -108,6 +117,12 @@ final class AndroidAuthModel {
 
     func confirmGoogleLink(idToken: String) async {
         await signInWithGoogle(idToken: idToken, confirmLink: true)
+    }
+
+    /// Surface an error originating outside the model (e.g. the native Google
+    /// bridge) into the shared error channel.
+    func setExternalError(_ message: String) {
+        errorMessage = message
     }
 
     // MARK: - Logout
