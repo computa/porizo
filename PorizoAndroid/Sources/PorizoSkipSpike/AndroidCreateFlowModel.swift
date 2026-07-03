@@ -61,7 +61,15 @@ final class AndroidCreateFlowModel {
     /// Owns the render lifecycle once lyrics are approved (U9).
     let render = AndroidRenderModel()
 
+    // Share state (U10).
+    private(set) var shareLink: String?
+    private(set) var sharePin: String?
+    private(set) var isCreatingShare = false
+    private(set) var shareError: String?
+
     private let apiClient = AndroidAPIClient()
+    private let directSend = AndroidDirectSend()
+    private let sharer = AndroidShareProvider()
 
     /// Whether the details step can advance (needs a recipient name).
     var canStartConversation: Bool {
@@ -192,6 +200,75 @@ final class AndroidCreateFlowModel {
     func editLyricsAfterFailure() {
         render.cancel()
         moment = .lyrics
+    }
+
+    // MARK: - Reveal + share (U10)
+
+    /// The rendered result to reveal (title, artwork, playable URL).
+    var revealResult: AndroidRenderResult? { render.result }
+
+    /// Build the playable track for the reveal's Play button (U3 player).
+    var revealPlayable: AndroidPlayableTrack? {
+        guard let result = revealResult else { return nil }
+        return AndroidPlayableTrack(
+            id: result.trackId,
+            title: result.title,
+            recipientName: result.recipientName,
+            artworkURL: result.artworkURL,
+            streamURL: result.audioURL,
+            isOwnedContent: true
+        )
+    }
+
+    /// One-tap "Send to {name}": mint a PIN-less link, then SMS (if a phone was
+    /// captured in U7) or the system share sheet.
+    func sendToRecipient() async {
+        guard let trackId = createdTrackId else { return }
+        do {
+            let share = try await apiClient.createShare(trackId: trackId, versionNum: createdVersionNum, requirePin: false)
+            directSend.send(
+                recipientName: recipientName,
+                phone: recipientPhone,
+                link: share.shareUrl,
+                contentType: contentType
+            )
+        } catch {
+            shareError = String(describing: error)
+        }
+    }
+
+    /// Advance to the share postcard and mint a PIN-protected link.
+    func goToShare() {
+        moment = .share
+        Task { await ensureShareLink() }
+    }
+
+    /// Create (idempotently) the PIN-protected share link for the postcard.
+    func ensureShareLink() async {
+        guard let trackId = createdTrackId, shareLink == nil, !isCreatingShare else { return }
+        isCreatingShare = true
+        shareError = nil
+        defer { isCreatingShare = false }
+        do {
+            let share = try await apiClient.createShare(trackId: trackId, versionNum: createdVersionNum, requirePin: true)
+            shareLink = share.shareUrl
+            sharePin = share.claimPin
+        } catch {
+            shareError = String(describing: error)
+        }
+    }
+
+    /// Copy the share link to the clipboard (postcard "Copy link" target).
+    func copyShareLink() {
+        guard let link = shareLink else { return }
+        sharer.copyToClipboard(link)
+    }
+
+    /// Open the system share sheet with the postcard link.
+    func shareViaSheet() {
+        guard let link = shareLink else { return }
+        let body = ShareLogic.messageBody(recipientName: recipientName, link: link, contentType: contentType)
+        sharer.shareText(body)
     }
 
     /// Step back from details to the name step.

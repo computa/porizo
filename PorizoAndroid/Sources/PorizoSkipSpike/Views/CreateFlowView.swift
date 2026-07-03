@@ -55,18 +55,10 @@ struct CreateFlowView: View {
             LyricsReviewView(flow: flow)
         case .wait:
             RenderWaitView(flow: flow)
-        default:
-            // U10 placeholder — reveal + share land in the next unit.
-            VStack(spacing: 12) {
-                Spacer()
-                FrauncesTitle(text: "For \(flow.recipientName)", size: 24, weight: .bold)
-                Text("Your \(flow.contentType.label.lowercased()) is ready 🎉")
-                    .font(.system(size: 15))
-                    .foregroundStyle(PorizoAndroidTheme.textSecondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 32)
-                Spacer()
-            }
+        case .reveal:
+            RevealView(flow: flow, onClose: onClose)
+        case .share:
+            SharePostcardView(flow: flow, onClose: onClose)
         }
     }
 }
@@ -366,6 +358,128 @@ struct VoiceChips: View {
     private func chipForeground(isSelected: Bool, isEnabled: Bool) -> Color {
         if !isEnabled { return PorizoAndroidTheme.textTertiary }
         return isSelected ? Color.white : PorizoAndroidTheme.textPrimary
+    }
+}
+
+/// U10 reveal: artwork + title, Play (routes to the shared U3 player), one-tap
+/// "Send to {name}", and "Share link" (→ postcard). Mirrors iOS RevealBloomView.
+struct RevealView: View {
+    @State var flow: AndroidCreateFlowModel
+    @Environment(AndroidPlayerModel.self) var player
+    let onClose: () -> Void
+
+    var body: some View {
+        VStack(spacing: 20) {
+            Spacer()
+
+            RoundedRectangle(cornerRadius: PorizoAndroidTheme.radiusMedium)
+                .fill(PorizoAndroidTheme.gold.opacity(0.18))
+                .frame(width: 200, height: 200)
+                .overlay(
+                    Image(systemName: "music.note")
+                        .font(.system(size: 56))
+                        .foregroundStyle(PorizoAndroidTheme.gold)
+                )
+
+            VStack(spacing: 4) {
+                FrauncesTitle(text: title, size: 24, weight: .bold)
+                Text("For \(flow.recipientName)")
+                    .font(.system(size: 15))
+                    .foregroundStyle(PorizoAndroidTheme.textSecondary)
+            }
+
+            VStack(spacing: 10) {
+                PorizoActionButton(title: "Play", symbol: "play.fill") {
+                    if let track = flow.revealPlayable { player.play(track) }
+                }
+                PorizoActionButton(title: "Send to \(flow.recipientName)", symbol: "paperplane.fill") {
+                    Task { await flow.sendToRecipient() }
+                }
+                Button("Share a link instead") { flow.goToShare() }
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(PorizoAndroidTheme.goldDark)
+            }
+            .padding(.horizontal, 24)
+
+            Spacer()
+        }
+    }
+
+    private var title: String {
+        flow.revealResult?.title ?? "Your \(flow.contentType.label.lowercased())"
+    }
+}
+
+/// U10 share postcard: mints a PIN-protected link on appear and shows the link +
+/// PIN with Copy / Share targets. NO expiry-urgency copy — links are lifetime.
+struct SharePostcardView: View {
+    @State var flow: AndroidCreateFlowModel
+    let onClose: () -> Void
+
+    var body: some View {
+        VStack(spacing: 20) {
+            Spacer()
+            FrauncesTitle(text: "Share with \(flow.recipientName)", size: 24, weight: .bold)
+
+            if flow.isCreatingShare {
+                ProgressView()
+                Text("Creating your link…")
+                    .font(.system(size: 14))
+                    .foregroundStyle(PorizoAndroidTheme.textSecondary)
+            } else if let link = flow.shareLink {
+                linkCard(link)
+            } else if let error = flow.shareError {
+                PorizoStatusText(text: error)
+            }
+
+            Spacer()
+        }
+        .padding(24)
+        .onAppear { Task { await flow.ensureShareLink() } }
+    }
+
+    @ViewBuilder
+    private func linkCard(_ link: String) -> some View {
+        VStack(spacing: 14) {
+            Text(link)
+                .font(.system(size: 14))
+                .foregroundStyle(PorizoAndroidTheme.textPrimary)
+                .multilineTextAlignment(.center)
+                .padding(14)
+                .frame(maxWidth: .infinity)
+                .background(PorizoAndroidTheme.surface)
+                .clipShape(RoundedRectangle(cornerRadius: PorizoAndroidTheme.radiusMedium))
+                .overlay(
+                    RoundedRectangle(cornerRadius: PorizoAndroidTheme.radiusMedium)
+                        .stroke(PorizoAndroidTheme.border, lineWidth: 1)
+                )
+
+            if let pin = flow.sharePin {
+                VStack(spacing: 2) {
+                    Text("CLAIM PIN")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(PorizoAndroidTheme.textSecondary)
+                    Text(pin)
+                        .font(.system(size: 24, weight: .bold))
+                        .foregroundStyle(PorizoAndroidTheme.goldDark)
+                }
+            }
+
+            Text("Claim in the app to keep it forever.")
+                .font(.system(size: 13))
+                .foregroundStyle(PorizoAndroidTheme.textSecondary)
+                .multilineTextAlignment(.center)
+
+            HStack(spacing: 10) {
+                PorizoActionButton(title: "Copy link", symbol: "doc.on.doc") {
+                    flow.copyShareLink()
+                }
+                PorizoActionButton(title: "Share", symbol: "square.and.arrow.up") {
+                    flow.shareViaSheet()
+                }
+            }
+        }
+        .padding(.horizontal, 24)
     }
 }
 

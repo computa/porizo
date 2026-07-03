@@ -339,6 +339,26 @@ actor AndroidAPIClient {
         )
     }
 
+    /// Create (or return the existing) share link for a track. `requirePin`
+    /// defaults true; the one-tap "Send to {name}" path passes false for a
+    /// PIN-less link. Response `claim_pin` is null for PIN-less shares.
+    func createShare(trackId: String, versionNum: Int? = nil, requirePin: Bool = true) async throws -> PorizoCreateShareResponse {
+        struct Body: Encodable {
+            let requirePin: Bool
+            let versionNum: Int?
+            enum CodingKeys: String, CodingKey {
+                case requirePin = "require_pin"
+                case versionNum = "version_num"
+            }
+        }
+        return try await send(
+            path: "/tracks/\(encodedPathComponent(trackId))/share",
+            method: "POST",
+            requiresAuth: true,
+            body: Body(requirePin: requirePin, versionNum: versionNum)
+        )
+    }
+
     /// Approve the reviewed lyrics before rendering. Body is an empty JSON
     /// object per the iOS contract.
     func approveLyrics(trackId: String, versionNum: Int) async throws -> PorizoApproveLyricsResponse {

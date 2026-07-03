@@ -385,6 +385,23 @@ struct PorizoShareTrackInfo: Codable, Sendable {
     }
 }
 
+/// Response from POST /tracks/:id/share. `claimPin` is null for PIN-less
+/// shares (`require_pin=false`, the one-tap send path) — tolerate the null so
+/// the whole send doesn't abort. Links are lifetime (no expiry-urgency copy).
+struct PorizoCreateShareResponse: Codable, Sendable {
+    let shareId: String
+    let shareUrl: String
+    let claimPin: String?
+    let expiresAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case shareId = "share_id"
+        case shareUrl = "share_url"
+        case claimPin = "claim_pin"
+        case expiresAt = "expires_at"
+    }
+}
+
 struct PorizoShareInfoResponse: Codable, Sendable {
     let status: String
     let appOnly: Bool?
