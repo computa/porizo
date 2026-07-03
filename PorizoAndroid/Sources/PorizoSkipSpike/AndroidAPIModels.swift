@@ -231,6 +231,16 @@ struct PorizoTrackVersion: Codable, Sendable, Identifiable {
     let previewUrl: String?
     let fullUrl: String?
 
+    /// In-flight job IDs — used to resume polling after backgrounding without
+    /// starting a new render (mirrors iOS `TrackVersion.previewJobId/fullJobId`).
+    let previewJobId: String?
+    let fullJobId: String?
+
+    /// Last failure detail carried on the version row when status == "failed",
+    /// so a resume can surface the friendly error without a live job poll.
+    let lastErrorCode: String?
+    let lastErrorMessage: String?
+
     /// Best available playable URL: full render preferred over preview.
     var playableUrl: String? { fullUrl ?? previewUrl }
 
@@ -239,6 +249,10 @@ struct PorizoTrackVersion: Codable, Sendable, Identifiable {
         case versionNum = "version_num"
         case previewUrl = "preview_url"
         case fullUrl = "full_url"
+        case previewJobId = "preview_job_id"
+        case fullJobId = "full_job_id"
+        case lastErrorCode = "last_error_code"
+        case lastErrorMessage = "last_error_message"
     }
 }
 
@@ -461,6 +475,12 @@ struct PorizoRenderFullResponse: Codable, Sendable {
         case jobId = "job_id"
         case estimatedCompletionSec = "estimated_completion_sec"
     }
+}
+
+/// Response from POST /tracks/:id/versions/:n/lyrics/approve. The server may
+/// echo the version status; we only need decoding to succeed.
+struct PorizoApproveLyricsResponse: Codable, Sendable {
+    let status: String?
 }
 
 struct PorizoJobStatus: Codable, Sendable {

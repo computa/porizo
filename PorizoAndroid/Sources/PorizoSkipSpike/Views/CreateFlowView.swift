@@ -51,13 +51,16 @@ struct CreateFlowView: View {
             CreateDetailsStep(flow: flow)
         case .conversing:
             StoryConversationView(flow: flow)
+        case .lyrics:
+            LyricsReviewView(flow: flow)
+        case .wait:
+            RenderWaitView(flow: flow)
         default:
-            // U9-U10 placeholder — lyrics review, render, reveal, and share
-            // are built in later units.
+            // U10 placeholder — reveal + share land in the next unit.
             VStack(spacing: 12) {
                 Spacer()
                 FrauncesTitle(text: "For \(flow.recipientName)", size: 24, weight: .bold)
-                Text("Creating your \(flow.contentType.label.lowercased())…")
+                Text("Your \(flow.contentType.label.lowercased()) is ready 🎉")
                     .font(.system(size: 15))
                     .foregroundStyle(PorizoAndroidTheme.textSecondary)
                     .multilineTextAlignment(.center)
@@ -272,6 +275,168 @@ struct ChatBubble: View {
                 .background(message.role == .user ? PorizoAndroidTheme.gold : PorizoAndroidTheme.surface)
                 .clipShape(RoundedRectangle(cornerRadius: PorizoAndroidTheme.radiusMedium))
             if message.role == .assistant { Spacer(minLength: 40) }
+        }
+    }
+}
+
+/// U9 step: show the generated lyrics + AI-voice picker, then Approve → render.
+/// Mirrors iOS lyrics review; My Voice is deferred (KTD7) so only AI voices show.
+struct LyricsReviewView: View {
+    @State var flow: AndroidCreateFlowModel
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        FrauncesTitle(text: "Your lyrics", size: 26, weight: .bold)
+                        Text("For \(flow.recipientName)")
+                            .font(.system(size: 14))
+                            .foregroundStyle(PorizoAndroidTheme.textSecondary)
+                    }
+
+                    Text(flow.lyricsText ?? "Lyrics are being prepared…")
+                        .font(.system(size: 16))
+                        .foregroundStyle(PorizoAndroidTheme.textPrimary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(16)
+                        .background(PorizoAndroidTheme.surface)
+                        .clipShape(RoundedRectangle(cornerRadius: PorizoAndroidTheme.radiusMedium))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: PorizoAndroidTheme.radiusMedium)
+                                .stroke(PorizoAndroidTheme.border, lineWidth: 1)
+                        )
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("VOICE")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(PorizoAndroidTheme.textSecondary)
+                        VoiceChips(flow: flow)
+                    }
+                }
+                .padding(20)
+            }
+
+            PorizoActionButton(
+                title: "Create my \(flow.contentType.label.lowercased())",
+                symbol: "sparkles",
+                isDisabled: flow.lyricsText == nil
+            ) {
+                flow.approveLyricsAndRender()
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 12)
+        }
+    }
+}
+
+/// AI-voice chips. Female/Male AI voices are selectable; "My Voice" is shown
+/// disabled with a "coming soon" hint (voice cloning not shipped — KTD7).
+struct VoiceChips: View {
+    @State var flow: AndroidCreateFlowModel
+
+    var body: some View {
+        HStack(spacing: 8) {
+            chip(title: "AI voice", isSelected: flow.voiceSource == .aiGuide, isEnabled: true) {
+                flow.voiceSource = .aiGuide
+            }
+            chip(title: "Instrumental", isSelected: flow.voiceSource == .instrumentalOnly, isEnabled: true) {
+                flow.voiceSource = .instrumentalOnly
+            }
+            chip(title: "My Voice · soon", isSelected: false, isEnabled: false) {}
+        }
+    }
+
+    @ViewBuilder
+    private func chip(title: String, isSelected: Bool, isEnabled: Bool, _ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(chipForeground(isSelected: isSelected, isEnabled: isEnabled))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 9)
+                .background(isSelected ? PorizoAndroidTheme.gold : PorizoAndroidTheme.surface)
+                .clipShape(Capsule())
+                .overlay(Capsule().stroke(PorizoAndroidTheme.border, lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .disabled(!isEnabled)
+    }
+
+    private func chipForeground(isSelected: Bool, isEnabled: Bool) -> Color {
+        if !isEnabled { return PorizoAndroidTheme.textTertiary }
+        return isSelected ? Color.white : PorizoAndroidTheme.textPrimary
+    }
+}
+
+/// U9 wait step: progress + status while the render polls; error CTAs on failure.
+/// Advances to `.reveal` when the render completes.
+struct RenderWaitView: View {
+    @State var flow: AndroidCreateFlowModel
+
+    var body: some View {
+        VStack(spacing: 18) {
+            Spacer()
+            content
+            Spacer()
+        }
+        .padding(24)
+        .onChange(of: flow.render.phase) { _, phase in
+            if phase == .completed { flow.advanceToReveal() }
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        switch flow.render.phase {
+        case .failed(let message):
+            failure(message)
+        default:
+            progressBody
+        }
+    }
+
+    private var progressBody: some View {
+        VStack(spacing: 14) {
+            ProgressView()
+            FrauncesTitle(text: "Creating your \(flow.contentType.label.lowercased())", size: 22, weight: .bold)
+            Text(flow.render.statusMessage ?? "This usually takes under a minute…")
+                .font(.system(size: 15))
+                .foregroundStyle(PorizoAndroidTheme.textSecondary)
+                .multilineTextAlignment(.center)
+            if let progress = flow.render.progress {
+                Text("\(progress)%")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(PorizoAndroidTheme.goldDark)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func failure(_ message: String) -> some View {
+        VStack(spacing: 14) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 30))
+                .foregroundStyle(PorizoAndroidTheme.textSecondary)
+            Text(message)
+                .font(.system(size: 15))
+                .foregroundStyle(PorizoAndroidTheme.textPrimary)
+                .multilineTextAlignment(.center)
+
+            if flow.render.showEditLyricsCTA {
+                PorizoActionButton(title: "Edit lyrics", symbol: "pencil") {
+                    flow.editLyricsAfterFailure()
+                }
+            } else if flow.render.showPaywallCTA {
+                Text("Upgrade or wait for your plan to reset to make another.")
+                    .font(.system(size: 13))
+                    .foregroundStyle(PorizoAndroidTheme.textSecondary)
+                    .multilineTextAlignment(.center)
+            } else {
+                PorizoActionButton(title: "Try again", symbol: "arrow.clockwise") {
+                    flow.retryRender()
+                }
+            }
         }
     }
 }

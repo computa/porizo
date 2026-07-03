@@ -19,7 +19,8 @@ final class SongLibraryTests: XCTestCase {
     }
 
     private func version(num: Int, status: String = "ready", preview: String? = nil, full: String? = nil) -> PorizoTrackVersion {
-        PorizoTrackVersion(id: "v\(num)", versionNum: num, status: status, previewUrl: preview, fullUrl: full)
+        PorizoTrackVersion(id: "v\(num)", versionNum: num, status: status, previewUrl: preview, fullUrl: full,
+                           previewJobId: nil, fullJobId: nil, lastErrorCode: nil, lastErrorMessage: nil)
     }
 
     // MARK: status mapping

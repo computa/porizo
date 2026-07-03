@@ -328,6 +328,28 @@ actor AndroidAPIClient {
         )
     }
 
+    /// Retry a failed render via the version's /retry endpoint. Returns a fresh
+    /// job to poll. iOS falls back to render_preview on 404 / NO_FAILED_JOB.
+    func retryPreview(trackId: String, versionNum: Int) async throws -> PorizoRenderPreviewResponse {
+        try await send(
+            path: "/tracks/\(encodedPathComponent(trackId))/versions/\(versionNum)/retry",
+            method: "POST",
+            requiresAuth: true,
+            body: EmptyJSONBody()
+        )
+    }
+
+    /// Approve the reviewed lyrics before rendering. Body is an empty JSON
+    /// object per the iOS contract.
+    func approveLyrics(trackId: String, versionNum: Int) async throws -> PorizoApproveLyricsResponse {
+        try await send(
+            path: "/tracks/\(encodedPathComponent(trackId))/versions/\(versionNum)/lyrics/approve",
+            method: "POST",
+            requiresAuth: true,
+            body: EmptyJSONBody()
+        )
+    }
+
     func getJobStatus(jobId: String) async throws -> PorizoJobStatus {
         try await send(path: "/jobs/\(encodedPathComponent(jobId))", method: "GET", requiresAuth: true)
     }

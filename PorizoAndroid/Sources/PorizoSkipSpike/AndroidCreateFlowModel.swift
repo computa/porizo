@@ -51,6 +51,15 @@ final class AndroidCreateFlowModel {
 
     /// The track created once the story is confirmed + turned into a track (U9 entry).
     private(set) var createdTrackId: String?
+    /// The version to render (from story-to-track; defaults to 1).
+    private(set) var createdVersionNum = 1
+    /// The reviewed lyrics text shown on the lyrics-review step (U9).
+    private(set) var lyricsText: String?
+    /// The chosen AI voice for the render (My Voice deferred per KTD7).
+    var voiceSource: VoiceSource = .aiGuide
+
+    /// Owns the render lifecycle once lyrics are approved (U9).
+    let render = AndroidRenderModel()
 
     private let apiClient = AndroidAPIClient()
 
@@ -144,14 +153,45 @@ final class AndroidCreateFlowModel {
                 canFinish = false
                 return
             case .confirmed:
-                _ = try await apiClient.generateStoryLyrics(storyId: storyId)
-                let track = try await apiClient.storyToTrack(storyId: storyId)
+                let lyrics = try await apiClient.generateStoryLyrics(storyId: storyId)
+                lyricsText = lyrics.lyrics
+                let track = try await apiClient.storyToTrack(storyId: storyId, voiceMode: voiceSource.apiValue)
                 createdTrackId = track.trackId
+                createdVersionNum = track.versionNum ?? 1
                 moment = .lyrics
             }
         } catch {
             conversationError = String(describing: error)
         }
+    }
+
+    /// Approve the reviewed lyrics and start the preview render (U9). Advances
+    /// to the `.wait` moment; the wait view observes `render.phase`.
+    func approveLyricsAndRender() {
+        guard let trackId = createdTrackId else { return }
+        moment = .wait
+        render.approveAndRender(trackId: trackId, versionNum: createdVersionNum)
+    }
+
+    /// Retry a failed render from the wait step.
+    func retryRender() {
+        guard let trackId = createdTrackId else { return }
+        render.retry(trackId: trackId, versionNum: createdVersionNum)
+    }
+
+    /// Advance to the reveal once the render completes. Called by the wait view
+    /// when it observes `render.phase == .completed`.
+    func advanceToReveal() {
+        guard render.phase == .completed else { return }
+        moment = .reveal
+    }
+
+    /// After a policy-rejection failure, return to the lyrics step so the user
+    /// can review/regenerate and re-approve. (Full lyric editing is a later unit;
+    /// for now Approve re-runs the render.)
+    func editLyricsAfterFailure() {
+        render.cancel()
+        moment = .lyrics
     }
 
     /// Step back from details to the name step.
