@@ -87,6 +87,63 @@ struct PorizoDeviceRegistrationResponse: Codable, Sendable {
     }
 }
 
+/// Response from POST /auth/social (Google). Either carries tokens, OR signals a
+/// cross-provider account link that must be confirmed with a second call
+/// (requires_link_confirmation), mirroring iOS AuthManager.
+struct PorizoSocialAuthResponse: Codable, Sendable {
+    let userId: String?
+    let accessToken: String?
+    let refreshToken: String?
+    let expiresIn: Int?
+    let isNewUser: Bool?
+    let requiresLinkConfirmation: Bool?
+    let existingAccountEmail: String?
+    let provider: String?
+
+    enum CodingKeys: String, CodingKey {
+        case userId = "user_id"
+        case accessToken = "access_token"
+        case refreshToken = "refresh_token"
+        case expiresIn = "expires_in"
+        case isNewUser = "is_new_user"
+        case requiresLinkConfirmation = "requires_link_confirmation"
+        case existingAccountEmail = "existing_account_email"
+        case provider
+    }
+}
+
+/// Response from POST /auth/refresh. Rotated token pair.
+struct PorizoRefreshResponse: Codable, Sendable {
+    let accessToken: String
+    let refreshToken: String
+    let expiresIn: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case accessToken = "access_token"
+        case refreshToken = "refresh_token"
+        case expiresIn = "expires_in"
+    }
+}
+
+/// Current authenticated user from GET /auth/me.
+struct PorizoAuthUser: Codable, Sendable {
+    let userId: String
+    let email: String?
+    let displayName: String?
+    let phoneNumber: String?
+    let emailVerified: Bool?
+    let needsProfileCompletion: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case userId = "user_id"
+        case email
+        case displayName = "display_name"
+        case phoneNumber = "phone_number"
+        case emailVerified = "email_verified"
+        case needsProfileCompletion = "needs_profile_completion"
+    }
+}
+
 struct PorizoCreateTrackRequest: Encodable, Sendable {
     let title: String
     let occasion: String

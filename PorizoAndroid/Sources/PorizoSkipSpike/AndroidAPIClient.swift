@@ -174,6 +174,85 @@ actor AndroidAPIClient {
         return session
     }
 
+    /// Sign in with a Google ID token via the unified social endpoint. On a
+    /// cross-provider match the server returns requires_link_confirmation; pass
+    /// confirmLink: true on the second call to complete the link.
+    func socialLogin(
+        provider: String = "google",
+        idToken: String,
+        name: String? = nil,
+        confirmLink: Bool = false
+    ) async throws -> PorizoSocialAuthResponse {
+        struct Body: Encodable {
+            let provider: String
+            let idToken: String
+            let name: String?
+            let confirmLink: Bool?
+
+            enum CodingKeys: String, CodingKey {
+                case provider
+                case idToken = "id_token"
+                case name
+                case confirmLink = "confirm_link"
+            }
+        }
+        let response: PorizoSocialAuthResponse = try await send(
+            path: "/auth/social",
+            method: "POST",
+            body: Body(provider: provider, idToken: idToken, name: name, confirmLink: confirmLink ? true : nil)
+        )
+        if let userId = response.userId,
+           let accessToken = response.accessToken,
+           let refreshToken = response.refreshToken {
+            sessionStore.saveAuthSession(PorizoAuthSession(
+                userId: userId,
+                accessToken: accessToken,
+                refreshToken: refreshToken,
+                expiresIn: response.expiresIn ?? 3600
+            ))
+            sessionStore.clearDeviceToken()
+        }
+        return response
+    }
+
+    /// Rotate tokens. Uses the stored refresh token (not Bearer auth). Saves the
+    /// new pair on success. Throws on definitive rejection (caller decides logout).
+    func refreshSession() async throws -> PorizoRefreshResponse {
+        guard let refreshToken = sessionStore.loadAuthSession()?.refreshToken else {
+            throw AndroidAPIClientError.notAuthenticated
+        }
+        struct Body: Encodable {
+            let refreshToken: String
+            enum CodingKeys: String, CodingKey { case refreshToken = "refresh_token" }
+        }
+        let response: PorizoRefreshResponse = try await send(
+            path: "/auth/refresh",
+            method: "POST",
+            body: Body(refreshToken: refreshToken)
+        )
+        let existing = sessionStore.loadAuthSession()
+        sessionStore.saveAuthSession(PorizoAuthSession(
+            userId: existing?.userId ?? "",
+            accessToken: response.accessToken,
+            refreshToken: response.refreshToken,
+            expiresIn: response.expiresIn ?? 3600
+        ))
+        return response
+    }
+
+    /// Current authenticated user.
+    func getMe() async throws -> PorizoAuthUser {
+        try await send(path: "/auth/me", method: "GET", requiresAuth: true)
+    }
+
+    /// Fire-and-forget server logout, then clear the local session.
+    func logout() async {
+        struct Empty: Decodable {}
+        _ = try? await send(path: "/auth/logout", method: "POST", requiresAuth: true) as Empty
+        sessionStore.clearAuthSession()
+        sessionStore.clearDeviceToken()
+    }
+
     func registerDevice(pushToken: String? = nil) async throws -> PorizoDeviceRegistrationResponse {
         struct Body: Encodable {
             let deviceId: String
