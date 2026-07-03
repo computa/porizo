@@ -14,9 +14,14 @@ struct OnboardingView: View {
             PorizoAndroidTheme.background.ignoresSafeArea()
             VStack(alignment: .leading, spacing: 24) {
                 header
-                question
-                Spacer()
-                nodeBody
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 28) {
+                        question
+                        nodeBody
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.bottom, 32)
+                }
             }
             .padding(24)
         }
@@ -31,17 +36,20 @@ struct OnboardingView: View {
                 Button("Back") { model.back() }
                     .font(.system(size: 15, weight: .medium))
                     .foregroundStyle(PorizoAndroidTheme.textSecondary)
+                    .frame(minWidth: 48, minHeight: 48)
             }
             Spacer()
             Button("Skip") { onComplete(nil) }
                 .font(.system(size: 15, weight: .medium))
                 .foregroundStyle(PorizoAndroidTheme.textTertiary)
+                .frame(minWidth: 48, minHeight: 48)
+                .accessibilityLabel(Text(verbatim: "Skip onboarding"))
         }
         .padding(.top, 8)
     }
 
     private var question: some View {
-        FrauncesTitle(text: model.currentQuestion, size: 28, weight: .bold)
+        FrauncesTitle(text: model.currentQuestion, size: 28, weight: .bold, isHeading: true)
     }
 
     @ViewBuilder
@@ -50,22 +58,21 @@ struct OnboardingView: View {
         case .singleSelect, .multiSelect:
             VStack(spacing: 10) {
                 ForEach(model.currentNode.options) { option in
-                    Button {
+                    Button(option.label) {
                         model.answerSingle(value: option.value)
-                    } label: {
-                        Text(option.label)
-                            .font(.system(size: 16, weight: .medium))
-                            .foregroundStyle(PorizoAndroidTheme.textPrimary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(16)
-                            .background(PorizoAndroidTheme.surface)
-                            .clipShape(RoundedRectangle(cornerRadius: PorizoAndroidTheme.radiusMedium))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: PorizoAndroidTheme.radiusMedium)
-                                    .stroke(PorizoAndroidTheme.border, lineWidth: 1)
-                            )
                     }
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(PorizoAndroidTheme.textPrimary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(16)
+                    .background(PorizoAndroidTheme.surface)
+                    .clipShape(RoundedRectangle(cornerRadius: PorizoAndroidTheme.radiusMedium))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: PorizoAndroidTheme.radiusMedium)
+                            .stroke(DesignTokens.accessibleControlBorder, lineWidth: 1)
+                    )
                     .buttonStyle(.plain)
+                    .accessibilityLabel(Text(verbatim: option.label))
                 }
             }
         case .textInput:

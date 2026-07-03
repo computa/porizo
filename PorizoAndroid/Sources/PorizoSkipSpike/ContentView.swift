@@ -953,7 +953,7 @@ struct PorizoTextInput: View {
             .clipShape(RoundedRectangle(cornerRadius: PorizoAndroidTheme.radiusSmall))
             .overlay(
                 RoundedRectangle(cornerRadius: PorizoAndroidTheme.radiusSmall)
-                    .stroke(PorizoAndroidTheme.border, lineWidth: 1)
+                    .stroke(DesignTokens.accessibleControlBorder, lineWidth: 1)
             )
     }
 }

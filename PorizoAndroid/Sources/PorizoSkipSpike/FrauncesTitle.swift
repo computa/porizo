@@ -33,6 +33,7 @@ struct FrauncesTitle: View {
     var size: CGFloat = 34
     var weight: Font.Weight = .bold
     var color: FrauncesTitleColor = .primary
+    var isHeading = false
 
     var body: some View {
         #if SKIP
@@ -40,12 +41,14 @@ struct FrauncesTitle: View {
             text: text,
             fontSizeSp: Double(size),
             weightValue: weightValue,
-            colorArgb: colorArgb
+            colorArgb: colorArgb,
+            isHeading: isHeading
         ) }
         #else
         Text(text)
             .font(.custom("Fraunces", size: size).weight(weight))
             .foregroundStyle(color == .onAccent ? DesignTokens.onAccent : DesignTokens.textPrimary)
+            .accessibilityAddTraits(isHeading ? .isHeader : [])
         #endif
     }
 

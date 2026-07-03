@@ -50,6 +50,10 @@ enum DesignTokens {
     // MARK: Borders
     static let border = Color(hex: "#E8E2DC")            // dark: #3A3530
     static let borderSubtle = Color(hex: "#E8E2DC")      // dark: #3A3530
+    /// Boundary color for interactive controls on Warm Canvas backgrounds.
+    /// Equivalent to textTertiary at 75% over the light background, giving ~3.04:1
+    /// non-text contrast while staying softer than full textTertiary.
+    static let accessibleControlBorder = Color(hex: "#948E88")
 
     // MARK: Status
     static let success = Color(hex: "#7DD3A6")

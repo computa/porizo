@@ -20,11 +20,14 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.material3.MaterialTheme
 import androidx.core.app.ActivityCompat
 
@@ -172,14 +175,24 @@ class FrauncesTextComposer(
     private val text: String,
     private val fontSizeSp: Double,
     private val weightValue: Int,
-    private val colorArgb: Long
+    private val colorArgb: Long,
+    private val isHeading: Boolean
 ) : skip.ui.ContentComposer {
     @Composable
     override fun Compose(context: skip.ui.ComposeContext) {
-        val family = androidx.compose.ui.text.font.FontFamily(
-            androidx.compose.ui.text.font.Font(R.font.fraunces_regular)
-        )
-        val weight = androidx.compose.ui.text.font.FontWeight(weightValue)
+        val family = remember {
+            androidx.compose.ui.text.font.FontFamily(
+                androidx.compose.ui.text.font.Font(R.font.fraunces_regular)
+            )
+        }
+        val weight = remember(weightValue) {
+            androidx.compose.ui.text.font.FontWeight(weightValue)
+        }
+        val textModifier = if (isHeading) {
+            context.modifier.semantics { heading() }
+        } else {
+            context.modifier
+        }
         androidx.compose.material3.Text(
             text = text,
             fontFamily = family,
@@ -188,7 +201,7 @@ class FrauncesTextComposer(
             // colorArgb is a plain 0xAARRGGBB int packed in a Long; Color(Int) is the ARGB ctor.
             // (Color(ULong) expects a different high-bits-packed format — do NOT use it here.)
             color = androidx.compose.ui.graphics.Color(colorArgb.toInt()),
-            modifier = context.modifier
+            modifier = textModifier
         )
     }
 }
