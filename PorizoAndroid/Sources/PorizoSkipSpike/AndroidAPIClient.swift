@@ -336,6 +336,18 @@ actor AndroidAPIClient {
         try await send(path: "/poems", method: "GET", requiresAuth: true)
     }
 
+    /// Idempotently generate (or fetch) the poem's TTS audio.
+    func generatePoemAudio(id: String) async throws -> PorizoPoemAudioResponse {
+        struct Empty: Encodable {}
+        return try await send(path: "/poems/\(id)/audio", method: "POST", requiresAuth: true, body: Empty())
+    }
+
+    /// The authenticated poem-audio stream URL (auth applied by the player).
+    /// nonisolated — a pure string builder with no actor state.
+    nonisolated func poemAudioURL(id: String) -> String {
+        "/poems/\(id)/audio"
+    }
+
     func getShareInfo(shareId: String) async throws -> PorizoShareInfoResponse {
         var request = try makeRequest(path: "/share/\(encodedPathComponent(shareId))", method: "GET", requiresAuth: false)
         request.setValue(deviceId, forHTTPHeaderField: "x-device-id")

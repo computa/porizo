@@ -594,10 +594,21 @@ struct SongSkeletonRow: View {
 
 struct PoemsView: View {
     let deepLinkedPoemId: String?
+    // Not `private` — Skip Fuse cannot bridge private @Environment on a bridged View.
+    @Environment(AndroidPlayerModel.self) var player
+    @Environment(AndroidAuthModel.self) var auth
+
+    enum LoadState: Equatable { case idle, loading, loaded, error(String) }
+
     @State var poems: [PorizoPoemSummary] = []
-    @State var statusText = "Sign in to load poems from Porizo."
-    @State var isLoading = false
+    @State var filter = PoemLibraryFilter.mine
+    @State var loadState = LoadState.idle
+    @State var selectedPoem: PorizoPoemSummary?
     private let apiClient = AndroidAPIClient()
+
+    private var visiblePoems: [PorizoPoemSummary] {
+        PoemLibrary.filtered(poems, by: filter)
+    }
 
     var body: some View {
         ZStack {
@@ -610,59 +621,207 @@ struct PoemsView: View {
                         subtitle: "Short personal pieces use the same recipient contract, claim rules, and app-only save model."
                     )
 
-                    PorizoSectionCard(title: "Library") {
-                        VStack(alignment: .leading, spacing: 12) {
-                            PorizoActionButton(
-                                title: isLoading ? "Loading poems..." : "Load poems",
-                                symbol: "arrow.clockwise.circle",
-                                isDisabled: isLoading
-                            ) {
-                                Task { await loadPoems() }
-                            }
+                    filterPicker
 
-                            PorizoStatusText(text: statusText)
-                        }
-                    }
-
-                    PorizoSectionCard(title: "Poems") {
-                        if poems.isEmpty {
-                            PorizoEmptyStateCard(
-                                symbol: "pencil",
-                                title: "No poems loaded",
-                                detail: "Open a poem link or sign in to refresh your poem library."
-                            )
-                        } else {
-                            VStack(spacing: 10) {
-                                ForEach(poems) { poem in
-                                    PoemSummaryCard(poem: poem)
-                                }
-                            }
-                        }
-                    }
+                    content
                 }
                 .padding(.horizontal, 20)
                 .padding(.top, 18)
                 .padding(.bottom, 28)
             }
+            .refreshable { await loadPoems() }
         }
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
-        .task(id: deepLinkedPoemId ?? "") {
-            if let deepLinkedPoemId, !deepLinkedPoemId.isEmpty {
-                statusText = "Opened poem link \(deepLinkedPoemId). Sign in to load the poem library."
+        .task {
+            if case .idle = loadState { await loadPoems() }
+        }
+        .onChange(of: auth.isAuthenticated) { _, authed in
+            if authed { Task { await loadPoems() } }
+        }
+        .sheet(item: $selectedPoem) { poem in
+            PoemDetailView(poem: poem, player: player, apiClient: apiClient)
+        }
+    }
+
+    private var filterPicker: some View {
+        Picker("Library", selection: $filter) {
+            ForEach(PoemLibraryFilter.allCases) { option in
+                Text(option.label).tag(option)
+            }
+        }
+        .pickerStyle(.segmented)
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        switch loadState {
+        case .idle, .loading:
+            PorizoSectionCard(title: "Library") {
+                VStack(spacing: 10) {
+                    ForEach(0..<3, id: \.self) { _ in SongSkeletonRow() }
+                }
+            }
+        case .error(let message):
+            PorizoSectionCard(title: "Library") {
+                VStack(alignment: .leading, spacing: 12) {
+                    if !auth.isAuthenticated {
+                        PorizoEmptyStateCard(
+                            symbol: "person.crop.circle",
+                            title: "Sign in to see your poems",
+                            detail: "Your poem library is tied to your account."
+                        )
+                        PorizoActionButton(title: "Sign in", symbol: "person.crop.circle") {
+                            auth.beginAuthSheet()
+                        }
+                    } else {
+                        PorizoEmptyStateCard(
+                            symbol: "exclamationmark.triangle",
+                            title: "Couldn't load your poems",
+                            detail: message
+                        )
+                        PorizoActionButton(title: "Try again", symbol: "arrow.clockwise.circle") {
+                            Task { await loadPoems() }
+                        }
+                    }
+                }
+            }
+        case .loaded:
+            if visiblePoems.isEmpty {
+                PorizoSectionCard(title: filter.label) {
+                    PorizoEmptyStateCard(
+                        symbol: "pencil",
+                        title: filter == .mine ? "No poems yet" : "Nothing received yet",
+                        detail: filter == .mine
+                            ? "Create a poem from the Home tab to start your library."
+                            : "Poems sent to you will appear here once you claim them."
+                    )
+                }
+            } else {
+                PorizoSectionCard(title: filter.label) {
+                    VStack(spacing: 10) {
+                        ForEach(visiblePoems) { poem in
+                            PoemRow(poem: poem) { selectedPoem = poem }
+                        }
+                    }
+                }
             }
         }
     }
 
     private func loadPoems() async {
-        isLoading = true
-        defer { isLoading = false }
+        loadState = .loading
         do {
             let response = try await apiClient.getPoems()
             poems = response.poems
-            statusText = response.poems.isEmpty ? "No poems yet." : "Loaded \(response.poems.count) poems."
+            loadState = .loaded
         } catch {
-            statusText = String(describing: error)
+            loadState = .error(String(describing: error))
+        }
+    }
+}
+
+/// A poem list row: title, recipient/occasion, first-verse preview, chevron.
+struct PoemRow: View {
+    let poem: PorizoPoemSummary
+    let onOpen: () -> Void
+
+    var body: some View {
+        Button(action: onOpen) {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: "text.quote")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(PorizoAndroidTheme.goldDark)
+                    .frame(width: 38, height: 38)
+                    .background(PorizoAndroidTheme.gold.opacity(0.14))
+                    .clipShape(Circle())
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(poem.title)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(PorizoAndroidTheme.textPrimary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text("\(poem.recipientName) • \(poem.occasion)")
+                        .font(.system(size: 13))
+                        .foregroundStyle(PorizoAndroidTheme.textSecondary)
+                    Text(PoemLibrary.preview(for: poem))
+                        .font(.system(size: 13))
+                        .italic()
+                        .foregroundStyle(PorizoAndroidTheme.textTertiary)
+                        .lineLimit(1)
+                }
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(PorizoAndroidTheme.textTertiary)
+            }
+            .padding(.vertical, 4)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// Poem detail: verses, plus Listen (TTS via the shared player).
+struct PoemDetailView: View {
+    let poem: PorizoPoemSummary
+    let player: AndroidPlayerModel
+    let apiClient: AndroidAPIClient
+
+    @State var isPreparingAudio = false
+    @State var errorText: String?
+
+    var body: some View {
+        ZStack {
+            PorizoAndroidTheme.background.ignoresSafeArea()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        FrauncesTitle(text: poem.title, size: 28, weight: .bold)
+                        Text("For \(poem.recipientName) • \(poem.occasion)")
+                            .font(.system(size: 14))
+                            .foregroundStyle(PorizoAndroidTheme.textSecondary)
+                    }
+
+                    PorizoActionButton(
+                        title: isPreparingAudio ? "Preparing…" : "Listen",
+                        symbol: "play.fill",
+                        isDisabled: isPreparingAudio
+                    ) {
+                        Task { await listen() }
+                    }
+
+                    if let errorText {
+                        PorizoStatusText(text: errorText)
+                    }
+
+                    VStack(alignment: .leading, spacing: 14) {
+                        ForEach(Array(poem.verses.enumerated()), id: \.offset) { _, verse in
+                            Text(verse)
+                                .font(.system(size: 16))
+                                .italic()
+                                .foregroundStyle(PorizoAndroidTheme.textPrimary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    .padding(.top, 4)
+                }
+                .padding(24)
+            }
+        }
+    }
+
+    private func listen() async {
+        isPreparingAudio = true
+        errorText = nil
+        defer { isPreparingAudio = false }
+        do {
+            _ = try await apiClient.generatePoemAudio(id: poem.id)
+            let url = apiClient.poemAudioURL(id: poem.id)
+            player.play(PoemLibrary.playableTrack(for: poem, audioURL: url))
+        } catch {
+            errorText = String(describing: error)
         }
     }
 }
@@ -1416,45 +1575,6 @@ struct PorizoEmptyStateCard: View {
             }
         }
         .padding(.vertical, 4)
-    }
-}
-
-struct PoemSummaryCard: View {
-    let poem: PorizoPoemSummary
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: "pencil")
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(PorizoAndroidTheme.goldDark)
-                .frame(width: 34, height: 34)
-                .background(PorizoAndroidTheme.gold.opacity(0.14))
-                .clipShape(Circle())
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(poem.title)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(PorizoAndroidTheme.textPrimary)
-                    .fixedSize(horizontal: false, vertical: true)
-                Text("\(poem.recipientName) • \(poem.occasion)")
-                    .font(.system(size: 13))
-                    .foregroundStyle(PorizoAndroidTheme.textSecondary)
-                Text(poemPreview)
-                    .font(.system(size: 12))
-                    .foregroundStyle(PorizoAndroidTheme.textTertiary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            Spacer()
-
-            PorizoStatusBadge(text: poem.status)
-        }
-        .padding(.vertical, 4)
-    }
-
-    private var poemPreview: String {
-        let preview = poem.verses.prefix(2).joined(separator: " ")
-        return preview.isEmpty ? poem.tone : preview
     }
 }
 

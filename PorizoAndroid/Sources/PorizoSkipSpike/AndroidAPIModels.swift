@@ -255,15 +255,31 @@ struct PorizoPoemSummary: Codable, Sendable, Identifiable {
     let tone: String
     let status: String
     let verses: [String]
+    let libraryOrigin: String?
+
+    /// True when this poem was received from someone else.
+    var isReceived: Bool { libraryOrigin == "received" }
 
     enum CodingKeys: String, CodingKey {
         case id, title, occasion, tone, status, verses
         case recipientName = "recipient_name"
+        case libraryOrigin = "library_origin"
     }
 }
 
 struct PorizoGetPoemsResponse: Codable, Sendable {
     let poems: [PorizoPoemSummary]
+}
+
+/// Response from POST /poems/:id/audio (idempotent TTS generation).
+struct PorizoPoemAudioResponse: Codable, Sendable {
+    let audioUrl: String?
+    let status: String?
+
+    enum CodingKeys: String, CodingKey {
+        case audioUrl = "audio_url"
+        case status
+    }
 }
 
 struct PorizoShareTrackInfo: Codable, Sendable {
