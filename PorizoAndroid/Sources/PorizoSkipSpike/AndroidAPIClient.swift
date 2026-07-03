@@ -538,6 +538,94 @@ actor AndroidAPIClient {
         )
     }
 
+    // MARK: - Story (create conversation, U8)
+
+    func startStory(initialPrompt: String, occasion: String, recipientName: String) async throws -> PorizoStartStoryResponse {
+        struct Body: Encodable {
+            let initialPrompt: String
+            let occasion: String
+            let recipientName: String
+            enum CodingKeys: String, CodingKey {
+                case initialPrompt = "initial_prompt"
+                case occasion
+                case recipientName = "recipient_name"
+            }
+        }
+        return try await send(
+            path: "/story/start",
+            method: "POST",
+            requiresAuth: true,
+            body: Body(initialPrompt: initialPrompt, occasion: occasion, recipientName: recipientName)
+        )
+    }
+
+    func continueStory(storyId: String, answer: String, expectedSessionVersion: Int?) async throws -> PorizoContinueStoryResponse {
+        struct Body: Encodable {
+            let answer: String
+            let expectedSessionVersion: Int?
+            enum CodingKeys: String, CodingKey {
+                case answer
+                case expectedSessionVersion = "expected_session_version"
+            }
+        }
+        return try await send(
+            path: "/story/\(storyId)/continue",
+            method: "POST",
+            requiresAuth: true,
+            body: Body(answer: answer, expectedSessionVersion: expectedSessionVersion)
+        )
+    }
+
+    /// Outcome of confirming a story: 200 locks it in, 422 means the server
+    /// needs more input (a legitimate flow, NOT an error).
+    enum ConfirmStoryOutcome: Sendable {
+        case confirmed(PorizoConfirmStoryResponse)
+        case needsInput(PorizoStoryGuidanceResponse)
+    }
+
+    func confirmStory(storyId: String) async throws -> ConfirmStoryOutcome {
+        var request = try makeRequest(path: "/story/\(storyId)/confirm", method: "POST", requiresAuth: true)
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = Data("{}".utf8)
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw AndroidAPIClientError.server(status: 0, code: nil, message: "No HTTP response.")
+        }
+        if http.statusCode == 422 {
+            let guidance = (try? Self.decoder.decode(PorizoStoryGuidanceResponse.self, from: data))
+                ?? PorizoStoryGuidanceResponse(message: "A little more detail will help.", question: nil)
+            return .needsInput(guidance)
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            let envelope = try? Self.decoder.decode(PorizoAPIErrorEnvelope.self, from: data)
+            throw AndroidAPIClientError.server(
+                status: http.statusCode,
+                code: envelope?.code ?? envelope?.error,
+                message: envelope?.message ?? "Confirm failed with status \(http.statusCode)."
+            )
+        }
+        let confirmed = try Self.decoder.decode(PorizoConfirmStoryResponse.self, from: data)
+        return .confirmed(confirmed)
+    }
+
+    func generateStoryLyrics(storyId: String) async throws -> PorizoStoryLyricsResponse {
+        struct Empty: Encodable {}
+        return try await send(path: "/story/\(storyId)/lyrics", method: "POST", requiresAuth: true, body: Empty())
+    }
+
+    func storyToTrack(storyId: String, voiceMode: String? = nil) async throws -> PorizoStoryToTrackResponse {
+        struct Body: Encodable {
+            let voiceMode: String?
+            enum CodingKeys: String, CodingKey { case voiceMode = "voice_mode" }
+        }
+        return try await send(
+            path: "/story/\(storyId)/to-track",
+            method: "POST",
+            requiresAuth: true,
+            body: Body(voiceMode: voiceMode)
+        )
+    }
+
     func getVoiceProfile() async throws -> PorizoVoiceProfileStatus {
         try await send(path: "/voice/profile", method: "GET", requiresAuth: true)
     }

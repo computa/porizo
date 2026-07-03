@@ -282,6 +282,77 @@ struct PorizoPoemAudioResponse: Codable, Sendable {
     }
 }
 
+// MARK: - Story (V2 create conversation, U8)
+
+/// Response from POST /story/start.
+struct PorizoStartStoryResponse: Codable, Sendable {
+    let storyId: String
+    let question: String?
+    let sessionVersion: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case storyId = "story_id"
+        case question
+        case sessionVersion = "session_version"
+    }
+}
+
+/// Response from POST /story/:id/continue — next question, or a signal that the
+/// story is complete enough to finish.
+struct PorizoContinueStoryResponse: Codable, Sendable {
+    let question: String?
+    let sessionVersion: Int?
+    let canFinish: Bool?
+    let isComplete: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case question
+        case sessionVersion = "session_version"
+        case canFinish = "can_finish"
+        case isComplete = "is_complete"
+    }
+}
+
+/// 200 response from POST /story/:id/confirm — the story is locked in.
+struct PorizoConfirmStoryResponse: Codable, Sendable {
+    let storyId: String?
+    let confirmed: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case storyId = "story_id"
+        case confirmed
+    }
+}
+
+/// 422 response from POST /story/:id/confirm — NOT an error; the server needs
+/// more input before it can lock the story in.
+struct PorizoStoryGuidanceResponse: Codable, Sendable {
+    let message: String?
+    let question: String?
+}
+
+/// Response from POST /story/:id/lyrics.
+struct PorizoStoryLyricsResponse: Codable, Sendable {
+    let lyrics: String?
+    let qualityScore: Double?
+
+    enum CodingKeys: String, CodingKey {
+        case lyrics
+        case qualityScore = "quality_score"
+    }
+}
+
+/// Response from POST /story/:id/to-track — creates the track from the story.
+struct PorizoStoryToTrackResponse: Codable, Sendable {
+    let trackId: String
+    let versionNum: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case trackId = "track_id"
+        case versionNum = "version_num"
+    }
+}
+
 struct PorizoShareTrackInfo: Codable, Sendable {
     let title: String?
     let recipientName: String?

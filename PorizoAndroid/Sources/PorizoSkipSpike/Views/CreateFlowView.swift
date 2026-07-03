@@ -49,13 +49,15 @@ struct CreateFlowView: View {
             CreateNameStep(flow: flow)
         case .entry(.details):
             CreateDetailsStep(flow: flow)
+        case .conversing:
+            StoryConversationView(flow: flow)
         default:
-            // U8-U10 placeholder — the AI conversation, lyrics, render, reveal,
-            // and share are built in later units.
+            // U9-U10 placeholder — lyrics review, render, reveal, and share
+            // are built in later units.
             VStack(spacing: 12) {
                 Spacer()
                 FrauncesTitle(text: "For \(flow.recipientName)", size: 24, weight: .bold)
-                Text("The guided \(flow.contentType.label.lowercased()) conversation is coming next.")
+                Text("Creating your \(flow.contentType.label.lowercased())…")
                     .font(.system(size: 15))
                     .foregroundStyle(PorizoAndroidTheme.textSecondary)
                     .multilineTextAlignment(.center)
@@ -166,5 +168,110 @@ struct CreateDetailsStep: View {
     }
     private var typeBinding: Binding<CreateContentType> {
         Binding(get: { flow.contentType }, set: { flow.contentType = $0 })
+    }
+}
+
+/// The AI story conversation (U8): chat bubbles + input bar + Create.
+struct StoryConversationView: View {
+    @State var flow: AndroidCreateFlowModel
+    @State var draft = ""
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    ChatHeader(recipient: flow.recipientName, occasion: flow.occasion.label)
+                    ForEach(flow.messages) { message in
+                        ChatBubble(message: message)
+                    }
+                    if flow.isSending {
+                        Text("…")
+                            .font(.system(size: 20, weight: .bold))
+                            .foregroundStyle(PorizoAndroidTheme.textTertiary)
+                    }
+                    if let error = flow.conversationError {
+                        PorizoStatusText(text: error)
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 8)
+                .padding(.bottom, 16)
+            }
+
+            if flow.canFinish {
+                PorizoActionButton(
+                    title: "Create \(flow.contentType.label.lowercased())",
+                    symbol: "checkmark.circle",
+                    isDisabled: flow.isSending
+                ) {
+                    Task { await flow.finish() }
+                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 8)
+            }
+
+            inputBar
+        }
+    }
+
+    private var inputBar: some View {
+        HStack(spacing: 10) {
+            PorizoTextInput(title: "Share a detail…", text: draftBinding)
+            Button {
+                let answer = draft
+                draft = ""
+                Task { await flow.sendAnswer(answer) }
+            } label: {
+                Image(systemName: "arrow.up.circle.fill")
+                    .font(.system(size: 30))
+                    .foregroundStyle(canSend ? PorizoAndroidTheme.gold : PorizoAndroidTheme.textTertiary)
+            }
+            .buttonStyle(.plain)
+            .disabled(!canSend)
+            .accessibilityLabel("Send")
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(PorizoAndroidTheme.surface)
+    }
+
+    private var canSend: Bool {
+        !flow.isSending && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var draftBinding: Binding<String> {
+        Binding(get: { draft }, set: { draft = $0 })
+    }
+}
+
+// Not `private` — Skip Fuse cannot bridge private views.
+struct ChatHeader: View {
+    let recipient: String
+    let occasion: String
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            FrauncesTitle(text: "For \(recipient)", size: 20, weight: .bold)
+            Text(occasion)
+                .font(.system(size: 13))
+                .foregroundStyle(PorizoAndroidTheme.textSecondary)
+        }
+        .padding(.bottom, 6)
+    }
+}
+
+struct ChatBubble: View {
+    let message: StoryMessage
+    var body: some View {
+        HStack {
+            if message.role == .user { Spacer(minLength: 40) }
+            Text(message.text)
+                .font(.system(size: 15))
+                .foregroundStyle(message.role == .user ? Color.white : PorizoAndroidTheme.textPrimary)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(message.role == .user ? PorizoAndroidTheme.gold : PorizoAndroidTheme.surface)
+                .clipShape(RoundedRectangle(cornerRadius: PorizoAndroidTheme.radiusMedium))
+            if message.role == .assistant { Spacer(minLength: 40) }
+        }
     }
 }
