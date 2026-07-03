@@ -58,6 +58,11 @@ enum AndroidCreateMode: String, CaseIterable, Identifiable {
 struct ContentView: View {
     @AppStorage("tab") var tab = ContentTab.home
     @AppStorage("appearance") var appearance = ""
+    // U11: onboarding shown once on first launch; the flag persists (Skip maps
+    // @AppStorage to Android SharedPreferences). A captured recipient seeds a
+    // first-create suggestion (E5).
+    @AppStorage("onboarding_completed") var onboardingCompleted = false
+    @AppStorage("onboarding_recipient") var onboardingRecipient = ""
     // Preserved for U12 (deep-link claim sheet). Claim is no longer a tab; a pending
     // claim route is captured here and will drive a sheet once U12 lands.
     @State var pendingClaimRoute: AndroidDeepLinkRoute?
@@ -74,6 +79,18 @@ struct ContentView: View {
     @State var showsAuth = false
 
     var body: some View {
+        if onboardingCompleted {
+            mainApp
+        } else {
+            OnboardingView { recipient in
+                if let recipient { onboardingRecipient = recipient }
+                onboardingCompleted = true
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var mainApp: some View {
         VStack(spacing: 0) {
             currentTabView
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
