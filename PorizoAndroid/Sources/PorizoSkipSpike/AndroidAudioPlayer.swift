@@ -1,12 +1,25 @@
 import Foundation
 
+/// Playback surface the shared player model drives. A protocol so tests can
+/// inject a deterministic fake without touching ExoPlayer.
+protocol AudioPlaybackEngine: Sendable {
+    func prepare(url: String, headers: [String: String]) -> Result<Void, AndroidNativeAdapterError>
+    func play()
+    func pause()
+    func seek(toMs positionMs: Int)
+    func release()
+    func currentPositionMs() -> Int
+    func durationMs() -> Int
+    func isPlaying() -> Bool
+}
+
 /// Swift façade over the ExoPlayer native bridge (U2).
 ///
 /// Owns URL and header POLICY (pure, testable): transforming relative stream
 /// paths to absolute against `apiBaseURL`, and building the HTTP header map
 /// (Bearer for owned content, empty for pre-signed share URLs). Playback
 /// mechanics live in `PorizoNativeAudioBridge.kt`.
-struct AndroidAudioPlayerProvider: Sendable {
+struct AndroidAudioPlayerProvider: AudioPlaybackEngine, Sendable {
 
     /// Prepare a stream for playback.
     /// - Parameters:

@@ -62,11 +62,21 @@ struct ContentView: View {
     // claim route is captured here and will drive a sheet once U12 lands.
     @State var pendingClaimRoute: AndroidDeepLinkRoute?
     @State var poemRouteId: String?
+    // Shared, app-wide playback (U3). Injected once; the mini-player persists
+    // across tabs and NowPlaying reflects the same state (mirrors iOS PlayerState).
+    // Not `private` — Skip Fuse cannot bridge private @State on a bridged View.
+    @State var player = AndroidPlayerModel(
+        accessTokenProvider: { AndroidSessionStore().loadAuthSession()?.accessToken }
+    )
+    @State var showsNowPlaying = false
 
     var body: some View {
         VStack(spacing: 0) {
             currentTabView
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .environment(player)
+
+            MiniPlayerBar(player: player) { showsNowPlaying = true }
 
             AndroidBottomTabBar(selection: $tab)
         }
@@ -74,6 +84,9 @@ struct ContentView: View {
         .preferredColorScheme(appearance == "dark" ? .dark : appearance == "light" ? .light : nil)
         .task {
             consumePendingDeepLink()
+        }
+        .sheet(isPresented: $showsNowPlaying) {
+            NowPlayingView(player: player) { showsNowPlaying = false }
         }
     }
 
