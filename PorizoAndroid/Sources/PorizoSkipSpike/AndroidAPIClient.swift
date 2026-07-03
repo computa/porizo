@@ -253,6 +253,12 @@ actor AndroidAPIClient {
         sessionStore.clearDeviceToken()
     }
 
+    /// Clear the cached device token so the next auth'd call re-registers.
+    /// Used by the claim flow's single-retry-on-401 (INVALID_DEVICE_TOKEN).
+    func clearDeviceToken() {
+        sessionStore.clearDeviceToken()
+    }
+
     func registerDevice(pushToken: String? = nil) async throws -> PorizoDeviceRegistrationResponse {
         struct Body: Encodable {
             let deviceId: String

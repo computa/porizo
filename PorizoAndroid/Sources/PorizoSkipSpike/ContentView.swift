@@ -122,6 +122,37 @@ struct ContentView: View {
                 auth.wantsAuthSheet = false
             }
         }
+        .sheet(isPresented: showsClaimBinding) {
+            claimSheet
+                .environment(player)
+                .environment(auth)
+        }
+    }
+
+    /// U12: the deep-link claim sheet, driven by a captured `.share`/
+    /// `.receiverHandoff` route. Claim is a sheet, never a tab.
+    private var showsClaimBinding: Binding<Bool> {
+        Binding(
+            get: {
+                switch pendingClaimRoute {
+                case .share, .receiverHandoff: return true
+                default: return false
+                }
+            },
+            set: { if !$0 { pendingClaimRoute = nil } }
+        )
+    }
+
+    @ViewBuilder
+    private var claimSheet: some View {
+        switch pendingClaimRoute {
+        case .share(let shareId):
+            ShareClaimView(shareId: shareId) { pendingClaimRoute = nil }
+        case .receiverHandoff(let handoffId):
+            ReceiverClaimView(handoffId: handoffId) { pendingClaimRoute = nil }
+        default:
+            EmptyView()
+        }
     }
 
     @ViewBuilder
@@ -151,10 +182,12 @@ struct ContentView: View {
             return
         }
         switch route {
-        case .share, .receiverHandoff, .unknown:
-            // Claim is deep-link-only (no tab). Capture the route; U12 will present
-            // it as a claim sheet. Until then this is inert (no crash, no lost link).
+        case .share, .receiverHandoff:
+            // Claim is deep-link-only (no tab): present it as a claim sheet (U12).
             pendingClaimRoute = route
+        case .unknown:
+            // Unsupported link — ignore silently (no sheet, no crash).
+            break
         case .poem(let poemId):
             poemRouteId = poemId
             tab = .poems
