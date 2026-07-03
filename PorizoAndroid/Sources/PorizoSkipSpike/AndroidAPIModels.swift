@@ -285,6 +285,42 @@ struct PorizoGetPoemsResponse: Codable, Sendable {
     let poems: [PorizoPoemSummary]
 }
 
+/// The poem body returned by story-to-poem / poem-share (verses + metadata).
+struct PorizoPoemBody: Codable, Sendable {
+    let id: String?
+    let title: String?
+    let recipientName: String?
+    let verses: [String]?
+    let previewLines: [String]?
+
+    enum CodingKeys: String, CodingKey {
+        case id, title, verses
+        case recipientName = "recipient_name"
+        case previewLines = "preview_lines"
+    }
+}
+
+/// Response from POST /story/:id/to-poem — synchronous poem generation.
+struct PorizoStoryToPoemResponse: Codable, Sendable {
+    let poem: PorizoPoemBody
+}
+
+/// Response from GET /poem-share/:id — reveal verses before claim.
+struct PorizoPoemShareInfoResponse: Codable, Sendable {
+    let status: String
+    let canAccess: Bool?
+    let poem: PorizoPoemBody?
+    let requiresPin: Bool?
+    let requiresPinForClaim: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case status, poem
+        case canAccess = "can_access"
+        case requiresPin = "requires_pin"
+        case requiresPinForClaim = "requires_pin_for_claim"
+    }
+}
+
 /// Response from POST /poems/:id/audio (idempotent TTS generation).
 struct PorizoPoemAudioResponse: Codable, Sendable {
     let audioUrl: String?

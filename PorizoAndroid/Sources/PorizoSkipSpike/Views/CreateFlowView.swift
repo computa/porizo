@@ -369,6 +369,14 @@ struct RevealView: View {
     let onClose: () -> Void
 
     var body: some View {
+        if flow.contentType == .poem {
+            poemReveal
+        } else {
+            songReveal
+        }
+    }
+
+    private var songReveal: some View {
         VStack(spacing: 20) {
             Spacer()
 
@@ -392,17 +400,45 @@ struct RevealView: View {
                 PorizoActionButton(title: "Play", symbol: "play.fill") {
                     if let track = flow.revealPlayable { player.play(track) }
                 }
-                PorizoActionButton(title: "Send to \(flow.recipientName)", symbol: "paperplane.fill") {
-                    Task { await flow.sendToRecipient() }
-                }
-                Button("Share a link instead") { flow.goToShare() }
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(PorizoAndroidTheme.goldDark)
+                sendButtons
             }
             .padding(.horizontal, 24)
 
             Spacer()
         }
+    }
+
+    /// Poems reveal their verses inline (synchronous generation, no audio yet).
+    private var poemReveal: some View {
+        VStack(spacing: 16) {
+            ScrollView {
+                VStack(spacing: 12) {
+                    FrauncesTitle(text: "For \(flow.recipientName)", size: 24, weight: .bold)
+                    ForEach(Array(flow.poemVerses.enumerated()), id: \.offset) { _, verse in
+                        Text(verse)
+                            .font(.system(size: 17))
+                            .italic()
+                            .foregroundStyle(PorizoAndroidTheme.textPrimary)
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+                .padding(24)
+            }
+            VStack(spacing: 10) { sendButtons }
+                .padding(.horizontal, 24)
+                .padding(.bottom, 12)
+        }
+    }
+
+    @ViewBuilder
+    private var sendButtons: some View {
+        PorizoActionButton(title: "Send to \(flow.recipientName)", symbol: "paperplane.fill") {
+            Task { await flow.sendToRecipient() }
+        }
+        Button("Share a link instead") { flow.goToShare() }
+            .font(.system(size: 15, weight: .medium))
+            .foregroundStyle(PorizoAndroidTheme.goldDark)
     }
 
     private var title: String {

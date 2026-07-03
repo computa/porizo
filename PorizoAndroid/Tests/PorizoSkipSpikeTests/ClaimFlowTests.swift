@@ -82,4 +82,31 @@ final class ClaimFlowTests: XCTestCase {
     func testNoRetryOnNonServerError() {
         XCTAssertFalse(ClaimLogic.shouldReregisterAndRetry(error: AndroidAPIClientError.notAuthenticated))
     }
+
+    // MARK: - Deep-link parsing (custom scheme host routing — regression guard)
+
+    private let parser = AndroidDeepLinkParser()
+
+    func testCustomSchemeReceiverHandoff() {
+        XCTAssertEqual(parser.parse("porizo://receiver-handoff/rh_abc"), .receiverHandoff("rh_abc"))
+    }
+
+    func testCustomSchemePoemShare() {
+        // Regression: the custom-scheme branch previously only matched
+        // receiver-handoff, so porizo://poem-share/<id> fell through to .unknown.
+        XCTAssertEqual(parser.parse("porizo://poem-share/ps_123"), .poemShare("ps_123"))
+    }
+
+    func testCustomSchemeShareAndPoem() {
+        XCTAssertEqual(parser.parse("porizo://share/s1"), .share("s1"))
+        XCTAssertEqual(parser.parse("porizo://poem/p1"), .poem("p1"))
+    }
+
+    func testCustomSchemeUnknownHost() {
+        XCTAssertEqual(parser.parse("porizo://mystery/x"), .unknown("porizo://mystery/x"))
+    }
+
+    func testCustomSchemeMissingIdIsUnknown() {
+        XCTAssertEqual(parser.parse("porizo://poem-share/"), .unknown("porizo://poem-share/"))
+    }
 }

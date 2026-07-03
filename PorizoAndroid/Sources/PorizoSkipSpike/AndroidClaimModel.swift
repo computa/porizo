@@ -133,6 +133,50 @@ final class AndroidClaimModel {
         }
     }
 
+    // MARK: - Poem share (U13)
+
+    /// The revealed poem verses (poem-share reveal-before-claim).
+    private(set) var poemVerses: [String] = []
+
+    func loadPoemShare(shareId: String) async {
+        phase = .loading
+        do {
+            let info = try await apiClient.getPoemShareInfo(shareId: shareId)
+            poemVerses = PoemClaimLogic.verses(from: info)
+            title = info.poem?.title
+            let state = PoemClaimLogic.state(for: info)
+            if case .claimable(let pin) = state { needsPin = pin }
+            switch state {
+            case .unavailable: phase = .unavailable
+            case .claimed: phase = .claimed
+            case .claimable: phase = .preview(state)
+            }
+        } catch {
+            phase = .failed(String(describing: error))
+        }
+    }
+
+    func claimPoem(shareId: String, pin: String) async {
+        phase = .claiming
+        do {
+            _ = try await apiClient.claimPoemShare(shareId: shareId, pin: pin)
+            phase = .claimed
+        } catch {
+            if ClaimLogic.shouldReregisterAndRetry(error: error) {
+                await reregisterDevice()
+                do {
+                    _ = try await apiClient.claimPoemShare(shareId: shareId, pin: pin)
+                    phase = .claimed
+                    return
+                } catch {
+                    phase = .failed(String(describing: error))
+                    return
+                }
+            }
+            phase = .failed(String(describing: error))
+        }
+    }
+
     // MARK: - Helpers
 
     private func apply(_ info: PorizoShareInfoResponse) {

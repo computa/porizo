@@ -44,6 +44,10 @@
                 <data
                     android:scheme="https"
                     android:host="porizo.app"
+                    android:pathPrefix="/poem-share/" />
+                <data
+                    android:scheme="https"
+                    android:host="porizo.app"
                     android:pathPrefix="/receiver-handoff/" />
             </intent-filter>
             <intent-filter>
@@ -53,6 +57,9 @@
                 <data
                     android:scheme="porizo"
                     android:host="receiver-handoff" />
+                <data
+                    android:scheme="porizo"
+                    android:host="poem-share" />
             </intent-filter>
         </activity>
     </application>

@@ -396,6 +396,37 @@ actor AndroidAPIClient {
         "/poems/\(id)/audio"
     }
 
+    /// Turn a confirmed story into a poem (synchronous generation — returns the
+    /// full poem with verses). The poem branch of the create flow (U13).
+    func storyToPoem(storyId: String) async throws -> PorizoStoryToPoemResponse {
+        struct Empty: Encodable {}
+        return try await send(path: "/story/\(storyId)/to-poem", method: "POST", requiresAuth: true, body: Empty())
+    }
+
+    /// Create (or return the existing) share link for a poem.
+    func createPoemShare(poemId: String) async throws -> PorizoCreateShareResponse {
+        struct Empty: Encodable {}
+        return try await send(path: "/poems/\(encodedPathComponent(poemId))/share", method: "POST", requiresAuth: true, body: Empty())
+    }
+
+    /// Resolve a poem-share link (reveal verses before claim).
+    func getPoemShareInfo(shareId: String) async throws -> PorizoPoemShareInfoResponse {
+        try await send(path: "/poem-share/\(encodedPathComponent(shareId))", method: "GET", requiresAuth: false)
+    }
+
+    /// Claim a poem share into the signed-in library.
+    func claimPoemShare(shareId: String, pin: String) async throws -> PorizoShareClaimResponse {
+        struct Body: Encodable {
+            let pin: String?
+        }
+        return try await send(
+            path: "/poem-share/\(encodedPathComponent(shareId))/claim",
+            method: "POST",
+            requiresAuth: true,
+            body: Body(pin: pin.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : pin)
+        )
+    }
+
     func getShareInfo(shareId: String) async throws -> PorizoShareInfoResponse {
         var request = try makeRequest(path: "/share/\(encodedPathComponent(shareId))", method: "GET", requiresAuth: false)
         request.setValue(deviceId, forHTTPHeaderField: "x-device-id")

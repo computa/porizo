@@ -104,6 +104,9 @@ struct ContentView: View {
         .background(PorizoAndroidTheme.background)
         .preferredColorScheme(appearance == "dark" ? .dark : appearance == "light" ? .light : nil)
         .task {
+            // Register a direct callback so a warm deep link (onNewIntent while
+            // running) presents immediately; cold links are consumed inline here.
+            AndroidDeepLinkInbox.onLink = { consumePendingDeepLink() }
             auth.restore()
             consumePendingDeepLink()
         }
@@ -135,7 +138,7 @@ struct ContentView: View {
         Binding(
             get: {
                 switch pendingClaimRoute {
-                case .share, .receiverHandoff: return true
+                case .share, .receiverHandoff, .poemShare: return true
                 default: return false
                 }
             },
@@ -150,6 +153,8 @@ struct ContentView: View {
             ShareClaimView(shareId: shareId) { pendingClaimRoute = nil }
         case .receiverHandoff(let handoffId):
             ReceiverClaimView(handoffId: handoffId) { pendingClaimRoute = nil }
+        case .poemShare(let shareId):
+            PoemClaimView(shareId: shareId) { pendingClaimRoute = nil }
         default:
             EmptyView()
         }
@@ -182,8 +187,8 @@ struct ContentView: View {
             return
         }
         switch route {
-        case .share, .receiverHandoff:
-            // Claim is deep-link-only (no tab): present it as a claim sheet (U12).
+        case .share, .receiverHandoff, .poemShare:
+            // Claim is deep-link-only (no tab): present it as a claim sheet (U12/U13).
             pendingClaimRoute = route
         case .unknown:
             // Unsupported link — ignore silently (no sheet, no crash).

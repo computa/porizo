@@ -67,6 +67,10 @@ final class AndroidCreateFlowModel {
     private(set) var isCreatingShare = false
     private(set) var shareError: String?
 
+    // Poem branch (U13). Poems generate synchronously → straight to reveal.
+    private(set) var createdPoemId: String?
+    private(set) var poemVerses: [String] = []
+
     private let apiClient = AndroidAPIClient()
     private let directSend = AndroidDirectSend()
     private let sharer = AndroidShareProvider()
@@ -161,6 +165,14 @@ final class AndroidCreateFlowModel {
                 canFinish = false
                 return
             case .confirmed:
+                if contentType == .poem {
+                    // Poem generation is synchronous — straight to the reveal.
+                    let response = try await apiClient.storyToPoem(storyId: storyId)
+                    poemVerses = PoemClaimLogic.verses(from: response.poem)
+                    createdPoemId = response.poem.id
+                    moment = .reveal
+                    return
+                }
                 let lyrics = try await apiClient.generateStoryLyrics(storyId: storyId)
                 lyricsText = lyrics.lyrics
                 let track = try await apiClient.storyToTrack(storyId: storyId, voiceMode: voiceSource.apiValue)
@@ -220,16 +232,23 @@ final class AndroidCreateFlowModel {
         )
     }
 
-    /// One-tap "Send to {name}": mint a PIN-less link, then SMS (if a phone was
-    /// captured in U7) or the system share sheet.
+    /// One-tap "Send to {name}": mint a link, then SMS (if a phone was captured
+    /// in U7) or the system share sheet. Routes to the poem-share endpoint for
+    /// poems (which are always PIN-protected server-side).
     func sendToRecipient() async {
-        guard let trackId = createdTrackId else { return }
         do {
-            let share = try await apiClient.createShare(trackId: trackId, versionNum: createdVersionNum, requirePin: false)
+            let url: String
+            if let poemId = createdPoemId {
+                url = try await apiClient.createPoemShare(poemId: poemId).shareUrl
+            } else if let trackId = createdTrackId {
+                url = try await apiClient.createShare(trackId: trackId, versionNum: createdVersionNum, requirePin: false).shareUrl
+            } else {
+                return
+            }
             directSend.send(
                 recipientName: recipientName,
                 phone: recipientPhone,
-                link: share.shareUrl,
+                link: url,
                 contentType: contentType
             )
         } catch {
@@ -243,14 +262,22 @@ final class AndroidCreateFlowModel {
         Task { await ensureShareLink() }
     }
 
-    /// Create (idempotently) the PIN-protected share link for the postcard.
+    /// Create (idempotently) the share link for the postcard. Poems use the
+    /// poem-share endpoint; songs the track-share endpoint (PIN-protected).
     func ensureShareLink() async {
-        guard let trackId = createdTrackId, shareLink == nil, !isCreatingShare else { return }
+        guard shareLink == nil, !isCreatingShare else { return }
         isCreatingShare = true
         shareError = nil
         defer { isCreatingShare = false }
         do {
-            let share = try await apiClient.createShare(trackId: trackId, versionNum: createdVersionNum, requirePin: true)
+            let share: PorizoCreateShareResponse
+            if let poemId = createdPoemId {
+                share = try await apiClient.createPoemShare(poemId: poemId)
+            } else if let trackId = createdTrackId {
+                share = try await apiClient.createShare(trackId: trackId, versionNum: createdVersionNum, requirePin: true)
+            } else {
+                return
+            }
             shareLink = share.shareUrl
             sharePin = share.claimPin
         } catch {

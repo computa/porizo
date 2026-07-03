@@ -43,6 +43,9 @@ let logger: Logger = Logger(subsystem: AndroidAppConfig.applicationId, category:
     /* SKIP @bridge */public func onOpenURL(_ rawURL: String) {
         logger.info("onOpenURL")
         AndroidDeepLinkStore().save(rawURL: rawURL)
+        // Invoke the mounted view's consume callback so a warm link (onNewIntent
+        // while foregrounded, no scenePhase transition) presents immediately.
+        Task { @MainActor in AndroidDeepLinkInbox.onLink?() }
     }
 
     /* SKIP @bridge */public func onResume() {
