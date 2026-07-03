@@ -17,5 +17,9 @@ let package = Package(
         .target(name: "PorizoSkipSpike", dependencies: [
             .product(name: "SkipFuseUI", package: "skip-fuse-ui")
         ], resources: [.process("Resources")], plugins: [.plugin(name: "skipstone", package: "skip")]),
+        .testTarget(name: "PorizoSkipSpikeTests", dependencies: [
+            "PorizoSkipSpike",
+            .product(name: "SkipTest", package: "skip")
+        ], plugins: [.plugin(name: "skipstone", package: "skip")]),
     ]
 )

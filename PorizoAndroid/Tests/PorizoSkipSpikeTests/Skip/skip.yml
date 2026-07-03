@@ -1,0 +1,5 @@
+# Skip configuration for the Porizo Android test module.
+# Tests transpile alongside the main module so they can also run as
+# Android JUnit tests; host XCTest runs cover the pure-logic assertions.
+skip:
+  mode: "native"

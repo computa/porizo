@@ -22,26 +22,27 @@ enum PorizoAndroidTheme {
 }
 
 enum ContentTab: String, Hashable, CaseIterable, Identifiable {
-    case create, songs, poems, recipient, settings
+    // Mirrors iOS MainTabView: 4 tabs (Home / Songs / Poems / Settings).
+    // Claim is NOT a tab on iOS — it is a deep-link-triggered sheet (see U12);
+    // the old `.recipient` "Claim" tab was a sarah-birthday demo fixture, removed here.
+    case home, songs, poems, settings
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
-        case .create: return "Explore"
+        case .home: return "Home"
         case .songs: return "Songs"
         case .poems: return "Poems"
-        case .recipient: return "Claim"
         case .settings: return "Settings"
         }
     }
 
     var symbol: String {
         switch self {
-        case .create: return "house"
+        case .home: return "house"
         case .songs: return "play.fill"
         case .poems: return "pencil"
-        case .recipient: return "lock"
         case .settings: return "gearshape"
         }
     }
@@ -55,9 +56,11 @@ enum AndroidCreateMode: String, CaseIterable, Identifiable {
 }
 
 struct ContentView: View {
-    @AppStorage("tab") var tab = ContentTab.create
+    @AppStorage("tab") var tab = ContentTab.home
     @AppStorage("appearance") var appearance = ""
-    @State var claimRoute: AndroidDeepLinkRoute?
+    // Preserved for U12 (deep-link claim sheet). Claim is no longer a tab; a pending
+    // claim route is captured here and will drive a sheet once U12 lands.
+    @State var pendingClaimRoute: AndroidDeepLinkRoute?
     @State var poemRouteId: String?
 
     var body: some View {
@@ -77,7 +80,7 @@ struct ContentView: View {
     @ViewBuilder
     private var currentTabView: some View {
         switch tab {
-        case .create:
+        case .home:
             NavigationStack {
                 AndroidExploreView()
             }
@@ -88,10 +91,6 @@ struct ContentView: View {
         case .poems:
             NavigationStack {
                 PoemsView(deepLinkedPoemId: poemRouteId)
-            }
-        case .recipient:
-            NavigationStack {
-                RecipientClaimView(initialRoute: claimRoute)
             }
         case .settings:
             NavigationStack {
@@ -105,15 +104,13 @@ struct ContentView: View {
             return
         }
         switch route {
-        case .share, .receiverHandoff:
-            claimRoute = route
-            tab = .recipient
+        case .share, .receiverHandoff, .unknown:
+            // Claim is deep-link-only (no tab). Capture the route; U12 will present
+            // it as a claim sheet. Until then this is inert (no crash, no lost link).
+            pendingClaimRoute = route
         case .poem(let poemId):
             poemRouteId = poemId
             tab = .poems
-        case .unknown:
-            claimRoute = route
-            tab = .recipient
         }
     }
 }
@@ -155,7 +152,6 @@ struct AndroidBottomTabBar: View {
 }
 
 struct AndroidExploreView: View {
-    @AppStorage("tab") var tab = ContentTab.create
     @State var showsCreateFlow = false
     @State var createOccasion = Occasion.birthday
 
@@ -205,7 +201,8 @@ struct AndroidExploreView: View {
                     .accessibilityLabel("Create for someone special")
 
                     Button {
-                        tab = .recipient
+                        // TODO(U15): open the gift send flow (iOS routes this card to
+                        // GiftSendFlowView, not claim). Inert until U15 lands.
                     } label: {
                         HStack(spacing: 12) {
                             Circle()
@@ -506,307 +503,6 @@ struct PoemsView: View {
             statusText = response.poems.isEmpty ? "No poems yet." : "Loaded \(response.poems.count) poems."
         } catch {
             statusText = String(describing: error)
-        }
-    }
-}
-
-struct RecipientClaimView: View {
-    let initialRoute: AndroidDeepLinkRoute?
-    @State var claimState = ClaimState.readyToClaim
-    @State var linkRoute = LinkRoute.webPreview
-    @State var isPlaying = false
-    @State var playhead = 18.0
-    @State var routedRouteLabel = ""
-    @State var shareId = "sarah-birthday"
-    @State var claimPin = ""
-    @State var handoffId = ""
-    @State var receiverClaimToken = ""
-    @State var routeStatus = "Open an Android App Link or enter a share ID."
-    @State var streamStatus = "Protected stream keys require a claimed Android device."
-    @State var isWorking = false
-    private let apiClient = AndroidAPIClient()
-
-    init(initialRoute: AndroidDeepLinkRoute? = nil) {
-        self.initialRoute = initialRoute
-    }
-
-    var body: some View {
-        ZStack {
-            PorizoAndroidTheme.background.ignoresSafeArea()
-
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    PorizoScreenHeader(
-                        title: "Claim",
-                        subtitle: "Preview the gift, bind it to this Android device, then unlock protected playback."
-                    )
-
-                    PorizoSectionCard(title: "Gift state") {
-                        VStack(alignment: .leading, spacing: 12) {
-                            Picker("Fixture", selection: $claimState) {
-                                ForEach(ClaimState.allCases) { state in
-                                    Text(state.label).tag(state)
-                                }
-                            }
-                            RecipientHeroCard(state: claimState)
-                        }
-                    }
-
-                    PorizoSectionCard(title: "Web and app handoff") {
-                        VStack(alignment: .leading, spacing: 12) {
-                            Picker("Entry route", selection: $linkRoute) {
-                                ForEach(LinkRoute.allCases) { route in
-                                    Text(route.label).tag(route)
-                                }
-                            }
-
-                            HStack(spacing: 10) {
-                                Image(systemName: "square.and.arrow.up")
-                                    .foregroundStyle(PorizoAndroidTheme.goldDark)
-                                Text("https://\(AndroidAppConfig.shareHost)/s/sarah-birthday")
-                                    .font(.system(size: 13, weight: .medium))
-                                    .foregroundStyle(PorizoAndroidTheme.textPrimary)
-                                    .lineLimit(2)
-                                Spacer()
-                                Text(linkRoute.badge.uppercased())
-                                    .font(.system(size: 11, weight: .bold))
-                                    .foregroundStyle(PorizoAndroidTheme.goldDark)
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 5)
-                                    .background(PorizoAndroidTheme.gold.opacity(0.16))
-                                    .clipShape(Capsule())
-                            }
-
-                            PorizoStatusText(text: linkRoute.detail)
-                        }
-                    }
-
-                    PorizoSectionCard(title: "Share contract") {
-                        VStack(alignment: .leading, spacing: 12) {
-                            PorizoTextInput(title: "Share ID", text: $shareId)
-                            PorizoTextInput(title: "PIN, if required", text: $claimPin)
-
-                            PorizoActionButton(
-                                title: isWorking ? "Loading share..." : "Load share",
-                                symbol: "square.and.arrow.up",
-                                isDisabled: isWorking || shareId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                            ) {
-                                Task { await loadShareInfo() }
-                            }
-
-                            PorizoActionButton(
-                                title: "Claim on this Android device",
-                                symbol: "lock.fill",
-                                isDisabled: isWorking || shareId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                            ) {
-                                Task { await claimShare() }
-                            }
-
-                            PorizoActionButton(
-                                title: "Check protected stream",
-                                symbol: "lock",
-                                isDisabled: isWorking || shareId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                            ) {
-                                Task { await loadProtectedStream() }
-                            }
-
-                            PorizoStatusText(text: routeStatus)
-                            PorizoStatusText(text: streamStatus)
-                        }
-                    }
-
-                    PorizoSectionCard(title: "Receiver handoff") {
-                        VStack(alignment: .leading, spacing: 12) {
-                            PorizoTextInput(title: "Handoff ID", text: $handoffId)
-                            PorizoTextInput(title: "Receiver claim token", text: $receiverClaimToken)
-
-                            PorizoActionButton(
-                                title: "Resolve handoff",
-                                symbol: "arrow.clockwise.circle",
-                                isDisabled: isWorking || handoffId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                            ) {
-                                Task { await resolveHandoff() }
-                            }
-
-                            PorizoActionButton(
-                                title: "Claim receiver token",
-                                symbol: "checkmark.circle",
-                                isDisabled: isWorking || receiverClaimToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                            ) {
-                                Task { await claimReceiverToken() }
-                            }
-                        }
-                    }
-
-                    PorizoSectionCard(title: "Playback") {
-                        VStack(alignment: .leading, spacing: 12) {
-                            HStack {
-                                Button {
-                                    isPlaying.toggle()
-                                    if isPlaying && playhead < 62 {
-                                        playhead = min(62, playhead + 7)
-                                    }
-                                } label: {
-                                    HStack(spacing: 8) {
-                                        Image(systemName: "play.fill")
-                                        Text(isPlaying ? "Pause" : "Play")
-                                    }
-                                    .font(.system(size: 15, weight: .semibold))
-                                    .foregroundStyle(claimState.canPlay ? Color.white : PorizoAndroidTheme.textTertiary)
-                                    .padding(.horizontal, 14)
-                                    .padding(.vertical, 10)
-                                    .background(claimState.canPlay ? PorizoAndroidTheme.gold : PorizoAndroidTheme.surfaceElevated)
-                                    .clipShape(Capsule())
-                                }
-                                .buttonStyle(.plain)
-                                .disabled(!claimState.canPlay)
-
-                                Spacer()
-
-                                Text("\(Int(playhead)) / 62 sec")
-                                    .font(.system(size: 13, weight: .semibold))
-                                    .foregroundStyle(PorizoAndroidTheme.textSecondary)
-                            }
-
-                            ProgressView(value: playhead, total: 62)
-
-                            PorizoActionButton(
-                                title: "Set fixture as claimed",
-                                symbol: "checkmark.circle",
-                                isDisabled: claimState != .readyToClaim
-                            ) {
-                                claimState = .claimedHere
-                            }
-                        }
-                    }
-                }
-                .padding(.horizontal, 20)
-                .padding(.top, 18)
-                .padding(.bottom, 28)
-            }
-        }
-        .navigationTitle("")
-        .navigationBarTitleDisplayMode(.inline)
-        .task(id: initialRoute?.routeLabel ?? "") {
-            applyInitialRoute()
-        }
-    }
-
-    private func applyInitialRoute() {
-        guard let initialRoute else {
-            return
-        }
-        let label = initialRoute.routeLabel
-        guard routedRouteLabel != label else {
-            return
-        }
-        routedRouteLabel = label
-        switch initialRoute {
-        case .share(let id):
-            shareId = id
-            linkRoute = .appLinkReturn
-            routeStatus = "Loaded app link for share \(id)."
-        case .receiverHandoff(let id):
-            handoffId = id
-            linkRoute = .appLinkReturn
-            routeStatus = "Loaded receiver handoff \(id)."
-        case .poem(let id):
-            routeStatus = "Poem link \(id) belongs in the Poems tab."
-        case .unknown(let rawURL):
-            routeStatus = "Unsupported Android App Link: \(rawURL)"
-        }
-    }
-
-    private func loadShareInfo() async {
-        await runClaimAction {
-            let response = try await apiClient.getShareInfo(shareId: clean(shareId))
-            let title = response.track?.title ?? response.trackPreview?.title ?? "shared song"
-            let access = response.canAccess == false ? "not accessible" : "accessible"
-            routeStatus = "Share \(response.status): \(title) is \(access)."
-            claimState = response.status == "claimed" ? .alreadyClaimed : .readyToClaim
-        }
-    }
-
-    private func claimShare() async {
-        await runClaimAction {
-            let response = try await apiClient.claimShare(shareId: clean(shareId), pin: claimPin)
-            routeStatus = "Claim \(response.status). App save allowed: \(response.appSaveAllowed == false ? "no" : "yes")."
-            claimState = response.status == "claimed" || response.appSaveAllowed == true ? .claimedHere : claimState
-        }
-    }
-
-    private func resolveHandoff() async {
-        await runClaimAction {
-            let response = try await apiClient.resolveReceiverHandoff(handoffId: clean(handoffId))
-            receiverClaimToken = response.receiverClaimToken
-            routeStatus = "Resolved \(response.contentKind) handoff. Claim token expires \(response.receiverClaimExpiresAt ?? "unknown")."
-        }
-    }
-
-    private func claimReceiverToken() async {
-        await runClaimAction {
-            let response = try await apiClient.claimReceiverToken(claimToken: clean(receiverClaimToken), pin: claimPin)
-            routeStatus = "Receiver claim \(response.status). App save allowed: \(response.appSaveAllowed == false ? "no" : "yes")."
-            claimState = response.status == "claimed" || response.appSaveAllowed == true ? .claimedHere : claimState
-        }
-    }
-
-    private func loadProtectedStream() async {
-        await runClaimAction {
-            let response = try await apiClient.getShareStream(shareId: clean(shareId))
-            streamStatus = "Stream \(response.format ?? "audio") available until \(response.expiresAt ?? "unknown")."
-        }
-    }
-
-    private func runClaimAction(_ action: @escaping () async throws -> Void) async {
-        isWorking = true
-        defer { isWorking = false }
-        do {
-            try await action()
-        } catch {
-            routeStatus = String(describing: error)
-        }
-    }
-
-    private func clean(_ value: String) -> String {
-        value.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-}
-
-struct RecipientHeroCard: View {
-    let state: ClaimState
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top, spacing: 12) {
-                Image(systemName: state.symbol)
-                    .font(.system(size: 22, weight: .semibold))
-                    .foregroundStyle(PorizoAndroidTheme.goldDark)
-                    .frame(width: 38, height: 38)
-                    .background(PorizoAndroidTheme.gold.opacity(0.16))
-                    .clipShape(Circle())
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(state.headline)
-                        .font(.system(size: 18, weight: .bold))
-                        .foregroundStyle(PorizoAndroidTheme.textPrimary)
-                    Text("Happy Birthday Sarah")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(PorizoAndroidTheme.textSecondary)
-                }
-                Spacer()
-            }
-            Text(state.detail)
-                .font(.system(size: 14))
-                .foregroundStyle(PorizoAndroidTheme.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-            HStack {
-                Text("Bound device")
-                    .foregroundStyle(PorizoAndroidTheme.textTertiary)
-                Spacer()
-                Text(state.boundDevice)
-                    .foregroundStyle(PorizoAndroidTheme.textPrimary)
-            }
-            .font(.system(size: 12, weight: .semibold))
         }
     }
 }
