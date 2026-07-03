@@ -12,6 +12,16 @@ enum AndroidAppConfig {
     static let platformDeviceLabel = "android-device"
     static let oneSignalAppId = "67365cfb-f88a-44cc-ba25-29a9a01d01f0"
 
+    /// Google OAuth **Web** client ID used by Credential Manager to mint an ID
+    /// token accepted by the backend's /auth/social endpoint.
+    /// TODO(U4c): provision the Android app's Web client ID in Google Cloud and
+    /// paste it here. Empty until then — Google sign-in surfaces a clear config
+    /// error and phone auth remains the working path.
+    static let googleWebClientId = ""
+
+    /// Whether Google sign-in is configured (gates the button's usability).
+    static var isGoogleSignInConfigured: Bool { !googleWebClientId.isEmpty }
+
     static let subscriptionProductIds = [
         "com.porizo.plus_monthly",
         "com.porizo.plus_annual",

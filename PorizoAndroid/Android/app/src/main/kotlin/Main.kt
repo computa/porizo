@@ -61,6 +61,7 @@ open class MainActivity: AppCompatActivity {
         PorizoNativePushBridge.setActivity(this)
         PorizoNativeBillingBridge.setActivity(this)
         PorizoNativeRecorderBridge.setActivity(this)
+        PorizoNativeGoogleSignInBridge.setActivity(this)
         enableEdgeToEdge()
         handleIntent(intent)
 
@@ -102,6 +103,7 @@ open class MainActivity: AppCompatActivity {
         PorizoNativePushBridge.setActivity(this)
         PorizoNativeBillingBridge.setActivity(this)
         PorizoNativeRecorderBridge.setActivity(this)
+        PorizoNativeGoogleSignInBridge.setActivity(this)
         AppDelegate.shared.onResume()
     }
 
@@ -119,6 +121,7 @@ open class MainActivity: AppCompatActivity {
         PorizoNativePushBridge.setActivity(null)
         PorizoNativeBillingBridge.setActivity(null)
         PorizoNativeRecorderBridge.setActivity(null)
+        PorizoNativeGoogleSignInBridge.setActivity(null)
         super.onDestroy()
         AppDelegate.shared.onDestroy()
     }
