@@ -3,11 +3,13 @@
 # Kotlin dependencies and Gradle build options for this module can be configured here
 build:
   contents:
-    - block: 'dependencies'
+    - block: "dependencies"
       contents:
         - 'implementation("com.onesignal:OneSignal:[5.6.1, 5.9.99]")'
         - 'implementation("com.android.billingclient:billing:9.1.0")'
+        - 'implementation("androidx.media3:media3-exoplayer:1.4.1")'
+        - 'implementation("androidx.media3:media3-common:1.4.1")'
 
 # this is a natively-compiled Skip Fuse module
 skip:
-  mode: 'native'
+  mode: "native"
