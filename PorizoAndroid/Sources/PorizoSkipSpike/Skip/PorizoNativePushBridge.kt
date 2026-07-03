@@ -9,14 +9,25 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.onesignal.OneSignal
 import com.onesignal.debug.LogLevel
+import com.onesignal.notifications.INotificationClickEvent
+import com.onesignal.notifications.INotificationClickListener
+import org.json.JSONObject
 
 object PorizoNativePushBridge {
     private const val notificationRequestCode = 3101
     private var initializedAppId: String? = null
     private var currentActivity: Activity? = null
+    /// Set by the Swift layer to receive a tapped notification's payload JSON.
+    private var onTap: ((String) -> Unit)? = null
 
     fun setActivity(activity: Activity?) {
         currentActivity = activity
+    }
+
+    /// Register the Swift tap handler (U14). Invoked with the notification's
+    /// additionalData JSON when a notification is opened.
+    fun setTapHandler(handler: (String) -> Unit) {
+        onTap = handler
     }
 
     fun initialize(context: Context, appId: String, verbose: Boolean): String {
@@ -32,6 +43,17 @@ object PorizoNativePushBridge {
         }
         OneSignal.initWithContext(context.applicationContext, appId)
         initializedAppId = appId
+
+        // Forward notification taps to Swift with the payload's additionalData
+        // (render_complete / recipient_played). Delivery is dashboard-configured.
+        OneSignal.Notifications.addClickListener(object : INotificationClickListener {
+            override fun onClick(event: INotificationClickEvent) {
+                val data: JSONObject? = event.notification.additionalData
+                if (data != null) {
+                    onTap?.invoke(data.toString())
+                }
+            }
+        })
         return "OneSignal initialized."
     }
 

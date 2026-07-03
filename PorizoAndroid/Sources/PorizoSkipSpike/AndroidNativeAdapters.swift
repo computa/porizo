@@ -3,6 +3,7 @@ import Foundation
 struct AndroidPushProvider: Sendable {
     func initialize() -> String {
         #if os(Android)
+        porizoPushRegisterTapHandler()
         return porizoPushInitialize(appId: AndroidAppConfig.oneSignalAppId, verbose: isDebugBuild)
         #else
         return "OneSignal Android SDK is available only on Android."
@@ -231,6 +232,16 @@ enum AndroidNativeAdapterError: Error, CustomStringConvertible {
 #if SKIP
 func porizoPushInitialize(appId: String, verbose: Bool) -> String {
     PorizoNativePushBridge.initialize(context: ProcessInfo.processInfo.androidContext, appId: appId, verbose: verbose)
+}
+
+/// Wire the native notification-tap listener (U14). The Kotlin closure hands the
+/// payload to a BRIDGED Swift method on the AppDelegate — a #if SKIP Kotlin func
+/// can only reference Kotlin-visible symbols, so the Swift-side store + inbox
+/// work must happen in bridged Swift, not here.
+func porizoPushRegisterTapHandler() {
+    PorizoNativePushBridge.setTapHandler { payloadJSON in
+        PorizoSkipSpikeAppDelegate.shared.onNotificationTap(payloadJSON)
+    }
 }
 
 func porizoPushRequestPermission() -> String {

@@ -105,7 +105,8 @@ struct ContentView: View {
         .preferredColorScheme(appearance == "dark" ? .dark : appearance == "light" ? .light : nil)
         .task {
             // Register a direct callback so a warm deep link (onNewIntent while
-            // running) presents immediately; cold links are consumed inline here.
+            // running) or a notification tap presents immediately; cold links
+            // are consumed inline here.
             AndroidDeepLinkInbox.onLink = { consumePendingDeepLink() }
             auth.restore()
             consumePendingDeepLink()
@@ -183,6 +184,11 @@ struct ContentView: View {
     }
 
     private func consumePendingDeepLink() {
+        // A render-complete notification tap opens the Songs tab where the
+        // finished track appears (U14). Delivery is external (R-2).
+        if case .trackReveal = AndroidPushTapStore().consume() {
+            tab = .songs
+        }
         guard let route = AndroidDeepLinkStore().consume() else {
             return
         }

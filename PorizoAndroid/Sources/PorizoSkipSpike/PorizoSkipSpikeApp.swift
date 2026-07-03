@@ -48,6 +48,15 @@ let logger: Logger = Logger(subsystem: AndroidAppConfig.applicationId, category:
         Task { @MainActor in AndroidDeepLinkInbox.onLink?() }
     }
 
+    /// A notification was tapped (U14). Save its payload + ping the view, reusing
+    /// the deep-link delivery path. Bridged Swift — the #if SKIP Kotlin listener
+    /// forwards here because it can't touch Swift-only stores/inboxes directly.
+    /* SKIP @bridge */public func onNotificationTap(_ payloadJSON: String) {
+        logger.info("onNotificationTap")
+        AndroidPushTapStore().save(payloadJSON: payloadJSON)
+        Task { @MainActor in AndroidDeepLinkInbox.onLink?() }
+    }
+
     /* SKIP @bridge */public func onResume() {
         logger.debug("onResume")
     }
