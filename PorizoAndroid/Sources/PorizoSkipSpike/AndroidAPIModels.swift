@@ -141,6 +141,13 @@ struct PorizoTrackSummary: Codable, Sendable, Identifiable {
     let latestVersion: Int?
     let shareTokenId: String?
     let artworkUrl: String?
+    let libraryOrigin: String?
+    let canShare: Bool?
+    let canDelete: Bool?
+
+    /// True when this track was received from someone else (drives the
+    /// My/Received filter), mirroring iOS `Track.isReceived`.
+    var isReceived: Bool { libraryOrigin == "received" }
 
     enum CodingKeys: String, CodingKey {
         case id, title, occasion, status
@@ -148,11 +155,39 @@ struct PorizoTrackSummary: Codable, Sendable, Identifiable {
         case latestVersion = "latest_version"
         case shareTokenId = "share_token_id"
         case artworkUrl = "artwork_url"
+        case libraryOrigin = "library_origin"
+        case canShare = "can_share"
+        case canDelete = "can_delete"
     }
 }
 
 struct PorizoGetTracksResponse: Codable, Sendable {
     let tracks: [PorizoTrackSummary]
+}
+
+/// A rendered version of a track. `preview_url`/`full_url` are the playable
+/// stream URLs when present (mirrors iOS `TrackVersion`).
+struct PorizoTrackVersion: Codable, Sendable, Identifiable {
+    let id: String
+    let versionNum: Int
+    let status: String
+    let previewUrl: String?
+    let fullUrl: String?
+
+    /// Best available playable URL: full render preferred over preview.
+    var playableUrl: String? { fullUrl ?? previewUrl }
+
+    enum CodingKeys: String, CodingKey {
+        case id, status
+        case versionNum = "version_num"
+        case previewUrl = "preview_url"
+        case fullUrl = "full_url"
+    }
+}
+
+struct PorizoGetTrackResponse: Codable, Sendable {
+    let track: PorizoTrackSummary
+    let versions: [PorizoTrackVersion]
 }
 
 struct PorizoPoemSummary: Codable, Sendable, Identifiable {

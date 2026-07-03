@@ -207,6 +207,10 @@ actor AndroidAPIClient {
         try await send(path: "/tracks?limit=\(min(limit, 100))&offset=\(max(offset, 0))", method: "GET", requiresAuth: true)
     }
 
+    func getTrack(id: String) async throws -> PorizoGetTrackResponse {
+        try await send(path: "/tracks/\(id)", method: "GET", requiresAuth: true)
+    }
+
     func createTrack(_ request: PorizoCreateTrackRequest) async throws -> PorizoCreateTrackResponse {
         try await send(path: "/tracks", method: "POST", requiresAuth: true, body: request)
     }

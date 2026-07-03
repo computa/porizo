@@ -377,10 +377,19 @@ struct PorizoInfoCard: View {
 }
 
 struct SongsView: View {
+    // Not `private` — Skip Fuse cannot bridge private @Environment on a bridged View.
+    @Environment(AndroidPlayerModel.self) var player
+
+    enum LoadState: Equatable { case idle, loading, loaded, error(String) }
+
     @State var songs: [PorizoTrackSummary] = []
-    @State var statusText = "Sign in to load songs from Porizo."
-    @State var isLoading = false
+    @State var filter = SongLibraryFilter.mine
+    @State var loadState = LoadState.idle
     private let apiClient = AndroidAPIClient()
+
+    private var visibleSongs: [PorizoTrackSummary] {
+        SongLibrary.filtered(songs, by: filter)
+    }
 
     var body: some View {
         ZStack {
@@ -393,55 +402,161 @@ struct SongsView: View {
                         subtitle: "Your claimed and created songs stay app-bound, with protected playback controlled by the backend."
                     )
 
-                    PorizoSectionCard(title: "Library") {
-                        VStack(alignment: .leading, spacing: 12) {
-                            PorizoActionButton(
-                                title: isLoading ? "Loading songs..." : "Load songs",
-                                symbol: "arrow.clockwise.circle",
-                                isDisabled: isLoading
-                            ) {
-                                Task { await loadSongs() }
-                            }
+                    filterPicker
 
-                            PorizoStatusText(text: statusText)
-                        }
-                    }
-
-                    PorizoSectionCard(title: "Songs") {
-                        if songs.isEmpty {
-                            PorizoEmptyStateCard(
-                                symbol: "play.fill",
-                                title: "No songs loaded",
-                                detail: "Sign in, load your library, or create a song from Explore."
-                            )
-                        } else {
-                            VStack(spacing: 10) {
-                                ForEach(songs) { song in
-                                    SongSummaryCard(song: song)
-                                }
-                            }
-                        }
-                    }
+                    content
                 }
                 .padding(.horizontal, 20)
                 .padding(.top, 18)
                 .padding(.bottom, 28)
             }
+            .refreshable { await loadSongs() }
         }
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
+        .task {
+            if case .idle = loadState { await loadSongs() }
+        }
+    }
+
+    private var filterPicker: some View {
+        Picker("Library", selection: $filter) {
+            ForEach(SongLibraryFilter.allCases) { option in
+                Text(option.label).tag(option)
+            }
+        }
+        .pickerStyle(.segmented)
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        switch loadState {
+        case .idle, .loading:
+            PorizoSectionCard(title: "Library") {
+                VStack(spacing: 10) {
+                    ForEach(0..<3, id: \.self) { _ in SongSkeletonRow() }
+                }
+            }
+        case .error(let message):
+            PorizoSectionCard(title: "Library") {
+                VStack(alignment: .leading, spacing: 12) {
+                    PorizoEmptyStateCard(
+                        symbol: "exclamationmark.triangle",
+                        title: "Couldn't load your songs",
+                        detail: message
+                    )
+                    PorizoActionButton(title: "Try again", symbol: "arrow.clockwise.circle") {
+                        Task { await loadSongs() }
+                    }
+                }
+            }
+        case .loaded:
+            if visibleSongs.isEmpty {
+                PorizoSectionCard(title: filter.label) {
+                    PorizoEmptyStateCard(
+                        symbol: "play.fill",
+                        title: filter == .mine ? "No songs yet" : "Nothing received yet",
+                        detail: filter == .mine
+                            ? "Create a song from the Home tab to start your library."
+                            : "Songs sent to you will appear here once you claim them."
+                    )
+                }
+            } else {
+                PorizoSectionCard(title: filter.label) {
+                    VStack(spacing: 10) {
+                        ForEach(visibleSongs) { song in
+                            SongRow(song: song) { Task { await play(song) } }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     private func loadSongs() async {
-        isLoading = true
-        defer { isLoading = false }
+        loadState = .loading
         do {
             let response = try await apiClient.getTracks()
             songs = response.tracks
-            statusText = response.tracks.isEmpty ? "No songs yet." : "Loaded \(response.tracks.count) songs."
+            loadState = .loaded
         } catch {
-            statusText = String(describing: error)
+            loadState = .error(String(describing: error))
         }
+    }
+
+    /// Fetch the track's versions, build a playable track, and hand it to the
+    /// shared player. No-op (with a surfaced status) if nothing is playable yet.
+    private func play(_ song: PorizoTrackSummary) async {
+        do {
+            let detail = try await apiClient.getTrack(id: song.id)
+            if let playable = SongLibrary.playableTrack(for: detail.track, versions: detail.versions) {
+                player.play(playable)
+            }
+        } catch {
+            loadState = .error(String(describing: error))
+        }
+    }
+}
+
+/// A single song row with artwork, title/subtitle, status badge, and play button.
+struct SongRow: View {
+    let song: PorizoTrackSummary
+    let onPlay: () -> Void
+
+    private var displayStatus: SongDisplayStatus {
+        SongLibrary.displayStatus(for: song.status)
+    }
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            Button(action: onPlay) {
+                Image(systemName: "play.fill")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(PorizoAndroidTheme.goldDark)
+                    .frame(width: 38, height: 38)
+                    .background(PorizoAndroidTheme.gold.opacity(0.14))
+                    .clipShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .disabled(displayStatus != .ready)
+            .accessibilityLabel("Play \(song.title)")
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(song.title)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(PorizoAndroidTheme.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(subtitle)
+                    .font(.system(size: 13))
+                    .foregroundStyle(PorizoAndroidTheme.textSecondary)
+            }
+
+            Spacer()
+
+            PorizoStatusBadge(text: SongLibrary.badgeLabel(for: displayStatus))
+        }
+        .padding(.vertical, 4)
+    }
+
+    private var subtitle: String {
+        let recipient = song.recipientName ?? "Recipient"
+        let occasion = song.occasion ?? "Song"
+        return "\(recipient) • \(occasion)"
+    }
+}
+
+/// Shimmer-free skeleton placeholder shown while the library loads.
+struct SongSkeletonRow: View {
+    var body: some View {
+        HStack(spacing: 12) {
+            Circle().fill(PorizoAndroidTheme.border.opacity(0.4)).frame(width: 38, height: 38)
+            VStack(alignment: .leading, spacing: 6) {
+                RoundedRectangle(cornerRadius: 4).fill(PorizoAndroidTheme.border.opacity(0.4)).frame(width: 160, height: 12)
+                RoundedRectangle(cornerRadius: 4).fill(PorizoAndroidTheme.border.opacity(0.25)).frame(width: 110, height: 10)
+            }
+            Spacer()
+        }
+        .padding(.vertical, 6)
     }
 }
 
@@ -1269,48 +1384,6 @@ struct PorizoEmptyStateCard: View {
             }
         }
         .padding(.vertical, 4)
-    }
-}
-
-struct SongSummaryCard: View {
-    let song: PorizoTrackSummary
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: "play.fill")
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(PorizoAndroidTheme.goldDark)
-                .frame(width: 34, height: 34)
-                .background(PorizoAndroidTheme.gold.opacity(0.14))
-                .clipShape(Circle())
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(song.title)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(PorizoAndroidTheme.textPrimary)
-                    .fixedSize(horizontal: false, vertical: true)
-                Text(songSubtitle)
-                    .font(.system(size: 13))
-                    .foregroundStyle(PorizoAndroidTheme.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                if let latestVersion = song.latestVersion {
-                    Text("Latest version \(latestVersion)")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(PorizoAndroidTheme.textTertiary)
-                }
-            }
-
-            Spacer()
-
-            PorizoStatusBadge(text: song.status)
-        }
-        .padding(.vertical, 4)
-    }
-
-    private var songSubtitle: String {
-        let recipient = song.recipientName ?? "Recipient"
-        let occasion = song.occasion ?? "Song"
-        return "\(recipient) • \(occasion)"
     }
 }
 
