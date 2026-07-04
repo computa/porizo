@@ -50,6 +50,20 @@ U2 parity gate passed with `:core:domain:testDebugUnitTest` and `:app:assembleDe
 
 U3 parity gate passed with `:core:domain:testDebugUnitTest`, `:core:data:assembleDebug`, and `:app:assembleDebug` on 2026-07-04. `AndroidAPIClient.swift`, `AndroidAPIModels.swift`, `AndroidSecureStore.swift`, and `AndroidLocalStores.swift` now have native counterparts, but they remain retained references until the UI/feature slices wire these repositories through runtime flows and U11 performs final Skip deletion.
 
+## U4 Changes
+
+| Path | Status | Notes |
+|---|---|---|
+| `PorizoAndroid/Android/settings.gradle.kts` | native-owned | Added `:core:ui` for reusable Compose tokens, typography, and components. |
+| `PorizoAndroid/Android/app/build.gradle.kts` | native-owned | App now depends on native UI primitives instead of owning reusable design resources. |
+| `PorizoAndroid/Android/core/ui/**` | native-owned | Native Warm Canvas theme, Fraunces typography, cards, buttons, bottom navigation primitives, and migrated font resources. |
+| `PorizoAndroid/Android/app/src/main/kotlin/com/porizo/app/AppRoot.kt` | native-owned | Replaced placeholder shell with the native themed app root. |
+| `PorizoAndroid/Android/app/src/main/kotlin/com/porizo/app/navigation/**` | native-owned | Native Home/Songs/Poems/Settings navigation shell; Claim remains a deep-link flow, not a tab. |
+| `PorizoAndroid/Android/app/src/main/kotlin/com/porizo/app/MainActivity.kt` | native-owned | App links are parsed through the native domain deep-link parser and passed into Compose state. |
+| `PorizoAndroid/Android/app/src/main/res/font/*.ttf` | deleted | Fonts moved to `:core:ui` so feature modules can share typography without depending on `:app`. |
+
+U4 parity gate passed with `:core:ui:assembleDebug` and `:app:assembleDebug` on 2026-07-04. Runtime smoke installed `app-debug.apk` on `emulator-5554`, launched `com.porizo.app/.MainActivity`, confirmed the app window was focused, and captured `/private/tmp/porizo-u4-smoke.png`.
+
 ## Retained Reference: Swift and Skip Package
 
 | Path | Status | Delete Gate |
@@ -84,8 +98,8 @@ U3 parity gate passed with `:core:domain:testDebugUnitTest`, `:core:data:assembl
 | `PorizoAndroid/Sources/PorizoSkipSpike/StoryEngine.swift` | migrate-or-delete | U2/U8 story tests ported. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/ViewModel.swift` | candidate-delete | U5-U8 ViewModel ports complete. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/ContentView.swift` | candidate-delete | U4-U10 native screens complete. |
-| `PorizoAndroid/Sources/PorizoSkipSpike/DesignTokens.swift` | migrate-or-delete | U4 core UI tokens parity. |
-| `PorizoAndroid/Sources/PorizoSkipSpike/FrauncesTitle.swift` | migrate-or-delete | U4 font/title parity. |
+| `PorizoAndroid/Sources/PorizoSkipSpike/DesignTokens.swift` | retain-reference | Native UI token parity exists; keep for feature screen parity audits, then delete in U11. |
+| `PorizoAndroid/Sources/PorizoSkipSpike/FrauncesTitle.swift` | retain-reference | Native Fraunces typography exists in `:core:ui`; keep for feature screen parity audits, then delete in U11. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/HostTestShims.swift` | candidate-delete | U11 after Swift tests are gone. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/PorizoSkipSpikeApp.swift` | candidate-delete | U11 after native app owns launch/deep links. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/Views/**` | candidate-delete | U4-U8 screen parity. |
