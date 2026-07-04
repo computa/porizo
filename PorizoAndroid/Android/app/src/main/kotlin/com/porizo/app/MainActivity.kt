@@ -16,6 +16,7 @@ import com.porizo.feature.claim.ClaimViewModel
 import com.porizo.feature.create.CreateViewModel
 import com.porizo.feature.library.PoemsViewModel
 import com.porizo.feature.library.SongsViewModel
+import com.porizo.feature.settings.SettingsViewModel
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 
@@ -25,11 +26,13 @@ class MainActivity : ComponentActivity() {
 
     private val deepLinkParser = DeepLinkParser()
     private val pendingDeepLink = mutableStateOf<DeepLinkRoute?>(null)
+    private val resumeSignal = mutableStateOf(0)
     private val authViewModel: AuthViewModel by viewModels()
     private val claimViewModel: ClaimViewModel by viewModels()
     private val createViewModel: CreateViewModel by viewModels()
     private val songsViewModel: SongsViewModel by viewModels()
     private val poemsViewModel: PoemsViewModel by viewModels()
+    private val settingsViewModel: SettingsViewModel by viewModels()
     private val playerViewModel: PlayerViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -46,7 +49,9 @@ class MainActivity : ComponentActivity() {
                 createViewModel = createViewModel,
                 songsViewModel = songsViewModel,
                 poemsViewModel = poemsViewModel,
+                settingsViewModel = settingsViewModel,
                 player = playerViewModel.player,
+                resumeSignal = resumeSignal.value,
             )
         }
     }
@@ -60,6 +65,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         activityHolder.set(this)
+        resumeSignal.value += 1
     }
 
     override fun onPause() {

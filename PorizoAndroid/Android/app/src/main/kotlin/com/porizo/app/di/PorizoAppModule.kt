@@ -15,6 +15,7 @@ import com.porizo.core.media.Media3AudioPlaybackEngine
 import com.porizo.core.media.PorizoPlayer
 import com.porizo.core.share.AndroidShareDispatcher
 import com.porizo.feature.auth.GoogleAuthConfig
+import com.porizo.feature.settings.SettingsPlatformConfig
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -37,6 +38,14 @@ object PorizoAppModule {
     @Provides
     fun provideGoogleAuthConfig(): GoogleAuthConfig =
         GoogleAuthConfig(webClientId = BuildConfig.PORIZO_GOOGLE_WEB_CLIENT_ID)
+
+    @Provides
+    fun provideSettingsPlatformConfig(): SettingsPlatformConfig =
+        SettingsPlatformConfig(
+            oneSignalAppId = BuildConfig.PORIZO_ONESIGNAL_APP_ID,
+            subscriptionProductIds = BuildConfig.PORIZO_SUBSCRIPTION_PRODUCT_IDS.csvValues(),
+            oneTimeProductIds = BuildConfig.PORIZO_ONE_TIME_PRODUCT_IDS.csvValues(),
+        )
 
     @Provides
     fun provideAuthRepository(dataGraph: PorizoDataGraph): AuthRepository =
@@ -87,3 +96,8 @@ object PorizoAppModule {
     fun provideAndroidShareDispatcher(@ApplicationContext context: Context): AndroidShareDispatcher =
         AndroidShareDispatcher(context)
 }
+
+private fun String.csvValues(): List<String> =
+    split(",")
+        .map { it.trim() }
+        .filter { it.isNotEmpty() }

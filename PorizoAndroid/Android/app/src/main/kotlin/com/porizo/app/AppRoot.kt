@@ -25,6 +25,7 @@ import com.porizo.feature.library.PoemsViewModel
 import com.porizo.feature.library.SongsViewModel
 import com.porizo.feature.onboarding.OnboardingScreen
 import com.porizo.feature.onboarding.OnboardingViewModel
+import com.porizo.feature.settings.SettingsViewModel
 
 @Composable
 fun AppRoot(
@@ -33,9 +34,11 @@ fun AppRoot(
     createViewModel: CreateViewModel,
     songsViewModel: SongsViewModel,
     poemsViewModel: PoemsViewModel,
+    settingsViewModel: SettingsViewModel,
     player: PorizoPlayer,
     pendingDeepLink: DeepLinkRoute? = null,
     onDeepLinkConsumed: () -> Unit = {},
+    resumeSignal: Int = 0,
 ) {
     val context = LocalContext.current
     val onboardingPreferences = remember {
@@ -83,7 +86,9 @@ fun AppRoot(
                         createViewModel = createViewModel,
                         songsViewModel = songsViewModel,
                         poemsViewModel = poemsViewModel,
+                        settingsViewModel = settingsViewModel,
                         player = player,
+                        resumeSignal = resumeSignal,
                     )
                 }
             }

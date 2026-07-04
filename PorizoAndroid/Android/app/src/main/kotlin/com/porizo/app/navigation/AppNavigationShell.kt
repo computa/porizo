@@ -1,14 +1,9 @@
 package com.porizo.app.navigation
 
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -16,18 +11,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
 import com.porizo.core.domain.deeplink.DeepLinkRoute
 import com.porizo.core.media.PorizoPlayer
+import com.porizo.core.platform.PushRoute
 import com.porizo.core.ui.PorizoBottomNavigationBar
 import com.porizo.core.ui.PorizoBottomNavigationItem
-import com.porizo.core.ui.PorizoCard
 import com.porizo.core.ui.PorizoColors
-import com.porizo.core.ui.PorizoPrimaryButton
-import com.porizo.core.ui.PorizoScreen
-import com.porizo.core.ui.PorizoSecondaryButton
-import com.porizo.feature.auth.AuthPhase
 import com.porizo.feature.auth.AuthUiState
 import com.porizo.feature.claim.ClaimSheet
 import com.porizo.feature.claim.ClaimViewModel
@@ -39,6 +28,8 @@ import com.porizo.feature.library.PoemsScreen
 import com.porizo.feature.library.PoemsViewModel
 import com.porizo.feature.library.SongsScreen
 import com.porizo.feature.library.SongsViewModel
+import com.porizo.feature.settings.SettingsScreen
+import com.porizo.feature.settings.SettingsViewModel
 
 @Composable
 fun AppNavigationShell(
@@ -51,7 +42,9 @@ fun AppNavigationShell(
     createViewModel: CreateViewModel,
     songsViewModel: SongsViewModel,
     poemsViewModel: PoemsViewModel,
+    settingsViewModel: SettingsViewModel,
     player: PorizoPlayer,
+    resumeSignal: Int,
     modifier: Modifier = Modifier,
 ) {
     var selectedTab by rememberSaveable { mutableStateOf(AppTab.Home) }
@@ -86,6 +79,20 @@ fun AppNavigationShell(
             }
         }
         onDeepLinkConsumed()
+    }
+
+    LaunchedEffect(resumeSignal) {
+        when (val pushRoute = settingsViewModel.consumePendingPushRoute()) {
+            is PushRoute.TrackReveal -> {
+                selectedTab = AppTab.Songs
+                routeNotice = "Your render is ready: ${pushRoute.trackId}."
+            }
+            PushRoute.Informational -> {
+                selectedTab = AppTab.Songs
+                routeNotice = "Gift activity updated."
+            }
+            null -> Unit
+        }
     }
 
     Scaffold(
@@ -132,6 +139,7 @@ fun AppNavigationShell(
                 innerPadding = innerPadding,
             )
             AppTab.Settings -> SettingsScreen(
+                viewModel = settingsViewModel,
                 authState = authState,
                 onSignInRequested = onSignInRequested,
                 onLogoutRequested = onLogoutRequested,
@@ -150,68 +158,4 @@ fun AppNavigationShell(
         viewModel = claimViewModel,
         onDismiss = claimViewModel::dismiss,
     )
-}
-
-@Composable
-private fun SettingsScreen(
-    authState: AuthUiState,
-    onSignInRequested: () -> Unit,
-    onLogoutRequested: () -> Unit,
-    innerPadding: PaddingValues,
-) {
-    PorizoScreen(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(innerPadding),
-        title = "Settings",
-        subtitle = "Manage account, subscription, voice, and notifications.",
-    ) {
-        val authenticated = authState.phase as? AuthPhase.Authenticated
-        PorizoCard {
-            Text(
-                text = "Account",
-                color = PorizoColors.TextPrimary,
-                fontWeight = FontWeight.SemiBold,
-                style = MaterialTheme.typography.titleMedium,
-            )
-            Text(
-                text = authenticated?.let { "Signed in as ${it.userId}" } ?: "Sign in and restore your library",
-                color = PorizoColors.TextSecondary,
-                style = MaterialTheme.typography.bodyMedium,
-            )
-            if (authenticated == null) {
-                PorizoPrimaryButton(
-                    text = "Sign in",
-                    onClick = onSignInRequested,
-                )
-            } else {
-                PorizoSecondaryButton(
-                    text = "Sign out",
-                    onClick = onLogoutRequested,
-                )
-            }
-        }
-        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            PorizoSettingRow("Subscription", "Manage song and poem credits")
-            PorizoSettingRow("Voice", "Prepare your voice for personalized songs")
-            PorizoSettingRow("Notifications", "Control gift and render updates")
-        }
-    }
-}
-
-@Composable
-private fun PorizoSettingRow(title: String, subtitle: String) {
-    PorizoCard {
-        Text(
-            text = title,
-            color = PorizoColors.TextPrimary,
-            fontWeight = FontWeight.SemiBold,
-            style = MaterialTheme.typography.titleMedium,
-        )
-        Text(
-            text = subtitle,
-            color = PorizoColors.TextSecondary,
-            style = MaterialTheme.typography.bodyMedium,
-        )
-    }
 }

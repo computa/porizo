@@ -27,6 +27,9 @@ android {
         versionName = "0.1.0"
         buildConfigField("String", "PORIZO_API_BASE_URL", "\"https://api.porizo.co/\"")
         buildConfigField("String", "PORIZO_GOOGLE_WEB_CLIENT_ID", "\"\"")
+        buildConfigField("String", "PORIZO_ONESIGNAL_APP_ID", "\"67365cfb-f88a-44cc-ba25-29a9a01d01f0\"")
+        buildConfigField("String", "PORIZO_SUBSCRIPTION_PRODUCT_IDS", "\"com.porizo.plus_monthly,com.porizo.plus_annual,com.porizo.pro_monthly,com.porizo.pro_annual\"")
+        buildConfigField("String", "PORIZO_ONE_TIME_PRODUCT_IDS", "\"com.porizo.gift_token_oneoff,com.porizo.gift_bundle_1,com.porizo.gift_bundle_3,com.porizo.gift_bundle_5\"")
     }
 
     compileOptions {
@@ -90,6 +93,7 @@ dependencies {
     implementation(project(":feature:create"))
     implementation(project(":feature:library"))
     implementation(project(":feature:onboarding"))
+    implementation(project(":feature:settings"))
 
     implementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(platform(libs.androidx.compose.bom))
