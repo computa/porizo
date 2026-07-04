@@ -145,6 +145,16 @@ U8 parity gate passed with `:feature:create:assembleDebug` and `:app:assembleDeb
 
 U9 platform-foundation gate passed with `:core:platform:assembleDebug` and `:app:assembleDebug` on 2026-07-04. U9 Google-auth gate passed with `:feature:auth:assembleDebug` and `:app:assembleDebug` on 2026-07-04. U9 settings/platform-services gate passed with `:feature:settings:assembleDebug` and `:app:assembleDebug` on 2026-07-04. Existing repo-wide AGP/Kotlin migration warnings remain; these slices do not add Kotlin source warnings.
 
+## U10 Changes
+
+| Path | Status | Notes |
+|---|---|---|
+| `PorizoAndroid/Android/app/proguard-rules.pro` | native-owned | Removed Skip/JNA bridge keep rules and kept only native Retrofit/Moshi metadata required for the minified release build. |
+| `PorizoAndroid/Android/app/src/main/AndroidManifest.xml` | native-owned | Release manifest disables Android backup for auth/device-state safety and declares microphone hardware optional while retaining runtime recording permission. |
+| `PorizoAndroid/Android/PLAY_STORE_CHECKLIST.md` | native-owned | Records production identity, fallback-vs-upload signing expectations, generated artifact paths, and external Play/OneSignal/App Links setup gates. |
+
+U10 release-packaging gate passed with `:app:assembleRelease`, `:app:bundleRelease`, and `aapt dump badging` on 2026-07-04. The APK reports package `com.porizo.app`, versionCode `1`, versionName `0.1.0`, label `Porizo`, minSdk `28`, and targetSdk `36`.
+
 ## Retained Reference: Swift and Skip Package
 
 | Path | Status | Delete Gate |

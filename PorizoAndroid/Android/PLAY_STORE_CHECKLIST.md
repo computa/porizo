@@ -12,11 +12,16 @@
 - Generate a release keystore outside Git.
 - Copy `app/keystore.properties.example` to `app/keystore.properties`.
 - Replace all passwords and verify `app/keystore.properties` and `app/keystore.jks` remain ignored.
-- Build a release APK/AAB only after signing values are configured.
+- Build a Play-uploadable release APK/AAB only after signing values are configured.
+- The local fallback release signing path is for compile/package verification only; do not upload fallback-signed artifacts.
 
 ## Store Readiness
 
 - Launcher icon and adaptive icon layers are tracked for the internal Android build.
+- Release builds disable Android backup so auth/device state is not restored onto
+  a different install.
+- Microphone hardware is declared optional; voice enrollment still requests
+  runtime microphone permission when the user records samples.
 - Auth sessions and device JWTs use Android Keystore-backed encrypted storage on
   Android, with legacy local token migration.
 - Settings exposes native readiness states for secure storage, voice enrollment recording,
@@ -40,10 +45,22 @@
 ## Internal Testing Gate
 
 - `:app:assembleDebug` succeeds.
-- `aapt dump badging` reports package `com.porizo.app`, label `Porizo`, and version `0.1.0`.
+- `aapt dump badging` reports package `com.porizo.app`, label `Porizo`, versionCode `1`, and versionName `0.1.0`.
 - `:app:assembleRelease` and `:app:bundleRelease` succeed on a signing-configured machine.
 - ADB lists the physical phone as `device`, not `unauthorized` or empty.
 - Smoke test auth, secure token persistence across restart, create draft recovery,
   render auto-polling, app-link claim routing, share claim errors, billing receipt
   error handling, OneSignal token registration, Play Billing subscription sync,
   voice enrollment recording/upload/complete, and Settings readiness states.
+
+## 2026-07-04 Native Release Verification
+
+- `gradle :app:assembleRelease :app:bundleRelease` succeeded with R8/resource shrinking enabled.
+- Generated APK: `app/build/outputs/apk/release/app-release.apk` (`6.6M`).
+- Generated AAB: `app/build/outputs/bundle/release/app-release.aab` (`8.1M`).
+- `/Users/ao/Library/Android/sdk/build-tools/37.0.0/aapt dump badging app/build/outputs/apk/release/app-release.apk`
+  reported `com.porizo.app`, versionCode `1`, versionName `0.1.0`, label `Porizo`,
+  minSdk `28`, and targetSdk `36`.
+- Remaining external release setup: real upload keystore, Play Console products,
+  OneSignal Android/FCM credentials, backend Google Play service account, and
+  `assetlinks.json` for the final Play-signing certificate fingerprint.
