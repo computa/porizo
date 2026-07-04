@@ -31,12 +31,19 @@ feature, color for color, design for design, and flow for flow.** Same 4 tabs, s
 create flow, real library + playback, real auth, deep-link claim, gift/billing, real
 settings, onboarding, and Warm Canvas visual system.
 
-### What carried forward from the Skip spike (not wasted)
+### What carried forward — and what did NOT
 
-The Skip spike's **pure decision-logic contracts and their test suites** were the durable
-asset, and they have **already been ported to Kotlin** in `core:domain`:
+**Every UI was rebuilt from scratch in native Jetpack Compose.** The Skip spike's SwiftUI
+screens, `@Observable` models, and native bridges were **deleted, not ported** — there is no
+Swift/Skip UI left in the Android app. All feature screens (`OnboardingScreen`, `AuthScreen`,
+`LibraryScreens`, `CreateScreen`, `ClaimScreen`) and the design system (`core:ui`
+`PorizoTheme`/`PorizoComponents`) are net-new Kotlin/Compose.
 
-| Skip Swift (retired)                              | Native Kotlin (kept)                          | Contract                                                                 |
+The **only** thing carried forward is the spike's **pure decision-logic contracts and their
+test suites** — no UI, no framework, just input→output rules — re-authored as Kotlin in
+`core:domain`:
+
+| Skip Swift PURE LOGIC (retired)                   | Native Kotlin test (re-authored)              | Contract                                                                 |
 | ------------------------------------------------- | --------------------------------------------- | ------------------------------------------------------------------------ |
 | `AuthLogic.swift` + `AuthLogicTests`              | `AuthLogicTest.kt`                            | token-refresh classification, phone-verify outcomes                      |
 | `AndroidRenderController.swift` + tests           | `RenderControllerTest.kt`                     | backoff schedule, terminal statuses, resume-before-start, error taxonomy |
@@ -47,11 +54,14 @@ asset, and they have **already been ported to Kotlin** in `core:domain`:
 | `ClaimLogic` / `PoemClaimLogic` + tests           | `ClaimLogicTest.kt` / `PoemClaimLogicTest.kt` | share-state map, device-token 401-retry, verse extraction                |
 | `ShareLogic` / `AndroidPushRouting` + tests       | `ShareLogicTest.kt` (+ push routing)          | message copy (no expiry urgency), SMS-vs-sheet, push payload → route     |
 
-These contracts are **exact iOS behavioral parity** distilled from `PorizoApp/` and verified
-against the live backend during the Skip build-out. The native ViewModels wire to them; the
-tests lock the behavior. **The native-icon/splash work also survives** — `mipmap-*`,
-`Theme.Porizo`, and the manifest are standard Android resources, already correct for the
-coral gift-box logo matching iOS (commit `5dcc9381`).
+These contracts are **exact iOS behavioral parity** distilled from `PorizoApp/`. The native
+ViewModels wire to them; the tests lock the behavior. **The native icon/splash also carries
+forward** — `mipmap-*`, `Theme.Porizo`, and the manifest are standard Android resources (not
+Skip), already correct for the coral gift-box logo matching iOS (commit `5dcc9381`).
+
+**Everything else is a from-scratch native rebuild** and must be re-verified for parity
+against iOS — existing native screen files do not imply parity has been audited (see the
+per-unit status and the U11 parity gate).
 
 ### What was discarded
 
@@ -128,24 +138,34 @@ Non-negotiable acceptance criteria for every feature module — verified against
 
 ## Implementation Units (aligned to the migration's actual sequencing)
 
-Status reflects Codex's progress: **U1–U8 complete, U9 in progress (~78% by unit count).**
-Each unit's parity target cites the iOS reference and the gap-register IDs it closes.
+**Status legend.** `✅ BUILT` = native Kotlin/Compose code committed and compiling.
+`◑ PARITY-PENDING` = code built, but not yet audited feature/color/design/flow against iOS.
+`🔲 TODO` = not started. **"Built" is not "done"** — the whole point of this plan is iOS
+parity, and that is only signed off at the U11 audit gate. Every UI below is a **from-scratch
+native rebuild** (the Skip screens were deleted), so each carries a standing parity debt until
+the audit confirms it.
 
-### U1. Native Android app shell ✅ DONE
+Current reality (verified 2026-07-05): the native migration has committed code for **U1–U10
+and most of U11** (Skip package shell removed; `Sources/PorizoSkipSpike` is now empty). So the
+remaining work is **not "build the UIs" — it is verify/close parity** and finish release +
+external provisioning. Each unit's parity target cites the iOS reference and the gap-register
+IDs it closes.
+
+### U1. Native Android app shell ✅ BUILT
 
 Replace the Skip Gradle bootstrap with a native multi-module Android app: `app` +
 `core:*`/`feature:*` module graph, Compose + Hilt, `MainActivity`/`AppRoot`.
 **Parity:** app launches to the 4-tab shell; Warm Canvas theme scaffolding.
 **Verify:** `gradle :app:assembleDebug` succeeds; app boots on emulator.
 
-### U2. Shared model + domain contracts ✅ DONE
+### U2. Shared model + domain contracts ✅ BUILT (tests green = parity-locked)
 
 Port `core:model` (data classes from `AndroidAPIModels.swift`) and `core:domain`
 (repository contracts + the pure decision-logic + **the ported JUnit test suites** listed
 above). **Parity:** the 10 contract test files pass, locking iOS behavior.
 **Verify:** `gradle :core:domain:testDebugUnitTest` green (10 suites).
 
-### U3. Native data/network/session storage ✅ DONE
+### U3. Native data/network/session storage ✅ BUILT
 
 `core:network` (Retrofit/Ktor client = `AndroidAPIClient` surface: auth, tracks, jobs,
 share, receiver-handoff, poems, billing, enrollment), `core:datastore` (session + token,
@@ -153,21 +173,21 @@ device-token lifecycle), `core:data` (repository impls binding the two behind do
 contracts). **Parity:** device-token single-retry-on-401, token-refresh classification.
 **Verify:** repository/network unit tests; a live call to `api.porizo.co` resolves.
 
-### U4. Compose design system + navigation shell ✅ DONE
+### U4. Compose design system + navigation shell ✅ BUILT · ◑ PARITY-PENDING (color/design gate)
 
 `core:ui` Warm Canvas system (colors/type/components) + `app` navigation
 (`AppNavigationShell`, `AppDestination`) — the 4-tab bottom bar, NavHost, mini-player slot.
 **Parity — COLOR/DESIGN GATE:** the palette, Fraunces, spacing, and component shapes match
 iOS exactly. **Verify:** side-by-side screenshots of each tab shell vs iOS.
 
-### U5. Auth + onboarding ✅ DONE
+### U5. Auth + onboarding ✅ BUILT · ◑ PARITY-PENDING
 
 `feature:auth` (phone-OTP + Google sign-in gate) + `feature:onboarding` (question graph,
 `OnboardingGraphEngine`, completion persisted, recipient seed). **Closes:** X3 + auth gaps.
 **Parity:** fresh-install→onboarding→tabs, relaunch skips; sign-in sheet.
 **Verify:** emulator flow; `OnboardingGraphEngineTest` + `AuthLogicTest` green.
 
-### U6. Library + poems + playback ✅ DONE
+### U6. Library + poems + playback ✅ BUILT · ◑ PARITY-PENDING
 
 `feature:library` (Songs + Poems real libraries: My/Received filter, states, status badges)
 
@@ -176,7 +196,7 @@ iOS exactly. **Verify:** side-by-side screenshots of each tab shell vs iOS.
   mini-player persists across tabs. **Verify:** `SongLibraryTest`/`PoemLibraryTest`; play a
   track on emulator.
 
-### U7. Share / claim / deep links ✅ DONE
+### U7. Share / claim / deep links ✅ BUILT · ◑ PARITY-PENDING
 
 `feature:claim` + `core:share`: deep-link claim **sheet** (track-share + receiver-handoff +
 poem-share), device-token 401-retry, sign-in-to-claim, honest lifetime copy; share sheet +
@@ -184,7 +204,7 @@ one-tap SMS send. **Closes:** X1/X4/R1/R2/R3, share gaps. **Parity:** `porizo://
 routing (incl. poem-share host), no Claim tab. **Verify:** `ClaimLogicTest`/`PoemClaimLogicTest`/
 `DeepLinkParserTest`/`ShareLogicTest`; fire a deep link on emulator → claim sheet.
 
-### U8. Create / render / reveal ✅ DONE
+### U8. Create / render / reveal ✅ BUILT · ◑ PARITY-PENDING
 
 `feature:create`: the guided wizard (`CreateViewModel`/`CreateUiState`/`CreateScreen`) —
 name→details→AI conversation→lyrics review→render+poll→reveal→share, plus the poem branch
@@ -193,7 +213,7 @@ name→details→AI conversation→lyrics review→render+poll→reveal→share,
 voice chips (AI voices; My Voice "coming soon" per KTD7). **Verify:** `RenderControllerTest`/
 `StoryEngineTest`; drive create→conversation on emulator against `api.porizo.co`.
 
-### U9. Native platform services 🔄 IN PROGRESS
+### U9. Native platform services ✅ BUILT · ◑ PARITY/WIRING-PENDING
 
 `core:platform`: **Google Sign-In** (Credential Manager → `/auth/social`), **push**
 (OneSignal/FCM registration + notification-tap routing → track reveal), **billing** (Play
@@ -203,26 +223,29 @@ product-ready). **Closes:** X6 (push), auth-Google, T2/T3 (billing), T8 (enrollm
 **Parity:** push payload → `.trackReveal` (Songs tab); Google button self-disables until a
 Web Client ID is provisioned (external). **Verify:** `PushRouting`/billing unit tests;
 Google sign-in against live `/auth/social`; delivery/purchase are device+dashboard-validated.
-**Remaining in U9:** feature wiring (connect `core:platform` services into `feature:auth`/
-`app` push routing/settings), not net-new logic.
+**Built (committed):** google auth wiring, native platform services, platform settings.
+**Remaining in U9:** confirm end-to-end wiring (Google → `/auth/social`, push tap → Songs,
+subscription purchase) against live/dashboard, and hold consumables until R-1.
 
-### U10. Release identity, signing, icons, permissions, Play Store 🔲 TODO
+### U10. Release identity, signing, icons, permissions, Play Store ✅ BUILT · ◑ PROVISIONING-PENDING
 
-App id, versioning, **signing config** (`keystore.properties`), launcher **icon + splash**
-(already correct — coral gift-box, `Theme.Porizo`, commit `5dcc9381`), runtime permissions
-(RECORD_AUDIO, POST_NOTIFICATIONS), `assetlinks.json` for App Links `autoVerify`, and Play
-Console listing config. **Closes:** release readiness. **Parity:** icon/splash match iOS
-(done); permissions match capability set. **Verify:** signed release APK/AAB builds;
-App Links verify; internal-testing upload.
+App id, versioning, launcher **icon + splash** (correct — coral gift-box, `Theme.Porizo`,
+commit `5dcc9381`), runtime permissions (RECORD_AUDIO, POST_NOTIFICATIONS), and release
+packaging are **committed** ("finalize native release packaging"). **Remaining (external, not
+code):** the **signing keystore** (`keystore.properties`), `assetlinks.json` for App Links
+`autoVerify`, and Play Console listing. **Verify:** signed release AAB builds; App Links
+verify; internal-testing upload.
 
-### U11. Skip removal + final parity audit 🔲 TODO
+### U11. Skip removal + final parity audit ◑ IN PROGRESS
 
-Delete `Sources/PorizoSkipSpike/` and all Skip Gradle/plugin artifacts; remove the Skip
-toolchain from the build. Run a final **feature/color/design/flow audit** vs iOS across every
-tab and flow (the parity gate), and reconcile the gap register to closed. **Closes:** cleanup
-
-- the parity sign-off. **Verify:** no Skip references remain (`rg -i skip` clean of the
-  transpiler); full unit-test suite green; side-by-side screenshot parity pass on all surfaces.
+Skip removal is **nearly done** — "remove skip package shell" is committed and
+`Sources/PorizoSkipSpike/` is now **empty** (delete the empty dir + any residual Gradle/plugin
+refs to finish). **The real outstanding work is the parity audit** — the sign-off this whole
+plan exists for: a **feature/color/design/flow pass vs iOS across every tab and flow**, clearing
+each `◑ PARITY-PENDING` unit above and reconciling the gap register to closed. **Verify:** no
+Skip references remain (`rg -i skip` clean); full unit-test suite green; **side-by-side
+screenshot parity pass on every surface** in light and dark. **This is the gate that turns
+"BUILT" into "DONE."**
 
 ---
 
@@ -272,12 +295,16 @@ gift, settings, onboarding — feature/color/design/flow.
 
 ## Phased Delivery
 
-- **P0 (usable app):** U1–U8 — ✅ **complete.** A native Android app that creates a song
-  end-to-end, plays it, signs in, shows the real library, deep-link-claims, with the 4
-  correct tabs and Warm Canvas design.
-- **P1 (launch-ready):** U9 (platform services) + U10 (release config). Exit: Google sign-in,
-  push tap routing, subscriptions, signed release, App Links. (Consumables gated on R-1.)
-- **P2 (closeout):** U11 — Skip removal + full parity audit sign-off.
+- **P0–P2 native code:** U1–U10 are **BUILT** (committed native Kotlin/Compose), and U11's
+  Skip removal is nearly done. So the app is code-complete on the native rebuild.
+- **The outstanding work is NOT more building — it is parity verification + provisioning:**
+  - **Parity audit (the gate):** clear every `◑ PARITY-PENDING` unit (U4–U10) with a
+    side-by-side feature/color/design/flow pass vs iOS, light + dark, on every tab and flow.
+    Nothing is "done" until this closes the gap register.
+  - **External provisioning:** Google Web Client ID, OneSignal/FCM dashboard, Play Console
+    products, signing keystore, `assetlinks.json`.
+  - **Backend-gated:** gift consumables wait on the R-1 endpoint.
+  - **Cleanup:** delete the now-empty `Sources/PorizoSkipSpike/` + residual Skip build refs.
 
 ---
 
