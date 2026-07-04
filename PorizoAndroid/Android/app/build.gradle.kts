@@ -1,63 +1,47 @@
 import java.util.Properties
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
-    alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.android.application)
-    id("skip-build-plugin")
-}
-
-skip {
+    alias(libs.plugins.kotlin.android)
+    alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.ksp)
+    alias(libs.plugins.hilt)
 }
 
 kotlin {
     compilerOptions {
-        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.fromTarget(libs.versions.jvm.get().toString())
+        jvmTarget = JvmTarget.JVM_17
     }
 }
 
 android {
-    namespace = group as String
+    namespace = "com.porizo.app"
     compileSdk = libs.versions.android.sdk.compile.get().toInt()
+
+    defaultConfig {
+        applicationId = "com.porizo.app"
+        minSdk = libs.versions.android.sdk.min.get().toInt()
+        targetSdk = libs.versions.android.sdk.compile.get().toInt()
+        versionCode = 1
+        versionName = "0.1.0"
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.toVersion(libs.versions.jvm.get())
         targetCompatibility = JavaVersion.toVersion(libs.versions.jvm.get())
     }
-    packaging {
-        jniLibs {
-            keepDebugSymbols.add("**/*.so")
-            pickFirsts.add("**/*.so")
-            // this option would compress JNI .so files and reduce overall size for Skip Fuse apps, but cost more at install time
-            //useLegacyPackaging = true
-        }
-    }
-
-    defaultConfig {
-        minSdk = libs.versions.android.sdk.min.get().toInt()
-        targetSdk = libs.versions.android.sdk.compile.get().toInt()
-        // skip.tools.skip-build-plugin will automatically use Skip.env properties for:
-        // applicationId = ANDROID_APPLICATION_ID ?? PRODUCT_BUNDLE_IDENTIFIER
-        // versionCode = CURRENT_PROJECT_VERSION
-        // versionName = MARKETING_VERSION
-    }
 
     buildFeatures {
         buildConfig = true
-    }
-
-    lint {
-        disable.add("Instantiatable")
-        disable.add("MissingPermission")
+        compose = true
     }
 
     dependenciesInfo {
-        // Disables dependency metadata when building APKs.
         includeInApk = false
-        // Disables dependency metadata when building Android App Bundles.
         includeInBundle = false
     }
 
-    // default signing configuration tries to load from keystore.properties
-    // see: https://skip.dev/docs/deployment/#export-signing
     signingConfigs {
         val keystorePropertiesFile = file("keystore.properties")
         create("release") {
@@ -69,7 +53,6 @@ android {
                 storeFile = file(keystoreProperties.getProperty("storeFile"))
                 storePassword = keystoreProperties.getProperty("storePassword")
             } else {
-                // when there is no keystore.properties file, fall back to signing with debug config
                 keyAlias = signingConfigs.getByName("debug").keyAlias
                 keyPassword = signingConfigs.getByName("debug").keyPassword
                 storeFile = signingConfigs.getByName("debug").storeFile
@@ -79,12 +62,35 @@ android {
     }
 
     buildTypes {
+        debug {
+            isDebuggable = true
+        }
         release {
             signingConfig = signingConfigs.findByName("release")
             isMinifyEnabled = true
             isShrinkResources = true
-            isDebuggable = false // can be set to true for debugging release build, but needs to be false when uploading to store
+            isDebuggable = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
+}
+
+dependencies {
+    implementation(platform(libs.androidx.compose.bom))
+    androidTestImplementation(platform(libs.androidx.compose.bom))
+
+    implementation(libs.androidx.activity.compose)
+    implementation(libs.androidx.compose.foundation)
+    implementation(libs.androidx.compose.material.icons.extended)
+    implementation(libs.androidx.compose.material3)
+    implementation(libs.androidx.compose.ui)
+    implementation(libs.androidx.compose.ui.tooling.preview)
+    implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
+    implementation(libs.hilt.android)
+
+    ksp(libs.hilt.compiler)
+
+    debugImplementation(libs.androidx.compose.ui.tooling)
 }

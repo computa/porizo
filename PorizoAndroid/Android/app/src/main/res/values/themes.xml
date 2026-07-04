@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources xmlns:tools="http://schemas.android.com/tools">
-    <!-- App theme with an Android 12+ splash that matches the iOS launch: the
-         coral brand background with the gift-box launcher icon centered. -->
-    <style name="Theme.Porizo" parent="Theme.AppCompat.DayNight.NoActionBar">
+    <style name="Theme.Porizo" parent="@android:style/Theme.Material.Light.NoActionBar">
         <item name="android:windowBackground">@color/porizo_icon_background</item>
         <item name="android:windowSplashScreenBackground" tools:targetApi="s">@color/porizo_icon_background</item>
         <item name="android:windowSplashScreenAnimatedIcon" tools:targetApi="s">@mipmap/ic_launcher_foreground</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar" tools:targetApi="o_mr1">true</item>
     </style>
 </resources>
