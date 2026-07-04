@@ -11,7 +11,6 @@ import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -47,7 +46,8 @@ fun AuthScreen(
         onSendCode = viewModel::sendPhoneCode,
         onVerifyCode = viewModel::verifyPhoneCode,
         onCompleteRegistration = viewModel::completeRegistration,
-        onGoogle = viewModel::setGoogleUnavailable,
+        onGoogle = viewModel::signInWithGoogle,
+        onConfirmGoogleLink = viewModel::confirmGoogleLink,
         modifier = modifier,
     )
 }
@@ -64,6 +64,7 @@ fun AuthScreen(
     onVerifyCode: () -> Unit,
     onCompleteRegistration: () -> Unit,
     onGoogle: () -> Unit,
+    onConfirmGoogleLink: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     PorizoScreen(
@@ -98,7 +99,13 @@ fun AuthScreen(
                 isWorking = state.isWorking,
                 onCompleteRegistration = onCompleteRegistration,
             )
-            is AuthPhase.LinkConfirmation -> LinkConfirmation(email = phase.email)
+            is AuthPhase.LinkConfirmation -> LinkConfirmation(
+                idToken = phase.idToken,
+                email = phase.email,
+                isWorking = state.isWorking,
+                onConfirm = onConfirmGoogleLink,
+                onBack = onShowOptions,
+            )
             is AuthPhase.Authenticated -> SignedIn(userId = phase.userId, onDone = onCancel)
         }
 
@@ -231,7 +238,13 @@ private fun ProfileCompletion(
 }
 
 @Composable
-private fun LinkConfirmation(email: String?) {
+private fun LinkConfirmation(
+    idToken: String,
+    email: String?,
+    isWorking: Boolean,
+    onConfirm: (String) -> Unit,
+    onBack: () -> Unit,
+) {
     PorizoCard {
         FrauncesTitle(text = "Link Google?", sizeSp = 24)
         Text(
@@ -240,11 +253,19 @@ private fun LinkConfirmation(email: String?) {
             style = MaterialTheme.typography.bodyLarge,
         )
         Text(
-            text = "Google link confirmation will be enabled when Android Credential Manager is wired.",
+            text = "Confirm to link this Google account to the existing Porizo account.",
             color = PorizoColors.TextSecondary,
             style = MaterialTheme.typography.bodyMedium,
         )
-        Icon(imageVector = Icons.Filled.Link, contentDescription = null, tint = PorizoColors.Accent)
+        PorizoPrimaryButton(
+            text = "Confirm and link",
+            onClick = { onConfirm(idToken) },
+            enabled = !isWorking,
+            icon = Icons.Filled.Link,
+        )
+        TextButton(onClick = onBack) {
+            Text("Back", color = PorizoColors.TextSecondary)
+        }
     }
 }
 

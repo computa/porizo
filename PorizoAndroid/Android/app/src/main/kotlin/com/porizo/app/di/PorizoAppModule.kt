@@ -14,6 +14,7 @@ import com.porizo.core.domain.repository.VoiceEnrollmentRepository
 import com.porizo.core.media.Media3AudioPlaybackEngine
 import com.porizo.core.media.PorizoPlayer
 import com.porizo.core.share.AndroidShareDispatcher
+import com.porizo.feature.auth.GoogleAuthConfig
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -32,6 +33,10 @@ object PorizoAppModule {
             baseUrl = BuildConfig.PORIZO_API_BASE_URL,
             appVersion = BuildConfig.VERSION_NAME,
         )
+
+    @Provides
+    fun provideGoogleAuthConfig(): GoogleAuthConfig =
+        GoogleAuthConfig(webClientId = BuildConfig.PORIZO_GOOGLE_WEB_CLIENT_ID)
 
     @Provides
     fun provideAuthRepository(dataGraph: PorizoDataGraph): AuthRepository =

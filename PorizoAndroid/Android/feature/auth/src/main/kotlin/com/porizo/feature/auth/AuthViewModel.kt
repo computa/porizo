@@ -5,6 +5,8 @@ import androidx.lifecycle.viewModelScope
 import com.porizo.core.domain.auth.AuthLogic
 import com.porizo.core.domain.repository.AuthRepository
 import com.porizo.core.model.PorizoFailure
+import com.porizo.core.platform.GoogleSignInProvider
+import com.porizo.core.platform.PlatformResult
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -16,6 +18,8 @@ import kotlinx.coroutines.launch
 @HiltViewModel
 class AuthViewModel @Inject constructor(
     private val authRepository: AuthRepository,
+    private val googleAuthConfig: GoogleAuthConfig,
+    private val googleSignInProvider: GoogleSignInProvider,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(AuthUiState())
     val uiState: StateFlow<AuthUiState> = _uiState.asStateFlow()
@@ -102,11 +106,18 @@ class AuthViewModel @Inject constructor(
         }
     }
 
-    fun setGoogleUnavailable() {
-        _uiState.update {
-            it.copy(
-                errorMessage = "Google sign-in is not configured yet. Continue with phone for now.",
-            )
+    fun signInWithGoogle() {
+        runAuthAction {
+            when (val token = googleSignInProvider.signIn(googleAuthConfig.webClientId)) {
+                is PlatformResult.Failure -> throw PorizoFailure.Unknown(token.message)
+                is PlatformResult.Success -> submitGoogleToken(token.value.idToken, confirmLink = false)
+            }
+        }
+    }
+
+    fun confirmGoogleLink(idToken: String) {
+        runAuthAction {
+            submitGoogleToken(idToken, confirmLink = true)
         }
     }
 
@@ -115,6 +126,30 @@ class AuthViewModel @Inject constructor(
             authRepository.logout()
             _uiState.update { AuthUiState() }
         }
+    }
+
+    private suspend fun submitGoogleToken(idToken: String, confirmLink: Boolean) {
+        val result = authRepository.socialLogin(
+            provider = "google",
+            idToken = idToken,
+            name = null,
+            confirmLink = confirmLink,
+        )
+        if (result.requiresLinkConfirmation == true) {
+            _uiState.update {
+                it.copy(
+                    phase = AuthPhase.LinkConfirmation(
+                        idToken = idToken,
+                        email = result.existingAccountEmail,
+                    ),
+                )
+            }
+            return
+        }
+
+        val userId = result.userId
+            ?: throw PorizoFailure.Unknown("Google sign-in did not return an account.")
+        _uiState.update { it.copy(phase = AuthPhase.Authenticated(userId)) }
     }
 
     private fun runAuthAction(action: suspend () -> Unit) {

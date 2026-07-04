@@ -26,6 +26,7 @@ android {
         versionCode = 1
         versionName = "0.1.0"
         buildConfigField("String", "PORIZO_API_BASE_URL", "\"https://api.porizo.co/\"")
+        buildConfigField("String", "PORIZO_GOOGLE_WEB_CLIENT_ID", "\"\"")
     }
 
     compileOptions {
