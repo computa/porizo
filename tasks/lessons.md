@@ -478,3 +478,54 @@ Naming similarity on a remote platform ("thanks mom.mp3" vs `marketing/audio hoo
 **Trigger:** Building a "run the test suite against real Postgres" harness (Gate 1 of refactor verification).
 **Mistake:** Added `-r dotenv/config` to load JWT_SECRET for PG runs. This pulled in `.env`'s production auth values (overrode ALLOW_ANON_USER_ID and friends), causing `billing-restore-path.test.js` to return 401 instead of 200/400 — a FALSE failure. The test mocks its own DB and never touches Postgres; it relies on the clean `NODE_ENV=test` + explicit-flag env that `npm test` provides.
 **Rule:** To force tests onto real PG, set `NODE_ENV=test DB_PROVIDER=postgres POSTGRES_*=...` and KEEP the standard test flags (`ALLOW_ANON_USER_ID=true ALLOW_DEVICE_TOKEN_FALLBACK=true`). Do NOT load `.env` (no `dotenv/config`). `DB_PROVIDER` wins over the `NODE_ENV==='test'→sqlite` default in `getDatabase()`, so the DB flips to PG while the rest of the test contract stays intact. Tests that inject a mock `db` into `buildServer({db})` ignore the DB env entirely.
+
+---
+
+## 2026-07-02 — A 502 from Cloudflare is an ORIGIN crash; "public DB works" ≠ private network works
+
+**Trigger:** "Admin dashboard not reachable." It was a symptom — the entire backend was returning Cloudflare 502 (Host: Error) because the Railway container was crash-looping for ~2 days.
+
+**Root cause:** A transient connection timeout to `postgres.railway.internal` at boot threw out of `runMigrations → getDatabase → start()`, the process exited, and Railway's restarts kept hitting the same private-network readiness race. The app had **zero connection retry**, so a momentary DB-unreachable window was fatal and never self-healed. Fix: `waitForConnection()` probes `SELECT 1` with exponential backoff BEFORE migrations (migrations still run exactly once, never retried). Tunable via `DB_CONNECT_MAX_ATTEMPTS` / `DB_CONNECT_BASE_DELAY_MS` / `DB_CONNECT_MAX_DELAY_MS`. Commit `f4b0f70`.
+
+**Mistake:** My first instinct was "stuck container → redeploy." The redeploy changed nothing, and I nearly concluded Postgres was fine because `railway connect postgres` + `SELECT 1` worked. That success was over the **public TCP proxy (IPv4)**; the backend connects over the **private network** (`*.railway.internal`, IPv6-only). "Public proxy works, private times out" is a network-path signature, not a stuck-process one — a restart can't fix it. (In this case the network did recover and the fresh deploy's own first probe succeeded, but the reasoning step was wrong.)
+
+**Rules:**
+
+1. **502 with Cloudflare's "Host: Error"** = origin is down/crashing, NOT an edge/route/auth problem. Check `railway logs` for a boot crash before touching the app-level route the user named. An Access `302` on `/admin/*` succeeds even while the origin is dead because Cloudflare answers it before hitting origin — don't let a working protected route fool you into thinking the app is up.
+2. **`railway connect postgres` proves the PUBLIC proxy, not the private network.** To diagnose service-to-service reachability, use `private_network_status` for BOTH services and confirm each endpoint is `ready`/`ACTIVE` on the same network. Railway private IPs are IPv6 (`fd12:...`); "public works, private times out" points at the private path, and no restart fixes a network-layer problem.
+3. **Any boot-time external dependency (DB, cache, queue) must retry with backoff, not crash the process.** A single transient timeout that kills `start()` turns a 5-second blip into an indefinite outage under a restart policy. Probe-then-proceed; keep one-shot side effects (migrations) out of the retry loop.
+
+---
+
+## 2026-07-04 — Skip @Observable only recomposes on reads of the model's own STORED properties
+
+**Trigger:** Building the U11 onboarding view (Android/Skip Fuse). Taps on the graph options registered (no crash) but the screen never advanced to the next question.
+
+**Mistake:** The `@Observable AndroidOnboardingModel` held a plain (non-observable) `OnboardingGraphEngine` and exposed `currentNode`/`currentQuestion` as computed properties that delegated straight to the engine. Mutating engine state (even while bumping an unrelated `step: Int`) did NOT re-render the view. On iOS whole-object invalidation often masks this; Skip→Compose is stricter — it only recomposes when `body` reads a property whose *stored* backing changed.
+
+**Rule:** For a Skip `@Observable` model, the state that drives the UI must be a **stored** property on the model itself, and `body` must **read** it. Two-part fix: (1) store the observed state directly (`private(set) var currentNodeId: String`, reassigned on every mutation via a `sync()`), and (2) make any computed passthrough read that stored property first (`_ = currentNodeId`) so SwiftUI/Skip records the dependency. A computed property that only reads a hidden non-observable object is invisible to the recomposition tracker. Verify on the emulator, not just the host build — this class of bug compiles and passes host unit tests cleanly (the pure engine was 8/8 green) and only surfaces as a dead UI on device.
+
+---
+
+## 2026-07-04 — Skip deep-link warm delivery + observation gotchas (U13)
+
+**Trigger:** Wiring poem-share deep links (`porizo://poem-share/<id>`) to a claim sheet on Android/Skip.
+
+**Mistakes & fixes:**
+1. **Parser host coverage.** The custom-scheme branch only matched `porizo://receiver-handoff`; `porizo://poem-share` fell through to `.unknown` and was silently ignored — even though the `am start` intent "succeeded". **Rule:** when adding a deep-link route, update ALL THREE: the parser (route by host), the `AndroidManifest.xml` intent-filters (both the custom `porizo://<host>` and the `https` pathPrefix), and the router switch. A resolved intent that reaches `onOpenURL` can still no-op if the parser doesn't recognize the host. Add a parser regression test.
+2. **Warm-while-active delivery has no scenePhase transition.** A link arriving via `onNewIntent` while the app is already foregrounded doesn't fire `scenePhase→.active`, so a `.onChange(of: scenePhase)` pull never runs. Cold + warm-from-background work via `.task`/scenePhase; warm-while-active does not.
+3. **Skip @Observable observation is narrow.** Neither `.onChange(of:)` on a nested `@Observable`'s property, NOR a foreign singleton assigned to `@State var x = Singleton.shared`, reliably fires the observer on Skip. (Confirmed on-device: `onOpenURL` bumped the signal but the view's `.onChange` never ran.) **Rule:** for a cross-boundary (AppDelegate→view) notification, register a **direct main-actor callback** the view owns (`AndroidDeepLinkInbox.onLink = { consume() }`) and invoke it from `onOpenURL` — don't rely on @Observable signal propagation across instances. This composes with lesson-#5 (Skip recomposes only on reads of the model's own stored props): observation is per-instance and per-stored-property; anything crossing an instance or lifecycle boundary needs an explicit callback, not a reactive signal.
+
+**Note:** real-world deep links (tapped from Messages/browser) are cold or warm-from-background — both work end-to-end. The warm-while-active gap only shows under `am start` on an already-foregrounded task and is covered by the callback fix.
+
+---
+
+## 2026-07-04 — Skip `#if SKIP` free funcs can only reference Kotlin-visible symbols (U14)
+
+**Trigger:** Wiring a OneSignal notification-tap listener. The Kotlin bridge closure needed to hand the payload to Swift; kept getting `Unresolved reference 'AndroidPushInbox'` / `'AndroidPushTapStore'` in the transpiled `AndroidNativeAdapters.kt`.
+
+**Root cause:** Skip's split-compile treats a Swift file two ways. A `#if SKIP` block transpiles to a **plain Kotlin function** (Android-only glue). Everything OUTSIDE `#if SKIP` in a file that's consumed only host-side transpiles to an **empty bridge stub** (e.g. `AndroidPushRouting.kt` was 71 bytes — package + imports, no types). So a `#if SKIP` Kotlin func can reference: other `#if SKIP` funcs, native `.kt` bridge objects, and Skip stdlib — but NOT a Swift `enum`/`struct` that lives in a host-bridged file, and NOT a mutable Swift global (doesn't survive the split).
+
+**Rule:** When a native `.kt` bridge callback must reach Swift-only state (stores, inboxes, view callbacks), do NOT try to call a Swift type from the `#if SKIP` Kotlin func. Instead forward to a **bridged Swift method** — a func marked `/* SKIP @bridge */public func …` on a bridged object (e.g. the AppDelegate). That method runs as real Swift and can touch any Swift symbol. This is exactly how `onOpenURL` already crosses the boundary; `onNotificationTap` follows the same shape. Pattern: Kotlin listener → `AppDelegate.shared.onXxx(payload)` (bridged) → Swift store + `AndroidDeepLinkInbox.onLink?()`.
+
+**Corollary:** cross-boundary delivery (native→view) should reuse the proven UserDefaults-store + onLink-callback path (see lessons #6/#7), not @Observable signals or mutable globals.
