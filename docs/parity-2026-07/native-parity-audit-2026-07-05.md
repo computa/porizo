@@ -31,6 +31,28 @@ reference (`PorizoApp`), feature/color/design/flow, per the native parity plan
 > authorization token"); + external provisioning (Google Web Client ID, OneSignal/
 > FCM, Play products, signing keystore — R-2) and the R-1 consumable endpoint.
 
+> **UPDATE 2026-07-04 (commit `20c2c241`) — "external QA" list triaged; one item was a real code gap, now fixed.**
+> The six items previously parked as "not honestly markable without external QA" were each
+> pushed as far as the emulator/tooling allows. One (lock-screen controls) turned out to be a
+> genuine **code gap**, not a QA item — it is now built, arxitect-reviewed (2 iterations →
+> APPROVED), and on-device-verified. See the **External-QA ledger** at the bottom for the full
+> evidence + the exact code/provisioning boundary per item. Summary:
+>
+> - ✅ **Lock-screen media controls** — was MISSING (bare `MediaSession`, no `MediaSessionService`).
+>   Fixed: `PorizoMediaService` + `MediaSessionHolder`/`MediaSessionPublisher`, manifest `<service>`
+>   - `FOREGROUND_SERVICE_MEDIA_PLAYBACK`. Verified on-device: service registered, OS **allows** the
+>     media FGS start. (Notification render needs a real playable stream — same backend boundary.)
+> - ✅ **Deep-link / app-link routing** — verified on-device: 10 URL variants (both `https` app-links
+>   and `porizo://` scheme, all hosts) route to the correct `DeepLinkRoute`; bad path → `Unknown`,
+>   foreign host → not delivered. `autoVerify` fires; all 3 domains registered (state `1024`).
+> - ✅ **U11 authed screenshots** — captured side-by-side (iOS + Android authed) in `native-audit-shots/`:
+>   Songs shows "My Songs/Received" segment, Settings is the rebuilt consumer layout (not the dev panel).
+> - ✅ **Push tap-routing / Play billing code paths** — traced end-to-end and green: `OneSignal click →
+PushTapStore → PushRouting.route → PushRoute`; full `BillingClient` flow implemented; 54 unit tests pass.
+> - 🔶 **Genuinely external (unchanged):** assetlinks DAL hosting (artifact ready — see
+>   `android-assetlinks.md`), OneSignal/FCM dashboard round-trip, Play Console products + license tester,
+>   real backend session for loaded-DATA, physical hardware. These need credentials/hosting, not code.
+
 ## Method
 
 - **Android:** native `com.porizo.app` (`gradle :app:assembleDebug` ✅ SUCCEEDED — no Skip),
@@ -155,10 +177,7 @@ signed-out; iOS bypass-auth doesn't reach them either):
 
 **P2 (polish):** 4. Library titles → **"My Songs" / "My Poems"**; drop the extra Android subtitles. 5. Occasion chips → add **emoji**; reconcile the occasion set (Mother's Day vs Thank You). 6. Explore primary CTA → add **"Ready in about 90 seconds"** subtitle; align the leading icon. 7. "Your first song is free" card → match iOS copy; remove the stray "See all songs" button.
 
-**Deferred / external:**
-
-- Loaded-state + dark-mode visual audit (needs Android session).
-- Google Web Client ID, push/billing provisioning (R-2), R-1 consumable endpoint.
+**Deferred / external:** see the **External-QA ledger** below for the exact per-item boundary.
 
 ---
 
@@ -179,3 +198,71 @@ Against `docs/parity-2026-07/android-ios-parity-gaps.md`:
 no Skip — with a **short, concrete P1 punch-list (Settings, create-entry, gift CTA)** plus P2
 polish standing between it and a clean U11 sign-off. The deeper flows need an authed Android
 harness to finish auditing.
+
+---
+
+## External-QA ledger (2026-07-04)
+
+Each item previously parked as "not honestly markable without external QA," pushed as far as the
+emulator/tooling allows, with the exact code-vs-provisioning boundary. **Method note:** all builds
+via gradle (`:app:assembleDebug` → BUILD SUCCESSFUL); device checks via `adb` on
+`emulator-5554` (API 36); iOS reference via booted `iPhone 17 Pro` sim.
+
+### 1. U11 side-by-side screenshots / recordings — ✅ DONE (chrome), 🔶 loaded-data external
+
+- **Done:** `native-audit-shots/{ios,android-authed}-{explore,songs,poems,settings}.png` captured
+  side-by-side. Android via `--ez bypass_auth true`; iOS via `--bypass-auth`. Confirms authed
+  chrome parity (Songs "My Songs/Received" segment; rebuilt consumer Settings, not the dev panel).
+- **External:** loaded-**data** lists (real cards/badges) still show "Missing authorization token"
+  under bypass — needs a real backend session. Recordings deferred to that session.
+
+### 2. Lock-screen media controls — ✅ FIXED IN CODE + on-device-verified (was a real gap, not QA)
+
+- **Was:** `Media3AudioPlaybackEngine` built a bare `MediaSession` with **no** `MediaSessionService`
+  and **no** `<service>` in the manifest → controls never surface when backgrounded. iOS _does_ have
+  them (`NowPlayingManager`), so this was a true parity defect.
+- **Fixed (commit `20c2c241`):** `PorizoMediaService` (Media3 `MediaSessionService`) hosting the
+  engine's session via a process-scoped, identity-guarded `MediaSessionHolder`;
+  `MediaSessionPublisher` extracts FGS orchestration (SRP, fail-open); `core:media` manifest adds the
+  `<service foregroundServiceType="mediaPlayback">` + `FOREGROUND_SERVICE_MEDIA_PLAYBACK`. arxitect:
+  2 iterations → all three reviewers APPROVED (the CRITICAL ABA/stale-session-wipe was closed with an
+  identity-checked `clear(session)`).
+- **Verified on-device:** packaged manifest carries the service + FGS type; `dumpsys package` shows
+  `com.porizo.app/com.porizo.core.media.PorizoMediaService` registered with its intent-filter; the OS
+  **allows** the media FGS start (`ActivityManager: Background started FGS: Allowed`).
+- **External:** the session appearing in the system media stack + the actual lock-screen notification
+  rendering needs a real playable stream (`prepare()` only builds the session for a real audio URL) —
+  same backend boundary as item 1.
+
+### 3. Push tap-routing via OneSignal — ✅ code path verified, 🔶 dashboard round-trip external
+
+- **Verified:** full path is in code and green — `PushProvider` registers an
+  `INotificationClickListener` → `event.notification.additionalData → PushTapStore.save(json)` →
+  next launch `consume()` → `PushRouting.route(payload) → PushRoute`. `PushRoute`/`PushRouteStore`
+  exercised in `SettingsViewModelTest` (part of the 54 passing unit tests).
+- **External:** the real OneSignal→FCM delivery round-trip (send a push, tap it, land on the route)
+  needs the OneSignal App ID + FCM sender configured in the OneSignal dashboard.
+
+### 4. Play billing purchase flow — ✅ code path verified, 🔶 Play Console external
+
+- **Verified:** `PlayBillingProvider` implements the full `BillingClient` flow —
+  `queryProducts` / `launchPurchase` / `onPurchasesUpdated` / `acknowledgePurchase` with an
+  idempotent acknowledged-token map. Compiles + links into the debug APK.
+- **External:** an actual purchase requires Play Console products (`gift_bundle_1`, subs) + an
+  internal-testing track + a license-tester account. Not reproducible on a bare emulator.
+
+### 5. App links / assetlinks verification — ✅ client + routing verified, 🔶 DAL hosting external (artifact ready)
+
+- **Verified on-device:** every intent-filter routes correctly (10 URL variants incl. both hosts +
+  custom scheme; bad path → `Unknown`; foreign host → not delivered). `pm get-app-links
+com.porizo.app`: `autoVerify` fired, all 3 domains registered — state `1024` (`STATE_NO_RESPONSE`),
+  i.e. the client asked and got no valid assetlinks response.
+- **External (one file):** host `/.well-known/assetlinks.json` on the 3 domains. **Artifact ready:**
+  `docs/parity-2026-07/android-assetlinks.md` has the exact JSON + the live-captured debug SHA-256
+  (`6E:CD:EA:…:E7:87`); release fingerprints are the R-2 keystore item.
+
+### 6. Physical-device behavior — 🔶 external (no hardware attached)
+
+- Everything above was verified on the API-36 **emulator**. Physical-device confirmation (real FGS
+  under Doze, real lock-screen notification, real bluetooth transport, app-links after DAL deploy)
+  needs a plugged-in device. Emulator ≠ device — kept honestly separate.
