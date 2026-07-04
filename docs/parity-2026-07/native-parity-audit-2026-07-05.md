@@ -12,9 +12,24 @@ reference (`PorizoApp`), feature/color/design/flow, per the native parity plan
 >   "Choose from Contacts" one-tap-send + "Just type a name instead" fallback.
 > - ✅ **Explore gift CTA** "Schedule and send, for them" added; plus P2 wins (CTA
 >   subtitle, occasion-chip emoji).
->   Re-verified side-by-side on the emulator. Remaining before full U11 sign-off:
->   the loaded-state + dark-mode audit (needs an authed Android session) and external
->   provisioning (R-1/R-2).
+>   Re-verified side-by-side on the emulator.
+>
+> **UPDATE 2026-07-05 (commit `f63c185a`) — dark-mode audit PASS + loaded-chrome unblocked.**
+>
+> - ✅ **Dark mode audit: PASS.** Flipped the emulator to dark and re-shot Explore +
+>   Settings. `PorizoDarkPalette` (warm dark `#1A1614`, brightened coral, cream text)
+>   is a faithful Warm Canvas dark theme; all P1 fixes render cleanly with good
+>   contrast in both themes. No dark-mode deltas found.
+> - ✅ **Debug bypass-auth added** (`--ez bypass_auth true`, DEBUG-only). With it, the
+>   authed **Songs** layout is now auditable and shows the **"My Songs / Received"
+>   segmented filter + empty-state card — matching iOS**. (The earlier "My Songs vs
+>   Songs title" note was an auth-state artifact: signed-out shows a gate; signed-in
+>   shows "Songs" + a "My Songs" segment.)
+>
+> **Remaining for full U11 sign-off (NOT code):** loaded-_data_ audit needs a real
+> backend session/token (the bypass flips chrome only — list DATA shows "Missing
+> authorization token"); + external provisioning (Google Web Client ID, OneSignal/
+> FCM, Play products, signing keystore — R-2) and the R-1 consumable endpoint.
 
 ## Method
 
