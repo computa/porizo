@@ -4,6 +4,18 @@
 reference (`PorizoApp`), feature/color/design/flow, per the native parity plan
 (`docs/plans/2026-07-05-001-...`). This is the pass that turns `◑ PARITY-PENDING` into `DONE`.
 
+> **UPDATE 2026-07-05 (commit `dade4452`) — all three P1 gaps CLOSED + verified.**
+>
+> - ✅ **Settings** rebuilt to the iOS consumer layout (Your Voice banner, Account/
+>   Preferences/Support/Legal groups); dev controls gated behind `BuildConfig.DEBUG`.
+> - ✅ **Create entry** now a full-screen modal (× close, tab bar hidden) with
+>   "Choose from Contacts" one-tap-send + "Just type a name instead" fallback.
+> - ✅ **Explore gift CTA** "Schedule and send, for them" added; plus P2 wins (CTA
+>   subtitle, occasion-chip emoji).
+>   Re-verified side-by-side on the emulator. Remaining before full U11 sign-off:
+>   the loaded-state + dark-mode audit (needs an authed Android session) and external
+>   provisioning (R-1/R-2).
+
 ## Method
 
 - **Android:** native `com.porizo.app` (`gradle :app:assembleDebug` ✅ SUCCEEDED — no Skip),
