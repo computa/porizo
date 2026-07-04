@@ -104,10 +104,11 @@ U6 parity gate passed with `:core:media:assembleDebug`, `:feature:library:assemb
 | `PorizoAndroid/Android/app/build.gradle.kts` | native-owned | App now depends on native claim UI and state. |
 | `PorizoAndroid/Android/app/src/main/AndroidManifest.xml` | native-owned | Custom scheme coverage now includes `porizo://s`, `porizo://share`, `porizo://play`, and `porizo://poem` alongside existing HTTPS links. |
 | `PorizoAndroid/Android/feature/claim/**` | native-owned | Native claim ViewModel and sheet for track shares, poem shares, receiver handoffs, PIN entry, preview playback, claim retry after device-token auth errors, and graceful failure states. |
+| `PorizoAndroid/Android/core/share/**` | native-owned | Native Android share sheet, SMS, and clipboard dispatcher backed by the existing `ShareLogic` message/channel decisions. |
 | `PorizoAndroid/Android/app/src/main/kotlin/com/porizo/app/di/**` | native-owned | App graph now provides `ShareRepository` to the claim feature. |
 | `PorizoAndroid/Android/app/src/main/kotlin/com/porizo/app/navigation/**` | native-owned | Incoming share, poem-share, and receiver-handoff routes now open native claim UI instead of placeholder route notices. |
 
-U7 claim/deep-link gate passed with `:feature:claim:assembleDebug` and `:app:assembleDebug` on 2026-07-04. Runtime smoke reinstalled the APK on `emulator-5554`, launched `porizo://share/u7-smoke-fixed` through Android's VIEW intent, confirmed the native claim sheet opened and handled the fake share id with `Share token not found.`, verified the app process remained focused, and captured `/private/tmp/porizo-u7-claim-smoke.png`. Android share sheet/SMS dispatch remains pending for the next U7 slice because it belongs with create/reveal share generation, not the claim sheet.
+U7 claim/deep-link gate passed with `:feature:claim:assembleDebug` and `:app:assembleDebug` on 2026-07-04. Runtime smoke reinstalled the APK on `emulator-5554`, launched `porizo://share/u7-smoke-fixed` through Android's VIEW intent, confirmed the native claim sheet opened and handled the fake share id with `Share token not found.`, verified the app process remained focused, and captured `/private/tmp/porizo-u7-claim-smoke.png`. U7 share-dispatch gate passed with `:core:share:assembleDebug` and `:app:assembleDebug`; the dispatcher is ready for U8 create/reveal share generation.
 
 ## Retained Reference: Swift and Skip Package
 
@@ -125,7 +126,7 @@ U7 claim/deep-link gate passed with `:feature:claim:assembleDebug` and `:app:ass
 | `PorizoAndroid/Sources/PorizoSkipSpike/AndroidAudioPlayer.swift` | retain-reference | Native Media3 playback exists; keep until U8 reveal playback and U11 deletion audit. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/AndroidClaimModel.swift` | retain-reference | Native claim/deep-link sheet exists; keep until U7 share dispatch and U11 deletion audit. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/AndroidDeepLink.swift` | retain-reference | Native parser and route wiring exist; keep until U11 deletion audit. |
-| `PorizoAndroid/Sources/PorizoSkipSpike/AndroidShare.swift` | migrate-or-delete | U7 share intent parity. |
+| `PorizoAndroid/Sources/PorizoSkipSpike/AndroidShare.swift` | retain-reference | Native share/SMS/clipboard dispatcher exists; keep until U8 create/reveal integration and U11 deletion audit. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/AndroidCreateFlowModel.swift` | migrate-or-delete | U8 create flow parity. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/AndroidRenderModel.swift` | migrate-or-delete | U8 render lifecycle parity. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/AndroidRenderController.swift` | migrate-or-delete | U2/U8 render logic parity. |
@@ -164,7 +165,7 @@ U7 claim/deep-link gate passed with `:feature:claim:assembleDebug` and `:app:ass
 | `PorizoAndroid/Sources/PorizoSkipSpike/Skip/PorizoNativePushBridge.kt` | migrate-or-delete | U9 push parity. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/Skip/PorizoNativeRecorderBridge.kt` | migrate-or-delete | U9 recorder parity. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/Skip/PorizoNativeSecureStore.kt` | migrate-or-delete | U3 secure storage parity. |
-| `PorizoAndroid/Sources/PorizoSkipSpike/Skip/PorizoNativeShareBridge.kt` | migrate-or-delete | U7 share parity. |
+| `PorizoAndroid/Sources/PorizoSkipSpike/Skip/PorizoNativeShareBridge.kt` | retain-reference | Native share/SMS/clipboard dispatcher exists; keep until U8 create/reveal integration and U11 deletion audit. |
 | `PorizoAndroid/Sources/PorizoSkipSpike/Skip/skip.yml` | candidate-delete | U11 after all bridge code is migrated or deleted. |
 
 ## Retained Reference: Swift Tests

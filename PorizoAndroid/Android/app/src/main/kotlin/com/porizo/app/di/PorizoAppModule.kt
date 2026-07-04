@@ -8,6 +8,7 @@ import com.porizo.core.domain.repository.LibraryRepository
 import com.porizo.core.domain.repository.ShareRepository
 import com.porizo.core.media.Media3AudioPlaybackEngine
 import com.porizo.core.media.PorizoPlayer
+import com.porizo.core.share.AndroidShareDispatcher
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -50,4 +51,9 @@ object PorizoAppModule {
             baseUrl = BuildConfig.PORIZO_API_BASE_URL,
             accessTokenProvider = { dataGraph.currentAccessToken() },
         )
+
+    @Provides
+    @Singleton
+    fun provideAndroidShareDispatcher(@ApplicationContext context: Context): AndroidShareDispatcher =
+        AndroidShareDispatcher(context)
 }
