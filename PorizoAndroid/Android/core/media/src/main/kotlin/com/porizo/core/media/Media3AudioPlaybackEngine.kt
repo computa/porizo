@@ -10,9 +10,12 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.MediaSession
 
 @androidx.annotation.OptIn(UnstableApi::class)
-class Media3AudioPlaybackEngine(
+class Media3AudioPlaybackEngine internal constructor(
     private val context: Context,
+    private val sessionPublisher: MediaSessionPublisher,
 ) : AudioPlaybackEngine {
+    constructor(context: Context) : this(context, AndroidMediaSessionPublisher(context))
+
     private var player: ExoPlayer? = null
     private var mediaSession: MediaSession? = null
 
@@ -39,8 +42,10 @@ class Media3AudioPlaybackEngine(
             exoPlayer.setMediaItem(mediaItem)
             exoPlayer.prepare()
             player = exoPlayer
-            mediaSession = MediaSession.Builder(context.applicationContext, exoPlayer)
+            val session = MediaSession.Builder(context.applicationContext, exoPlayer)
                 .build()
+            mediaSession = session
+            sessionPublisher.publish(session)
         }
 
     override fun play() {
@@ -56,6 +61,7 @@ class Media3AudioPlaybackEngine(
     }
 
     override fun release() {
+        mediaSession?.let(sessionPublisher::retract)
         mediaSession?.release()
         mediaSession = null
         player?.release()
