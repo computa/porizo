@@ -39,6 +39,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         activityHolder.set(this)
         enableEdgeToEdge()
+        maybeBypassAuth(intent)
         handleIntent(intent)
         setContent {
             AppRoot(
@@ -80,7 +81,19 @@ class MainActivity : ComponentActivity() {
         pendingDeepLink.value = route
     }
 
+    /// DEBUG-only: `am start … --ez bypass_auth true` flips to an authed session
+    /// so authed-state layouts are drivable without a login (iOS `--bypass-auth`
+    /// analog). No effect in release builds; list DATA still needs a real token.
+    private fun maybeBypassAuth(intent: Intent?) {
+        if (!BuildConfig.DEBUG) return
+        if (intent?.getBooleanExtra(EXTRA_BYPASS_AUTH, false) == true) {
+            Log.i(TAG, "debug bypass-auth enabled")
+            authViewModel.debugBypassAuth()
+        }
+    }
+
     private companion object {
         const val TAG = "PorizoAndroid"
+        const val EXTRA_BYPASS_AUTH = "bypass_auth"
     }
 }

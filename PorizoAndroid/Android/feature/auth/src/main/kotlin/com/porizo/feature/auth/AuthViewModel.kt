@@ -49,6 +49,16 @@ class AuthViewModel @Inject constructor(
         }
     }
 
+    /// DEBUG-only: flip the UI to an authenticated state so authed-state layouts
+    /// (My Songs/My Poems, signed-in Settings rows) can be driven on the emulator
+    /// without a full login — the Android analog of iOS `--bypass-auth`. Note this
+    /// only changes the auth CHROME; repository calls still need a real backend
+    /// token, so list DATA stays empty until a genuine session exists. Callers
+    /// must guard with BuildConfig.DEBUG.
+    fun debugBypassAuth(userId: String = "debug-user") {
+        setAuthenticated(userId)
+    }
+
     fun showOptions() {
         _uiState.update { it.copy(phase = AuthPhase.SignedOut, errorMessage = null, pushWarningMessage = null) }
     }
